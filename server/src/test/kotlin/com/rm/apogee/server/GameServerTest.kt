@@ -176,8 +176,13 @@ class GameServerTest {
     fun `staging is reflected back to the client`() = runTest {
         val server = GameServer.default(catalog)
         val client = joinClient(server, backgroundScope, "Pilot")
-        pumpUntil(server, "the client to be flying something") {
-            client.controlledVessel != null
+        // Waiting on controlledVessel alone is not enough: that arrives in the
+        // welcome, while the craft's *structure* is a separate message on a
+        // separate channel. Dereferencing the vessel before it lands is a
+        // one-in-many-runs null, which is exactly the kind of flake that gets
+        // blamed on the test rather than on the assumption.
+        pumpUntil(server, "the client to know its craft's structure") {
+            client.controlledVessel?.let { client.vessel(it) != null } == true
         }
 
         val vesselId = client.controlledVessel!!

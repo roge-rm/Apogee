@@ -31,6 +31,7 @@ class HudState {
     /** Mirrors the control the player is holding, so the UI can show it. */
     var throttle: Float by mutableFloatStateOf(0f)
     var sasEnabled: Boolean by mutableStateOf(false)
+    var mapMode: Boolean by mutableStateOf(false)
 
     /** Clears transient state when leaving the world, so a new flight starts clean. */
     fun reset() {
@@ -43,5 +44,6 @@ class HudState {
         connectionError = null
         throttle = 0f
         sasEnabled = false
+        mapMode = false
     }
 }

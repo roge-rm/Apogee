@@ -11,14 +11,29 @@ import java.util.concurrent.atomic.AtomicLong
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 import kotlin.math.max
+import kotlin.math.tan
 
 /**
- * Draws whatever the simulation thread last published to the [FrameBus].
+ * Draws whatever the game thread last published to the [FrameBus].
  *
  * Runs on GLSurfaceView's own thread in RENDERMODE_CONTINUOUSLY. It never
  * touches simulation state directly - it reads one immutable [RenderFrame] pair
  * and interpolates - so no amount of work here can stall the physics, and no
  * physics tick can stall a frame.
+ *
+ * **Two depth passes, not one.** A 600 km planet and a 1 m fuel tank cannot
+ * share a depth buffer: any near/far pair that resolves centimetres on a part
+ * cannot reach the horizon, and any pair that reaches the horizon quantises the
+ * craft into z-fighting mush. So the world is drawn first against a far
+ * frustum, the depth buffer is cleared, and craft are drawn against a near one.
+ * GLES has no reliable `glClipControl`, so reversed-Z is not available, and
+ * logarithmic depth misbehaves across the very large triangles a planet mesh is
+ * made of - which leaves this, the approach space sims have used for years.
+ *
+ * The cost is that a craft is always drawn in front of the planet, including
+ * when it is behind it. With a chase camera on one craft that never arises;
+ * when it does - other players' craft on the far side of a world - they will
+ * need binning into the far pass by distance.
  */
 class GlRenderer(
     private val context: Context,
@@ -33,10 +48,13 @@ class GlRenderer(
 
     /** Published for the debug overlay; read from the UI thread. */
     val lastFrameTimeNanos = AtomicLong(0)
+
     @Volatile var qualityTier: QualityTier = QualityTier.MEDIUM
         private set
 
-    private var program: ShaderProgram? = null
+    private var vesselProgram: ShaderProgram? = null
+    private var skyProgram: ShaderProgram? = null
+    private var planetProgram: ShaderProgram? = null
 
     /**
      * One mesh per distinct shape, built on first sight.
@@ -46,16 +64,28 @@ class GlRenderer(
      * context is recreated, because every handle in it is then dangling.
      */
     private val meshes = HashMap<MeshSpec, Mesh>()
+    private var planetMesh: Mesh? = null
+    private var lineProgram: ShaderProgram? = null
+    /** Reused across frames; orbits are re-uploaded, not reallocated. */
+    private val lineMeshes = ArrayList<LineMesh>()
+    private var emptyVao = IntArray(1)
+    private var lineScratch = FloatArray(0)
 
     // Preallocated: allocating per draw call would put the GC on the render path.
     private val modelMatrix = Mat4()
     private val viewMatrix = Mat4()
-    private val projectionMatrix = Mat4()
-    private val viewProjection = Mat4()
+    private val nearProjection = Mat4()
+    private val farProjection = Mat4()
+    private val nearViewProjection = Mat4()
+    private val farViewProjection = Mat4()
     private val interpolatedPosition = Vec3()
     private val interpolatedRotation = Quat()
     private val interpolatedCameraPos = Vec3()
     private val interpolatedCameraRot = Quat()
+    private val cameraRight = Vec3()
+    private val cameraUp = Vec3()
+    private val cameraForward = Vec3()
+    private val upDirection = Vec3()
 
     private var viewportWidth = 1
     private var viewportHeight = 1
@@ -65,7 +95,7 @@ class GlRenderer(
         qualityTier = QualityTier.detect(context)
         onTierDetected(qualityTier)
 
-        GLES30.glClearColor(0.035f, 0.047f, 0.094f, 1f)
+        GLES30.glClearColor(0.01f, 0.012f, 0.03f, 1f)
         GLES30.glEnable(GLES30.GL_DEPTH_TEST)
         GLES30.glEnable(GLES30.GL_CULL_FACE)
         GLES30.glCullFace(GLES30.GL_BACK)
@@ -73,12 +103,28 @@ class GlRenderer(
         // The EGL context can be lost and recreated (surface teardown, some
         // driver events), so every GL object is rebuilt here rather than in the
         // constructor. Anything cached across this boundary is a dangling name.
-        program?.release()
-        meshes.values.forEach { it.release() }
-        meshes.clear()
+        releaseGlObjects()
 
-        program = ShaderProgram(Shaders.VESSEL_VERTEX, Shaders.VESSEL_FRAGMENT, "vessel")
+        vesselProgram = ShaderProgram(Shaders.VESSEL_VERTEX, Shaders.VESSEL_FRAGMENT, "vessel")
+        skyProgram = ShaderProgram(Shaders.SKY_VERTEX, Shaders.SKY_FRAGMENT, "sky")
+        planetProgram = ShaderProgram(Shaders.PLANET_VERTEX, Shaders.PLANET_FRAGMENT, "planet")
+        lineProgram = ShaderProgram(Shaders.LINE_VERTEX, Shaders.LINE_FRAGMENT, "line")
+
+        // Unit sphere; the model matrix scales it to the planet's radius.
+        planetMesh = MeshBuilder.sphere(1f, rings = planetRings(), segments = planetSegments())
+
+        // The sky shader generates its own vertices, but GLES still requires a
+        // bound vertex array object to draw.
+        GLES30.glGenVertexArrays(1, emptyVao, 0)
     }
+
+    private fun planetRings() = when (qualityTier) {
+        QualityTier.LOW -> 48
+        QualityTier.MEDIUM -> 80
+        QualityTier.HIGH -> 128
+    }
+
+    private fun planetSegments() = planetRings() * 2
 
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
         viewportWidth = max(1, width)
@@ -94,15 +140,13 @@ class GlRenderer(
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT or GLES30.GL_DEPTH_BUFFER_BIT)
 
         val pair = frameBus.latest() ?: return
-        val shader = program ?: return
-
         val latest = pair.latest
         val previous = pair.previous
 
-        // Interpolation factor between the two most recent simulation states.
-        // The simulation is a fixed 60 Hz and the display is whatever it is, so
-        // rendering the newest state verbatim would judder even though the
-        // physics is smooth.
+        // Interpolation factor between the two most recent published states.
+        // The server streams at 20 Hz and the display may be at 60, 90 or 120,
+        // so rendering the newest state verbatim would judder even though the
+        // simulation is perfectly smooth.
         val alpha = if (previous == null) {
             1.0
         } else {
@@ -112,24 +156,178 @@ class GlRenderer(
         }
 
         val cameraPos = interpolateCamera(previous, latest, alpha)
+        val aspect = viewportWidth.toDouble() / viewportHeight.toDouble()
 
-        projectionMatrix.setPerspective(
-            fovYRadians = latest.fovYRadians,
-            aspect = viewportWidth.toDouble() / viewportHeight.toDouble(),
-            // Wide enough for a part at arm's length and a horizon kilometres
-            // away. A craft in orbit looking at the planet needs far more than
-            // this, which is what the logarithmic-depth work in the renderer's
-            // next pass is for.
-            near = 0.2,
-            far = 200_000.0,
-        )
         viewMatrix.setViewFromCameraRotation(interpolatedCameraRot)
-        viewProjection.setMultiplied(projectionMatrix, viewMatrix)
+        interpolatedCameraRot.rotate(Vec3.unitX(), cameraRight)
+        interpolatedCameraRot.rotate(Vec3.unitY(), cameraUp)
+        interpolatedCameraRot.rotate(Vec3(0.0, 0.0, -1.0), cameraForward)
 
+        // --- far pass: sky and planet -------------------------------------
+        val world = latest.world
+        if (world != null) {
+            farProjection.setPerspective(latest.fovYRadians, aspect, FAR_NEAR_PLANE, FAR_FAR_PLANE)
+            farViewProjection.setMultiplied(farProjection, viewMatrix)
+
+            val atmosphereFactor = atmosphereFactorAt(world)
+            drawSky(latest, world, cameraPos, aspect, atmosphereFactor)
+            drawPlanet(world, cameraPos, atmosphereFactor)
+            // Trajectories belong in the far pass: an orbit is hundreds of
+            // kilometres across and would be clipped away by the near frustum.
+            drawLines(latest, cameraPos)
+
+            // Reclaim the whole depth range for the near pass.
+            GLES30.glClear(GLES30.GL_DEPTH_BUFFER_BIT)
+        }
+
+        // --- near pass: craft ----------------------------------------------
+        nearProjection.setPerspective(latest.fovYRadians, aspect, NEAR_NEAR_PLANE, NEAR_FAR_PLANE)
+        nearViewProjection.setMultiplied(nearProjection, viewMatrix)
+        drawVessels(latest, previous, alpha, cameraPos)
+    }
+
+    /**
+     * How much atmosphere is overhead: 1 at the datum, 0 in vacuum.
+     *
+     * On the same exponential the simulation uses for density, so the sky fades
+     * out exactly where drag and engine performance say it should rather than
+     * at some separately-tuned altitude.
+     */
+    private fun atmosphereFactorAt(world: WorldView): Float {
+        if (world.atmosphereHeight <= 0.0) return 0f
+        if (world.cameraAltitude >= world.atmosphereHeight) return 0f
+        val density = kotlin.math.exp(
+            -world.cameraAltitude.coerceAtLeast(0.0) / world.atmosphereScaleHeight
+        )
+        // Raised to a fractional power so the sky stays convincingly opaque
+        // through the low atmosphere. Straight density has already dropped to
+        // 0.87 at 800 m, which is enough for stars to show through in daylight
+        // a few hundred metres off the pad.
+        return Math.pow(density, 0.30).toFloat()
+    }
+
+    private fun drawSky(
+        frame: RenderFrame,
+        world: WorldView,
+        cameraPos: Vec3,
+        aspect: Double,
+        atmosphereFactor: Float,
+    ) {
+        val shader = skyProgram ?: return
         shader.use()
-        shader.setMat4("uViewProjection", viewProjection.m)
-        // A fixed key light until there is a real sun direction from :core.
-        shader.setVec3("uLightDirection", -0.42f, -0.57f, -0.71f)
+        // The sky is behind everything, so it neither tests nor writes depth.
+        GLES30.glDisable(GLES30.GL_DEPTH_TEST)
+        GLES30.glDepthMask(false)
+
+        shader.setVec3("uCameraRight", cameraRight.x.toFloat(), cameraRight.y.toFloat(), cameraRight.z.toFloat())
+        shader.setVec3("uCameraUp", cameraUp.x.toFloat(), cameraUp.y.toFloat(), cameraUp.z.toFloat())
+        shader.setVec3("uCameraForward", cameraForward.x.toFloat(), cameraForward.y.toFloat(), cameraForward.z.toFloat())
+        shader.setFloat("uTanHalfFov", tan(frame.fovYRadians * 0.5).toFloat())
+        shader.setFloat("uAspect", aspect.toFloat())
+
+        upDirection.setTo(cameraPos).normalizeInPlace()
+        if (upDirection.lengthSq < 0.5) upDirection.setTo(Vec3.unitY())
+        shader.setVec3("uUpDirection", upDirection.x.toFloat(), upDirection.y.toFloat(), upDirection.z.toFloat())
+        shader.setVec3(
+            "uSunDirection",
+            world.sunDirection.x.toFloat(),
+            world.sunDirection.y.toFloat(),
+            world.sunDirection.z.toFloat(),
+        )
+        shader.setFloat("uAtmosphereFactor", atmosphereFactor)
+
+        GLES30.glBindVertexArray(emptyVao[0])
+        GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, 3)
+        GLES30.glBindVertexArray(0)
+
+        GLES30.glDepthMask(true)
+        GLES30.glEnable(GLES30.GL_DEPTH_TEST)
+    }
+
+    private fun drawPlanet(world: WorldView, cameraPos: Vec3, atmosphereFactor: Float) {
+        val shader = planetProgram ?: return
+        val mesh = planetMesh ?: return
+        shader.use()
+
+        // The planet's centre is the origin of the frame the camera position is
+        // expressed in, so setFromTrs against it gives the camera-relative
+        // placement with the subtraction still done in double.
+        modelMatrix.setFromTrs(Vec3.zero(), Quat.identity(), cameraPos, world.radius)
+        shader.setMat4("uModel", modelMatrix.m)
+        shader.setMat4("uViewProjection", farViewProjection.m)
+        shader.setVec3(
+            "uSunDirection",
+            world.sunDirection.x.toFloat(),
+            world.sunDirection.y.toFloat(),
+            world.sunDirection.z.toFloat(),
+        )
+        shader.setVec3(
+            "uHomeDirection",
+            world.homeDirection.x.toFloat(),
+            world.homeDirection.y.toFloat(),
+            world.homeDirection.z.toFloat(),
+        )
+        shader.setFloat("uAtmosphereFactor", atmosphereFactor)
+        // Roughly how far you can see through thick air. Scales with the
+        // atmosphere's own scale height so a thin atmosphere hazes less.
+        shader.setFloat("uHazeDistance", (world.atmosphereScaleHeight * 8.0).toFloat())
+        mesh.draw()
+    }
+
+    /**
+     * Draws trajectory polylines.
+     *
+     * Depth writes are off so a conic that passes behind the planet still
+     * reads as a continuous path rather than being sliced into arcs by its own
+     * far side - which is what a map view is for.
+     */
+    private fun drawLines(frame: RenderFrame, cameraPos: Vec3) {
+        if (frame.lines.isEmpty()) return
+        val shader = lineProgram ?: return
+        shader.use()
+        shader.setMat4("uViewProjection", farViewProjection.m)
+        modelMatrix.setIdentity()
+        shader.setMat4("uModel", modelMatrix.m)
+        GLES30.glDepthMask(false)
+
+        while (lineMeshes.size < frame.lines.size) lineMeshes.add(LineMesh())
+
+        frame.lines.forEachIndexed { index, line ->
+            val needed = line.points.size * 3
+            if (lineScratch.size < needed) lineScratch = FloatArray(needed)
+            line.points.forEachIndexed { i, point ->
+                // Camera-relative, subtracted in double before narrowing.
+                lineScratch[i * 3] = (point.x - cameraPos.x).toFloat()
+                lineScratch[i * 3 + 1] = (point.y - cameraPos.y).toFloat()
+                lineScratch[i * 3 + 2] = (point.z - cameraPos.z).toFloat()
+            }
+            val mesh = lineMeshes[index]
+            mesh.upload(lineScratch.copyOf(needed))
+            shader.setVec4("uColor", line.color)
+            mesh.draw()
+        }
+
+        GLES30.glDepthMask(true)
+    }
+
+    private fun drawVessels(
+        latest: RenderFrame,
+        previous: RenderFrame?,
+        alpha: Double,
+        cameraPos: Vec3,
+    ) {
+        val shader = vesselProgram ?: return
+        shader.use()
+        shader.setMat4("uViewProjection", nearViewProjection.m)
+
+        // Light from the star when there is one, else a fixed key light so the
+        // assembly building is not lit from nowhere.
+        val sun = latest.world?.sunDirection
+        if (sun != null) {
+            shader.setVec3("uLightDirection", (-sun.x).toFloat(), (-sun.y).toFloat(), (-sun.z).toFloat())
+        } else {
+            shader.setVec3("uLightDirection", -0.42f, -0.57f, -0.71f)
+        }
 
         for ((index, item) in latest.items.withIndex()) {
             val prevItem = previous?.items?.getOrNull(index)
@@ -188,5 +386,27 @@ class GlRenderer(
         )
     }
 
+    private fun releaseGlObjects() {
+        vesselProgram?.release(); vesselProgram = null
+        skyProgram?.release(); skyProgram = null
+        planetProgram?.release(); planetProgram = null
+        meshes.values.forEach { it.release() }
+        meshes.clear()
+        planetMesh?.release(); planetMesh = null
+        lineProgram?.release(); lineProgram = null
+        lineMeshes.forEach { it.release() }
+        lineMeshes.clear()
+    }
+
     private fun lerp(a: Double, b: Double, t: Double) = a + (b - a) * t
+
+    private companion object {
+        /** Near pass: parts, from arm's length to a few kilometres. */
+        const val NEAR_NEAR_PLANE = 0.2
+        const val NEAR_FAR_PLANE = 20_000.0
+
+        /** Far pass: the planet and anything else at world scale. */
+        const val FAR_NEAR_PLANE = 100.0
+        const val FAR_FAR_PLANE = 1.0e8
+    }
 }

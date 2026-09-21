@@ -18,6 +18,8 @@ import com.rm.apogee.platform.PerfHints
 import com.rm.apogee.render.FrameBus
 import com.rm.apogee.render.RenderFrame
 import com.rm.apogee.render.RenderItem
+import com.rm.apogee.render.RenderLine
+import com.rm.apogee.render.WorldView
 import com.rm.apogee.server.GameServer
 import com.rm.apogee.server.ServerConfig
 import kotlinx.coroutines.CoroutineScope
@@ -48,6 +50,24 @@ class GameSession private constructor(
     private val transport: Transport,
 ) {
     val camera = CameraController()
+
+    /**
+     * A second camera for map view, with its own distance range.
+     *
+     * Separate rather than a mode flag on one camera, because the two want
+     * completely different things: the flight camera frames a 14 m rocket from
+     * tens of metres, the map camera frames a 700 km orbit from thousands of
+     * kilometres. Sharing one would mean a zoom range spanning six orders of
+     * magnitude, and the player's pinch would be useless at both ends.
+     */
+    val mapCamera = CameraController(
+        upReference = UpReference.FIXED,
+        minDistance = 1.0e6,
+        maxDistance = 6.0e7,
+    )
+
+    /** Whether the map view is showing. */
+    @Volatile var mapMode: Boolean = false
 
     /** Published for the debug overlay. */
     val lastFrameBuildNanos = AtomicLong(0)
@@ -126,11 +146,33 @@ class GameSession private constructor(
         val system = SolarSystem.defaultSystem()
         val attractor = system.bodies[focusState.referenceBodyId] ?: return
 
-        camera.solve(focusState.position, cameraPosition, cameraRotation)
-
+        val lines = ArrayList<RenderLine>(4)
         val items = ArrayList<RenderItem>(64)
-        for (vessel in client.vessels) {
-            appendVessel(vessel, items)
+
+        if (mapMode) {
+            // Look at the planet, not the craft: in map view the question is
+            // the shape of the trajectory, and that is only legible against the
+            // body it goes around.
+            val orbit = Orbit(
+                position = focusState.position,
+                velocity = focusState.velocity,
+                mu = attractor.gravitationalParameter,
+            )
+            val reach = if (orbit.isBound) orbit.apoapsis else orbit.periapsis * 4.0
+            mapCamera.frameExactly(maxOf(reach, attractor.radius * 1.5))
+            mapCamera.solve(Vec3.zero(), cameraPosition, cameraRotation)
+
+            lines.add(RenderLine(orbit.sample(192), ORBIT_COLOR))
+            if (orbit.isBound) {
+                lines.add(marker(orbit.propagate(orbit.timeToApoapsis).position, reach, APOAPSIS_COLOR))
+                lines.add(marker(orbit.propagate(orbit.timeToPeriapsis).position, reach, PERIAPSIS_COLOR))
+            }
+            lines.add(marker(focusState.position, reach, CRAFT_COLOR))
+        } else {
+            camera.solve(focusState.position, cameraPosition, cameraRotation)
+            for (vessel in client.vessels) {
+                appendVessel(vessel, items)
+            }
         }
 
         telemetry = FlightTelemetry.from(focus, attractor, focusState.throttle)
@@ -143,10 +185,46 @@ class GameSession private constructor(
                 cameraRotation = cameraRotation.copy(),
                 fovYRadians = Math.toRadians(55.0),
                 items = items,
-                attractorRadius = attractor.radius,
+                lines = lines,
+                world = WorldView(
+                    radius = attractor.radius,
+                    atmosphereHeight = attractor.atmosphereHeight,
+                    atmosphereScaleHeight = attractor.atmosphere?.scaleHeight ?: 1.0,
+                    // One fixed star direction for now. The real one comes from
+                    // the system's geometry once map view needs it too.
+                    sunDirection = SUN_DIRECTION,
+                    homeDirection = HOME_DIRECTION,
+                    cameraAltitude = attractor.altitudeOf(cameraPosition),
+                ),
             )
         )
         framesPublished.incrementAndGet()
+    }
+
+    /**
+     * A small diamond around a point, for apsis and craft markers.
+     *
+     * Sized as a fraction of the view rather than in metres, so a marker stays
+     * the same visual size whether the orbit is 100 km or 10,000 km across.
+     */
+    private fun marker(at: Vec3, viewScale: Double, color: FloatArray): RenderLine {
+        val size = viewScale * MARKER_FRACTION
+        // Any two axes perpendicular to the radius put the diamond face-on to
+        // the planet, which is the orientation it is read from.
+        val radial = at.normalized()
+        val a = (if (kotlin.math.abs(radial.y) < 0.9) Vec3.unitY() else Vec3.unitX())
+            .cross(radial).normalizeInPlace()
+        val b = radial.cross(a).normalizeInPlace()
+        return RenderLine(
+            listOf(
+                at + a * size,
+                at + b * size,
+                at - a * size,
+                at - b * size,
+                at + a * size,
+            ),
+            color,
+        )
     }
 
     /** Turns one craft's design plus its motion into per-part draw items. */
@@ -213,6 +291,27 @@ class GameSession private constructor(
         private const val PRESENT_INTERVAL_MILLIS = 16L
 
         /**
+         * Direction to the star, in the planet's frame.
+         *
+         * Fixed, and deliberately not straight down any axis: a sun exactly
+         * overhead the launch site makes the terminator invisible and the
+         * planet look flat. Replaced by real system geometry when the map view
+         * needs the star's true position.
+         */
+        private val SUN_DIRECTION = Vec3(0.62, 0.45, 0.64).normalizeInPlace()
+
+        /** Surface normal at the launch complex (latitude 0, longitude 0). */
+        private val HOME_DIRECTION = Vec3(1.0, 0.0, 0.0)
+
+        /** Marker size as a fraction of the framed orbit. */
+        private const val MARKER_FRACTION = 0.022
+
+        private val ORBIT_COLOR = floatArrayOf(0.70f, 0.62f, 1.0f, 1f)
+        private val APOAPSIS_COLOR = floatArrayOf(0.49f, 1.0f, 0.70f, 1f)
+        private val PERIAPSIS_COLOR = floatArrayOf(1.0f, 0.83f, 0.50f, 1f)
+        private val CRAFT_COLOR = floatArrayOf(1.0f, 1.0f, 1.0f, 1f)
+
+        /**
          * Starts a solo game: a server in this process, reached over loopback.
          */
         fun hostLocal(
@@ -247,13 +346,40 @@ class FlightTelemetry(
     val orbitalSpeed: Double,
     val apoapsisAltitude: Double,
     val periapsisAltitude: Double,
+    val timeToApoapsis: Double,
     val throttle: Double,
     val stage: Int,
     val inOrbit: Boolean,
     val craftName: String,
+    /** Dynamic pressure, Pa. The number that decides whether a craft survives ascent. */
+    val dynamicPressure: Double,
+    /** Craft orientation, for the navball. */
+    val rotation: Quat,
+    /** Local vertical, for the navball. */
+    val up: Vec3,
+    /** Direction of travel relative to the surface, or null when stationary. */
+    val prograde: Vec3?,
 ) {
+    /** Above this, aerodynamic loads are worth warning about. */
+    val highDynamicPressure: Boolean get() = dynamicPressure > MAX_Q_WARNING
+
     companion object {
-        val EMPTY = FlightTelemetry(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0, false, "")
+        /**
+         * Pascals at which the HUD starts warning.
+         *
+         * Not a structural limit - nothing breaks yet - but the point at which
+         * a player steering hard is wasting thrust fighting the air, which is
+         * the lesson the readout is there to teach.
+         */
+        const val MAX_Q_WARNING = 25_000.0
+
+        val EMPTY = FlightTelemetry(
+            altitude = 0.0, surfaceSpeed = 0.0, orbitalSpeed = 0.0,
+            apoapsisAltitude = 0.0, periapsisAltitude = 0.0, timeToApoapsis = 0.0,
+            throttle = 0.0, stage = 0, inOrbit = false, craftName = "",
+            dynamicPressure = 0.0, rotation = Quat.identity(), up = Vec3.unitY(),
+            prograde = null,
+        )
 
         fun from(
             vessel: ClientVessel,
@@ -267,16 +393,29 @@ class FlightTelemetry(
                 mu = attractor.gravitationalParameter,
             )
             val surfaceVelocity = attractor.surfaceVelocityAt(state.position)
+            val relative = state.velocity - surfaceVelocity
+            val altitude = attractor.altitudeOf(state.position)
+            val density = attractor.atmosphere?.densityAt(altitude) ?: 0.0
+
             return FlightTelemetry(
-                altitude = attractor.altitudeOf(state.position),
-                surfaceSpeed = (state.velocity - surfaceVelocity).length,
+                altitude = altitude,
+                surfaceSpeed = relative.length,
                 orbitalSpeed = state.velocity.length,
                 apoapsisAltitude = orbit.apoapsis - attractor.radius,
                 periapsisAltitude = orbit.periapsis - attractor.radius,
+                timeToApoapsis = orbit.timeToApoapsis,
                 throttle = throttle,
                 stage = vessel.currentStage,
-                inOrbit = orbit.isBound && orbit.periapsis > attractor.radius + attractor.atmosphereHeight,
+                inOrbit = orbit.isBound &&
+                    orbit.periapsis > attractor.radius + attractor.atmosphereHeight,
                 craftName = vessel.name,
+                dynamicPressure = 0.5 * density * relative.lengthSq,
+                rotation = state.rotation.copy(),
+                up = state.position.normalized(),
+                // Below walking pace the direction of travel is noise, and a
+                // prograde marker jittering around the navball is worse than
+                // none at all.
+                prograde = if (relative.length > 1.0) relative.normalized() else null,
             )
         }
     }

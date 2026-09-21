@@ -159,6 +159,83 @@ class ForcesTest {
         )
     }
 
+    /**
+     * The reason drag is applied part by part rather than through the centre of
+     * mass.
+     *
+     * A single central force produces no torque wherever the fins are, so a
+     * finned rocket flew exactly like a finless one - the fins were pure mass.
+     * Here the craft is put at an angle of attack and the aerodynamic torque
+     * has to push the nose back toward the airflow.
+     */
+    @Test
+    fun `fins produce a restoring torque at angle of attack`() {
+        fun torqueAtAngleOfAttack(withFins: Boolean): Double {
+            val full = StockCraft.starterRocket(catalog)
+            val design = if (withFins) full else full.copy(
+                parts = full.parts.filter { it.partId != "fin-vane" },
+                stages = emptyList(),
+            )
+            val vessel = Vessel(
+                id = VesselId(1),
+                design = design,
+                defs = design.parts.map { catalog.require(it.partId) },
+                referenceBodyId = "terra",
+            )
+            // Low enough for thick air, nose pitched away from the airflow.
+            vessel.body.position.setTo(0.0, terra.radius + 3_000.0, 0.0)
+            vessel.body.orientation.setTo(
+                com.rm.apogee.core.math.Quat.fromAxisAngle(Vec3.unitX(), 0.25)
+            )
+            vessel.recomputeMass(shiftBodyPosition = false)
+            // Flying straight up, so the angle of attack is the pitch offset.
+            vessel.body.linearVelocity.setTo(0.0, 300.0, 0.0)
+            vessel.body.clearAccumulators()
+
+            Forces().applyDrag(vessel, terra)
+            // Torque about X is what pitches the craft back into line.
+            return vessel.body.torque.x
+        }
+
+        val finned = torqueAtAngleOfAttack(withFins = true)
+        val finless = torqueAtAngleOfAttack(withFins = false)
+
+        assertTrue(
+            "fins should produce a restoring torque, got $finned",
+            kotlin.math.abs(finned) > 1.0,
+        )
+        assertTrue(
+            "fins should stabilise more than no fins ($finned vs $finless)",
+            kotlin.math.abs(finned) > kotlin.math.abs(finless),
+        )
+        assertEquals(
+            "and it must push back toward the airflow, not away from it",
+            -kotlin.math.sign(0.25),
+            kotlin.math.sign(finned),
+            0.0,
+        )
+    }
+
+    @Test
+    fun `drag through the centre of mass produces no torque when aligned`() {
+        val vessel = rocketInVacuum()
+        vessel.body.position.setTo(0.0, terra.radius + 3_000.0, 0.0)
+        vessel.body.orientation.setIdentity()
+        vessel.recomputeMass(shiftBodyPosition = false)
+        // Flying exactly along its own axis: no angle of attack, no torque.
+        vessel.body.linearVelocity.setTo(0.0, 300.0, 0.0)
+        vessel.body.clearAccumulators()
+
+        Forces().applyDrag(vessel, terra)
+
+        assertTrue("drag should act", vessel.body.force.length > 1.0)
+        assertTrue(
+            "a symmetric craft flying straight should feel no aerodynamic torque, " +
+                "got ${vessel.body.torque}",
+            vessel.body.torque.length < 1.0,
+        )
+    }
+
     @Test
     fun `an engine with no propellant produces no thrust`() {
         val vessel = rocketInVacuum()

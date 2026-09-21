@@ -4,6 +4,7 @@ import com.rm.apogee.core.craft.Vessel
 import com.rm.apogee.core.math.Quat
 import com.rm.apogee.core.math.Vec3
 import com.rm.apogee.core.orbit.CelestialBody
+import com.rm.apogee.core.part.AeroSurface
 import com.rm.apogee.core.part.Engine
 import com.rm.apogee.core.part.Parachute
 import kotlin.math.PI
@@ -26,6 +27,9 @@ class Forces {
     private val scratchForce = Vec3()
     private val scratchVelocity = Vec3()
     private val scratchSurface = Vec3()
+    private val scratchLocalVelocity = Vec3()
+    private val scratchAxis = Vec3()
+    private val scratchCrossFlow = Vec3()
     private val scratchTorque = Vec3()
     private val gimbalRotation = Quat()
     private val gimbalPitch = Quat()
@@ -161,13 +165,29 @@ class Forces {
     }
 
     /**
-     * Atmospheric drag, and parachutes.
+     * Atmospheric drag, applied part by part.
      *
-     * Drag uses the craft's largest frontal cross-section rather than the sum
-     * of every part's area. Summing would count a ten-tank stack as ten tanks
-     * of frontal area when nine of them are in the first one's wake; real
-     * occlusion modelling is a later problem, and for a stack this is much
-     * closer to right than the sum is.
+     * Each part gets its own effective drag area and its force is applied at
+     * its own offset, rather than one force through the centre of mass. That
+     * difference is what makes fins work: a central force produces no torque
+     * wherever the fins are, so a finned rocket flew exactly like a finless one
+     * and the fins were pure mass.
+     *
+     * Three kinds of area, because they behave differently:
+     *
+     *  - **Bodies** are occlusion-corrected. Summing every tank's frontal area
+     *    would count a ten-tank stack as ten tanks of frontal area when nine sit
+     *    in the first one's wake, so the stack's total is taken from its largest
+     *    cross-section and shared out among them.
+     *  - **Aerodynamic surfaces** use their declared planform area, not their
+     *    frontal cross-section. A fin is millimetres thick edge-on; judged by
+     *    its bounding box it contributes almost nothing, which is exactly the
+     *    wrong answer for the part whose entire job is aerodynamic authority.
+     *    They are not occluded either - they stick out into clean air.
+     *  - **Parachutes** use their own, and dominate everything when open.
+     *
+     * Each part's local velocity includes the craft's rotation, so aerodynamic
+     * damping falls out of the same loop.
      */
     fun applyDrag(vessel: Vessel, attractor: CelestialBody) {
         val atmosphere = attractor.atmosphere ?: return
@@ -175,40 +195,83 @@ class Forces {
         val density = atmosphere.densityAt(altitude)
         if (density <= 0.0) return
 
-        // Velocity relative to the air, which rotates with the planet.
         attractor.surfaceVelocityAt(vessel.body.position, scratchSurface)
         scratchVelocity.setTo(vessel.body.linearVelocity).subInPlace(scratchSurface)
-        val speed = scratchVelocity.length
-        if (speed < 1e-3) return
+        if (scratchVelocity.lengthSq < 1e-6) return
 
+        // Pass one: the stack's occlusion-corrected body drag.
         var maxRadius = 0.0
-        var weightedCd = 0.0
-        var totalArea = 0.0
-        var parachuteCdA = 0.0
-
+        var bodySum = 0.0
         for (i in vessel.defs.indices) {
             val def = vessel.defs[i]
+            if (def.module<AeroSurface>() != null) continue
             val extents = def.boundsHalfExtents
-            val radius = maxOf(extents.x, extents.z)
-            if (radius > maxRadius) maxRadius = radius
+            maxRadius = maxOf(maxRadius, extents.x, extents.z)
+            bodySum += def.referenceArea * def.dragCoefficient
+        }
+        val bodyCdA = PI * maxRadius * maxRadius * AVERAGE_BODY_CD
+        val bodyScale = if (bodySum > 0.0) bodyCdA / bodySum else 0.0
 
-            val area = def.referenceArea
-            weightedCd += def.dragCoefficient * area
-            totalArea += area
+        // The stack axis, for splitting airflow into along-body and cross-body.
+        vessel.body.orientation.rotate(Vec3.unitY(), scratchAxis)
 
-            val parachute = def.module<Parachute>()
-            if (parachute != null && vessel.isActivated(i)) {
-                parachuteCdA += parachute.deployedDragCoefficient * area
+        // Pass two: each part's own force, at its own place on the craft.
+        for (i in vessel.defs.indices) {
+            val def = vessel.defs[i]
+
+            vessel.partOffsetWorld(i, scratchOffset)
+            vessel.body.velocityAtOffset(scratchOffset, scratchLocalVelocity)
+            scratchLocalVelocity.subInPlace(scratchSurface)
+            val localSpeed = scratchLocalVelocity.length
+            if (localSpeed < 1e-6) continue
+
+            val surface = def.module<AeroSurface>()
+
+            // Drag along the airflow.
+            var cdA = if (surface != null) {
+                // A fin edge-on to the airflow is nearly drag-free. Charging it
+                // its planform area times a *lift* coefficient - which is what
+                // the first version of this did - made four fins cost five times
+                // the drag of the entire rocket body, and the stock craft stopped
+                // reaching orbit.
+                surface.area * FIN_PARASITIC_CD
+            } else {
+                def.referenceArea * def.dragCoefficient * bodyScale
+            }
+            def.module<Parachute>()?.let { parachute ->
+                if (vessel.isActivated(i)) {
+                    cdA += parachute.deployedDragCoefficient * def.referenceArea
+                }
+            }
+
+            if (cdA > 0.0) {
+                val magnitude = 0.5 * density * localSpeed * localSpeed * cdA
+                scratchForce.setTo(scratchLocalVelocity).mulInPlace(-magnitude / localSpeed)
+                vessel.body.applyForceAtOffset(scratchForce, scratchOffset)
+            }
+
+            // Cross-flow force on aerodynamic surfaces.
+            //
+            // This is where a fin earns its mass. Only the component of airflow
+            // *across* the stack acts on it, so a craft flying straight feels
+            // nothing and one at an angle of attack feels a force pushing the
+            // fin back into line. Applied at the fin's offset - behind the
+            // centre of mass - it becomes the restoring torque that keeps the
+            // pointy end forward.
+            if (surface != null) {
+                val along = scratchLocalVelocity dot scratchAxis
+                scratchCrossFlow.setTo(scratchLocalVelocity)
+                    .addScaledInPlace(scratchAxis, -along)
+                val crossSpeed = scratchCrossFlow.length
+                if (crossSpeed > 1e-6) {
+                    val normalForce =
+                        0.5 * density * crossSpeed * crossSpeed * surface.area * surface.liftCoefficient
+                    scratchForce.setTo(scratchCrossFlow)
+                        .mulInPlace(-normalForce / crossSpeed)
+                    vessel.body.applyForceAtOffset(scratchForce, scratchOffset)
+                }
             }
         }
-
-        val frontalArea = PI * maxRadius * maxRadius
-        val averageCd = if (totalArea > 0.0) weightedCd / totalArea else 0.3
-        val cdA = frontalArea * averageCd + parachuteCdA
-
-        val dragMagnitude = 0.5 * density * speed * speed * cdA
-        scratchForce.setTo(scratchVelocity).mulInPlace(-dragMagnitude / speed)
-        vessel.body.applyCentralForce(scratchForce)
     }
 
     /** Dynamic pressure, Pa. The number that decides whether a craft survives ascent. */
@@ -227,6 +290,18 @@ class Forces {
     private companion object {
         /** Angular rate, rad/s, at which SAS applies full authority. */
         const val SAS_SATURATION_RATE = 0.35
+
+        /**
+         * Drag coefficient for a stack of hull parts.
+         *
+         * One figure rather than a per-part average: the stack's drag is
+         * dominated by its nose and its base, and averaging the coefficients of
+         * the tanks in between describes nothing physical.
+         */
+        const val AVERAGE_BODY_CD = 0.3
+
+        /** Drag coefficient of a fin edge-on to the airflow. Small, on purpose. */
+        const val FIN_PARASITIC_CD = 0.03
     }
 }
 

@@ -70,6 +70,12 @@ class MainActivity : ComponentActivity() {
     private var frameClockJob: Job? = null
     private var perfHints: PerfHints? = null
 
+    // Held between updates because pitch/yaw and roll arrive from different
+    // controls but are sent as one command.
+    private var commandedPitch = 0f
+    private var commandedYaw = 0f
+    private var commandedRoll = 0f
+
     private var appScreen by mutableStateOf(AppScreen.MENU)
     private var detectedTier by mutableStateOf<QualityTier?>(null)
 
@@ -104,8 +110,11 @@ class MainActivity : ComponentActivity() {
                         showDebugOverlay = settings.showDebugOverlay,
                         leftHandMode = settings.leftHandMode,
                         onThrottleChange = ::onThrottleChange,
+                        onAttitude = ::onAttitude,
+                        onRoll = ::onRoll,
                         onStage = ::onStage,
                         onToggleSas = ::onToggleSas,
+                        onToggleMap = ::onToggleMap,
                         onExit = { navigateTo(AppScreen.PLAY) },
                     )
                     AppScreen.BUILDER -> builderSession?.let { builder ->
@@ -156,6 +165,40 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch { current.setThrottle(value.toDouble()) }
     }
 
+    /**
+     * Attitude input.
+     *
+     * Pitch and yaw come from the stick and roll from its buttons, but they
+     * travel as one command - the server takes all three axes together, and
+     * splitting them would let a stick update arrive between a roll press and
+     * its release and silently cancel it.
+     */
+    private fun onAttitude(pitch: Float, yaw: Float) {
+        commandedPitch = pitch
+        commandedYaw = yaw
+        sendAttitude()
+    }
+
+    private fun onRoll(roll: Float) {
+        commandedRoll = roll
+        sendAttitude()
+    }
+
+    private fun sendAttitude() {
+        val current = session ?: return
+        val pitch = commandedPitch.toDouble()
+        val yaw = commandedYaw.toDouble()
+        val roll = commandedRoll.toDouble()
+        lifecycleScope.launch { current.setAttitude(pitch, yaw, roll) }
+    }
+
+    private fun onToggleMap() {
+        val current = session ?: return
+        val enabled = !hudState.mapMode
+        hudState.mapMode = enabled
+        current.mapMode = enabled
+    }
+
     private fun onStage() {
         val current = session ?: return
         lifecycleScope.launch { current.stage() }
@@ -173,6 +216,7 @@ class MainActivity : ComponentActivity() {
     private fun enterWorld(screen: AppScreen) {
         hideSystemBars()
         hudState.reset()
+        commandedPitch = 0f; commandedYaw = 0f; commandedRoll = 0f
 
         val host = findViewById<FrameLayout>(R.id.game_surface_host)
         val glRenderer = GlRenderer(this, frameBus) { tier ->
@@ -279,9 +323,11 @@ class MainActivity : ComponentActivity() {
         return view
     }
 
-    /** Whichever session currently owns the view. */
-    private fun activeCamera(): com.rm.apogee.game.CameraController? =
-        session?.camera ?: builderSession?.camera
+    /** Whichever camera the current view is looking through. */
+    private fun activeCamera(): com.rm.apogee.game.CameraController? {
+        session?.let { return if (it.mapMode) it.mapCamera else it.camera }
+        return builderSession?.camera
+    }
 
     private fun leaveWorld() {
         frameClockJob?.cancel(); frameClockJob = null

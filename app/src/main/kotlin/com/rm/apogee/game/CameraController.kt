@@ -35,6 +35,8 @@ enum class UpReference {
  */
 class CameraController(
     private val upReference: UpReference = UpReference.RADIAL,
+    private val minDistance: Double = 5.0,
+    private val maxDistance: Double = 2_000.0,
 ) {
 
     /** Rotation around the craft, radians. */
@@ -48,7 +50,7 @@ class CameraController(
 
     var distance: Double = 30.0
         set(value) {
-            field = value.coerceIn(MIN_DISTANCE, MAX_DISTANCE)
+            field = value.coerceIn(minDistance, maxDistance)
         }
 
     private val up = Vec3()
@@ -112,12 +114,12 @@ class CameraController(
      * place a small part.
      */
     fun frameAtLeast(craftSize: Double) {
-        val wanted = (craftSize * 1.8 + 6.0).coerceIn(MIN_DISTANCE, MAX_DISTANCE)
+        val wanted = (craftSize * 1.8 + 6.0).coerceIn(minDistance, maxDistance)
         if (wanted > distance) distance = wanted
     }
 
-    private companion object {
-        const val MIN_DISTANCE = 5.0
-        const val MAX_DISTANCE = 2_000.0
+    /** Snaps the distance to exactly frame something of this size. */
+    fun frameExactly(size: Double) {
+        distance = (size * 2.4).coerceIn(minDistance, maxDistance)
     }
 }

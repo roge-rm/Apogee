@@ -39,8 +39,50 @@ class RenderFrame(
     val cameraRotation: Quat,
     val fovYRadians: Double,
     val items: List<RenderItem>,
-    /** Radius of the body being orbited, for drawing its surface. */
-    val attractorRadius: Double = 0.0,
+    /** The world to draw around the craft, or null in the assembly building. */
+    val world: WorldView? = null,
+    /** Trajectories to draw, in the attractor's frame. Map view only. */
+    val lines: List<RenderLine> = emptyList(),
+)
+
+/**
+ * A polyline in the attractor's frame - an orbit, or a marker cross.
+ *
+ * Points are absolute in that frame rather than camera-relative; the renderer
+ * does the floating-origin subtraction in double, as it does for everything
+ * else. Pre-subtracting here would throw away the precision that makes the
+ * subtraction worth doing.
+ */
+class RenderLine(
+    val points: List<Vec3>,
+    val color: FloatArray,
+)
+
+/**
+ * The celestial body the camera is near, for the sky and planet passes.
+ *
+ * Positions are in the attractor's own frame, which is the same frame
+ * [RenderFrame.cameraPosition] and [RenderItem.position] use - so the planet's
+ * centre is simply the origin, and its camera-relative position is
+ * `-cameraPosition`.
+ */
+class WorldView(
+    val radius: Double,
+    val atmosphereHeight: Double,
+    val atmosphereScaleHeight: Double,
+    /** Unit vector from the planet toward the star. */
+    val sunDirection: Vec3,
+    /**
+     * Surface normal at the launch complex.
+     *
+     * The shader raises terrain around it so the pad is on land. The
+     * simulation collides against a sphere and has no opinion about
+     * coastlines, so this is purely cosmetic - but a launch complex floating
+     * in the middle of an ocean is a detail nobody will let pass.
+     */
+    val homeDirection: Vec3,
+    /** Altitude of the camera above the datum, metres. */
+    val cameraAltitude: Double,
 )
 
 /**
