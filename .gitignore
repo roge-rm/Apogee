@@ -1,0 +1,27 @@
+# --- Gradle -----------------------------------------------------------------
+.gradle/
+# Matches every module's output dir, not just the root one. The Android Studio
+# template shipped "/build", which silently stopped covering anything once the
+# project grew past a single module.
+build/
+!gradle/wrapper/gradle-wrapper.jar
+!src/**/build/
+
+# --- Local configuration (never committed) ----------------------------------
+# Holds this machine's SDK path, and is where release signing credentials go.
+local.properties
+
+# --- IDE --------------------------------------------------------------------
+*.iml
+.idea/
+!.idea/codeStyles/
+!.idea/inspectionProfiles/
+
+# --- Native build artefacts -------------------------------------------------
+.externalNativeBuild/
+.cxx/
+
+# --- Misc -------------------------------------------------------------------
+/captures/
+.DS_Store
+*.hprof

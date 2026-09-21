@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Intentionally almost empty. Apogee's palette lives in
+  ui/theme/Color.kt as ApogeeColors, defined once. The only values here are the
+  ones the platform itself reads before Compose exists.
+-->
+<resources>
+    <!-- Matches ApogeeColors.BackdropTop, so the window background behind the
+         first frame is not a white flash. -->
+    <color name="window_background">#FF101830</color>
+</resources>

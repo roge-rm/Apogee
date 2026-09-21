@@ -1,0 +1,10 @@
+# Normalise line endings in the repo, but keep the files that genuinely need
+# CRLF (the Windows Gradle launcher) intact on checkout.
+* text=auto eol=lf
+*.bat text eol=crlf
+
+# Binary assets - never diff or normalise these.
+*.webp binary
+*.png binary
+*.jpg binary
+*.jar binary
