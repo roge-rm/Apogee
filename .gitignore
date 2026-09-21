@@ -12,10 +12,12 @@ build/
 local.properties
 
 # --- IDE --------------------------------------------------------------------
+# The whole .idea directory stays local. Note git does not descend into an
+# excluded directory, so a "!.idea/something" negation below this line would be
+# silently inert - if any IDE config is ever meant to be shared, .idea/ has to
+# be unexcluded and its contents ignored individually instead.
 *.iml
 .idea/
-!.idea/codeStyles/
-!.idea/inspectionProfiles/
 
 # --- Native build artefacts -------------------------------------------------
 .externalNativeBuild/
