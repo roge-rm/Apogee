@@ -1,7 +1,6 @@
 package com.rm.apogee.core.craft
 
 import com.rm.apogee.core.math.Vec3
-import com.rm.apogee.core.part.Decoupler
 import com.rm.apogee.core.part.Engine
 import com.rm.apogee.core.part.PartDef
 import com.rm.apogee.core.part.ResourceType
@@ -185,47 +184,17 @@ class Vessel(
     }
 
     /**
-     * Flood-fills the part tree, refusing to cross a decoupler.
+     * Rebuilds the crossfeed groups.
      *
-     * Rebuilt whenever the structure changes, which is rare - a spawn or a
-     * separation - so the cost never lands in the per-tick path.
+     * Delegates to [FuelGroups] so the builder's delta-v analysis and the live
+     * simulation apply literally the same rule - two copies of it would drift,
+     * and the builder would start predicting flights the simulation cannot fly.
+     *
+     * Rare enough to be free: only a spawn or a separation changes structure,
+     * so this never lands in the per-tick path.
      */
     private fun computeFuelGroups() {
-        val groups = IntArray(partCount) { -1 }
-        var nextGroup = 0
-
-        val children = Array(partCount) { ArrayList<Int>(2) }
-        design.parts.forEachIndexed { index, part ->
-            if (part.parentIndex in 0 until partCount) children[part.parentIndex].add(index)
-        }
-
-        fun blocks(index: Int) = defs[index].module<Decoupler>() != null
-
-        for (start in 0 until partCount) {
-            if (groups[start] != -1) continue
-            val group = nextGroup++
-            val queue = ArrayDeque<Int>()
-            queue.add(start)
-            groups[start] = group
-
-            while (queue.isNotEmpty()) {
-                val current = queue.removeFirst()
-                // A decoupler joins nothing: it is the break in the plumbing.
-                if (blocks(current)) continue
-
-                val neighbours = ArrayList<Int>(children[current].size + 1)
-                neighbours.addAll(children[current])
-                design.parts[current].parentIndex.let { if (it >= 0) neighbours.add(it) }
-
-                for (neighbour in neighbours) {
-                    if (groups[neighbour] != -1) continue
-                    if (blocks(neighbour)) continue
-                    groups[neighbour] = group
-                    queue.add(neighbour)
-                }
-            }
-        }
-        fuelGroups = groups
+        fuelGroups = FuelGroups.compute(design, defs)
     }
 
     // --- mass ---------------------------------------------------------------

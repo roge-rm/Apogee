@@ -18,10 +18,10 @@ enum class ResourceType(
     val displayName: String,
 ) {
     /**
-     * Bipropellant, modelled as one substance. A fuel/oxidiser split is
-     * iconic but adds mixture-ratio plumbing to every tank and engine for no
-     * gain in the rocket-to-orbit slice; the two can be separated later without
-     * touching anything outside this file and the catalogue.
+     * Bipropellant, modelled as one substance. Splitting fuel and oxidiser into
+     * separate resources adds mixture-ratio plumbing to every tank and engine
+     * for no gain in the rocket-to-orbit slice; the two can be separated later
+     * without touching anything outside this file and the catalogue.
      */
     @SerialName("propellant")
     PROPELLANT(densityPerUnit = 5.0, displayName = "Propellant"),

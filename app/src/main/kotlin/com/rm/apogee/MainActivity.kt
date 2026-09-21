@@ -19,6 +19,10 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
+import com.rm.apogee.core.craft.CraftDesign
+import com.rm.apogee.core.craft.CraftStore
+import com.rm.apogee.core.part.StockParts
+import com.rm.apogee.game.BuilderSession
 import com.rm.apogee.game.GameSession
 import com.rm.apogee.game.HudState
 import com.rm.apogee.platform.PerfHints
@@ -28,6 +32,7 @@ import com.rm.apogee.render.QualityTier
 import com.rm.apogee.settings.GameSettings
 import com.rm.apogee.ui.screens.AboutScreen
 import com.rm.apogee.ui.screens.AppScreen
+import com.rm.apogee.ui.screens.BuilderScreen
 import com.rm.apogee.ui.screens.FlightScreen
 import com.rm.apogee.ui.screens.MainMenuScreen
 import com.rm.apogee.ui.screens.PlayScreen
@@ -37,6 +42,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import java.io.File
 
 /**
  * Host for the whole app: one FrameLayout holding the 3D surface and, above it,
@@ -52,9 +58,15 @@ class MainActivity : ComponentActivity() {
     private lateinit var hudState: HudState
     private lateinit var frameBus: FrameBus
 
+    private lateinit var craftStore: CraftStore
+
     private var surfaceView: GLSurfaceView? = null
     private var renderer: GlRenderer? = null
     private var session: GameSession? = null
+    private var builderSession: BuilderSession? = null
+
+    /** Set by the builder's Launch button; consumed when flight starts. */
+    private var pendingLaunchDesign: CraftDesign? = null
     private var frameClockJob: Job? = null
     private var perfHints: PerfHints? = null
 
@@ -67,6 +79,7 @@ class MainActivity : ComponentActivity() {
         settings = GameSettings(this)
         hudState = HudState()
         frameBus = FrameBus()
+        craftStore = CraftStore(File(filesDir, "craft"))
         detectedTier = settings.lastDetectedTier
 
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -95,9 +108,17 @@ class MainActivity : ComponentActivity() {
                         onToggleSas = ::onToggleSas,
                         onExit = { navigateTo(AppScreen.PLAY) },
                     )
-                    // M2/M4 screens; the enum carries them so navigation and
+                    AppScreen.BUILDER -> builderSession?.let { builder ->
+                        BuilderScreen(
+                            session = builder,
+                            catalog = StockParts.catalog,
+                            onExit = { navigateTo(AppScreen.PLAY) },
+                            onLaunch = ::launchFromBuilder,
+                        )
+                    }
+                    // M4 screens; the enum carries them so navigation and
                     // back-handling are already correct when they land.
-                    AppScreen.BUILDER, AppScreen.HOST_GAME, AppScreen.JOIN_GAME ->
+                    AppScreen.HOST_GAME, AppScreen.JOIN_GAME ->
                         PlayScreen(::navigateTo)
                 }
             }
@@ -109,11 +130,22 @@ class MainActivity : ComponentActivity() {
         val wasInWorld = appScreen.needsWorldSurface
         appScreen = target
 
-        if (target.needsWorldSurface && !wasInWorld) {
-            enterWorld()
-        } else if (!target.needsWorldSurface && wasInWorld) {
-            leaveWorld()
+        when {
+            // Builder and flight both want the surface but different sessions,
+            // so moving between them tears down and rebuilds rather than
+            // trying to hand one session's state to the other.
+            target.needsWorldSurface && wasInWorld -> {
+                leaveWorld()
+                enterWorld(target)
+            }
+            target.needsWorldSurface -> enterWorld(target)
+            wasInWorld -> leaveWorld()
         }
+    }
+
+    private fun launchFromBuilder() {
+        pendingLaunchDesign = builderSession?.designForLaunch() ?: return
+        navigateTo(AppScreen.FLIGHT)
     }
 
     // --- flight controls -----------------------------------------------------
@@ -138,7 +170,7 @@ class MainActivity : ComponentActivity() {
 
     // --- the 3D world's lifecycle -------------------------------------------
 
-    private fun enterWorld() {
+    private fun enterWorld(screen: AppScreen) {
         hideSystemBars()
         hudState.reset()
 
@@ -160,14 +192,22 @@ class MainActivity : ComponentActivity() {
             targetWorkNanos = TARGET_FRAME_NANOS,
         )
 
-        val newSession = GameSession.hostLocal(
-            frameBus = frameBus,
-            perfHints = perfHints,
-            playerName = settings.playerName,
-            scope = lifecycleScope,
-        )
-        newSession.start(lifecycleScope)
-        session = newSession
+        if (screen == AppScreen.BUILDER) {
+            val builder = BuilderSession(frameBus, StockParts.catalog, craftStore)
+            builder.start(lifecycleScope)
+            builderSession = builder
+        } else {
+            val newSession = GameSession.hostLocal(
+                frameBus = frameBus,
+                perfHints = perfHints,
+                playerName = settings.playerName,
+                design = pendingLaunchDesign,
+                scope = lifecycleScope,
+            )
+            pendingLaunchDesign = null
+            newSession.start(lifecycleScope)
+            session = newSession
+        }
 
         frameClockJob = startFrameClock()
     }
@@ -196,20 +236,42 @@ class MainActivity : ComponentActivity() {
 
         var lastX = 0f
         var lastY = 0f
-        view.setOnTouchListener { _, event ->
+        var downX = 0f
+        var downY = 0f
+        var downTime = 0L
+
+        view.setOnTouchListener { v, event ->
             pinch.onTouchEvent(event)
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     lastX = event.x; lastY = event.y
+                    downX = event.x; downY = event.y
+                    downTime = event.eventTime
                 }
+
                 MotionEvent.ACTION_MOVE -> if (!pinch.isInProgress && event.pointerCount == 1) {
                     val dx = event.x - lastX
                     val dy = event.y - lastY
                     lastX = event.x; lastY = event.y
-                    session?.camera?.orbitBy(
+                    activeCamera()?.orbitBy(
                         deltaYaw = -dx * ORBIT_RADIANS_PER_PIXEL,
                         deltaPitch = dy * ORBIT_RADIANS_PER_PIXEL,
                     )
+                }
+
+                MotionEvent.ACTION_UP -> {
+                    // A tap is a touch that neither travelled nor lingered. The
+                    // slop has to be generous: on a phone, a finger placed to
+                    // tap always moves a few pixels, and treating that as a drag
+                    // makes placing a part feel broken.
+                    val travelled = kotlin.math.hypot(event.x - downX, event.y - downY)
+                    val duration = event.eventTime - downTime
+                    if (travelled < TAP_SLOP_PIXELS && duration < TAP_TIMEOUT_MILLIS) {
+                        builderSession?.tap(
+                            event.x, event.y,
+                            v.width.toFloat(), v.height.toFloat(),
+                        )
+                    }
                 }
             }
             true
@@ -217,10 +279,15 @@ class MainActivity : ComponentActivity() {
         return view
     }
 
+    /** Whichever session currently owns the view. */
+    private fun activeCamera(): com.rm.apogee.game.CameraController? =
+        session?.camera ?: builderSession?.camera
+
     private fun leaveWorld() {
         frameClockJob?.cancel(); frameClockJob = null
 
         session?.stop(); session = null
+        builderSession?.stop(); builderSession = null
         perfHints?.close(); perfHints = null
 
         surfaceView?.let { findViewById<FrameLayout>(R.id.game_surface_host).removeView(it) }
@@ -246,14 +313,15 @@ class MainActivity : ComponentActivity() {
         CoroutineScope(AndroidUiDispatcher.CurrentThread).launch {
             while (isActive) {
                 withFrameNanos { }
-                val current = session ?: continue
                 val glRenderer = renderer ?: continue
-
                 hudState.frameTimeMillis = glRenderer.lastFrameTimeNanos.get() / 1_000_000f
-                hudState.frameBuildMillis = current.lastFrameBuildNanos.get() / 1_000_000f
-                hudState.telemetry = current.telemetry
-                hudState.connecting = !current.connected && current.rejectionReason == null
-                hudState.connectionError = current.rejectionReason
+
+                session?.let { current ->
+                    hudState.frameBuildMillis = current.lastFrameBuildNanos.get() / 1_000_000f
+                    hudState.telemetry = current.telemetry
+                    hudState.connecting = !current.connected && current.rejectionReason == null
+                    hudState.connectionError = current.rejectionReason
+                }
 
                 frameBus.latest()?.latest?.let { frame ->
                     hudState.simTick = frame.simTick
@@ -301,5 +369,9 @@ class MainActivity : ComponentActivity() {
         const val TARGET_FRAME_NANOS = 16_666_667L
 
         const val ORBIT_RADIANS_PER_PIXEL = 0.005
+
+        /** How far a touch may travel and still count as a tap. */
+        const val TAP_SLOP_PIXELS = 28f
+        const val TAP_TIMEOUT_MILLIS = 400L
     }
 }

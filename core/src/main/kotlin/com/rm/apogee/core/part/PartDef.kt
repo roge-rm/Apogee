@@ -5,6 +5,16 @@ import com.rm.apogee.core.math.Vec3
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
+/**
+ * Below this radius a part is too slender to hang things off.
+ *
+ * File-level rather than in a companion: kotlinx-serialization generates
+ * PartDef.Companion for `serializer()`, and declaring a private companion
+ * makes that generated accessor unreachable from outside the class - which
+ * fails at *catalogue load*, not at compile time.
+ */
+private const val MIN_SURFACE_MOUNT_RADIUS = 0.3
+
 @Serializable
 enum class PartCategory {
     @SerialName("command") COMMAND,
@@ -134,6 +144,50 @@ data class PartDef(
             is MeshSpec.Box -> Vec3(m.width * 0.5, m.height * 0.5, m.depth * 0.5)
             is MeshSpec.Sphere -> Vec3(m.radius, m.radius, m.radius)
         }
+
+    /**
+     * Mounting points generated around the part's hull, for surface attachment.
+     *
+     * Real surface attachment is freeform - you stick a fin anywhere on a tank -
+     * but freeform placement needs the player to aim precisely at a curved
+     * surface with a fingertip, which is the worst case for touch. Four
+     * generated points around the waist give the same capability with a target
+     * big enough to hit, and symmetry then fills in the rest.
+     *
+     * Authored nodes always win: a part that declares its own surface nodes
+     * gets those instead, so the generated ones are a default rather than an
+     * imposition.
+     */
+    val surfaceNodes: List<AttachNode> by lazy {
+        if (attachNodes.any { it.kind == AttachNodeKind.SURFACE }) return@lazy emptyList()
+
+        val radius = when (val m = mesh) {
+            is MeshSpec.Cylinder -> m.radius
+            is MeshSpec.Cone -> maxOf(m.bottomRadius, m.topRadius)
+            is MeshSpec.Box -> m.width * 0.5
+            is MeshSpec.Sphere -> m.radius
+        }
+        // Too small to mount anything on sensibly.
+        if (radius < MIN_SURFACE_MOUNT_RADIUS) return@lazy emptyList()
+
+        listOf(
+            Vec3(1.0, 0.0, 0.0),
+            Vec3(-1.0, 0.0, 0.0),
+            Vec3(0.0, 0.0, 1.0),
+            Vec3(0.0, 0.0, -1.0),
+        ).mapIndexed { index, direction ->
+            AttachNode(
+                id = "surface-$index",
+                position = direction * radius,
+                direction = direction,
+                size = 0,
+                kind = AttachNodeKind.SURFACE,
+            )
+        }
+    }
+
+    /** Authored nodes plus the generated surface ones. */
+    val allAttachNodes: List<AttachNode> get() = attachNodes + surfaceNodes
 
     /**
      * Points on the part's hull used for ground contact, in part-local space.

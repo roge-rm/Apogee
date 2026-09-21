@@ -8,9 +8,9 @@ import com.rm.apogee.core.math.Vec3
  * A single six-degree-of-freedom body.
  *
  * One of these backs an entire vessel: every part of a craft is welded into one
- * rigid body rather than joined by springs. That is a considered trade. A
- * per-joint model is the direct cause of its wobbling-rocket problem and most
- * of its CPU cost, and on a phone it is simply not affordable. Decoupling a
+ * rigid body rather than joined by springs. That is a considered trade: a
+ * per-joint model makes long stacks flex and wobble, costs a solver iteration
+ * per joint per tick, and on a phone is simply not affordable. Decoupling a
  * stage splits one body into two rather than releasing a joint, which gives the
  * same gameplay without the instability.
  *

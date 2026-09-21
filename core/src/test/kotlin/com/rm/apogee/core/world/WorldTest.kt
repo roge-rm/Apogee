@@ -89,11 +89,11 @@ class WorldTest {
         )
         assertTrue(
             "the pod must stay with the crewed half",
-            vessel.design.parts.any { it.partId == "pod-mk1" },
+            vessel.design.parts.any { it.partId == "pod-halo" },
         )
         assertTrue(
             "the spent booster must go with the debris",
-            debris.design.parts.any { it.partId == "engine-lvt45" },
+            debris.design.parts.any { it.partId == "engine-ember" },
         )
     }
 

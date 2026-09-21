@@ -162,7 +162,7 @@ class ForcesTest {
     @Test
     fun `an engine with no propellant produces no thrust`() {
         val vessel = rocketInVacuum()
-        val mainEngine = vessel.design.parts.indexOfFirst { it.partId == "engine-lvt45" }
+        val mainEngine = vessel.design.parts.indexOfFirst { it.partId == "engine-ember" }
         vessel.drainFromGroupOf(mainEngine, com.rm.apogee.core.part.ResourceType.PROPELLANT, 99_999.0)
         vessel.control.throttle = 1.0
         vessel.body.clearAccumulators()

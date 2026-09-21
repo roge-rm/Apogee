@@ -1,6 +1,7 @@
 package com.rm.apogee.game
 
 import com.rm.apogee.core.craft.CraftDesign
+import com.rm.apogee.core.craft.StockCraft
 import com.rm.apogee.core.math.Quat
 import com.rm.apogee.core.math.Vec3
 import com.rm.apogee.core.orbit.Orbit
@@ -218,12 +219,17 @@ class GameSession private constructor(
             frameBus: FrameBus,
             perfHints: PerfHints?,
             playerName: String,
+            /** What to fly. Null falls back to the stock rocket. */
+            design: CraftDesign? = null,
             catalog: PartCatalog = StockParts.catalog,
             scope: CoroutineScope,
         ): GameSession {
             val server = GameServer(
                 world = World.default(catalog),
-                config = ServerConfig(name = "Local Game"),
+                config = ServerConfig(
+                    name = "Local Game",
+                    starterCraft = { design ?: StockCraft.starterRocket(it) },
+                ),
             )
             val link = LoopbackTransportPair()
             server.accept(link.serverSide, scope)

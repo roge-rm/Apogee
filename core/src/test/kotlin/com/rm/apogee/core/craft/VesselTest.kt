@@ -29,8 +29,8 @@ class VesselTest {
         val vessel = starter()
         val design = vessel.design
 
-        val mainEngine = design.parts.indexOfFirst { it.partId == "engine-lvt45" }
-        val upperEngine = design.parts.indexOfFirst { it.partId == "engine-lv909" }
+        val mainEngine = design.parts.indexOfFirst { it.partId == "engine-ember" }
+        val upperEngine = design.parts.indexOfFirst { it.partId == "engine-vesper" }
         assertTrue(mainEngine >= 0 && upperEngine >= 0)
 
         val lowerAvailable = vessel.amountInGroupOf(mainEngine, ResourceType.PROPELLANT)
@@ -46,8 +46,8 @@ class VesselTest {
     @Test
     fun `draining only touches the reachable group`() {
         val vessel = starter()
-        val mainEngine = vessel.design.parts.indexOfFirst { it.partId == "engine-lvt45" }
-        val upperEngine = vessel.design.parts.indexOfFirst { it.partId == "engine-lv909" }
+        val mainEngine = vessel.design.parts.indexOfFirst { it.partId == "engine-ember" }
+        val upperEngine = vessel.design.parts.indexOfFirst { it.partId == "engine-vesper" }
 
         vessel.drainFromGroupOf(mainEngine, ResourceType.PROPELLANT, 600.0)
 
@@ -63,7 +63,7 @@ class VesselTest {
     @Test
     fun `draining more than exists returns only what was there`() {
         val vessel = starter()
-        val mainEngine = vessel.design.parts.indexOfFirst { it.partId == "engine-lvt45" }
+        val mainEngine = vessel.design.parts.indexOfFirst { it.partId == "engine-ember" }
         val drawn = vessel.drainFromGroupOf(mainEngine, ResourceType.PROPELLANT, 99_999.0)
         assertEquals(1_200.0, drawn, 1e-9)
         assertEquals(0.0, vessel.amountInGroupOf(mainEngine, ResourceType.PROPELLANT), 1e-9)
@@ -74,7 +74,7 @@ class VesselTest {
         val vessel = starter()
         val before = vessel.centerOfMass().y
 
-        val mainEngine = vessel.design.parts.indexOfFirst { it.partId == "engine-lvt45" }
+        val mainEngine = vessel.design.parts.indexOfFirst { it.partId == "engine-ember" }
         vessel.drainFromGroupOf(mainEngine, ResourceType.PROPELLANT, 1_200.0)
         vessel.recomputeMass(shiftBodyPosition = false)
 
@@ -90,7 +90,7 @@ class VesselTest {
         val vessel = starter()
         val before = vessel.body.mass
 
-        val mainEngine = vessel.design.parts.indexOfFirst { it.partId == "engine-lvt45" }
+        val mainEngine = vessel.design.parts.indexOfFirst { it.partId == "engine-ember" }
         vessel.drainFromGroupOf(mainEngine, ResourceType.PROPELLANT, 100.0)
         vessel.recomputeMass(shiftBodyPosition = false)
 
@@ -101,7 +101,7 @@ class VesselTest {
     @Test
     fun `staging activates the listed parts`() {
         val vessel = starter()
-        val mainEngine = vessel.design.parts.indexOfFirst { it.partId == "engine-lvt45" }
+        val mainEngine = vessel.design.parts.indexOfFirst { it.partId == "engine-ember" }
 
         assertTrue(vessel.activeEngines().isEmpty())
         vessel.activateNextStage()

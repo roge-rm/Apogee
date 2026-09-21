@@ -47,3 +47,10 @@ tasks.register<JavaExec>("padDiagnostic") {
     classpath = sourceSets["test"].runtimeClasspath
     mainClass.set("com.rm.apogee.core.scenario.PadDiagnosticKt")
 }
+
+tasks.register<JavaExec>("craftStats") {
+    group = "verification"
+    description = "Prints the stock rocket's stage analysis."
+    classpath = sourceSets["test"].runtimeClasspath
+    mainClass.set("com.rm.apogee.core.scenario.StatsKt")
+}

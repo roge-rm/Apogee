@@ -45,23 +45,23 @@ object StockCraft {
 
         // Built top-down so the pod can be the root, but positioned in the
         // bottom-up coordinates the stack actually occupies.
-        val pod = add("pod-mk1", 13.2, -1)
-        add("parachute-mk1", 14.0, pod)
-        val upperTank = add("tank-t400", 11.6, pod)
-        val upperEngine = add("engine-lv909", 10.1, upperTank)
-        val decoupler = add("decoupler-1", 9.5, upperEngine)
-        val lowerTankTop = add("tank-t800", 7.4, decoupler)
-        val lowerTankMid = add("tank-t800", 3.4, lowerTankTop)
-        val lowerTankBottom = add("tank-t800", -0.6, lowerTankMid)
-        val mainEngine = add("engine-lvt45", -2.0, lowerTankBottom)
+        val pod = add("pod-halo", 13.2, -1)
+        add("chute-canopy", 14.0, pod)
+        val upperTank = add("tank-cask2", 11.6, pod)
+        val upperEngine = add("engine-vesper", 10.1, upperTank)
+        val decoupler = add("decoupler-ring", 9.5, upperEngine)
+        val lowerTankTop = add("tank-cask4", 7.4, decoupler)
+        val lowerTankMid = add("tank-cask4", 3.4, lowerTankTop)
+        val lowerTankBottom = add("tank-cask4", -0.6, lowerTankMid)
+        val mainEngine = add("engine-ember", -2.0, lowerTankBottom)
 
         // Fins low on the stack, well behind the centre of mass, which is what
         // makes them stabilising rather than destabilising.
         val finRadius = 0.975
-        add("fin-basic", -0.6, lowerTankBottom, x = finRadius)
-        add("fin-basic", -0.6, lowerTankBottom, x = -finRadius)
-        add("fin-basic", -0.6, lowerTankBottom, z = finRadius)
-        add("fin-basic", -0.6, lowerTankBottom, z = -finRadius)
+        add("fin-vane", -0.6, lowerTankBottom, x = finRadius)
+        add("fin-vane", -0.6, lowerTankBottom, x = -finRadius)
+        add("fin-vane", -0.6, lowerTankBottom, z = finRadius)
+        add("fin-vane", -0.6, lowerTankBottom, z = -finRadius)
 
         val chute = 1
 
@@ -87,7 +87,7 @@ object StockCraft {
     fun probe(catalog: PartCatalog = StockParts.catalog): CraftDesign =
         CraftDesign(
             name = "Probe",
-            parts = listOf(PlacedPart("pod-mk1", Vec3.zero())),
+            parts = listOf(PlacedPart("pod-halo", Vec3.zero())),
             stages = emptyList(),
             catalogHash = catalog.contentHash,
         )

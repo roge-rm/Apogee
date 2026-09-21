@@ -1,5 +1,6 @@
 package com.rm.apogee.server
 
+import com.rm.apogee.core.craft.VesselId
 import com.rm.apogee.core.part.StockParts
 import com.rm.apogee.core.world.Command
 import com.rm.apogee.net.GameClient
@@ -21,14 +22,36 @@ class GameServerTest {
     private val catalog = StockParts.catalog
 
     /**
-     * Lets both sides' coroutines make progress without real time passing.
+     * Steps the server until [condition] holds.
+     *
+     * Counting `yield()`s is not a synchronisation primitive, and an earlier
+     * version of these tests did exactly that: a fixed number of yields that
+     * passed happily until unrelated work changed how many coroutines were in
+     * flight, at which point two of them began failing for no reason connected
+     * to what they were testing. Waiting on the actual condition is both faster
+     * and stable.
+     */
+    private suspend fun pumpUntil(
+        server: GameServer,
+        what: String,
+        maxTicks: Int = 400,
+        condition: () -> Boolean,
+    ) {
+        repeat(maxTicks) {
+            if (condition()) return
+            server.stepOnce()
+            repeat(SETTLE_YIELDS) { yield() }
+        }
+        if (!condition()) throw AssertionError("timed out waiting for: $what")
+    }
+
+    /**
+     * Connects a client and waits for the handshake to resolve either way.
      *
      * Clients are launched into runTest's `backgroundScope`, which it cancels
      * on completion - a client collecting from a transport never finishes on
      * its own, so launching into the test scope itself would hang every test.
      */
-    private suspend fun settle(times: Int = 40) = repeat(times) { yield() }
-
     private suspend fun joinClient(
         server: GameServer,
         scope: CoroutineScope,
@@ -39,9 +62,9 @@ class GameServerTest {
         server.accept(link.serverSide, scope)
         val client = GameClient(link.clientSide, name, catalogHash)
         client.connect(scope)
-        settle()
-        server.stepOnce()
-        settle()
+        pumpUntil(server, "$name's handshake to resolve") {
+            client.connected || client.rejectionReason != null
+        }
         return client
     }
 
@@ -73,21 +96,21 @@ class GameServerTest {
     @Test
     fun `two clients in one world see each other's craft`() = runTest {
         val server = GameServer.default(catalog)
-
         val alice = joinClient(server, backgroundScope, "Alice")
         val bob = joinClient(server, backgroundScope, "Bob")
 
-        // Let the join broadcasts and a snapshot reach both sides.
-        repeat(5) { server.stepOnce(); settle() }
+        pumpUntil(server, "both clients to see both craft") {
+            alice.vessels.size == 2 && bob.vessels.size == 2
+        }
 
         assertEquals(2, server.playerCount)
-        assertEquals("Alice should see both craft", 2, alice.vessels.size)
-        assertEquals("Bob should see both craft", 2, bob.vessels.size)
-
-        val bobsVessel = bob.controlledVessel!!
         assertNotNull(
             "Alice should know the structure of Bob's craft",
-            alice.vessel(bobsVessel)?.design,
+            alice.vessel(bob.controlledVessel!!)?.design,
+        )
+        assertNotNull(
+            "and Bob should know Alice's",
+            bob.vessel(alice.controlledVessel!!)?.design,
         )
     }
 
@@ -96,28 +119,33 @@ class GameServerTest {
         val server = GameServer.default(catalog)
         val alice = joinClient(server, backgroundScope, "Alice")
         val bob = joinClient(server, backgroundScope, "Bob")
-        repeat(3) { server.stepOnce(); settle() }
+        pumpUntil(server, "both clients to see both craft") {
+            alice.vessels.size == 2 && bob.vessels.size == 2
+        }
 
         val aliceVessel = alice.controlledVessel!!
-        val startAltitude = server.world.vessel(
-            com.rm.apogee.core.craft.VesselId(aliceVessel)
-        )!!.body.position.length
+        val startAltitude = server.world.vessel(VesselId(aliceVessel))!!.body.position.length
 
         alice.send(Command.Stage(aliceVessel))
         alice.send(Command.SetThrottle(aliceVessel, 1.0))
-        settle()
+        pumpUntil(server, "the server to apply Alice's throttle") {
+            server.world.vessel(VesselId(aliceVessel))?.control?.throttle == 1.0
+        }
 
-        repeat(200) { server.stepOnce() }
-        settle()
+        repeat(400) { server.stepOnce() }
+        repeat(SETTLE_YIELDS) { yield() }
 
-        val endAltitude = server.world.vessel(
-            com.rm.apogee.core.craft.VesselId(aliceVessel)
-        )!!.body.position.length
-        assertTrue("Alice's craft should have climbed", endAltitude > startAltitude + 5.0)
+        val endAltitude = server.world.vessel(VesselId(aliceVessel))!!.body.position.length
+        assertTrue(
+            "Alice's craft should have climbed ($startAltitude -> $endAltitude)",
+            endAltitude > startAltitude + 5.0,
+        )
 
         // Bob receives it without ever having asked.
-        val seenByBob = bob.vessel(aliceVessel)?.latest
-        assertNotNull("Bob should have motion for Alice's craft", seenByBob)
+        assertNotNull(
+            "Bob should have motion for Alice's craft",
+            bob.vessel(aliceVessel)?.latest,
+        )
     }
 
     @Test
@@ -125,16 +153,16 @@ class GameServerTest {
         val server = GameServer.default(catalog)
         val alice = joinClient(server, backgroundScope, "Alice")
         val bob = joinClient(server, backgroundScope, "Bob")
-        repeat(3) { server.stepOnce(); settle() }
+        pumpUntil(server, "both clients to be flying something") {
+            alice.controlledVessel != null && bob.controlledVessel != null
+        }
 
-        val alicesVessel = com.rm.apogee.core.craft.VesselId(alice.controlledVessel!!)
+        val alicesVessel = VesselId(alice.controlledVessel!!)
 
         // Bob tries to throttle up Alice's rocket. In a persistent shared world
         // this is the difference between a sandbox and a free-for-all.
         bob.send(Command.SetThrottle(alicesVessel.raw, 1.0))
-        settle()
-        server.stepOnce()
-        settle()
+        repeat(20) { server.stepOnce(); repeat(SETTLE_YIELDS) { yield() } }
 
         assertEquals(
             "an unauthorised command must be discarded",
@@ -148,23 +176,20 @@ class GameServerTest {
     fun `staging is reflected back to the client`() = runTest {
         val server = GameServer.default(catalog)
         val client = joinClient(server, backgroundScope, "Pilot")
-        repeat(3) { server.stepOnce(); settle() }
+        pumpUntil(server, "the client to be flying something") {
+            client.controlledVessel != null
+        }
 
         val vesselId = client.controlledVessel!!
         assertEquals(0, client.vessel(vesselId)!!.currentStage)
 
         client.send(Command.Stage(vesselId))
-        settle()
-        server.stepOnce()
-        settle()
-
         // Igniting an engine changes no part list, so this only arrives if the
         // server broadcasts structure on a plain stage as well as on a split.
-        assertEquals(
-            "client's stage counter should have advanced",
-            1,
-            client.vessel(vesselId)!!.currentStage,
-        )
+        pumpUntil(server, "the stage change to reach the client") {
+            client.vessel(vesselId)!!.currentStage == 1
+        }
+
         assertTrue(
             "the lit engine should be marked activated",
             client.vessel(vesselId)!!.activatedParts.isNotEmpty(),
@@ -176,16 +201,18 @@ class GameServerTest {
         val server = GameServer.default(catalog)
         val alice = joinClient(server, backgroundScope, "Alice")
         val bob = joinClient(server, backgroundScope, "Bob")
-        repeat(3) { server.stepOnce(); settle() }
+        pumpUntil(server, "both clients to be flying something") {
+            alice.controlledVessel != null && bob.controlledVessel != null
+        }
 
         alice.send(Command.Chat("hello from the pad"))
-        settle()
-        server.stepOnce()
-        settle()
+        pumpUntil(server, "the chat line to reach Bob") {
+            bob.chatHistory().any { it.contains("hello from the pad") }
+        }
+    }
 
-        assertTrue(
-            "Bob should have received it, got ${bob.chatHistory()}",
-            bob.chatHistory().any { it.contains("hello from the pad") },
-        )
+    private companion object {
+        /** Yields per pumped tick, to let both sides' coroutines drain. */
+        const val SETTLE_YIELDS = 8
     }
 }

@@ -8,15 +8,34 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 /**
- * An orbit camera that stays with a craft.
- *
- * Orientation is built relative to the craft's *local up* - the direction away
- * from the planet's centre - rather than a fixed world axis. A world-fixed
- * camera looks fine on the launch pad and then slowly rolls onto its side as
- * the craft travels around the planet, because "up" is a different direction
- * ten degrees of longitude later.
+ * Where "up" comes from when the camera builds its frame.
  */
-class CameraController {
+enum class UpReference {
+    /**
+     * Away from the origin of the current frame - the planet's centre. Correct
+     * in flight: a world-fixed camera looks fine on the launch pad and then
+     * slowly rolls onto its side as the craft travels around the planet,
+     * because "up" is a different direction ten degrees of longitude later.
+     */
+    RADIAL,
+
+    /**
+     * World +Y. Correct in the builder, where there is no planet and the
+     * design sits near the origin.
+     *
+     * Using RADIAL here is actively wrong, not merely arbitrary: a craft whose
+     * parts hang below the origin has a centre at negative Y, so "away from the
+     * origin" points *down* and the whole craft renders upside down.
+     */
+    FIXED,
+}
+
+/**
+ * An orbit camera that stays with a craft.
+ */
+class CameraController(
+    private val upReference: UpReference = UpReference.RADIAL,
+) {
 
     /** Rotation around the craft, radians. */
     var yaw: Double = 0.0
@@ -55,10 +74,15 @@ class CameraController {
      * @param outRotation receives the camera orientation.
      */
     fun solve(target: Vec3, outPosition: Vec3, outRotation: Quat) {
-        // Build a local frame at the craft: up away from the planet, plus two
-        // tangent directions to swing the camera around in.
-        up.setTo(target).normalizeInPlace()
-        if (up.lengthSq < 0.5) up.setTo(Vec3.unitY())
+        // Build a local frame at the craft: up, plus two tangent directions to
+        // swing the camera around in.
+        when (upReference) {
+            UpReference.RADIAL -> {
+                up.setTo(target).normalizeInPlace()
+                if (up.lengthSq < 0.5) up.setTo(Vec3.unitY())
+            }
+            UpReference.FIXED -> up.setTo(Vec3.unitY())
+        }
 
         north.setTo(Vec3.unitY())
         if (kotlin.math.abs(north dot up) > 0.99) north.setTo(Vec3.unitX())
@@ -80,9 +104,16 @@ class CameraController {
         quatLookAt(offset, up, outRotation)
     }
 
-    /** Frames a craft of the given size sensibly. */
-    fun frame(craftSize: Double) {
-        distance = (craftSize * 2.5).coerceIn(MIN_DISTANCE, MAX_DISTANCE)
+    /**
+     * Frames a craft of the given size, but only widens - never zooms back in.
+     *
+     * One-way so that a craft growing as it is assembled stays in view without
+     * yanking the camera back every time the player deliberately zooms in to
+     * place a small part.
+     */
+    fun frameAtLeast(craftSize: Double) {
+        val wanted = (craftSize * 1.8 + 6.0).coerceIn(MIN_DISTANCE, MAX_DISTANCE)
+        if (wanted > distance) distance = wanted
     }
 
     private companion object {

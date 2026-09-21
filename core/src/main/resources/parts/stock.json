@@ -1,7 +1,7 @@
 [
   {
-    "id": "pod-mk1",
-    "title": "Mk1 Command Pod",
+    "id": "pod-halo",
+    "title": "Halo Crew Capsule",
     "category": "command",
     "dryMass": 840.0,
     "description": "Single-seat capsule. Cramped, and the only thing between you and the outside.",
@@ -19,8 +19,8 @@
     ]
   },
   {
-    "id": "parachute-mk1",
-    "title": "Mk1 Parachute",
+    "id": "chute-canopy",
+    "title": "Canopy Recovery Pack",
     "category": "utility",
     "dryMass": 100.0,
     "description": "Nosecone-mounted canopy. Deploy below 300 m/s or watch it shred.",
@@ -35,8 +35,8 @@
     ]
   },
   {
-    "id": "decoupler-1",
-    "title": "TD-12 Decoupler",
+    "id": "decoupler-ring",
+    "title": "Parting Ring",
     "category": "structural",
     "dryMass": 50.0,
     "description": "Separates what is above it from what is below it, once, loudly.",
@@ -52,8 +52,8 @@
     ]
   },
   {
-    "id": "tank-t400",
-    "title": "FL-T400 Fuel Tank",
+    "id": "tank-cask2",
+    "title": "Cask-2 Propellant Tank",
     "category": "fuel",
     "dryMass": 250.0,
     "description": "Two metres of propellant in a thin aluminium shell.",
@@ -69,8 +69,8 @@
     ]
   },
   {
-    "id": "tank-t800",
-    "title": "FL-T800 Fuel Tank",
+    "id": "tank-cask4",
+    "title": "Cask-4 Propellant Tank",
     "category": "fuel",
     "dryMass": 500.0,
     "description": "Four metres of the same idea.",
@@ -86,8 +86,8 @@
     ]
   },
   {
-    "id": "engine-lvt45",
-    "title": "LV-T45 \"Swivel\" Engine",
+    "id": "engine-ember",
+    "title": "Ember Lifter Engine",
     "category": "propulsion",
     "dryMass": 1500.0,
     "description": "Gimballed lifter engine. Not efficient, but it will get you off the pad.",
@@ -95,7 +95,8 @@
     "dragCoefficient": 0.35,
     "mesh": { "type": "cone", "bottomRadius": 0.55, "topRadius": 0.625, "height": 1.4 },
     "attachNodes": [
-      { "id": "top", "position": { "x": 0.0, "y": 0.7, "z": 0.0 }, "direction": { "x": 0.0, "y": 1.0, "z": 0.0 }, "size": 1 }
+      { "id": "top", "position": { "x": 0.0, "y": 0.7, "z": 0.0 }, "direction": { "x": 0.0, "y": 1.0, "z": 0.0 }, "size": 1 },
+      { "id": "bottom", "position": { "x": 0.0, "y": -0.7, "z": 0.0 }, "direction": { "x": 0.0, "y": -1.0, "z": 0.0 }, "size": 1 }
     ],
     "modules": [
       {
@@ -112,8 +113,8 @@
     ]
   },
   {
-    "id": "engine-lv909",
-    "title": "LV-909 \"Terrier\" Engine",
+    "id": "engine-vesper",
+    "title": "Vesper Vacuum Engine",
     "category": "propulsion",
     "dryMass": 500.0,
     "description": "Vacuum-optimised. Nearly useless in atmosphere, excellent once you are out of it.",
@@ -121,7 +122,8 @@
     "dragCoefficient": 0.35,
     "mesh": { "type": "cone", "bottomRadius": 0.5, "topRadius": 0.625, "height": 1.0 },
     "attachNodes": [
-      { "id": "top", "position": { "x": 0.0, "y": 0.5, "z": 0.0 }, "direction": { "x": 0.0, "y": 1.0, "z": 0.0 }, "size": 1 }
+      { "id": "top", "position": { "x": 0.0, "y": 0.5, "z": 0.0 }, "direction": { "x": 0.0, "y": 1.0, "z": 0.0 }, "size": 1 },
+      { "id": "bottom", "position": { "x": 0.0, "y": -0.5, "z": 0.0 }, "direction": { "x": 0.0, "y": -1.0, "z": 0.0 }, "size": 1 }
     ],
     "modules": [
       {
@@ -138,8 +140,8 @@
     ]
   },
   {
-    "id": "fin-basic",
-    "title": "AV-R8 Winglet",
+    "id": "fin-vane",
+    "title": "Vane Stabiliser",
     "category": "aero",
     "dryMass": 60.0,
     "description": "Keeps the pointy end forward while there is still air to push against.",
@@ -154,8 +156,8 @@
     ]
   },
   {
-    "id": "nosecone-1",
-    "title": "Aerodynamic Nose Cone",
+    "id": "nosecone-spire",
+    "title": "Spire Nose Cone",
     "category": "aero",
     "dryMass": 30.0,
     "description": "Costs mass, saves more drag than it costs.",

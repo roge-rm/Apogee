@@ -192,7 +192,7 @@ class GameServer(
      *
      * Both checks matter, and they fail differently. A protocol mismatch means
      * the messages themselves will be misread; a catalogue mismatch means they
-     * will be read perfectly and mean something else - the client's "tank-t400"
+     * will be read perfectly and mean something else - the client's "tank-cask2"
      * weighs something the server disagrees with, and the two simulations drift
      * apart with no error anywhere. The second is far harder to diagnose from
      * the symptoms, which is exactly why it is checked here.

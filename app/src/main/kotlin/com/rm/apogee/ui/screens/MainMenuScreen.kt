@@ -57,8 +57,7 @@ fun PlayScreen(onNavigate: (AppScreen) -> Unit) {
             "Vehicle Assembly",
             { onNavigate(AppScreen.BUILDER) },
             contentModifier,
-            subtitle = "Not yet available",
-            enabled = false,
+            subtitle = "Build a craft, then launch it",
         )
         ApogeeButton(
             "Host a Game",

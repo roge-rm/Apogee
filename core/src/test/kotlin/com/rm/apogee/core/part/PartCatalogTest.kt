@@ -11,14 +11,14 @@ class PartCatalogTest {
     fun `stock catalogue parses`() {
         val catalog = StockParts.catalog
         assertTrue("expected a non-trivial catalogue, got ${catalog.size}", catalog.size >= 8)
-        assertNotNull(catalog["pod-mk1"])
-        assertNotNull(catalog["engine-lvt45"])
+        assertNotNull(catalog["pod-halo"])
+        assertNotNull(catalog["engine-ember"])
     }
 
     @Test
     fun `engine modules survive polymorphic decoding`() {
-        val engine = StockParts.catalog.require("engine-lvt45").module<Engine>()
-        assertNotNull("LV-T45 should carry an Engine module", engine)
+        val engine = StockParts.catalog.require("engine-ember").module<Engine>()
+        assertNotNull("the Ember lifter should carry an Engine module", engine)
         assertEquals(215_000.0, engine!!.thrustVacuum, 0.0)
         assertEquals(320.0, engine.ispVacuum, 0.0)
         assertTrue("lifter should out-thrust at altitude", engine.thrustVacuum > engine.thrustSeaLevel)
@@ -26,7 +26,7 @@ class PartCatalogTest {
 
     @Test
     fun `wet mass accounts for a full propellant load`() {
-        val tank = StockParts.catalog.require("tank-t400")
+        val tank = StockParts.catalog.require("tank-cask2")
         // 200 units at 5 kg/unit on top of 250 kg of structure.
         assertEquals(1250.0, tank.wetMass, 1e-9)
     }
@@ -46,7 +46,7 @@ class PartCatalogTest {
     @Test
     fun `content hash changes when a part changes`() {
         val defs = StockParts.catalog.parts.values.toList()
-        val tweaked = defs.map { if (it.id == "tank-t400") it.copy(dryMass = 251.0) else it }
+        val tweaked = defs.map { if (it.id == "tank-cask2") it.copy(dryMass = 251.0) else it }
         assertTrue(
             "a mass change must move the hash, or a mismatched client connects cleanly",
             PartCatalog.of(defs).contentHash != PartCatalog.of(tweaked).contentHash,
@@ -55,7 +55,7 @@ class PartCatalogTest {
 
     @Test
     fun `duplicate ids are rejected at load`() {
-        val one = StockParts.catalog.require("tank-t400")
+        val one = StockParts.catalog.require("tank-cask2")
         val failure = runCatching { PartCatalog.of(listOf(one, one)) }.exceptionOrNull()
         assertTrue("expected a duplicate-id failure, got $failure", failure is IllegalArgumentException)
         assertTrue(failure!!.message!!.contains("Duplicate part id"))
