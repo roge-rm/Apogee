@@ -6,6 +6,7 @@ import android.opengl.GLSurfaceView
 import com.rm.apogee.core.math.Mat4
 import com.rm.apogee.core.math.Quat
 import com.rm.apogee.core.math.Vec3
+import com.rm.apogee.core.part.MeshSpec
 import java.util.concurrent.atomic.AtomicLong
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
@@ -36,7 +37,15 @@ class GlRenderer(
         private set
 
     private var program: ShaderProgram? = null
-    private val meshes = HashMap<MeshId, Mesh>()
+
+    /**
+     * One mesh per distinct shape, built on first sight.
+     *
+     * Keyed by the MeshSpec value itself, so a rocket with three identical fuel
+     * tanks uploads one mesh and draws it three times. Cleared whenever the GL
+     * context is recreated, because every handle in it is then dangling.
+     */
+    private val meshes = HashMap<MeshSpec, Mesh>()
 
     // Preallocated: allocating per draw call would put the GC on the render path.
     private val modelMatrix = Mat4()
@@ -69,7 +78,6 @@ class GlRenderer(
         meshes.clear()
 
         program = ShaderProgram(Shaders.VESSEL_VERTEX, Shaders.VESSEL_FRAGMENT, "vessel")
-        meshes[MeshId.CUBE] = MeshBuilder.cube(0.5f)
     }
 
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
@@ -108,8 +116,12 @@ class GlRenderer(
         projectionMatrix.setPerspective(
             fovYRadians = latest.fovYRadians,
             aspect = viewportWidth.toDouble() / viewportHeight.toDouble(),
-            near = 0.05,
-            far = 20_000.0,
+            // Wide enough for a part at arm's length and a horizon kilometres
+            // away. A craft in orbit looking at the planet needs far more than
+            // this, which is what the logarithmic-depth work in the renderer's
+            // next pass is for.
+            near = 0.2,
+            far = 200_000.0,
         )
         viewMatrix.setViewFromCameraRotation(interpolatedCameraRot)
         viewProjection.setMultiplied(projectionMatrix, viewMatrix)
@@ -123,7 +135,7 @@ class GlRenderer(
             val prevItem = previous?.items?.getOrNull(index)
             val position: Vec3
             val rotation: Quat
-            if (prevItem != null && prevItem.meshId == item.meshId) {
+            if (prevItem != null && prevItem.meshSpec == item.meshSpec) {
                 interpolatedPosition.setTo(
                     lerp(prevItem.position.x, item.position.x, alpha),
                     lerp(prevItem.position.y, item.position.y, alpha),
@@ -137,10 +149,29 @@ class GlRenderer(
                 rotation = item.rotation
             }
 
-            modelMatrix.setFromTrs(position, rotation, cameraPos, item.scale)
+            modelMatrix.setFromTrs(position, rotation, cameraPos)
             shader.setMat4("uModel", modelMatrix.m)
             shader.setVec4("uColor", item.color)
-            meshes[item.meshId]?.draw()
+            meshFor(item.meshSpec).draw()
+        }
+    }
+
+    /** Builds and caches the GPU mesh for a shape the first time it is drawn. */
+    private fun meshFor(spec: MeshSpec): Mesh = meshes.getOrPut(spec) {
+        when (spec) {
+            is MeshSpec.Cylinder ->
+                MeshBuilder.cylinder(spec.radius.toFloat(), spec.height.toFloat())
+            is MeshSpec.Cone -> MeshBuilder.frustum(
+                spec.bottomRadius.toFloat(),
+                spec.topRadius.toFloat(),
+                spec.height.toFloat(),
+            )
+            is MeshSpec.Box -> MeshBuilder.box(
+                (spec.width * 0.5).toFloat(),
+                (spec.height * 0.5).toFloat(),
+                (spec.depth * 0.5).toFloat(),
+            )
+            is MeshSpec.Sphere -> MeshBuilder.sphere(spec.radius.toFloat())
         }
     }
 

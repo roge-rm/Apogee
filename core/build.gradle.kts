@@ -27,3 +27,23 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
 }
+
+/**
+ * Runs the headless ascent scenario: `./gradlew :core:flyAscent`.
+ *
+ * The physics iteration loop. A full flight to orbit runs in well under a
+ * second here, against minutes to rebuild, install and fly on a device.
+ */
+tasks.register<JavaExec>("flyAscent") {
+    group = "verification"
+    description = "Flies the stock rocket to orbit headlessly and prints telemetry."
+    classpath = sourceSets["test"].runtimeClasspath
+    mainClass.set("com.rm.apogee.core.scenario.AscentScenarioKt")
+}
+
+tasks.register<JavaExec>("padDiagnostic") {
+    group = "verification"
+    description = "Probe: behaviour of an unpowered craft resting on the launch pad."
+    classpath = sourceSets["test"].runtimeClasspath
+    mainClass.set("com.rm.apogee.core.scenario.PadDiagnosticKt")
+}

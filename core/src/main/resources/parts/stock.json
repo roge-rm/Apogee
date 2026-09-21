@@ -1,0 +1,170 @@
+[
+  {
+    "id": "pod-mk1",
+    "title": "Mk1 Command Pod",
+    "category": "command",
+    "dryMass": 840.0,
+    "description": "Single-seat capsule. Cramped, and the only thing between you and the outside.",
+    "crashTolerance": 14.0,
+    "dragCoefficient": 0.2,
+    "mesh": { "type": "cone", "bottomRadius": 0.625, "topRadius": 0.3, "height": 1.2 },
+    "attachNodes": [
+      { "id": "top", "position": { "x": 0.0, "y": 0.6, "z": 0.0 }, "direction": { "x": 0.0, "y": 1.0, "z": 0.0 }, "size": 0 },
+      { "id": "bottom", "position": { "x": 0.0, "y": -0.6, "z": 0.0 }, "direction": { "x": 0.0, "y": -1.0, "z": 0.0 }, "size": 1 }
+    ],
+    "modules": [
+      { "type": "command", "crewCapacity": 1, "reactionTorque": 5000.0, "providesControl": true },
+      { "type": "tank", "resource": "monopropellant", "capacity": 10.0 },
+      { "type": "battery", "capacity": 50.0 }
+    ]
+  },
+  {
+    "id": "parachute-mk1",
+    "title": "Mk1 Parachute",
+    "category": "utility",
+    "dryMass": 100.0,
+    "description": "Nosecone-mounted canopy. Deploy below 300 m/s or watch it shred.",
+    "crashTolerance": 8.0,
+    "dragCoefficient": 0.25,
+    "mesh": { "type": "cylinder", "radius": 0.3, "height": 0.4 },
+    "attachNodes": [
+      { "id": "bottom", "position": { "x": 0.0, "y": -0.2, "z": 0.0 }, "direction": { "x": 0.0, "y": -1.0, "z": 0.0 }, "size": 0 }
+    ],
+    "modules": [
+      { "type": "parachute", "deployedDragCoefficient": 500.0, "maxDeploymentSpeed": 300.0 }
+    ]
+  },
+  {
+    "id": "decoupler-1",
+    "title": "TD-12 Decoupler",
+    "category": "structural",
+    "dryMass": 50.0,
+    "description": "Separates what is above it from what is below it, once, loudly.",
+    "crashTolerance": 10.0,
+    "dragCoefficient": 0.3,
+    "mesh": { "type": "cylinder", "radius": 0.625, "height": 0.2 },
+    "attachNodes": [
+      { "id": "top", "position": { "x": 0.0, "y": 0.1, "z": 0.0 }, "direction": { "x": 0.0, "y": 1.0, "z": 0.0 }, "size": 1 },
+      { "id": "bottom", "position": { "x": 0.0, "y": -0.1, "z": 0.0 }, "direction": { "x": 0.0, "y": -1.0, "z": 0.0 }, "size": 1 }
+    ],
+    "modules": [
+      { "type": "decoupler", "ejectionImpulse": 2500.0 }
+    ]
+  },
+  {
+    "id": "tank-t400",
+    "title": "FL-T400 Fuel Tank",
+    "category": "fuel",
+    "dryMass": 250.0,
+    "description": "Two metres of propellant in a thin aluminium shell.",
+    "crashTolerance": 6.0,
+    "dragCoefficient": 0.3,
+    "mesh": { "type": "cylinder", "radius": 0.625, "height": 2.0 },
+    "attachNodes": [
+      { "id": "top", "position": { "x": 0.0, "y": 1.0, "z": 0.0 }, "direction": { "x": 0.0, "y": 1.0, "z": 0.0 }, "size": 1 },
+      { "id": "bottom", "position": { "x": 0.0, "y": -1.0, "z": 0.0 }, "direction": { "x": 0.0, "y": -1.0, "z": 0.0 }, "size": 1 }
+    ],
+    "modules": [
+      { "type": "tank", "resource": "propellant", "capacity": 200.0 }
+    ]
+  },
+  {
+    "id": "tank-t800",
+    "title": "FL-T800 Fuel Tank",
+    "category": "fuel",
+    "dryMass": 500.0,
+    "description": "Four metres of the same idea.",
+    "crashTolerance": 6.0,
+    "dragCoefficient": 0.3,
+    "mesh": { "type": "cylinder", "radius": 0.625, "height": 4.0 },
+    "attachNodes": [
+      { "id": "top", "position": { "x": 0.0, "y": 2.0, "z": 0.0 }, "direction": { "x": 0.0, "y": 1.0, "z": 0.0 }, "size": 1 },
+      { "id": "bottom", "position": { "x": 0.0, "y": -2.0, "z": 0.0 }, "direction": { "x": 0.0, "y": -1.0, "z": 0.0 }, "size": 1 }
+    ],
+    "modules": [
+      { "type": "tank", "resource": "propellant", "capacity": 400.0 }
+    ]
+  },
+  {
+    "id": "engine-lvt45",
+    "title": "LV-T45 \"Swivel\" Engine",
+    "category": "propulsion",
+    "dryMass": 1500.0,
+    "description": "Gimballed lifter engine. Not efficient, but it will get you off the pad.",
+    "crashTolerance": 7.0,
+    "dragCoefficient": 0.35,
+    "mesh": { "type": "cone", "bottomRadius": 0.55, "topRadius": 0.625, "height": 1.4 },
+    "attachNodes": [
+      { "id": "top", "position": { "x": 0.0, "y": 0.7, "z": 0.0 }, "direction": { "x": 0.0, "y": 1.0, "z": 0.0 }, "size": 1 }
+    ],
+    "modules": [
+      {
+        "type": "engine",
+        "thrustVacuum": 215000.0,
+        "thrustSeaLevel": 167000.0,
+        "ispVacuum": 320.0,
+        "ispSeaLevel": 250.0,
+        "gimbalRange": 3.0,
+        "propellant": "propellant",
+        "thrustDirection": { "x": 0.0, "y": 1.0, "z": 0.0 },
+        "minThrottle": 0.0
+      }
+    ]
+  },
+  {
+    "id": "engine-lv909",
+    "title": "LV-909 \"Terrier\" Engine",
+    "category": "propulsion",
+    "dryMass": 500.0,
+    "description": "Vacuum-optimised. Nearly useless in atmosphere, excellent once you are out of it.",
+    "crashTolerance": 7.0,
+    "dragCoefficient": 0.35,
+    "mesh": { "type": "cone", "bottomRadius": 0.5, "topRadius": 0.625, "height": 1.0 },
+    "attachNodes": [
+      { "id": "top", "position": { "x": 0.0, "y": 0.5, "z": 0.0 }, "direction": { "x": 0.0, "y": 1.0, "z": 0.0 }, "size": 1 }
+    ],
+    "modules": [
+      {
+        "type": "engine",
+        "thrustVacuum": 60000.0,
+        "thrustSeaLevel": 15000.0,
+        "ispVacuum": 345.0,
+        "ispSeaLevel": 85.0,
+        "gimbalRange": 4.0,
+        "propellant": "propellant",
+        "thrustDirection": { "x": 0.0, "y": 1.0, "z": 0.0 },
+        "minThrottle": 0.0
+      }
+    ]
+  },
+  {
+    "id": "fin-basic",
+    "title": "AV-R8 Winglet",
+    "category": "aero",
+    "dryMass": 60.0,
+    "description": "Keeps the pointy end forward while there is still air to push against.",
+    "crashTolerance": 12.0,
+    "dragCoefficient": 0.3,
+    "mesh": { "type": "box", "width": 0.7, "height": 0.6, "depth": 0.1 },
+    "attachNodes": [
+      { "id": "root", "position": { "x": -0.35, "y": 0.0, "z": 0.0 }, "direction": { "x": -1.0, "y": 0.0, "z": 0.0 }, "size": 0, "kind": "surface" }
+    ],
+    "modules": [
+      { "type": "aeroSurface", "liftCoefficient": 1.2, "area": 0.42, "controllable": true, "controlAuthority": 1.0 }
+    ]
+  },
+  {
+    "id": "nosecone-1",
+    "title": "Aerodynamic Nose Cone",
+    "category": "aero",
+    "dryMass": 30.0,
+    "description": "Costs mass, saves more drag than it costs.",
+    "crashTolerance": 9.0,
+    "dragCoefficient": 0.05,
+    "mesh": { "type": "cone", "bottomRadius": 0.625, "topRadius": 0.05, "height": 1.0 },
+    "attachNodes": [
+      { "id": "bottom", "position": { "x": 0.0, "y": -0.5, "z": 0.0 }, "direction": { "x": 0.0, "y": -1.0, "z": 0.0 }, "size": 1 }
+    ],
+    "modules": []
+  }
+]

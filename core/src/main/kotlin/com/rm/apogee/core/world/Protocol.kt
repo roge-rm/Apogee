@@ -1,0 +1,147 @@
+package com.rm.apogee.core.world
+
+import com.rm.apogee.core.craft.CraftDesign
+import com.rm.apogee.core.math.SerialQuat
+import com.rm.apogee.core.math.SerialVec3
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+
+/**
+ * Something a player asks the world to do.
+ *
+ * Commands travel client -> server and are applied at a tick boundary, never
+ * mid-step. Applying them mid-step would make the result depend on where in the
+ * vessel iteration the command landed, which is exactly the kind of ordering
+ * dependence that makes a replay stop matching.
+ */
+@Serializable
+sealed interface Command {
+    @Serializable
+    @SerialName("setThrottle")
+    data class SetThrottle(val vessel: Long, val throttle: Double) : Command
+
+    @Serializable
+    @SerialName("setAttitude")
+    data class SetAttitude(
+        val vessel: Long,
+        val pitch: Double,
+        val yaw: Double,
+        val roll: Double,
+    ) : Command
+
+    @Serializable
+    @SerialName("setSas")
+    data class SetSas(val vessel: Long, val enabled: Boolean) : Command
+
+    @Serializable
+    @SerialName("stage")
+    data class Stage(val vessel: Long) : Command
+
+    @Serializable
+    @SerialName("spawnCraft")
+    data class SpawnCraft(val design: CraftDesign, val siteId: String) : Command
+
+    @Serializable
+    @SerialName("chat")
+    data class Chat(val text: String) : Command
+}
+
+/**
+ * One vessel's motion at a tick.
+ *
+ * Small and sent constantly - 20 Hz per vessel in range - which is why it
+ * carries only what changes continuously. Structure travels separately as
+ * [StructureUpdate], because a craft's part list changes a handful of times per
+ * flight and repeating it 20 times a second would dominate the bandwidth for no
+ * reason.
+ */
+@Serializable
+data class VesselKinematics(
+    val vessel: Long,
+    val referenceBodyId: String,
+    val position: SerialVec3,
+    val rotation: SerialQuat,
+    val velocity: SerialVec3,
+    val angularVelocity: SerialVec3,
+    /** Fraction, for the plume. */
+    val throttle: Double = 0.0,
+)
+
+@Serializable
+data class Snapshot(
+    val tick: Long,
+    val time: Double,
+    val vessels: List<VesselKinematics>,
+)
+
+/**
+ * A vessel's structure appearing, changing or going away.
+ *
+ * Sent on spawn, on decouple, and on destruction. [design] is null when the
+ * vessel is simply gone.
+ */
+@Serializable
+data class StructureUpdate(
+    val vessel: Long,
+    val design: CraftDesign? = null,
+    val name: String = "",
+    /** Which stage the craft is on, so a joining client sees the right state. */
+    val currentStage: Int = 0,
+    val activatedParts: List<Int> = emptyList(),
+)
+
+/** Server -> client. */
+@Serializable
+sealed interface ServerMessage {
+    @Serializable
+    @SerialName("welcome")
+    data class Welcome(
+        val protocolVersion: Int,
+        val catalogHash: String,
+        val serverName: String,
+        /** The vessel this client controls, or -1 if none yet. */
+        val controlledVessel: Long = -1,
+    ) : ServerMessage
+
+    @Serializable
+    @SerialName("rejected")
+    data class Rejected(val reason: String) : ServerMessage
+
+    @Serializable
+    @SerialName("snapshot")
+    data class SnapshotMessage(val snapshot: Snapshot) : ServerMessage
+
+    @Serializable
+    @SerialName("structure")
+    data class StructureMessage(val update: StructureUpdate) : ServerMessage
+
+    @Serializable
+    @SerialName("chat")
+    data class ChatMessage(val from: String, val text: String) : ServerMessage
+}
+
+/** Client -> server. */
+@Serializable
+sealed interface ClientMessage {
+    @Serializable
+    @SerialName("hello")
+    data class Hello(
+        val protocolVersion: Int,
+        val catalogHash: String,
+        val playerName: String,
+    ) : ClientMessage
+
+    @Serializable
+    @SerialName("command")
+    data class CommandMessage(val command: Command) : ClientMessage
+}
+
+object Protocol {
+    /**
+     * Bumped whenever the wire format changes incompatibly. Checked alongside
+     * the part-catalogue hash during the handshake, because the two can drift
+     * independently - a matching protocol with a mismatched catalogue is just
+     * as broken, and much harder to diagnose from the symptoms.
+     */
+    const val VERSION = 1
+}

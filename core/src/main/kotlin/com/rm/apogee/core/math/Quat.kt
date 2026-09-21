@@ -143,6 +143,25 @@ class Quat(
 
     override fun toString(): String = "($x, $y, $z, w=$w)"
 
+    /**
+     * Exact component equality, for tests, map keys and data-class comparison.
+     *
+     * Note this is *not* rotation equality - `q` and `-q` describe the same
+     * orientation but are not equal here. Use [approxEqualsRotation] when the
+     * question is "do these point the same way".
+     */
+    override fun equals(other: Any?): Boolean =
+        this === other ||
+            (other is Quat && x == other.x && y == other.y && z == other.z && w == other.w)
+
+    override fun hashCode(): Int {
+        var result = x.hashCode()
+        result = 31 * result + y.hashCode()
+        result = 31 * result + z.hashCode()
+        result = 31 * result + w.hashCode()
+        return result
+    }
+
     companion object {
         fun identity() = Quat(0.0, 0.0, 0.0, 1.0)
 
@@ -188,4 +207,77 @@ class Quat(
             )
         }
     }
+}
+
+/**
+ * Shortest-arc rotation taking [from] to [to]. Both are normalised internally.
+ *
+ * Handles the antiparallel case explicitly: when the vectors oppose, the
+ * shortest arc is ambiguous (any axis perpendicular to both works) and the
+ * naive cross-product construction collapses to a zero axis and produces NaN.
+ */
+fun quatFromTo(from: Vec3, to: Vec3, out: Quat = Quat()): Quat {
+    val a = from.normalized()
+    val b = to.normalized()
+    val dot = a dot b
+
+    if (dot >= 1.0 - 1e-12) return out.setIdentity()
+
+    if (dot <= -1.0 + 1e-12) {
+        // Antiparallel: pick any perpendicular axis and turn a half circle.
+        val axis = if (kotlin.math.abs(a.x) < 0.9) Vec3.unitX() else Vec3.unitY()
+        val perpendicular = a.cross(axis).normalizeInPlace()
+        return Quat.fromAxisAngle(perpendicular, kotlin.math.PI, out)
+    }
+
+    val axis = a.cross(b)
+    return out.setTo(axis.x, axis.y, axis.z, 1.0 + dot).normalizeInPlace()
+}
+
+/**
+ * A rotation whose local -Z points along [direction], with [up] as the
+ * reference for roll.
+ *
+ * -Z rather than +Z because that is where OpenGL's camera looks; this exists
+ * to aim a camera, and matching the graphics convention here avoids a
+ * conjugation at every call site.
+ */
+fun quatLookAt(direction: Vec3, up: Vec3 = Vec3.unitY(), out: Quat = Quat()): Quat {
+    val forward = direction.normalized()
+    if (forward.lengthSq < 0.5) return out.setIdentity()
+
+    // If the requested up is parallel to the view direction there is no
+    // well-defined roll, so substitute an axis that is not.
+    var reference = up.normalized()
+    if (kotlin.math.abs(reference dot forward) > 0.999) {
+        reference = if (kotlin.math.abs(forward.y) < 0.9) Vec3.unitY() else Vec3.unitX()
+    }
+
+    val right = forward.cross(reference).normalizeInPlace()
+    val trueUp = right.cross(forward)
+
+    // Camera basis as matrix columns: X = right, Y = up, Z = -forward.
+    val m00 = right.x; val m01 = trueUp.x; val m02 = -forward.x
+    val m10 = right.y; val m11 = trueUp.y; val m12 = -forward.y
+    val m20 = right.z; val m21 = trueUp.z; val m22 = -forward.z
+
+    val trace = m00 + m11 + m22
+    return when {
+        trace > 0.0 -> {
+            val s = 0.5 / kotlin.math.sqrt(trace + 1.0)
+            out.setTo((m21 - m12) * s, (m02 - m20) * s, (m10 - m01) * s, 0.25 / s)
+        }
+        m00 > m11 && m00 > m22 -> {
+            val s = 2.0 * kotlin.math.sqrt(1.0 + m00 - m11 - m22)
+            out.setTo(0.25 * s, (m01 + m10) / s, (m02 + m20) / s, (m21 - m12) / s)
+        }
+        m11 > m22 -> {
+            val s = 2.0 * kotlin.math.sqrt(1.0 + m11 - m00 - m22)
+            out.setTo((m01 + m10) / s, 0.25 * s, (m12 + m21) / s, (m02 - m20) / s)
+        }
+        else -> {
+            val s = 2.0 * kotlin.math.sqrt(1.0 + m22 - m00 - m11)
+            out.setTo((m02 + m20) / s, (m12 + m21) / s, 0.25 * s, (m10 - m01) / s)
+        }
+    }.normalizeInPlace()
 }

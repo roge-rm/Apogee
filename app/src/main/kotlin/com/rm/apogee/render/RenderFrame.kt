@@ -2,47 +2,56 @@ package com.rm.apogee.render
 
 import com.rm.apogee.core.math.Quat
 import com.rm.apogee.core.math.Vec3
+import com.rm.apogee.core.part.MeshSpec
 import java.util.concurrent.atomic.AtomicReference
 
-/** One thing to draw this frame. Immutable: it crosses a thread boundary. */
+/**
+ * One thing to draw this frame.
+ *
+ * Carries the part's [MeshSpec] rather than a mesh handle: the simulation has
+ * no business knowing what is on the GPU, and the renderer builds and caches a
+ * mesh per distinct shape the first time it sees one.
+ */
 class RenderItem(
-    val meshId: MeshId,
+    val meshSpec: MeshSpec,
     val position: Vec3,
     val rotation: Quat,
-    val scale: Double,
     val color: FloatArray,
 )
 
-enum class MeshId { CUBE }
-
 /**
- * An immutable, complete description of one simulation instant.
+ * An immutable, complete description of one instant, ready to draw.
  *
- * Produced by the simulation thread, consumed by the GL thread. Because it is
+ * Produced by the game thread, consumed by the GL thread. Because it is
  * immutable and handed over by a single atomic reference swap, the two threads
  * never contend and no lock is involved anywhere in the render path.
  */
 class RenderFrame(
     val simTick: Long,
-    /** Wall-clock nanos when this frame's state was current, for interpolation. */
+    /** Wall-clock nanos this frame's state was current, for interpolation. */
     val timestampNanos: Long,
+    /**
+     * Camera position in the same frame as [RenderItem.position] - relative to
+     * the vessel's attractor. Everything is made camera-relative in double
+     * before being narrowed to float; see Mat4.setFromTrs.
+     */
     val cameraPosition: Vec3,
     val cameraRotation: Quat,
     val fovYRadians: Double,
     val items: List<RenderItem>,
+    /** Radius of the body being orbited, for drawing its surface. */
+    val attractorRadius: Double = 0.0,
 )
 
 /**
- * The hand-off between the simulation thread and the GL thread.
+ * The hand-off between the game thread and the GL thread.
  *
  * Keeps the two most recent frames so the renderer can interpolate between
- * them: the simulation runs at a fixed 60 Hz, the display may be at 60, 90 or
- * 120, and without interpolation the mismatch shows up as judder even though
- * the physics is perfectly smooth.
+ * them: the simulation runs at a fixed 60 Hz and the server streams at 20, while
+ * the display may be at 60, 90 or 120. Without interpolation that mismatch
+ * shows up as judder even though the physics is perfectly smooth.
  *
- * Lock-free by construction - one atomic swap in, one atomic read out. This is
- * the payoff for the simulation being plain Kotlin data rather than state owned
- * by a native engine that both threads have to take a mutex to touch.
+ * Lock-free by construction: one atomic swap in, one atomic read out.
  */
 class FrameBus {
 
@@ -51,9 +60,6 @@ class FrameBus {
     private val frames = AtomicReference<Pair?>(null)
 
     fun publish(frame: RenderFrame) {
-        // getAndUpdate is not available below API 24-era java.util.concurrent on
-        // all devices in our range; the explicit CAS loop is equivalent and has
-        // no version caveats.
         while (true) {
             val current = frames.get()
             val next = Pair(current?.latest, frame)

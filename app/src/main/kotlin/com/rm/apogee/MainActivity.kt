@@ -1,7 +1,10 @@
 package com.rm.apogee
 
+import android.annotation.SuppressLint
 import android.opengl.GLSurfaceView
 import android.os.Bundle
+import android.view.MotionEvent
+import android.view.ScaleGestureDetector
 import android.view.WindowManager
 import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
@@ -9,13 +12,15 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.platform.AndroidUiDispatcher
 import androidx.compose.ui.platform.ComposeView
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
+import com.rm.apogee.game.GameSession
 import com.rm.apogee.game.HudState
-import com.rm.apogee.game.SimLoop
 import com.rm.apogee.platform.PerfHints
 import com.rm.apogee.render.FrameBus
 import com.rm.apogee.render.GlRenderer
@@ -28,23 +33,18 @@ import com.rm.apogee.ui.screens.MainMenuScreen
 import com.rm.apogee.ui.screens.PlayScreen
 import com.rm.apogee.ui.screens.SettingsScreen
 import com.rm.apogee.ui.theme.ApogeeTheme
-import androidx.compose.ui.platform.AndroidUiDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import androidx.compose.runtime.withFrameNanos
 
 /**
  * Host for the whole app: one FrameLayout holding the 3D surface and, above it,
  * one ComposeView holding every screen.
  *
- * Kept deliberately thin. The reference app this borrows its look from ended up
- * with a 3400-line Activity that was simultaneously navigation host, tick loop,
- * input handler and state bridge, and its own notes call that out as the thing
- * not to repeat. Here the simulation lives in [SimLoop], the render path in
- * [GlRenderer], observable UI state in [HudState], and this class only wires
- * them together and decides which screen is showing.
+ * Kept deliberately thin. The simulation lives in :core, the session wiring in
+ * [GameSession], the render path in [GlRenderer], and observable UI state in
+ * [HudState]; this class only connects them and decides which screen is up.
  */
 class MainActivity : ComponentActivity() {
 
@@ -54,8 +54,7 @@ class MainActivity : ComponentActivity() {
 
     private var surfaceView: GLSurfaceView? = null
     private var renderer: GlRenderer? = null
-    private var simLoop: SimLoop? = null
-    private var simJob: Job? = null
+    private var session: GameSession? = null
     private var frameClockJob: Job? = null
     private var perfHints: PerfHints? = null
 
@@ -66,9 +65,9 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         settings = GameSettings(this)
-        detectedTier = settings.lastDetectedTier
         hudState = HudState()
         frameBus = FrameBus()
+        detectedTier = settings.lastDetectedTier
 
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         setContentView(R.layout.activity_main)
@@ -90,6 +89,10 @@ class MainActivity : ComponentActivity() {
                         hud = hudState,
                         controlOpacity = settings.controlOpacity,
                         showDebugOverlay = settings.showDebugOverlay,
+                        leftHandMode = settings.leftHandMode,
+                        onThrottleChange = ::onThrottleChange,
+                        onStage = ::onStage,
+                        onToggleSas = ::onToggleSas,
                         onExit = { navigateTo(AppScreen.PLAY) },
                     )
                     // M2/M4 screens; the enum carries them so navigation and
@@ -113,10 +116,31 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    // --- flight controls -----------------------------------------------------
+
+    private fun onThrottleChange(value: Float) {
+        hudState.throttle = value
+        val current = session ?: return
+        lifecycleScope.launch { current.setThrottle(value.toDouble()) }
+    }
+
+    private fun onStage() {
+        val current = session ?: return
+        lifecycleScope.launch { current.stage() }
+    }
+
+    private fun onToggleSas() {
+        val enabled = !hudState.sasEnabled
+        hudState.sasEnabled = enabled
+        val current = session ?: return
+        lifecycleScope.launch { current.setSas(enabled) }
+    }
+
     // --- the 3D world's lifecycle -------------------------------------------
 
     private fun enterWorld() {
         hideSystemBars()
+        hudState.reset()
 
         val host = findViewById<FrameLayout>(R.id.game_surface_host)
         val glRenderer = GlRenderer(this, frameBus) { tier ->
@@ -124,6 +148,32 @@ class MainActivity : ComponentActivity() {
             settings.lastDetectedTier = tier
             detectedTier = tier
         }
+        val view = createSurfaceView(glRenderer)
+        host.addView(view)
+
+        renderer = glRenderer
+        surfaceView = view
+
+        perfHints = PerfHints.create(
+            context = this,
+            threadIds = intArrayOf(android.os.Process.myTid()),
+            targetWorkNanos = TARGET_FRAME_NANOS,
+        )
+
+        val newSession = GameSession.hostLocal(
+            frameBus = frameBus,
+            perfHints = perfHints,
+            playerName = settings.playerName,
+            scope = lifecycleScope,
+        )
+        newSession.start(lifecycleScope)
+        session = newSession
+
+        frameClockJob = startFrameClock()
+    }
+
+    @SuppressLint("ClickableViewAccessibility")
+    private fun createSurfaceView(glRenderer: GlRenderer): GLSurfaceView {
         val view = GLSurfaceView(this).apply {
             setEGLContextClientVersion(3)
             // Keeping the context across pauses avoids rebuilding every mesh
@@ -133,28 +183,44 @@ class MainActivity : ComponentActivity() {
             setRenderer(glRenderer)
             renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
         }
-        host.addView(view)
 
-        renderer = glRenderer
-        surfaceView = view
+        // Camera gestures are handled on the surface itself rather than in
+        // Compose, so a drag over the 3D world does not have to travel through
+        // the overlay's hit testing to get here.
+        val pinch = ScaleGestureDetector(this, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+            override fun onScale(detector: ScaleGestureDetector): Boolean {
+                session?.camera?.zoomBy(detector.scaleFactor.toDouble())
+                return true
+            }
+        })
 
-        perfHints = PerfHints.create(
-            context = this,
-            threadIds = intArrayOf(android.os.Process.myTid()),
-            targetWorkNanos = SimLoop.DT_NANOS,
-        )
-
-        val loop = SimLoop(frameBus, perfHints)
-        simLoop = loop
-        simJob = loop.start(lifecycleScope)
-        frameClockJob = startFrameClock()
+        var lastX = 0f
+        var lastY = 0f
+        view.setOnTouchListener { _, event ->
+            pinch.onTouchEvent(event)
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    lastX = event.x; lastY = event.y
+                }
+                MotionEvent.ACTION_MOVE -> if (!pinch.isInProgress && event.pointerCount == 1) {
+                    val dx = event.x - lastX
+                    val dy = event.y - lastY
+                    lastX = event.x; lastY = event.y
+                    session?.camera?.orbitBy(
+                        deltaYaw = -dx * ORBIT_RADIANS_PER_PIXEL,
+                        deltaPitch = dy * ORBIT_RADIANS_PER_PIXEL,
+                    )
+                }
+            }
+            true
+        }
+        return view
     }
 
     private fun leaveWorld() {
         frameClockJob?.cancel(); frameClockJob = null
-        simJob?.cancel(); simJob = null
-        simLoop = null
 
+        session?.stop(); session = null
         perfHints?.close(); perfHints = null
 
         surfaceView?.let { findViewById<FrameLayout>(R.id.game_surface_host).removeView(it) }
@@ -180,13 +246,19 @@ class MainActivity : ComponentActivity() {
         CoroutineScope(AndroidUiDispatcher.CurrentThread).launch {
             while (isActive) {
                 withFrameNanos { }
-                val loop = simLoop ?: continue
+                val current = session ?: continue
                 val glRenderer = renderer ?: continue
 
                 hudState.frameTimeMillis = glRenderer.lastFrameTimeNanos.get() / 1_000_000f
-                hudState.simStepMillis = loop.lastStepNanos.get() / 1_000_000f
-                hudState.simTick = loop.tick.get()
-                hudState.drawnItems = frameBus.latest()?.latest?.items?.size ?: 0
+                hudState.frameBuildMillis = current.lastFrameBuildNanos.get() / 1_000_000f
+                hudState.telemetry = current.telemetry
+                hudState.connecting = !current.connected && current.rejectionReason == null
+                hudState.connectionError = current.rejectionReason
+
+                frameBus.latest()?.latest?.let { frame ->
+                    hudState.simTick = frame.simTick
+                    hudState.drawnItems = frame.items.size
+                }
             }
         }
 
@@ -222,5 +294,12 @@ class MainActivity : ComponentActivity() {
     private fun showSystemBars() {
         WindowInsetsControllerCompat(window, window.decorView)
             .show(WindowInsetsCompat.Type.systemBars())
+    }
+
+    private companion object {
+        /** 60 fps budget, for the ADPF hint. */
+        const val TARGET_FRAME_NANOS = 16_666_667L
+
+        const val ORBIT_RADIANS_PER_PIXEL = 0.005
     }
 }
