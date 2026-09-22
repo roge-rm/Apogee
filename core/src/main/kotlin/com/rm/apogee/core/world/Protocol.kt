@@ -48,6 +48,10 @@ sealed interface Command {
     data class SetSas(val vessel: Long, val enabled: Boolean) : Command
 
     @Serializable
+    @SerialName("setBrakes")
+    data class SetBrakes(val vessel: Long, val engaged: Boolean) : Command
+
+    @Serializable
     @SerialName("stage")
     data class Stage(val vessel: Long) : Command
 
@@ -216,5 +220,6 @@ object Protocol {
      * independently - a matching protocol with a mismatched catalogue is just
      * as broken, and much harder to diagnose from the symptoms.
      */
-    const val VERSION = 2
+    // 3: CraftDesign.orientation, Command.SetBrakes.
+    const val VERSION = 3
 }

@@ -451,12 +451,19 @@ class GroundContact {
         }
         rollAxis.mulInPlace(1.0 / axisLength)
 
-        applyFriction(body, attractor, normalImpulse, rollAxis, wheel.rollingResistance)
+        // Braked, a wheel grips along its rolling axis at its brake friction:
+        // the craft stops, or stays put where it was left.
+        val rolling = if (control.brakes) {
+            maxOf(wheel.brakeFriction, wheel.rollingResistance)
+        } else {
+            wheel.rollingResistance
+        }
+        applyFriction(body, attractor, normalImpulse, rollAxis, rolling)
 
         // Traction. Torque follows from where the wheel is, as for every other
         // force on a craft, so a rover with all its drive at one end pitches
         // under power exactly as it should.
-        if (wheel.motorForce > 0.0 && control.throttle != 0.0) {
+        if (wheel.motorForce > 0.0 && control.throttle != 0.0 && !control.brakes) {
             // How fast this wheel is already rolling, relative to the ground.
             relativeVelocityAt(body, attractor, partPosition, pointVelocity)
             val rolling = pointVelocity dot rollAxis

@@ -72,13 +72,21 @@ class ClientPrediction(
         vessel == null || design.hashCode() != designHash
 
     /** Mirrors the player's controls onto the local replica. */
-    fun applyControl(throttle: Double, pitch: Double, yaw: Double, roll: Double, sas: Boolean) {
+    fun applyControl(
+        throttle: Double,
+        pitch: Double,
+        yaw: Double,
+        roll: Double,
+        sas: Boolean,
+        brakes: Boolean = false,
+    ) {
         val control = vessel?.control ?: return
         control.throttle = throttle
         control.pitch = pitch
         control.yaw = yaw
         control.roll = roll
         control.sasEnabled = sas
+        control.brakes = brakes
     }
 
     /** Fires the next stage locally, so staging feels immediate too. */

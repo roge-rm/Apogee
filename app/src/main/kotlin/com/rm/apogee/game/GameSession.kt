@@ -104,6 +104,7 @@ class GameSession private constructor(
     private var localYaw = 0.0
     private var localRoll = 0.0
     private var localSas = false
+    private var localBrakes = false
 
     private var lastReconciledTick = -1L
     private var lastAdvanceNanos = 0L
@@ -271,6 +272,22 @@ class GameSession private constructor(
             return client.vessels.firstOrNull { it.id == id }?.design?.orientation
         }
 
+    suspend fun setBrakes(engaged: Boolean) {
+        localBrakes = engaged
+        pushControlsToPrediction()
+        withControlledVessel { client.send(Command.SetBrakes(it, engaged)) }
+    }
+
+    /** Whether the craft being flown has any wheels to brake. */
+    val controlledHasWheels: Boolean
+        get() {
+            val id = client.controlledVessel ?: return false
+            val design = client.vessels.firstOrNull { it.id == id }?.design ?: return false
+            return design.parts.any {
+                catalog[it.partId]?.hasModule<com.rm.apogee.core.part.Wheel>() == true
+            }
+        }
+
     suspend fun setSas(enabled: Boolean) {
         localSas = enabled
         pushControlsToPrediction()
@@ -324,7 +341,7 @@ class GameSession private constructor(
     }
 
     private fun pushControlsToPrediction() =
-        prediction.applyControl(localThrottle, localPitch, localYaw, localRoll, localSas)
+        prediction.applyControl(localThrottle, localPitch, localYaw, localRoll, localSas, localBrakes)
 
     // --- presentation --------------------------------------------------------
 

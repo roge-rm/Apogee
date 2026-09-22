@@ -56,6 +56,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.rm.apogee.core.craft.CraftOrientation
 import com.rm.apogee.core.craft.CraftStats
+import com.rm.apogee.core.craft.SymmetryMode
 import com.rm.apogee.core.part.PartCategory
 import com.rm.apogee.core.part.PartCatalog
 import com.rm.apogee.game.BuilderSession
@@ -129,7 +130,7 @@ fun BuilderScreen(
             ToolButton(Icons.Filled.Close, "Leave the assembly building", onExit)
             ToolButton(Icons.Filled.Undo, "Undo", session::undo)
             OrientationButton(session.orientation, session::toggleOrientation)
-            SymmetryButton(session)
+            SymmetryButton(session.symmetry, session::toggleSymmetry)
             ToolButton(Icons.Filled.Save, "Save", { showNameDialog = true })
             ToolButton(Icons.Filled.FolderOpen, "Load", { showLoadDialog = true })
             if (session.selectedPartIndex != null) {
@@ -275,19 +276,21 @@ private fun OrientationButton(orientation: CraftOrientation, onToggle: () -> Uni
 }
 
 @Composable
-private fun SymmetryButton(session: BuilderSession) {
-    val active = session.symmetry.count > 1
+private fun SymmetryButton(symmetry: SymmetryMode, onToggle: () -> Unit) {
+    // The value, not the session, for the same reason as the orientation
+    // button: the session is not observable state.
+    val active = symmetry.count > 1
     Surface(
         shape = RoundedCornerShape(Dimens.HudIconSize / 2),
         color = if (active) ApogeeColors.Accent.alpha(0.3f) else Color.White.alpha(ApogeeAlpha.CONTROL_FILL),
         modifier = Modifier.size(Dimens.HudIconSize),
     ) {
         Box(
-            Modifier.clickable(onClick = session::toggleSymmetry),
+            Modifier.clickable(onClick = onToggle),
             contentAlignment = Alignment.Center,
         ) {
             Text(
-                session.symmetry.label,
+                symmetry.label,
                 style = MaterialTheme.typography.labelLarge,
                 color = if (active) ApogeeColors.Accent else Color.White.alpha(ApogeeAlpha.SECONDARY),
             )

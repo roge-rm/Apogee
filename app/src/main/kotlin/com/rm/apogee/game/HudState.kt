@@ -38,6 +38,10 @@ class HudState {
     /** Mirrors the control the player is holding, so the UI can show it. */
     var throttle: Float by mutableFloatStateOf(0f)
     var sasEnabled: Boolean by mutableStateOf(false)
+    var brakes: Boolean by mutableStateOf(false)
+
+    /** Whether the craft has wheels, so the brake control can hide itself. */
+    var hasWheels: Boolean by mutableStateOf(false)
     var mapMode: Boolean by mutableStateOf(false)
 
     /**
@@ -65,6 +69,8 @@ class HudState {
         surfaceReady = false
         throttle = 0f
         sasEnabled = false
+        brakes = false
+        hasWheels = false
         mapMode = false
         canJoin = false
         ownedCraft = 0

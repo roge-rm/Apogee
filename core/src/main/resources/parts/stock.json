@@ -824,7 +824,8 @@
         "rollingResistance": 0.03,
         "suspensionTravel": 0.2,
         "springRate": 250000.0,
-        "damping": 20000.0
+        "damping": 20000.0,
+        "brakeFriction": 0.4
       }
     ]
   },

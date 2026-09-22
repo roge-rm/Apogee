@@ -155,6 +155,7 @@ class MainActivity : ComponentActivity() {
                         onRoll = ::onRoll,
                         onStage = ::onStage,
                         onToggleSas = ::onToggleSas,
+                        onToggleBrakes = ::onToggleBrakes,
                         onToggleMap = ::onToggleMap,
                         onJoin = ::onJoin,
                         onSwitchCraft = ::onSwitchCraft,
@@ -340,6 +341,13 @@ class MainActivity : ComponentActivity() {
     private fun onSwitchCraft() {
         val current = session ?: return
         lifecycleScope.launch { current.switchCraft() }
+    }
+
+    private fun onToggleBrakes() {
+        val engaged = !hudState.brakes
+        hudState.brakes = engaged
+        val current = session ?: return
+        lifecycleScope.launch { current.setBrakes(engaged) }
     }
 
     private fun onToggleSas() {
@@ -566,6 +574,7 @@ class MainActivity : ComponentActivity() {
                     hudState.connectionError = current.rejectionReason
                     hudState.canJoin = current.joinable
                     hudState.ownedCraft = current.ownedCraftCount
+                    hudState.hasWheels = current.controlledHasWheels
                 }
 
                 frameBus.latest()?.latest?.let { frame ->

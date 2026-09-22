@@ -80,11 +80,20 @@ class BoatTest {
         assertTrue("still heeled at ${tilt(boat)} degrees", tilt(boat) < 6.0)
     }
 
+    /**
+     * Through commands, as the game does it. A settled boat is asleep, and a
+     * command is what wakes a craft; setting its controls directly would be
+     * talking to one that is not listening.
+     */
+    private fun underWay(world: World, boat: Vessel) {
+        world.apply(Command.Stage(boat.id.raw))
+        world.apply(Command.SetThrottle(boat.id.raw, 1.0))
+    }
+
     @Test
     fun `throttle drives it forward, not sideways`() {
         val (world, boat) = afloat()
-        world.stage(boat)
-        boat.control.throttle = 1.0
+        underWay(world, boat)
         repeat((30.0 / dt).toInt()) { world.step(dt) }
 
         val v = groundVelocity(world, boat)
@@ -103,14 +112,13 @@ class BoatTest {
     @Test
     fun `it turns its track, not just its nose`() {
         val (world, boat) = afloat()
-        world.stage(boat)
-        boat.control.throttle = 1.0
+        underWay(world, boat)
         repeat((20.0 / dt).toInt()) { world.step(dt) }
         val before = groundVelocity(world, boat).normalizeInPlace()
 
-        boat.control.yaw = 1.0
+        world.apply(Command.SetAttitude(boat.id.raw, 0.0, 1.0, 0.0))
         repeat((15.0 / dt).toInt()) { world.step(dt) }
-        boat.control.yaw = 0.0
+        world.apply(Command.SetAttitude(boat.id.raw, 0.0, 0.0, 0.0))
         val v = groundVelocity(world, boat)
         val after = v.copy().normalizeInPlace()
 
@@ -118,5 +126,20 @@ class BoatTest {
         assertTrue("track turned only $turned degrees", turned > 30.0)
         val slip = Math.toDegrees(asin(((after dot boat.forward())).coerceIn(-1.0, 1.0)))
         assertTrue("skidding: track is ${90 - slip} degrees off the nose", slip > 70.0)
+    }
+
+    /**
+     * A boat left alone at sea costs nothing, the same as one parked on a
+     * pad - and comes back to life when someone takes the controls.
+     */
+    @Test
+    fun `moored, it goes to sleep, and wakes to the throttle`() {
+        val (world, boat) = afloat(settle = 30.0)
+        assertTrue("a still boat never went to sleep", boat.dormant)
+
+        underWay(world, boat)
+        repeat((10.0 / dt).toInt()) { world.step(dt) }
+        assertTrue("it did not wake", !boat.dormant)
+        assertTrue("awake but not moving", groundVelocity(world, boat).length > 1.0)
     }
 }

@@ -52,6 +52,14 @@ class ControlState {
     var sasEnabled: Boolean = false
 
     /**
+     * Wheel brakes. A mode rather than a held button, like the parking brake
+     * it mostly is: a rover left on a slope has to stay there with nobody
+     * holding anything, and rolling resistance alone lets it creep off any
+     * slope steeper than about three degrees.
+     */
+    var brakes: Boolean = false
+
+    /**
      * What stability assist is asking for, -1..1 on each axis, written each
      * tick by [com.rm.apogee.core.world.StabilityAssist] and never by a
      * player. Kept apart from [pitch]/[yaw]/[roll] so that "is the stick

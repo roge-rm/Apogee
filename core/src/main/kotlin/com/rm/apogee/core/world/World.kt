@@ -316,6 +316,9 @@ class World(
             is Command.SetSas ->
                 waken(command.vessel)?.control?.sasEnabled = command.enabled
 
+            is Command.SetBrakes ->
+                waken(command.vessel)?.control?.brakes = command.engaged
+
             is Command.SetTranslation -> waken(command.vessel)?.control?.let {
                 it.translateX = command.x
                 it.translateY = command.y
@@ -758,10 +761,37 @@ class World(
      * for a tick or two on the way to settling.
      */
     private fun considerSleeping(vessel: Vessel, report: ContactReport) {
-        if (vessel.noteStillness(report.anchored, SLEEP_SETTLE_TICKS)) {
+        val still = report.anchored || floatingStill(vessel)
+        if (vessel.noteStillness(still, SLEEP_SETTLE_TICKS)) {
             attractorFor(vessel).rotationAt(time, scratchRotation)
             vessel.sleep(scratchRotation)
         }
+    }
+
+    /**
+     * Afloat, clear of the bottom, engine off, and going nowhere relative to
+     * the water.
+     *
+     * The other way to be at rest. Ground contact is what normally decides,
+     * and a floating craft has none, so without this a boat moored at sea was
+     * simulated every tick for ever - which in a world of bases people leave
+     * and come back to is exactly the craft that should cost nothing.
+     *
+     * A velocity threshold here, not an anchor, because nothing is holding a
+     * floating craft - it is still because the water has damped it. Valid
+     * only while the sea is calm: with waves (M9) a floating craft is never
+     * at rest, and a dormant one has to ride the surface instead.
+     */
+    private fun floatingStill(vessel: Vessel): Boolean {
+        if (vessel.touchingGround || hydrostatics.submergedVolume <= 0.0) return false
+        if (vessel.control.throttle > 0.0) return false
+        val attractor = attractorFor(vessel)
+        attractor.surfaceVelocityAt(vessel.body.position, scratchSurfaceVelocity)
+        scratchRelativeVelocity.setTo(vessel.body.linearVelocity).subInPlace(scratchSurfaceVelocity)
+        if (scratchRelativeVelocity.length > FLOATING_REST_SPEED) return false
+        attractor.angularVelocity(scratchSpin)
+        scratchSpin.subInPlace(vessel.body.angularVelocity)
+        return scratchSpin.length * vessel.contactRadius <= FLOATING_REST_SPEED
     }
 
     /** Wakes [id] if it is asleep, so a command always reaches a live craft. */
@@ -944,6 +974,7 @@ class World(
                     .withIndex().filter { it.value }.map { it.index },
                 throttle = vessel.control.throttle,
                 sasEnabled = vessel.control.sasEnabled,
+                brakes = vessel.control.brakes,
                 resources = vessel.resourceSnapshot().map { it.toList() },
             )
         },
@@ -1031,6 +1062,7 @@ class World(
             vessel.restoreStaging(saved.currentStage, saved.activatedParts, saved.brokenParts)
             vessel.control.throttle = saved.throttle
             vessel.control.sasEnabled = saved.sasEnabled
+            vessel.control.brakes = saved.brakes
             if (saved.resources.isNotEmpty()) {
                 vessel.restoreResources(saved.resources.map { it.toDoubleArray() })
             }
@@ -1165,6 +1197,14 @@ class World(
          * mid-slide and frozen there.
          */
         private const val SLEEP_SETTLE_TICKS = 120
+
+        /**
+         * Metres per second, of the hull or of its extremities turning, below
+         * which a floating craft counts as moored. Above the few millimetres a
+         * second the heave damping leaves behind after settling, well below
+         * any drift anyone could see.
+         */
+        private const val FLOATING_REST_SPEED = 0.02
 
 
         val launchSites = listOf(

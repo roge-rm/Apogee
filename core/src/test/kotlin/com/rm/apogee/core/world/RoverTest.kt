@@ -128,4 +128,47 @@ class RoverTest {
             },
         )
     }
+
+    /** And stays on its wheels doing it: full-friction brakes flipped it. */
+    @Test
+    fun `brakes stop it`() {
+        val (world, rover) = worldWithRover()
+        rover.control.throttle = 1.0
+        repeat(600) { world.step(dt) }
+        val cruising = groundSpeed(world, rover)
+
+        rover.control.throttle = 0.0
+        rover.control.brakes = true
+        // Brake friction of 0.35 is about three and a half metres a second
+        // every second: six seconds from top speed, so eight is a stop with
+        // room to spare.
+        repeat(480) { world.step(dt) }
+        assertTrue(
+            "from $cruising m/s, still doing ${groundSpeed(world, rover)} after eight seconds of brakes",
+            groundSpeed(world, rover) < 0.5,
+        )
+        val up = rover.body.position.copy().normalizeInPlace()
+        val mast = rover.body.orientation.rotate(com.rm.apogee.core.math.Vec3(0.0, 1.0, 0.0))
+        assertTrue("it went over braking", (mast dot up) > 0.9)
+    }
+
+    /** Coasting, by contrast, goes a long way - that is what a wheel is for. */
+    @Test
+    fun `without brakes it coasts`() {
+        val (world, rover) = worldWithRover()
+        rover.control.throttle = 1.0
+        repeat(600) { world.step(dt) }
+        rover.control.throttle = 0.0
+        repeat(180) { world.step(dt) }
+        assertTrue("it stopped without brakes", groundSpeed(world, rover) > 5.0)
+    }
+
+    @Test
+    fun `brakes hold it against its own motor`() {
+        val (world, rover) = worldWithRover()
+        rover.control.brakes = true
+        rover.control.throttle = 1.0
+        repeat(300) { world.step(dt) }
+        assertTrue("it drove through its brakes", groundSpeed(world, rover) < 0.5)
+    }
 }

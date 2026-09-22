@@ -229,6 +229,17 @@ data class Wheel(
      * zero a parked rover slides down the gentlest slope for ever.
      */
     val rollingResistance: Double = 0.06,
+    /**
+     * Friction coefficient along the rolling direction with the brakes on.
+     *
+     * Not the full ground friction a locked wheel would give. Braking at a
+     * whole 0.6 g threw the stock rover over its own front wheels - its
+     * centre of mass sits higher than half its wheelbase, which is exactly
+     * the condition for a nose-over - and real brakes are modulated for the
+     * same reason. Still enough to hold a parked craft on a slope of
+     * atan(brakeFriction): about nineteen degrees at the default.
+     */
+    val brakeFriction: Double = 0.35,
     val suspensionTravel: Double = 0.25,
     val springRate: Double = 60_000.0,
     val damping: Double = 6_000.0,

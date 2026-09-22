@@ -83,6 +83,7 @@ fun FlightScreen(
     onRoll: (Float) -> Unit,
     onStage: () -> Unit,
     onToggleSas: () -> Unit,
+    onToggleBrakes: () -> Unit,
     onToggleMap: () -> Unit,
     onJoin: () -> Unit,
     onSwitchCraft: () -> Unit,
@@ -224,8 +225,9 @@ fun FlightScreen(
             ) {
                 val throttle: @Composable () -> Unit = {
                     ThrottleControl(
-                        hud.throttle,
+                        hud,
                         onThrottleChange,
+                        onToggleBrakes,
                         PORTRAIT_THROTTLE_HEIGHT,
                     )
                 }
@@ -265,7 +267,7 @@ fun FlightScreen(
                     .padding(horizontal = 16.dp, vertical = 12.dp)
                     .alpha(controlOpacity),
             ) {
-                ThrottleControl(hud.throttle, onThrottleChange, THROTTLE_HEIGHT)
+                ThrottleControl(hud, onThrottleChange, onToggleBrakes, THROTTLE_HEIGHT)
             }
 
             val stickAlignment =
@@ -314,10 +316,12 @@ fun FlightScreen(
 /** The throttle, with its readout and label. */
 @Composable
 private fun ThrottleControl(
-    throttle: Float,
+    hud: HudState,
     onThrottleChange: (Float) -> Unit,
+    onToggleBrakes: () -> Unit,
     height: Dp,
 ) {
+    val throttle = hud.throttle
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
             "${(throttle * 100).roundToInt()}%",
@@ -336,6 +340,25 @@ private fun ThrottleControl(
             style = MaterialTheme.typography.labelSmall,
             color = Color.White.alpha(ApogeeAlpha.SUBTITLE),
         )
+        // Brakes live under the throttle: the thumb that pulls the power off
+        // slides straight on to them. Only on a craft with wheels to brake.
+        if (hud.hasWheels) {
+            Spacer(Modifier.height(8.dp))
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = if (hud.brakes) ApogeeColors.Danger.alpha(0.3f)
+                    else Color.White.alpha(ApogeeAlpha.CONTROL_FILL),
+                modifier = Modifier.clickable(onClick = onToggleBrakes),
+            ) {
+                Text(
+                    "BRK",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = if (hud.brakes) ApogeeColors.Danger else Color.White.alpha(ApogeeAlpha.SECONDARY),
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                )
+            }
+        }
     }
 }
 
