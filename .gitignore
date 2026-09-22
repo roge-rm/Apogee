@@ -11,6 +11,10 @@ build/
 # Holds this machine's SDK path, and is where release signing credentials go.
 local.properties
 
+# The server's compose configuration, which holds ADMIN_PASSWORD.
+# .env.example is the template that IS committed.
+.env
+
 # --- IDE --------------------------------------------------------------------
 # The whole .idea directory stays local. Note git does not descend into an
 # excluded directory, so a "!.idea/something" negation below this line would be

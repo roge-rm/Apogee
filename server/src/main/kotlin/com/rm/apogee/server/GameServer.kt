@@ -39,6 +39,8 @@ class ServerConfig(
     val snapshotHz: Int = 20,
     /** Craft handed to a player who joins with nothing. */
     val starterCraft: (PartCatalog) -> CraftDesign = { StockCraft.starterRocket(it) },
+    /** Simultaneous players, or 0 for no limit. */
+    val maxPlayers: Int = 0,
 )
 
 /**
@@ -85,6 +87,13 @@ class GameServer(
     val config: ServerConfig = ServerConfig(),
 ) {
     private val sessions = CopyOnWriteArrayList<PlayerSession>()
+
+    /** Names of everyone currently connected, for the admin view. */
+    val playerNames: List<String>
+        get() = sessions.filter { it.connected && it.handshakeComplete }.map { it.playerName }
+
+    /** Ticks completed since this process started. */
+    val tick: Long get() = world.tick
     private val inbox = ConcurrentLinkedQueue<Pair<PlayerSession, ClientMessage>>()
     private var nextSessionId = 1
     private var nextPad = 0
@@ -210,6 +219,18 @@ class GameServer(
             disconnect(session)
             return
         }
+        if (config.maxPlayers > 0 && playerCount >= config.maxPlayers) {
+            // Refused with a reason rather than dropped: a player who cannot
+            // tell "server full" from "server broken" will keep retrying.
+            session.send(
+                ServerMessage.Rejected(
+                    "Server is full (${config.maxPlayers} players)"
+                ),
+                Channel.CONTROL,
+            )
+            disconnect(session)
+            return
+        }
         if (hello.catalogHash != world.catalog.contentHash) {
             session.send(
                 ServerMessage.Rejected(
@@ -225,13 +246,17 @@ class GameServer(
         session.playerName = hello.playerName.take(32).ifBlank { "Pilot" }
         session.handshakeComplete = true
 
-        // Each player gets their own pad, so joining does not drop a craft
-        // inside one that is already standing there.
-        val vessel = world.spawnOnSurface(
+        // A returning player gets their craft back, wherever they left it.
+        // This is what "persistent world" means from the seat: log off in
+        // orbit, come back, still be in orbit.
+        val existing = world.vesselOwnedBy(session.playerName)
+        val vessel = existing ?: world.spawnOnSurface(
             config.starterCraft(world.catalog),
             World.launchSites.first(),
+            // Each new player gets their own pad, so joining does not drop a
+            // craft inside one that is already standing there.
             pad = nextPad++,
-        )
+        ).also { it.owner = session.playerName }
         session.controlledVessel = vessel.id
 
         session.send(
@@ -308,6 +333,22 @@ class GameServer(
             }
         }
     }
+
+    /**
+     * Sends a chat line from the server itself.
+     *
+     * Public because the dedicated server's admin channel needs to talk to the
+     * people playing - an operator announcing a restart is the single most
+     * useful thing an admin panel does.
+     */
+    suspend fun broadcastChat(from: String, text: String) =
+        broadcast(ServerMessage.ChatMessage(from, text), Channel.CONTROL)
+
+    /** Finds a connected player by name, for admin actions. */
+    fun sessionNamed(playerName: String): PlayerSession? =
+        sessions.firstOrNull {
+            it.connected && it.handshakeComplete && it.playerName.equals(playerName, ignoreCase = true)
+        }
 
     private suspend fun broadcastSnapshot() {
         if (sessions.isEmpty()) return

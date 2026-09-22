@@ -1,12 +1,13 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
-// The authoritative game server. Built as a library so :app can host a game
-// in-process, and with the `application` plugin so the same code also runs
-// standalone as the dedicated server (`./gradlew :server:run`).
+// The authoritative game server, as a library.
+//
+// A library and nothing else: :app embeds it to host a game in-process, and
+// :dedicated wraps it in a standalone process. Neither is privileged, and
+// there is exactly one implementation of the simulation between them.
 plugins {
     alias(libs.plugins.kotlin.jvm)
     alias(libs.plugins.kotlin.serialization)
-    application
 }
 
 java {
@@ -18,10 +19,6 @@ kotlin {
     compilerOptions {
         jvmTarget = JvmTarget.JVM_11
     }
-}
-
-application {
-    mainClass.set("com.rm.apogee.server.DedicatedServerKt")
 }
 
 dependencies {

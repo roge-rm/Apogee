@@ -1,0 +1,112 @@
+/* Apogee's own palette, so the admin page and the game read as one thing:
+   navy into plum, one lavender accent, and white at a fixed alpha ladder. */
+:root {
+  --backdrop-top: #101830;
+  --backdrop-bottom: #241735;
+  --panel: rgba(255, 255, 255, 0.05);
+  --accent: #b39dff;
+  --prograde: #7cffb2;
+  --caution: #ffd37f;
+  --danger: #ff6b6b;
+  --data: #7fd8ff;
+  --text: #ffffff;
+  --text-body: rgba(255, 255, 255, 0.85);
+  --text-subtle: rgba(255, 255, 255, 0.6);
+  --divider: rgba(255, 255, 255, 0.12);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: linear-gradient(180deg, var(--backdrop-top), var(--backdrop-bottom)) fixed;
+  color: var(--text);
+  font: 15px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+}
+
+header {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 18px 24px;
+  border-bottom: 1px solid var(--divider);
+}
+.wordmark { font-size: 22px; font-weight: 700; letter-spacing: 2px; }
+.subtitle { color: var(--accent); font-size: 14px; }
+.right { margin-left: auto; }
+
+main { padding: 24px; max-width: 1100px; margin: 0 auto; }
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 16px;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--divider);
+  border-radius: 12px;
+  padding: 18px 20px;
+  margin-bottom: 16px;
+}
+.panel.narrow { max-width: 380px; margin: 60px auto; }
+.panel.warning { border-color: var(--caution); }
+
+h1 { font-size: 22px; margin: 0 0 16px; }
+h2 { font-size: 15px; margin: 0 0 12px; color: var(--accent); font-weight: 600; }
+
+.readout { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 0; }
+.readout dt { color: var(--text-subtle); font-size: 13px; }
+.readout dd { margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+               color: var(--data); text-align: right; }
+
+table { width: 100%; border-collapse: collapse; }
+td { padding: 7px 0; border-bottom: 1px solid var(--divider); font-size: 14px; }
+td.numeric { text-align: right; font-family: ui-monospace, Menlo, monospace; color: var(--data); }
+td.act { text-align: right; width: 1%; white-space: nowrap; }
+
+.actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.inline { display: inline-flex; gap: 8px; }
+.grow { flex: 1 1 260px; }
+
+input {
+  width: 100%;
+  padding: 9px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--text);
+  font: inherit;
+}
+label { display: block; margin-bottom: 6px; color: var(--text-subtle); font-size: 13px; }
+
+button {
+  padding: 9px 16px;
+  border-radius: 999px;
+  border: none;
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+button:hover { background: rgba(255, 255, 255, 0.16); }
+button.primary { background: rgba(179, 157, 255, 0.28); color: var(--accent); }
+button.danger { background: rgba(255, 107, 107, 0.2); color: var(--danger); }
+button.quiet { background: none; color: var(--text-subtle); }
+form.inline > button { flex: 0 0 auto; }
+
+pre {
+  margin: 0;
+  max-height: 340px;
+  overflow: auto;
+  font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--text-body);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.hint { color: var(--text-subtle); font-size: 13px; }
+.error { color: var(--danger); font-size: 14px; }
+.ok { color: var(--prograde); }

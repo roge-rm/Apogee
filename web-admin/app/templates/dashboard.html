@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block header_actions %}
+<form method="post" action="/logout" class="inline right">
+  <button type="submit" class="quiet">Sign out</button>
+</form>
+{% endblock %}
+{% block content %}
+
+<div id="offline" class="panel warning" hidden>
+  <h2>Server not reachable</h2>
+  <p id="offline-reason"></p>
+  <p class="hint">This page keeps trying. The game is unaffected by whatever
+    happens to this container.</p>
+</div>
+
+<div id="online" hidden>
+  <div class="grid">
+    <div class="panel">
+      <h2 id="server-name">&nbsp;</h2>
+      <dl class="readout">
+        <dt>Players</dt><dd id="s-players">-</dd>
+        <dt>Craft</dt><dd id="s-vessels">-</dd>
+        <dt>Universe time</dt><dd id="s-time">-</dd>
+        <dt>Uptime</dt><dd id="s-uptime">-</dd>
+        <dt>Last save</dt><dd id="s-save">-</dd>
+        <dt>Port</dt><dd id="s-port">-</dd>
+        <dt>Parts</dt><dd id="s-catalog">-</dd>
+      </dl>
+    </div>
+
+    <div class="panel">
+      <h2>Players</h2>
+      <table id="players"><tbody></tbody></table>
+      <p id="nobody" class="hint">Nobody is flying right now.</p>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Actions</h2>
+    <div class="actions">
+      <button id="save" class="primary">Save world now</button>
+      <form id="announce-form" class="inline grow">
+        <input id="announce" name="message" placeholder="Announce to everyone flying&hellip;">
+        <button type="submit">Send</button>
+      </form>
+      <button id="stop" class="danger">Stop server</button>
+    </div>
+    <p id="action-result" class="hint"></p>
+  </div>
+
+  <div class="panel">
+    <h2>Log</h2>
+    <pre id="log"></pre>
+  </div>
+</div>
+
+<script src="/static/app.js"></script>
+{% endblock %}

@@ -442,6 +442,112 @@ class World(
         activatedParts = vessel.activated.withIndex().filter { it.value }.map { it.index },
     )
 
+    // --- persistence ---------------------------------------------------------
+
+    /**
+     * Captures the whole world for saving.
+     *
+     * Takes a copy of everything it touches: an autosave runs on the same
+     * thread as the tick in this design, but the moment it does not, handing
+     * out live vectors would let a save observe a craft halfway through a step.
+     */
+    fun save(): WorldSave = WorldSave(
+        catalogHash = catalog.contentHash,
+        universeTime = time,
+        nextVesselId = nextVesselId,
+        vessels = vesselsById.values.map { vessel ->
+            VesselSave(
+                id = vessel.id.raw,
+                name = vessel.name,
+                owner = vessel.owner,
+                design = vessel.design,
+                referenceBodyId = vessel.referenceBodyId,
+                position = vessel.body.position.copy(),
+                rotation = vessel.body.orientation.copy(),
+                velocity = vessel.body.linearVelocity.copy(),
+                angularVelocity = vessel.body.angularVelocity.copy(),
+                currentStage = vessel.currentStage,
+                activatedParts = vessel.activated
+                    .withIndex().filter { it.value }.map { it.index },
+                throttle = vessel.control.throttle,
+                sasEnabled = vessel.control.sasEnabled,
+                resources = vessel.resourceSnapshot().map { it.toList() },
+            )
+        },
+    )
+
+    /**
+     * Replaces this world's contents with a saved one.
+     *
+     * @return the problems found. A craft referring to parts this build no
+     *   longer has is skipped and reported rather than dropped silently - an
+     *   operator who changed the catalogue needs to know which craft they lost.
+     */
+    fun restore(save: WorldSave): List<String> {
+        val problems = ArrayList<String>()
+
+        if (save.formatVersion != WorldSave.FORMAT_VERSION) {
+            return listOf(
+                "Save is format ${save.formatVersion}, this build reads " +
+                    "${WorldSave.FORMAT_VERSION}"
+            )
+        }
+        if (save.catalogHash != catalog.contentHash) {
+            problems.add(
+                "Save was made with a different part catalogue " +
+                    "(${save.catalogHash} vs ${catalog.contentHash}); " +
+                    "craft using changed parts may not load"
+            )
+        }
+
+        vesselsById.clear()
+        pendingEvents.clear()
+        time = save.universeTime
+        nextVesselId = save.nextVesselId
+
+        for (saved in save.vessels) {
+            val invalid = saved.design.validate(catalog)
+            if (invalid.isNotEmpty()) {
+                problems.add("Skipped '${saved.name}' (#${saved.id}): ${invalid.first()}")
+                continue
+            }
+
+            val vessel = Vessel(
+                id = VesselId(saved.id),
+                design = saved.design,
+                defs = saved.design.parts.map { catalog.require(it.partId) },
+                referenceBodyId = saved.referenceBodyId,
+            )
+            vessel.name = saved.name
+            vessel.owner = saved.owner
+            vessel.body.position.setTo(saved.position)
+            vessel.body.orientation.setTo(saved.rotation)
+            vessel.body.linearVelocity.setTo(saved.velocity)
+            vessel.body.angularVelocity.setTo(saved.angularVelocity)
+            vessel.restoreStaging(saved.currentStage, saved.activatedParts)
+            vessel.control.throttle = saved.throttle
+            vessel.control.sasEnabled = saved.sasEnabled
+            if (saved.resources.isNotEmpty()) {
+                vessel.restoreResources(saved.resources.map { it.toDoubleArray() })
+            }
+            vessel.recomputeMass(shiftBodyPosition = false)
+
+            vesselsById[vessel.id] = vessel
+            // Everyone connected needs to be told these exist.
+            pendingEvents.add(WorldEvent.VesselSpawned(vessel.id))
+
+            // A save written by an older build could contain an id at or past
+            // the counter; handing it out again would collide.
+            if (saved.id >= nextVesselId) nextVesselId = saved.id + 1
+        }
+        return problems
+    }
+
+    /** Finds a craft belonging to [owner], so a returning player gets it back. */
+    fun vesselOwnedBy(owner: String): Vessel? =
+        if (owner.isBlank()) null
+        else vesselsById.values.firstOrNull { it.owner.equals(owner, ignoreCase = true) }
+
     fun destroy(id: VesselId, reason: String) {
         if (vesselsById.remove(id) != null) {
             pendingEvents.add(WorldEvent.VesselDestroyed(id, reason))

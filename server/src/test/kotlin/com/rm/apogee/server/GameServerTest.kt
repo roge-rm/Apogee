@@ -227,6 +227,81 @@ class GameServerTest {
         )
     }
 
+    /**
+     * The point of a persistent world, from the seat: log off in orbit, come
+     * back, still be in orbit.
+     */
+    @Test
+    fun `a returning player gets their own craft back`() = runTest {
+        val server = GameServer.default(catalog)
+        val alice = joinClient(server, backgroundScope, "Alice")
+        pumpUntil(server, "Alice to be flying something") { alice.controlledVessel != null }
+
+        val hers = VesselId(alice.controlledVessel!!)
+        // Fly it somewhere distinctive, then leave.
+        server.world.apply(Command.Stage(hers.raw))
+        server.world.apply(Command.SetThrottle(hers.raw, 1.0))
+        repeat(600) { server.stepOnce() }
+        val altitude = server.world.vessel(hers)!!.body.position.length
+        alice.close()
+        pumpUntil(server, "Alice to be noticed gone") { server.playerCount == 0 }
+
+        val backAgain = joinClient(server, backgroundScope, "Alice")
+        pumpUntil(server, "Alice to be flying again") { backAgain.controlledVessel != null }
+
+        assertEquals(
+            "she should be given the same craft, not a fresh one on the pad",
+            hers.raw,
+            backAgain.controlledVessel,
+        )
+        // Near where she left it, not exactly: the world does not pause because
+        // nobody is watching, so a craft under power keeps climbing while its
+        // pilot reconnects. What must not happen is finding it back on the pad.
+        val now = server.world.vessel(hers)!!.body.position.length
+        assertEquals("she should rejoin near where she left off", altitude, now, 100.0)
+        assertTrue(
+            "and certainly not back on the launch pad",
+            now > server.world.system.body("terra").radius + 100.0,
+        )
+        assertEquals("with no second craft spawned", 1, server.world.vessels.size)
+    }
+
+    @Test
+    fun `a different player gets their own craft`() = runTest {
+        val server = GameServer.default(catalog)
+        val alice = joinClient(server, backgroundScope, "Alice")
+        val bob = joinClient(server, backgroundScope, "Bob")
+        pumpUntil(server, "both to be flying") {
+            alice.controlledVessel != null && bob.controlledVessel != null
+        }
+
+        assertTrue(
+            "two players must not be handed the same craft",
+            alice.controlledVessel != bob.controlledVessel,
+        )
+        assertEquals(2, server.world.vessels.size)
+    }
+
+    @Test
+    fun `a full server refuses with a reason`() = runTest {
+        val server = GameServer(
+            world = com.rm.apogee.core.world.World.default(catalog),
+            config = ServerConfig(maxPlayers = 1),
+        )
+        val alice = joinClient(server, backgroundScope, "Alice")
+        pumpUntil(server, "Alice to connect") { alice.connected }
+
+        val bob = joinClient(server, backgroundScope, "Bob")
+
+        assertFalse("Bob should not get in", bob.connected)
+        assertNotNull("and should be told why", bob.rejectionReason)
+        assertTrue(
+            "the reason should say full, not something vague: ${bob.rejectionReason}",
+            bob.rejectionReason!!.contains("full", ignoreCase = true),
+        )
+        assertEquals(1, server.playerCount)
+    }
+
     @Test
     fun `chat reaches every connected client`() = runTest {
         val server = GameServer.default(catalog)

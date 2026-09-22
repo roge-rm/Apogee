@@ -1,0 +1,11 @@
+# Keep build output, IDE state and the Android app out of the build context.
+# The server image needs the Gradle wrapper and four source modules.
+.git
+.gradle
+.idea
+build
+*/build
+app
+local.properties
+docs
+*.apk

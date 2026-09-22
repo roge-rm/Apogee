@@ -64,6 +64,15 @@ class Vessel(
     var name: String = design.name
 
     /**
+     * Player this craft belongs to, or blank for debris and abandoned craft.
+     *
+     * A name rather than a session: sessions end every time someone closes the
+     * app, and the whole point of a persistent world is that the craft is still
+     * there when they come back.
+     */
+    var owner: String = ""
+
+    /**
      * Per-part resource amounts, indexed `[partIndex][ResourceType.ordinal]`.
      * A flat array rather than a map: this is read for every engine every tick.
      */
@@ -195,6 +204,33 @@ class Vessel(
      */
     private fun computeFuelGroups() {
         fuelGroups = FuelGroups.compute(design, defs)
+    }
+
+    /**
+     * Current resource levels, part by part, for saving.
+     *
+     * Copied rather than exposed: the live arrays are written every tick by the
+     * engine loop, and handing them out would let a save in progress observe a
+     * half-drained state.
+     */
+    fun resourceSnapshot(): List<DoubleArray> = resources.map { it.copyOf() }
+
+    /** Restores levels taken from [resourceSnapshot]. */
+    fun restoreResources(saved: List<DoubleArray>) {
+        for (i in resources.indices) {
+            val row = saved.getOrNull(i) ?: continue
+            row.copyInto(resources[i], endIndex = minOf(row.size, resources[i].size))
+        }
+        recomputeMass(shiftBodyPosition = false)
+    }
+
+    /** Restores which parts are live, after loading. */
+    fun restoreStaging(stage: Int, activatedParts: List<Int>) {
+        currentStage = stage.coerceIn(0, design.stages.size)
+        activated.fill(false)
+        for (index in activatedParts) {
+            if (index in activated.indices) activated[index] = true
+        }
     }
 
     // --- mass ---------------------------------------------------------------
