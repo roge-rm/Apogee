@@ -160,28 +160,16 @@ fun FlightScreen(
         }
 
         if (portrait) {
-            // The navball goes to the top edge, between the buttons and the
-            // telemetry. Portrait has an empty band across the top and a
-            // crowded one across the bottom, and the navball is the one thing
-            // down there that is read rather than touched - moving it up buys
-            // the controls the width they were short of, and costs only eye
-            // travel.
-            NavBall(
-                rotation = hud.telemetry.rotation,
-                worldUp = hud.telemetry.up,
-                prograde = hud.telemetry.prograde,
-                size = PORTRAIT_NAVBALL_SIZE,
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .windowInsetsPadding(WindowInsets.displayCutout)
-                    .padding(top = 12.dp)
-                    .alpha(controlOpacity),
-            )
-
             // Controls on the bottom edge, thumbs in the corners, staging
-            // spanning the gap between them. The bar takes the leftover width
-            // rather than a fixed span, so it is symmetric between the two
-            // controls however wide they end up.
+            // spanning the gap between them.
+            //
+            // The navball sits under the throttle in the corner rather than up
+            // on the top edge: it is watched while steering, and an instrument
+            // you read continuously belongs next to the controls rather than
+            // at the other end of the screen. It shares the left column with
+            // the throttle because four controls will not fit across 390dp in
+            // a single row - which is also why the throttle is shorter here
+            // than it would otherwise be.
             Row(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -191,24 +179,38 @@ fun FlightScreen(
                     .alpha(controlOpacity),
                 verticalAlignment = Alignment.Bottom,
             ) {
-                val throttle: @Composable () -> Unit = {
-                    ThrottleControl(
-                        hud.throttle,
-                        onThrottleChange,
-                        PORTRAIT_THROTTLE_HEIGHT,
-                    )
+                // Throttle and navball travel together, so left-hand mode
+                // mirrors the pair rather than splitting them.
+                val throttleAndBall: @Composable () -> Unit = {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        ThrottleControl(
+                            hud.throttle,
+                            onThrottleChange,
+                            PORTRAIT_THROTTLE_HEIGHT,
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        NavBall(
+                            rotation = hud.telemetry.rotation,
+                            worldUp = hud.telemetry.up,
+                            prograde = hud.telemetry.prograde,
+                            size = PORTRAIT_NAVBALL_SIZE,
+                        )
+                    }
                 }
                 val attitude: @Composable () -> Unit = {
                     AttitudeCluster(hud, onAttitude, onRoll, onToggleSas, PORTRAIT_STICK_SIZE)
                 }
 
-                if (leftHandMode) attitude() else throttle()
+                if (leftHandMode) attitude() else throttleAndBall()
+                // Takes the leftover width rather than a fixed span, so it
+                // stays clear of both however wide they end up.
                 StageButton(
                     hud.telemetry.stage,
                     onStage,
-                    Modifier.weight(1f).padding(horizontal = 10.dp),
+                    Modifier.weight(1f).padding(horizontal = 8.dp),
+                    compact = true,
                 )
-                if (leftHandMode) throttle() else attitude()
+                if (leftHandMode) throttleAndBall() else attitude()
             }
         } else {
             // Landscape: anchored to the corners, with nothing in the middle.
@@ -329,8 +331,18 @@ private fun AttitudeCluster(
     }
 }
 
+/**
+ * @param compact drops the chevron and tightens the padding, for the portrait
+ *   bottom row where the bar only gets the width the two controls leave it.
+ *   Without it "STAGE 0" wraps onto two lines at about 130dp.
+ */
 @Composable
-private fun StageButton(stage: Int, onStage: () -> Unit, modifier: Modifier = Modifier) {
+private fun StageButton(
+    stage: Int,
+    onStage: () -> Unit,
+    modifier: Modifier = Modifier,
+    compact: Boolean = false,
+) {
     Surface(
         shape = RoundedCornerShape(Dimens.CornerActionBar),
         color = ApogeeColors.Accent.alpha(0.85f),
@@ -340,16 +352,19 @@ private fun StageButton(stage: Int, onStage: () -> Unit, modifier: Modifier = Mo
         Row(
             Modifier
                 .clickable(onClick = onStage)
-                .padding(horizontal = 20.dp, vertical = 12.dp),
+                .padding(horizontal = if (compact) 12.dp else 20.dp, vertical = 12.dp),
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(Icons.Filled.KeyboardDoubleArrowUp, contentDescription = null)
-            Spacer(Modifier.width(8.dp))
+            if (!compact) {
+                Icon(Icons.Filled.KeyboardDoubleArrowUp, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+            }
             Text(
                 "STAGE $stage",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
+                maxLines = 1,
             )
         }
     }
@@ -488,12 +503,10 @@ private val THROTTLE_HEIGHT = 170.dp
 private val STICK_SIZE = 132.dp
 private val NAVBALL_SIZE = 128.dp
 
-// Portrait is short of width and generous with height, so the controls that
-// can grow downward do. A longer throttle is a finer throttle - the same
-// hundred per cent spread over half again the travel - and the extra height
-// is otherwise empty screen.
-private val PORTRAIT_THROTTLE_HEIGHT = 260.dp
+// The throttle shares its column with the navball in portrait, so its length
+// is what is left after the ball rather than all the height available. The
+// two together come to about the same as the attitude cluster opposite, which
+// is what keeps the bottom band level.
+private val PORTRAIT_THROTTLE_HEIGHT = 170.dp
 private val PORTRAIT_STICK_SIZE = 136.dp
-
-/** Smaller than landscape's, because it shares the top edge with telemetry. */
-private val PORTRAIT_NAVBALL_SIZE = 96.dp
+private val PORTRAIT_NAVBALL_SIZE = 84.dp
