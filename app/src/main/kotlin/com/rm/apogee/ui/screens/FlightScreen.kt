@@ -99,10 +99,30 @@ fun FlightScreen(
             ConnectionProblem(hud.connectionError!!, onExit)
             return@BoxWithConstraints
         }
-        if (hud.connecting) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = ApogeeColors.Accent)
+        if (hud.connecting || !hud.surfaceReady) {
+            // Opaque, and nothing drawn over it. The GL surface behind this is
+            // live, and until the terrain patch lands it is showing a craft
+            // suspended over a globe too coarse to have the ground under it -
+            // which reads as a broken world rather than as one still loading.
+            // A spinner floating over that picture does not help; covering it
+            // does.
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(ApogeeColors.BackdropBottom),
+                contentAlignment = Alignment.Center,
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    CircularProgressIndicator(color = ApogeeColors.Accent)
+                    Spacer(Modifier.height(20.dp))
+                    Text(
+                        if (hud.connecting) "Joining\u2026" else "Shaping the ground\u2026",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.White.alpha(ApogeeAlpha.BODY),
+                    )
+                }
             }
+            return@BoxWithConstraints
         }
 
         // --- top left: exit, craft name, diagnostics ------------------------

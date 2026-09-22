@@ -265,6 +265,7 @@ class MainActivity : ComponentActivity() {
                 frameBus = frameBus,
                 perfHints = null,
                 playerName = settings.playerName,
+                clientId = settings.clientId,
                 host = host,
                 port = port,
             )
@@ -384,6 +385,7 @@ class MainActivity : ComponentActivity() {
                     frameBus = frameBus,
                     perfHints = perfHints,
                     playerName = settings.playerName,
+                    clientId = settings.clientId,
                     design = pendingLaunchDesign,
                     scope = lifecycleScope,
                     world = openSoloWorld(),
@@ -393,6 +395,7 @@ class MainActivity : ComponentActivity() {
                     frameBus = frameBus,
                     perfHints = perfHints,
                     playerName = settings.playerName,
+                    clientId = settings.clientId,
                     serverName = mode.name,
                     design = pendingLaunchDesign,
                     scope = lifecycleScope,
@@ -556,6 +559,7 @@ class MainActivity : ComponentActivity() {
                     hudState.frameBuildMillis = current.lastFrameBuildNanos.get() / 1_000_000f
                     hudState.telemetry = current.telemetry
                     hudState.connecting = !current.connected && current.rejectionReason == null
+                    hudState.surfaceReady = current.surfaceReady
                     hudState.connectionError = current.rejectionReason
                     hudState.canJoin = current.joinable
                     hudState.ownedCraft = current.ownedCraftCount

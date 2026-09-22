@@ -23,7 +23,8 @@ class WorldSaveTest {
             StockCraft.starterRocket(catalog),
             World.launchSites.first(),
         )
-        vessel.owner = "Alice"
+        vessel.owner = "install-alice"
+        vessel.ownerName = "Alice"
         world.apply(Command.Stage(vessel.id.raw))
         world.apply(Command.SetThrottle(vessel.id.raw, 1.0))
         repeat(600) { world.step(dt) }
@@ -204,11 +205,63 @@ class WorldSaveTest {
         val world = World.default(catalog)
         world.restore(original.save())
 
-        assertNotNull("Alice's craft should still be hers", world.vesselOwnedBy("Alice"))
-        assertNotNull("and matching should not care about case", world.vesselOwnedBy("alice"))
-        assertNull(world.vesselOwnedBy("Bob"))
+        assertNotNull(
+            "Alice's craft should still be hers",
+            world.vesselOwnedBy("install-alice"),
+        )
+        assertEquals(
+            "and should still carry her name for display",
+            "Alice",
+            world.vesselOwnedBy("install-alice")?.ownerName,
+        )
+        // Exact: an id is not a name, and folding case on one could only ever
+        // hand a craft to the wrong install.
+        assertNull(world.vesselOwnedBy("INSTALL-ALICE"))
+        assertNull("a name is not an identity", world.vesselOwnedBy("Alice"))
+        assertNull(world.vesselOwnedBy("install-bob"))
         assertNull("nobody owns the unowned", world.vesselOwnedBy(""))
     }
+
+    /**
+     * Format 1 wrote a display name where the id now goes. Keeping it as an id
+     * would mean the first person to type "Alice" inherits Alice's base.
+     */
+    @Test
+    fun `a format 1 save keeps the label but drops the claim`() {
+        val save = flownWorld().save()
+        val legacy = WorldSave(
+            formatVersion = 1,
+            catalogHash = save.catalogHash,
+            universeTime = save.universeTime,
+            nextVesselId = save.nextVesselId,
+            vessels = save.vessels.map { it.copyWithOwner("Alice") },
+        )
+
+        val world = World.default(catalog)
+        val problems = world.restore(legacy)
+        val vessel = world.vessels.first()
+
+        assertEquals("the craft is still there", 1, world.vessels.size)
+        assertEquals("and still says whose it was", "Alice", vessel.ownerName)
+        assertEquals("but nobody owns it by id", "", vessel.owner)
+        assertNull("so no name can claim it", world.vesselOwnedBy("Alice"))
+        assertTrue(
+            "and the operator is told: $problems",
+            problems.any { it.contains("unclaimed") },
+        )
+    }
+
+    private fun VesselSave.copyWithOwner(owner: String) = VesselSave(
+        id = id,
+        name = name,
+        owner = owner,
+        design = design,
+        referenceBodyId = referenceBodyId,
+        position = position,
+        rotation = rotation,
+        velocity = velocity,
+        angularVelocity = angularVelocity,
+    )
 
     @Test
     fun `resource slots are stored positionally in a pinned order`() {

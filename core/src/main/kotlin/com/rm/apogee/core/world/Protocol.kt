@@ -131,6 +131,8 @@ data class StructureUpdate(
      * to switch between them without asking the server first.
      */
     val owner: String = "",
+    /** The owner's display name, for labels and chat. Never matched on. */
+    val ownerName: String = "",
     /**
      * Parts that have failed: a collapsed leg, a torn chute.
      *
@@ -192,7 +194,14 @@ sealed interface ClientMessage {
     data class Hello(
         val protocolVersion: Int,
         val catalogHash: String,
+        /** Cosmetic: what to show beside this player's craft and in chat. */
         val playerName: String,
+        /**
+         * Stable, opaque, generated once per install and never typed by
+         * anyone. This is what decides which craft are whose; [playerName]
+         * decides nothing.
+         */
+        val clientId: String,
     ) : ClientMessage
 
     @Serializable
@@ -207,5 +216,5 @@ object Protocol {
      * independently - a matching protocol with a mismatched catalogue is just
      * as broken, and much harder to diagnose from the symptoms.
      */
-    const val VERSION = 1
+    const val VERSION = 2
 }

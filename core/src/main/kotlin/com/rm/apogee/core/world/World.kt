@@ -865,6 +865,7 @@ class World(
         currentStage = vessel.currentStage,
         activatedParts = vessel.activated.withIndex().filter { it.value }.map { it.index },
         owner = vessel.owner,
+        ownerName = vessel.ownerName,
         brokenParts = vessel.broken.withIndex().filter { it.value }.map { it.index },
     )
 
@@ -886,6 +887,7 @@ class World(
                 id = vessel.id.raw,
                 name = vessel.name,
                 owner = vessel.owner,
+                ownerName = vessel.ownerName,
                 design = vessel.design,
                 referenceBodyId = vessel.referenceBodyId,
                 position = vessel.body.position.copy(),
@@ -960,7 +962,25 @@ class World(
                 referenceBodyId = saved.referenceBodyId,
             )
             vessel.name = saved.name
-            vessel.owner = saved.owner
+            if (save.formatVersion >= 2) {
+                vessel.owner = saved.owner
+                vessel.ownerName = saved.ownerName
+            } else {
+                // Format 1 stored a display name where the id now goes. There
+                // is no way to work out which install that was, and guessing
+                // would hand someone else's base to whoever types the same
+                // name. The craft keeps its label and becomes unowned, which
+                // is the honest outcome: it is still there, still yours to
+                // fly, and claimable rather than locked to a name.
+                vessel.owner = ""
+                vessel.ownerName = saved.owner
+                if (saved.owner.isNotBlank()) {
+                    problems.add(
+                        "'${saved.name}' (#${saved.id}) was owned by name " +
+                            "'${saved.owner}'; it is now unclaimed"
+                    )
+                }
+            }
             vessel.body.position.setTo(saved.position)
             vessel.body.orientation.setTo(saved.rotation)
             vessel.body.linearVelocity.setTo(saved.velocity)
@@ -1038,7 +1058,9 @@ class World(
     /** Finds a craft belonging to [owner], so a returning player gets it back. */
     fun vesselOwnedBy(owner: String): Vessel? =
         if (owner.isBlank()) null
-        else vesselsById.values.firstOrNull { it.owner.equals(owner, ignoreCase = true) }
+        // Exact, not case-insensitive: this is an opaque id now, not a name
+        // someone typed, so folding case can only ever create a false match.
+        else vesselsById.values.firstOrNull { it.owner == owner }
 
     fun destroy(id: VesselId, reason: String) {
         if (vesselsById.remove(id) != null) {

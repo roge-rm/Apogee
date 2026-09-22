@@ -20,7 +20,7 @@ class CodecTest {
     @Test
     fun `every client message round-trips`() {
         val messages = listOf(
-            ClientMessage.Hello(Protocol.VERSION, "abc123", "Pilot"),
+            ClientMessage.Hello(Protocol.VERSION, "abc123", "Pilot", "install-1"),
             ClientMessage.CommandMessage(Command.SetThrottle(7, 0.75)),
             ClientMessage.CommandMessage(Command.SetAttitude(7, 0.1, -0.2, 0.3)),
             ClientMessage.CommandMessage(Command.SetSas(7, true)),

@@ -83,13 +83,23 @@ class Vessel(
     var name: String = design.name
 
     /**
-     * Player this craft belongs to, or blank for debris and abandoned craft.
+     * Who this craft belongs to, or blank for debris and abandoned craft.
      *
-     * A name rather than a session: sessions end every time someone closes the
-     * app, and the whole point of a persistent world is that the craft is still
-     * there when they come back.
+     * An opaque per-install id, not a session and not a display name. Not a
+     * session because sessions end every time someone closes the app, and the
+     * whole point of a persistent world is that the craft is still there when
+     * they come back. Not a display name because names are neither unique nor
+     * stable: two devices that never set one both arrive as the default and
+     * end up sharing a craft, which is exactly what happened the first time
+     * two clients met on a server.
      */
     var owner: String = ""
+
+    /**
+     * What to call the owner on screen. Cosmetic, and never used to decide
+     * what belongs to whom - see [owner].
+     */
+    var ownerName: String = ""
 
     /**
      * Per-part resource amounts, indexed `[partIndex][ResourceType.ordinal]`.

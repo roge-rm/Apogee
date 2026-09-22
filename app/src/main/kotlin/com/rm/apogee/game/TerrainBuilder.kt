@@ -49,6 +49,23 @@ class TerrainBuilder(
     var farSurfaceNeeded: Boolean = true
         private set
 
+    /**
+     * Whether there is ground under the craft yet.
+     *
+     * Building a patch samples the height field tens of thousands of times
+     * and takes seconds on a phone. Until it lands there is nothing beneath
+     * the craft but the globe, which at this resolution sits hundreds of
+     * metres off - so the craft appears to hang in the air on a world that
+     * reads as broken rather than as still loading. The flight view waits on
+     * this.
+     *
+     * True also when no patch is wanted at all - no height field, or too high
+     * for one to add anything - because then there is nothing to wait for.
+     */
+    @Volatile
+    var patchReady: Boolean = false
+        private set
+
     private val globeRings: Int
         get() = when (quality) {
             QualityTier.LOW -> 64
@@ -99,7 +116,10 @@ class TerrainBuilder(
         altitude: Double,
         scope: CoroutineScope,
     ) {
-        val field = body.terrain ?: return
+        val field = body.terrain ?: run {
+            patchReady = true
+            return
+        }
 
         // Size the patch to cover what can actually be seen. The horizon on a
         // sphere is sqrt(2Rh) away, so a craft on the pad needs a few
@@ -115,6 +135,7 @@ class TerrainBuilder(
 
         if (altitude > PATCH_CEILING_METRES) {
             hasPatch = false
+            patchReady = true
             return
         }
         if (job?.isActive == true) return
@@ -150,7 +171,10 @@ class TerrainBuilder(
                 resolution = patchResolution,
                 outCentre = centre,
             )
-            if (isActive) source.publishPatch(revision, data, centre)
+            if (isActive) {
+                source.publishPatch(revision, data, centre)
+                patchReady = true
+            }
         }
     }
 
@@ -158,6 +182,7 @@ class TerrainBuilder(
         job?.cancel()
         job = null
         hasPatch = false
+        patchReady = false
     }
 
     private companion object {

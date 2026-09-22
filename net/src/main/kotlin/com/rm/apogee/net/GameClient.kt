@@ -54,6 +54,11 @@ class GameClient(
     private val transport: Transport,
     val playerName: String,
     private val catalogHash: String,
+    /**
+     * This install's identity. Opaque and never typed by the player; the
+     * server hangs craft ownership off it rather than off [playerName].
+     */
+    val clientId: String,
 ) {
     private val vesselsById = ConcurrentHashMap<Long, ClientVessel>()
 
@@ -102,7 +107,14 @@ class GameClient(
         transport.send(
             Packet(
                 Channel.CONTROL,
-                Codec.encode(ClientMessage.Hello(Protocol.VERSION, catalogHash, playerName)),
+                Codec.encode(
+                    ClientMessage.Hello(
+                        protocolVersion = Protocol.VERSION,
+                        catalogHash = catalogHash,
+                        playerName = playerName,
+                        clientId = clientId,
+                    )
+                ),
             )
         )
         reader.join()

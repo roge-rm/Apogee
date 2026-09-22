@@ -170,6 +170,16 @@ class GameSession private constructor(
         terrainBuilder = TerrainBuilder(source, quality)
     }
 
+    /**
+     * Whether the world is fit to be shown - the craft has ground under it.
+     *
+     * False until the first terrain patch is built, which is why the flight
+     * view holds back rather than showing a craft suspended over a globe that
+     * has not caught up with it yet.
+     */
+    val surfaceReady: Boolean
+        get() = terrainBuilder?.patchReady ?: false
+
     fun start(scope: CoroutineScope) {
         terrainScope = scope
         serverJob = hostedServer?.start(scope)
@@ -275,7 +285,7 @@ class GameSession private constructor(
      */
     suspend fun switchCraft() {
         val mine = client.vessels
-            .filter { it.owner.equals(client.playerName, ignoreCase = true) }
+            .filter { it.owner == client.clientId }
             .sortedBy { it.id }
         if (mine.size < 2) return
         val current = client.controlledVessel
@@ -285,7 +295,7 @@ class GameSession private constructor(
 
     /** How many craft the player could switch between. */
     val ownedCraftCount: Int
-        get() = client.vessels.count { it.owner.equals(client.playerName, ignoreCase = true) }
+        get() = client.vessels.count { it.owner == client.clientId }
 
     /** Puts [launchDesign] on the pad once the handshake is done. */
     private suspend fun launchPendingDesign() {
@@ -361,16 +371,34 @@ class GameSession private constructor(
 
         // Terrain turns with the planet, so the patch follows the craft's
         // position in the body's frame rather than its inertial one.
-        attractor.rotationAt(client.latestSnapshot?.time ?: 0.0, bodyRotation)
+        // Snapshot time plus how long ago it arrived, not snapshot time alone.
+        // Snapshots land 20 times a second while the controlled craft is
+        // predicted forward every frame, so taking the planet's rotation
+        // straight from the last snapshot freezes the ground between them and
+        // then jumps it - and at the equator the surface moves 175 m/s, which
+        // is about nine metres of ground sliding under a craft that is itself
+        // moving smoothly. That relative stutter is the whole of what looked
+        // like the ground shifting against the ship.
+        val snapshotAge = if (client.latestSnapshotNanos == 0L) 0.0
+            else (System.nanoTime() - client.latestSnapshotNanos) / 1e9
+        attractor.rotationAt(
+            (client.latestSnapshot?.time ?: 0.0) + snapshotAge,
+            bodyRotation,
+        )
         attractor.toBodyFixed(focusState.position, bodyRotation, bodyFixedCamera)
         terrainBuilder?.let { builder ->
-            builder.requestGlobe(attractor, terrainScope)
+            // The patch first, then the globe. Both are queued onto the same
+            // dispatcher, and the globe is the larger job by some way - asking
+            // for it first leaves the ground the craft is standing on waiting
+            // behind scenery, which is most of why there is a visible gap
+            // before the world looks right.
             builder.followCraft(
                 attractor,
                 bodyFixedCamera,
                 attractor.heightAboveTerrain(focusState.position, bodyFixedCamera),
                 terrainScope,
             )
+            builder.requestGlobe(attractor, terrainScope)
             drawFarSurface = builder.farSurfaceNeeded
         }
 
@@ -648,13 +676,14 @@ class GameSession private constructor(
             frameBus: FrameBus,
             perfHints: PerfHints?,
             playerName: String,
+            clientId: String,
             serverName: String,
             design: CraftDesign? = null,
             catalog: PartCatalog = StockParts.catalog,
             scope: CoroutineScope,
         ): GameSession {
             val session = hostLocal(
-                frameBus, perfHints, playerName, design, catalog, scope,
+                frameBus, perfHints, playerName, clientId, design, catalog, scope,
                 // The name has to reach the server config, not just the beacon:
                 // it is what the welcome message reports, so a joining player
                 // sees the name they picked in the browser.
@@ -674,6 +703,7 @@ class GameSession private constructor(
             frameBus: FrameBus,
             perfHints: PerfHints?,
             playerName: String,
+            clientId: String,
             host: String,
             port: Int,
             catalog: PartCatalog = StockParts.catalog,
@@ -683,7 +713,7 @@ class GameSession private constructor(
                 perfHints = perfHints,
                 catalog = catalog,
                 hostedServer = null,
-                client = GameClient(transport, playerName, catalog.contentHash),
+                client = GameClient(transport, playerName, catalog.contentHash, clientId),
                 transport = transport,
             )
         }
@@ -695,6 +725,7 @@ class GameSession private constructor(
             frameBus: FrameBus,
             perfHints: PerfHints?,
             playerName: String,
+            clientId: String,
             /** What to fly. Null falls back to the stock rocket. */
             design: CraftDesign? = null,
             catalog: PartCatalog = StockParts.catalog,
@@ -725,7 +756,7 @@ class GameSession private constructor(
             val link = LoopbackTransportPair()
             server.accept(link.serverSide, scope)
 
-            val client = GameClient(link.clientSide, playerName, catalog.contentHash)
+            val client = GameClient(link.clientSide, playerName, catalog.contentHash, clientId)
             return GameSession(
                 frameBus, perfHints, catalog, server, client, link.clientSide,
                 launchDesign = design,

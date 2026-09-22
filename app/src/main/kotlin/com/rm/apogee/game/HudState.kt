@@ -28,6 +28,13 @@ class HudState {
     var connecting: Boolean by mutableStateOf(true)
     var connectionError: String? by mutableStateOf(null)
 
+    /**
+     * Whether there is ground under the craft yet. Separate from [connecting]
+     * because the two wait on different things and say different things to
+     * the player: one is the server, the other is this device.
+     */
+    var surfaceReady: Boolean by mutableStateOf(false)
+
     /** Mirrors the control the player is holding, so the UI can show it. */
     var throttle: Float by mutableFloatStateOf(0f)
     var sasEnabled: Boolean by mutableStateOf(false)
@@ -55,6 +62,7 @@ class HudState {
         telemetry = FlightTelemetry.EMPTY
         connecting = true
         connectionError = null
+        surfaceReady = false
         throttle = 0f
         sasEnabled = false
         mapMode = false

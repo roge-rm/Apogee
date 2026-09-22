@@ -3,6 +3,7 @@ package com.rm.apogee.server
 import com.rm.apogee.core.craft.VesselId
 import com.rm.apogee.core.part.StockParts
 import com.rm.apogee.core.world.Command
+import com.rm.apogee.core.world.World
 import com.rm.apogee.net.GameClient
 import com.rm.apogee.net.LoopbackTransportPair
 import kotlinx.coroutines.CoroutineScope
@@ -11,6 +12,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.yield
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -57,15 +59,55 @@ class GameServerTest {
         scope: CoroutineScope,
         name: String,
         catalogHash: String = catalog.contentHash,
+        // Defaults to one identity per name, which is what most tests want.
+        // Tests about identity pass it explicitly.
+        clientId: String = "install-$name",
     ): GameClient {
         val link = LoopbackTransportPair()
         server.accept(link.serverSide, scope)
-        val client = GameClient(link.clientSide, name, catalogHash)
+        val client = GameClient(link.clientSide, name, catalogHash, clientId)
         client.connect(scope)
         pumpUntil(server, "$name's handshake to resolve") {
             client.connected || client.rejectionReason != null
         }
         return client
+    }
+
+    /**
+     * The bug this whole mechanism exists for. Two devices that have never had
+     * a name set both arrive as the default "Pilot"; matching on the name
+     * handed the second one the first one's rocket, and the two flew it
+     * together without either realising.
+     */
+    @Test
+    fun `two players sharing a name get a craft each`() = runTest {
+        val server = GameServer(World.default(catalog), ServerConfig())
+        val first = joinClient(server, backgroundScope, "Pilot", clientId = "install-one")
+        val second = joinClient(server, backgroundScope, "Pilot", clientId = "install-two")
+
+        pumpUntil(server, "both to be given craft") {
+            first.controlledVessel != null && second.controlledVessel != null
+        }
+        assertNotEquals(
+            "both Pilots were handed the same craft",
+            first.controlledVessel,
+            second.controlledVessel,
+        )
+    }
+
+    /** And the converse: the same install coming back gets its craft again. */
+    @Test
+    fun `the same install is given its craft back`() = runTest {
+        val server = GameServer(World.default(catalog), ServerConfig())
+        val first = joinClient(server, backgroundScope, "Pilot", clientId = "install-one")
+        pumpUntil(server, "the first craft") { first.controlledVessel != null }
+        val original = first.controlledVessel
+
+        // Same device, different name this time: the label is cosmetic.
+        val again = joinClient(server, backgroundScope, "Commander", clientId = "install-one")
+        pumpUntil(server, "the craft to come back") { again.controlledVessel != null }
+
+        assertEquals("a returning install lost its craft", original, again.controlledVessel)
     }
 
     @Test

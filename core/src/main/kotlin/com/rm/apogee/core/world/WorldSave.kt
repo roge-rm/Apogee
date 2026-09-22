@@ -11,8 +11,15 @@ import kotlinx.serialization.Serializable
 class VesselSave(
     val id: Long,
     val name: String,
-    /** Player this belongs to, or blank for debris. */
+    /**
+     * Who this belongs to, or blank for debris and abandoned craft.
+     *
+     * An opaque client id since format 2. In format 1 it held a display name,
+     * which is not an identity - see the migration in [World.restore].
+     */
     val owner: String = "",
+    /** The owner's display name. Cosmetic; never matched on. */
+    val ownerName: String = "",
     val design: CraftDesign,
     val referenceBodyId: String,
     val position: SerialVec3,
@@ -75,7 +82,7 @@ class WorldSave(
          * An operator who upgrades a server should be told their world cannot
          * be read, not have it quietly half-loaded.
          */
-        const val FORMAT_VERSION = 1
+        const val FORMAT_VERSION = 2
 
         /** Number of resource slots each part records. Pinned by a test. */
         val RESOURCE_SLOTS = ResourceType.entries.size

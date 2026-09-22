@@ -1,8 +1,10 @@
 package com.rm.apogee.ui.screens
 
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -30,6 +32,27 @@ fun SettingsScreen(settings: GameSettings, detectedTier: QualityTier?) {
     Backdrop(maxContentWidth = Dimens.PanelContentMaxWidth) { contentModifier ->
         Text("Settings", style = MaterialTheme.typography.titleLarge, color = Color.White)
         Spacer(Modifier.height(8.dp))
+
+        SectionHeading("Player", contentModifier)
+        OutlinedTextField(
+            value = settings.playerName,
+            onValueChange = { settings.playerName = it.take(32) },
+            singleLine = true,
+            label = { Text("Name") },
+            modifier = contentModifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            // Said plainly, because the obvious assumption is the opposite.
+            // What a craft belongs to is this install, not this name, so two
+            // people may share a name without sharing anything else - and
+            // changing it renames your craft rather than abandoning it.
+            "Shown to other players. Your craft are tied to this device, not " +
+                "to the name, so you can change it freely.",
+            style = MaterialTheme.typography.labelSmall,
+            color = Color.White.alpha(ApogeeAlpha.SUBTITLE),
+            modifier = contentModifier,
+        )
 
         SectionHeading("Controls", contentModifier)
         SwitchRow(

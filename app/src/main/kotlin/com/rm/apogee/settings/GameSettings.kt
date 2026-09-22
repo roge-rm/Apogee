@@ -30,7 +30,24 @@ class GameSettings(context: Context) {
     private val prefs: SharedPreferences =
         context.getSharedPreferences("apogee.settings", Context.MODE_PRIVATE)
 
+    /** What other players see. Cosmetic - see [clientId]. */
     var playerName: String by stringPref(KEY_PLAYER_NAME, "Pilot")
+
+    /**
+     * This install's identity, generated once and never shown as something to
+     * edit.
+     *
+     * Ownership of craft and bases hangs off this. It deliberately is not the
+     * player's name: names are neither unique nor stable, and two devices that
+     * never set one both arrive as "Pilot" and end up sharing a craft - which
+     * is precisely what happened the first time two clients met on a server.
+     *
+     * Generated lazily on first read rather than in the constructor, so a
+     * fresh install does not write to disk before anyone has played.
+     */
+    val clientId: String
+        get() = prefs.getString(KEY_CLIENT_ID, null) ?: java.util.UUID.randomUUID().toString()
+            .also { prefs.edit().putString(KEY_CLIENT_ID, it).apply() }
 
     /**
      * The last address typed into the join screen.
@@ -134,6 +151,7 @@ class GameSettings(context: Context) {
 
     private companion object {
         const val KEY_PLAYER_NAME = "player_name"
+        const val KEY_CLIENT_ID = "client_id"
         const val KEY_LAST_SERVER = "last_server_address"
         const val KEY_CONTROL_OPACITY = "control_opacity"
         const val KEY_LEFT_HAND = "left_hand_mode"

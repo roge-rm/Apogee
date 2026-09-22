@@ -80,7 +80,7 @@ class TcpIntegrationTest {
 
     private suspend fun join(port: Int, scope: CoroutineScope, name: String): GameClient {
         val transport = TcpTransport.connect("127.0.0.1", port).getOrThrow()
-        val client = GameClient(transport, name, catalog.contentHash)
+        val client = GameClient(transport, name, catalog.contentHash, "install-$name")
         client.connect(scope)
         return client
     }
@@ -202,7 +202,7 @@ class TcpIntegrationTest {
     @Test
     fun `a mismatched catalogue is refused over a socket too`() = harness { server, net, port ->
         val transport = TcpTransport.connect("127.0.0.1", port).getOrThrow()
-        val client = GameClient(transport, "Pilot", "wrong-hash")
+        val client = GameClient(transport, "Pilot", "wrong-hash", "install-pilot")
         client.connect(net)
 
         pumpUntil(server, "the rejection") { client.rejectionReason != null }

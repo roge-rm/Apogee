@@ -5,6 +5,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -79,14 +80,25 @@ class TcpTransport private constructor(
 
     override suspend fun send(packet: Packet) {
         if (closed) return
-        writeLock.withLock {
-            try {
-                output.writeByte(packet.channel.ordinal)
-                output.writeInt(packet.bytes.size)
-                output.write(packet.bytes)
-                output.flush()
-            } catch (_: IOException) {
-                close()
+        // On the IO dispatcher rather than the caller's, because these are
+        // blocking socket writes and the client sends control commands
+        // straight from the UI's own scope. On Android that scope is the main
+        // thread, and a blocking write there is a fatal
+        // NetworkOnMainThreadException - which single player never hits,
+        // because its transport is an in-memory queue with no socket to
+        // block on. So the crash could only ever appear once joined to a real
+        // server, which is exactly where it did. The read side already
+        // declares its dispatcher; the write side has to as well.
+        withContext(Dispatchers.IO) {
+            writeLock.withLock {
+                try {
+                    output.writeByte(packet.channel.ordinal)
+                    output.writeInt(packet.bytes.size)
+                    output.write(packet.bytes)
+                    output.flush()
+                } catch (_: IOException) {
+                    close()
+                }
             }
         }
     }

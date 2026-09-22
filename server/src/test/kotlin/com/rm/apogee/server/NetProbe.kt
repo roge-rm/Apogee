@@ -43,7 +43,7 @@ fun main(args: Array<String>) = runBlocking {
             return@runBlocking
         }
 
-        val client = GameClient(transport, "Probe", catalog.contentHash)
+        val client = GameClient(transport, "Probe", catalog.contentHash, "probe-install")
         client.connect(scope)
 
         repeat(60) {
