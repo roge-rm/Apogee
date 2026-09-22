@@ -709,6 +709,19 @@ class World(
         val ceiling = (attractor.terrain?.maxElevation ?: 0.0) + SUBSTEP_CEILING_METRES
         if (attractor.altitudeOf(body.position) > ceiling) return 1
 
+        // And then against the ground actually underneath, for the same
+        // reason GroundContact does: the ceiling only rules out craft above
+        // the tallest mountain on the body, which is no help to a rocket
+        // climbing through clear air five kilometres up.
+        attractor.rotationAt(time, scratchRotation)
+        attractor.toBodyFixed(body.position, scratchRotation, scratchBodyFixedUp)
+        val groundBelow = attractor.surfaceRadiusInBodyFrame(scratchBodyFixedUp)
+        if (body.position.length - vessel.contactRadius >
+            groundBelow + vessel.contactRadius + SUBSTEP_PROXIMITY_MARGIN
+        ) {
+            return 1
+        }
+
         attractor.surfaceVelocityAt(body.position, scratchSurfaceVelocity)
         scratchRelativeVelocity.setTo(body.linearVelocity).subInPlace(scratchSurfaceVelocity)
         // The extremities of a rotating craft sweep faster than its centre.
@@ -937,6 +950,15 @@ class World(
 
         /** Metres above the highest possible ground to stop subdividing. */
         private const val SUBSTEP_CEILING_METRES = 200.0
+
+        /**
+         * Metres above the ground *directly beneath* to stop subdividing.
+         *
+         * Wider than the contact resolver's own margin, because a craft this
+         * close is about to need the fine steps and the test runs a tick
+         * before they matter.
+         */
+        private const val SUBSTEP_PROXIMITY_MARGIN = 120.0
 
 
         val launchSites = listOf(

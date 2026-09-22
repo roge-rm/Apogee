@@ -78,5 +78,5 @@ fun main() {
     println("JVM: ${System.getProperty("java.vm.name")} ${System.getProperty("java.version")}")
 }
 
-private const val WARMUP_TICKS = 3_000
-private const val MEASURED_TICKS = 6_000
+private const val WARMUP_TICKS = 1_200
+private const val MEASURED_TICKS = 2_400

@@ -110,6 +110,25 @@ class GroundContact {
             (attractor.terrain?.maxElevation ?: 0.0) + vessel.contactRadius
         if (body.position.length > ceiling) return report
 
+        // One sample decides whether the other hundred are worth taking.
+        //
+        // The ceiling above only rules out craft higher than the tallest
+        // mountain the *planet* can produce, which leaves a rocket climbing
+        // through five kilometres of empty air evaluating fifteen octaves of
+        // noise under every contact point, eight times a tick once
+        // substepping kicks in. A single query for the ground directly
+        // beneath the craft rules that out for a hundredth of the cost.
+        //
+        // The margin is generous on purpose: the ground under a contact point
+        // at the edge of the craft is not the ground under its centre, and
+        // terrain here reaches slopes past forty-five degrees.
+        attractor.toBodyFixed(body.position, bodyRotation, bodyFixedDirection)
+        val groundBelow = attractor.surfaceRadiusInBodyFrame(bodyFixedDirection)
+        val lowestPossible = body.position.length - vessel.contactRadius
+        if (lowestPossible > groundBelow + vessel.contactRadius + TERRAIN_PROXIMITY_MARGIN) {
+            return report
+        }
+
         // The velocity the craft arrived with, before any contact is solved.
         //
         // Damage is judged against this rather than against the running
@@ -281,5 +300,16 @@ class GroundContact {
         const val RESTITUTION = 0.05
 
         const val FRICTION = 0.6
+
+        /**
+         * Metres of slack on the "is this craft near the ground" test.
+         *
+         * Covers the difference between the ground under the craft's centre
+         * and the ground under a contact point at its edge. Too small and a
+         * craft skims over a ridge it should have hit; too large and the
+         * saving evaporates. Fifty metres is far more than the terrain varies
+         * across a craft-sized footprint.
+         */
+        const val TERRAIN_PROXIMITY_MARGIN = 50.0
     }
 }

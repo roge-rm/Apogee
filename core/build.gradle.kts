@@ -75,3 +75,11 @@ tasks.register<JavaExec>("terrainSurvey") {
     classpath = sourceSets["test"].runtimeClasspath
     mainClass.set("com.rm.apogee.core.scenario.TerrainSurveyKt")
 }
+
+/** Prints the test runtime classpath, so a scenario can be run without Gradle
+ *  buffering its output - a long benchmark killed mid-run otherwise reports
+ *  nothing at all. */
+tasks.register("printTestClasspath") {
+    val cp = sourceSets["test"].runtimeClasspath
+    doLast { println(cp.asPath) }
+}
