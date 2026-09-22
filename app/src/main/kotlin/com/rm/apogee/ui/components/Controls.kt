@@ -1,5 +1,6 @@
 package com.rm.apogee.ui.components
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -10,6 +11,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Switch
@@ -171,5 +174,53 @@ fun SliderRow(
                 inactiveTrackColor = Color.White.alpha(0.2f),
             ),
         )
+    }
+}
+
+/**
+ * One of several, each with a line saying what it does.
+ *
+ * Radio buttons rather than a dropdown: the options are few, and the
+ * description under each is the point - "Aircraft" alone does not say which
+ * way the stick will go.
+ */
+@Composable
+fun <T> ChoiceGroup(
+    title: String,
+    options: List<T>,
+    selected: T,
+    label: (T) -> String,
+    description: (T) -> String,
+    onSelect: (T) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+        Text(title, style = MaterialTheme.typography.bodyLarge, color = Color.White)
+        options.forEach { option ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onSelect(option) }
+                    .padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                RadioButton(
+                    selected = option == selected,
+                    onClick = { onSelect(option) },
+                    colors = RadioButtonDefaults.colors(
+                        selectedColor = ApogeeColors.Accent,
+                        unselectedColor = Color.White.alpha(ApogeeAlpha.SECONDARY),
+                    ),
+                )
+                Column {
+                    Text(label(option), style = MaterialTheme.typography.bodyMedium, color = Color.White)
+                    Text(
+                        description(option),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.White.alpha(ApogeeAlpha.SUBTITLE),
+                    )
+                }
+            }
+        }
     }
 }

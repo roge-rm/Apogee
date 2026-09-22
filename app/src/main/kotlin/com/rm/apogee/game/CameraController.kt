@@ -20,8 +20,10 @@ enum class UpReference {
     RADIAL,
 
     /**
-     * World +Y. Correct in the builder, where there is no planet and the
-     * design sits near the origin.
+     * A fixed axis, [CameraController.fixedUp] - world +Y unless told
+     * otherwise. Correct in the builder, where there is no planet and the
+     * design sits near the origin, and where a horizontal design wants its
+     * own +Z shown as up.
      *
      * Using RADIAL here is actively wrong, not merely arbitrary: a craft whose
      * parts hang below the origin has a centre at negative Y, so "away from the
@@ -38,6 +40,9 @@ class CameraController(
     private val minDistance: Double = 5.0,
     private val maxDistance: Double = 2_000.0,
 ) {
+
+    /** Which way is up under [UpReference.FIXED]. */
+    val fixedUp = Vec3.unitY()
 
     /** Rotation around the craft, radians. */
     var yaw: Double = 0.0
@@ -83,7 +88,7 @@ class CameraController(
                 up.setTo(target).normalizeInPlace()
                 if (up.lengthSq < 0.5) up.setTo(Vec3.unitY())
             }
-            UpReference.FIXED -> up.setTo(Vec3.unitY())
+            UpReference.FIXED -> up.setTo(fixedUp)
         }
 
         north.setTo(Vec3.unitY())

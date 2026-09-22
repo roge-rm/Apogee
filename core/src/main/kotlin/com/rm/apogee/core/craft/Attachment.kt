@@ -5,8 +5,10 @@ import com.rm.apogee.core.math.Vec3
 import com.rm.apogee.core.math.quatFromTo
 import com.rm.apogee.core.part.AttachNode
 import com.rm.apogee.core.part.AttachNodeKind
+import com.rm.apogee.core.part.LandingLeg
 import com.rm.apogee.core.part.PartCatalog
 import com.rm.apogee.core.part.PartDef
+import com.rm.apogee.core.part.Wheel
 
 /** An attach node belonging to a specific placed part, resolved into design space. */
 class OpenNode(
@@ -52,6 +54,8 @@ object Attachment {
             }
         }
 
+        val horizontal = design.orientation == CraftOrientation.HORIZONTAL
+        val up = design.orientation.up
         val result = ArrayList<OpenNode>()
         design.parts.forEachIndexed { index, placed ->
             val def = catalog[placed.partId] ?: return@forEachIndexed
@@ -59,8 +63,30 @@ object Attachment {
                 if ((index to node.id) in taken) continue
                 result.add(resolve(index, placed, node))
             }
+            if (!horizontal) return@forEachIndexed
+            for (node in def.quarterNodes) {
+                if ((index to node.id) in taken) continue
+                val open = resolve(index, placed, node)
+                // Lower quarters only. A part turned over by the way it was
+                // mounted would otherwise offer them on its back.
+                if ((open.direction dot up) < -DOWNWARD) result.add(open)
+            }
         }
         return result
+    }
+
+    /**
+     * Whether [def] may go on [target] in a design built [orientation]-up.
+     *
+     * The one rule so far: on a horizontal craft, things that touch the
+     * ground - wheels, legs - go underneath. On a standing craft every side
+     * is "down" in the same sense, which is why the rover used to have wheels
+     * sticking out in all four directions as readily as below it.
+     */
+    fun accepts(def: PartDef, target: OpenNode, orientation: CraftOrientation): Boolean {
+        if (orientation != CraftOrientation.HORIZONTAL) return true
+        val touchesGround = def.hasModule<Wheel>() || def.hasModule<LandingLeg>()
+        return !touchesGround || (target.direction dot orientation.up) < -DOWNWARD
     }
 
     /** Lifts a part-local node into craft-design space. */
@@ -138,6 +164,32 @@ object Attachment {
             )
         }
     }
+
+    /**
+     * A placement's reflection across the craft's centre plane, the one
+     * holding the nose (+Y) and the sky (+Z) of a horizontal design.
+     *
+     * Rotation about the nose is the wrong symmetry for something lying down:
+     * it puts the copy of a wheel on the craft's back. A reflection is not a
+     * rotation, so the copy is reflected in space and again in its own local
+     * Z, which cancels the handedness and leaves a proper rotation. Local Z is
+     * chosen because a surface part's mounting node lies on its local X axis,
+     * so that second reflection leaves the node exactly where it was and the
+     * copy still meets the hull.
+     */
+    fun mirror(placement: Placement): Placement {
+        val r = placement.rotation
+        // Reflect across x = 0: a rotation about a turns into one about
+        // -(Ma), which is (w, x, -y, -z). Then half a turn about local Y,
+        // which is local X reflected times local Z reflected.
+        val reflected = Quat(r.x, -r.y, -r.z, r.w)
+        val rotation = reflected * Quat.fromAxisAngle(Vec3.unitY(), Math.PI)
+        val p = placement.position
+        return Placement(Vec3(-p.x, p.y, p.z), rotation)
+    }
+
+    /** Cosine of how far below level a node may face and still count as underneath. */
+    private const val DOWNWARD = 0.5
 
     class Placement(val position: Vec3, val rotation: Quat) {
         override fun toString(): String = "Placement(pos=$position)"

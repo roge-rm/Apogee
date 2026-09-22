@@ -4,8 +4,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.rm.apogee.core.craft.Attachment
 import com.rm.apogee.core.craft.CraftBuilder
 import com.rm.apogee.core.craft.CraftDesign
+import com.rm.apogee.core.craft.CraftOrientation
 import com.rm.apogee.core.craft.CraftStats
 import com.rm.apogee.core.craft.CraftStore
 import com.rm.apogee.core.craft.OpenNode
@@ -98,11 +100,27 @@ class BuilderSession(
     }
 
     fun toggleSymmetry() {
-        builder.symmetry = builder.symmetry.next()
+        builder.symmetry = builder.symmetry.next(builder.orientation)
         revision++
     }
 
     val symmetry: SymmetryMode get() = builder.symmetry
+
+    val orientation: CraftOrientation get() = builder.orientation
+
+    /**
+     * Stands the craft up or lays it down. Nothing moves in design space; the
+     * camera turns so the new "up" is up on screen, and the mounting rules
+     * follow.
+     */
+    fun toggleOrientation() {
+        builder.orientation = builder.orientation.other()
+        statusMessage = "${builder.orientation.label}: " + when (builder.orientation) {
+            CraftOrientation.VERTICAL -> "stands on its tail"
+            CraftOrientation.HORIZONTAL -> "lies along the ground, nose forward"
+        }
+        onEdited()
+    }
 
     /**
      * Acts on a tap in the 3D view.
@@ -225,6 +243,7 @@ class BuilderSession(
         camera.frameAtLeast(designExtent(design, centre))
         camera.solve(centre, cameraPosition, cameraRotation)
 
+        camera.fixedUp.setTo(design.orientation.up)
         val caps = StackCaps.forDesign(design, catalog)
         design.parts.forEachIndexed { index, placed ->
             val def = catalog[placed.partId] ?: return@forEachIndexed
@@ -240,8 +259,14 @@ class BuilderSession(
         }
 
         // Attach-node markers, shown only while a part is held - they are
-        // clutter the rest of the time.
-        val nodes = if (heldPartId != null) builder.openNodes() else emptyList()
+        // clutter the rest of the time - and only the ones it can go on, so
+        // a wheel held over a horizontal craft shows its underside and nothing
+        // else rather than inviting taps that will be refused.
+        val heldDef = heldPartId?.let { catalog[it] }
+        val nodes = if (heldDef == null) emptyList() else builder.openNodes().filter {
+            Attachment.accepts(heldDef, it, design.orientation) &&
+                Attachment.mountNodeFor(heldDef, it) != null
+        }
         visibleNodes = nodes
         for (node in nodes) {
             items.add(
@@ -316,7 +341,7 @@ class BuilderSession(
         for (node in visibleNodes) {
             // Offer only nodes this part can actually use, so a near-miss never
             // lands on a node the part would be refused from.
-            if (com.rm.apogee.core.craft.Attachment.mountNodeFor(def, node) == null) continue
+            if (Attachment.mountNodeFor(def, node) == null) continue
             val screen = project(node.position, width, height) ?: continue
             val dx = screen.first - x
             val dy = screen.second - y

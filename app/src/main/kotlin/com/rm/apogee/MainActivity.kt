@@ -311,7 +311,10 @@ class MainActivity : ComponentActivity() {
 
     private fun sendAttitude() {
         val current = session ?: return
-        val pitch = commandedPitch.toDouble()
+        // Read per command rather than cached, so switching to another craft
+        // or changing the setting mid-flight takes effect on the next nudge.
+        val reversed = settings.pitchStyle.reverses(current.controlledOrientation)
+        val pitch = commandedPitch.toDouble() * if (reversed) -1.0 else 1.0
         val yaw = commandedYaw.toDouble()
         val roll = commandedRoll.toDouble()
         lifecycleScope.launch { current.setAttitude(pitch, yaw, roll) }

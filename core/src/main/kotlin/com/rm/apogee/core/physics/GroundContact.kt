@@ -143,7 +143,7 @@ class GroundContact {
         // at the edge of the craft is not the ground under its centre, and
         // terrain here reaches slopes past forty-five degrees.
         attractor.toBodyFixed(body.position, bodyRotation, bodyFixedDirection)
-        val groundBelow = attractor.surfaceRadiusInBodyFrame(bodyFixedDirection)
+        val groundBelow = attractor.solidRadiusInBodyFrame(bodyFixedDirection)
         val lowestPossible = body.position.length - vessel.contactRadius
         if (lowestPossible > groundBelow + vessel.contactRadius + TERRAIN_PROXIMITY_MARGIN) {
             return report
@@ -183,7 +183,7 @@ class GroundContact {
             if (distance < 1e-6) continue
 
             attractor.toBodyFixed(partPosition, bodyRotation, bodyFixedDirection)
-            val surfaceRadius = attractor.surfaceRadiusInBodyFrame(bodyFixedDirection)
+            val surfaceRadius = attractor.solidRadiusInBodyFrame(bodyFixedDirection)
             val penetration = surfaceRadius - distance
             if (penetration <= 0.0) continue
 
@@ -423,14 +423,13 @@ class GroundContact {
 
         // Craft forward, steered, then projected onto the ground plane.
         //
-        // +Z, not +Y. The stack convention puts +Y along the nose, which for a
-        // rover sitting on its wheels points at the sky - taking that as the
-        // rolling direction leaves nothing at all once it is flattened into
-        // the ground, which is precisely how the first version of this failed:
-        // the wheels turned, in a direction with no component along the
-        // ground, and the rover crept along at a fifth of a metre per second
-        // on rounding error.
-        body.orientation.rotate(FORWARD, rollAxis)
+        // The design says which way forward is. Taking the nose (+Y) for a
+        // craft that stands on its tail leaves a rolling direction pointing
+        // at the sky, with nothing left once it is flattened into the ground -
+        // which is how the first version of this failed: the wheels turned,
+        // and the rover crept along at a fifth of a metre per second on
+        // rounding error.
+        body.orientation.rotate(vessel.design.orientation.forward, rollAxis)
         if (wheel.steerable && control.yaw != 0.0) {
             // Which end of the craft this wheel is on. Front wheels turn into
             // the corner and rear wheels away from it, which is what produces
@@ -547,15 +546,6 @@ class GroundContact {
         const val RESTITUTION = 0.05
 
         const val FRICTION = 0.6
-
-        /**
-         * A wheeled craft's forward, in its own frame.
-         *
-         * +Y is up by the stack convention, so a vehicle that drives rather
-         * than flies needs a horizontal axis, and +Z is it.
-         */
-        val FORWARD = Vec3(0.0, 0.0, 1.0)
-
 
         /**
          * Metres of slack on the "is this craft near the ground" test.

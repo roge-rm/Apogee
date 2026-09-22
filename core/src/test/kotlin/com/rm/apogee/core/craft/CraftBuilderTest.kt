@@ -226,4 +226,96 @@ class CraftBuilderTest {
         assertNull(catalog["does-not-exist"])
         assertEquals(Vec3.zero(), Vec3.zero())
     }
+
+    // --- orientation ---------------------------------------------------------
+
+    private fun horizontalTank(): CraftBuilder = builder().also {
+        it.placeRoot("tank-cask4")
+        it.orientation = CraftOrientation.HORIZONTAL
+    }
+
+    private fun wheelNodes(builder: CraftBuilder): List<OpenNode> {
+        val wheel = catalog.require("wheel-tread")
+        return builder.openNodes().filter {
+            Attachment.accepts(wheel, it, builder.orientation) &&
+                Attachment.mountNodeFor(wheel, it) != null
+        }
+    }
+
+    @Test
+    fun `a horizontal craft takes wheels only underneath`() {
+        val builder = horizontalTank()
+        val nodes = wheelNodes(builder)
+        // The belly plus the two lower quarters.
+        assertEquals(3, nodes.size)
+        nodes.forEach {
+            assertTrue("a wheel was offered ${it.direction}", it.direction.z < -0.5)
+        }
+
+        val side = builder.openNodes().first { it.direction.x > 0.9 }
+        assertTrue("a wheel went on the side", builder.attach("wheel-tread", side).isEmpty())
+        // Wings still go on the side, where they belong.
+        assertEquals(1, builder.attach("wing-plank", side).size)
+    }
+
+    @Test
+    fun `a standing craft keeps its four waist nodes and nothing else`() {
+        val builder = builder()
+        builder.placeRoot("tank-cask4")
+        assertTrue(builder.openNodes().none { it.node.id.startsWith("surface-q") })
+        assertEquals(4, wheelNodes(builder).size)
+    }
+
+    @Test
+    fun `mirror symmetry puts the pair either side, not on the roof`() {
+        val builder = horizontalTank()
+        builder.symmetry = SymmetryMode.MIRROR
+        val quarter = wheelNodes(builder).first { it.node.id.startsWith("surface-q") }
+
+        val added = builder.attach("wheel-tread", quarter)
+        assertEquals(2, added.size)
+        val (a, b) = added.map { builder.design.parts[it].position }
+        assertEquals(-a.x, b.x, 1e-9)
+        assertEquals(a.y, b.y, 1e-9)
+        assertEquals(a.z, b.z, 1e-9)
+        assertTrue("wheels are not underneath: $a", a.z < 0.0)
+
+        // The copy covers its own node, so only the belly is left.
+        val left = wheelNodes(builder)
+        assertEquals(1, left.size)
+        assertTrue(left.single().direction.z < -0.99)
+    }
+
+    @Test
+    fun `a mirrored wing meets the hull at its root`() {
+        val builder = horizontalTank()
+        builder.symmetry = SymmetryMode.MIRROR
+        val side = builder.openNodes().first { it.direction.x > 0.9 }
+        val added = builder.attach("wing-plank", side)
+        assertEquals(2, added.size)
+
+        val root = catalog.require("wing-plank").attachNodes.first()
+        val copy = builder.design.parts[added[1]]
+        val rootInDesign = copy.rotation.rotate(root.position).addInPlace(copy.position)
+        assertTrue(
+            "the mirrored wing floats off the hull at $rootInDesign",
+            rootInDesign.approxEquals(Vec3(-side.position.x, side.position.y, side.position.z), 1e-9),
+        )
+    }
+
+    @Test
+    fun `a craft laid down cycles only between one and a mirrored pair`() {
+        val builder = builder()
+        builder.placeRoot("tank-cask4")
+        builder.symmetry = SymmetryMode.QUAD
+        builder.orientation = CraftOrientation.HORIZONTAL
+        assertEquals(SymmetryMode.MIRROR, builder.symmetry)
+        assertEquals(SymmetryMode.NONE, builder.symmetry.next(builder.orientation))
+        assertEquals(SymmetryMode.MIRROR, SymmetryMode.NONE.next(builder.orientation))
+
+        // And it is an edit like any other.
+        builder.undo()
+        assertEquals(CraftOrientation.VERTICAL, builder.orientation)
+        assertEquals(SymmetryMode.QUAD, builder.symmetry)
+    }
 }

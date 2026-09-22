@@ -219,12 +219,14 @@ object StockCraft {
     }
 
     /**
-     * An aeroplane: a fuselage with wings and an engine that pushes it along.
+     * An aeroplane: a fuselage with wings, an air-breathing engine, and wheels
+     * to take off from.
      *
-     * Same convention as everything else, which is what makes it interesting:
-     * +Y is the nose, so a plane is a stack flown on its side rather than a
-     * new kind of object. The wings are the stock [AeroSurface] module with a
-     * wing's area instead of a fin's.
+     * Built [CraftOrientation.HORIZONTAL], so it launches lying on the ground
+     * nose-east rather than standing on its tail. +Y is still the nose - a
+     * plane is a stack flown on its side, not a new kind of object - and +Z is
+     * the sky, which is where the fin goes. The wings are the stock
+     * [AeroSurface] module with a wing's area instead of a fin's.
      */
     fun aeroplane(catalog: PartCatalog = StockParts.catalog): CraftDesign {
         val parts = ArrayList<PlacedPart>()
@@ -238,28 +240,85 @@ object StockCraft {
 
         val pod = add("pod-halo", 4.0, -1)
         val tank = add("tank-cask2", 2.4, pod)
-        val engine = add("engine-vesper", 0.9, tank)
+        val engine = add("engine-zephyr", 0.6, tank)
 
-        // Wings either side of the tank, at the centre of mass so the craft
+        // Wings either side of the tank, near the centre of mass so the craft
         // does not pitch the moment it makes lift.
         add("wing-plank", 2.4, tank, x = 2.2)
         add("wing-plank", 2.4, tank, x = -2.2)
 
-        // A tail fin for yaw stability - the same job it does on the rocket,
-        // and it does not deflect.
-        add("fin-vane", 1.0, tank, z = 0.9)
+        // A tail fin on top for yaw stability - the same job it does on the
+        // rocket, and it does not deflect. Turned so its root faces down into
+        // the hull, which is the turn the builder would give it on that node.
+        add("fin-vane", 0.4, engine, z = 0.975)
+        parts[parts.size - 1] = parts.last().copy(
+            rotation = Quat.fromAxisAngle(Vec3.unitY(), -Math.PI / 2.0),
+        )
 
         // Elevons well behind the wings. Being aft of the centre of mass is
         // what makes them pitch the aircraft rather than roll it; nothing in
         // the part says "elevator".
-        add("tail-elevon", 1.0, tank, x = 1.5)
-        add("tail-elevon", 1.0, tank, x = -1.5)
+        add("tail-elevon", 0.4, engine, x = 1.525)
+        add("tail-elevon", 0.4, engine, x = -1.525)
+
+        // Undercarriage on the lower quarters, where the builder puts it: a
+        // pair under the pod and a pair just behind the centre of mass, all at
+        // the same depth so it sits level. The mains go *just* behind the
+        // balance point - far enough that it does not sit back on its tail,
+        // near enough that the elevons can lift the nose off at take-off
+        // speed. At 0.4 m behind, rotating meant lifting fifteen kilonewton-
+        // metres of the craft's own weight, twice what the controls give at
+        // sixty metres a second, and it ran the whole runway before the wing
+        // alone was enough.
+        val quarter = 0.625 * kotlin.math.sqrt(0.5) + 0.3 * kotlin.math.sqrt(0.5)
+        for (side in listOf(1.0, -1.0)) {
+            add("wheel-gear", 4.0, pod, x = side * quarter, z = -quarter)
+            add("wheel-gear", 2.1, tank, x = side * quarter, z = -quarter)
+        }
 
         return CraftDesign(
             name = "Plank",
             parts = parts,
             stages = listOf(Stage(listOf(engine))),
             catalogHash = catalog.contentHash,
+            orientation = CraftOrientation.HORIZONTAL,
+        )
+    }
+
+    /**
+     * A boat: a hull, a pod at the bow, and an air-breathing engine at the
+     * stern pushing it along - an airboat, which is a real thing and needs no
+     * part this game does not already have. Nothing here is a boat part
+     * except the hull, and the hull is only a box that floats; staying upright
+     * and going straight both come from where the water pushes on it.
+     */
+    fun boat(catalog: PartCatalog = StockParts.catalog): CraftDesign {
+        val parts = ArrayList<PlacedPart>()
+
+        fun add(partId: String, y: Double, parent: Int, parentNode: String?, ownNode: String?): Int {
+            parts.add(
+                PlacedPart(
+                    partId, Vec3(0.0, y, 0.0), Quat.identity(), parentIndex = parent,
+                    parentNodeId = parentNode, ownNodeId = ownNode,
+                )
+            )
+            return parts.size - 1
+        }
+
+        val hull = add("hull-punt", 0.0, -1, null, null)
+        // Pod at the bow, riding the hull's top node.
+        add("pod-halo", 4.6, hull, "top", "bottom")
+        // Fuel and engine at the stern, so the weight is spread along the
+        // hull rather than piled at one end of it.
+        val tank = add("tank-cask2", -5.0, hull, "bottom", "top")
+        val engine = add("engine-zephyr", -6.8, tank, "bottom", "top")
+
+        return CraftDesign(
+            name = "Punt",
+            parts = parts,
+            stages = listOf(Stage(listOf(engine))),
+            catalogHash = catalog.contentHash,
+            orientation = CraftOrientation.HORIZONTAL,
         )
     }
 

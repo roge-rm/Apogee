@@ -49,9 +49,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.rm.apogee.core.craft.CraftOrientation
 import com.rm.apogee.core.craft.CraftStats
 import com.rm.apogee.core.part.PartCategory
 import com.rm.apogee.core.part.PartCatalog
@@ -125,6 +128,7 @@ fun BuilderScreen(
         ) {
             ToolButton(Icons.Filled.Close, "Leave the assembly building", onExit)
             ToolButton(Icons.Filled.Undo, "Undo", session::undo)
+            OrientationButton(session.orientation, session::toggleOrientation)
             SymmetryButton(session)
             ToolButton(Icons.Filled.Save, "Save", { showNameDialog = true })
             ToolButton(Icons.Filled.FolderOpen, "Load", { showLoadDialog = true })
@@ -231,6 +235,42 @@ private fun ToolButton(
         },
     ) {
         Icon(icon, contentDescription = description)
+    }
+}
+
+/**
+ * Vertical or horizontal. Drawn as a bar standing up or lying down rather
+ * than an icon, because the bar *is* the craft and that is the whole choice.
+ */
+@Composable
+private fun OrientationButton(orientation: CraftOrientation, onToggle: () -> Unit) {
+    // Takes the value rather than the session: the session is not observable
+    // state, so a composable reading it through a stable parameter is skipped
+    // on recomposition and the bar never turned over.
+    val horizontal = orientation == CraftOrientation.HORIZONTAL
+    Surface(
+        shape = RoundedCornerShape(Dimens.HudIconSize / 2),
+        color = if (horizontal) ApogeeColors.Accent.alpha(0.3f) else Color.White.alpha(ApogeeAlpha.CONTROL_FILL),
+        modifier = Modifier.size(Dimens.HudIconSize),
+    ) {
+        Box(
+            Modifier
+                .clickable(onClick = onToggle)
+                .semantics { contentDescription = "Build ${orientation.other().label.lowercase()}" },
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(
+                Modifier
+                    .size(
+                        width = if (horizontal) Dimens.HudIconSize * 0.55f else Dimens.HudIconSize * 0.18f,
+                        height = if (horizontal) Dimens.HudIconSize * 0.18f else Dimens.HudIconSize * 0.55f,
+                    )
+                    .background(
+                        if (horizontal) ApogeeColors.Accent else Color.White.alpha(ApogeeAlpha.SECONDARY),
+                        RoundedCornerShape(2.dp),
+                    ),
+            )
+        }
     }
 }
 

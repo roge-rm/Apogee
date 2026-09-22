@@ -15,6 +15,9 @@ import kotlinx.serialization.Serializable
  */
 private const val MIN_SURFACE_MOUNT_RADIUS = 0.3
 
+/** Target size of a buoyancy sampling cell, metres. See [PartDef.volumeCells]. */
+private const val VOLUME_CELL_METRES = 0.75
+
 @Serializable
 enum class PartCategory {
     @SerialName("command") COMMAND,
@@ -185,6 +188,88 @@ data class PartDef(
             )
         }
     }
+
+    /**
+     * Two more generated mounting points, on the lower quarters of the hull.
+     *
+     * The four waist nodes are all a stack needs, but a craft lying on its
+     * side has one of them on its belly and one on its back, so every wheel
+     * would go on the centreline in a row and the craft would fall over
+     * sideways. These are the corners a pair of wheels or floats actually
+     * wants. Only a horizontal design offers them - see
+     * [com.rm.apogee.core.craft.Attachment.openNodes] - since on a standing
+     * craft they would be two more targets cluttering every tank for no gain.
+     */
+    val quarterNodes: List<AttachNode> by lazy {
+        if (surfaceNodes.isEmpty()) return@lazy emptyList()
+        val radius = surfaceNodes.first().position.length
+        val d = 1.0 / kotlin.math.sqrt(2.0)
+        listOf(Vec3(d, 0.0, -d), Vec3(-d, 0.0, -d)).mapIndexed { index, direction ->
+            AttachNode(
+                id = "surface-q$index",
+                position = direction * radius,
+                direction = direction,
+                size = 0,
+                kind = AttachNodeKind.SURFACE,
+            )
+        }
+    }
+
+    /**
+     * Volume of the mesh, m³ - what the part displaces when it is under water.
+     *
+     * Every part, not only ones carrying [Buoyancy]: a sealed tank floats
+     * whether or not anyone thought of it as a boat, and a rocket that comes
+     * down in the sea should bob rather than sink like a stone. [Buoyancy]
+     * overrides it, for a part whose mesh does not describe what it encloses.
+     */
+    val displacedVolume: Double by lazy {
+        module<Buoyancy>()?.displacedVolume ?: when (val m = mesh) {
+            is MeshSpec.Cylinder -> Math.PI * m.radius * m.radius * m.height
+            is MeshSpec.Cone -> Math.PI * m.height / 3.0 *
+                (m.bottomRadius * m.bottomRadius + m.bottomRadius * m.topRadius + m.topRadius * m.topRadius)
+            is MeshSpec.Box -> m.width * m.height * m.depth
+            is MeshSpec.Sphere -> 4.0 / 3.0 * Math.PI * m.radius * m.radius * m.radius
+        }
+    }
+
+    /**
+     * Where the part's volume is, as a grid of cells through its bounds: each
+     * cell's centre in part-local space, and the cell's full size.
+     *
+     * Buoyancy is sampled cell by cell rather than as one force at the part's
+     * centre, and that is the whole point of it. A force at the centre gives a
+     * hull no reason to right itself when it heels, and gives a wave nothing
+     * to lift one end of it by - pitch, roll and heave all come from *where*
+     * the water is pushing, the same lesson drag taught the fins. Cells about
+     * three-quarters of a metre on a side, at most four along any axis.
+     */
+    val volumeCells: List<Vec3> by lazy {
+        val h = boundsHalfExtents
+        val nx = cellsAlong(h.x)
+        val ny = cellsAlong(h.y)
+        val nz = cellsAlong(h.z)
+        val cells = ArrayList<Vec3>(nx * ny * nz)
+        for (i in 0 until nx) for (j in 0 until ny) for (k in 0 until nz) {
+            cells.add(
+                Vec3(
+                    -h.x + (i + 0.5) * 2.0 * h.x / nx,
+                    -h.y + (j + 0.5) * 2.0 * h.y / ny,
+                    -h.z + (k + 0.5) * 2.0 * h.z / nz,
+                )
+            )
+        }
+        cells
+    }
+
+    /** The size of one of [volumeCells], m, in part-local axes. */
+    val volumeCellSize: Vec3 by lazy {
+        val h = boundsHalfExtents
+        Vec3(2.0 * h.x / cellsAlong(h.x), 2.0 * h.y / cellsAlong(h.y), 2.0 * h.z / cellsAlong(h.z))
+    }
+
+    private fun cellsAlong(halfExtent: Double): Int =
+        kotlin.math.round(2.0 * halfExtent / VOLUME_CELL_METRES).toInt().coerceIn(1, 4)
 
     /** Authored nodes plus the generated surface ones. */
     val allAttachNodes: List<AttachNode> get() = attachNodes + surfaceNodes

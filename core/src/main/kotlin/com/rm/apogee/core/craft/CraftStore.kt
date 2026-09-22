@@ -71,17 +71,43 @@ class CraftStore(private val directory: File) {
     fun exists(name: String): Boolean = File(directory, fileNameFor(name)).exists()
 
     /**
-     * Writes the reference craft into an empty store.
+     * Writes into the store any reference craft it has not been given before.
      *
-     * Only into an empty one: a player who has deleted the stock designs
-     * meant to delete them, and having them reappear on every launch is the
-     * kind of small betrayal that makes a tool feel untrustworthy.
+     * Each stock design is offered once, ever, and remembered in a small
+     * ledger beside the saves: a player who has deleted one meant to delete
+     * it, and having it reappear on every launch is the kind of small betrayal
+     * that makes a tool feel untrustworthy. But a stock design added in a
+     * later version still arrives - the old rule, "only into an empty store",
+     * meant nobody who had ever opened the game would see a new one.
      */
     fun seedStockDesigns(catalog: com.rm.apogee.core.part.PartCatalog) {
-        if (list().isNotEmpty()) return
-        save(StockCraft.starterRocket(catalog))
-        save(StockCraft.lander(catalog))
-        save(StockCraft.moduleTug(catalog))
+        val ledger = File(directory, SEEDED_LEDGER)
+        val offered = if (ledger.exists()) {
+            ledger.readLines().map { it.trim() }.filter { it.isNotEmpty() }.toMutableSet()
+        } else if (list().isNotEmpty()) {
+            // Seeded before the ledger existed, under the empty-store rule,
+            // which offered exactly these. Whatever of them is missing now
+            // was deleted on purpose.
+            LEGACY_STOCK.toMutableSet()
+        } else {
+            mutableSetOf()
+        }
+
+        val stock = listOf(
+            StockCraft.starterRocket(catalog),
+            StockCraft.lander(catalog),
+            StockCraft.moduleTug(catalog),
+            StockCraft.rover(catalog),
+            StockCraft.aeroplane(catalog),
+            StockCraft.boat(catalog),
+        )
+        for (design in stock) {
+            if (design.name in offered) continue
+            // Never over a player's own craft that happens to share the name.
+            if (!exists(design.name)) save(design)
+            offered.add(design.name)
+        }
+        ledger.writeText(offered.sorted().joinToString("\n", postfix = "\n"))
     }
 
     private fun fileNameFor(name: String): String {
@@ -98,5 +124,9 @@ class CraftStore(private val directory: File) {
 
     private companion object {
         const val EXTENSION = "craft"
+        const val SEEDED_LEDGER = "stock-offered.txt"
+
+        /** What the empty-store rule seeded, before the ledger. */
+        val LEGACY_STOCK = setOf("Starter I", "Stilt Lander", "Stilt Tug")
     }
 }

@@ -1,6 +1,7 @@
 package com.rm.apogee.core.world
 
 import com.rm.apogee.core.craft.CraftDesign
+import com.rm.apogee.core.craft.CraftOrientation
 import com.rm.apogee.core.craft.PlacedPart
 import com.rm.apogee.core.craft.Vessel
 import com.rm.apogee.core.craft.VesselId
@@ -72,6 +73,8 @@ class World(
     private var nextVesselId = 1L
 
     private val forces = Forces()
+    private val stabilityAssist = StabilityAssist()
+    private val hydrostatics = Hydrostatics()
     private val contacts = GroundContact()
 
     private val pendingEvents = ArrayList<WorldEvent>()
@@ -143,8 +146,7 @@ class World(
         attractor.rotationAt(time, scratchRotation)
         scratchRotation.rotate(scratchBodyFixedUp, scratchUp)
         val up = scratchUp
-        // Nose (+Y in design space) points straight up.
-        quatFromTo(Vec3.unitY(), up, vessel.body.orientation)
+        standUpright(vessel, attractor, up)
 
         // On the ground, not at sea level: the pad may be most of a kilometre
         // above the datum, and spawning at the datum would drop the craft
@@ -215,6 +217,40 @@ class World(
         vesselsById[vessel.id] = vessel
         pendingEvents.add(WorldEvent.VesselSpawned(vessel.id))
         return vessel
+    }
+
+    /**
+     * Turns a craft so the design's [CraftOrientation.up] points at the sky.
+     *
+     * A vertical craft keeps exactly the attitude it always had - nose up,
+     * roll wherever the shortest turn leaves it - so nothing that was already
+     * flying changes under it. A horizontal one is also given a heading: nose
+     * east, along the way the ground is already carrying it, which is the
+     * cheap direction to take off in for the same reason it is the cheap
+     * direction to launch in.
+     */
+    private fun standUpright(vessel: Vessel, attractor: CelestialBody, up: Vec3) {
+        val orientation = vessel.design.orientation
+        val rotation = vessel.body.orientation
+        quatFromTo(orientation.up, up, rotation)
+        if (orientation == CraftOrientation.VERTICAL) return
+
+        // East is the way the surface moves. At a pole it does not move, and
+        // any heading is as good as another.
+        val east = attractor.surfaceVelocityAt(up, Vec3())
+        east.addScaledInPlace(up, -(east dot up))
+        if (east.lengthSq < 1e-12) return
+        east.normalizeInPlace()
+
+        // The first turn left the nose somewhere level; swing it round the
+        // vertical until it faces east.
+        val nose = rotation.rotate(orientation.forward, Vec3())
+        val heading = if ((nose dot east) < -0.999999) {
+            Quat.fromAxisAngle(up, Math.PI)
+        } else {
+            quatFromTo(nose, east)
+        }
+        rotation.setTo(heading * rotation)
     }
 
     /**
@@ -634,6 +670,11 @@ class World(
 
             body.clearAccumulators()
 
+            // Before any force, because the elevons deflect inside the drag
+            // pass and the gimbal inside thrust: all of them act on what
+            // stability assist asks for this tick.
+            stabilityAssist.update(vessel, dt)
+
             forces.applyGravity(vessel, attractor)
             forces.applyThrust(vessel, attractor, dt)
             forces.applyDrag(vessel, attractor)
@@ -645,6 +686,7 @@ class World(
                     )
                 )
             }
+            hydrostatics.apply(vessel, attractor, time, dt)
             forces.applyReactionWheels(vessel)
             forces.applyRcs(vessel, dt)
 
@@ -660,6 +702,7 @@ class World(
                 contacts.resolve(vessel, attractor, h, time + substep * h, substep > 0)
             }
             val report = contacts.report
+            vessel.touchingGround = report.hadContact
 
             // Mass changes as propellant burns, and with it the centre of mass.
             if (vessel.control.throttle > 0.0) vessel.recomputeMass()
@@ -778,7 +821,7 @@ class World(
         // climbing through clear air five kilometres up.
         attractor.rotationAt(time, scratchRotation)
         attractor.toBodyFixed(body.position, scratchRotation, scratchBodyFixedUp)
-        val groundBelow = attractor.surfaceRadiusInBodyFrame(scratchBodyFixedUp)
+        val groundBelow = attractor.solidRadiusInBodyFrame(scratchBodyFixedUp)
         if (body.position.length - vessel.contactRadius >
             groundBelow + vessel.contactRadius + SUBSTEP_PROXIMITY_MARGIN
         ) {
@@ -1132,7 +1175,30 @@ class World(
                 latitude = 0.0,
                 longitude = 0.0,
             ),
+            // Offshore, north-east of the Cape where its continent first
+            // meets the sea, 87 km away. Thirty-two metres of water, and
+            // nothing shallower than seven within a kilometre and a half.
+            LaunchSite(
+                id = "harbour",
+                displayName = "North-East Harbour",
+                bodyId = SolarSystem.HOMEWORLD_ID,
+                latitude = 0.102236,
+                longitude = 0.102236,
+            ),
         )
+
+        /**
+         * Where a design should be launched from: the sea for anything built
+         * around a hull, the pad for everything else. A chooser is the right
+         * answer once there are more than two; with two, the design already
+         * says which it wants.
+         */
+        fun launchSiteFor(design: CraftDesign, catalog: PartCatalog): LaunchSite {
+            val floats = design.parts.any {
+                catalog[it.partId]?.hasModule<com.rm.apogee.core.part.Buoyancy>() == true
+            }
+            return launchSites.first { it.id == if (floats) "harbour" else "cape" }
+        }
 
         fun default(catalog: PartCatalog) = World(SolarSystem.defaultSystem(), catalog)
     }

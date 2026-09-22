@@ -44,12 +44,41 @@ class ControlState {
     /** Whether the thrusters are enabled at all. */
     var rcsEnabled: Boolean = false
 
-    /** Stability assist: damp rotation toward zero. */
+    /**
+     * Stability assist. In the air with the stick centred it holds the
+     * attitude the stick was released at; on the ground, or with nothing to
+     * hold, it damps rotation. See [com.rm.apogee.core.world.StabilityAssist].
+     */
     var sasEnabled: Boolean = false
+
+    /**
+     * What stability assist is asking for, -1..1 on each axis, written each
+     * tick by [com.rm.apogee.core.world.StabilityAssist] and never by a
+     * player. Kept apart from [pitch]/[yaw]/[roll] so that "is the stick
+     * centred" stays answerable - which is the question that decides whether
+     * the assist may act at all.
+     */
+    var assistPitch: Double = 0.0
+    var assistYaw: Double = 0.0
+    var assistRoll: Double = 0.0
+
+    /** Whether the player is touching the attitude controls. */
+    val hasAttitudeInput: Boolean get() = pitch != 0.0 || yaw != 0.0 || roll != 0.0
+
+    /**
+     * The attitude command the craft acts on: the player's while they are
+     * steering, otherwise the assist's. Every control surface, gimbal and
+     * reaction wheel reads these, so a hold uses the same authority a thumb
+     * does rather than a second, invisible set of controls.
+     */
+    val commandPitch: Double get() = if (hasAttitudeInput) pitch else assistPitch
+    val commandYaw: Double get() = if (hasAttitudeInput) yaw else assistYaw
+    val commandRoll: Double get() = if (hasAttitudeInput) roll else assistRoll
 
     fun reset() {
         throttle = 0.0; pitch = 0.0; yaw = 0.0; roll = 0.0
         translateX = 0.0; translateY = 0.0; translateZ = 0.0
+        assistPitch = 0.0; assistYaw = 0.0; assistRoll = 0.0
     }
 }
 
@@ -72,6 +101,18 @@ class Vessel(
 ) {
     var design: CraftDesign = design
         private set
+
+    /**
+     * Stability assist's memory: the attitude being held, whether there is
+     * one, and the integral of the error. Not saved - a reloaded craft simply
+     * takes its hold from wherever it is on the first tick.
+     */
+    val assistHeld = com.rm.apogee.core.math.Quat.identity()
+    var assistHolding: Boolean = false
+    val assistIntegral = Vec3()
+
+    /** Whether anything of this craft touched the ground last tick. */
+    var touchingGround: Boolean = false
 
     /** Resolved definitions, parallel to `design.parts`. */
     var defs: List<PartDef> = defs
@@ -325,6 +366,17 @@ class Vessel(
     fun centerOfMass(out: Vec3 = Vec3()): Vec3 = out.setTo(centerOfMassLocal)
 
     // --- geometry -----------------------------------------------------------
+
+    /**
+     * Offset from the centre of mass, in world axes, of a point given in part
+     * [index]'s own local space.
+     */
+    fun partPointOffsetWorld(index: Int, local: Vec3, out: Vec3 = Vec3()): Vec3 {
+        val placed = design.parts[index]
+        placed.rotation.rotate(local, out)
+        out.addInPlace(placed.position).subInPlace(centerOfMassLocal)
+        return body.orientation.rotate(out, out)
+    }
 
     /** Offset of part [index] from the centre of mass, in world axes. */
     fun partOffsetWorld(index: Int, out: Vec3 = Vec3()): Vec3 {

@@ -1,6 +1,7 @@
 package com.rm.apogee.game
 
 import com.rm.apogee.core.craft.CraftDesign
+import com.rm.apogee.core.craft.CraftOrientation
 import com.rm.apogee.core.craft.StockCraft
 import com.rm.apogee.core.math.Quat
 import com.rm.apogee.core.math.Vec3
@@ -263,6 +264,13 @@ class GameSession private constructor(
         withControlledVessel { client.send(Command.SetAttitude(it, pitch, yaw, roll)) }
     }
 
+    /** How the craft being flown was built, or null with none in hand yet. */
+    val controlledOrientation: CraftOrientation?
+        get() {
+            val id = client.controlledVessel ?: return null
+            return client.vessels.firstOrNull { it.id == id }?.design?.orientation
+        }
+
     suspend fun setSas(enabled: Boolean) {
         localSas = enabled
         pushControlsToPrediction()
@@ -300,7 +308,7 @@ class GameSession private constructor(
     /** Puts [launchDesign] on the pad once the handshake is done. */
     private suspend fun launchPendingDesign() {
         val design = launchDesign ?: return
-        client.send(Command.SpawnCraft(design, World.launchSites.first().id))
+        client.send(Command.SpawnCraft(design, World.launchSiteFor(design, catalog).id))
     }
 
     suspend fun join() {

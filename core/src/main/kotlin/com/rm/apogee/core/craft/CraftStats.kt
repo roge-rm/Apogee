@@ -182,7 +182,13 @@ class CraftStats(
                         thrustSeaLevel = thrustSeaLevel,
                         deltaVVacuum = deltaVVacuum,
                         deltaVSeaLevel = deltaVSeaLevel,
-                        burnTime = if (flowVacuum > 0) fuelMass / flowVacuum else 0.0,
+                        // Air-breathers have no vacuum flow; they burn at
+                        // their sea-level rate or not at all.
+                        burnTime = when {
+                            flowVacuum > 0 -> fuelMass / flowVacuum
+                            flowSeaLevel > 0 -> fuelMass / flowSeaLevel
+                            else -> 0.0
+                        },
                         twrSeaLevel = thrustSeaLevel / (startMass * REFERENCE_GRAVITY),
                         engineCount = engines.size,
                     )

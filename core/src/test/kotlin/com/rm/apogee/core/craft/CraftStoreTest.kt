@@ -85,4 +85,62 @@ class CraftStoreTest {
     fun `loading a missing file fails without throwing`() {
         assertTrue(store().load("nothing.craft").isFailure)
     }
+
+    // --- stock designs -------------------------------------------------------
+
+    private fun names(store: CraftStore) = store.list().map { it.name }.toSet()
+
+    @Test
+    fun `a new store gets every stock design`() {
+        val store = store()
+        store.seedStockDesigns(catalog)
+        assertEquals(
+            setOf("Starter I", "Stilt Lander", "Stilt Tug", "Trundler", "Plank", "Punt"),
+            names(store),
+        )
+    }
+
+    @Test
+    fun `a deleted stock design stays deleted`() {
+        val store = store()
+        store.seedStockDesigns(catalog)
+        store.delete(store.list().first { it.name == "Plank" }.fileName)
+        store.seedStockDesigns(catalog)
+        assertFalse("Plank" in names(store))
+    }
+
+    /**
+     * A store seeded by the old empty-store rule: it has had the first three,
+     * the player has since deleted one, and the plane and rover are new.
+     */
+    @Test
+    fun `an old store gets the new designs and not the deleted old one`() {
+        val store = store()
+        store.save(StockCraft.starterRocket(catalog))
+        store.save(StockCraft.lander(catalog))
+        store.save(StockCraft.aeroplane(catalog).copy(name = "Mine"))
+
+        store.seedStockDesigns(catalog)
+        assertEquals(
+            setOf("Starter I", "Stilt Lander", "Mine", "Trundler", "Plank", "Punt"),
+            names(store),
+        )
+    }
+
+    @Test
+    fun `a player's craft is never overwritten by a stock one`() {
+        val store = store()
+        val mine = StockCraft.probe(catalog).copy(name = "Plank")
+        store.save(mine)
+        store.seedStockDesigns(catalog)
+        assertEquals(mine, store.load(store.list().first { it.name == "Plank" }.fileName).getOrThrow())
+    }
+
+    @Test
+    fun `orientation survives a save`() {
+        val store = store()
+        val plane = StockCraft.aeroplane(catalog)
+        val loaded = store.load(store.save(plane).getOrThrow().fileName).getOrThrow()
+        assertEquals(CraftOrientation.HORIZONTAL, loaded.orientation)
+    }
 }

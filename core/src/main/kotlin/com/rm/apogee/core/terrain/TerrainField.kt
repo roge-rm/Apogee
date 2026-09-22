@@ -4,6 +4,7 @@ import com.rm.apogee.core.math.Vec3
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.pow
+import kotlin.math.sqrt
 
 /**
  * The shape of a planet's surface: one height function, evaluated everywhere.
@@ -47,6 +48,18 @@ class TerrainField(
     private val homeUnit: Vec3? = homeDirection?.normalized()
 
     /**
+     * The runway's heading at home: east, the way the ground is carried by
+     * the planet's spin about +Y, and the way a horizontal craft is pointed
+     * when it is launched. Null at a pole, where there is no east.
+     */
+    private val runwayAlong: Vec3? = homeUnit?.let { home ->
+        Vec3(0.0, 1.0, 0.0).crossInPlace(home).takeIf { it.lengthSq > 1e-12 }?.normalizeInPlace()
+    }
+    private val runwayAcross: Vec3? = runwayAlong?.let { along ->
+        homeUnit!!.copy().crossInPlace(along)
+    }
+
+    /**
      * Ground level at the launch complex.
      *
      * Computed once from the unflattened field, because the flattening is
@@ -77,14 +90,41 @@ class TerrainField(
         // Chord length rather than acos(dot): at these angles the dot product
         // is within a rounding error of 1 and acos throws away most of its
         // precision, while the chord is still exact.
-        val metres = (n - home).length * bodyRadius
-        if (metres >= PAD_BLEND_METRES) return shaped
-
-        val t = smoothstep(
+        val offset = n - home
+        val metres = offset.length * bodyRadius
+        val padBlend = if (metres >= PAD_BLEND_METRES) 1.0 else smoothstep(
             ((metres - PAD_FLAT_METRES) / (PAD_BLEND_METRES - PAD_FLAT_METRES))
                 .coerceIn(0.0, 1.0)
         )
+        val t = minOf(padBlend, runwayBlend(offset))
+        if (t >= 1.0) return shaped
         return homeElevation + (shaped - homeElevation) * t
+    }
+
+    /**
+     * 0 on the runway, rising to 1 where the real terrain takes over.
+     *
+     * A strip of dead-level ground running east from the pad, because a craft
+     * that takes off along the ground needs somewhere to do it: the pad is
+     * level for three hundred metres, and the stock aeroplane rolled off the
+     * end of that into rising ground and was shoved up the hillside by the
+     * contact solver while its log reported a take-off. Kept narrow, like the
+     * pad, so the country either side still rolls.
+     *
+     * [offset] is from home to the point on the unit sphere; at these
+     * distances that is as good as a flat map, which is all a strip a few
+     * kilometres long needs.
+     */
+    private fun runwayBlend(offset: Vec3): Double {
+        val along = (runwayAlong ?: return 1.0).dot(offset) * bodyRadius
+        val across = abs(runwayAcross!!.dot(offset) * bodyRadius)
+        // Distance outside the strip's rectangle; nought anywhere on it. The
+        // near end starts at the pad, which covers everything west of it.
+        val beyondEnd = max(0.0, max(along - RUNWAY_LENGTH_METRES, -along))
+        val beyondEdge = max(0.0, across - RUNWAY_HALF_WIDTH_METRES)
+        val outside = sqrt(beyondEnd * beyondEnd + beyondEdge * beyondEdge)
+        if (outside >= RUNWAY_BLEND_METRES) return 1.0
+        return smoothstep(outside / RUNWAY_BLEND_METRES)
     }
 
     /** The field proper, before the launch complex is levelled into it. */
@@ -161,14 +201,25 @@ class TerrainField(
     fun isOcean(direction: Vec3): Boolean = elevation(direction) < 0.0
 
     /**
-     * Distance from the planet's centre to the surface a craft rests on.
+     * Distance from the planet's centre to the top of whatever is there -
+     * ground, or the calm sea over it.
      *
-     * Water counts as solid for now: a craft that comes down in the sea sits
-     * on it rather than sinking. Buoyancy replaces this when hulls arrive, and
-     * this is the one line that changes.
+     * What a pilot means by "the surface": height above it is what the
+     * altimeter reads over water, and it is where a craft is set down when
+     * it is launched. Not what things collide with - see [solidRadius].
      */
     fun surfaceRadius(direction: Vec3): Double =
         bodyRadius + max(elevation(direction), 0.0)
+
+    /**
+     * Distance from the planet's centre to the ground itself, sea floor
+     * included. What a craft collides with.
+     *
+     * Water used to count as solid here, which was the placeholder until
+     * buoyancy existed: a craft that came down in the sea sat on it as if it
+     * were a car park.
+     */
+    fun solidRadius(direction: Vec3): Double = bodyRadius + elevation(direction)
 
     /**
      * Approximate surface normal, for placing things flat on a slope.
@@ -296,6 +347,15 @@ class TerrainField(
          * horizon.
          */
         private const val PAD_BLEND_METRES = 600.0
+
+        /**
+         * The runway, metres. Long enough for the stock aeroplane's roll of
+         * about three hundred metres several times over, since a player's
+         * first design will be heavier and slower than it.
+         */
+        private const val RUNWAY_LENGTH_METRES = 2_500.0
+        private const val RUNWAY_HALF_WIDTH_METRES = 40.0
+        private const val RUNWAY_BLEND_METRES = 250.0
 
         /**
          * Hill band. Sized in metres and added after the sharpening curve, so

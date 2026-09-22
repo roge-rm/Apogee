@@ -1,5 +1,6 @@
 package com.rm.apogee.core.craft
 
+import com.rm.apogee.core.math.Vec3
 import com.rm.apogee.core.part.Decoupler
 import com.rm.apogee.core.part.Engine
 import com.rm.apogee.core.part.Parachute
@@ -12,7 +13,22 @@ enum class SymmetryMode(val count: Int, val label: String) {
     TRIPLE(3, "3x"),
     QUAD(4, "4x");
 
-    fun next(): SymmetryMode = entries[(ordinal + 1) % entries.size]
+    /**
+     * The next mode a design of this [orientation] can use.
+     *
+     * A craft lying down is symmetric left to right and nothing else - three
+     * or four wheels spaced round the fuselage would put some of them on its
+     * roof - so a horizontal design cycles between one and a mirrored pair.
+     */
+    fun next(orientation: CraftOrientation = CraftOrientation.VERTICAL): SymmetryMode {
+        val offered = offeredFor(orientation)
+        return offered[(offered.indexOf(this) + 1) % offered.size]
+    }
+
+    companion object {
+        fun offeredFor(orientation: CraftOrientation): List<SymmetryMode> =
+            if (orientation == CraftOrientation.HORIZONTAL) listOf(NONE, MIRROR) else entries
+    }
 }
 
 /**
@@ -33,7 +49,13 @@ class CraftBuilder(
     var design: CraftDesign = initial
         private set
 
+    /**
+     * The current symmetry mode. A radial mode chosen on a standing craft
+     * reads as a mirrored pair once the craft is laid down, whether that
+     * happened by toggling, loading or undoing.
+     */
     var symmetry: SymmetryMode = SymmetryMode.NONE
+        get() = if (field in SymmetryMode.offeredFor(orientation)) field else SymmetryMode.MIRROR
 
     private val undoStack = ArrayDeque<CraftDesign>()
     private val redoStack = ArrayDeque<CraftDesign>()
@@ -42,6 +64,18 @@ class CraftBuilder(
     val partCount: Int get() = design.parts.size
     val canUndo: Boolean get() = undoStack.isNotEmpty()
     val canRedo: Boolean get() = redoStack.isNotEmpty()
+
+    /**
+     * Which way up the craft is built. Changing it moves no parts; it changes
+     * which way is the sky, and so where wheels may go and what symmetry
+     * means from here on.
+     */
+    var orientation: CraftOrientation
+        get() = design.orientation
+        set(value) {
+            if (value == design.orientation) return
+            mutate { it.copy(orientation = value) }
+        }
 
     var name: String
         get() = design.name
@@ -65,7 +99,7 @@ class CraftBuilder(
         catalog[partId] ?: return false
         mutate {
             it.copy(
-                parts = listOf(PlacedPart(partId, com.rm.apogee.core.math.Vec3.zero())),
+                parts = listOf(PlacedPart(partId, Vec3.zero())),
                 catalogHash = catalog.contentHash,
             )
         }
@@ -79,6 +113,7 @@ class CraftBuilder(
      */
     fun attach(partId: String, target: OpenNode): List<Int> {
         val def = catalog[partId] ?: return emptyList()
+        if (!Attachment.accepts(def, target, design.orientation)) return emptyList()
         val mountNode = Attachment.mountNodeFor(def, target) ?: return emptyList()
         val placement = Attachment.solve(def, mountNode, target)
 
@@ -89,16 +124,37 @@ class CraftBuilder(
         val surfaceJoin = target.kind == com.rm.apogee.core.part.AttachNodeKind.SURFACE ||
             mountNode.kind == com.rm.apogee.core.part.AttachNodeKind.SURFACE
         val useSymmetry = surfaceJoin && symmetry.count > 1
-        val placements =
-            if (useSymmetry) Attachment.radialSymmetry(placement, symmetry.count)
-            else listOf(placement)
+        // Which node each copy hangs from. Radial copies have only ever
+        // recorded the original's; a mirrored copy records its own, so the
+        // node it covers stops being offered as open.
+        val targets = ArrayList<OpenNode>(symmetry.count)
+        val placements = when {
+            !useSymmetry -> listOf(placement)
+            design.orientation == CraftOrientation.HORIZONTAL -> {
+                val mirrored = Attachment.mirror(placement)
+                // On the centreline the reflection is the part itself.
+                if (mirrored.position.distanceTo(placement.position) < CENTRELINE) {
+                    listOf(placement)
+                } else {
+                    val mirrorTarget = openNodes().firstOrNull {
+                        it.partIndex == target.partIndex && it.position.distanceTo(
+                            Vec3(-target.position.x, target.position.y, target.position.z)
+                        ) < CENTRELINE
+                    }
+                    targets.add(target)
+                    targets.add(mirrorTarget ?: target)
+                    listOf(placement, mirrored)
+                }
+            }
+            else -> Attachment.radialSymmetry(placement, symmetry.count)
+        }
 
         val group = if (placements.size > 1) nextSymmetryGroup() else -1
         val added = ArrayList<Int>(placements.size)
 
         mutate { current ->
             val parts = current.parts.toMutableList()
-            for (p in placements) {
+            placements.forEachIndexed { i, p ->
                 added.add(parts.size)
                 parts.add(
                     PlacedPart(
@@ -106,7 +162,7 @@ class CraftBuilder(
                         position = p.position,
                         rotation = p.rotation,
                         parentIndex = target.partIndex,
-                        parentNodeId = target.node.id,
+                        parentNodeId = (targets.getOrNull(i) ?: target).node.id,
                         ownNodeId = mountNode.id,
                         symmetryGroup = group,
                     )
@@ -158,7 +214,11 @@ class CraftBuilder(
     }
 
     fun clear() {
-        mutate { CraftDesign("Untitled", emptyList(), emptyList(), catalog.contentHash) }
+        // Keeps the orientation: clearing a plane to start again is starting
+        // another plane.
+        mutate {
+            CraftDesign("Untitled", emptyList(), emptyList(), catalog.contentHash, it.orientation)
+        }
     }
 
     fun load(loaded: CraftDesign) {
@@ -196,6 +256,9 @@ class CraftBuilder(
 
     companion object {
         private const val MAX_UNDO = 64
+
+        /** Metres within which a reflected part counts as landing on itself. */
+        private const val CENTRELINE = 0.05
 
         /**
          * Derives a staging sequence from the part tree.

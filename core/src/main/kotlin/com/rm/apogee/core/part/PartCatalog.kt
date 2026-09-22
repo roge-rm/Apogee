@@ -96,8 +96,13 @@ class PartCatalog private constructor(
                     require(engine.ispVacuum > 0.0 && engine.ispSeaLevel > 0.0) {
                         "Part '${def.id}' has an engine with non-positive Isp"
                     }
-                    require(engine.thrustVacuum > 0.0) {
-                        "Part '${def.id}' has an engine with non-positive vacuum thrust"
+                    // Some thrust somewhere. Not necessarily in vacuum: an
+                    // air-breather has none there by definition.
+                    require(
+                        engine.thrustVacuum >= 0.0 && engine.thrustSeaLevel >= 0.0 &&
+                            engine.thrustVacuum + engine.thrustSeaLevel > 0.0
+                    ) {
+                        "Part '${def.id}' has an engine with no thrust anywhere"
                     }
                 }
                 def.module<Tank>()?.let { tank ->

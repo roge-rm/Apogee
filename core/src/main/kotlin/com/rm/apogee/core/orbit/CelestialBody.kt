@@ -31,6 +31,8 @@ class CelestialBody(
      * against it, so there is one definition of where the ground is.
      */
     val terrain: com.rm.apogee.core.terrain.TerrainField? = null,
+    /** The sea over whatever of [terrain] lies below the datum, or null for a dry body. */
+    val ocean: com.rm.apogee.core.terrain.Ocean? = null,
     val parentId: String? = null,
     /** This body's orbit about its parent. Null for the root. */
     val orbit: Orbit? = null,
@@ -100,6 +102,13 @@ class CelestialBody(
      */
     fun surfaceRadiusInBodyFrame(bodyFixedDirection: Vec3): Double =
         terrain?.surfaceRadius(bodyFixedDirection) ?: radius
+
+    /**
+     * Distance from the centre to the solid ground below a body-fixed
+     * direction - the sea floor, at sea. What contacts resolve against.
+     */
+    fun solidRadiusInBodyFrame(bodyFixedDirection: Vec3): Double =
+        terrain?.solidRadius(bodyFixedDirection) ?: radius
 
     /**
      * Rotates an inertial direction into the body's turning frame at [time].

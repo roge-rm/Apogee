@@ -149,6 +149,117 @@
     ]
   },
   {
+    "id": "hull-punt",
+    "title": "Punt Hull",
+    "category": "structural",
+    "dryMass": 900.0,
+    "description": "A long, flat, sealed box. Floats because it is mostly air; goes straight because it is much longer than it is wide - water pushes back hard on its sides and hardly at all on its bow. Build it lying down.",
+    "crashTolerance": 14.0,
+    "dragCoefficient": 0.5,
+    "mesh": {
+      "type": "box",
+      "width": 2.4,
+      "height": 8.0,
+      "depth": 1.2
+    },
+    "attachNodes": [
+      {
+        "id": "top",
+        "position": {
+          "x": 0.0,
+          "y": 4.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "size": 1
+      },
+      {
+        "id": "bottom",
+        "position": {
+          "x": 0.0,
+          "y": -4.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 1
+      },
+      {
+        "id": "side-right",
+        "position": {
+          "x": 1.2,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "side-left",
+        "position": {
+          "x": -1.2,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": -1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "deck",
+        "position": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.6
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "keel",
+        "position": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -0.6
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "buoyancy",
+        "displacedVolume": 23.04
+      }
+    ]
+  },
+  {
     "id": "tank-cask2",
     "title": "Cask-2 Propellant Tank",
     "category": "fuel",
@@ -375,6 +486,67 @@
     ]
   },
   {
+    "id": "engine-zephyr",
+    "title": "Zephyr Air-Breather",
+    "category": "propulsion",
+    "dryMass": 900.0,
+    "description": "Breathes the air it flies through, so it carries only fuel and sips that. Thrust falls away with the air, to nothing at all in vacuum - an engine for staying in the sky, not for leaving it.",
+    "crashTolerance": 9.0,
+    "dragCoefficient": 0.3,
+    "mesh": {
+      "type": "cylinder",
+      "radius": 0.625,
+      "height": 1.6
+    },
+    "attachNodes": [
+      {
+        "id": "top",
+        "position": {
+          "x": 0.0,
+          "y": 0.8,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "size": 1
+      },
+      {
+        "id": "bottom",
+        "position": {
+          "x": 0.0,
+          "y": -0.8,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 1
+      }
+    ],
+    "modules": [
+      {
+        "type": "engine",
+        "thrustVacuum": 0.0,
+        "thrustSeaLevel": 32000.0,
+        "ispVacuum": 3200.0,
+        "ispSeaLevel": 3200.0,
+        "gimbalRange": 0.0,
+        "propellant": "propellant",
+        "thrustDirection": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "minThrottle": 0.0
+      }
+    ]
+  },
+  {
     "id": "fin-vane",
     "title": "Vane Stabiliser",
     "category": "aero",
@@ -426,8 +598,8 @@
     "mesh": {
       "type": "box",
       "width": 8.0,
-      "height": 0.14,
-      "depth": 2.4
+      "height": 2.4,
+      "depth": 0.14
     },
     "attachNodes": [
       {
@@ -467,8 +639,8 @@
     "mesh": {
       "type": "box",
       "width": 1.8,
-      "height": 0.1,
-      "depth": 0.9
+      "height": 0.9,
+      "depth": 0.1
     },
     "attachNodes": [
       {
@@ -610,6 +782,49 @@
         "suspensionTravel": 0.25,
         "springRate": 60000.0,
         "damping": 6000.0
+      }
+    ]
+  },
+  {
+    "id": "wheel-gear",
+    "title": "Gear Wheel",
+    "category": "ground",
+    "dryMass": 60.0,
+    "description": "Undriven undercarriage wheel. Rolls, steers on the ground, and otherwise stays out of the way - what an aircraft stands on, not what moves it.",
+    "crashTolerance": 16.0,
+    "dragCoefficient": 0.3,
+    "mesh": {
+      "type": "sphere",
+      "radius": 0.3
+    },
+    "attachNodes": [
+      {
+        "id": "root",
+        "position": {
+          "x": -0.3,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": -1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "wheel",
+        "radius": 0.3,
+        "motorForce": 0.0,
+        "steerable": true,
+        "steeringRange": 12.0,
+        "rollingResistance": 0.03,
+        "suspensionTravel": 0.2,
+        "springRate": 250000.0,
+        "damping": 20000.0
       }
     ]
   },

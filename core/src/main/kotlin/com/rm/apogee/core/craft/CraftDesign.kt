@@ -6,6 +6,7 @@ import com.rm.apogee.core.math.SerialVec3
 import com.rm.apogee.core.math.Vec3
 import com.rm.apogee.core.part.PartCatalog
 import com.rm.apogee.core.part.PartDef
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 /**
@@ -49,6 +50,37 @@ data class Stage(
 )
 
 /**
+ * Which way up a design is built, and so which way up it stands on the ground.
+ *
+ * The nose is +Y in design space whatever this says - engines, fins, the
+ * attitude controller and the navball all read +Y as "where it is going", and
+ * a plane is a stack flown on its side rather than a different kind of
+ * object. What this decides is the other axis: which way is the *sky* when the
+ * craft is sitting on the ground, and which way does it roll along it.
+ *
+ * Without it the builder could only make things that stand on their tails, a
+ * rover's forward had to be a hard-coded +Z that happened to work, and a plane
+ * could only ever be tested already in the air because there was no way to
+ * put one on a runway.
+ */
+@Serializable
+enum class CraftOrientation(
+    /** Design axis pointing at the sky when the craft sits on the ground. */
+    val up: Vec3,
+    /** Design axis it rolls along when driven. Perpendicular to [up]. */
+    val forward: Vec3,
+    val label: String,
+) {
+    /** Stands on its tail. Rockets, landers - and rovers built as one. */
+    @SerialName("vertical") VERTICAL(Vec3(0.0, 1.0, 0.0), Vec3(0.0, 0.0, 1.0), "Vertical"),
+
+    /** Lies along the ground, nose forward, +Z to the sky. Planes, boats, cars. */
+    @SerialName("horizontal") HORIZONTAL(Vec3(0.0, 0.0, 1.0), Vec3(0.0, 1.0, 0.0), "Horizontal");
+
+    fun other(): CraftOrientation = if (this == VERTICAL) HORIZONTAL else VERTICAL
+}
+
+/**
  * A saved vehicle: the blueprint, not a thing in the world.
  *
  * This same type is the save-file format *and* the network payload for
@@ -67,6 +99,8 @@ data class CraftDesign(
      * silently losing pieces.
      */
     val catalogHash: String = "",
+    /** Defaults to vertical, which is what every design saved before it existed was. */
+    val orientation: CraftOrientation = CraftOrientation.VERTICAL,
 ) {
     val partCount: Int get() = parts.size
 

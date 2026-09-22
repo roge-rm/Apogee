@@ -184,8 +184,8 @@ class Forces {
         // positive pitch command. Without the negation the two authorities
         // fight each other, and a craft with both is *less* controllable than
         // one with either. Pinned by ForcesTest.
-        Quat.fromAxisAngle(Vec3.unitX(), -vessel.control.pitch * range, gimbalPitch)
-        Quat.fromAxisAngle(Vec3.unitZ(), -vessel.control.yaw * range, gimbalYaw)
+        Quat.fromAxisAngle(Vec3.unitX(), -vessel.control.commandPitch * range, gimbalPitch)
+        Quat.fromAxisAngle(Vec3.unitZ(), -vessel.control.commandYaw * range, gimbalYaw)
         gimbalRotation.setTo(gimbalPitch).mulInPlace(gimbalYaw)
         return gimbalRotation.rotate(engine.thrustDirection, out)
     }
@@ -206,15 +206,17 @@ class Forces {
         if (authority <= 0.0) return
 
         val control = vessel.control
-        if (control.sasEnabled && control.pitch == 0.0 && control.yaw == 0.0 && control.roll == 0.0) {
+        // SAS with nothing to hold - on the ground, or before a hold has been
+        // taken - falls back to bleeding off rotation.
+        if (control.sasEnabled && !control.hasAttitudeInput && !vessel.assistHolding) {
             dampRotation(vessel, authority)
             return
         }
 
         scratchTorque.setTo(
-            control.pitch * authority,
-            control.roll * authority,
-            control.yaw * authority,
+            control.commandPitch * authority,
+            control.commandRoll * authority,
+            control.commandYaw * authority,
         )
         vessel.body.orientation.rotate(scratchTorque, scratchTorque)
         vessel.body.applyTorque(scratchTorque)
@@ -405,7 +407,10 @@ class Forces {
         airspeed: Double,
     ) {
         val control = vessel.control
-        if (control.pitch == 0.0 && control.yaw == 0.0 && control.roll == 0.0) return
+        val pitch = control.commandPitch
+        val roll = control.commandRoll
+        val yaw = control.commandYaw
+        if (pitch == 0.0 && yaw == 0.0 && roll == 0.0) return
 
         // The mounting radius: how far off the fuselage axis this surface is.
         val axial = scratchOffset dot scratchAxis
@@ -428,11 +433,13 @@ class Forces {
 
         // What the pilot asked for, in world axes - same convention as the
         // reaction wheels: pitch about local X, roll about Y, yaw about Z.
-        scratchCommand.setTo(control.pitch, control.roll, control.yaw)
+        //
+        // Not normalised. It used to be, which threw the stick's magnitude
+        // away: a hair of stick deflected every surface as far as a full one,
+        // so there was no such thing as a gentle correction - by a thumb, or
+        // by stability assist, which needs small ones to hold anything.
+        scratchCommand.setTo(pitch, roll, yaw)
         vessel.body.orientation.rotate(scratchCommand, scratchCommand)
-        val commandLength = scratchCommand.length
-        if (commandLength < 1e-6) return
-        scratchCommand.mulInPlace(1.0 / commandLength)
 
         val deflection = (scratchCommand dot scratchTorqueAxis).coerceIn(-1.0, 1.0)
         if (abs(deflection) < 1e-6) return

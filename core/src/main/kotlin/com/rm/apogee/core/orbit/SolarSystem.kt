@@ -130,6 +130,7 @@ class SolarSystem(
                     // pad out of the sea.
                     homeDirection = Vec3(1.0, 0.0, 0.0),
                 ),
+                ocean = com.rm.apogee.core.terrain.Ocean(),
                 parentId = "sol",
                 orbit = Orbit.circular(terraOrbitRadius, sol.gravitationalParameter),
                 sphereOfInfluence = 84_159_286.0,

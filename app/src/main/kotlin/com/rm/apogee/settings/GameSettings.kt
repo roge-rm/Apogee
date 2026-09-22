@@ -68,6 +68,9 @@ class GameSettings(context: Context) {
     /** Mirrors the flight controls for left-handed play. */
     var leftHandMode: Boolean by booleanPref(KEY_LEFT_HAND, false)
 
+    /** Which craft pull back to climb. See [PitchStyle]. */
+    var pitchStyle: PitchStyle by enumPref(KEY_PITCH_STYLE, PitchStyle.AIRCRAFT)
+
     var uiSoundEnabled: Boolean by booleanPref(KEY_UI_SOUND, true)
 
     var hapticsEnabled: Boolean by booleanPref(KEY_HAPTICS, true)
@@ -129,6 +132,22 @@ class GameSettings(context: Context) {
             }
         }
 
+    private inline fun <reified T : Enum<T>> enumPref(key: String, default: T) =
+        object : kotlin.properties.ReadWriteProperty<Any?, T> {
+            // An unknown stored name - a value from a later version, or one
+            // since removed - falls back to the default rather than failing.
+            private var state by mutableStateOf(
+                prefs.getString(key, null)?.let { stored ->
+                    enumValues<T>().firstOrNull { it.name == stored }
+                } ?: default
+            )
+            override fun getValue(thisRef: Any?, property: kotlin.reflect.KProperty<*>) = state
+            override fun setValue(thisRef: Any?, property: kotlin.reflect.KProperty<*>, value: T) {
+                state = value
+                prefs.edit().putString(key, value.name).apply()
+            }
+        }
+
     private fun nullableEnumPref(key: String) =
         object : kotlin.properties.ReadWriteProperty<Any?, QualityTier?> {
             private var state by mutableStateOf(
@@ -155,6 +174,7 @@ class GameSettings(context: Context) {
         const val KEY_LAST_SERVER = "last_server_address"
         const val KEY_CONTROL_OPACITY = "control_opacity"
         const val KEY_LEFT_HAND = "left_hand_mode"
+        const val KEY_PITCH_STYLE = "pitch_style"
         const val KEY_UI_SOUND = "ui_sound"
         const val KEY_HAPTICS = "haptics"
         const val KEY_DEBUG_OVERLAY = "debug_overlay"
