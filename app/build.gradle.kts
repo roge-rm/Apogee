@@ -20,8 +20,12 @@ android {
         // a genuine low-end quality tier; see render/QualityTier.kt.
         minSdk = 27
         targetSdk = 37
-        versionCode = 1
-        versionName = "0.1.0"
+        // Bumped when a build is worth keeping and telling apart from the
+        // last one, not on every change. Note that this is not what decides
+        // whether a client may join a server: Protocol.VERSION and the part
+        // catalogue's content hash do that, and they move independently.
+        versionCode = 2
+        versionName = "0.2.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

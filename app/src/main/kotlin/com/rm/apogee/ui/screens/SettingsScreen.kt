@@ -7,7 +7,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.rm.apogee.BuildConfig
+import com.rm.apogee.core.part.StockParts
+import com.rm.apogee.core.world.Protocol
 import com.rm.apogee.render.QualityTier
 import com.rm.apogee.settings.GameSettings
 import com.rm.apogee.ui.components.ApogeeButton
@@ -17,6 +21,7 @@ import com.rm.apogee.ui.components.SliderRow
 import com.rm.apogee.ui.components.SwitchRow
 import com.rm.apogee.ui.theme.ApogeeAlpha
 import com.rm.apogee.ui.theme.Dimens
+import com.rm.apogee.ui.theme.TelemetryTextStyle
 import com.rm.apogee.ui.theme.alpha
 import kotlin.math.roundToInt
 
@@ -113,6 +118,22 @@ fun AboutScreen() {
                 "same physics runs on this device and on a dedicated server.",
             style = MaterialTheme.typography.bodyMedium,
             color = Color.White.alpha(ApogeeAlpha.BODY),
+            modifier = contentModifier,
+        )
+
+        // Worth showing all three. The version answers "which build is on
+        // this phone", which matters when the answer is usually "the one I
+        // side-loaded" - but it is the protocol number and the catalogue hash
+        // that decide whether a server will have you, and until now there was
+        // no way to read either from the device that was being refused.
+        SectionHeading("Build", contentModifier)
+        Text(
+            "Apogee ${BuildConfig.VERSION_NAME}  (${BuildConfig.VERSION_CODE})\n" +
+                "Protocol ${Protocol.VERSION}  \u00b7  " +
+                "parts ${StockParts.catalog.contentHash}",
+            style = TelemetryTextStyle,
+            color = Color.White.alpha(ApogeeAlpha.SUBTITLE),
+            textAlign = TextAlign.Center,
             modifier = contentModifier,
         )
     }
