@@ -134,31 +134,55 @@ class GameServer(
         sessions.remove(session)
     }
 
-    /** Runs the simulation until the scope is cancelled. */
+    /**
+     * Runs the simulation until the scope is cancelled.
+     *
+     * Paced against an absolute schedule - each tick is due at a fixed offset
+     * from the last - rather than by accumulating elapsed time and sleeping
+     * the remainder. Two reasons.
+     *
+     * Accumulating drifts: every iteration rounds its sleep down to whole
+     * milliseconds, and the lost fractions are never paid back. Worse, when
+     * the remainder came to less than a millisecond the sleep truncated to
+     * zero and the loop spun flat out until the next tick was due. That cost
+     * about 6% of a core on a completely empty world, and the same loop runs
+     * on the phone when it hosts, where it is battery.
+     *
+     * With an absolute schedule there is exactly one wake-up per tick, no
+     * drift, and an idle server costs almost nothing.
+     */
     fun start(scope: CoroutineScope): Job = scope.launch(Dispatchers.Default) {
-        var accumulator = 0.0
-        var lastNanos = System.nanoTime()
-        var tickInFrame = 0L
+        val tickNanos = (dt * 1e9).toLong()
+        var nextTickAt = System.nanoTime()
+        var tickCount = 0L
 
         while (isActive) {
             val now = System.nanoTime()
-            var elapsed = (now - lastNanos) / 1e9
-            lastNanos = now
-            if (elapsed > MAX_CATCHUP_SECONDS) elapsed = MAX_CATCHUP_SECONDS
-            accumulator += elapsed
+            val remainingMillis = (nextTickAt - now) / 1_000_000
 
-            while (accumulator >= dt && isActive) {
-                drainInbox()
-                world.step(dt)
-                accumulator -= dt
-                tickInFrame++
-
-                publishEvents()
-                if (tickInFrame % ticksPerSnapshot == 0L) broadcastSnapshot()
+            if (remainingMillis >= 1) {
+                delay(remainingMillis)
+                continue
             }
+            // Under a millisecond to go: take the tick now rather than spin
+            // for it. At 60Hz that is well under a frame of jitter, and the
+            // absolute schedule means it does not accumulate.
 
-            val sleepMillis = ((dt - accumulator) * 1000.0).toLong()
-            if (sleepMillis > 0) delay(sleepMillis)
+            drainInbox()
+            world.step(dt)
+            tickCount++
+
+            publishEvents()
+            if (tickCount % ticksPerSnapshot == 0L) broadcastSnapshot()
+
+            nextTickAt += tickNanos
+
+            // Far enough behind that catching up would mean a burst of ticks
+            // each taking longer than real time - a stalled thread, a paused
+            // container, a laptop lid. Give up the backlog and resynchronise.
+            if (System.nanoTime() - nextTickAt > MAX_CATCHUP_NANOS) {
+                nextTickAt = System.nanoTime() + tickNanos
+            }
         }
     }
 
@@ -363,7 +387,7 @@ class GameServer(
     }
 
     companion object {
-        private const val MAX_CATCHUP_SECONDS = 0.25
+        private const val MAX_CATCHUP_NANOS = 250_000_000L
 
         fun default(catalog: PartCatalog = StockParts.catalog, config: ServerConfig = ServerConfig()) =
             GameServer(World.default(catalog), config)

@@ -54,3 +54,17 @@ tasks.register<JavaExec>("craftStats") {
     classpath = sourceSets["test"].runtimeClasspath
     mainClass.set("com.rm.apogee.core.scenario.StatsKt")
 }
+
+/**
+ * Measures simulation cost against vessel count: `./gradlew :core:tickBenchmark`.
+ *
+ * Answers the server-sizing question directly - how many craft fit in a 60Hz
+ * tick - which is the only honest way to argue about what the server should
+ * be written in.
+ */
+tasks.register<JavaExec>("tickBenchmark") {
+    group = "verification"
+    description = "Measures simulation cost per tick against vessel count."
+    classpath = sourceSets["test"].runtimeClasspath
+    mainClass.set("com.rm.apogee.core.scenario.TickBenchmarkKt")
+}

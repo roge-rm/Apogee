@@ -7,7 +7,11 @@
 # Build context is the repository root:
 #     docker compose up --build
 
-FROM eclipse-temurin:21-jdk AS build
+# JDK 25 to match gradle/gradle-daemon-jvm.properties. On a lower JDK,
+# Gradle honours that pin by *downloading* a matching toolchain inside the
+# build container - minutes of build time and a network dependency, for a JDK
+# the base image could simply have been.
+FROM eclipse-temurin:25-jdk AS build
 
 WORKDIR /src
 
@@ -27,8 +31,37 @@ COPY dedicated /src/dedicated
 # otherwise fail at configuration time, before any task ran.
 RUN ./gradlew --no-daemon :dedicated:installDist
 
+# Build a Java runtime containing only what the server actually loads.
+#
+# jdeps says that is java.base, java.instrument and jdk.unsupported - three
+# modules out of a JDK's eighty-odd. A stock JRE base image is about 159MB of
+# which the server touches a small fraction; this brings the runtime to around
+# a third of that, and it is the single biggest thing in the image.
+#
+# Kept in step automatically: jdeps is run here against the jars that were
+# just built, so a new dependency that needs another module is picked up at
+# build time rather than failing at startup.
+RUN set -eu; \
+    MODULES="$(jdeps --print-module-deps --ignore-missing-deps --multi-release 21 \
+        /src/dedicated/build/install/apogee-server/lib/*.jar)"; \
+    echo "Linking a runtime for: $MODULES"; \
+    jlink --add-modules "$MODULES" \
+          --strip-debug --no-man-pages --no-header-files \
+          --compress=zip-6 \
+          --output /javaruntime
 
-FROM eclipse-temurin:21-jre
+
+# A plain base plus the linked runtime, rather than a full JRE image. The JRE
+# was 159MB of the old 328MB, for three modules' worth of actual use.
+#
+# Debian slim rather than distroless: the healthcheck below is a shell test,
+# and a distroless image would need it rewritten as a binary to save another
+# 50-odd MB. Worth doing later, not worth the indirection now.
+FROM debian:trixie-slim
+
+COPY --from=build /javaruntime /opt/java
+ENV JAVA_HOME=/opt/java
+ENV PATH="/opt/java/bin:${PATH}"
 
 # A fixed uid shared with the web image. The two containers pass a Unix socket
 # between them through a volume, and the socket's file permissions are the
