@@ -53,6 +53,47 @@ Or straight from Gradle: `./gradlew :dedicated:run`.
 The Android app is left out of the build automatically when no Android SDK is
 present, so a server-only checkout needs nothing but a JDK.
 
+## The images
+
+Both are distroless: a runtime, the application, and nothing else. No shell,
+no package manager, no coreutils.
+
+| | size | |
+|---|---|---|
+| `apogee-server` | ~71 MB | linked JRE (43 MB) + application (5 MB) |
+| `apogee-web` | ~63 MB | Python 3.11 + FastAPI |
+
+The server links its own Java runtime with `jlink` rather than shipping a
+JRE. `jdeps` reports it loads three modules — `java.base`, `java.instrument`
+and `jdk.unsupported` — so a stock JRE was 159 MB for a small fraction of
+itself. The module list is computed during the build from the jars that were
+just produced, so a new dependency that needs another module is caught then
+rather than at startup.
+
+There being no shell has two consequences worth knowing:
+
+- `docker exec <container> sh` will not work. The server image carries a
+  static busybox for its healthcheck, so `docker exec apogee-server
+  /bin/busybox sh` gets you in when you need it. The web image has no such
+  escape hatch — restart it and read the logs.
+- Both entry points invoke their interpreter directly, because the usual
+  wrappers (Gradle's start script, `sh -c uvicorn …`) are shell scripts.
+  Extra JVM options go in `JAVA_TOOL_OPTIONS`, which the JVM reads from the
+  environment on its own.
+
+## Capacity
+
+`./gradlew :core:tickBenchmark` measures simulation cost against craft count.
+On a current desktop core:
+
+| craft | ms/tick | of the 16.7 ms budget |
+|---|---|---|
+| 50 | 0.65 | 3.9% |
+| 200 | 2.47 | 14.8% |
+
+Linear, about 0.012 ms per craft, so one core carries on the order of 1,300
+at 60 Hz. An idle server costs about 3% of a core and 80 MB.
+
 ## Configuration
 
 Everything is an environment variable, because the intended home is a

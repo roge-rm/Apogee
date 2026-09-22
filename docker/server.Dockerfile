@@ -7,10 +7,10 @@
 # Build context is the repository root:
 #     docker compose up --build
 
-# JDK 25 to match gradle/gradle-daemon-jvm.properties. On a lower JDK,
-# Gradle honours that pin by *downloading* a matching toolchain inside the
-# build container - minutes of build time and a network dependency, for a JDK
-# the base image could simply have been.
+# JDK 25 to match gradle/gradle-daemon-jvm.properties. On a lower JDK, Gradle
+# honours that pin by *downloading* a matching toolchain inside the build
+# container - minutes of build time and a network dependency, for a JDK the
+# base image could simply have been.
 FROM eclipse-temurin:25-jdk AS build
 
 WORKDIR /src
@@ -34,13 +34,12 @@ RUN ./gradlew --no-daemon :dedicated:installDist
 # Build a Java runtime containing only what the server actually loads.
 #
 # jdeps says that is java.base, java.instrument and jdk.unsupported - three
-# modules out of a JDK's eighty-odd. A stock JRE base image is about 159MB of
-# which the server touches a small fraction; this brings the runtime to around
-# a third of that, and it is the single biggest thing in the image.
+# modules out of a JDK's eighty-odd. Shipping a whole JRE cost 159MB for a
+# small fraction of it.
 #
-# Kept in step automatically: jdeps is run here against the jars that were
-# just built, so a new dependency that needs another module is picked up at
-# build time rather than failing at startup.
+# The module list is computed here, from the jars that were just built, so a
+# new dependency needing another module is caught at build time rather than
+# at startup.
 RUN set -eu; \
     MODULES="$(jdeps --print-module-deps --ignore-missing-deps --multi-release 21 \
         /src/dedicated/build/install/apogee-server/lib/*.jar)"; \
@@ -50,61 +49,67 @@ RUN set -eu; \
           --compress=zip-6 \
           --output /javaruntime
 
+# Everything that needs a shell happens here, because the runtime image has
+# none: the account, the directory layout, and the permissions.
+RUN set -eu; \
+    groupadd --gid 10002 apogee; \
+    useradd --uid 10002 --gid 10002 --no-create-home --shell /usr/sbin/nologin apogee; \
+    mkdir -p /stage/opt/apogee /stage/state /stage/run/apogee /stage/tmp; \
+    cp -a /src/dedicated/build/install/apogee-server/lib /stage/opt/apogee/lib; \
+    chmod -R a+rX /stage/opt/apogee; \
+    chown -R 10002:10002 /stage/state /stage/run /stage/tmp; \
+    chmod 1777 /stage/tmp
 
-# A plain base plus the linked runtime, rather than a full JRE image. The JRE
-# was 159MB of the old 328MB, for three modules' worth of actual use.
+
+# A static busybox, solely for the healthcheck.
 #
-# Debian slim rather than distroless: the healthcheck below is a shell test,
-# and a distroless image would need it rewritten as a binary to save another
-# 50-odd MB. Worth doing later, not worth the indirection now.
-FROM debian:trixie-slim
+# Distroless has no shell and no coreutils, so `test -S` has nothing to run.
+# One static binary is about 1MB and buys a healthcheck that means something -
+# and, when a server misbehaves at 3am, a way in with `docker exec ... sh`.
+FROM busybox:stable-musl AS busybox
+
+
+# Distroless: glibc, ca-certificates and nothing else. No shell, no package
+# manager, no coreutils - so the attack surface is the JVM and our own code,
+# which is the point. It also takes the image from 132MB to well under 90.
+FROM gcr.io/distroless/base-debian12
 
 COPY --from=build /javaruntime /opt/java
-ENV JAVA_HOME=/opt/java
-ENV PATH="/opt/java/bin:${PATH}"
+COPY --from=build /stage/opt/apogee /opt/apogee
+COPY --from=build /stage/state /state
+COPY --from=build /stage/run /run
+COPY --from=build /stage/tmp /tmp
+# The account itself. Distroless ships only `nonroot`, and this uid has to
+# match the web container's so the two agree about the shared socket.
+COPY --from=build /etc/passwd /etc/passwd
+COPY --from=build /etc/group /etc/group
+COPY --from=busybox /bin/busybox /bin/busybox
 
-# A fixed uid shared with the web image. The two containers pass a Unix socket
-# between them through a volume, and the socket's file permissions are the
-# only access control it has - so they have to agree on who they are.
-RUN groupadd --gid 10002 apogee \
- && useradd --uid 10002 --gid 10002 --no-create-home --shell /usr/sbin/nologin apogee
-
-COPY --from=build /src/dedicated/build/install/apogee-server /opt/apogee
-
-# Make the distribution readable by the unprivileged user that runs it.
-#
-# Gradle's dependency cache stores downloaded artifacts 0600, and installDist
-# copies them with that mode intact - so the application's own jars come out
-# world-readable while every library it needs does not. The failure is
-# spectacularly misleading: the main class loads fine and the process dies on
-# NoClassDefFoundError for kotlin.jvm.functions.Function2, with the jar
-# plainly present on a correct classpath.
-#
-# Ownership stays with root so the application directory cannot be modified by
-# the account running it.
-RUN chmod -R a+rX /opt/apogee
-
-# Owned at image build time so the named volumes inherit it when Docker first
-# populates them - otherwise they arrive root-owned and the server cannot
-# write the world it is supposed to be persisting.
-RUN mkdir -p /state /run/apogee \
- && chown -R apogee:apogee /state /run/apogee
-
-ENV APOGEE_STATE_DIR=/state \
+ENV JAVA_HOME=/opt/java \
+    APOGEE_STATE_DIR=/state \
     APOGEE_CONTROL_SOCKET=/run/apogee/control.sock \
     APOGEE_PORT=45678 \
     APOGEE_AUTOSAVE_SECONDS=60 \
-    APOGEE_LAN_DISCOVERY=1 \
-    JAVA_OPTS="-XX:MaxRAMPercentage=75"
+    APOGEE_LAN_DISCOVERY=1
 
 VOLUME ["/state", "/run/apogee"]
 EXPOSE 45678/tcp
 
-USER apogee
+USER 10002:10002
 
 # The control socket only exists once the server is actually serving, which
 # makes it a better liveness signal than the process being up.
 HEALTHCHECK --interval=30s --timeout=3s --start-period=45s \
-    CMD test -S "$APOGEE_CONTROL_SOCKET"
+    CMD ["/bin/busybox", "test", "-S", "/run/apogee/control.sock"]
 
-ENTRYPOINT ["/opt/apogee/bin/apogee-server"]
+# Java is invoked directly rather than through Gradle's start script, which is
+# a shell script and has nothing to run it here. `lib/*` is a classpath
+# wildcard the JVM expands itself, not a glob - exec form passes it through
+# unexpanded, which is what we want.
+#
+# Extra JVM tuning goes in JAVA_TOOL_OPTIONS, which the JVM reads from the
+# environment on its own; there is no shell to assemble a command line.
+ENTRYPOINT ["/opt/java/bin/java", \
+            "-XX:MaxRAMPercentage=75", \
+            "-cp", "/opt/apogee/lib/*", \
+            "com.rm.apogee.dedicated.MainKt"]
