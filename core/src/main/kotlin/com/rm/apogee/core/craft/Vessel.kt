@@ -353,6 +353,23 @@ class Vessel(
         return body.orientation.rotate(out, out)
     }
 
+    /**
+     * The inverse of [contactPointWorld]: a world point in part [index]'s own
+     * local frame, written into [out].
+     *
+     * Here rather than in the caller because it needs the centre of mass,
+     * which is this class's business - a collider asking for it directly would
+     * be reaching through the vessel to reassemble a transform the vessel
+     * already knows how to undo.
+     */
+    fun worldToPartLocal(index: Int, worldPoint: Vec3, out: Vec3 = Vec3()): Vec3 {
+        val placed = design.parts[index]
+        out.setTo(worldPoint).subInPlace(body.position)
+        body.orientation.inverseRotate(out, out)
+        out.addInPlace(centerOfMassLocal).subInPlace(placed.position)
+        return placed.rotation.inverseRotate(out, out)
+    }
+
     /** World position of part [index], in the reference body's frame. */
     fun partPositionWorld(index: Int, out: Vec3 = Vec3()): Vec3 =
         partOffsetWorld(index, out).addInPlace(body.position)

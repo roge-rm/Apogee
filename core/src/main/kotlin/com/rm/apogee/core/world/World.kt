@@ -14,6 +14,7 @@ import com.rm.apogee.core.part.Decoupler
 import com.rm.apogee.core.part.LandingLeg
 import com.rm.apogee.core.part.PartCatalog
 import com.rm.apogee.core.physics.ContactReport
+import com.rm.apogee.core.physics.CraftContact
 import com.rm.apogee.core.physics.GroundContact
 
 /** Where a craft can be put on the ground. */
@@ -82,6 +83,14 @@ class World(
      * than allocated per step, and empty on almost every one.
      */
     private val pendingDestruction = ArrayList<Pair<VesselId, String>>()
+
+    private val craftContacts = CraftContact()
+
+    /**
+     * Vessels in step order, reused so the craft-vs-craft pass can index them
+     * without allocating a list every tick.
+     */
+    private val stepOrder = ArrayList<Vessel>()
 
     private val scratchSurfaceVelocity = Vec3()
     private val scratchRelativeVelocity = Vec3()
@@ -454,6 +463,20 @@ class World(
             if (report.failureCount > 0) applyImpactDamage(vessel, report)
         }
 
+        // Craft against craft, once everything has moved.
+        //
+        // After the per-vessel pass rather than inside it, because a pair
+        // needs both halves in their new positions before it means anything.
+        // The cost is that a craft-craft contact is resolved against terrain
+        // contacts from the same tick rather than interleaved with them, which
+        // at a sixtieth of a second is not something anyone can see.
+        stepOrder.clear()
+        stepOrder.addAll(vesselsById.values)
+        val impacts = craftContacts.resolve(stepOrder, dt)
+        for (i in 0 until impacts.count) {
+            applyCollisionDamage(VesselId(impacts.vessels[i]), impacts.parts[i], impacts.speeds[i])
+        }
+
         if (pendingDestruction.isNotEmpty()) {
             for ((id, reason) in pendingDestruction) destroy(id, reason)
             pendingDestruction.clear()
@@ -461,6 +484,34 @@ class World(
 
         tick++
         time += dt
+    }
+
+    /**
+     * A part of one craft struck another hard enough to fail.
+     *
+     * Same rule as hitting the ground: gear gives way and the craft lives,
+     * anything else and the craft does not. Collisions between craft are how
+     * a base gets damaged by something landing badly on it, so the two paths
+     * deliberately agree - it would be strange for a tank to survive a
+     * thirty-metre-a-second arrival onto a station and not onto a hillside.
+     */
+    private fun applyCollisionDamage(id: VesselId, partIndex: Int, speed: Double) {
+        val vessel = vesselsById[id] ?: return
+        if (partIndex !in vessel.defs.indices) return
+        val def = vessel.defs[partIndex]
+        if (def.module<LandingLeg>() != null) {
+            if (vessel.breakPart(partIndex)) {
+                pendingEvents.add(
+                    WorldEvent.PartFailed(id, partIndex, "${def.title} collapsed")
+                )
+            }
+            return
+        }
+        if (pendingDestruction.none { it.first == id }) {
+            pendingDestruction.add(
+                id to "${def.title} was struck at ${speed.toInt()} m/s"
+            )
+        }
     }
 
     /**
