@@ -85,213 +85,35 @@ class Mesh(vertices: FloatArray, indices: IntArray) {
 }
 
 /**
- * Builds the procedural primitives part definitions refer to.
+ * Uploads the procedural primitives to the GPU.
  *
- * Units are metres, and shapes are centred on the origin with +Y as the axis of
- * revolution - a rocket's "up". That convention is what lets a stack of parts
- * be positioned purely by their attachment nodes.
+ * The geometry itself is built by [MeshShapes], which needs no GL context and
+ * can therefore be tested; this is only the upload step.
  */
 object MeshBuilder {
 
-
-    fun box(halfExtentX: Float, halfExtentY: Float, halfExtentZ: Float): Mesh {
-        val vertices = ArrayList<Float>(6 * 4 * Mesh.STRIDE_FLOATS)
-        val indices = ArrayList<Int>(36)
-
-        // Each face gets its own four vertices so the normals stay flat rather
-        // than being averaged across the edges into a rounded-looking cube.
-        val faces = arrayOf(
-            // normal, then the four corners counter-clockwise when seen from outside
-            floatArrayOf(0f, 0f, 1f), floatArrayOf(0f, 0f, -1f),
-            floatArrayOf(1f, 0f, 0f), floatArrayOf(-1f, 0f, 0f),
-            floatArrayOf(0f, 1f, 0f), floatArrayOf(0f, -1f, 0f),
-        )
-
-        for (normal in faces) {
-            val base = vertices.size / Mesh.STRIDE_FLOATS
-            // Build an orthonormal basis for the face from its normal.
-            val up = if (kotlin.math.abs(normal[1]) > 0.9f) {
-                floatArrayOf(0f, 0f, 1f)
-            } else {
-                floatArrayOf(0f, 1f, 0f)
-            }
-            val right = cross(up, normal)
-            val realUp = cross(normal, right)
-
-            for ((su, sv) in listOf(-1f to -1f, 1f to -1f, 1f to 1f, -1f to 1f)) {
-                val px = (normal[0] + right[0] * su + realUp[0] * sv) * halfExtentX
-                val py = (normal[1] + right[1] * su + realUp[1] * sv) * halfExtentY
-                val pz = (normal[2] + right[2] * su + realUp[2] * sv) * halfExtentZ
-                vertices.add(px); vertices.add(py); vertices.add(pz)
-                vertices.add(normal[0]); vertices.add(normal[1]); vertices.add(normal[2])
-            }
-            indices.add(base); indices.add(base + 1); indices.add(base + 2)
-            indices.add(base); indices.add(base + 2); indices.add(base + 3)
-        }
-
-        return Mesh(vertices.toFloatArray(), indices.toIntArray())
-    }
+    fun box(halfExtentX: Float, halfExtentY: Float, halfExtentZ: Float): Mesh =
+        MeshShapes.box(halfExtentX, halfExtentY, halfExtentZ).toMesh()
 
     fun cube(halfExtent: Float = 0.5f): Mesh = box(halfExtent, halfExtent, halfExtent)
 
-    /**
-     * A cone frustum about the +Y axis. Covers cylinders too - a cylinder is
-     * just a frustum whose radii match - so tanks, engine bells, nose cones and
-     * pods are all one code path.
-     */
     fun frustum(
         bottomRadius: Float,
         topRadius: Float,
         height: Float,
         segments: Int = 20,
         caps: Int = StackCaps.BOTH,
-    ): Mesh {
-        val vertices = ArrayList<Float>()
-        val indices = ArrayList<Int>()
-
-        val halfHeight = height * 0.5f
-
-        // The end caps sit a little inside the walls rather than flush with
-        // them.
-        //
-        // Two parts in a stack abut exactly - which is what the physics wants
-        // - so their cap discs land in the same plane. Coplanar faces z-fight,
-        // and worse, the part above starts exactly at the plane so it never
-        // quite covers the cap below: a crescent stays visible around the near
-        // side, and the stack reads as a row of separate tubes rather than one
-        // rocket.
-        //
-        // Recessing the cap by a few millimetres puts it behind this part's
-        // own wall from every angle outside, which fixes both at once and,
-        // unlike lengthening the part, works when the neighbour tapers. A cone
-        // sitting on a cylinder of equal base radius is narrower the moment it
-        // leaves the joint, so a lengthened cylinder pokes its rim out through
-        // the cone - which is how the first attempt at this made it worse.
-        //
-        // Render-only. MeshSpec still describes the true shape, and the
-        // collider and the builder's snapping go on using it.
-        // Flush with the walls. Recessing them was tried and is worse: it
-        // opens a well that a steep viewing angle can see into.
-        val capY = halfHeight
-
-        // Side normals tilt with the slope, so a cone shades like a cone rather
-        // than like a cylinder someone squashed.
-        val slope = (bottomRadius - topRadius) / height
-        val normalScale = 1f / kotlin.math.sqrt(1f + slope * slope)
-
-        // Each segment gets its own four vertices rather than sharing a seam,
-        // so the side normals stay per-segment and the silhouette reads cleanly.
-        for (i in 0 until segments) {
-            val quad = vertices.size / Mesh.STRIDE_FLOATS
-
-            for (step in 0..1) {
-                val angle = (2.0 * Math.PI * (i + step) / segments).toFloat()
-                val cos = kotlin.math.cos(angle)
-                val sin = kotlin.math.sin(angle)
-                val nx = cos * normalScale
-                val nz = sin * normalScale
-                val ny = slope * normalScale
-
-                // Bottom rim, then top rim, at this angle.
-                vertices.add(cos * bottomRadius)
-                vertices.add(-halfHeight)
-                vertices.add(sin * bottomRadius)
-                vertices.add(nx); vertices.add(ny); vertices.add(nz)
-
-                vertices.add(cos * topRadius)
-                vertices.add(halfHeight)
-                vertices.add(sin * topRadius)
-                vertices.add(nx); vertices.add(ny); vertices.add(nz)
-            }
-
-            // quad+0 bottom-left, +1 top-left, +2 bottom-right, +3 top-right.
-            indices.add(quad); indices.add(quad + 2); indices.add(quad + 3)
-            indices.add(quad); indices.add(quad + 3); indices.add(quad + 1)
-        }
-
-        if (caps and StackCaps.TOP != 0) {
-            addCap(vertices, indices, topRadius, capY, 1f, segments)
-        }
-        if (caps and StackCaps.BOTTOM != 0) {
-            addCap(vertices, indices, bottomRadius, -capY, -1f, segments)
-        }
-
-        return Mesh(vertices.toFloatArray(), indices.toIntArray())
-    }
+    ): Mesh = MeshShapes.frustum(bottomRadius, topRadius, height, segments, caps).toMesh()
 
     fun cylinder(
         radius: Float,
         height: Float,
         segments: Int = 20,
         caps: Int = StackCaps.BOTH,
-    ): Mesh = frustum(radius, radius, height, segments, caps)
+    ): Mesh = MeshShapes.cylinder(radius, height, segments, caps).toMesh()
 
-    /** A UV sphere. Used for spherical tanks and, later, celestial bodies. */
-    fun sphere(radius: Float, rings: Int = 12, segments: Int = 20): Mesh {
-        val vertices = ArrayList<Float>()
-        val indices = ArrayList<Int>()
+    fun sphere(radius: Float, rings: Int = 12, segments: Int = 20): Mesh =
+        MeshShapes.sphere(radius, rings, segments).toMesh()
 
-        for (ring in 0..rings) {
-            val phi = Math.PI * ring / rings
-            val y = kotlin.math.cos(phi).toFloat()
-            val ringRadius = kotlin.math.sin(phi).toFloat()
-            for (segment in 0..segments) {
-                val theta = 2.0 * Math.PI * segment / segments
-                val x = (ringRadius * kotlin.math.cos(theta)).toFloat()
-                val z = (ringRadius * kotlin.math.sin(theta)).toFloat()
-                vertices.add(x * radius); vertices.add(y * radius); vertices.add(z * radius)
-                vertices.add(x); vertices.add(y); vertices.add(z)
-            }
-        }
-
-        val stride = segments + 1
-        for (ring in 0 until rings) {
-            for (segment in 0 until segments) {
-                val a = ring * stride + segment
-                val b = a + stride
-                indices.add(a); indices.add(b); indices.add(a + 1)
-                indices.add(a + 1); indices.add(b); indices.add(b + 1)
-            }
-        }
-        return Mesh(vertices.toFloatArray(), indices.toIntArray())
-    }
-
-    /** A flat disc closing one end of a frustum. */
-    private fun addCap(
-        vertices: ArrayList<Float>,
-        indices: ArrayList<Int>,
-        radius: Float,
-        y: Float,
-        normalY: Float,
-        segments: Int,
-    ) {
-        if (radius <= 0f) return
-        val centre = vertices.size / Mesh.STRIDE_FLOATS
-        vertices.add(0f); vertices.add(y); vertices.add(0f)
-        vertices.add(0f); vertices.add(normalY); vertices.add(0f)
-
-        for (i in 0..segments) {
-            val angle = (2.0 * Math.PI * i / segments).toFloat()
-            vertices.add(kotlin.math.cos(angle) * radius)
-            vertices.add(y)
-            vertices.add(kotlin.math.sin(angle) * radius)
-            vertices.add(0f); vertices.add(normalY); vertices.add(0f)
-        }
-        for (i in 0 until segments) {
-            val a = centre + 1 + i
-            val b = centre + 2 + i
-            // Wind the two caps oppositely so back-face culling keeps both.
-            if (normalY > 0f) {
-                indices.add(centre); indices.add(a); indices.add(b)
-            } else {
-                indices.add(centre); indices.add(b); indices.add(a)
-            }
-        }
-    }
-
-    private fun cross(a: FloatArray, b: FloatArray) = floatArrayOf(
-        a[1] * b[2] - a[2] * b[1],
-        a[2] * b[0] - a[0] * b[2],
-        a[0] * b[1] - a[1] * b[0],
-    )
+    private fun MeshData.toMesh() = Mesh(vertices, indices)
 }

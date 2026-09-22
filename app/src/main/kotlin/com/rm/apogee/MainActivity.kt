@@ -29,6 +29,7 @@ import com.rm.apogee.core.world.WorldStore
 import com.rm.apogee.game.BuilderSession
 import com.rm.apogee.game.DiscoveredServer
 import com.rm.apogee.game.ServerBrowser
+import com.rm.apogee.net.ServerAddress
 import com.rm.apogee.game.GameSession
 import com.rm.apogee.game.HudState
 import com.rm.apogee.platform.PerfHints
@@ -101,6 +102,12 @@ class MainActivity : ComponentActivity() {
     private var pendingMode: SessionMode = SessionMode.Solo
     private var joinError by mutableStateOf<String?>(null)
     private var connectingTo by mutableStateOf<String?>(null)
+
+    /**
+     * What is typed in the join screen's address box. Seeded from the last
+     * address that worked, so returning to a server is one tap.
+     */
+    private var manualAddress by mutableStateOf("")
     private var serverName by mutableStateOf("")
 
     private var appScreen by mutableStateOf(AppScreen.MENU)
@@ -174,7 +181,11 @@ class MainActivity : ComponentActivity() {
                         browser = serverBrowser,
                         connectingTo = connectingTo,
                         error = joinError,
+                        manualAddress = manualAddress,
+                        onManualAddressChange = { manualAddress = it },
+                        defaultPort = GameSession.DEFAULT_PORT,
                         onJoin = ::joinServer,
+                        onJoinAddress = ::joinAddress,
                     )
                 }
             }
@@ -191,6 +202,7 @@ class MainActivity : ComponentActivity() {
         // browser is actually on screen.
         if (target == AppScreen.JOIN_GAME) {
             joinError = null
+            if (manualAddress.isEmpty()) manualAddress = settings.lastServerAddress
             serverBrowser.start(lifecycleScope)
         } else if (wasBrowsing) {
             serverBrowser.stop()
@@ -222,9 +234,30 @@ class MainActivity : ComponentActivity() {
      * produces an error on the list where the player can pick another, rather
      * than dropping them into an empty world to work it out themselves.
      */
-    private fun joinServer(server: DiscoveredServer) {
+    private fun joinServer(server: DiscoveredServer) =
+        connectTo(server.beacon.serverName, server.beacon.address, server.beacon.port)
+
+    /**
+     * Connects to an address the player typed.
+     *
+     * Remembered only once the connection succeeds: an address that failed is
+     * as likely to be a typo as a server that is down, and offering it back as
+     * the default next time would keep the typo alive.
+     */
+    private fun joinAddress(address: ServerAddress) {
+        connectTo(address.label(GameSession.DEFAULT_PORT), address.host, address.port) {
+            settings.lastServerAddress = manualAddress.trim()
+        }
+    }
+
+    private fun connectTo(
+        label: String,
+        host: String,
+        port: Int,
+        onConnected: () -> Unit = {},
+    ) {
         if (connectingTo != null) return
-        connectingTo = server.beacon.serverName
+        connectingTo = label
         joinError = null
 
         lifecycleScope.launch {
@@ -232,16 +265,19 @@ class MainActivity : ComponentActivity() {
                 frameBus = frameBus,
                 perfHints = null,
                 playerName = settings.playerName,
-                host = server.beacon.address,
-                port = server.beacon.port,
+                host = host,
+                port = port,
             )
             connectingTo = null
             result
                 .onSuccess { joined ->
+                    onConnected()
                     pendingMode = SessionMode.Joined(joined)
                     navigateTo(AppScreen.FLIGHT)
                 }
-                .onFailure { joinError = "Could not connect: ${it.message ?: "host unreachable"}" }
+                .onFailure {
+                    joinError = "Could not reach $label: ${it.message ?: "host unreachable"}"
+                }
         }
     }
 

@@ -69,7 +69,7 @@ fun PlayScreen(onNavigate: (AppScreen) -> Unit) {
             "Join a Game",
             { onNavigate(AppScreen.JOIN_GAME) },
             contentModifier,
-            subtitle = "Find a game on your network",
+            subtitle = "Find one nearby, or type an address",
         )
 
 

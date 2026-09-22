@@ -33,6 +33,16 @@ class GameSettings(context: Context) {
     var playerName: String by stringPref(KEY_PLAYER_NAME, "Pilot")
 
     /**
+     * The last address typed into the join screen.
+     *
+     * Remembered because the case that needs it is the case where discovery
+     * cannot help - a VPN, a different subnet, a server on the internet - and
+     * that is not a one-off. Retyping an address every session is the kind of
+     * friction that makes people stop joining.
+     */
+    var lastServerAddress: String by stringPref(KEY_LAST_SERVER, "")
+
+    /**
      * Opacity of the flight control overlay. Floored well above zero - a
      * fully transparent HUD is indistinguishable from a broken one.
      */
@@ -124,6 +134,7 @@ class GameSettings(context: Context) {
 
     private companion object {
         const val KEY_PLAYER_NAME = "player_name"
+        const val KEY_LAST_SERVER = "last_server_address"
         const val KEY_CONTROL_OPACITY = "control_opacity"
         const val KEY_LEFT_HAND = "left_hand_mode"
         const val KEY_UI_SOUND = "ui_sound"

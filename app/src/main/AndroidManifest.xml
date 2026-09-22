@@ -30,13 +30,19 @@
              user's rotation lock. The activity handles the configuration
              change itself (configChanges below), so rotating mid-flight
              relays out the HUD without recreating the activity, tearing down
-             the GL context or interrupting the simulation. -->
+             the GL context or interrupting the simulation.
+
+             windowSoftInputMode is adjustResize so the keyboard's inset
+             reaches the view tree and imePadding can keep a form's button
+             above it. The game itself never raises a keyboard, so this only
+             affects the menus. -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:screenOrientation="fullUser"
             android:launchMode="singleTask"
             android:resizeableActivity="false"
+            android:windowSoftInputMode="adjustResize"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|navigation|uiMode|density">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
