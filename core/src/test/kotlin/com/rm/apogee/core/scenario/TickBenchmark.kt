@@ -32,8 +32,10 @@ fun main() {
     for (flying in booleanArrayOf(true, false)) {
         println()
         println(if (flying) "ASCENDING (staged, full throttle)" else "PARKED (resting on the pad)")
-        println("vessels   parts   ms/tick   %% of 60Hz budget   max craft at 60Hz")
-        println("-".repeat(70))
+        println(
+            "vessels   parts   ms/tick   %% of 60Hz budget   max craft at 60Hz   asleep"
+        )
+        println("-".repeat(79))
 
     for (count in intArrayOf(1, 5, 10, 25, 50, 100, 200)) {
         val world = World.default(catalog)
@@ -63,9 +65,10 @@ fun main() {
         val budget = msPerTick / (1000.0 / 60.0) * 100.0
         val capacity = if (msPerTick > 0) (1000.0 / 60.0 / msPerTick * count).toInt() else 0
 
+        val asleep = world.vessels.count { it.dormant }
         println(
-            "%7d %7d %9.3f %17.1f%% %19d".format(
-                count, count * 13, msPerTick, budget, capacity,
+            "%7d %7d %9.3f %17.1f%% %19d %8d".format(
+                count, count * 13, msPerTick, budget, capacity, asleep,
             )
         )
     }

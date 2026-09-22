@@ -18,6 +18,7 @@ import com.rm.apogee.core.part.PartCatalog
 import com.rm.apogee.render.FrameBus
 import com.rm.apogee.render.RenderFrame
 import com.rm.apogee.render.RenderItem
+import com.rm.apogee.render.StackCaps
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -224,10 +225,12 @@ class BuilderSession(
         camera.frameAtLeast(designExtent(design, centre))
         camera.solve(centre, cameraPosition, cameraRotation)
 
+        val caps = StackCaps.forDesign(design, catalog)
         design.parts.forEachIndexed { index, placed ->
             val def = catalog[placed.partId] ?: return@forEachIndexed
             items.add(
                 RenderItem(
+                    caps = caps[index],
                     meshSpec = def.mesh,
                     position = placed.position.copy(),
                     rotation = placed.rotation.copy(),

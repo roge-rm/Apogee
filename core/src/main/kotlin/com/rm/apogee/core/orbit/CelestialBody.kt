@@ -130,6 +130,17 @@ class CelestialBody(
         return Quat.fromAxisAngle(Vec3.unitY(), angle, out)
     }
 
+    /**
+     * The body's own rotation rate as a vector, rad/s, written into [out].
+     *
+     * What a craft resting on the surface is turning at: a base on a pad is
+     * not stationary, it is going round once a day with the ground.
+     */
+    fun angularVelocity(out: Vec3 = Vec3()): Vec3 {
+        if (rotationPeriod == 0.0) return out.setZero()
+        return out.setTo(0.0, 2.0 * PI / rotationPeriod, 0.0)
+    }
+
     /** Surface velocity due to rotation at [positionRelativeToCentre], m/s. */
     fun surfaceVelocityAt(positionRelativeToCentre: Vec3, out: Vec3 = Vec3()): Vec3 {
         if (rotationPeriod == 0.0) return out.setZero()

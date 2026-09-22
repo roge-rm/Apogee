@@ -77,7 +77,7 @@ class GlRenderer(
      * tanks uploads one mesh and draws it three times. Cleared whenever the GL
      * context is recreated, because every handle in it is then dangling.
      */
-    private val meshes = HashMap<MeshSpec, Mesh>()
+    private val meshes = HashMap<Pair<MeshSpec, Int>, Mesh>()
     private var lineProgram: ShaderProgram? = null
     /** Reused across frames; orbits are re-uploaded, not reallocated. */
     private val lineMeshes = ArrayList<LineMesh>()
@@ -406,19 +406,26 @@ class GlRenderer(
             modelMatrix.setFromTrs(position, rotation, cameraPos)
             shader.setMat4("uModel", modelMatrix.m)
             shader.setVec4("uColor", item.color)
-            meshFor(item.meshSpec).draw()
+            meshFor(item.meshSpec, item.caps).draw()
         }
     }
 
-    /** Builds and caches the GPU mesh for a shape the first time it is drawn. */
-    private fun meshFor(spec: MeshSpec): Mesh = meshes.getOrPut(spec) {
+    /**
+     * Builds and caches the GPU mesh for a shape the first time it is drawn.
+     *
+     * Keyed on the cap mask as well as the shape, because a tank buried in a
+     * stack and the same tank standing alone are different meshes. At most
+     * four variants per shape, and in practice two.
+     */
+    private fun meshFor(spec: MeshSpec, caps: Int): Mesh = meshes.getOrPut(spec to caps) {
         when (spec) {
             is MeshSpec.Cylinder ->
-                MeshBuilder.cylinder(spec.radius.toFloat(), spec.height.toFloat())
+                MeshBuilder.cylinder(spec.radius.toFloat(), spec.height.toFloat(), caps = caps)
             is MeshSpec.Cone -> MeshBuilder.frustum(
                 spec.bottomRadius.toFloat(),
                 spec.topRadius.toFloat(),
                 spec.height.toFloat(),
+                caps = caps,
             )
             is MeshSpec.Box -> MeshBuilder.box(
                 (spec.width * 0.5).toFloat(),

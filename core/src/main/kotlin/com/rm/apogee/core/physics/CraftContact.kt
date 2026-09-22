@@ -61,6 +61,23 @@ class CraftContact {
 
     val report = CraftImpactReport()
 
+    /**
+     * Craft involved in any contact this tick, damaging or not.
+     *
+     * Separate from [report], which only lists what broke. Dormancy needs the
+     * wider set: something resting against a sleeping base has to wake it
+     * whether or not it did any harm, or the base behaves like scenery.
+     */
+    val touched = LongArray(MAX_TOUCHED)
+    var touchedCount: Int = 0
+        private set
+
+    private fun noteTouched(id: Long) {
+        for (i in 0 until touchedCount) if (touched[i] == id) return
+        if (touchedCount >= MAX_TOUCHED) return
+        touched[touchedCount++] = id
+    }
+
     private val positionA = Vec3()
     private val positionB = Vec3()
     private val offsetA = Vec3()
@@ -101,6 +118,7 @@ class CraftContact {
      */
     fun resolve(vessels: List<Vessel>, dt: Double): CraftImpactReport {
         report.reset()
+        touchedCount = 0
         for (i in vessels.indices) {
             val a = vessels[i]
             if (a.body.inverseMass <= 0.0) continue
@@ -261,6 +279,9 @@ class CraftContact {
         val bodyA = a.body
         val bodyB = b.body
 
+        noteTouched(a.id.raw)
+        noteTouched(b.id.raw)
+
         offsetA.setTo(point).subInPlace(bodyA.position)
         offsetB.setTo(point).subInPlace(bodyB.position)
 
@@ -350,6 +371,9 @@ class CraftContact {
     }
 
     private companion object {
+        /** More craft in one pile-up than anything should produce. */
+        const val MAX_TOUCHED = 64
+
         const val POSITION_CORRECTION = 0.35
         const val RESTITUTION = 0.05
         const val FRICTION = 0.5

@@ -1,5 +1,6 @@
 package com.rm.apogee.core.craft
 
+import com.rm.apogee.core.math.Quat
 import com.rm.apogee.core.math.Vec3
 import com.rm.apogee.core.part.Engine
 import com.rm.apogee.core.part.PartDef
@@ -461,6 +462,91 @@ class Vessel(
         name = newDesign.name
         computeFuelGroups()
         recomputeMass()
+    }
+
+    // --- dormancy -----------------------------------------------------------
+
+    /**
+     * Whether this craft has been put on rails against the ground.
+     *
+     * A world that people leave things in is mostly made of things nobody is
+     * looking at, and a base resting on a pad costs exactly as much to
+     * simulate as one being flown. Dormant craft are not stepped at all: no
+     * forces, no integration, no terrain sampling.
+     *
+     * Dormant is never *absent*. The craft keeps its position, keeps taking
+     * part in collision, and wakes the moment anything touches it - otherwise
+     * a returning player would fly straight through their own base.
+     */
+    var dormant: Boolean = false
+        private set
+
+    /**
+     * Where it sleeps, in the body's own rotating frame.
+     *
+     * Freezing the inertial state would be wrong: a craft at rest on the
+     * ground is travelling at a hundred and seventy-five metres a second in
+     * the inertial frame, and holding *that* still would leave the planet to
+     * rotate out from under it. What is actually constant is its position on
+     * the ground, so that is what is stored, and the inertial state is
+     * rebuilt from the body's rotation each tick.
+     */
+    private val sleepPosition = Vec3()
+    private val sleepOrientation = Quat.identity()
+
+    /** Ticks spent within the stillness thresholds, for hysteresis. */
+    private var settledTicks: Int = 0
+
+    /**
+     * Puts the craft to sleep at its current pose, expressed in the rotating
+     * frame described by [bodyRotation].
+     */
+    fun sleep(bodyRotation: Quat) {
+        if (dormant) return
+        bodyRotation.inverseRotate(body.position, sleepPosition)
+        sleepOrientation.setTo(bodyRotation.conjugate().times(body.orientation))
+        dormant = true
+        settledTicks = 0
+    }
+
+    /** Returns true if this call is what woke it. */
+    fun wake(): Boolean {
+        if (!dormant) {
+            settledTicks = 0
+            return false
+        }
+        dormant = false
+        settledTicks = 0
+        return true
+    }
+
+    /**
+     * Rebuilds the inertial pose of a sleeping craft from the body's current
+     * rotation. Four rotations, against a full force-and-contact pass.
+     */
+    fun followRotation(bodyRotation: Quat, surfaceVelocity: Vec3, spin: Vec3) {
+        bodyRotation.rotate(sleepPosition, body.position)
+        // setTo then mulInPlace, not `a * b`: the operator allocates, and this
+        // runs for every sleeping craft every tick. A world full of parked
+        // bases is exactly where an allocation per object per tick is least
+        // affordable, which is the whole reason dormancy exists.
+        body.orientation.setTo(bodyRotation).mulInPlace(sleepOrientation)
+        body.linearVelocity.setTo(surfaceVelocity)
+        body.angularVelocity.setTo(spin)
+    }
+
+    /**
+     * Counts consecutive still ticks and reports when it has been still long
+     * enough to sleep. Hysteresis, so a craft rocking gently on its gear does
+     * not flicker in and out of dormancy.
+     */
+    fun noteStillness(still: Boolean, requiredTicks: Int): Boolean {
+        if (!still) {
+            settledTicks = 0
+            return false
+        }
+        settledTicks++
+        return settledTicks >= requiredTicks
     }
 
     /**

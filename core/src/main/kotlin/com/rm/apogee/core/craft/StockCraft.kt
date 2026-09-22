@@ -53,7 +53,11 @@ object StockCraft {
         val lowerTankTop = add("tank-cask4", 7.4, decoupler)
         val lowerTankMid = add("tank-cask4", 3.4, lowerTankTop)
         val lowerTankBottom = add("tank-cask4", -0.6, lowerTankMid)
-        val mainEngine = add("engine-ember", -2.0, lowerTankBottom)
+        // Below the tank, not inside it. The Ember is 1.4m tall and the
+        // bottom tank ends at -2.6, so its centre belongs at -3.3; at -2.0 all
+        // but the last ten centimetres of the engine was buried in the tank
+        // above it, which is what made the stack look wrong at the base.
+        val mainEngine = add("engine-ember", -3.3, lowerTankBottom)
 
         // Fins low on the stack, well behind the centre of mass, which is what
         // makes them stabilising rather than destabilising.

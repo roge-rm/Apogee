@@ -93,6 +93,7 @@ class Mesh(vertices: FloatArray, indices: IntArray) {
  */
 object MeshBuilder {
 
+
     fun box(halfExtentX: Float, halfExtentY: Float, halfExtentZ: Float): Mesh {
         val vertices = ArrayList<Float>(6 * 4 * Mesh.STRIDE_FLOATS)
         val indices = ArrayList<Int>(36)
@@ -143,10 +144,35 @@ object MeshBuilder {
         topRadius: Float,
         height: Float,
         segments: Int = 20,
+        caps: Int = StackCaps.BOTH,
     ): Mesh {
         val vertices = ArrayList<Float>()
         val indices = ArrayList<Int>()
+
         val halfHeight = height * 0.5f
+
+        // The end caps sit a little inside the walls rather than flush with
+        // them.
+        //
+        // Two parts in a stack abut exactly - which is what the physics wants
+        // - so their cap discs land in the same plane. Coplanar faces z-fight,
+        // and worse, the part above starts exactly at the plane so it never
+        // quite covers the cap below: a crescent stays visible around the near
+        // side, and the stack reads as a row of separate tubes rather than one
+        // rocket.
+        //
+        // Recessing the cap by a few millimetres puts it behind this part's
+        // own wall from every angle outside, which fixes both at once and,
+        // unlike lengthening the part, works when the neighbour tapers. A cone
+        // sitting on a cylinder of equal base radius is narrower the moment it
+        // leaves the joint, so a lengthened cylinder pokes its rim out through
+        // the cone - which is how the first attempt at this made it worse.
+        //
+        // Render-only. MeshSpec still describes the true shape, and the
+        // collider and the builder's snapping go on using it.
+        // Flush with the walls. Recessing them was tried and is worse: it
+        // opens a well that a steep viewing angle can see into.
+        val capY = halfHeight
 
         // Side normals tilt with the slope, so a cone shades like a cone rather
         // than like a cylinder someone squashed.
@@ -183,14 +209,22 @@ object MeshBuilder {
             indices.add(quad); indices.add(quad + 3); indices.add(quad + 1)
         }
 
-        addCap(vertices, indices, topRadius, halfHeight, 1f, segments)
-        addCap(vertices, indices, bottomRadius, -halfHeight, -1f, segments)
+        if (caps and StackCaps.TOP != 0) {
+            addCap(vertices, indices, topRadius, capY, 1f, segments)
+        }
+        if (caps and StackCaps.BOTTOM != 0) {
+            addCap(vertices, indices, bottomRadius, -capY, -1f, segments)
+        }
 
         return Mesh(vertices.toFloatArray(), indices.toIntArray())
     }
 
-    fun cylinder(radius: Float, height: Float, segments: Int = 20): Mesh =
-        frustum(radius, radius, height, segments)
+    fun cylinder(
+        radius: Float,
+        height: Float,
+        segments: Int = 20,
+        caps: Int = StackCaps.BOTH,
+    ): Mesh = frustum(radius, radius, height, segments, caps)
 
     /** A UV sphere. Used for spherical tanks and, later, celestial bodies. */
     fun sphere(radius: Float, rings: Int = 12, segments: Int = 20): Mesh {

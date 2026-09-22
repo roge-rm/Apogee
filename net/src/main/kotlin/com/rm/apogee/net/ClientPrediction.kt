@@ -115,6 +115,13 @@ class ClientPrediction(
 
         val before = local.body.position.copy()
 
+        // Writing state into a sleeping replica would be ignored: a dormant
+        // craft rides the planet's rotation from its stored ground position
+        // and is not integrated, so it would sit there while the server's
+        // craft flew away. The replica sleeps for the same reason the server's
+        // world does - it is the same World - and reconciliation is precisely
+        // the moment to say it is no longer parked.
+        local.wake()
         local.body.position.setTo(state.position)
         local.body.linearVelocity.setTo(state.velocity)
         local.body.orientation.setTo(state.rotation)

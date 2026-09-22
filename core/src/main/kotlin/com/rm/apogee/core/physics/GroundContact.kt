@@ -31,6 +31,7 @@ class ContactReport {
         worstImpactSpeed = 0.0
         worstPartIndex = -1
         failureCount = 0
+        anchored = false
     }
 
     /** Records a failure, ignoring one already recorded this tick. */
@@ -41,6 +42,14 @@ class ContactReport {
     }
 
     val hadContact: Boolean get() = contactCount > 0
+
+    /**
+     * The craft is being held in place by friction rather than merely touching.
+     *
+     * Set when the contact pass finished with the craft's ground-relative
+     * motion inside what friction can cancel in a single tick.
+     */
+    var anchored: Boolean = false
 
     private companion object {
         const val MAX_FAILURES = 16
@@ -211,7 +220,60 @@ class GroundContact {
             applyFriction(body, attractor, normalImpulse)
             }
         }
+
+        anchorIfResting(vessel, attractor, dt)
         return report
+    }
+
+    /**
+     * Holds a resting craft still, the way friction actually does.
+     *
+     * Without this a craft parked on a pad never stops moving. The solver
+     * corrects a fraction of its penetration each tick and gravity puts it
+     * straight back, and with eight contact points resolved one after another
+     * the residuals do not cancel - a settled lander jitters at up to
+     * 0.065 m/s and 0.032 rad/s forever. Every consumer downstream then has to
+     * carry a tolerance for motion that is not real.
+     *
+     * The rule is the static friction condition itself. Friction can deliver
+     * at most `mu * N` and a resting craft's normal force is its weight, so
+     * over one tick it can cancel a ground-relative speed of up to
+     * `mu * g * dt`. If the craft is moving slower than that, friction wins
+     * and it does not move: say so exactly, by removing the motion. If it is
+     * moving faster, friction loses and this does nothing.
+     *
+     * That reproduces the slope behaviour for free. Gravity adds
+     * `g * sin(theta) * dt` of down-slope motion each tick against a budget of
+     * `mu * g * cos(theta) * dt`, so a craft sticks while `tan(theta) < mu` and
+     * slides once it is steeper - which is the textbook result, arrived at
+     * without anywhere to put a fudge factor.
+     */
+    private fun anchorIfResting(vessel: Vessel, attractor: CelestialBody, dt: Double) {
+        if (!report.hadContact) return
+        val body = vessel.body
+
+        // Under power is not at rest, however slowly it happens to be moving.
+        if (vessel.control.throttle > 0.0) return
+
+        attractor.gravityAt(body.position, scratch)
+        val budget = FRICTION * scratch.length * dt
+        if (budget <= 0.0) return
+
+        attractor.surfaceVelocityAt(body.position, surfaceVelocity)
+        pointVelocity.setTo(body.linearVelocity).subInPlace(surfaceVelocity)
+        if (pointVelocity.length > budget) return
+
+        // The same test for rotation, in the units rotation comes in: a point
+        // on the craft's rim is moving at omega * r, and the same friction
+        // budget applies to it.
+        attractor.angularVelocity(scratch)
+        tangent.setTo(body.angularVelocity).subInPlace(scratch)
+        val rimSpeed = tangent.length * vessel.contactRadius
+        if (rimSpeed > budget) return
+
+        body.linearVelocity.setTo(surfaceVelocity)
+        body.angularVelocity.setTo(scratch)
+        report.anchored = true
     }
 
     /**

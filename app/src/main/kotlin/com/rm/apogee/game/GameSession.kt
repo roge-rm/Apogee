@@ -25,6 +25,7 @@ import com.rm.apogee.platform.PerfHints
 import com.rm.apogee.render.FrameBus
 import com.rm.apogee.render.RenderFrame
 import com.rm.apogee.render.RenderItem
+import com.rm.apogee.render.StackCaps
 import com.rm.apogee.render.QualityTier
 import com.rm.apogee.render.RenderLine
 import com.rm.apogee.render.WorldView
@@ -437,7 +438,8 @@ class GameSession private constructor(
         val position = overridePosition ?: state.position
         val rotation = overrideRotation ?: state.rotation
 
-        for (placed in design.parts) {
+        val caps = StackCaps.forDesign(design, catalog)
+        for ((index, placed) in design.parts.withIndex()) {
             val def = catalog[placed.partId] ?: continue
 
             scratch.setTo(placed.position).subInPlace(centreOfMass)
@@ -446,6 +448,7 @@ class GameSession private constructor(
 
             out.add(
                 RenderItem(
+                    caps = caps[index],
                     meshSpec = def.mesh,
                     position = scratch.copy(),
                     rotation = rotation * placed.rotation,

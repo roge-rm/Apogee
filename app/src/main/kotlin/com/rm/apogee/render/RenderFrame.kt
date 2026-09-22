@@ -17,6 +17,13 @@ class RenderItem(
     val position: Vec3,
     val rotation: Quat,
     val color: FloatArray,
+    /**
+     * Which end caps to draw, from [com.rm.apogee.render.StackCaps].
+     *
+     * Per-item rather than per-shape: the same tank draws both caps standing
+     * alone and neither in the middle of a stack.
+     */
+    val caps: Int = StackCaps.BOTH,
 )
 
 /**

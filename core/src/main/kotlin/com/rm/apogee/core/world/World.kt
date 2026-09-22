@@ -94,6 +94,7 @@ class World(
 
     private val scratchSurfaceVelocity = Vec3()
     private val scratchRelativeVelocity = Vec3()
+    private val scratchSpin = Vec3()
     private val scratch = Vec3()
     private val scratchUp = Vec3()
     private val scratchBodyFixedUp = Vec3()
@@ -264,19 +265,22 @@ class World(
 
     fun apply(command: Command) {
         when (command) {
+            // Each of these wakes its target first: a command is somebody
+            // paying attention to that craft, which is exactly the signal
+            // dormancy is waiting for.
             is Command.SetThrottle ->
-                vesselsById[VesselId(command.vessel)]?.control?.throttle = command.throttle
+                waken(command.vessel)?.control?.throttle = command.throttle
 
-            is Command.SetAttitude -> vesselsById[VesselId(command.vessel)]?.control?.let {
+            is Command.SetAttitude -> waken(command.vessel)?.control?.let {
                 it.pitch = command.pitch
                 it.yaw = command.yaw
                 it.roll = command.roll
             }
 
             is Command.SetSas ->
-                vesselsById[VesselId(command.vessel)]?.control?.sasEnabled = command.enabled
+                waken(command.vessel)?.control?.sasEnabled = command.enabled
 
-            is Command.Stage -> vesselsById[VesselId(command.vessel)]?.let { stage(it) }
+            is Command.Stage -> waken(command.vessel)?.let { stage(it) }
 
             is Command.SpawnCraft -> {
                 val site = launchSites.firstOrNull { it.id == command.siteId }
@@ -284,7 +288,7 @@ class World(
                 spawnOnSurface(command.design, site)
             }
 
-            is Command.Join -> vesselsById[VesselId(command.vessel)]?.let { joinToNeighbour(it) }
+            is Command.Join -> waken(command.vessel)?.let { joinToNeighbour(it) }
 
             is Command.Chat -> Unit // handled above the world
         }
@@ -602,6 +606,21 @@ class World(
             val attractor = attractorFor(vessel)
             val body = vessel.body
 
+            // Dormant craft ride the planet's rotation and are not simulated.
+            //
+            // This is the same idea as putting an orbit on rails, for the
+            // other place a craft spends most of its life: parked. A world
+            // people leave bases in is mostly made of things nobody is
+            // looking at, and a base on a pad otherwise costs exactly what
+            // one being flown does.
+            if (vessel.dormant) {
+                attractor.rotationAt(time, scratchRotation)
+                attractor.surfaceVelocityAt(body.position, scratchSurfaceVelocity)
+                attractor.angularVelocity(scratchSpin)
+                vessel.followRotation(scratchRotation, scratchSurfaceVelocity, scratchSpin)
+                continue
+            }
+
             body.clearAccumulators()
 
             forces.applyGravity(vessel, attractor)
@@ -636,6 +655,8 @@ class World(
                 pendingEvents.add(WorldEvent.Touchdown(vessel.id, report.worstImpactSpeed))
             }
             if (report.failureCount > 0) applyImpactDamage(vessel, report)
+
+            considerSleeping(vessel, report)
         }
 
         // Craft against craft, once everything has moved.
@@ -648,6 +669,12 @@ class World(
         stepOrder.clear()
         stepOrder.addAll(vesselsById.values)
         val impacts = craftContacts.resolve(stepOrder, dt)
+        // Anything that was touched is awake again, whether or not it was
+        // hurt. A sleeping base that stayed asleep while something landed on
+        // it would be a wall, not an object.
+        for (i in 0 until craftContacts.touchedCount) {
+            vesselsById[VesselId(craftContacts.touched[i])]?.wake()
+        }
         for (i in 0 until impacts.count) {
             applyCollisionDamage(VesselId(impacts.vessels[i]), impacts.parts[i], impacts.speeds[i])
         }
@@ -660,6 +687,30 @@ class World(
         tick++
         time += dt
     }
+
+    /**
+     * Puts a craft to sleep once friction has been holding it still a while.
+     *
+     * The condition is [ContactReport.anchored], not a velocity threshold.
+     * The contact resolver already answers the hard question - is friction
+     * winning? - and a craft it has anchored is exactly, not approximately,
+     * stationary on the ground. Comparing velocities here instead meant
+     * picking a number above a resting craft's jitter and below a real slide,
+     * and the first attempt at that number was below the jitter's ninetieth
+     * percentile, so nothing ever slept.
+     *
+     * The delay is hysteresis: a lander rocking onto its gear can be anchored
+     * for a tick or two on the way to settling.
+     */
+    private fun considerSleeping(vessel: Vessel, report: ContactReport) {
+        if (vessel.noteStillness(report.anchored, SLEEP_SETTLE_TICKS)) {
+            attractorFor(vessel).rotationAt(time, scratchRotation)
+            vessel.sleep(scratchRotation)
+        }
+    }
+
+    /** Wakes [id] if it is asleep, so a command always reaches a live craft. */
+    private fun waken(id: Long): Vessel? = vesselsById[VesselId(id)]?.also { it.wake() }
 
     /**
      * A part of one craft struck another hard enough to fail.
@@ -959,6 +1010,16 @@ class World(
          * before they matter.
          */
         private const val SUBSTEP_PROXIMITY_MARGIN = 120.0
+
+        /**
+         * How long it must stay that still first.
+         *
+         * Two seconds. Hysteresis, so a lander rocking on its gear settles
+         * once rather than flickering in and out of dormancy - and long
+         * enough that a craft still creeping down a slope is not caught
+         * mid-slide and frozen there.
+         */
+        private const val SLEEP_SETTLE_TICKS = 120
 
 
         val launchSites = listOf(
