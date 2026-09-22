@@ -24,6 +24,13 @@ class CelestialBody(
     /** Sidereal rotation period, seconds. Zero means it does not rotate. */
     val rotationPeriod: Double = 0.0,
     val atmosphere: Atmosphere? = null,
+    /**
+     * The shape of the surface, or null for a perfectly smooth body.
+     *
+     * The renderer builds its mesh by sampling this, and the collider resolves
+     * against it, so there is one definition of where the ground is.
+     */
+    val terrain: com.rm.apogee.core.terrain.TerrainField? = null,
     val parentId: String? = null,
     /** This body's orbit about its parent. Null for the root. */
     val orbit: Orbit? = null,
@@ -54,8 +61,54 @@ class CelestialBody(
     /** Altitude where the atmosphere ends, or 0 if there is none. */
     val atmosphereHeight: Double get() = atmosphere?.height ?: 0.0
 
+    /**
+     * Height above the datum - "sea level" - in metres.
+     *
+     * This is the altitude orbital mechanics cares about, and the one the
+     * atmosphere model is defined against. It is *not* the height above the
+     * ground beneath you; see [heightAboveTerrain].
+     */
     fun altitudeOf(positionRelativeToCentre: Vec3): Double =
         positionRelativeToCentre.length - radius
+
+    /**
+     * Height above the ground directly below, in metres.
+     *
+     * The number a pilot wants when landing, and quite different from
+     * [altitudeOf] over a mountain range.
+     *
+     * @param bodyFixedDirection the position, rotated into the body's own
+     *   turning frame. See [surfaceRadiusInBodyFrame] for why that matters.
+     */
+    fun heightAboveTerrain(positionRelativeToCentre: Vec3, bodyFixedDirection: Vec3): Double {
+        val field = terrain ?: return altitudeOf(positionRelativeToCentre)
+        return positionRelativeToCentre.length - field.surfaceRadius(bodyFixedDirection)
+    }
+
+    /**
+     * Distance from the centre to the ground below a **body-fixed** direction.
+     *
+     * Body-fixed, not inertial, and the distinction is not pedantry. Terrain
+     * is carved into a planet that turns: at the equator the surface moves at
+     * 175 m/s, so a height field sampled in the inertial frame scrolls past a
+     * parked craft at that speed. The first version did exactly that and the
+     * stock rocket climbed steadily off its pad, riding a hillside that was
+     * sliding underneath it.
+     *
+     * Callers convert with [toBodyFixed], usually once per tick rather than
+     * once per contact point.
+     */
+    fun surfaceRadiusInBodyFrame(bodyFixedDirection: Vec3): Double =
+        terrain?.surfaceRadius(bodyFixedDirection) ?: radius
+
+    /**
+     * Rotates an inertial direction into the body's turning frame at [time].
+     *
+     * Takes the rotation as an argument rather than computing it, so a caller
+     * touching many points in one tick computes it once.
+     */
+    fun toBodyFixed(direction: Vec3, rotation: Quat, out: Vec3 = Vec3()): Vec3 =
+        if (rotationPeriod == 0.0) out.setTo(direction) else rotation.inverseRotate(direction, out)
 
     /**
      * Gravitational acceleration at [positionRelativeToCentre], written into
@@ -64,7 +117,7 @@ class CelestialBody(
     fun gravityAt(positionRelativeToCentre: Vec3, out: Vec3 = Vec3()): Vec3 {
         val distanceSq = positionRelativeToCentre.lengthSq
         if (distanceSq < 1.0) return out.setZero()
-        val distance = sqrt(distanceSq)
+        val distance = kotlin.math.sqrt(distanceSq)
         // -mu / r^2 along the unit vector, folded into one scale factor.
         val scale = -gravitationalParameter / (distanceSq * distance)
         return out.setTo(positionRelativeToCentre).mulInPlace(scale)

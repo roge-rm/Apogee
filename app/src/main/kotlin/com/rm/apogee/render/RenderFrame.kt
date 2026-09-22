@@ -83,6 +83,20 @@ class WorldView(
     val homeDirection: Vec3,
     /** Altitude of the camera above the datum, metres. */
     val cameraAltitude: Double,
+    /** The body's rotation now, so terrain is drawn where it actually is. */
+    val bodyRotation: Quat,
+    /** Highest terrain, for colouring by height. */
+    val maxElevation: Double,
+    /**
+     * Whether the distant surface - the coarse whole-body mesh and the sea
+     * sphere - is needed at all.
+     *
+     * False when the near patch already reaches past the horizon, at which
+     * point both are entirely hidden behind ground the patch has already
+     * drawn. Skipping them is worth real frame time: each is a full-screen
+     * fill of a screen that is about to be painted over.
+     */
+    val drawFarSurface: Boolean = true,
 )
 
 /**

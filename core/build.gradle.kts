@@ -68,3 +68,10 @@ tasks.register<JavaExec>("tickBenchmark") {
     classpath = sourceSets["test"].runtimeClasspath
     mainClass.set("com.rm.apogee.core.scenario.TickBenchmarkKt")
 }
+
+tasks.register<JavaExec>("terrainSurvey") {
+    group = "verification"
+    description = "Prints the statistics of the generated terrain."
+    classpath = sourceSets["test"].runtimeClasspath
+    mainClass.set("com.rm.apogee.core.scenario.TerrainSurveyKt")
+}

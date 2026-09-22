@@ -40,6 +40,8 @@ class GroundContact {
     private val normal = Vec3()
     private val pointVelocity = Vec3()
     private val surfaceVelocity = Vec3()
+    private val bodyFixedDirection = Vec3()
+    private val bodyRotation = com.rm.apogee.core.math.Quat.identity()
     private val tangent = Vec3()
     private val impulse = Vec3()
     private val scratch = Vec3()
@@ -47,8 +49,18 @@ class GroundContact {
 
     val report = ContactReport()
 
-    fun resolve(vessel: Vessel, attractor: CelestialBody, dt: Double): ContactReport {
+    /**
+     * @param time universe time, needed because terrain turns with the planet.
+     */
+    fun resolve(
+        vessel: Vessel,
+        attractor: CelestialBody,
+        dt: Double,
+        time: Double,
+    ): ContactReport {
         report.reset()
+        // Once per vessel, not once per contact point.
+        attractor.rotationAt(time, bodyRotation)
         val body = vessel.body
         if (body.inverseMass <= 0.0) return report
 
@@ -60,7 +72,8 @@ class GroundContact {
             val distance = partPosition.length
             if (distance < 1e-6) continue
 
-            val surfaceRadius = surfaceRadiusBelow(attractor, partPosition)
+            attractor.toBodyFixed(partPosition, bodyRotation, bodyFixedDirection)
+            val surfaceRadius = attractor.surfaceRadiusInBodyFrame(bodyFixedDirection)
             val penetration = surfaceRadius - distance
             if (penetration <= 0.0) continue
 
@@ -97,15 +110,6 @@ class GroundContact {
         }
         return report
     }
-
-    /**
-     * Where the ground is beneath [worldPosition].
-     *
-     * A constant for now. The seam for terrain: a heightfield lookup goes here
-     * and nothing else in this class changes.
-     */
-    private fun surfaceRadiusBelow(attractor: CelestialBody, worldPosition: Vec3): Double =
-        attractor.radius
 
     /**
      * Impulse magnitude to cancel the approach, including the rotational term.

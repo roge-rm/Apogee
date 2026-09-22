@@ -54,7 +54,21 @@ class GlRenderer(
 
     private var vesselProgram: ShaderProgram? = null
     private var skyProgram: ShaderProgram? = null
-    private var planetProgram: ShaderProgram? = null
+    private var terrainProgram: ShaderProgram? = null
+
+    /**
+     * Terrain geometry, handed over by the game thread.
+     *
+     * Built by sampling the simulation's own height field, which takes long
+     * enough that it cannot happen on the GL thread. The producer swaps a
+     * finished mesh in here and the renderer uploads it on the next frame.
+     */
+    val terrainSource = TerrainSource()
+    private var globeMesh: TerrainMesh? = null
+    private var patchMesh: TerrainMesh? = null
+    private var uploadedGlobe = 0
+    private var uploadedPatch = 0
+    private val patchCentre = Vec3()
 
     /**
      * One mesh per distinct shape, built on first sight.
@@ -64,7 +78,6 @@ class GlRenderer(
      * context is recreated, because every handle in it is then dangling.
      */
     private val meshes = HashMap<MeshSpec, Mesh>()
-    private var planetMesh: Mesh? = null
     private var lineProgram: ShaderProgram? = null
     /** Reused across frames; orbits are re-uploaded, not reallocated. */
     private val lineMeshes = ArrayList<LineMesh>()
@@ -86,6 +99,7 @@ class GlRenderer(
     private val cameraUp = Vec3()
     private val cameraForward = Vec3()
     private val upDirection = Vec3()
+    private val scratchPatchCentre = Vec3()
 
     private var viewportWidth = 1
     private var viewportHeight = 1
@@ -107,24 +121,18 @@ class GlRenderer(
 
         vesselProgram = ShaderProgram(Shaders.VESSEL_VERTEX, Shaders.VESSEL_FRAGMENT, "vessel")
         skyProgram = ShaderProgram(Shaders.SKY_VERTEX, Shaders.SKY_FRAGMENT, "sky")
-        planetProgram = ShaderProgram(Shaders.PLANET_VERTEX, Shaders.PLANET_FRAGMENT, "planet")
+        terrainProgram = ShaderProgram(Shaders.TERRAIN_VERTEX, Shaders.TERRAIN_FRAGMENT, "terrain")
         lineProgram = ShaderProgram(Shaders.LINE_VERTEX, Shaders.LINE_FRAGMENT, "line")
 
-        // Unit sphere; the model matrix scales it to the planet's radius.
-        planetMesh = MeshBuilder.sphere(1f, rings = planetRings(), segments = planetSegments())
+        globeMesh = TerrainMesh()
+        patchMesh = TerrainMesh()
+        uploadedGlobe = 0
+        uploadedPatch = 0
 
         // The sky shader generates its own vertices, but GLES still requires a
         // bound vertex array object to draw.
         GLES30.glGenVertexArrays(1, emptyVao, 0)
     }
-
-    private fun planetRings() = when (qualityTier) {
-        QualityTier.LOW -> 48
-        QualityTier.MEDIUM -> 80
-        QualityTier.HIGH -> 128
-    }
-
-    private fun planetSegments() = planetRings() * 2
 
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
         viewportWidth = max(1, width)
@@ -171,7 +179,8 @@ class GlRenderer(
 
             val atmosphereFactor = atmosphereFactorAt(world)
             drawSky(latest, world, cameraPos, aspect, atmosphereFactor)
-            drawPlanet(world, cameraPos, atmosphereFactor)
+            uploadPendingTerrain()
+            drawGlobe(world, cameraPos, atmosphereFactor)
             // Trajectories belong in the far pass: an orbit is hundreds of
             // kilometres across and would be clipped away by the near frustum.
             drawLines(latest, cameraPos)
@@ -183,6 +192,11 @@ class GlRenderer(
         // --- near pass: craft ----------------------------------------------
         nearProjection.setPerspective(latest.fovYRadians, aspect, NEAR_NEAR_PLANE, NEAR_FAR_PLANE)
         nearViewProjection.setMultiplied(nearProjection, viewMatrix)
+        // The patch belongs here, not in the far pass. The far pass starts at
+        // a hundred metres, and clipping the nearest hundred metres of ground
+        // leaves the craft standing at the edge of a hole with sky underneath
+        // it - which is exactly what it looked like.
+        if (world != null) drawPatch(world, cameraPos, atmosphereFactorAt(world))
         drawVessels(latest, previous, alpha, cameraPos)
     }
 
@@ -244,15 +258,65 @@ class GlRenderer(
         GLES30.glEnable(GLES30.GL_DEPTH_TEST)
     }
 
-    private fun drawPlanet(world: WorldView, cameraPos: Vec3, atmosphereFactor: Float) {
-        val shader = planetProgram ?: return
-        val mesh = planetMesh ?: return
-        shader.use()
+    /** Takes whatever the game thread has finished building. */
+    private fun uploadPendingTerrain() {
+        terrainSource.globe(uploadedGlobe)?.let { pending ->
+            globeMesh?.upload(pending.data)
+            uploadedGlobe = pending.revision
+        }
+        terrainSource.patch(uploadedPatch)?.let { pending ->
+            patchMesh?.upload(pending.data)
+            patchCentre.setTo(pending.centre)
+            uploadedPatch = pending.revision
+        }
+    }
 
-        // The planet's centre is the origin of the frame the camera position is
-        // expressed in, so setFromTrs against it gives the camera-relative
-        // placement with the subtraction still done in double.
-        modelMatrix.setFromTrs(Vec3.zero(), Quat.identity(), cameraPos, world.radius)
+    /** The whole body, for the view from any distance. */
+    private fun drawGlobe(world: WorldView, cameraPos: Vec3, atmosphereFactor: Float) {
+        val shader = terrainProgram ?: return
+        val mesh = globeMesh ?: return
+        if (!mesh.isReady || !world.drawFarSurface) return
+
+        shader.use()
+        // Globe vertices are in body radii, so the model matrix scales them -
+        // and rotates them, because terrain turns with the planet.
+        modelMatrix.setFromTrs(Vec3.zero(), world.bodyRotation, cameraPos, world.radius)
+        applySurfaceUniforms(shader, world, atmosphereFactor)
+        mesh.draw()
+    }
+
+    /**
+     * Fine geometry under the craft, drawn over the globe.
+     *
+     * A polygon offset pulls it toward the viewer: the two meshes describe the
+     * same surface at different resolutions, so without one they z-fight
+     * wherever they overlap.
+     */
+    private fun drawPatch(world: WorldView, cameraPos: Vec3, atmosphereFactor: Float) {
+        val shader = terrainProgram ?: return
+        val mesh = patchMesh ?: return
+        if (!mesh.isReady) return
+
+        shader.use()
+        // Patch vertices are metres relative to its own centre, which is why
+        // this can afford to be accurate: the camera subtraction happens in
+        // double against a number in the hundreds of thousands, and what
+        // reaches float is a handful of metres.
+        world.bodyRotation.rotate(patchCentre, scratchPatchCentre)
+        modelMatrix.setFromTrs(scratchPatchCentre, world.bodyRotation, cameraPos)
+        applySurfaceUniforms(shader, world, atmosphereFactor)
+        // Drawn in the near pass, after the depth clear, so it simply wins
+        // over the coarse globe wherever it has geometry. No polygon offset
+        // needed - they are no longer competing in the same depth buffer.
+        shader.setMat4("uViewProjection", nearViewProjection.m)
+        mesh.draw()
+    }
+
+    private fun applySurfaceUniforms(
+        shader: ShaderProgram,
+        world: WorldView,
+        atmosphereFactor: Float,
+    ) {
         shader.setMat4("uModel", modelMatrix.m)
         shader.setMat4("uViewProjection", farViewProjection.m)
         shader.setVec3(
@@ -261,17 +325,9 @@ class GlRenderer(
             world.sunDirection.y.toFloat(),
             world.sunDirection.z.toFloat(),
         )
-        shader.setVec3(
-            "uHomeDirection",
-            world.homeDirection.x.toFloat(),
-            world.homeDirection.y.toFloat(),
-            world.homeDirection.z.toFloat(),
-        )
         shader.setFloat("uAtmosphereFactor", atmosphereFactor)
-        // Roughly how far you can see through thick air. Scales with the
-        // atmosphere's own scale height so a thin atmosphere hazes less.
         shader.setFloat("uHazeDistance", (world.atmosphereScaleHeight * 8.0).toFloat())
-        mesh.draw()
+        shader.setFloat("uMaxElevation", world.maxElevation.toFloat())
     }
 
     /**
@@ -389,10 +445,13 @@ class GlRenderer(
     private fun releaseGlObjects() {
         vesselProgram?.release(); vesselProgram = null
         skyProgram?.release(); skyProgram = null
-        planetProgram?.release(); planetProgram = null
+        terrainProgram?.release(); terrainProgram = null
+        globeMesh?.release(); globeMesh = null
+        patchMesh?.release(); patchMesh = null
+        uploadedGlobe = 0
+        uploadedPatch = 0
         meshes.values.forEach { it.release() }
         meshes.clear()
-        planetMesh?.release(); planetMesh = null
         lineProgram?.release(); lineProgram = null
         lineMeshes.forEach { it.release() }
         lineMeshes.clear()
@@ -401,9 +460,24 @@ class GlRenderer(
     private fun lerp(a: Double, b: Double, t: Double) = a + (b - a) * t
 
     private companion object {
-        /** Near pass: parts, from arm's length to a few kilometres. */
-        const val NEAR_NEAR_PLANE = 0.2
-        const val NEAR_FAR_PLANE = 20_000.0
+        /**
+         * Near pass: parts and the ground underfoot.
+         *
+         * Half a metre rather than twenty centimetres: nothing is drawn closer
+         * than the camera's own minimum stand-off, and every doubling of the
+         * near plane is a doubling of depth precision across the whole range -
+         * which this pass now needs, because it carries terrain out to
+         * the terrain patch as well as parts at arm's length.
+         */
+        const val NEAR_NEAR_PLANE = 0.5
+
+        /**
+         * Far enough for the largest patch. Depth resolution at the far end
+         * works out around twenty metres, which would matter for two surfaces
+         * meeting at a shallow angle and does not for a heightfield, where
+         * nothing is coplanar with anything.
+         */
+        const val NEAR_FAR_PLANE = 250_000.0
 
         /** Far pass: the planet and anything else at world scale. */
         const val FAR_NEAR_PLANE = 100.0

@@ -25,6 +25,7 @@ import com.rm.apogee.platform.PerfHints
 import com.rm.apogee.render.FrameBus
 import com.rm.apogee.render.RenderFrame
 import com.rm.apogee.render.RenderItem
+import com.rm.apogee.render.QualityTier
 import com.rm.apogee.render.RenderLine
 import com.rm.apogee.render.WorldView
 import com.rm.apogee.server.GameServer
@@ -121,11 +122,45 @@ class GameSession private constructor(
     private val scratch = Vec3()
     private val predictedPosition = Vec3()
     private val predictedRotation = Quat.identity()
+    private val bodyRotation = Quat.identity()
+    private val bodyFixedCamera = Vec3()
+
+    /**
+     * Builds terrain geometry from the simulation's own height field.
+     *
+     * Created once a quality tier is known, because how finely to sample is
+     * the one thing about terrain that depends on the device.
+     */
+    private var terrainBuilder: TerrainBuilder? = null
+    private var drawFarSurface = true
+
+    /**
+     * The solar system, built once.
+     *
+     * It was being reconstructed on every frame - three bodies, their orbits
+     * and their terrain fields, sixty times a second, thrown away each time.
+     * Nothing about it changes.
+     */
+    private val system = SolarSystem.defaultSystem()
 
     val connected: Boolean get() = client.connected
     val rejectionReason: String? get() = client.rejectionReason
 
+    /** Scope for terrain builds, so they can outlive a single frame. */
+    private lateinit var terrainScope: CoroutineScope
+
+    /**
+     * Supplies the renderer's terrain hand-off and the device's quality tier.
+     *
+     * Called once the GL thread has judged the device; until then there is no
+     * sensible answer to how finely to sample.
+     */
+    fun attachTerrain(source: com.rm.apogee.render.TerrainSource, quality: QualityTier) {
+        terrainBuilder = TerrainBuilder(source, quality)
+    }
+
     fun start(scope: CoroutineScope) {
+        terrainScope = scope
         serverJob = hostedServer?.start(scope)
         clientJob = client.connect(scope)
         presentJob = scope.launch(Dispatchers.Default) {
@@ -149,6 +184,8 @@ class GameSession private constructor(
         client.close()
         transport.close()
         prediction.reset()
+        terrainBuilder?.stop()
+        terrainBuilder = null
         frameBus.clear()
     }
 
@@ -228,7 +265,6 @@ class GameSession private constructor(
         val focus = client.vessel(focusId) ?: return
         val focusState = focus.latest ?: return
 
-        val system = SolarSystem.defaultSystem()
         val attractor = system.bodies[focusState.referenceBodyId] ?: return
 
         val lines = ArrayList<RenderLine>(4)
@@ -265,7 +301,22 @@ class GameSession private constructor(
             }
         }
 
-        telemetry = FlightTelemetry.from(focus, attractor, focusState.throttle)
+        // Terrain turns with the planet, so the patch follows the craft's
+        // position in the body's frame rather than its inertial one.
+        attractor.rotationAt(client.latestSnapshot?.time ?: 0.0, bodyRotation)
+        attractor.toBodyFixed(focusState.position, bodyRotation, bodyFixedCamera)
+        terrainBuilder?.let { builder ->
+            builder.requestGlobe(attractor, terrainScope)
+            builder.followCraft(
+                attractor,
+                bodyFixedCamera,
+                attractor.heightAboveTerrain(focusState.position, bodyFixedCamera),
+                terrainScope,
+            )
+            drawFarSurface = builder.farSurfaceNeeded
+        }
+
+        telemetry = FlightTelemetry.from(focus, attractor, focusState.throttle, bodyFixedCamera)
 
         frameBus.publish(
             RenderFrame(
@@ -285,6 +336,9 @@ class GameSession private constructor(
                     sunDirection = SUN_DIRECTION,
                     homeDirection = HOME_DIRECTION,
                     cameraAltitude = attractor.altitudeOf(cameraPosition),
+                    bodyRotation = bodyRotation.copy(),
+                    maxElevation = attractor.terrain?.maxElevation ?: 1.0,
+                    drawFarSurface = drawFarSurface,
                 ),
             )
         )
@@ -524,7 +578,15 @@ class GameSession private constructor(
 
 /** Everything the flight HUD shows, sampled once per published frame. */
 class FlightTelemetry(
+    /** Above the datum - what orbital mechanics and the atmosphere use. */
     val altitude: Double,
+    /**
+     * Above the ground directly below.
+     *
+     * Quite different from [altitude] over a mountain range, and the one a
+     * pilot wants when landing.
+     */
+    val heightAboveGround: Double,
     val surfaceSpeed: Double,
     val orbitalSpeed: Double,
     val apoapsisAltitude: Double,
@@ -557,7 +619,7 @@ class FlightTelemetry(
         const val MAX_Q_WARNING = 25_000.0
 
         val EMPTY = FlightTelemetry(
-            altitude = 0.0, surfaceSpeed = 0.0, orbitalSpeed = 0.0,
+            altitude = 0.0, heightAboveGround = 0.0, surfaceSpeed = 0.0, orbitalSpeed = 0.0,
             apoapsisAltitude = 0.0, periapsisAltitude = 0.0, timeToApoapsis = 0.0,
             throttle = 0.0, stage = 0, inOrbit = false, craftName = "",
             dynamicPressure = 0.0, rotation = Quat.identity(), up = Vec3.unitY(),
@@ -568,6 +630,8 @@ class FlightTelemetry(
             vessel: ClientVessel,
             attractor: com.rm.apogee.core.orbit.CelestialBody,
             throttle: Double,
+            /** The craft's position in the body's own frame, for ground height. */
+            bodyFixedPosition: Vec3,
         ): FlightTelemetry {
             val state = vessel.latest ?: return EMPTY
             val orbit = Orbit(
@@ -582,6 +646,7 @@ class FlightTelemetry(
 
             return FlightTelemetry(
                 altitude = altitude,
+                heightAboveGround = attractor.heightAboveTerrain(state.position, bodyFixedPosition),
                 surfaceSpeed = relative.length,
                 orbitalSpeed = state.velocity.length,
                 apoapsisAltitude = orbit.apoapsis - attractor.radius,

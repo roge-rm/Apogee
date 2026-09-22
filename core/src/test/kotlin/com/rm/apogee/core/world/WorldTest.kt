@@ -2,10 +2,12 @@ package com.rm.apogee.core.world
 
 import com.rm.apogee.core.craft.StockCraft
 import com.rm.apogee.core.craft.Vessel
+import com.rm.apogee.core.math.Vec3
 import com.rm.apogee.core.orbit.Orbit
 import com.rm.apogee.core.part.ResourceType
 import com.rm.apogee.core.part.StockParts
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -22,14 +24,68 @@ class WorldTest {
         val vessel = world.spawnOnSurface(StockCraft.starterRocket(catalog), World.launchSites.first())
         val terra = world.attractorFor(vessel)
 
-        val lowest = (0 until vessel.partCount).minOf { index ->
+        // Against the ground, not the datum. The launch complex sits most of
+        // a kilometre above sea level, so measuring clearance from the datum
+        // would call a craft parked on the pad "floating".
+        val rotation = terra.rotationAt(world.time)
+        val bodyFixed = Vec3()
+
+        val clearance = (0 until vessel.partCount).minOf { index ->
             val position = vessel.partPositionWorld(index)
-            position.length - vessel.defs[index].boundsHalfExtents.length
+            terra.toBodyFixed(position, rotation, bodyFixed)
+            val ground = terra.surfaceRadiusInBodyFrame(bodyFixed)
+            position.length - vessel.defs[index].boundsHalfExtents.length - ground
         }
-        val clearance = lowest - terra.radius
 
         assertTrue("craft is buried ${-clearance}m into the ground", clearance > -0.5)
-        assertTrue("craft is floating ${clearance}m above the pad", clearance < 1.0)
+        assertTrue("craft is floating ${clearance}m above the ground", clearance < 1.5)
+    }
+
+    @Test
+    fun `the launch pad is on dry land, above the datum`() {
+        val world = world()
+        val vessel = world.spawnOnSurface(StockCraft.starterRocket(catalog), World.launchSites.first())
+        val terra = world.attractorFor(vessel)
+        val field = terra.terrain!!
+
+        val rotation = terra.rotationAt(world.time)
+        val bodyFixed = terra.toBodyFixed(vessel.body.position, rotation)
+
+        assertFalse("a launch complex in the sea would be a poor choice", field.isOcean(bodyFixed))
+        assertTrue(
+            "and it should be measurably above sea level",
+            terra.altitudeOf(vessel.body.position) > 100.0,
+        )
+    }
+
+    @Test
+    fun `terrain turns with the planet`() {
+        // Terrain is carved into a body that rotates. Sampled in the inertial
+        // frame it scrolls under a parked craft at 175 m/s, which had the
+        // stock rocket climbing steadily off its own pad.
+        val world = world()
+        val terra = world.system.body("terra")
+        val field = terra.terrain!!
+
+        val bodyFixed = Vec3(1.0, 0.0, 0.0)
+        val atStart = field.surfaceRadius(bodyFixed)
+
+        // Quarter of a rotation later, the same patch of ground is somewhere
+        // else in inertial space - but it is still the same ground.
+        val later = terra.rotationAt(terra.rotationPeriod / 4.0)
+        val inertial = later.rotate(bodyFixed)
+        val backToBodyFixed = terra.toBodyFixed(inertial, later)
+
+        assertEquals(
+            "the same point on the surface must keep its height",
+            atStart,
+            field.surfaceRadius(backToBodyFixed),
+            1e-6,
+        )
+        assertTrue(
+            "and that point really did move in inertial space",
+            inertial.distanceTo(bodyFixed) > 1.0,
+        )
     }
 
     @Test

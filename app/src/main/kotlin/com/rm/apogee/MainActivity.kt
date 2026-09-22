@@ -73,6 +73,7 @@ class MainActivity : ComponentActivity() {
     private var pendingLaunchDesign: CraftDesign? = null
     private var frameClockJob: Job? = null
     private var perfHints: PerfHints? = null
+    private var rendererTerrainSource: com.rm.apogee.render.TerrainSource? = null
 
     // Held between updates because pitch/yaw and roll arrive from different
     // controls but are sent as one command.
@@ -286,10 +287,14 @@ class MainActivity : ComponentActivity() {
 
         val host = findViewById<FrameLayout>(R.id.game_surface_host)
         val glRenderer = GlRenderer(this, frameBus) { tier ->
-            // Arrives on the GL thread.
+            // Arrives on the GL thread. The terrain builder needs the tier to
+            // know how finely to sample, so it is created here rather than
+            // guessed at earlier.
             settings.lastDetectedTier = tier
             detectedTier = tier
+            session?.attachTerrain(rendererTerrainSource!!, settings.qualityOverride ?: tier)
         }
+        rendererTerrainSource = glRenderer.terrainSource
         val view = createSurfaceView(glRenderer)
         host.addView(view)
 
@@ -331,6 +336,10 @@ class MainActivity : ComponentActivity() {
             }
             pendingLaunchDesign = null
             pendingMode = SessionMode.Solo
+            rendererTerrainSource?.let { source ->
+                newSession.attachTerrain(source, settings.qualityOverride ?: detectedTier
+                    ?: QualityTier.MEDIUM)
+            }
             newSession.start(lifecycleScope)
             session = newSession
         }
@@ -421,6 +430,7 @@ class MainActivity : ComponentActivity() {
         surfaceView?.let { findViewById<FrameLayout>(R.id.game_surface_host).removeView(it) }
         surfaceView = null
         renderer = null
+        rendererTerrainSource = null
 
         frameBus.clear()
         hudState.reset()

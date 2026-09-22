@@ -1,0 +1,179 @@
+package com.rm.apogee.game
+
+import com.rm.apogee.core.math.Vec3
+import com.rm.apogee.core.orbit.CelestialBody
+import com.rm.apogee.render.PlanetMesh
+import com.rm.apogee.render.QualityTier
+import com.rm.apogee.render.TerrainSource
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+
+/**
+ * Builds terrain geometry off the render thread and publishes it.
+ *
+ * Sampling the height field tens of thousands of times takes long enough that
+ * doing it on the GL thread would drop a frame every time the craft moved far
+ * enough to need new ground. Everything here runs on a worker and hands
+ * finished arrays over through a [TerrainSource].
+ *
+ * Two meshes at two scales. The globe is built once and never changes - a
+ * planet does not. The patch follows the craft, and is only rebuilt when it
+ * has travelled far enough to be looking at ground the current one does not
+ * cover well.
+ */
+class TerrainBuilder(
+    private val source: TerrainSource,
+    private val quality: QualityTier,
+) {
+    private var job: Job? = null
+    private var globeRevision = 0
+    private var patchRevision = 0
+
+    /** Where the current patch is centred, in the body-fixed frame. */
+    private val patchCentreDirection = Vec3()
+    private var patchExtent = 0.0
+    private var hasPatch = false
+
+    /**
+     * Whether the distant surface - globe and sea sphere - should be drawn
+     * as well as the patch.
+     *
+     * False when the patch already reaches past the horizon, because then
+     * both are entirely behind ground the patch has drawn. They are not
+     * merely redundant: each is a full-screen fill on a screen the patch is
+     * about to paint over, and on a soft rasteriser that is most of a frame.
+     */
+    var farSurfaceNeeded: Boolean = true
+        private set
+
+    private val globeRings: Int
+        get() = when (quality) {
+            QualityTier.LOW -> 64
+            QualityTier.MEDIUM -> 96
+            QualityTier.HIGH -> 128
+        }
+
+    /**
+     * Vertices along each edge of the near patch.
+     *
+     * Deliberately coarse. A facet only reads as a facet if it differs from
+     * its neighbour, and at sixty metres across the ground barely changes
+     * between one and the next - the terrain came out looking smooth in a
+     * faceted build. These give facets around a hundred metres wide, which
+     * is still inside the Nyquist limit for the finest hill octave (about
+     * two hundred and sixty metres), so nothing in the height field is
+     * aliased away by drawing it this way.
+     */
+    private val patchResolution: Int
+        get() = when (quality) {
+            QualityTier.LOW -> 48
+            QualityTier.MEDIUM -> 64
+            QualityTier.HIGH -> 80
+        }
+
+    /** Builds the whole body once. Safe to call repeatedly. */
+    fun requestGlobe(body: CelestialBody, scope: CoroutineScope) {
+        if (globeRevision != 0) return
+        globeRevision = 1
+        scope.launch(Dispatchers.Default) {
+            val data = PlanetMesh.buildGlobe(body.terrain, body.radius, globeRings)
+            source.publishGlobe(globeRevision, data)
+        }
+    }
+
+    /**
+     * Rebuilds the near patch if the craft has moved off the current one.
+     *
+     * @param bodyFixedDirection where the craft is, in the body's own frame -
+     *   the patch is a piece of ground and stays with the ground, not with
+     *   the inertial position the craft happens to occupy.
+     */
+    fun followCraft(
+        body: CelestialBody,
+        bodyFixedDirection: Vec3,
+        altitude: Double,
+        scope: CoroutineScope,
+    ) {
+        val field = body.terrain ?: return
+
+        // Size the patch to cover what can actually be seen. The horizon on a
+        // sphere is sqrt(2Rh) away, so a craft on the pad needs a few
+        // kilometres and one at 40km needs two hundred.
+        val horizon = kotlin.math.sqrt(2.0 * body.radius * altitude.coerceAtLeast(1.0))
+        val wanted = (horizon * HORIZON_MARGIN)
+            .coerceIn(MIN_PATCH_EXTENT_METRES, MAX_PATCH_EXTENT_METRES)
+
+        // The horizon is the test, not the patch size: the distant surface
+        // is needed exactly when there is a gap between where the patch stops
+        // and where the ground disappears over the edge of the world.
+        farSurfaceNeeded = wanted < horizon || altitude > PATCH_CEILING_METRES
+
+        if (altitude > PATCH_CEILING_METRES) {
+            hasPatch = false
+            return
+        }
+        if (job?.isActive == true) return
+
+        val direction = bodyFixedDirection.normalized()
+        if (hasPatch) {
+            val cosine = (direction dot patchCentreDirection).coerceIn(-1.0, 1.0)
+            val travelled = kotlin.math.acos(cosine) * body.radius
+            val scaleChange = wanted / patchExtent
+            // Rebuild when the craft has crossed a quarter of the patch, or
+            // when its size should change appreciably - climbing out is the
+            // case that matters, and a patch sized for the pad looks like a
+            // postage stamp from ten kilometres up.
+            if (travelled < patchExtent * REBUILD_FRACTION &&
+                scaleChange > 1.0 / RESIZE_FACTOR && scaleChange < RESIZE_FACTOR
+            ) {
+                return
+            }
+        }
+
+        patchCentreDirection.setTo(direction)
+        patchExtent = wanted
+        hasPatch = true
+        val revision = ++patchRevision
+
+        job = scope.launch(Dispatchers.Default) {
+            val centre = Vec3()
+            val data = PlanetMesh.buildPatch(
+                field = field,
+                bodyRadius = body.radius,
+                centreDirection = direction,
+                extentMetres = wanted,
+                resolution = patchResolution,
+                outCentre = centre,
+            )
+            if (isActive) source.publishPatch(revision, data, centre)
+        }
+    }
+
+    fun stop() {
+        job?.cancel()
+        job = null
+        hasPatch = false
+    }
+
+    private companion object {
+        /** A little past the horizon, so its edge is never on screen. */
+        const val HORIZON_MARGIN = 1.3
+
+        const val MIN_PATCH_EXTENT_METRES = 4_000.0
+
+        /** Matched to the near pass's far plane; past it nothing is drawn. */
+        const val MAX_PATCH_EXTENT_METRES = 250_000.0
+
+        /** Above this the globe alone is as much as the eye can resolve. */
+        const val PATCH_CEILING_METRES = 60_000.0
+
+        /** Fraction of the patch the craft may cross before a rebuild. */
+        const val REBUILD_FRACTION = 0.25
+
+        /** Size change that justifies a rebuild on its own. */
+        const val RESIZE_FACTOR = 1.6
+    }
+}

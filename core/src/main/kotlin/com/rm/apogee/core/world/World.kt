@@ -64,6 +64,8 @@ class World(
     private val pendingEvents = ArrayList<WorldEvent>()
     private val scratch = Vec3()
     private val scratchUp = Vec3()
+    private val scratchBodyFixedUp = Vec3()
+    private val scratchRotation = Quat.identity()
 
     val vessels: Collection<Vessel> get() = vesselsById.values
 
@@ -102,18 +104,28 @@ class World(
             referenceBodyId = site.bodyId,
         )
 
-        val up = surfaceNormalAt(site, pad, scratchUp)
+        // The site is a point on a turning planet: its body-fixed normal is
+        // fixed, its inertial direction is not.
+        surfaceNormalAt(site, pad, scratchBodyFixedUp)
+        attractor.rotationAt(time, scratchRotation)
+        scratchRotation.rotate(scratchBodyFixedUp, scratchUp)
+        val up = scratchUp
         // Nose (+Y in design space) points straight up.
         quatFromTo(Vec3.unitY(), up, vessel.body.orientation)
+
+        // On the ground, not at sea level: the pad may be most of a kilometre
+        // above the datum, and spawning at the datum would drop the craft
+        // inside a hill.
+        val groundRadius = attractor.surfaceRadiusInBodyFrame(scratchBodyFixedUp)
 
         // Lift the craft until its lowest part just touches the ground.
         val clearance = lowestExtentAlong(vessel, up)
         vessel.body.position
             .setTo(up)
-            .mulInPlace(attractor.radius + clearance)
+            .mulInPlace(groundRadius + clearance)
         // Rebuild now that orientation and position are set.
         vessel.recomputeMass(shiftBodyPosition = false)
-        vessel.body.position.setTo(up).mulInPlace(attractor.radius + lowestExtentAlong(vessel, up))
+        vessel.body.position.setTo(up).mulInPlace(groundRadius + lowestExtentAlong(vessel, up))
 
         attractor.surfaceVelocityAt(vessel.body.position, vessel.body.linearVelocity)
 
@@ -395,7 +407,7 @@ class World(
             // Mass changes as propellant burns, and with it the centre of mass.
             if (vessel.control.throttle > 0.0) vessel.recomputeMass()
 
-            val report = contacts.resolve(vessel, attractor, dt)
+            val report = contacts.resolve(vessel, attractor, dt, time)
             if (report.hadContact && report.worstImpactSpeed > TOUCHDOWN_REPORT_SPEED) {
                 pendingEvents.add(WorldEvent.Touchdown(vessel.id, report.worstImpactSpeed))
             }

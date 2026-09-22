@@ -108,11 +108,12 @@ class SolarSystem(
             )
 
             val terraOrbitRadius = 13_599_840_256.0
+            val terraRadius = 600_000.0
             val terra = CelestialBody(
                 id = "terra",
                 displayName = "Terra",
                 gravitationalParameter = 3.5316000e12,
-                radius = 600_000.0,
+                radius = terraRadius,
                 rotationPeriod = 21_549.425,
                 atmosphere = Atmosphere(
                     seaLevelDensity = 1.225,
@@ -120,19 +121,37 @@ class SolarSystem(
                     scaleHeight = 5_600.0,
                     height = 70_000.0,
                 ),
+                terrain = com.rm.apogee.core.terrain.TerrainField(
+                    bodyRadius = terraRadius,
+                    maxElevation = 6_000.0,
+                    oceanDepth = 3_000.0,
+                    // The launch complex is at latitude 0, longitude 0, so its
+                    // surface normal is +X. Terrain is raised there to keep the
+                    // pad out of the sea.
+                    homeDirection = Vec3(1.0, 0.0, 0.0),
+                ),
                 parentId = "sol",
                 orbit = Orbit.circular(terraOrbitRadius, sol.gravitationalParameter),
                 sphereOfInfluence = 84_159_286.0,
             )
 
             val lunaOrbitRadius = 12_000_000.0
+            val lunaRadius = 200_000.0
             val luna = CelestialBody(
                 id = "luna",
                 displayName = "Luna",
                 gravitationalParameter = 6.5138398e10,
-                radius = 200_000.0,
+                radius = lunaRadius,
                 rotationPeriod = 138_984.0,
                 atmosphere = null,
+                // Airless and battered: no oceans, so the whole surface is
+                // relief rather than the top half of it.
+                terrain = com.rm.apogee.core.terrain.TerrainField(
+                    bodyRadius = lunaRadius,
+                    seed = 0x11115,
+                    maxElevation = 4_000.0,
+                    oceanDepth = 0.0,
+                ),
                 parentId = "terra",
                 orbit = Orbit.circular(lunaOrbitRadius, terra.gravitationalParameter),
                 sphereOfInfluence = 2_429_559.0,

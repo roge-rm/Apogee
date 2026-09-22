@@ -277,6 +277,17 @@ private fun TelemetryPanel(telemetry: FlightTelemetry, modifier: Modifier = Modi
         horizontalAlignment = Alignment.End,
     ) {
         Readout("ALT", formatDistance(telemetry.altitude))
+        // Above the ground, not above the datum. The launch complex sits most
+        // of a kilometre up, so the two disagree from the moment you spawn,
+        // and only one of them tells you whether you are about to land.
+        if (telemetry.heightAboveGround < 20_000.0) {
+            Readout(
+                "AGL",
+                formatDistance(telemetry.heightAboveGround),
+                colour = if (telemetry.heightAboveGround < 200.0) ApogeeColors.Caution
+                else ApogeeColors.Data,
+            )
+        }
         Readout("SRF", "${telemetry.surfaceSpeed.roundToInt()} m/s")
         Readout("ORB", "${telemetry.orbitalSpeed.roundToInt()} m/s")
         Spacer(Modifier.height(4.dp))
