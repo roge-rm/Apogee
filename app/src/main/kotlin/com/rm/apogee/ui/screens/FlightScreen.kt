@@ -160,48 +160,55 @@ fun FlightScreen(
         }
 
         if (portrait) {
-            // Everything in one bottom stack, because the controls that sit in
-            // opposite corners of a landscape screen do not fit side by side
-            // on a portrait one: throttle, navball, staging and the attitude
-            // cluster want about 640dp of width and a portrait phone has 390.
-            Column(
+            // The navball goes to the top edge, between the buttons and the
+            // telemetry. Portrait has an empty band across the top and a
+            // crowded one across the bottom, and the navball is the one thing
+            // down there that is read rather than touched - moving it up buys
+            // the controls the width they were short of, and costs only eye
+            // travel.
+            NavBall(
+                rotation = hud.telemetry.rotation,
+                worldUp = hud.telemetry.up,
+                prograde = hud.telemetry.prograde,
+                size = PORTRAIT_NAVBALL_SIZE,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .windowInsetsPadding(WindowInsets.displayCutout)
+                    .padding(top = 12.dp)
+                    .alpha(controlOpacity),
+            )
+
+            // Controls on the bottom edge, thumbs in the corners, staging
+            // spanning the gap between them. The bar takes the leftover width
+            // rather than a fixed span, so it is symmetric between the two
+            // controls however wide they end up.
+            Row(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
                     .windowInsetsPadding(WindowInsets.navigationBars)
                     .padding(horizontal = 12.dp, vertical = 12.dp)
                     .alpha(controlOpacity),
-                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalAlignment = Alignment.Bottom,
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(Dimens.HudGroupGap),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    NavBall(
-                        rotation = hud.telemetry.rotation,
-                        worldUp = hud.telemetry.up,
-                        prograde = hud.telemetry.prograde,
-                        size = PORTRAIT_NAVBALL_SIZE,
+                val throttle: @Composable () -> Unit = {
+                    ThrottleControl(
+                        hud.throttle,
+                        onThrottleChange,
+                        PORTRAIT_THROTTLE_HEIGHT,
                     )
-                    // Takes whatever is left rather than a fixed width, so the
-                    // pair always spans the screen exactly once.
-                    StageButton(hud.telemetry.stage, onStage, Modifier.weight(1f))
                 }
-                Spacer(Modifier.height(14.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.Bottom,
-                ) {
-                    if (leftHandMode) {
-                        AttitudeCluster(hud, onAttitude, onRoll, onToggleSas, PORTRAIT_STICK_SIZE)
-                        ThrottleControl(hud.throttle, onThrottleChange, PORTRAIT_THROTTLE_HEIGHT)
-                    } else {
-                        ThrottleControl(hud.throttle, onThrottleChange, PORTRAIT_THROTTLE_HEIGHT)
-                        AttitudeCluster(hud, onAttitude, onRoll, onToggleSas, PORTRAIT_STICK_SIZE)
-                    }
+                val attitude: @Composable () -> Unit = {
+                    AttitudeCluster(hud, onAttitude, onRoll, onToggleSas, PORTRAIT_STICK_SIZE)
                 }
+
+                if (leftHandMode) attitude() else throttle()
+                StageButton(
+                    hud.telemetry.stage,
+                    onStage,
+                    Modifier.weight(1f).padding(horizontal = 10.dp),
+                )
+                if (leftHandMode) throttle() else attitude()
             }
         } else {
             // Landscape: anchored to the corners, with nothing in the middle.
@@ -481,8 +488,12 @@ private val THROTTLE_HEIGHT = 170.dp
 private val STICK_SIZE = 132.dp
 private val NAVBALL_SIZE = 128.dp
 
-// Portrait has about half the width and rather more height, so the controls
-// shrink sideways and the stack grows downward instead.
-private val PORTRAIT_THROTTLE_HEIGHT = 150.dp
-private val PORTRAIT_STICK_SIZE = 118.dp
+// Portrait is short of width and generous with height, so the controls that
+// can grow downward do. A longer throttle is a finer throttle - the same
+// hundred per cent spread over half again the travel - and the extra height
+// is otherwise empty screen.
+private val PORTRAIT_THROTTLE_HEIGHT = 260.dp
+private val PORTRAIT_STICK_SIZE = 136.dp
+
+/** Smaller than landscape's, because it shares the top edge with telemetry. */
 private val PORTRAIT_NAVBALL_SIZE = 96.dp
