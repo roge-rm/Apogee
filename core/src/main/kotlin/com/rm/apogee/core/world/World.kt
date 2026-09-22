@@ -284,6 +284,8 @@ class World(
                 spawnOnSurface(command.design, site)
             }
 
+            is Command.Join -> vesselsById[VesselId(command.vessel)]?.let { joinToNeighbour(it) }
+
             is Command.Chat -> Unit // handled above the world
         }
     }
@@ -315,6 +317,179 @@ class World(
      * genre's convention and means the surviving craft does not keep carrying
      * dead mass.
      */
+    /**
+     * Welds [vessel] to the nearest craft it is touching.
+     *
+     * This is the inverse of [splitAt], and is how a base gets built: modules
+     * are landed, pushed into place, and tied together into one structure.
+     * Doing it as a merge of part trees rather than as a new kind of link
+     * means everything downstream - mass, inertia, fuel crossfeed, collision,
+     * saving - keeps working without knowing that bases exist.
+     *
+     * Welded where they stand rather than snapped onto attach nodes. A base is
+     * assembled by manoeuvring things into position; snapping would teleport a
+     * module the player has just spent a minute placing.
+     *
+     * @return the merged vessel, or null if there was nothing to join to.
+     */
+    fun joinToNeighbour(vessel: Vessel): Vessel? {
+        val partner = nearestJoinable(vessel) ?: return null
+        return join(vessel, partner)
+    }
+
+    /** The closest craft in contact with [vessel] and near enough to rest. */
+    private fun nearestJoinable(vessel: Vessel): Vessel? {
+        var best: Vessel? = null
+        var bestDistance = Double.MAX_VALUE
+        for (other in vesselsById.values) {
+            if (other.id == vessel.id) continue
+            if (other.referenceBodyId != vessel.referenceBodyId) continue
+
+            scratch.setTo(vessel.body.position).subInPlace(other.body.position)
+            val distance = scratch.length
+            if (distance > vessel.contactRadius + other.contactRadius) continue
+
+            // Only things it is resting against. Welding to something you are
+            // flying past is how a docking mechanic becomes a grappling hook.
+            scratch.setTo(vessel.body.linearVelocity).subInPlace(other.body.linearVelocity)
+            if (scratch.length > JOIN_MAX_CLOSING_SPEED) continue
+
+            if (distance < bestDistance) {
+                bestDistance = distance
+                best = other
+            }
+        }
+        return best
+    }
+
+    /**
+     * Merges [absorbed] into [keeper], preserving momentum, and removes it.
+     *
+     * The transform is the only fiddly part: [absorbed]'s parts are expressed
+     * in its own design space, and have to be re-expressed in [keeper]'s so
+     * that every part ends up exactly where it already is in the world.
+     */
+    fun join(keeper: Vessel, absorbed: Vessel): Vessel? {
+        if (keeper.id == absorbed.id) return null
+        if (keeper.referenceBodyId != absorbed.referenceBodyId) return null
+
+        val massKeeper = keeper.body.mass
+        val massAbsorbed = absorbed.body.mass
+        val total = massKeeper + massAbsorbed
+        if (total <= 0.0) return null
+
+        // Momentum, captured before either structure is touched.
+        val centreKeeper = keeper.body.position.copy()
+        val centreAbsorbed = absorbed.body.position.copy()
+        val combinedCentre = Vec3(
+            (centreKeeper.x * massKeeper + centreAbsorbed.x * massAbsorbed) / total,
+            (centreKeeper.y * massKeeper + centreAbsorbed.y * massAbsorbed) / total,
+            (centreKeeper.z * massKeeper + centreAbsorbed.z * massAbsorbed) / total,
+        )
+        val velocity = Vec3(
+            (keeper.body.linearVelocity.x * massKeeper +
+                absorbed.body.linearVelocity.x * massAbsorbed) / total,
+            (keeper.body.linearVelocity.y * massKeeper +
+                absorbed.body.linearVelocity.y * massAbsorbed) / total,
+            (keeper.body.linearVelocity.z * massKeeper +
+                absorbed.body.linearVelocity.z * massAbsorbed) / total,
+        )
+        val angularMomentum = angularMomentumAbout(keeper, combinedCentre, velocity)
+            .addInPlace(angularMomentumAbout(absorbed, combinedCentre, velocity))
+
+        val merged = mergeDesigns(keeper, absorbed) ?: return null
+        val mergedDefs = merged.parts.map { catalog.require(it.partId) }
+        keeper.absorb(merged, mergedDefs, absorbed)
+
+        keeper.body.position.setTo(combinedCentre)
+        keeper.body.linearVelocity.setTo(velocity)
+        val inverseInertiaWorld = com.rm.apogee.core.math.Mat3()
+            .setRotated(keeper.body.inverseInertiaLocal, keeper.body.orientation)
+        inverseInertiaWorld.transform(angularMomentum, keeper.body.angularVelocity)
+
+        vesselsById.remove(absorbed.id)
+        pendingEvents.add(WorldEvent.VesselDestroyed(absorbed.id, "joined to ${keeper.name}"))
+        pendingEvents.add(WorldEvent.VesselStructureChanged(keeper.id))
+        return keeper
+    }
+
+    /** Angular momentum of [vessel] about [centre], for a body moving at [velocity]. */
+    private fun angularMomentumAbout(vessel: Vessel, centre: Vec3, velocity: Vec3): Vec3 {
+        val inertiaWorld = com.rm.apogee.core.math.Mat3()
+            .setRotated(vessel.body.inertiaLocal, vessel.body.orientation)
+        val spin = inertiaWorld.transform(vessel.body.angularVelocity, Vec3())
+        // Plus the orbital term: the craft's own centre swinging about the
+        // combined one. Dropping this quietly loses the rotation you get from
+        // welding two things that were drifting past each other.
+        val lever = Vec3().setTo(vessel.body.position).subInPlace(centre)
+        val relative = Vec3().setTo(vessel.body.linearVelocity).subInPlace(velocity)
+        return spin.addInPlace(lever.crossInPlace(relative).mulInPlace(vessel.body.mass))
+    }
+
+    /**
+     * [absorbed]'s parts, re-expressed in [keeper]'s design space so that each
+     * lands exactly where it already is in the world.
+     */
+    private fun mergeDesigns(keeper: Vessel, absorbed: Vessel): CraftDesign? {
+        val offset = keeper.design.parts.size
+        val parts = ArrayList<PlacedPart>(offset + absorbed.design.parts.size)
+        parts.addAll(keeper.design.parts)
+
+        // The part of the keeper nearest the absorbed craft becomes the parent
+        // of its root, so the tree stays connected and staging still has
+        // something to walk.
+        val anchor = nearestPartTo(keeper, absorbed.body.position)
+
+        val worldPoint = Vec3()
+        for ((index, placed) in absorbed.design.parts.withIndex()) {
+            absorbed.partPositionWorld(index, worldPoint)
+            val local = keeper.worldToDesign(worldPoint, Vec3())
+            val rotation = keeper.body.orientation.conjugate()
+                .times(absorbed.body.orientation)
+                .times(placed.rotation)
+            parts.add(
+                placed.copy(
+                    position = local,
+                    rotation = rotation,
+                    parentIndex = if (placed.parentIndex < 0) anchor
+                    else placed.parentIndex + offset,
+                    // A weld, not a node attachment; the transform is what is
+                    // authoritative and there is no node pair to name.
+                    parentNodeId = null,
+                    ownNodeId = null,
+                    symmetryGroup = -1,
+                )
+            )
+        }
+
+        val stages = keeper.design.stages +
+            absorbed.design.stages.map { stage ->
+                com.rm.apogee.core.craft.Stage(stage.activatedParts.map { it + offset })
+            }
+
+        return CraftDesign(
+            name = keeper.design.name,
+            parts = parts,
+            stages = stages,
+            catalogHash = keeper.design.catalogHash,
+        )
+    }
+
+    private fun nearestPartTo(vessel: Vessel, worldPoint: Vec3): Int {
+        var best = 0
+        var bestDistance = Double.MAX_VALUE
+        val position = Vec3()
+        for (index in vessel.design.parts.indices) {
+            vessel.partPositionWorld(index, position)
+            val distance = position.subInPlace(worldPoint).lengthSq
+            if (distance < bestDistance) {
+                bestDistance = distance
+                best = index
+            }
+        }
+        return best
+    }
+
     private fun splitAt(vessel: Vessel, decouplerIndex: Int) {
         val separating = vessel.design.subtreeOf(decouplerIndex).toSet()
         val remaining = vessel.design.parts.indices.filter { it !in separating }
@@ -733,6 +908,15 @@ class World(
     companion object {
         /** Metres between adjacent launch pads at a site. */
         private const val PAD_SPACING_METRES = 40.0
+
+        /**
+         * Above this closing speed a weld is a collision, not an assembly.
+         *
+         * Public because the client uses it to decide whether to offer the
+         * action at all; a button that appears when the server would refuse is
+         * worse than no button.
+         */
+        const val JOIN_MAX_CLOSING_SPEED = 2.0
 
         /** Metres the two halves of a separation are pushed apart immediately. */
         private const val SEPARATION_CLEARANCE = 0.5

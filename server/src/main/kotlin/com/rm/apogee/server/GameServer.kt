@@ -310,6 +310,11 @@ class GameServer(
         is Command.SetAttitude -> session.controlledVessel?.raw == command.vessel
         is Command.SetSas -> session.controlledVessel?.raw == command.vessel
         is Command.Stage -> session.controlledVessel?.raw == command.vessel
+        // Welding consumes the *other* craft, which may belong to someone
+        // else. Only the craft being flown may initiate it, and the world
+        // still refuses unless the two are touching and at rest - but this is
+        // the line to revisit when bases get owners worth defending.
+        is Command.Join -> session.controlledVessel?.raw == command.vessel
         is Command.SpawnCraft -> true
         is Command.Chat -> true
     }

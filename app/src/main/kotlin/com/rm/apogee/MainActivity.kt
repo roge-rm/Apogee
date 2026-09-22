@@ -134,6 +134,7 @@ class MainActivity : ComponentActivity() {
                         onStage = ::onStage,
                         onToggleSas = ::onToggleSas,
                         onToggleMap = ::onToggleMap,
+                        onJoin = ::onJoin,
                         onExit = { navigateTo(AppScreen.PLAY) },
                     )
                     AppScreen.BUILDER -> builderSession?.let { builder ->
@@ -273,6 +274,11 @@ class MainActivity : ComponentActivity() {
     private fun onStage() {
         val current = session ?: return
         lifecycleScope.launch { current.stage() }
+    }
+
+    private fun onJoin() {
+        val current = session ?: return
+        lifecycleScope.launch { current.join() }
     }
 
     private fun onToggleSas() {
@@ -463,6 +469,7 @@ class MainActivity : ComponentActivity() {
                     hudState.telemetry = current.telemetry
                     hudState.connecting = !current.connected && current.rejectionReason == null
                     hudState.connectionError = current.rejectionReason
+                    hudState.canJoin = current.joinable
                 }
 
                 frameBus.latest()?.latest?.let { frame ->

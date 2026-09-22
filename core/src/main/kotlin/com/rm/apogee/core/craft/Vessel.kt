@@ -370,6 +370,19 @@ class Vessel(
         return placed.rotation.inverseRotate(out, out)
     }
 
+    /**
+     * A world point expressed in this craft's *design* space.
+     *
+     * Distinct from [worldToPartLocal], which goes one step further into a
+     * single part's own frame. This is the frame `CraftDesign` positions are
+     * written in, which is what merging two craft needs.
+     */
+    fun worldToDesign(worldPoint: Vec3, out: Vec3 = Vec3()): Vec3 {
+        out.setTo(worldPoint).subInPlace(body.position)
+        body.orientation.inverseRotate(out, out)
+        return out.addInPlace(centerOfMassLocal)
+    }
+
     /** World position of part [index], in the reference body's frame. */
     fun partPositionWorld(index: Int, out: Vec3 = Vec3()): Vec3 =
         partOffsetWorld(index, out).addInPlace(body.position)
@@ -446,6 +459,49 @@ class Vessel(
         activated = newActivated
         broken = newBroken
         name = newDesign.name
+        computeFuelGroups()
+        recomputeMass()
+    }
+
+    /**
+     * Takes on [other]'s parts as well as its own, becoming [newDesign].
+     *
+     * The counterpart to [replaceStructure], which can only ever express a
+     * *subset* of one craft: its index map says where each surviving part came
+     * from, and there is nowhere in it to say "from the other vessel". Merging
+     * needs both sources, so it gets its own path rather than a more clever
+     * index map.
+     *
+     * [newDesign] must be this craft's parts in their existing order followed
+     * by [other]'s in theirs, which is what [com.rm.apogee.core.world.World]'s
+     * merge builds - the per-part state is carried across positionally.
+     */
+    fun absorb(newDesign: CraftDesign, newDefs: List<PartDef>, other: Vessel) {
+        val own = design.parts.size
+        require(newDesign.parts.size == own + other.design.parts.size) {
+            "merged design must be this craft's parts followed by the other's"
+        }
+
+        val newResources = Array(newDesign.parts.size) { DoubleArray(RESOURCE_COUNT) }
+        val newActivated = BooleanArray(newDesign.parts.size)
+        val newBroken = BooleanArray(newDesign.parts.size)
+
+        for (i in 0 until own) {
+            resources[i].copyInto(newResources[i])
+            newActivated[i] = activated[i]
+            newBroken[i] = broken[i]
+        }
+        for (j in other.design.parts.indices) {
+            other.resources[j].copyInto(newResources[own + j])
+            newActivated[own + j] = other.activated[j]
+            newBroken[own + j] = other.broken[j]
+        }
+
+        design = newDesign
+        defs = newDefs
+        resources = newResources
+        activated = newActivated
+        broken = newBroken
         computeFuelGroups()
         recomputeMass()
     }

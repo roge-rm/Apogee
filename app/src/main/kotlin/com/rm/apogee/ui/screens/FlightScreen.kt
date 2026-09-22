@@ -25,6 +25,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.KeyboardDoubleArrowUp
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalIconButton
@@ -82,6 +83,7 @@ fun FlightScreen(
     onStage: () -> Unit,
     onToggleSas: () -> Unit,
     onToggleMap: () -> Unit,
+    onJoin: () -> Unit,
     onExit: () -> Unit,
 ) {
     // BoxWithConstraints rather than the configuration's orientation: this is
@@ -200,6 +202,10 @@ fun FlightScreen(
                 if (leftHandMode) attitude() else throttle()
 
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    if (hud.canJoin) {
+                        JoinButton(onJoin)
+                        Spacer(Modifier.height(8.dp))
+                    }
                     NavBall(
                         rotation = hud.telemetry.rotation,
                         worldUp = hud.telemetry.up,
@@ -255,11 +261,17 @@ fun FlightScreen(
                     prograde = hud.telemetry.prograde,
                     size = NAVBALL_SIZE,
                 )
-                StageButton(
-                    hud.telemetry.stage,
-                    onStage,
-                    Modifier.width(Dimens.HudActionBarWidth),
-                )
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    if (hud.canJoin) {
+                        JoinButton(onJoin)
+                        Spacer(Modifier.height(8.dp))
+                    }
+                    StageButton(
+                        hud.telemetry.stage,
+                        onStage,
+                        Modifier.width(Dimens.HudActionBarWidth),
+                    )
+                }
             }
         }
     }
@@ -328,6 +340,40 @@ private fun AttitudeCluster(
         }
         Spacer(Modifier.height(8.dp))
         AttitudeStick(onChange = onAttitude, size = stickSize)
+    }
+}
+
+/**
+ * Offered only while a weld would actually take.
+ *
+ * A button that is present but inert teaches the player that the control is
+ * unreliable; one that appears the moment two modules are touching and still
+ * teaches them the rule. The client works out the same condition the world
+ * checks, so the two agree.
+ */
+@Composable
+private fun JoinButton(onJoin: () -> Unit) {
+    Surface(
+        shape = RoundedCornerShape(Dimens.CornerActionBar),
+        color = ApogeeColors.Prograde.alpha(0.85f),
+        contentColor = Color(0xFF0C2418),
+    ) {
+        Row(
+            Modifier
+                .clickable(onClick = onJoin)
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(Icons.Filled.Link, contentDescription = null)
+            Spacer(Modifier.width(8.dp))
+            Text(
+                "JOIN",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+            )
+        }
     }
 }
 

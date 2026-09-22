@@ -41,6 +41,17 @@ sealed interface Command {
     @SerialName("spawnCraft")
     data class SpawnCraft(val design: CraftDesign, val siteId: String) : Command
 
+    /**
+     * Welds this craft to whatever it is resting against.
+     *
+     * No target: the world picks the nearest craft actually in contact. A
+     * player pushing one module up against another should not also have to
+     * identify it, and on a touch screen there is nothing sensible to tap.
+     */
+    @Serializable
+    @SerialName("join")
+    data class Join(val vessel: Long) : Command
+
     @Serializable
     @SerialName("chat")
     data class Chat(val text: String) : Command

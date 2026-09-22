@@ -33,6 +33,16 @@ class HudState {
     var sasEnabled: Boolean by mutableStateOf(false)
     var mapMode: Boolean by mutableStateOf(false)
 
+    /**
+     * Whether another craft is close enough and still enough to weld to.
+     *
+     * Decided on the client from the craft it already knows about, so the
+     * button appears exactly when pressing it would do something. The server
+     * checks the same conditions again before acting - this is for the UI, not
+     * for authority.
+     */
+    var canJoin: Boolean by mutableStateOf(false)
+
     /** Clears transient state when leaving the world, so a new flight starts clean. */
     fun reset() {
         frameTimeMillis = 0f
@@ -45,5 +55,6 @@ class HudState {
         throttle = 0f
         sasEnabled = false
         mapMode = false
+        canJoin = false
     }
 }

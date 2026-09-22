@@ -239,6 +239,18 @@ class GameSession private constructor(
         withControlledVessel { client.send(Command.SetSas(it, enabled)) }
     }
 
+    /**
+     * Welds the controlled craft to whatever it is resting against.
+     *
+     * Not predicted locally, unlike staging. A merge rewrites both craft's
+     * structure and destroys one of them, and guessing wrong about that would
+     * leave the client showing a craft the server still has - staging only
+     * flips a flag, which is cheap to be wrong about for one snapshot.
+     */
+    suspend fun join() {
+        withControlledVessel { client.send(Command.Join(it)) }
+    }
+
     suspend fun stage() {
         // Staged locally as well, so the button responds immediately; the
         // server's own staging arrives in the next structure update and
@@ -315,6 +327,8 @@ class GameSession private constructor(
             )
             drawFarSurface = builder.farSurfaceNeeded
         }
+
+        joinable = neighbourInWeldingRange(focus, focusState)
 
         // Local vertical in world axes: the craft's own position direction.
         scratchUp.setTo(focusState.position).normalizeInPlace()
@@ -481,6 +495,48 @@ class GameSession private constructor(
 
     private val scratchLowest = Vec3()
     private val scratchUp = Vec3()
+    private val scratchNeighbour = Vec3()
+
+    /**
+     * Whether another craft is close enough and still enough to weld to.
+     *
+     * Answered from the craft the client already has, so the button appears
+     * exactly when pressing it would do something. The server re-checks before
+     * acting; this decides what to draw, not what is allowed.
+     */
+    @Volatile
+    var joinable: Boolean = false
+        private set
+
+    private fun neighbourInWeldingRange(
+        focus: ClientVessel,
+        state: com.rm.apogee.core.world.VesselKinematics,
+    ): Boolean {
+        val reach = designReach(focus.design)
+        for (other in client.vessels) {
+            if (other.id == focus.id) continue
+            val theirs = other.latest ?: continue
+            scratchNeighbour.setTo(state.position).subInPlace(theirs.position)
+            if (scratchNeighbour.length > reach + designReach(other.design)) continue
+            scratchNeighbour.setTo(state.velocity).subInPlace(theirs.velocity)
+            if (scratchNeighbour.length > World.JOIN_MAX_CLOSING_SPEED) continue
+            return true
+        }
+        return false
+    }
+
+    /** Roughly how far this design reaches from its centre, metres. */
+    private fun designReach(design: CraftDesign): Double {
+        val centre = designCentreOfMass(design)
+        var furthest = 0.0
+        for (placed in design.parts) {
+            val def = catalog[placed.partId] ?: continue
+            scratchNeighbour.setTo(placed.position).subInPlace(centre)
+            val reach = scratchNeighbour.length + def.boundsHalfExtents.length
+            if (reach > furthest) furthest = reach
+        }
+        return furthest
+    }
 
     private fun designCentreOfMass(design: CraftDesign): Vec3 {
         val centre = Vec3.zero()
