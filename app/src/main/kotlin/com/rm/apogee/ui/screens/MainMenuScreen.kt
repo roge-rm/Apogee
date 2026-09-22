@@ -63,25 +63,15 @@ fun PlayScreen(onNavigate: (AppScreen) -> Unit) {
             "Host a Game",
             { onNavigate(AppScreen.HOST_GAME) },
             contentModifier,
-            subtitle = "Not yet available",
-            enabled = false,
+            subtitle = "Let others on your network join",
         )
         ApogeeButton(
             "Join a Game",
             { onNavigate(AppScreen.JOIN_GAME) },
             contentModifier,
-            subtitle = "Not yet available",
-            enabled = false,
+            subtitle = "Find a game on your network",
         )
 
-        Spacer(Modifier.height(24.dp))
-        Text(
-            "Single-player already runs as a one-player server, so hosting and " +
-                "joining are a transport swap rather than a new code path.",
-            style = MaterialTheme.typography.bodySmall,
-            color = Color.White.alpha(ApogeeAlpha.SUBTITLE),
-            textAlign = TextAlign.Center,
-            modifier = contentModifier,
-        )
+
     }
 }

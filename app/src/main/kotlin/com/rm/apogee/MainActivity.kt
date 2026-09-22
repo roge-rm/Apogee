@@ -23,6 +23,8 @@ import com.rm.apogee.core.craft.CraftDesign
 import com.rm.apogee.core.craft.CraftStore
 import com.rm.apogee.core.part.StockParts
 import com.rm.apogee.game.BuilderSession
+import com.rm.apogee.game.DiscoveredServer
+import com.rm.apogee.game.ServerBrowser
 import com.rm.apogee.game.GameSession
 import com.rm.apogee.game.HudState
 import com.rm.apogee.platform.PerfHints
@@ -34,6 +36,8 @@ import com.rm.apogee.ui.screens.AboutScreen
 import com.rm.apogee.ui.screens.AppScreen
 import com.rm.apogee.ui.screens.BuilderScreen
 import com.rm.apogee.ui.screens.FlightScreen
+import com.rm.apogee.ui.screens.HostGameScreen
+import com.rm.apogee.ui.screens.JoinGameScreen
 import com.rm.apogee.ui.screens.MainMenuScreen
 import com.rm.apogee.ui.screens.PlayScreen
 import com.rm.apogee.ui.screens.SettingsScreen
@@ -76,6 +80,14 @@ class MainActivity : ComponentActivity() {
     private var commandedYaw = 0f
     private var commandedRoll = 0f
 
+    private lateinit var serverBrowser: ServerBrowser
+
+    /** How the next flight should be started. */
+    private var pendingMode: SessionMode = SessionMode.Solo
+    private var joinError by mutableStateOf<String?>(null)
+    private var connectingTo by mutableStateOf<String?>(null)
+    private var serverName by mutableStateOf("")
+
     private var appScreen by mutableStateOf(AppScreen.MENU)
     private var detectedTier by mutableStateOf<QualityTier?>(null)
 
@@ -86,6 +98,8 @@ class MainActivity : ComponentActivity() {
         hudState = HudState()
         frameBus = FrameBus()
         craftStore = CraftStore(File(filesDir, "craft"))
+        serverBrowser = ServerBrowser(this, StockParts.catalog.contentHash)
+        serverName = "${settings.playerName}'s Game"
         detectedTier = settings.lastDetectedTier
 
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -125,10 +139,21 @@ class MainActivity : ComponentActivity() {
                             onLaunch = ::launchFromBuilder,
                         )
                     }
-                    // M4 screens; the enum carries them so navigation and
-                    // back-handling are already correct when they land.
-                    AppScreen.HOST_GAME, AppScreen.JOIN_GAME ->
-                        PlayScreen(::navigateTo)
+                    AppScreen.HOST_GAME -> HostGameScreen(
+                        serverName = serverName,
+                        onServerNameChange = { serverName = it },
+                        onStartHosting = {
+                            pendingMode = SessionMode.Host(serverName.ifBlank { "Apogee Game" })
+                            navigateTo(AppScreen.FLIGHT)
+                        },
+                    )
+
+                    AppScreen.JOIN_GAME -> JoinGameScreen(
+                        browser = serverBrowser,
+                        connectingTo = connectingTo,
+                        error = joinError,
+                        onJoin = ::joinServer,
+                    )
                 }
             }
         }
@@ -137,7 +162,17 @@ class MainActivity : ComponentActivity() {
     private fun navigateTo(target: AppScreen) {
         if (target == appScreen) return
         val wasInWorld = appScreen.needsWorldSurface
+        val wasBrowsing = appScreen == AppScreen.JOIN_GAME
         appScreen = target
+
+        // Discovery holds a multicast lock and a socket; it runs only while the
+        // browser is actually on screen.
+        if (target == AppScreen.JOIN_GAME) {
+            joinError = null
+            serverBrowser.start(lifecycleScope)
+        } else if (wasBrowsing) {
+            serverBrowser.stop()
+        }
 
         when {
             // Builder and flight both want the surface but different sessions,
@@ -154,7 +189,38 @@ class MainActivity : ComponentActivity() {
 
     private fun launchFromBuilder() {
         pendingLaunchDesign = builderSession?.designForLaunch() ?: return
+        pendingMode = SessionMode.Solo
         navigateTo(AppScreen.FLIGHT)
+    }
+
+    /**
+     * Connects to a discovered host, then enters flight.
+     *
+     * The connection is made *before* navigating, so a host that has gone away
+     * produces an error on the list where the player can pick another, rather
+     * than dropping them into an empty world to work it out themselves.
+     */
+    private fun joinServer(server: DiscoveredServer) {
+        if (connectingTo != null) return
+        connectingTo = server.beacon.serverName
+        joinError = null
+
+        lifecycleScope.launch {
+            val result = GameSession.join(
+                frameBus = frameBus,
+                perfHints = null,
+                playerName = settings.playerName,
+                host = server.beacon.address,
+                port = server.beacon.port,
+            )
+            connectingTo = null
+            result
+                .onSuccess { joined ->
+                    pendingMode = SessionMode.Joined(joined)
+                    navigateTo(AppScreen.FLIGHT)
+                }
+                .onFailure { joinError = "Could not connect: ${it.message ?: "host unreachable"}" }
+        }
     }
 
     // --- flight controls -----------------------------------------------------
@@ -241,14 +307,30 @@ class MainActivity : ComponentActivity() {
             builder.start(lifecycleScope)
             builderSession = builder
         } else {
-            val newSession = GameSession.hostLocal(
-                frameBus = frameBus,
-                perfHints = perfHints,
-                playerName = settings.playerName,
-                design = pendingLaunchDesign,
-                scope = lifecycleScope,
-            )
+            val newSession = when (val mode = pendingMode) {
+                is SessionMode.Solo -> GameSession.hostLocal(
+                    frameBus = frameBus,
+                    perfHints = perfHints,
+                    playerName = settings.playerName,
+                    design = pendingLaunchDesign,
+                    scope = lifecycleScope,
+                )
+
+                is SessionMode.Host -> GameSession.hostLan(
+                    frameBus = frameBus,
+                    perfHints = perfHints,
+                    playerName = settings.playerName,
+                    serverName = mode.name,
+                    design = pendingLaunchDesign,
+                    scope = lifecycleScope,
+                )
+
+                // Already connected: joining happens before navigation so a
+                // failure can be shown on the browser instead of in an empty world.
+                is SessionMode.Joined -> mode.session
+            }
             pendingLaunchDesign = null
+            pendingMode = SessionMode.Solo
             newSession.start(lifecycleScope)
             session = newSession
         }
@@ -390,6 +472,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        serverBrowser.stop()
         leaveWorld()
         super.onDestroy()
     }
@@ -408,6 +491,13 @@ class MainActivity : ComponentActivity() {
     private fun showSystemBars() {
         WindowInsetsControllerCompat(window, window.decorView)
             .show(WindowInsetsCompat.Type.systemBars())
+    }
+
+    /** How the next flight should be started. */
+    private sealed interface SessionMode {
+        data object Solo : SessionMode
+        data class Host(val name: String) : SessionMode
+        data class Joined(val session: GameSession) : SessionMode
     }
 
     private companion object {

@@ -71,6 +71,15 @@ class GameClient(
     @Volatile var latestSnapshot: Snapshot? = null
         private set
 
+    /**
+     * When the newest snapshot arrived, by [System.nanoTime].
+     *
+     * Prediction needs to know how stale the server's state is, not just what
+     * it said - a snapshot describes the world as of when it was sent.
+     */
+    @Volatile var latestSnapshotNanos: Long = 0L
+        private set
+
     /** Chat lines, newest last. Bounded so a long session cannot grow forever. */
     private val chatLines = ArrayDeque<String>()
 
@@ -148,6 +157,7 @@ class GameClient(
             is ServerMessage.SnapshotMessage -> {
                 val snapshot = message.snapshot
                 latestSnapshot = snapshot
+                latestSnapshotNanos = System.nanoTime()
                 for (kinematics in snapshot.vessels) {
                     // Motion can legitimately arrive before structure - the
                     // snapshot for a craft that just spawned may overtake its

@@ -10,9 +10,16 @@ import com.rm.apogee.core.part.PartCatalog
 import com.rm.apogee.core.part.StockParts
 import com.rm.apogee.core.world.Command
 import com.rm.apogee.core.world.World
+import com.rm.apogee.core.world.VesselKinematics
+import com.rm.apogee.net.ClientPrediction
 import com.rm.apogee.net.ClientVessel
 import com.rm.apogee.net.GameClient
+import com.rm.apogee.core.world.Protocol
+import com.rm.apogee.net.LanDiscovery
 import com.rm.apogee.net.LoopbackTransportPair
+import com.rm.apogee.net.ServerBeacon
+import com.rm.apogee.net.TcpListener
+import com.rm.apogee.net.TcpTransport
 import com.rm.apogee.net.Transport
 import com.rm.apogee.platform.PerfHints
 import com.rm.apogee.render.FrameBus
@@ -69,6 +76,25 @@ class GameSession private constructor(
     /** Whether the map view is showing. */
     @Volatile var mapMode: Boolean = false
 
+    /**
+     * Local physics for the craft this client is flying.
+     *
+     * The server stays authoritative - every snapshot resets this and
+     * re-simulates forward. It exists so the throttle responds on the frame it
+     * is moved rather than after a round trip and up to a snapshot interval.
+     */
+    private val prediction = ClientPrediction(catalog)
+
+    /** Mirrors of the player's controls, so prediction sees the same inputs. */
+    private var localThrottle = 0.0
+    private var localPitch = 0.0
+    private var localYaw = 0.0
+    private var localRoll = 0.0
+    private var localSas = false
+
+    private var lastReconciledTick = -1L
+    private var lastAdvanceNanos = 0L
+
     /** Published for the debug overlay. */
     val lastFrameBuildNanos = AtomicLong(0)
     val framesPublished = AtomicLong(0)
@@ -80,10 +106,21 @@ class GameSession private constructor(
     private var serverJob: Job? = null
     private var clientJob: Job? = null
     private var presentJob: Job? = null
+    private var listener: TcpListener? = null
+    private var beaconJob: Job? = null
+
+    /** Port this session is hosting on, or null when not hosting. */
+    var hostedPort: Int? = null
+        private set
+
+    /** Players connected to the game this session is hosting. */
+    val hostedPlayerCount: Int get() = hostedServer?.playerCount ?: 0
 
     private val cameraPosition = Vec3()
     private val cameraRotation = Quat.identity()
     private val scratch = Vec3()
+    private val predictedPosition = Vec3()
+    private val predictedRotation = Quat.identity()
 
     val connected: Boolean get() = client.connected
     val rejectionReason: String? get() = client.rejectionReason
@@ -106,9 +143,39 @@ class GameSession private constructor(
         presentJob?.cancel(); presentJob = null
         clientJob?.cancel(); clientJob = null
         serverJob?.cancel(); serverJob = null
+        beaconJob?.cancel(); beaconJob = null
+        listener?.stop(); listener = null
+        hostedPort = null
         client.close()
         transport.close()
+        prediction.reset()
         frameBus.clear()
+    }
+
+    /**
+     * Opens this session's server to the network and announces it.
+     *
+     * Only meaningful when hosting. The host's own client stays on the loopback
+     * transport rather than looping back through a socket: there is no reason
+     * to serialise and checksum its own commands, and keeping it in-process
+     * means a host with no network still plays.
+     */
+    private fun openToLan(server: GameServer, scope: CoroutineScope, serverName: String) {
+        val tcp = TcpListener(DEFAULT_PORT) { transport -> server.accept(transport, scope) }
+        tcp.start(scope)
+        listener = tcp
+        hostedPort = tcp.boundPort
+
+        beaconJob = LanDiscovery.announce(
+            ServerBeacon(
+                serverName = serverName,
+                port = tcp.boundPort,
+                players = server.playerCount,
+                protocolVersion = Protocol.VERSION,
+                catalogHash = catalog.contentHash,
+            ),
+            scope,
+        )
     }
 
     // --- commands ------------------------------------------------------------
@@ -117,16 +184,34 @@ class GameSession private constructor(
         client.controlledVessel?.let { block(it) }
     }
 
-    suspend fun setThrottle(value: Double) =
+    suspend fun setThrottle(value: Double) {
+        localThrottle = value
+        pushControlsToPrediction()
         withControlledVessel { client.send(Command.SetThrottle(it, value)) }
+    }
 
-    suspend fun setAttitude(pitch: Double, yaw: Double, roll: Double) =
+    suspend fun setAttitude(pitch: Double, yaw: Double, roll: Double) {
+        localPitch = pitch; localYaw = yaw; localRoll = roll
+        pushControlsToPrediction()
         withControlledVessel { client.send(Command.SetAttitude(it, pitch, yaw, roll)) }
+    }
 
-    suspend fun setSas(enabled: Boolean) =
+    suspend fun setSas(enabled: Boolean) {
+        localSas = enabled
+        pushControlsToPrediction()
         withControlledVessel { client.send(Command.SetSas(it, enabled)) }
+    }
 
-    suspend fun stage() = withControlledVessel { client.send(Command.Stage(it)) }
+    suspend fun stage() {
+        // Staged locally as well, so the button responds immediately; the
+        // server's own staging arrives in the next structure update and
+        // overwrites this.
+        prediction.stage()
+        withControlledVessel { client.send(Command.Stage(it)) }
+    }
+
+    private fun pushControlsToPrediction() =
+        prediction.applyControl(localThrottle, localPitch, localYaw, localRoll, localSas)
 
     // --- presentation --------------------------------------------------------
 
@@ -169,9 +254,14 @@ class GameSession private constructor(
             }
             lines.add(marker(focusState.position, reach, CRAFT_COLOR))
         } else {
-            camera.solve(focusState.position, cameraPosition, cameraRotation)
+            val focusPosition = updatePrediction(focus, focusState)
+            camera.solve(focusPosition, cameraPosition, cameraRotation)
             for (vessel in client.vessels) {
-                appendVessel(vessel, items)
+                if (vessel.id == focusId) {
+                    appendVessel(vessel, items, predictedPosition, predictedRotation)
+                } else {
+                    appendVessel(vessel, items)
+                }
             }
         }
 
@@ -227,8 +317,43 @@ class GameSession private constructor(
         )
     }
 
+    /**
+     * Steps the local replica and reconciles it with the newest snapshot.
+     *
+     * @return where the controlled craft should be drawn.
+     */
+    private fun updatePrediction(focus: ClientVessel, state: VesselKinematics): Vec3 {
+        if (prediction.needsAdopting(focus.design)) {
+            prediction.adopt(focus.design, state)
+            pushControlsToPrediction()
+        }
+
+        val snapshot = client.latestSnapshot
+        if (snapshot != null && snapshot.tick != lastReconciledTick) {
+            lastReconciledTick = snapshot.tick
+            // How stale the server's word is by the time we act on it.
+            val age = (System.nanoTime() - client.latestSnapshotNanos) / 1e9
+            prediction.reconcile(state, age)
+        }
+
+        val now = System.nanoTime()
+        if (lastAdvanceNanos != 0L) {
+            prediction.advance((now - lastAdvanceNanos) / 1e9)
+        }
+        lastAdvanceNanos = now
+
+        prediction.renderPosition(predictedPosition)
+        prediction.renderRotation(predictedRotation)
+        return if (prediction.isReady) predictedPosition else state.position
+    }
+
     /** Turns one craft's design plus its motion into per-part draw items. */
-    private fun appendVessel(vessel: ClientVessel, out: MutableList<RenderItem>) {
+    private fun appendVessel(
+        vessel: ClientVessel,
+        out: MutableList<RenderItem>,
+        overridePosition: Vec3? = null,
+        overrideRotation: Quat? = null,
+    ) {
         val state = vessel.latest ?: return
         val design = vessel.design
 
@@ -236,19 +361,21 @@ class GameSession private constructor(
         // design are relative to the design origin, so the offset between them
         // has to be reconstructed here.
         val centreOfMass = designCentreOfMass(design)
+        val position = overridePosition ?: state.position
+        val rotation = overrideRotation ?: state.rotation
 
         for (placed in design.parts) {
             val def = catalog[placed.partId] ?: continue
 
             scratch.setTo(placed.position).subInPlace(centreOfMass)
-            state.rotation.rotate(scratch, scratch)
-            scratch.addInPlace(state.position)
+            rotation.rotate(scratch, scratch)
+            scratch.addInPlace(position)
 
             out.add(
                 RenderItem(
                     meshSpec = def.mesh,
                     position = scratch.copy(),
-                    rotation = state.rotation * placed.rotation,
+                    rotation = rotation * placed.rotation,
                     color = colorFor(placed.partId),
                 )
             )
@@ -311,6 +438,61 @@ class GameSession private constructor(
         private val PERIAPSIS_COLOR = floatArrayOf(1.0f, 0.83f, 0.50f, 1f)
         private val CRAFT_COLOR = floatArrayOf(1.0f, 1.0f, 1.0f, 1f)
 
+        /** The port a host listens on unless it is taken. */
+        const val DEFAULT_PORT = 45_678
+
+        /**
+         * Starts a game others can join over the local network.
+         *
+         * Identical to [hostLocal] except that the server also listens on a
+         * socket and announces itself - which is the point of having built
+         * single-player as a one-player server in the first place. Nothing in
+         * the gameplay path knows the difference.
+         */
+        fun hostLan(
+            frameBus: FrameBus,
+            perfHints: PerfHints?,
+            playerName: String,
+            serverName: String,
+            design: CraftDesign? = null,
+            catalog: PartCatalog = StockParts.catalog,
+            scope: CoroutineScope,
+        ): GameSession {
+            val session = hostLocal(
+                frameBus, perfHints, playerName, design, catalog, scope,
+                // The name has to reach the server config, not just the beacon:
+                // it is what the welcome message reports, so a joining player
+                // sees the name they picked in the browser.
+                serverName = serverName,
+            )
+            session.hostedServer?.let { session.openToLan(it, scope, serverName) }
+            return session
+        }
+
+        /**
+         * Joins a game hosted elsewhere.
+         *
+         * Returns a failure if the socket will not open - a host that has gone
+         * away between being discovered and being tapped is entirely normal.
+         */
+        suspend fun join(
+            frameBus: FrameBus,
+            perfHints: PerfHints?,
+            playerName: String,
+            host: String,
+            port: Int,
+            catalog: PartCatalog = StockParts.catalog,
+        ): Result<GameSession> = TcpTransport.connect(host, port).map { transport ->
+            GameSession(
+                frameBus = frameBus,
+                perfHints = perfHints,
+                catalog = catalog,
+                hostedServer = null,
+                client = GameClient(transport, playerName, catalog.contentHash),
+                transport = transport,
+            )
+        }
+
         /**
          * Starts a solo game: a server in this process, reached over loopback.
          */
@@ -322,11 +504,12 @@ class GameSession private constructor(
             design: CraftDesign? = null,
             catalog: PartCatalog = StockParts.catalog,
             scope: CoroutineScope,
+            serverName: String = "Local Game",
         ): GameSession {
             val server = GameServer(
                 world = World.default(catalog),
                 config = ServerConfig(
-                    name = "Local Game",
+                    name = serverName,
                     starterCraft = { design ?: StockCraft.starterRocket(it) },
                 ),
             )

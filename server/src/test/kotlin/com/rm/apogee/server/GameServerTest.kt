@@ -202,6 +202,32 @@ class GameServerTest {
     }
 
     @Test
+    fun `two players spawn on separate pads`() = runTest {
+        val server = GameServer.default(catalog)
+        val alice = joinClient(server, backgroundScope, "Alice")
+        val bob = joinClient(server, backgroundScope, "Bob")
+        pumpUntil(server, "both to be flying something") {
+            alice.controlledVessel != null && bob.controlledVessel != null
+        }
+
+        val one = server.world.vessel(VesselId(alice.controlledVessel!!))!!
+        val two = server.world.vessel(VesselId(bob.controlledVessel!!))!!
+        val separation = one.body.position.distanceTo(two.body.position)
+
+        // Spawning both at the same point drops one craft inside the other and
+        // the contact solver flings them apart, which is a memorable but
+        // unhelpful way to begin a game.
+        assertTrue(
+            "craft should spawn clear of each other, were ${separation}m apart",
+            separation > 20.0,
+        )
+        assertTrue(
+            "but still at the same launch site, were ${separation}m apart",
+            separation < 200.0,
+        )
+    }
+
+    @Test
     fun `chat reaches every connected client`() = runTest {
         val server = GameServer.default(catalog)
         val alice = joinClient(server, backgroundScope, "Alice")

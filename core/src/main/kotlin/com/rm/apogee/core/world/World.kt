@@ -88,7 +88,7 @@ class World(
      * of hundred metres per second relative to the ground it is standing on,
      * and would be dragged off the pad the instant friction applied.
      */
-    fun spawnOnSurface(design: CraftDesign, site: LaunchSite): Vessel {
+    fun spawnOnSurface(design: CraftDesign, site: LaunchSite, pad: Int = 0): Vessel {
         val problems = design.validate(catalog)
         require(problems.isEmpty()) {
             "Cannot spawn '${design.name}': ${problems.joinToString("; ")}"
@@ -102,7 +102,7 @@ class World(
             referenceBodyId = site.bodyId,
         )
 
-        val up = surfaceNormalAt(site, scratchUp)
+        val up = surfaceNormalAt(site, pad, scratchUp)
         // Nose (+Y in design space) points straight up.
         quatFromTo(Vec3.unitY(), up, vessel.body.orientation)
 
@@ -117,6 +117,36 @@ class World(
 
         attractor.surfaceVelocityAt(vessel.body.position, vessel.body.linearVelocity)
 
+        vesselsById[vessel.id] = vessel
+        pendingEvents.add(WorldEvent.VesselSpawned(vessel.id))
+        return vessel
+    }
+
+    /**
+     * Places a craft at an explicit state.
+     *
+     * Used by client-side prediction, which needs to seed a local replica from
+     * an authoritative snapshot rather than from a launch site or an orbit.
+     */
+    fun spawnAt(
+        design: CraftDesign,
+        bodyId: String,
+        position: Vec3,
+        velocity: Vec3,
+        rotation: Quat,
+        angularVelocity: Vec3 = Vec3.zero(),
+    ): Vessel {
+        val vessel = Vessel(
+            id = VesselId(nextVesselId++),
+            design = design,
+            defs = design.parts.map { catalog.require(it.partId) },
+            referenceBodyId = bodyId,
+        )
+        vessel.body.position.setTo(position)
+        vessel.body.linearVelocity.setTo(velocity)
+        vessel.body.orientation.setTo(rotation)
+        vessel.body.angularVelocity.setTo(angularVelocity)
+        vessel.recomputeMass(shiftBodyPosition = false)
         vesselsById[vessel.id] = vessel
         pendingEvents.add(WorldEvent.VesselSpawned(vessel.id))
         return vessel
@@ -142,12 +172,26 @@ class World(
         return vessel
     }
 
-    private fun surfaceNormalAt(site: LaunchSite, out: Vec3): Vec3 {
+    /**
+     * Surface normal at a launch site's [pad].
+     *
+     * Pads are spread along the local east-west line. Without this every player
+     * who joins spawns at exactly the same point, inside everyone already
+     * there, and the contact solver throws them apart at violent speed - which
+     * is a spectacular but unhelpful way to start a game.
+     */
+    private fun surfaceNormalAt(site: LaunchSite, pad: Int, out: Vec3): Vec3 {
+        val attractor = system.body(site.bodyId)
+        // Alternate either side of the site so the first few pads stay close to
+        // the middle rather than marching off in one direction.
+        val slot = if (pad % 2 == 0) pad / 2 else -(pad + 1) / 2
+        val longitude = site.longitude + slot * PAD_SPACING_METRES / attractor.radius
+
         val cosLat = kotlin.math.cos(site.latitude)
         return out.setTo(
-            cosLat * kotlin.math.cos(site.longitude),
+            cosLat * kotlin.math.cos(longitude),
             kotlin.math.sin(site.latitude),
-            cosLat * kotlin.math.sin(site.longitude),
+            cosLat * kotlin.math.sin(longitude),
         ).normalizeInPlace()
     }
 
@@ -405,6 +449,9 @@ class World(
     }
 
     companion object {
+        /** Metres between adjacent launch pads at a site. */
+        private const val PAD_SPACING_METRES = 40.0
+
         /** Metres the two halves of a separation are pushed apart immediately. */
         private const val SEPARATION_CLEARANCE = 0.5
 

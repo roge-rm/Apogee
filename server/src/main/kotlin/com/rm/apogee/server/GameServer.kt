@@ -87,6 +87,7 @@ class GameServer(
     private val sessions = CopyOnWriteArrayList<PlayerSession>()
     private val inbox = ConcurrentLinkedQueue<Pair<PlayerSession, ClientMessage>>()
     private var nextSessionId = 1
+    private var nextPad = 0
 
     val dt: Double = 1.0 / config.tickHz
     private val ticksPerSnapshot: Int = (config.tickHz / config.snapshotHz).coerceAtLeast(1)
@@ -224,9 +225,12 @@ class GameServer(
         session.playerName = hello.playerName.take(32).ifBlank { "Pilot" }
         session.handshakeComplete = true
 
+        // Each player gets their own pad, so joining does not drop a craft
+        // inside one that is already standing there.
         val vessel = world.spawnOnSurface(
             config.starterCraft(world.catalog),
             World.launchSites.first(),
+            pad = nextPad++,
         )
         session.controlledVessel = vessel.id
 

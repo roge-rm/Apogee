@@ -68,3 +68,38 @@ dependencies {
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.junit)
 }
+
+/**
+ * Drops the debug APK where Dan collects builds to install:
+ * `./gradlew :app:dropDebugApk`.
+ *
+ * That directory holds debug builds from several apps side by side, so this
+ * writes exactly one file under a stable, app-identifying name and clears any
+ * older Apogee APK rather than accumulating versions.
+ */
+tasks.register("dropDebugApk") {
+    group = "build"
+    description = "Copies the debug APK to /srv/downloads/temp/debug/apogee-debug.apk"
+    dependsOn("assembleDebug")
+
+    val source = layout.buildDirectory.file("outputs/apk/debug/app-debug.apk")
+    val destination = File("/srv/downloads/temp/debug/apogee-debug.apk")
+
+    doLast {
+        val apk = source.get().asFile
+        require(apk.exists()) { "No debug APK at ${apk.absolutePath}" }
+        destination.parentFile.mkdirs()
+
+        // Only ever one Apogee build here.
+        destination.parentFile.listFiles { file ->
+            file.name.startsWith("apogee-") && file.name.endsWith(".apk") &&
+                file.name != destination.name
+        }?.forEach { stale ->
+            logger.lifecycle("Removing stale build ${stale.name}")
+            stale.delete()
+        }
+
+        apk.copyTo(destination, overwrite = true)
+        logger.lifecycle("Debug APK -> ${destination.absolutePath} (${destination.length() / 1024} KB)")
+    }
+}

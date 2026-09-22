@@ -31,3 +31,16 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
 }
+
+/**
+ * Connects to a running host as a real client: `./gradlew :server:netProbe`.
+ *
+ * Closes the loop no unit test can - a game hosted from a real device, joined
+ * from a real second process, over a real socket.
+ */
+tasks.register<JavaExec>("netProbe") {
+    group = "verification"
+    description = "Joins a running Apogee host and reports what it sees."
+    classpath = sourceSets["test"].runtimeClasspath
+    mainClass.set("com.rm.apogee.server.NetProbeKt")
+}
