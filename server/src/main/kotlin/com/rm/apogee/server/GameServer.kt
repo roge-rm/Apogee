@@ -339,6 +339,8 @@ class GameServer(
         is Command.SetThrottle -> session.controlledVessel?.raw == command.vessel
         is Command.SetAttitude -> session.controlledVessel?.raw == command.vessel
         is Command.SetSas -> session.controlledVessel?.raw == command.vessel
+        is Command.SetTranslation -> session.controlledVessel?.raw == command.vessel
+        is Command.SetRcs -> session.controlledVessel?.raw == command.vessel
         is Command.Stage -> session.controlledVessel?.raw == command.vessel
         // Welding consumes the *other* craft, which may belong to someone
         // else. Only the craft being flown may initiate it, and the world

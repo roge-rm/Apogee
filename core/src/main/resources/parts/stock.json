@@ -486,5 +486,50 @@
         "damping": 12000.0
       }
     ]
+  },
+  {
+    "id": "rcs-nudge",
+    "title": "Nudge Thruster Block",
+    "category": "utility",
+    "dryMass": 20.0,
+    "description": "Four thrusters and a little monopropellant. Sized so a set of them can break a landed module free of friction and walk it into place, which a main engine cannot do.",
+    "crashTolerance": 12.0,
+    "dragCoefficient": 0.3,
+    "mesh": {
+      "type": "box",
+      "width": 0.3,
+      "height": 0.35,
+      "depth": 0.3
+    },
+    "attachNodes": [
+      {
+        "id": "root",
+        "position": {
+          "x": -0.15,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": -1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "rcs",
+        "thrust": 6500.0,
+        "isp": 240.0,
+        "propellant": "monopropellant"
+      },
+      {
+        "type": "tank",
+        "resource": "monopropellant",
+        "capacity": 8.0
+      }
+    ]
   }
 ]

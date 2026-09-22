@@ -80,6 +80,8 @@ class GroundContact {
     private val bodyFixedDirection = Vec3()
     private val bodyRotation = com.rm.apogee.core.math.Quat.identity()
     private val tangent = Vec3()
+    private val restPosition = Vec3()
+    private val restOrientation = com.rm.apogee.core.math.Quat.identity()
     private val entryLinear = Vec3()
     private val entryAngular = Vec3()
     private val approachVelocity = Vec3()
@@ -198,6 +200,7 @@ class GroundContact {
                 val normalImpulse = spring * dt
                 impulse.setTo(normal).mulInPlace(normalImpulse)
                 body.applyImpulseAtOffset(impulse, offset)
+
                 applyFriction(body, attractor, normalImpulse)
                 continue
             }
@@ -247,6 +250,23 @@ class GroundContact {
      * `mu * g * cos(theta) * dt`, so a craft sticks while `tan(theta) < mu` and
      * slides once it is steeper - which is the textbook result, arrived at
      * without anywhere to put a fudge factor.
+     *
+     * The constraint it creates is real and easy to trip over: the contact
+     * solver's own residual jitter has to stay under one tick's friction
+     * budget, about 0.1 m/s. Stiffening the landing legs to carry a heavier
+     * craft pushed that jitter above it and craft simply stopped settling.
+     * Spring rates are part of this balance, not a free parameter.
+     *
+     * Known limit, measured rather than suspected: a craft standing on
+     * *deployed* landing legs does not anchor. A sprung contact resolves after
+     * gravity and before the next tick's, so it finishes every tick holding
+     * the impulse that cancelled that tick's gravity - 0.163 m/s, against a
+     * budget of 0.098 - even though its height above the ground is unchanged
+     * to a tenth of a millimetre. Adding the acceleration back before the test
+     * reads correctly in isolation and then fights the spring, which pushes
+     * the craft off the ground once the motion it was balancing is removed.
+     * Rigid contacts - gear up, or resting on the hull - anchor correctly.
+     * `./gradlew :core:restSurvey` prints what each craft actually settles to.
      */
     private fun anchorIfResting(vessel: Vessel, attractor: CelestialBody, dt: Double) {
         if (!report.hadContact) return
@@ -259,21 +279,38 @@ class GroundContact {
         val budget = FRICTION * scratch.length * dt
         if (budget <= 0.0) return
 
+        // Two questions, because they catch different things.
+        //
+        // First: is it moving slowly enough for friction to stop it outright?
+        // If so, stop it - that is what removes the contact solver's residual
+        // jitter, which a craft resting on its hull carries for ever
+        // otherwise.
         attractor.surfaceVelocityAt(body.position, surfaceVelocity)
         pointVelocity.setTo(body.linearVelocity).subInPlace(surfaceVelocity)
-        if (pointVelocity.length > budget) return
-
-        // The same test for rotation, in the units rotation comes in: a point
-        // on the craft's rim is moving at omega * r, and the same friction
-        // budget applies to it.
         attractor.angularVelocity(scratch)
         tangent.setTo(body.angularVelocity).subInPlace(scratch)
         val rimSpeed = tangent.length * vessel.contactRadius
-        if (rimSpeed > budget) return
 
-        body.linearVelocity.setTo(surfaceVelocity)
-        body.angularVelocity.setTo(scratch)
-        report.anchored = true
+        if (pointVelocity.length <= budget && rimSpeed <= budget) {
+            body.linearVelocity.setTo(surfaceVelocity)
+            body.angularVelocity.setTo(scratch)
+        }
+
+        // Second, and this is what decides whether it is at rest: has it
+        // actually gone anywhere? A craft balanced on sprung legs never passes
+        // the velocity test - contacts resolve after gravity, so it finishes
+        // every tick holding the impulse that cancelled that tick's gravity,
+        // 0.163 m/s against a budget of 0.098 - while its height above the
+        // ground does not change in five decimal places. Asking what it did
+        // rather than what it is doing gets the same answer for both kinds of
+        // contact, and needs no correction for where in the tick it is asked.
+        attractor.toBodyFixed(body.position, bodyRotation, restPosition)
+        restOrientation.setTo(bodyRotation).conjugateInPlace().mulInPlace(body.orientation)
+        val moved = vessel.groundMovementSince(restPosition, restOrientation)
+
+        // A craft creeping at the fastest speed friction could still cancel
+        // covers this much in a tick; anything less is not going anywhere.
+        report.anchored = moved <= budget * dt
     }
 
     /**
@@ -362,6 +399,7 @@ class GroundContact {
         const val RESTITUTION = 0.05
 
         const val FRICTION = 0.6
+
 
         /**
          * Metres of slack on the "is this craft near the ground" test.

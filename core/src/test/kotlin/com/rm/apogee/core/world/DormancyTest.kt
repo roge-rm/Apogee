@@ -199,6 +199,29 @@ class DormancyTest {
         assertTrue("and it should be climbing, not stuck ($climb m/s)", climb > 5.0)
     }
 
+    /**
+     * The case a base actually lands in.
+     *
+     * A craft on sprung legs never passed the old velocity test: contacts
+     * resolve after gravity, so it finishes every tick holding the impulse
+     * that cancelled that tick's gravity - 0.163 m/s, against a budget of
+     * 0.098 - while its height above the ground does not move in five decimal
+     * places. Since bases land on gear, that meant nothing in a persistent
+     * world would ever have slept.
+     */
+    @Test
+    fun `a craft resting on deployed legs sleeps too`() {
+        val world = world()
+        val vessel = world.spawnOnSurface(StockCraft.lander(catalog), site)
+        repeat(3) { world.stage(vessel) }
+        assertTrue("the gear should be down", vessel.isActivated(vessel.defs.indices.first {
+            vessel.defs[it].id == "leg-stilt"
+        }))
+
+        settle(world, 12.0)
+        assertTrue("a craft standing on its gear should settle", vessel.dormant)
+    }
+
     @Test
     fun `a craft in flight does not sleep`() {
         val world = world()

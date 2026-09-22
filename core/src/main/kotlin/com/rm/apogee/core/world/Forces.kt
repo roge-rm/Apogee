@@ -7,6 +7,7 @@ import com.rm.apogee.core.orbit.CelestialBody
 import com.rm.apogee.core.part.AeroSurface
 import com.rm.apogee.core.part.Engine
 import com.rm.apogee.core.part.Parachute
+import com.rm.apogee.core.part.Rcs
 import kotlin.math.PI
 import kotlin.math.sqrt
 
@@ -104,6 +105,63 @@ class Forces {
             vessel.partOffsetWorld(partIndex, scratchOffset)
             vessel.body.applyForceAtOffset(scratchForce, scratchOffset)
         }
+    }
+
+    /**
+     * Fires the thruster blocks, for translation rather than for going places.
+     *
+     * The net force goes through the centre of mass, so translating does not
+     * also rotate.
+     *
+     * Applying each block's thrust at its own offset was tried first, on the
+     * theory that placement should matter. It does not survive contact with
+     * the geometry: four blocks ringing a craft *below* its centre of mass all
+     * push sideways with the same lever arm, so their torques add rather than
+     * cancel, and a perfectly symmetric set tumbled at 0.045 rad/s. Real
+     * thruster blocks carry nozzles facing several ways and a control law
+     * picks the combination that translates cleanly; this models the outcome
+     * of that law rather than the plumbing underneath it.
+     *
+     * Draws monopropellant from each block's own fuel group, and tapers with
+     * what it actually gets rather than cutting out, so running dry is a fade.
+     */
+    fun applyRcs(vessel: Vessel, dt: Double) {
+        val control = vessel.control
+        if (!control.rcsEnabled) return
+
+        scratchDirection.setTo(control.translateX, control.translateY, control.translateZ)
+        val demand = scratchDirection.length
+        if (demand < 1e-6) return
+        // Never more than one block's worth of thrust however the axes are
+        // combined; a diagonal is a direction, not extra propellant.
+        scratchDirection.mulInPlace(1.0 / demand)
+        val commanded = demand.coerceAtMost(1.0)
+        var total = 0.0
+
+        for (partIndex in vessel.defs.indices) {
+            // Not gated on staging, unlike an engine. A thruster block is
+            // plumbing rather than a step in a sequence - it works from the
+            // moment it is bolted on, the way reaction wheels do, and having
+            // to remember to stage it before nudging a module into place
+            // would be a puzzle with no answer worth finding.
+            if (vessel.isBroken(partIndex)) continue
+            val rcs = vessel.defs[partIndex].module<Rcs>() ?: continue
+
+            val thrust = rcs.thrust * commanded
+            val massFlow = thrust / (rcs.isp * g0)
+            val unitsNeeded = massFlow * dt / rcs.propellant.densityPerUnit
+            val unitsDrawn =
+                vessel.drainFromGroupOf(partIndex, rcs.propellant, unitsNeeded)
+            val feedFraction = if (unitsNeeded > 0.0) unitsDrawn / unitsNeeded else 0.0
+            if (feedFraction <= 0.0) continue
+
+            total += thrust * feedFraction
+        }
+        if (total <= 0.0) return
+
+        vessel.body.orientation.rotate(scratchDirection, scratchAxis)
+        scratchForce.setTo(scratchAxis).mulInPlace(total)
+        vessel.body.applyCentralForce(scratchForce)
     }
 
     /**

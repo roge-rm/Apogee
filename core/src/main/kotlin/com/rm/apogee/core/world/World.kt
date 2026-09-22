@@ -280,6 +280,15 @@ class World(
             is Command.SetSas ->
                 waken(command.vessel)?.control?.sasEnabled = command.enabled
 
+            is Command.SetTranslation -> waken(command.vessel)?.control?.let {
+                it.translateX = command.x
+                it.translateY = command.y
+                it.translateZ = command.z
+            }
+
+            is Command.SetRcs ->
+                waken(command.vessel)?.control?.rcsEnabled = command.enabled
+
             is Command.Stage -> waken(command.vessel)?.let { stage(it) }
 
             // Handled by the server, which has to decide who owns and flies
@@ -637,6 +646,7 @@ class World(
                 )
             }
             forces.applyReactionWheels(vessel)
+            forces.applyRcs(vessel, dt)
 
             // Integration and contact are subdivided together when the craft
             // is moving fast near the ground. Forces are not recomputed per
@@ -904,19 +914,16 @@ class World(
     fun restore(save: WorldSave): List<String> {
         val problems = ArrayList<String>()
 
-        if (save.formatVersion != WorldSave.FORMAT_VERSION) {
+        if (!SaveMigration.canRead(save.formatVersion)) {
             return listOf(
                 "Save is format ${save.formatVersion}, this build reads " +
                     "${WorldSave.FORMAT_VERSION}"
             )
         }
-        if (save.catalogHash != catalog.contentHash) {
-            problems.add(
-                "Save was made with a different part catalogue " +
-                    "(${save.catalogHash} vs ${catalog.contentHash}); " +
-                    "craft using changed parts may not load"
-            )
-        }
+        // A differing catalogue is expected rather than alarming - parts get
+        // tuned between every build. What matters is whether each craft can
+        // still be assembled, which is settled per craft below.
+        val catalogueChanged = save.catalogHash != catalog.contentHash
 
         vesselsById.clear()
         pendingEvents.clear()
@@ -924,7 +931,23 @@ class World(
         nextVesselId = save.nextVesselId
 
         for (saved in save.vessels) {
-            val invalid = saved.design.validate(catalog)
+            val migration = SaveMigration.migrate(saved.design, catalog)
+            val design = migration.design
+            if (design == null) {
+                problems.add(
+                    "Lost '${saved.name}' (#${saved.id}): " +
+                        migration.notes.joinToString("; ")
+                )
+                continue
+            }
+            if (migration.notes.isNotEmpty()) {
+                problems.add(
+                    "Carried '${saved.name}' (#${saved.id}) forward: " +
+                        migration.notes.joinToString("; ")
+                )
+            }
+
+            val invalid = design.validate(catalog)
             if (invalid.isNotEmpty()) {
                 problems.add("Skipped '${saved.name}' (#${saved.id}): ${invalid.first()}")
                 continue
@@ -932,8 +955,8 @@ class World(
 
             val vessel = Vessel(
                 id = VesselId(saved.id),
-                design = saved.design,
-                defs = saved.design.parts.map { catalog.require(it.partId) },
+                design = design,
+                defs = design.parts.map { catalog.require(it.partId) },
                 referenceBodyId = saved.referenceBodyId,
             )
             vessel.name = saved.name
@@ -957,6 +980,15 @@ class World(
             // A save written by an older build could contain an id at or past
             // the counter; handing it out again would collide.
             if (saved.id >= nextVesselId) nextVesselId = saved.id + 1
+        }
+
+        // Only worth saying once, and only when something actually suffered.
+        if (catalogueChanged && problems.isNotEmpty()) {
+            problems.add(
+                0,
+                "This world was written with a different part catalogue " +
+                    "(${save.catalogHash} vs ${catalog.contentHash})",
+            )
         }
         return problems
     }

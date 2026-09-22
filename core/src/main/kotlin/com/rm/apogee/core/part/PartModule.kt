@@ -148,6 +148,30 @@ data class LandingLeg(
     val damping: Double = 12_000.0,
 ) : PartModule
 
+/**
+ * Attitude and translation thrusters.
+ *
+ * The difference from [Engine] is what it is *for*: an engine changes where
+ * you are going, a thruster block changes where you are. Nudging a landed
+ * module a couple of metres so it touches the one beside it is the operation
+ * that makes a base buildable, and a main engine cannot do it - it points one
+ * way and delivers tonnes.
+ *
+ * Thrust is applied at each block's own offset, like everything else on a
+ * craft, so a symmetric set cancels its own torque and a lone block off to one
+ * side spins the craft. That is the behaviour worth having: where you put them
+ * matters, and the game says so rather than quietly balancing it for you.
+ */
+@Serializable
+@SerialName("rcs")
+data class Rcs(
+    /** Newtons, per block, along whichever axis is commanded. */
+    val thrust: Double = 1_000.0,
+    /** Specific impulse in seconds. Thrusters are thirsty and that is fine. */
+    val isp: Double = 240.0,
+    val propellant: ResourceType = ResourceType.MONOPROPELLANT,
+) : PartModule
+
 /** Generates electric charge from sunlight. */
 @Serializable
 @SerialName("solarPanel")

@@ -83,3 +83,10 @@ tasks.register("printTestClasspath") {
     val cp = sourceSets["test"].runtimeClasspath
     doLast { println(cp.asPath) }
 }
+
+tasks.register<JavaExec>("restSurvey") {
+    group = "verification"
+    description = "Prints how still each reference craft settles."
+    classpath = sourceSets["test"].runtimeClasspath
+    mainClass.set("com.rm.apogee.core.scenario.RestSurveyKt")
+}

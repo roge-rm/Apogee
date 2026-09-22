@@ -27,11 +27,29 @@ class ControlState {
     var roll: Double = 0.0
         set(value) { field = value.coerceIn(-1.0, 1.0) }
 
+    /**
+     * Translation, -1..1 on each craft-local axis: right, up, forward.
+     *
+     * Separate from [pitch]/[yaw]/[roll] rather than a mode flag, because the
+     * simulation has no business knowing which one the player's thumb is
+     * currently driving. The UI decides that; both sets arrive here.
+     */
+    var translateX: Double = 0.0
+        set(value) { field = value.coerceIn(-1.0, 1.0) }
+    var translateY: Double = 0.0
+        set(value) { field = value.coerceIn(-1.0, 1.0) }
+    var translateZ: Double = 0.0
+        set(value) { field = value.coerceIn(-1.0, 1.0) }
+
+    /** Whether the thrusters are enabled at all. */
+    var rcsEnabled: Boolean = false
+
     /** Stability assist: damp rotation toward zero. */
     var sasEnabled: Boolean = false
 
     fun reset() {
         throttle = 0.0; pitch = 0.0; yaw = 0.0; roll = 0.0
+        translateX = 0.0; translateY = 0.0; translateZ = 0.0
     }
 }
 
@@ -497,6 +515,50 @@ class Vessel(
     /** Ticks spent within the stillness thresholds, for hysteresis. */
     private var settledTicks: Int = 0
 
+    /** The pose this craft held last tick, in the body's rotating frame. */
+    private val lastRestPosition = Vec3()
+    private val lastRestOrientation = Quat.identity()
+    private var hasRestPose = false
+    private val restScratch = Vec3()
+
+    /**
+     * How far this craft has actually moved across the ground since the last
+     * call, metres, counting rotation at the rim.
+     *
+     * Displacement rather than velocity, and that distinction is the whole
+     * point. A craft in equilibrium on sprung legs finishes every tick holding
+     * the impulse that cancelled that tick's gravity - 0.163 m/s - because
+     * contacts resolve after gravity and before the next one. Ask it whether
+     * it is *moving* and it says yes, for ever. Ask whether it has *moved* and
+     * it says no, to five decimal places, which is the truth.
+     *
+     * Returns a large number the first time, so nothing anchors on its first
+     * tick of contact.
+     */
+    fun groundMovementSince(position: Vec3, orientation: Quat): Double {
+        if (!hasRestPose) {
+            lastRestPosition.setTo(position)
+            lastRestOrientation.setTo(orientation)
+            hasRestPose = true
+            return Double.MAX_VALUE
+        }
+
+        restScratch.setTo(position).subInPlace(lastRestPosition)
+        val linear = restScratch.length
+
+        val dot = kotlin.math.abs(lastRestOrientation dot orientation).coerceAtMost(1.0)
+        val turned = 2.0 * kotlin.math.acos(dot)
+
+        lastRestPosition.setTo(position)
+        lastRestOrientation.setTo(orientation)
+        return linear + turned * contactRadius
+    }
+
+    /** Forgets the tracked pose, so a craft that has been moved starts fresh. */
+    fun forgetRestPose() {
+        hasRestPose = false
+    }
+
     /**
      * Puts the craft to sleep at its current pose, expressed in the rotating
      * frame described by [bodyRotation].
@@ -517,6 +579,7 @@ class Vessel(
         }
         dormant = false
         settledTicks = 0
+        hasRestPose = false
         return true
     }
 

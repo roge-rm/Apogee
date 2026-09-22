@@ -29,6 +29,20 @@ sealed interface Command {
         val roll: Double,
     ) : Command
 
+    /** Translation, in craft-local axes: right, up, forward. */
+    @Serializable
+    @SerialName("setTranslation")
+    data class SetTranslation(
+        val vessel: Long,
+        val x: Double,
+        val y: Double,
+        val z: Double,
+    ) : Command
+
+    @Serializable
+    @SerialName("setRcs")
+    data class SetRcs(val vessel: Long, val enabled: Boolean) : Command
+
     @Serializable
     @SerialName("setSas")
     data class SetSas(val vessel: Long, val enabled: Boolean) : Command

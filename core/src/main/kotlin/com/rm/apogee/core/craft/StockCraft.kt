@@ -149,6 +149,42 @@ object StockCraft {
         )
     }
 
+    /**
+     * A lander with thruster blocks: the craft a base gets built out of.
+     *
+     * Deliberately not the plain [lander] with thrusters bolted on. That craft
+     * is what the landing tests are measured against, and adding a couple of
+     * hundred kilograms to it moved every drop they pin - which is a fair
+     * warning that gear margins are thin, and no reason to make the fixture
+     * and the working vehicle the same thing.
+     */
+    fun moduleTug(catalog: PartCatalog = StockParts.catalog): CraftDesign {
+        val base = lander(catalog)
+        val parts = ArrayList(base.parts)
+        val tank = parts.indexOfFirst { it.partId == "tank-cask2" }
+
+        // Ringed around the tank, opposite each other. Position does not
+        // decide the torque - see Forces.applyRcs - but it does decide where
+        // they are in the way, and out here they clear the legs.
+        for ((x, z) in listOf(0.78 to 0.0, -0.78 to 0.0, 0.0 to 0.78, 0.0 to -0.78)) {
+            parts.add(
+                PlacedPart(
+                    partId = "rcs-nudge",
+                    position = Vec3(x, 2.0, z),
+                    rotation = Quat.identity(),
+                    parentIndex = tank,
+                )
+            )
+        }
+
+        return CraftDesign(
+            name = "Stilt Tug",
+            parts = parts,
+            stages = base.stages,
+            catalogHash = catalog.contentHash,
+        )
+    }
+
     /** The smallest thing that counts as a craft. Used by physics tests. */
     fun probe(catalog: PartCatalog = StockParts.catalog): CraftDesign =
         CraftDesign(

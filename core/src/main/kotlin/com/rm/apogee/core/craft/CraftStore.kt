@@ -81,6 +81,7 @@ class CraftStore(private val directory: File) {
         if (list().isNotEmpty()) return
         save(StockCraft.starterRocket(catalog))
         save(StockCraft.lander(catalog))
+        save(StockCraft.moduleTug(catalog))
     }
 
     private fun fileNameFor(name: String): String {
