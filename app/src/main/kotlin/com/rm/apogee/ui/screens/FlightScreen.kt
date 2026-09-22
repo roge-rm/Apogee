@@ -4,12 +4,14 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
@@ -36,6 +38,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.rm.apogee.game.FlightTelemetry
 import com.rm.apogee.game.HudState
@@ -79,11 +82,16 @@ fun FlightScreen(
     onToggleMap: () -> Unit,
     onExit: () -> Unit,
 ) {
-    Box(Modifier.fillMaxSize()) {
+    // BoxWithConstraints rather than the configuration's orientation: this is
+    // a question about the space actually available, and the answer has to be
+    // right in a resized window and in multi-window as well as after a
+    // rotation. Asking the layout is asking the thing that decides.
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val portrait = maxWidth < maxHeight
 
         if (hud.connectionError != null) {
             ConnectionProblem(hud.connectionError!!, onExit)
-            return@Box
+            return@BoxWithConstraints
         }
         if (hud.connecting) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -123,7 +131,10 @@ fun FlightScreen(
                 ) {
                     Icon(Icons.Filled.Public, contentDescription = "Map view")
                 }
-                if (hud.telemetry.craftName.isNotEmpty()) {
+                // The craft name is the first thing to go when the screen is
+                // narrow: the telemetry panel opposite is not optional and
+                // the two meet in the middle on a portrait phone.
+                if (!portrait && hud.telemetry.craftName.isNotEmpty()) {
                     Text(
                         hud.telemetry.craftName,
                         style = MaterialTheme.typography.titleSmall,
@@ -131,15 +142,13 @@ fun FlightScreen(
                     )
                 }
             }
-            // The only corner with nothing competing for it - the right side
-            // carries telemetry above and the attitude cluster below.
             if (showDebugOverlay) {
                 Spacer(Modifier.height(8.dp))
                 DebugOverlay(hud)
             }
         }
 
-        // --- top right: telemetry, with diagnostics stacked under it --------
+        // --- top right: telemetry -------------------------------------------
         Column(
             modifier = Modifier
                 .align(Alignment.TopEnd)
@@ -150,123 +159,194 @@ fun FlightScreen(
             TelemetryPanel(hud.telemetry, Modifier.alpha(controlOpacity))
         }
 
-        // --- throttle, on the player's chosen side --------------------------
-        // Bottom-anchored, like the attitude cluster opposite it: in landscape
-        // both thumbs rest in the bottom corners, and a vertically-centred
-        // control has to be reached up for.
-        val throttleAlignment = if (leftHandMode) Alignment.BottomEnd else Alignment.BottomStart
-        Column(
-            modifier = Modifier
-                .align(throttleAlignment)
-                .windowInsetsPadding(WindowInsets.navigationBars)
-                .padding(horizontal = 16.dp, vertical = 12.dp)
-                .alpha(controlOpacity),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Text(
-                "${(hud.throttle * 100).roundToInt()}%",
-                style = TelemetryTextStyle,
-                color = ApogeeColors.Accent,
-            )
-            Spacer(Modifier.height(6.dp))
-            VerticalAxisSlider(
-                value = hud.throttle,
-                onValueChange = onThrottleChange,
+        if (portrait) {
+            // Everything in one bottom stack, because the controls that sit in
+            // opposite corners of a landscape screen do not fit side by side
+            // on a portrait one: throttle, navball, staging and the attitude
+            // cluster want about 640dp of width and a portrait phone has 390.
+            Column(
                 modifier = Modifier
-                    .width(44.dp)
-                    .height(THROTTLE_HEIGHT),
-            )
-            Spacer(Modifier.height(6.dp))
-            Text(
-                "THR",
-                style = MaterialTheme.typography.labelSmall,
-                color = Color.White.alpha(ApogeeAlpha.SUBTITLE),
-            )
-        }
-
-        // --- attitude cluster, opposite the throttle ------------------------
-        // Anchored to the bottom corner rather than the vertical centre: the
-        // telemetry stack grows downward from the top corner, and a centred
-        // stick ends up underneath it exactly when there is most to read.
-        val stickAlignment = if (leftHandMode) Alignment.BottomStart else Alignment.BottomEnd
-        Column(
-            modifier = Modifier
-                .align(stickAlignment)
-                .windowInsetsPadding(WindowInsets.navigationBars)
-                .padding(horizontal = 16.dp, vertical = 12.dp)
-                .alpha(controlOpacity),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                HoldButton("\u21ba", { held -> onRoll(if (held) -1f else 0f) }, size = 40.dp)
-                // Stability assist lives with the attitude controls, not with
-                // staging: it is the thing that holds an attitude for you.
-                FilledTonalIconButton(
-                    onClick = onToggleSas,
-                    modifier = Modifier.size(40.dp),
-                    colors = if (hud.sasEnabled) {
-                        IconButtonDefaults.filledTonalIconButtonColors(
-                            containerColor = ApogeeColors.Prograde.alpha(0.3f),
-                            contentColor = ApogeeColors.Prograde,
-                        )
-                    } else {
-                        IconButtonDefaults.filledTonalIconButtonColors()
-                    },
-                ) {
-                    Icon(Icons.Filled.Explore, contentDescription = "Stability assist")
-                }
-                HoldButton("\u21bb", { held -> onRoll(if (held) 1f else 0f) }, size = 40.dp)
-            }
-            Spacer(Modifier.height(8.dp))
-            AttitudeStick(onChange = onAttitude, size = STICK_SIZE)
-        }
-
-        // --- bottom strip: navball and staging ------------------------------
-        Row(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .windowInsetsPadding(WindowInsets.navigationBars)
-                .padding(bottom = 12.dp)
-                .alpha(controlOpacity),
-            horizontalArrangement = Arrangement.spacedBy(Dimens.HudGroupGap),
-            verticalAlignment = Alignment.Bottom,
-        ) {
-            NavBall(
-                rotation = hud.telemetry.rotation,
-                worldUp = hud.telemetry.up,
-                prograde = hud.telemetry.prograde,
-                size = NAVBALL_SIZE,
-            )
-
-            Surface(
-                shape = RoundedCornerShape(Dimens.CornerActionBar),
-                color = ApogeeColors.Accent.alpha(0.85f),
-                contentColor = Color(0xFF1A1030),
-                modifier = Modifier.width(Dimens.HudActionBarWidth),
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .windowInsetsPadding(WindowInsets.navigationBars)
+                    .padding(horizontal = 12.dp, vertical = 12.dp)
+                    .alpha(controlOpacity),
+                horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Row(
-                    Modifier
-                        .clickable(onClick = onStage)
-                        .padding(horizontal = 20.dp, vertical = 12.dp),
-                    horizontalArrangement = Arrangement.Center,
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(Dimens.HudGroupGap),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Icon(Icons.Filled.KeyboardDoubleArrowUp, contentDescription = null)
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        "STAGE ${hud.telemetry.stage}",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
+                    NavBall(
+                        rotation = hud.telemetry.rotation,
+                        worldUp = hud.telemetry.up,
+                        prograde = hud.telemetry.prograde,
+                        size = PORTRAIT_NAVBALL_SIZE,
                     )
+                    // Takes whatever is left rather than a fixed width, so the
+                    // pair always spans the screen exactly once.
+                    StageButton(hud.telemetry.stage, onStage, Modifier.weight(1f))
                 }
+                Spacer(Modifier.height(14.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.Bottom,
+                ) {
+                    if (leftHandMode) {
+                        AttitudeCluster(hud, onAttitude, onRoll, onToggleSas, PORTRAIT_STICK_SIZE)
+                        ThrottleControl(hud.throttle, onThrottleChange, PORTRAIT_THROTTLE_HEIGHT)
+                    } else {
+                        ThrottleControl(hud.throttle, onThrottleChange, PORTRAIT_THROTTLE_HEIGHT)
+                        AttitudeCluster(hud, onAttitude, onRoll, onToggleSas, PORTRAIT_STICK_SIZE)
+                    }
+                }
+            }
+        } else {
+            // Landscape: anchored to the corners, with nothing in the middle.
+            // Throttle and attitude sit on opposite edges so the two thumbs
+            // never cross, and swap sides together in left-hand mode.
+            val throttleAlignment =
+                if (leftHandMode) Alignment.BottomEnd else Alignment.BottomStart
+            Box(
+                modifier = Modifier
+                    .align(throttleAlignment)
+                    .windowInsetsPadding(WindowInsets.navigationBars)
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                    .alpha(controlOpacity),
+            ) {
+                ThrottleControl(hud.throttle, onThrottleChange, THROTTLE_HEIGHT)
+            }
+
+            val stickAlignment =
+                if (leftHandMode) Alignment.BottomStart else Alignment.BottomEnd
+            Box(
+                modifier = Modifier
+                    .align(stickAlignment)
+                    .windowInsetsPadding(WindowInsets.navigationBars)
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                    .alpha(controlOpacity),
+            ) {
+                AttitudeCluster(hud, onAttitude, onRoll, onToggleSas, STICK_SIZE)
+            }
+
+            Row(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .windowInsetsPadding(WindowInsets.navigationBars)
+                    .padding(bottom = 12.dp)
+                    .alpha(controlOpacity),
+                horizontalArrangement = Arrangement.spacedBy(Dimens.HudGroupGap),
+                verticalAlignment = Alignment.Bottom,
+            ) {
+                NavBall(
+                    rotation = hud.telemetry.rotation,
+                    worldUp = hud.telemetry.up,
+                    prograde = hud.telemetry.prograde,
+                    size = NAVBALL_SIZE,
+                )
+                StageButton(
+                    hud.telemetry.stage,
+                    onStage,
+                    Modifier.width(Dimens.HudActionBarWidth),
+                )
             }
         }
     }
 }
 
+/** The throttle, with its readout and label. */
+@Composable
+private fun ThrottleControl(
+    throttle: Float,
+    onThrottleChange: (Float) -> Unit,
+    height: Dp,
+) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            "${(throttle * 100).roundToInt()}%",
+            style = TelemetryTextStyle,
+            color = ApogeeColors.Accent,
+        )
+        Spacer(Modifier.height(6.dp))
+        VerticalAxisSlider(
+            value = throttle,
+            onValueChange = onThrottleChange,
+            modifier = Modifier.width(44.dp).height(height),
+        )
+        Spacer(Modifier.height(6.dp))
+        Text(
+            "THR",
+            style = MaterialTheme.typography.labelSmall,
+            color = Color.White.alpha(ApogeeAlpha.SUBTITLE),
+        )
+    }
+}
+
+/** Roll, stability assist and the attitude stick, as one block. */
+@Composable
+private fun AttitudeCluster(
+    hud: HudState,
+    onAttitude: (pitch: Float, yaw: Float) -> Unit,
+    onRoll: (Float) -> Unit,
+    onToggleSas: () -> Unit,
+    stickSize: Dp,
+) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            HoldButton("↺", { held -> onRoll(if (held) -1f else 0f) }, size = 40.dp)
+            // Stability assist lives with the attitude controls, not with
+            // staging: it is the thing that holds an attitude for you.
+            FilledTonalIconButton(
+                onClick = onToggleSas,
+                modifier = Modifier.size(40.dp),
+                colors = if (hud.sasEnabled) {
+                    IconButtonDefaults.filledTonalIconButtonColors(
+                        containerColor = ApogeeColors.Prograde.alpha(0.3f),
+                        contentColor = ApogeeColors.Prograde,
+                    )
+                } else {
+                    IconButtonDefaults.filledTonalIconButtonColors()
+                },
+            ) {
+                Icon(Icons.Filled.Explore, contentDescription = "Stability assist")
+            }
+            HoldButton("↻", { held -> onRoll(if (held) 1f else 0f) }, size = 40.dp)
+        }
+        Spacer(Modifier.height(8.dp))
+        AttitudeStick(onChange = onAttitude, size = stickSize)
+    }
+}
+
+@Composable
+private fun StageButton(stage: Int, onStage: () -> Unit, modifier: Modifier = Modifier) {
+    Surface(
+        shape = RoundedCornerShape(Dimens.CornerActionBar),
+        color = ApogeeColors.Accent.alpha(0.85f),
+        contentColor = Color(0xFF1A1030),
+        modifier = modifier,
+    ) {
+        Row(
+            Modifier
+                .clickable(onClick = onStage)
+                .padding(horizontal = 20.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(Icons.Filled.KeyboardDoubleArrowUp, contentDescription = null)
+            Spacer(Modifier.width(8.dp))
+            Text(
+                "STAGE $stage",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+    }
+}
 @Composable
 private fun TelemetryPanel(telemetry: FlightTelemetry, modifier: Modifier = Modifier) {
     Column(
@@ -400,3 +480,9 @@ private fun Double.format(decimals: Int) = "%.${decimals}f".format(this)
 private val THROTTLE_HEIGHT = 170.dp
 private val STICK_SIZE = 132.dp
 private val NAVBALL_SIZE = 128.dp
+
+// Portrait has about half the width and rather more height, so the controls
+// shrink sideways and the stack grows downward instead.
+private val PORTRAIT_THROTTLE_HEIGHT = 150.dp
+private val PORTRAIT_STICK_SIZE = 118.dp
+private val PORTRAIT_NAVBALL_SIZE = 96.dp

@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -49,6 +50,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.rm.apogee.core.craft.CraftStats
 import com.rm.apogee.core.part.PartCategory
@@ -81,13 +83,15 @@ fun BuilderScreen(
     var showLoadDialog by remember { mutableStateOf(false) }
     var showNameDialog by remember { mutableStateOf(false) }
 
-    Box(Modifier.fillMaxSize()) {
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val portrait = maxWidth < maxHeight
 
         // --- part drawer, left ------------------------------------------------
         PartDrawer(
             catalog = catalog,
             heldPartId = session.heldPartId,
             onSelect = { session.selectPart(if (session.heldPartId == it) null else it) },
+            width = if (portrait) 170.dp else 210.dp,
             modifier = Modifier
                 .align(Alignment.CenterStart)
                 .windowInsetsPadding(WindowInsets.displayCutout)
@@ -95,13 +99,19 @@ fun BuilderScreen(
         )
 
         // --- stats, right ------------------------------------------------------
+        // In portrait the toolbar already spans most of the top edge, so the
+        // stats drop below it rather than fighting it for the corner. The two
+        // panels still sit on opposite sides, which is what keeps the craft
+        // itself visible down the middle.
         StatsPanel(
             stats = session.stats,
             craftName = session.builder.name,
+            width = if (portrait) 200.dp else 230.dp,
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .windowInsetsPadding(WindowInsets.displayCutout)
-                .padding(8.dp),
+                .padding(start = 8.dp, end = 8.dp, bottom = 8.dp)
+                .padding(top = if (portrait) 68.dp else 8.dp),
         )
 
         // --- toolbar, top -------------------------------------------------------
@@ -250,6 +260,7 @@ private fun PartDrawer(
     catalog: PartCatalog,
     heldPartId: String?,
     onSelect: (String) -> Unit,
+    width: Dp,
     modifier: Modifier = Modifier,
 ) {
     // Command first: the first part placed becomes the root, and a craft rooted
@@ -265,7 +276,7 @@ private fun PartDrawer(
     Surface(
         shape = RoundedCornerShape(Dimens.CornerPanel),
         color = Color.Black.alpha(ApogeeAlpha.SCRIM),
-        modifier = modifier.width(210.dp).heightIn(max = 420.dp),
+        modifier = modifier.width(width).heightIn(max = 420.dp),
     ) {
         LazyColumn(Modifier.padding(8.dp)) {
             items(ordered) { (category, part) ->
@@ -300,12 +311,13 @@ private fun PartDrawer(
 private fun StatsPanel(
     stats: CraftStats,
     craftName: String,
+    width: Dp,
     modifier: Modifier = Modifier,
 ) {
     Surface(
         shape = RoundedCornerShape(Dimens.CornerPanel),
         color = Color.Black.alpha(ApogeeAlpha.SCRIM),
-        modifier = modifier.width(230.dp),
+        modifier = modifier.width(width),
     ) {
         Column(Modifier.padding(12.dp)) {
             Text(

@@ -5,6 +5,7 @@ import android.opengl.GLSurfaceView
 import android.os.Bundle
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
+import android.os.Build
 import android.view.WindowManager
 import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
@@ -494,6 +495,16 @@ class MainActivity : ComponentActivity() {
 
     private fun hideSystemBars() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
+        // Let the window into the display cutout as well.
+        //
+        // Hiding the bars is not enough on its own: by default the window is
+        // laid out clear of the cutout, so the scene stopped 136px short of
+        // the edge and the gap was drawn black - down the side in landscape,
+        // across the top in portrait. Every HUD control already applies
+        // WindowInsets.displayCutout itself, so nothing ends up under the
+        // notch; only the 3D view extends into it, which is where a fullscreen
+        // game wants it.
+        setCutoutMode(fillCutout = true)
         WindowInsetsControllerCompat(window, window.decorView).apply {
             hide(WindowInsetsCompat.Type.systemBars())
             systemBarsBehavior =
@@ -502,8 +513,23 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun showSystemBars() {
+        // Back to the default: menus are ordinary layouts and should sit
+        // clear of the notch rather than have a title disappear behind it.
+        setCutoutMode(fillCutout = false)
         WindowInsetsControllerCompat(window, window.decorView)
             .show(WindowInsetsCompat.Type.systemBars())
+    }
+
+    /** API 28+; on 27 the window simply has no cutout to negotiate. */
+    private fun setCutoutMode(fillCutout: Boolean) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return
+        window.attributes = window.attributes.apply {
+            layoutInDisplayCutoutMode = if (fillCutout) {
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            } else {
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_DEFAULT
+            }
+        }
     }
 
     /** How the next flight should be started. */

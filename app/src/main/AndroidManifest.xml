@@ -26,10 +26,15 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.Apogee">
 
+        <!-- screenOrientation is fullUser: both orientations, honouring the
+             user's rotation lock. The activity handles the configuration
+             change itself (configChanges below), so rotating mid-flight
+             relays out the HUD without recreating the activity, tearing down
+             the GL context or interrupting the simulation. -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:screenOrientation="userLandscape"
+            android:screenOrientation="fullUser"
             android:launchMode="singleTask"
             android:resizeableActivity="false"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|navigation|uiMode|density">
