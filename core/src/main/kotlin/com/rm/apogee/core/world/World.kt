@@ -282,13 +282,15 @@ class World(
 
             is Command.Stage -> waken(command.vessel)?.let { stage(it) }
 
-            is Command.SpawnCraft -> {
-                val site = launchSites.firstOrNull { it.id == command.siteId }
-                    ?: launchSites.first()
-                spawnOnSurface(command.design, site)
-            }
+            // Handled by the server, which has to decide who owns and flies
+            // the result. Reaching it here means nobody claimed it.
+            is Command.SpawnCraft -> spawnFor(command, owner = "")
 
             is Command.Join -> waken(command.vessel)?.let { joinToNeighbour(it) }
+
+            // Handled by the server, which owns the notion of who is flying
+            // what. Reaching the world means nobody was listening.
+            is Command.SwitchVessel -> waken(command.vessel)
 
             is Command.Chat -> Unit // handled above the world
         }
@@ -852,6 +854,7 @@ class World(
         name = vessel.name,
         currentStage = vessel.currentStage,
         activatedParts = vessel.activated.withIndex().filter { it.value }.map { it.index },
+        owner = vessel.owner,
         brokenParts = vessel.broken.withIndex().filter { it.value }.map { it.index },
     )
 
@@ -958,6 +961,48 @@ class World(
         return problems
     }
 
+    /**
+     * Spawns the craft a [Command.SpawnCraft] asks for, on a free pad.
+     *
+     * Returns the vessel, because whoever asked for it almost certainly wants
+     * to fly it - which is the difference between launching a module and
+     * merely adding one to the scenery.
+     */
+    fun spawnFor(command: Command.SpawnCraft, owner: String): Vessel {
+        val site = launchSites.firstOrNull { it.id == command.siteId } ?: launchSites.first()
+        val vessel = spawnOnSurface(command.design, site, pad = nextFreePad(site))
+        vessel.owner = owner
+        return vessel
+    }
+
+    /**
+     * The first pad at [site] with nothing standing on it.
+     *
+     * A persistent world accumulates craft at the launch complex, and dropping
+     * a new one into a pad that is already occupied would spawn it inside
+     * somebody's base - which, now that craft are solid, is an explosion
+     * rather than a curiosity.
+     */
+    private fun nextFreePad(site: LaunchSite): Int {
+        val occupied = Vec3()
+        for (pad in 0 until MAX_PADS) {
+            surfaceNormalAt(site, pad, scratchBodyFixedUp)
+            attractorFor(site).rotationAt(time, scratchRotation)
+            scratchRotation.rotate(scratchBodyFixedUp, occupied)
+            val radius = attractorFor(site).surfaceRadiusInBodyFrame(scratchBodyFixedUp)
+            occupied.mulInPlace(radius)
+
+            val clear = vesselsById.values.none { other ->
+                scratch.setTo(other.body.position).subInPlace(occupied)
+                scratch.length < PAD_SPACING_METRES * 0.5
+            }
+            if (clear) return pad
+        }
+        return 0
+    }
+
+    private fun attractorFor(site: LaunchSite): CelestialBody = system.body(site.bodyId)
+
     /** Finds a craft belonging to [owner], so a returning player gets it back. */
     fun vesselOwnedBy(owner: String): Vessel? =
         if (owner.isBlank()) null
@@ -972,6 +1017,9 @@ class World(
     companion object {
         /** Metres between adjacent launch pads at a site. */
         private const val PAD_SPACING_METRES = 40.0
+
+        /** How many pads to look through before giving up and reusing one. */
+        private const val MAX_PADS = 64
 
         /**
          * Above this closing speed a weld is a collision, not an assembly.

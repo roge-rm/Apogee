@@ -20,6 +20,8 @@ class ClientVessel(
     @Volatile var name: String,
     @Volatile var currentStage: Int = 0,
     @Volatile var activatedParts: List<Int> = emptyList(),
+    /** Blank for debris and other players' craft are their own name. */
+    @Volatile var owner: String = "",
 ) {
     /** The two most recent snapshots, kept so the renderer can interpolate. */
     @Volatile var previous: VesselKinematics? = null
@@ -50,7 +52,7 @@ class ClientVessel(
  */
 class GameClient(
     private val transport: Transport,
-    private val playerName: String,
+    val playerName: String,
     private val catalogHash: String,
 ) {
     private val vesselsById = ConcurrentHashMap<Long, ClientVessel>()
@@ -130,6 +132,11 @@ class GameClient(
                 connected = false
             }
 
+            // Control moved: a launch, or a switch to a craft already parked.
+            is ServerMessage.ControlChanged -> {
+                controlledVessel = message.vessel.takeIf { it >= 0 }
+            }
+
             is ServerMessage.StructureMessage -> {
                 val update = message.update
                 val design = update.design
@@ -144,9 +151,11 @@ class GameClient(
                             name = update.name,
                             currentStage = update.currentStage,
                             activatedParts = update.activatedParts,
+                            owner = update.owner,
                         )
                     } else {
                         existing.design = design
+                        existing.owner = update.owner
                         existing.name = update.name
                         existing.currentStage = update.currentStage
                         existing.activatedParts = update.activatedParts

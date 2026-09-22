@@ -20,9 +20,12 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
+import android.util.Log
 import com.rm.apogee.core.craft.CraftDesign
 import com.rm.apogee.core.craft.CraftStore
 import com.rm.apogee.core.part.StockParts
+import com.rm.apogee.core.world.World
+import com.rm.apogee.core.world.WorldStore
 import com.rm.apogee.game.BuilderSession
 import com.rm.apogee.game.DiscoveredServer
 import com.rm.apogee.game.ServerBrowser
@@ -64,6 +67,16 @@ class MainActivity : ComponentActivity() {
     private lateinit var frameBus: FrameBus
 
     private lateinit var craftStore: CraftStore
+    private lateinit var soloWorldStore: WorldStore
+
+    /**
+     * The single-player world, held across flights.
+     *
+     * Null until something needs it. Loaded from disk once and written back
+     * when the player leaves, so landing a module and coming back with the
+     * next one is the same world rather than a new one.
+     */
+    private var soloWorld: World? = null
 
     private var surfaceView: GLSurfaceView? = null
     private var renderer: GlRenderer? = null
@@ -100,6 +113,8 @@ class MainActivity : ComponentActivity() {
         hudState = HudState()
         frameBus = FrameBus()
         craftStore = CraftStore(File(filesDir, "craft"))
+        // One world, kept on disk, rather than a fresh universe per launch.
+        soloWorldStore = WorldStore(File(filesDir, "world/solo.json"))
         // So there is something to fly, and something to land, before the
         // player has built anything.
         craftStore.seedStockDesigns(StockParts.catalog)
@@ -135,6 +150,7 @@ class MainActivity : ComponentActivity() {
                         onToggleSas = ::onToggleSas,
                         onToggleMap = ::onToggleMap,
                         onJoin = ::onJoin,
+                        onSwitchCraft = ::onSwitchCraft,
                         onExit = { navigateTo(AppScreen.PLAY) },
                     )
                     AppScreen.BUILDER -> builderSession?.let { builder ->
@@ -281,6 +297,11 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch { current.join() }
     }
 
+    private fun onSwitchCraft() {
+        val current = session ?: return
+        lifecycleScope.launch { current.switchCraft() }
+    }
+
     private fun onToggleSas() {
         val enabled = !hudState.sasEnabled
         hudState.sasEnabled = enabled
@@ -329,6 +350,7 @@ class MainActivity : ComponentActivity() {
                     playerName = settings.playerName,
                     design = pendingLaunchDesign,
                     scope = lifecycleScope,
+                    world = openSoloWorld(),
                 )
 
                 is SessionMode.Host -> GameSession.hostLan(
@@ -430,8 +452,38 @@ class MainActivity : ComponentActivity() {
         return builderSession?.camera
     }
 
+    /**
+     * The single-player world, restored from disk the first time it is asked
+     * for and kept in memory after that.
+     *
+     * A save written against a different part catalogue is reported rather
+     * than discarded: the craft that still resolve are loaded, and the ones
+     * that do not are named. Losing a base to a parts update would be far
+     * worse than losing one craft out of it.
+     */
+    private fun openSoloWorld(): World {
+        soloWorld?.let { return it }
+        val world = World.default(StockParts.catalog)
+        soloWorldStore.loadWithFallback()?.let { (save, warning) ->
+            val problems = world.restore(save)
+            if (warning != null) Log.w(TAG, "World save: $warning")
+            for (problem in problems) Log.w(TAG, "World save: $problem")
+        }
+        soloWorld = world
+        return world
+    }
+
+    private fun saveSoloWorld() {
+        val world = soloWorld ?: return
+        soloWorldStore.save(world.save())
+            .onFailure { Log.w(TAG, "Could not save the world: ${it.message}") }
+    }
+
     private fun leaveWorld() {
         frameClockJob?.cancel(); frameClockJob = null
+
+        // Before tearing the session down, while the world is still coherent.
+        if (session != null) saveSoloWorld()
 
         session?.stop(); session = null
         builderSession?.stop(); builderSession = null
@@ -470,6 +522,7 @@ class MainActivity : ComponentActivity() {
                     hudState.connecting = !current.connected && current.rejectionReason == null
                     hudState.connectionError = current.rejectionReason
                     hudState.canJoin = current.joinable
+                    hudState.ownedCraft = current.ownedCraftCount
                 }
 
                 frameBus.latest()?.latest?.let { frame ->
@@ -547,6 +600,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private companion object {
+        const val TAG = "Apogee"
+
         /** 60 fps budget, for the ADPF hint. */
         const val TARGET_FRAME_NANOS = 16_666_667L
 

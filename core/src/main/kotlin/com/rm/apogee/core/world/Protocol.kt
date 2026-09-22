@@ -52,6 +52,17 @@ sealed interface Command {
     @SerialName("join")
     data class Join(val vessel: Long) : Command
 
+    /**
+     * Fly a different craft.
+     *
+     * The counterpart to launching: a world you leave things in is one where
+     * the craft you want is usually not the one you are in. Only craft the
+     * player owns are switchable, which the server checks.
+     */
+    @Serializable
+    @SerialName("switchVessel")
+    data class SwitchVessel(val vessel: Long) : Command
+
     @Serializable
     @SerialName("chat")
     data class Chat(val text: String) : Command
@@ -100,6 +111,13 @@ data class StructureUpdate(
     val currentStage: Int = 0,
     val activatedParts: List<Int> = emptyList(),
     /**
+     * Who this craft belongs to, or blank for debris.
+     *
+     * Sent so the client can tell which craft are the player's own, and offer
+     * to switch between them without asking the server first.
+     */
+    val owner: String = "",
+    /**
      * Parts that have failed: a collapsed leg, a torn chute.
      *
      * Carried alongside [activatedParts] rather than by removing them from
@@ -134,6 +152,18 @@ sealed interface ServerMessage {
     @Serializable
     @SerialName("structure")
     data class StructureMessage(val update: StructureUpdate) : ServerMessage
+
+    /**
+     * The craft this client is now flying.
+     *
+     * Control is settled once at the handshake in [Welcome], but it moves
+     * afterwards - launching a new craft, or switching to one already parked.
+     * Without this the client would go on sending commands naming a craft the
+     * server no longer associates with it, and every one would be refused.
+     */
+    @Serializable
+    @SerialName("controlChanged")
+    data class ControlChanged(val vessel: Long) : ServerMessage
 
     @Serializable
     @SerialName("chat")

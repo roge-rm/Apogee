@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.KeyboardDoubleArrowUp
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
@@ -84,6 +85,7 @@ fun FlightScreen(
     onToggleSas: () -> Unit,
     onToggleMap: () -> Unit,
     onJoin: () -> Unit,
+    onSwitchCraft: () -> Unit,
     onExit: () -> Unit,
 ) {
     // BoxWithConstraints rather than the configuration's orientation: this is
@@ -141,6 +143,18 @@ fun FlightScreen(
                     },
                 ) {
                     Icon(Icons.Filled.Public, contentDescription = "Map view")
+                }
+                // Only worth showing once there is somewhere to switch to.
+                if (hud.ownedCraft > 1) {
+                    FilledTonalIconButton(
+                        onClick = onSwitchCraft,
+                        modifier = Modifier.size(Dimens.HudIconSize),
+                    ) {
+                        Icon(
+                            Icons.Filled.SwapHoriz,
+                            contentDescription = "Fly another craft",
+                        )
+                    }
                 }
                 // The craft name is the first thing to go when the screen is
                 // narrow: the telemetry panel opposite is not optional and

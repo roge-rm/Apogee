@@ -57,6 +57,16 @@ class GameSession private constructor(
     private val hostedServer: GameServer?,
     private val client: GameClient,
     private val transport: Transport,
+    /**
+     * A craft to put on the pad once connected, or null to fly what is
+     * already there.
+     *
+     * Sent as a command rather than handed to the server as its "starter
+     * craft", because in a persistent world the player usually already owns
+     * something - the starter is only for an empty world, and a launch has to
+     * work either way.
+     */
+    private val launchDesign: CraftDesign? = null,
 ) {
     val camera = CameraController()
 
@@ -164,6 +174,15 @@ class GameSession private constructor(
         terrainScope = scope
         serverJob = hostedServer?.start(scope)
         clientJob = client.connect(scope)
+        // Once the handshake lands, put the launched craft on the pad. Waiting
+        // for `connected` rather than sending immediately, because the server
+        // refuses anything before the handshake completes.
+        scope.launch(Dispatchers.Default) {
+            while (isActive && !client.connected && client.rejectionReason == null) {
+                delay(16)
+            }
+            if (client.connected) launchPendingDesign()
+        }
         presentJob = scope.launch(Dispatchers.Default) {
             while (isActive) {
                 val started = System.nanoTime()
@@ -248,6 +267,32 @@ class GameSession private constructor(
      * leave the client showing a craft the server still has - staging only
      * flips a flag, which is cheap to be wrong about for one snapshot.
      */
+    /**
+     * Moves to the next craft the player owns, in id order.
+     *
+     * Cycling rather than a chooser: with a handful of craft it is one tap,
+     * and a list is worth building when there are enough of them to need one.
+     */
+    suspend fun switchCraft() {
+        val mine = client.vessels
+            .filter { it.owner.equals(client.playerName, ignoreCase = true) }
+            .sortedBy { it.id }
+        if (mine.size < 2) return
+        val current = client.controlledVessel
+        val next = mine.indexOfFirst { it.id == current }.let { mine[(it + 1) % mine.size] }
+        client.send(Command.SwitchVessel(next.id))
+    }
+
+    /** How many craft the player could switch between. */
+    val ownedCraftCount: Int
+        get() = client.vessels.count { it.owner.equals(client.playerName, ignoreCase = true) }
+
+    /** Puts [launchDesign] on the pad once the handshake is done. */
+    private suspend fun launchPendingDesign() {
+        val design = launchDesign ?: return
+        client.send(Command.SpawnCraft(design, World.launchSites.first().id))
+    }
+
     suspend fun join() {
         withControlledVessel { client.send(Command.Join(it)) }
     }
@@ -655,19 +700,36 @@ class GameSession private constructor(
             catalog: PartCatalog = StockParts.catalog,
             scope: CoroutineScope,
             serverName: String = "Local Game",
+            /**
+             * The world to play in.
+             *
+             * Passed in rather than made here, because single player is not a
+             * series of disconnected sandboxes: a craft landed on a hillside
+             * has to still be there when the player comes back with the next
+             * module. Building one here was what made every launch a fresh
+             * universe - and made the whole business of landing modules and
+             * welding them together unreachable from inside the game.
+             */
+            world: World = World.default(catalog),
         ): GameSession {
             val server = GameServer(
-                world = World.default(catalog),
+                world = world,
                 config = ServerConfig(
                     name = serverName,
-                    starterCraft = { design ?: StockCraft.starterRocket(it) },
+                    starterCraft = { StockCraft.starterRocket(it) },
+                    // A design of their own is coming; do not also hand them a
+                    // stock rocket to leave standing on the pad.
+                    assignCraftOnJoin = design == null,
                 ),
             )
             val link = LoopbackTransportPair()
             server.accept(link.serverSide, scope)
 
             val client = GameClient(link.clientSide, playerName, catalog.contentHash)
-            return GameSession(frameBus, perfHints, catalog, server, client, link.clientSide)
+            return GameSession(
+                frameBus, perfHints, catalog, server, client, link.clientSide,
+                launchDesign = design,
+            )
         }
     }
 }

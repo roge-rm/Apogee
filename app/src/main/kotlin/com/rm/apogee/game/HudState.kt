@@ -43,6 +43,9 @@ class HudState {
      */
     var canJoin: Boolean by mutableStateOf(false)
 
+    /** How many craft the player owns, so the switch control can hide itself. */
+    var ownedCraft: Int by mutableIntStateOf(0)
+
     /** Clears transient state when leaving the world, so a new flight starts clean. */
     fun reset() {
         frameTimeMillis = 0f
@@ -56,5 +59,6 @@ class HudState {
         sasEnabled = false
         mapMode = false
         canJoin = false
+        ownedCraft = 0
     }
 }

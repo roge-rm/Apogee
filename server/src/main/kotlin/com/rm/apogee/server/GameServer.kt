@@ -39,6 +39,15 @@ class ServerConfig(
     val snapshotHz: Int = 20,
     /** Craft handed to a player who joins with nothing. */
     val starterCraft: (PartCatalog) -> CraftDesign = { StockCraft.starterRocket(it) },
+    /**
+     * Whether a player who owns nothing is given [starterCraft] on joining.
+     *
+     * False when the client is about to launch a craft of its own. Handing it
+     * a stock rocket first would leave one standing on the pad in a persistent
+     * world every time somebody launched something they had built - debris
+     * created by the act of starting properly.
+     */
+    val assignCraftOnJoin: Boolean = true,
     /** Simultaneous players, or 0 for no limit. */
     val maxPlayers: Int = 0,
 )
@@ -214,6 +223,17 @@ class GameServer(
                         ServerMessage.ChatMessage(session.playerName, command.text),
                         Channel.CONTROL,
                     )
+                } else if (command is Command.SwitchVessel) {
+                    world.apply(command)
+                    takeControl(session, VesselId(command.vessel))
+                } else if (command is Command.SpawnCraft) {
+                    // Launching is how a player gets a *new* craft in a world
+                    // they already have one in. Without this the spawn would
+                    // land on the pad and they would still be flying whatever
+                    // they arrived in - which is what made building a base out
+                    // of several launches impossible.
+                    val vessel = world.spawnFor(command, session.playerName)
+                    takeControl(session, vessel.id)
                 } else {
                     world.apply(command)
                 }
@@ -274,21 +294,25 @@ class GameServer(
         // This is what "persistent world" means from the seat: log off in
         // orbit, come back, still be in orbit.
         val existing = world.vesselOwnedBy(session.playerName)
-        val vessel = existing ?: world.spawnOnSurface(
-            config.starterCraft(world.catalog),
-            World.launchSites.first(),
-            // Each new player gets their own pad, so joining does not drop a
-            // craft inside one that is already standing there.
-            pad = nextPad++,
-        ).also { it.owner = session.playerName }
-        session.controlledVessel = vessel.id
+        val vessel = existing ?: if (config.assignCraftOnJoin) {
+            world.spawnOnSurface(
+                config.starterCraft(world.catalog),
+                World.launchSites.first(),
+                // Each new player gets their own pad, so joining does not drop
+                // a craft inside one that is already standing there.
+                pad = nextPad++,
+            ).also { it.owner = session.playerName }
+        } else {
+            null
+        }
+        session.controlledVessel = vessel?.id
 
         session.send(
             ServerMessage.Welcome(
                 protocolVersion = Protocol.VERSION,
                 catalogHash = world.catalog.contentHash,
                 serverName = config.name,
-                controlledVessel = vessel.id.raw,
+                controlledVessel = vessel?.id?.raw ?: -1L,
             ),
             Channel.CONTROL,
         )
@@ -305,6 +329,12 @@ class GameServer(
         session.send(ServerMessage.SnapshotMessage(world.snapshot()), Channel.KINEMATICS)
     }
 
+    /** Moves a session's control to [id] and tells the client about it. */
+    private suspend fun takeControl(session: PlayerSession, id: VesselId) {
+        session.controlledVessel = id
+        session.send(ServerMessage.ControlChanged(id.raw), Channel.CONTROL)
+    }
+
     private fun isAuthorised(session: PlayerSession, command: Command): Boolean = when (command) {
         is Command.SetThrottle -> session.controlledVessel?.raw == command.vessel
         is Command.SetAttitude -> session.controlledVessel?.raw == command.vessel
@@ -315,6 +345,11 @@ class GameServer(
         // still refuses unless the two are touching and at rest - but this is
         // the line to revisit when bases get owners worth defending.
         is Command.Join -> session.controlledVessel?.raw == command.vessel
+        // Only your own craft. Anything else and a player could take the
+        // controls of somebody else's base on a shared server.
+        is Command.SwitchVessel ->
+            world.vessel(VesselId(command.vessel))
+                ?.owner.equals(session.playerName, ignoreCase = true)
         is Command.SpawnCraft -> true
         is Command.Chat -> true
     }
