@@ -39,6 +39,18 @@ class Forces {
     var lastMassFlow: Double = 0.0
         private set
 
+    /**
+     * Parts of parachutes torn off by over-speed deployment this call.
+     *
+     * Indices rather than events, because [Forces] applies forces and should
+     * not know what a world event is; the world turns these into events. A
+     * fixed array for the same reason [com.rm.apogee.core.physics.ContactReport]
+     * uses one - this runs for every vessel every tick and must not allocate.
+     */
+    val tornParachutes = IntArray(MAX_TORN)
+    var tornCount: Int = 0
+        private set
+
     fun applyGravity(vessel: Vessel, attractor: CelestialBody) {
         attractor.gravityAt(vessel.body.position, scratchForce)
         scratchForce.mulInPlace(vessel.body.mass)
@@ -190,6 +202,7 @@ class Forces {
      * damping falls out of the same loop.
      */
     fun applyDrag(vessel: Vessel, attractor: CelestialBody) {
+        tornCount = 0
         val atmosphere = attractor.atmosphere ?: return
         val altitude = attractor.altitudeOf(vessel.body.position)
         val density = atmosphere.densityAt(altitude)
@@ -239,8 +252,19 @@ class Forces {
                 def.referenceArea * def.dragCoefficient * bodyScale
             }
             def.module<Parachute>()?.let { parachute ->
-                if (vessel.isActivated(i)) {
-                    cdA += parachute.deployedDragCoefficient * def.referenceArea
+                if (vessel.isWorking(i)) {
+                    if (localSpeed > parachute.maxDeploymentSpeed) {
+                        // Torn away. Checked here rather than in a pass of its
+                        // own because this is the only place a part's airspeed
+                        // is already known, and a second loop over every part
+                        // of every vessel every tick to find out is not worth
+                        // the tidier separation.
+                        if (vessel.breakPart(i) && tornCount < MAX_TORN) {
+                            tornParachutes[tornCount++] = i
+                        }
+                    } else {
+                        cdA += parachute.deployedDragCoefficient * def.referenceArea
+                    }
                 }
             }
 
@@ -288,6 +312,9 @@ class Forces {
         vacuum + (seaLevel - vacuum) * pressureRatio.coerceIn(0.0, 1.0)
 
     private companion object {
+        /** More chutes than any sane craft carries. */
+        const val MAX_TORN = 8
+
         /** Angular rate, rad/s, at which SAS applies full authority. */
         const val SAS_SATURATION_RATE = 0.35
 

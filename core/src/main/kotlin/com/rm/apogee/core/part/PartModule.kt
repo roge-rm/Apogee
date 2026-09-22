@@ -118,6 +118,36 @@ data class Buoyancy(
     val displacedVolume: Double,
 ) : PartModule
 
+/**
+ * A landing leg: a contact point on a spring.
+ *
+ * Gear is the difference between arriving and crashing, and the mechanism is
+ * the suspension rather than the strength. A rigid contact stops a descending
+ * craft in one tick, so the whole arrival appears in a single impulse and the
+ * only question is whether that exceeded something's crash tolerance. A spring
+ * spreads the same momentum over the travel, which is what a real leg is for.
+ *
+ * Deploys when its stage fires, like everything else. A stowed leg is inert -
+ * its foot does not touch anything - so gear left up is a way to land badly
+ * rather than a no-op.
+ */
+@Serializable
+@SerialName("landingLeg")
+data class LandingLeg(
+    /** How far the leg compresses before it bottoms out, m. */
+    val suspensionTravel: Double = 0.4,
+    /**
+     * Spring rate, N/m.
+     *
+     * Wants to hold the craft's landed weight at roughly half travel: too soft
+     * and the leg is permanently bottomed out and behaves rigidly anyway, too
+     * stiff and it may as well not be there.
+     */
+    val springRate: Double = 90_000.0,
+    /** Damping, N per m/s. Without it the craft pogos off its own springs. */
+    val damping: Double = 12_000.0,
+) : PartModule
+
 /** Generates electric charge from sunlight. */
 @Serializable
 @SerialName("solarPanel")

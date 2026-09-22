@@ -354,6 +354,16 @@ class GameServer(
                     }
 
                 is WorldEvent.Touchdown -> Unit
+
+                // A failed part changes what the craft can still do, and that
+                // lives in the structure message alongside staging.
+                is WorldEvent.PartFailed ->
+                    world.vessel(event.id)?.let {
+                        broadcast(
+                            ServerMessage.StructureMessage(world.structureUpdateFor(it)),
+                            Channel.STRUCTURE,
+                        )
+                    }
             }
         }
     }

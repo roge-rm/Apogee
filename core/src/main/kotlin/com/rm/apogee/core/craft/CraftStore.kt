@@ -70,6 +70,19 @@ class CraftStore(private val directory: File) {
 
     fun exists(name: String): Boolean = File(directory, fileNameFor(name)).exists()
 
+    /**
+     * Writes the reference craft into an empty store.
+     *
+     * Only into an empty one: a player who has deleted the stock designs
+     * meant to delete them, and having them reappear on every launch is the
+     * kind of small betrayal that makes a tool feel untrustworthy.
+     */
+    fun seedStockDesigns(catalog: com.rm.apogee.core.part.PartCatalog) {
+        if (list().isNotEmpty()) return
+        save(StockCraft.starterRocket(catalog))
+        save(StockCraft.lander(catalog))
+    }
+
     private fun fileNameFor(name: String): String {
         // Anything that is not obviously safe becomes an underscore: a craft
         // name is free text and will eventually contain a slash.

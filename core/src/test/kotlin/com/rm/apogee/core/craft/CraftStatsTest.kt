@@ -124,9 +124,12 @@ class CraftStatsTest {
 
         val stats = CraftStats.analyze(builder.design, catalog)
         assertTrue(
-            "should warn about thrust-to-weight: ${stats.problems}",
-            stats.problems.any { it.contains("Thrust-to-weight") },
+            "should warn about thrust-to-weight: ${stats.warnings}",
+            stats.warnings.any { it.contains("Thrust-to-weight") },
         )
+        // A warning, not a refusal. Landers have a thrust-to-weight below one
+        // by design and still have to be placeable.
+        assertTrue("and it should still be placeable", stats.isFlyable)
     }
 
     @Test

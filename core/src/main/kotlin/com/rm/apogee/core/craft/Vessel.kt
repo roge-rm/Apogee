@@ -79,8 +79,19 @@ class Vessel(
     private var resources: Array<DoubleArray> =
         Array(design.parts.size) { DoubleArray(RESOURCE_COUNT) }
 
-    /** Parts whose stage has fired: engines lit, parachutes out. */
+    /** Parts whose stage has fired: engines lit, parachutes out, gear down. */
     var activated: BooleanArray = BooleanArray(design.parts.size)
+        private set
+
+    /**
+     * Parts that have failed but are still attached.
+     *
+     * A collapsed landing leg and a torn parachute are both this: the geometry
+     * is still there and still has mass, but the module stops working. Kept
+     * separate from [activated] because a broken part must not simply look
+     * un-staged - a torn chute cannot be redeployed by staging again.
+     */
+    var broken: BooleanArray = BooleanArray(design.parts.size)
         private set
 
     /** Next stage to fire. Equals `design.stages.size` when staging is spent. */
@@ -224,12 +235,23 @@ class Vessel(
         recomputeMass(shiftBodyPosition = false)
     }
 
-    /** Restores which parts are live, after loading. */
-    fun restoreStaging(stage: Int, activatedParts: List<Int>) {
+    /** Restores which parts are live and which have failed, after loading. */
+    fun restoreStaging(
+        stage: Int,
+        activatedParts: List<Int>,
+        brokenParts: List<Int> = emptyList(),
+    ) {
         currentStage = stage.coerceIn(0, design.stages.size)
         activated.fill(false)
         for (index in activatedParts) {
             if (index in activated.indices) activated[index] = true
+        }
+        // Damage survives a reload. Without this a craft that limped down on
+        // a collapsed leg stands back up repaired the next time the server
+        // starts, which is the sort of thing a persistent world must not do.
+        broken.fill(false)
+        for (index in brokenParts) {
+            if (index in broken.indices) broken[index] = true
         }
     }
 
@@ -316,6 +338,18 @@ class Vessel(
 
     fun isActivated(index: Int): Boolean = activated[index]
 
+    /** Whether part [index] is working: staged, and not since failed. */
+    fun isWorking(index: Int): Boolean = activated[index] && !broken[index]
+
+    fun isBroken(index: Int): Boolean = broken[index]
+
+    /** Records a part failure. Returns false if it had already failed. */
+    fun breakPart(index: Int): Boolean {
+        if (index !in broken.indices || broken[index]) return false
+        broken[index] = true
+        return true
+    }
+
     /**
      * Fires the next stage, marking its parts active.
      *
@@ -356,15 +390,18 @@ class Vessel(
     ) {
         val newResources = Array(newDesign.parts.size) { DoubleArray(RESOURCE_COUNT) }
         val newActivated = BooleanArray(newDesign.parts.size)
+        val newBroken = BooleanArray(newDesign.parts.size)
         keptIndices.forEachIndexed { newIndex, oldIndex ->
             resources[oldIndex].copyInto(newResources[newIndex])
             newActivated[newIndex] = activated[oldIndex]
+            newBroken[newIndex] = broken[oldIndex]
         }
 
         design = newDesign
         defs = newDefs
         resources = newResources
         activated = newActivated
+        broken = newBroken
         name = newDesign.name
         computeFuelGroups()
         recomputeMass()

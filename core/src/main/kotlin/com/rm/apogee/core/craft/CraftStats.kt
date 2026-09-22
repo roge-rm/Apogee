@@ -57,7 +57,18 @@ class CraftStats(
     val dryMass: Double,
     val partCount: Int,
     val stages: List<StageStats>,
+    /** Reasons the craft cannot be placed at all. */
     val problems: List<String>,
+    /**
+     * Things worth knowing that are not reasons to refuse.
+     *
+     * Kept apart from [problems] because they are a different kind of
+     * statement. A craft with no command pod cannot be flown by anyone; a
+     * craft with a thrust-to-weight below one simply will not climb off the
+     * pad under its own power - which is an accurate description of every
+     * lander ever built, and not a fault.
+     */
+    val warnings: List<String> = emptyList(),
 ) {
     /** Sum over stages. Vacuum, which is the figure worth quoting for orbit. */
     val totalDeltaV: Double get() = stages.sumOf { it.deltaVVacuum }
@@ -187,6 +198,7 @@ class CraftStats(
                 partCount = design.parts.size,
                 stages = stageStats,
                 problems = diagnose(design, resolved, stageStats),
+                warnings = advise(stageStats),
             )
         }
 
@@ -215,13 +227,6 @@ class CraftStats(
             }
             if (defs.none { it.module<Engine>() != null }) {
                 problems.add("No engines")
-            } else {
-                val first = stages.firstOrNull { it.hasEngines }
-                if (first != null && first.twrSeaLevel < 1.0) {
-                    problems.add(
-                        "Thrust-to-weight is %.2f - it will not leave the pad".format(first.twrSeaLevel)
-                    )
-                }
             }
 
             val enginesWithoutFuel = design.parts.indices.filter { index ->
@@ -239,6 +244,19 @@ class CraftStats(
             }
 
             return problems
+        }
+
+        /** Non-blocking observations about a craft that is otherwise fine. */
+        private fun advise(stages: List<StageStats>): List<String> {
+            val warnings = ArrayList<String>()
+            val first = stages.firstOrNull { it.hasEngines }
+            if (first != null && first.twrSeaLevel < 1.0) {
+                warnings.add(
+                    "Thrust-to-weight is %.2f - it will not climb off the pad"
+                        .format(first.twrSeaLevel)
+                )
+            }
+            return warnings
         }
     }
 }

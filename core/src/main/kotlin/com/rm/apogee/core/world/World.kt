@@ -11,7 +11,9 @@ import com.rm.apogee.core.orbit.CelestialBody
 import com.rm.apogee.core.orbit.Orbit
 import com.rm.apogee.core.orbit.SolarSystem
 import com.rm.apogee.core.part.Decoupler
+import com.rm.apogee.core.part.LandingLeg
 import com.rm.apogee.core.part.PartCatalog
+import com.rm.apogee.core.physics.ContactReport
 import com.rm.apogee.core.physics.GroundContact
 
 /** Where a craft can be put on the ground. */
@@ -31,6 +33,16 @@ sealed interface WorldEvent {
     data class VesselDestroyed(val id: VesselId, val reason: String) : WorldEvent
     data class Staged(val id: VesselId, val stage: Int) : WorldEvent
     data class Touchdown(val id: VesselId, val impactSpeed: Double) : WorldEvent
+
+    /**
+     * A part failed but the craft is still flying: a leg collapsed, a chute
+     * tore away. Distinct from [VesselDestroyed], which ends the craft.
+     */
+    data class PartFailed(
+        val id: VesselId,
+        val partIndex: Int,
+        val reason: String,
+    ) : WorldEvent
 }
 
 /**
@@ -62,6 +74,14 @@ class World(
     private val contacts = GroundContact()
 
     private val pendingEvents = ArrayList<WorldEvent>()
+
+    /**
+     * Craft to remove once the step finishes.
+     *
+     * Destroying in place would mutate the map being iterated. Reused rather
+     * than allocated per step, and empty on almost every one.
+     */
+    private val pendingDestruction = ArrayList<Pair<VesselId, String>>()
     private val scratch = Vec3()
     private val scratchUp = Vec3()
     private val scratchBodyFixedUp = Vec3()
@@ -400,6 +420,14 @@ class World(
             forces.applyGravity(vessel, attractor)
             forces.applyThrust(vessel, attractor, dt)
             forces.applyDrag(vessel, attractor)
+            for (i in 0 until forces.tornCount) {
+                val index = forces.tornParachutes[i]
+                pendingEvents.add(
+                    WorldEvent.PartFailed(
+                        vessel.id, index, "${vessel.defs[index].title} tore away",
+                    )
+                )
+            }
             forces.applyReactionWheels(vessel)
 
             body.integrate(dt)
@@ -411,10 +439,49 @@ class World(
             if (report.hadContact && report.worstImpactSpeed > TOUCHDOWN_REPORT_SPEED) {
                 pendingEvents.add(WorldEvent.Touchdown(vessel.id, report.worstImpactSpeed))
             }
+            if (report.failureCount > 0) applyImpactDamage(vessel, report)
+        }
+
+        if (pendingDestruction.isNotEmpty()) {
+            for ((id, reason) in pendingDestruction) destroy(id, reason)
+            pendingDestruction.clear()
         }
 
         tick++
         time += dt
+    }
+
+    /**
+     * Turns "this part hit harder than it can take" into a consequence.
+     *
+     * A leg collapses and the craft keeps existing, now resting on whatever is
+     * underneath it - which is usually the next thing to fail, and is the
+     * right outcome: gear absorbs one bad landing, not every landing. Anything
+     * else failing is the end of the craft, because a tank or an engine
+     * meeting the ground above its tolerance is not a survivable event.
+     */
+    private fun applyImpactDamage(vessel: Vessel, report: ContactReport) {
+        var fatalPart = -1
+        for (i in 0 until report.failureCount) {
+            val index = report.failedParts[i]
+            val def = vessel.defs[index]
+            if (def.module<LandingLeg>() != null) {
+                if (vessel.breakPart(index)) {
+                    pendingEvents.add(
+                        WorldEvent.PartFailed(vessel.id, index, "${def.title} collapsed")
+                    )
+                }
+            } else if (fatalPart < 0) {
+                fatalPart = index
+            }
+        }
+        if (fatalPart >= 0) {
+            val speed = report.worstImpactSpeed
+            pendingDestruction.add(
+                vessel.id to
+                    "${vessel.defs[fatalPart].title} hit the surface at ${speed.toInt()} m/s"
+            )
+        }
     }
 
     fun attractorFor(vessel: Vessel): CelestialBody = system.body(vessel.referenceBodyId)
@@ -452,6 +519,7 @@ class World(
         name = vessel.name,
         currentStage = vessel.currentStage,
         activatedParts = vessel.activated.withIndex().filter { it.value }.map { it.index },
+        brokenParts = vessel.broken.withIndex().filter { it.value }.map { it.index },
     )
 
     // --- persistence ---------------------------------------------------------
@@ -480,6 +548,8 @@ class World(
                 angularVelocity = vessel.body.angularVelocity.copy(),
                 currentStage = vessel.currentStage,
                 activatedParts = vessel.activated
+                    .withIndex().filter { it.value }.map { it.index },
+                brokenParts = vessel.broken
                     .withIndex().filter { it.value }.map { it.index },
                 throttle = vessel.control.throttle,
                 sasEnabled = vessel.control.sasEnabled,
@@ -536,7 +606,7 @@ class World(
             vessel.body.orientation.setTo(saved.rotation)
             vessel.body.linearVelocity.setTo(saved.velocity)
             vessel.body.angularVelocity.setTo(saved.angularVelocity)
-            vessel.restoreStaging(saved.currentStage, saved.activatedParts)
+            vessel.restoreStaging(saved.currentStage, saved.activatedParts, saved.brokenParts)
             vessel.control.throttle = saved.throttle
             vessel.control.sasEnabled = saved.sasEnabled
             if (saved.resources.isNotEmpty()) {

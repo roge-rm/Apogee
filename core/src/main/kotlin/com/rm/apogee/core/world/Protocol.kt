@@ -88,6 +88,15 @@ data class StructureUpdate(
     /** Which stage the craft is on, so a joining client sees the right state. */
     val currentStage: Int = 0,
     val activatedParts: List<Int> = emptyList(),
+    /**
+     * Parts that have failed: a collapsed leg, a torn chute.
+     *
+     * Carried alongside [activatedParts] rather than by removing them from
+     * it, because the two are genuinely different states - a torn parachute
+     * is staged *and* useless, and must not look un-staged or the client
+     * would show it as still available to deploy.
+     */
+    val brokenParts: List<Int> = emptyList(),
 )
 
 /** Server -> client. */

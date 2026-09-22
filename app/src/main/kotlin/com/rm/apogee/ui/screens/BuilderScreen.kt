@@ -339,13 +339,22 @@ private fun StatsPanel(
                 }
             }
 
-            if (stats.problems.isNotEmpty()) {
+            if (stats.problems.isNotEmpty() || stats.warnings.isNotEmpty()) {
                 Spacer(Modifier.height(8.dp))
                 HorizontalDivider(color = Color.White.alpha(ApogeeAlpha.DIVIDER))
                 Spacer(Modifier.height(6.dp))
+                // Blockers read as danger, advice reads as caution. Showing
+                // both in the same colour is what made a lander look broken.
                 stats.problems.forEach { problem ->
                     Text(
                         problem,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = ApogeeColors.Danger,
+                    )
+                }
+                stats.warnings.forEach { warning ->
+                    Text(
+                        warning,
                         style = MaterialTheme.typography.labelSmall,
                         color = ApogeeColors.Caution,
                     )

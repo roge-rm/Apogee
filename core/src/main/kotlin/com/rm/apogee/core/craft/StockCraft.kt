@@ -83,6 +83,68 @@ object StockCraft {
         )
     }
 
+    /**
+     * A lander: engine, tank, pod, chute and four sprung legs.
+     *
+     * Deliberately not the starter rocket with legs bolted on. Arriving is a
+     * different problem from leaving, and this is the craft the descent
+     * scenario flies - a wide footprint, gear that reaches below the engine
+     * bell, and enough propellant for a retro burn but not for orbit.
+     */
+    fun lander(catalog: PartCatalog = StockParts.catalog): CraftDesign {
+        val parts = ArrayList<PlacedPart>()
+
+        fun add(partId: String, y: Double, parent: Int, x: Double = 0.0, z: Double = 0.0): Int {
+            parts.add(
+                PlacedPart(
+                    partId = partId,
+                    position = Vec3(x, y, z),
+                    rotation = Quat.identity(),
+                    parentIndex = parent,
+                )
+            )
+            return parts.size - 1
+        }
+
+        // Bottom of the stack is y = 0: engine 0.0-1.0, tank 1.0-3.0,
+        // pod 3.0-4.2, chute on top.
+        val pod = add("pod-halo", 3.6, -1)
+        val chute = add("chute-canopy", 4.4, pod)
+        val tank = add("tank-cask2", 2.0, pod)
+        val engine = add("engine-vesper", 0.5, tank)
+
+        // Feet at y = -0.6: further below the engine bell at 0.0 than the
+        // suspension's 0.4 m of travel, so the leg can compress fully and the
+        // bell still clears the ground by 0.2 m. Gear that reaches less far
+        // than it compresses is decoration - the first firm landing bottoms
+        // the springs out and puts the engine in the dirt anyway, which is
+        // exactly what the first version of this craft did.
+        //
+        // A metre out from the axis each way gives a two-metre footprint. The
+        // footprint is what stops a lander tipping; the legs' strength only
+        // decides whether it survives the arrival.
+        val legReach = 1.0
+        val legHeight = 0.2
+        add("leg-stilt", legHeight, tank, x = legReach)
+        add("leg-stilt", legHeight, tank, x = -legReach)
+        add("leg-stilt", legHeight, tank, z = legReach)
+        add("leg-stilt", legHeight, tank, z = -legReach)
+
+        val stages = listOf(
+            Stage(listOf(engine)),
+            Stage(listOf(chute)),
+            // Gear last, because it is the last thing you want out.
+            Stage(parts.indices.filter { catalog[parts[it].partId]?.id == "leg-stilt" }),
+        )
+
+        return CraftDesign(
+            name = "Stilt Lander",
+            parts = parts,
+            stages = stages,
+            catalogHash = catalog.contentHash,
+        )
+    }
+
     /** The smallest thing that counts as a craft. Used by physics tests. */
     fun probe(catalog: PartCatalog = StockParts.catalog): CraftDesign =
         CraftDesign(

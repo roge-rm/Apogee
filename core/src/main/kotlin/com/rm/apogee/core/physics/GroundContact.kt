@@ -4,6 +4,7 @@ import com.rm.apogee.core.craft.Vessel
 import com.rm.apogee.core.math.Mat3
 import com.rm.apogee.core.math.Vec3
 import com.rm.apogee.core.orbit.CelestialBody
+import com.rm.apogee.core.part.LandingLeg
 
 /** What a contact resolution pass found. */
 class ContactReport {
@@ -13,25 +14,52 @@ class ContactReport {
     /** Index of the part that took [worstImpactSpeed], or -1. */
     var worstPartIndex: Int = -1
 
+    /**
+     * Parts that hit harder than they can take, this tick.
+     *
+     * A fixed array rather than a list because `World.step` runs this for
+     * every vessel every tick and must not allocate. Sixteen is far more
+     * failures than any landing produces; past that the craft is scrap
+     * regardless of which part is named.
+     */
+    val failedParts = IntArray(MAX_FAILURES)
+    var failureCount: Int = 0
+        private set
+
     fun reset() {
         contactCount = 0
         worstImpactSpeed = 0.0
         worstPartIndex = -1
+        failureCount = 0
+    }
+
+    /** Records a failure, ignoring one already recorded this tick. */
+    fun recordFailure(partIndex: Int) {
+        for (i in 0 until failureCount) if (failedParts[i] == partIndex) return
+        if (failureCount >= MAX_FAILURES) return
+        failedParts[failureCount++] = partIndex
     }
 
     val hadContact: Boolean get() = contactCount > 0
+
+    private companion object {
+        const val MAX_FAILURES = 16
+    }
 }
 
 /**
  * Resolves a vessel against a celestial body's surface.
  *
- * The surface is treated as a sphere at the body's datum radius. That is the
- * honest limit of M1: real terrain is a heightfield sampled from a quadtree,
- * and this resolver is written so that swapping in a height query changes one
- * line - [surfaceRadiusBelow] - rather than the contact mathematics.
+ * The surface comes from the body's own height field, sampled in the
+ * body-fixed frame - the same function the renderer builds its mesh from, so
+ * a craft lands on the ground it can see. Sampling in the inertial frame
+ * instead is a mistake worth naming: the planet turns underneath, so a craft
+ * parked on the pad slowly climbs an imaginary hill.
  *
- * Contacts are per *part*, not per vessel, which is what makes a craft tip over
- * when it lands on one leg rather than settling flat like a ball.
+ * Contacts are per *part*, not per vessel, which is what makes a craft tip
+ * over when it lands on one leg rather than settling flat like a ball. Parts
+ * with a working [LandingLeg] contact through a spring instead of rigidly;
+ * everything else arrives all at once.
  */
 class GroundContact {
 
@@ -43,6 +71,9 @@ class GroundContact {
     private val bodyFixedDirection = Vec3()
     private val bodyRotation = com.rm.apogee.core.math.Quat.identity()
     private val tangent = Vec3()
+    private val entryLinear = Vec3()
+    private val entryAngular = Vec3()
+    private val approachVelocity = Vec3()
     private val impulse = Vec3()
     private val scratch = Vec3()
     private val inverseInertiaWorld = Mat3()
@@ -64,8 +95,26 @@ class GroundContact {
         val body = vessel.body
         if (body.inverseMass <= 0.0) return report
 
+        // The velocity the craft arrived with, before any contact is solved.
+        //
+        // Damage is judged against this rather than against the running
+        // velocity, because contacts are solved one part at a time in part
+        // order: the first one to be solved absorbs the arrival and every
+        // later contact sees a craft that has already stopped. That made the
+        // blame fall on whichever part happened to come first in the design,
+        // and a lander's legs - which touch the ground first and are indexed
+        // last - were recorded as touching down at nought metres per second
+        // while the engine above them was written off.
+        entryLinear.setTo(body.linearVelocity)
+        entryAngular.setTo(body.angularVelocity)
+
         for (partIndex in vessel.defs.indices) {
-            val pointCount = vessel.defs[partIndex].contactPoints.size
+            val def = vessel.defs[partIndex]
+            // A stowed leg has no foot on the ground. Gear left up is a way to
+            // land badly, not a part that quietly still works.
+            val leg = def.module<LandingLeg>()
+            if (leg != null && !vessel.isWorking(partIndex)) continue
+            val pointCount = def.contactPoints.size
             for (pointIndex in 0 until pointCount) {
             vessel.contactPointWorld(partIndex, pointIndex, partPosition)
 
@@ -84,22 +133,42 @@ class GroundContact {
             val normalSpeed = pointVelocity dot normal
 
             report.contactCount++
-            val impactSpeed = -normalSpeed
+            val impactSpeed = -approachSpeedAt(attractor, partPosition)
             if (impactSpeed > report.worstImpactSpeed) {
                 report.worstImpactSpeed = impactSpeed
                 report.worstPartIndex = partIndex
             }
+            if (impactSpeed > def.crashTolerance) report.recordFailure(partIndex)
 
-            // Positional correction, applied as a fraction per tick. Correcting
-            // the whole penetration at once makes a resting craft jitter, because
-            // gravity pushes it back in every step and the full correction throws
-            // it back out.
+            inverseInertiaWorld.setRotated(body.inverseInertiaLocal, body.orientation)
+
+            // The compliant case: a working leg, still within its travel.
+            //
+            // Applied as an impulse of force x dt rather than as a force,
+            // because contacts are resolved *after* integration - a force
+            // added here would not move anything until the next tick, and a
+            // suspension that responds a tick late is a suspension that
+            // oscillates.
+            if (leg != null && penetration < leg.suspensionTravel) {
+                val spring = leg.springRate * penetration - leg.damping * normalSpeed
+                if (spring <= 0.0) continue
+                val normalImpulse = spring * dt
+                impulse.setTo(normal).mulInPlace(normalImpulse)
+                body.applyImpulseAtOffset(impulse, offset)
+                applyFriction(body, attractor, normalImpulse)
+                continue
+            }
+
+            // Everything else, and a leg that has bottomed out: rigid.
+            //
+            // Positional correction is a fraction per tick. Correcting the
+            // whole penetration at once makes a resting craft jitter, because
+            // gravity pushes it back in every step and the full correction
+            // throws it back out.
             scratch.setTo(normal).mulInPlace(penetration * POSITION_CORRECTION)
             body.position.addInPlace(scratch)
 
             if (normalSpeed >= 0.0) continue
-
-            inverseInertiaWorld.setRotated(body.inverseInertiaLocal, body.orientation)
 
             val normalImpulse = solveImpulse(body, normal, normalSpeed, RESTITUTION)
             impulse.setTo(normal).mulInPlace(normalImpulse)
@@ -109,6 +178,20 @@ class GroundContact {
             }
         }
         return report
+    }
+
+    /**
+     * How fast this point was closing on the ground when the tick's contact
+     * pass began, along the current contact normal.
+     *
+     * Rebuilt from the saved entry velocity rather than read from the body,
+     * which has already been pushed about by earlier contacts this tick.
+     */
+    private fun approachSpeedAt(attractor: CelestialBody, worldPoint: Vec3): Double {
+        approachVelocity.setTo(entryAngular).crossInPlace(offset).addInPlace(entryLinear)
+        attractor.surfaceVelocityAt(worldPoint, surfaceVelocity)
+        approachVelocity.subInPlace(surfaceVelocity)
+        return approachVelocity dot normal
     }
 
     /**

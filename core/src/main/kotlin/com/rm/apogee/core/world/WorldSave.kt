@@ -21,6 +21,8 @@ class VesselSave(
     val angularVelocity: SerialVec3,
     val currentStage: Int = 0,
     val activatedParts: List<Int> = emptyList(),
+    /** Parts that have failed. Damage persists across a restart. */
+    val brokenParts: List<Int> = emptyList(),
     /**
      * Throttle setting, 0..1.
      *

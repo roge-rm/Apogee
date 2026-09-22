@@ -99,6 +99,9 @@ class MainActivity : ComponentActivity() {
         hudState = HudState()
         frameBus = FrameBus()
         craftStore = CraftStore(File(filesDir, "craft"))
+        // So there is something to fly, and something to land, before the
+        // player has built anything.
+        craftStore.seedStockDesigns(StockParts.catalog)
         serverBrowser = ServerBrowser(this, StockParts.catalog.contentHash)
         serverName = "${settings.playerName}'s Game"
         detectedTier = settings.lastDetectedTier
