@@ -82,18 +82,33 @@ class GroundContact {
 
     /**
      * @param time universe time, needed because terrain turns with the planet.
+     * @param accumulate keep what the report already holds, for a caller that
+     *   is subdividing a tick and wants the worst of all its substeps rather
+     *   than whatever the last one happened to see.
      */
     fun resolve(
         vessel: Vessel,
         attractor: CelestialBody,
         dt: Double,
         time: Double,
+        accumulate: Boolean = false,
     ): ContactReport {
-        report.reset()
+        if (!accumulate) report.reset()
         // Once per vessel, not once per contact point.
         attractor.rotationAt(time, bodyRotation)
         val body = vessel.body
         if (body.inverseMass <= 0.0) return report
+
+        // Nothing within reach of the ground, so nothing to sample.
+        //
+        // Worth an explicit test because the alternative is evaluating the
+        // height field under every contact point of every craft in the
+        // system, every tick, including the ones in orbit - and the height
+        // field is fifteen octaves of noise, which makes it comfortably the
+        // most expensive thing in the step.
+        val ceiling = attractor.radius +
+            (attractor.terrain?.maxElevation ?: 0.0) + vessel.contactRadius
+        if (body.position.length > ceiling) return report
 
         // The velocity the craft arrived with, before any contact is solved.
         //

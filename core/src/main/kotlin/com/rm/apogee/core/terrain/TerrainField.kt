@@ -286,15 +286,30 @@ class TerrainField(
         /** Dead level out to here, metres: the launch complex itself. */
         private const val PAD_FLAT_METRES = 300.0
 
-        /** Blended back into the real terrain by here, metres. */
-        private const val PAD_BLEND_METRES = 1_200.0
+        /**
+         * Blended back into the real terrain by here, metres.
+         *
+         * Kept tight. A wide blend is invisible on a contour plot and very
+         * visible from the cockpit: at twelve hundred metres it flattened
+         * everything the eye can actually resolve from the pad, and the
+         * homeworld looked like a billiard table with hills painted on the
+         * horizon.
+         */
+        private const val PAD_BLEND_METRES = 600.0
 
         /**
          * Hill band. Sized in metres and added after the sharpening curve, so
          * lowlands get the same relief as highlands.
          */
         private const val HILL_FREQUENCY = 250.0
-        private const val HILL_OCTAVES = 4
+
+        /**
+         * Five, not four. The fourth octave bottoms out around two hundred
+         * and sixty metres, which is larger than anything a craft on the
+         * ground can see past - so the near field had no texture at all and
+         * read as a painted plane.
+         */
+        private const val HILL_OCTAVES = 5
         private const val HILL_AMPLITUDE = 150.0
 
         /** Land below this height gets proportionally less hill. */

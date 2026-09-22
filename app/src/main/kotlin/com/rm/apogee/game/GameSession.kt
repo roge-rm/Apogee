@@ -316,7 +316,12 @@ class GameSession private constructor(
             drawFarSurface = builder.farSurfaceNeeded
         }
 
-        telemetry = FlightTelemetry.from(focus, attractor, focusState.throttle, bodyFixedCamera)
+        // Local vertical in world axes: the craft's own position direction.
+        scratchUp.setTo(focusState.position).normalizeInPlace()
+        telemetry = FlightTelemetry.from(
+            focus, attractor, focusState.throttle, bodyFixedCamera,
+            lowestPointOffset = lowestPointOffset(focus.design, focusState.rotation, scratchUp),
+        )
 
         frameBus.publish(
             RenderFrame(
@@ -445,6 +450,38 @@ class GameSession private constructor(
      * distances - but it is a real gap, and the fix is a field on the
      * kinematics message rather than better guessing here.
      */
+    /**
+     * How far the craft's lowest point sits below its centre, metres.
+     *
+     * Negative, and measured along [up] in world axes so it follows the craft
+     * as it tips. The height readout is taken from here rather than from the
+     * centre of mass, because a player reads "AGL" as the gap between their
+     * craft and the ground - and a thirteen-metre rocket parked on the pad
+     * reported seven metres, which looks exactly like a bug in the terrain
+     * even though the craft is seated.
+     *
+     * Measured against the same centre the renderer places parts around, so
+     * the number and the picture cannot disagree.
+     */
+    private fun lowestPointOffset(design: CraftDesign, rotation: Quat, up: Vec3): Double {
+        val centre = designCentreOfMass(design)
+        var lowest = 0.0
+        for (placed in design.parts) {
+            val def = catalog[placed.partId] ?: continue
+            for (local in def.contactPoints) {
+                placed.rotation.rotate(local, scratchLowest)
+                scratchLowest.addInPlace(placed.position).subInPlace(centre)
+                rotation.rotate(scratchLowest, scratchLowest)
+                val along = scratchLowest dot up
+                if (along < lowest) lowest = along
+            }
+        }
+        return lowest
+    }
+
+    private val scratchLowest = Vec3()
+    private val scratchUp = Vec3()
+
     private fun designCentreOfMass(design: CraftDesign): Vec3 {
         val centre = Vec3.zero()
         var total = 0.0
@@ -632,6 +669,8 @@ class FlightTelemetry(
             throttle: Double,
             /** The craft's position in the body's own frame, for ground height. */
             bodyFixedPosition: Vec3,
+            /** Metres from the craft's centre down to its lowest point. */
+            lowestPointOffset: Double = 0.0,
         ): FlightTelemetry {
             val state = vessel.latest ?: return EMPTY
             val orbit = Orbit(
@@ -646,7 +685,10 @@ class FlightTelemetry(
 
             return FlightTelemetry(
                 altitude = altitude,
-                heightAboveGround = attractor.heightAboveTerrain(state.position, bodyFixedPosition),
+                heightAboveGround = (
+                    attractor.heightAboveTerrain(state.position, bodyFixedPosition) +
+                        lowestPointOffset
+                    ).coerceAtLeast(0.0),
                 surfaceSpeed = relative.length,
                 orbitalSpeed = state.velocity.length,
                 apoapsisAltitude = orbit.apoapsis - attractor.radius,

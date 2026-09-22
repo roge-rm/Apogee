@@ -59,19 +59,21 @@ class TerrainBuilder(
     /**
      * Vertices along each edge of the near patch.
      *
-     * Deliberately coarse. A facet only reads as a facet if it differs from
-     * its neighbour, and at sixty metres across the ground barely changes
-     * between one and the next - the terrain came out looking smooth in a
-     * faceted build. These give facets around a hundred metres wide, which
-     * is still inside the Nyquist limit for the finest hill octave (about
-     * two hundred and sixty metres), so nothing in the height field is
-     * aliased away by drawing it this way.
+     * Sized against the finest thing the height field contains. The hill
+     * band bottoms out near a hundred and twenty-five metres, so facets have
+     * to be under about sixty for none of it to be aliased away - which at a
+     * four-kilometre patch means these counts.
+     *
+     * Coarser was tried, for bigger facets and a stronger low-poly read, and
+     * it threw away the only detail close enough to see: the ground within a
+     * kilometre of the craft went flat, which looks like terrain that has not
+     * finished loading rather than like a style.
      */
     private val patchResolution: Int
         get() = when (quality) {
-            QualityTier.LOW -> 48
-            QualityTier.MEDIUM -> 64
-            QualityTier.HIGH -> 80
+            QualityTier.LOW -> 96
+            QualityTier.MEDIUM -> 128
+            QualityTier.HIGH -> 144
         }
 
     /** Builds the whole body once. Safe to call repeatedly. */

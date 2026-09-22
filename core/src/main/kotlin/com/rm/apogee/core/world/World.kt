@@ -82,6 +82,9 @@ class World(
      * than allocated per step, and empty on almost every one.
      */
     private val pendingDestruction = ArrayList<Pair<VesselId, String>>()
+
+    private val scratchSurfaceVelocity = Vec3()
+    private val scratchRelativeVelocity = Vec3()
     private val scratch = Vec3()
     private val scratchUp = Vec3()
     private val scratchBodyFixedUp = Vec3()
@@ -430,12 +433,21 @@ class World(
             }
             forces.applyReactionWheels(vessel)
 
-            body.integrate(dt)
+            // Integration and contact are subdivided together when the craft
+            // is moving fast near the ground. Forces are not recomputed per
+            // substep - they change far more slowly than the geometry does,
+            // and recomputing thrust and drag eight times a tick would cost
+            // more than the problem is worth.
+            val substeps = contactSubsteps(vessel, attractor, dt)
+            val h = dt / substeps
+            for (substep in 0 until substeps) {
+                body.integrate(h)
+                contacts.resolve(vessel, attractor, h, time + substep * h, substep > 0)
+            }
+            val report = contacts.report
 
             // Mass changes as propellant burns, and with it the centre of mass.
             if (vessel.control.throttle > 0.0) vessel.recomputeMass()
-
-            val report = contacts.resolve(vessel, attractor, dt, time)
             if (report.hadContact && report.worstImpactSpeed > TOUCHDOWN_REPORT_SPEED) {
                 pendingEvents.add(WorldEvent.Touchdown(vessel.id, report.worstImpactSpeed))
             }
@@ -449,6 +461,37 @@ class World(
 
         tick++
         time += dt
+    }
+
+    /**
+     * How finely to subdivide this tick's integration and contact test.
+     *
+     * A tick is a sixtieth of a second, and a craft descending at thirty-five
+     * metres a second covers well over half a metre in one. Anything smaller
+     * than that - a landing leg protruding below an engine bell, a wheel, a
+     * ridge in the terrain - can be stepped straight over, so the first thing
+     * the solver ever sees is several parts already buried. That is how a
+     * lander's legs came to be skipped while the engine above them was
+     * recorded as the part that hit.
+     *
+     * Only paid for near the ground: above the highest ground the body can
+     * produce there is nothing to hit, and orbital speeds would otherwise
+     * demand the maximum subdivision on every tick of every flight.
+     */
+    private fun contactSubsteps(vessel: Vessel, attractor: CelestialBody, dt: Double): Int {
+        val body = vessel.body
+        val ceiling = (attractor.terrain?.maxElevation ?: 0.0) + SUBSTEP_CEILING_METRES
+        if (attractor.altitudeOf(body.position) > ceiling) return 1
+
+        attractor.surfaceVelocityAt(body.position, scratchSurfaceVelocity)
+        scratchRelativeVelocity.setTo(body.linearVelocity).subInPlace(scratchSurfaceVelocity)
+        // The extremities of a rotating craft sweep faster than its centre.
+        val sweep = scratchRelativeVelocity.length +
+            body.angularVelocity.length * vessel.contactRadius
+        val distance = sweep * dt
+        if (distance <= MAX_SUBSTEP_DISTANCE) return 1
+        return kotlin.math.ceil(distance / MAX_SUBSTEP_DISTANCE).toInt()
+            .coerceAtMost(MAX_CONTACT_SUBSTEPS)
     }
 
     /**
@@ -645,6 +688,21 @@ class World(
 
         /** Impacts gentler than this are not worth an event. */
         private const val TOUCHDOWN_REPORT_SPEED = 0.5
+
+        /**
+         * Furthest a contact point may sweep in one substep, metres.
+         *
+         * Smaller than the smallest thing that has to be noticed - a landing
+         * leg's protrusion below the engine it protects.
+         */
+        private const val MAX_SUBSTEP_DISTANCE = 0.15
+
+        /** Above eight, a tick costs more than the accuracy is worth. */
+        private const val MAX_CONTACT_SUBSTEPS = 8
+
+        /** Metres above the highest possible ground to stop subdividing. */
+        private const val SUBSTEP_CEILING_METRES = 200.0
+
 
         val launchSites = listOf(
             LaunchSite(

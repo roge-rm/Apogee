@@ -122,8 +122,10 @@ class LandingTest {
     @Test
     fun `a leg collapses rather than the craft exploding when it is hit too hard`() {
         val world = world()
-        // Past the leg's 18 m/s tolerance but nowhere near orbital.
-        val vessel = drop(world, height = 40.0, descentRate = 22.0, gearDown = true)
+        // Just past the leg's 18 m/s tolerance. Fast enough to break the
+        // gear, slow enough that what is left of the craft survives the drop
+        // onto its engine bell once the legs have given way.
+        val vessel = drop(world, height = 1.0, descentRate = 19.0, gearDown = true)
         val id = vessel.id
         val events = ArrayList<WorldEvent>()
         repeat(600) {
@@ -144,6 +146,64 @@ class LandingTest {
         // write-off either way, but it is a write-off standing on the ground
         // rather than a crater.
         assertNotNull("the craft should have survived on collapsed legs", world.vessel(id))
+    }
+
+    /**
+     * The tunnelling regression.
+     *
+     * A tick is a sixtieth of a second, so a craft arriving at sixty metres a
+     * second covers a full metre in one. The lander's feet reach 0.6 m below
+     * its engine bell, and with a single contact sample per tick that whole
+     * margin is stepped over: the first thing the solver sees is the legs
+     * *and* the engine already buried, both in the same tick, and the gear
+     * never gets a chance to be the thing that arrives first.
+     *
+     * Measured as separation in ticks rather than as who failed, because the
+     * gear always shows up in the failure list either way - what tunnelling
+     * destroys is the *order*, and with it any possibility of the suspension
+     * doing its job before the airframe reaches the ground.
+     */
+    @Test
+    fun `gear touches down a measurable moment before the airframe does`() {
+        // Fast enough that one tick of travel exceeds the legs' reach below
+        // the bell, which is the regime where a single sample per tick fails.
+        for (descentRate in listOf(45.0, 60.0)) {
+            val world = world()
+            val vessel = drop(world, height = 2.0, descentRate = descentRate, gearDown = true)
+            val id = vessel.id
+
+            var gearTick = -1
+            var airframeTick = -1
+            for (tick in 0 until 240) {
+                world.step(dt)
+                for (event in world.drainEvents()) {
+                    if (event is WorldEvent.PartFailed && gearTick < 0) gearTick = tick
+                    if (event is WorldEvent.VesselDestroyed && airframeTick < 0) {
+                        airframeTick = tick
+                    }
+                }
+                if (airframeTick >= 0) break
+            }
+
+            assertTrue("at $descentRate m/s the gear never registered", gearTick >= 0)
+            // Whether the craft ultimately survives is not the point - the
+            // gear may absorb the whole arrival, which is a fine outcome. What
+            // must never happen is the airframe being written off in the same
+            // tick the gear first touches, because that means the solver
+            // stepped straight past the six hundred millimetres between them.
+            assertTrue(
+                "at $descentRate m/s the airframe was written off in the same " +
+                    "tick the gear touched ($gearTick): the legs were stepped over",
+                airframeTick < 0 || airframeTick > gearTick,
+            )
+            // And it must not be gone before the gear was ever blamed.
+            assertTrue(
+                "at $descentRate m/s the craft died at tick $airframeTick with " +
+                    "the gear first seen at $gearTick",
+                airframeTick < 0 || gearTick < airframeTick,
+            )
+            assertNotNull("sanity: the vessel id should be stable", id)
+        }
     }
 
     /**

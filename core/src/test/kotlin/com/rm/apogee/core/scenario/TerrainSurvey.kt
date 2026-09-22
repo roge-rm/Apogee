@@ -20,6 +20,7 @@ fun main() {
     val field = TerrainField(bodyRadius = 600_000.0, homeDirection = Vec3(1.0, 0.0, 0.0))
     val radius = 600_000.0
     surveyHomeRelief(field, radius, Vec3(1.0, 0.0, 0.0))
+    surveyMeshError(field, radius, Vec3(1.0, 0.0, 0.0))
 
     // Fibonacci sphere: an even spread without clustering at the poles, which
     // a naive latitude/longitude grid gives and which would skew every number
@@ -120,6 +121,84 @@ fun surveyHomeRelief(field: TerrainField, radius: Double, pad: Vec3) {
         println(
             "  %6.0f m out: %8.1f .. %8.1f   spread %7.1f m   ocean %d/96"
                 .format(ring, low, high, high - low, ocean)
+        )
+    }
+}
+
+/**
+ * How far the *drawn* ground sits from the ground the collider uses.
+ *
+ * The renderer samples the height field on a grid and draws flat triangles
+ * between the samples; the collider evaluates the field exactly. Wherever the
+ * grid is too coarse to resolve a feature, those two disagree - and a craft
+ * rests on the collider's surface while the player looks at the renderer's, so
+ * the disagreement is visible as a craft floating above, or sunk into, the
+ * ground it is standing on.
+ */
+fun surveyMeshError(field: TerrainField, radius: Double, pad: Vec3) {
+    val up = pad.normalized()
+    val east = (if (kotlin.math.abs(up.y) < 0.9) Vec3.unitY() else Vec3.unitX())
+        .cross(up).normalizeInPlace()
+    val north = up.cross(east).normalizeInPlace()
+
+    fun direction(alongEast: Double, alongNorth: Double) = Vec3(
+        up.x * radius + east.x * alongEast + north.x * alongNorth,
+        up.y * radius + east.y * alongEast + north.y * alongNorth,
+        up.z * radius + east.z * alongEast + north.z * alongNorth,
+    ).normalizeInPlace()
+
+    fun height(alongEast: Double, alongNorth: Double) =
+        kotlin.math.max(field.elevation(direction(alongEast, alongNorth)), 0.0)
+
+    println()
+    println("drawn-vs-true ground error, by mesh density:")
+    println("  extent  verts  facet      at pad   mean     p99      worst")
+    for ((extent, resolution) in listOf(
+        4_000.0 to 48, 4_000.0 to 64, 4_000.0 to 80, 4_000.0 to 128,
+        1_500.0 to 48, 1_500.0 to 64, 1_000.0 to 48,
+    )) {
+        val cell = 2.0 * extent / (resolution - 1)
+
+        // Bilinear interpolation of the grid, exactly as the mesh draws it.
+        fun drawnHeight(e: Double, n: Double): Double {
+            val gx = (e + extent) / cell
+            val gy = (n + extent) / cell
+            val x0 = kotlin.math.floor(gx).toInt().coerceIn(0, resolution - 2)
+            val y0 = kotlin.math.floor(gy).toInt().coerceIn(0, resolution - 2)
+            val fx = gx - x0
+            val fy = gy - y0
+            val e0 = x0 * cell - extent
+            val n0 = y0 * cell - extent
+            val h00 = height(e0, n0)
+            val h10 = height(e0 + cell, n0)
+            val h01 = height(e0, n0 + cell)
+            val h11 = height(e0 + cell, n0 + cell)
+            return (h00 * (1 - fx) + h10 * fx) * (1 - fy) +
+                (h01 * (1 - fx) + h11 * fx) * fy
+        }
+
+        val errors = ArrayList<Double>()
+        var sum = 0.0
+        val samples = 120
+        for (i in 0 until samples) {
+            for (j in 0 until samples) {
+                // Sample well inside the patch, where a craft actually flies.
+                val e = (i / (samples - 1.0) - 0.5) * extent
+                val n = (j / (samples - 1.0) - 0.5) * extent
+                val error = kotlin.math.abs(drawnHeight(e, n) - height(e, n))
+                errors.add(error)
+                sum += error
+            }
+        }
+        errors.sort()
+        println(
+            "  %6.0f  %5d  %5.0fm   %7.2f %7.2f %7.2f  %8.2f".format(
+                extent, resolution, cell,
+                kotlin.math.abs(drawnHeight(0.0, 0.0) - height(0.0, 0.0)),
+                sum / errors.size,
+                errors[(errors.size * 0.99).toInt()],
+                errors.last(),
+            )
         )
     }
 }

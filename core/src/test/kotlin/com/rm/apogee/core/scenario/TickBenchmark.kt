@@ -23,8 +23,17 @@ fun main() {
     val catalog = StockParts.catalog
     val dt = 1.0 / 60.0
 
-    println("vessels   parts   ms/tick   %% of 60Hz budget   max craft at 60Hz")
-    println("-".repeat(70))
+    // Two scenarios, because they cost wildly different amounts and the
+    // difference is the whole story. A craft under power climbs away from the
+    // ground and stops sampling the height field within a minute; a craft
+    // parked on a pad samples it under every contact point forever. A
+    // persistent world is mostly the second kind, and measuring only the
+    // first is how "capacity" ends up quoted a factor of ten too high.
+    for (flying in booleanArrayOf(true, false)) {
+        println()
+        println(if (flying) "ASCENDING (staged, full throttle)" else "PARKED (resting on the pad)")
+        println("vessels   parts   ms/tick   %% of 60Hz budget   max craft at 60Hz")
+        println("-".repeat(70))
 
     for (count in intArrayOf(1, 5, 10, 25, 50, 100, 200)) {
         val world = World.default(catalog)
@@ -34,10 +43,12 @@ fun main() {
                 World.launchSites.first(),
                 pad = index,
             )
-            // Under power, so thrust, drag and mass recomputation are all in
-            // the measured path - an idle craft is not the expensive case.
-            world.apply(Command.Stage(vessel.id.raw))
-            world.apply(Command.SetThrottle(vessel.id.raw, 1.0))
+            if (flying) {
+                // Under power, so thrust, drag and mass recomputation are all
+                // in the measured path.
+                world.apply(Command.Stage(vessel.id.raw))
+                world.apply(Command.SetThrottle(vessel.id.raw, 1.0))
+            }
         }
 
         // Let the JIT settle before measuring; a cold JVM measures the
@@ -57,6 +68,7 @@ fun main() {
                 count, count * 13, msPerTick, budget, capacity,
             )
         )
+    }
     }
 
     println()

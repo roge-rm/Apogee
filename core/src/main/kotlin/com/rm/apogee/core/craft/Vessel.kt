@@ -287,6 +287,7 @@ class Vessel(
         }
 
         centerOfMassLocal.setTo(properties.centerOfMass)
+        recomputeContactRadius()
         body.mass = properties.mass
         body.setInertia(properties.inertia)
     }
@@ -307,6 +308,31 @@ class Vessel(
      *
      * @param pointIndex index into the part definition's `contactPoints`.
      */
+    /**
+     * Distance from the centre of mass to the furthest contact point, metres.
+     *
+     * Only used to bound how fast the craft's extremities sweep when it is
+     * rotating, so the contact solver knows how finely to subdivide a tick.
+     * Cached because it changes only when the structure or the centre of mass
+     * does, and is wanted every tick.
+     */
+    var contactRadius: Double = 0.0
+        private set
+
+    private fun recomputeContactRadius() {
+        var furthest = 0.0
+        val point = Vec3()
+        for (index in defs.indices) {
+            val placed = design.parts[index]
+            for (local in defs[index].contactPoints) {
+                placed.rotation.rotate(local, point)
+                point.addInPlace(placed.position).subInPlace(centerOfMassLocal)
+                if (point.lengthSq > furthest) furthest = point.lengthSq
+            }
+        }
+        contactRadius = kotlin.math.sqrt(furthest)
+    }
+
     fun contactPointWorld(index: Int, pointIndex: Int, out: Vec3 = Vec3()): Vec3 {
         val local = defs[index].contactPoints[pointIndex]
         val placed = design.parts[index]
