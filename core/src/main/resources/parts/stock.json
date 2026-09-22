@@ -379,7 +379,7 @@
     "title": "Vane Stabiliser",
     "category": "aero",
     "dryMass": 60.0,
-    "description": "Keeps the pointy end forward while there is still air to push against.",
+    "description": "Keeps the pointy end forward while there is still air to push against. A stabiliser, not a control surface - it does not deflect.",
     "crashTolerance": 12.0,
     "dragCoefficient": 0.3,
     "mesh": {
@@ -410,8 +410,91 @@
         "type": "aeroSurface",
         "liftCoefficient": 1.2,
         "area": 0.42,
+        "controllable": false,
+        "controlAuthority": 1.0
+      }
+    ]
+  },
+  {
+    "id": "wing-plank",
+    "title": "Plank Wing",
+    "category": "aero",
+    "dryMass": 300.0,
+    "description": "A wing is a fin with enough area to hold something up. Same module, same code path; only the numbers differ - and area is most of the difference.",
+    "crashTolerance": 10.0,
+    "dragCoefficient": 0.2,
+    "mesh": {
+      "type": "box",
+      "width": 8.0,
+      "height": 0.14,
+      "depth": 2.4
+    },
+    "attachNodes": [
+      {
+        "id": "root",
+        "position": {
+          "x": -1.6,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": -1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "aeroSurface",
+        "liftCoefficient": 1.4,
+        "area": 19.2,
         "controllable": true,
         "controlAuthority": 1.0
+      }
+    ]
+  },
+  {
+    "id": "tail-elevon",
+    "title": "Elevon",
+    "category": "aero",
+    "dryMass": 70.0,
+    "description": "A control surface. Deflects with the stick; which axis it drives follows from where you bolt it, not from what it is called. Authority is deliberately modest - at flying speed a surface this size can generate more force than the wings it is trimming.",
+    "crashTolerance": 10.0,
+    "dragCoefficient": 0.2,
+    "mesh": {
+      "type": "box",
+      "width": 1.8,
+      "height": 0.1,
+      "depth": 0.9
+    },
+    "attachNodes": [
+      {
+        "id": "root",
+        "position": {
+          "x": -0.9,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": -1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "aeroSurface",
+        "liftCoefficient": 1.3,
+        "area": 1.62,
+        "controllable": true,
+        "controlAuthority": 0.35,
+        "maxDeflection": 22.0
       }
     ]
   },
@@ -484,6 +567,49 @@
         "suspensionTravel": 0.4,
         "springRate": 90000.0,
         "damping": 12000.0
+      }
+    ]
+  },
+  {
+    "id": "wheel-tread",
+    "title": "Tread Roller",
+    "category": "ground",
+    "dryMass": 90.0,
+    "description": "Sprung driven wheel. Rolls freely fore and aft, grips across; that split is what makes a rover a rover rather than a sledge.",
+    "crashTolerance": 14.0,
+    "dragCoefficient": 0.5,
+    "mesh": {
+      "type": "sphere",
+      "radius": 0.35
+    },
+    "attachNodes": [
+      {
+        "id": "root",
+        "position": {
+          "x": -0.35,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": -1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "wheel",
+        "radius": 0.35,
+        "motorForce": 3500.0,
+        "steerable": true,
+        "steeringRange": 30.0,
+        "rollingResistance": 0.06,
+        "suspensionTravel": 0.25,
+        "springRate": 60000.0,
+        "damping": 6000.0
       }
     ]
   },

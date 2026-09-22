@@ -5,6 +5,7 @@ import com.rm.apogee.core.math.Mat3
 import com.rm.apogee.core.math.Vec3
 import com.rm.apogee.core.orbit.CelestialBody
 import com.rm.apogee.core.part.LandingLeg
+import com.rm.apogee.core.part.Wheel
 
 /** What a contact resolution pass found. */
 class ContactReport {
@@ -80,6 +81,14 @@ class GroundContact {
     private val bodyFixedDirection = Vec3()
     private val bodyRotation = com.rm.apogee.core.math.Quat.identity()
     private val tangent = Vec3()
+    private val rollAxis = Vec3()
+    /**
+     * Its own vector, not [scratch]: solveImpulse uses scratch internally, so
+     * handing it scratch as the direction would have it cross a vector with
+     * itself and return nonsense.
+     */
+    private val frictionDirection = Vec3()
+    private val driveForce = Vec3()
     private val restPosition = Vec3()
     private val restOrientation = com.rm.apogee.core.math.Quat.identity()
     private val entryLinear = Vec3()
@@ -159,6 +168,13 @@ class GroundContact {
             // land badly, not a part that quietly still works.
             val leg = def.module<LandingLeg>()
             if (leg != null && !vessel.isWorking(partIndex)) continue
+
+            // A wheel is a leg that rolls, so it borrows the leg's suspension
+            // wholesale rather than growing a second, near-identical one.
+            val wheel = def.module<Wheel>()
+            val suspensionTravel = leg?.suspensionTravel ?: wheel?.suspensionTravel
+            val springRate = leg?.springRate ?: wheel?.springRate
+            val damping = leg?.damping ?: wheel?.damping
             val pointCount = def.contactPoints.size
             for (pointIndex in 0 until pointCount) {
             vessel.contactPointWorld(partIndex, pointIndex, partPosition)
@@ -194,14 +210,18 @@ class GroundContact {
             // added here would not move anything until the next tick, and a
             // suspension that responds a tick late is a suspension that
             // oscillates.
-            if (leg != null && penetration < leg.suspensionTravel) {
-                val spring = leg.springRate * penetration - leg.damping * normalSpeed
+            if (suspensionTravel != null && penetration < suspensionTravel) {
+                val spring = springRate!! * penetration - damping!! * normalSpeed
                 if (spring <= 0.0) continue
                 val normalImpulse = spring * dt
                 impulse.setTo(normal).mulInPlace(normalImpulse)
                 body.applyImpulseAtOffset(impulse, offset)
 
-                applyFriction(body, attractor, normalImpulse)
+                if (wheel != null) {
+                    driveWheel(vessel, attractor, wheel, normalImpulse, dt)
+                } else {
+                    applyFriction(body, attractor, normalImpulse)
+                }
                 continue
             }
 
@@ -220,7 +240,11 @@ class GroundContact {
             impulse.setTo(normal).mulInPlace(normalImpulse)
             body.applyImpulseAtOffset(impulse, offset)
 
-            applyFriction(body, attractor, normalImpulse)
+            if (wheel != null) {
+                driveWheel(vessel, attractor, wheel, normalImpulse, dt)
+            } else {
+                applyFriction(body, attractor, normalImpulse)
+            }
             }
         }
 
@@ -374,20 +398,144 @@ class GroundContact {
     }
 
     /** Coulomb friction along the contact tangent, capped by the normal impulse. */
-    private fun applyFriction(body: RigidBody, attractor: CelestialBody, normalImpulse: Double) {
+    /**
+     * A grounded wheel: rolls along its axis, grips across it, and drives.
+     *
+     * The rolling axis is the craft's own forward, turned by the steering
+     * input for a steerable wheel and flattened into the ground plane - a
+     * wheel on a slope rolls along the slope, not into it.
+     *
+     * Friction is split rather than scaled. Across the axis it is the full
+     * ground friction, which is what stops a rover sliding sideways out of a
+     * turn; along it, only [Wheel.rollingResistance], which is what lets a
+     * motor measured in hundreds of newtons move a tonne that ordinary
+     * friction would pin in place.
+     */
+    private fun driveWheel(
+        vessel: Vessel,
+        attractor: CelestialBody,
+        wheel: Wheel,
+        normalImpulse: Double,
+        dt: Double,
+    ) {
+        val body = vessel.body
+        val control = vessel.control
+
+        // Craft forward, steered, then projected onto the ground plane.
+        //
+        // +Z, not +Y. The stack convention puts +Y along the nose, which for a
+        // rover sitting on its wheels points at the sky - taking that as the
+        // rolling direction leaves nothing at all once it is flattened into
+        // the ground, which is precisely how the first version of this failed:
+        // the wheels turned, in a direction with no component along the
+        // ground, and the rover crept along at a fifth of a metre per second
+        // on rounding error.
+        body.orientation.rotate(FORWARD, rollAxis)
+        if (wheel.steerable && control.yaw != 0.0) {
+            // Which end of the craft this wheel is on. Front wheels turn into
+            // the corner and rear wheels away from it, which is what produces
+            // a yaw moment at all: steering every wheel the same way just
+            // crabs the whole craft sideways with its own grip fighting it,
+            // and the first version of this steered without ever turning.
+            val ahead = offset dot rollAxis
+            val end = if (ahead >= 0.0) 1.0 else -1.0
+            val angle = Math.toRadians(wheel.steeringRange * control.yaw) * end
+            // Turn about the contact normal, which is the local vertical.
+            rotateAbout(rollAxis, normal, angle)
+        }
+        val intoGround = rollAxis dot normal
+        rollAxis.addScaledInPlace(normal, -intoGround)
+        val axisLength = rollAxis.length
+        if (axisLength < 1e-6) {
+            applyFriction(body, attractor, normalImpulse)
+            return
+        }
+        rollAxis.mulInPlace(1.0 / axisLength)
+
+        applyFriction(body, attractor, normalImpulse, rollAxis, wheel.rollingResistance)
+
+        // Traction. Torque follows from where the wheel is, as for every other
+        // force on a craft, so a rover with all its drive at one end pitches
+        // under power exactly as it should.
+        if (wheel.motorForce > 0.0 && control.throttle != 0.0) {
+            // How fast this wheel is already rolling, relative to the ground.
+            relativeVelocityAt(body, attractor, partPosition, pointVelocity)
+            val rolling = pointVelocity dot rollAxis
+            val fade = if (wheel.topSpeed <= 0.0) 1.0
+                else (1.0 - rolling / wheel.topSpeed).coerceIn(0.0, 1.0)
+
+            val tractive = (wheel.motorForce * control.throttle * fade)
+                .coerceAtMost(FRICTION * normalImpulse / dt)
+            driveForce.setTo(rollAxis).mulInPlace(tractive * dt)
+            body.applyImpulseAtOffset(driveForce, offset)
+        }
+    }
+
+    /** Rotates [v] in place about the unit axis [axis] by [angle] radians. */
+    private fun rotateAbout(v: Vec3, axis: Vec3, angle: Double) {
+        val cos = kotlin.math.cos(angle)
+        val sin = kotlin.math.sin(angle)
+        val dot = v dot axis
+        val cx = axis.y * v.z - axis.z * v.y
+        val cy = axis.z * v.x - axis.x * v.z
+        val cz = axis.x * v.y - axis.y * v.x
+        v.setTo(
+            v.x * cos + cx * sin + axis.x * dot * (1.0 - cos),
+            v.y * cos + cy * sin + axis.y * dot * (1.0 - cos),
+            v.z * cos + cz * sin + axis.z * dot * (1.0 - cos),
+        )
+    }
+
+    /**
+     * Ground friction at the current contact.
+     *
+     * With [roll] given, the tangential velocity is split: the component along
+     * that axis is opposed only at [rollingCoefficient], the rest at the full
+     * ground friction. That split is the whole of what makes a wheel a wheel.
+     */
+    private fun applyFriction(
+        body: RigidBody,
+        attractor: CelestialBody,
+        normalImpulse: Double,
+        roll: Vec3? = null,
+        rollingCoefficient: Double = FRICTION,
+    ) {
         relativeVelocityAt(body, attractor, partPosition, pointVelocity)
         val normalComponent = pointVelocity dot normal
         tangent.setTo(pointVelocity).addScaledInPlace(normal, -normalComponent)
 
-        val tangentSpeed = tangent.length
-        if (tangentSpeed < 1e-6) return
-        tangent.mulInPlace(1.0 / tangentSpeed)
+        if (roll != null) {
+            val along = tangent dot roll
+            // Across the rolling axis first, at full grip.
+            tangent.addScaledInPlace(roll, -along)
+            opposeAlong(body, tangent, tangent.length, FRICTION * normalImpulse)
+            // Then along it, at whatever a free wheel costs.
+            tangent.setTo(roll).mulInPlace(if (along < 0.0) -1.0 else 1.0)
+            opposeAlong(
+                body, tangent, kotlin.math.abs(along), rollingCoefficient * normalImpulse,
+            )
+            return
+        }
 
-        val stoppingImpulse = solveImpulse(body, tangent, tangentSpeed, 0.0)
-        val maxFriction = FRICTION * normalImpulse
-        val frictionMagnitude = stoppingImpulse.coerceIn(-maxFriction, maxFriction)
+        opposeAlong(body, tangent, tangent.length, FRICTION * normalImpulse)
+    }
 
-        impulse.setTo(tangent).mulInPlace(frictionMagnitude)
+    /** Opposes motion of [speed] along [direction], up to [maxImpulse]. */
+    private fun opposeAlong(
+        body: RigidBody,
+        direction: Vec3,
+        speed: Double,
+        maxImpulse: Double,
+    ) {
+        if (speed < 1e-6) return
+        val length = direction.length
+        if (length < 1e-9) return
+        frictionDirection.setTo(direction).mulInPlace(1.0 / length)
+
+        val stoppingImpulse = solveImpulse(body, frictionDirection, speed, 0.0)
+        val frictionMagnitude = stoppingImpulse.coerceIn(-maxImpulse, maxImpulse)
+
+        impulse.setTo(frictionDirection).mulInPlace(frictionMagnitude)
         body.applyImpulseAtOffset(impulse, offset)
     }
 
@@ -399,6 +547,14 @@ class GroundContact {
         const val RESTITUTION = 0.05
 
         const val FRICTION = 0.6
+
+        /**
+         * A wheeled craft's forward, in its own frame.
+         *
+         * +Y is up by the stack convention, so a vehicle that drives rather
+         * than flies needs a horizontal axis, and +Z is it.
+         */
+        val FORWARD = Vec3(0.0, 0.0, 1.0)
 
 
         /**

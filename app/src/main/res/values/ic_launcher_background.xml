@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The backdrop of art/apogee-icon-1024.png, so the adaptive icon's
+         background matches the artwork it was cut from. -->
+    <color name="ic_launcher_background">#0C1F2A</color>
+</resources>

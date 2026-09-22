@@ -90,9 +90,24 @@ data class AeroSurface(
     val liftCoefficient: Double,
     /** Reference area, m². */
     val area: Double,
-    /** Whether it deflects with control input. */
+    /**
+     * Whether it deflects with control input.
+     *
+     * A stabiliser is not a control surface. Fins that hold a rocket straight
+     * want this false: making them steerable as well hands the ascent a
+     * second, much stronger set of controls that its guidance was never
+     * written for, and the stock rocket stopped reaching orbit.
+     */
     val controllable: Boolean = true,
     val controlAuthority: Double = 1.0,
+    /**
+     * How far it deflects, degrees.
+     *
+     * The force follows sin(d)cos(d) of this, not the surface's full
+     * broadside force - a control surface moves through twenty degrees or so,
+     * not ninety.
+     */
+    val maxDeflection: Double = 20.0,
 ) : PartModule
 
 /** Drag device. Inert until deployed, then dominant. */
@@ -170,6 +185,53 @@ data class Rcs(
     /** Specific impulse in seconds. Thrusters are thirsty and that is fine. */
     val isp: Double = 240.0,
     val propellant: ResourceType = ResourceType.MONOPROPELLANT,
+) : PartModule
+
+/**
+ * A driven, sprung, rolling contact.
+ *
+ * Mechanically a [LandingLeg] with two additions, and that is the point: a
+ * rover is a craft whose feet turn. The suspension is the leg's, unchanged.
+ * What makes it a wheel is that it rolls - friction along its rolling axis is
+ * reduced to [rollingResistance] while grip *across* that axis stays full -
+ * and that it can be driven.
+ *
+ * Without the anisotropic friction there is no such thing as a wheel here:
+ * the ground friction that stops a landed craft sliding is exactly what would
+ * stop a rover being pushed, and the motor would have to out-muscle it rather
+ * than roll past it.
+ */
+@Serializable
+@SerialName("wheel")
+data class Wheel(
+    /** Metres. Sets how far the axle rides above the ground. */
+    val radius: Double = 0.35,
+    /** Newtons of tractive effort at full throttle, per wheel, from rest. */
+    val motorForce: Double = 0.0,
+    /**
+     * Ground speed at which the motor runs out of pull, m/s.
+     *
+     * Tractive effort falls off linearly to nothing here, which is roughly
+     * what a real motor does and is what gives a rover a top speed at all.
+     * Without it the drive force is constant and a rover simply keeps
+     * accelerating - it reached 180 km/h on flat ground, which is a rocket
+     * sled rather than a vehicle.
+     */
+    val topSpeed: Double = 22.0,
+    /** Whether the steering input turns this wheel. */
+    val steerable: Boolean = false,
+    /** Maximum steering deflection, degrees. */
+    val steeringRange: Double = 30.0,
+    /**
+     * Friction coefficient along the rolling direction.
+     *
+     * Small but not zero: a free wheel still costs something to push, and at
+     * zero a parked rover slides down the gentlest slope for ever.
+     */
+    val rollingResistance: Double = 0.06,
+    val suspensionTravel: Double = 0.25,
+    val springRate: Double = 60_000.0,
+    val damping: Double = 6_000.0,
 ) : PartModule
 
 /** Generates electric charge from sunlight. */

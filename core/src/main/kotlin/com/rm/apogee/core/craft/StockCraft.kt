@@ -185,6 +185,84 @@ object StockCraft {
         )
     }
 
+    /**
+     * A rover: a pod on four wheels.
+     *
+     * No engine and no stages. Driving is the throttle acting through the
+     * wheels instead of through a bell, which is the whole claim being tested
+     * - that a vehicle class is a different bag of modules rather than a
+     * different simulation.
+     */
+    fun rover(catalog: PartCatalog = StockParts.catalog): CraftDesign {
+        val parts = ArrayList<PlacedPart>()
+        parts.add(PlacedPart("pod-halo", Vec3.zero()))
+
+        // Wheels at the four corners, below the pod so it rides clear of the
+        // ground. The front pair steer.
+        for ((x, z) in listOf(0.7 to 0.7, -0.7 to 0.7, 0.7 to -0.7, -0.7 to -0.7)) {
+            parts.add(
+                PlacedPart(
+                    partId = "wheel-tread",
+                    position = Vec3(x, -0.85, z),
+                    rotation = Quat.identity(),
+                    parentIndex = 0,
+                )
+            )
+        }
+
+        return CraftDesign(
+            name = "Trundler",
+            parts = parts,
+            stages = emptyList(),
+            catalogHash = catalog.contentHash,
+        )
+    }
+
+    /**
+     * An aeroplane: a fuselage with wings and an engine that pushes it along.
+     *
+     * Same convention as everything else, which is what makes it interesting:
+     * +Y is the nose, so a plane is a stack flown on its side rather than a
+     * new kind of object. The wings are the stock [AeroSurface] module with a
+     * wing's area instead of a fin's.
+     */
+    fun aeroplane(catalog: PartCatalog = StockParts.catalog): CraftDesign {
+        val parts = ArrayList<PlacedPart>()
+
+        fun add(partId: String, y: Double, parent: Int, x: Double = 0.0, z: Double = 0.0): Int {
+            parts.add(
+                PlacedPart(partId, Vec3(x, y, z), Quat.identity(), parentIndex = parent)
+            )
+            return parts.size - 1
+        }
+
+        val pod = add("pod-halo", 4.0, -1)
+        val tank = add("tank-cask2", 2.4, pod)
+        val engine = add("engine-vesper", 0.9, tank)
+
+        // Wings either side of the tank, at the centre of mass so the craft
+        // does not pitch the moment it makes lift.
+        add("wing-plank", 2.4, tank, x = 2.2)
+        add("wing-plank", 2.4, tank, x = -2.2)
+
+        // A tail fin for yaw stability - the same job it does on the rocket,
+        // and it does not deflect.
+        add("fin-vane", 1.0, tank, z = 0.9)
+
+        // Elevons well behind the wings. Being aft of the centre of mass is
+        // what makes them pitch the aircraft rather than roll it; nothing in
+        // the part says "elevator".
+        add("tail-elevon", 1.0, tank, x = 1.5)
+        add("tail-elevon", 1.0, tank, x = -1.5)
+
+        return CraftDesign(
+            name = "Plank",
+            parts = parts,
+            stages = listOf(Stage(listOf(engine))),
+            catalogHash = catalog.contentHash,
+        )
+    }
+
     /** The smallest thing that counts as a craft. Used by physics tests. */
     fun probe(catalog: PartCatalog = StockParts.catalog): CraftDesign =
         CraftDesign(

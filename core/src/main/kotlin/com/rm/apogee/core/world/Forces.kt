@@ -9,6 +9,7 @@ import com.rm.apogee.core.part.Engine
 import com.rm.apogee.core.part.Parachute
 import com.rm.apogee.core.part.Rcs
 import kotlin.math.PI
+import kotlin.math.abs
 import kotlin.math.sqrt
 
 /**
@@ -31,6 +32,10 @@ class Forces {
     private val scratchLocalVelocity = Vec3()
     private val scratchAxis = Vec3()
     private val scratchCrossFlow = Vec3()
+    private val scratchRadial = Vec3()
+    private val scratchNormal = Vec3()
+    private val scratchTorqueAxis = Vec3()
+    private val scratchCommand = Vec3()
     private val scratchTorque = Vec3()
     private val gimbalRotation = Quat()
     private val gimbalPitch = Quat()
@@ -346,14 +351,101 @@ class Forces {
                     .addScaledInPlace(scratchAxis, -along)
                 val crossSpeed = scratchCrossFlow.length
                 if (crossSpeed > 1e-6) {
-                    val normalForce =
-                        0.5 * density * crossSpeed * crossSpeed * surface.area * surface.liftCoefficient
+                    // Cross-flow times along-flow, not cross-flow squared.
+                    //
+                    // This is the flat-plate normal force, proportional to
+                    // sin(a)cos(a) rather than sin(a)^2, and the difference is
+                    // not a refinement: at the two or three degrees a wing
+                    // actually cruises at, squaring the cross-flow gives
+                    // roughly a thirtieth of the real force. Fins got away
+                    // with it because a rocket only needs them when it is
+                    // already badly out of line. A wing has to hold an
+                    // aircraft up at small angles, and could not.
+                    //
+                    // It also stalls for free: the product peaks near 45
+                    // degrees and falls away past it.
+                    val normalForce = 0.5 * density * crossSpeed * abs(along) *
+                        surface.area * surface.liftCoefficient
                     scratchForce.setTo(scratchCrossFlow)
                         .mulInPlace(-normalForce / crossSpeed)
                     vessel.body.applyForceAtOffset(scratchForce, scratchOffset)
                 }
+
+                if (surface.controllable) {
+                    deflect(vessel, surface, density, localSpeed)
+                }
             }
         }
+    }
+
+    /**
+     * A control surface deflecting with the stick.
+     *
+     * Without this an aircraft cannot fly at all, and not for want of lift: a
+     * tail fin weathervanes the nose into the airflow, which drives angle of
+     * attack to nothing, and a wing at no angle of attack makes no lift. The
+     * plane mushes down at forty degrees nose-low with the fin doing exactly
+     * what it was built to do. Holding an angle of attack is the elevator's
+     * job, and nothing was doing it - [AeroSurface.controllable] and
+     * [AeroSurface.controlAuthority] were carried in the schema and read by
+     * nobody.
+     *
+     * Which way a surface deflects follows from where it is bolted, rather
+     * than from a flag saying "elevator". The force it can make is
+     * perpendicular to both the fuselage and its own mounting radius; the
+     * torque that produces is r x F; and the deflection is the pilot's
+     * command projected onto that torque. So a surface behind the centre of
+     * mass pitches, one out on a wing rolls, and one that can do neither sits
+     * still - all of it falling out of the geometry, the way the thrusters do.
+     */
+    private fun deflect(
+        vessel: Vessel,
+        surface: AeroSurface,
+        density: Double,
+        airspeed: Double,
+    ) {
+        val control = vessel.control
+        if (control.pitch == 0.0 && control.yaw == 0.0 && control.roll == 0.0) return
+
+        // The mounting radius: how far off the fuselage axis this surface is.
+        val axial = scratchOffset dot scratchAxis
+        scratchRadial.setTo(scratchOffset).addScaledInPlace(scratchAxis, -axial)
+        val radialLength = scratchRadial.length
+        if (radialLength < 1e-6) return
+        scratchRadial.mulInPlace(1.0 / radialLength)
+
+        // The direction it can push: across both the fuselage and its radius.
+        scratchNormal.setTo(scratchAxis).crossInPlace(scratchRadial)
+        val normalLength = scratchNormal.length
+        if (normalLength < 1e-6) return
+        scratchNormal.mulInPlace(1.0 / normalLength)
+
+        // The torque a unit push there would make.
+        scratchTorqueAxis.setTo(scratchOffset).crossInPlace(scratchNormal)
+        val torqueLength = scratchTorqueAxis.length
+        if (torqueLength < 1e-6) return
+        scratchTorqueAxis.mulInPlace(1.0 / torqueLength)
+
+        // What the pilot asked for, in world axes - same convention as the
+        // reaction wheels: pitch about local X, roll about Y, yaw about Z.
+        scratchCommand.setTo(control.pitch, control.roll, control.yaw)
+        vessel.body.orientation.rotate(scratchCommand, scratchCommand)
+        val commandLength = scratchCommand.length
+        if (commandLength < 1e-6) return
+        scratchCommand.mulInPlace(1.0 / commandLength)
+
+        val deflection = (scratchCommand dot scratchTorqueAxis).coerceIn(-1.0, 1.0)
+        if (abs(deflection) < 1e-6) return
+
+        // sin(d)cos(d) of the actual deflection, the same flat-plate form the
+        // lift uses. Charging the surface's full broadside force made four
+        // rocket fins worth tens of kilonewtons at max q.
+        val angle = Math.toRadians(surface.maxDeflection) * deflection
+        val force = 0.5 * density * airspeed * airspeed *
+            surface.area * surface.liftCoefficient * surface.controlAuthority *
+            kotlin.math.sin(angle) * kotlin.math.cos(angle)
+        scratchForce.setTo(scratchNormal).mulInPlace(force)
+        vessel.body.applyForceAtOffset(scratchForce, scratchOffset)
     }
 
     /** Dynamic pressure, Pa. The number that decides whether a craft survives ascent. */
