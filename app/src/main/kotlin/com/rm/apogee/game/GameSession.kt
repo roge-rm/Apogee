@@ -139,6 +139,17 @@ class GameSession private constructor(
     private val predictedPosition = Vec3()
     private val predictedRotation = Quat.identity()
     private val bodyRotation = Quat.identity()
+    private val scratchCameraBodyFixed = Vec3()
+
+    /** Radius of a sphere round [spec]'s centre containing all of it. */
+    private fun boundingRadius(spec: com.rm.apogee.core.part.MeshSpec): Double = when (spec) {
+        is com.rm.apogee.core.part.MeshSpec.Cylinder -> kotlin.math.hypot(spec.radius, spec.height * 0.5)
+        is com.rm.apogee.core.part.MeshSpec.Cone ->
+            kotlin.math.hypot(maxOf(spec.bottomRadius, spec.topRadius), spec.height * 0.5)
+        is com.rm.apogee.core.part.MeshSpec.Box ->
+            0.5 * kotlin.math.sqrt(spec.width * spec.width + spec.height * spec.height + spec.depth * spec.depth)
+        is com.rm.apogee.core.part.MeshSpec.Sphere -> spec.radius
+    }
     private val bodyFixedCamera = Vec3()
 
     /**
@@ -484,6 +495,17 @@ class GameSession private constructor(
             lowestPointOffset = lowestPointOffset(focus.design, focusState.rotation, scratchUp),
         )
 
+        // The nearest thing in view, for the near plane: the closest part of
+        // any craft, allowing for its size, and the ground under the camera.
+        var nearest = Double.MAX_VALUE
+        for (item in items) {
+            val d = item.position.distanceTo(cameraPosition) - boundingRadius(item.meshSpec)
+            if (d < nearest) nearest = d
+        }
+        attractor.toBodyFixed(cameraPosition, bodyRotation, scratchCameraBodyFixed)
+        val cameraAboveGround = attractor.heightAboveTerrain(cameraPosition, scratchCameraBodyFixed)
+        if (cameraAboveGround < nearest) nearest = cameraAboveGround
+
         frameBus.publish(
             RenderFrame(
                 simTick = client.latestSnapshot?.tick ?: 0L,
@@ -507,6 +529,7 @@ class GameSession private constructor(
                     drawFarSurface = drawFarSurface,
                     chunkRange = chunkRange,
                 ),
+                nearestDistance = if (nearest == Double.MAX_VALUE) 0.0 else nearest.coerceAtLeast(0.0),
             )
         )
         framesPublished.incrementAndGet()

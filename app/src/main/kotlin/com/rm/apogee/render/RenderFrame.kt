@@ -50,6 +50,16 @@ class RenderFrame(
     val world: WorldView? = null,
     /** Trajectories to draw, in the attractor's frame. Map view only. */
     val lines: List<RenderLine> = emptyList(),
+    /**
+     * Metres to the nearest thing in view - a part, or the ground below the
+     * camera - or 0 when unknown. The near plane goes at half of it, because
+     * depth precision is spent in proportion to how close the near plane is:
+     * pinned at half a metre with ground out to 250 km, two surfaces ten
+     * kilometres off could not be told apart within about twelve metres, and
+     * the strips hiding chunk seams fought the ground beside them for every
+     * pixel along the seam, flickering as the camera moved.
+     */
+    val nearestDistance: Double = 0.0,
 )
 
 /**

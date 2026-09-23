@@ -270,6 +270,11 @@ object TerrainChunk {
                 vertices[to] -= (px / l * drop).toFloat()
                 vertices[to + 1] -= (py / l * drop).toFloat()
                 vertices[to + 2] -= (pz / l * drop).toFloat()
+                // Marked as skirt (+2 on the wet flag), so the shader lights it
+                // with the ground's normal it carries rather than its own
+                // vertical face - which, showing through a crack between
+                // chunks, drew a dark dashed line along the seam.
+                vertices[to + 9] += 2f
             }
         }
 

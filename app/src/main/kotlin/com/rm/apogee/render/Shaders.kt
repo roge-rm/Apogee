@@ -239,19 +239,26 @@ object Shaders {
         uniform mat4 uModel;
         uniform mat4 uViewProjection;
 
-        // Flat, for the facets: each triangle takes one vertex's normal and
-        // colour whole, which is the low-poly look.
-        flat out vec3 vNormal;
+        // Flat, for the facets: each triangle takes one vertex's colour whole,
+        // which is the low-poly look. Its normal is worked out per triangle in
+        // the fragment shader, from the position.
         flat out vec3 vColour;
         flat out float vWet;
         out vec3 vViewDir;
         out float vDistance;
+        out vec3 vPosition;
+        // Skirts: nonzero anywhere inside a skirt triangle, zero on the
+        // ground, and the ground normal the skirt was given to light it by.
+        out float vSkirt;
+        out vec3 vGroundNormal;
 
         void main() {
             vec4 worldPos = uModel * vec4(aPosition, 1.0);
-            vNormal = normalize(mat3(uModel) * aNormal);
+            vPosition = worldPos.xyz;
             vColour = aColour;
-            vWet = aWet;
+            vSkirt = aWet >= 1.5 ? 1.0 : 0.0;
+            vWet = aWet >= 1.5 ? aWet - 2.0 : aWet;
+            vGroundNormal = mat3(uModel) * aNormal;
             // The camera sits at the scene origin, so the vector to it is the
             // negated camera-relative position.
             vDistance = length(worldPos.xyz);
@@ -272,23 +279,37 @@ object Shaders {
         #version 300 es
         precision highp float;
 
-        flat in vec3 vNormal;
         flat in vec3 vColour;
         flat in float vWet;
         in vec3 vViewDir;
         in float vDistance;
+        in vec3 vPosition;
+        in float vSkirt;
+        in vec3 vGroundNormal;
 
         uniform vec3 uSunDirection;
         uniform float uAtmosphereFactor;
         uniform float uHazeDistance;
         uniform float uHasAtmosphere; // 1 for a body with air, 0 for one without
         uniform float uDiscardNearer; // the globe leaves the chunks' ground alone
+        uniform vec3 uBodyCentre;     // the planet's centre, camera-relative
 
         out vec4 fragColor;
 
         void main() {
             if (vDistance < uDiscardNearer) discard;
-            vec3 n = normalize(vNormal);
+            // The triangle's own face, from how its position changes across
+            // the screen. It used to be lit by one of its corners' normals -
+            // averaged from the ground around that corner - and on rough
+            // ground that points well away from the face, so neighbouring
+            // triangles came out light and dark in a pattern unrelated to
+            // their slope, crawling as the detail changed under a moving
+            // camera: the shimmer. This is the facet exactly, and steady.
+            vec3 n = normalize(cross(dFdx(vPosition), dFdy(vPosition)));
+            if (dot(n, vViewDir) < 0.0) n = -n;
+            // A skirt is a vertical strip hiding a crack, not ground: lit as
+            // the ground above it, so it does not show as a line.
+            if (vSkirt > 0.001) n = normalize(vGroundNormal);
             vec3 surface = vColour;
             float wet = vWet;
 
@@ -314,7 +335,12 @@ object Shaders {
             // descends, or the whole surface turns to haze when standing on it.
             // None at all on an airless world: there is no air to glow, and
             // standing on one, every grazing facet would turn blue.
-            float fresnel = pow(1.0 - max(dot(n, vViewDir), 0.0), 3.0);
+            // Against the planet's curve - straight up from its centre - not
+            // the facet, nor the ground's slope: it is the limb of the world that glows. Taken per facet,
+            // every mountain face turned edge-on to the camera lit up blue,
+            // and as the camera moved they flickered on and off in streaks.
+            vec3 up = normalize(vPosition - uBodyCentre);
+            float fresnel = pow(1.0 - max(dot(up, vViewDir), 0.0), 3.0);
             lit += vec3(0.25, 0.45, 0.78) * fresnel * daylight * 0.9 *
                 (1.0 - clamp(uAtmosphereFactor, 0.0, 1.0)) * uHasAtmosphere;
 

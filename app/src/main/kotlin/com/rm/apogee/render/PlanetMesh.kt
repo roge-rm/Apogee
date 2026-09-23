@@ -76,8 +76,14 @@ object PlanetMesh {
             for (segment in 0 until segments) {
                 val a = ring * rowStride + segment
                 val b = a + rowStride
-                indices[i++] = a.toShort(); indices[i++] = b.toShort(); indices[i++] = (a + 1).toShort()
-                indices[i++] = (a + 1).toShort(); indices[i++] = b.toShort(); indices[i++] = (b + 1).toShort()
+                // Counter-clockwise seen from outside. Wound the other way, as
+                // it was, every triangle faced into the planet: culling took
+                // the near half away and left the inside of the far half on
+                // show, dark in the middle where it faced away from the sun and
+                // lit only round the edge - a bright ring round a black hole,
+                // from anywhere above the sixty kilometres the chunks cover.
+                indices[i++] = a.toShort(); indices[i++] = (a + 1).toShort(); indices[i++] = b.toShort()
+                indices[i++] = (a + 1).toShort(); indices[i++] = (b + 1).toShort(); indices[i++] = b.toShort()
             }
         }
         return Data(vertices, indices)

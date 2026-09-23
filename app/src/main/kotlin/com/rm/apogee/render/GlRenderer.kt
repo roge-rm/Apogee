@@ -213,7 +213,8 @@ class GlRenderer(
         }
 
         // --- near pass: craft ----------------------------------------------
-        nearProjection.setPerspective(latest.fovYRadians, aspect, NEAR_NEAR_PLANE, NEAR_FAR_PLANE)
+        val nearPlane = (latest.nearestDistance * 0.5).coerceIn(NEAR_NEAR_PLANE, MAX_NEAR_PLANE)
+        nearProjection.setPerspective(latest.fovYRadians, aspect, nearPlane, NEAR_FAR_PLANE)
         nearViewProjection.setMultiplied(nearProjection, viewMatrix)
         // The patch belongs here, not in the far pass. The far pass starts at
         // a hundred metres, and clipping the nearest hundred metres of ground
@@ -299,7 +300,7 @@ class GlRenderer(
         // Globe vertices are in body radii, so the model matrix scales them -
         // and rotates them, because terrain turns with the planet.
         modelMatrix.setFromTrs(Vec3.zero(), interpolatedBodyRotation, cameraPos, world.radius)
-        applySurfaceUniforms(shader, world, atmosphereFactor)
+        applySurfaceUniforms(shader, world, atmosphereFactor, cameraPos)
         // A little inside the chunks' reach, so there is no gap between them.
         shader.setFloat("uDiscardNearer", (world.chunkRange * 0.85).toFloat())
         mesh.draw()
@@ -343,7 +344,7 @@ class GlRenderer(
         }
 
         shader.use()
-        applySurfaceUniforms(shader, world, atmosphereFactor)
+        applySurfaceUniforms(shader, world, atmosphereFactor, cameraPos)
         shader.setMat4("uViewProjection", nearViewProjection.m)
         shader.setFloat("uDiscardNearer", 0f)
         for (entry in list) {
@@ -376,6 +377,7 @@ class GlRenderer(
         shader: ShaderProgram,
         world: WorldView,
         atmosphereFactor: Float,
+        cameraPos: Vec3,
     ) {
         shader.setMat4("uModel", modelMatrix.m)
         shader.setMat4("uViewProjection", farViewProjection.m)
@@ -388,6 +390,9 @@ class GlRenderer(
         shader.setFloat("uAtmosphereFactor", atmosphereFactor)
         shader.setFloat("uHazeDistance", (world.atmosphereScaleHeight * 8.0).toFloat())
         shader.setFloat("uHasAtmosphere", if (world.atmosphereHeight > 0.0) 1f else 0f)
+        // The body's centre, camera-relative: the scene is drawn about the
+        // camera, and the body sits at the world origin.
+        shader.setVec3("uBodyCentre", (-cameraPos.x).toFloat(), (-cameraPos.y).toFloat(), (-cameraPos.z).toFloat())
     }
 
     /**
@@ -549,6 +554,9 @@ class GlRenderer(
          * the terrain patch as well as parts at arm's length.
          */
         const val NEAR_NEAR_PLANE = 0.5
+
+        /** Furthest the near plane is pushed out, metres, however far away everything is. */
+        const val MAX_NEAR_PLANE = 2_000.0
 
         /**
          * Far enough for the largest patch. Depth resolution at the far end

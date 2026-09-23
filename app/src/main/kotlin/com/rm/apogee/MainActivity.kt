@@ -440,7 +440,12 @@ class MainActivity : ComponentActivity() {
             // Keeping the context across pauses avoids rebuilding every mesh
             // and shader each time the player checks a notification.
             preserveEGLContextOnPause = true
-            setEGLConfigChooser(8, 8, 8, 8, 24, 0)
+            // 4x multisampling where the device has it. Without it every facet
+            // edge is a hard pixel staircase, and as the camera moves the
+            // staircases crawl - on faceted ground, that is a shimmer across
+            // the whole landscape. Tile-based mobile GPUs resolve MSAA on chip,
+            // so it costs little; a device without it falls back to none.
+            setEGLConfigChooser(MultisampleConfigChooser)
             setRenderer(glRenderer)
             renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
         }
@@ -676,5 +681,36 @@ class MainActivity : ComponentActivity() {
         /** How far a touch may travel and still count as a tap. */
         const val TAP_SLOP_PIXELS = 28f
         const val TAP_TIMEOUT_MILLIS = 400L
+    }
+}
+
+/**
+ * Picks an RGBA8888, 24-bit depth config with 4x multisampling if the device
+ * offers one, and without it otherwise.
+ */
+private object MultisampleConfigChooser : GLSurfaceView.EGLConfigChooser {
+    override fun chooseConfig(
+        egl: javax.microedition.khronos.egl.EGL10,
+        display: javax.microedition.khronos.egl.EGLDisplay,
+    ): javax.microedition.khronos.egl.EGLConfig {
+        fun find(samples: Int): javax.microedition.khronos.egl.EGLConfig? {
+            val attributes = intArrayOf(
+                javax.microedition.khronos.egl.EGL10.EGL_RED_SIZE, 8,
+                javax.microedition.khronos.egl.EGL10.EGL_GREEN_SIZE, 8,
+                javax.microedition.khronos.egl.EGL10.EGL_BLUE_SIZE, 8,
+                javax.microedition.khronos.egl.EGL10.EGL_ALPHA_SIZE, 8,
+                javax.microedition.khronos.egl.EGL10.EGL_DEPTH_SIZE, 24,
+                // EGL_OPENGL_ES3_BIT_KHR: a config GLES 3 can use.
+                javax.microedition.khronos.egl.EGL10.EGL_RENDERABLE_TYPE, 0x40,
+                javax.microedition.khronos.egl.EGL10.EGL_SAMPLE_BUFFERS, if (samples > 0) 1 else 0,
+                javax.microedition.khronos.egl.EGL10.EGL_SAMPLES, samples,
+                javax.microedition.khronos.egl.EGL10.EGL_NONE,
+            )
+            val count = IntArray(1)
+            val configs = arrayOfNulls<javax.microedition.khronos.egl.EGLConfig>(1)
+            if (!egl.eglChooseConfig(display, attributes, configs, 1, count) || count[0] == 0) return null
+            return configs[0]
+        }
+        return find(4) ?: find(0) ?: throw IllegalStateException("No usable EGL config")
     }
 }
