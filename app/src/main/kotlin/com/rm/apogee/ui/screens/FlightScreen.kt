@@ -540,6 +540,15 @@ private fun TelemetryPanel(telemetry: FlightTelemetry, modifier: Modifier = Modi
             )
         }
         Readout("SRF", "${telemetry.surfaceSpeed.roundToInt()} m/s")
+        // Through the air, and the air itself - only where there is some.
+        if (telemetry.inAir) {
+            Readout("AIR", "${telemetry.airspeed.roundToInt()} m/s")
+            Readout(
+                "WIND",
+                "${windArrow(telemetry.windFrom)} ${telemetry.windSpeed.roundToInt()} m/s",
+                colour = if (telemetry.windSpeed > 15.0) ApogeeColors.Caution else ApogeeColors.Data,
+            )
+        }
         Readout("ORB", "${telemetry.orbitalSpeed.roundToInt()} m/s")
         Spacer(Modifier.height(4.dp))
         Readout(
@@ -630,6 +639,16 @@ private fun ConnectionProblem(message: String, onExit: () -> Unit) {
 }
 
 /** Metres below a kilometre, kilometres above it. */
+/**
+ * An arrow for the way the wind is blowing, relative to the nose: the
+ * direction it goes, so a headwind (from 0 degrees) points down the screen.
+ */
+private fun windArrow(fromDegrees: Double): String {
+    val towards = ((fromDegrees + 180.0) % 360.0 + 360.0) % 360.0
+    val arrows = arrayOf("\u2191", "\u2197", "\u2192", "\u2198", "\u2193", "\u2199", "\u2190", "\u2196")
+    return arrows[((towards + 22.5) / 45.0).toInt() % 8]
+}
+
 private fun formatDistance(metres: Double): String {
     val magnitude = abs(metres)
     return when {

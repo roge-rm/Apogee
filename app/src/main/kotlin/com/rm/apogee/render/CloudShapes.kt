@@ -18,7 +18,7 @@ data class CloudPuff(val variant: Int, val flat: Boolean = false) : Shape
  */
 object CloudShapes {
 
-    const val VARIANTS = 6
+    const val VARIANTS = 12
 
     fun puff(shape: CloudPuff): MeshData {
         val (vertices, faces) = icosphere(SUBDIVISIONS)

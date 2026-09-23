@@ -71,7 +71,7 @@ internal class Convection(
             .normalizeInPlace()
         frame(th.origin, th.east, th.north)
         val heat = terrainWind?.let { it.describe(th.origin, descriptor); descriptor[TerrainWind.HEAT] } ?: 0.0
-        val chance = 0.55 * heat * intensity.thermals
+        val chance = 0.4 * heat * intensity.thermals
         th.exists = heat > 0.0 && Noise.hash(seed + 14, cx, cy, c) < chance
         if (th.exists) {
             th.ground = descriptor[TerrainWind.H0]

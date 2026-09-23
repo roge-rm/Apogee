@@ -65,6 +65,7 @@ class GlRenderer(
      */
     val terrainSource = TerrainSource()
     private var globeMesh: TerrainMesh? = null
+    private var particleRenderer: ParticleRenderer? = null
     private var uploadedGlobe = 0
 
     /** The triangle list every chunk shares. */
@@ -141,6 +142,7 @@ class GlRenderer(
         uploadedGlobe = 0
         chunkIndices = SharedIndexBuffer(TerrainChunk.indices)
         scatterRenderer = ScatterRenderer()
+        particleRenderer = ParticleRenderer()
 
         // The sky shader generates its own vertices, but GLES still requires a
         // bound vertex array object to draw.
@@ -222,6 +224,13 @@ class GlRenderer(
         // it - which is exactly what it looked like.
         if (world != null) drawChunks(world, cameraPos, atmosphereFactorAt(world))
         drawVessels(latest, previous, alpha, cameraPos)
+        latest.particles?.let { particles ->
+            val world = latest.world
+            particleRenderer?.draw(
+                particles, latest.particleShapes, nearViewProjection.m,
+                (world?.fogDistance ?: WorldView.CLEAR_FOG).toFloat(), world?.fogColor ?: CLEAR_FOG_COLOR,
+            )
+        }
     }
 
     /**
@@ -510,15 +519,25 @@ class GlRenderer(
                 shader.setVec3("uInvScaleSq", 1f, 1f, 1f)
             } else {
                 modelMatrix.setFromTrs(position, rotation, cameraPos, scale.x, scale.y, scale.z)
+                // The shape only, relative to the largest axis: the shader
+                // normalises the result, so the scale itself is not needed -
+                // and a cloud a kilometre across has a 1/scale^2 near 1e-7,
+                // which a phone GPU's reduced precision rounds to nothing.
+                // A normal of zero lit the facets in random colours and black.
+                val largest = maxOf(scale.x, scale.y, scale.z)
                 shader.setVec3(
                     "uInvScaleSq",
-                    (1.0 / (scale.x * scale.x)).toFloat(), (1.0 / (scale.y * scale.y)).toFloat(), (1.0 / (scale.z * scale.z)).toFloat(),
+                    ((largest / scale.x) * (largest / scale.x)).toFloat(),
+                    ((largest / scale.y) * (largest / scale.y)).toFloat(),
+                    ((largest / scale.z) * (largest / scale.z)).toFloat(),
                 )
             }
             shader.setMat4("uModel", modelMatrix.m)
             shader.setVec4("uColor", item.color)
             shader.setFloat("uAmbient", item.ambient)
-            shader.setFloat("uWrap", if (item.scale != null) 1f else 0f)
+            // Clouds wrap their light and thin at the edges; a flame (ambient
+            // of one or more) glows whole.
+            shader.setFloat("uWrap", if (item.scale != null && item.ambient < 1f) 1f else 0f)
             meshFor(item.shape, item.caps).draw()
         }
     }
@@ -578,6 +597,7 @@ class GlRenderer(
         chunkMeshes.clear()
         chunkIndices?.release(); chunkIndices = null
         scatterRenderer?.release(); scatterRenderer = null
+        particleRenderer?.release(); particleRenderer = null
         meshes.values.forEach { it.release() }
         meshes.clear()
         lineProgram?.release(); lineProgram = null

@@ -54,7 +54,34 @@ data class Engine(
      * under water, and in proportion to how far under it is.
      */
     val waterProp: SerialVec3? = null,
-) : PartModule
+    /** What comes out of the back, for drawing; null lets [exhaustKind] decide. */
+    val exhaust: Exhaust? = null,
+) : PartModule {
+    /**
+     * What it leaves behind it: a water propeller churns water, anything
+     * with no vacuum thrust breathes air - a jet unless it says it is a
+     * propeller - and the rest are rockets.
+     */
+    val exhaustKind: Exhaust
+        get() = exhaust ?: when {
+            waterProp != null -> Exhaust.WATER
+            thrustVacuum <= 0.0 -> Exhaust.JET
+            else -> Exhaust.ROCKET
+        }
+}
+
+/** The kinds of exhaust an engine leaves, for plumes and smoke. */
+@Serializable
+enum class Exhaust {
+    /** Flame and smoke, widening with altitude into a vacuum bloom. */
+    @SerialName("rocket") ROCKET,
+    /** A faint hot core, and contrails high up. */
+    @SerialName("jet") JET,
+    /** No flame: prop wash, dust near the ground. */
+    @SerialName("prop") PROP,
+    /** Churned water behind it. */
+    @SerialName("water") WATER,
+}
 
 /** Stores [capacity] units of [resource]. */
 @Serializable

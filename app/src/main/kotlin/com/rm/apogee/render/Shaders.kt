@@ -48,7 +48,9 @@ object Shaders {
 
     val VESSEL_FRAGMENT = """
         #version 300 es
-        precision mediump float;
+        // highp: distances run to tens of kilometres now that clouds are
+        // drawn here, past what mediump holds on many phone GPUs (65 km).
+        precision highp float;
 
         flat in vec3 vNormal;
         in float vDistance;
@@ -80,6 +82,8 @@ object Shaders {
             float wrapped = facing * 0.5 + 0.5;
             float diffuse = mix(max(facing, 0.0), wrapped * wrapped, uWrap);
             vec3 lit = uColor.rgb * (uAmbient + diffuse * 0.8 * uLightScale);
+            // Ambient of one or more means it glows - a flame - at its own colour.
+            if (uAmbient >= 1.0) lit = uColor.rgb;
             float haze = (1.0 - exp(-vDistance / max(uHazeDistance, 1.0))) * uAtmosphereFactor;
             lit = mix(lit, vec3(0.52, 0.66, 0.85), clamp(haze, 0.0, 1.0));
             float fog = 1.0 - exp(-vDistance / max(uFogDistance, 1.0));
@@ -91,6 +95,44 @@ object Shaders {
                 alpha *= mix(0.25, 1.0, smoothstep(0.05, 0.6, faceOn));
             }
             fragColor = vec4(mix(lit, uFogColor, clamp(fog, 0.0, 1.0)), alpha);
+        }
+    """.trimIndent()
+
+    // ---- particles ----------------------------------------------------------
+
+    /** Smoke, dust, spray, rain and bolts: flat-coloured, camera-relative, built on the CPU. */
+    val PARTICLE_VERTEX = """
+        #version 300 es
+        layout(location = 0) in vec3 aPosition;
+        layout(location = 1) in vec4 aColor;
+
+        uniform mat4 uViewProjection;
+
+        flat out vec4 vColor;
+        out float vDistance;
+
+        void main() {
+            vColor = aColor;
+            vDistance = length(aPosition);
+            gl_Position = uViewProjection * vec4(aPosition, 1.0);
+        }
+    """.trimIndent()
+
+    val PARTICLE_FRAGMENT = """
+        #version 300 es
+        precision highp float;
+
+        flat in vec4 vColor;
+        in float vDistance;
+
+        uniform float uFogDistance;
+        uniform vec3 uFogColor;
+
+        out vec4 fragColor;
+
+        void main() {
+            float fog = 1.0 - exp(-vDistance / max(uFogDistance, 1.0));
+            fragColor = vec4(mix(vColor.rgb, uFogColor, clamp(fog, 0.0, 1.0)), vColor.a);
         }
     """.trimIndent()
 

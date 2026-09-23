@@ -29,6 +29,24 @@ enum class WeatherIntensity(
 }
 
 /**
+ * How much layer cloud a world has. Also the host's, and saved with the world.
+ * Whatever the setting, cover gathers in pockets: thin and see-through over
+ * most of the map, thick here and there.
+ */
+@Serializable
+enum class CloudCover(
+    val label: String,
+    /** Added to the air's humidity before it is judged cloudy or not. */
+    val humidity: Double,
+    /** How thick the pockets get, and how common. */
+    val pockets: Double,
+) {
+    @SerialName("light") LIGHT("Light", humidity = -0.1, pockets = 0.6),
+    @SerialName("normal") NORMAL("Normal", humidity = 0.0, pockets = 1.0),
+    @SerialName("heavy") HEAVY("Heavy", humidity = 0.12, pockets = 1.5),
+}
+
+/**
  * Everything a world's weather is made from, besides the planet itself.
  *
  * The whole of it crosses the wire and goes into saves - nothing else about
@@ -39,4 +57,5 @@ enum class WeatherIntensity(
 data class WeatherConfig(
     val seed: Int = TerrainField.DEFAULT_SEED,
     val intensity: WeatherIntensity = WeatherIntensity.NORMAL,
+    val clouds: CloudCover = CloudCover.NORMAL,
 )

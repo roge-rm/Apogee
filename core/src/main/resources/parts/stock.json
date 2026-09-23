@@ -3623,7 +3623,8 @@
           "y": 1.0,
           "z": 0.0
         },
-        "minThrottle": 0.0
+        "minThrottle": 0.0,
+        "exhaust": "prop"
       }
     ]
   },

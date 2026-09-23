@@ -167,6 +167,19 @@ class GameSession private constructor(
     private var drawFarSurface = true
     private var chunkRange = 0.0
 
+    private var lastRenderTime = 0.0
+
+    /** How far a design reaches from its centre of mass, m, cached per design. */
+    private val radii = java.util.IdentityHashMap<CraftDesign, Double>()
+
+    private fun designRadius(design: CraftDesign, centreOfMass: Vec3): Double = radii.getOrPut(design) {
+        design.parts.maxOfOrNull { it.position.distanceTo(centreOfMass) + 0.8 } ?: 1.0
+    }
+
+    /** Smoke, dust, spray, flames, rain and lightning. */
+    private var effects: Effects? = null
+    private val frameEmitters = ArrayList<EngineEmitter>()
+
     /** Clouds and the camera's air, while the world has weather and the camera is in it. */
     private var cloudScene: CloudScene? = null
     private val cloudCamera = Vec3()
@@ -416,6 +429,7 @@ class GameSession private constructor(
 
         val lines = ArrayList<RenderLine>(4)
         val items = ArrayList<RenderItem>(64)
+        frameEmitters.clear()
 
         // The one time this frame is drawn at. Snapshot time plus how long
         // ago it arrived, unless the controlled craft is being predicted, in
@@ -426,6 +440,7 @@ class GameSession private constructor(
         val snapshotAge = if (client.latestSnapshotNanos == 0L) 0.0
             else (System.nanoTime() - client.latestSnapshotNanos) / 1e9
         var renderTime = snapshotTime + snapshotAge
+        lastRenderTime = renderTime
         val animationNow = System.nanoTime()
         animationDt = if (lastAnimationNanos == 0L) 0.0 else ((animationNow - lastAnimationNanos) / 1e9).coerceAtMost(0.1)
         lastAnimationNanos = animationNow
@@ -521,6 +536,9 @@ class GameSession private constructor(
         telemetry = FlightTelemetry.from(
             focus, attractor, focusState.throttle, bodyFixedCamera,
             lowestPointOffset = lowestPointOffset(focus.design, focusState.rotation, scratchUp),
+            air = prediction.replica?.air,
+            bodyRotation = bodyRotation,
+            forwardAxis = focus.design.orientation.forward,
         )
 
         // The nearest thing in view, for the near plane: the closest part of
@@ -550,6 +568,21 @@ class GameSession private constructor(
             if (!mapMode) clouds.append(bodyRotation, items)
         }
 
+        // Flames, smoke and the rest: stepped by real frame time, drawn
+        // through the same weather as the clouds.
+        val fx = effects ?: Effects(terrainQuality ?: QualityTier.MEDIUM).also { effects = it }
+        attractor.toBodyFixed(cameraPosition, bodyRotation, cloudCamera)
+        fx.step(animationDt, renderTime, attractor, bodyRotation, frameEmitters, clouds?.weather, cloudCamera, clouds?.air)
+        var particles: FloatArray? = null
+        var particleShapes = 0
+        if (!mapMode) {
+            fx.flames(frameEmitters, attractor, renderTime, items)
+            val (vertices, shapes) = fx.vertices(bodyRotation, cameraPosition, cameraRotation, clouds?.lightScale ?: 1f, renderTime)
+            particles = vertices
+            particleShapes = shapes
+        }
+        val flash = if (mapMode) 0f else fx.flash
+
         frameBus.publish(
             RenderFrame(
                 simTick = client.latestSnapshot?.tick ?: 0L,
@@ -575,11 +608,13 @@ class GameSession private constructor(
                     fogDistance = if (mapMode || clouds == null) WorldView.CLEAR_FOG else clouds.fogDistance,
                     fogColor = clouds?.fogColor ?: floatArrayOf(0.75f, 0.77f, 0.8f),
                     skyFog = if (mapMode) 0f else clouds?.skyFog ?: 0f,
-                    lightScale = if (mapMode) 1f else clouds?.lightScale ?: 1f,
+                    lightScale = if (mapMode) 1f else ((clouds?.lightScale ?: 1f) + 1.4f * flash).coerceAtMost(2.2f),
                     surfaceWind = clouds?.surfaceWind?.copy() ?: Vec3(),
                     time = renderTime,
                 ),
                 nearestDistance = if (nearest == Double.MAX_VALUE) 0.0 else nearest.coerceAtLeast(0.0),
+                particles = particles,
+                particleShapes = particleShapes,
             )
         )
         framesPublished.incrementAndGet()
@@ -675,6 +710,7 @@ class GameSession private constructor(
         /** Pose from the prediction replica, for the craft being flown. */
         predicted: Boolean = false,
     ) {
+        val emitters = frameEmitters
         val state = stateOverride ?: vessel.latest ?: return
         val design = vessel.design
 
@@ -748,9 +784,52 @@ class GameSession private constructor(
                 val axle = placed.rotation.rotate(anim.wheelAlign!!.rotate(Vec3(1.0, 0.0, 0.0)))
                 val rate = if (onGround) (scratchWheelSpin dot axle) / wheel.radius else 0.0
                 animation.spin[index] += rate * animationDt
+                // Dust off the tyre where it meets the ground.
+                if (onGround && !mapMode) {
+                    val contact = Vec3().setTo(scratch).addScaledInPlace(position.normalized(), -wheel.radius)
+                    effects?.wheelDust(contact, scratchGroundVelocity.length, attractor, bodyRotation, animationDt, (vessel.id * 131 + index).toInt())
+                }
             } else if (def.module<com.rm.apogee.core.part.Engine>() != null) {
                 // A propeller turns with the throttle.
                 animation.spin[index] += state.throttle * PROPELLER_RATE * animationDt
+            }
+            // A lit engine leaves a flame and smoke behind it.
+            def.module<com.rm.apogee.core.part.Engine>()?.let { engine ->
+                // The replica's parts are only this design's while their counts
+                // agree: staging splits it at once, before the server's new
+                // structure arrives, and indexing it by this design's parts
+                // then ran off the end.
+                val replica = prediction.replica?.takeIf { predicted && it.defs.size == design.parts.size }
+                val lit = if (replica != null) replica.isWorking(index) && replica.control.throttle > 0.0
+                    else index in vessel.activatedParts
+                if (lit && state.throttle > 0.01) {
+                    val partRotation = rotation * placed.rotation
+                    val mesh = def.mesh
+                    val half = when (mesh) {
+                        is com.rm.apogee.core.part.MeshSpec.Cylinder -> mesh.height * 0.5
+                        is com.rm.apogee.core.part.MeshSpec.Cone -> mesh.height * 0.5
+                        is com.rm.apogee.core.part.MeshSpec.Box -> mesh.height * 0.5
+                        else -> 0.5
+                    }
+                    val radius = when (mesh) {
+                        is com.rm.apogee.core.part.MeshSpec.Cylinder -> mesh.radius
+                        is com.rm.apogee.core.part.MeshSpec.Cone -> mesh.bottomRadius
+                        else -> 0.4
+                    }
+                    val thrust = engine.thrustDirection
+                    val local = engine.waterProp?.copy() ?: Vec3(-thrust.x * half, -thrust.y * half, -thrust.z * half)
+                    emitters.add(
+                        EngineEmitter(
+                            nozzle = partRotation.rotate(local).addInPlace(scratch),
+                            out = partRotation.rotate(Vec3(-thrust.x, -thrust.y, -thrust.z)).normalizeInPlace(),
+                            radius = radius * 0.8,
+                            kind = engine.exhaustKind,
+                            throttle = if (predicted) (prediction.replica?.control?.throttle ?: state.throttle) else state.throttle,
+                            velocity = state.velocity.copy(),
+                            seed = (vessel.id * 31 + index).toInt(),
+                        ),
+                    )
+                }
             }
             anim.spin = animation.spin[index] % (2 * Math.PI)
 
@@ -769,6 +848,16 @@ class GameSession private constructor(
                     )
                 )
             }
+        }
+
+        // The air it pushes through, made visible: vapour and re-entry glow.
+        if (!mapMode) {
+            val throughAir = Vec3().setTo(state.velocity).subInPlace(attractor.surfaceVelocityAt(position, Vec3()))
+            if (predicted) prediction.replica?.air?.let { air -> throughAir.subInPlace(bodyRotation.rotate(air.wind, Vec3())) }
+            effects?.aero(
+                position, throughAir, designRadius(design, centreOfMass), attractor, bodyRotation,
+                animationDt, lastRenderTime, vessel.id.toInt(), out,
+            )
         }
     }
 
@@ -933,6 +1022,7 @@ class GameSession private constructor(
             catalog: PartCatalog = StockParts.catalog,
             scope: CoroutineScope,
             weather: com.rm.apogee.core.weather.WeatherIntensity? = null,
+            clouds: com.rm.apogee.core.weather.CloudCover? = null,
         ): GameSession {
             val session = hostLocal(
                 frameBus, perfHints, playerName, clientId, design, catalog, scope,
@@ -941,6 +1031,7 @@ class GameSession private constructor(
                 // sees the name they picked in the browser.
                 serverName = serverName,
                 weather = weather,
+                clouds = clouds,
             )
             session.hostedServer?.let { session.openToLan(it, scope, serverName) }
             return session
@@ -1003,6 +1094,8 @@ class GameSession private constructor(
             resumeVessel: Long? = null,
             /** How lively the weather is, from the player's setting. */
             weather: com.rm.apogee.core.weather.WeatherIntensity? = null,
+            /** How cloudy, likewise. */
+            clouds: com.rm.apogee.core.weather.CloudCover? = null,
         ): GameSession {
             val server = GameServer(
                 world = world,
@@ -1015,6 +1108,7 @@ class GameSession private constructor(
                     freshFlight = freshFlight && design == null && resumeVessel == null,
                     resumeVessel = resumeVessel,
                     weatherIntensity = weather,
+                    cloudCover = clouds,
                 ),
             )
             val link = LoopbackTransportPair()
@@ -1058,6 +1152,17 @@ class FlightTelemetry(
     val up: Vec3,
     /** Direction of travel relative to the surface, or null when stationary. */
     val prograde: Vec3?,
+    /** Speed through the air, m/s: surface speed less the wind. */
+    val airspeed: Double = 0.0,
+    /** The wind's speed across the ground, m/s. */
+    val windSpeed: Double = 0.0,
+    /**
+     * Where the wind comes from, degrees, relative to the craft's heading:
+     * 0 dead ahead, 90 from the right, 180 from behind.
+     */
+    val windFrom: Double = 0.0,
+    /** Whether there is air to speak of: the wind readouts are hidden in space. */
+    val inAir: Boolean = false,
 ) {
     /** Above this, aerodynamic loads are worth warning about. */
     val highDynamicPressure: Boolean get() = dynamicPressure > MAX_Q_WARNING
@@ -1088,6 +1193,12 @@ class FlightTelemetry(
             bodyFixedPosition: Vec3,
             /** Metres from the craft's centre down to its lowest point. */
             lowestPointOffset: Double = 0.0,
+            /** The air the craft is in, body-fixed wind, or null for none. */
+            air: com.rm.apogee.core.weather.AirSample? = null,
+            /** The body's rotation now, to turn the wind into the world's frame. */
+            bodyRotation: Quat? = null,
+            /** The craft's forward, design axis, for which way the wind comes from. */
+            forwardAxis: Vec3 = Vec3.unitY(),
         ): FlightTelemetry {
             val state = vessel.latest ?: return EMPTY
             val orbit = Orbit(
@@ -1099,6 +1210,20 @@ class FlightTelemetry(
             val relative = state.velocity - surfaceVelocity
             val altitude = attractor.altitudeOf(state.position)
             val density = attractor.atmosphere?.densityAt(altitude) ?: 0.0
+
+            // The wind, and the craft's motion through the air it makes.
+            val up = state.position.normalized()
+            val wind = if (air != null && bodyRotation != null) bodyRotation.rotate(air.wind, Vec3()) else Vec3()
+            val throughAir = relative - wind
+            val horizontalWind = wind.copy().addScaledInPlace(up, -(wind dot up))
+            val heading = state.rotation.rotate(forwardAxis, Vec3())
+            heading.addScaledInPlace(up, -(heading dot up))
+            val windFrom = if (horizontalWind.length > 0.3 && heading.length > 1e-6) {
+                heading.normalizeInPlace()
+                val from = horizontalWind.copy().mulInPlace(-1.0).normalizeInPlace()
+                val right = heading.cross(up)
+                Math.toDegrees(kotlin.math.atan2(from dot right, from dot heading))
+            } else 0.0
 
             return FlightTelemetry(
                 altitude = altitude,
@@ -1123,6 +1248,10 @@ class FlightTelemetry(
                 // prograde marker jittering around the navball is worse than
                 // none at all.
                 prograde = if (relative.length > 1.0) relative.normalized() else null,
+                airspeed = throughAir.length,
+                windSpeed = horizontalWind.length,
+                windFrom = windFrom,
+                inAir = density > 1e-3,
             )
         }
     }

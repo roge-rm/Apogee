@@ -107,13 +107,19 @@ class CloudScene(
         shapes.clear()
         listingWeather.clouds(camera.copy().normalizeInPlace(), reach, time, shapes)
         val list = ArrayList<Lobe>(shapes.size * 4)
-        var index = 0
         for (shape in shapes) {
             for (lobe in shape.lobes) {
                 val distance = lobe.centre.distanceTo(camera) - lobe.horizontal
                 if (distance > reach) continue
                 val up = Vec3().setTo(lobe.centre).normalizeInPlace()
-                val orient = quatFromTo(Vec3.unitY(), up)
+                // Each puff turned its own way about the vertical, and its
+                // shape picked from where it is: turned alike and handed out
+                // in order, neighbours were copies of each other.
+                val hash = com.rm.apogee.core.terrain.Noise.hashInt(
+                    0xC10D, (lobe.centre.x * 0.01).toInt(), (lobe.centre.y * 0.01).toInt(), (lobe.centre.z * 0.01).toInt(),
+                )
+                val yaw = ((hash ushr 8) and 0xFFFF) / 65_536.0 * 2.0 * Math.PI
+                val orient = quatFromTo(Vec3.unitY(), up) * Quat.fromAxisAngle(Vec3.unitY(), yaw)
                 val colour = colourOf(shape.type, lobe.shade)
                 // How solid, by kind and by how much of it there is - a thin
                 // deck or a young cumulus lets the sky through - and fading
@@ -126,7 +132,7 @@ class CloudScene(
                         lobe.centre, orient,
                         Vec3(lobe.horizontal, lobe.vertical, lobe.horizontal),
                         colour,
-                        variant = (index++ * 7 + (lobe.centre.x * 0.001).toInt()).mod(CloudShapes.VARIANTS),
+                        variant = (hash and 0xFF).mod(CloudShapes.VARIANTS),
                         flat = shape.type == CloudType.STRATUS || shape.type == CloudType.ALTOSTRATUS || shape.type == CloudType.CIRRUS,
                         distance = distance,
                     ),
@@ -204,7 +210,7 @@ class CloudScene(
 
     private companion object {
         /** Opacity of each kind at its thickest, by ordinal. */
-        val OPACITY = doubleArrayOf(0.92, 0.72, 0.55, 0.3, 0.96)
+        val OPACITY = doubleArrayOf(0.85, 0.55, 0.45, 0.25, 0.95)
 
         const val RELIST_SECONDS = 1.0
         const val RELIST_DISTANCE = 1_000.0

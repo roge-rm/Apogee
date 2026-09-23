@@ -114,9 +114,11 @@ private fun StageChip(card: StageCard) {
         val fraction = card.fuelFraction
         if (card.current) {
             Text(
-                "now \u00b7 \u0394v ${"%,d".format((card.deltaV ?: 0.0).roundToInt())} m/s",
+                "\u0394v ${"%,d".format((card.deltaV ?: 0.0).roundToInt())}",
                 style = ChipText,
                 color = ApogeeColors.Data,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
         } else if (fraction != null) {

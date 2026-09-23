@@ -76,6 +76,11 @@ class GameSettings(context: Context) {
         KEY_WEATHER, com.rm.apogee.core.weather.WeatherIntensity.NORMAL,
     )
 
+    /** How cloudy the worlds this device hosts are. */
+    var cloudCover: com.rm.apogee.core.weather.CloudCover by enumPref(
+        KEY_CLOUDS, com.rm.apogee.core.weather.CloudCover.NORMAL,
+    )
+
     var uiSoundEnabled: Boolean by booleanPref(KEY_UI_SOUND, true)
 
     var hapticsEnabled: Boolean by booleanPref(KEY_HAPTICS, true)
@@ -181,6 +186,7 @@ class GameSettings(context: Context) {
         const val KEY_LEFT_HAND = "left_hand_mode"
         const val KEY_PITCH_STYLE = "pitch_style"
         const val KEY_WEATHER = "weather_intensity"
+        const val KEY_CLOUDS = "cloud_cover"
         const val KEY_UI_SOUND = "ui_sound"
         const val KEY_HAPTICS = "haptics"
         const val KEY_DEBUG_OVERLAY = "debug_overlay"

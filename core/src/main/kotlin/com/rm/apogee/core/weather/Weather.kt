@@ -284,7 +284,8 @@ class Weather(val body: CelestialBody, val config: WeatherConfig) {
         val humidity = humidity(up, pressure, ocean, time)
         for (type in LAYER_TYPES) {
             if (!layer(type, up, groundTop, humidity, time, layerScratch)) continue
-            val cover = layerScratch[0]; val base = layerScratch[1]; val top = layerScratch[2]
+            val cover = layerScratch[0] * thickness(up, time)
+            val base = layerScratch[1]; val top = layerScratch[2]
             val edge = if (type == CloudType.CIRRUS) 150.0 else 50.0
             val inside = smooth(base - edge, base + edge, altitude) * (1.0 - smooth(top - edge, top + edge * 0.2, altitude))
             if (inside > 0.0) addCloud(out, LAYER_DENSITY[type.ordinal] * cover * inside, type)
@@ -297,7 +298,18 @@ class Weather(val body: CelestialBody, val config: WeatherConfig) {
         val t = time / 14_400.0
         val k = radius / 600_000.0
         return 0.5 + 0.3 * Noise.simplex(seed + 3, up.x * k + t, up.y * k, up.z * k - t) -
-            0.35 * pressure + (if (ocean) 0.12 else 0.0)
+            0.35 * pressure + (if (ocean) 0.12 else 0.0) + config.clouds.humidity
+    }
+
+    /**
+     * How thick the layer cloud is here, 0..1: low over most of the map, so
+     * the ground shows through a deck, rising to solid in the occasional
+     * pocket some tens of kilometres across.
+     */
+    private fun thickness(up: Vec3, time: Double): Double {
+        val pocket = 0.5 + 0.5 * noise(10, up, 45_000.0, time / 5_400.0)
+        val dense = smooth(0.62, 0.9, pocket) * config.clouds.pockets
+        return (0.3 + 0.7 * dense).coerceIn(0.0, 1.0)
     }
 
     /**
@@ -308,7 +320,7 @@ class Weather(val body: CelestialBody, val config: WeatherConfig) {
     private fun layer(type: CloudType, up: Vec3, groundTop: Double, humidity: Double, time: Double, out: DoubleArray): Boolean {
         when (type) {
             CloudType.STRATUS -> {
-                val cover = smooth(0.62, 0.82, humidity + 0.12 * noise(4, up, 15_000.0, time / 3_600.0))
+                val cover = smooth(0.7, 0.9, humidity + 0.12 * noise(4, up, 15_000.0, time / 3_600.0))
                 if (cover <= 0.0) return false
                 // A few hundred metres over whatever is under it. Pinned to
                 // sea level it buried the Cape - a kilometre up - in fog.
@@ -317,13 +329,13 @@ class Weather(val body: CelestialBody, val config: WeatherConfig) {
                 out[2] = base + 250.0 + 250.0 * (0.5 + 0.5 * noise(6, up, 2_500.0, time / 1_800.0))
             }
             CloudType.ALTOSTRATUS -> {
-                val cover = smooth(0.7, 0.9, humidity + 0.15 * noise(7, up, 30_000.0, time / 3_600.0))
+                val cover = smooth(0.78, 0.95, humidity + 0.15 * noise(7, up, 30_000.0, time / 3_600.0))
                 if (cover <= 0.0) return false
                 out[0] = cover; out[1] = 4_200.0
                 out[2] = 4_200.0 + 350.0 + 250.0 * (0.5 + 0.5 * noise(8, up, 4_000.0, time / 2_400.0))
             }
             CloudType.CIRRUS -> {
-                val cover = smooth(0.6, 0.85, 0.5 + 0.5 * noise(9, up, 80_000.0, time / 7_200.0))
+                val cover = smooth(0.68, 0.9, 0.5 + 0.5 * noise(9, up, 80_000.0, time / 7_200.0))
                 if (cover <= 0.0) return false
                 out[0] = cover; out[1] = 8_700.0; out[2] = 9_300.0
             }
@@ -430,20 +442,33 @@ class Weather(val body: CelestialBody, val config: WeatherConfig) {
                 val cellGround = if (terrainWind != null && !cellOcean) max(descriptor[TerrainWind.H0], 0.0) else 0.0
                 val humidity = humidity(cellCentre, pressure(cellCentre, time), cellOcean, time)
                 if (!layer(type, cellCentre, cellGround, humidity, time, layerScratch)) continue
-                val cover = layerScratch[0]
+                val cover = layerScratch[0] * thickness(cellCentre, time)
                 if (cover < 0.15) continue
                 val base = layerScratch[1]; val top = layerScratch[2]
-                // Nudged off the grid, so a deck is not a chessboard.
+                // A clump of one to three puffs, of mixed sizes, anywhere in
+                // the cell - and none at all in some cells where the cover
+                // is thin. One puff of one size per cell, as it was, drew a
+                // honeycomb from above.
+                val salt = seed + 90 + type.ordinal * 11
+                if (Noise.hash(salt, cx, cy, 0) > 0.35 + 0.65 * cover) continue
                 val ce = Vec3(); val cn = Vec3()
                 frame(cellCentre, ce, cn)
-                val jitter = 0.3 * spacing
-                val at = Vec3().setTo(cellCentre).mulInPlace(radius + (base + top) * 0.5)
-                    .addScaledInPlace(ce, (Noise.hash(seed + 90 + type.ordinal, cx, cy, 0) - 0.5) * jitter)
-                    .addScaledInPlace(cn, (Noise.hash(seed + 95 + type.ordinal, cx, cy, 0) - 0.5) * jitter)
                 val shape = CloudShape(type, cover)
-                shape.lobes.add(
-                    CloudLobe(at, spacing * (0.55 + 0.35 * cover), (top - base) * 0.5 * (0.6 + 0.4 * cover), shade = 0.85),
-                )
+                val puffs = 1 + (Noise.hash(salt, cx, cy, 1) * 3.0 * cover).toInt().coerceAtMost(2)
+                for (p in 0 until puffs) {
+                    val size = spacing * (0.25 + 0.55 * Noise.hash(salt, cx, cy, 10 + p)) * (0.6 + 0.4 * cover)
+                    val at = Vec3().setTo(cellCentre)
+                        .mulInPlace(radius + (base + top) * 0.5 + (Noise.hash(salt, cx, cy, 20 + p) - 0.5) * (top - base) * 0.4)
+                        .addScaledInPlace(ce, (Noise.hash(salt, cx, cy, 30 + p) - 0.5) * spacing * 0.9)
+                        .addScaledInPlace(cn, (Noise.hash(salt, cx, cy, 40 + p) - 0.5) * spacing * 0.9)
+                    shape.lobes.add(
+                        CloudLobe(
+                            at, size,
+                            (top - base) * 0.5 * (0.45 + 0.55 * Noise.hash(salt, cx, cy, 50 + p)) * (0.6 + 0.4 * cover),
+                            shade = 0.8 + 0.12 * Noise.hash(salt, cx, cy, 60 + p),
+                        ),
+                    )
+                }
                 out.add(shape)
             }
         }

@@ -65,6 +65,14 @@ class RenderFrame(
      * pixel along the seam, flickering as the camera moved.
      */
     val nearestDistance: Double = 0.0,
+    /**
+     * Smoke, dust, spray, rain and bolts: [particleShapes] shapes of six
+     * camera-relative vertices each, [com.rm.apogee.game.Effects.VERTEX_FLOATS]
+     * floats a vertex. Shared with the game thread's triple buffer, so read
+     * only this frame.
+     */
+    val particles: FloatArray? = null,
+    val particleShapes: Int = 0,
 )
 
 /**

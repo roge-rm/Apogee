@@ -164,6 +164,20 @@ private fun PlayerTab(settings: GameSettings) {
         },
         onSelect = { settings.weatherIntensity = it },
     )
+    ChoiceGroup(
+        title = "Cloud cover",
+        options = com.rm.apogee.core.weather.CloudCover.entries,
+        selected = settings.cloudCover,
+        label = { it.label },
+        description = {
+            when (it) {
+                com.rm.apogee.core.weather.CloudCover.LIGHT -> "Mostly clear, thin decks, rare thick patches"
+                com.rm.apogee.core.weather.CloudCover.NORMAL -> "See-through decks with the odd dense pocket"
+                com.rm.apogee.core.weather.CloudCover.HEAVY -> "Frequent overcast and big dense banks"
+            }
+        },
+        onSelect = { settings.cloudCover = it },
+    )
     Text(
         "Everyone in a game flies in the host's weather. Your own world takes " +
             "the change from your next flight.",

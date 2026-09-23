@@ -70,6 +70,8 @@ class ServerConfig(
      * calmer or wilder.
      */
     val weatherIntensity: com.rm.apogee.core.weather.WeatherIntensity? = null,
+    /** How cloudy, likewise overriding the world's own; null keeps it. */
+    val cloudCover: com.rm.apogee.core.weather.CloudCover? = null,
 )
 
 /**
@@ -133,7 +135,10 @@ class GameServer(
         // Every game has weather: set here, before anyone joins, so the
         // welcome can tell each client what to compute.
         val base = world.weatherConfig ?: com.rm.apogee.core.weather.WeatherConfig()
-        world.weatherConfig = config.weatherIntensity?.let { base.copy(intensity = it) } ?: base
+        world.weatherConfig = base.copy(
+            intensity = config.weatherIntensity ?: base.intensity,
+            clouds = config.cloudCover ?: base.clouds,
+        )
     }
 
     /** Names of everyone currently connected, for the admin view. */
