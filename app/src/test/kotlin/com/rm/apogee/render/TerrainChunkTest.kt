@@ -65,14 +65,20 @@ class TerrainChunkTest {
         val chunk = chunkNearHome()
         val indices = TerrainChunk.indices
         val a = Vec3(); val b = Vec3(); val c = Vec3()
-        val gridTriangles = TerrainChunk.CELLS * TerrainChunk.CELLS * 2
-        for (t in 0 until gridTriangles) {
+        val grid = TerrainChunk.SIDE * TerrainChunk.SIDE
+        var checked = 0
+        for (t in 0 until indices.size / 3) {
+            // Grid triangles only; skirts are wound both ways on purpose, and
+            // sit among them, a quarter at a time.
+            if ((0 until 3).any { (indices[t * 3 + it].toInt() and 0xFFFF) >= grid }) continue
+            checked++
             vertex(chunk, indices[t * 3].toInt() and 0xFFFF, a)
             vertex(chunk, indices[t * 3 + 1].toInt() and 0xFFFF, b)
             vertex(chunk, indices[t * 3 + 2].toInt() and 0xFFFF, c)
             val normal = b.copy().subInPlace(a).crossInPlace(c.copy().subInPlace(a))
             assertTrue("triangle $t faces inward", (normal dot a) > 0.0)
         }
+        assertEquals(TerrainChunk.CELLS * TerrainChunk.CELLS * 2, checked)
     }
 
     @Test
@@ -87,5 +93,42 @@ class TerrainChunkTest {
             vertex(right, q * side, b)
             assertTrue("edge vertex $q: ${a.distanceTo(b)} m apart", a.distanceTo(b) < 0.005)
         }
+    }
+
+    /**
+     * The shared index buffer comes in four equal quarters, each covering
+     * only its own child's cells, so a chunk can stand in for just the
+     * children that are missing. Together they are the whole chunk: every
+     * cell twice (two triangles) and every skirt segment once.
+     */
+    @Test
+    fun `the index buffer is laid out a quarter at a time`() {
+        val indices = TerrainChunk.indices
+        val side = TerrainChunk.SIDE
+        val half = TerrainChunk.CELLS / 2
+        val perQuarter = TerrainChunk.quadrantIndexCount
+        assertEquals(indices.size, perQuarter * 4)
+        val grid = side * side
+        val cellsSeen = HashMap<Int, Int>()
+        for (quarter in 0 until 4) {
+            val di = quarter % 2
+            val dj = quarter / 2
+            for (t in 0 until perQuarter / 3) {
+                val tri = (0 until 3).map { indices[quarter * perQuarter + t * 3 + it].toInt() }
+                val top = tri.filter { it < grid }
+                // Every grid vertex of this quarter's triangles is inside or on
+                // the boundary of the quarter.
+                for (v in top) {
+                    val p = v % side; val q = v / side
+                    assertTrue("quarter $quarter has vertex ($p,$q)", p in di * half..di * half + half && q in dj * half..dj * half + half)
+                }
+                if (top.size == 3) {
+                    val p = top.minOf { it % side }; val q = top.minOf { it / side }
+                    cellsSeen.merge(q * side + p, 1, Int::plus)
+                }
+            }
+        }
+        assertEquals("every cell drawn", TerrainChunk.CELLS * TerrainChunk.CELLS, cellsSeen.size)
+        assertTrue("two triangles a cell", cellsSeen.values.all { it == 2 })
     }
 }

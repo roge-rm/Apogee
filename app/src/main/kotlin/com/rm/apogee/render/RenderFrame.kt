@@ -104,6 +104,13 @@ class WorldView(
      * fill of a screen that is about to be painted over.
      */
     val drawFarSurface: Boolean = true,
+    /**
+     * How far out the chunks reach, metres, or 0 when there are none. The
+     * globe is drawn only beyond this: nearer, the chunks have the ground,
+     * and the globe's coarse surface - higher than a valley floor, say -
+     * would otherwise show through above them like a ceiling.
+     */
+    val chunkRange: Double = 0.0,
 )
 
 /**

@@ -70,6 +70,17 @@ class World(
     var time: Double = 0.0
         private set
 
+    /**
+     * Sets the clock of a replica: a client's prediction world has to agree
+     * with the server's about what time it is, because the time is where the
+     * planet has turned to, and so where the ground is under every craft.
+     * Never used on an authoritative world, whose clock only advances by
+     * stepping.
+     */
+    fun syncClock(time: Double) {
+        this.time = time
+    }
+
     var tick: Long = 0
         private set
 
@@ -90,6 +101,9 @@ class World(
     private val contacts = GroundContact()
 
     private val pendingEvents = ArrayList<WorldEvent>()
+
+    /** The time the tick in progress ends at: [time] + dt, while stepping. */
+    private var tickEnd = 0.0
 
     /** Knocks down scatter [id] for good, and tells everyone. Felling it twice does nothing. */
     fun fell(id: Long) {
@@ -715,6 +729,7 @@ class World(
      * cannot silently start mattering later.
      */
     fun step(dt: Double) {
+        tickEnd = time + dt
         for (vessel in vesselsById.values) {
             val attractor = attractorFor(vessel)
             val body = vessel.body
@@ -727,10 +742,17 @@ class World(
             // looking at, and a base on a pad otherwise costs exactly what
             // one being flown does.
             if (vessel.dormant) {
-                attractor.rotationAt(time, scratchRotation)
+                // At the end of the tick, which is the time this tick's
+                // positions are reported at - integrated craft move to it,
+                // and a sleeping one has to be where the ground is then.
+                attractor.rotationAt(tickEnd, scratchRotation)
                 attractor.surfaceVelocityAt(body.position, scratchSurfaceVelocity)
                 attractor.angularVelocity(scratchSpin)
                 vessel.followRotation(scratchRotation, scratchSurfaceVelocity, scratchSpin)
+                // The ground's velocity where it now is, not where it was a
+                // tick ago: a client recognises a sleeping craft by its
+                // moving with the surface exactly.
+                attractor.surfaceVelocityAt(body.position, body.linearVelocity)
                 continue
             }
 
@@ -830,7 +852,9 @@ class World(
     private fun considerSleeping(vessel: Vessel, report: ContactReport) {
         val still = report.anchored || floatingStill(vessel)
         if (vessel.noteStillness(still, SLEEP_SETTLE_TICKS)) {
-            attractorFor(vessel).rotationAt(time, scratchRotation)
+            // The pose was just integrated to the end of the tick, so it is
+            // pinned to the ground as the ground is then.
+            attractorFor(vessel).rotationAt(tickEnd, scratchRotation)
             vessel.sleep(scratchRotation)
         }
     }
@@ -1180,9 +1204,33 @@ class World(
      */
     fun spawnFor(command: Command.SpawnCraft, owner: String): Vessel {
         val site = launchSites.firstOrNull { it.id == command.siteId } ?: launchSites.first()
-        val vessel = spawnOnSurface(command.design, site, pad = nextFreePad(site))
+        val vessel = spawnAtSite(command.design, site)
         vessel.owner = owner
         return vessel
+    }
+
+    /**
+     * Puts a craft on the nearest clear pad at [site]: the site itself if
+     * nothing is standing there, otherwise the next pad out, alternating
+     * either side, forty metres apart.
+     *
+     * Clear means clear of the whole craft, not its centre: a pad counts as
+     * taken while any craft is nearer than the two craft's radii plus a
+     * margin, so a wide aeroplane does not have a rocket put through its wing.
+     */
+    fun spawnAtSite(design: CraftDesign, site: LaunchSite): Vessel =
+        spawnOnSurface(design, site, pad = nextFreePad(site, radiusOf(design)))
+
+    /** How far [design]'s furthest contact point reaches from its centre of mass. */
+    private fun radiusOf(design: CraftDesign): Double {
+        val probe = Vessel(
+            id = VesselId(-1),
+            design = design,
+            defs = design.parts.map { catalog.require(it.partId) },
+            referenceBodyId = SolarSystem.HOMEWORLD_ID,
+        )
+        probe.recomputeMass(shiftBodyPosition = false)
+        return probe.contactRadius
     }
 
     /**
@@ -1193,22 +1241,32 @@ class World(
      * somebody's base - which, now that craft are solid, is an explosion
      * rather than a curiosity.
      */
-    private fun nextFreePad(site: LaunchSite): Int {
-        val occupied = Vec3()
+    private fun nextFreePad(site: LaunchSite, radius: Double): Int {
+        val spot = Vec3()
+        var best = 0
+        var bestClearance = Double.NEGATIVE_INFINITY
         for (pad in 0 until MAX_PADS) {
             surfaceNormalAt(site, pad, scratchBodyFixedUp)
             attractorFor(site).rotationAt(time, scratchRotation)
-            scratchRotation.rotate(scratchBodyFixedUp, occupied)
-            val radius = attractorFor(site).surfaceRadiusInBodyFrame(scratchBodyFixedUp)
-            occupied.mulInPlace(radius)
+            scratchRotation.rotate(scratchBodyFixedUp, spot)
+            spot.mulInPlace(attractorFor(site).surfaceRadiusInBodyFrame(scratchBodyFixedUp) + radius)
 
-            val clear = vesselsById.values.none { other ->
-                scratch.setTo(other.body.position).subInPlace(occupied)
-                scratch.length < PAD_SPACING_METRES * 0.5
+            // The tightest gap to anything already here, beyond the margin.
+            var clearance = Double.POSITIVE_INFINITY
+            for (other in vesselsById.values) {
+                if (other.referenceBodyId != site.bodyId) continue
+                val gap = scratch.setTo(other.body.position).subInPlace(spot).length -
+                    other.contactRadius - radius - PAD_MARGIN_METRES
+                if (gap < clearance) clearance = gap
             }
-            if (clear) return pad
+            if (clearance >= 0.0) return pad
+            if (clearance > bestClearance) {
+                bestClearance = clearance
+                best = pad
+            }
         }
-        return 0
+        // Every pad taken: the one with the most room.
+        return best
     }
 
     private fun attractorFor(site: LaunchSite): CelestialBody = system.body(site.bodyId)
@@ -1229,6 +1287,9 @@ class World(
     companion object {
         /** Metres between adjacent launch pads at a site. */
         private const val PAD_SPACING_METRES = 40.0
+
+        /** Gap, metres, kept between a new craft and anything already standing near its pad. */
+        private const val PAD_MARGIN_METRES = 5.0
 
         /** How many pads to look through before giving up and reusing one. */
         private const val MAX_PADS = 64

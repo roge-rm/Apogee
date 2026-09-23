@@ -36,6 +36,106 @@ class ClientPredictionTest {
         )
     }
 
+    /**
+     * What the screen shows of a parked craft: where it sits on the planet,
+     * drawn at 90 Hz from 20 Hz snapshots on a world whose clock is hours in.
+     *
+     * Three things used to disagree about the time. The replica started its
+     * clock at zero, so its planet was turned somewhere else; the craft was
+     * drawn at its last 60 Hz step; and the ground at the wall clock. At the
+     * equator the surface moves 175 m/s, so each disagreement was metres of
+     * craft sliding over ground - the shaking, and the plane hovering off its
+     * runway. Now the frame has one time and the craft stays put on it.
+     */
+    @Test
+    fun `a parked craft stays put on its ground when drawn between snapshots`() {
+        // A millimetre: the server has it asleep, so the replica does too and
+        // it rides the ground exactly. Awake, it bounced centimetres on its
+        // legs between snapshots.
+        val worst = onScreenDrift(keepAwake = false)
+        assertTrue("the parked craft moved $worst m over its ground on screen", worst < 0.001)
+    }
+
+    /**
+     * The same, with the craft awake - engine armed, say - and the server
+     * ticking unevenly, so each snapshot's age is off by up to ten
+     * milliseconds. The smoothing of corrections used to work inertially, and
+     * read every slip of the clock as 175 m/s times the slip of error: the
+     * craft held back metres while the ground moved on.
+     */
+    @Test
+    fun `an awake craft on its pad stays on its ground when the server ticks unevenly`() {
+        val worst = onScreenDrift(keepAwake = true)
+        assertTrue("the craft was drawn $worst m from where the server has it on its ground", worst < 0.02)
+    }
+
+    /**
+     * Worst distance, over three seconds at 90 Hz from 20 Hz snapshots, between
+     * where a craft on the pad is drawn and where the server has it - measured
+     * on the ground, which is what the eye compares it with. The server clock
+     * wobbles by up to ten milliseconds against the client's. (Kept awake by
+     * force, the server's craft never anchors and creeps a few centimetres a
+     * second on its brakes; that is the test's doing, so the comparison is
+     * with where it is, not where it was parked.)
+     */
+    private fun onScreenDrift(keepAwake: Boolean): Double {
+        val world = World.default(catalog)
+        world.syncClock(10_000.0)
+        val rover = world.spawnOnSurface(StockCraft.rover(catalog), World.launchSites.first())
+        rover.control.brakes = true
+        // Long enough to settle and fall asleep, as a parked craft does.
+        repeat(600) { world.step(1.0 / 60.0) }
+        assertTrue("the server's rover should be asleep by now", rover.dormant)
+        val terra = world.system.body("terra")
+        fun onGround(position: com.rm.apogee.core.math.Vec3, time: Double) =
+            terra.toBodyFixed(position, terra.rotationAt(time, com.rm.apogee.core.math.Quat.identity()))
+        val start = world.time
+        val prediction = ClientPrediction(catalog)
+        prediction.adopt(rover.design, kinematicsOf(world, rover.id), world.time)
+        prediction.applyControl(0.0, 0.0, 0.0, 0.0, sas = false, brakes = true)
+        var snapshot = kinematicsOf(world, rover.id) to world.time
+        var reconciled = snapshot.second
+        var worst = 0.0
+        for (frame in 1..270) {
+            val now = start + frame / 90.0
+            // The server runs in real time and sends every third tick.
+            while (world.time + 1.0 / 60.0 <= now + 1e-9) {
+                if (keepAwake) rover.wake()
+                world.step(1.0 / 60.0)
+                if (world.tick % 3 == 0L) snapshot = kinematicsOf(world, rover.id) to world.time
+            }
+            prediction.advance(1.0 / 90.0)
+            if (snapshot.second != reconciled) {
+                reconciled = snapshot.second
+                val slip = 0.01 * kotlin.math.sin(frame * 1.7)
+                prediction.reconcile(snapshot.first, now - snapshot.second + slip, snapshot.second)
+            }
+            val drawn = onGround(prediction.renderPosition()!!, prediction.renderTime()!!)
+            worst = maxOf(worst, drawn.distanceTo(onGround(rover.body.position, world.time)))
+        }
+        return worst
+    }
+
+    /**
+     * Drawn between steps, the predicted craft is carried along its velocity:
+     * at the equator a parked craft moves 175 m/s with the ground, and drawn
+     * only at its 60 Hz steps it would jump 2.9 m at a time under a smoothly
+     * turning planet.
+     */
+    @Test
+    fun `between steps the craft is drawn where it is, not where it last stepped`() {
+        val (world, id) = server()
+        val prediction = ClientPrediction(catalog)
+        prediction.adopt(world.vessel(id)!!.design, kinematicsOf(world, id), world.time)
+        val start = prediction.renderPosition()!!.copy()
+        val velocity = world.vessel(id)!!.body.linearVelocity.copy()
+        prediction.advance(0.008)
+        val half = prediction.renderPosition()!!
+        val expected = start.copy().addScaledInPlace(velocity, 0.008)
+        assertTrue("drawn ${half.distanceTo(expected)} m from where it should be", half.distanceTo(expected) < 0.01)
+        assertTrue(kotlin.math.abs(prediction.renderTime()!! - (world.time + 0.008)) < 1e-9)
+    }
+
     @Test
     fun `prediction reproduces the server when given the same inputs`() {
         val (world, id) = server()

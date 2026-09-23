@@ -282,10 +282,12 @@ object Shaders {
         uniform float uAtmosphereFactor;
         uniform float uHazeDistance;
         uniform float uHasAtmosphere; // 1 for a body with air, 0 for one without
+        uniform float uDiscardNearer; // the globe leaves the chunks' ground alone
 
         out vec4 fragColor;
 
         void main() {
+            if (vDistance < uDiscardNearer) discard;
             vec3 n = normalize(vNormal);
             vec3 surface = vColour;
             float wet = vWet;

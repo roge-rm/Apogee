@@ -5,6 +5,7 @@ import com.rm.apogee.core.orbit.CelestialBody
 import com.rm.apogee.core.terrain.CubeSphere
 import com.rm.apogee.core.terrain.Terrain
 import com.rm.apogee.render.ChunkData
+import com.rm.apogee.render.DrawEntry
 import com.rm.apogee.render.ChunkKey
 import com.rm.apogee.render.PlanetMesh
 import com.rm.apogee.render.QualityTier
@@ -44,6 +45,9 @@ class TerrainBuilder(
      * whenever the chunks stop short of the horizon.
      */
     var farSurfaceNeeded: Boolean = true
+
+    /** How far the chunks reach this selection, metres; 0 when none are drawn. */
+    var chunkRange: Double = 0.0
         private set
 
     /**
@@ -104,6 +108,26 @@ class TerrainBuilder(
 
     private var selections = 0L
     private var lostThisSelection = 0
+
+    /** Every square the current selection reached: the tree it wants, drawn or not. */
+    private val wantedTree = HashSet<ChunkKey>()
+
+    /** The selection each chunk was last drawn in, for choosing what to let go. */
+    private val lastUsed = HashMap<ChunkKey, Long>()
+
+    /** How many chunks the GPU may hold; see [QualityTier.terrainChunkBudget]. */
+    private val gpuBudget = quality.terrainChunkBudget
+
+    /** Chunks split in the last selection, and this one: for hysteresis. */
+    private var splitLast = HashSet<ChunkKey>()
+    private var splitNow = HashSet<ChunkKey>()
+
+    /** Every ancestor of a chunk in the last draw list: where finer ground was. */
+    private var drawnBelow = HashSet<ChunkKey>()
+    private var drawnBelowNext = HashSet<ChunkKey>()
+
+    /** Distance to the nearest chunk built but not yet uploaded, this selection. */
+    private var nearestWaiting = Double.MAX_VALUE
     private val camera = Vec3()
     private val scratch = Vec3()
     private val requests = ArrayList<Pair<Double, ChunkKey>>()
@@ -148,7 +172,14 @@ class TerrainBuilder(
         // Reach: past the horizon, which on a sphere is sqrt(2Rh) away.
         val horizon = kotlin.math.sqrt(2.0 * body.radius * altitude.coerceAtLeast(1.0))
         val range = (horizon * HORIZON_MARGIN).coerceIn(MIN_RANGE_METRES, MAX_RANGE_METRES)
-        farSurfaceNeeded = range < horizon || altitude > CHUNK_CEILING_METRES
+        chunkRange = if (altitude > CHUNK_CEILING_METRES) 0.0 else range
+        // Always, behind the chunks. Mountains stand above the horizon of flat
+        // ground - a three-kilometre peak is in view sixty kilometres past it -
+        // so chunks reaching only that horizon left whole ranges to pop in and
+        // out as the craft climbed. Reaching every visible peak with chunks
+        // doubled LOW's triangles; the globe, one mesh already built, shows
+        // them instead, coarser, and chunks take over as they come in range.
+        farSurfaceNeeded = true
         if (altitude > CHUNK_CEILING_METRES) {
             source.publishDrawList(emptyList())
             synchronized(lock) { wanted = emptyList() }
@@ -160,8 +191,11 @@ class TerrainBuilder(
         val maxLevel = TerrainChunk.finestLevel(field.tiles.tilesPerFace) - detailOffset
 
         requests.clear()
+        splitNow.clear()
+        wantedTree.clear()
         lostThisSelection = 0
-        val draw = ArrayList<ChunkData>(256)
+        nearestWaiting = Double.MAX_VALUE
+        val draw = ArrayList<DrawEntry>(256)
         var complete = true
         for (face in 0 until 6) {
             val resolved = resolve(ChunkKey(face, 0, 0, 0, System.identityHashCode(field)), field, maxLevel, range, draw)
@@ -170,12 +204,26 @@ class TerrainBuilder(
         requests.sortBy { it.first }
         synchronized(lock) { wanted = requests.map { it.second } }
         source.publishDrawList(draw)
+        drawnBelowNext.clear()
+        for (chunk in draw) {
+            var up = chunk.key.parent
+            while (up != null && drawnBelowNext.add(up)) up = up.parent
+        }
+        drawnBelow = drawnBelowNext.also { drawnBelowNext = drawnBelow }
+        splitLast = splitNow.also { splitNow = splitLast }
         // Ready once nothing near the craft is still coarse. Not merely once
         // something is drawable - the first thing drawable is a
         // hundred-kilometre chunk from the top of the tree, and lifting the
         // loading screen onto that shows a craft on ground that reads as
         // broken.
-        if (complete && (requests.isEmpty() || requests.first().first > READY_RADIUS_METRES)) {
+        // The globe keeps out of the chunks' ground only while there is
+        // chunk ground everywhere; with any square missing - after the GPU
+        // lost its chunks, say - it fills in underneath rather than leaving
+        // sky or sea showing through the hole.
+        if (!complete) chunkRange = 0.0
+        if (complete && nearestWaiting > READY_RADIUS_METRES &&
+            (requests.isEmpty() || requests.first().first > READY_RADIUS_METRES)
+        ) {
             patchReady = true
         }
         if (++selections % 600 == 0L) {
@@ -188,18 +236,27 @@ class TerrainBuilder(
             )
         }
 
-        // Forget chunks nobody is drawing once there are a lot of them. Travel
-        // leaves a trail of built ground behind the craft; keeping all of it
-        // is a leak, and anything forgotten is simply rebuilt if needed again.
-        if (built.size > MAX_BUILT) {
+        // Keep the GPU within its budget by letting go of what has gone
+        // longest undrawn - here, where the next draw list is decided, so a
+        // chunk is never freed in the frame something lists it again. Travel
+        // leaves a trail of built ground behind the craft; anything let go is
+        // simply rebuilt if it is needed again.
+        for (chunk in draw) lastUsed[chunk.key] = selections
+        if (built.size > gpuBudget) {
             val drawing = draw.mapTo(HashSet()) { it.key }
-            val iterator = built.entries.iterator()
-            while (iterator.hasNext()) {
-                val entry = iterator.next()
-                if (entry.key !in drawing) {
-                    iterator.remove()
-                    source.discarded(entry.key)
-                }
+            val idle = built.keys
+                // Nothing this selection wants, drawn or not: a chunk uploaded
+                // and waiting on its three siblings is not drawn yet, and
+                // letting it go restarted the wait - round and round, with
+                // four top-level chunks standing in for the whole planet.
+                // Nor one still on its way to the GPU: let go here, it would
+                // be uploaded with nothing left to list it by.
+                .filter { it !in drawing && it !in wantedTree && !source.isWaitingForUpload(it) }
+                .sortedBy { lastUsed[it] ?: 0L }
+            for (key in idle.take(built.size - gpuBudget * 9 / 10)) {
+                built.remove(key)
+                lastUsed.remove(key)
+                source.release(key)
             }
         }
     }
@@ -215,31 +272,85 @@ class TerrainBuilder(
         field: Terrain,
         maxLevel: Int,
         range: Double,
-        draw: MutableList<ChunkData>,
+        draw: MutableList<DrawEntry>,
     ): Boolean {
         val size = TerrainChunk.size(field.bodyRadius, key.level)
         val distance = (camera.distanceTo(centre(key, field)) - size * 0.75).coerceAtLeast(0.0)
         if (distance > range) return true // Out of reach: nothing to draw, nothing missing.
+        wantedTree.add(key)
 
-        if (key.level < maxLevel && distance < size * splitDistance) {
+        // Hysteresis: split at the split distance, but once split stay split
+        // until a fifth further out. With one threshold, a camera wobbling
+        // by a metre across it flipped the chunk between parent and children
+        // frame to frame - a coarser patch of ground blinking in and out.
+        val splitAt = size * splitDistance * (if (key in splitLast) MERGE_HYSTERESIS else 1.0)
+        if (key.level < maxLevel && distance < splitAt) {
+            splitNow.add(key)
             val start = draw.size
-            var all = true
+            var missing = 0
             for (dj in 0..1) for (di in 0..1) {
-                if (!resolve(key.child(di, dj), field, maxLevel, range, draw)) all = false
+                if (!resolve(key.child(di, dj), field, maxLevel, range, draw)) missing = missing or (1 shl (dj * 2 + di))
             }
-            if (all) return true
-            // Not all four ready: this chunk stands in for them, if it can.
+            if (missing == 0) return true
+            // Not all four ready: this chunk stands in for the ones that are
+            // not - only those quarters of it. Standing in whole, it covered
+            // its ready children too, and as the craft climbed and new ground
+            // came into range at the far edge, the chunk the craft was over -
+            // kilometres across - replaced all the ground near it until one
+            // child twenty kilometres off was built.
+            val parent = built[key]?.takeIf { source.isUploaded(key) }
+            if (parent != null) {
+                draw.add(DrawEntry(parent, missing))
+                return true
+            }
             while (draw.size > start) draw.removeAt(draw.size - 1)
         }
 
-        val ready = built[key]?.takeIf { source.isAvailable(key) }
+        val ready = built[key]?.takeIf { source.isUploaded(key) }
         if (ready != null) {
-            draw.add(ready)
+            draw.add(DrawEntry(ready))
             return true
+        }
+        if (built[key] != null && source.isWaitingForUpload(key)) {
+            // Built, on its way to the GPU: nothing to request, but not
+            // drawable yet either, so whatever is coarser stands in.
+            if (distance < nearestWaiting) nearestWaiting = distance
+            return false
         }
         if (built.remove(key) != null) lostThisSelection++
         requests.add(distance to key)
+        // Merging back from finer ground whose parent the GPU has since let
+        // go: keep the finer ground until the parent is back. Without this
+        // the square fell to the nearest ancestor still uploaded - sometimes
+        // a whole face of the planet - and for a frame or two the ground was
+        // one flat slab, or gone with the sea showing through.
+        if (key.level < maxLevel && key in drawnBelow && drawUploadedBelow(key, maxLevel, draw)) return true
         return false
+    }
+
+    /**
+     * Covers [key]'s square with uploaded descendants, if it can be covered
+     * completely; adds nothing and returns false otherwise.
+     */
+    private fun drawUploadedBelow(key: ChunkKey, maxLevel: Int, draw: MutableList<DrawEntry>): Boolean {
+        val start = draw.size
+        for (dj in 0..1) for (di in 0..1) {
+            val child = key.child(di, dj)
+            val ready = built[child]?.takeIf { source.isUploaded(child) }
+            val covered = when {
+                ready != null -> { draw.add(DrawEntry(ready)); true }
+                // Only down branches that led to something drawn last time:
+                // anywhere else there is nothing finer to find, and walking a
+                // face's empty subtree to the finest level costs millions.
+                child.level < maxLevel && child in drawnBelow -> drawUploadedBelow(child, maxLevel, draw)
+                else -> false
+            }
+            if (!covered) {
+                while (draw.size > start) draw.removeAt(draw.size - 1)
+                return false
+            }
+        }
+        return true
     }
 
     /** Where a chunk's middle is, near enough to decide its level by. Cached. */
@@ -342,9 +453,16 @@ class TerrainBuilder(
         const val WORKERS = 2
         const val IDLE_POLL_MILLIS = 8L
         const val MAX_CENTRES = 20_000
-        const val MAX_BUILT = 1_200
 
-        /** Chunks nearer than this must be at full detail before the view is shown. */
-        const val READY_RADIUS_METRES = 1_000.0
+        /**
+         * Chunks nearer than this must be at full detail before the view is
+         * shown. Three kilometres rather than one: at one, the first frame
+         * still had coarse slabs a couple of kilometres out, refined in the
+         * next second in plain view.
+         */
+        const val READY_RADIUS_METRES = 3_000.0
+
+        /** How much further out a split chunk stays split than it split at. */
+        const val MERGE_HYSTERESIS = 1.2
     }
 }

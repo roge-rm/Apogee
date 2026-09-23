@@ -30,9 +30,23 @@ class ClientVessel(
     @Volatile var latest: VesselKinematics? = null
         private set
 
-    fun observe(kinematics: VesselKinematics) {
+    /** [latest] and the universe time it describes, read together. */
+    class Observation(val kinematics: VesselKinematics, val time: Double)
+
+    /**
+     * The latest state paired with its own snapshot's time, in one reference
+     * so they cannot be read torn. The client's latest-snapshot time is set
+     * before each craft's state is, and a frame built in between paired the
+     * new time with the old state - 50 ms of error, nine metres of a parked
+     * craft carried along the equator, for a frame.
+     */
+    @Volatile var observed: Observation? = null
+        private set
+
+    fun observe(kinematics: VesselKinematics, time: Double = 0.0) {
         previous = latest
         latest = kinematics
+        observed = Observation(kinematics, time)
     }
 }
 
@@ -198,7 +212,7 @@ class GameClient(
                     // snapshot for a craft that just spawned may overtake its
                     // structure message. Dropping it is correct; the next
                     // snapshot after the structure lands will carry it again.
-                    vesselsById[kinematics.vessel]?.observe(kinematics)
+                    vesselsById[kinematics.vessel]?.observe(kinematics, snapshot.time)
                 }
             }
 

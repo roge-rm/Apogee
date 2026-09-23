@@ -118,7 +118,6 @@ class GameServer(
     val tick: Long get() = world.tick
     private val inbox = ConcurrentLinkedQueue<Pair<PlayerSession, ClientMessage>>()
     private var nextSessionId = 1
-    private var nextPad = 0
 
     val dt: Double = 1.0 / config.tickHz
     private val ticksPerSnapshot: Int = (config.tickHz / config.snapshotHz).coerceAtLeast(1)
@@ -337,12 +336,11 @@ class GameServer(
         // craft's owner rather than orphaning it.
         existing?.ownerName = session.playerName
         val vessel = existing ?: if (config.assignCraftOnJoin) {
-            world.spawnOnSurface(
+            // The nearest clear pad, so joining never drops a craft inside one
+            // already standing there - not even one left from before a restart.
+            world.spawnAtSite(
                 config.starterCraft(world.catalog),
                 World.launchSites.first(),
-                // Each new player gets their own pad, so joining does not drop
-                // a craft inside one that is already standing there.
-                pad = nextPad++,
             ).also {
                 it.owner = session.clientId
                 it.ownerName = session.playerName

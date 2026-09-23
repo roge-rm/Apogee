@@ -112,6 +112,23 @@ class TerrainMesh(private val shared: SharedIndexBuffer? = null) {
         GLES30.glBindVertexArray(0)
     }
 
+    /**
+     * Draws only the quarters in [mask] of a chunk drawn with the shared,
+     * quarter-by-quarter index buffer - see [TerrainChunk.indices].
+     */
+    fun drawQuadrants(mask: Int) {
+        if (mask == DrawEntry.ALL_QUADRANTS) return draw()
+        if (!isReady) return
+        val perQuarter = TerrainChunk.quadrantIndexCount
+        GLES30.glBindVertexArray(vao[0])
+        for (quarter in 0 until 4) {
+            if (mask and (1 shl quarter) == 0) continue
+            // Offset in bytes: two per unsigned short.
+            GLES30.glDrawElements(GLES30.GL_TRIANGLES, perQuarter, GLES30.GL_UNSIGNED_SHORT, quarter * perQuarter * 2)
+        }
+        GLES30.glBindVertexArray(0)
+    }
+
     fun release() {
         GLES30.glDeleteBuffers(2, buffers, 0)
         GLES30.glDeleteVertexArrays(1, vao, 0)

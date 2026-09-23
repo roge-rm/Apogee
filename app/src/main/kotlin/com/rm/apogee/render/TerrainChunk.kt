@@ -30,6 +30,19 @@ data class ChunkKey(
 }
 
 /** Built geometry for a chunk, ready to upload. */
+/**
+ * One chunk in a draw list, and which of its quarters to draw: all four
+ * normally, fewer when it is standing in for children only some of which
+ * are ready. Bit `dj * 2 + di` is the quarter [ChunkKey.child] (di, dj) covers.
+ */
+class DrawEntry(val chunk: ChunkData, val quadrants: Int = ALL_QUADRANTS) {
+    val key: ChunkKey get() = chunk.key
+
+    companion object {
+        const val ALL_QUADRANTS = 0xF
+    }
+}
+
 class ChunkData(
     val key: ChunkKey,
     /**
@@ -79,24 +92,17 @@ object TerrainChunk {
 
     /**
      * The triangle list every chunk shares: the grid, split along the same
-     * diagonal the collider's tiles use, then the skirts.
+     * diagonal the collider's tiles use, and the skirts.
      *
      * One index buffer for all chunks, because the topology never changes -
-     * only the vertices do.
+     * only the vertices do. Laid out a quarter at a time - quarter
+     * `dj * 2 + di` holds the cells [ChunkKey.child] (di, dj) covers and the
+     * skirt along its share of the edge - so a chunk standing in for only
+     * some of its children can draw just the quarters they leave uncovered.
      */
     val indices: ShortArray by lazy {
-        val list = ArrayList<Int>(CELLS * CELLS * 6 + 4 * CELLS * 6)
-        for (q in 0 until CELLS) for (p in 0 until CELLS) {
-            val a = q * SIDE + p
-            val b = a + 1
-            val c = a + SIDE
-            val d = c + 1
-            // (p,q) (p+1,q) (p,q+1), then (p+1,q+1) (p,q+1) (p+1,q) - the
-            // collider's u + v <= 1 split. Winding is made outward-facing by
-            // the face axes (u x v = outward).
-            list += a; list += b; list += c
-            list += d; list += c; list += b
-        }
+        val half = CELLS / 2
+        val list = ArrayList<Int>(CELLS * CELLS * 6 + 4 * CELLS * 12)
         // Skirts: a strip hanging down from each edge, hiding the cracks
         // where a chunk meets a coarser neighbour whose edge cuts its corners.
         // Drawn double-sided in effect by winding each strip both ways.
@@ -106,19 +112,42 @@ object TerrainChunk {
             IntArray(SIDE) { it * SIDE },                  // p = 0
             IntArray(SIDE) { it * SIDE + CELLS },          // p = CELLS
         )
-        edges.forEachIndexed { e, edge ->
-            val skirtBase = SIDE * SIDE + e * SIDE
-            for (k in 0 until CELLS) {
-                val top0 = edge[k]; val top1 = edge[k + 1]
-                val low0 = skirtBase + k; val low1 = skirtBase + k + 1
-                list += top0; list += low0; list += top1
-                list += top1; list += low0; list += low1
-                list += top0; list += top1; list += low0
-                list += top1; list += low1; list += low0
+        for (quarter in 0 until 4) {
+            val di = quarter % 2
+            val dj = quarter / 2
+            for (q in dj * half until dj * half + half) for (p in di * half until di * half + half) {
+                val a = q * SIDE + p
+                val b = a + 1
+                val c = a + SIDE
+                val d = c + 1
+                // (p,q) (p+1,q) (p,q+1), then (p+1,q+1) (p,q+1) (p+1,q) - the
+                // collider's u + v <= 1 split. Winding is made outward-facing by
+                // the face axes (u x v = outward).
+                list += a; list += b; list += c
+                list += d; list += c; list += b
+            }
+            edges.forEachIndexed { e, edge ->
+                // Which quarter each segment of edge e belongs to: edges 0 and 1
+                // run along p (so di varies), 2 and 3 along q (dj varies).
+                val fixed = when (e) { 0 -> dj == 0; 1 -> dj == 1; 2 -> di == 0; else -> di == 1 }
+                if (!fixed) return@forEachIndexed
+                val along = if (e < 2) di else dj
+                val skirtBase = SIDE * SIDE + e * SIDE
+                for (k in along * half until along * half + half) {
+                    val top0 = edge[k]; val top1 = edge[k + 1]
+                    val low0 = skirtBase + k; val low1 = skirtBase + k + 1
+                    list += top0; list += low0; list += top1
+                    list += top1; list += low0; list += low1
+                    list += top0; list += top1; list += low0
+                    list += top1; list += low1; list += low0
+                }
             }
         }
         ShortArray(list.size) { list[it].toShort() }
     }
+
+    /** Indices in each quarter's block of [indices]; the blocks are equal. */
+    val quadrantIndexCount: Int by lazy { indices.size / 4 }
 
     /**
      * Samples [terrain] into [key]'s geometry.

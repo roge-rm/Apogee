@@ -71,10 +71,8 @@ class GlRenderer(
     private var chunkIndices: SharedIndexBuffer? = null
     private var scatterRenderer: ScatterRenderer? = null
 
-    /** Chunks on the GPU, and the frame each was last drawn in. */
+    /** Chunks on the GPU. The builder decides when each goes; see TerrainSource.release. */
     private val chunkMeshes = HashMap<ChunkKey, TerrainMesh>()
-    private val chunkLastDrawn = HashMap<ChunkKey, Long>()
-    private var frameCounter = 0L
 
     /**
      * One mesh per distinct shape, built on first sight.
@@ -101,6 +99,15 @@ class GlRenderer(
     private val interpolatedRotation = Quat()
     private val interpolatedCameraPos = Vec3()
     private val interpolatedCameraRot = Quat()
+
+    /**
+     * The planet's rotation for this displayed frame, interpolated exactly as
+     * the camera and craft are. Taken from the newest published frame alone,
+     * the ground was up to one publish interval ahead of the craft on it on
+     * every frame drawn between two - at the equator most of three metres -
+     * and back in line on the next: the ground jittering under a still craft.
+     */
+    private val interpolatedBodyRotation = Quat()
     private val cameraRight = Vec3()
     private val cameraUp = Vec3()
     private val cameraForward = Vec3()
@@ -170,6 +177,16 @@ class GlRenderer(
         }
 
         val cameraPos = interpolateCamera(previous, latest, alpha)
+        latest.world?.let { now ->
+            val before = previous?.world
+            // Only between frames of the same body: across a change of
+            // sphere of influence the two rotations are unrelated.
+            if (before != null && before.radius == now.radius) {
+                Quat.slerp(before.bodyRotation, now.bodyRotation, alpha, interpolatedBodyRotation)
+            } else {
+                interpolatedBodyRotation.setTo(now.bodyRotation)
+            }
+        }
         val aspect = viewportWidth.toDouble() / viewportHeight.toDouble()
 
         viewMatrix.setViewFromCameraRotation(interpolatedCameraRot)
@@ -281,8 +298,10 @@ class GlRenderer(
         shader.use()
         // Globe vertices are in body radii, so the model matrix scales them -
         // and rotates them, because terrain turns with the planet.
-        modelMatrix.setFromTrs(Vec3.zero(), world.bodyRotation, cameraPos, world.radius)
+        modelMatrix.setFromTrs(Vec3.zero(), interpolatedBodyRotation, cameraPos, world.radius)
         applySurfaceUniforms(shader, world, atmosphereFactor)
+        // A little inside the chunks' reach, so there is no gap between them.
+        shader.setFloat("uDiscardNearer", (world.chunkRange * 0.85).toFloat())
         mesh.draw()
     }
 
@@ -298,48 +317,52 @@ class GlRenderer(
         val shader = terrainProgram ?: return
         val indices = chunkIndices ?: return
         val list = terrainSource.drawList()
-        frameCounter++
 
         // Upload what is new, a few per frame: each is a buffer allocation and
         // a copy, and a burst of dozens on the first frame over new ground is
         // a visible hitch. Anything not yet uploaded is skipped this frame;
         // the builder only lists built chunks, so it is a frame late, not a hole
         // that lasts.
+        // Releases first: a chunk released and then rebuilt is queued in that
+        // order, and freeing after uploading would free the new one.
+        while (true) {
+            val key = terrainSource.nextReleased() ?: break
+            chunkMeshes.remove(key)?.release()
+        }
         var uploads = 0
-        for (chunk in list) {
-            if (chunkMeshes.containsKey(chunk.key)) continue
-            if (uploads >= MAX_CHUNK_UPLOADS_PER_FRAME) break
-            val vertices = chunk.vertices ?: terrainSource.takePending(chunk.key)?.vertices ?: continue
+        while (uploads < MAX_CHUNK_UPLOADS_PER_FRAME) {
+            val chunk = terrainSource.nextToUpload() ?: break
+            val vertices = chunk.vertices ?: continue
+            chunkMeshes.remove(chunk.key)?.release()
             val mesh = TerrainMesh(indices)
             mesh.upload(vertices)
             chunk.vertices = null
-            terrainSource.takePending(chunk.key)
             chunkMeshes[chunk.key] = mesh
+            terrainSource.markUploaded(chunk.key)
             uploads++
         }
 
         shader.use()
         applySurfaceUniforms(shader, world, atmosphereFactor)
         shader.setMat4("uViewProjection", nearViewProjection.m)
-        for (chunk in list) {
+        shader.setFloat("uDiscardNearer", 0f)
+        for (entry in list) {
+            val chunk = entry.chunk
             val mesh = chunkMeshes[chunk.key] ?: continue
-            world.bodyRotation.rotate(chunk.centre, scratchChunkCentre)
+            interpolatedBodyRotation.rotate(chunk.centre, scratchChunkCentre)
             // Behind the camera by more than the chunk's own size: nothing of
             // it can be on screen. Cheap, and usually half the chunks.
             scratchChunkCentre.subInPlace(cameraPos)
             if ((scratchChunkCentre dot cameraForward) < -chunk.boundingRadius) continue
             scratchChunkCentre.addInPlace(cameraPos)
-            modelMatrix.setFromTrs(scratchChunkCentre, world.bodyRotation, cameraPos)
+            modelMatrix.setFromTrs(scratchChunkCentre, interpolatedBodyRotation, cameraPos)
             shader.setMat4("uModel", modelMatrix.m)
-            mesh.draw()
-            chunkLastDrawn[chunk.key] = frameCounter
+            mesh.drawQuadrants(entry.quadrants)
         }
-
-        evictChunks(list)
 
         scatterRenderer?.draw(
             terrainSource.scatter.drawList(),
-            world.bodyRotation,
+            interpolatedBodyRotation,
             cameraPos,
             cameraForward,
             nearViewProjection.m,
@@ -347,20 +370,6 @@ class GlRenderer(
             atmosphereFactor,
             (world.atmosphereScaleHeight * 8.0).toFloat(),
         )
-    }
-
-    /** Drops the longest-unused chunks once the GPU holds more than its budget. */
-    private fun evictChunks(current: List<ChunkData>) {
-        val budget = qualityTier.terrainChunkBudget
-        if (chunkMeshes.size <= budget) return
-        val inUse = current.mapTo(HashSet()) { it.key }
-        val candidates = chunkMeshes.keys.filter { it !in inUse }
-            .sortedBy { chunkLastDrawn[it] ?: 0L }
-        for (key in candidates.take(chunkMeshes.size - budget)) {
-            chunkMeshes.remove(key)?.release()
-            chunkLastDrawn.remove(key)
-            terrainSource.discarded(key)
-        }
     }
 
     private fun applySurfaceUniforms(
@@ -511,7 +520,6 @@ class GlRenderer(
         for (key in chunkMeshes.keys) terrainSource.discarded(key)
         chunkMeshes.values.forEach { it.release() }
         chunkMeshes.clear()
-        chunkLastDrawn.clear()
         chunkIndices?.release(); chunkIndices = null
         scatterRenderer?.release(); scatterRenderer = null
         meshes.values.forEach { it.release() }

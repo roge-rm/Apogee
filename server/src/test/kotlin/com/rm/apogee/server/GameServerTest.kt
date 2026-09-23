@@ -307,6 +307,27 @@ class GameServerTest {
     }
 
     /**
+     * A craft left on the pad from before a restart still has the pad. A new
+     * player's starter used to go on pad 0 by a counter that restarted with
+     * the server, straight into it.
+     */
+    @Test
+    fun `a new player's craft goes beside one left on the pad, not into it`() = runTest {
+        val server = GameServer.default(catalog)
+        val parked = server.world.spawnOnSurface(
+            com.rm.apogee.core.craft.StockCraft.starterRocket(catalog),
+            com.rm.apogee.core.world.World.launchSites.first(),
+        )
+        val client = joinClient(server, backgroundScope, "Newcomer")
+        pumpUntil(server, "the newcomer to be flying something") { client.controlledVessel != null }
+
+        val mine = server.world.vessel(VesselId(client.controlledVessel!!))!!
+        val separation = mine.body.position.distanceTo(parked.body.position)
+        assertTrue("clear of the parked craft, were ${separation}m apart", separation > 20.0)
+        assertTrue("and close by, were ${separation}m apart", separation < 100.0)
+    }
+
+    /**
      * The point of a persistent world, from the seat: log off in orbit, come
      * back, still be in orbit.
      */

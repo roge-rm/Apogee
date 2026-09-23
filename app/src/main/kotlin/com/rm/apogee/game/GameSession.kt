@@ -149,6 +149,7 @@ class GameSession private constructor(
      */
     private var terrainBuilder: TerrainBuilder? = null
     private var drawFarSurface = true
+    private var chunkRange = 0.0
 
     /**
      * The solar system, built once.
@@ -174,9 +175,19 @@ class GameSession private constructor(
     private var scatterStreamer: ScatterStreamer? = null
 
     fun attachTerrain(source: com.rm.apogee.render.TerrainSource, quality: QualityTier) {
+        // Called again whenever the GL surface is recreated. The builder
+        // already knows the GPU lost its chunks - the renderer says so - and
+        // rebuilds just those; replacing it threw away everything built and
+        // left the old one's workers running, publishing draw lists of their
+        // own into the same source.
+        if (terrainBuilder != null && terrainQuality == quality) return
+        terrainBuilder?.stop()
+        terrainQuality = quality
         terrainBuilder = TerrainBuilder(source, quality)
         scatterStreamer = ScatterStreamer(source.scatter, quality)
     }
+
+    private var terrainQuality: QualityTier? = null
 
     /**
      * Whether the world is fit to be shown - the craft has ground under it.
@@ -370,6 +381,19 @@ class GameSession private constructor(
         val lines = ArrayList<RenderLine>(4)
         val items = ArrayList<RenderItem>(64)
 
+        // The one time this frame is drawn at. Snapshot time plus how long
+        // ago it arrived, unless the controlled craft is being predicted, in
+        // which case its own time: the ground, the craft on it and everything
+        // else have to be shown at the same instant, because at the equator a
+        // few milliseconds' disagreement is a visible slide.
+        val snapshotTime = client.latestSnapshot?.time ?: 0.0
+        val snapshotAge = if (client.latestSnapshotNanos == 0L) 0.0
+            else (System.nanoTime() - client.latestSnapshotNanos) / 1e9
+        var renderTime = snapshotTime + snapshotAge
+        // Where the focused craft is drawn this frame - the prediction, not
+        // the last snapshot - which is what the ground's detail follows.
+        var focusDrawn: Vec3 = focusState.position
+
         if (mapMode) {
             // Look at the planet, not the craft: in map view the question is
             // the shape of the trajectory, and that is only legible against the
@@ -391,33 +415,36 @@ class GameSession private constructor(
             lines.add(marker(focusState.position, reach, CRAFT_COLOR))
         } else {
             val focusPosition = updatePrediction(focus, focusState)
+            focusDrawn = focusPosition
+            if (prediction.isReady) prediction.renderTime()?.let { renderTime = it }
             camera.solve(focusPosition, cameraPosition, cameraRotation)
             for (vessel in client.vessels) {
                 if (vessel.id == focusId) {
                     appendVessel(vessel, items, predictedPosition, predictedRotation)
                 } else {
-                    appendVessel(vessel, items)
+                    // Carried from its own snapshot to the frame's time along
+                    // its velocity, which for a parked craft is the ground's.
+                    val observed = vessel.observed ?: continue
+                    val state = observed.kinematics
+                    val carry = (renderTime - observed.time).coerceIn(0.0, MAX_EXTRAPOLATION_SECONDS)
+                    appendVessel(
+                        vessel, items,
+                        Vec3().setTo(state.position).addScaledInPlace(state.velocity, carry),
+                        stateOverride = state,
+                    )
                 }
             }
         }
 
         // Terrain turns with the planet, so the patch follows the craft's
-        // position in the body's frame rather than its inertial one.
-        // Snapshot time plus how long ago it arrived, not snapshot time alone.
-        // Snapshots land 20 times a second while the controlled craft is
-        // predicted forward every frame, so taking the planet's rotation
-        // straight from the last snapshot freezes the ground between them and
-        // then jumps it - and at the equator the surface moves 175 m/s, which
-        // is about nine metres of ground sliding under a craft that is itself
-        // moving smoothly. That relative stutter is the whole of what looked
-        // like the ground shifting against the ship.
-        val snapshotAge = if (client.latestSnapshotNanos == 0L) 0.0
-            else (System.nanoTime() - client.latestSnapshotNanos) / 1e9
-        attractor.rotationAt(
-            (client.latestSnapshot?.time ?: 0.0) + snapshotAge,
-            bodyRotation,
-        )
-        attractor.toBodyFixed(focusState.position, bodyRotation, bodyFixedCamera)
+        // position in the body's frame rather than its inertial one - at the
+        // frame's own time, the same one the craft is drawn at.
+        attractor.rotationAt(renderTime, bodyRotation)
+        // The drawn position at the frame's time. The snapshot's position with
+        // the frame's rotation was up to 50 ms apart - metres of wobble in
+        // where the ground's detail was centred, enough to flip a chunk at its
+        // split distance between parent and children every other frame.
+        attractor.toBodyFixed(focusDrawn, bodyRotation, bodyFixedCamera)
         terrainBuilder?.let { builder ->
             // The patch first, then the globe. Both are queued onto the same
             // dispatcher, and the globe is the larger job by some way - asking
@@ -437,6 +464,7 @@ class GameSession private constructor(
             )
             builder.requestGlobe(attractor, terrainScope)
             drawFarSurface = builder.farSurfaceNeeded
+            chunkRange = builder.chunkRange
             scatterStreamer?.follow(
                 attractor,
                 bodyFixedCamera,
@@ -477,6 +505,7 @@ class GameSession private constructor(
                     bodyRotation = bodyRotation.copy(),
                     maxElevation = attractor.terrain?.maxElevation ?: 1.0,
                     drawFarSurface = drawFarSurface,
+                    chunkRange = chunkRange,
                 ),
             )
         )
@@ -515,24 +544,28 @@ class GameSession private constructor(
      * @return where the controlled craft should be drawn.
      */
     private fun updatePrediction(focus: ClientVessel, state: VesselKinematics): Vec3 {
-        if (prediction.needsAdopting(focus.design)) {
-            prediction.adopt(focus.design, state)
-            pushControlsToPrediction()
-        }
-
-        val snapshot = client.latestSnapshot
-        if (snapshot != null && snapshot.tick != lastReconciledTick) {
-            lastReconciledTick = snapshot.tick
-            // How stale the server's word is by the time we act on it.
-            val age = (System.nanoTime() - client.latestSnapshotNanos) / 1e9
-            prediction.reconcile(state, age)
-        }
-
         val now = System.nanoTime()
+        val snapshot = client.latestSnapshot
+        // How stale the server's word is by the time we act on it.
+        val age = (now - client.latestSnapshotNanos) / 1e9
+        if (prediction.needsAdopting(focus.design)) {
+            // On the server's clock: see ClientPrediction.adopt.
+            prediction.adopt(focus.design, state, snapshot?.time ?: 0.0)
+            pushControlsToPrediction()
+            lastReconciledTick = -1
+        }
+
+        // Advance first, then reconcile, so both are measured to the same
+        // moment - the reverse spends the time since the last frame twice.
         if (lastAdvanceNanos != 0L) {
             prediction.advance((now - lastAdvanceNanos) / 1e9)
         }
         lastAdvanceNanos = now
+
+        if (snapshot != null && snapshot.tick != lastReconciledTick) {
+            lastReconciledTick = snapshot.tick
+            prediction.reconcile(state, age, snapshot.time)
+        }
 
         prediction.renderPosition(predictedPosition)
         prediction.renderRotation(predictedRotation)
@@ -545,8 +578,10 @@ class GameSession private constructor(
         out: MutableList<RenderItem>,
         overridePosition: Vec3? = null,
         overrideRotation: Quat? = null,
+        /** The state [overridePosition] was carried from, so both are the same sample. */
+        stateOverride: VesselKinematics? = null,
     ) {
-        val state = vessel.latest ?: return
+        val state = stateOverride ?: vessel.latest ?: return
         val design = vessel.design
 
         // The server sends the vessel's centre of mass; part positions in the
@@ -684,6 +719,13 @@ class GameSession private constructor(
     companion object {
         /** ~60 Hz. The server streams slower; the renderer interpolates. */
         private const val PRESENT_INTERVAL_MILLIS = 16L
+
+        /**
+         * Furthest another craft is carried past its last snapshot. A few
+         * snapshot intervals: enough to cover a late one, not enough to fly a
+         * craft on through a stalled connection.
+         */
+        private const val MAX_EXTRAPOLATION_SECONDS = 0.25
 
         /**
          * Direction to the star, in the planet's frame.

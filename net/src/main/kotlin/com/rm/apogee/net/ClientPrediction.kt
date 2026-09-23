@@ -42,6 +42,15 @@ class ClientPrediction(
      * Snapping straight to the corrected state makes the craft visibly twitch
      * on every snapshot; carrying the error and bleeding it off hides the
      * correction without lying about where the craft actually is.
+     *
+     * Held in the body's rotating frame - relative to the ground - not the
+     * inertial one. Each snapshot moves the prediction's clock by however
+     * unevenly the server has been ticking, a few milliseconds; measured
+     * inertially that is 175 m/s times the slip at the equator, and the
+     * smoothing faithfully kept the craft where it had been while the ground
+     * was drawn at the new time - metres of craft off its ground, fading over
+     * a few frames, every snapshot. Against the ground, a craft that has not
+     * moved over it has no error to smooth.
      */
     private val renderOffset = Vec3()
 
@@ -50,9 +59,18 @@ class ClientPrediction(
 
     val isReady: Boolean get() = vessel != null
 
-    /** Rebuilds the local replica. Called when the craft's structure changes. */
-    fun adopt(design: CraftDesign, state: VesselKinematics) {
+    /**
+     * Rebuilds the local replica. Called when the craft's structure changes.
+     *
+     * [time] is the universe time [state] describes. It matters as much as the
+     * position: on a turning planet the ground under a craft is wherever the
+     * planet has turned to by then, and a replica on its own clock puts a
+     * craft parked on the runway onto whatever ground its wrong time says is
+     * there - and every snapshot drags it back.
+     */
+    fun adopt(design: CraftDesign, state: VesselKinematics, time: Double = 0.0) {
         val replica = World.default(catalog)
+        replica.syncClock(time)
         vessel = replica.spawnAt(
             design = design,
             bodyId = state.referenceBodyId,
@@ -61,6 +79,11 @@ class ClientPrediction(
             rotation = state.rotation.copy(),
             angularVelocity = state.angularVelocity.copy(),
         )
+        // Parked on the server: parked here from the start, rather than
+        // settling onto its legs until the first snapshot says otherwise.
+        if (serverHasItAsleep(state)) {
+            vessel?.sleep(system.body(state.referenceBodyId).rotationAt(time, scratchRotation))
+        }
         world = replica
         designHash = design.hashCode()
         renderOffset.setZero()
@@ -87,7 +110,14 @@ class ClientPrediction(
         control.roll = roll
         control.sasEnabled = sas
         control.brakes = brakes
+        // A hand on the controls is the same signal the server wakes on.
+        if (!inputsNeutral(control)) vessel?.wake()
     }
+
+    private fun inputsNeutral(control: com.rm.apogee.core.craft.ControlState): Boolean =
+        control.throttle == 0.0 && control.pitch == 0.0 && control.yaw == 0.0 &&
+            control.roll == 0.0 && control.translateX == 0.0 &&
+            control.translateY == 0.0 && control.translateZ == 0.0
 
     /** Scatter the server says is down, so the replica does not collide with it. */
     fun felled(ids: Collection<Long>) {
@@ -98,6 +128,7 @@ class ClientPrediction(
     fun stage() {
         val replica = world ?: return
         val local = vessel ?: return
+        local.wake()
         replica.stage(local)
     }
 
@@ -122,11 +153,15 @@ class ClientPrediction(
      * catch-up re-runs the same controls over the elapsed time so the local
      * state is the server's answer brought up to date.
      */
-    fun reconcile(state: VesselKinematics, ageSeconds: Double) {
+    fun reconcile(state: VesselKinematics, ageSeconds: Double, snapshotTime: Double? = null) {
         val replica = world ?: return
         val local = vessel ?: return
 
-        val before = local.body.position.copy()
+        // Where it was being drawn, not where it last stepped to: the two
+        // differ by the fraction of a step since, and counting that as error
+        // would twitch the craft on every snapshot.
+        val before = local.body.position.copy().addScaledInPlace(local.body.linearVelocity, accumulator)
+        toGround(local, before, replica.time + accumulator)
 
         // Writing state into a sleeping replica would be ignored: a dormant
         // craft rides the planet's rotation from its stored ground position
@@ -139,13 +174,33 @@ class ClientPrediction(
         local.body.linearVelocity.setTo(state.velocity)
         local.body.orientation.setTo(state.rotation)
         local.body.angularVelocity.setTo(state.angularVelocity)
+        // Back to the moment the snapshot describes, so the ground is where
+        // it was then; the catch-up brings both forward together. Without the
+        // server's time, the replica's own clock less the snapshot's age.
+        val describes = snapshotTime ?: (replica.time + accumulator - ageSeconds)
+        replica.syncClock(describes)
+
+        // Asleep on the server, and nobody touching the controls: asleep here
+        // too, at exactly the server's pose. Woken instead, the replica's
+        // craft settles onto its sprung legs for the three frames until the
+        // next snapshot resets it - a few centimetres of bounce, which with
+        // the camera following the craft is the ground jittering under it.
+        if (serverHasItAsleep(state) && inputsNeutral(local.control)) {
+            local.sleep(system.body(state.referenceBodyId).rotationAt(describes, scratchRotation))
+        }
 
         val catchUp = (ageSeconds / DT).toInt().coerceIn(0, MAX_CATCHUP_TICKS)
         repeat(catchUp) { replica.step(DT) }
+        // The part of the age too short for a whole step waits in the
+        // accumulator, where the next advance spends it and [renderTime]
+        // counts it, rather than being dropped.
+        accumulator = (ageSeconds - catchUp * DT).coerceIn(0.0, DT)
 
         // Carry the difference so the correction is smoothed out rather than
         // applied as a jump.
-        renderOffset.addInPlace(before).subInPlace(local.body.position)
+        val after = local.body.position.copy().addScaledInPlace(local.body.linearVelocity, accumulator)
+        toGround(local, after, replica.time + accumulator)
+        renderOffset.addInPlace(before).subInPlace(after)
         if (renderOffset.length > MAX_SMOOTHED_ERROR) {
             // Too far out to hide - the replica was wrong about something real,
             // so show the truth rather than sliding toward it for a second.
@@ -153,10 +208,58 @@ class ClientPrediction(
         }
     }
 
-    /** Where to draw the craft: the prediction, plus the decaying correction. */
+    /**
+     * Whether [state] is a sleeping craft. The server rebuilds a sleeping
+     * craft's velocity from the planet's rotation every tick, so it matches
+     * the surface to rounding error; an awake one resting on its gear never
+     * does - it carries the tick's contact impulse, a tenth of a metre a
+     * second or more. No flag on the wire needed.
+     */
+    private fun serverHasItAsleep(state: VesselKinematics): Boolean {
+        val body = system.bodies[state.referenceBodyId] ?: return false
+        body.surfaceVelocityAt(state.position, scratchVelocity)
+        if (scratchVelocity.subInPlace(state.velocity).length > ASLEEP_SPEED) return false
+        body.angularVelocity(scratchVelocity)
+        return scratchVelocity.subInPlace(state.angularVelocity).length <= ASLEEP_SPIN
+    }
+
+    private val scratchVelocity = Vec3()
+    private val scratchRotation = Quat.identity()
+
+    /**
+     * The universe time the predicted craft is drawn at: the replica's last
+     * step plus the part of a step since. Everything else in the frame - the
+     * planet's rotation above all - must be drawn at this same time, or the
+     * ground and the craft on it disagree by 175 m/s times the difference.
+     */
+    fun renderTime(): Double? {
+        val replica = world ?: return null
+        return replica.time + accumulator
+    }
+
+    /**
+     * Where to draw the craft: the prediction carried forward to
+     * [renderTime], plus the decaying correction.
+     *
+     * Carried forward because the replica steps at 60 Hz and a display runs
+     * at 60 to 120: drawn at its last step, a craft parked on the equator
+     * moves in 2.9 m jumps while the ground under it turns smoothly.
+     */
     fun renderPosition(out: Vec3 = Vec3()): Vec3? {
         val local = vessel ?: return null
-        return out.setTo(local.body.position).addInPlace(renderOffset)
+        out.setTo(local.body.position).addScaledInPlace(local.body.linearVelocity, accumulator)
+        if (renderOffset.lengthSq == 0.0) return out
+        // The correction is held against the ground; turn it with the ground.
+        val replica = world ?: return out
+        system.body(local.referenceBodyId).rotationAt(replica.time + accumulator, scratchRotation)
+        scratchRotation.rotate(renderOffset, scratchVelocity)
+        return out.addInPlace(scratchVelocity)
+    }
+
+    /** [position] (inertial, at [time]) into the body's rotating frame, in place. */
+    private fun toGround(local: Vessel, position: Vec3, time: Double) {
+        system.body(local.referenceBodyId).rotationAt(time, scratchRotation)
+        scratchRotation.inverseRotate(position.copy(), position)
     }
 
     fun renderRotation(out: Quat = Quat()): Quat? {
@@ -178,6 +281,12 @@ class ClientPrediction(
 
     private companion object {
         const val DT = 1.0 / 60.0
+
+        /** Relative speed, m/s, below which a snapshot can only be a sleeping craft. */
+        const val ASLEEP_SPEED = 1e-4
+
+        /** The same for spin, rad/s. */
+        const val ASLEEP_SPIN = 1e-9
 
         /** Most real time one advance may try to make up. */
         const val MAX_CATCHUP_SECONDS = 0.25

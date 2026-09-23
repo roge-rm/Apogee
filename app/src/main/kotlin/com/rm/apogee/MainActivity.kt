@@ -460,6 +460,13 @@ class MainActivity : ComponentActivity() {
         var downX = 0f
         var downY = 0f
         var downTime = 0L
+        // Set when a second finger lands, cleared when the next gesture
+        // starts. A pinch ends with one finger lifting before the other, and
+        // the one left behind used to carry on as a drag measured from where
+        // the *first* finger had been before the pinch - one enormous move,
+        // and the camera whipped round. After a pinch, the rest of that
+        // gesture is the pinch's.
+        var multiTouch = false
 
         view.setOnTouchListener { v, event ->
             pinch.onTouchEvent(event)
@@ -468,9 +475,12 @@ class MainActivity : ComponentActivity() {
                     lastX = event.x; lastY = event.y
                     downX = event.x; downY = event.y
                     downTime = event.eventTime
+                    multiTouch = false
                 }
 
-                MotionEvent.ACTION_MOVE -> if (!pinch.isInProgress && event.pointerCount == 1) {
+                MotionEvent.ACTION_POINTER_DOWN -> multiTouch = true
+
+                MotionEvent.ACTION_MOVE -> if (!multiTouch && !pinch.isInProgress && event.pointerCount == 1) {
                     val dx = event.x - lastX
                     val dy = event.y - lastY
                     lastX = event.x; lastY = event.y
@@ -487,7 +497,7 @@ class MainActivity : ComponentActivity() {
                     // makes placing a part feel broken.
                     val travelled = kotlin.math.hypot(event.x - downX, event.y - downY)
                     val duration = event.eventTime - downTime
-                    if (travelled < TAP_SLOP_PIXELS && duration < TAP_TIMEOUT_MILLIS) {
+                    if (!multiTouch && travelled < TAP_SLOP_PIXELS && duration < TAP_TIMEOUT_MILLIS) {
                         builderSession?.tap(
                             event.x, event.y,
                             v.width.toFloat(), v.height.toFloat(),
