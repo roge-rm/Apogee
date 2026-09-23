@@ -53,6 +53,13 @@ class BuilderSession(
     /** An already-placed part the player has tapped, for deletion. */
     var selectedPartIndex: Int? by mutableStateOf(null)
 
+    /**
+     * Where LAUNCH puts the craft: a [com.rm.apogee.core.world.LaunchSite]
+     * id, or null to let the design decide (the sea for hulls, the pad for
+     * everything else).
+     */
+    var launchSiteId: String? by mutableStateOf(null)
+
     var stats: CraftStats by mutableStateOf(CraftStats.analyze(builder.design, catalog))
         private set
 
@@ -226,6 +233,10 @@ class BuilderSession(
         stats = CraftStats.analyze(builder.design, catalog)
         revision++
     }
+
+    /** Where Automatic would send the current design. */
+    fun automaticSite(): com.rm.apogee.core.world.LaunchSite =
+        com.rm.apogee.core.world.World.launchSiteFor(builder.design, catalog)
 
     /** The design as it would be launched. */
     fun designForLaunch(): CraftDesign? =

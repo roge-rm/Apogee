@@ -138,4 +138,11 @@ class CraftStatsTest {
         assertEquals(0, stats.partCount)
         assertFalse(stats.isFlyable)
     }
+
+    /** A rover has no engine; its wheels are what move it. */
+    @Test
+    fun `a rover can be launched`() {
+        val stats = CraftStats.analyze(StockCraft.rover(catalog), catalog)
+        assertTrue("rover refused: ${stats.problems}", stats.isFlyable)
+    }
 }

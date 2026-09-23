@@ -59,6 +59,7 @@ import com.rm.apogee.core.craft.CraftStats
 import com.rm.apogee.core.craft.SymmetryMode
 import com.rm.apogee.core.part.PartCategory
 import com.rm.apogee.core.part.PartCatalog
+import com.rm.apogee.core.world.World
 import com.rm.apogee.game.BuilderSession
 import com.rm.apogee.ui.theme.ApogeeAlpha
 import com.rm.apogee.ui.theme.ApogeeColors
@@ -85,6 +86,7 @@ fun BuilderScreen(
     @Suppress("UNUSED_EXPRESSION") session.revision
 
     var showLoadDialog by remember { mutableStateOf(false) }
+    var showSiteDialog by remember { mutableStateOf(false) }
     var showNameDialog by remember { mutableStateOf(false) }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -166,6 +168,24 @@ fun BuilderScreen(
                 Spacer(Modifier.height(8.dp))
             }
 
+            // Where it goes. Small and above the button rather than a step
+            // before it: nearly every launch wants the default.
+            val chosen = World.launchSites.firstOrNull { it.id == session.launchSiteId }
+            Surface(
+                shape = RoundedCornerShape(Dimens.CornerSmall),
+                color = Color.Black.alpha(ApogeeAlpha.SCRIM),
+            ) {
+                Text(
+                    "FROM  " + (chosen?.displayName ?: "Automatic \u00b7 ${session.automaticSite().displayName}") + "  \u25BE",
+                    style = TelemetryTextStyle,
+                    color = Color.White.alpha(ApogeeAlpha.BODY),
+                    modifier = Modifier
+                        .clickable { showSiteDialog = true }
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+
             val launchable = session.designForLaunch() != null
             Surface(
                 shape = RoundedCornerShape(Dimens.CornerActionBar),
@@ -205,6 +225,15 @@ fun BuilderScreen(
                 session.save()
                 showNameDialog = false
             },
+        )
+    }
+
+    if (showSiteDialog) {
+        SiteDialog(
+            selected = session.launchSiteId,
+            automatic = session.automaticSite().displayName,
+            onPick = { session.launchSiteId = it; showSiteDialog = false },
+            onDismiss = { showSiteDialog = false },
         )
     }
 
@@ -453,6 +482,23 @@ private fun NameDialog(initial: String, onDismiss: () -> Unit, onConfirm: (Strin
 
 @Composable
 private fun LoadDialog(session: BuilderSession, onDismiss: () -> Unit) {
+    // Deleting is permanent - there is no undo for a file - so it asks first.
+    var confirmDelete by remember { mutableStateOf<com.rm.apogee.core.craft.SavedCraft?>(null) }
+    confirmDelete?.let { doomed ->
+        AlertDialog(
+            onDismissRequest = { confirmDelete = null },
+            title = { Text("Delete \"${doomed.name}\"?") },
+            text = { Text("This removes the saved design for good. It cannot be undone.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    session.delete(doomed)
+                    confirmDelete = null
+                }) { Text("Delete", color = ApogeeColors.Danger) }
+            },
+            dismissButton = { TextButton(onClick = { confirmDelete = null }) { Text("Keep") } },
+        )
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Load craft") },
@@ -480,7 +526,50 @@ private fun LoadDialog(session: BuilderSession, onDismiss: () -> Unit) {
                                     style = MaterialTheme.typography.labelSmall,
                                 )
                             }
-                            TextButton(onClick = { session.delete(saved) }) { Text("Delete") }
+                            TextButton(onClick = { confirmDelete = saved }) { Text("Delete") }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+    )
+}
+
+@Composable
+private fun SiteDialog(
+    selected: String?,
+    automatic: String,
+    onPick: (String?) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Launch from") },
+        text = {
+            Column {
+                val choices = listOf<Pair<String?, String>>(null to "Automatic") +
+                    World.launchSites.map { it.id to it.displayName }
+                for ((id, name) in choices) {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable { onPick(id) }
+                            .padding(vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                name,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = if (id == selected) ApogeeColors.Accent else Color.Unspecified,
+                            )
+                            if (id == null) {
+                                Text(
+                                    "Boats to the harbour, everything else to the pad - now $automatic",
+                                    style = MaterialTheme.typography.labelSmall,
+                                )
+                            }
                         }
                     }
                 }

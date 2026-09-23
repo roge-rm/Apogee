@@ -90,6 +90,37 @@ class SolarSystem(
 
     companion object {
         /**
+         * The terrains, made once and shared by every world in the process.
+         *
+         * A solo game runs a server world, the client's prediction replica
+         * and the renderer's mesh builder side by side. Built per world, each
+         * would keep its own cache of sampled tiles of the same ground - three
+         * copies of identical data, each paid for in full. The terrain is
+         * immutable and its cache thread-safe, so one will do.
+         */
+        private val terraTerrain by lazy {
+            com.rm.apogee.core.terrain.TerrainField(
+                bodyRadius = 600_000.0,
+                maxElevation = 6_000.0,
+                oceanDepth = 3_000.0,
+                // The launch complex is at latitude 0, longitude 0, so its
+                // surface normal is +X. Terrain is raised there to keep the
+                // pad out of the sea.
+                homeDirection = Vec3(1.0, 0.0, 0.0),
+            )
+        }
+
+        private val lunaTerrain by lazy {
+            com.rm.apogee.core.terrain.TerrainField(
+                bodyRadius = 200_000.0,
+                seed = 0x11115,
+                maxElevation = 4_000.0,
+                oceanDepth = 0.0,
+                profile = com.rm.apogee.core.terrain.TerrainField.Profile.LUNA,
+            )
+        }
+
+        /**
          * The v1 system: a star, a homeworld and its moon.
          *
          * Scaled down roughly tenfold from reality, which is the convention the
@@ -121,15 +152,7 @@ class SolarSystem(
                     scaleHeight = 5_600.0,
                     height = 70_000.0,
                 ),
-                terrain = com.rm.apogee.core.terrain.TerrainField(
-                    bodyRadius = terraRadius,
-                    maxElevation = 6_000.0,
-                    oceanDepth = 3_000.0,
-                    // The launch complex is at latitude 0, longitude 0, so its
-                    // surface normal is +X. Terrain is raised there to keep the
-                    // pad out of the sea.
-                    homeDirection = Vec3(1.0, 0.0, 0.0),
-                ),
+                terrain = terraTerrain,
                 ocean = com.rm.apogee.core.terrain.Ocean(),
                 parentId = "sol",
                 orbit = Orbit.circular(terraOrbitRadius, sol.gravitationalParameter),
@@ -147,12 +170,7 @@ class SolarSystem(
                 atmosphere = null,
                 // Airless and battered: no oceans, so the whole surface is
                 // relief rather than the top half of it.
-                terrain = com.rm.apogee.core.terrain.TerrainField(
-                    bodyRadius = lunaRadius,
-                    seed = 0x11115,
-                    maxElevation = 4_000.0,
-                    oceanDepth = 0.0,
-                ),
+                terrain = lunaTerrain,
                 parentId = "terra",
                 orbit = Orbit.circular(lunaOrbitRadius, terra.gravitationalParameter),
                 sphereOfInfluence = 2_429_559.0,

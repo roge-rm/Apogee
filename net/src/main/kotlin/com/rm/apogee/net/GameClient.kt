@@ -59,6 +59,8 @@ class GameClient(
      * server hangs craft ownership off it rather than off [playerName].
      */
     val clientId: String,
+    /** The ground this build simulates. Only a test would pass anything else. */
+    private val terrainGeneration: Int = com.rm.apogee.core.terrain.TerrainField.GENERATION,
 ) {
     private val vesselsById = ConcurrentHashMap<Long, ClientVessel>()
 
@@ -113,6 +115,7 @@ class GameClient(
                         catalogHash = catalogHash,
                         playerName = playerName,
                         clientId = clientId,
+                        terrainGeneration = terrainGeneration,
                     )
                 ),
             )
@@ -130,6 +133,17 @@ class GameClient(
         connected = false
         transport.close()
     }
+
+    /**
+     * Scatter the server says has been knocked down. Shared with the
+     * prediction replica, so the local craft does not collide with a tree
+     * that is already down, and read by the renderer to leave it out.
+     */
+    val felledScatter: MutableSet<Long> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+
+    /** Bumped whenever [felledScatter] grows, so a renderer can tell cheaply. */
+    @Volatile var felledRevision: Int = 0
+        private set
 
     private fun handle(message: ServerMessage) {
         when (message) {
@@ -186,6 +200,11 @@ class GameClient(
                     // snapshot after the structure lands will carry it again.
                     vesselsById[kinematics.vessel]?.observe(kinematics)
                 }
+            }
+
+            is ServerMessage.ScatterFelled -> {
+                felledScatter.addAll(message.ids)
+                felledRevision++
             }
 
             is ServerMessage.ChatMessage -> synchronized(chatLines) {

@@ -188,6 +188,14 @@ sealed interface ServerMessage {
     @Serializable
     @SerialName("chat")
     data class ChatMessage(val from: String, val text: String) : ServerMessage
+
+    /**
+     * Scatter knocked down. Sent as it happens, and in full to anyone joining,
+     * so every player's forest has the same gaps in it.
+     */
+    @Serializable
+    @SerialName("scatterFelled")
+    data class ScatterFelled(val ids: List<Long>) : ServerMessage
 }
 
 /** Client -> server. */
@@ -206,6 +214,12 @@ sealed interface ClientMessage {
          * decides nothing.
          */
         val clientId: String,
+        /**
+         * [com.rm.apogee.core.terrain.TerrainField.GENERATION]. Two builds
+         * with different ground cannot share a world: each would collide
+         * craft with its own idea of the surface.
+         */
+        val terrainGeneration: Int = 0,
     ) : ClientMessage
 
     @Serializable
@@ -221,5 +235,6 @@ object Protocol {
      * as broken, and much harder to diagnose from the symptoms.
      */
     // 3: CraftDesign.orientation, Command.SetBrakes.
-    const val VERSION = 3
+    // 4: ServerMessage.ScatterFelled, Hello.terrainGeneration.
+    const val VERSION = 4
 }

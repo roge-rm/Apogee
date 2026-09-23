@@ -5,6 +5,7 @@ import com.rm.apogee.core.craft.StockCraft
 import com.rm.apogee.core.craft.VesselId
 import com.rm.apogee.core.part.PartCatalog
 import com.rm.apogee.core.part.StockParts
+import com.rm.apogee.core.terrain.TerrainField
 import com.rm.apogee.core.world.ClientMessage
 import com.rm.apogee.core.world.Command
 import com.rm.apogee.core.world.Protocol
@@ -299,6 +300,18 @@ class GameServer(
             disconnect(session)
             return
         }
+        if (hello.terrainGeneration != TerrainField.GENERATION) {
+            session.send(
+                ServerMessage.Rejected(
+                    "Terrain mismatch: the server's world is terrain generation " +
+                        "${TerrainField.GENERATION}, this game has ${hello.terrainGeneration}. " +
+                        "Both need the same version of Apogee."
+                ),
+                Channel.CONTROL,
+            )
+            disconnect(session)
+            return
+        }
 
         session.playerName = hello.playerName.take(32).ifBlank { "Pilot" }
         session.clientId = hello.clientId.take(64)
@@ -348,6 +361,11 @@ class GameServer(
             ),
             Channel.CONTROL,
         )
+
+        // And what has been knocked down, so their forest matches everyone's.
+        if (world.felledScatter.isNotEmpty()) {
+            session.send(ServerMessage.ScatterFelled(world.felledScatter.toList()), Channel.STRUCTURE)
+        }
 
         // A joining client needs the structure of everything already out there,
         // not just its own craft, or every other player is invisible until
@@ -429,6 +447,9 @@ class GameServer(
                     }
 
                 is WorldEvent.Touchdown -> Unit
+
+                is WorldEvent.ScatterFelled ->
+                    broadcast(ServerMessage.ScatterFelled(listOf(event.scatterId)), Channel.STRUCTURE)
 
                 // A failed part changes what the craft can still do, and that
                 // lives in the structure message alongside staging.

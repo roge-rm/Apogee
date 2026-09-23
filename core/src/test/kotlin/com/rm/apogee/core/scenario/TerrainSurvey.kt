@@ -85,6 +85,43 @@ fun main() {
             field.elevation(Vec3(cos(it * 0.7), sin(it * 0.3), cos(it * 1.1)))
     }
     println("  identical across instances: ${differences == 0}")
+
+    surveyCost(field)
+}
+
+/**
+ * What one sample of the height field costs, because every plan to make the
+ * terrain richer is a plan to make this number bigger, and the collider and
+ * the mesh builder both pay it.
+ */
+fun surveyCost(field: TerrainField) {
+    val directions = Array(20_000) { i ->
+        Vec3(cos(i * 0.37), sin(i * 0.11), cos(i * 0.73)).normalizeInPlace()
+    }
+    var sink = 0.0
+    // Warm the JIT before timing anything.
+    repeat(3) { directions.forEach { sink += field.elevation(it) } }
+    val rounds = 5
+    val start = System.nanoTime()
+    repeat(rounds) { directions.forEach { sink += field.elevation(it) } }
+    val nanos = (System.nanoTime() - start).toDouble() / (rounds * directions.size)
+    println()
+    println("cost")
+    println("  per elevation sample   %.0f ns".format(nanos))
+    println("  per 65x65 tile         %.2f ms  (on this machine; a phone is several times slower)"
+        .format(nanos * 65 * 65 / 1e6))
+
+    // Real tiles, built and discarded, including the material pass.
+    val tiles = field.tiles.tilesPerFace
+    repeat(3) { com.rm.apogee.core.terrain.TerrainTile.build(field, 0, tiles / 2 + it, tiles / 2, tiles) }
+    val tileStart = System.nanoTime()
+    val built = 20
+    repeat(built) { com.rm.apogee.core.terrain.TerrainTile.build(field, 0, tiles / 2 + it, tiles / 2 + 7, tiles) }
+    println("  per tile, measured     %.2f ms  (%d x %d cells, %.0f m across)".format(
+        (System.nanoTime() - tileStart) / 1e6 / built,
+        com.rm.apogee.core.terrain.TerrainTile.CELLS, com.rm.apogee.core.terrain.TerrainTile.CELLS,
+        field.bodyRadius * Math.PI / 2.0 / tiles))
+    if (sink == 42.0) println()
 }
 
 /**

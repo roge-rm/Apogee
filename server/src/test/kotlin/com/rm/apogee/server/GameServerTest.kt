@@ -62,10 +62,11 @@ class GameServerTest {
         // Defaults to one identity per name, which is what most tests want.
         // Tests about identity pass it explicitly.
         clientId: String = "install-$name",
+        terrainGeneration: Int = com.rm.apogee.core.terrain.TerrainField.GENERATION,
     ): GameClient {
         val link = LoopbackTransportPair()
         server.accept(link.serverSide, scope)
-        val client = GameClient(link.clientSide, name, catalogHash, clientId)
+        val client = GameClient(link.clientSide, name, catalogHash, clientId, terrainGeneration)
         client.connect(scope)
         pumpUntil(server, "$name's handshake to resolve") {
             client.connected || client.rejectionReason != null
@@ -133,6 +134,42 @@ class GameServerTest {
             client.rejectionReason!!.contains("catalogue", ignoreCase = true),
         )
         assertEquals(0, server.playerCount)
+    }
+
+    /**
+     * Same parts, different ground: an older build joining a 0.3.0 server
+     * would drive over hills the server says are not there.
+     */
+    @Test
+    fun `a client on different terrain is refused`() = runTest {
+        val server = GameServer.default(catalog)
+        val client = joinClient(
+            server, backgroundScope, "Pilot",
+            terrainGeneration = com.rm.apogee.core.terrain.TerrainField.GENERATION - 1,
+        )
+
+        assertFalse("should not be connected", client.connected)
+        assertTrue(
+            "reason should name the terrain: ${client.rejectionReason}",
+            client.rejectionReason?.contains("terrain", ignoreCase = true) == true,
+        )
+        assertEquals(0, server.playerCount)
+    }
+
+    /**
+     * A tree felled by one player is gone for everyone: for a player already
+     * there, and for one who joins afterwards.
+     */
+    @Test
+    fun `a felled tree is gone for every player`() = runTest {
+        val server = GameServer.default(catalog)
+        val there = joinClient(server, backgroundScope, "Alice")
+        server.world.fell(123_456L)
+        pumpUntil(server, "the fall to reach Alice") { 123_456L in there.felledScatter }
+
+        val late = joinClient(server, backgroundScope, "Bob")
+        pumpUntil(server, "the fall to reach Bob on joining") { 123_456L in late.felledScatter }
+        assertTrue(late.felledRevision > 0)
     }
 
     @Test

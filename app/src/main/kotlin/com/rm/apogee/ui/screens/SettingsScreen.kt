@@ -247,15 +247,17 @@ fun AboutScreen() {
             modifier = contentModifier,
         )
 
-        // Worth showing all three. The version answers "which build is on
+        // Worth showing all of them. The version answers "which build is on
         // this phone", which matters when the answer is usually "the one I
-        // side-loaded" - but it is the protocol number and the catalogue hash
-        // that decide whether a server will have you, and until now there was
-        // no way to read either from the device that was being refused.
+        // side-loaded" - but it is the protocol number, the terrain generation
+        // and the catalogue hash that decide whether a server will have you,
+        // and until now there was no way to read any of them from the device
+        // that was being refused.
         SectionHeading("Build", contentModifier)
         Text(
             "Apogee ${BuildConfig.VERSION_NAME}  (${BuildConfig.VERSION_CODE})\n" +
                 "Protocol ${Protocol.VERSION}  \u00b7  " +
+                "terrain ${com.rm.apogee.core.terrain.TerrainField.GENERATION}  \u00b7  " +
                 "parts ${StockParts.catalog.contentHash}",
             style = TelemetryTextStyle,
             color = Color.White.alpha(ApogeeAlpha.SUBTITLE),

@@ -89,6 +89,11 @@ class ClientPrediction(
         control.brakes = brakes
     }
 
+    /** Scatter the server says is down, so the replica does not collide with it. */
+    fun felled(ids: Collection<Long>) {
+        world?.felledScatter?.addAll(ids)
+    }
+
     /** Fires the next stage locally, so staging feels immediate too. */
     fun stage() {
         val replica = world ?: return

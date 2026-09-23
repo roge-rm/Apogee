@@ -122,6 +122,13 @@ class Vessel(
     /** Whether anything of this craft touched the ground last tick. */
     var touchingGround: Boolean = false
 
+    /**
+     * How many contact points it had on the ground last tick. Sharing the
+     * craft's weight among them gives the load under each, which is what
+     * decides how far a foot or a wheel sinks into soft ground.
+     */
+    var groundContacts: Int = 0
+
     /** Resolved definitions, parallel to `design.parts`. */
     var defs: List<PartDef> = defs
         private set

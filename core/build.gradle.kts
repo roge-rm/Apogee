@@ -84,6 +84,21 @@ tasks.register("printTestClasspath") {
     doLast { println(cp.asPath) }
 }
 
+/**
+ * Draws the terrain as shaded maps: `./gradlew :core:terrainAtlas`.
+ *
+ * PNGs in build/terrain-atlas - material colour, hillshade and water, at
+ * regional and local scales around the launch sites. For judging what the
+ * generator makes without a device in the loop.
+ */
+tasks.register<JavaExec>("terrainAtlas") {
+    group = "verification"
+    description = "Writes shaded terrain maps to build/terrain-atlas."
+    classpath = sourceSets["test"].runtimeClasspath
+    mainClass.set("com.rm.apogee.core.scenario.TerrainAtlasKt")
+    args = listOf(layout.buildDirectory.dir("terrain-atlas").get().asFile.absolutePath)
+}
+
 tasks.register<JavaExec>("restSurvey") {
     group = "verification"
     description = "Prints how still each reference craft settles."

@@ -199,7 +199,10 @@ object StockCraft {
 
         // Wheels at the four corners, below the pod so it rides clear of the
         // ground. The front pair steer.
-        for ((x, z) in listOf(0.7 to 0.7, -0.7 to 0.7, 0.7 to -0.7, -0.7 to -0.7)) {
+        // A metre out each side, not seventy centimetres: a track of two
+        // metres under a pod this tall is what keeps it on its wheels across
+        // real country. At 1.4 m it rolled over half a kilometre off the pad.
+        for ((x, z) in listOf(1.0 to 0.8, -1.0 to 0.8, 1.0 to -0.8, -1.0 to -0.8)) {
             parts.add(
                 PlacedPart(
                     partId = "wheel-tread",

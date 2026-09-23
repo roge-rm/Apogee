@@ -164,34 +164,96 @@ object Shaders {
 
     // ---- planet surface ----------------------------------------------------
 
+    // ---- scatter -------------------------------------------------------------
+
+    /**
+     * Rocks and trees, instanced. Each instance is turned about its block's
+     * local vertical and scaled, then placed like a terrain chunk: relative to
+     * the block's centre, so float only ever sees a few hundred metres.
+     */
+    val SCATTER_VERTEX = """
+        #version 300 es
+        layout(location = 0) in vec3 aPosition;
+        layout(location = 1) in vec3 aNormal;
+        layout(location = 2) in vec3 aColour;
+        layout(location = 3) in vec4 aInstance;
+        layout(location = 4) in float aYaw;
+
+        uniform mat4 uModel;
+        uniform mat4 uViewProjection;
+        // East, up, north at the block, as columns.
+        uniform mat3 uBasis;
+
+        flat out vec3 vNormal;
+        flat out vec3 vColour;
+        out float vDistance;
+
+        void main() {
+            float c = cos(aYaw);
+            float s = sin(aYaw);
+            vec3 p = aPosition * aInstance.w;
+            vec3 turned = vec3(c * p.x - s * p.z, p.y, s * p.x + c * p.z);
+            vec3 n = vec3(c * aNormal.x - s * aNormal.z, aNormal.y, s * aNormal.x + c * aNormal.z);
+            vec4 world = uModel * vec4(uBasis * turned + aInstance.xyz, 1.0);
+            vNormal = normalize(mat3(uModel) * (uBasis * n));
+            vColour = aColour;
+            vDistance = length(world.xyz);
+            gl_Position = uViewProjection * world;
+        }
+    """.trimIndent()
+
+    /** Lit as the ground is, so a forest sits in its landscape rather than on it. */
+    val SCATTER_FRAGMENT = """
+        #version 300 es
+        precision highp float;
+
+        flat in vec3 vNormal;
+        flat in vec3 vColour;
+        in float vDistance;
+
+        uniform vec3 uSunDirection;
+        uniform float uAtmosphereFactor;
+        uniform float uHazeDistance;
+
+        out vec4 fragColor;
+
+        void main() {
+            // Two-sided: the meshes are drawn without culling.
+            vec3 n = normalize(vNormal);
+            if (!gl_FrontFacing) n = -n;
+            float lambert = max(dot(n, uSunDirection), 0.0);
+            vec3 lit = vColour * (0.28 + lambert * 0.9);
+            float haze = (1.0 - exp(-vDistance / max(uHazeDistance, 1.0))) * uAtmosphereFactor;
+            vec3 hazeColor = vec3(0.52, 0.66, 0.85);
+            fragColor = vec4(mix(lit, hazeColor, clamp(haze, 0.0, 1.0)), 1.0);
+        }
+    """.trimIndent()
+
     val TERRAIN_VERTEX = """
         #version 300 es
         layout(location = 0) in vec3 aPosition;
         layout(location = 1) in vec3 aNormal;
-        layout(location = 2) in float aElevation;
-        layout(location = 3) in float aSlope;
+        layout(location = 2) in vec3 aColour;
+        layout(location = 3) in float aWet;
 
         uniform mat4 uModel;
         uniform mat4 uViewProjection;
 
-        // Flat, for the same reason as the vessel shader. Screen-space
-        // derivatives would give a truer face normal, but they measure a
-        // pixel-scale change against a camera-relative position of tens of
-        // metres and come back as noise.
+        // Flat, for the facets: each triangle takes one vertex's normal and
+        // colour whole, which is the low-poly look.
         flat out vec3 vNormal;
-        flat out float vSlope;
+        flat out vec3 vColour;
+        flat out float vWet;
         out vec3 vViewDir;
-        out float vElevation;
         out float vDistance;
 
         void main() {
             vec4 worldPos = uModel * vec4(aPosition, 1.0);
             vNormal = normalize(mat3(uModel) * aNormal);
-            vSlope = aSlope;
-            vElevation = aElevation;
+            vColour = aColour;
+            vWet = aWet;
             // The camera sits at the scene origin, so the vector to it is the
-            // negated camera-relative position, and its length is how far this
-            // patch of ground is from the viewer.
+            // negated camera-relative position.
             vDistance = length(worldPos.xyz);
             vViewDir = -worldPos.xyz / max(vDistance, 1.0);
             gl_Position = uViewProjection * worldPos;
@@ -199,77 +261,34 @@ object Shaders {
     """.trimIndent()
 
     /**
-     * Colours the surface from the height and slope it was *built* with.
+     * Lights the surface. Its colour arrives already decided.
      *
-     * Note what is absent: any noise at all. The terrain arrives as geometry
-     * sampled from the simulation's own height field, so this shader only has
-     * to decide what that height looks like. That is the whole point - there
-     * is one definition of the surface, and it is not in here.
+     * Colour used to be worked out here from height and slope. It is decided
+     * on the CPU now, from the same material the collider grips by, so ground
+     * that looks like ice is ice. What is left is light, a glint off water,
+     * and air.
      */
     val TERRAIN_FRAGMENT = """
         #version 300 es
         precision highp float;
 
         flat in vec3 vNormal;
-        flat in float vSlope;
+        flat in vec3 vColour;
+        flat in float vWet;
         in vec3 vViewDir;
-        in float vElevation;
         in float vDistance;
 
         uniform vec3 uSunDirection;
         uniform float uAtmosphereFactor;
         uniform float uHazeDistance;
-        uniform float uMaxElevation;
+        uniform float uHasAtmosphere; // 1 for a body with air, 0 for one without
 
         out vec4 fragColor;
 
         void main() {
             vec3 n = normalize(vNormal);
-
-            // Height bands, in metres rather than as a fraction of the
-            // tallest peak the field could theoretically produce. Normalising
-            // by uMaxElevation put every band the craft ever flies over into
-            // the bottom sixth of the scale, and the whole world came out one
-            // shade of green.
-            float h = vElevation;
-
-            vec3 shore = vec3(0.72, 0.66, 0.46);
-            vec3 grass = vec3(0.22, 0.42, 0.18);
-            vec3 meadow = vec3(0.30, 0.46, 0.20);
-            vec3 upland = vec3(0.35, 0.40, 0.21);
-            vec3 dry = vec3(0.48, 0.44, 0.27);
-            vec3 rock = vec3(0.38, 0.35, 0.32);
-            vec3 snow = vec3(0.92, 0.94, 0.97);
-
-            // Hard steps, not gradients. A low-poly look is as much about a
-            // small palette with visible edges as it is about the facets.
-            vec3 surface = shore;
-            surface = mix(surface, grass, step(30.0, h));
-            surface = mix(surface, meadow, step(220.0, h));
-            surface = mix(surface, upland, step(520.0, h));
-            surface = mix(surface, dry, step(900.0, h));
-            surface = mix(surface, rock, step(1350.0, h));
-            surface = mix(surface, snow, step(1800.0, h));
-
-            // Anything steep is bare rock whatever height it is at, which is
-            // what turns a hillside into a hillside rather than a green ramp.
-            surface = mix(surface, rock, step(0.22, vSlope));
-
-            // Below the datum this mesh is water, not ground.
-            //
-            // Both meshes clamp their ocean vertices to sea level and leave
-            // the colouring here, so water is a band on the one surface
-            // rather than a second sphere over a sunken sea floor. Depth
-            // comes from how far down the floor *would* have been, which the
-            // elevation attribute still carries although the geometry is flat.
-            float depth = clamp(-vElevation / 900.0, 0.0, 1.0);
-            vec3 water = mix(vec3(0.10, 0.30, 0.46), vec3(0.02, 0.09, 0.22), depth);
-            float wet = step(vElevation, 0.0);
-            surface = mix(surface, water, wet);
-
-            // Ice toward the poles.
-            float polar = step(0.86, abs(n.y));
-            surface = mix(surface, snow, polar * 0.85);
+            vec3 surface = vColour;
+            float wet = vWet;
 
             float lambert = max(dot(n, uSunDirection), 0.0);
             float daylight = smoothstep(-0.08, 0.35, dot(n, uSunDirection));
@@ -291,9 +310,11 @@ object Shaders {
             // Seen from outside, a planet's edge glows because the line of
             // sight grazes a long column of air. Faded out as the camera
             // descends, or the whole surface turns to haze when standing on it.
+            // None at all on an airless world: there is no air to glow, and
+            // standing on one, every grazing facet would turn blue.
             float fresnel = pow(1.0 - max(dot(n, vViewDir), 0.0), 3.0);
             lit += vec3(0.25, 0.45, 0.78) * fresnel * daylight * 0.9 *
-                (1.0 - clamp(uAtmosphereFactor, 0.0, 1.0));
+                (1.0 - clamp(uAtmosphereFactor, 0.0, 1.0)) * uHasAtmosphere;
 
             fragColor = vec4(lit, 1.0);
         }

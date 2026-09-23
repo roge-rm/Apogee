@@ -3,7 +3,6 @@ package com.rm.apogee.core.terrain
 import com.rm.apogee.core.math.Vec3
 import kotlin.math.abs
 import kotlin.math.max
-import kotlin.math.pow
 import kotlin.math.sqrt
 
 /**
@@ -30,10 +29,10 @@ class TerrainField(
      * complex most of all, which has to be about as wide as a launch complex
      * and not about as wide as a tenth of a degree.
      */
-    val bodyRadius: Double,
+    override val bodyRadius: Double,
     val seed: Int = DEFAULT_SEED,
     /** Metres from the datum to the highest peaks. */
-    val maxElevation: Double = 6_000.0,
+    override val maxElevation: Double = 6_000.0,
     /** Metres from the datum down to the deepest ocean floor. */
     val oceanDepth: Double = 3_000.0,
     /**
@@ -44,7 +43,41 @@ class TerrainField(
      * is raised around it - which is also how real launch sites come about.
      */
     val homeDirection: Vec3? = null,
-) {
+    /** Which kind of world this is: what shapes the land. */
+    val profile: Profile = Profile.TERRA,
+) : Terrain {
+
+    enum class Profile { TERRA, LUNA }
+
+    private val luna: LunaLand? = if (profile == Profile.LUNA) LunaLand(seed, bodyRadius) else null
+
+    override val hasOcean: Boolean get() = profile == Profile.TERRA
+
+    override val generation: Int get() = GENERATION
+
+    override val tiles: TerrainTileCache by lazy { TerrainTileCache(this) }
+
+    private val scatterField: ScatterField by lazy { ScatterField(this) }
+    override val scatter: ScatterField? get() = scatterField
+
+    override fun isLaunchComplex(direction: Vec3): Boolean {
+        val home = homeUnit ?: return false
+        val length = sqrt(direction.x * direction.x + direction.y * direction.y + direction.z * direction.z)
+        val ox = direction.x / length - home.x
+        val oy = direction.y / length - home.y
+        val oz = direction.z / length - home.z
+        val metres = sqrt(ox * ox + oy * oy + oz * oz) * bodyRadius
+        if (metres < PAD_BLEND_METRES) return true
+        return runwayBlend(ox, oy, oz) < 1.0
+    }
+
+    /**
+     * What stands on the continents. Only for a body with a home to keep
+     * clear - that is, Terra; other bodies get their own profiles.
+     */
+    private val land: TerraLand? = homeDirection?.normalized()?.let {
+        TerraLand(seed, bodyRadius, it.x, it.y, it.z)
+    }
     private val homeUnit: Vec3? = homeDirection?.normalized()
 
     /**
@@ -68,35 +101,39 @@ class TerrainField(
      * path and does not want a synchronised read per contact point.
      */
     private val homeElevation: Double =
-        homeUnit?.let { shapedElevation(it) } ?: 0.0
+        homeUnit?.let { shapedElevation(it.x, it.y, it.z) } ?: 0.0
     /**
      * Height above the datum at [direction], in metres. Negative is sea floor.
      *
      * [direction] need not be normalised.
      */
-    fun elevation(direction: Vec3): Double {
-        val n = direction.normalized()
-        if (n.lengthSq < 0.5) return 0.0
+    override fun elevation(direction: Vec3): Double {
+        // Scalars throughout: this is the hottest function in the game, run
+        // concurrently on several threads, and every temporary vector here
+        // was garbage a collector later stopped the world to sweep up.
+        val length = sqrt(direction.x * direction.x + direction.y * direction.y + direction.z * direction.z)
+        if (length < 0.7) return 0.0
+        val nx = direction.x / length; val ny = direction.y / length; val nz = direction.z / length
 
-        val shaped = shapedElevation(n)
+        luna?.let { return it.height(nx, ny, nz) }
+        val shaped = shapedElevation(nx, ny, nz)
         val home = homeUnit ?: return shaped
 
         // A level pad, and only a level pad. Rolling ground is what makes
         // altitude and lateral drift legible from the cockpit, so the
-        // flattening is kept to about the footprint of a launch complex
-        // rather than the several kilometres that used to make the whole
-        // horizon a flat green sheet.
+        // flattening is kept to about the footprint of a launch complex.
         //
         // Chord length rather than acos(dot): at these angles the dot product
         // is within a rounding error of 1 and acos throws away most of its
         // precision, while the chord is still exact.
-        val offset = n - home
-        val metres = offset.length * bodyRadius
+        val ox = nx - home.x; val oy = ny - home.y; val oz = nz - home.z
+        val metres = sqrt(ox * ox + oy * oy + oz * oz) * bodyRadius
+        if (metres >= PAD_BLEND_METRES + RUNWAY_LENGTH_METRES + RUNWAY_BLEND_METRES) return shaped
         val padBlend = if (metres >= PAD_BLEND_METRES) 1.0 else smoothstep(
             ((metres - PAD_FLAT_METRES) / (PAD_BLEND_METRES - PAD_FLAT_METRES))
                 .coerceIn(0.0, 1.0)
         )
-        val t = minOf(padBlend, runwayBlend(offset))
+        val t = minOf(padBlend, runwayBlend(ox, oy, oz))
         if (t >= 1.0) return shaped
         return homeElevation + (shaped - homeElevation) * t
     }
@@ -115,9 +152,11 @@ class TerrainField(
      * distances that is as good as a flat map, which is all a strip a few
      * kilometres long needs.
      */
-    private fun runwayBlend(offset: Vec3): Double {
-        val along = (runwayAlong ?: return 1.0).dot(offset) * bodyRadius
-        val across = abs(runwayAcross!!.dot(offset) * bodyRadius)
+    private fun runwayBlend(ox: Double, oy: Double, oz: Double): Double {
+        val a = runwayAlong ?: return 1.0
+        val c = runwayAcross!!
+        val along = (a.x * ox + a.y * oy + a.z * oz) * bodyRadius
+        val across = abs((c.x * ox + c.y * oy + c.z * oz) * bodyRadius)
         // Distance outside the strip's rectangle; nought anywhere on it. The
         // near end starts at the pad, which covers everything west of it.
         val beyondEnd = max(0.0, max(along - RUNWAY_LENGTH_METRES, -along))
@@ -128,7 +167,7 @@ class TerrainField(
     }
 
     /** The field proper, before the launch complex is levelled into it. */
-    private fun shapedElevation(n: Vec3): Double {
+    private fun shapedElevation(nx: Double, ny: Double, nz: Double): Double {
         // Continents at the largest scale, then detail. Each octave halves in
         // size and in contribution, which is what makes the result look the
         // same at every distance.
@@ -138,7 +177,7 @@ class TerrainField(
         var normalisation = 0.0
 
         repeat(OCTAVES) {
-            total += amplitude * noise(n.x * frequency, n.y * frequency, n.z * frequency)
+            total += amplitude * noise(nx * frequency, ny * frequency, nz * frequency)
             normalisation += amplitude
             amplitude *= PERSISTENCE
             frequency *= LACUNARITY
@@ -146,8 +185,8 @@ class TerrainField(
         var shaped = total / normalisation
 
         // A continent under the launch complex.
-        homeDirection?.let { home ->
-            val closeness = ((n dot home.normalized()) - HOME_FALLOFF_START) /
+        homeUnit?.let { home ->
+            val closeness = ((nx * home.x + ny * home.y + nz * home.z) - HOME_FALLOFF_START) /
                 (1.0 - HOME_FALLOFF_START)
             if (closeness > 0.0) {
                 shaped += HOME_LIFT * smoothstep(closeness.coerceIn(0.0, 1.0))
@@ -159,10 +198,10 @@ class TerrainField(
         // sea level and the whole world is beach.
         val centred = (shaped - SEA_FRACTION) / (1.0 - SEA_FRACTION)
         val base = if (centred >= 0.0) {
-            centred.pow(LAND_SHARPNESS) * maxElevation
+            StrictMath.pow(centred, LAND_SHARPNESS) * maxElevation
         } else {
             val depth = (-centred / SEA_FRACTION * (1.0 - SEA_FRACTION)).coerceIn(0.0, 1.0)
-            -depth.pow(OCEAN_SHARPNESS) * oceanDepth
+            -StrictMath.pow(depth, OCEAN_SHARPNESS) * oceanDepth
         }
         if (base <= 0.0) return base
 
@@ -179,17 +218,18 @@ class TerrainField(
         // patch of land back below the waterline and speckle the coast with
         // ponds.
         val landness = smoothstep((base / HILL_SHORE_FADE).coerceIn(0.0, 1.0))
-        return base + hills(n) * HILL_AMPLITUDE * landness
+        land?.let { return it.height(nx, ny, nz, base, landness) }
+        return base + hills(nx, ny, nz) * HILL_AMPLITUDE * landness
     }
 
     /** Hill-scale detail, -1..1, as its own band of octaves. */
-    private fun hills(n: Vec3): Double {
+    private fun hills(nx: Double, ny: Double, nz: Double): Double {
         var amplitude = 1.0
         var frequency = HILL_FREQUENCY
         var total = 0.0
         var normalisation = 0.0
         repeat(HILL_OCTAVES) {
-            total += amplitude * noise(n.x * frequency, n.y * frequency, n.z * frequency)
+            total += amplitude * noise(nx * frequency, ny * frequency, nz * frequency)
             normalisation += amplitude
             amplitude *= PERSISTENCE
             frequency *= LACUNARITY
@@ -197,29 +237,32 @@ class TerrainField(
         return (total / normalisation) * 2.0 - 1.0
     }
 
-    /** True where the datum surface is above the terrain. */
-    fun isOcean(direction: Vec3): Boolean = elevation(direction) < 0.0
-
     /**
-     * Distance from the planet's centre to the top of whatever is there -
-     * ground, or the calm sea over it.
+     * What the ground here is made of.
      *
-     * What a pilot means by "the surface": height above it is what the
-     * altimeter reads over water, and it is where a craft is set down when
-     * it is launched. Not what things collide with - see [solidRadius].
+     * For now the same bands the renderer has always coloured by - shore,
+     * grass, dry upland, rock, snow, and rock on anything steep - so that
+     * moving the classification out of the shader changes nothing a player
+     * can see. Biomes replace it.
      */
-    fun surfaceRadius(direction: Vec3): Double =
-        bodyRadius + max(elevation(direction), 0.0)
-
-    /**
-     * Distance from the planet's centre to the ground itself, sea floor
-     * included. What a craft collides with.
-     *
-     * Water used to count as solid here, which was the placeholder until
-     * buoyancy existed: a craft that came down in the sea sat on it as if it
-     * were a car park.
-     */
-    fun solidRadius(direction: Vec3): Double = bodyRadius + elevation(direction)
+    override fun material(direction: Vec3, elevation: Double, slope: Double): SurfaceMaterial {
+        val length = sqrt(direction.x * direction.x + direction.y * direction.y + direction.z * direction.z)
+        val nx = direction.x / length; val ny = direction.y / length; val nz = direction.z / length
+        luna?.let { return it.material(nx, ny, nz, slope) }
+        if (elevation < 0.0) return SurfaceMaterial.SAND
+        land?.let {
+            val landness = smoothstep((elevation / HILL_SHORE_FADE).coerceIn(0.0, 1.0))
+            return it.material(nx, ny, nz, elevation, slope, landness)
+        }
+        return when {
+            slope > STEEP_SLOPE -> SurfaceMaterial.ROCK
+            elevation < 30.0 -> SurfaceMaterial.SAND
+            elevation < 900.0 -> SurfaceMaterial.GRASS
+            elevation < 1_350.0 -> SurfaceMaterial.DIRT
+            elevation < 1_800.0 -> SurfaceMaterial.ROCK
+            else -> SurfaceMaterial.SNOW
+        }
+    }
 
     /**
      * Approximate surface normal, for placing things flat on a slope.
@@ -251,61 +294,18 @@ class TerrainField(
         return axis.cross(up).normalizeInPlace()
     }
 
-    // --- noise --------------------------------------------------------------
+    private fun noise(x: Double, y: Double, z: Double): Double = Noise.value(seed, x, y, z)
 
-    /**
-     * Value noise on an integer lattice.
-     *
-     * Value rather than gradient noise because it needs no permutation table
-     * and no vector lookups: the whole function is a handful of integer
-     * operations, which is what makes it reproducible everywhere without
-     * shipping data alongside it.
-     */
-    private fun noise(x: Double, y: Double, z: Double): Double {
-        val xi = kotlin.math.floor(x).toInt()
-        val yi = kotlin.math.floor(y).toInt()
-        val zi = kotlin.math.floor(z).toInt()
-
-        val fx = smoothstep(x - xi)
-        val fy = smoothstep(y - yi)
-        val fz = smoothstep(z - zi)
-
-        fun corner(dx: Int, dy: Int, dz: Int) = hash(xi + dx, yi + dy, zi + dz)
-
-        val x00 = lerp(corner(0, 0, 0), corner(1, 0, 0), fx)
-        val x10 = lerp(corner(0, 1, 0), corner(1, 1, 0), fx)
-        val x01 = lerp(corner(0, 0, 1), corner(1, 0, 1), fx)
-        val x11 = lerp(corner(0, 1, 1), corner(1, 1, 1), fx)
-
-        return lerp(lerp(x00, x10, fy), lerp(x01, x11, fy), fz)
-    }
-
-    /**
-     * Integer hash to a value in 0..1.
-     *
-     * Integer arithmetic throughout and wrapping on purpose, so the result
-     * depends on nothing but the inputs - no platform float behaviour, no
-     * library version, no order of evaluation.
-     */
-    private fun hash(x: Int, y: Int, z: Int): Double {
-        var h = seed
-        h = h * 374761393 + x * 668265263
-        h = h * 1274126177 + y * 2246822519.toInt()
-        h = h * 2654435761.toInt() + z * 3266489917.toInt()
-        h = h xor (h ushr 15)
-        h *= 2246822519.toInt()
-        h = h xor (h ushr 13)
-        h *= 3266489917.toInt()
-        h = h xor (h ushr 16)
-        return (h ushr 8) / UNSIGNED_24_BIT
-    }
-
-    private fun smoothstep(t: Double) = t * t * (3.0 - 2.0 * t)
-
-    private fun lerp(a: Double, b: Double, t: Double) = a + (b - a) * t
+    private fun smoothstep(t: Double) = Noise.smoothstep(t)
 
     companion object {
         const val DEFAULT_SEED = 0x4A06EE
+
+        /** See [Terrain.generation]. 1 is the terrain every save before M7 was made on. */
+        const val GENERATION = 2
+
+        /** Slope (0 flat, 1 wall) past which ground is bare rock: about 39 degrees. */
+        private const val STEEP_SLOPE = 0.22
 
         /**
          * Octaves of detail.
@@ -375,6 +375,5 @@ class TerrainField(
         /** Land below this height gets proportionally less hill. */
         private const val HILL_SHORE_FADE = 400.0
 
-        private const val UNSIGNED_24_BIT = ((1 shl 24) - 1).toDouble()
     }
 }

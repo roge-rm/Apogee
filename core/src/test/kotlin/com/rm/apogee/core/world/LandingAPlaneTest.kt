@@ -26,6 +26,7 @@ class LandingAPlaneTest {
         val broken: Int,
         val tilt: Double,
         val onRunway: Boolean,
+        val offCentre: Double,
     )
 
     private fun land(approachSpeed: Double = 95.0, height: Double = 40.0, noseUpDegrees: Double = 6.0): Outcome {
@@ -51,6 +52,7 @@ class LandingAPlaneTest {
         plane.control.sasEnabled = true
 
         var touchdownSpeed = -1.0
+        var touchdownTime = -1.0
         // Along the ground, integrated: positions are inertial, and the
         // runway itself moves 175 m/s, so a straight-line difference between
         // two of them measures the planet's spin.
@@ -61,11 +63,23 @@ class LandingAPlaneTest {
             t += dt
             if (touchdownSpeed < 0.0 && plane.touchingGround) {
                 touchdownSpeed = groundSpeed(world, plane)
-                plane.control.brakes = true
+                touchdownTime = t
             }
+            // Brakes once the wheels are all down, as a pilot would. Braking
+            // on first contact - one main wheel, briefly, before the rest -
+            // yanked the nose seventeen degrees round and the aircraft
+            // ground-looped off the runway.
+            if (touchdownTime >= 0.0 && t > touchdownTime + 2.0) plane.control.brakes = true
             if (touchdownSpeed >= 0.0) rollout += groundSpeed(world, plane) * dt
         }
         val upNow = plane.body.position.copy().normalizeInPlace()
+        // How far off the runway's centreline it came to rest. The runway
+        // runs east from the Cape, which sits at +X, so east is -Z and the
+        // centreline is the equator.
+        val restAt = world.attractorFor(plane).toBodyFixed(
+            plane.body.position, world.attractorFor(plane).rotationAt(world.time),
+        ).normalizeInPlace()
+        val offCentre = kotlin.math.abs(restAt.y) * 600_000.0
         val deck = plane.body.orientation.rotate(Vec3(0.0, 0.0, 1.0))
         return Outcome(
             touchdownSpeed = touchdownSpeed,
@@ -74,6 +88,7 @@ class LandingAPlaneTest {
             broken = plane.broken.count { it },
             tilt = Math.toDegrees(kotlin.math.acos((deck dot upNow).coerceIn(-1.0, 1.0))),
             onRunway = world.attractorFor(plane).altitudeOf(plane.body.position) < 1_000.0,
+            offCentre = offCentre,
         )
     }
 
@@ -85,12 +100,13 @@ class LandingAPlaneTest {
     @Test
     fun `it lands on its gear and brakes to a stop`() {
         val o = land()
-        println("touchdown %.1f m/s, rollout %.0f m, final %.2f m/s, broken %d, tilt %.1f"
-            .format(o.touchdownSpeed, o.rolloutMetres, o.finalSpeed, o.broken, o.tilt))
+        println("touchdown %.1f m/s, rollout %.0f m, final %.2f m/s, broken %d, tilt %.1f, %.0f m off centre"
+            .format(o.touchdownSpeed, o.rolloutMetres, o.finalSpeed, o.broken, o.tilt, o.offCentre))
         assertTrue("never touched down", o.touchdownSpeed >= 0.0)
         assertTrue("${o.broken} parts broke on landing", o.broken == 0)
         assertTrue("still rolling at ${o.finalSpeed} m/s", o.finalSpeed < 0.5)
         assertTrue("rolled ${o.rolloutMetres} m - off the end of the runway", o.rolloutMetres < 2_000.0)
         assertTrue("ended up tipped ${o.tilt} degrees", o.tilt < 10.0)
+        assertTrue("ran off the runway, %.0f m off the centreline".format(o.offCentre), o.offCentre < 40.0)
     }
 }

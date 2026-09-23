@@ -68,6 +68,8 @@ class GameSession private constructor(
      * work either way.
      */
     private val launchDesign: CraftDesign? = null,
+    /** Where to put [launchDesign], or null to let the design decide. */
+    private val launchSiteId: String? = null,
 ) {
     val camera = CameraController()
 
@@ -105,6 +107,7 @@ class GameSession private constructor(
     private var localRoll = 0.0
     private var localSas = false
     private var localBrakes = false
+    private var seenFelledRevision = -1
 
     private var lastReconciledTick = -1L
     private var lastAdvanceNanos = 0L
@@ -168,8 +171,11 @@ class GameSession private constructor(
      * Called once the GL thread has judged the device; until then there is no
      * sensible answer to how finely to sample.
      */
+    private var scatterStreamer: ScatterStreamer? = null
+
     fun attachTerrain(source: com.rm.apogee.render.TerrainSource, quality: QualityTier) {
         terrainBuilder = TerrainBuilder(source, quality)
+        scatterStreamer = ScatterStreamer(source.scatter, quality)
     }
 
     /**
@@ -217,6 +223,7 @@ class GameSession private constructor(
         transport.close()
         prediction.reset()
         terrainBuilder?.stop()
+        scatterStreamer?.stop()
         terrainBuilder = null
         frameBus.clear()
     }
@@ -325,7 +332,7 @@ class GameSession private constructor(
     /** Puts [launchDesign] on the pad once the handshake is done. */
     private suspend fun launchPendingDesign() {
         val design = launchDesign ?: return
-        client.send(Command.SpawnCraft(design, World.launchSiteFor(design, catalog).id))
+        client.send(Command.SpawnCraft(design, launchSiteId ?: World.launchSiteFor(design, catalog).id))
     }
 
     suspend fun join() {
@@ -417,6 +424,11 @@ class GameSession private constructor(
             // for it first leaves the ground the craft is standing on waiting
             // behind scenery, which is most of why there is a visible gap
             // before the world looks right.
+            builder.collect()
+            if (client.felledRevision != seenFelledRevision) {
+                seenFelledRevision = client.felledRevision
+                prediction.felled(client.felledScatter)
+            }
             builder.followCraft(
                 attractor,
                 bodyFixedCamera,
@@ -425,6 +437,14 @@ class GameSession private constructor(
             )
             builder.requestGlobe(attractor, terrainScope)
             drawFarSurface = builder.farSurfaceNeeded
+            scatterStreamer?.follow(
+                attractor,
+                bodyFixedCamera,
+                attractor.heightAboveTerrain(focusState.position, bodyFixedCamera),
+                client.felledScatter,
+                client.felledRevision,
+                terrainScope,
+            )
         }
 
         joinable = neighbourInWeldingRange(focus, focusState)
@@ -767,6 +787,8 @@ class GameSession private constructor(
              * welding them together unreachable from inside the game.
              */
             world: World = World.default(catalog),
+            /** Launch site for [design]; null lets the design choose. */
+            siteId: String? = null,
         ): GameSession {
             val server = GameServer(
                 world = world,
@@ -785,6 +807,7 @@ class GameSession private constructor(
             return GameSession(
                 frameBus, perfHints, catalog, server, client, link.clientSide,
                 launchDesign = design,
+                launchSiteId = siteId,
             )
         }
     }

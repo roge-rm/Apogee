@@ -30,7 +30,7 @@ class CelestialBody(
      * The renderer builds its mesh by sampling this, and the collider resolves
      * against it, so there is one definition of where the ground is.
      */
-    val terrain: com.rm.apogee.core.terrain.TerrainField? = null,
+    val terrain: com.rm.apogee.core.terrain.Terrain? = null,
     /** The sea over whatever of [terrain] lies below the datum, or null for a dry body. */
     val ocean: com.rm.apogee.core.terrain.Ocean? = null,
     val parentId: String? = null,
@@ -109,6 +109,29 @@ class CelestialBody(
      */
     fun solidRadiusInBodyFrame(bodyFixedDirection: Vec3): Double =
         terrain?.solidRadius(bodyFixedDirection) ?: radius
+
+    /**
+     * The ground along a body-fixed direction, as the collider needs it:
+     * where it is, which way it faces, what it is made of.
+     *
+     * Read from the terrain's tiles rather than the height function, so it
+     * is exactly the drawn surface - flat facets and their real normals - and
+     * costs a lookup rather than a full evaluation of the field.
+     */
+    fun groundInBodyFrame(
+        bodyFixedDirection: Vec3,
+        out: com.rm.apogee.core.terrain.GroundPoint,
+        lookup: com.rm.apogee.core.terrain.TerrainTileCache.Lookup,
+    ) {
+        val field = terrain
+        if (field == null) {
+            out.radius = radius
+            out.normal.setTo(bodyFixedDirection).normalizeInPlace()
+            out.material = com.rm.apogee.core.terrain.SurfaceMaterial.GRASS
+            return
+        }
+        field.tiles.ground(bodyFixedDirection, out, lookup)
+    }
 
     /**
      * Rotates an inertial direction into the body's turning frame at [time].

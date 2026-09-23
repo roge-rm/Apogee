@@ -17,6 +17,7 @@ import com.rm.apogee.core.part.PartCatalog
 import com.rm.apogee.core.physics.ContactReport
 import com.rm.apogee.core.physics.CraftContact
 import com.rm.apogee.core.physics.GroundContact
+import com.rm.apogee.core.terrain.TerrainField
 
 /** Where a craft can be put on the ground. */
 data class LaunchSite(
@@ -33,6 +34,9 @@ sealed interface WorldEvent {
     data class VesselSpawned(val id: VesselId) : WorldEvent
     data class VesselStructureChanged(val id: VesselId) : WorldEvent
     data class VesselDestroyed(val id: VesselId, val reason: String) : WorldEvent
+
+    /** A tree or shrub knocked down, for good. */
+    data class ScatterFelled(val scatterId: Long) : WorldEvent
     data class Staged(val id: VesselId, val stage: Int) : WorldEvent
     data class Touchdown(val id: VesselId, val impactSpeed: Double) : WorldEvent
 
@@ -75,9 +79,22 @@ class World(
     private val forces = Forces()
     private val stabilityAssist = StabilityAssist()
     private val hydrostatics = Hydrostatics()
+    private val scatterContacts = com.rm.apogee.core.physics.ScatterContact()
+
+    /**
+     * Scatter knocked down - trees, shrubs, cacti - by id. World state: saved,
+     * sent to every client, and never regrown. Everything else about scatter
+     * is decided by the terrain and needs no remembering.
+     */
+    val felledScatter: MutableSet<Long> = java.util.concurrent.ConcurrentHashMap.newKeySet()
     private val contacts = GroundContact()
 
     private val pendingEvents = ArrayList<WorldEvent>()
+
+    /** Knocks down scatter [id] for good, and tells everyone. Felling it twice does nothing. */
+    fun fell(id: Long) {
+        if (felledScatter.add(id)) pendingEvents.add(WorldEvent.ScatterFelled(id))
+    }
 
     /**
      * Craft to remove once the step finishes.
@@ -295,6 +312,52 @@ class World(
             }
         }
         return -deepest
+    }
+
+    /**
+     * Sets every craft that was resting on the ground back onto it, after a
+     * load onto a different terrain.
+     *
+     * The saved position was on the old ground, which may now be metres above
+     * or below it: a parked rover would wake up buried, and be flung out, or
+     * hovering, and drop. "Resting" is judged by motion, since the old ground
+     * is gone - barely moving relative to the surface, and low enough that
+     * the surface is what it could be resting on. Craft in flight and in orbit
+     * are left exactly where they were, and so is anything afloat.
+     *
+     * The craft keeps its orientation and is lifted or lowered so its lowest
+     * contact point just touches the new ground, moving with the surface. If
+     * it was parked on a slope it settles onto the new one by itself.
+     *
+     * @return how many craft were moved.
+     */
+    private fun reseatOnNewTerrain(): Int {
+        var moved = 0
+        val up = Vec3()
+        val bodyFixed = Vec3()
+        val surface = Vec3()
+        val rotation = Quat.identity()
+        for (vessel in vesselsById.values) {
+            val attractor = system.body(vessel.referenceBodyId)
+            val terrain = attractor.terrain ?: continue
+            attractor.surfaceVelocityAt(vessel.body.position, surface)
+            val relative = Vec3().setTo(vessel.body.linearVelocity).subInPlace(surface).length
+            if (relative > RESEAT_MAX_SPEED) continue
+            val altitude = attractor.altitudeOf(vessel.body.position)
+            if (altitude > terrain.maxElevation + RESEAT_MAX_HEIGHT) continue
+
+            up.setTo(vessel.body.position).normalizeInPlace()
+            attractor.rotationAt(time, rotation)
+            attractor.toBodyFixed(up, rotation, bodyFixed)
+            if (terrain.isOcean(bodyFixed)) continue
+            val ground = attractor.surfaceRadiusInBodyFrame(bodyFixed)
+
+            vessel.body.position.setTo(up).mulInPlace(ground + lowestExtentAlong(vessel, up) + 0.05)
+            attractor.surfaceVelocityAt(vessel.body.position, vessel.body.linearVelocity)
+            vessel.body.angularVelocity.setTo(Vec3.zero())
+            moved++
+        }
+        return moved
     }
 
     // --- commands -----------------------------------------------------------
@@ -704,8 +767,12 @@ class World(
                 body.integrate(h)
                 contacts.resolve(vessel, attractor, h, time + substep * h, substep > 0)
             }
+            // Boulders and trunks, into the same report, so a craft wrecked on a
+            // rock is judged the way one wrecked on the ground is.
+            scatterContacts.resolve(vessel, attractor, time, contacts.report, felledScatter) { fell(it) }
             val report = contacts.report
             vessel.touchingGround = report.hadContact
+            vessel.groundContacts = report.contactCount
 
             // Mass changes as propellant burns, and with it the centre of mass.
             if (vessel.control.throttle > 0.0) vessel.recomputeMass()
@@ -953,6 +1020,8 @@ class World(
      */
     fun save(): WorldSave = WorldSave(
         catalogHash = catalog.contentHash,
+        felledScatter = felledScatter.sorted(),
+        terrainGeneration = TerrainField.GENERATION,
         universeTime = time,
         nextVesselId = nextVesselId,
         vessels = vesselsById.values.map { vessel ->
@@ -989,6 +1058,11 @@ class World(
      */
     fun restore(save: WorldSave): List<String> {
         val problems = ArrayList<String>()
+        val terrainChanged = save.terrainGeneration != TerrainField.GENERATION
+        felledScatter.clear()
+        // Scatter ids name places on one generation's ground; on another they
+        // would fell some unrelated tree, so a new terrain grows back whole.
+        if (!terrainChanged) felledScatter.addAll(save.felledScatter)
 
         if (!SaveMigration.canRead(save.formatVersion)) {
             return listOf(
@@ -1077,6 +1151,15 @@ class World(
             if (saved.id >= nextVesselId) nextVesselId = saved.id + 1
         }
 
+        if (terrainChanged) {
+            val moved = reseatOnNewTerrain()
+            problems.add(
+                "The terrain changed (generation ${save.terrainGeneration} to " +
+                    "${TerrainField.GENERATION}): set $moved landed craft back on the ground" +
+                    if (save.felledScatter.isNotEmpty()) "; felled trees have regrown" else ""
+            )
+        }
+
         // Only worth saying once, and only when something actually suffered.
         if (catalogueChanged && problems.isNotEmpty()) {
             problems.add(
@@ -1149,6 +1232,12 @@ class World(
 
         /** How many pads to look through before giving up and reusing one. */
         private const val MAX_PADS = 64
+
+        /** Faster than this relative to the ground, m/s, a craft is flying, not parked. */
+        private const val RESEAT_MAX_SPEED = 2.0
+
+        /** Metres above the highest ground beyond which nothing is resting on it. */
+        private const val RESEAT_MAX_HEIGHT = 500.0
 
         /**
          * Above this closing speed a weld is a collision, not an assembly.
@@ -1224,6 +1313,17 @@ class World(
                 bodyId = SolarSystem.HOMEWORLD_ID,
                 latitude = 0.102236,
                 longitude = 0.102236,
+            ),
+            // For testing: straight onto the Moon without flying there. On
+            // the mare north-east of Luna's prime meridian, a kilometre and a
+            // half below the datum, where the ground under the whole row of
+            // pads grades less than one in a hundred.
+            LaunchSite(
+                id = "luna-mare",
+                displayName = "Luna Mare (test)",
+                bodyId = "luna",
+                latitude = 0.131822,
+                longitude = 0.131733,
             ),
         )
 

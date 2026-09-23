@@ -28,12 +28,18 @@ enum class QualityTier {
             HIGH -> 400
         }
 
-    /** Depth of the planet surface quadtree; each level doubles linear detail. */
-    val terrainLodDepth: Int
+    /**
+     * Terrain chunks kept on the GPU. Each is about fifteen kilobytes of
+     * vertices; the working set on the ground is one to three hundred, and
+     * the rest of the budget is ground recently driven over, kept so turning
+     * round does not rebuild it. How fine the ground is drawn is the terrain
+     * builder's business, per tier.
+     */
+    val terrainChunkBudget: Int
         get() = when (this) {
-            LOW -> 6
-            MEDIUM -> 9
-            HIGH -> 12
+            LOW -> 220
+            MEDIUM -> 320
+            HIGH -> 450
         }
 
     /** Simultaneous particles across all effects. */

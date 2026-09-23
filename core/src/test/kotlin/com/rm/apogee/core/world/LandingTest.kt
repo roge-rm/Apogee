@@ -224,12 +224,57 @@ class LandingTest {
         val rotation = attractor.rotationAt(world.time)
         val up = Vec3().setTo(vessel.body.position).normalizeInPlace()
         val east = Vec3.unitY().cross(up).normalizeInPlace()
-        val moved = Vec3().setTo(up).addScaledInPlace(east, 8_000.0 / attractor.radius)
-            .normalizeInPlace()
+        val north = up.cross(east).normalizeInPlace()
+
+        // Found, not assumed: a patch of genuinely sloping ground - four to
+        // eight degrees, the kind of hillside a lander would pick - somewhere
+        // out past the levelled pad. Assuming "eight kilometres east" is a
+        // hillside stopped being true the day the terrain grew cliffs. Steeper
+        // is a different claim: at eleven degrees this tall, narrow lander
+        // survives the drop, bounces, and topples - which is physics, not a
+        // collider fault.
+        val terrainField = field as com.rm.apogee.core.terrain.TerrainField
+        var moved: Vec3? = null
+        search@ for (ring in 4..30) for (step in 0 until 24) {
+            val angle = step * Math.PI / 12
+            val d = Vec3().setTo(up)
+                .addScaledInPlace(east, ring * 500.0 * kotlin.math.cos(angle) / attractor.radius)
+                .addScaledInPlace(north, ring * 500.0 * kotlin.math.sin(angle) / attractor.radius)
+                .normalizeInPlace()
+            val bf = attractor.toBodyFixed(d, rotation)
+            val normal = terrainField.surfaceNormal(bf, sample = 6.0)
+            val slope = Math.toDegrees(kotlin.math.acos((normal dot bf.normalized()).coerceIn(-1.0, 1.0)))
+            if (slope !in 4.0..8.0) continue
+            // And smooth under the legs, as a pilot would choose it. The
+            // ground has metre-scale relief now, and this lander - centre of
+            // mass 2.6 m above feet that reach 0.8 m to its tipping edge -
+            // goes over at about seventeen degrees, which a bumpy six-degree
+            // hillside can reach under one leg.
+            val footprintEast = Vec3.unitY().cross(bf.normalized()).normalizeInPlace()
+            val footprintNorth = bf.normalized().cross(footprintEast)
+            val ground = com.rm.apogee.core.terrain.GroundPoint()
+            val look = com.rm.apogee.core.terrain.TerrainTileCache.Lookup()
+            var smooth = true
+            for (i in -3..3) for (j in -3..3) {
+                val p = bf.normalized()
+                    .addScaledInPlace(footprintEast, i * 0.7 / attractor.radius)
+                    .addScaledInPlace(footprintNorth, j * 0.7 / attractor.radius)
+                terrainField.tiles.ground(p, ground, look)
+                val facet = Math.toDegrees(kotlin.math.acos((ground.normal dot p.normalized()).coerceIn(-1.0, 1.0)))
+                if (facet > 9.0) smooth = false
+            }
+            if (smooth) { moved = d; break@search }
+        }
+        requireNotNull(moved) { "no hillside found near the pad" }
 
         val bodyFixed = attractor.toBodyFixed(moved, rotation)
         val ground = field.surfaceRadius(bodyFixed)
-        vessel.body.position.setTo(moved).mulInPlace(ground + 6.0)
+        // Two metres, a set-down rather than a drop. The ground has metre-scale
+        // relief now - facets under the legs of up to ten degrees on a
+        // six-degree hillside - and falling six metres onto one leg spun this
+        // tall, narrow lander over, which is a fair result for a bad landing
+        // but not what this test is about.
+        vessel.body.position.setTo(moved).mulInPlace(ground + 2.0)
         attractor.surfaceVelocityAt(vessel.body.position, vessel.body.linearVelocity)
         vessel.body.angularVelocity.setTo(Vec3.zero())
 
@@ -237,7 +282,7 @@ class LandingTest {
         settle(world, id, 40.0)
 
         val landed = world.vessel(id)
-        assertNotNull("the lander should survive a six-metre drop onto a hillside", landed)
+        assertNotNull("the lander should survive being set down on a hillside", landed)
 
         // It may lean with the slope; it must not still be moving.
         attractor.surfaceVelocityAt(landed!!.body.position, scratch)

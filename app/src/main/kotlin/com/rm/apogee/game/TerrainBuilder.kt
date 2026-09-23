@@ -2,65 +2,54 @@ package com.rm.apogee.game
 
 import com.rm.apogee.core.math.Vec3
 import com.rm.apogee.core.orbit.CelestialBody
+import com.rm.apogee.core.terrain.CubeSphere
+import com.rm.apogee.core.terrain.Terrain
+import com.rm.apogee.render.ChunkData
+import com.rm.apogee.render.ChunkKey
 import com.rm.apogee.render.PlanetMesh
 import com.rm.apogee.render.QualityTier
+import com.rm.apogee.render.TerrainChunk
 import com.rm.apogee.render.TerrainSource
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
- * Builds terrain geometry off the render thread and publishes it.
+ * Decides which terrain to draw and builds it, off the render thread.
  *
- * Sampling the height field tens of thousands of times takes long enough that
- * doing it on the GL thread would drop a frame every time the craft moved far
- * enough to need new ground. Everything here runs on a worker and hands
- * finished arrays over through a [TerrainSource].
+ * The ground near the craft is a quadtree of [TerrainChunk]s on the cube
+ * sphere: a chunk is split into four finer ones when the craft is within a
+ * couple of its own widths of it, down to facets the size of the collider's
+ * samples under the craft and out to kilometre-wide ones at the horizon. The
+ * old approach - one square patch of fixed resolution, rebuilt wholesale as
+ * the craft moved - had to choose between detail under the wheels and reach to
+ * the horizon, and got neither.
  *
- * Two meshes at two scales. The globe is built once and never changes - a
- * planet does not. The patch follows the craft, and is only rebuilt when it
- * has travelled far enough to be looking at ground the current one does not
- * cover well.
+ * Chunks are built on background workers, nearest first, and kept: driving
+ * back over ground costs nothing. Until a chunk is built its parent stands in
+ * for it, so the ground coarsens briefly rather than vanishing.
  */
 class TerrainBuilder(
     private val source: TerrainSource,
     private val quality: QualityTier,
 ) {
-    private var job: Job? = null
-    private var globeRevision = 0
-    private var patchRevision = 0
-
-    /** Where the current patch is centred, in the body-fixed frame. */
-    private val patchCentreDirection = Vec3()
-    private var patchExtent = 0.0
-    private var hasPatch = false
+    private var globeBody: CelestialBody? = null
+    private var workers: List<Job> = emptyList()
 
     /**
-     * Whether the distant surface - globe and sea sphere - should be drawn
-     * as well as the patch.
-     *
-     * False when the patch already reaches past the horizon, because then
-     * both are entirely behind ground the patch has drawn. They are not
-     * merely redundant: each is a full-screen fill on a screen the patch is
-     * about to paint over, and on a soft rasteriser that is most of a frame.
+     * Whether the distant surface - the globe - should be drawn too. True
+     * whenever the chunks stop short of the horizon.
      */
     var farSurfaceNeeded: Boolean = true
         private set
 
     /**
-     * Whether there is ground under the craft yet.
-     *
-     * Building a patch samples the height field tens of thousands of times
-     * and takes seconds on a phone. Until it lands there is nothing beneath
-     * the craft but the globe, which at this resolution sits hundreds of
-     * metres off - so the craft appears to hang in the air on a world that
-     * reads as broken rather than as still loading. The flight view waits on
-     * this.
-     *
-     * True also when no patch is wanted at all - no height field, or too high
-     * for one to add anything - because then there is nothing to wait for.
+     * Whether the ground under the craft has been built at full detail at
+     * least once. The flight view waits on it rather than show a craft
+     * hovering over a globe too coarse to have the ground under it.
      */
     @Volatile
     var patchReady: Boolean = false
@@ -73,46 +62,75 @@ class TerrainBuilder(
             QualityTier.HIGH -> 128
         }
 
-    /**
-     * Vertices along each edge of the near patch.
-     *
-     * Sized against the finest thing the height field contains. The hill
-     * band bottoms out near a hundred and twenty-five metres, so facets have
-     * to be under about sixty for none of it to be aliased away - which at a
-     * four-kilometre patch means these counts.
-     *
-     * Coarser was tried, for bigger facets and a stronger low-poly read, and
-     * it threw away the only detail close enough to see: the ground within a
-     * kilometre of the craft went flat, which looks like terrain that has not
-     * finished loading rather than like a style.
-     */
-    private val patchResolution: Int
+    /** Levels short of the collider's resolution the finest chunk stops at. */
+    private val detailOffset: Int
         get() = when (quality) {
-            QualityTier.LOW -> 96
-            QualityTier.MEDIUM -> 128
-            QualityTier.HIGH -> 144
+            QualityTier.LOW -> 2
+            QualityTier.MEDIUM -> 1
+            QualityTier.HIGH -> 0
         }
 
-    /** Builds the whole body once. Safe to call repeatedly. */
+    /**
+     * How close, in chunk widths, a chunk must be before it is split. Larger
+     * is finer ground further out, at the cost of triangles.
+     *
+     * Each level of detail is a ring of about 4 * pi * (k + 0.75)^2 chunks,
+     * so this is the lever that sets the triangle count: at 2.4 the ground
+     * came to 550 chunks, over a quarter of a million triangles, and more than
+     * the GPU budget could hold. These keep each tier's working set well inside
+     * [QualityTier.terrainChunkBudget], and the renderer culls the half of it
+     * behind the camera.
+     */
+    private val splitDistance: Double
+        get() = when (quality) {
+            QualityTier.LOW -> 1.0
+            QualityTier.MEDIUM -> 1.25
+            QualityTier.HIGH -> 1.5
+        }
+
+    // --- state shared with the workers ---------------------------------------
+
+    private val lock = Object()
+    /** Chunks wanted and not yet built, nearest first. Replaced each selection. */
+    private var wanted: List<ChunkKey> = emptyList()
+    private val inFlight = HashSet<ChunkKey>()
+    private var terrain: Terrain? = null
+
+    /** Built chunks' centres and bounds, which drawing needs; game thread only. */
+    private val built = HashMap<ChunkKey, ChunkData>()
+
+    /** Approximate centre of each chunk ever considered; game thread only. */
+    private val centres = HashMap<ChunkKey, Vec3>()
+
+    private var selections = 0L
+    private var lostThisSelection = 0
+    private val camera = Vec3()
+    private val scratch = Vec3()
+    private val requests = ArrayList<Pair<Double, ChunkKey>>()
+
+    /**
+     * Builds the whole body, once per body. Safe to call every frame.
+     *
+     * Revisions are numbered across the whole process: the renderer outlives
+     * a flight, and a new flight's first globe must not share a number with
+     * the last one's, or a launch to Luna would keep drawing Terra.
+     */
     fun requestGlobe(body: CelestialBody, scope: CoroutineScope) {
-        if (globeRevision != 0) return
-        globeRevision = 1
+        if (globeBody === body) return
+        globeBody = body
+        val revision = nextGlobeRevision.incrementAndGet()
         scope.launch(Dispatchers.Default) {
-            val data = PlanetMesh.buildGlobe(body.terrain, body.radius, globeRings)
-            source.publishGlobe(globeRevision, data)
+            source.publishGlobe(revision, PlanetMesh.buildGlobe(body.terrain, body.radius, globeRings))
         }
     }
 
     /**
-     * Rebuilds the near patch if the craft has moved off the current one.
-     *
-     * @param bodyFixedDirection where the craft is, in the body's own frame -
-     *   the patch is a piece of ground and stays with the ground, not with
-     *   the inertial position the craft happens to occupy.
+     * Re-selects the chunks to draw for a craft at [bodyFixedPosition] -
+     * position in the body's own turning frame, since terrain turns with it.
      */
     fun followCraft(
         body: CelestialBody,
-        bodyFixedDirection: Vec3,
+        bodyFixedPosition: Vec3,
         altitude: Double,
         scope: CoroutineScope,
     ) {
@@ -120,87 +138,213 @@ class TerrainBuilder(
             patchReady = true
             return
         }
+        if (terrain !== field) {
+            synchronized(lock) { terrain = field }
+            built.clear()
+            centres.clear()
+        }
+        if (workers.isEmpty()) startWorkers(scope)
 
-        // Size the patch to cover what can actually be seen. The horizon on a
-        // sphere is sqrt(2Rh) away, so a craft on the pad needs a few
-        // kilometres and one at 40km needs two hundred.
+        // Reach: past the horizon, which on a sphere is sqrt(2Rh) away.
         val horizon = kotlin.math.sqrt(2.0 * body.radius * altitude.coerceAtLeast(1.0))
-        val wanted = (horizon * HORIZON_MARGIN)
-            .coerceIn(MIN_PATCH_EXTENT_METRES, MAX_PATCH_EXTENT_METRES)
-
-        // The horizon is the test, not the patch size: the distant surface
-        // is needed exactly when there is a gap between where the patch stops
-        // and where the ground disappears over the edge of the world.
-        farSurfaceNeeded = wanted < horizon || altitude > PATCH_CEILING_METRES
-
-        if (altitude > PATCH_CEILING_METRES) {
-            hasPatch = false
+        val range = (horizon * HORIZON_MARGIN).coerceIn(MIN_RANGE_METRES, MAX_RANGE_METRES)
+        farSurfaceNeeded = range < horizon || altitude > CHUNK_CEILING_METRES
+        if (altitude > CHUNK_CEILING_METRES) {
+            source.publishDrawList(emptyList())
+            synchronized(lock) { wanted = emptyList() }
             patchReady = true
             return
         }
-        if (job?.isActive == true) return
 
-        val direction = bodyFixedDirection.normalized()
-        if (hasPatch) {
-            val cosine = (direction dot patchCentreDirection).coerceIn(-1.0, 1.0)
-            val travelled = kotlin.math.acos(cosine) * body.radius
-            val scaleChange = wanted / patchExtent
-            // Rebuild when the craft has crossed a quarter of the patch, or
-            // when its size should change appreciably - climbing out is the
-            // case that matters, and a patch sized for the pad looks like a
-            // postage stamp from ten kilometres up.
-            if (travelled < patchExtent * REBUILD_FRACTION &&
-                scaleChange > 1.0 / RESIZE_FACTOR && scaleChange < RESIZE_FACTOR
-            ) {
-                return
-            }
+        camera.setTo(bodyFixedPosition)
+        val maxLevel = TerrainChunk.finestLevel(field.tiles.tilesPerFace) - detailOffset
+
+        requests.clear()
+        lostThisSelection = 0
+        val draw = ArrayList<ChunkData>(256)
+        var complete = true
+        for (face in 0 until 6) {
+            val resolved = resolve(ChunkKey(face, 0, 0, 0, System.identityHashCode(field)), field, maxLevel, range, draw)
+            if (!resolved) complete = false
+        }
+        requests.sortBy { it.first }
+        synchronized(lock) { wanted = requests.map { it.second } }
+        source.publishDrawList(draw)
+        // Ready once nothing near the craft is still coarse. Not merely once
+        // something is drawable - the first thing drawable is a
+        // hundred-kilometre chunk from the top of the tree, and lifting the
+        // loading screen onto that shows a craft on ground that reads as
+        // broken.
+        if (complete && (requests.isEmpty() || requests.first().first > READY_RADIUS_METRES)) {
+            patchReady = true
+        }
+        if (++selections % 600 == 0L) {
+            val levels = draw.groupingBy { it.key.level }.eachCount().toSortedMap()
+            val triangles = draw.size * TerrainChunk.CELLS * TerrainChunk.CELLS * 2
+            android.util.Log.i(
+                "ApogeeTerrain",
+                "draw ${draw.size} (~$triangles tris) wanted ${requests.size} (lost $lostThisSelection) built ${built.size} " +
+                    "complete=$complete levels=$levels",
+            )
         }
 
-        patchCentreDirection.setTo(direction)
-        patchExtent = wanted
-        hasPatch = true
-        val revision = ++patchRevision
-
-        job = scope.launch(Dispatchers.Default) {
-            val centre = Vec3()
-            val data = PlanetMesh.buildPatch(
-                field = field,
-                bodyRadius = body.radius,
-                centreDirection = direction,
-                extentMetres = wanted,
-                resolution = patchResolution,
-                outCentre = centre,
-            )
-            if (isActive) {
-                source.publishPatch(revision, data, centre)
-                patchReady = true
+        // Forget chunks nobody is drawing once there are a lot of them. Travel
+        // leaves a trail of built ground behind the craft; keeping all of it
+        // is a leak, and anything forgotten is simply rebuilt if needed again.
+        if (built.size > MAX_BUILT) {
+            val drawing = draw.mapTo(HashSet()) { it.key }
+            val iterator = built.entries.iterator()
+            while (iterator.hasNext()) {
+                val entry = iterator.next()
+                if (entry.key !in drawing) {
+                    iterator.remove()
+                    source.discarded(entry.key)
+                }
             }
+        }
+    }
+
+    /**
+     * Adds to [draw] what should be drawn for [key]'s square, if all of it is
+     * ready; otherwise requests what is missing.
+     *
+     * @return false if nothing for this square could be drawn yet.
+     */
+    private fun resolve(
+        key: ChunkKey,
+        field: Terrain,
+        maxLevel: Int,
+        range: Double,
+        draw: MutableList<ChunkData>,
+    ): Boolean {
+        val size = TerrainChunk.size(field.bodyRadius, key.level)
+        val distance = (camera.distanceTo(centre(key, field)) - size * 0.75).coerceAtLeast(0.0)
+        if (distance > range) return true // Out of reach: nothing to draw, nothing missing.
+
+        if (key.level < maxLevel && distance < size * splitDistance) {
+            val start = draw.size
+            var all = true
+            for (dj in 0..1) for (di in 0..1) {
+                if (!resolve(key.child(di, dj), field, maxLevel, range, draw)) all = false
+            }
+            if (all) return true
+            // Not all four ready: this chunk stands in for them, if it can.
+            while (draw.size > start) draw.removeAt(draw.size - 1)
+        }
+
+        val ready = built[key]?.takeIf { source.isAvailable(key) }
+        if (ready != null) {
+            draw.add(ready)
+            return true
+        }
+        if (built.remove(key) != null) lostThisSelection++
+        requests.add(distance to key)
+        return false
+    }
+
+    /** Where a chunk's middle is, near enough to decide its level by. Cached. */
+    private fun centre(key: ChunkKey, field: Terrain): Vec3 =
+        centres.getOrPut(key) {
+            val n = 1 shl key.level
+            val s = -1.0 + 2.0 * (key.i + 0.5) / n
+            val t = -1.0 + 2.0 * (key.j + 0.5) / n
+            val d = CubeSphere.direction(key.face, s, t, Vec3())
+            // The real ground height, once: a craft on a mountain three
+            // kilometres up is not three kilometres from the chunk under it.
+            d.mulInPlace(field.surfaceRadius(d))
+        }.also { if (centres.size > MAX_CENTRES) centres.clear() }
+
+    private fun startWorkers(scope: CoroutineScope) {
+        workers = List(WORKERS) {
+            scope.launch(Dispatchers.Default) {
+                while (isActive) {
+                    val next = synchronized(lock) {
+                        val field = terrain
+                        val key = wanted.firstOrNull { it !in inFlight && !source.isAvailable(it) }
+                        if (key != null && field != null) {
+                            inFlight += key
+                            key to field
+                        } else {
+                            null
+                        }
+                    }
+                    if (next == null) {
+                        delay(IDLE_POLL_MILLIS)
+                        continue
+                    }
+                    val (key, field) = next
+                    try {
+                        val started = System.nanoTime()
+                        val data = TerrainChunk.build(field, key)
+                        recordBuild(System.nanoTime() - started)
+                        source.publishChunk(data)
+                        onBuilt(data)
+                    } finally {
+                        synchronized(lock) { inFlight -= key }
+                    }
+                }
+            }
+        }
+    }
+
+    private val buildCount = java.util.concurrent.atomic.AtomicLong()
+    private val buildNanos = java.util.concurrent.atomic.AtomicLong()
+
+    /** Chunk build cost, logged every so often: the number the LOW tier lives or dies by. */
+    private fun recordBuild(nanos: Long) {
+        val count = buildCount.incrementAndGet()
+        val total = buildNanos.addAndGet(nanos)
+        if (count % 200 == 0L) {
+            android.util.Log.i("ApogeeTerrain", "chunks built %d, mean %.1f ms".format(count, total / 1e6 / count))
+        }
+    }
+
+    private val justBuilt = java.util.concurrent.ConcurrentLinkedQueue<ChunkData>()
+
+    private fun onBuilt(data: ChunkData) {
+        justBuilt.add(data)
+    }
+
+    /** Folds finished builds into [built]; game thread. */
+    fun collect() {
+        while (true) {
+            val data = justBuilt.poll() ?: break
+            built[data.key] = data
         }
     }
 
     fun stop() {
-        job?.cancel()
-        job = null
-        hasPatch = false
+        workers.forEach { it.cancel() }
+        workers = emptyList()
+        synchronized(lock) {
+            wanted = emptyList()
+            inFlight.clear()
+        }
+        built.clear()
+        justBuilt.clear()
         patchReady = false
     }
 
     private companion object {
-        /** A little past the horizon, so its edge is never on screen. */
+        val nextGlobeRevision = java.util.concurrent.atomic.AtomicInteger()
+
+        /** A little past the horizon, so the edge of the chunks is never on screen. */
         const val HORIZON_MARGIN = 1.3
 
-        const val MIN_PATCH_EXTENT_METRES = 4_000.0
+        const val MIN_RANGE_METRES = 4_000.0
 
         /** Matched to the near pass's far plane; past it nothing is drawn. */
-        const val MAX_PATCH_EXTENT_METRES = 250_000.0
+        const val MAX_RANGE_METRES = 250_000.0
 
         /** Above this the globe alone is as much as the eye can resolve. */
-        const val PATCH_CEILING_METRES = 60_000.0
+        const val CHUNK_CEILING_METRES = 60_000.0
 
-        /** Fraction of the patch the craft may cross before a rebuild. */
-        const val REBUILD_FRACTION = 0.25
+        const val WORKERS = 2
+        const val IDLE_POLL_MILLIS = 8L
+        const val MAX_CENTRES = 20_000
+        const val MAX_BUILT = 1_200
 
-        /** Size change that justifies a rebuild on its own. */
-        const val RESIZE_FACTOR = 1.6
+        /** Chunks nearer than this must be at full detail before the view is shown. */
+        const val READY_RADIUS_METRES = 1_000.0
     }
 }

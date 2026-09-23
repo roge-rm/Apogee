@@ -43,16 +43,29 @@ class StabilityAssistTest {
         val up = Vec3()
         val east = Vec3()
         val surface = Vec3()
-        val desired = Vec3()
+        // Off the runway the way a player does it - the same technique as
+        // TakeoffTest: level on the roll, full back stick from sixty metres a
+        // second to a ten-degree climb, then SAS holds it there. A
+        // proportional test pilot asking for six degrees only ever commanded
+        // half elevator, and on the day the pad moved up sixty metres into
+        // thinner air, that stopped being enough to rotate.
+        plane.control.sasEnabled = true
+        var rotated = false
         while (world.time < 45.0) {
             up.setTo(plane.body.position).normalizeInPlace()
             attractor.surfaceVelocityAt(plane.body.position, surface)
             east.setTo(surface).addScaledInPlace(up, -(surface dot up)).normalizeInPlace()
             val speed = plane.body.linearVelocity.copy().subInPlace(surface).length
-            val pitch = Math.toRadians(if (speed > 60.0) 6.0 else 0.0)
-            desired.setTo(east).mulInPlace(kotlin.math.cos(pitch))
-                .addScaledInPlace(up, kotlin.math.sin(pitch))
-            pilot.steer(plane, desired)
+            when {
+                speed < 60.0 -> pilot.steer(plane, east)
+                !rotated -> {
+                    plane.control.pitch = 1.0
+                    plane.control.yaw = 0.0
+                    plane.control.roll = 0.0
+                    if ((plane.forward() dot up) > kotlin.math.sin(Math.toRadians(10.0))) rotated = true
+                }
+                else -> plane.control.pitch = 0.0
+            }
             world.step(dt)
         }
         check(!plane.touchingGround) { "never got airborne" }

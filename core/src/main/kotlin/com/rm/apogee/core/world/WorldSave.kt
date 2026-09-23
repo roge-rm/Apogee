@@ -76,6 +76,17 @@ class WorldSave(
     val universeTime: Double,
     val nextVesselId: Long,
     val vessels: List<VesselSave> = emptyList(),
+    /** Trees and shrubs knocked down. A felled tree stays felled across a restart. */
+    val felledScatter: List<Long> = emptyList(),
+    /**
+     * Which terrain this world's craft are standing on:
+     * [com.rm.apogee.core.terrain.TerrainField.GENERATION] when it was saved.
+     *
+     * Absent from saves older than 0.3.0, which were all generation 1. A craft
+     * parked on one generation's ground is buried or floating on the next, so
+     * [World.restore] sets it back down when the two differ.
+     */
+    val terrainGeneration: Int = 1,
 ) {
     companion object {
         /**

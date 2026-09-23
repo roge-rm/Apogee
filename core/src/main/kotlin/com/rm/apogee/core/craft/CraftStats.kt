@@ -231,8 +231,12 @@ class CraftStats(
             if (defs.none { it.module<com.rm.apogee.core.part.Command>() != null }) {
                 problems.add("No command pod - nothing to fly it from")
             }
-            if (defs.none { it.module<Engine>() != null }) {
-                problems.add("No engines")
+            // Something has to move it. An engine does, and so does a driven
+            // wheel - a rover has no engine at all, and this check refusing it
+            // meant the stock rover could be built but never launched.
+            val driven = defs.any { (it.module<com.rm.apogee.core.part.Wheel>()?.motorForce ?: 0.0) > 0.0 }
+            if (!driven && defs.none { it.module<Engine>() != null }) {
+                problems.add("No engines or driven wheels")
             }
 
             val enginesWithoutFuel = design.parts.indices.filter { index ->

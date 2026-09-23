@@ -52,6 +52,9 @@ class ShaderProgram(vertexSource: String, fragmentSource: String, private val na
     fun setMat4(uniformName: String, matrix: FloatArray) =
         GLES30.glUniformMatrix4fv(uniform(uniformName), 1, false, matrix, 0)
 
+    fun setMat3(uniformName: String, matrix: FloatArray) =
+        GLES30.glUniformMatrix3fv(uniform(uniformName), 1, false, matrix, 0)
+
     fun setVec3(uniformName: String, x: Float, y: Float, z: Float) =
         GLES30.glUniform3f(uniform(uniformName), x, y, z)
 

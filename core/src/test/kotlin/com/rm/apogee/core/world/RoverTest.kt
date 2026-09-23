@@ -171,4 +171,23 @@ class RoverTest {
         repeat(300) { world.step(dt) }
         assertTrue("it drove through its brakes", groundSpeed(world, rover) < 0.5)
     }
+
+    /**
+     * Out into the real country, flat out, for a minute: about a kilometre,
+     * off the levelled pad and over the basin's hills. It has to still be on
+     * its wheels at the end. Ground rough enough to throw a rover over at
+     * speed is not fun to drive, and the first cut of this terrain was.
+     */
+    @Test
+    fun `a rover can cross the country around the Cape`() {
+        val (world, rover) = worldWithRover()
+        rover.control.throttle = 1.0
+        repeat((60.0 / dt).toInt()) { world.step(dt) }
+        assertTrue("destroyed on the way", world.vessel(rover.id) != null)
+        val up = rover.body.position.copy().normalizeInPlace()
+        val mast = rover.body.orientation.rotate(com.rm.apogee.core.math.Vec3(0.0, 1.0, 0.0))
+        val travelled = groundSpeed(world, rover)
+        assertTrue("rolled over (mast at ${Math.toDegrees(kotlin.math.acos((mast dot up).coerceIn(-1.0, 1.0)))} degrees)", (mast dot up) > 0.7)
+        assertTrue("stopped moving: $travelled m/s", travelled > 3.0)
+    }
 }

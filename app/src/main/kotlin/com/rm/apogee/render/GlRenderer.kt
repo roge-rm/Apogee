@@ -65,10 +65,16 @@ class GlRenderer(
      */
     val terrainSource = TerrainSource()
     private var globeMesh: TerrainMesh? = null
-    private var patchMesh: TerrainMesh? = null
     private var uploadedGlobe = 0
-    private var uploadedPatch = 0
-    private val patchCentre = Vec3()
+
+    /** The triangle list every chunk shares. */
+    private var chunkIndices: SharedIndexBuffer? = null
+    private var scatterRenderer: ScatterRenderer? = null
+
+    /** Chunks on the GPU, and the frame each was last drawn in. */
+    private val chunkMeshes = HashMap<ChunkKey, TerrainMesh>()
+    private val chunkLastDrawn = HashMap<ChunkKey, Long>()
+    private var frameCounter = 0L
 
     /**
      * One mesh per distinct shape, built on first sight.
@@ -99,7 +105,7 @@ class GlRenderer(
     private val cameraUp = Vec3()
     private val cameraForward = Vec3()
     private val upDirection = Vec3()
-    private val scratchPatchCentre = Vec3()
+    private val scratchChunkCentre = Vec3()
 
     private var viewportWidth = 1
     private var viewportHeight = 1
@@ -125,9 +131,9 @@ class GlRenderer(
         lineProgram = ShaderProgram(Shaders.LINE_VERTEX, Shaders.LINE_FRAGMENT, "line")
 
         globeMesh = TerrainMesh()
-        patchMesh = TerrainMesh()
         uploadedGlobe = 0
-        uploadedPatch = 0
+        chunkIndices = SharedIndexBuffer(TerrainChunk.indices)
+        scatterRenderer = ScatterRenderer()
 
         // The sky shader generates its own vertices, but GLES still requires a
         // bound vertex array object to draw.
@@ -196,7 +202,7 @@ class GlRenderer(
         // a hundred metres, and clipping the nearest hundred metres of ground
         // leaves the craft standing at the edge of a hole with sky underneath
         // it - which is exactly what it looked like.
-        if (world != null) drawPatch(world, cameraPos, atmosphereFactorAt(world))
+        if (world != null) drawChunks(world, cameraPos, atmosphereFactorAt(world))
         drawVessels(latest, previous, alpha, cameraPos)
     }
 
@@ -261,13 +267,8 @@ class GlRenderer(
     /** Takes whatever the game thread has finished building. */
     private fun uploadPendingTerrain() {
         terrainSource.globe(uploadedGlobe)?.let { pending ->
-            globeMesh?.upload(pending.data)
+            globeMesh?.upload(pending.data.vertices, pending.data.indices)
             uploadedGlobe = pending.revision
-        }
-        terrainSource.patch(uploadedPatch)?.let { pending ->
-            patchMesh?.upload(pending.data)
-            patchCentre.setTo(pending.centre)
-            uploadedPatch = pending.revision
         }
     }
 
@@ -286,30 +287,80 @@ class GlRenderer(
     }
 
     /**
-     * Fine geometry under the craft, drawn over the globe.
+     * The chunks the game side chose, drawn in the near pass over the globe.
      *
-     * A polygon offset pulls it toward the viewer: the two meshes describe the
-     * same surface at different resolutions, so without one they z-fight
-     * wherever they overlap.
+     * Each chunk's vertices are metres from its own centre, and the camera
+     * subtraction happens here in double against numbers in the hundreds of
+     * thousands - so what reaches float is a handful of metres, and the ground
+     * does not shimmer at the equator.
      */
-    private fun drawPatch(world: WorldView, cameraPos: Vec3, atmosphereFactor: Float) {
+    private fun drawChunks(world: WorldView, cameraPos: Vec3, atmosphereFactor: Float) {
         val shader = terrainProgram ?: return
-        val mesh = patchMesh ?: return
-        if (!mesh.isReady) return
+        val indices = chunkIndices ?: return
+        val list = terrainSource.drawList()
+        frameCounter++
+
+        // Upload what is new, a few per frame: each is a buffer allocation and
+        // a copy, and a burst of dozens on the first frame over new ground is
+        // a visible hitch. Anything not yet uploaded is skipped this frame;
+        // the builder only lists built chunks, so it is a frame late, not a hole
+        // that lasts.
+        var uploads = 0
+        for (chunk in list) {
+            if (chunkMeshes.containsKey(chunk.key)) continue
+            if (uploads >= MAX_CHUNK_UPLOADS_PER_FRAME) break
+            val vertices = chunk.vertices ?: terrainSource.takePending(chunk.key)?.vertices ?: continue
+            val mesh = TerrainMesh(indices)
+            mesh.upload(vertices)
+            chunk.vertices = null
+            terrainSource.takePending(chunk.key)
+            chunkMeshes[chunk.key] = mesh
+            uploads++
+        }
 
         shader.use()
-        // Patch vertices are metres relative to its own centre, which is why
-        // this can afford to be accurate: the camera subtraction happens in
-        // double against a number in the hundreds of thousands, and what
-        // reaches float is a handful of metres.
-        world.bodyRotation.rotate(patchCentre, scratchPatchCentre)
-        modelMatrix.setFromTrs(scratchPatchCentre, world.bodyRotation, cameraPos)
         applySurfaceUniforms(shader, world, atmosphereFactor)
-        // Drawn in the near pass, after the depth clear, so it simply wins
-        // over the coarse globe wherever it has geometry. No polygon offset
-        // needed - they are no longer competing in the same depth buffer.
         shader.setMat4("uViewProjection", nearViewProjection.m)
-        mesh.draw()
+        for (chunk in list) {
+            val mesh = chunkMeshes[chunk.key] ?: continue
+            world.bodyRotation.rotate(chunk.centre, scratchChunkCentre)
+            // Behind the camera by more than the chunk's own size: nothing of
+            // it can be on screen. Cheap, and usually half the chunks.
+            scratchChunkCentre.subInPlace(cameraPos)
+            if ((scratchChunkCentre dot cameraForward) < -chunk.boundingRadius) continue
+            scratchChunkCentre.addInPlace(cameraPos)
+            modelMatrix.setFromTrs(scratchChunkCentre, world.bodyRotation, cameraPos)
+            shader.setMat4("uModel", modelMatrix.m)
+            mesh.draw()
+            chunkLastDrawn[chunk.key] = frameCounter
+        }
+
+        evictChunks(list)
+
+        scatterRenderer?.draw(
+            terrainSource.scatter.drawList(),
+            world.bodyRotation,
+            cameraPos,
+            cameraForward,
+            nearViewProjection.m,
+            world.sunDirection,
+            atmosphereFactor,
+            (world.atmosphereScaleHeight * 8.0).toFloat(),
+        )
+    }
+
+    /** Drops the longest-unused chunks once the GPU holds more than its budget. */
+    private fun evictChunks(current: List<ChunkData>) {
+        val budget = qualityTier.terrainChunkBudget
+        if (chunkMeshes.size <= budget) return
+        val inUse = current.mapTo(HashSet()) { it.key }
+        val candidates = chunkMeshes.keys.filter { it !in inUse }
+            .sortedBy { chunkLastDrawn[it] ?: 0L }
+        for (key in candidates.take(chunkMeshes.size - budget)) {
+            chunkMeshes.remove(key)?.release()
+            chunkLastDrawn.remove(key)
+            terrainSource.discarded(key)
+        }
     }
 
     private fun applySurfaceUniforms(
@@ -327,7 +378,7 @@ class GlRenderer(
         )
         shader.setFloat("uAtmosphereFactor", atmosphereFactor)
         shader.setFloat("uHazeDistance", (world.atmosphereScaleHeight * 8.0).toFloat())
-        shader.setFloat("uMaxElevation", world.maxElevation.toFloat())
+        shader.setFloat("uHasAtmosphere", if (world.atmosphereHeight > 0.0) 1f else 0f)
     }
 
     /**
@@ -454,9 +505,15 @@ class GlRenderer(
         skyProgram?.release(); skyProgram = null
         terrainProgram?.release(); terrainProgram = null
         globeMesh?.release(); globeMesh = null
-        patchMesh?.release(); patchMesh = null
         uploadedGlobe = 0
-        uploadedPatch = 0
+        // Every chunk on the GPU is gone with the context; say so, so they are
+        // built again rather than drawn from names that no longer exist.
+        for (key in chunkMeshes.keys) terrainSource.discarded(key)
+        chunkMeshes.values.forEach { it.release() }
+        chunkMeshes.clear()
+        chunkLastDrawn.clear()
+        chunkIndices?.release(); chunkIndices = null
+        scatterRenderer?.release(); scatterRenderer = null
         meshes.values.forEach { it.release() }
         meshes.clear()
         lineProgram?.release(); lineProgram = null
@@ -467,6 +524,13 @@ class GlRenderer(
     private fun lerp(a: Double, b: Double, t: Double) = a + (b - a) * t
 
     private companion object {
+        /**
+         * Terrain chunks uploaded per frame at most. Each is ~50 KB; a dozen
+         * is well inside a frame, and first arrival over new ground spreads
+         * over a few frames rather than landing in one.
+         */
+        const val MAX_CHUNK_UPLOADS_PER_FRAME = 12
+
         /**
          * Near pass: parts and the ground underfoot.
          *

@@ -43,7 +43,10 @@ class RcsTest {
         )
 
         world.apply(Command.SetRcs(lander.id.raw, true))
-        world.apply(Command.SetTranslation(lander.id.raw, 1.0, 0.0, 0.0))
+        // Half thrust: a nudge. Full thrust sideways accelerates the tug at
+        // about half a g against legs gripping at 0.6, which is its tipping
+        // point to within the noise - it went over on one pad and not another.
+        world.apply(Command.SetTranslation(lander.id.raw, 0.5, 0.0, 0.0))
         repeat(180) { world.step(dt) }
         world.apply(Command.SetTranslation(lander.id.raw, 0.0, 0.0, 0.0))
         repeat(300) { world.step(dt) }

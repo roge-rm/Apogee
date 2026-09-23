@@ -99,6 +99,19 @@ class RigidBody {
         angularVelocityChangeFromAngularImpulse(scratchA)
     }
 
+    /** Applies an instantaneous change in angular momentum, world axes. */
+    fun applyAngularImpulse(worldAngularImpulse: Vec3) {
+        scratchA.setTo(worldAngularImpulse)
+        angularVelocityChangeFromAngularImpulse(scratchA)
+    }
+
+    /** How easily the body turns about the unit [axis]: axis . (I^-1 axis), world axes. */
+    fun inverseInertiaAbout(axis: Vec3): Double {
+        inverseInertiaWorld.setRotated(inverseInertiaLocal, orientation)
+        inverseInertiaWorld.transform(axis, scratchB)
+        return scratchB dot axis
+    }
+
     private fun angularVelocityChangeFromAngularImpulse(angularImpulse: Vec3) {
         inverseInertiaWorld.setRotated(inverseInertiaLocal, orientation)
         inverseInertiaWorld.transform(angularImpulse, scratchB)

@@ -781,7 +781,8 @@
         "rollingResistance": 0.06,
         "suspensionTravel": 0.25,
         "springRate": 60000.0,
-        "damping": 6000.0
+        "damping": 6000.0,
+        "topSpeed": 16.0
       }
     ]
   },

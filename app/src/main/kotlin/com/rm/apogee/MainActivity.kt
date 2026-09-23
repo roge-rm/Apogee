@@ -86,6 +86,7 @@ class MainActivity : ComponentActivity() {
 
     /** Set by the builder's Launch button; consumed when flight starts. */
     private var pendingLaunchDesign: CraftDesign? = null
+    private var pendingLaunchSite: String? = null
     private var frameClockJob: Job? = null
     private var perfHints: PerfHints? = null
     private var rendererTerrainSource: com.rm.apogee.render.TerrainSource? = null
@@ -224,6 +225,7 @@ class MainActivity : ComponentActivity() {
 
     private fun launchFromBuilder() {
         pendingLaunchDesign = builderSession?.designForLaunch() ?: return
+        pendingLaunchSite = builderSession?.launchSiteId
         pendingMode = SessionMode.Solo
         navigateTo(AppScreen.FLIGHT)
     }
@@ -400,6 +402,7 @@ class MainActivity : ComponentActivity() {
                     design = pendingLaunchDesign,
                     scope = lifecycleScope,
                     world = openSoloWorld(),
+                    siteId = pendingLaunchSite,
                 )
 
                 is SessionMode.Host -> GameSession.hostLan(
@@ -417,6 +420,7 @@ class MainActivity : ComponentActivity() {
                 is SessionMode.Joined -> mode.session
             }
             pendingLaunchDesign = null
+            pendingLaunchSite = null
             pendingMode = SessionMode.Solo
             rendererTerrainSource?.let { source ->
                 newSession.attachTerrain(source, settings.qualityOverride ?: detectedTier
