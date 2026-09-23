@@ -373,7 +373,9 @@ object StockCraft {
      */
     fun facingOutward(design: CraftDesign, catalog: PartCatalog): CraftDesign {
         val parts = design.parts.toMutableList()
-        return if (faceOutward(parts, catalog)) design.copy(parts = parts) else design
+        val faced = if (faceOutward(parts, catalog)) design.copy(parts = parts) else design
+        // And anything on an opposed node rolled the right way up.
+        return Attachment.settled(faced, catalog)
     }
 
     // --- craft from the vehicle kits -----------------------------------------

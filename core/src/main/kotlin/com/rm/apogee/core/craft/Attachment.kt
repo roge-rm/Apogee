@@ -134,7 +134,7 @@ object Attachment {
     fun solve(def: PartDef, mountNode: AttachNode, target: OpenNode): Placement {
         // The part must be turned so its node points back into the target's.
         val opposed = target.direction.copy().negateInPlace()
-        val rotation = quatFromTo(mountNode.direction, opposed)
+        val rotation = settleRoll(quatFromTo(mountNode.direction, opposed), opposed)
 
         // With the orientation fixed, the position is whatever puts the two
         // nodes in the same place.
@@ -142,6 +142,65 @@ object Attachment {
         val position = target.position.copy().subInPlace(mountOffset)
 
         return Placement(position, rotation)
+    }
+
+    /**
+     * [turn], rolled about [axis] (unit) so the part's own +Y - a wing's
+     * chord, leading edge first; a fin's; a leg's length - runs as nearly as
+     * it can along the craft's nose, +Y.
+     *
+     * Pointing one node back into another fixes everything but the roll
+     * about that line, and when the two nodes are exactly opposed - a wing
+     * on the craft's left side, its root facing -X into a node facing -X -
+     * the shortest turn is a half turn about any axis at right angles, and
+     * the one picked was arbitrary. About the vertical, it put the wing's
+     * leading edge at the back: swept back on one side, forward on the
+     * other. Every non-opposed join already came out this way; now every
+     * join does.
+     */
+    fun settleRoll(turn: Quat, axis: Vec3): Quat {
+        val chord = turn.rotate(Vec3.unitY())
+        val want = Vec3.unitY().addScaledInPlace(axis, -axis.y)
+        val have = chord.copy().addScaledInPlace(axis, -(chord dot axis))
+        if (want.lengthSq < 1e-9 || have.lengthSq < 1e-9) return turn
+        want.normalizeInPlace(); have.normalizeInPlace()
+        val angle = kotlin.math.atan2((have.cross(want)) dot axis, (have dot want).coerceIn(-1.0, 1.0))
+        if (kotlin.math.abs(angle) < 1e-9) return turn
+        return Quat.fromAxisAngle(axis, angle) * turn
+    }
+
+    /**
+     * [design] with any part that hangs off an exactly opposed node turned
+     * the way [solve] turns it now: parts placed before the roll was settled
+     * could be upside-down or back to front, and wings swept the wrong way.
+     * Only a roll about the join, so nothing moves - a part whose join does
+     * not line up with its nodes is left as it is.
+     */
+    fun settled(design: CraftDesign, catalog: PartCatalog): CraftDesign {
+        var changed = false
+        val parts = design.parts.toMutableList()
+        for (i in parts.indices) {
+            val placed = parts[i]
+            val parent = parts.getOrNull(placed.parentIndex) ?: continue
+            val def = catalog[placed.partId] ?: continue
+            val parentDef = catalog[parent.partId] ?: continue
+            val own = def.allAttachNodes.firstOrNull { it.id == placed.ownNodeId } ?: continue
+            val target = parentDef.allAttachNodes.firstOrNull { it.id == placed.parentNodeId }
+                ?: parentDef.quarterNodes.firstOrNull { it.id == placed.parentNodeId } ?: continue
+            val open = resolve(placed.parentIndex, parent, target)
+            val opposed = open.direction.copy().negateInPlace()
+            val mountDir = placed.rotation.rotate(own.direction)
+            if ((mountDir dot opposed) < 0.999) continue // not seated on its node: leave it
+            val rotation = settleRoll(placed.rotation, opposed)
+            if (rotation.approxEqualsRotation(placed.rotation)) continue
+            // The roll is about the join line through the node, so the part
+            // turns about its own mounting point.
+            val node = placed.rotation.rotate(own.position).addInPlace(placed.position)
+            val position = node.copy().subInPlace(rotation.rotate(own.position))
+            parts[i] = placed.copy(rotation = rotation, position = position)
+            changed = true
+        }
+        return if (changed) design.copy(parts = parts) else design
     }
 
     /**
