@@ -70,7 +70,7 @@ class TerrainMesh(private val shared: SharedIndexBuffer? = null) {
     }
 
     /** Replaces the vertices, and the indices too for a mesh with its own. */
-    fun upload(vertices: FloatArray, indices: ShortArray? = null) {
+    fun upload(vertices: FloatArray, indices: IntArray? = null) {
         GLES30.glBindVertexArray(vao[0])
 
         val vertexBytes = vertices.size * Float.SIZE_BYTES
@@ -87,10 +87,10 @@ class TerrainMesh(private val shared: SharedIndexBuffer? = null) {
 
         if (indices != null && shared == null) {
             indexCount = indices.size
-            val indexBytes = indices.size * 2
+            val indexBytes = indices.size * 4
             val indexBuffer = ByteBuffer.allocateDirect(indexBytes)
                 .order(ByteOrder.nativeOrder())
-                .apply { asShortBuffer().put(indices); position(0) }
+                .apply { asIntBuffer().put(indices); position(0) }
             GLES30.glBindBuffer(GLES30.GL_ELEMENT_ARRAY_BUFFER, buffers[1])
             if (indexBytes > indexCapacity) {
                 GLES30.glBufferData(GLES30.GL_ELEMENT_ARRAY_BUFFER, indexBytes, indexBuffer, GLES30.GL_STATIC_DRAW)
@@ -108,7 +108,10 @@ class TerrainMesh(private val shared: SharedIndexBuffer? = null) {
     fun draw() {
         if (!isReady) return
         GLES30.glBindVertexArray(vao[0])
-        GLES30.glDrawElements(GLES30.GL_TRIANGLES, indexCount, GLES30.GL_UNSIGNED_SHORT, 0)
+        // A mesh with its own indices is the globe, numbered in 32 bits;
+        // chunks share a 16-bit list.
+        val type = if (shared == null) GLES30.GL_UNSIGNED_INT else GLES30.GL_UNSIGNED_SHORT
+        GLES30.glDrawElements(GLES30.GL_TRIANGLES, indexCount, type, 0)
         GLES30.glBindVertexArray(0)
     }
 

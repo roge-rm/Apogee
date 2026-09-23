@@ -17,7 +17,7 @@ class PlanetMeshTest {
         val v = data.vertices
         var checked = 0
         for (t in 0 until data.indices.size / 3) {
-            val i = IntArray(3) { (data.indices[t * 3 + it].toInt() and 0xFFFF) * stride }
+            val i = IntArray(3) { data.indices[t * 3 + it] * stride }
             val ax = v[i[0]].toDouble(); val ay = v[i[0] + 1].toDouble(); val az = v[i[0] + 2].toDouble()
             val ux = v[i[1]] - ax; val uy = v[i[1] + 1] - ay; val uz = v[i[1] + 2] - az
             val wx = v[i[2]] - ax; val wy = v[i[2] + 1] - ay; val wz = v[i[2] + 2] - az
@@ -29,5 +29,19 @@ class PlanetMeshTest {
             checked++
         }
         assertTrue(checked > 16 * 32)
+    }
+
+    /**
+     * HIGH's globe has more vertices than a 16-bit index can number. Its
+     * indices are 32-bit and every one of them lands on a vertex - wrapped at
+     * 65536, the southern half would be stitched to the northern.
+     */
+    @Test
+    fun `the finest globe indexes past sixteen bits`() {
+        val data = PlanetMesh.buildGlobe(null, 600_000.0, 256)
+        val vertexCount = data.vertices.size / TerrainChunk.STRIDE_FLOATS
+        assertTrue("expected more vertices than a short can index: $vertexCount", vertexCount > 65_536)
+        assertTrue(data.indices.all { it in 0 until vertexCount })
+        assertTrue("the last vertices are used", data.indices.max() == vertexCount - 1)
     }
 }

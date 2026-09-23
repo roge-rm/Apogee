@@ -61,9 +61,12 @@ class TerrainBuilder(
 
     private val globeRings: Int
         get() = when (quality) {
-            QualityTier.LOW -> 64
-            QualityTier.MEDIUM -> 96
-            QualityTier.HIGH -> 128
+            // Twice what they were: at 64 rings a facet was 29 km across, and
+            // from just above the chunks' ceiling the ground below read as a
+            // quilt of single-colour blocks.
+            QualityTier.LOW -> 128
+            QualityTier.MEDIUM -> 192
+            QualityTier.HIGH -> 256
         }
 
     /** Levels short of the collider's resolution the finest chunk stops at. */
@@ -447,8 +450,15 @@ class TerrainBuilder(
         /** Matched to the near pass's far plane; past it nothing is drawn. */
         const val MAX_RANGE_METRES = 250_000.0
 
-        /** Above this the globe alone is as much as the eye can resolve. */
-        const val CHUNK_CEILING_METRES = 60_000.0
+        /**
+         * Above this the globe alone draws the ground. Chunks coarsen with
+         * distance on their own, so they are kept as long as the near pass
+         * can hold any of them: by 200 km the ground under the craft is
+         * level-two chunks, cells as coarse as the globe's facets, and the
+         * handover shows nothing. At 60 km, as it was, chunks with 2 km cells
+         * gave way at once to 29 km globe facets, well within sight.
+         */
+        const val CHUNK_CEILING_METRES = 200_000.0
 
         const val WORKERS = 2
         const val IDLE_POLL_MILLIS = 8L

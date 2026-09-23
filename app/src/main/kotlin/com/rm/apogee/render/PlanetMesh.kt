@@ -22,14 +22,15 @@ import kotlin.math.sin
  */
 object PlanetMesh {
 
-    class Data(val vertices: FloatArray, val indices: ShortArray)
+    /** Indices are 32-bit: at 256 rings the globe has more vertices than a short can number. */
+    class Data(val vertices: FloatArray, val indices: IntArray)
 
     /** @param rings latitude divisions. Longitude gets twice as many. */
     fun buildGlobe(field: Terrain?, bodyRadius: Double, rings: Int): Data {
         val segments = rings * 2
         val stride = TerrainChunk.STRIDE_FLOATS
         val vertices = FloatArray((rings + 1) * (segments + 1) * stride)
-        val indices = ShortArray(rings * segments * 6)
+        val indices = IntArray(rings * segments * 6)
 
         val direction = Vec3()
         var v = 0
@@ -81,9 +82,9 @@ object PlanetMesh {
                 // the near half away and left the inside of the far half on
                 // show, dark in the middle where it faced away from the sun and
                 // lit only round the edge - a bright ring round a black hole,
-                // from anywhere above the sixty kilometres the chunks cover.
-                indices[i++] = a.toShort(); indices[i++] = (a + 1).toShort(); indices[i++] = b.toShort()
-                indices[i++] = (a + 1).toShort(); indices[i++] = (b + 1).toShort(); indices[i++] = b.toShort()
+                // from anywhere above the height the chunks cover.
+                indices[i++] = a; indices[i++] = a + 1; indices[i++] = b
+                indices[i++] = a + 1; indices[i++] = b + 1; indices[i++] = b
             }
         }
         return Data(vertices, indices)
