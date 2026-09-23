@@ -140,7 +140,7 @@ class Weather(val body: CelestialBody, val config: WeatherConfig) {
 
         convection.apply(up, east, north, position, altitude, time, out)
         storms.apply(up, east, north, position, altitude, groundTop, time, out)
-        layers(up, altitude, groundTop, pressure, ocean, time, out)
+        layers(up, altitude, groundTop, time, out)
 
         // Inside cloud there is more turbulence, by kind.
         out.turbulence += out.cloudDensity * when (out.cloudType) {
@@ -278,18 +278,51 @@ class Weather(val body: CelestialBody, val config: WeatherConfig) {
 
     // --- layer cloud --------------------------------------------------------------
 
-    /** Stratus, altostratus and cirrus at [altitude] over unit [up]. */
-    private fun layers(up: Vec3, altitude: Double, groundTop: Double, pressure: Double, ocean: Boolean, time: Double, out: AirSample) {
+    /**
+     * Stratus, altostratus and cirrus at [altitude] over unit [up]: inside
+     * one of the deck's drawn puffs, cloud; between them, clear air. As a
+     * continuous sheet it put fog round a craft climbing through gaps where
+     * nothing was drawn.
+     */
+    private fun layers(up: Vec3, altitude: Double, groundTop: Double, time: Double, out: AirSample) {
         if (altitude > 10_000.0) return
-        val humidity = humidity(up, pressure, ocean, time)
         for (type in LAYER_TYPES) {
-            if (!layer(type, up, groundTop, humidity, time, layerScratch)) continue
-            val cover = layerScratch[0] * thickness(up, time)
-            val base = layerScratch[1]; val top = layerScratch[2]
-            val edge = if (type == CloudType.CIRRUS) 150.0 else 50.0
-            val inside = smooth(base - edge, base + edge, altitude) * (1.0 - smooth(top - edge, top + edge * 0.2, altitude))
-            if (inside > 0.0) addCloud(out, LAYER_DENSITY[type.ordinal] * cover * inside, type)
+            // Only the deck whose band this height is in.
+            val height = if (type == CloudType.STRATUS) altitude - groundTop else altitude
+            val band = LAYER_BANDS[type.ordinal]
+            if (height < band.first || height > band.second) continue
+            val cells = layerCells[type.ordinal]
+            val spacing = LAYER_SPACING[type.ordinal]
+            val count = cells.around(up, east, north, spacing / radius, layerKeys, reach = 1)
+            for (k in 0 until count) {
+                val shape = deck(type, layerKeys[k], time) ?: continue
+                for (lobe in shape.lobes) {
+                    val density = inside(lobe, up, altitude)
+                    if (density > 0.0) addCloud(out, (density * 2.0).coerceAtMost(1.0) * LAYER_DENSITY[type.ordinal] * shape.amount, type)
+                }
+            }
         }
+    }
+
+    private val layerKeys = LongArray(32)
+    private val lobeRel = Vec3()
+
+    /**
+     * How far inside [lobe] the point at unit [up] and [altitude] is: 1 at
+     * its heart, 0 at its edge or outside. The drawn puff's shape - an
+     * ellipsoid a little inside its lumps, cut flat underneath.
+     */
+    private fun inside(lobe: CloudLobe, up: Vec3, altitude: Double): Double {
+        val c = lobe.centre
+        val cr = c.length
+        val vertical = (altitude + radius) - cr
+        if (vertical < -0.4 * lobe.vertical) return 0.0
+        lobeRel.setTo(up).mulInPlace(radius + altitude).addScaledInPlace(c, -1.0)
+        val along = lobeRel dot c / cr
+        lobeRel.addScaledInPlace(c, -along / cr)
+        val h = lobeRel.length / (0.9 * lobe.horizontal)
+        val v = vertical / (0.9 * lobe.vertical)
+        return 1.0 - (h * h + v * v)
     }
 
     private val layerScratch = DoubleArray(3)
@@ -426,55 +459,140 @@ class Weather(val body: CelestialBody, val config: WeatherConfig) {
             )
             out.add(shape)
         }
-        // Layer cloud, one puff per cell of the deck.
+        // Layer cloud: the deck's puffs, cell by cell - the same puffs the
+        // air is sampled from, so what is drawn is what a craft flies into.
         for (type in LAYER_TYPES) {
             val cells = layerCells[type.ordinal]
             val spacing = LAYER_SPACING[type.ordinal]
             val keys = LongArray(((2 * (reach / spacing).toInt() + 3) * (2 * (reach / spacing).toInt() + 3)) * 2 + 16)
             val count = cells.around(direction, e, n, spacing / radius, keys, reach = kotlin.math.ceil(reach / spacing).toInt())
-            val cellCentre = Vec3()
             for (k in 0 until count) {
-                cells.centre(keys[k], cellCentre)
-                val cx = cells.hashX(keys[k]); val cy = cells.hashY(keys[k])
-                val cellOcean = terrainWind?.let {
-                    it.describe(cellCentre, descriptor); descriptor[TerrainWind.OCEAN] > 0.5
-                } ?: false
-                val cellGround = if (terrainWind != null && !cellOcean) max(descriptor[TerrainWind.H0], 0.0) else 0.0
-                val humidity = humidity(cellCentre, pressure(cellCentre, time), cellOcean, time)
-                if (!layer(type, cellCentre, cellGround, humidity, time, layerScratch)) continue
-                val cover = layerScratch[0] * thickness(cellCentre, time)
-                if (cover < 0.15) continue
-                val base = layerScratch[1]; val top = layerScratch[2]
-                // A clump of one to three puffs, of mixed sizes, anywhere in
-                // the cell - and none at all in some cells where the cover
-                // is thin. One puff of one size per cell, as it was, drew a
-                // honeycomb from above.
-                val salt = seed + 90 + type.ordinal * 11
-                if (Noise.hash(salt, cx, cy, 0) > 0.35 + 0.65 * cover) continue
-                val ce = Vec3(); val cn = Vec3()
-                frame(cellCentre, ce, cn)
-                val shape = CloudShape(type, cover)
-                val puffs = 1 + (Noise.hash(salt, cx, cy, 1) * 3.0 * cover).toInt().coerceAtMost(2)
-                for (p in 0 until puffs) {
-                    val size = spacing * (0.25 + 0.55 * Noise.hash(salt, cx, cy, 10 + p)) * (0.6 + 0.4 * cover)
-                    val at = Vec3().setTo(cellCentre)
-                        .mulInPlace(radius + (base + top) * 0.5 + (Noise.hash(salt, cx, cy, 20 + p) - 0.5) * (top - base) * 0.4)
-                        .addScaledInPlace(ce, (Noise.hash(salt, cx, cy, 30 + p) - 0.5) * spacing * 0.9)
-                        .addScaledInPlace(cn, (Noise.hash(salt, cx, cy, 40 + p) - 0.5) * spacing * 0.9)
-                    shape.lobes.add(
-                        CloudLobe(
-                            at, size,
-                            (top - base) * 0.5 * (0.45 + 0.55 * Noise.hash(salt, cx, cy, 50 + p)) * (0.6 + 0.4 * cover),
-                            shade = 0.8 + 0.12 * Noise.hash(salt, cx, cy, 60 + p),
-                        ),
-                    )
-                }
-                out.add(shape)
+                deck(type, keys[k], time)?.let { out.add(it) }
             }
         }
     }
 
+    private class DeckKey(val type: Int, val cell: Long, val epoch: Long) {
+        override fun equals(other: Any?) = other is DeckKey && other.type == type && other.cell == cell && other.epoch == epoch
+        override fun hashCode() = ((type * 31 + cell.hashCode()) * 31 + epoch.hashCode())
+    }
+
+    /** Deck cells worked out, so neither drawing nor sampling works them out twice. */
+    private val decks = object : LinkedHashMap<DeckKey, CloudShape?>(512, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<DeckKey, CloudShape?>?) = size > 6_000
+    }
+
+    /**
+     * The puffs of [type]'s deck in cell [key] at [time], or null for none.
+     *
+     * A clump of one to three, of mixed sizes, anywhere in the cell - and
+     * none at all in some cells where the cover is thin. Worked out once per
+     * [DECK_EPOCH] of time: a deck changes over hours, and a craft sampling
+     * the air sixty times a second must not rebuild its neighbours' clouds
+     * each time.
+     */
+    private fun deck(type: CloudType, key: Long, time: Double): CloudShape? {
+        val epoch = kotlin.math.floor(time / DECK_EPOCH).toLong()
+        val cacheKey = DeckKey(type.ordinal, key, epoch)
+        if (decks.containsKey(cacheKey)) return decks[cacheKey]
+        val shape = buildDeck(type, key, epoch * DECK_EPOCH)
+        decks[cacheKey] = shape
+        return shape
+    }
+
+    private fun buildDeck(type: CloudType, key: Long, time: Double): CloudShape? {
+        val cells = layerCells[type.ordinal]
+        val spacing = LAYER_SPACING[type.ordinal]
+        val cellCentre = cells.centre(key, Vec3())
+        val cx = cells.hashX(key); val cy = cells.hashY(key)
+        // One sample of the ground: all a deck needs to know is how high it
+        // is and whether it is sea. (The wind's detailed description of the
+        // ground costs nine, and on a fresh flight none of them are cached.)
+        val elevation = terrain?.elevation(cellCentre) ?: 0.0
+        val ocean = terrain?.hasOcean == true && elevation < 0.0
+        val ground = if (ocean) 0.0 else max(elevation, 0.0)
+        val humidity = humidity(cellCentre, pressure(cellCentre, time), ocean, time)
+        val scratch = DoubleArray(3)
+        if (!layer(type, cellCentre, ground, humidity, time, scratch)) return null
+        val cover = scratch[0] * thickness(cellCentre, time)
+        if (cover < 0.15) return null
+        val base = scratch[1]; val top = scratch[2]
+        val salt = seed + 90 + type.ordinal * 11
+        if (Noise.hash(salt, cx, cy, 0) > 0.35 + 0.65 * cover) return null
+        val ce = Vec3(); val cn = Vec3()
+        frame(cellCentre, ce, cn)
+        val shape = CloudShape(type, cover)
+        val puffs = 1 + (Noise.hash(salt, cx, cy, 1) * 3.0 * cover).toInt().coerceAtMost(2)
+        for (p in 0 until puffs) {
+            val size = spacing * (0.25 + 0.55 * Noise.hash(salt, cx, cy, 10 + p)) * (0.6 + 0.4 * cover)
+            val at = Vec3().setTo(cellCentre)
+                .mulInPlace(radius + (base + top) * 0.5 + (Noise.hash(salt, cx, cy, 20 + p) - 0.5) * (top - base) * 0.4)
+                .addScaledInPlace(ce, (Noise.hash(salt, cx, cy, 30 + p) - 0.5) * spacing * 0.9)
+                .addScaledInPlace(cn, (Noise.hash(salt, cx, cy, 40 + p) - 0.5) * spacing * 0.9)
+            shape.lobes.add(
+                CloudLobe(
+                    at, size,
+                    (top - base) * 0.5 * (0.45 + 0.55 * Noise.hash(salt, cx, cy, 50 + p)) * (0.6 + 0.4 * cover),
+                    shade = 0.8 + 0.12 * Noise.hash(salt, cx, cy, 60 + p),
+                ),
+            )
+        }
+        return shape
+    }
+
     private val layerCells = Array(CloudType.entries.size) { SphereCells(radius, LAYER_SPACING[it]) }
+
+    /**
+     * The whole planet's cloud, coarsely, for the map: a sheet every
+     * [spacing] metres where the decks are, and every storm's anvil. The
+     * same fields the air is made of, at a scale where a single puff is
+     * tens of kilometres across.
+     */
+    fun globalCover(spacing: Double, time: Double, out: MutableList<CloudShape>) {
+        val cells = SphereCells(radius, spacing)
+        val n = cells.perFace
+        val centre = Vec3()
+        val ce = Vec3(); val cn = Vec3()
+        val scratch = DoubleArray(3)
+        for (face in 0 until 6) for (i in 0 until n) for (j in 0 until n) {
+            val key = (face.toLong() * n + i) * n + j
+            cells.centre(key, centre)
+            val elevation = terrain?.elevation(centre) ?: 0.0
+            val ocean = terrain?.hasOcean == true && elevation < 0.0
+            val ground = if (ocean) 0.0 else max(elevation, 0.0)
+            val humidity = humidity(centre, pressure(centre, time), ocean, time)
+            for (type in LAYER_TYPES) {
+                if (!layer(type, centre, ground, humidity, time, scratch)) continue
+                val cover = scratch[0] * thickness(centre, time)
+                if (cover < 0.25) continue
+                frame(centre, ce, cn)
+                val cx = cells.hashX(key); val cy = cells.hashY(key)
+                val at = Vec3().setTo(centre).mulInPlace(radius + (scratch[1] + scratch[2]) * 0.5)
+                    .addScaledInPlace(ce, (Noise.hash(seed + 200, cx, cy, type.ordinal) - 0.5) * spacing * 0.6)
+                    .addScaledInPlace(cn, (Noise.hash(seed + 201, cx, cy, type.ordinal) - 0.5) * spacing * 0.6)
+                val shape = CloudShape(type, cover)
+                shape.lobes.add(CloudLobe(at, spacing * (0.35 + 0.35 * cover), 1_500.0, shade = 0.9))
+                out.add(shape)
+            }
+        }
+        // Storms, all of them.
+        val stormCells = SphereCells(radius, Storms.CELL)
+        val sn = stormCells.perFace
+        val c = Vec3(); val steer = Vec3()
+        for (face in 0 until 6) for (i in 0 until sn) for (j in 0 until sn) {
+            val s = storms.storm((face.toLong() * sn + i) * sn + j, time)
+            if (!s.exists) continue
+            val envelope = storms.envelope(s, time)
+            if (envelope <= 0.05) continue
+            storms.centreAt(s, time, c)
+            steer.setTo(s.steer)
+            if (steer.lengthSq > 1e-9) steer.normalizeInPlace() else steer.setTo(s.east)
+            val shape = CloudShape(CloudType.CUMULONIMBUS, envelope)
+            shape.lobes.add(CloudLobe(Vec3().setTo(c).mulInPlace(radius + s.top - 800.0).addScaledInPlace(steer, 0.8 * s.core), 2.4 * s.core * envelope, 2_500.0, shade = 0.95))
+            shape.lobes.add(CloudLobe(Vec3().setTo(c).mulInPlace(radius + (s.base + s.top) * 0.5), 0.9 * s.core, (s.top - s.base) * 0.5, shade = 0.6))
+            out.add(shape)
+        }
+    }
 
     /** Lightning strikes near unit [direction] between [from] and [to]. */
     fun strikes(direction: Vec3, from: Double, to: Double, out: MutableList<Strike>) {
@@ -515,6 +633,12 @@ class Weather(val body: CelestialBody, val config: WeatherConfig) {
 
         /** Spacing of the puffs a deck is drawn with, m, by ordinal. */
         private val LAYER_SPACING = doubleArrayOf(3_000.0, 2_500.0, 4_000.0, 8_000.0, 3_000.0)
+
+        /** Heights each deck can be at, by ordinal: stratus above its ground, the rest above datum. */
+        private val LAYER_BANDS = arrayOf(0.0 to 0.0, 0.0 to 2_200.0, 3_500.0 to 5_600.0, 8_300.0 to 9_700.0, 0.0 to 0.0)
+
+        /** Seconds a deck's puffs are worked out for. */
+        private const val DECK_EPOCH = 30.0
 
         private val TURBULENCE_SCALES = doubleArrayOf(40.0, 150.0, 500.0)
         private val TURBULENCE_WEIGHTS = doubleArrayOf(0.25, 0.45, 0.6)

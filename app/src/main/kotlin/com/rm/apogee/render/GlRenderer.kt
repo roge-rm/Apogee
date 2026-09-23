@@ -206,6 +206,7 @@ class GlRenderer(
             drawSky(latest, world, cameraPos, aspect, atmosphereFactor)
             uploadPendingTerrain()
             drawGlobe(world, cameraPos, atmosphereFactor)
+            drawItems(latest.farItems, null, latest, 0.0, cameraPos, farViewProjection.m)
             // Trajectories belong in the far pass: an orbit is hundreds of
             // kilometres across and would be clipped away by the near frustum.
             drawLines(latest, cameraPos)
@@ -452,10 +453,20 @@ class GlRenderer(
         previous: RenderFrame?,
         alpha: Double,
         cameraPos: Vec3,
+    ) = drawItems(latest.items, previous?.items, latest, alpha, cameraPos, nearViewProjection.m)
+
+    private fun drawItems(
+        items: List<RenderItem>,
+        previousItems: List<RenderItem>?,
+        latest: RenderFrame,
+        alpha: Double,
+        cameraPos: Vec3,
+        viewProjection: FloatArray,
     ) {
+        if (items.isEmpty()) return
         val shader = vesselProgram ?: return
         shader.use()
-        shader.setMat4("uViewProjection", nearViewProjection.m)
+        shader.setMat4("uViewProjection", viewProjection)
 
         // Light from the star when there is one, else a fixed key light so the
         // assembly building is not lit from nowhere.
@@ -476,17 +487,17 @@ class GlRenderer(
         // near with blending on and depth writes off, so each layer shows
         // through the ones in front of it and nothing solid behind is lost.
         translucent.clear()
-        for ((index, item) in latest.items.withIndex()) {
+        for ((index, item) in items.withIndex()) {
             if (item.color[3] < 0.999f) { translucent.add(index); continue }
-            drawItem(item, previous?.items?.getOrNull(index), alpha, cameraPos, shader)
+            drawItem(item, previousItems?.getOrNull(index), alpha, cameraPos, shader)
         }
         if (translucent.isNotEmpty()) {
-            translucent.sortByDescending { latest.items[it].position.distanceTo(cameraPos) }
+            translucent.sortByDescending { items[it].position.distanceTo(cameraPos) }
             GLES30.glEnable(GLES30.GL_BLEND)
             GLES30.glBlendFunc(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA)
             GLES30.glDepthMask(false)
             for (index in translucent) {
-                drawItem(latest.items[index], previous?.items?.getOrNull(index), alpha, cameraPos, shader)
+                drawItem(items[index], previousItems?.getOrNull(index), alpha, cameraPos, shader)
             }
             GLES30.glDepthMask(true)
             GLES30.glDisable(GLES30.GL_BLEND)

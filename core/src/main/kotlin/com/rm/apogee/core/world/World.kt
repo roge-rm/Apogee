@@ -115,6 +115,26 @@ class World(
 
     private val weathers = HashMap<String, Weather>()
 
+    private val navDirections = NavDirections()
+    private val holdScratch = Vec3()
+
+    /**
+     * Where stability assist should hold the nose, in inertial axes, for a
+     * craft holding a navball marker - computed exactly as the navball
+     * draws it. Null for plain attitude hold, or a marker with nothing to
+     * point at (no motion, no target).
+     */
+    private fun holdDirection(vessel: Vessel, attractor: CelestialBody): Vec3? {
+        val control = vessel.control
+        if (!control.sasEnabled || control.sasMode == SasMode.HOLD) return null
+        val target = vessel(VesselId(control.target))?.takeIf { it.referenceBodyId == vessel.referenceBodyId }
+        Navigation.compute(
+            vessel.body.position, vessel.body.linearVelocity, attractor, control.navFrame,
+            target?.body?.position, target?.body?.linearVelocity, navDirections,
+        )
+        return if (navDirections.forMode(control.sasMode, holdScratch)) holdScratch else null
+    }
+
     /** Pairs of craft that have just separated, by [pairKey], and until when they ignore each other. */
     private val justSeparated = HashMap<Long, Double>()
 
@@ -469,6 +489,17 @@ class World(
 
             is Command.SetSas ->
                 waken(command.vessel)?.control?.sasEnabled = command.enabled
+
+            is Command.SetSasMode -> waken(command.vessel)?.let {
+                it.control.sasMode = command.mode
+                // A new mode is a new hold: start it from where the craft is.
+                it.assistHolding = false
+            }
+
+            is Command.SetNavFrame -> waken(command.vessel)?.control?.navFrame = command.frame
+
+            is Command.SetTarget -> waken(command.vessel)?.control?.target =
+                if (command.target == command.vessel) -1L else command.target
 
             is Command.SetBrakes ->
                 waken(command.vessel)?.control?.brakes = command.engaged
@@ -853,7 +884,7 @@ class World(
             // Before any force, because the elevons deflect inside the drag
             // pass and the gimbal inside thrust: all of them act on what
             // stability assist asks for this tick.
-            stabilityAssist.update(vessel, dt)
+            stabilityAssist.update(vessel, dt, holdDirection(vessel, attractor))
             updatePose(vessel, dt)
 
             forces.applyGravity(vessel, attractor)
@@ -1313,6 +1344,9 @@ class World(
                     .withIndex().filter { it.value }.map { it.index },
                 throttle = vessel.control.throttle,
                 sasEnabled = vessel.control.sasEnabled,
+                sasMode = vessel.control.sasMode,
+                navFrame = vessel.control.navFrame,
+                target = vessel.control.target,
                 brakes = vessel.control.brakes,
                 resources = vessel.resourceSnapshot().map { it.toList() },
                 legDeploy = vessel.legDeploy.toList(),
@@ -1410,6 +1444,9 @@ class World(
             vessel.restoreStaging(saved.currentStage, saved.activatedParts, saved.brokenParts)
             vessel.control.throttle = saved.throttle
             vessel.control.sasEnabled = saved.sasEnabled
+            vessel.control.sasMode = saved.sasMode
+            vessel.control.navFrame = saved.navFrame
+            vessel.control.target = saved.target
             vessel.control.brakes = saved.brakes
             vessel.fitPose()
             saved.legDeploy.forEachIndexed { i, progress -> vessel.setLegDeploy(i, progress) }

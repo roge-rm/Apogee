@@ -86,6 +86,14 @@ fun FlightScreen(
     onRoll: (Float) -> Unit,
     onStage: () -> Unit,
     onToggleSas: () -> Unit,
+    /** Hold a navball marker. */
+    onSasMode: (com.rm.apogee.core.world.SasMode) -> Unit = {},
+    /** The next navball frame. */
+    onCycleFrame: () -> Unit = {},
+    /** Craft that can be targeted, nearest first, asked for when the picker opens. */
+    targetChoices: () -> List<com.rm.apogee.game.GameSession.TargetChoice> = { emptyList() },
+    /** Steer by a craft, or -1 for none. */
+    onTarget: (Long) -> Unit = {},
     onToggleBrakes: () -> Unit,
     onToggleMap: () -> Unit,
     onJoin: () -> Unit,
@@ -98,6 +106,7 @@ fun FlightScreen(
     // rotation. Asking the layout is asking the thing that decides.
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val portrait = maxWidth < maxHeight
+        val sas = SasActions(onToggleSas, onSasMode, targetChoices, onTarget)
 
         if (hud.connectionError != null) {
             ConnectionProblem(hud.connectionError!!, onExit)
@@ -205,7 +214,7 @@ fun FlightScreen(
                 .padding(horizontal = 12.dp, vertical = 6.dp),
             horizontalAlignment = Alignment.End,
         ) {
-            TelemetryPanel(hud.telemetry, Modifier.alpha(controlOpacity))
+            TelemetryPanel(hud.telemetry, Modifier.alpha(controlOpacity), twoColumns = !portrait)
         }
 
         if (portrait) {
@@ -245,7 +254,7 @@ fun FlightScreen(
                             detailWidth = 300.dp,
                         )
                         if (hud.stages.isNotEmpty()) Spacer(Modifier.height(10.dp))
-                        AttitudeCluster(hud, onAttitude, onRoll, onToggleSas, PORTRAIT_STICK_SIZE)
+                        AttitudeCluster(hud, onAttitude, onRoll, sas, PORTRAIT_STICK_SIZE)
                     }
                 }
 
@@ -261,6 +270,13 @@ fun FlightScreen(
                         worldUp = hud.telemetry.up,
                         prograde = hud.telemetry.prograde,
                         size = PORTRAIT_NAVBALL_SIZE,
+                        normal = hud.telemetry.normal,
+                        radialOut = hud.telemetry.radialOut,
+                        frame = hud.telemetry.frame,
+                        frameManual = hud.telemetry.frameChosen != com.rm.apogee.core.world.NavFrame.AUTO,
+                        onCycleFrame = onCycleFrame,
+                        toTarget = hud.telemetry.toTarget,
+                        throughAir = hud.telemetry.throughAir,
                     )
                     Spacer(Modifier.height(10.dp))
                     StageButton(hud.telemetry.stage, onStage, current = hud.stages.firstOrNull { it.current })
@@ -293,7 +309,7 @@ fun FlightScreen(
                     .padding(horizontal = 16.dp, vertical = 12.dp)
                     .alpha(controlOpacity),
             ) {
-                AttitudeCluster(hud, onAttitude, onRoll, onToggleSas, STICK_SIZE)
+                AttitudeCluster(hud, onAttitude, onRoll, sas, STICK_SIZE)
             }
 
             Row(
@@ -310,6 +326,13 @@ fun FlightScreen(
                     worldUp = hud.telemetry.up,
                     prograde = hud.telemetry.prograde,
                     size = NAVBALL_SIZE,
+                    normal = hud.telemetry.normal,
+                    radialOut = hud.telemetry.radialOut,
+                    frame = hud.telemetry.frame,
+                    frameManual = hud.telemetry.frameChosen != com.rm.apogee.core.world.NavFrame.AUTO,
+                    onCycleFrame = onCycleFrame,
+                    toTarget = hud.telemetry.toTarget,
+                    throughAir = hud.telemetry.throughAir,
                 )
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     if (hud.canJoin) {
@@ -382,13 +405,21 @@ private fun ThrottleControl(
     }
 }
 
+/** What the SAS button and its picker do. */
+class SasActions(
+    val onToggle: () -> Unit,
+    val onMode: (com.rm.apogee.core.world.SasMode) -> Unit,
+    val targetChoices: () -> List<com.rm.apogee.game.GameSession.TargetChoice>,
+    val onTarget: (Long) -> Unit,
+)
+
 /** Roll, stability assist and the attitude stick, as one block. */
 @Composable
 private fun AttitudeCluster(
     hud: HudState,
     onAttitude: (pitch: Float, yaw: Float) -> Unit,
     onRoll: (Float) -> Unit,
-    onToggleSas: () -> Unit,
+    sas: SasActions,
     stickSize: Dp,
 ) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -399,20 +430,17 @@ private fun AttitudeCluster(
             HoldButton("↺", { held -> onRoll(if (held) -1f else 0f) }, size = 40.dp)
             // Stability assist lives with the attitude controls, not with
             // staging: it is the thing that holds an attitude for you.
-            FilledTonalIconButton(
-                onClick = onToggleSas,
-                modifier = Modifier.size(40.dp),
-                colors = if (hud.sasEnabled) {
-                    IconButtonDefaults.filledTonalIconButtonColors(
-                        containerColor = ApogeeColors.Prograde.alpha(0.3f),
-                        contentColor = ApogeeColors.Prograde,
-                    )
-                } else {
-                    IconButtonDefaults.filledTonalIconButtonColors()
-                },
-            ) {
-                Icon(Icons.Filled.Explore, contentDescription = "Stability assist")
-            }
+            com.rm.apogee.ui.components.SasButton(
+                enabled = hud.sasEnabled,
+                mode = hud.telemetry.sasMode,
+                expanded = hud.sasPickerOpen,
+                onToggle = sas.onToggle,
+                onExpand = { hud.sasPickerOpen = it },
+                onMode = sas.onMode,
+                targetChoices = sas.targetChoices,
+                currentTarget = hud.telemetry.targetName,
+                onTarget = sas.onTarget,
+            )
             HoldButton("↻", { held -> onRoll(if (held) 1f else 0f) }, size = 40.dp)
         }
         Spacer(Modifier.height(8.dp))
@@ -519,64 +547,98 @@ private fun StageButton(
     }
 }
 @Composable
-private fun TelemetryPanel(telemetry: FlightTelemetry, modifier: Modifier = Modifier) {
-    Column(
-        modifier = modifier
-            .clip(RoundedCornerShape(Dimens.CornerSmall))
-            .background(Color.Black.alpha(ApogeeAlpha.SCRIM))
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-        horizontalAlignment = Alignment.End,
-    ) {
-        Readout("ALT", formatDistance(telemetry.altitude))
-        // Above the ground, not above the datum. The launch complex sits most
-        // of a kilometre up, so the two disagree from the moment you spawn,
-        // and only one of them tells you whether you are about to land.
-        if (telemetry.heightAboveGround < 20_000.0) {
-            Readout(
-                "AGL",
-                formatDistance(telemetry.heightAboveGround),
-                colour = if (telemetry.heightAboveGround < 200.0) ApogeeColors.Caution
-                else ApogeeColors.Data,
-            )
+private fun TelemetryPanel(telemetry: FlightTelemetry, modifier: Modifier = Modifier, twoColumns: Boolean = false) {
+    // Two columns in landscape - near the ground, then the orbit and target -
+    // where one tall column ran down over the roll and SAS buttons.
+    val panel = modifier
+        .clip(RoundedCornerShape(Dimens.CornerSmall))
+        .background(Color.Black.alpha(ApogeeAlpha.SCRIM))
+        .padding(horizontal = 12.dp, vertical = 8.dp)
+    if (twoColumns) {
+        Row(panel, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            Column(horizontalAlignment = Alignment.End) { SurfaceReadouts(telemetry) }
+            Column(horizontalAlignment = Alignment.End) { OrbitReadouts(telemetry) }
         }
-        Readout("SRF", "${telemetry.surfaceSpeed.roundToInt()} m/s")
-        // Through the air, and the air itself - only where there is some.
-        if (telemetry.inAir) {
-            Readout("AIR", "${telemetry.airspeed.roundToInt()} m/s")
-            Readout(
-                "WIND",
-                "${windArrow(telemetry.windFrom)} ${telemetry.windSpeed.roundToInt()} m/s",
-                colour = if (telemetry.windSpeed > 15.0) ApogeeColors.Caution else ApogeeColors.Data,
-            )
+    } else {
+        Column(panel, horizontalAlignment = Alignment.End) {
+            SurfaceReadouts(telemetry)
+            OrbitReadouts(telemetry)
         }
-        Readout("ORB", "${telemetry.orbitalSpeed.roundToInt()} m/s")
+    }
+}
+
+@Composable
+private fun SurfaceReadouts(telemetry: FlightTelemetry) {
+    Readout("ALT", formatDistance(telemetry.altitude))
+    // Above the ground, not above the datum. The launch complex sits most
+    // of a kilometre up, so the two disagree from the moment you spawn,
+    // and only one of them tells you whether you are about to land.
+    if (telemetry.heightAboveGround < 20_000.0) {
+        Readout(
+            "AGL",
+            formatDistance(telemetry.heightAboveGround),
+            colour = if (telemetry.heightAboveGround < 200.0) ApogeeColors.Caution
+            else ApogeeColors.Data,
+        )
+    }
+    Readout("SRF", "${telemetry.surfaceSpeed.roundToInt()} m/s")
+    // Climb or sink, and which way the nose points on the compass.
+    Readout(
+        "VS",
+        (if (telemetry.verticalSpeed >= 0) "+" else "\u2212") + "${kotlin.math.abs(telemetry.verticalSpeed).roundToInt()} m/s",
+        colour = if (telemetry.verticalSpeed < -10.0 && telemetry.heightAboveGround < 500.0) ApogeeColors.Caution else ApogeeColors.Data,
+    )
+    Readout("HDG", "%03d\u00b0".format(telemetry.heading.roundToInt() % 360))
+    // Through the air, and the air itself - only where there is some.
+    if (telemetry.inAir) {
+        Readout("AIR", "${telemetry.airspeed.roundToInt()} m/s")
+        Readout(
+            "WIND",
+            "${windArrow(telemetry.windFrom)} ${telemetry.windSpeed.roundToInt()} m/s",
+            colour = if (telemetry.windSpeed > 15.0) ApogeeColors.Caution else ApogeeColors.Data,
+        )
+    }
+}
+
+@Composable
+private fun OrbitReadouts(telemetry: FlightTelemetry) {
+    Readout("ORB", "${telemetry.orbitalSpeed.roundToInt()} m/s")
+    Spacer(Modifier.height(4.dp))
+    Readout(
+        "AP",
+        formatDistance(telemetry.apoapsisAltitude),
+        colour = if (telemetry.inOrbit) ApogeeColors.Prograde else ApogeeColors.Data,
+    )
+    Readout(
+        "PE",
+        // A periapsis underground is not a number, it is a warning: it
+        // means the current trajectory ends in the ground.
+        if (telemetry.periapsisAltitude < 0) "suborbital"
+        else formatDistance(telemetry.periapsisAltitude),
+        colour = if (telemetry.periapsisAltitude < 0) ApogeeColors.Caution
+        else ApogeeColors.Prograde,
+    )
+    if (telemetry.timeToApoapsis.isFinite() && telemetry.apoapsisAltitude > 1_000) {
+        Readout("T-AP", formatDuration(telemetry.timeToApoapsis))
+    }
+    telemetry.targetName?.let { name ->
+        Spacer(Modifier.height(4.dp))
+        Readout("TGT", name.take(12), colour = TARGET_COLOUR)
+        Readout("DST", formatDistance(telemetry.targetDistance), colour = TARGET_COLOUR)
+        Readout(
+            "CLS",
+            (if (telemetry.closingSpeed >= 0) "" else "\u2212") + "${kotlin.math.abs(telemetry.closingSpeed).format(1)} m/s",
+            colour = TARGET_COLOUR,
+        )
+    }
+    if (telemetry.dynamicPressure > 100.0) {
         Spacer(Modifier.height(4.dp))
         Readout(
-            "AP",
-            formatDistance(telemetry.apoapsisAltitude),
-            colour = if (telemetry.inOrbit) ApogeeColors.Prograde else ApogeeColors.Data,
+            "Q",
+            "${(telemetry.dynamicPressure / 1000).format(1)} kPa",
+            colour = if (telemetry.highDynamicPressure) ApogeeColors.Danger
+            else ApogeeColors.Data,
         )
-        Readout(
-            "PE",
-            // A periapsis underground is not a number, it is a warning: it
-            // means the current trajectory ends in the ground.
-            if (telemetry.periapsisAltitude < 0) "suborbital"
-            else formatDistance(telemetry.periapsisAltitude),
-            colour = if (telemetry.periapsisAltitude < 0) ApogeeColors.Caution
-            else ApogeeColors.Prograde,
-        )
-        if (telemetry.timeToApoapsis.isFinite() && telemetry.apoapsisAltitude > 1_000) {
-            Readout("T-AP", formatDuration(telemetry.timeToApoapsis))
-        }
-        if (telemetry.dynamicPressure > 100.0) {
-            Spacer(Modifier.height(4.dp))
-            Readout(
-                "Q",
-                "${(telemetry.dynamicPressure / 1000).format(1)} kPa",
-                colour = if (telemetry.highDynamicPressure) ApogeeColors.Danger
-                else ApogeeColors.Data,
-            )
-        }
     }
 }
 
@@ -669,6 +731,7 @@ private fun Double.format(decimals: Int) = "%.${decimals}f".format(this)
 
 private val THROTTLE_HEIGHT = 170.dp
 private val STICK_SIZE = 132.dp
+private val TARGET_COLOUR = androidx.compose.ui.graphics.Color(0xFFFF5FD2)
 private val NAVBALL_SIZE = 128.dp
 
 // Portrait is short of width and generous with height, so the throttle takes

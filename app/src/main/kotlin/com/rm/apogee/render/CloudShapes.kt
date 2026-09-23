@@ -9,7 +9,12 @@ import kotlin.math.sqrt
  * lumps, so neighbouring lobes do not match; [flat] squashes it into a deck
  * puff for layer cloud.
  */
-data class CloudPuff(val variant: Int, val flat: Boolean = false) : Shape
+data class CloudPuff(
+    val variant: Int,
+    val flat: Boolean = false,
+    /** Subdivisions of the icosahedron: 2 near (320 facets), 1 far (80). */
+    val detail: Int = 2,
+) : Shape
 
 /**
  * Cloud meshes in the game's own style: faceted, flat-shaded heaps, like
@@ -21,7 +26,7 @@ object CloudShapes {
     const val VARIANTS = 12
 
     fun puff(shape: CloudPuff): MeshData {
-        val (vertices, faces) = icosphere(SUBDIVISIONS)
+        val (vertices, faces) = icosphere(shape.detail.coerceIn(0, 3))
         val seed = 0xC10D + shape.variant * 7919
         val displaced = vertices.map { v ->
             val bump = 1.0 + 0.24 * Noise.simplex(seed, v[0] * 1.7, v[1] * 1.7, v[2] * 1.7) +
@@ -40,7 +45,6 @@ object CloudShapes {
 
     /** How low a puff reaches, as a fraction of its vertical radius. */
     private const val BASE = -0.4
-    private const val SUBDIVISIONS = 2
 
     private fun icosphere(subdivisions: Int): Pair<List<DoubleArray>, List<IntArray>> {
         val t = (1.0 + sqrt(5.0)) / 2.0

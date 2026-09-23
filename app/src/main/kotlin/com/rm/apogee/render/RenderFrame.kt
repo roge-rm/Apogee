@@ -73,6 +73,11 @@ class RenderFrame(
      */
     val particles: FloatArray? = null,
     val particleShapes: Int = 0,
+    /**
+     * Things at planet scale, drawn in the far pass with the globe: the
+     * map's cloud. Not interpolated.
+     */
+    val farItems: List<RenderItem> = emptyList(),
 )
 
 /**

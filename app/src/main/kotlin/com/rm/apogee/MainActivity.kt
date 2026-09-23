@@ -181,6 +181,15 @@ class MainActivity : ComponentActivity() {
                         onRoll = ::onRoll,
                         onStage = ::onStage,
                         onToggleSas = ::onToggleSas,
+                        onSasMode = { mode ->
+                            hudState.sasEnabled = true
+                            session?.let { s -> lifecycleScope.launch { s.setSasMode(mode) } }
+                        },
+                        onCycleFrame = {
+                            session?.let { s -> lifecycleScope.launch { s.cycleNavFrame() } }
+                        },
+                        targetChoices = { session?.targetChoices() ?: emptyList() },
+                        onTarget = { id -> session?.let { s -> lifecycleScope.launch { s.setTarget(id) } } },
                         onToggleBrakes = ::onToggleBrakes,
                         onToggleMap = ::onToggleMap,
                         onJoin = ::onJoin,

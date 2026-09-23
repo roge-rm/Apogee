@@ -1,6 +1,9 @@
 package com.rm.apogee.ui.components
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.text.drawText
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -46,18 +49,45 @@ fun NavBall(
     rotation: Quat,
     /** Local vertical, in the same frame the craft's position is in. */
     worldUp: Vec3,
-    /** Direction of travel relative to the surface, or null when stationary. */
+    /** Direction of travel, in the navball's frame, or null when stationary. */
     prograde: Vec3?,
     modifier: Modifier = Modifier,
     size: Dp = 170.dp,
+    /** Orbit normal, in the same frame; null hides normal and anti-normal. */
+    normal: Vec3? = null,
+    /** Radial out; null hides radial out and in. */
+    radialOut: Vec3? = null,
+    /** The frame the markers are in, for the tag. */
+    frame: com.rm.apogee.core.world.NavFrame = com.rm.apogee.core.world.NavFrame.SURFACE,
+    /** Whether the frame was chosen by hand rather than left on automatic. */
+    frameManual: Boolean = false,
+    /** Tapping the tag: the next frame. */
+    onCycleFrame: (() -> Unit)? = null,
+    /** Toward the target; null hides target and anti-target. */
+    toTarget: Vec3? = null,
+    /** Direction of travel through the air, when it differs from over the ground. */
+    throughAir: Vec3? = null,
 ) {
-    Canvas(modifier.size(size)) {
+    val textMeasurer = androidx.compose.ui.text.rememberTextMeasurer()
+    androidx.compose.foundation.layout.Box(modifier.size(size)) {
+    Canvas(Modifier.size(size)) {
         val radius = kotlin.math.min(this.size.width, this.size.height) * 0.5f - 4f
         val centre = Offset(this.size.width / 2f, this.size.height / 2f)
 
         // Local-frame versions of the world directions we care about.
         val up = rotation.inverseRotate(worldUp).normalizeInPlace()
-        val progradeLocal = prograde?.let { rotation.inverseRotate(it).normalizeInPlace() }
+        fun local(v: Vec3?) = v?.let { rotation.inverseRotate(it).normalizeInPlace() }
+        val progradeLocal = local(prograde)
+        val normalLocal = local(normal)
+        val radialLocal = local(radialOut)
+        val targetLocal = local(toTarget)
+        val airLocal = local(throughAir)
+        // Compass north and east on the horizon: about the body's own axis,
+        // +Y, whatever frame the craft is in.
+        val worldEast = Vec3(worldUp.z, 0.0, -worldUp.x).let { if (it.lengthSq < 1e-12) Vec3(1.0, 0.0, 0.0) else it.normalizeInPlace() }
+        val worldNorth = worldUp.cross(worldEast).normalizeInPlace()
+        val northLocal = rotation.inverseRotate(worldNorth).normalizeInPlace()
+        val eastLocal = rotation.inverseRotate(worldEast).normalizeInPlace()
 
         // An orthonormal pair spanning the horizon plane.
         val a = perpendicularTo(up)
@@ -66,8 +96,31 @@ fun NavBall(
         drawSphere(centre, radius, up, a, b)
         drawPitchLadder(centre, radius, up, a, b)
         drawHorizon(centre, radius, up, a, b)
-        drawMarkers(centre, radius, progradeLocal)
+        drawCompass(centre, radius, northLocal, eastLocal, textMeasurer)
+        drawMarkers(centre, radius, progradeLocal, normalLocal, radialLocal)
+        drawTargetMarkers(centre, radius, targetLocal)
+        airLocal?.let { project(centre, radius, it) }?.let { flightPathMarker(it, radius * 0.09f) }
         drawReticle(centre, radius)
+    }
+        // Which frame the markers are in; tap for the next. Bright when
+        // chosen by hand, dim when left on automatic.
+        val tagColour = when (frame) {
+            com.rm.apogee.core.world.NavFrame.ORBIT -> ApogeeColors.Prograde
+            com.rm.apogee.core.world.NavFrame.TARGET -> TARGET
+            else -> ApogeeColors.Data
+        }
+        androidx.compose.material3.Text(
+            frame.label + if (frameManual) "" else " \u00b7",
+            style = com.rm.apogee.ui.theme.TelemetryTextStyle.copy(fontSize = androidx.compose.ui.unit.TextUnit(10f, androidx.compose.ui.unit.TextUnitType.Sp)),
+            color = tagColour.alpha(if (frameManual) 1f else 0.75f),
+            modifier = Modifier
+                // In the corner, outside the ball: at the bottom of it the
+                // tag sat on the compass letters.
+                .align(androidx.compose.ui.Alignment.BottomEnd)
+                .padding(end = 0.dp, bottom = 0.dp)
+                .then(if (onCycleFrame != null) Modifier.clickable(onClick = onCycleFrame) else Modifier)
+                .padding(horizontal = 10.dp, vertical = 4.dp),
+        )
     }
 }
 
@@ -269,15 +322,144 @@ private fun DrawScope.strokeCircle(
     }
 }
 
-private fun DrawScope.drawMarkers(centre: Offset, radius: Float, prograde: Vec3?) {
-    val point = prograde?.let { project(centre, radius, it) } ?: return
-    // Prograde: a ringed dot with three spurs, the conventional shape.
-    drawCircle(ApogeeColors.Prograde, radius * 0.09f, point, style = Stroke(2f))
-    drawCircle(ApogeeColors.Prograde, radius * 0.02f, point)
-    val spur = radius * 0.15f
-    drawLine(ApogeeColors.Prograde, point + Offset(-spur, 0f), point + Offset(-spur * 0.5f, 0f), strokeWidth = 2f)
-    drawLine(ApogeeColors.Prograde, point + Offset(spur * 0.5f, 0f), point + Offset(spur, 0f), strokeWidth = 2f)
-    drawLine(ApogeeColors.Prograde, point + Offset(0f, -spur), point + Offset(0f, -spur * 0.5f), strokeWidth = 2f)
+/**
+ * The six markers, in the shapes pilots know them by:
+ * - prograde: a ring with three spurs; retrograde: the same, crossed through;
+ * - normal: a triangle pointing out; anti-normal: a triangle pointing back;
+ * - radial out: a ring with four spurs outward; radial in: four spurs inward.
+ *
+ * Each pair shares a colour, and a marker on the far side of the ball is
+ * not drawn - its opposite is on this side instead.
+ */
+private fun DrawScope.drawMarkers(centre: Offset, radius: Float, prograde: Vec3?, normal: Vec3?, radial: Vec3?) {
+    val size = radius * 0.09f
+    if (normal != null) {
+        project(centre, radius, normal)?.let { triangle(it, size, pointingUp = true, NORMAL, filledDot = true) }
+        project(centre, radius, -normal)?.let { triangle(it, size, pointingUp = false, NORMAL, filledDot = false) }
+    }
+    if (radial != null) {
+        project(centre, radius, radial)?.let { radialMarker(it, size, outward = true) }
+        project(centre, radius, -radial)?.let { radialMarker(it, size, outward = false) }
+    }
+    if (prograde != null) {
+        project(centre, radius, prograde)?.let { travelMarker(it, size, ApogeeColors.Prograde, crossed = false) }
+        project(centre, radius, -prograde)?.let { travelMarker(it, size, ApogeeColors.Retrograde, crossed = true) }
+    }
+}
+
+private fun DrawScope.travelMarker(point: Offset, size: Float, colour: Color, crossed: Boolean) {
+    drawCircle(colour, size, point, style = Stroke(2f))
+    val spur = size * 1.65f
+    drawLine(colour, point + Offset(-spur, 0f), point + Offset(-size, 0f), strokeWidth = 2f)
+    drawLine(colour, point + Offset(size, 0f), point + Offset(spur, 0f), strokeWidth = 2f)
+    drawLine(colour, point + Offset(0f, -spur), point + Offset(0f, -size), strokeWidth = 2f)
+    if (crossed) {
+        val d = size * 0.7f
+        drawLine(colour, point + Offset(-d, -d), point + Offset(d, d), strokeWidth = 2f)
+        drawLine(colour, point + Offset(-d, d), point + Offset(d, -d), strokeWidth = 2f)
+    } else {
+        drawCircle(colour, size * 0.22f, point)
+    }
+}
+
+private fun DrawScope.triangle(point: Offset, size: Float, pointingUp: Boolean, colour: Color, filledDot: Boolean) {
+    val s = if (pointingUp) -1f else 1f
+    val path = Path().apply {
+        moveTo(point.x, point.y + s * size * 1.2f)
+        lineTo(point.x + size * 1.1f, point.y - s * size * 0.7f)
+        lineTo(point.x - size * 1.1f, point.y - s * size * 0.7f)
+        close()
+    }
+    drawPath(path, colour, style = Stroke(2f))
+    if (filledDot) drawCircle(colour, size * 0.22f, point)
+    else {
+        // Anti-normal: three short lines from the corners inward.
+        val tip = Offset(point.x, point.y + s * size * 1.2f)
+        drawLine(colour, tip, tip + (point - tip) * 0.5f, strokeWidth = 2f)
+    }
+}
+
+private fun DrawScope.radialMarker(point: Offset, size: Float, outward: Boolean) {
+    drawCircle(RADIAL, size, point, style = Stroke(2f))
+    for (k in 0 until 4) {
+        val angle = k * PI / 2.0 + PI / 4.0
+        val dir = Offset(cos(angle).toFloat(), sin(angle).toFloat())
+        if (outward) {
+            drawLine(RADIAL, point + dir * size, point + dir * (size * 1.7f), strokeWidth = 2f)
+        } else {
+            drawLine(RADIAL, point + dir * (size * 0.3f), point + dir * size, strokeWidth = 2f)
+        }
+    }
+    if (outward) drawCircle(RADIAL, size * 0.22f, point)
+}
+
+/** Target: a ring with a dot and four ticks; anti-target: crossed. Magenta, as is usual. */
+private fun DrawScope.drawTargetMarkers(centre: Offset, radius: Float, target: Vec3?) {
+    if (target == null) return
+    val size = radius * 0.1f
+    project(centre, radius, target)?.let { p ->
+        drawCircle(TARGET, size, p, style = Stroke(2f))
+        drawCircle(TARGET, size * 0.25f, p)
+        for (k in 0 until 4) {
+            val angle = k * PI / 2.0
+            val d = Offset(cos(angle).toFloat(), sin(angle).toFloat())
+            drawLine(TARGET, p + d * size, p + d * (size * 1.5f), strokeWidth = 2f)
+        }
+    }
+    project(centre, radius, -target)?.let { p ->
+        drawCircle(TARGET, size, p, style = Stroke(2f))
+        val d = size * 0.7f
+        drawLine(TARGET, p + Offset(-d, -d), p + Offset(d, d), strokeWidth = 2f)
+        drawLine(TARGET, p + Offset(-d, d), p + Offset(d, -d), strokeWidth = 2f)
+    }
+}
+
+/**
+ * Where the craft is going through the air: a small aircraft symbol. Apart
+ * from prograde, it shows the crosswind a plane is crabbing into and the
+ * angle of attack it is holding.
+ */
+private fun DrawScope.flightPathMarker(point: Offset, size: Float) {
+    val colour = AIR
+    drawCircle(colour, size * 0.55f, point, style = Stroke(2f))
+    drawLine(colour, point + Offset(-size * 1.6f, 0f), point + Offset(-size * 0.55f, 0f), strokeWidth = 2f)
+    drawLine(colour, point + Offset(size * 0.55f, 0f), point + Offset(size * 1.6f, 0f), strokeWidth = 2f)
+    drawLine(colour, point + Offset(0f, -size * 0.55f), point + Offset(0f, -size * 1.1f), strokeWidth = 2f)
+}
+
+/** Heading ticks round the horizon every 30 degrees, and N, E, S, W. */
+private fun DrawScope.drawCompass(
+    centre: Offset,
+    radius: Float,
+    north: Vec3,
+    east: Vec3,
+    measurer: androidx.compose.ui.text.TextMeasurer,
+) {
+    // North and east are on the horizon; tilt them back onto the sphere's
+    // surface if the local vertical is not quite at right angles to them.
+    for (k in 0 until 12) {
+        val angle = k * PI / 6.0
+        val d = Vec3(
+            north.x * cos(angle) + east.x * sin(angle),
+            north.y * cos(angle) + east.y * sin(angle),
+            north.z * cos(angle) + east.z * sin(angle),
+        ).normalizeInPlace()
+        val p = project(centre, radius, d) ?: continue
+        val cardinal = k % 3 == 0
+        val tick = radius * (if (cardinal) 0.07f else 0.04f)
+        drawLine(HORIZON_LINE, p + Offset(0f, -tick), p + Offset(0f, tick), strokeWidth = if (cardinal) 2f else 1.2f)
+        if (cardinal) {
+            val label = arrayOf("N", "E", "S", "W")[k / 3]
+            val layout = measurer.measure(
+                label,
+                androidx.compose.ui.text.TextStyle(
+                    color = if (label == "N") ApogeeColors.Caution else HORIZON_LINE,
+                    fontSize = androidx.compose.ui.unit.TextUnit(9f, androidx.compose.ui.unit.TextUnitType.Sp),
+                ),
+            )
+            drawText(layout, topLeft = p + Offset(-layout.size.width / 2f, -tick - layout.size.height))
+        }
+    }
 }
 
 /** The fixed nose marker at the centre. Never moves; the world moves behind it. */
@@ -298,3 +480,7 @@ private val GROUND = Color(0xFF6B4A2A)
 private val SKY_LINE = Color(0x66D6E8FF)
 private val GROUND_LINE = Color(0x66FFD9B0)
 private val HORIZON_LINE = Color(0xFFF2F2F2)
+private val NORMAL = Color(0xFFD27CFF)
+private val RADIAL = Color(0xFF6FE3FF)
+private val TARGET = Color(0xFFFF5FD2)
+private val AIR = Color(0xFFFFE08A)

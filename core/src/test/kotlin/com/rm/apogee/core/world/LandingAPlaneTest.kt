@@ -29,8 +29,14 @@ class LandingAPlaneTest {
         val offCentre: Double,
     )
 
-    private fun land(approachSpeed: Double = 95.0, height: Double = 40.0, noseUpDegrees: Double = 6.0): Outcome {
+    private fun land(
+        approachSpeed: Double = 95.0,
+        height: Double = 40.0,
+        noseUpDegrees: Double = 6.0,
+        weather: com.rm.apogee.core.weather.WeatherIntensity? = null,
+    ): Outcome {
         val world = World.default(catalog)
+        world.weatherConfig = weather?.let { com.rm.apogee.core.weather.WeatherConfig(intensity = it) }
         val terra = world.system.body("terra")!!
 
         // Over the pad end of the runway, which runs east from the Cape.
@@ -108,5 +114,24 @@ class LandingAPlaneTest {
         assertTrue("rolled ${o.rolloutMetres} m - off the end of the runway", o.rolloutMetres < 2_000.0)
         assertTrue("ended up tipped ${o.tilt} degrees", o.tilt < 10.0)
         assertTrue("ran off the runway, %.0f m off the centreline".format(o.offCentre), o.offCentre < 40.0)
+    }
+
+    /**
+     * The same approach through the Cape's weather: whatever wind and gusts
+     * are there, it touches down on its gear, stays whole and stops on the
+     * runway - blown a little way off the centreline, perhaps.
+     */
+    @Test
+    fun `it lands in the weather`() {
+        for (intensity in listOf(com.rm.apogee.core.weather.WeatherIntensity.NORMAL, com.rm.apogee.core.weather.WeatherIntensity.WILD)) {
+            val o = land(weather = intensity)
+            println("$intensity: touchdown %.1f m/s, rollout %.0f m, final %.2f m/s, broken %d, tilt %.1f, %.0f m off centre"
+                .format(o.touchdownSpeed, o.rolloutMetres, o.finalSpeed, o.broken, o.tilt, o.offCentre))
+            assertTrue("$intensity: never touched down", o.touchdownSpeed >= 0.0)
+            assertTrue("$intensity: ${o.broken} parts broke", o.broken == 0)
+            assertTrue("$intensity: still rolling at ${o.finalSpeed} m/s", o.finalSpeed < 0.5)
+            assertTrue("$intensity: tipped ${o.tilt} degrees", o.tilt < 10.0)
+            assertTrue("$intensity: %.0f m off the centreline".format(o.offCentre), o.offCentre < 80.0)
+        }
     }
 }

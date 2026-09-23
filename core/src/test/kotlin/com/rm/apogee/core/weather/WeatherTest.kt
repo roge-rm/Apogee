@@ -228,4 +228,53 @@ class WeatherTest {
         println("weather sample: %.1f us".format(micros))
         assertTrue("a sample took $micros us", micros < 80.0)
     }
+
+    /**
+     * A deck is cloudy where its puffs are drawn and clear between them:
+     * climbing through a gap in the drawn deck, there is no fog.
+     */
+    @Test
+    fun `deck air is cloudy only inside the drawn puffs`() {
+        val w = weather()
+        val s = AirSample()
+        val shapes = ArrayList<CloudShape>()
+        var inside = 0; var gaps = 0
+        for (i in 0 until 300) {
+            val dir = randomDirection(i)
+            shapes.clear()
+            w.clouds(dir, 6_000.0, 3_000.0, shapes)
+            val decks = shapes.filter { it.type == CloudType.STRATUS || it.type == CloudType.ALTOSTRATUS }
+            if (decks.isEmpty()) continue
+            for (shape in decks) for (lobe in shape.lobes) {
+                // Its heart is cloud of its own kind.
+                w.sample(lobe.centre, 3_000.0, s)
+                assertTrue("no cloud at the heart of a drawn ${shape.type} puff", s.cloudDensity > 0.0)
+                inside++
+                // Well beyond its edge, at its height, between puffs: this deck is not there.
+                val out = lobe.centre.copy()
+                val e = Vec3(); val n = Vec3()
+                frame(out.copy().normalizeInPlace(), e, n)
+                out.addScaledInPlace(e, lobe.horizontal * 1.2)
+                val clearOfAll = decks.all { d -> d.lobes.all { it.centre.distanceTo(out) > it.horizontal * 1.05 } }
+                if (clearOfAll) {
+                    w.sample(out, 3_000.0, s)
+                    assertTrue("fog in a gap in the ${shape.type} deck", s.cloudType != shape.type || s.cloudDensity == 0.0)
+                    gaps++
+                }
+            }
+            if (inside > 20 && gaps > 10) break
+        }
+        assertTrue("tested $inside puffs, $gaps gaps", inside > 5 && gaps > 3)
+    }
+
+    /** A fresh sky lists quickly: nothing slow on a cold start. */
+    @Test
+    fun `a fresh sky lists quickly`() {
+        val w = weather()
+        val start = System.nanoTime()
+        w.clouds(randomDirection(42), 45_000.0, 1_000.0, ArrayList())
+        val ms = (System.nanoTime() - start) / 1e6
+        println("fresh cloud listing: %.0f ms".format(ms))
+        assertTrue("took $ms ms", ms < 1_500.0)
+    }
 }

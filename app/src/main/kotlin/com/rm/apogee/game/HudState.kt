@@ -63,6 +63,9 @@ class HudState {
     /** Whether the stage stack is open to full detail. */
     var stagesExpanded: Boolean by mutableStateOf(false)
 
+    /** Whether the SAS mode and target picker is open. */
+    var sasPickerOpen: Boolean by mutableStateOf(false)
+
     /** Clears transient state when leaving the world, so a new flight starts clean. */
     fun reset() {
         frameTimeMillis = 0f
@@ -82,5 +85,6 @@ class HudState {
         ownedCraft = 0
         stages = emptyList()
         stagesExpanded = false
+        sasPickerOpen = false
     }
 }

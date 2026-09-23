@@ -51,6 +51,15 @@ class ControlState {
      */
     var sasEnabled: Boolean = false
 
+    /** What stability assist holds the nose on, when it is on. */
+    var sasMode: com.rm.apogee.core.world.SasMode = com.rm.apogee.core.world.SasMode.HOLD
+
+    /** What the navball's markers - and so the held directions - are measured against. */
+    var navFrame: com.rm.apogee.core.world.NavFrame = com.rm.apogee.core.world.NavFrame.AUTO
+
+    /** Another craft to steer by, or -1 for none. */
+    var target: Long = -1L
+
     /**
      * Wheel brakes. A mode rather than a held button, like the parking brake
      * it mostly is: a rover left on a slope has to stay there with nobody

@@ -70,11 +70,17 @@ internal class Convection(
             .addScaledInPlace(th.north, (Noise.hash(seed + 13, cx, cy, c) - 0.5) * 0.7 * CELL / bodyRadius)
             .normalizeInPlace()
         frame(th.origin, th.east, th.north)
-        val heat = terrainWind?.let { it.describe(th.origin, descriptor); descriptor[TerrainWind.HEAT] } ?: 0.0
+        // One sample of the ground, not the wind's nine-sample description:
+        // on a fresh flight none of those are cached, and listing the sky's
+        // thermals took ten seconds.
+        val terrain = weather.body.terrain
+        val elevation = terrain?.elevation(th.origin) ?: 0.0
+        val heat = if (terrain == null || terrain.hasOcean && elevation < 0.0) 0.0
+            else TerrainWind.heat(terrain.material(th.origin, elevation, 0.0))
         val chance = 0.4 * heat * intensity.thermals
         th.exists = heat > 0.0 && Noise.hash(seed + 14, cx, cy, c) < chance
         if (th.exists) {
-            th.ground = descriptor[TerrainWind.H0]
+            th.ground = elevation
             val roll = Noise.hash(seed + 15, cx, cy, c)
             th.strength = (1.5 + 4.5 * roll) * (0.6 + 0.4 * heat) * intensity.thermals.coerceAtMost(1.2)
             th.radius = 150.0 + 250.0 * Noise.hash(seed + 16, cx, cy, c)

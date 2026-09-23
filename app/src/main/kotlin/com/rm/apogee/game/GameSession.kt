@@ -110,6 +110,9 @@ class GameSession private constructor(
     private var localYaw = 0.0
     private var localRoll = 0.0
     private var localSas = false
+    private var localSasMode = com.rm.apogee.core.world.SasMode.HOLD
+    private var localNavFrame = com.rm.apogee.core.world.NavFrame.AUTO
+    private var localTarget = -1L
     private var localBrakes = false
     private var seenFelledRevision = -1
 
@@ -361,6 +364,57 @@ class GameSession private constructor(
         withControlledVessel { client.send(Command.SetSas(it, enabled)) }
     }
 
+    /** Hold a navball marker - and turn SAS on to do it. */
+    suspend fun setSasMode(mode: com.rm.apogee.core.world.SasMode) {
+        localSasMode = mode
+        localSas = true
+        pushControlsToPrediction()
+        withControlledVessel {
+            client.send(Command.SetSasMode(it, mode))
+            client.send(Command.SetSas(it, true))
+        }
+    }
+
+    /** The navball's next frame: automatic, surface, orbit, and target when there is one. */
+    suspend fun cycleNavFrame() {
+        val order = buildList {
+            add(com.rm.apogee.core.world.NavFrame.AUTO)
+            add(com.rm.apogee.core.world.NavFrame.SURFACE)
+            add(com.rm.apogee.core.world.NavFrame.ORBIT)
+            if (localTarget >= 0 && client.vessel(localTarget) != null) add(com.rm.apogee.core.world.NavFrame.TARGET)
+        }
+        val next = order[(order.indexOf(localNavFrame) + 1).mod(order.size)]
+        setNavFrame(next)
+    }
+
+    suspend fun setNavFrame(frame: com.rm.apogee.core.world.NavFrame) {
+        localNavFrame = frame
+        pushControlsToPrediction()
+        withControlledVessel { client.send(Command.SetNavFrame(it, frame)) }
+    }
+
+    /** Steer by [target], or by nothing for -1. */
+    suspend fun setTarget(target: Long) {
+        localTarget = target
+        pushControlsToPrediction()
+        withControlledVessel { client.send(Command.SetTarget(it, target)) }
+    }
+
+    /** A craft that can be picked as a target: nearest first. */
+    class TargetChoice(val id: Long, val name: String, val distance: Double)
+
+    /** Other craft round the same body, nearest first, for the target picker. */
+    fun targetChoices(): List<TargetChoice> {
+        val focusId = client.controlledVessel ?: return emptyList()
+        val focus = client.vessel(focusId)?.latest ?: return emptyList()
+        return client.vessels.mapNotNull { v ->
+            if (v.id == focusId) return@mapNotNull null
+            val state = v.latest ?: return@mapNotNull null
+            if (state.referenceBodyId != focus.referenceBodyId) return@mapNotNull null
+            TargetChoice(v.id, v.name.ifBlank { "Debris" }, state.position.distanceTo(focus.position))
+        }.sortedBy { it.distance }.take(MAX_TARGET_CHOICES)
+    }
+
     /**
      * Welds the controlled craft to whatever it is resting against.
      *
@@ -407,8 +461,14 @@ class GameSession private constructor(
         withControlledVessel { client.send(Command.Stage(it)) }
     }
 
-    private fun pushControlsToPrediction() =
+    private fun pushControlsToPrediction() {
         prediction.applyControl(localThrottle, localPitch, localYaw, localRoll, localSas, localBrakes)
+        prediction.replica?.control?.let {
+            it.sasMode = localSasMode
+            it.navFrame = localNavFrame
+            it.target = localTarget
+        }
+    }
 
     // --- presentation --------------------------------------------------------
 
@@ -429,6 +489,7 @@ class GameSession private constructor(
 
         val lines = ArrayList<RenderLine>(4)
         val items = ArrayList<RenderItem>(64)
+        val farItems = ArrayList<RenderItem>()
         frameEmitters.clear()
 
         // The one time this frame is drawn at. Snapshot time plus how long
@@ -539,6 +600,10 @@ class GameSession private constructor(
             air = prediction.replica?.air,
             bodyRotation = bodyRotation,
             forwardAxis = focus.design.orientation.forward,
+            navFrame = localNavFrame,
+            target = client.vessel(localTarget)?.latest?.takeIf { it.referenceBodyId == focusState.referenceBodyId },
+            targetName = client.vessel(localTarget)?.name,
+            sasMode = if (localSas) localSasMode else null,
         )
 
         // The nearest thing in view, for the near plane: the closest part of
@@ -565,7 +630,14 @@ class GameSession private constructor(
         if (clouds != null) {
             attractor.toBodyFixed(cameraPosition, bodyRotation, cloudCamera)
             clouds.update(cloudCamera, renderTime)
-            if (!mapMode) clouds.append(bodyRotation, items)
+            if (!mapMode) {
+                clouds.append(bodyRotation, items)
+                World.launchSites.firstOrNull { it.id == "cape" }?.let { cape ->
+                    clouds.windsock(cape, cloudCamera, renderTime, bodyRotation, items)
+                }
+            } else {
+                clouds.mapItems(renderTime, bodyRotation, farItems)
+            }
         }
 
         // Flames, smoke and the rest: stepped by real frame time, drawn
@@ -615,6 +687,7 @@ class GameSession private constructor(
                 nearestDistance = if (nearest == Double.MAX_VALUE) 0.0 else nearest.coerceAtLeast(0.0),
                 particles = particles,
                 particleShapes = particleShapes,
+                farItems = farItems,
             )
         )
         framesPublished.incrementAndGet()
@@ -958,6 +1031,9 @@ class GameSession private constructor(
 
 
     companion object {
+        /** Most craft the target picker lists. */
+        private const val MAX_TARGET_CHOICES = 12
+
         /** ~60 Hz. The server streams slower; the renderer interpolates. */
         private const val PRESENT_INTERVAL_MILLIS = 16L
 
@@ -1163,7 +1239,32 @@ class FlightTelemetry(
     val windFrom: Double = 0.0,
     /** Whether there is air to speak of: the wind readouts are hidden in space. */
     val inAir: Boolean = false,
+    /**
+     * The navball's frame as it stands - [com.rm.apogee.core.world.NavFrame.AUTO]
+     * resolved - and as chosen. [prograde] and the markers below are in it.
+     */
+    val frame: com.rm.apogee.core.world.NavFrame = com.rm.apogee.core.world.NavFrame.SURFACE,
+    val frameChosen: com.rm.apogee.core.world.NavFrame = com.rm.apogee.core.world.NavFrame.AUTO,
+    /** Out of the plane of travel, by the right hand: orbit normal. Null when still. */
+    val normal: Vec3? = null,
+    /** In the plane of travel, away from the planet. Null when still. */
+    val radialOut: Vec3? = null,
+    /** Toward the target, or null for none. */
+    val toTarget: Vec3? = null,
+    val targetName: String? = null,
+    val targetDistance: Double = 0.0,
+    /** How fast the target is closing, m/s: positive when getting nearer. */
+    val closingSpeed: Double = 0.0,
+    /** Direction of travel through the air, when in it and moving through it. */
+    val throughAir: Vec3? = null,
+    /** Where the nose points, degrees clockwise from north. */
+    val heading: Double = 0.0,
+    /** Up (positive) or down, over the ground, m/s. */
+    val verticalSpeed: Double = 0.0,
+    /** What SAS is holding, or null when it is off. */
+    val sasMode: com.rm.apogee.core.world.SasMode? = null,
 ) {
+    val orbitalFrame: Boolean get() = frame == com.rm.apogee.core.world.NavFrame.ORBIT
     /** Above this, aerodynamic loads are worth warning about. */
     val highDynamicPressure: Boolean get() = dynamicPressure > MAX_Q_WARNING
 
@@ -1176,6 +1277,7 @@ class FlightTelemetry(
          * the lesson the readout is there to teach.
          */
         const val MAX_Q_WARNING = 25_000.0
+
 
         val EMPTY = FlightTelemetry(
             altitude = 0.0, heightAboveGround = 0.0, surfaceSpeed = 0.0, orbitalSpeed = 0.0,
@@ -1199,6 +1301,11 @@ class FlightTelemetry(
             bodyRotation: Quat? = null,
             /** The craft's forward, design axis, for which way the wind comes from. */
             forwardAxis: Vec3 = Vec3.unitY(),
+            navFrame: com.rm.apogee.core.world.NavFrame = com.rm.apogee.core.world.NavFrame.AUTO,
+            /** The target's last state, or null for none. */
+            target: com.rm.apogee.core.world.VesselKinematics? = null,
+            targetName: String? = null,
+            sasMode: com.rm.apogee.core.world.SasMode? = null,
         ): FlightTelemetry {
             val state = vessel.latest ?: return EMPTY
             val orbit = Orbit(
@@ -1215,6 +1322,17 @@ class FlightTelemetry(
             val up = state.position.normalized()
             val wind = if (air != null && bodyRotation != null) bodyRotation.rotate(air.wind, Vec3()) else Vec3()
             val throughAir = relative - wind
+
+            // The navball's markers, computed exactly as stability assist
+            // computes what it holds - the same function on both sides.
+            val nav = com.rm.apogee.core.world.Navigation.compute(
+                state.position, state.velocity, attractor, navFrame,
+                target?.position, target?.velocity, com.rm.apogee.core.world.NavDirections(),
+            )
+            val moving = nav.velocity.length > 1.0
+            val nose = state.rotation.rotate(Vec3.unitY(), Vec3())
+            // Our motion toward it: positive while the gap is shrinking.
+            val closing = if (target != null && nav.hasTarget) (state.velocity - target.velocity) dot nav.toTarget else 0.0
             val horizontalWind = wind.copy().addScaledInPlace(up, -(wind dot up))
             val heading = state.rotation.rotate(forwardAxis, Vec3())
             heading.addScaledInPlace(up, -(heading dot up))
@@ -1247,7 +1365,19 @@ class FlightTelemetry(
                 // Below walking pace the direction of travel is noise, and a
                 // prograde marker jittering around the navball is worse than
                 // none at all.
-                prograde = if (relative.length > 1.0) relative.normalized() else null,
+                prograde = if (moving) nav.prograde.copy() else null,
+                frame = nav.frame,
+                frameChosen = navFrame,
+                normal = if (moving) nav.normal.copy() else null,
+                radialOut = if (moving) nav.radialOut.copy() else null,
+                toTarget = if (nav.hasTarget) nav.toTarget.copy() else null,
+                targetName = if (nav.hasTarget) targetName else null,
+                targetDistance = nav.targetDistance,
+                closingSpeed = closing,
+                throughAir = if (density > 1e-3 && throughAir.length > 5.0) throughAir.normalized() else null,
+                heading = com.rm.apogee.core.world.Navigation.heading(state.position, nose),
+                verticalSpeed = relative dot up,
+                sasMode = sasMode,
                 airspeed = throughAir.length,
                 windSpeed = horizontalWind.length,
                 windFrom = windFrom,

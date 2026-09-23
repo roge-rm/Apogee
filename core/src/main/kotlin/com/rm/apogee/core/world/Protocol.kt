@@ -47,6 +47,21 @@ sealed interface Command {
     @SerialName("setSas")
     data class SetSas(val vessel: Long, val enabled: Boolean) : Command
 
+    /** What stability assist holds: a navball marker, or the attitude at release. */
+    @Serializable
+    @SerialName("setSasMode")
+    data class SetSasMode(val vessel: Long, val mode: SasMode) : Command
+
+    /** What the navball measures against. */
+    @Serializable
+    @SerialName("setNavFrame")
+    data class SetNavFrame(val vessel: Long, val frame: NavFrame) : Command
+
+    /** Another craft to steer by, or -1 to clear. */
+    @Serializable
+    @SerialName("setTarget")
+    data class SetTarget(val vessel: Long, val target: Long) : Command
+
     @Serializable
     @SerialName("setBrakes")
     data class SetBrakes(val vessel: Long, val engaged: Boolean) : Command

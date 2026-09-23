@@ -43,6 +43,9 @@ class VesselSave(
     val throttle: Double = 0.0,
     /** Stability assist. A mode, like the throttle, so it persists. */
     val sasEnabled: Boolean = false,
+    val sasMode: SasMode = SasMode.HOLD,
+    val navFrame: NavFrame = NavFrame.AUTO,
+    val target: Long = -1L,
     /** Wheel brakes. A parked rover has to still be parked when it is reloaded. */
     val brakes: Boolean = false,
     /**

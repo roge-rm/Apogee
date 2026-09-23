@@ -38,10 +38,16 @@ class StabilityAssist(
     private val integralGain: Double = 1.5,
 ) {
     private val error = Quat()
+    private val nose = Vec3()
+    private val turn = Quat()
     private val errorBody = Vec3()
     private val rateBody = Vec3()
 
-    fun update(vessel: Vessel, dt: Double) {
+    /**
+     * @param direction when holding a navball marker, where the nose should
+     *   point, inertial; null to hold the attitude at release.
+     */
+    fun update(vessel: Vessel, dt: Double, direction: Vec3? = null) {
         val control = vessel.control
         val holding = control.sasEnabled && !control.hasAttitudeInput && !vessel.touchingGround
         if (!holding) {
@@ -54,6 +60,15 @@ class StabilityAssist(
             vessel.assistHeld.setTo(body.orientation)
             vessel.assistIntegral.setZero()
             vessel.assistHolding = true
+        }
+        if (direction != null) {
+            // A marker moves as the craft does: the attitude to hold is the
+            // one that turns the nose onto it by the shortest way, keeping
+            // whatever roll the craft has - so it swings onto prograde
+            // without spinning about it.
+            vessel.forward(nose)
+            com.rm.apogee.core.math.quatFromTo(nose, direction, turn)
+            vessel.assistHeld.setTo(turn).mulInPlace(body.orientation)
         }
 
         // The turn from where the craft points to where it should, in its own

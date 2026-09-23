@@ -460,6 +460,9 @@ class GameServer(
         is Command.SetThrottle -> session.controlledVessel?.raw == command.vessel
         is Command.SetAttitude -> session.controlledVessel?.raw == command.vessel
         is Command.SetSas -> session.controlledVessel?.raw == command.vessel
+        is Command.SetSasMode -> session.controlledVessel?.raw == command.vessel
+        is Command.SetNavFrame -> session.controlledVessel?.raw == command.vessel
+        is Command.SetTarget -> session.controlledVessel?.raw == command.vessel
         is Command.SetBrakes -> session.controlledVessel?.raw == command.vessel
         is Command.SetTranslation -> session.controlledVessel?.raw == command.vessel
         is Command.SetRcs -> session.controlledVessel?.raw == command.vessel
