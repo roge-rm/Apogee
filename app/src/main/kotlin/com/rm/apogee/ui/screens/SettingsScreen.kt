@@ -1,5 +1,6 @@
 package com.rm.apogee.ui.screens
 
+import com.rm.apogee.ui.components.verticalScrollbar
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -111,6 +112,7 @@ fun SettingsScreen(settings: GameSettings, detectedTier: QualityTier?) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .verticalScrollbar(scroll)
                     .verticalScroll(scroll)
                     .padding(top = 8.dp, bottom = 16.dp),
             ) {

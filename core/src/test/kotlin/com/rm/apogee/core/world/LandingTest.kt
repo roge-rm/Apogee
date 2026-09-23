@@ -44,7 +44,7 @@ class LandingTest {
         // Stage 0 lights the engine, 1 pops the chute, 2 drops the gear. Only
         // the gear matters here, so skip straight to it - but only if it is
         // meant to be down.
-        if (gearDown) repeat(3) { world.stage(vessel) }
+        if (gearDown) world.gearDown(vessel)
         vessel.control.throttle = 0.0
 
         val up = Vec3().setTo(vessel.body.position).normalizeInPlace()
@@ -117,6 +117,27 @@ class LandingTest {
         assertNull("landing on the engine bell at 6 m/s should not be survivable", world.vessel(id))
         val destroyed = world.drainEvents().filterIsInstance<WorldEvent.VesselDestroyed>()
         assertTrue("should report what failed", destroyed.any { it.id == id })
+    }
+
+    /**
+     * Legs still swinging out are not yet on their springs: the same 6 m/s
+     * touchdown that deployed legs soak up breaks something when it arrives
+     * half way through the deploy. Too late is not the same as down.
+     */
+    @Test
+    fun `touching down while the legs are still deploying is a hard landing`() {
+        val world = world()
+        val vessel = drop(world, height = 2.0, descentRate = 6.0, gearDown = false)
+        val id = vessel.id
+        // Deployed just before touchdown: a third of a second of a 1.5 s swing.
+        repeat(3) { world.stage(vessel) }
+        settle(world, id, 30.0)
+
+        val landed = world.vessel(id)
+        assertTrue(
+            "a mid-deploy touchdown at 6 m/s should break something",
+            landed == null || landed.broken.any { it },
+        )
     }
 
     @Test

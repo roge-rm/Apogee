@@ -119,6 +119,62 @@ class Vessel(
     var assistHolding: Boolean = false
     val assistIntegral = Vec3()
 
+    // --- moving parts ---------------------------------------------------------
+    //
+    // Per part, parallel to [defs]: how each moving part is posed. Worked out
+    // every tick by the world and sent to every client, so a player flying
+    // alongside sees the same elevon, the same steered wheel and the same leg
+    // half out that the pilot does.
+
+    /** Control surfaces: deflection, -1..1 of their travel. */
+    var surfaceDeflection = DoubleArray(design.parts.size)
+        private set
+
+    /** Steerable wheels: steering angle, radians. */
+    var wheelSteer = DoubleArray(design.parts.size)
+        private set
+
+    /** Wheels: how far the suspension is compressed, metres. */
+    var wheelCompression = DoubleArray(design.parts.size)
+        private set
+
+    /** Landing legs: deploy progress, 0 stowed to 1 deployed. */
+    var legDeploy = DoubleArray(design.parts.size)
+        private set
+
+    /** Gimballed engines: how far the nozzle is swung, -1..1 of its range, about pitch and yaw. */
+    var gimbalPitch = DoubleArray(design.parts.size)
+        private set
+    var gimbalYaw = DoubleArray(design.parts.size)
+        private set
+
+    /** New pose arrays for a changed structure, keeping each leg's deploy. */
+    private fun resetPose(deploy: DoubleArray) {
+        surfaceDeflection = DoubleArray(deploy.size)
+        wheelSteer = DoubleArray(deploy.size)
+        wheelCompression = DoubleArray(deploy.size)
+        gimbalPitch = DoubleArray(deploy.size)
+        gimbalYaw = DoubleArray(deploy.size)
+        legDeploy = deploy
+    }
+
+    /** Sets a leg's deploy progress: restoring a save, or mirroring the server. */
+    fun setLegDeploy(index: Int, progress: Double) {
+        if (index in legDeploy.indices) legDeploy[index] = progress.coerceIn(0.0, 1.0)
+    }
+
+    /** Resizes the pose arrays after the structure changes. */
+    fun fitPose() {
+        val n = defs.size
+        if (surfaceDeflection.size == n) return
+        surfaceDeflection = DoubleArray(n)
+        wheelSteer = DoubleArray(n)
+        wheelCompression = DoubleArray(n)
+        gimbalPitch = DoubleArray(n)
+        gimbalYaw = DoubleArray(n)
+        legDeploy = DoubleArray(n) { if (it < activated.size && isWorking(it)) 1.0 else 0.0 }
+    }
+
     /** Whether anything of this craft touched the ground last tick. */
     var touchingGround: Boolean = false
 
@@ -429,8 +485,30 @@ class Vessel(
         contactRadius = kotlin.math.sqrt(furthest)
     }
 
+    /**
+     * Contact point [pointIndex] of part [index] in its own part space, as
+     * posed now: a landing leg's feet move with its deploy, and the ground
+     * meets them wherever they are - folded against the hull, swinging down,
+     * or out on their springs.
+     */
+    fun posedContactPoint(index: Int, pointIndex: Int, out: Vec3): Vec3 {
+        out.setTo(defs[index].contactPoints[pointIndex])
+        val leg = defs[index].module<com.rm.apogee.core.part.LandingLeg>() ?: return out
+        if (leg.stowedAngle == 0.0) return out
+        val deploy = legDeploy.getOrElse(index) { 1.0 }
+        if (deploy >= 1.0) return out
+        val angle = Math.toRadians(leg.stowedAngle) * (1.0 - deploy)
+        com.rm.apogee.core.math.Quat.fromAxisAngle(leg.foldAxis.normalized(), angle, poseFold)
+        out.subInPlace(leg.hinge)
+        poseFold.rotate(out, out)
+        return out.addInPlace(leg.hinge)
+    }
+
+    private val poseFold = com.rm.apogee.core.math.Quat.identity()
+    private val posePoint = Vec3()
+
     fun contactPointWorld(index: Int, pointIndex: Int, out: Vec3 = Vec3()): Vec3 {
-        val local = defs[index].contactPoints[pointIndex]
+        val local = posedContactPoint(index, pointIndex, posePoint)
         val placed = design.parts[index]
         // Part-local -> design space (the part may be rotated on the craft).
         placed.rotation.rotate(local, out)
@@ -442,7 +520,7 @@ class Vessel(
 
     /** Offset of a contact point from the centre of mass, in world axes. */
     fun contactOffsetWorld(index: Int, pointIndex: Int, out: Vec3 = Vec3()): Vec3 {
-        val local = defs[index].contactPoints[pointIndex]
+        val local = posedContactPoint(index, pointIndex, posePoint)
         val placed = design.parts[index]
         placed.rotation.rotate(local, out)
         out.addInPlace(placed.position).subInPlace(centerOfMassLocal)
@@ -543,10 +621,12 @@ class Vessel(
         val newResources = Array(newDesign.parts.size) { DoubleArray(RESOURCE_COUNT) }
         val newActivated = BooleanArray(newDesign.parts.size)
         val newBroken = BooleanArray(newDesign.parts.size)
+        val newDeploy = DoubleArray(newDesign.parts.size)
         keptIndices.forEachIndexed { newIndex, oldIndex ->
             resources[oldIndex].copyInto(newResources[newIndex])
             newActivated[newIndex] = activated[oldIndex]
             newBroken[newIndex] = broken[oldIndex]
+            newDeploy[newIndex] = legDeploy.getOrElse(oldIndex) { 0.0 }
         }
 
         design = newDesign
@@ -554,6 +634,7 @@ class Vessel(
         resources = newResources
         activated = newActivated
         broken = newBroken
+        resetPose(newDeploy)
         name = newDesign.name
         computeFuelGroups()
         recomputeMass()
@@ -712,15 +793,18 @@ class Vessel(
         val newActivated = BooleanArray(newDesign.parts.size)
         val newBroken = BooleanArray(newDesign.parts.size)
 
+        val newDeploy = DoubleArray(newDesign.parts.size)
         for (i in 0 until own) {
             resources[i].copyInto(newResources[i])
             newActivated[i] = activated[i]
             newBroken[i] = broken[i]
+            newDeploy[i] = legDeploy.getOrElse(i) { 0.0 }
         }
         for (j in other.design.parts.indices) {
             other.resources[j].copyInto(newResources[own + j])
             newActivated[own + j] = other.activated[j]
             newBroken[own + j] = other.broken[j]
+            newDeploy[own + j] = other.legDeploy.getOrElse(j) { 0.0 }
         }
 
         design = newDesign
@@ -728,6 +812,7 @@ class Vessel(
         resources = newResources
         activated = newActivated
         broken = newBroken
+        resetPose(newDeploy)
         computeFuelGroups()
         recomputeMass()
     }

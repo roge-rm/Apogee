@@ -13,7 +13,8 @@ import java.util.concurrent.atomic.AtomicReference
  * mesh per distinct shape the first time it sees one.
  */
 class RenderItem(
-    val meshSpec: MeshSpec,
+    /** A physics [MeshSpec] or a leaf of a part model. */
+    val shape: com.rm.apogee.core.part.Shape,
     val position: Vec3,
     val rotation: Quat,
     val color: FloatArray,

@@ -46,6 +46,12 @@ class VesselSave(
     /** Wheel brakes. A parked rover has to still be parked when it is reloaded. */
     val brakes: Boolean = false,
     /**
+     * Landing-leg deploy progress per part, in part order. Empty in saves
+     * from before legs deployed over time: legs then start deployed if they
+     * were staged, which is what they were.
+     */
+    val legDeploy: List<Double> = emptyList(),
+    /**
      * Resource levels per part, in part order, each entry ordered by
      * [ResourceType].
      *
@@ -87,6 +93,8 @@ class WorldSave(
      * [World.restore] sets it back down when the two differ.
      */
     val terrainGeneration: Int = 1,
+    /** Owner id to the vessel id they last flew; see [World.lastFlown]. */
+    val lastFlown: Map<String, Long> = emptyMap(),
 ) {
     companion object {
         /**

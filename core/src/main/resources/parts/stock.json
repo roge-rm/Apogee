@@ -13,6 +13,164 @@
       "topRadius": 0.3,
       "height": 1.2
     },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                0.625,
+                -0.6
+              ],
+              [
+                0.622,
+                -0.5
+              ],
+              [
+                0.58,
+                -0.2
+              ],
+              [
+                0.5,
+                0.12
+              ],
+              [
+                0.4,
+                0.4
+              ],
+              [
+                0.33,
+                0.55
+              ],
+              [
+                0.3,
+                0.6
+              ]
+            ],
+            "segments": 20
+          },
+          "stackEnds": true
+        },
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                0.6,
+                -0.62
+              ],
+              [
+                0.635,
+                -0.58
+              ],
+              [
+                0.635,
+                -0.52
+              ],
+              [
+                0.6,
+                -0.5
+              ]
+            ],
+            "segments": 20
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.2,
+              "height": 0.16,
+              "depth": 0.06
+            }
+          },
+          "offset": {
+            "x": 0.49,
+            "y": 0.12,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": -78.0
+          },
+          "tint": "glass"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.2,
+              "height": 0.16,
+              "depth": 0.06
+            }
+          },
+          "offset": {
+            "x": -0.49,
+            "y": 0.12,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 78.0
+          },
+          "tint": "glass"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.06,
+              "height": 0.16,
+              "depth": 0.2
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.12,
+            "z": 0.49
+          },
+          "rotation": {
+            "x": 78.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "glass"
+        },
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                0.26,
+                0.52
+              ],
+              [
+                0.28,
+                0.56
+              ],
+              [
+                0.28,
+                0.6
+              ],
+              [
+                0.26,
+                0.6
+              ]
+            ],
+            "segments": 20
+          },
+          "tint": "metal"
+        }
+      ]
+    },
     "attachNodes": [
       {
         "id": "top",
@@ -74,6 +232,57 @@
       "radius": 0.3,
       "height": 0.4
     },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                0.3,
+                -0.2
+              ],
+              [
+                0.3,
+                0.02
+              ],
+              [
+                0.26,
+                0.12
+              ],
+              [
+                0.16,
+                0.19
+              ],
+              [
+                0.0,
+                0.2
+              ]
+            ],
+            "segments": 20
+          },
+          "stackEnds": true
+        },
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                0.305,
+                -0.02
+              ],
+              [
+                0.305,
+                0.02
+              ]
+            ],
+            "segments": 20
+          },
+          "tint": "accent"
+        }
+      ]
+    },
     "attachNodes": [
       {
         "id": "bottom",
@@ -110,6 +319,44 @@
       "type": "cylinder",
       "radius": 0.625,
       "height": 0.2
+    },
+    "model": {
+      "type": "lathe",
+      "profile": [
+        [
+          0.625,
+          -0.1
+        ],
+        [
+          0.645,
+          -0.08
+        ],
+        [
+          0.645,
+          -0.025
+        ],
+        [
+          0.6,
+          -0.012
+        ],
+        [
+          0.6,
+          0.012
+        ],
+        [
+          0.645,
+          0.025
+        ],
+        [
+          0.645,
+          0.08
+        ],
+        [
+          0.625,
+          0.1
+        ]
+      ],
+      "segments": 20
     },
     "attachNodes": [
       {
@@ -161,6 +408,94 @@
       "width": 2.4,
       "height": 8.0,
       "depth": 1.2
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "loft",
+            "sections": [
+              {
+                "y": -4.0,
+                "halfWidth": 1.1,
+                "top": 0.55,
+                "bottom": -0.45,
+                "vee": 0.1,
+                "round": 0.35
+              },
+              {
+                "y": -2.5,
+                "halfWidth": 1.2,
+                "top": 0.6,
+                "bottom": -0.6,
+                "vee": 0.15,
+                "round": 0.35
+              },
+              {
+                "y": 1.5,
+                "halfWidth": 1.2,
+                "top": 0.6,
+                "bottom": -0.6,
+                "vee": 0.2,
+                "round": 0.35
+              },
+              {
+                "y": 3.2,
+                "halfWidth": 0.95,
+                "top": 0.6,
+                "bottom": -0.35,
+                "vee": 0.3,
+                "round": 0.35
+              },
+              {
+                "y": 4.0,
+                "halfWidth": 0.35,
+                "top": 0.6,
+                "bottom": 0.15,
+                "vee": 0.2,
+                "round": 0.35
+              }
+            ],
+            "around": 14,
+            "capped": true
+          }
+        },
+        {
+          "model": {
+            "type": "loft",
+            "sections": [
+              {
+                "y": -3.9,
+                "halfWidth": 1.02,
+                "top": 0.62,
+                "bottom": 0.5,
+                "vee": 0.0,
+                "round": 0.1
+              },
+              {
+                "y": 3.1,
+                "halfWidth": 1.0,
+                "top": 0.62,
+                "bottom": 0.5,
+                "vee": 0.0,
+                "round": 0.1
+              },
+              {
+                "y": 3.8,
+                "halfWidth": 0.4,
+                "top": 0.62,
+                "bottom": 0.5,
+                "vee": 0.0,
+                "round": 0.1
+              }
+            ],
+            "around": 8,
+            "capped": true
+          },
+          "tint": "light"
+        }
+      ]
     },
     "attachNodes": [
       {
@@ -272,6 +607,13 @@
       "radius": 0.625,
       "height": 2.0
     },
+    "model": {
+      "type": "tank",
+      "radius": 0.625,
+      "height": 2.0,
+      "chamfer": 0.03,
+      "bands": 1
+    },
     "attachNodes": [
       {
         "id": "top",
@@ -322,6 +664,13 @@
       "type": "cylinder",
       "radius": 0.625,
       "height": 4.0
+    },
+    "model": {
+      "type": "tank",
+      "radius": 0.625,
+      "height": 4.0,
+      "chamfer": 0.03,
+      "bands": 2
     },
     "attachNodes": [
       {
@@ -374,6 +723,120 @@
       "bottomRadius": 0.55,
       "topRadius": 0.625,
       "height": 1.4
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                0.0,
+                0.12
+              ],
+              [
+                0.22,
+                0.16
+              ],
+              [
+                0.46,
+                0.35
+              ],
+              [
+                0.625,
+                0.48
+              ],
+              [
+                0.625,
+                0.7
+              ]
+            ],
+            "segments": 20
+          },
+          "tint": "metal",
+          "stackEnds": true
+        },
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                0.0,
+                -0.28
+              ],
+              [
+                0.16,
+                -0.32
+              ],
+              [
+                0.44,
+                -0.62
+              ],
+              [
+                0.51,
+                -0.7
+              ],
+              [
+                0.55,
+                -0.7
+              ],
+              [
+                0.52,
+                -0.5
+              ],
+              [
+                0.42,
+                -0.25
+              ],
+              [
+                0.27,
+                0.0
+              ],
+              [
+                0.2,
+                0.15
+              ],
+              [
+                0.0,
+                0.2
+              ]
+            ],
+            "segments": 20
+          },
+          "tint": "metal",
+          "role": "gimbal",
+          "pivot": {
+            "x": 0.0,
+            "y": 0.18,
+            "z": 0.0
+          }
+        },
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                0.63,
+                0.5
+              ],
+              [
+                0.635,
+                0.52
+              ],
+              [
+                0.635,
+                0.66
+              ],
+              [
+                0.63,
+                0.68
+              ]
+            ],
+            "segments": 20
+          }
+        }
+      ]
     },
     "attachNodes": [
       {
@@ -437,6 +900,96 @@
       "topRadius": 0.625,
       "height": 1.0
     },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                0.0,
+                0.14
+              ],
+              [
+                0.2,
+                0.2
+              ],
+              [
+                0.5,
+                0.3
+              ],
+              [
+                0.625,
+                0.36
+              ],
+              [
+                0.625,
+                0.5
+              ]
+            ],
+            "segments": 20
+          },
+          "tint": "metal",
+          "stackEnds": true
+        },
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                0.0,
+                -0.2
+              ],
+              [
+                0.12,
+                -0.24
+              ],
+              [
+                0.44,
+                -0.46
+              ],
+              [
+                0.47,
+                -0.5
+              ],
+              [
+                0.5,
+                -0.5
+              ],
+              [
+                0.46,
+                -0.35
+              ],
+              [
+                0.36,
+                -0.15
+              ],
+              [
+                0.22,
+                0.05
+              ],
+              [
+                0.15,
+                0.15
+              ],
+              [
+                0.0,
+                0.2
+              ]
+            ],
+            "segments": 20
+          },
+          "tint": "metal",
+          "role": "gimbal",
+          "pivot": {
+            "x": 0.0,
+            "y": 0.17,
+            "z": 0.0
+          }
+        }
+      ]
+    },
     "attachNodes": [
       {
         "id": "top",
@@ -497,6 +1050,127 @@
       "type": "cylinder",
       "radius": 0.625,
       "height": 1.6
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                0.0,
+                -0.55
+              ],
+              [
+                0.3,
+                -0.62
+              ],
+              [
+                0.38,
+                -0.8
+              ],
+              [
+                0.42,
+                -0.8
+              ],
+              [
+                0.48,
+                -0.62
+              ],
+              [
+                0.6,
+                -0.35
+              ],
+              [
+                0.625,
+                -0.1
+              ],
+              [
+                0.625,
+                0.8
+              ]
+            ],
+            "segments": 20
+          },
+          "stackEnds": true
+        },
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                0.63,
+                -0.05
+              ],
+              [
+                0.635,
+                -0.03
+              ],
+              [
+                0.635,
+                0.08
+              ],
+              [
+                0.63,
+                0.1
+              ]
+            ],
+            "segments": 20
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                0.63,
+                0.55
+              ],
+              [
+                0.635,
+                0.57
+              ],
+              [
+                0.635,
+                0.68
+              ],
+              [
+                0.63,
+                0.7
+              ]
+            ],
+            "segments": 20
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                0.0,
+                -0.6
+              ],
+              [
+                0.12,
+                -0.6
+              ],
+              [
+                0.1,
+                -0.7
+              ],
+              [
+                0.0,
+                -0.72
+              ]
+            ],
+            "segments": 20
+          },
+          "tint": "dark"
+        }
+      ]
     },
     "attachNodes": [
       {
@@ -560,6 +1234,14 @@
       "height": 0.6,
       "depth": 0.1
     },
+    "model": {
+      "type": "fin",
+      "rootChord": 0.6,
+      "tipChord": 0.28,
+      "span": 0.7,
+      "sweep": 0.26,
+      "thickness": 0.06
+    },
     "attachNodes": [
       {
         "id": "root",
@@ -601,6 +1283,52 @@
       "height": 2.4,
       "depth": 0.14
     },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "fin",
+            "rootChord": 1.6,
+            "tipChord": 1.05,
+            "span": 8.0,
+            "sweep": 0.55,
+            "thickness": 0.2
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.4,
+            "z": 0.0
+          }
+        },
+        {
+          "model": {
+            "type": "fin",
+            "rootChord": 0.8,
+            "tipChord": 0.6,
+            "span": 8.0,
+            "sweep": 0.0,
+            "thickness": 0.08
+          },
+          "offset": {
+            "x": 0.0,
+            "y": -0.8,
+            "z": 0.0
+          },
+          "role": "hinged",
+          "axis": {
+            "x": 1.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "pivot": {
+            "x": 0.0,
+            "y": -0.4,
+            "z": 0.0
+          }
+        }
+      ]
+    },
     "attachNodes": [
       {
         "id": "root",
@@ -641,6 +1369,52 @@
       "width": 1.8,
       "height": 0.9,
       "depth": 0.1
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "fin",
+            "rootChord": 0.54,
+            "tipChord": 0.44,
+            "span": 1.8,
+            "sweep": 0.1,
+            "thickness": 0.07
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.18,
+            "z": 0.0
+          }
+        },
+        {
+          "model": {
+            "type": "fin",
+            "rootChord": 0.36,
+            "tipChord": 0.3,
+            "span": 1.8,
+            "sweep": 0.06,
+            "thickness": 0.05
+          },
+          "offset": {
+            "x": 0.0,
+            "y": -0.27,
+            "z": 0.0
+          },
+          "role": "hinged",
+          "axis": {
+            "x": 1.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "pivot": {
+            "x": 0.0,
+            "y": -0.09,
+            "z": 0.0
+          }
+        }
+      ]
     },
     "attachNodes": [
       {
@@ -684,6 +1458,12 @@
       "topRadius": 0.05,
       "height": 1.0
     },
+    "model": {
+      "type": "noseCone",
+      "radius": 0.625,
+      "length": 1.0,
+      "bluntness": 0.06
+    },
     "attachNodes": [
       {
         "id": "bottom",
@@ -716,6 +1496,104 @@
       "height": 1.6,
       "depth": 0.22
     },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.16,
+              "height": 0.14,
+              "depth": 0.2
+            }
+          },
+          "offset": {
+            "x": -0.05,
+            "y": 0.6,
+            "z": 0.0
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.07,
+              "height": 0.8
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.2,
+            "z": 0.0
+          },
+          "role": "deploy"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.045,
+              "height": 0.75
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": -0.38,
+            "z": 0.0
+          },
+          "tint": "metal",
+          "role": "deploy"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.085,
+              "height": 0.08
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": -0.18,
+            "z": 0.0
+          },
+          "tint": "dark",
+          "role": "deploy"
+        },
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                0.2,
+                -0.8
+              ],
+              [
+                0.18,
+                -0.74
+              ],
+              [
+                0.06,
+                -0.72
+              ],
+              [
+                0.0,
+                -0.72
+              ]
+            ],
+            "segments": 20
+          },
+          "tint": "dark",
+          "role": "deploy"
+        }
+      ]
+    },
     "attachNodes": [
       {
         "id": "root",
@@ -738,7 +1616,19 @@
         "type": "landingLeg",
         "suspensionTravel": 0.4,
         "springRate": 90000.0,
-        "damping": 12000.0
+        "damping": 12000.0,
+        "deployTime": 1.5,
+        "hinge": {
+          "x": -0.11,
+          "y": 0.6,
+          "z": 0.0
+        },
+        "foldAxis": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 1.0
+        },
+        "stowedAngle": 150.0
       }
     ]
   },
@@ -753,6 +1643,77 @@
     "mesh": {
       "type": "sphere",
       "radius": 0.35
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.05,
+              "height": 0.3
+            }
+          },
+          "offset": {
+            "x": -0.22999999999999998,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 90.0
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "tyre",
+            "radius": 0.35,
+            "width": 0.26,
+            "lugs": 14,
+            "lugDepth": 0.035
+          },
+          "tint": "rubber",
+          "role": "steerSpin"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.1925,
+              "height": 0.221
+            }
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 90.0
+          },
+          "tint": "light",
+          "role": "steerSpin"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.063,
+              "height": 0.273
+            }
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 90.0
+          },
+          "tint": "metal",
+          "role": "steerSpin"
+        }
+      ]
     },
     "attachNodes": [
       {
@@ -797,6 +1758,78 @@
     "mesh": {
       "type": "sphere",
       "radius": 0.3
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.06,
+              "height": 0.5
+            }
+          },
+          "offset": {
+            "x": -0.18,
+            "y": 0.0,
+            "z": 0.18
+          },
+          "rotation": {
+            "x": 35.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "tyre",
+            "radius": 0.3,
+            "width": 0.16,
+            "lugs": 0,
+            "lugDepth": 0.0
+          },
+          "tint": "rubber",
+          "role": "steerSpin"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.16,
+              "height": 0.14
+            }
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 90.0
+          },
+          "tint": "light",
+          "role": "steerSpin"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.05,
+              "height": 0.36,
+              "depth": 0.3
+            }
+          },
+          "offset": {
+            "x": -0.11,
+            "y": 0.0,
+            "z": 0.05
+          },
+          "tint": "metal",
+          "role": "steer"
+        }
+      ]
     },
     "attachNodes": [
       {
@@ -844,6 +1877,105 @@
       "height": 0.35,
       "depth": 0.3
     },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.24,
+              "height": 0.3,
+              "depth": 0.24
+            }
+          }
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cone",
+              "bottomRadius": 0.05,
+              "topRadius": 0.03,
+              "height": 0.08
+            }
+          },
+          "offset": {
+            "x": 0.02,
+            "y": 0.19,
+            "z": 0.0
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cone",
+              "bottomRadius": 0.05,
+              "topRadius": 0.03,
+              "height": 0.08
+            }
+          },
+          "offset": {
+            "x": 0.02,
+            "y": -0.19,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": 180.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cone",
+              "bottomRadius": 0.05,
+              "topRadius": 0.03,
+              "height": 0.08
+            }
+          },
+          "offset": {
+            "x": 0.02,
+            "y": 0.0,
+            "z": 0.16
+          },
+          "rotation": {
+            "x": 90.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cone",
+              "bottomRadius": 0.05,
+              "topRadius": 0.03,
+              "height": 0.08
+            }
+          },
+          "offset": {
+            "x": 0.02,
+            "y": 0.0,
+            "z": -0.16
+          },
+          "rotation": {
+            "x": -90.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "dark"
+        }
+      ]
+    },
     "attachNodes": [
       {
         "id": "root",
@@ -872,6 +2004,5148 @@
         "type": "tank",
         "resource": "monopropellant",
         "capacity": 8.0
+      }
+    ]
+  },
+  {
+    "id": "cockpit-sparrow",
+    "title": "Sparrow Cockpit",
+    "category": "command",
+    "dryMass": 700.0,
+    "description": "One seat under a bubble canopy, with the nose ahead of it. Where an aircraft is flown from.",
+    "crashTolerance": 14.0,
+    "dragCoefficient": 0.15,
+    "mesh": {
+      "type": "cone",
+      "bottomRadius": 0.625,
+      "topRadius": 0.2,
+      "height": 2.4
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                0.625,
+                -1.2
+              ],
+              [
+                0.625,
+                -0.4
+              ],
+              [
+                0.6,
+                0.1
+              ],
+              [
+                0.52,
+                0.55
+              ],
+              [
+                0.38,
+                0.9
+              ],
+              [
+                0.2,
+                1.12
+              ],
+              [
+                0.06,
+                1.2
+              ],
+              [
+                0.0,
+                1.2
+              ]
+            ],
+            "segments": 20
+          },
+          "stackEnds": true
+        },
+        {
+          "model": {
+            "type": "loft",
+            "sections": [
+              {
+                "y": -0.7,
+                "halfWidth": 0.18,
+                "top": 0.42,
+                "bottom": 0.3,
+                "vee": 0.0,
+                "round": 0.9
+              },
+              {
+                "y": -0.375,
+                "halfWidth": 0.36,
+                "top": 0.86,
+                "bottom": 0.3,
+                "vee": 0.0,
+                "round": 0.9
+              },
+              {
+                "y": 0.20999999999999985,
+                "halfWidth": 0.34199999999999997,
+                "top": 0.8341999999999999,
+                "bottom": 0.3,
+                "vee": 0.0,
+                "round": 0.9
+              },
+              {
+                "y": 0.6,
+                "halfWidth": 0.126,
+                "top": 0.4,
+                "bottom": 0.3,
+                "vee": 0.0,
+                "round": 0.9
+              }
+            ],
+            "around": 10,
+            "capped": true
+          },
+          "tint": "glass"
+        },
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                0.63,
+                -1.1
+              ],
+              [
+                0.635,
+                -1.08
+              ],
+              [
+                0.635,
+                -0.98
+              ],
+              [
+                0.63,
+                -0.96
+              ]
+            ],
+            "segments": 20
+          },
+          "tint": "accent"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "bottom",
+        "position": {
+          "x": 0.0,
+          "y": -1.2,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 1
+      }
+    ],
+    "modules": [
+      {
+        "type": "command",
+        "crewCapacity": 1,
+        "reactionTorque": 3000.0,
+        "providesControl": true
+      },
+      {
+        "type": "tank",
+        "resource": "monopropellant",
+        "capacity": 5.0
+      },
+      {
+        "type": "battery",
+        "capacity": 40.0
+      }
+    ]
+  },
+  {
+    "id": "cockpit-kestrel",
+    "title": "Kestrel Cockpit",
+    "category": "command",
+    "dryMass": 1100.0,
+    "description": "Two seats in tandem under a long canopy. Heavier than the Sparrow; room for a passenger.",
+    "crashTolerance": 14.0,
+    "dragCoefficient": 0.15,
+    "mesh": {
+      "type": "cone",
+      "bottomRadius": 0.625,
+      "topRadius": 0.2,
+      "height": 3.2
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                0.625,
+                -1.6
+              ],
+              [
+                0.625,
+                -0.4
+              ],
+              [
+                0.6,
+                0.3
+              ],
+              [
+                0.5,
+                0.9
+              ],
+              [
+                0.36,
+                1.3
+              ],
+              [
+                0.18,
+                1.52
+              ],
+              [
+                0.05,
+                1.6
+              ],
+              [
+                0.0,
+                1.6
+              ]
+            ],
+            "segments": 20
+          },
+          "stackEnds": true
+        },
+        {
+          "model": {
+            "type": "loft",
+            "sections": [
+              {
+                "y": -1.3,
+                "halfWidth": 0.18,
+                "top": 0.42,
+                "bottom": 0.3,
+                "vee": 0.0,
+                "round": 0.9
+              },
+              {
+                "y": -0.775,
+                "halfWidth": 0.36,
+                "top": 0.84,
+                "bottom": 0.3,
+                "vee": 0.0,
+                "round": 0.9
+              },
+              {
+                "y": 0.16999999999999993,
+                "halfWidth": 0.34199999999999997,
+                "top": 0.8148,
+                "bottom": 0.3,
+                "vee": 0.0,
+                "round": 0.9
+              },
+              {
+                "y": 0.8,
+                "halfWidth": 0.126,
+                "top": 0.4,
+                "bottom": 0.3,
+                "vee": 0.0,
+                "round": 0.9
+              }
+            ],
+            "around": 10,
+            "capped": true
+          },
+          "tint": "glass"
+        },
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                0.63,
+                -1.5
+              ],
+              [
+                0.635,
+                -1.48
+              ],
+              [
+                0.635,
+                -1.38
+              ],
+              [
+                0.63,
+                -1.36
+              ]
+            ],
+            "segments": 20
+          },
+          "tint": "accent"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "bottom",
+        "position": {
+          "x": 0.0,
+          "y": -1.6,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 1
+      }
+    ],
+    "modules": [
+      {
+        "type": "command",
+        "crewCapacity": 2,
+        "reactionTorque": 4000.0,
+        "providesControl": true
+      },
+      {
+        "type": "tank",
+        "resource": "monopropellant",
+        "capacity": 8.0
+      },
+      {
+        "type": "battery",
+        "capacity": 60.0
+      }
+    ]
+  },
+  {
+    "id": "fuselage-short",
+    "title": "Short Fuselage",
+    "category": "fuel",
+    "dryMass": 120.0,
+    "description": "Airframe section with fuel in it. Round, smooth, and the thing everything else on an aircraft bolts to - with mounts along its length, so wings and gear go where the balance needs them.",
+    "crashTolerance": 10.0,
+    "dragCoefficient": 0.2,
+    "mesh": {
+      "type": "cylinder",
+      "radius": 0.625,
+      "height": 1.6
+    },
+    "model": {
+      "type": "tank",
+      "radius": 0.625,
+      "height": 1.6,
+      "chamfer": 0.01,
+      "bands": 1
+    },
+    "attachNodes": [
+      {
+        "id": "top",
+        "position": {
+          "x": 0.0,
+          "y": 0.8,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "size": 1
+      },
+      {
+        "id": "bottom",
+        "position": {
+          "x": 0.0,
+          "y": -0.8,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 1
+      },
+      {
+        "id": "side-right-fore",
+        "position": {
+          "x": 0.625,
+          "y": 0.592,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "side-left-fore",
+        "position": {
+          "x": -0.625,
+          "y": 0.592,
+          "z": 0.0
+        },
+        "direction": {
+          "x": -1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "side-right-front",
+        "position": {
+          "x": 0.625,
+          "y": 0.4,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "side-left-front",
+        "position": {
+          "x": -0.625,
+          "y": 0.4,
+          "z": 0.0
+        },
+        "direction": {
+          "x": -1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "side-right",
+        "position": {
+          "x": 0.625,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "side-left",
+        "position": {
+          "x": -0.625,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": -1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "side-right-rear",
+        "position": {
+          "x": 0.625,
+          "y": -0.4,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "side-left-rear",
+        "position": {
+          "x": -0.625,
+          "y": -0.4,
+          "z": 0.0
+        },
+        "direction": {
+          "x": -1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "spine",
+        "position": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.625
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "spine-rear",
+        "position": {
+          "x": 0.0,
+          "y": -0.48,
+          "z": 0.625
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "belly",
+        "position": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -0.625
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "belly-right-1",
+        "position": {
+          "x": 0.4419417382415922,
+          "y": 0.448,
+          "z": -0.4419417382415922
+        },
+        "direction": {
+          "x": 0.7071067811865476,
+          "y": 0.0,
+          "z": -0.7071067811865476
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "belly-left-1",
+        "position": {
+          "x": -0.4419417382415922,
+          "y": 0.448,
+          "z": -0.4419417382415922
+        },
+        "direction": {
+          "x": -0.7071067811865476,
+          "y": 0.0,
+          "z": -0.7071067811865476
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "belly-right-2",
+        "position": {
+          "x": 0.4419417382415922,
+          "y": 0.144,
+          "z": -0.4419417382415922
+        },
+        "direction": {
+          "x": 0.7071067811865476,
+          "y": 0.0,
+          "z": -0.7071067811865476
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "belly-left-2",
+        "position": {
+          "x": -0.4419417382415922,
+          "y": 0.144,
+          "z": -0.4419417382415922
+        },
+        "direction": {
+          "x": -0.7071067811865476,
+          "y": 0.0,
+          "z": -0.7071067811865476
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "belly-right-3",
+        "position": {
+          "x": 0.4419417382415922,
+          "y": -0.144,
+          "z": -0.4419417382415922
+        },
+        "direction": {
+          "x": 0.7071067811865476,
+          "y": 0.0,
+          "z": -0.7071067811865476
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "belly-left-3",
+        "position": {
+          "x": -0.4419417382415922,
+          "y": -0.144,
+          "z": -0.4419417382415922
+        },
+        "direction": {
+          "x": -0.7071067811865476,
+          "y": 0.0,
+          "z": -0.7071067811865476
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "belly-right-4",
+        "position": {
+          "x": 0.4419417382415922,
+          "y": -0.448,
+          "z": -0.4419417382415922
+        },
+        "direction": {
+          "x": 0.7071067811865476,
+          "y": 0.0,
+          "z": -0.7071067811865476
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "belly-left-4",
+        "position": {
+          "x": -0.4419417382415922,
+          "y": -0.448,
+          "z": -0.4419417382415922
+        },
+        "direction": {
+          "x": -0.7071067811865476,
+          "y": 0.0,
+          "z": -0.7071067811865476
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "tank",
+        "resource": "propellant",
+        "capacity": 40.0
+      }
+    ]
+  },
+  {
+    "id": "fuselage-long",
+    "title": "Long Fuselage",
+    "category": "fuel",
+    "dryMass": 220.0,
+    "description": "Airframe section with fuel in it. Round, smooth, and the thing everything else on an aircraft bolts to - with mounts along its length, so wings and gear go where the balance needs them.",
+    "crashTolerance": 10.0,
+    "dragCoefficient": 0.2,
+    "mesh": {
+      "type": "cylinder",
+      "radius": 0.625,
+      "height": 3.2
+    },
+    "model": {
+      "type": "tank",
+      "radius": 0.625,
+      "height": 3.2,
+      "chamfer": 0.01,
+      "bands": 2
+    },
+    "attachNodes": [
+      {
+        "id": "top",
+        "position": {
+          "x": 0.0,
+          "y": 1.6,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "size": 1
+      },
+      {
+        "id": "bottom",
+        "position": {
+          "x": 0.0,
+          "y": -1.6,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 1
+      },
+      {
+        "id": "side-right-fore",
+        "position": {
+          "x": 0.625,
+          "y": 1.184,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "side-left-fore",
+        "position": {
+          "x": -0.625,
+          "y": 1.184,
+          "z": 0.0
+        },
+        "direction": {
+          "x": -1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "side-right-front",
+        "position": {
+          "x": 0.625,
+          "y": 0.8,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "side-left-front",
+        "position": {
+          "x": -0.625,
+          "y": 0.8,
+          "z": 0.0
+        },
+        "direction": {
+          "x": -1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "side-right",
+        "position": {
+          "x": 0.625,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "side-left",
+        "position": {
+          "x": -0.625,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": -1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "side-right-rear",
+        "position": {
+          "x": 0.625,
+          "y": -0.8,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "side-left-rear",
+        "position": {
+          "x": -0.625,
+          "y": -0.8,
+          "z": 0.0
+        },
+        "direction": {
+          "x": -1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "spine",
+        "position": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.625
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "spine-rear",
+        "position": {
+          "x": 0.0,
+          "y": -0.96,
+          "z": 0.625
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "belly",
+        "position": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -0.625
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "belly-right-1",
+        "position": {
+          "x": 0.4419417382415922,
+          "y": 0.896,
+          "z": -0.4419417382415922
+        },
+        "direction": {
+          "x": 0.7071067811865476,
+          "y": 0.0,
+          "z": -0.7071067811865476
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "belly-left-1",
+        "position": {
+          "x": -0.4419417382415922,
+          "y": 0.896,
+          "z": -0.4419417382415922
+        },
+        "direction": {
+          "x": -0.7071067811865476,
+          "y": 0.0,
+          "z": -0.7071067811865476
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "belly-right-2",
+        "position": {
+          "x": 0.4419417382415922,
+          "y": 0.288,
+          "z": -0.4419417382415922
+        },
+        "direction": {
+          "x": 0.7071067811865476,
+          "y": 0.0,
+          "z": -0.7071067811865476
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "belly-left-2",
+        "position": {
+          "x": -0.4419417382415922,
+          "y": 0.288,
+          "z": -0.4419417382415922
+        },
+        "direction": {
+          "x": -0.7071067811865476,
+          "y": 0.0,
+          "z": -0.7071067811865476
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "belly-right-3",
+        "position": {
+          "x": 0.4419417382415922,
+          "y": -0.288,
+          "z": -0.4419417382415922
+        },
+        "direction": {
+          "x": 0.7071067811865476,
+          "y": 0.0,
+          "z": -0.7071067811865476
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "belly-left-3",
+        "position": {
+          "x": -0.4419417382415922,
+          "y": -0.288,
+          "z": -0.4419417382415922
+        },
+        "direction": {
+          "x": -0.7071067811865476,
+          "y": 0.0,
+          "z": -0.7071067811865476
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "belly-right-4",
+        "position": {
+          "x": 0.4419417382415922,
+          "y": -0.896,
+          "z": -0.4419417382415922
+        },
+        "direction": {
+          "x": 0.7071067811865476,
+          "y": 0.0,
+          "z": -0.7071067811865476
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "belly-left-4",
+        "position": {
+          "x": -0.4419417382415922,
+          "y": -0.896,
+          "z": -0.4419417382415922
+        },
+        "direction": {
+          "x": -0.7071067811865476,
+          "y": 0.0,
+          "z": -0.7071067811865476
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "tank",
+        "resource": "propellant",
+        "capacity": 80.0
+      }
+    ]
+  },
+  {
+    "id": "fuselage-tailcone",
+    "title": "Tailcone",
+    "category": "structural",
+    "dryMass": 90.0,
+    "description": "Tapers an airframe to a point at the back, where a blunt end would drag a wake behind it.",
+    "crashTolerance": 10.0,
+    "dragCoefficient": 0.15,
+    "mesh": {
+      "type": "cone",
+      "bottomRadius": 0.2,
+      "topRadius": 0.625,
+      "height": 1.8
+    },
+    "model": {
+      "type": "lathe",
+      "profile": [
+        [
+          0.0,
+          -0.9
+        ],
+        [
+          0.2,
+          -0.88
+        ],
+        [
+          0.34,
+          -0.5
+        ],
+        [
+          0.52,
+          0.1
+        ],
+        [
+          0.61,
+          0.6
+        ],
+        [
+          0.625,
+          0.9
+        ]
+      ],
+      "segments": 20
+    },
+    "attachNodes": [
+      {
+        "id": "top",
+        "position": {
+          "x": 0.0,
+          "y": 0.9,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "size": 1
+      }
+    ],
+    "modules": []
+  },
+  {
+    "id": "wing-small",
+    "title": "Swift Wing",
+    "category": "aero",
+    "dryMass": 130.0,
+    "description": "A small straight wing with an aileron on its outer half. Light aircraft, and tailplanes on big ones.",
+    "crashTolerance": 10.0,
+    "dragCoefficient": 0.2,
+    "mesh": {
+      "type": "box",
+      "width": 4.0,
+      "height": 1.6,
+      "depth": 0.12
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "fin",
+            "rootChord": 1.2000000000000002,
+            "tipChord": 0.6000000000000001,
+            "span": 4.0,
+            "sweep": 0.6000000000000001,
+            "thickness": 0.12
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.2,
+            "z": 0.0
+          }
+        },
+        {
+          "model": {
+            "type": "fin",
+            "rootChord": 0.4,
+            "tipChord": 0.32000000000000006,
+            "span": 2.0,
+            "sweep": 0.0,
+            "thickness": 0.048
+          },
+          "offset": {
+            "x": 1.0,
+            "y": -0.6000000000000001,
+            "z": 0.0
+          },
+          "role": "hinged",
+          "axis": {
+            "x": 1.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "pivot": {
+            "x": 0.0,
+            "y": -0.4,
+            "z": 0.0
+          }
+        },
+        {
+          "model": {
+            "type": "fin",
+            "rootChord": 0.4,
+            "tipChord": 0.36000000000000004,
+            "span": 2.0,
+            "sweep": 0.0,
+            "thickness": 0.048
+          },
+          "offset": {
+            "x": -1.0,
+            "y": -0.6000000000000001,
+            "z": 0.0
+          },
+          "tint": "light"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "root",
+        "position": {
+          "x": -2.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": -1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "aeroSurface",
+        "liftCoefficient": 1.4,
+        "area": 5.8,
+        "controllable": true,
+        "controlAuthority": 0.3,
+        "maxDeflection": 18.0
+      }
+    ]
+  },
+  {
+    "id": "wing-swept",
+    "title": "Swept Wing",
+    "category": "aero",
+    "dryMass": 300.0,
+    "description": "Leading edge swept back, trailing edge straight. Faster and less forgiving than a straight wing.",
+    "crashTolerance": 10.0,
+    "dragCoefficient": 0.2,
+    "mesh": {
+      "type": "box",
+      "width": 7.0,
+      "height": 3.2,
+      "depth": 0.16
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "fin",
+            "rootChord": 2.4000000000000004,
+            "tipChord": 0.8999999999999999,
+            "span": 7.0,
+            "sweep": 1.5,
+            "thickness": 0.16
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.4,
+            "z": 0.0
+          }
+        },
+        {
+          "model": {
+            "type": "fin",
+            "rootChord": 0.8,
+            "tipChord": 0.6400000000000001,
+            "span": 3.5,
+            "sweep": 0.0,
+            "thickness": 0.064
+          },
+          "offset": {
+            "x": 1.75,
+            "y": -1.2000000000000002,
+            "z": 0.0
+          },
+          "role": "hinged",
+          "axis": {
+            "x": 1.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "pivot": {
+            "x": 0.0,
+            "y": -0.8,
+            "z": 0.0
+          }
+        },
+        {
+          "model": {
+            "type": "fin",
+            "rootChord": 0.8,
+            "tipChord": 0.7200000000000001,
+            "span": 3.5,
+            "sweep": 0.0,
+            "thickness": 0.064
+          },
+          "offset": {
+            "x": -1.75,
+            "y": -1.2000000000000002,
+            "z": 0.0
+          },
+          "tint": "light"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "root",
+        "position": {
+          "x": -3.5,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": -1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "aeroSurface",
+        "liftCoefficient": 1.4,
+        "area": 15.4,
+        "controllable": true,
+        "controlAuthority": 0.3,
+        "maxDeflection": 18.0
+      }
+    ]
+  },
+  {
+    "id": "wing-delta",
+    "title": "Delta Wing",
+    "category": "aero",
+    "dryMass": 280.0,
+    "description": "A great triangle with elevons along its trailing edge. Pitches and rolls on its own; wants speed.",
+    "crashTolerance": 10.0,
+    "dragCoefficient": 0.2,
+    "mesh": {
+      "type": "box",
+      "width": 3.6,
+      "height": 4.2,
+      "depth": 0.18
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "fin",
+            "rootChord": 3.1500000000000004,
+            "tipChord": 0.375,
+            "span": 3.6,
+            "sweep": 2.7750000000000004,
+            "thickness": 0.18
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.525,
+            "z": 0.0
+          }
+        },
+        {
+          "model": {
+            "type": "fin",
+            "rootChord": 1.05,
+            "tipChord": 0.8400000000000001,
+            "span": 1.8,
+            "sweep": 0.0,
+            "thickness": 0.072
+          },
+          "offset": {
+            "x": 0.9,
+            "y": -1.5750000000000002,
+            "z": 0.0
+          },
+          "role": "hinged",
+          "axis": {
+            "x": 1.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "pivot": {
+            "x": 0.0,
+            "y": -1.05,
+            "z": 0.0
+          }
+        },
+        {
+          "model": {
+            "type": "fin",
+            "rootChord": 1.05,
+            "tipChord": 0.9450000000000001,
+            "span": 1.8,
+            "sweep": 0.0,
+            "thickness": 0.072
+          },
+          "offset": {
+            "x": -0.9,
+            "y": -1.5750000000000002,
+            "z": 0.0
+          },
+          "tint": "light"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "root",
+        "position": {
+          "x": -1.8,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": -1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "aeroSurface",
+        "liftCoefficient": 1.4,
+        "area": 9.5,
+        "controllable": true,
+        "controlAuthority": 0.45,
+        "maxDeflection": 18.0
+      }
+    ]
+  },
+  {
+    "id": "tail-rudder",
+    "title": "Rudder Tail",
+    "category": "aero",
+    "dryMass": 60.0,
+    "description": "A vertical tail with a rudder. Bolted on top of the fuselage it yaws; the geometry decides, as ever.",
+    "crashTolerance": 10.0,
+    "dragCoefficient": 0.2,
+    "mesh": {
+      "type": "box",
+      "width": 1.3,
+      "height": 1.3,
+      "depth": 0.1
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "fin",
+            "rootChord": 0.95,
+            "tipChord": 0.55,
+            "span": 1.3,
+            "sweep": 0.55,
+            "thickness": 0.08
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.18,
+            "z": 0.0
+          }
+        },
+        {
+          "model": {
+            "type": "fin",
+            "rootChord": 0.35,
+            "tipChord": 0.3,
+            "span": 1.3,
+            "sweep": 0.1,
+            "thickness": 0.04
+          },
+          "offset": {
+            "x": 0.0,
+            "y": -0.475,
+            "z": 0.0
+          },
+          "role": "hinged",
+          "axis": {
+            "x": 1.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "pivot": {
+            "x": 0.0,
+            "y": -0.3,
+            "z": 0.0
+          }
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "root",
+        "position": {
+          "x": -0.65,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": -1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "aeroSurface",
+        "liftCoefficient": 1.3,
+        "area": 1.4,
+        "controllable": true,
+        "controlAuthority": 0.35,
+        "maxDeflection": 25.0
+      }
+    ]
+  },
+  {
+    "id": "engine-prop",
+    "title": "Merlin Propeller",
+    "category": "propulsion",
+    "dryMass": 480.0,
+    "description": "A piston engine turning a three-bladed propeller. Modest thrust, very frugal, and it pulls from the front.",
+    "crashTolerance": 9.0,
+    "dragCoefficient": 0.3,
+    "mesh": {
+      "type": "cylinder",
+      "radius": 0.625,
+      "height": 1.2
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                0.625,
+                -0.6
+              ],
+              [
+                0.625,
+                0.1
+              ],
+              [
+                0.6,
+                0.3
+              ],
+              [
+                0.46,
+                0.5
+              ],
+              [
+                0.3,
+                0.52
+              ]
+            ],
+            "segments": 20
+          },
+          "stackEnds": true
+        },
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                0.3,
+                0.5
+              ],
+              [
+                0.26,
+                0.62
+              ],
+              [
+                0.14,
+                0.72
+              ],
+              [
+                0.0,
+                0.76
+              ]
+            ],
+            "segments": 20
+          },
+          "tint": "metal",
+          "role": "spin",
+          "axis": {
+            "x": 0.0,
+            "y": 1.0,
+            "z": 0.0
+          }
+        },
+        {
+          "model": {
+            "type": "prop",
+            "radius": 1.05,
+            "blades": 3,
+            "chord": 0.16,
+            "pitchDegrees": 22.0
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.56,
+            "z": 0.0
+          },
+          "tint": "dark",
+          "role": "spin",
+          "axis": {
+            "x": 0.0,
+            "y": 1.0,
+            "z": 0.0
+          }
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.12,
+              "height": 0.4,
+              "depth": 0.2
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": -0.2,
+            "z": 0.62
+          },
+          "tint": "dark"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "bottom",
+        "position": {
+          "x": 0.0,
+          "y": -0.6,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 1
+      }
+    ],
+    "modules": [
+      {
+        "type": "engine",
+        "thrustVacuum": 0.0,
+        "thrustSeaLevel": 14000.0,
+        "ispVacuum": 4200.0,
+        "ispSeaLevel": 4200.0,
+        "gimbalRange": 0.0,
+        "propellant": "propellant",
+        "thrustDirection": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "minThrottle": 0.0
+      }
+    ]
+  },
+  {
+    "id": "wheel-gear-main",
+    "title": "Main Gear",
+    "category": "ground",
+    "dryMass": 110.0,
+    "description": "Main undercarriage: an oleo strut and a wide wheel, with brakes. Goes just behind the centre of mass.",
+    "crashTolerance": 18.0,
+    "dragCoefficient": 0.3,
+    "mesh": {
+      "type": "sphere",
+      "radius": 0.38
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.07,
+              "height": 0.48
+            }
+          },
+          "offset": {
+            "x": -0.9400000000000002,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 90.0
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "compound",
+            "pieces": [
+              {
+                "model": {
+                  "type": "primitive",
+                  "mesh": {
+                    "type": "cylinder",
+                    "radius": 0.045,
+                    "height": 0.44000000000000006
+                  }
+                },
+                "offset": {
+                  "x": -0.5800000000000001,
+                  "y": 0.0,
+                  "z": 0.0
+                },
+                "rotation": {
+                  "x": 0.0,
+                  "y": 0.0,
+                  "z": 90.0
+                },
+                "tint": "light"
+              },
+              {
+                "model": {
+                  "type": "primitive",
+                  "mesh": {
+                    "type": "box",
+                    "width": 0.1,
+                    "height": 0.1,
+                    "depth": 0.36
+                  }
+                },
+                "rotation": {
+                  "x": 0.0,
+                  "y": 90.0,
+                  "z": 0.0
+                },
+                "tint": "metal",
+                "role": "steer"
+              },
+              {
+                "model": {
+                  "type": "tyre",
+                  "radius": 0.38,
+                  "width": 0.2,
+                  "lugs": 0,
+                  "lugDepth": 0.0
+                },
+                "tint": "rubber",
+                "role": "steerSpin"
+              },
+              {
+                "model": {
+                  "type": "primitive",
+                  "mesh": {
+                    "type": "cylinder",
+                    "radius": 0.19,
+                    "height": 0.18000000000000002
+                  }
+                },
+                "rotation": {
+                  "x": 0.0,
+                  "y": 0.0,
+                  "z": 90.0
+                },
+                "tint": "light",
+                "role": "steerSpin"
+              }
+            ]
+          },
+          "role": "suspension",
+          "axis": {
+            "x": -1.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.14,
+              "height": 0.3,
+              "depth": 0.24
+            }
+          },
+          "offset": {
+            "x": -1.1300000000000001,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "dark"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "root",
+        "position": {
+          "x": -1.1800000000000002,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": -1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "wheel",
+        "radius": 0.38,
+        "motorForce": 0.0,
+        "steerable": false,
+        "steeringRange": 0.0,
+        "rollingResistance": 0.03,
+        "suspensionTravel": 0.25,
+        "springRate": 300000.0,
+        "damping": 26000.0,
+        "brakeFriction": 0.45
+      }
+    ]
+  },
+  {
+    "id": "wheel-gear-nose",
+    "title": "Nose Gear",
+    "category": "ground",
+    "dryMass": 70.0,
+    "description": "Steerable nose wheel on its own strut. Carries a little of the weight and all of the steering.",
+    "crashTolerance": 18.0,
+    "dragCoefficient": 0.3,
+    "mesh": {
+      "type": "sphere",
+      "radius": 0.28
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.07,
+              "height": 0.57
+            }
+          },
+          "offset": {
+            "x": -0.9450000000000001,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 90.0
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "compound",
+            "pieces": [
+              {
+                "model": {
+                  "type": "primitive",
+                  "mesh": {
+                    "type": "cylinder",
+                    "radius": 0.045,
+                    "height": 0.5225
+                  }
+                },
+                "offset": {
+                  "x": -0.52125,
+                  "y": 0.0,
+                  "z": 0.0
+                },
+                "rotation": {
+                  "x": 0.0,
+                  "y": 0.0,
+                  "z": 90.0
+                },
+                "tint": "light"
+              },
+              {
+                "model": {
+                  "type": "primitive",
+                  "mesh": {
+                    "type": "box",
+                    "width": 0.1,
+                    "height": 0.1,
+                    "depth": 0.31
+                  }
+                },
+                "rotation": {
+                  "x": 0.0,
+                  "y": 90.0,
+                  "z": 0.0
+                },
+                "tint": "metal",
+                "role": "steer"
+              },
+              {
+                "model": {
+                  "type": "tyre",
+                  "radius": 0.28,
+                  "width": 0.15,
+                  "lugs": 0,
+                  "lugDepth": 0.0
+                },
+                "tint": "rubber",
+                "role": "steerSpin"
+              },
+              {
+                "model": {
+                  "type": "primitive",
+                  "mesh": {
+                    "type": "cylinder",
+                    "radius": 0.14,
+                    "height": 0.135
+                  }
+                },
+                "rotation": {
+                  "x": 0.0,
+                  "y": 0.0,
+                  "z": 90.0
+                },
+                "tint": "light",
+                "role": "steerSpin"
+              }
+            ]
+          },
+          "role": "suspension",
+          "axis": {
+            "x": -1.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.14,
+              "height": 0.3,
+              "depth": 0.24
+            }
+          },
+          "offset": {
+            "x": -1.18,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "dark"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "root",
+        "position": {
+          "x": -1.23,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": -1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "wheel",
+        "radius": 0.28,
+        "motorForce": 0.0,
+        "steerable": true,
+        "steeringRange": 25.0,
+        "rollingResistance": 0.03,
+        "suspensionTravel": 0.25,
+        "springRate": 160000.0,
+        "damping": 15000.0,
+        "brakeFriction": 0.3
+      }
+    ]
+  },
+  {
+    "id": "wheel-tail",
+    "title": "Tail Wheel",
+    "category": "ground",
+    "dryMass": 25.0,
+    "description": "A small castoring wheel for a taildragger's tail. Keeps the tail off the runway, and steers.",
+    "crashTolerance": 18.0,
+    "dragCoefficient": 0.3,
+    "mesh": {
+      "type": "sphere",
+      "radius": 0.16
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.07,
+              "height": 0.12
+            }
+          },
+          "offset": {
+            "x": -0.3,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 90.0
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "compound",
+            "pieces": [
+              {
+                "model": {
+                  "type": "primitive",
+                  "mesh": {
+                    "type": "cylinder",
+                    "radius": 0.045,
+                    "height": 0.11000000000000001
+                  }
+                },
+                "offset": {
+                  "x": -0.19500000000000003,
+                  "y": 0.0,
+                  "z": 0.0
+                },
+                "rotation": {
+                  "x": 0.0,
+                  "y": 0.0,
+                  "z": 90.0
+                },
+                "tint": "light"
+              },
+              {
+                "model": {
+                  "type": "primitive",
+                  "mesh": {
+                    "type": "box",
+                    "width": 0.1,
+                    "height": 0.1,
+                    "depth": 0.25
+                  }
+                },
+                "rotation": {
+                  "x": 0.0,
+                  "y": 90.0,
+                  "z": 0.0
+                },
+                "tint": "metal",
+                "role": "steer"
+              },
+              {
+                "model": {
+                  "type": "tyre",
+                  "radius": 0.16,
+                  "width": 0.09,
+                  "lugs": 0,
+                  "lugDepth": 0.0
+                },
+                "tint": "rubber",
+                "role": "steerSpin"
+              },
+              {
+                "model": {
+                  "type": "primitive",
+                  "mesh": {
+                    "type": "cylinder",
+                    "radius": 0.08,
+                    "height": 0.081
+                  }
+                },
+                "rotation": {
+                  "x": 0.0,
+                  "y": 0.0,
+                  "z": 90.0
+                },
+                "tint": "light",
+                "role": "steerSpin"
+              }
+            ]
+          },
+          "role": "suspension",
+          "axis": {
+            "x": -1.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.14,
+              "height": 0.3,
+              "depth": 0.24
+            }
+          },
+          "offset": {
+            "x": -0.31,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "dark"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "root",
+        "position": {
+          "x": -0.36,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": -1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "wheel",
+        "radius": 0.16,
+        "motorForce": 0.0,
+        "steerable": true,
+        "steeringRange": 30.0,
+        "rollingResistance": 0.03,
+        "suspensionTravel": 0.25,
+        "springRate": 90000.0,
+        "damping": 8000.0,
+        "brakeFriction": 0.2
+      }
+    ]
+  },
+  {
+    "id": "chassis-small",
+    "title": "Buggy Chassis",
+    "category": "structural",
+    "dryMass": 450.0,
+    "description": "A four-wheel frame with a deck. Wheels go on its corners, underneath; a cab or cargo on top.",
+    "crashTolerance": 16.0,
+    "dragCoefficient": 0.5,
+    "mesh": {
+      "type": "box",
+      "width": 2.0,
+      "height": 2.8,
+      "depth": 0.5
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "loft",
+            "sections": [
+              {
+                "y": -1.4,
+                "halfWidth": 0.96,
+                "top": 0.2,
+                "bottom": -0.25,
+                "vee": 0.0,
+                "round": 0.3
+              },
+              {
+                "y": -1.25,
+                "halfWidth": 1.0,
+                "top": 0.25,
+                "bottom": -0.25,
+                "vee": 0.0,
+                "round": 0.3
+              },
+              {
+                "y": 1.0499999999999998,
+                "halfWidth": 1.0,
+                "top": 0.25,
+                "bottom": -0.25,
+                "vee": 0.0,
+                "round": 0.3
+              },
+              {
+                "y": 1.4,
+                "halfWidth": 0.9,
+                "top": 0.075,
+                "bottom": -0.225,
+                "vee": 0.0,
+                "round": 0.3
+              }
+            ],
+            "around": 12,
+            "capped": true
+          }
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 1.8,
+              "height": 0.14,
+              "depth": 0.25
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 1.42,
+            "z": -0.05
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 1.8,
+              "height": 0.14,
+              "depth": 0.25
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": -1.42,
+            "z": -0.05
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.46,
+              "height": 1.0,
+              "depth": 0.07
+            }
+          },
+          "offset": {
+            "x": 1.12,
+            "y": 0.95,
+            "z": 0.0875
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.46,
+              "height": 1.0,
+              "depth": 0.07
+            }
+          },
+          "offset": {
+            "x": -1.12,
+            "y": 0.95,
+            "z": 0.0875
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.46,
+              "height": 1.0,
+              "depth": 0.07
+            }
+          },
+          "offset": {
+            "x": 1.12,
+            "y": -0.95,
+            "z": 0.0875
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.46,
+              "height": 1.0,
+              "depth": 0.07
+            }
+          },
+          "offset": {
+            "x": -1.12,
+            "y": -0.95,
+            "z": 0.0875
+          },
+          "tint": "dark"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "front",
+        "position": {
+          "x": 0.0,
+          "y": 1.4,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "size": 1
+      },
+      {
+        "id": "back",
+        "position": {
+          "x": 0.0,
+          "y": -1.4,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 1
+      },
+      {
+        "id": "deck",
+        "position": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.25
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "deck-front",
+        "position": {
+          "x": 0.0,
+          "y": 0.77,
+          "z": 0.25
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "deck-rear",
+        "position": {
+          "x": 0.0,
+          "y": -0.77,
+          "z": 0.25
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "wheel-1",
+        "position": {
+          "x": 1.12,
+          "y": 0.95,
+          "z": -0.2
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "wheel-2",
+        "position": {
+          "x": -1.12,
+          "y": 0.95,
+          "z": -0.2
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "wheel-3",
+        "position": {
+          "x": 1.12,
+          "y": -0.95,
+          "z": -0.2
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "wheel-4",
+        "position": {
+          "x": -1.12,
+          "y": -0.95,
+          "z": -0.2
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": []
+  },
+  {
+    "id": "chassis-large",
+    "title": "Hauler Chassis",
+    "category": "structural",
+    "dryMass": 1000.0,
+    "description": "A long six-wheel frame. Heavy, stable, and the base for anything that has to carry something.",
+    "crashTolerance": 16.0,
+    "dragCoefficient": 0.5,
+    "mesh": {
+      "type": "box",
+      "width": 2.4,
+      "height": 5.0,
+      "depth": 0.6
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "loft",
+            "sections": [
+              {
+                "y": -2.5,
+                "halfWidth": 1.152,
+                "top": 0.24,
+                "bottom": -0.3,
+                "vee": 0.0,
+                "round": 0.3
+              },
+              {
+                "y": -2.35,
+                "halfWidth": 1.2,
+                "top": 0.3,
+                "bottom": -0.3,
+                "vee": 0.0,
+                "round": 0.3
+              },
+              {
+                "y": 2.15,
+                "halfWidth": 1.2,
+                "top": 0.3,
+                "bottom": -0.3,
+                "vee": 0.0,
+                "round": 0.3
+              },
+              {
+                "y": 2.5,
+                "halfWidth": 1.08,
+                "top": 0.09,
+                "bottom": -0.27,
+                "vee": 0.0,
+                "round": 0.3
+              }
+            ],
+            "around": 12,
+            "capped": true
+          }
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 2.16,
+              "height": 0.14,
+              "depth": 0.3
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 2.52,
+            "z": -0.06
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 2.16,
+              "height": 0.14,
+              "depth": 0.3
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": -2.52,
+            "z": -0.06
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.46,
+              "height": 1.0,
+              "depth": 0.07
+            }
+          },
+          "offset": {
+            "x": 1.3199999999999998,
+            "y": 1.9,
+            "z": 0.105
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.46,
+              "height": 1.0,
+              "depth": 0.07
+            }
+          },
+          "offset": {
+            "x": -1.3199999999999998,
+            "y": 1.9,
+            "z": 0.105
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.46,
+              "height": 1.0,
+              "depth": 0.07
+            }
+          },
+          "offset": {
+            "x": 1.3199999999999998,
+            "y": 0.0,
+            "z": 0.105
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.46,
+              "height": 1.0,
+              "depth": 0.07
+            }
+          },
+          "offset": {
+            "x": -1.3199999999999998,
+            "y": 0.0,
+            "z": 0.105
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.46,
+              "height": 1.0,
+              "depth": 0.07
+            }
+          },
+          "offset": {
+            "x": 1.3199999999999998,
+            "y": -1.9,
+            "z": 0.105
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.46,
+              "height": 1.0,
+              "depth": 0.07
+            }
+          },
+          "offset": {
+            "x": -1.3199999999999998,
+            "y": -1.9,
+            "z": 0.105
+          },
+          "tint": "dark"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "front",
+        "position": {
+          "x": 0.0,
+          "y": 2.5,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "size": 1
+      },
+      {
+        "id": "back",
+        "position": {
+          "x": 0.0,
+          "y": -2.5,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 1
+      },
+      {
+        "id": "deck",
+        "position": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.3
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "deck-front",
+        "position": {
+          "x": 0.0,
+          "y": 1.375,
+          "z": 0.3
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "deck-rear",
+        "position": {
+          "x": 0.0,
+          "y": -1.375,
+          "z": 0.3
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "wheel-1",
+        "position": {
+          "x": 1.3199999999999998,
+          "y": 1.9,
+          "z": -0.25
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "wheel-2",
+        "position": {
+          "x": -1.3199999999999998,
+          "y": 1.9,
+          "z": -0.25
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "wheel-3",
+        "position": {
+          "x": 1.3199999999999998,
+          "y": 0.0,
+          "z": -0.25
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "wheel-4",
+        "position": {
+          "x": -1.3199999999999998,
+          "y": 0.0,
+          "z": -0.25
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "wheel-5",
+        "position": {
+          "x": 1.3199999999999998,
+          "y": -1.9,
+          "z": -0.25
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "wheel-6",
+        "position": {
+          "x": -1.3199999999999998,
+          "y": -1.9,
+          "z": -0.25
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": []
+  },
+  {
+    "id": "cab-rover",
+    "title": "Rover Cab",
+    "category": "command",
+    "dryMass": 600.0,
+    "description": "Two seats behind a raked windscreen, out of the weather. Drives the rover it sits on.",
+    "crashTolerance": 14.0,
+    "dragCoefficient": 0.5,
+    "mesh": {
+      "type": "box",
+      "width": 1.7,
+      "height": 1.6,
+      "depth": 1.3
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "loft",
+            "sections": [
+              {
+                "y": -0.8,
+                "halfWidth": 0.85,
+                "top": 0.6,
+                "bottom": -0.65,
+                "vee": 0.0,
+                "round": 0.25
+              },
+              {
+                "y": 0.3,
+                "halfWidth": 0.85,
+                "top": 0.6,
+                "bottom": -0.65,
+                "vee": 0.0,
+                "round": 0.25
+              },
+              {
+                "y": 0.8,
+                "halfWidth": 0.82,
+                "top": -0.05,
+                "bottom": -0.65,
+                "vee": 0.0,
+                "round": 0.25
+              }
+            ],
+            "around": 12,
+            "capped": true
+          }
+        },
+        {
+          "model": {
+            "type": "loft",
+            "sections": [
+              {
+                "y": 0.32,
+                "halfWidth": 0.78,
+                "top": 0.58,
+                "bottom": 0.0,
+                "vee": 0.0,
+                "round": 0.3
+              },
+              {
+                "y": 0.74,
+                "halfWidth": 0.76,
+                "top": 0.0,
+                "bottom": -0.02,
+                "vee": 0.0,
+                "round": 0.3
+              }
+            ],
+            "around": 8,
+            "capped": true
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.02,
+            "z": 0.01
+          },
+          "tint": "glass"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.04,
+              "height": 0.8,
+              "depth": 0.4
+            }
+          },
+          "offset": {
+            "x": 0.86,
+            "y": -0.2,
+            "z": 0.25
+          },
+          "tint": "glass"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.04,
+              "height": 0.8,
+              "depth": 0.4
+            }
+          },
+          "offset": {
+            "x": -0.86,
+            "y": -0.2,
+            "z": 0.25
+          },
+          "tint": "glass"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 1.5,
+              "height": 0.12,
+              "depth": 0.12
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.1,
+            "z": 0.66
+          },
+          "tint": "dark"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "base",
+        "position": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -0.65
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "command",
+        "crewCapacity": 2,
+        "reactionTorque": 2500.0,
+        "providesControl": true
+      },
+      {
+        "type": "battery",
+        "capacity": 80.0
+      }
+    ]
+  },
+  {
+    "id": "cab-open",
+    "title": "Open Seat",
+    "category": "command",
+    "dryMass": 250.0,
+    "description": "A seat, a wheel and a roll bar. Light, and the view is excellent.",
+    "crashTolerance": 12.0,
+    "dragCoefficient": 0.6,
+    "mesh": {
+      "type": "box",
+      "width": 1.4,
+      "height": 1.2,
+      "depth": 0.9
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 1.2,
+              "height": 1.0,
+              "depth": 0.12
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": -0.39
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.6,
+              "height": 0.5,
+              "depth": 0.14
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": -0.15,
+            "z": -0.26
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.6,
+              "height": 0.12,
+              "depth": 0.55
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": -0.42,
+            "z": -0.05
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.04,
+              "height": 0.95
+            }
+          },
+          "offset": {
+            "x": 0.6,
+            "y": -0.5,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": 90.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.04,
+              "height": 0.95
+            }
+          },
+          "offset": {
+            "x": -0.6,
+            "y": -0.5,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": 90.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.04,
+              "height": 1.24
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": -0.5,
+            "z": 0.45
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 90.0
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.12,
+              "height": 0.04
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.2,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": 60.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "dark"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "base",
+        "position": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -0.45
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "command",
+        "crewCapacity": 1,
+        "reactionTorque": 1500.0,
+        "providesControl": true
+      }
+    ]
+  },
+  {
+    "id": "wheel-small",
+    "title": "Scout Wheel",
+    "category": "ground",
+    "dryMass": 50.0,
+    "description": "Small driven wheel for light rovers. Quick to spin up; small stones feel large.",
+    "crashTolerance": 14.0,
+    "dragCoefficient": 0.5,
+    "mesh": {
+      "type": "sphere",
+      "radius": 0.25
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.06,
+              "height": 0.3
+            }
+          },
+          "offset": {
+            "x": -0.13,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 90.0
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "compound",
+            "pieces": [
+              {
+                "model": {
+                  "type": "tyre",
+                  "radius": 0.25,
+                  "width": 0.18,
+                  "lugs": 12,
+                  "lugDepth": 0.028
+                },
+                "tint": "rubber",
+                "role": "steerSpin"
+              },
+              {
+                "model": {
+                  "type": "primitive",
+                  "mesh": {
+                    "type": "cylinder",
+                    "radius": 0.1375,
+                    "height": 0.153
+                  }
+                },
+                "rotation": {
+                  "x": 0.0,
+                  "y": 0.0,
+                  "z": 90.0
+                },
+                "tint": "light",
+                "role": "steerSpin"
+              },
+              {
+                "model": {
+                  "type": "primitive",
+                  "mesh": {
+                    "type": "cylinder",
+                    "radius": 0.045,
+                    "height": 0.189
+                  }
+                },
+                "rotation": {
+                  "x": 0.0,
+                  "y": 0.0,
+                  "z": 90.0
+                },
+                "tint": "metal",
+                "role": "steerSpin"
+              }
+            ]
+          },
+          "role": "suspension",
+          "axis": {
+            "x": -1.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "root",
+        "position": {
+          "x": -0.25,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": -1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "wheel",
+        "radius": 0.25,
+        "motorForce": 1800.0,
+        "steerable": true,
+        "steeringRange": 30.0,
+        "rollingResistance": 0.06,
+        "suspensionTravel": 0.2,
+        "springRate": 40000.0,
+        "damping": 4000.0,
+        "brakeFriction": 0.35,
+        "topSpeed": 14.0
+      }
+    ]
+  },
+  {
+    "id": "wheel-large",
+    "title": "Crawler Wheel",
+    "category": "ground",
+    "dryMass": 210.0,
+    "description": "Big lugged off-road wheel with long travel. Climbs what the others will not, and carries weight doing it.",
+    "crashTolerance": 14.0,
+    "dragCoefficient": 0.5,
+    "mesh": {
+      "type": "sphere",
+      "radius": 0.55
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.06,
+              "height": 0.3
+            }
+          },
+          "offset": {
+            "x": -0.43000000000000005,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 90.0
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "compound",
+            "pieces": [
+              {
+                "model": {
+                  "type": "tyre",
+                  "radius": 0.55,
+                  "width": 0.42,
+                  "lugs": 16,
+                  "lugDepth": 0.061
+                },
+                "tint": "rubber",
+                "role": "steerSpin"
+              },
+              {
+                "model": {
+                  "type": "primitive",
+                  "mesh": {
+                    "type": "cylinder",
+                    "radius": 0.30250000000000005,
+                    "height": 0.357
+                  }
+                },
+                "rotation": {
+                  "x": 0.0,
+                  "y": 0.0,
+                  "z": 90.0
+                },
+                "tint": "light",
+                "role": "steerSpin"
+              },
+              {
+                "model": {
+                  "type": "primitive",
+                  "mesh": {
+                    "type": "cylinder",
+                    "radius": 0.099,
+                    "height": 0.441
+                  }
+                },
+                "rotation": {
+                  "x": 0.0,
+                  "y": 0.0,
+                  "z": 90.0
+                },
+                "tint": "metal",
+                "role": "steerSpin"
+              }
+            ]
+          },
+          "role": "suspension",
+          "axis": {
+            "x": -1.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "root",
+        "position": {
+          "x": -0.55,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": -1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "wheel",
+        "radius": 0.55,
+        "motorForce": 6500.0,
+        "steerable": true,
+        "steeringRange": 30.0,
+        "rollingResistance": 0.06,
+        "suspensionTravel": 0.35,
+        "springRate": 140000.0,
+        "damping": 14000.0,
+        "brakeFriction": 0.35,
+        "topSpeed": 18.0
+      }
+    ]
+  },
+  {
+    "id": "rack-cargo",
+    "title": "Cargo Rack",
+    "category": "structural",
+    "dryMass": 80.0,
+    "description": "A railed platform for carrying things. Mounts on a deck.",
+    "crashTolerance": 12.0,
+    "dragCoefficient": 0.5,
+    "mesh": {
+      "type": "box",
+      "width": 1.6,
+      "height": 1.2,
+      "depth": 0.4
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 1.6,
+              "height": 1.2,
+              "depth": 0.08
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": -0.16
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.03,
+              "height": 1.2
+            }
+          },
+          "offset": {
+            "x": 0.78,
+            "y": 0.0,
+            "z": 0.12
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.03,
+              "height": 1.2
+            }
+          },
+          "offset": {
+            "x": -0.78,
+            "y": 0.0,
+            "z": 0.12
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.03,
+              "height": 0.32
+            }
+          },
+          "offset": {
+            "x": 0.78,
+            "y": 0.58,
+            "z": -0.02
+          },
+          "rotation": {
+            "x": 90.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.03,
+              "height": 0.32
+            }
+          },
+          "offset": {
+            "x": 0.78,
+            "y": -0.58,
+            "z": -0.02
+          },
+          "rotation": {
+            "x": 90.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.03,
+              "height": 0.32
+            }
+          },
+          "offset": {
+            "x": -0.78,
+            "y": 0.58,
+            "z": -0.02
+          },
+          "rotation": {
+            "x": 90.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.03,
+              "height": 0.32
+            }
+          },
+          "offset": {
+            "x": -0.78,
+            "y": -0.58,
+            "z": -0.02
+          },
+          "rotation": {
+            "x": 90.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "metal"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "base",
+        "position": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -0.2
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": []
+  },
+  {
+    "id": "light-bar",
+    "title": "Light Bar",
+    "category": "utility",
+    "dryMass": 15.0,
+    "description": "A row of lamps. For looking at, mostly - but it does make a rover look like it means it.",
+    "crashTolerance": 10.0,
+    "dragCoefficient": 0.4,
+    "mesh": {
+      "type": "box",
+      "width": 1.2,
+      "height": 0.15,
+      "depth": 0.15
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 1.2,
+              "height": 0.12,
+              "depth": 0.12
+            }
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.2,
+              "height": 0.04,
+              "depth": 0.09
+            }
+          },
+          "offset": {
+            "x": -0.4,
+            "y": 0.07,
+            "z": 0.0
+          },
+          "tint": "light"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.2,
+              "height": 0.04,
+              "depth": 0.09
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.07,
+            "z": 0.0
+          },
+          "tint": "light"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.2,
+              "height": 0.04,
+              "depth": 0.09
+            }
+          },
+          "offset": {
+            "x": 0.4,
+            "y": 0.07,
+            "z": 0.0
+          },
+          "tint": "light"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "base",
+        "position": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -0.075
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": []
+  },
+  {
+    "id": "hull-bow",
+    "title": "Bow Section",
+    "category": "structural",
+    "dryMass": 350.0,
+    "description": "The front of a hull, raked up to a stem. Parts the water; joins a mid section or a stern behind it.",
+    "crashTolerance": 14.0,
+    "dragCoefficient": 0.4,
+    "mesh": {
+      "type": "box",
+      "width": 2.4,
+      "height": 3.0,
+      "depth": 1.2
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "loft",
+            "sections": [
+              {
+                "y": -1.5,
+                "halfWidth": 1.2,
+                "top": 0.6,
+                "bottom": -0.6,
+                "vee": 0.25,
+                "round": 0.35
+              },
+              {
+                "y": -0.2,
+                "halfWidth": 1.164,
+                "top": 0.6,
+                "bottom": -0.57,
+                "vee": 0.35,
+                "round": 0.35
+              },
+              {
+                "y": 0.9,
+                "halfWidth": 0.84,
+                "top": 0.65,
+                "bottom": -0.36,
+                "vee": 0.6,
+                "round": 0.35
+              },
+              {
+                "y": 1.5,
+                "halfWidth": 0.12,
+                "top": 0.72,
+                "bottom": 0.12,
+                "vee": 0.3,
+                "round": 0.35
+              }
+            ],
+            "around": 14,
+            "capped": true
+          }
+        },
+        {
+          "model": {
+            "type": "loft",
+            "sections": [
+              {
+                "y": -1.5,
+                "halfWidth": 1.23,
+                "top": 0.58,
+                "bottom": 0.48,
+                "vee": 0.0,
+                "round": 0.2
+              },
+              {
+                "y": -0.2,
+                "halfWidth": 1.194,
+                "top": 0.58,
+                "bottom": 0.48,
+                "vee": 0.0,
+                "round": 0.2
+              },
+              {
+                "y": 0.9,
+                "halfWidth": 0.87,
+                "top": 0.63,
+                "bottom": 0.53,
+                "vee": 0.0,
+                "round": 0.2
+              },
+              {
+                "y": 1.5,
+                "halfWidth": 0.15,
+                "top": 0.7,
+                "bottom": 0.6,
+                "vee": 0.0,
+                "round": 0.2
+              }
+            ],
+            "around": 8,
+            "capped": true
+          },
+          "tint": "light"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "bottom",
+        "position": {
+          "x": 0.0,
+          "y": -1.5,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 1
+      },
+      {
+        "id": "deck",
+        "position": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.6
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "keel",
+        "position": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -0.6
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "side-right",
+        "position": {
+          "x": 1.2,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "side-left",
+        "position": {
+          "x": -1.2,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": -1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "buoyancy",
+        "displacedVolume": 5.4
+      }
+    ]
+  },
+  {
+    "id": "hull-mid",
+    "title": "Mid Section",
+    "category": "structural",
+    "dryMass": 400.0,
+    "description": "A plain length of hull. Add as many as the boat needs to be long.",
+    "crashTolerance": 14.0,
+    "dragCoefficient": 0.4,
+    "mesh": {
+      "type": "box",
+      "width": 2.4,
+      "height": 3.0,
+      "depth": 1.2
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "loft",
+            "sections": [
+              {
+                "y": -1.5,
+                "halfWidth": 1.2,
+                "top": 0.6,
+                "bottom": -0.6,
+                "vee": 0.25,
+                "round": 0.35
+              },
+              {
+                "y": 1.5,
+                "halfWidth": 1.2,
+                "top": 0.6,
+                "bottom": -0.6,
+                "vee": 0.25,
+                "round": 0.35
+              }
+            ],
+            "around": 14,
+            "capped": true
+          }
+        },
+        {
+          "model": {
+            "type": "loft",
+            "sections": [
+              {
+                "y": -1.5,
+                "halfWidth": 1.23,
+                "top": 0.58,
+                "bottom": 0.48,
+                "vee": 0.0,
+                "round": 0.2
+              },
+              {
+                "y": 1.5,
+                "halfWidth": 1.23,
+                "top": 0.58,
+                "bottom": 0.48,
+                "vee": 0.0,
+                "round": 0.2
+              }
+            ],
+            "around": 8,
+            "capped": true
+          },
+          "tint": "light"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "top",
+        "position": {
+          "x": 0.0,
+          "y": 1.5,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "size": 1
+      },
+      {
+        "id": "bottom",
+        "position": {
+          "x": 0.0,
+          "y": -1.5,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 1
+      },
+      {
+        "id": "deck",
+        "position": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.6
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "keel",
+        "position": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -0.6
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "side-right",
+        "position": {
+          "x": 1.2,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "side-left",
+        "position": {
+          "x": -1.2,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": -1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "buoyancy",
+        "displacedVolume": 8.6
+      }
+    ]
+  },
+  {
+    "id": "hull-stern",
+    "title": "Stern Section",
+    "category": "structural",
+    "dryMass": 280.0,
+    "description": "The back of a hull: a flat transom for a motor, and room above for a wheelhouse.",
+    "crashTolerance": 14.0,
+    "dragCoefficient": 0.4,
+    "mesh": {
+      "type": "box",
+      "width": 2.4,
+      "height": 2.0,
+      "depth": 1.2
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "loft",
+            "sections": [
+              {
+                "y": -1.0,
+                "halfWidth": 1.14,
+                "top": 0.6,
+                "bottom": -0.48,
+                "vee": 0.15,
+                "round": 0.35
+              },
+              {
+                "y": 1.0,
+                "halfWidth": 1.2,
+                "top": 0.6,
+                "bottom": -0.6,
+                "vee": 0.25,
+                "round": 0.35
+              }
+            ],
+            "around": 14,
+            "capped": true
+          }
+        },
+        {
+          "model": {
+            "type": "loft",
+            "sections": [
+              {
+                "y": -1.0,
+                "halfWidth": 1.17,
+                "top": 0.58,
+                "bottom": 0.48,
+                "vee": 0.0,
+                "round": 0.2
+              },
+              {
+                "y": 1.0,
+                "halfWidth": 1.23,
+                "top": 0.58,
+                "bottom": 0.48,
+                "vee": 0.0,
+                "round": 0.2
+              }
+            ],
+            "around": 8,
+            "capped": true
+          },
+          "tint": "light"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "top",
+        "position": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "size": 1
+      },
+      {
+        "id": "transom",
+        "position": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 1
+      },
+      {
+        "id": "deck",
+        "position": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.6
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "keel",
+        "position": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -0.6
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "side-right",
+        "position": {
+          "x": 1.2,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "side-left",
+        "position": {
+          "x": -1.2,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": -1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "buoyancy",
+        "displacedVolume": 5.6
+      }
+    ]
+  },
+  {
+    "id": "hull-skiff",
+    "title": "Skiff Hull",
+    "category": "structural",
+    "dryMass": 250.0,
+    "description": "A small V-hulled boat. Cuts through a chop the punt would slap across; tips more readily too.",
+    "crashTolerance": 14.0,
+    "dragCoefficient": 0.4,
+    "mesh": {
+      "type": "box",
+      "width": 1.6,
+      "height": 4.5,
+      "depth": 0.8
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "loft",
+            "sections": [
+              {
+                "y": -2.25,
+                "halfWidth": 0.75,
+                "top": 0.4,
+                "bottom": -0.3,
+                "vee": 0.3,
+                "round": 0.35
+              },
+              {
+                "y": -0.5,
+                "halfWidth": 0.8,
+                "top": 0.4,
+                "bottom": -0.4,
+                "vee": 0.55,
+                "round": 0.35
+              },
+              {
+                "y": 1.2,
+                "halfWidth": 0.62,
+                "top": 0.44,
+                "bottom": -0.3,
+                "vee": 0.75,
+                "round": 0.35
+              },
+              {
+                "y": 2.25,
+                "halfWidth": 0.1,
+                "top": 0.5,
+                "bottom": 0.15,
+                "vee": 0.3,
+                "round": 0.35
+              }
+            ],
+            "around": 14,
+            "capped": true
+          }
+        },
+        {
+          "model": {
+            "type": "loft",
+            "sections": [
+              {
+                "y": -2.25,
+                "halfWidth": 0.78,
+                "top": 0.38,
+                "bottom": 0.28,
+                "vee": 0.0,
+                "round": 0.2
+              },
+              {
+                "y": -0.5,
+                "halfWidth": 0.8300000000000001,
+                "top": 0.38,
+                "bottom": 0.28,
+                "vee": 0.0,
+                "round": 0.2
+              },
+              {
+                "y": 1.2,
+                "halfWidth": 0.65,
+                "top": 0.42,
+                "bottom": 0.32,
+                "vee": 0.0,
+                "round": 0.2
+              },
+              {
+                "y": 2.25,
+                "halfWidth": 0.13,
+                "top": 0.48,
+                "bottom": 0.38,
+                "vee": 0.0,
+                "round": 0.2
+              }
+            ],
+            "around": 8,
+            "capped": true
+          },
+          "tint": "light"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "transom",
+        "position": {
+          "x": 0.0,
+          "y": -2.25,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 1
+      },
+      {
+        "id": "deck",
+        "position": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.4
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "keel",
+        "position": {
+          "x": 0.0,
+          "y": -1.2,
+          "z": -0.4
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "keel-front",
+        "position": {
+          "x": 0.0,
+          "y": 0.8,
+          "z": -0.4
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "buoyancy",
+        "displacedVolume": 4.2
+      }
+    ]
+  },
+  {
+    "id": "hull-cutter",
+    "title": "Cutter Hull",
+    "category": "structural",
+    "dryMass": 2200.0,
+    "description": "A long, deep, keeled hull for open water. Carries a lot, holds a course, and turns like a ship.",
+    "crashTolerance": 14.0,
+    "dragCoefficient": 0.4,
+    "mesh": {
+      "type": "box",
+      "width": 3.0,
+      "height": 10.0,
+      "depth": 1.6
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "loft",
+            "sections": [
+              {
+                "y": -5.0,
+                "halfWidth": 1.4,
+                "top": 0.8,
+                "bottom": -0.6,
+                "vee": 0.3,
+                "round": 0.35
+              },
+              {
+                "y": -3.0,
+                "halfWidth": 1.5,
+                "top": 0.8,
+                "bottom": -0.8,
+                "vee": 0.45,
+                "round": 0.35
+              },
+              {
+                "y": 1.5,
+                "halfWidth": 1.5,
+                "top": 0.82,
+                "bottom": -0.8,
+                "vee": 0.55,
+                "round": 0.35
+              },
+              {
+                "y": 3.8,
+                "halfWidth": 1.0,
+                "top": 0.88,
+                "bottom": -0.5,
+                "vee": 0.75,
+                "round": 0.35
+              },
+              {
+                "y": 5.0,
+                "halfWidth": 0.12,
+                "top": 0.95,
+                "bottom": 0.3,
+                "vee": 0.3,
+                "round": 0.35
+              }
+            ],
+            "around": 14,
+            "capped": true
+          }
+        },
+        {
+          "model": {
+            "type": "loft",
+            "sections": [
+              {
+                "y": -5.0,
+                "halfWidth": 1.43,
+                "top": 0.78,
+                "bottom": 0.68,
+                "vee": 0.0,
+                "round": 0.2
+              },
+              {
+                "y": -3.0,
+                "halfWidth": 1.53,
+                "top": 0.78,
+                "bottom": 0.68,
+                "vee": 0.0,
+                "round": 0.2
+              },
+              {
+                "y": 1.5,
+                "halfWidth": 1.53,
+                "top": 0.7999999999999999,
+                "bottom": 0.7,
+                "vee": 0.0,
+                "round": 0.2
+              },
+              {
+                "y": 3.8,
+                "halfWidth": 1.03,
+                "top": 0.86,
+                "bottom": 0.76,
+                "vee": 0.0,
+                "round": 0.2
+              },
+              {
+                "y": 5.0,
+                "halfWidth": 0.15,
+                "top": 0.9299999999999999,
+                "bottom": 0.83,
+                "vee": 0.0,
+                "round": 0.2
+              }
+            ],
+            "around": 8,
+            "capped": true
+          },
+          "tint": "light"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "transom",
+        "position": {
+          "x": 0.0,
+          "y": -5.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 1
+      },
+      {
+        "id": "deck",
+        "position": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.8
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "deck-front",
+        "position": {
+          "x": 0.0,
+          "y": 2.8,
+          "z": 0.8
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "deck-rear",
+        "position": {
+          "x": 0.0,
+          "y": -3.0,
+          "z": 0.8
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "keel",
+        "position": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -0.8
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "keel-rear",
+        "position": {
+          "x": 0.0,
+          "y": -4.2,
+          "z": -0.8
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "side-right",
+        "position": {
+          "x": 1.5,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "side-left",
+        "position": {
+          "x": -1.5,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": -1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "buoyancy",
+        "displacedVolume": 33.0
+      }
+    ]
+  },
+  {
+    "id": "cabin-wheelhouse",
+    "title": "Wheelhouse",
+    "category": "command",
+    "dryMass": 700.0,
+    "description": "A cabin with windows all round, for steering a boat from somewhere dry.",
+    "crashTolerance": 14.0,
+    "dragCoefficient": 0.5,
+    "mesh": {
+      "type": "box",
+      "width": 1.8,
+      "height": 2.0,
+      "depth": 1.6
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "loft",
+            "sections": [
+              {
+                "y": -1.0,
+                "halfWidth": 0.9,
+                "top": 0.7,
+                "bottom": -0.8,
+                "vee": 0.0,
+                "round": 0.2
+              },
+              {
+                "y": 0.8,
+                "halfWidth": 0.9,
+                "top": 0.7,
+                "bottom": -0.8,
+                "vee": 0.0,
+                "round": 0.2
+              },
+              {
+                "y": 1.0,
+                "halfWidth": 0.86,
+                "top": 0.5,
+                "bottom": -0.8,
+                "vee": 0.0,
+                "round": 0.2
+              }
+            ],
+            "around": 12,
+            "capped": true
+          }
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 1.95,
+              "height": 2.15,
+              "depth": 0.1
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.78
+          },
+          "tint": "light"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 1.5,
+              "height": 0.04,
+              "depth": 0.4
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 1.0,
+            "z": 0.3
+          },
+          "rotation": {
+            "x": 20.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "glass"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.04,
+              "height": 1.4,
+              "depth": 0.4
+            }
+          },
+          "offset": {
+            "x": 0.91,
+            "y": 0.0,
+            "z": 0.3
+          },
+          "tint": "glass"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.04,
+              "height": 1.4,
+              "depth": 0.4
+            }
+          },
+          "offset": {
+            "x": -0.91,
+            "y": 0.0,
+            "z": 0.3
+          },
+          "tint": "glass"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "base",
+        "position": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -0.8
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "command",
+        "crewCapacity": 2,
+        "reactionTorque": 4000.0,
+        "providesControl": true
+      },
+      {
+        "type": "battery",
+        "capacity": 60.0
+      }
+    ]
+  },
+  {
+    "id": "motor-outboard",
+    "title": "Outboard Motor",
+    "category": "propulsion",
+    "dryMass": 180.0,
+    "description": "A motor hung off the transom, its propeller in the water below. Swings to steer; pushes only while the propeller is wet.",
+    "crashTolerance": 10.0,
+    "dragCoefficient": 0.4,
+    "mesh": {
+      "type": "box",
+      "width": 0.5,
+      "height": 0.6,
+      "depth": 1.8
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "compound",
+            "pieces": [
+              {
+                "model": {
+                  "type": "primitive",
+                  "mesh": {
+                    "type": "box",
+                    "width": 0.46,
+                    "height": 0.56,
+                    "depth": 0.5
+                  }
+                },
+                "offset": {
+                  "x": 0.0,
+                  "y": -0.05,
+                  "z": 0.55
+                }
+              },
+              {
+                "model": {
+                  "type": "primitive",
+                  "mesh": {
+                    "type": "box",
+                    "width": 0.12,
+                    "height": 0.2,
+                    "depth": 1.1
+                  }
+                },
+                "offset": {
+                  "x": 0.0,
+                  "y": -0.08,
+                  "z": -0.2
+                },
+                "tint": "metal"
+              },
+              {
+                "model": {
+                  "type": "primitive",
+                  "mesh": {
+                    "type": "box",
+                    "width": 0.16,
+                    "height": 0.42,
+                    "depth": 0.18
+                  }
+                },
+                "offset": {
+                  "x": 0.0,
+                  "y": -0.1,
+                  "z": -0.8
+                },
+                "tint": "dark"
+              },
+              {
+                "model": {
+                  "type": "prop",
+                  "radius": 0.22,
+                  "blades": 3,
+                  "chord": 0.08,
+                  "pitchDegrees": 25.0
+                },
+                "offset": {
+                  "x": 0.0,
+                  "y": -0.33,
+                  "z": -0.85
+                },
+                "tint": "metal",
+                "role": "spin",
+                "axis": {
+                  "x": 0.0,
+                  "y": 1.0,
+                  "z": 0.0
+                }
+              }
+            ]
+          },
+          "role": "gimbal",
+          "pivot": {
+            "x": 0.0,
+            "y": 0.2,
+            "z": 0.0
+          }
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.3,
+              "height": 0.12,
+              "depth": 0.3
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.24,
+            "z": 0.35
+          },
+          "tint": "dark"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "top",
+        "position": {
+          "x": 0.0,
+          "y": 0.3,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "size": 1
+      }
+    ],
+    "modules": [
+      {
+        "type": "engine",
+        "thrustVacuum": 5000.0,
+        "thrustSeaLevel": 5000.0,
+        "ispVacuum": 3000.0,
+        "ispSeaLevel": 3000.0,
+        "gimbalRange": 12.0,
+        "propellant": "propellant",
+        "thrustDirection": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "minThrottle": 0.0,
+        "waterProp": {
+          "x": 0.0,
+          "y": -0.33,
+          "z": -0.85
+        }
+      },
+      {
+        "type": "tank",
+        "resource": "propellant",
+        "capacity": 40.0
+      }
+    ]
+  },
+  {
+    "id": "rudder",
+    "title": "Rudder",
+    "category": "aero",
+    "dryMass": 40.0,
+    "description": "A blade under the stern that turns with the steering. Water is dense: a small rudder steers a big boat.",
+    "crashTolerance": 10.0,
+    "dragCoefficient": 0.2,
+    "mesh": {
+      "type": "box",
+      "width": 0.8,
+      "height": 0.6,
+      "depth": 0.06
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "fin",
+            "rootChord": 0.2,
+            "tipChord": 0.16,
+            "span": 0.8,
+            "sweep": 0.04,
+            "thickness": 0.06
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.2,
+            "z": 0.0
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "fin",
+            "rootChord": 0.4,
+            "tipChord": 0.34,
+            "span": 0.8,
+            "sweep": 0.06,
+            "thickness": 0.04
+          },
+          "offset": {
+            "x": 0.0,
+            "y": -0.1,
+            "z": 0.0
+          },
+          "tint": "dark",
+          "role": "hinged",
+          "axis": {
+            "x": 1.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "pivot": {
+            "x": 0.0,
+            "y": 0.1,
+            "z": 0.0
+          }
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "root",
+        "position": {
+          "x": -0.4,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": -1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "hydroSurface",
+        "liftCoefficient": 1.2,
+        "area": 0.45,
+        "controllable": true,
+        "controlAuthority": 1.0,
+        "maxDeflection": 30.0,
+        "halfDepth": 0.4
+      }
+    ]
+  },
+  {
+    "id": "keel",
+    "title": "Keel",
+    "category": "aero",
+    "dryMass": 300.0,
+    "description": "A deep fin under the hull. Stops the boat sliding sideways in a turn or a crosswind, and its weight keeps it upright.",
+    "crashTolerance": 12.0,
+    "dragCoefficient": 0.2,
+    "mesh": {
+      "type": "box",
+      "width": 1.0,
+      "height": 3.0,
+      "depth": 0.1
+    },
+    "model": {
+      "type": "fin",
+      "rootChord": 3.0,
+      "tipChord": 2.0,
+      "span": 1.0,
+      "sweep": 0.9,
+      "thickness": 0.1
+    },
+    "attachNodes": [
+      {
+        "id": "root",
+        "position": {
+          "x": -0.5,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": -1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "hydroSurface",
+        "liftCoefficient": 1.2,
+        "area": 2.6,
+        "controllable": false,
+        "controlAuthority": 1.0,
+        "maxDeflection": 0.0,
+        "halfDepth": 0.5
+      }
+    ]
+  },
+  {
+    "id": "tail-stabilator",
+    "title": "Stabilator",
+    "category": "aero",
+    "dryMass": 90.0,
+    "description": "An all-moving tailplane: the whole surface turns, not a strip at its back. Enough authority to lift a heavy nose off the runway.",
+    "crashTolerance": 10.0,
+    "dragCoefficient": 0.2,
+    "mesh": {
+      "type": "box",
+      "width": 2.0,
+      "height": 1.1,
+      "depth": 0.1
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.05,
+              "height": 0.3
+            }
+          },
+          "offset": {
+            "x": -0.9,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 90.0
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "fin",
+            "rootChord": 1.1,
+            "tipChord": 0.6,
+            "span": 2.0,
+            "sweep": 0.5,
+            "thickness": 0.08
+          },
+          "role": "hinged",
+          "axis": {
+            "x": 1.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "pivot": {
+            "x": 0.0,
+            "y": 0.2,
+            "z": 0.0
+          }
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "root",
+        "position": {
+          "x": -1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": -1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "aeroSurface",
+        "liftCoefficient": 1.3,
+        "area": 2.2,
+        "controllable": true,
+        "controlAuthority": 0.8,
+        "maxDeflection": 20.0
       }
     ]
   }

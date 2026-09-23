@@ -48,6 +48,12 @@ data class Engine(
     val thrustDirection: SerialVec3 = Vec3(0.0, 1.0, 0.0),
     /** Minimum throttle as a fraction; solid motors would set this to 1.0. */
     val minThrottle: Double = 0.0,
+    /**
+     * For a propeller that works in water - an outboard motor: where its
+     * propeller is, part-local. The engine pushes only while that point is
+     * under water, and in proportion to how far under it is.
+     */
+    val waterProp: SerialVec3? = null,
 ) : PartModule
 
 /** Stores [capacity] units of [resource]. */
@@ -110,6 +116,32 @@ data class AeroSurface(
     val maxDeflection: Double = 20.0,
 ) : PartModule
 
+/**
+ * A rudder, keel or hydrofoil: a flying surface for water.
+ *
+ * The same flat-plate physics as [AeroSurface], with water's density, and only
+ * for as much of it as is under the surface. Water is eight hundred times
+ * denser than air, so a keel a fraction of a sail's size is what stops a boat
+ * sliding sideways, and a rudder the size of a door steers a ship.
+ *
+ * The plate lies in the part's X-Y plane - span along X, chord along Y - as a
+ * fin's does. [controllable] surfaces deflect with the stick by the same rule
+ * as aircraft surfaces: which way follows from where it is bolted, so a
+ * rudder under the stern yaws the boat.
+ */
+@Serializable
+@SerialName("hydroSurface")
+data class HydroSurface(
+    val liftCoefficient: Double = 1.2,
+    /** Reference area, m². */
+    val area: Double,
+    val controllable: Boolean = false,
+    val controlAuthority: Double = 1.0,
+    val maxDeflection: Double = 30.0,
+    /** Half its depth, metres: how far either side of its centre it reaches. */
+    val halfDepth: Double = 0.5,
+) : PartModule
+
 /** Drag device. Inert until deployed, then dominant. */
 @Serializable
 @SerialName("parachute")
@@ -161,6 +193,18 @@ data class LandingLeg(
     val springRate: Double = 90_000.0,
     /** Damping, N per m/s. Without it the craft pogos off its own springs. */
     val damping: Double = 12_000.0,
+    /** Seconds from stowed to fully deployed. */
+    val deployTime: Double = 1.5,
+    /**
+     * Where it folds, in part space, and about which axis. Stowed, the leg
+     * is turned [stowedAngle] degrees about [foldAxis] through [hinge] from
+     * its deployed pose - and its feet are wherever that puts them, for the
+     * ground to meet as it meets anything else.
+     */
+    val hinge: SerialVec3 = Vec3(0.0, 0.0, 0.0),
+    val foldAxis: SerialVec3 = Vec3(0.0, 0.0, 1.0),
+    /** Zero: a leg that does not fold, whose feet are always where they are. */
+    val stowedAngle: Double = 0.0,
 ) : PartModule
 
 /**

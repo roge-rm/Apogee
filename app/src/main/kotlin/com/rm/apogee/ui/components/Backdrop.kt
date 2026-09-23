@@ -30,6 +30,7 @@ fun Backdrop(
     maxContentWidth: Dp = Dimens.MenuContentMaxWidth,
     content: @Composable (Modifier) -> Unit,
 ) {
+    val scroll = rememberScrollState()
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -42,12 +43,15 @@ fun Backdrop(
             // while the content centres itself in what the keyboard leaves.
             // Without it the join screen's Connect button sits under the
             // keyboard raised to type the address into the field above it.
-            .imePadding(),
+            .imePadding()
+            // On the full-screen box, not the content column: the bar sits at
+            // the screen's right edge, where a scroll bar is looked for.
+            .verticalScrollbar(scroll),
         contentAlignment = Alignment.Center,
     ) {
         Column(
             modifier = Modifier
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(scroll)
                 .padding(
                     horizontal = Dimens.ScreenPaddingH,
                     vertical = Dimens.ScreenPaddingV,

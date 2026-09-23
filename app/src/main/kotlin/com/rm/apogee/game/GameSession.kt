@@ -5,6 +5,7 @@ import com.rm.apogee.core.craft.CraftOrientation
 import com.rm.apogee.core.craft.StockCraft
 import com.rm.apogee.core.math.Quat
 import com.rm.apogee.core.math.Vec3
+import com.rm.apogee.core.orbit.CelestialBody
 import com.rm.apogee.core.orbit.Orbit
 import com.rm.apogee.core.orbit.SolarSystem
 import com.rm.apogee.core.part.PartCatalog
@@ -12,6 +13,7 @@ import com.rm.apogee.core.part.StockParts
 import com.rm.apogee.core.world.Command
 import com.rm.apogee.core.world.World
 import com.rm.apogee.core.world.VesselKinematics
+import com.rm.apogee.core.world.VesselPose
 import com.rm.apogee.net.ClientPrediction
 import com.rm.apogee.net.ClientVessel
 import com.rm.apogee.net.GameClient
@@ -25,6 +27,8 @@ import com.rm.apogee.net.Transport
 import com.rm.apogee.platform.PerfHints
 import com.rm.apogee.render.FrameBus
 import com.rm.apogee.render.RenderFrame
+import com.rm.apogee.render.PartAnim
+import com.rm.apogee.render.PartModels
 import com.rm.apogee.render.RenderItem
 import com.rm.apogee.render.StackCaps
 import com.rm.apogee.render.QualityTier
@@ -133,6 +137,13 @@ class GameSession private constructor(
     /** Players connected to the game this session is hosting. */
     val hostedPlayerCount: Int get() = hostedServer?.playerCount ?: 0
 
+    /** Runs [task] on the hosted server's tick thread, between steps; not at all when joined to someone else's. */
+    fun betweenTicks(task: () -> Unit): Boolean {
+        val server = hostedServer ?: return false
+        server.runBetweenTicks(task)
+        return true
+    }
+
     private val cameraPosition = Vec3()
     private val cameraRotation = Quat.identity()
     private val scratch = Vec3()
@@ -140,16 +151,10 @@ class GameSession private constructor(
     private val predictedRotation = Quat.identity()
     private val bodyRotation = Quat.identity()
     private val scratchCameraBodyFixed = Vec3()
+    private val scratchGroundVelocity = Vec3()
+    private val scratchWheelSpin = Vec3()
+    private val leaves = ArrayList<PartModels.Leaf>()
 
-    /** Radius of a sphere round [spec]'s centre containing all of it. */
-    private fun boundingRadius(spec: com.rm.apogee.core.part.MeshSpec): Double = when (spec) {
-        is com.rm.apogee.core.part.MeshSpec.Cylinder -> kotlin.math.hypot(spec.radius, spec.height * 0.5)
-        is com.rm.apogee.core.part.MeshSpec.Cone ->
-            kotlin.math.hypot(maxOf(spec.bottomRadius, spec.topRadius), spec.height * 0.5)
-        is com.rm.apogee.core.part.MeshSpec.Box ->
-            0.5 * kotlin.math.sqrt(spec.width * spec.width + spec.height * spec.height + spec.depth * spec.depth)
-        is com.rm.apogee.core.part.MeshSpec.Sphere -> spec.radius
-    }
     private val bodyFixedCamera = Vec3()
 
     /**
@@ -401,6 +406,9 @@ class GameSession private constructor(
         val snapshotAge = if (client.latestSnapshotNanos == 0L) 0.0
             else (System.nanoTime() - client.latestSnapshotNanos) / 1e9
         var renderTime = snapshotTime + snapshotAge
+        val animationNow = System.nanoTime()
+        animationDt = if (lastAnimationNanos == 0L) 0.0 else ((animationNow - lastAnimationNanos) / 1e9).coerceAtMost(0.1)
+        lastAnimationNanos = animationNow
         // Where the focused craft is drawn this frame - the prediction, not
         // the last snapshot - which is what the ground's detail follows.
         var focusDrawn: Vec3 = focusState.position
@@ -431,7 +439,7 @@ class GameSession private constructor(
             camera.solve(focusPosition, cameraPosition, cameraRotation)
             for (vessel in client.vessels) {
                 if (vessel.id == focusId) {
-                    appendVessel(vessel, items, predictedPosition, predictedRotation)
+                    appendVessel(vessel, items, attractor, predictedPosition, predictedRotation, predicted = prediction.isReady)
                 } else {
                     // Carried from its own snapshot to the frame's time along
                     // its velocity, which for a parked craft is the ground's.
@@ -439,7 +447,7 @@ class GameSession private constructor(
                     val state = observed.kinematics
                     val carry = (renderTime - observed.time).coerceIn(0.0, MAX_EXTRAPOLATION_SECONDS)
                     appendVessel(
-                        vessel, items,
+                        vessel, items, attractor,
                         Vec3().setTo(state.position).addScaledInPlace(state.velocity, carry),
                         stateOverride = state,
                     )
@@ -499,7 +507,7 @@ class GameSession private constructor(
         // any craft, allowing for its size, and the ground under the camera.
         var nearest = Double.MAX_VALUE
         for (item in items) {
-            val d = item.position.distanceTo(cameraPosition) - boundingRadius(item.meshSpec)
+            val d = item.position.distanceTo(cameraPosition) - PartModels.boundingRadius(item.shape)
             if (d < nearest) nearest = d
         }
         attractor.toBodyFixed(cameraPosition, bodyRotation, scratchCameraBodyFixed)
@@ -595,14 +603,33 @@ class GameSession private constructor(
         return if (prediction.isReady) predictedPosition else state.position
     }
 
+    /**
+     * What each craft's moving parts are doing, kept between frames: the
+     * pose being eased towards the latest one received, and each wheel's and
+     * propeller's accumulated turn.
+     */
+    private class VesselAnimation {
+        val target = VesselPose.Values()
+        val shown = VesselPose.Values()
+        var spin = DoubleArray(0)
+        var initialised = false
+    }
+
+    private val animations = HashMap<Long, VesselAnimation>()
+    private var lastAnimationNanos = 0L
+    private var animationDt = 0.0
+
     /** Turns one craft's design plus its motion into per-part draw items. */
     private fun appendVessel(
         vessel: ClientVessel,
         out: MutableList<RenderItem>,
+        attractor: CelestialBody,
         overridePosition: Vec3? = null,
         overrideRotation: Quat? = null,
         /** The state [overridePosition] was carried from, so both are the same sample. */
         stateOverride: VesselKinematics? = null,
+        /** Pose from the prediction replica, for the craft being flown. */
+        predicted: Boolean = false,
     ) {
         val state = stateOverride ?: vessel.latest ?: return
         val design = vessel.design
@@ -614,23 +641,85 @@ class GameSession private constructor(
         val position = overridePosition ?: state.position
         val rotation = overrideRotation ?: state.rotation
 
+        // The moving parts: from the replica for the craft being flown, so a
+        // surface moves the frame the stick does; from the server's pose for
+        // everyone else's, eased between snapshots.
+        val defs = design.parts.map { catalog[it.partId] }
+        val animation = animations.getOrPut(vessel.id) { VesselAnimation() }
+        val fresh = if (predicted) prediction.pose(animation.target)
+            else defs.all { it != null } && VesselPose.decode(defs.map { it!! }, state.pose, animation.target)
+        val n = design.parts.size
+        animation.shown.fit(n)
+        if (animation.spin.size != n) animation.spin = DoubleArray(n)
+        if (fresh) {
+            val ease = if (predicted || !animation.initialised) 1.0 else (animationDt / POSE_EASING_SECONDS).coerceIn(0.0, 1.0)
+            val t = animation.target; val sh = animation.shown
+            for (i in 0 until n) {
+                sh.deflection[i] += (t.deflection[i] - sh.deflection[i]) * ease
+                sh.steer[i] += (t.steer[i] - sh.steer[i]) * ease
+                sh.compression[i] += (t.compression[i] - sh.compression[i]) * ease
+                sh.deploy[i] += (t.deploy[i] - sh.deploy[i]) * ease
+                sh.gimbalPitch[i] += (t.gimbalPitch[i] - sh.gimbalPitch[i]) * ease
+                sh.gimbalYaw[i] += (t.gimbalYaw[i] - sh.gimbalYaw[i]) * ease
+            }
+            animation.initialised = true
+        }
+
+        // Wheels roll with the ground going by: angular velocity up x v / r,
+        // in the craft's own axes. Off the ground they coast to a stop.
+        attractor.surfaceVelocityAt(position, scratchGroundVelocity)
+        scratchGroundVelocity.mulInPlace(-1.0).addInPlace(state.velocity)
+        rotation.inverseRotate(scratchGroundVelocity, scratchGroundVelocity)
+        attractor.toBodyFixed(position, bodyRotation, scratchCameraBodyFixed)
+        val onGround = attractor.heightAboveTerrain(position, scratchCameraBodyFixed) < WHEEL_SPIN_HEIGHT
+        val up = design.orientation.up
+        scratchWheelSpin.setTo(up).crossInPlace(scratchGroundVelocity)
+
         val caps = StackCaps.forDesign(design, catalog)
         for ((index, placed) in design.parts.withIndex()) {
-            val def = catalog[placed.partId] ?: continue
+            val def = defs[index] ?: continue
 
             scratch.setTo(placed.position).subInPlace(centreOfMass)
             rotation.rotate(scratch, scratch)
             scratch.addInPlace(position)
 
-            out.add(
-                RenderItem(
-                    caps = caps[index],
-                    meshSpec = def.mesh,
-                    position = scratch.copy(),
-                    rotation = rotation * placed.rotation,
-                    color = colorFor(placed.partId),
-                )
+            val anim = PartAnim(
+                deflection = animation.shown.deflection[index],
+                steer = animation.shown.steer[index],
+                compression = animation.shown.compression[index],
+                deploy = animation.shown.deploy[index],
+                gimbalPitch = animation.shown.gimbalPitch[index],
+                gimbalYaw = animation.shown.gimbalYaw[index],
             )
+            PartModels.alignWheel(def, placed.rotation, design.orientation.forward, design.orientation.up, anim)
+            PartModels.alignSurface(def, placed.rotation, Vec3().setTo(placed.position).subInPlace(centreOfMass), anim)
+            val wheel = def.module<com.rm.apogee.core.part.Wheel>()
+            if (wheel != null && anim.wheelAlign != null) {
+                // The rate about this wheel's own axle, as mounted.
+                val axle = placed.rotation.rotate(anim.wheelAlign!!.rotate(Vec3(1.0, 0.0, 0.0)))
+                val rate = if (onGround) (scratchWheelSpin dot axle) / wheel.radius else 0.0
+                animation.spin[index] += rate * animationDt
+            } else if (def.module<com.rm.apogee.core.part.Engine>() != null) {
+                // A propeller turns with the throttle.
+                animation.spin[index] += state.throttle * PROPELLER_RATE * animationDt
+            }
+            anim.spin = animation.spin[index] % (2 * Math.PI)
+
+            val partRotation = rotation * placed.rotation
+            val body = com.rm.apogee.render.PartModels.bodyColour(placed.partId)
+            leaves.clear()
+            PartModels.expand(def, caps[index], anim, leaves)
+            for (leaf in leaves) {
+                out.add(
+                    RenderItem(
+                        caps = leaf.caps,
+                        shape = leaf.shape,
+                        position = partRotation.rotate(leaf.position).addInPlace(scratch),
+                        rotation = partRotation * leaf.rotation,
+                        color = PartModels.colour(leaf.tint, body),
+                    )
+                )
+            }
         }
     }
 
@@ -729,15 +818,6 @@ class GameSession private constructor(
         return if (total > 0.0) centre.mulInPlace(1.0 / total) else centre
     }
 
-    private fun colorFor(partId: String): FloatArray = when {
-        partId.startsWith("engine") -> floatArrayOf(0.45f, 0.45f, 0.50f, 1f)
-        partId.startsWith("tank") -> floatArrayOf(0.82f, 0.82f, 0.86f, 1f)
-        partId.startsWith("pod") -> floatArrayOf(0.70f, 0.62f, 1.00f, 1f)
-        partId.startsWith("decoupler") -> floatArrayOf(0.90f, 0.70f, 0.35f, 1f)
-        partId.startsWith("fin") -> floatArrayOf(0.60f, 0.20f, 0.20f, 1f)
-        partId.startsWith("parachute") -> floatArrayOf(0.55f, 0.55f, 0.60f, 1f)
-        else -> floatArrayOf(0.75f, 0.75f, 0.78f, 1f)
-    }
 
     companion object {
         /** ~60 Hz. The server streams slower; the renderer interpolates. */
@@ -749,6 +829,15 @@ class GameSession private constructor(
          * craft on through a stalled connection.
          */
         private const val MAX_EXTRAPOLATION_SECONDS = 0.25
+
+        /** How quickly another craft's moving parts catch up with a new snapshot. */
+        private const val POSE_EASING_SECONDS = 0.06
+
+        /** Wheels turn with the ground below this height; above it they coast. */
+        private const val WHEEL_SPIN_HEIGHT = 1.5
+
+        /** A propeller's turn at full throttle, radians per second. */
+        private const val PROPELLER_RATE = 60.0
 
         /**
          * Direction to the star, in the planet's frame.
@@ -854,6 +943,10 @@ class GameSession private constructor(
             world: World = World.default(catalog),
             /** Launch site for [design]; null lets the design choose. */
             siteId: String? = null,
+            /** Clear away the craft flown last time and start on a fresh one. */
+            freshFlight: Boolean = false,
+            /** Fly this craft of the player's, chosen from Resume Flight. */
+            resumeVessel: Long? = null,
         ): GameSession {
             val server = GameServer(
                 world = world,
@@ -863,6 +956,8 @@ class GameSession private constructor(
                     // A design of their own is coming; do not also hand them a
                     // stock rocket to leave standing on the pad.
                     assignCraftOnJoin = design == null,
+                    freshFlight = freshFlight && design == null && resumeVessel == null,
+                    resumeVessel = resumeVessel,
                 ),
             )
             val link = LoopbackTransportPair()

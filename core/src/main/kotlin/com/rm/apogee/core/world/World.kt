@@ -11,6 +11,7 @@ import com.rm.apogee.core.math.quatFromTo
 import com.rm.apogee.core.orbit.CelestialBody
 import com.rm.apogee.core.orbit.Orbit
 import com.rm.apogee.core.orbit.SolarSystem
+import com.rm.apogee.core.part.AeroSurface
 import com.rm.apogee.core.part.Decoupler
 import com.rm.apogee.core.part.LandingLeg
 import com.rm.apogee.core.part.PartCatalog
@@ -98,6 +99,14 @@ class World(
      * is decided by the terrain and needs no remembering.
      */
     val felledScatter: MutableSet<Long> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+
+    /**
+     * The craft each player last flew, by owner id. Saved with the world, so
+     * starting a fresh flight can clear away the one from the last session -
+     * and only that one: anything else a player owns is a base they left on
+     * purpose.
+     */
+    val lastFlown: MutableMap<String, Long> = java.util.concurrent.ConcurrentHashMap()
     private val contacts = GroundContact()
 
     private val pendingEvents = ArrayList<WorldEvent>()
@@ -326,6 +335,24 @@ class World(
             }
         }
         return -deepest
+    }
+
+    /**
+     * Stands [vessel] on the ground directly below it, as posed now: lifted
+     * or lowered until its lowest contact just touches, moving with the
+     * surface, not turning. For putting a craft down after changing its
+     * shape - deploying its legs in place, say - without dropping it or
+     * burying it.
+     */
+    fun setDown(vessel: Vessel) {
+        val attractor = system.body(vessel.referenceBodyId)
+        val up = Vec3().setTo(vessel.body.position).normalizeInPlace()
+        attractor.rotationAt(time, scratchRotation)
+        val bodyFixed = attractor.toBodyFixed(up, scratchRotation)
+        val ground = attractor.surfaceRadiusInBodyFrame(bodyFixed)
+        vessel.body.position.setTo(up).mulInPlace(ground + lowestExtentAlong(vessel, up))
+        attractor.surfaceVelocityAt(vessel.body.position, vessel.body.linearVelocity)
+        vessel.body.angularVelocity.setTo(Vec3.zero())
     }
 
     /**
@@ -762,9 +789,10 @@ class World(
             // pass and the gimbal inside thrust: all of them act on what
             // stability assist asks for this tick.
             stabilityAssist.update(vessel, dt)
+            updatePose(vessel, dt)
 
             forces.applyGravity(vessel, attractor)
-            forces.applyThrust(vessel, attractor, dt)
+            forces.applyThrust(vessel, attractor, dt, time)
             forces.applyDrag(vessel, attractor)
             for (i in 0 until forces.tornCount) {
                 val index = forces.tornParachutes[i]
@@ -850,6 +878,11 @@ class World(
      * for a tick or two on the way to settling.
      */
     private fun considerSleeping(vessel: Vessel, report: ContactReport) {
+        // Not while a leg is still swinging: asleep, it would stop half out.
+        if (legsMoving(vessel)) {
+            vessel.noteStillness(false, SLEEP_SETTLE_TICKS)
+            return
+        }
         val still = report.anchored || floatingStill(vessel)
         if (vessel.noteStillness(still, SLEEP_SETTLE_TICKS)) {
             // The pose was just integrated to the end of the tick, so it is
@@ -883,6 +916,64 @@ class World(
         attractor.angularVelocity(scratchSpin)
         scratchSpin.subInPlace(vessel.body.angularVelocity)
         return scratchSpin.length * vessel.contactRadius <= FLOATING_REST_SPEED
+    }
+
+    /**
+     * Poses the craft's moving parts for this tick: control surfaces to the
+     * stick (and stability assist), steerable wheels to the steering, legs
+     * towards deployed once staged. The forces and the contacts read these,
+     * and snapshots carry them, so what moves a craft and what everyone sees
+     * of it are the same numbers.
+     */
+    private fun updatePose(vessel: Vessel, dt: Double) {
+        vessel.fitPose()
+        val yaw = vessel.control.yaw
+        val forward = vessel.design.orientation.forward
+        vessel.centerOfMass(scratch)
+        for (i in vessel.defs.indices) {
+            val def = vessel.defs[i]
+            if (def.module<AeroSurface>()?.controllable == true ||
+                def.module<com.rm.apogee.core.part.HydroSurface>()?.controllable == true
+            ) {
+                vessel.surfaceDeflection[i] = forces.controlDeflection(vessel, i)
+            }
+            val engine = def.module<com.rm.apogee.core.part.Engine>()
+            if (engine != null && engine.gimbalRange > 0.0) {
+                // As Forces.gimballedDirection swings the thrust.
+                val burning = vessel.isWorking(i) && vessel.control.throttle > 0.0
+                vessel.gimbalPitch[i] = if (burning) -vessel.control.commandPitch.coerceIn(-1.0, 1.0) else 0.0
+                vessel.gimbalYaw[i] = if (burning) -vessel.control.commandYaw.coerceIn(-1.0, 1.0) else 0.0
+            }
+            val wheel = def.module<com.rm.apogee.core.part.Wheel>()
+            if (wheel != null) {
+                vessel.wheelSteer[i] = if (!wheel.steerable || yaw == 0.0) 0.0 else {
+                    // Front wheels into the corner, rear wheels away from it -
+                    // which end is judged from the centre of mass along the
+                    // craft's forward. See GroundContact.driveWheel.
+                    val ahead = (vessel.design.parts[i].position.x - scratch.x) * forward.x +
+                        (vessel.design.parts[i].position.y - scratch.y) * forward.y +
+                        (vessel.design.parts[i].position.z - scratch.z) * forward.z
+                    val end = if (ahead >= 0.0) 1.0 else -1.0
+                    Math.toRadians(wheel.steeringRange * yaw) * end
+                }
+            }
+            val leg = def.module<LandingLeg>()
+            if (leg != null) {
+                val target = if (vessel.isWorking(i)) 1.0 else 0.0
+                val step = dt / leg.deployTime.coerceAtLeast(1e-3)
+                val now = vessel.legDeploy[i]
+                vessel.legDeploy[i] = if (now < target) minOf(target, now + step) else maxOf(target, now - step)
+            }
+        }
+    }
+
+    private fun legsMoving(vessel: Vessel): Boolean {
+        for (i in vessel.defs.indices) {
+            if (vessel.defs[i].module<LandingLeg>() == null) continue
+            val target = if (vessel.isWorking(i)) 1.0 else 0.0
+            if (vessel.legDeploy.getOrElse(i) { target } != target) return true
+        }
+        return false
     }
 
     /** Wakes [id] if it is asleep, so a command always reaches a live craft. */
@@ -1018,6 +1109,7 @@ class World(
                 velocity = vessel.body.linearVelocity.copy(),
                 angularVelocity = vessel.body.angularVelocity.copy(),
                 throttle = vessel.control.throttle,
+                pose = VesselPose.encode(vessel),
             )
         },
     )
@@ -1046,6 +1138,7 @@ class World(
         catalogHash = catalog.contentHash,
         felledScatter = felledScatter.sorted(),
         terrainGeneration = TerrainField.GENERATION,
+        lastFlown = lastFlown.toMap(),
         universeTime = time,
         nextVesselId = nextVesselId,
         vessels = vesselsById.values.map { vessel ->
@@ -1069,6 +1162,7 @@ class World(
                 sasEnabled = vessel.control.sasEnabled,
                 brakes = vessel.control.brakes,
                 resources = vessel.resourceSnapshot().map { it.toList() },
+                legDeploy = vessel.legDeploy.toList(),
             )
         },
     )
@@ -1087,6 +1181,8 @@ class World(
         // Scatter ids name places on one generation's ground; on another they
         // would fell some unrelated tree, so a new terrain grows back whole.
         if (!terrainChanged) felledScatter.addAll(save.felledScatter)
+        lastFlown.clear()
+        lastFlown.putAll(save.lastFlown)
 
         if (!SaveMigration.canRead(save.formatVersion)) {
             return listOf(
@@ -1161,6 +1257,8 @@ class World(
             vessel.control.throttle = saved.throttle
             vessel.control.sasEnabled = saved.sasEnabled
             vessel.control.brakes = saved.brakes
+            vessel.fitPose()
+            saved.legDeploy.forEachIndexed { i, progress -> vessel.setLegDeploy(i, progress) }
             if (saved.resources.isNotEmpty()) {
                 vessel.restoreResources(saved.resources.map { it.toDoubleArray() })
             }
@@ -1277,6 +1375,28 @@ class World(
         // Exact, not case-insensitive: this is an opaque id now, not a name
         // someone typed, so folding case can only ever create a false match.
         else vesselsById.values.firstOrNull { it.owner == owner }
+
+    /**
+     * Puts a fresh copy of craft [id] back on its launch site - the site its
+     * design would launch from, on the nearest clear pad - fuelled and
+     * unstaged, with the same name and owner. The craft as it was is gone:
+     * a rover stuck in a ravine, a lander on its side. Returns the new craft,
+     * or null if there was no such craft.
+     */
+    fun resetToSite(id: VesselId): Vessel? {
+        val old = vesselsById[id] ?: return null
+        val design = old.design
+        val name = old.name
+        val owner = old.owner
+        val ownerName = old.ownerName
+        destroy(id, "reset to its launch site")
+        val fresh = spawnAtSite(design, launchSiteFor(design, catalog))
+        fresh.name = name
+        fresh.owner = owner
+        fresh.ownerName = ownerName
+        lastFlown.entries.filter { it.value == id.raw }.forEach { lastFlown[it.key] = fresh.id.raw }
+        return fresh
+    }
 
     fun destroy(id: VesselId, reason: String) {
         if (vesselsById.remove(id) != null) {

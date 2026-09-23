@@ -42,7 +42,7 @@ enum class PartCategory {
  * revolution, so a stack of parts is positioned purely by attachment nodes.
  */
 @Serializable
-sealed interface MeshSpec {
+sealed interface MeshSpec : Shape {
     @Serializable
     @SerialName("cylinder")
     data class Cylinder(val radius: Double, val height: Double) : MeshSpec
@@ -110,6 +110,11 @@ data class PartDef(
     /** Mass with all tanks empty, kg. */
     val dryMass: Double,
     val mesh: MeshSpec,
+    /**
+     * How it is drawn, if not simply as [mesh]. Looks only: every physical
+     * property still comes from [mesh]. See [ModelSpec].
+     */
+    val model: ModelSpec? = null,
     val attachNodes: List<AttachNode> = emptyList(),
     val modules: List<PartModule> = emptyList(),
     val description: String = "",

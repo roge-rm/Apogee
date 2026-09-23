@@ -75,6 +75,7 @@ class Hydrostatics {
                 if (depthFraction(vessel, i, point, attractor, ocean, time) > 0.0) submergedCells++
             }
         }
+        applySurfaces(vessel, attractor, ocean, time, dt)
         if (submergedCells == 0) return
 
         for (i in vessel.defs.indices) {
@@ -135,6 +136,79 @@ class Hydrostatics {
             }
         }
     }
+
+    /**
+     * Rudders, keels and foils: flat plates in the water.
+     *
+     * The plate's normal is its part's Z axis. Water flowing across it pushes
+     * back along that normal - the same sin(a)cos(a) flat-plate force a wing
+     * makes, from the flow across the plate times the flow along it - which is
+     * what stops a keeled boat sliding sideways while barely slowing it going
+     * ahead. A controllable one deflected adds the push its deflection makes,
+     * as an aircraft's control surfaces do. All of it scaled by how much of
+     * the plate is under.
+     */
+    private fun applySurfaces(vessel: Vessel, attractor: CelestialBody, ocean: com.rm.apogee.core.terrain.Ocean, time: Double, dt: Double) {
+        val body = vessel.body
+        for (i in vessel.defs.indices) {
+            val surface = vessel.defs[i].module<com.rm.apogee.core.part.HydroSurface>() ?: continue
+            vessel.partOffsetWorld(i, offset)
+            point.setTo(offset).addInPlace(body.position)
+            attractor.toBodyFixed(point, rotation, bodyFixed)
+            val depth = attractor.radius + ocean.surfaceHeight(bodyFixed, time) - point.length
+            val wetted = ((depth + surface.halfDepth) / (2 * surface.halfDepth)).coerceIn(0.0, 1.0)
+            if (wetted <= 0.0) continue
+
+            body.velocityAtOffset(offset, relative)
+            attractor.surfaceVelocityAt(point, waterVelocity)
+            relative.subInPlace(waterVelocity)
+            // The plate's axes in the world.
+            val placed = vessel.design.parts[i]
+            placed.rotation.rotate(Vec3.unitZ(), plateNormal)
+            body.orientation.rotate(plateNormal, plateNormal)
+            val across = relative dot plateNormal
+            val along = kotlin.math.sqrt(kotlin.math.max(0.0, relative.lengthSq - across * across))
+            val q = 0.5 * ocean.density * surface.area * surface.liftCoefficient * wetted
+            var push = -q * across * along
+            if (surface.controllable) {
+                val deflection = vessel.surfaceDeflection.getOrElse(i) { 0.0 }
+                val angle = Math.toRadians(surface.maxDeflection) * deflection
+                // Along the plate's own push direction for the command, as
+                // Forces.deflect: across the hull and the mounting radius.
+                push += q * surface.controlAuthority * relative.lengthSq *
+                    kotlin.math.sin(angle) * kotlin.math.cos(angle) * deflectSign(vessel, i)
+            }
+            // Never more than would stop the whole craft's motion across the
+            // plate in one tick: water is dense enough that an explicit step
+            // of the raw force could reverse it and fling the boat sideways.
+            val limit = body.mass * kotlin.math.abs(across) / dt + q * surface.controlAuthority * relative.lengthSq
+            if (kotlin.math.abs(push) > limit) push = kotlin.math.sign(push) * limit
+            force.setTo(plateNormal).mulInPlace(push)
+            body.applyForceAtOffset(force, offset)
+        }
+    }
+
+    /**
+     * Which way along the plate's normal a positive deflection pushes: the
+     * direction Forces.controlDeflection's rule gives - across the fuselage
+     * and the mounting radius - projected onto the plate's normal.
+     */
+    private fun deflectSign(vessel: Vessel, partIndex: Int): Double {
+        vessel.centerOfMass(scratchCentre)
+        scratchRadial.setTo(vessel.design.parts[partIndex].position).subInPlace(scratchCentre)
+        scratchRadial.y = 0.0
+        if (scratchRadial.length < 1e-6) return 0.0
+        scratchRadial.normalizeInPlace()
+        val push = Vec3(0.0, 1.0, 0.0).crossInPlace(scratchRadial)
+        vessel.design.parts[partIndex].rotation.rotate(Vec3.unitZ(), scratchPlate)
+        val dot = push dot scratchPlate
+        return if (dot >= 0.0) 1.0 else -1.0
+    }
+
+    private val plateNormal = Vec3()
+    private val scratchCentre = Vec3()
+    private val scratchRadial = Vec3()
+    private val scratchPlate = Vec3()
 
     /**
      * How much of the cell centred at [point] is under water, 0..1.

@@ -90,12 +90,15 @@ class CraftStoreTest {
 
     private fun names(store: CraftStore) = store.list().map { it.name }.toSet()
 
+    /** The craft built from the vehicle kits, offered from 0.3.5. */
+    private val KIT = setOf("Sparrow", "Buggy", "Hauler", "Skiff", "Cutter")
+
     @Test
     fun `a new store gets every stock design`() {
         val store = store()
         store.seedStockDesigns(catalog)
         assertEquals(
-            setOf("Starter I", "Stilt Lander", "Stilt Tug", "Trundler", "Plank", "Punt"),
+            setOf("Starter I", "Stilt Lander", "Stilt Tug", "Trundler", "Plank", "Punt") + KIT,
             names(store),
         )
     }
@@ -122,7 +125,7 @@ class CraftStoreTest {
 
         store.seedStockDesigns(catalog)
         assertEquals(
-            setOf("Starter I", "Stilt Lander", "Mine", "Trundler", "Plank", "Punt"),
+            setOf("Starter I", "Stilt Lander", "Mine", "Trundler", "Plank", "Punt") + KIT,
             names(store),
         )
     }

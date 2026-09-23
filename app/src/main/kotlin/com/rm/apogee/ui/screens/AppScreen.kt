@@ -19,6 +19,9 @@ enum class AppScreen {
     /** The builder (VAB). M2. */
     BUILDER,
 
+    /** The player's craft in the solo world: fly one, reset it, or remove it. */
+    RESUME_FLIGHT,
+
     /** The 3D world view. */
     FLIGHT;
 
@@ -28,7 +31,7 @@ enum class AppScreen {
             MENU -> null
             PLAY, SETTINGS, ABOUT -> MENU
             HOST_GAME, JOIN_GAME -> PLAY
-            BUILDER -> PLAY
+            BUILDER, RESUME_FLIGHT -> PLAY
             // Flight handles its own exit through a confirmation, so that a
             // stray back gesture cannot discard a flight in progress.
             FLIGHT -> null

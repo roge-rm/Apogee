@@ -51,7 +51,13 @@ fun PlayScreen(onNavigate: (AppScreen) -> Unit) {
             "Free Flight",
             { onNavigate(AppScreen.FLIGHT) },
             contentModifier,
-            subtitle = "Solo, running against a local server",
+            subtitle = "A fresh craft on the pad, in place of your last one",
+        )
+        ApogeeButton(
+            "Resume Flight",
+            { onNavigate(AppScreen.RESUME_FLIGHT) },
+            contentModifier,
+            subtitle = "Fly any craft you left out there, or tidy them away",
         )
         ApogeeButton(
             "Vehicle Assembly",

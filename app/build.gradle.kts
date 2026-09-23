@@ -24,8 +24,8 @@ android {
         // last one, not on every change. Note that this is not what decides
         // whether a client may join a server: Protocol.VERSION and the part
         // catalogue's content hash do that, and they move independently.
-        versionCode = 8
-        versionName = "0.3.2"
+        versionCode = 9
+        versionName = "0.3.5"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

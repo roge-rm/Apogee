@@ -105,7 +105,20 @@ data class VesselKinematics(
     val angularVelocity: SerialVec3,
     /** Fraction, for the plume. */
     val throttle: Double = 0.0,
-)
+    /** The craft's moving parts, packed by [VesselPose]. */
+    val pose: ByteArray = ByteArray(0),
+) {
+    // By content: an array compares by identity, and two snapshots of the
+    // same craft are equal whether or not they share one.
+    override fun equals(other: Any?): Boolean =
+        other is VesselKinematics && vessel == other.vessel && referenceBodyId == other.referenceBodyId &&
+            position == other.position && rotation == other.rotation && velocity == other.velocity &&
+            angularVelocity == other.angularVelocity && throttle == other.throttle &&
+            pose.contentEquals(other.pose)
+
+    override fun hashCode(): Int =
+        ((vessel.hashCode() * 31 + position.hashCode()) * 31 + rotation.hashCode()) * 31 + pose.contentHashCode()
+}
 
 @Serializable
 data class Snapshot(
@@ -236,5 +249,6 @@ object Protocol {
      */
     // 3: CraftDesign.orientation, Command.SetBrakes.
     // 4: ServerMessage.ScatterFelled, Hello.terrainGeneration.
-    const val VERSION = 4
+    // 5: VesselKinematics.pose.
+    const val VERSION = 5
 }

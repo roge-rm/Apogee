@@ -1,5 +1,7 @@
 package com.rm.apogee.ui.screens
 
+import androidx.compose.foundation.lazy.rememberLazyListState
+import com.rm.apogee.ui.components.verticalScrollbar
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -350,7 +352,8 @@ private fun PartDrawer(
         color = Color.Black.alpha(ApogeeAlpha.SCRIM),
         modifier = modifier.width(width).heightIn(max = 420.dp),
     ) {
-        LazyColumn(Modifier.padding(8.dp)) {
+        val list = rememberLazyListState()
+        LazyColumn(Modifier.verticalScrollbar(list).padding(8.dp), state = list) {
             items(ordered) { (category, part) ->
                 val held = part.id == heldPartId
                 Column(
@@ -506,7 +509,8 @@ private fun LoadDialog(session: BuilderSession, onDismiss: () -> Unit) {
             if (session.savedCraft.isEmpty()) {
                 Text("No saved craft yet.")
             } else {
-                LazyColumn {
+                val list = rememberLazyListState()
+                LazyColumn(Modifier.verticalScrollbar(list), state = list) {
                     items(session.savedCraft) { saved ->
                         Row(
                             Modifier

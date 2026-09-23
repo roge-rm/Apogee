@@ -81,7 +81,7 @@ class GlRenderer(
      * tanks uploads one mesh and draws it three times. Cleared whenever the GL
      * context is recreated, because every handle in it is then dangling.
      */
-    private val meshes = HashMap<Pair<MeshSpec, Int>, Mesh>()
+    private val meshes = HashMap<Pair<com.rm.apogee.core.part.Shape, Int>, Mesh>()
     private var lineProgram: ShaderProgram? = null
     /** Reused across frames; orbits are re-uploaded, not reallocated. */
     private val lineMeshes = ArrayList<LineMesh>()
@@ -454,7 +454,7 @@ class GlRenderer(
             val prevItem = previous?.items?.getOrNull(index)
             val position: Vec3
             val rotation: Quat
-            if (prevItem != null && prevItem.meshSpec == item.meshSpec) {
+            if (prevItem != null && prevItem.shape == item.shape) {
                 interpolatedPosition.setTo(
                     lerp(prevItem.position.x, item.position.x, alpha),
                     lerp(prevItem.position.y, item.position.y, alpha),
@@ -471,7 +471,7 @@ class GlRenderer(
             modelMatrix.setFromTrs(position, rotation, cameraPos)
             shader.setMat4("uModel", modelMatrix.m)
             shader.setVec4("uColor", item.color)
-            meshFor(item.meshSpec, item.caps).draw()
+            meshFor(item.shape, item.caps).draw()
         }
     }
 
@@ -482,7 +482,7 @@ class GlRenderer(
      * stack and the same tank standing alone are different meshes. At most
      * four variants per shape, and in practice two.
      */
-    private fun meshFor(spec: MeshSpec, caps: Int): Mesh = meshes.getOrPut(spec to caps) {
+    private fun meshFor(spec: com.rm.apogee.core.part.Shape, caps: Int): Mesh = meshes.getOrPut(spec to caps) {
         when (spec) {
             is MeshSpec.Cylinder ->
                 MeshBuilder.cylinder(spec.radius.toFloat(), spec.height.toFloat(), caps = caps)
@@ -498,6 +498,8 @@ class GlRenderer(
                 (spec.depth * 0.5).toFloat(),
             )
             is MeshSpec.Sphere -> MeshBuilder.sphere(spec.radius.toFloat())
+            is com.rm.apogee.core.part.ModelSpec -> ModelShapes.build(spec, caps).let { Mesh(it.vertices, it.indices) }
+            else -> throw IllegalArgumentException("Cannot draw $spec")
         }
     }
 

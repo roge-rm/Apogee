@@ -49,6 +49,19 @@ class ServerConfig(
      * created by the act of starting properly.
      */
     val assignCraftOnJoin: Boolean = true,
+    /**
+     * Start every joining player on a fresh [starterCraft], clearing away the
+     * craft they flew last time rather than handing it back. Free Flight in
+     * single player: a new flight, not a continuation - while the bases a
+     * player left elsewhere stay where they are.
+     */
+    val freshFlight: Boolean = false,
+    /**
+     * Put a joining player straight into this craft of theirs - Resume Flight,
+     * with the craft chosen from a list. Ignored if it is gone or is not
+     * theirs.
+     */
+    val resumeVessel: Long? = null,
     /** Simultaneous players, or 0 for no limit. */
     val maxPlayers: Int = 0,
 )
@@ -190,6 +203,7 @@ class GameServer(
             // absolute schedule means it does not accumulate.
 
             drainInbox()
+            runQueuedTasks()
             world.step(dt)
             tickCount++
 
@@ -210,6 +224,7 @@ class GameServer(
     /** Steps once without any wall-clock pacing. For tests. */
     suspend fun stepOnce() {
         drainInbox()
+        runQueuedTasks()
         world.step(dt)
         publishEvents()
         broadcastSnapshot()
@@ -331,7 +346,20 @@ class GameServer(
         // A returning player gets their craft back, wherever they left it.
         // This is what "persistent world" means from the seat: log off in
         // orbit, come back, still be in orbit.
-        val existing = world.vesselOwnedBy(session.clientId)
+        if (config.freshFlight) {
+            world.lastFlown[session.clientId]?.let { last ->
+                val previous = world.vessel(VesselId(last))
+                if (previous != null && previous.owner == session.clientId) {
+                    world.destroy(previous.id, "replaced by a new flight")
+                }
+            }
+        }
+        // Resuming one of theirs - or an unowned craft, which becomes theirs:
+        // a base from before craft were owned by install, left claimable.
+        val chosen = config.resumeVessel?.let { world.vessel(VesselId(it)) }
+            ?.takeIf { it.owner == session.clientId || it.owner.isBlank() }
+            ?.also { if (it.owner.isBlank()) { it.owner = session.clientId; it.ownerName = session.playerName } }
+        val existing = chosen ?: if (config.freshFlight) null else world.vesselOwnedBy(session.clientId)
         // The label follows the player, so renaming yourself renames your
         // craft's owner rather than orphaning it.
         existing?.ownerName = session.playerName
@@ -349,6 +377,7 @@ class GameServer(
             null
         }
         session.controlledVessel = vessel?.id
+        vessel?.let { world.lastFlown[session.clientId] = it.id.raw }
 
         session.send(
             ServerMessage.Welcome(
@@ -377,9 +406,29 @@ class GameServer(
         session.send(ServerMessage.SnapshotMessage(world.snapshot()), Channel.KINEMATICS)
     }
 
+    private val tasks = ConcurrentLinkedQueue<() -> Unit>()
+
+    /**
+     * Runs [task] on the tick thread, between two steps - where the world is
+     * whole, rather than whenever the calling thread happens to catch it. A
+     * save taken from another thread mid-step could record half a tick, or
+     * trip over the vessel map changing under it.
+     */
+    fun runBetweenTicks(task: () -> Unit) {
+        tasks.add(task)
+    }
+
+    private fun runQueuedTasks() {
+        while (true) {
+            val task = tasks.poll() ?: return
+            task()
+        }
+    }
+
     /** Moves a session's control to [id] and tells the client about it. */
     private suspend fun takeControl(session: PlayerSession, id: VesselId) {
         session.controlledVessel = id
+        world.lastFlown[session.clientId] = id.raw
         session.send(ServerMessage.ControlChanged(id.raw), Channel.CONTROL)
     }
 

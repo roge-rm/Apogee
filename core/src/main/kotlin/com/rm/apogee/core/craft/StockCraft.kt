@@ -79,6 +79,8 @@ object StockCraft {
             Stage(listOf(chute)),
         )
 
+        faceOutward(parts, catalog)
+
         return CraftDesign(
             name = "Starter I",
             parts = parts,
@@ -141,6 +143,8 @@ object StockCraft {
             Stage(parts.indices.filter { catalog[parts[it].partId]?.id == "leg-stilt" }),
         )
 
+        faceOutward(parts, catalog)
+
         return CraftDesign(
             name = "Stilt Lander",
             parts = parts,
@@ -177,6 +181,8 @@ object StockCraft {
             )
         }
 
+        faceOutward(parts, catalog)
+
         return CraftDesign(
             name = "Stilt Tug",
             parts = parts,
@@ -212,6 +218,8 @@ object StockCraft {
                 )
             )
         }
+
+        faceOutward(parts, catalog)
 
         return CraftDesign(
             name = "Trundler",
@@ -279,6 +287,8 @@ object StockCraft {
             add("wheel-gear", 2.1, tank, x = side * quarter, z = -quarter)
         }
 
+        faceOutward(parts, catalog)
+
         return CraftDesign(
             name = "Plank",
             parts = parts,
@@ -316,6 +326,8 @@ object StockCraft {
         val tank = add("tank-cask2", -5.0, hull, "bottom", "top")
         val engine = add("engine-zephyr", -6.8, tank, "bottom", "top")
 
+        faceOutward(parts, catalog)
+
         return CraftDesign(
             name = "Punt",
             parts = parts,
@@ -323,6 +335,149 @@ object StockCraft {
             catalogHash = catalog.contentHash,
             orientation = CraftOrientation.HORIZONTAL,
         )
+    }
+
+    /**
+     * Turns every surface-mounted part still at its default rotation to face
+     * out from the stack, as the builder would have turned it: about the
+     * stack axis, towards the side it is on. A fin, a leg, a wheel or a wing
+     * reaches out from its root along its own +X; left unturned, all four fins
+     * of a rocket pointed the same way, and a left wing's tip sat against the
+     * fuselage. About the axis rather than by a shortest-arc turn, which for a
+     * part on the -X side is a half turn about an arbitrary axis - often one
+     * that flips a wing upside down and back to front.
+     */
+    private fun faceOutward(parts: MutableList<PlacedPart>, catalog: PartCatalog): Boolean {
+        var changed = false
+        for (i in parts.indices) {
+            val placed = parts[i]
+            val def = catalog[placed.partId] ?: continue
+            if (def.attachNodes.none { it.kind == com.rm.apogee.core.part.AttachNodeKind.SURFACE }) continue
+            if (placed.rotation != Quat.identity()) continue
+            val parent = parts.getOrNull(placed.parentIndex) ?: continue
+            val dx = placed.position.x - parent.position.x
+            val dz = placed.position.z - parent.position.z
+            if (kotlin.math.hypot(dx, dz) < 1e-6) continue
+            val rotation = Quat.fromAxisAngle(Vec3.unitY(), kotlin.math.atan2(-dz, dx))
+            if (rotation.approxEqualsRotation(Quat.identity())) continue
+            parts[i] = placed.copy(rotation = rotation)
+            changed = true
+        }
+        return changed
+    }
+
+    /**
+     * [design] with its surface parts faced outward - for stock designs saved
+     * by older builds, whose fins and legs all pointed one way. Anything the
+     * builder placed already faces outward and is left as it is.
+     */
+    fun facingOutward(design: CraftDesign, catalog: PartCatalog): CraftDesign {
+        val parts = design.parts.toMutableList()
+        return if (faceOutward(parts, catalog)) design.copy(parts = parts) else design
+    }
+
+    // --- craft from the vehicle kits -----------------------------------------
+    //
+    // Assembled through the builder, node by node, exactly as a player would
+    // put them together - so each is something that can be built, and its
+    // parts sit where the builder would put them.
+
+    private class Assembly(catalog: PartCatalog, name: String, orientation: CraftOrientation) {
+        val builder = CraftBuilder(catalog).also {
+            it.orientation = orientation
+            it.name = name
+        }
+
+        fun root(partId: String): Int {
+            check(builder.placeRoot(partId)) { "could not place $partId" }
+            return 0
+        }
+
+        /** Attaches [partId] at node [nodeId] of part [parent]; the new part's index. */
+        fun on(parent: Int, nodeId: String, partId: String): Int {
+            val target = builder.openNodes().firstOrNull { it.partIndex == parent && it.node.id == nodeId }
+                ?: error("${builder.design.parts[parent].partId} has no open node $nodeId")
+            val added = builder.attach(partId, target)
+            check(added.isNotEmpty()) { "$partId would not go on $nodeId" }
+            return added.first()
+        }
+
+        fun design(): CraftDesign {
+            builder.restage()
+            return builder.design
+        }
+    }
+
+    /**
+     * A light jet from the aircraft kit: cockpit, fuselage, a jet at the
+     * tail, swept wings with ailerons, a tailplane and rudder, and tricycle
+     * gear with the mains just behind the balance point.
+     */
+    fun sparrow(catalog: PartCatalog = StockParts.catalog): CraftDesign {
+        val a = Assembly(catalog, "Sparrow", CraftOrientation.HORIZONTAL)
+        val cockpit = a.root("cockpit-sparrow")
+        val forward = a.on(cockpit, "bottom", "fuselage-short")
+        val aft = a.on(forward, "bottom", "fuselage-long")
+        val jet = a.on(aft, "bottom", "engine-zephyr")
+        // Wings on the fore station, where it flies trimmed with the tail
+        // neutral. At the fuselage's middle the nose hung so heavy that the
+        // tail could barely lift it, and let go it dived into the ground; a
+        // station further forward and it pitched up on its own and looped.
+        a.on(aft, "side-right-fore", "wing-swept")
+        a.on(aft, "side-left-fore", "wing-swept")
+        // An all-moving tail: elevons alone could not lift the nose until the
+        // wings did it for them, at a hundred metres a second.
+        a.on(jet, "surface-0", "tail-stabilator")
+        a.on(jet, "surface-1", "tail-stabilator")
+        a.on(jet, "surface-2", "tail-rudder")
+        a.on(cockpit, "surface-3", "wheel-gear-nose")
+        // Mains on the belly station just behind the balance point, which
+        // falls a little ahead of the long fuselage's middle: close enough
+        // behind it that the tail can lift the nose at flying speed.
+        a.on(aft, "belly-right-2", "wheel-gear-main")
+        a.on(aft, "belly-left-2", "wheel-gear-main")
+        return a.design()
+    }
+
+    /** A four-wheeled buggy from the land kit: chassis, cab, cargo rack. */
+    fun buggy(catalog: PartCatalog = StockParts.catalog): CraftDesign {
+        val a = Assembly(catalog, "Buggy", CraftOrientation.HORIZONTAL)
+        val chassis = a.root("chassis-small")
+        a.on(chassis, "deck-front", "cab-rover")
+        a.on(chassis, "deck-rear", "rack-cargo")
+        for (k in 1..4) a.on(chassis, "wheel-$k", "wheel-tread")
+        return a.design()
+    }
+
+    /** A six-wheeled hauler from the land kit, on big crawler wheels. */
+    fun hauler(catalog: PartCatalog = StockParts.catalog): CraftDesign {
+        val a = Assembly(catalog, "Hauler", CraftOrientation.HORIZONTAL)
+        val chassis = a.root("chassis-large")
+        a.on(chassis, "deck-front", "cab-rover")
+        a.on(chassis, "deck-rear", "rack-cargo")
+        a.on(chassis, "deck", "light-bar")
+        for (k in 1..6) a.on(chassis, "wheel-$k", "wheel-large")
+        return a.design()
+    }
+
+    /** A small V-hulled boat from the boat kit: a seat and an outboard. */
+    fun skiff(catalog: PartCatalog = StockParts.catalog): CraftDesign {
+        val a = Assembly(catalog, "Skiff", CraftOrientation.HORIZONTAL)
+        val hull = a.root("hull-skiff")
+        a.on(hull, "deck", "cab-open")
+        a.on(hull, "transom", "motor-outboard")
+        return a.design()
+    }
+
+    /** A keeled cutter from the boat kit: wheelhouse, keel, rudder and outboard. */
+    fun cutter(catalog: PartCatalog = StockParts.catalog): CraftDesign {
+        val a = Assembly(catalog, "Cutter", CraftOrientation.HORIZONTAL)
+        val hull = a.root("hull-cutter")
+        a.on(hull, "deck-rear", "cabin-wheelhouse")
+        a.on(hull, "keel", "keel")
+        a.on(hull, "keel-rear", "rudder")
+        a.on(hull, "transom", "motor-outboard")
+        return a.design()
     }
 
     /** The smallest thing that counts as a craft. Used by physics tests. */

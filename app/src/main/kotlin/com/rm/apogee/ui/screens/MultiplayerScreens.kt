@@ -1,5 +1,7 @@
 package com.rm.apogee.ui.screens
 
+import androidx.compose.foundation.lazy.rememberLazyListState
+import com.rm.apogee.ui.components.verticalScrollbar
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -127,7 +129,8 @@ fun JoinGameScreen(
                     modifier = contentModifier,
                 )
             } else {
-                LazyColumn(contentModifier.heightIn(max = 260.dp)) {
+                val list = rememberLazyListState()
+                LazyColumn(contentModifier.heightIn(max = 260.dp).verticalScrollbar(list), state = list) {
                     items(browser.servers, key = { it.key }) { server ->
                         ServerRow(server, browser.reasonFor(server), onJoin)
                     }

@@ -267,6 +267,23 @@ class ClientPrediction(
         return out.setTo(local.body.orientation)
     }
 
+    /**
+     * The replica's moving parts, straight from its own tick: control surfaces
+     * move the frame the stick does, rather than a snapshot later.
+     */
+    fun pose(into: com.rm.apogee.core.world.VesselPose.Values): Boolean {
+        val local = vessel ?: return false
+        local.fitPose()
+        into.fit(local.defs.size)
+        local.surfaceDeflection.copyInto(into.deflection)
+        local.wheelSteer.copyInto(into.steer)
+        local.wheelCompression.copyInto(into.compression)
+        local.legDeploy.copyInto(into.deploy)
+        local.gimbalPitch.copyInto(into.gimbalPitch)
+        local.gimbalYaw.copyInto(into.gimbalYaw)
+        return true
+    }
+
     fun velocity(out: Vec3 = Vec3()): Vec3? {
         val local = vessel ?: return null
         return out.setTo(local.body.linearVelocity)

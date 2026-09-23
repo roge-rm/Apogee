@@ -122,8 +122,15 @@ class DormancyTest {
         world.attractorFor(arriving)
             .surfaceVelocityAt(arriving.body.position, arriving.body.linearVelocity)
 
-        repeat(300) { world.step(dt) }
-        assertFalse("being landed on should wake it", base.dormant)
+        // Woken at some point, not necessarily awake at the end: once the
+        // other craft has come to rest - or rolled off - the base is still
+        // again and may rightly go back to sleep.
+        var woke = false
+        repeat(300) {
+            world.step(dt)
+            if (!base.dormant) woke = true
+        }
+        assertTrue("being landed on should wake it", woke)
     }
 
     @Test

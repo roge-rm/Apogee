@@ -1,0 +1,81 @@
+package com.rm.apogee.ui.components
+
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.composed
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+
+/**
+ * A scroll bar down the right edge of anything that scrolls: a track and a
+ * thumb sized to how much of the content is in view, placed where the view
+ * is. Every list that can run past its space carries one, so what is below
+ * the fold is never a secret.
+ *
+ * Drawn only while the content overflows; a list that fits shows nothing.
+ * Put it before `verticalScroll` in the chain, so it measures the viewport
+ * and not the whole scrolled content.
+ */
+fun Modifier.verticalScrollbar(state: ScrollState, width: Dp = 4.dp, inset: Dp = 2.dp): Modifier = composed {
+    val shown by animateFloatAsState(if (state.maxValue > 0) 1f else 0f, label = "scrollbar")
+    drawWithContent {
+        drawContent()
+        if (shown <= 0f || state.maxValue <= 0) return@drawWithContent
+        val viewport = size.height
+        val content = viewport + state.maxValue
+        drawBar(
+            viewFraction = viewport / content,
+            position = state.value.toFloat() / state.maxValue,
+            width = width.toPx(), inset = inset.toPx(), alpha = shown,
+        )
+    }
+}
+
+/**
+ * The same, for a lazy list. Its full length is not known until every row
+ * has been laid out, so it is estimated from the rows in view - exact for
+ * lists of equal rows, which is all of ours.
+ */
+fun Modifier.verticalScrollbar(state: LazyListState, width: Dp = 4.dp, inset: Dp = 2.dp): Modifier = composed {
+    val info = state.layoutInfo
+    val visible = info.visibleItemsInfo
+    val overflows = visible.isNotEmpty() && (visible.size < info.totalItemsCount ||
+        visible.first().offset < info.viewportStartOffset || visible.last().let { it.offset + it.size } > info.viewportEndOffset)
+    val shown by animateFloatAsState(if (overflows) 1f else 0f, label = "scrollbar")
+    drawWithContent {
+        drawContent()
+        if (shown <= 0f || !overflows) return@drawWithContent
+        val rowSize = visible.sumOf { it.size }.toFloat() / visible.size
+        val viewport = (info.viewportEndOffset - info.viewportStartOffset).toFloat()
+        val content = rowSize * info.totalItemsCount
+        if (content <= viewport) return@drawWithContent
+        val scrolled = state.firstVisibleItemIndex * rowSize + state.firstVisibleItemScrollOffset
+        drawBar(
+            viewFraction = viewport / content,
+            position = (scrolled / (content - viewport)).coerceIn(0f, 1f),
+            width = width.toPx(), inset = inset.toPx(), alpha = shown,
+        )
+    }
+}
+
+private val Track = Color.White.copy(alpha = 0.10f)
+private val Thumb = Color.White.copy(alpha = 0.45f)
+
+private fun DrawScope.drawBar(viewFraction: Float, position: Float, width: Float, inset: Float, alpha: Float) {
+    val x = size.width - width - inset
+    val trackLength = size.height - inset * 2
+    val thumbLength = (trackLength * viewFraction).coerceIn(width * 6, trackLength)
+    val thumbTop = inset + (trackLength - thumbLength) * position.coerceIn(0f, 1f)
+    val corner = CornerRadius(width / 2, width / 2)
+    drawRoundRect(Track, Offset(x, inset), Size(width, trackLength), corner, alpha = alpha)
+    drawRoundRect(Thumb, Offset(x, thumbTop), Size(width, thumbLength), corner, alpha = alpha)
+}

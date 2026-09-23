@@ -42,7 +42,7 @@ class CraftCollisionTest {
     fun `a craft settling onto another rests on it instead of sinking through`() {
         val world = world()
         val lower = world.spawnOnSurface(StockCraft.lander(catalog), site)
-        repeat(3) { world.stage(lower) }
+        world.gearDown(lower)
         val upper = world.spawnOnSurface(StockCraft.lander(catalog), site, pad = 1)
         // A short drop: enough to settle, well under the canopy's 8 m/s.
         stackAbove(world, upper, lower, 6.0)
@@ -148,7 +148,7 @@ class CraftCollisionTest {
     fun `a craft alone in the world is unaffected by the new pass`() {
         val world = world()
         val solo = world.spawnOnSurface(StockCraft.lander(catalog), site)
-        repeat(3) { world.stage(solo) }
+        world.gearDown(solo)
         val start = solo.body.position.length
         repeat(600) { world.step(dt) }
         assertNull("nothing should have happened to it", world.drainEvents()

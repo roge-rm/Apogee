@@ -212,7 +212,8 @@ class BuilderSession(
     fun load(saved: SavedCraft) {
         store.load(saved.fileName)
             .onSuccess {
-                builder.load(it)
+                // Old stock designs had their fins and legs all pointing one way.
+                builder.load(com.rm.apogee.core.craft.StockCraft.facingOutward(it, catalog))
                 selectedPartIndex = null
                 statusMessage = "Loaded \"${it.name}\""
                 onEdited()
@@ -258,15 +259,28 @@ class BuilderSession(
         val caps = StackCaps.forDesign(design, catalog)
         design.parts.forEachIndexed { index, placed ->
             val def = catalog[placed.partId] ?: return@forEachIndexed
-            items.add(
-                RenderItem(
-                    caps = caps[index],
-                    meshSpec = def.mesh,
-                    position = placed.position.copy(),
-                    rotation = placed.rotation.copy(),
-                    color = if (index == selectedPartIndex) SELECTED_COLOR else colorFor(placed.partId),
-                )
+            val body = if (index == selectedPartIndex) SELECTED_COLOR else com.rm.apogee.render.PartModels.bodyColour(placed.partId)
+            val leaves = ArrayList<com.rm.apogee.render.PartModels.Leaf>()
+            val anim = com.rm.apogee.render.PartAnim()
+            com.rm.apogee.render.PartModels.alignWheel(
+                def, placed.rotation, design.orientation.forward, design.orientation.up, anim,
             )
+            com.rm.apogee.render.PartModels.alignSurface(
+                def, placed.rotation, Vec3().setTo(placed.position).subInPlace(centre), anim,
+            )
+            com.rm.apogee.render.PartModels.expand(def, caps[index], anim, leaves)
+            for (leaf in leaves) {
+                items.add(
+                    RenderItem(
+                        caps = leaf.caps,
+                        shape = leaf.shape,
+                        position = placed.rotation.rotate(leaf.position).addInPlace(placed.position),
+                        rotation = placed.rotation * leaf.rotation,
+                        color = if (index == selectedPartIndex) SELECTED_COLOR
+                            else com.rm.apogee.render.PartModels.colour(leaf.tint, body),
+                    )
+                )
+            }
         }
 
         // Attach-node markers, shown only while a part is held - they are
@@ -282,7 +296,7 @@ class BuilderSession(
         for (node in nodes) {
             items.add(
                 RenderItem(
-                    meshSpec = NODE_MARKER,
+                    shape = NODE_MARKER,
                     position = node.position.copy(),
                     rotation = Quat.identity(),
                     color = NODE_COLOR,
@@ -383,15 +397,6 @@ class BuilderSession(
         return best
     }
 
-    private fun colorFor(partId: String): FloatArray = when {
-        partId.startsWith("engine") -> floatArrayOf(0.45f, 0.45f, 0.50f, 1f)
-        partId.startsWith("tank") -> floatArrayOf(0.82f, 0.82f, 0.86f, 1f)
-        partId.startsWith("pod") -> floatArrayOf(0.70f, 0.62f, 1.00f, 1f)
-        partId.startsWith("decoupler") -> floatArrayOf(0.90f, 0.70f, 0.35f, 1f)
-        partId.startsWith("fin") -> floatArrayOf(0.60f, 0.20f, 0.20f, 1f)
-        partId.startsWith("parachute") -> floatArrayOf(0.55f, 0.55f, 0.60f, 1f)
-        else -> floatArrayOf(0.75f, 0.75f, 0.78f, 1f)
-    }
 
     private companion object {
         const val PRESENT_INTERVAL_MILLIS = 16L

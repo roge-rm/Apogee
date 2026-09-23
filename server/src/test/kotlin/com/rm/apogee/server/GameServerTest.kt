@@ -172,6 +172,68 @@ class GameServerTest {
         assertTrue(late.felledRevision > 0)
     }
 
+    /**
+     * Moving parts are replicated: a player watching another's aircraft sees
+     * its control surfaces where the server has them - the pilot's elevons,
+     * not a guess at them.
+     */
+    @Test
+    fun `another player sees the same control surface deflection`() = runTest {
+        val server = GameServer.default(catalog)
+        val watcher = joinClient(server, backgroundScope, "Watcher")
+        val plane = server.world.spawnOnSurface(
+            com.rm.apogee.core.craft.StockCraft.aeroplane(catalog),
+            com.rm.apogee.core.world.World.launchSites.first(),
+        )
+        plane.control.pitch = 0.6
+        plane.control.roll = -0.3
+        val values = com.rm.apogee.core.world.VesselPose.Values()
+        pumpUntil(server, "the watcher to receive the plane's pose") {
+            val seen = watcher.vessel(plane.id.raw)?.latest ?: return@pumpUntil false
+            val defs = seen.let { plane.defs }
+            com.rm.apogee.core.world.VesselPose.decode(defs, seen.pose, values) &&
+                values.deflection.any { kotlin.math.abs(it) > 0.1 }
+        }
+        var compared = 0
+        for (i in plane.defs.indices) {
+            if (plane.defs[i].module<com.rm.apogee.core.part.AeroSurface>()?.controllable != true) continue
+            assertEquals(
+                "surface $i",
+                plane.surfaceDeflection[i], values.deflection[i],
+                com.rm.apogee.core.world.VesselPose.RESOLUTION * 2,
+            )
+            compared++
+        }
+        assertTrue("expected surfaces to compare, got $compared", compared >= 3)
+    }
+
+    /**
+     * Free Flight: joining a fresh flight clears away the craft flown last
+     * time and starts on a new one - and leaves alone anything else the
+     * player owns, which is a base left on purpose.
+     */
+    @Test
+    fun `a fresh flight replaces the craft flown last time, and only that one`() = runTest {
+        val world = com.rm.apogee.core.world.World.default(catalog)
+        val first = GameServer(world)
+        val client = joinClient(first, backgroundScope, "Pilot")
+        pumpUntil(first, "the first flight's craft") { client.controlledVessel != null }
+        val flown = client.controlledVessel!!
+        // A base the player also owns, parked elsewhere.
+        val base = world.spawnOnSurface(
+            com.rm.apogee.core.craft.StockCraft.rover(catalog),
+            com.rm.apogee.core.world.World.launchSites.first(), pad = 3,
+        ).also { it.owner = client.clientId }
+
+        val second = GameServer(world, ServerConfig(freshFlight = true))
+        val again = joinClient(second, backgroundScope, "Pilot", clientId = client.clientId)
+        pumpUntil(second, "the second flight's craft") { again.controlledVessel != null }
+
+        assertNotEquals("a new craft, not the old one", flown, again.controlledVessel)
+        assertNull("the last flight's craft is gone", world.vessel(VesselId(flown)))
+        assertNotNull("the parked base is not", world.vessel(base.id))
+    }
+
     @Test
     fun `two clients in one world see each other's craft`() = runTest {
         val server = GameServer.default(catalog)

@@ -71,7 +71,7 @@ class Forces {
      * mechanic that makes staging matter: a sea-level-optimised lifter loses
      * efficiency in vacuum, and a vacuum engine is nearly useless on the pad.
      */
-    fun applyThrust(vessel: Vessel, attractor: CelestialBody, dt: Double) {
+    fun applyThrust(vessel: Vessel, attractor: CelestialBody, dt: Double, time: Double = 0.0) {
         lastMassFlow = 0.0
         val throttle = vessel.control.throttle
         if (throttle <= 0.0) return
@@ -82,8 +82,12 @@ class Forces {
         for (partIndex in vessel.activeEngines()) {
             val engine = vessel.defs[partIndex].module<Engine>() ?: continue
 
+            // A water propeller pushes only for as much of it as is under.
+            val immersion = engine.waterProp?.let { immersion(vessel, partIndex, it, attractor, time) } ?: 1.0
+            if (immersion <= 0.0) continue
+
             val effectiveThrottle =
-                if (throttle < engine.minThrottle) engine.minThrottle else throttle
+                (if (throttle < engine.minThrottle) engine.minThrottle else throttle) * immersion
 
             val thrustMagnitude = lerp(engine.thrustVacuum, engine.thrustSeaLevel, pressureRatio) *
                 effectiveThrottle
@@ -174,6 +178,27 @@ class Forces {
      * range. This is what steers a rocket while it is still going fast enough
      * for fins to be irrelevant but too fast for reaction wheels to matter.
      */
+    /**
+     * How far under the water part-local [point] of part [partIndex] is,
+     * 0 in air to 1 at a propeller's depth - [PROP_IMMERSION_DEPTH] - or more.
+     * No sea, or ground above the water here, is 0.
+     */
+    private fun immersion(vessel: Vessel, partIndex: Int, point: Vec3, attractor: CelestialBody, time: Double): Double {
+        val ocean = attractor.ocean ?: return 0.0
+        vessel.partPointOffsetWorld(partIndex, point, scratchWaterPoint).addInPlace(vessel.body.position)
+        attractor.rotationAt(time, scratchWaterRotation)
+        attractor.toBodyFixed(scratchWaterPoint, scratchWaterRotation, scratchWaterDirection)
+        val surface = ocean.surfaceHeight(scratchWaterDirection, time)
+        val terrain = attractor.terrain
+        if (terrain != null && terrain.elevation(scratchWaterDirection) >= surface) return 0.0
+        val depth = attractor.radius + surface - scratchWaterPoint.length
+        return (depth / PROP_IMMERSION_DEPTH).coerceIn(0.0, 1.0)
+    }
+
+    private val scratchWaterPoint = Vec3()
+    private val scratchWaterDirection = Vec3()
+    private val scratchWaterRotation = Quat.identity()
+
     private fun gimballedDirection(vessel: Vessel, engine: Engine, out: Vec3): Vec3 {
         if (engine.gimbalRange <= 0.0) return out.setTo(engine.thrustDirection)
 
@@ -374,7 +399,7 @@ class Forces {
                 }
 
                 if (surface.controllable) {
-                    deflect(vessel, surface, density, localSpeed)
+                    deflect(vessel, i, surface, density, localSpeed)
                 }
             }
         }
@@ -402,15 +427,15 @@ class Forces {
      */
     private fun deflect(
         vessel: Vessel,
+        partIndex: Int,
         surface: AeroSurface,
         density: Double,
         airspeed: Double,
     ) {
-        val control = vessel.control
-        val pitch = control.commandPitch
-        val roll = control.commandRoll
-        val yaw = control.commandYaw
-        if (pitch == 0.0 && yaw == 0.0 && roll == 0.0) return
+        // How far: worked out once per tick by [controlDeflection], so the
+        // force and the surface the players see move by the same amount.
+        val deflection = vessel.surfaceDeflection.getOrElse(partIndex) { 0.0 }
+        if (abs(deflection) < 1e-6) return
 
         // The mounting radius: how far off the fuselage axis this surface is.
         val axial = scratchOffset dot scratchAxis
@@ -425,25 +450,6 @@ class Forces {
         if (normalLength < 1e-6) return
         scratchNormal.mulInPlace(1.0 / normalLength)
 
-        // The torque a unit push there would make.
-        scratchTorqueAxis.setTo(scratchOffset).crossInPlace(scratchNormal)
-        val torqueLength = scratchTorqueAxis.length
-        if (torqueLength < 1e-6) return
-        scratchTorqueAxis.mulInPlace(1.0 / torqueLength)
-
-        // What the pilot asked for, in world axes - same convention as the
-        // reaction wheels: pitch about local X, roll about Y, yaw about Z.
-        //
-        // Not normalised. It used to be, which threw the stick's magnitude
-        // away: a hair of stick deflected every surface as far as a full one,
-        // so there was no such thing as a gentle correction - by a thumb, or
-        // by stability assist, which needs small ones to hold anything.
-        scratchCommand.setTo(pitch, roll, yaw)
-        vessel.body.orientation.rotate(scratchCommand, scratchCommand)
-
-        val deflection = (scratchCommand dot scratchTorqueAxis).coerceIn(-1.0, 1.0)
-        if (abs(deflection) < 1e-6) return
-
         // sin(d)cos(d) of the actual deflection, the same flat-plate form the
         // lift uses. Charging the surface's full broadside force made four
         // rocket fins worth tens of kilonewtons at max q.
@@ -454,6 +460,57 @@ class Forces {
         scratchForce.setTo(scratchNormal).mulInPlace(force)
         vessel.body.applyForceAtOffset(scratchForce, scratchOffset)
     }
+
+    /**
+     * How far control surface [partIndex] deflects for the craft's command
+     * this tick, -1..1 of its travel; 0 for anything that is not a control
+     * surface.
+     *
+     * Which way follows from where it is bolted, as [deflect] explains: the
+     * push it can make is across both the fuselage and its own mounting
+     * radius, the torque that push makes is r x F, and the deflection is the
+     * command projected onto that torque. Worked in the craft's own axes, so
+     * it needs no airflow and no orientation - it is what the stick asks of
+     * this surface, on the runway as much as in flight.
+     *
+     * Not normalised: a hair of stick is a hair of deflection, which is what
+     * gentle corrections, by a thumb or by stability assist, are made of.
+     */
+    fun controlDeflection(vessel: Vessel, partIndex: Int): Double {
+        val def = vessel.defs[partIndex]
+        val controllable = def.module<AeroSurface>()?.controllable == true ||
+            def.module<com.rm.apogee.core.part.HydroSurface>()?.controllable == true
+        if (!controllable) return 0.0
+        val control = vessel.control
+        val pitch = control.commandPitch
+        val roll = control.commandRoll
+        val yaw = control.commandYaw
+        if (pitch == 0.0 && yaw == 0.0 && roll == 0.0) return 0.0
+
+        val offset = vessel.centerOfMass(poseOffset)
+            .mulInPlace(-1.0).addInPlace(vessel.design.parts[partIndex].position)
+        // The mounting radius: how far off the fuselage axis, +Y, it is.
+        poseRadial.setTo(offset.x, 0.0, offset.z)
+        val radialLength = poseRadial.length
+        if (radialLength < 1e-6) return 0.0
+        poseRadial.mulInPlace(1.0 / radialLength)
+        // The way it can push: across the fuselage and the radius.
+        poseNormal.setTo(0.0, 1.0, 0.0).crossInPlace(poseRadial)
+        if (poseNormal.length < 1e-6) return 0.0
+        poseNormal.normalizeInPlace()
+        // The torque a unit push there makes.
+        poseTorque.setTo(offset).crossInPlace(poseNormal)
+        val torqueLength = poseTorque.length
+        if (torqueLength < 1e-6) return 0.0
+        poseTorque.mulInPlace(1.0 / torqueLength)
+        // Pitch about X, roll about Y, yaw about Z, as the reaction wheels.
+        return (pitch * poseTorque.x + roll * poseTorque.y + yaw * poseTorque.z).coerceIn(-1.0, 1.0)
+    }
+
+    private val poseOffset = Vec3()
+    private val poseRadial = Vec3()
+    private val poseNormal = Vec3()
+    private val poseTorque = Vec3()
 
     /** Dynamic pressure, Pa. The number that decides whether a craft survives ascent. */
     fun dynamicPressure(vessel: Vessel, attractor: CelestialBody): Double {
@@ -469,6 +526,9 @@ class Forces {
         vacuum + (seaLevel - vacuum) * pressureRatio.coerceIn(0.0, 1.0)
 
     private companion object {
+        /** Metres under water at which a propeller has its full bite. */
+        const val PROP_IMMERSION_DEPTH = 0.3
+
         /** More chutes than any sane craft carries. */
         const val MAX_TORN = 8
 

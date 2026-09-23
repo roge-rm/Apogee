@@ -87,6 +87,8 @@ class MainActivity : ComponentActivity() {
     /** Set by the builder's Launch button; consumed when flight starts. */
     private var pendingLaunchDesign: CraftDesign? = null
     private var pendingLaunchSite: String? = null
+    private var pendingResume: Long? = null
+    private var resumeCraft by mutableStateOf(emptyList<com.rm.apogee.ui.screens.CraftSummary>())
     private var frameClockJob: Job? = null
     private var perfHints: PerfHints? = null
     private var rendererTerrainSource: com.rm.apogee.render.TerrainSource? = null
@@ -144,6 +146,29 @@ class MainActivity : ComponentActivity() {
                 when (appScreen) {
                     AppScreen.MENU -> MainMenuScreen(::navigateTo)
                     AppScreen.PLAY -> PlayScreen(::navigateTo)
+                    AppScreen.RESUME_FLIGHT -> com.rm.apogee.ui.screens.ResumeFlightScreen(
+                        craft = resumeCraft,
+                        onFly = { id ->
+                            // Claimed, if an older save had it under another name.
+                            openSoloWorld().vessel(com.rm.apogee.core.craft.VesselId(id))?.let {
+                                it.owner = settings.clientId
+                                it.ownerName = settings.playerName
+                            }
+                            pendingResume = id
+                            pendingMode = SessionMode.Solo
+                            navigateTo(AppScreen.FLIGHT)
+                        },
+                        onReset = { id ->
+                            openSoloWorld().resetToSite(com.rm.apogee.core.craft.VesselId(id))
+                            saveSoloWorld()
+                            refreshResumeCraft()
+                        },
+                        onRemove = { id ->
+                            openSoloWorld().destroy(com.rm.apogee.core.craft.VesselId(id), "removed by its owner")
+                            saveSoloWorld()
+                            refreshResumeCraft()
+                        },
+                    )
                     AppScreen.SETTINGS -> SettingsScreen(settings, detectedTier)
                     AppScreen.ABOUT -> AboutScreen()
                     AppScreen.FLIGHT -> FlightScreen(
@@ -199,6 +224,7 @@ class MainActivity : ComponentActivity() {
         val wasInWorld = appScreen.needsWorldSurface
         val wasBrowsing = appScreen == AppScreen.JOIN_GAME
         appScreen = target
+        if (target == AppScreen.RESUME_FLIGHT) refreshResumeCraft()
 
         // Discovery holds a multicast lock and a socket; it runs only while the
         // browser is actually on screen.
@@ -403,6 +429,12 @@ class MainActivity : ComponentActivity() {
                     scope = lifecycleScope,
                     world = openSoloWorld(),
                     siteId = pendingLaunchSite,
+                    // Free Flight from the menu is a new flight: the craft
+                    // flown last time is cleared away and a fresh one put on
+                    // the pad. A launch from the builder brings its own, and
+                    // Resume Flight names the one to fly.
+                    freshFlight = pendingLaunchDesign == null && pendingResume == null,
+                    resumeVessel = pendingResume,
                 )
 
                 is SessionMode.Host -> GameSession.hostLan(
@@ -421,6 +453,7 @@ class MainActivity : ComponentActivity() {
             }
             pendingLaunchDesign = null
             pendingLaunchSite = null
+            pendingResume = null
             pendingMode = SessionMode.Solo
             rendererTerrainSource?.let { source ->
                 newSession.attachTerrain(source, settings.qualityOverride ?: detectedTier
@@ -542,6 +575,40 @@ class MainActivity : ComponentActivity() {
         return world
     }
 
+    /** The player's craft in the solo world, for Resume Flight. */
+    private fun refreshResumeCraft() {
+        val world = openSoloWorld()
+        val me = settings.clientId
+        // The solo world is only ever played from this install - a hosted
+        // game starts a world of its own - so every crewed craft in it is
+        // the player's, whatever an older save recorded as its owner. Not
+        // debris: spent stages have no one aboard.
+        resumeCraft = world.vessels.filter { vessel ->
+            vessel.owner == me || vessel.defs.any { it.hasModule<com.rm.apogee.core.part.Command>() }
+        }.sortedBy { it.name }.map { vessel ->
+            val body = world.attractorFor(vessel)
+            val bodyFixed = body.toBodyFixed(vessel.body.position, body.rotationAt(world.time))
+            // From its lowest reach, not its centre: a rocket on the pad has
+            // its centre eight metres up.
+            val above = (body.heightAboveTerrain(vessel.body.position, bodyFixed) - vessel.contactRadius)
+                .coerceAtLeast(0.0)
+            val orbit = com.rm.apogee.core.orbit.Orbit(
+                position = vessel.body.position, velocity = vessel.body.linearVelocity,
+                mu = body.gravitationalParameter,
+            )
+            val floor = body.radius + body.atmosphereHeight + (body.terrain?.maxElevation ?: 0.0)
+            val situation = when {
+                above < 2.0 && body.terrain?.isOcean(bodyFixed) == true -> "Afloat on ${body.displayName}"
+                above < 2.0 -> "Landed on ${body.displayName}"
+                orbit.isBound && orbit.periapsis > floor -> "In orbit of ${body.displayName}"
+                else -> "Flying over ${body.displayName}"
+            }
+            val height = if (above < 2.0) "on the surface"
+                else if (above < 10_000.0) "%.0f m up".format(above) else "%.1f km up".format(above / 1000.0)
+            com.rm.apogee.ui.screens.CraftSummary(vessel.id.raw, vessel.name, situation, height)
+        }
+    }
+
     private fun saveSoloWorld() {
         val world = soloWorld ?: return
         soloWorldStore.save(world.save())
@@ -608,6 +675,23 @@ class MainActivity : ComponentActivity() {
     override fun onPause() {
         super.onPause()
         surfaceView?.onPause()
+    }
+
+    /**
+     * Saves the solo world whenever the app goes to the background, not
+     * only on leaving a flight through the menu: Android may end a
+     * backgrounded app without another word, and everything flown since the
+     * last save would go with it. Taken on the server's tick thread, between
+     * steps, since the world is still running.
+     */
+    override fun onStop() {
+        super.onStop()
+        val world = soloWorld ?: return
+        val running = session
+        // In a flight the server is still stepping it; otherwise it is idle.
+        // Joined to someone else's game, there is no solo world running.
+        if (running == null) saveSoloWorld()
+        else running.betweenTicks { soloWorldStore.save(world.save()) }
     }
 
     override fun onResume() {

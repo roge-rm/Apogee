@@ -91,7 +91,9 @@ object SaveMigration {
             return Result(null, notes)
         }
 
-        return Result(migrated, notes)
+        // Stock craft from older builds had their fins, legs and wheels all
+        // pointing one way; face them out, as the builder would have.
+        return Result(com.rm.apogee.core.craft.StockCraft.facingOutward(migrated, catalog), notes)
     }
 
     /**

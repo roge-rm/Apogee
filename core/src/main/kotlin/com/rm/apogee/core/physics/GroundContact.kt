@@ -198,17 +198,27 @@ class GroundContact {
         val loadPerContact = body.mass * scratch.length / vessel.groundContacts.coerceAtLeast(1)
         hullNormalImpulse = 0.0
 
+        vessel.fitPose()
+        vessel.wheelCompression.fill(0.0)
         for (partIndex in vessel.defs.indices) {
             val def = vessel.defs[partIndex]
-            // A stowed leg has no foot on the ground. Gear left up is a way to
-            // land badly, not a part that quietly still works.
+            // A leg meets the ground where its feet are: folded against the
+            // hull, swinging down, or out. Only a fully deployed, unbroken leg
+            // gives on its springs; stowed or on its way, it is rigid, and a
+            // touchdown on it is judged like any other hard contact - gear
+            // left up, or put down too late, is a way to land badly. A
+            // collapsed leg has no foot at all.
             val leg = def.module<LandingLeg>()
-            if (leg != null && !vessel.isWorking(partIndex)) continue
+            if (leg != null && vessel.broken[partIndex]) continue
+            val sprung = leg == null || (vessel.isWorking(partIndex) && vessel.legDeploy.getOrElse(partIndex) { 1.0 } >= 1.0)
+            // A leg that does not fold has no stowed pose to meet the ground
+            // in: stowed, as before, it simply is not there.
+            if (leg != null && leg.stowedAngle == 0.0 && !vessel.isWorking(partIndex)) continue
 
             // A wheel is a leg that rolls, so it borrows the leg's suspension
             // wholesale rather than growing a second, near-identical one.
             val wheel = def.module<Wheel>()
-            val suspensionTravel = leg?.suspensionTravel ?: wheel?.suspensionTravel
+            val suspensionTravel = if (!sprung) null else leg?.suspensionTravel ?: wheel?.suspensionTravel
             val springRate = leg?.springRate ?: wheel?.springRate
             val damping = leg?.damping ?: wheel?.damping
             val pointCount = def.contactPoints.size
@@ -269,6 +279,13 @@ class GroundContact {
             // added here would not move anything until the next tick, and a
             // suspension that responds a tick late is a suspension that
             // oscillates.
+            // How far the wheel's suspension is taken up, for everyone to
+            // see it sit on its springs.
+            if (wheel != null && partIndex in vessel.wheelCompression.indices) {
+                val taken = minOf(penetration, suspensionTravel ?: 0.0)
+                if (taken > vessel.wheelCompression[partIndex]) vessel.wheelCompression[partIndex] = taken
+            }
+
             if (suspensionTravel != null && penetration < suspensionTravel) {
                 val spring = springRate!! * penetration - damping!! * normalSpeed
                 if (spring <= 0.0) continue
@@ -277,7 +294,7 @@ class GroundContact {
                 body.applyImpulseAtOffset(impulse, offset)
 
                 if (wheel != null) {
-                    driveWheel(vessel, attractor, wheel, normalImpulse, dt)
+                    driveWheel(vessel, partIndex, attractor, wheel, normalImpulse, dt)
                 } else {
                     applyFriction(body, attractor, normalImpulse)
                 }
@@ -301,7 +318,7 @@ class GroundContact {
             if (wheel == null) hullNormalImpulse += normalImpulse
 
             if (wheel != null) {
-                driveWheel(vessel, attractor, wheel, normalImpulse, dt)
+                driveWheel(vessel, partIndex, attractor, wheel, normalImpulse, dt)
             } else {
                 applyFriction(body, attractor, normalImpulse)
             }
@@ -474,6 +491,7 @@ class GroundContact {
      */
     private fun driveWheel(
         vessel: Vessel,
+        steeringPart: Int,
         attractor: CelestialBody,
         wheel: Wheel,
         normalImpulse: Double,
@@ -491,17 +509,15 @@ class GroundContact {
         // and the rover crept along at a fifth of a metre per second on
         // rounding error.
         body.orientation.rotate(vessel.design.orientation.forward, rollAxis)
-        if (wheel.steerable && control.yaw != 0.0) {
-            // Which end of the craft this wheel is on. Front wheels turn into
-            // the corner and rear wheels away from it, which is what produces
-            // a yaw moment at all: steering every wheel the same way just
-            // crabs the whole craft sideways with its own grip fighting it,
-            // and the first version of this steered without ever turning.
-            val ahead = offset dot rollAxis
-            val end = if (ahead >= 0.0) 1.0 else -1.0
-            val angle = Math.toRadians(wheel.steeringRange * control.yaw) * end
+        // Steered by the angle the world posed this wheel at this tick - front
+        // wheels into the corner, rear wheels away from it, which is what
+        // produces a yaw moment at all (steering every wheel the same way just
+        // crabs the craft sideways with its own grip fighting it). The same
+        // angle every player sees the wheel turned to.
+        val steer = vessel.wheelSteer.getOrElse(steeringPart) { 0.0 }
+        if (steer != 0.0) {
             // Turn about the contact normal, which is the local vertical.
-            rotateAbout(rollAxis, normal, angle)
+            rotateAbout(rollAxis, normal, steer)
         }
         val intoGround = rollAxis dot normal
         rollAxis.addScaledInPlace(normal, -intoGround)

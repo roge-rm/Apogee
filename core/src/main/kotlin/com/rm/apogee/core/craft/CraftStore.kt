@@ -100,6 +100,11 @@ class CraftStore(private val directory: File) {
             StockCraft.rover(catalog),
             StockCraft.aeroplane(catalog),
             StockCraft.boat(catalog),
+            StockCraft.sparrow(catalog),
+            StockCraft.buggy(catalog),
+            StockCraft.hauler(catalog),
+            StockCraft.skiff(catalog),
+            StockCraft.cutter(catalog),
         )
         for (design in stock) {
             if (design.name in offered) continue
