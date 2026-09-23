@@ -20,6 +20,12 @@ class ClientVessel(
     @Volatile var name: String,
     @Volatile var currentStage: Int = 0,
     @Volatile var activatedParts: List<Int> = emptyList(),
+    /**
+     * Its tanks, as [ServerMessage.FuelLevels] last gave them; null until
+     * the server has said - only the craft this client flies gets them.
+     */
+    @Volatile var fuel: List<Float>? = null,
+
     /** Blank for debris and other players' craft are their own name. */
     @Volatile var owner: String = "",
 ) {
@@ -214,6 +220,10 @@ class GameClient(
                     // snapshot after the structure lands will carry it again.
                     vesselsById[kinematics.vessel]?.observe(kinematics, snapshot.time)
                 }
+            }
+
+            is ServerMessage.FuelLevels -> {
+                vesselsById[message.vessel]?.fuel = message.amounts
             }
 
             is ServerMessage.ScatterFelled -> {

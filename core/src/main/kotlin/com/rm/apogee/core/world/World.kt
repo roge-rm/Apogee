@@ -461,11 +461,14 @@ class World(
         if (activated.isEmpty()) return
         pendingEvents.add(WorldEvent.Staged(vessel.id, vessel.currentStage))
 
-        val decouplerIndex = activated.firstOrNull { index ->
-            vessel.defs.getOrNull(index)?.module<Decoupler>() != null
-        } ?: return
-
-        splitAt(vessel, decouplerIndex)
+        // Every decoupler in the stage, not just the first: four radial
+        // boosters are four decouplers firing together. Each split renumbers
+        // the craft that keeps flying, so the rest are followed through it.
+        var pending = activated.filter { index -> vessel.defs.getOrNull(index)?.module<Decoupler>() != null }
+        while (pending.isNotEmpty()) {
+            val kept = splitAt(vessel, pending.first()) ?: break
+            pending = pending.drop(1).mapNotNull { old -> kept.indexOf(old).takeIf { it >= 0 } }
+        }
     }
 
     /**
@@ -648,10 +651,10 @@ class World(
         return best
     }
 
-    private fun splitAt(vessel: Vessel, decouplerIndex: Int) {
+    private fun splitAt(vessel: Vessel, decouplerIndex: Int): List<Int>? {
         val separating = vessel.design.subtreeOf(decouplerIndex).toSet()
         val remaining = vessel.design.parts.indices.filter { it !in separating }
-        if (separating.isEmpty() || remaining.isEmpty()) return
+        if (separating.isEmpty() || remaining.isEmpty()) return null
 
         val ejection = vessel.defs[decouplerIndex].module<Decoupler>()?.ejectionImpulse ?: 0.0
 
@@ -663,7 +666,7 @@ class World(
         val angularVelocity = vessel.body.angularVelocity.copy()
 
         val discarded = buildSubDesign(vessel.design, separating.sorted())
-        val kept = buildSubDesign(vessel.design, remaining)
+        val kept = buildSubDesign(vessel.design, remaining, firedStages = vessel.currentStage)
 
         // Resolve BOTH halves' definitions before either design is replaced.
         // replaceStructure swaps vessel.defs for the kept subset, so indexing
@@ -673,7 +676,7 @@ class World(
         val keptDefs = kept.indices.map { originalDefs[it] }
         val discardedDefs = discarded.indices.map { originalDefs[it] }
 
-        // The half that keeps flying.
+        // The half that keeps flying, at the same place in its sequence.
         vessel.replaceStructure(kept.design, keptDefs, kept.indices)
 
         // The half that falls away, as a new vessel with the same motion.
@@ -708,12 +711,22 @@ class World(
         vesselsById[debris.id] = debris
         pendingEvents.add(WorldEvent.VesselStructureChanged(vessel.id))
         pendingEvents.add(WorldEvent.VesselSpawned(debris.id))
+        return kept.indices
     }
 
     private class SubDesign(val design: CraftDesign, val indices: List<Int>)
 
-    /** Rebuilds a design from a subset of parts, remapping parent indices. */
-    private fun buildSubDesign(source: CraftDesign, keep: List<Int>): SubDesign {
+    /**
+     * Rebuilds a design from a subset of parts, remapping parent indices.
+     *
+     * Stages left with nothing to fire are dropped - except the first
+     * [firedStages], which have fired already and are kept, empty, as
+     * placeholders. Dropping those renumbered every stage after them: the
+     * chute a player knew as stage 2 became stage 1 the moment the stage
+     * below it fell away, and the craft's place in its own sequence had to
+     * be moved back to match, or it skipped a stage.
+     */
+    private fun buildSubDesign(source: CraftDesign, keep: List<Int>, firedStages: Int = 0): SubDesign {
         val remap = HashMap<Int, Int>(keep.size)
         keep.forEachIndexed { newIndex, oldIndex -> remap[oldIndex] = newIndex }
 
@@ -731,18 +744,15 @@ class World(
             )
         }
 
-        // Stages that referenced discarded parts are pruned, not renumbered
-        // away - the surviving craft keeps its remaining staging sequence.
         val stages = source.stages.map { stage ->
             com.rm.apogee.core.craft.Stage(
                 stage.activatedParts.mapNotNull { remap[it] }
             )
-        }.filter { it.activatedParts.isNotEmpty() }
+        }.filterIndexed { index, stage -> index < firedStages || stage.activatedParts.isNotEmpty() }
 
-        return SubDesign(
-            CraftDesign(source.name, parts, stages, source.catalogHash),
-            keep,
-        )
+        // A copy, so the orientation comes too: a plane dropping a tank was
+        // left thinking it stood on its tail.
+        return SubDesign(source.copy(parts = parts, stages = stages), keep)
     }
 
     // --- the step -----------------------------------------------------------

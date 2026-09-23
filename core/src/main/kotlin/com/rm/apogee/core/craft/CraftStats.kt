@@ -25,8 +25,23 @@ class StageStats(
     /** Thrust-to-weight at ignition, against the homeworld's surface gravity. */
     val twrSeaLevel: Double,
     val engineCount: Int,
+    /** What this stage burns: each fuel its engines draw on, as it stands. */
+    val fuel: List<FuelLevel> = emptyList(),
 ) {
     val propellantMass: Double get() = startMass - endMass
+
+    /**
+     * The figure worth quoting: vacuum for a rocket, sea level for a stage
+     * of air-breathers, which make nothing in vacuum and would read zero.
+     */
+    val deltaV: Double get() = if (thrustVacuum > 0.0) deltaVVacuum else deltaVSeaLevel
+
+    /** All its fuels together, 0..1, for a single gauge. */
+    val fuelFraction: Double
+        get() {
+            val capacity = fuel.sumOf { it.capacity }
+            return if (capacity > 0.0) fuel.sumOf { it.amount } / capacity else 0.0
+        }
 
     /** An engine is lit during this stage - which may just be a leftover. */
     val hasEngines: Boolean get() = engineCount > 0
@@ -40,6 +55,11 @@ class StageStats(
      * have an engine attached.
      */
     val isBurn: Boolean get() = engineCount > 0 && propellantMass > 0.0
+}
+
+/** One fuel a stage's engines can reach: how much is left of how much there was room for. */
+class FuelLevel(val type: ResourceType, val amount: Double, val capacity: Double) {
+    val fraction: Double get() = if (capacity > 0.0) (amount / capacity).coerceIn(0.0, 1.0) else 0.0
 }
 
 /**
@@ -105,64 +125,111 @@ class CraftStats(
             @Suppress("UNCHECKED_CAST")
             val resolved = defs as List<PartDef>
 
-            // Mutable flight state: what is still attached, and how full it is.
-            val live = design.parts.indices.toMutableSet()
-            val propellant = DoubleArray(design.parts.size)
-            resolved.forEachIndexed { index, def ->
-                propellant[index] = def.modules.filterIsInstance<Tank>()
-                    .filter { it.resource == ResourceType.PROPELLANT }
-                    .sumOf { it.capacity }
+            val full = Array(design.parts.size) { index ->
+                DoubleArray(ResourceType.entries.size).also { row ->
+                    resolved[index].modules.filterIsInstance<Tank>().forEach { row[it.resource.ordinal] += it.capacity }
+                }
             }
+            val totalMass = design.parts.indices.sumOf { massOf(resolved, full, it) }
+            val dryMass = resolved.sumOf { it.dryMass }
+            val stageStats = simulate(design, resolved, full, startStage = 0, lit = emptySet(), current = false)
 
-            fun massOf(index: Int) =
-                resolved[index].dryMass +
-                    propellant[index] * ResourceType.PROPELLANT.densityPerUnit
+            return CraftStats(
+                totalMass = totalMass,
+                dryMass = dryMass,
+                partCount = design.parts.size,
+                stages = stageStats,
+                problems = diagnose(design, resolved, stageStats),
+                warnings = advise(stageStats),
+            )
+        }
 
-            fun liveMass() = live.sumOf { massOf(it) }
+        /**
+         * The same analysis for a craft in flight: from the stage it is on,
+         * with the engines already lit and the fuel actually left.
+         *
+         * The first entry is what is burning now - the engines lit by the
+         * stages already fired, on the fuel they can still reach - indexed
+         * by the stage that lit them; the rest are the stages still to fire.
+         */
+        fun analyzeLive(vessel: Vessel): List<StageStats> {
+            val design = vessel.design
+            val defs = vessel.defs
+            val amounts = Array(design.parts.size) { index ->
+                DoubleArray(ResourceType.entries.size) { vessel.amountInPart(index, ResourceType.entries[it]) }
+            }
+            val lit = design.parts.indices.filter { vessel.isWorking(it) }.toSet()
+            return simulate(design, defs, amounts, vessel.currentStage, lit, current = true)
+        }
 
-            val totalMass = liveMass()
-            val dryMass = live.sumOf { resolved[it].dryMass }
+        private fun massOf(defs: List<PartDef>, amounts: Array<DoubleArray>, index: Int): Double {
+            var mass = defs[index].dryMass
+            for (type in ResourceType.entries) mass += amounts[index][type.ordinal] * type.densityPerUnit
+            return mass
+        }
+
+        /**
+         * Steps the staging sequence from [startStage] exactly as the
+         * simulation would - discarding what each decoupler drops, lighting
+         * what each stage ignites, and draining only the tanks the lit
+         * engines can reach, of the fuels those engines burn. With [current],
+         * an entry for what is burning before the next stage fires comes
+         * first. [amounts] is drained in place.
+         */
+        private fun simulate(
+            design: CraftDesign,
+            defs: List<PartDef>,
+            amounts: Array<DoubleArray>,
+            startStage: Int,
+            lit: Set<Int>,
+            current: Boolean,
+        ): List<StageStats> {
+            val capacity = Array(design.parts.size) { index ->
+                DoubleArray(ResourceType.entries.size).also { row ->
+                    defs[index].modules.filterIsInstance<Tank>().forEach { row[it.resource.ordinal] += it.capacity }
+                }
+            }
+            val live = design.parts.indices.toMutableSet()
+            val burning = HashSet(lit)
+            fun liveMass() = live.sumOf { massOf(defs, amounts, it) }
 
             val stageStats = ArrayList<StageStats>()
-            val lit = HashSet<Int>()
 
-            design.stages.forEachIndexed { stageIndex, stage ->
-                // Decouplers in this stage discard what they hold, before the
-                // stage's own engines light.
-                for (part in stage.activatedParts) {
-                    if (resolved[part].module<com.rm.apogee.core.part.Decoupler>() != null) {
-                        design.subtreeOf(part).forEach { live.remove(it) }
-                    }
-                }
-                lit.addAll(stage.activatedParts.filter { it in live })
-
-                val engines = lit.filter { it in live && resolved[it].module<Engine>() != null }
+            fun burn(stageIndex: Int) {
+                val engines = burning.filter { it in live && defs[it].module<Engine>() != null }.sorted()
                 if (engines.isEmpty()) {
                     stageStats.add(emptyStage(stageIndex, liveMass()))
-                    return@forEachIndexed
+                    return
                 }
 
                 val startMass = liveMass()
-                val groups = FuelGroups.compute(design, resolved, live)
+                val groups = FuelGroups.compute(design, defs, live)
                 val reachable = engines.map { groups[it] }.toSet()
                 val fuelParts = live.filter { groups[it] in reachable }
-                val fuelUnits = fuelParts.sumOf { propellant[it] }
-                val fuelMass = fuelUnits * ResourceType.PROPELLANT.densityPerUnit
+                val types = engines.map { defs[it].module<Engine>()!!.propellant }.distinct()
+                val fuel = types.map { type ->
+                    FuelLevel(
+                        type,
+                        amount = fuelParts.sumOf { amounts[it][type.ordinal] },
+                        capacity = fuelParts.sumOf { capacity[it][type.ordinal] },
+                    )
+                }
+                val fuelMass = fuel.sumOf { it.amount * it.type.densityPerUnit }
 
                 var thrustVacuum = 0.0
                 var thrustSeaLevel = 0.0
                 var flowVacuum = 0.0
                 var flowSeaLevel = 0.0
                 for (index in engines) {
-                    val engine = resolved[index].module<Engine>()!!
+                    val engine = defs[index].module<Engine>()!!
                     thrustVacuum += engine.thrustVacuum
                     thrustSeaLevel += engine.thrustSeaLevel
                     // Effective Isp for several engines sharing a tank is total
                     // thrust over total mass flow, not an average of the Isps -
                     // a thirsty engine drags the combined figure down harder
                     // than its thrust share suggests.
-                    flowVacuum += engine.thrustVacuum / (engine.ispVacuum * G0)
-                    flowSeaLevel += engine.thrustSeaLevel / (engine.ispSeaLevel * G0)
+                    if (engine.ispVacuum > 0.0) flowVacuum += engine.thrustVacuum / (engine.ispVacuum * G0)
+                    if (engine.ispSeaLevel > 0.0) flowSeaLevel += engine.thrustSeaLevel / (engine.ispSeaLevel * G0)
                 }
 
                 val endMass = startMass - fuelMass
@@ -191,21 +258,28 @@ class CraftStats(
                         },
                         twrSeaLevel = thrustSeaLevel / (startMass * REFERENCE_GRAVITY),
                         engineCount = engines.size,
+                        fuel = fuel,
                     )
                 )
 
                 // Burned dry before the next stage.
-                fuelParts.forEach { propellant[it] = 0.0 }
+                for (part in fuelParts) for (type in types) amounts[part][type.ordinal] = 0.0
             }
 
-            return CraftStats(
-                totalMass = totalMass,
-                dryMass = dryMass,
-                partCount = design.parts.size,
-                stages = stageStats,
-                problems = diagnose(design, resolved, stageStats),
-                warnings = advise(stageStats),
-            )
+            if (current) burn(startStage - 1)
+            for (stageIndex in startStage until design.stages.size) {
+                val stage = design.stages[stageIndex]
+                // Decouplers in this stage discard what they hold, before the
+                // stage's own engines light.
+                for (part in stage.activatedParts) {
+                    if (part in live && defs[part].module<com.rm.apogee.core.part.Decoupler>() != null) {
+                        design.subtreeOf(part).forEach { live.remove(it) }
+                    }
+                }
+                burning.addAll(stage.activatedParts.filter { it in live })
+                burn(stageIndex)
+            }
+            return stageStats
         }
 
         private fun emptyStage(index: Int, mass: Double) = StageStats(

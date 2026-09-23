@@ -265,4 +265,35 @@ class ClientPredictionTest {
         val shorter = design.copy(parts = design.parts.take(4))
         assertTrue("a changed design must rebuild", prediction.needsAdopting(shorter))
     }
+
+    /**
+     * A replica is rebuilt unstaged and full. Told the server's staging and
+     * tanks, it matches them - and a stage fired locally a moment before the
+     * server's word arrives is not undone by the older word.
+     */
+    @Test
+    fun `the replica takes the server's staging and fuel`() {
+        val (world, id) = server()
+        val craft = world.vessel(id)!!
+        world.stage(craft)
+        craft.control.throttle = 1.0
+        repeat(300) { world.step(1.0 / 60.0) }
+
+        val prediction = ClientPrediction(catalog)
+        prediction.adopt(craft.design, kinematicsOf(world, id), world.time)
+        val lit = craft.design.parts.indices.filter { craft.isActivated(it) }
+        prediction.sync(craft.currentStage, lit, craft.flatResources())
+
+        val replica = prediction.replica!!
+        org.junit.Assert.assertEquals(craft.currentStage, replica.currentStage)
+        assertTrue(lit.all { replica.isActivated(it) })
+        org.junit.Assert.assertEquals(
+            craft.flatResources().sum().toDouble(), replica.flatResources().sum().toDouble(), 1e-3,
+        )
+
+        prediction.stage()
+        val ahead = replica.currentStage
+        prediction.sync(craft.currentStage, lit, craft.flatResources())
+        org.junit.Assert.assertEquals("a local stage is not undone by older news", ahead, replica.currentStage)
+    }
 }

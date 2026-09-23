@@ -135,6 +135,9 @@ class GameServer(
     val dt: Double = 1.0 / config.tickHz
     private val ticksPerSnapshot: Int = (config.tickHz / config.snapshotHz).coerceAtLeast(1)
 
+    /** Fuel goes to each pilot at a quarter of a second: a gauge, not motion. */
+    private val ticksPerFuel: Int = (config.tickHz / FUEL_HZ).coerceAtLeast(1)
+
     val playerCount: Int get() = sessions.count { it.connected && it.handshakeComplete }
 
     /**
@@ -209,6 +212,7 @@ class GameServer(
 
             publishEvents()
             if (tickCount % ticksPerSnapshot == 0L) broadcastSnapshot()
+            if (tickCount % ticksPerFuel == 0L) sendFuel()
 
             nextTickAt += tickNanos
 
@@ -228,6 +232,7 @@ class GameServer(
         world.step(dt)
         publishEvents()
         broadcastSnapshot()
+        sendFuel()
     }
 
     private suspend fun drainInbox() {
@@ -533,6 +538,15 @@ class GameServer(
         broadcast(ServerMessage.SnapshotMessage(snapshot), Channel.KINEMATICS)
     }
 
+    /** Each pilot's own tanks. */
+    private suspend fun sendFuel() {
+        for (session in sessions) {
+            if (!session.connected || !session.handshakeComplete) continue
+            val vessel = session.controlledVessel?.let { world.vessel(it) } ?: continue
+            session.send(ServerMessage.FuelLevels(vessel.id.raw, vessel.flatResources()), Channel.KINEMATICS)
+        }
+    }
+
     private suspend fun broadcast(message: ServerMessage, channel: Channel) {
         for (session in sessions) {
             if (session.connected && session.handshakeComplete) session.send(message, channel)
@@ -541,6 +555,7 @@ class GameServer(
 
     companion object {
         private const val MAX_CATCHUP_NANOS = 250_000_000L
+        private const val FUEL_HZ = 4
 
         fun default(catalog: PartCatalog = StockParts.catalog, config: ServerConfig = ServerConfig()) =
             GameServer(World.default(catalog), config)

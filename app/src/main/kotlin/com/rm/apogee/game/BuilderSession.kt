@@ -54,6 +54,17 @@ class BuilderSession(
     var selectedPartIndex: Int? by mutableStateOf(null)
 
     /**
+     * Editing the staging sequence rather than the structure: the left panel
+     * lists stages, and a tap on the craft moves a part into the chosen one.
+     */
+    var stagingMode: Boolean by mutableStateOf(false)
+        private set
+
+    /** The stage parts are tapped into, and whose parts are lit up. */
+    var selectedStage: Int? by mutableStateOf(null)
+        private set
+
+    /**
      * Where LAUNCH puts the craft: a [com.rm.apogee.core.world.LaunchSite]
      * id, or null to let the design decide (the sea for hulls, the pad for
      * everything else).
@@ -106,6 +117,95 @@ class BuilderSession(
         selectedPartIndex = null
     }
 
+    // --- staging ---------------------------------------------------------------
+
+    /** One stage as the panel lists it: its parts by name, like parts together. */
+    class StageEntry(val index: Int, val parts: List<String>)
+
+    val stageEntries: List<StageEntry>
+        get() = builder.design.stages.mapIndexed { i, stage ->
+            val names = stage.activatedParts
+                .mapNotNull { builder.design.parts.getOrNull(it)?.partId }
+                .groupingBy { it }.eachCount()
+                .map { (id, count) ->
+                    val title = catalog[id]?.title ?: id
+                    if (count > 1) "$title ×$count" else title
+                }
+            StageEntry(i, names)
+        }
+
+    val manualStaging: Boolean get() = builder.design.manualStaging
+
+    fun toggleStagingMode() {
+        stagingMode = !stagingMode
+        heldPartId = null
+        selectedPartIndex = null
+        selectedStage = if (stagingMode) builder.design.stages.indices.firstOrNull() else null
+        statusMessage = if (stagingMode) "Tap a stage, then tap parts to move them into it" else null
+        revision++
+    }
+
+    fun selectStage(index: Int?) {
+        selectedStage = index?.takeIf { it in builder.design.stages.indices }
+        revision++
+    }
+
+    /** A new stage just after the selected one - or last - chosen, ready to fill. */
+    fun addStage() {
+        val at = (selectedStage ?: (builder.design.stages.size - 1)) + 1
+        if (builder.addStage(at)) {
+            selectedStage = at
+            statusMessage = "Stage $at added - tap parts to move them into it"
+            onEdited()
+        }
+    }
+
+    fun removeStage(index: Int) {
+        if (builder.removeStage(index)) {
+            selectedStage = selectedStage?.let { minOf(it, builder.design.stages.size - 1) }?.takeIf { it >= 0 }
+            onEdited()
+        } else {
+            statusMessage = "The only stage cannot be removed while it fires something"
+        }
+    }
+
+    /** Moves [index] one place later in the firing order ([by] 1) or earlier (-1). */
+    fun shiftStage(index: Int, by: Int) {
+        val to = index + by
+        if (builder.moveStage(index, to)) {
+            selectedStage = to
+            onEdited()
+        }
+    }
+
+    fun useAutomaticStaging() {
+        builder.useAutomaticStaging()
+        selectedStage = builder.design.stages.indices.firstOrNull()
+        statusMessage = "Staging is automatic again"
+        onEdited()
+    }
+
+    private fun tapToStage(x: Float, y: Float, width: Float, height: Float) {
+        val index = pickPart(x, y, width, height, stageableOnly = true) ?: run {
+            statusMessage = "Only engines, decouplers, chutes and legs are staged"
+            return
+        }
+        val target = selectedStage
+        val current = builder.stageOf(index)
+        val title = catalog[builder.design.parts[index].partId]?.title ?: "Part"
+        if (target == null || target == current) {
+            // Nothing to move it to: show where it is instead.
+            selectedStage = current.takeIf { it >= 0 }
+            statusMessage = if (current >= 0) "$title fires in stage $current" else "$title is in no stage"
+            revision++
+            return
+        }
+        if (builder.moveToStage(index, target)) {
+            statusMessage = "$title moved to stage $target"
+            onEdited()
+        }
+    }
+
     fun toggleSymmetry() {
         builder.symmetry = builder.symmetry.next(builder.orientation)
         revision++
@@ -140,6 +240,10 @@ class BuilderSession(
      * zoomed out or covers the whole craft when zoomed in.
      */
     fun tap(x: Float, y: Float, width: Float, height: Float) {
+        if (stagingMode) {
+            tapToStage(x, y, width, height)
+            return
+        }
         val held = heldPartId
         if (held == null) {
             selectedPartIndex = pickPart(x, y, width, height)
@@ -231,6 +335,7 @@ class BuilderSession(
     }
 
     private fun onEdited() {
+        selectedStage = selectedStage?.takeIf { it in builder.design.stages.indices }
         stats = CraftStats.analyze(builder.design, catalog)
         revision++
     }
@@ -241,7 +346,7 @@ class BuilderSession(
 
     /** The design as it would be launched. */
     fun designForLaunch(): CraftDesign? =
-        if (builder.isEmpty || !stats.isFlyable) null else builder.design
+        if (builder.isEmpty || !stats.isFlyable) null else builder.design.withoutEmptyStages()
 
     // --- rendering -----------------------------------------------------------
 
@@ -257,9 +362,16 @@ class BuilderSession(
 
         camera.fixedUp.setTo(design.orientation.up)
         val caps = StackCaps.forDesign(design, catalog)
+        // In staging, the chosen stage's parts light up in the accent.
+        val staged = selectedStage?.takeIf { stagingMode }?.let { design.stages.getOrNull(it)?.activatedParts?.toSet() }.orEmpty()
         design.parts.forEachIndexed { index, placed ->
             val def = catalog[placed.partId] ?: return@forEachIndexed
-            val body = if (index == selectedPartIndex) SELECTED_COLOR else com.rm.apogee.render.PartModels.bodyColour(placed.partId)
+            val highlight = when {
+                index == selectedPartIndex -> SELECTED_COLOR
+                index in staged -> STAGE_COLOR
+                else -> null
+            }
+            val body = highlight ?: com.rm.apogee.render.PartModels.bodyColour(placed.partId)
             val leaves = ArrayList<com.rm.apogee.render.PartModels.Leaf>()
             val anim = com.rm.apogee.render.PartAnim()
             com.rm.apogee.render.PartModels.alignWheel(
@@ -276,8 +388,7 @@ class BuilderSession(
                         shape = leaf.shape,
                         position = placed.rotation.rotate(leaf.position).addInPlace(placed.position),
                         rotation = placed.rotation * leaf.rotation,
-                        color = if (index == selectedPartIndex) SELECTED_COLOR
-                            else com.rm.apogee.render.PartModels.colour(leaf.tint, body),
+                        color = highlight ?: com.rm.apogee.render.PartModels.colour(leaf.tint, body),
                     )
                 )
             }
@@ -379,12 +490,13 @@ class BuilderSession(
         return best
     }
 
-    private fun pickPart(x: Float, y: Float, width: Float, height: Float): Int? {
+    private fun pickPart(x: Float, y: Float, width: Float, height: Float, stageableOnly: Boolean = false): Int? {
         val design = builder.design
         var best: Int? = null
         var bestDistance = PART_TAP_RADIUS_PIXELS * PART_TAP_RADIUS_PIXELS
 
         design.parts.forEachIndexed { index, placed ->
+            if (stageableOnly && !builder.isStageable(index)) return@forEachIndexed
             val screen = project(placed.position, width, height) ?: return@forEachIndexed
             val dx = screen.first - x
             val dy = screen.second - y
@@ -414,5 +526,8 @@ class BuilderSession(
         val NODE_MARKER = MeshSpec.Sphere(0.22)
         val NODE_COLOR = floatArrayOf(0.48f, 1.0f, 0.70f, 1f)
         val SELECTED_COLOR = floatArrayOf(1.0f, 0.82f, 0.45f, 1f)
+
+        /** The theme's accent, for the parts of the stage being edited. */
+        val STAGE_COLOR = floatArrayOf(0.70f, 0.62f, 1.0f, 1f)
     }
 }

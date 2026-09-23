@@ -57,6 +57,12 @@ class HudState {
     /** How many craft the player owns, so the switch control can hide itself. */
     var ownedCraft: Int by mutableIntStateOf(0)
 
+    /** The stage burning now and those still to fire, for the stage stack. */
+    var stages: List<StageCard> by mutableStateOf(emptyList())
+
+    /** Whether the stage stack is open to full detail. */
+    var stagesExpanded: Boolean by mutableStateOf(false)
+
     /** Clears transient state when leaving the world, so a new flight starts clean. */
     fun reset() {
         frameTimeMillis = 0f
@@ -74,5 +80,7 @@ class HudState {
         mapMode = false
         canJoin = false
         ownedCraft = 0
+        stages = emptyList()
+        stagesExpanded = false
     }
 }

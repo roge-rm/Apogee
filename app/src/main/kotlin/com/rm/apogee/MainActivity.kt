@@ -655,6 +655,9 @@ class MainActivity : ComponentActivity() {
                 session?.let { current ->
                     hudState.frameBuildMillis = current.lastFrameBuildNanos.get() / 1_000_000f
                     hudState.telemetry = current.telemetry
+                    // Only when it changes: a new list every frame would
+                    // recompose the stack sixty times a second for nothing.
+                    if (hudState.stages !== current.stageCards) hudState.stages = current.stageCards
                     hudState.connecting = !current.connected && current.rejectionReason == null
                     hudState.surfaceReady = current.surfaceReady
                     hudState.connectionError = current.rejectionReason

@@ -313,6 +313,22 @@ class GameSession private constructor(
     }
 
     /** Whether the craft being flown has any wheels to brake. */
+    /**
+     * The flight HUD's stage cards, refreshed a few times a second from the
+     * replica: what is burning, and what each stage still to fire will do.
+     */
+    @Volatile var stageCards: List<StageCard> = emptyList()
+        private set
+    private var stageCardsNanos = 0L
+
+    private fun refreshStageCards() {
+        val now = System.nanoTime()
+        if (now - stageCardsNanos < STAGE_CARD_INTERVAL_NANOS) return
+        stageCardsNanos = now
+        val vessel = prediction.replica ?: return
+        stageCards = StageCard.from(vessel, com.rm.apogee.core.craft.CraftStats.analyzeLive(vessel), localThrottle)
+    }
+
     val controlledHasWheels: Boolean
         get() {
             val id = client.controlledVessel ?: return false
@@ -597,6 +613,8 @@ class GameSession private constructor(
             lastReconciledTick = snapshot.tick
             prediction.reconcile(state, age, snapshot.time)
         }
+        prediction.sync(focus.currentStage, focus.activatedParts, focus.fuel)
+        refreshStageCards()
 
         prediction.renderPosition(predictedPosition)
         prediction.renderRotation(predictedRotation)
@@ -646,9 +664,14 @@ class GameSession private constructor(
         // everyone else's, eased between snapshots.
         val defs = design.parts.map { catalog[it.partId] }
         val animation = animations.getOrPut(vessel.id) { VesselAnimation() }
-        val fresh = if (predicted) prediction.pose(animation.target)
-            else defs.all { it != null } && VesselPose.decode(defs.map { it!! }, state.pose, animation.target)
         val n = design.parts.size
+        // And only if it fits the design drawn: staging splits the replica at
+        // once, and until the server's new structure arrives it has fewer
+        // parts than the craft on screen - reading its pose by this design's
+        // parts ran off the end of it and took the game down with it.
+        val fresh = (if (predicted) prediction.pose(animation.target)
+            else defs.all { it != null } && VesselPose.decode(defs.map { it!! }, state.pose, animation.target)) &&
+            animation.target.deflection.size == n
         animation.shown.fit(n)
         if (animation.spin.size != n) animation.spin = DoubleArray(n)
         if (fresh) {
@@ -822,6 +845,9 @@ class GameSession private constructor(
     companion object {
         /** ~60 Hz. The server streams slower; the renderer interpolates. */
         private const val PRESENT_INTERVAL_MILLIS = 16L
+
+        /** Stage cards at 5 Hz: gauges, read at a glance, not animated. */
+        private const val STAGE_CARD_INTERVAL_NANOS = 200_000_000L
 
         /**
          * Furthest another craft is carried past its last snapshot. A few

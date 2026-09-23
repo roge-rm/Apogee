@@ -209,6 +209,19 @@ sealed interface ServerMessage {
     @Serializable
     @SerialName("scatterFelled")
     data class ScatterFelled(val ids: List<Long>) : ServerMessage
+
+    /**
+     * What is left in the tanks of the craft this client flies: for each
+     * part in order, one amount per [com.rm.apogee.core.part.ResourceType].
+     *
+     * Sent a few times a second, and only to the pilot - nobody else's HUD
+     * shows another craft's fuel. Without it the client's replica started
+     * every rebuild with full tanks, so a craft resumed half empty read full
+     * and predicted thrust the server's craft no longer had.
+     */
+    @Serializable
+    @SerialName("fuel")
+    data class FuelLevels(val vessel: Long, val amounts: List<Float>) : ServerMessage
 }
 
 /** Client -> server. */
@@ -250,5 +263,6 @@ object Protocol {
     // 3: CraftDesign.orientation, Command.SetBrakes.
     // 4: ServerMessage.ScatterFelled, Hello.terrainGeneration.
     // 5: VesselKinematics.pose.
-    const val VERSION = 5
+    // 6: ServerMessage.FuelLevels, CraftDesign.manualStaging.
+    const val VERSION = 6
 }

@@ -86,9 +86,42 @@ class ClientPrediction(
         }
         world = replica
         designHash = design.hashCode()
+        lastFuel = null
         renderOffset.setZero()
         accumulator = 0.0
     }
+
+    /**
+     * Brings the replica's staging and tanks to what the server last said.
+     *
+     * A replica is rebuilt from the design alone - unstaged and full - which
+     * after a separation left the upper stage's engine unlit and its tanks
+     * brimming here while the server's burned on. Staging is taken whenever
+     * it differs; fuel whenever it arrives, a small correction a few times a
+     * second.
+     */
+    fun sync(stage: Int, activatedParts: List<Int>, fuel: List<Float>?) {
+        val local = vessel ?: return
+        val lit = local.design.parts.indices.filter { local.isActivated(it) }
+        // Never back: a stage fired here a moment ago is ahead of the server
+        // until its own staging comes back, and undoing it in between would
+        // put the engine out for a frame or two.
+        if (stage > local.currentStage || (stage == local.currentStage && lit != activatedParts.sorted())) {
+            local.restoreStaging(stage, activatedParts, local.design.parts.indices.filter { local.isBroken(it) })
+        }
+        if (fuel != null && fuel !== lastFuel) {
+            lastFuel = fuel
+            local.restoreFlatResources(fuel)
+        }
+    }
+
+    private var lastFuel: List<Float>? = null
+
+    /**
+     * The local replica, for reading - staging and fuel for the HUD, which
+     * move with the player's own presses and burns here first.
+     */
+    val replica: Vessel? get() = vessel
 
     /** True when [design] is not what the replica was built from. */
     fun needsAdopting(design: CraftDesign): Boolean =

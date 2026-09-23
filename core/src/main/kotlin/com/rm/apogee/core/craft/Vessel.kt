@@ -367,6 +367,22 @@ class Vessel(
      */
     fun resourceSnapshot(): List<DoubleArray> = resources.map { it.copyOf() }
 
+    /** Every part's levels in one flat list, part by part, for the wire. See [restoreFlatResources]. */
+    fun flatResources(): List<Float> {
+        val out = ArrayList<Float>(resources.size * RESOURCE_COUNT)
+        for (row in resources) for (value in row) out.add(value.toFloat())
+        return out
+    }
+
+    /** Restores levels from [flatResources]; false, and nothing changed, if they do not fit this craft. */
+    fun restoreFlatResources(flat: List<Float>): Boolean {
+        if (flat.size != resources.size * RESOURCE_COUNT) return false
+        var k = 0
+        for (row in resources) for (slot in row.indices) row[slot] = flat[k++].toDouble()
+        recomputeMass(shiftBodyPosition = false)
+        return true
+    }
+
     /** Restores levels taken from [resourceSnapshot]. */
     fun restoreResources(saved: List<DoubleArray>) {
         for (i in resources.indices) {

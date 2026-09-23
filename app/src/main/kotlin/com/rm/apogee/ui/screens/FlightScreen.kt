@@ -1,5 +1,8 @@
 package com.rm.apogee.ui.screens
 
+import com.rm.apogee.ui.components.StageStack
+import com.rm.apogee.ui.components.FuelBar
+import com.rm.apogee.game.StageCard
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -231,8 +234,19 @@ fun FlightScreen(
                         PORTRAIT_THROTTLE_HEIGHT,
                     )
                 }
+                // The stage stack rides above the attitude controls, on their
+                // side of the screen: in the middle it stacked on the navball
+                // and pushed both up into the view.
                 val attitude: @Composable () -> Unit = {
-                    AttitudeCluster(hud, onAttitude, onRoll, onToggleSas, PORTRAIT_STICK_SIZE)
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        StageStack(
+                            hud.stages, hud.stagesExpanded, { hud.stagesExpanded = !hud.stagesExpanded },
+                            width = PORTRAIT_CLUSTER_WIDTH, maxChips = 3,
+                            detailWidth = 300.dp,
+                        )
+                        if (hud.stages.isNotEmpty()) Spacer(Modifier.height(10.dp))
+                        AttitudeCluster(hud, onAttitude, onRoll, onToggleSas, PORTRAIT_STICK_SIZE)
+                    }
                 }
 
                 if (leftHandMode) attitude() else throttle()
@@ -249,7 +263,7 @@ fun FlightScreen(
                         size = PORTRAIT_NAVBALL_SIZE,
                     )
                     Spacer(Modifier.height(10.dp))
-                    StageButton(hud.telemetry.stage, onStage)
+                    StageButton(hud.telemetry.stage, onStage, current = hud.stages.firstOrNull { it.current })
                 }
 
                 if (leftHandMode) throttle() else attitude()
@@ -302,10 +316,16 @@ fun FlightScreen(
                         JoinButton(onJoin)
                         Spacer(Modifier.height(8.dp))
                     }
+                    StageStack(
+                        hud.stages, hud.stagesExpanded, { hud.stagesExpanded = !hud.stagesExpanded },
+                        width = Dimens.HudActionBarWidth, maxChips = 3,
+                    )
+                    if (hud.stages.isNotEmpty()) Spacer(Modifier.height(6.dp))
                     StageButton(
                         hud.telemetry.stage,
                         onStage,
                         Modifier.width(Dimens.HudActionBarWidth),
+                        current = hud.stages.firstOrNull { it.current },
                     )
                 }
             }
@@ -445,30 +465,56 @@ private fun StageButton(
     onStage: () -> Unit,
     modifier: Modifier = Modifier,
     compact: Boolean = false,
+    /** The stage burning now, whose fuel the button carries as a gauge. */
+    current: StageCard? = null,
 ) {
+    val ink = Color(0xFF1A1030)
     Surface(
         shape = RoundedCornerShape(Dimens.CornerActionBar),
         color = ApogeeColors.Accent.alpha(0.85f),
-        contentColor = Color(0xFF1A1030),
+        contentColor = ink,
         modifier = modifier,
     ) {
-        Row(
+        Column(
             Modifier
                 .clickable(onClick = onStage)
-                .padding(horizontal = if (compact) 12.dp else 20.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically,
+                .padding(
+                    horizontal = if (compact) 12.dp else 20.dp,
+                    vertical = if (current?.fuelFraction != null) 8.dp else 12.dp,
+                ),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            if (!compact) {
-                Icon(Icons.Filled.KeyboardDoubleArrowUp, contentDescription = null)
-                Spacer(Modifier.width(8.dp))
+            Row(
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (!compact) {
+                    Icon(Icons.Filled.KeyboardDoubleArrowUp, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                }
+                Text(
+                    "STAGE $stage",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                )
             }
-            Text(
-                "STAGE $stage",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-            )
+            // The burning stage's fuel, in the button's own ink - a gauge in
+            // accent would vanish against it - with a number beside it.
+            val fraction = current?.fuelFraction
+            if (fraction != null) {
+                Spacer(Modifier.height(4.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    FuelBar(
+                        fraction,
+                        Modifier.width(96.dp),
+                        track = ink.alpha(0.2f),
+                        fill = if (fraction < 0.05f) ApogeeColors.Danger.copy(red = 0.7f) else ink.alpha(0.85f),
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text("${(fraction * 100).roundToInt()}%", style = TelemetryTextStyle, color = ink)
+                }
+            }
         }
     }
 }
@@ -611,3 +657,6 @@ private val NAVBALL_SIZE = 128.dp
 private val PORTRAIT_THROTTLE_HEIGHT = 210.dp
 private val PORTRAIT_STICK_SIZE = 122.dp
 private val PORTRAIT_NAVBALL_SIZE = 100.dp
+
+/** The roll and SAS row above the portrait stick: three 40dp buttons and their gaps. */
+private val PORTRAIT_CLUSTER_WIDTH = 140.dp

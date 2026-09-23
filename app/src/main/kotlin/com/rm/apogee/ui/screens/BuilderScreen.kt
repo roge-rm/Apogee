@@ -1,5 +1,6 @@
 package com.rm.apogee.ui.screens
 
+import androidx.compose.material.icons.filled.Layers
 import androidx.compose.foundation.lazy.rememberLazyListState
 import com.rm.apogee.ui.components.verticalScrollbar
 import androidx.compose.foundation.background
@@ -94,23 +95,37 @@ fun BuilderScreen(
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val portrait = maxWidth < maxHeight
 
-        // --- part drawer, left ------------------------------------------------
-        PartDrawer(
-            catalog = catalog,
-            heldPartId = session.heldPartId,
-            onSelect = { session.selectPart(if (session.heldPartId == it) null else it) },
-            width = if (portrait) 170.dp else 210.dp,
-            modifier = Modifier
-                .align(Alignment.CenterStart)
-                .windowInsetsPadding(WindowInsets.displayCutout)
-                .padding(8.dp),
-        )
+        // --- part drawer or stages, left ---------------------------------------
+        // The same place for both: editing the staging is not placing parts,
+        // and the craft stays clear down the middle either way.
+        val leftModifier = Modifier
+            .align(Alignment.CenterStart)
+            .windowInsetsPadding(WindowInsets.displayCutout)
+            .padding(8.dp)
+        if (session.stagingMode) {
+            StagePanel(
+                session,
+                entries = session.stageEntries,
+                manual = session.manualStaging,
+                selected = session.selectedStage,
+                width = if (portrait) 190.dp else 230.dp,
+                modifier = leftModifier,
+            )
+        } else {
+            PartDrawer(
+                catalog = catalog,
+                heldPartId = session.heldPartId,
+                onSelect = { session.selectPart(if (session.heldPartId == it) null else it) },
+                width = if (portrait) 170.dp else 210.dp,
+                modifier = leftModifier,
+            )
+        }
 
         // --- stats, right ------------------------------------------------------
-        // In portrait the toolbar already spans most of the top edge, so the
-        // stats drop below it rather than fighting it for the corner. The two
-        // panels still sit on opposite sides, which is what keeps the craft
-        // itself visible down the middle.
+        // Below the toolbar in either orientation: it spans most of the top
+        // edge in portrait, and with the stages button it reaches the corner
+        // in landscape too. The two panels still sit on opposite sides, which
+        // is what keeps the craft itself visible down the middle.
         StatsPanel(
             stats = session.stats,
             craftName = session.builder.name,
@@ -119,7 +134,7 @@ fun BuilderScreen(
                 .align(Alignment.TopEnd)
                 .windowInsetsPadding(WindowInsets.displayCutout)
                 .padding(start = 8.dp, end = 8.dp, bottom = 8.dp)
-                .padding(top = if (portrait) 68.dp else 8.dp),
+                .padding(top = 68.dp),
         )
 
         // --- toolbar, top -------------------------------------------------------
@@ -135,6 +150,7 @@ fun BuilderScreen(
             ToolButton(Icons.Filled.Undo, "Undo", session::undo)
             OrientationButton(session.orientation, session::toggleOrientation)
             SymmetryButton(session.symmetry, session::toggleSymmetry)
+            StagesButton(session.stagingMode, session::toggleStagingMode)
             ToolButton(Icons.Filled.Save, "Save", { showNameDialog = true })
             ToolButton(Icons.Filled.FolderOpen, "Load", { showLoadDialog = true })
             if (session.selectedPartIndex != null) {
@@ -306,6 +322,165 @@ private fun OrientationButton(orientation: CraftOrientation, onToggle: () -> Uni
     }
 }
 
+/** Switches the left panel between the parts and the staging sequence. */
+@Composable
+private fun StagesButton(active: Boolean, onToggle: () -> Unit) {
+    Surface(
+        shape = RoundedCornerShape(Dimens.HudIconSize / 2),
+        color = if (active) ApogeeColors.Accent.alpha(0.3f) else Color.White.alpha(ApogeeAlpha.CONTROL_FILL),
+        modifier = Modifier.size(Dimens.HudIconSize),
+    ) {
+        Box(
+            Modifier
+                .clickable(onClick = onToggle)
+                .semantics { contentDescription = if (active) "Back to parts" else "Edit stages" },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                Icons.Filled.Layers,
+                contentDescription = null,
+                tint = if (active) ApogeeColors.Accent else Color.White.alpha(ApogeeAlpha.SECONDARY),
+            )
+        }
+    }
+}
+
+/**
+ * The staging sequence as cards, the stage that fires last at the top and
+ * stage 0 at the bottom - the way the stack sits above the STAGE button in
+ * flight. Tap a card to choose it, and its parts light up on the craft; tap
+ * parts on the craft to move them into it. The chosen card carries its own
+ * controls: fire earlier, fire later, remove.
+ */
+@Composable
+private fun StagePanel(
+    session: BuilderSession,
+    // Values, not read through the session: it is not observable state, and
+    // a composable given only it is skipped when the stages change.
+    entries: List<BuilderSession.StageEntry>,
+    manual: Boolean,
+    selected: Int?,
+    width: Dp,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        shape = RoundedCornerShape(Dimens.CornerPanel),
+        color = Color.Black.alpha(ApogeeAlpha.SCRIM),
+        modifier = modifier.width(width).heightIn(max = 460.dp),
+    ) {
+        Column(Modifier.padding(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("STAGES", style = TelemetryTextStyle, color = Color.White.alpha(ApogeeAlpha.BODY))
+                Spacer(Modifier.weight(1f))
+                // Automatic until the player changes something; tapping it
+                // when manual hands the sequence back.
+                Text(
+                    if (manual) "MANUAL · AUTO?" else "AUTO",
+                    style = TelemetryTextStyle,
+                    color = if (manual) ApogeeColors.Caution else ApogeeColors.Prograde,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(Dimens.CornerTight))
+                        .clickable(enabled = manual, onClick = session::useAutomaticStaging)
+                        .padding(horizontal = 6.dp, vertical = 4.dp),
+                )
+            }
+            Spacer(Modifier.height(6.dp))
+            val list = rememberLazyListState()
+            LazyColumn(
+                Modifier.weight(1f, fill = false).verticalScrollbar(list),
+                state = list,
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                items(entries.asReversed(), key = { it.index }) { entry ->
+                    StageEntryCard(
+                        entry,
+                        selected = entry.index == selected,
+                        last = entry.index == entries.size - 1,
+                        onSelect = { session.selectStage(if (entry.index == selected) null else entry.index) },
+                        onLater = { session.shiftStage(entry.index, 1) },
+                        onEarlier = { session.shiftStage(entry.index, -1) },
+                        onRemove = { session.removeStage(entry.index) },
+                    )
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "+ STAGE",
+                style = TelemetryTextStyle,
+                color = ApogeeColors.Accent,
+                modifier = Modifier
+                    .align(Alignment.CenterHorizontally)
+                    .clip(RoundedCornerShape(Dimens.CornerTight))
+                    .clickable(onClick = session::addStage)
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun StageEntryCard(
+    entry: BuilderSession.StageEntry,
+    selected: Boolean,
+    last: Boolean,
+    onSelect: () -> Unit,
+    onLater: () -> Unit,
+    onEarlier: () -> Unit,
+    onRemove: () -> Unit,
+) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(Dimens.CornerTight))
+            .background(if (selected) ApogeeColors.Accent.alpha(0.22f) else Color.White.alpha(ApogeeAlpha.FILL_FAINT))
+            .clickable(onClick = onSelect)
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "S${entry.index}",
+                style = TelemetryTextStyle,
+                color = if (selected) ApogeeColors.Accent else Color.White.alpha(ApogeeAlpha.SECONDARY),
+            )
+            if (entry.index == 0) {
+                Spacer(Modifier.width(6.dp))
+                Text("fires first", style = MaterialTheme.typography.labelSmall, color = Color.White.alpha(ApogeeAlpha.SUBTITLE))
+            }
+            Spacer(Modifier.weight(1f))
+            if (selected) {
+                StageAction("▲", "Fire later", enabled = !last, onClick = onLater)
+                StageAction("▼", "Fire earlier", enabled = entry.index > 0, onClick = onEarlier)
+                StageAction("✕", "Remove stage", enabled = true, onClick = onRemove, colour = ApogeeColors.Danger)
+            }
+        }
+        if (entry.parts.isEmpty()) {
+            Text(
+                if (selected) "Empty - tap parts on the craft" else "Empty",
+                style = MaterialTheme.typography.labelSmall,
+                color = Color.White.alpha(ApogeeAlpha.SUBTITLE),
+            )
+        } else {
+            for (name in entry.parts) {
+                Text(name, style = MaterialTheme.typography.bodySmall, color = Color.White.alpha(ApogeeAlpha.BODY))
+            }
+        }
+    }
+}
+
+@Composable
+private fun StageAction(symbol: String, description: String, enabled: Boolean, onClick: () -> Unit, colour: Color = ApogeeColors.Accent) {
+    Text(
+        symbol,
+        style = MaterialTheme.typography.labelLarge,
+        color = if (enabled) colour else Color.White.alpha(ApogeeAlpha.BORDER),
+        modifier = Modifier
+            .clip(RoundedCornerShape(Dimens.CornerTight))
+            .clickable(enabled = enabled, onClick = onClick)
+            .semantics { contentDescription = description }
+            .padding(horizontal = 7.dp, vertical = 2.dp),
+    )
+}
+
 @Composable
 private fun SymmetryButton(symmetry: SymmetryMode, onToggle: () -> Unit) {
     // The value, not the session, for the same reason as the orientation
@@ -421,7 +596,7 @@ private fun StatsPanel(
                 stats.burns.forEach { stage ->
                     StatRow(
                         "S${stage.index}",
-                        "${stage.deltaVVacuum.roundToInt()} m/s · ${stage.burnTime.roundToInt()}s",
+                        "${stage.deltaV.roundToInt()} m/s · ${stage.burnTime.roundToInt()}s",
                     )
                 }
             }

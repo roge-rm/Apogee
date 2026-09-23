@@ -313,6 +313,32 @@ class GameServerTest {
         )
     }
 
+    /**
+     * The pilot's HUD shows what is left in the tanks, and its replica burns
+     * from it - so the server says, rather than the client assuming full.
+     */
+    @Test
+    fun `the pilot is told what is left in the tanks`() = runTest {
+        val server = GameServer.default(catalog)
+        val client = joinClient(server, backgroundScope, "Pilot")
+        pumpUntil(server, "the client to know its craft") {
+            client.controlledVessel?.let { client.vessel(it)?.fuel } != null
+        }
+        val id = client.controlledVessel!!
+        val full = client.vessel(id)!!.fuel!!.sum()
+
+        client.send(Command.Stage(id))
+        client.send(Command.SetThrottle(id, 1.0))
+        pumpUntil(server, "the burn to show in the tanks", maxTicks = 600) {
+            (client.vessel(id)?.fuel?.sum() ?: full) < full * 0.97f
+        }
+        val server0 = server.world.vessel(VesselId(id))!!
+        assertEquals(
+            "the client's figures are the server's",
+            server0.flatResources().sum().toDouble(), client.vessel(id)!!.fuel!!.sum().toDouble(), full * 0.02,
+        )
+    }
+
     @Test
     fun `staging is reflected back to the client`() = runTest {
         val server = GameServer.default(catalog)

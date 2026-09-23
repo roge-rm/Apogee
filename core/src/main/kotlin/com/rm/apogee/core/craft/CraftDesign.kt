@@ -101,6 +101,15 @@ data class CraftDesign(
     val catalogHash: String = "",
     /** Defaults to vertical, which is what every design saved before it existed was. */
     val orientation: CraftOrientation = CraftOrientation.VERTICAL,
+    /**
+     * Whether [stages] were arranged by hand.
+     *
+     * False, the builder derives staging from the part tree on every edit,
+     * as it always has. True, it keeps the player's arrangement and only
+     * fits new parts into it and drops removed ones - rebuilding it would
+     * throw away the order they chose.
+     */
+    val manualStaging: Boolean = false,
 ) {
     val partCount: Int get() = parts.size
 
@@ -118,6 +127,15 @@ data class CraftDesign(
     }
 
     fun rootIndex(): Int = parts.indexOfFirst { it.parentIndex == -1 }
+
+    /**
+     * As it flies: stages that fire nothing dropped. The builder keeps an
+     * empty stage the player has just made to fill; in flight it would be a
+     * press of the button that did nothing.
+     */
+    fun withoutEmptyStages(): CraftDesign =
+        if (stages.none { it.activatedParts.isEmpty() }) this
+        else copy(stages = stages.filter { it.activatedParts.isNotEmpty() })
 
     /**
      * Checks the design against a catalogue.
