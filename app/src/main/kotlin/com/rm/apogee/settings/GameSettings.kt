@@ -71,6 +71,11 @@ class GameSettings(context: Context) {
     /** Which craft pull back to climb. See [PitchStyle]. */
     var pitchStyle: PitchStyle by enumPref(KEY_PITCH_STYLE, PitchStyle.AIRCRAFT)
 
+    /** How lively the weather is in the worlds this device hosts. */
+    var weatherIntensity: com.rm.apogee.core.weather.WeatherIntensity by enumPref(
+        KEY_WEATHER, com.rm.apogee.core.weather.WeatherIntensity.NORMAL,
+    )
+
     var uiSoundEnabled: Boolean by booleanPref(KEY_UI_SOUND, true)
 
     var hapticsEnabled: Boolean by booleanPref(KEY_HAPTICS, true)
@@ -175,6 +180,7 @@ class GameSettings(context: Context) {
         const val KEY_CONTROL_OPACITY = "control_opacity"
         const val KEY_LEFT_HAND = "left_hand_mode"
         const val KEY_PITCH_STYLE = "pitch_style"
+        const val KEY_WEATHER = "weather_intensity"
         const val KEY_UI_SOUND = "ui_sound"
         const val KEY_HAPTICS = "haptics"
         const val KEY_DEBUG_OVERLAY = "debug_overlay"

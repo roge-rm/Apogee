@@ -74,6 +74,16 @@ class Mat4 {
     }
 
     /**
+     * [setFromTrs] with a different scale along each of the object's own
+     * axes - for a cloud lobe, an ellipsoid stretched from a unit mesh.
+     */
+    fun setFromTrs(worldPos: Vec3, rot: Quat, cameraPos: Vec3, sx: Double, sy: Double, sz: Double): Mat4 {
+        setFromTrs(worldPos, rot, cameraPos)
+        for (k in 0..2) { m[k] = (m[k] * sx).toFloat(); m[4 + k] = (m[4 + k] * sy).toFloat(); m[8 + k] = (m[8 + k] * sz).toFloat() }
+        return this
+    }
+
+    /**
      * View matrix for a camera sitting at the scene origin with orientation
      * [rot]. Because the floating origin already moved the world to meet the
      * camera, the view matrix is pure rotation - the inverse (conjugate) of the

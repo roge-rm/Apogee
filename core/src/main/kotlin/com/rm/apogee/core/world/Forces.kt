@@ -1,5 +1,6 @@
 package com.rm.apogee.core.world
 
+import com.rm.apogee.core.weather.Weather
 import com.rm.apogee.core.craft.Vessel
 import com.rm.apogee.core.math.Quat
 import com.rm.apogee.core.math.Vec3
@@ -29,6 +30,9 @@ class Forces {
     private val scratchForce = Vec3()
     private val scratchVelocity = Vec3()
     private val scratchSurface = Vec3()
+    private val scratchWind = Vec3()
+    private val scratchGust = Vec3()
+    private val scratchGustPoint = Vec3()
     private val scratchLocalVelocity = Vec3()
     private val scratchAxis = Vec3()
     private val scratchCrossFlow = Vec3()
@@ -54,6 +58,11 @@ class Forces {
      * uses one - this runs for every vessel every tick and must not allocate.
      */
     val tornParachutes = IntArray(MAX_TORN)
+
+    /** Wings and control surfaces that failed under load last drag pass, [overstressedCount] of them. */
+    val overstressed = IntArray(MAX_TORN)
+    var overstressedCount = 0
+        private set
     var tornCount: Int = 0
         private set
 
@@ -291,16 +300,47 @@ class Forces {
      * Each part's local velocity includes the craft's rotation, so aerodynamic
      * damping falls out of the same loop.
      */
-    fun applyDrag(vessel: Vessel, attractor: CelestialBody) {
+    fun applyDrag(
+        vessel: Vessel,
+        attractor: CelestialBody,
+        /** The air's weather, when it has any; [Vessel.air] holds this tick's sample of it. */
+        weather: Weather? = null,
+        /** The body's rotation now: weather is in its turning frame. */
+        bodyRotation: Quat? = null,
+        time: Double = 0.0,
+    ) {
         tornCount = 0
+        overstressedCount = 0
         val atmosphere = attractor.atmosphere ?: return
         val altitude = attractor.altitudeOf(vessel.body.position)
-        val density = atmosphere.densityAt(altitude)
+        // Cloud water and ice thicken the air a craft has to push through.
+        val air = vessel.air
+        val density = atmosphere.densityAt(altitude) * air.loading
         if (density <= 0.0) return
 
+        // The wind, in the world's frame: the air moves with the ground, and
+        // on top of that with the weather.
+        val windy = weather != null && bodyRotation != null
+        if (windy) bodyRotation!!.rotate(air.wind, scratchWind) else scratchWind.setZero()
+        val gusty = windy && air.turbulence > 0.0
+
         attractor.surfaceVelocityAt(vessel.body.position, scratchSurface)
+        scratchSurface.addInPlace(scratchWind)
         scratchVelocity.setTo(vessel.body.linearVelocity).subInPlace(scratchSurface)
-        if (scratchVelocity.lengthSq < 1e-6) return
+        // Still air and a still craft: nothing to do. A craft standing in a
+        // gale is not still relative to the air, and is not skipped.
+        if (scratchVelocity.lengthSq < 1e-6 && !gusty) return
+
+        // Rain: a load straight down, on everything it falls on.
+        if (air.precipitation > 0.0) {
+            var catchment = 0.0
+            for (def in vessel.defs) {
+                catchment += def.module<AeroSurface>()?.area ?: (def.boundsHalfExtents.x * def.boundsHalfExtents.z * 4.0)
+            }
+            scratchForce.setTo(vessel.body.position).normalizeInPlace()
+                .mulInPlace(-air.precipitation * RAIN_PRESSURE * catchment)
+            vessel.body.applyCentralForce(scratchForce)
+        }
 
         // Pass one: the stack's occlusion-corrected body drag.
         var maxRadius = 0.0
@@ -325,10 +365,19 @@ class Forces {
             vessel.partOffsetWorld(i, scratchOffset)
             vessel.body.velocityAtOffset(scratchOffset, scratchLocalVelocity)
             scratchLocalVelocity.subInPlace(scratchSurface)
+            // Gusts, part by part: a wing tip and a tail each meet their own.
+            if (gusty) {
+                scratchGustPoint.setTo(vessel.body.position).addInPlace(scratchOffset)
+                bodyRotation!!.inverseRotate(scratchGustPoint, scratchGustPoint)
+                weather!!.turbulence(scratchGustPoint, time, air.wind, air.turbulence, scratchGust)
+                bodyRotation.rotate(scratchGust, scratchGust)
+                scratchLocalVelocity.subInPlace(scratchGust)
+            }
             val localSpeed = scratchLocalVelocity.length
             if (localSpeed < 1e-6) continue
 
-            val surface = def.module<AeroSurface>()
+            // A surface that has failed makes no lift: it hangs there as drag.
+            val surface = def.module<AeroSurface>()?.takeIf { !vessel.isBroken(i) }
 
             // Drag along the airflow.
             var cdA = if (surface != null) {
@@ -377,29 +426,38 @@ class Forces {
                 scratchCrossFlow.setTo(scratchLocalVelocity)
                     .addScaledInPlace(scratchAxis, -along)
                 val crossSpeed = scratchCrossFlow.length
+                // Cross-flow times along-flow, not cross-flow squared.
+                //
+                // This is the flat-plate normal force, proportional to
+                // sin(a)cos(a) rather than sin(a)^2, and the difference is
+                // not a refinement: at the two or three degrees a wing
+                // actually cruises at, squaring the cross-flow gives
+                // roughly a thirtieth of the real force. Fins got away
+                // with it because a rocket only needs them when it is
+                // already badly out of line. A wing has to hold an
+                // aircraft up at small angles, and could not.
+                //
+                // It also stalls for free: the product peaks near 45
+                // degrees and falls away past it.
+                val normalForce = if (crossSpeed > 1e-6) {
+                    0.5 * density * crossSpeed * abs(along) * surface.area * surface.liftCoefficient
+                } else 0.0
                 if (crossSpeed > 1e-6) {
-                    // Cross-flow times along-flow, not cross-flow squared.
-                    //
-                    // This is the flat-plate normal force, proportional to
-                    // sin(a)cos(a) rather than sin(a)^2, and the difference is
-                    // not a refinement: at the two or three degrees a wing
-                    // actually cruises at, squaring the cross-flow gives
-                    // roughly a thirtieth of the real force. Fins got away
-                    // with it because a rocket only needs them when it is
-                    // already badly out of line. A wing has to hold an
-                    // aircraft up at small angles, and could not.
-                    //
-                    // It also stalls for free: the product peaks near 45
-                    // degrees and falls away past it.
-                    val normalForce = 0.5 * density * crossSpeed * abs(along) *
-                        surface.area * surface.liftCoefficient
                     scratchForce.setTo(scratchCrossFlow)
                         .mulInPlace(-normalForce / crossSpeed)
                     vessel.body.applyForceAtOffset(scratchForce, scratchOffset)
                 }
 
-                if (surface.controllable) {
+                val controlForce = if (surface.controllable) {
                     deflect(vessel, i, surface, density, localSpeed)
+                } else 0.0
+
+                // Past what it was built for - a gust at speed, a hard pull
+                // in rough air - it fails.
+                if (abs(normalForce) + abs(controlForce) > surface.loadLimit &&
+                    vessel.breakPart(i) && overstressedCount < MAX_TORN
+                ) {
+                    overstressed[overstressedCount++] = i
                 }
             }
         }
@@ -431,23 +489,23 @@ class Forces {
         surface: AeroSurface,
         density: Double,
         airspeed: Double,
-    ) {
+    ): Double {
         // How far: worked out once per tick by [controlDeflection], so the
         // force and the surface the players see move by the same amount.
         val deflection = vessel.surfaceDeflection.getOrElse(partIndex) { 0.0 }
-        if (abs(deflection) < 1e-6) return
+        if (abs(deflection) < 1e-6) return 0.0
 
         // The mounting radius: how far off the fuselage axis this surface is.
         val axial = scratchOffset dot scratchAxis
         scratchRadial.setTo(scratchOffset).addScaledInPlace(scratchAxis, -axial)
         val radialLength = scratchRadial.length
-        if (radialLength < 1e-6) return
+        if (radialLength < 1e-6) return 0.0
         scratchRadial.mulInPlace(1.0 / radialLength)
 
         // The direction it can push: across both the fuselage and its radius.
         scratchNormal.setTo(scratchAxis).crossInPlace(scratchRadial)
         val normalLength = scratchNormal.length
-        if (normalLength < 1e-6) return
+        if (normalLength < 1e-6) return 0.0
         scratchNormal.mulInPlace(1.0 / normalLength)
 
         // sin(d)cos(d) of the actual deflection, the same flat-plate form the
@@ -459,6 +517,7 @@ class Forces {
             kotlin.math.sin(angle) * kotlin.math.cos(angle)
         scratchForce.setTo(scratchNormal).mulInPlace(force)
         vessel.body.applyForceAtOffset(scratchForce, scratchOffset)
+        return force
     }
 
     /**
@@ -512,12 +571,17 @@ class Forces {
     private val poseNormal = Vec3()
     private val poseTorque = Vec3()
 
-    /** Dynamic pressure, Pa. The number that decides whether a craft survives ascent. */
-    fun dynamicPressure(vessel: Vessel, attractor: CelestialBody): Double {
+    /**
+     * Dynamic pressure, Pa. The number that decides whether a craft survives
+     * ascent - against the air as it moves, [Vessel.air]'s wind, turned into
+     * the world's frame by [bodyRotation].
+     */
+    fun dynamicPressure(vessel: Vessel, attractor: CelestialBody, bodyRotation: Quat? = null): Double {
         val atmosphere = attractor.atmosphere ?: return 0.0
-        val density = atmosphere.densityAt(attractor.altitudeOf(vessel.body.position))
+        val density = atmosphere.densityAt(attractor.altitudeOf(vessel.body.position)) * vessel.air.loading
         if (density <= 0.0) return 0.0
         attractor.surfaceVelocityAt(vessel.body.position, scratchSurface)
+        if (bodyRotation != null) scratchSurface.addInPlace(bodyRotation.rotate(vessel.air.wind, scratchWind))
         scratchVelocity.setTo(vessel.body.linearVelocity).subInPlace(scratchSurface)
         return 0.5 * density * scratchVelocity.lengthSq
     }
@@ -531,6 +595,9 @@ class Forces {
 
         /** More chutes than any sane craft carries. */
         const val MAX_TORN = 8
+
+        /** Pascals on a horizontal surface in the heaviest rain. */
+        const val RAIN_PRESSURE = 30.0
 
         /** Angular rate, rad/s, at which SAS applies full authority. */
         const val SAS_SATURATION_RATE = 0.35

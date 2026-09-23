@@ -165,9 +165,18 @@ class GameClient(
     @Volatile var felledRevision: Int = 0
         private set
 
+    /** The world's weather, from the welcome; null until then, or for still air. */
+    @Volatile var weather: com.rm.apogee.core.weather.WeatherConfig? = null
+        private set
+
+    /** Lightning that hit something, for the presentation to flash and report. */
+    val lightningHits: java.util.concurrent.ConcurrentLinkedQueue<ServerMessage.Lightning> =
+        java.util.concurrent.ConcurrentLinkedQueue()
+
     private fun handle(message: ServerMessage) {
         when (message) {
             is ServerMessage.Welcome -> {
+                weather = message.weather
                 serverName = message.serverName
                 controlledVessel = message.controlledVessel.takeIf { it >= 0 }
                 connected = true
@@ -220,6 +229,10 @@ class GameClient(
                     // snapshot after the structure lands will carry it again.
                     vesselsById[kinematics.vessel]?.observe(kinematics, snapshot.time)
                 }
+            }
+
+            is ServerMessage.Lightning -> {
+                lightningHits.add(message)
             }
 
             is ServerMessage.FuelLevels -> {

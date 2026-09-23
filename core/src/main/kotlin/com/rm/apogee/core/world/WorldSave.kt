@@ -95,6 +95,11 @@ class WorldSave(
     val terrainGeneration: Int = 1,
     /** Owner id to the vessel id they last flew; see [World.lastFlown]. */
     val lastFlown: Map<String, Long> = emptyMap(),
+    /**
+     * What the weather is made from. Absent in saves from before there was
+     * any: the server then gives the world its own default.
+     */
+    val weather: com.rm.apogee.core.weather.WeatherConfig? = null,
 ) {
     companion object {
         /**

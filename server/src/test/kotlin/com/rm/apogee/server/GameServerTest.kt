@@ -339,6 +339,16 @@ class GameServerTest {
         )
     }
 
+    /** The weather is computed on every device alike: all it needs is the config, sent in the welcome. */
+    @Test
+    fun `a client is told what the weather is made of`() = runTest {
+        val wild = com.rm.apogee.core.weather.WeatherConfig(intensity = com.rm.apogee.core.weather.WeatherIntensity.WILD)
+        val server = GameServer(World.default(catalog), ServerConfig(weatherIntensity = com.rm.apogee.core.weather.WeatherIntensity.WILD))
+        val client = joinClient(server, backgroundScope, "Pilot")
+        assertEquals(wild, client.weather)
+        assertEquals(wild, server.world.weatherConfig)
+    }
+
     @Test
     fun `staging is reflected back to the client`() = runTest {
         val server = GameServer.default(catalog)

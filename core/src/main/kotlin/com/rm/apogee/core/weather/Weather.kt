@@ -1,0 +1,497 @@
+package com.rm.apogee.core.weather
+
+import com.rm.apogee.core.math.Vec3
+import com.rm.apogee.core.orbit.CelestialBody
+import com.rm.apogee.core.terrain.Noise
+import kotlin.math.abs
+import kotlin.math.asin
+import kotlin.math.cos
+import kotlin.math.exp
+import kotlin.math.ln
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.sin
+
+/**
+ * The air over one body: a pure function of the [config], the body's
+ * terrain, the time and the place.
+ *
+ * Nothing here is stepped or stored beyond caches of pure results, so the
+ * server, each client's prediction replica and the renderer all compute the
+ * same wind for the same place and moment - every craft in a close
+ * formation is pushed by the same gust, and a saved world resumes under the
+ * same sky. Each user holds its own instance: the caches are not shared
+ * between threads.
+ *
+ * Layers, from the top down:
+ * - global circulation: trade winds, westerlies and polar easterlies by
+ *   latitude, bent round drifting highs and lows, a jet stream near 10 km,
+ *   and nothing above 30 km;
+ * - the boundary layer, where the ground slows the wind by how rough it is,
+ *   speeds it over crests, starves it in the lee and in hollows, lifts it up
+ *   windward slopes and turns it down valleys ([TerrainWind]);
+ * - thermals and their cumulus ([Convection]);
+ * - storms: towers, gust fronts, rain and lightning ([Storms]);
+ * - layer cloud: stratus, altostratus, cirrus;
+ * - turbulence, sampled part by part ([turbulence]).
+ */
+class Weather(val body: CelestialBody, val config: WeatherConfig) {
+
+    private val radius = body.radius
+    private val seed = config.seed * 31 + 0x5EA7
+    private val intensity = config.intensity
+    private val terrain = body.terrain
+    private val terrainWind = terrain?.let { TerrainWind(it, radius) }
+    private val convection = Convection(this, terrainWind, radius, seed, intensity)
+    private val storms = Storms(this, radius, seed, intensity)
+
+    private val up = Vec3()
+    private val east = Vec3()
+    private val north = Vec3()
+    private val free = Vec3()
+    private val dir = Vec3()
+    private val jetScratch = Vec3()
+    private val probe = Vec3()
+    private val rotated = Vec3()
+    private val descriptor = DoubleArray(TerrainWind.SIZE)
+    private val gradient = Vec3()
+    private val axis = Vec3()
+
+    // --- the whole sample ---------------------------------------------------------
+
+    /**
+     * The air at [position] (body-fixed, metres from the centre) at [time],
+     * into [out].
+     */
+    fun sample(position: Vec3, time: Double, out: AirSample): AirSample {
+        out.clear()
+        val r = position.length
+        if (r < 1.0) return out
+        up.setTo(position).mulInPlace(1.0 / r)
+        val altitude = r - radius
+        if (altitude > CEILING) return out
+        frame(up, east, north)
+
+        // The ground: what it is, and how high the surface of it stands.
+        val described = terrainWind?.let { it.describe(up, descriptor); true } ?: false
+        val ocean = described && descriptor[TerrainWind.OCEAN] > 0.5
+        val ground = terrain?.elevation(up) ?: 0.0
+        val groundTop = if (terrain?.hasOcean == true) max(ground, 0.0) else ground
+        val agl = max(altitude - groundTop, 0.5)
+        val z0 = if (described) descriptor[TerrainWind.Z0] else 0.05
+        val relief = if (described) descriptor[TerrainWind.RELIEF] else 0.0
+
+        // The free wind above the boundary layer, from the circulation.
+        val pressure = circulation(up, east, north, time, free, surfaceInflow = 1.0 - smooth(0.0, 1_500.0, agl))
+        val freeSpeed = free.length
+        if (freeSpeed > 1e-6) dir.setTo(free).mulInPlace(1.0 / freeSpeed) else dir.setTo(east)
+
+        // How far up the ground's influence reaches: more over rough ground.
+        val terrainFade = 1.0 - smooth(0.0, 500.0 + 2.0 * relief, agl)
+        var speedFactor = 1.0
+        var vertical = 0.0
+        var lee = 0.0
+        if (described && terrainFade > 0.0) {
+            val exposure = descriptor[TerrainWind.H0] - descriptor[TerrainWind.MEAN]
+            // Crests speed the wind up, hollows starve it.
+            speedFactor = 1.0 + (exposure / 350.0).coerceIn(-0.6, 0.7)
+            gradient.setTo(descriptor[TerrainWind.GRAD], descriptor[TerrainWind.GRAD + 1], descriptor[TerrainWind.GRAD + 2])
+            val alongSlope = gradient dot dir
+            // Air meeting rising ground goes up it; ground falling away
+            // downwind is a lee slope, sheltered, sinking and rough.
+            lee = (-alongSlope * 4.0).coerceIn(0.0, 1.0)
+            speedFactor *= 1.0 - 0.55 * lee
+            // Valleys: turn the wind along them, and starve what crosses them.
+            val channel = descriptor[TerrainWind.CHANNEL]
+            if (channel > 0.0) {
+                axis.setTo(descriptor[TerrainWind.AXIS], descriptor[TerrainWind.AXIS + 1], descriptor[TerrainWind.AXIS + 2])
+                if ((axis dot dir) < 0.0) axis.mulInPlace(-1.0)
+                val along = axis dot dir
+                speedFactor *= (1.0 - 0.7 * channel * (1.0 - along)) * (1.0 + 0.35 * channel * along)
+                val c = channel * terrainFade
+                dir.mulInPlace(1.0 - c).addScaledInPlace(axis, c).normalizeInPlace()
+            }
+            speedFactor = 1.0 + (speedFactor - 1.0) * terrainFade
+            vertical = alongSlope * 0.9 * terrainFade - 0.25 * lee * terrainFade
+        }
+
+        // Height: a log profile through the boundary layer, stronger aloft.
+        val profile = if (agl < BOUNDARY_LAYER) {
+            ln((agl + z0) / z0) / ln((BOUNDARY_LAYER + z0) / z0)
+        } else {
+            min(1.0 + (agl - BOUNDARY_LAYER) / 9_000.0, 2.2)
+        }
+        val fade = 1.0 - smooth(18_000.0, CEILING, altitude)
+        val speed = freeSpeed * profile * speedFactor * fade * intensity.wind
+        out.wind.setTo(dir).mulInPlace(speed)
+        out.wind.addScaledInPlace(up, vertical * speed)
+        out.lift = vertical * speed
+
+        // The jet stream: westerly, mid-latitudes, near ten kilometres.
+        val latitude = asin(up.y.coerceIn(-1.0, 1.0))
+        val jet = JET * exp(-((altitude - 10_000.0) / 3_200.0).let { it * it }) *
+            exp(-((abs(latitude) - 0.7) / 0.25).let { it * it }) * fade * intensity.wind
+        out.wind.addScaledInPlace(east, jet)
+
+        // Rough air: the ground, the lee, shear round the jet.
+        val mechanical = (speed / 15.0).coerceIn(0.0, 1.0) * (0.2 + 0.5 * (z0 / 1.0).coerceIn(0.0, 1.0)) *
+            (1.0 - smooth(0.0, 400.0 + relief, agl))
+        out.turbulence += mechanical + 0.7 * lee * terrainFade + 0.15 * (jet / JET)
+
+        convection.apply(up, east, north, position, altitude, time, out)
+        storms.apply(up, east, north, position, altitude, groundTop, time, out)
+        layers(up, altitude, groundTop, pressure, ocean, time, out)
+
+        // Inside cloud there is more turbulence, by kind.
+        out.turbulence += out.cloudDensity * when (out.cloudType) {
+            CloudType.CUMULONIMBUS -> 0.8
+            CloudType.CUMULUS -> 0.35
+            CloudType.STRATUS, CloudType.ALTOSTRATUS -> 0.1
+            else -> 0.02
+        }
+        out.turbulence = out.turbulence.coerceIn(0.0, 1.0)
+
+        // How far can be seen: rain, then cloud.
+        var visibility = AirSample.CLEAR_VISIBILITY * (1.0 - 0.97 * out.precipitation)
+        out.cloudType?.let { type ->
+            if (out.cloudDensity > 0.0) visibility = min(visibility, type.visibility / max(out.cloudDensity, 0.02))
+        }
+        out.visibility = visibility
+        return out
+    }
+
+    /** The wind ten metres above the ground or sea at [direction]: what drives waves. */
+    fun surfaceWind(direction: Vec3, time: Double, out: Vec3): Vec3 {
+        val ground = terrain?.elevation(direction) ?: 0.0
+        val top = if (terrain?.hasOcean == true) max(ground, 0.0) else ground
+        probe.setTo(direction).normalizeInPlace().mulInPlace(radius + top + 10.0)
+        val sample = scratchSample
+        sample(probe, time, sample)
+        return out.setTo(sample.wind)
+    }
+
+    private val scratchSample = AirSample()
+
+    /**
+     * A gust: the turbulent part of the wind at [position], for a craft whose
+     * mean wind is [meanWind] and whose air is [turbulence] rough.
+     *
+     * Frozen eddies carried along by the mean wind, in three sizes - the
+     * biggest the strongest - with a slow drift of their own. Sampled per
+     * part, so a gust rolls a wing and yaws a tail rather than moving the
+     * whole craft as one.
+     */
+    fun turbulence(position: Vec3, time: Double, meanWind: Vec3, turbulence: Double, out: Vec3): Vec3 {
+        out.setZero()
+        if (turbulence <= 0.0) return out
+        val sigma = turbulence * (1.5 + 0.35 * meanWind.length) * intensity.gusts
+        for (octave in 0 until 3) {
+            val scale = TURBULENCE_SCALES[octave]
+            val weight = TURBULENCE_WEIGHTS[octave]
+            val x = (position.x - meanWind.x * time) / scale + time * 0.05
+            val y = (position.y - meanWind.y * time) / scale
+            val z = (position.z - meanWind.z * time) / scale - time * 0.03
+            out.x += weight * Noise.simplex(seed + 101 + octave, x, y, z)
+            out.y += weight * Noise.simplex(seed + 111 + octave, x, y, z)
+            out.z += weight * Noise.simplex(seed + 121 + octave, x, y, z)
+        }
+        return out.mulInPlace(sigma)
+    }
+
+    // --- circulation --------------------------------------------------------------
+
+    /**
+     * The pressure pattern at unit [direction], about -1 (a deep low) to 1
+     * (a strong high). Drifts eastward as a whole and slowly reshapes itself.
+     */
+    fun pressure(direction: Vec3, time: Double): Double {
+        val angle = -PATTERN_DRIFT / radius * time
+        val c = cos(angle); val s = sin(angle)
+        rotated.setTo(direction.x * c + direction.z * s, direction.y, -direction.x * s + direction.z * c)
+        val k1 = radius / 350_000.0
+        val k2 = radius / 150_000.0
+        val t = time / 10_800.0
+        return 0.65 * Noise.simplex(seed + 1, rotated.x * k1 + t * 0.3, rotated.y * k1 + t * 0.5, rotated.z * k1 + t * 0.8) +
+            0.35 * Noise.simplex(seed + 2, rotated.x * k2 - t * 0.6, rotated.y * k2 + t * 0.2, rotated.z * k2 - t * 0.4)
+    }
+
+    /**
+     * The free wind at unit [up] - bands by latitude, plus flow round the
+     * highs and lows - into [out], tangent to the surface. Returns the
+     * pressure there. [surfaceInflow], 0..1, tilts it in toward the lows as
+     * friction does near the ground.
+     */
+    private fun circulation(up: Vec3, east: Vec3, north: Vec3, time: Double, out: Vec3, surfaceInflow: Double): Double {
+        val latitude = asin(up.y.coerceIn(-1.0, 1.0))
+        val a = abs(latitude)
+        // Easterly trades, westerlies, polar easterlies.
+        val band = if (a <= Math.PI / 3.0) -cos(3.0 * a) else cos(6.0 * (a - Math.PI / 3.0))
+        val zonal = band * when {
+            a <= Math.PI / 6.0 -> 6.0
+            a <= Math.PI / 3.0 -> 9.0
+            else -> if (band < 0.0) 4.0 else 9.0
+        }
+        // Trades lean toward the equator.
+        val meridional = if (a < Math.PI / 6.0) -2.5 * sin(6.0 * latitude) else 0.0
+
+        val p0 = pressure(up, time)
+        val delta = GRADIENT_STEP / radius
+        val pe = pressure(probe.setTo(up).addScaledInPlace(east, delta).normalizeInPlace(), time) -
+            pressure(probe.setTo(up).addScaledInPlace(east, -delta).normalizeInPlace(), time)
+        val pn = pressure(probe.setTo(up).addScaledInPlace(north, delta).normalizeInPlace(), time) -
+            pressure(probe.setTo(up).addScaledInPlace(north, -delta).normalizeInPlace(), time)
+        val scale = 350_000.0 / (2.0 * GRADIENT_STEP)
+        val ge = pe * scale; val gn = pn * scale
+        // Round the highs and lows, the way the planet's turning bends it:
+        // highs on the right in the north, on the left in the south. As
+        // sin(lat) / (sin^2 + e^2): 1/sin(lat) away from the equator, and
+        // fading smoothly to nothing across it, where the turning that
+        // bends the wind is gone. Clamping the divisor to +/-0.35 instead
+        // flipped the whole flow round every time a craft crossed the line.
+        val s = sin(latitude)
+        val turning = s / (s * s + EQUATORIAL * EQUATORIAL)
+        val geoE = -GEOSTROPHIC * gn * turning
+        val geoN = GEOSTROPHIC * ge * turning
+        // Friction near the ground: in toward the lows.
+        val inflowE = -GEOSTROPHIC * 0.35 * ge * surfaceInflow
+        val inflowN = -GEOSTROPHIC * 0.35 * gn * surfaceInflow
+
+        out.setTo(east).mulInPlace(zonal + geoE + inflowE).addScaledInPlace(north, meridional + geoN + inflowN)
+        return p0
+    }
+
+    /** The low-level wind at unit [direction]: what carries a thermal along. */
+    internal fun boundaryWind(direction: Vec3, time: Double, out: Vec3): Vec3 {
+        val e = Vec3(); val n = Vec3()
+        frame(direction, e, n)
+        circulation(direction, e, n, time, out, surfaceInflow = 0.5)
+        return out.mulInPlace(0.8 * intensity.wind)
+    }
+
+    /** The wind at a storm's steering level, about five kilometres up. */
+    internal fun steeringWind(direction: Vec3, time: Double, out: Vec3): Vec3 {
+        val e = Vec3(); val n = Vec3()
+        frame(direction, e, n)
+        circulation(direction, e, n, time, out, surfaceInflow = 0.0)
+        return out.mulInPlace(1.4 * intensity.wind)
+    }
+
+    // --- layer cloud --------------------------------------------------------------
+
+    /** Stratus, altostratus and cirrus at [altitude] over unit [up]. */
+    private fun layers(up: Vec3, altitude: Double, groundTop: Double, pressure: Double, ocean: Boolean, time: Double, out: AirSample) {
+        if (altitude > 10_000.0) return
+        val humidity = humidity(up, pressure, ocean, time)
+        for (type in LAYER_TYPES) {
+            if (!layer(type, up, groundTop, humidity, time, layerScratch)) continue
+            val cover = layerScratch[0]; val base = layerScratch[1]; val top = layerScratch[2]
+            val edge = if (type == CloudType.CIRRUS) 150.0 else 50.0
+            val inside = smooth(base - edge, base + edge, altitude) * (1.0 - smooth(top - edge, top + edge * 0.2, altitude))
+            if (inside > 0.0) addCloud(out, LAYER_DENSITY[type.ordinal] * cover * inside, type)
+        }
+    }
+
+    private val layerScratch = DoubleArray(3)
+
+    private fun humidity(up: Vec3, pressure: Double, ocean: Boolean, time: Double): Double {
+        val t = time / 14_400.0
+        val k = radius / 600_000.0
+        return 0.5 + 0.3 * Noise.simplex(seed + 3, up.x * k + t, up.y * k, up.z * k - t) -
+            0.35 * pressure + (if (ocean) 0.12 else 0.0)
+    }
+
+    /**
+     * A layer of [type] over unit [up], above ground or sea standing at
+     * [groundTop]: its cover (0..1), base and top (metres above datum) into
+     * [out]. False where there is none.
+     */
+    private fun layer(type: CloudType, up: Vec3, groundTop: Double, humidity: Double, time: Double, out: DoubleArray): Boolean {
+        when (type) {
+            CloudType.STRATUS -> {
+                val cover = smooth(0.62, 0.82, humidity + 0.12 * noise(4, up, 15_000.0, time / 3_600.0))
+                if (cover <= 0.0) return false
+                // A few hundred metres over whatever is under it. Pinned to
+                // sea level it buried the Cape - a kilometre up - in fog.
+                val base = groundTop + 450.0 + 250.0 * noise(5, up, 40_000.0, 0.0)
+                out[0] = cover; out[1] = base
+                out[2] = base + 250.0 + 250.0 * (0.5 + 0.5 * noise(6, up, 2_500.0, time / 1_800.0))
+            }
+            CloudType.ALTOSTRATUS -> {
+                val cover = smooth(0.7, 0.9, humidity + 0.15 * noise(7, up, 30_000.0, time / 3_600.0))
+                if (cover <= 0.0) return false
+                out[0] = cover; out[1] = 4_200.0
+                out[2] = 4_200.0 + 350.0 + 250.0 * (0.5 + 0.5 * noise(8, up, 4_000.0, time / 2_400.0))
+            }
+            CloudType.CIRRUS -> {
+                val cover = smooth(0.6, 0.85, 0.5 + 0.5 * noise(9, up, 80_000.0, time / 7_200.0))
+                if (cover <= 0.0) return false
+                out[0] = cover; out[1] = 8_700.0; out[2] = 9_300.0
+            }
+            else -> return false
+        }
+        return true
+    }
+
+    private fun noise(salt: Int, up: Vec3, wavelength: Double, t: Double): Double {
+        val k = radius / wavelength
+        return Noise.simplex(seed + salt, up.x * k + t, up.y * k, up.z * k - t)
+    }
+
+    // --- features, for drawing and for lightning ------------------------------
+
+    /** Thermals around unit [direction] whose cumulus is showing. */
+    internal fun cumulus(direction: Vec3, radiusCells: Int, time: Double, out: MutableList<Convection.Thermal>) {
+        val e = Vec3(); val n = Vec3()
+        frame(direction, e, n)
+        convection.clouds(direction, e, n, radiusCells, time, out)
+    }
+
+    /**
+     * The clouds within [reach] metres of unit [direction] at [time], for
+     * drawing: each as lobes in the body's frame. The same shapes the air
+     * samples are made of, so a cloud looks as big as it is to fly into.
+     */
+    fun clouds(direction: Vec3, reach: Double, time: Double, out: MutableList<CloudShape>) {
+        val e = Vec3(); val n = Vec3()
+        frame(direction, e, n)
+        // Cumulus, on their thermals.
+        val thermals = ArrayList<Convection.Thermal>()
+        convection.clouds(direction, e, n, kotlin.math.ceil(reach / Convection.CELL).toInt(), time, thermals)
+        val column = Vec3(); val te = Vec3(); val tn = Vec3()
+        for (th in thermals) {
+            val amount = convection.cloudAmount(th, time)
+            if (amount <= 0.02) continue
+            val middle = th.base + th.depth * amount * 0.5
+            convection.columnAt(th, middle, column)
+            frame(column, te, tn)
+            val shape = CloudShape(CloudType.CUMULUS, th.consistency * amount)
+            for (l in 0 until th.lobeCount) {
+                val o = l * 5
+                val centre = Vec3().setTo(column).mulInPlace(radius + th.ground + middle)
+                    .addScaledInPlace(te, th.lobes[o]).addScaledInPlace(tn, th.lobes[o + 1])
+                    .addScaledInPlace(column, th.lobes[o + 2] * amount)
+                shape.lobes.add(
+                    CloudLobe(
+                        centre,
+                        th.lobes[o + 3] * (0.4 + 0.6 * amount),
+                        max(th.lobes[o + 4] * amount, 40.0),
+                        shade = 0.9 + 0.1 * th.consistency,
+                    ),
+                )
+            }
+            out.add(shape)
+        }
+        // Storm towers and their anvils.
+        val found = ArrayList<Storms.Storm>()
+        storms.around(direction, e, n, kotlin.math.ceil(reach / Storms.CELL).toInt() + 1, time, found)
+        val centre = Vec3(); val steer = Vec3()
+        for (s in found) {
+            val envelope = storms.envelope(s, time)
+            if (envelope <= 0.05) continue
+            storms.centreAt(s, time, centre)
+            val towerTop = s.base + (s.top - s.base) * smooth(0.0, 0.35, (time - s.start) / Storms.CYCLE)
+            val shape = CloudShape(CloudType.CUMULONIMBUS, envelope)
+            val width = 0.9 * s.core * (0.5 + 0.5 * envelope)
+            val step = (towerTop - s.base) / 4.0
+            for (k in 0 until 4) {
+                val height = s.base + step * (k + 0.5)
+                shape.lobes.add(
+                    CloudLobe(
+                        Vec3().setTo(centre).mulInPlace(radius + height),
+                        width * (1.0 - 0.1 * k), step * 0.75,
+                        shade = 0.45 + 0.15 * k,
+                    ),
+                )
+            }
+            steer.setTo(s.steer)
+            if (steer.lengthSq > 1e-9) steer.normalizeInPlace() else steer.setTo(s.east)
+            shape.lobes.add(
+                CloudLobe(
+                    Vec3().setTo(centre).mulInPlace(radius + towerTop - 800.0).addScaledInPlace(steer, 0.8 * s.core),
+                    2.4 * s.core * envelope, 900.0,
+                    shade = 0.95,
+                ),
+            )
+            out.add(shape)
+        }
+        // Layer cloud, one puff per cell of the deck.
+        for (type in LAYER_TYPES) {
+            val cells = layerCells[type.ordinal]
+            val spacing = LAYER_SPACING[type.ordinal]
+            val keys = LongArray(((2 * (reach / spacing).toInt() + 3) * (2 * (reach / spacing).toInt() + 3)) * 2 + 16)
+            val count = cells.around(direction, e, n, spacing / radius, keys, reach = kotlin.math.ceil(reach / spacing).toInt())
+            val cellCentre = Vec3()
+            for (k in 0 until count) {
+                cells.centre(keys[k], cellCentre)
+                val cx = cells.hashX(keys[k]); val cy = cells.hashY(keys[k])
+                val cellOcean = terrainWind?.let {
+                    it.describe(cellCentre, descriptor); descriptor[TerrainWind.OCEAN] > 0.5
+                } ?: false
+                val cellGround = if (terrainWind != null && !cellOcean) max(descriptor[TerrainWind.H0], 0.0) else 0.0
+                val humidity = humidity(cellCentre, pressure(cellCentre, time), cellOcean, time)
+                if (!layer(type, cellCentre, cellGround, humidity, time, layerScratch)) continue
+                val cover = layerScratch[0]
+                if (cover < 0.15) continue
+                val base = layerScratch[1]; val top = layerScratch[2]
+                // Nudged off the grid, so a deck is not a chessboard.
+                val ce = Vec3(); val cn = Vec3()
+                frame(cellCentre, ce, cn)
+                val jitter = 0.3 * spacing
+                val at = Vec3().setTo(cellCentre).mulInPlace(radius + (base + top) * 0.5)
+                    .addScaledInPlace(ce, (Noise.hash(seed + 90 + type.ordinal, cx, cy, 0) - 0.5) * jitter)
+                    .addScaledInPlace(cn, (Noise.hash(seed + 95 + type.ordinal, cx, cy, 0) - 0.5) * jitter)
+                val shape = CloudShape(type, cover)
+                shape.lobes.add(
+                    CloudLobe(at, spacing * (0.55 + 0.35 * cover), (top - base) * 0.5 * (0.6 + 0.4 * cover), shade = 0.85),
+                )
+                out.add(shape)
+            }
+        }
+    }
+
+    private val layerCells = Array(CloudType.entries.size) { SphereCells(radius, LAYER_SPACING[it]) }
+
+    /** Lightning strikes near unit [direction] between [from] and [to]. */
+    fun strikes(direction: Vec3, from: Double, to: Double, out: MutableList<Strike>) {
+        val e = Vec3(); val n = Vec3()
+        frame(direction, e, n)
+        storms.strikes(direction, e, n, from, to, out)
+    }
+
+    internal val convectionModel: Convection get() = convection
+    internal val stormModel: Storms get() = storms
+
+    companion object {
+        /** Above this the air is still: no weather reaches orbit. */
+        const val CEILING = 30_000.0
+
+        /** Height of the boundary layer, m. */
+        const val BOUNDARY_LAYER = 1_000.0
+
+        /** Peak jet-stream speed, m/s. */
+        const val JET = 22.0
+
+        /** Wind speed for a typical pressure gradient, m/s. */
+        const val GEOSTROPHIC = 4.5
+
+        /** How fast the pressure pattern as a whole drifts east, m/s. */
+        const val PATTERN_DRIFT = 3.0
+
+        /** How near the equator, as sin(latitude), the flow round highs and lows gives way. */
+        const val EQUATORIAL = 0.35
+
+        /** Finite-difference step for the pressure gradient, m. */
+        const val GRADIENT_STEP = 30_000.0
+
+        private val LAYER_TYPES = listOf(CloudType.STRATUS, CloudType.ALTOSTRATUS, CloudType.CIRRUS)
+
+        /** Peak density of each layer type, by ordinal. */
+        private val LAYER_DENSITY = doubleArrayOf(0.0, 1.0, 0.8, 0.35, 0.0)
+
+        /** Spacing of the puffs a deck is drawn with, m, by ordinal. */
+        private val LAYER_SPACING = doubleArrayOf(3_000.0, 2_500.0, 4_000.0, 8_000.0, 3_000.0)
+
+        private val TURBULENCE_SCALES = doubleArrayOf(40.0, 150.0, 500.0)
+        private val TURBULENCE_WEIGHTS = doubleArrayOf(0.25, 0.45, 0.6)
+    }
+}

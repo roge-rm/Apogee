@@ -68,8 +68,15 @@ class ClientPrediction(
      * craft parked on the runway onto whatever ground its wrong time says is
      * there - and every snapshot drags it back.
      */
-    fun adopt(design: CraftDesign, state: VesselKinematics, time: Double = 0.0) {
+    fun adopt(
+        design: CraftDesign,
+        state: VesselKinematics,
+        time: Double = 0.0,
+        /** The server's weather, so the replica is pushed by the same wind. */
+        weather: com.rm.apogee.core.weather.WeatherConfig? = null,
+    ) {
         val replica = World.default(catalog)
+        replica.weatherConfig = weather
         replica.syncClock(time)
         vessel = replica.spawnAt(
             design = design,

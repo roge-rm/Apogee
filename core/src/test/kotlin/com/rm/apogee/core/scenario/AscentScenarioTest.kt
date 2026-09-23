@@ -46,6 +46,20 @@ class AscentScenarioTest {
         )
     }
 
+    /** Weather is part of the world now: the stock rocket makes orbit through it. */
+    @Test
+    fun `the stock rocket reaches orbit through the weather`() {
+        for (intensity in listOf(com.rm.apogee.core.weather.WeatherIntensity.NORMAL, com.rm.apogee.core.weather.WeatherIntensity.WILD)) {
+            val result = AscentScenario(weather = com.rm.apogee.core.weather.WeatherConfig(intensity = intensity)).fly()
+            if (!result.reachedOrbit) println(result.log.joinToString("\n"))
+            assertNull("ascent in $intensity weather failed: ${result.failure}", result.failure)
+            assertTrue(
+                "periapsis ${result.periapsisAltitude}m in $intensity weather",
+                result.periapsisAltitude > 70_000.0,
+            )
+        }
+    }
+
     @Test
     fun `ascent is reproducible`() {
         // Same inputs, same flight. Not because we rely on cross-device

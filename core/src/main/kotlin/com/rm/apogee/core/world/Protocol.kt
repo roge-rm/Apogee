@@ -172,6 +172,12 @@ sealed interface ServerMessage {
         val serverName: String,
         /** The vessel this client controls, or -1 if none yet. */
         val controlledVessel: Long = -1,
+        /**
+         * What the world's weather is made from - all the client needs to
+         * compute the same wind for its replica and the same sky to draw.
+         * Null for still air.
+         */
+        val weather: com.rm.apogee.core.weather.WeatherConfig? = null,
     ) : ServerMessage
 
     @Serializable
@@ -222,6 +228,15 @@ sealed interface ServerMessage {
     @Serializable
     @SerialName("fuel")
     data class FuelLevels(val vessel: Long, val amounts: List<Float>) : ServerMessage
+
+    /**
+     * Lightning struck [vessel], knocking out [partIndex] (or nothing, -1).
+     * Strikes that hit nothing are not sent: every client works those out
+     * from the weather itself.
+     */
+    @Serializable
+    @SerialName("lightning")
+    data class Lightning(val strikeId: Long, val vessel: Long, val partIndex: Int) : ServerMessage
 }
 
 /** Client -> server. */
@@ -264,5 +279,6 @@ object Protocol {
     // 4: ServerMessage.ScatterFelled, Hello.terrainGeneration.
     // 5: VesselKinematics.pose.
     // 6: ServerMessage.FuelLevels, CraftDesign.manualStaging.
-    const val VERSION = 6
+    // 7: Welcome.weather, ServerMessage.Lightning.
+    const val VERSION = 7
 }

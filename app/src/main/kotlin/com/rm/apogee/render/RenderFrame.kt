@@ -25,6 +25,10 @@ class RenderItem(
      * alone and neither in the middle of a stack.
      */
     val caps: Int = StackCaps.BOTH,
+    /** Stretch along the shape's own axes, or null for none: cloud lobes. */
+    val scale: Vec3? = null,
+    /** Light it has without the sun: 0.28 for a part, much more for a cloud. */
+    val ambient: Float = 0.28f,
 )
 
 /**
@@ -122,7 +126,26 @@ class WorldView(
      * would otherwise show through above them like a ceiling.
      */
     val chunkRange: Double = 0.0,
-)
+    /**
+     * How far the weather lets the camera see, metres: cloud and rain close
+     * it in. Very large in clear air.
+     */
+    val fogDistance: Double = CLEAR_FOG,
+    /** What the fog is: bright white in cumulus, dark grey under a storm. */
+    val fogColor: FloatArray = floatArrayOf(0.75f, 0.77f, 0.8f),
+    /** 1 inside cloud, where the sky itself is lost. */
+    val skyFog: Float = 0f,
+    /** Sunlight left, 0..1: a storm overhead dims it. */
+    val lightScale: Float = 1f,
+    /** The wind near the ground, in the body's frame, for trees to lean in. */
+    val surfaceWind: Vec3 = Vec3(),
+    /** Universe time, for anything that sways. */
+    val time: Double = 0.0,
+) {
+    companion object {
+        const val CLEAR_FOG = 1.0e9
+    }
+}
 
 /**
  * The hand-off between the game thread and the GL thread.

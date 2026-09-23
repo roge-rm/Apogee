@@ -274,4 +274,16 @@ class WorldSaveTest {
         )
         assertEquals(ResourceType.entries.size, WorldSave.RESOURCE_SLOTS)
     }
+
+    /** The sky is part of the world: a wild one stays wild across a restart. */
+    @Test
+    fun `the weather survives a save`() {
+        val world = World.default(catalog)
+        val wild = com.rm.apogee.core.weather.WeatherConfig(seed = 42, intensity = com.rm.apogee.core.weather.WeatherIntensity.WILD)
+        world.weatherConfig = wild
+        val text = format.encodeToString(WorldSave.serializer(), world.save())
+        val restored = World.default(catalog)
+        restored.restore(format.decodeFromString(WorldSave.serializer(), text))
+        org.junit.Assert.assertEquals(wild, restored.weatherConfig)
+    }
 }

@@ -148,6 +148,28 @@ private fun PlayerTab(settings: GameSettings) {
         style = MaterialTheme.typography.labelSmall,
         color = Color.White.alpha(ApogeeAlpha.SUBTITLE),
     )
+
+    SectionHeading("Weather")
+    ChoiceGroup(
+        title = "In games you host",
+        options = com.rm.apogee.core.weather.WeatherIntensity.entries,
+        selected = settings.weatherIntensity,
+        label = { it.label },
+        description = {
+            when (it) {
+                com.rm.apogee.core.weather.WeatherIntensity.CALM -> "Light winds, gentle thermals, no storms"
+                com.rm.apogee.core.weather.WeatherIntensity.NORMAL -> "Changeable: breezes, cloud, the odd storm"
+                com.rm.apogee.core.weather.WeatherIntensity.WILD -> "Strong winds, frequent storms, lightning"
+            }
+        },
+        onSelect = { settings.weatherIntensity = it },
+    )
+    Text(
+        "Everyone in a game flies in the host's weather. Your own world takes " +
+            "the change from your next flight.",
+        style = MaterialTheme.typography.labelSmall,
+        color = Color.White.alpha(ApogeeAlpha.SUBTITLE),
+    )
 }
 
 @Composable

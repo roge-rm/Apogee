@@ -71,6 +71,7 @@ class ScatterRenderer {
         sun: Vec3,
         atmosphereFactor: Float,
         hazeDistance: Float,
+        world: WorldView,
     ) {
         if (list.isEmpty()) return
         frame++
@@ -79,6 +80,11 @@ class ScatterRenderer {
         program.setVec3("uSunDirection", sun.x.toFloat(), sun.y.toFloat(), sun.z.toFloat())
         program.setFloat("uAtmosphereFactor", atmosphereFactor)
         program.setFloat("uHazeDistance", hazeDistance)
+        program.setFloat("uLightScale", world.lightScale)
+        program.setFloat("uFogDistance", world.fogDistance.toFloat())
+        program.setVec3("uFogColor", world.fogColor[0], world.fogColor[1], world.fogColor[2])
+        program.setFloat("uTime", (world.time % 10_000.0).toFloat())
+        val wind = world.surfaceWind
         // Faceted meshes built by hand: drawn both sides rather than trusting
         // every triangle's winding.
         GLES30.glDisable(GLES30.GL_CULL_FACE)
@@ -108,6 +114,14 @@ class ScatterRenderer {
             model.setFromTrs(centre, bodyRotation, cameraPos)
             program.setMat4("uModel", model.m)
             program.setMat3("uBasis", block.basis)
+            // The wind across this block, in its own east and north.
+            val b = block.basis
+            program.setVec3(
+                "uWind",
+                (wind.x * b[0] + wind.y * b[1] + wind.z * b[2]).toFloat(),
+                0f,
+                (wind.x * b[6] + wind.y * b[7] + wind.z * b[8]).toFloat(),
+            )
             lastDrawn[block.key] = frame
 
             val stride = ScatterDraw.INSTANCE_FLOATS * 4

@@ -435,6 +435,7 @@ class MainActivity : ComponentActivity() {
                     // Resume Flight names the one to fly.
                     freshFlight = pendingLaunchDesign == null && pendingResume == null,
                     resumeVessel = pendingResume,
+                    weather = settings.weatherIntensity,
                 )
 
                 is SessionMode.Host -> GameSession.hostLan(
@@ -445,6 +446,7 @@ class MainActivity : ComponentActivity() {
                     serverName = mode.name,
                     design = pendingLaunchDesign,
                     scope = lifecycleScope,
+                    weather = settings.weatherIntensity,
                 )
 
                 // Already connected: joining happens before navigation so a

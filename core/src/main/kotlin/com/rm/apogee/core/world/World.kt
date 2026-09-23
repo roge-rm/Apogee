@@ -19,6 +19,9 @@ import com.rm.apogee.core.physics.ContactReport
 import com.rm.apogee.core.physics.CraftContact
 import com.rm.apogee.core.physics.GroundContact
 import com.rm.apogee.core.terrain.TerrainField
+import com.rm.apogee.core.weather.Strike
+import com.rm.apogee.core.weather.Weather
+import com.rm.apogee.core.weather.WeatherConfig
 
 /** Where a craft can be put on the ground. */
 data class LaunchSite(
@@ -49,6 +52,17 @@ sealed interface WorldEvent {
         val id: VesselId,
         val partIndex: Int,
         val reason: String,
+    ) : WorldEvent
+
+    /**
+     * Lightning struck a craft - [partIndex] is what it knocked out, or -1
+     * if it came through unharmed. Strikes that hit nothing need no event:
+     * every client works them out from the weather for itself.
+     */
+    data class LightningHit(
+        val id: VesselId,
+        val strikeId: Long,
+        val partIndex: Int,
     ) : WorldEvent
 }
 
@@ -84,6 +98,40 @@ class World(
 
     var tick: Long = 0
         private set
+
+    /**
+     * What the weather is made from: the world's seed and how lively the
+     * host wants it - or null for still air. A game's world is given its
+     * config by the server that owns it, and a replica takes the server's;
+     * a bare world is still, so a test of how a leg takes a landing is not
+     * also a test of which way the wind happened to blow.
+     */
+    var weatherConfig: WeatherConfig? = null
+        set(value) {
+            if (field == value) return
+            field = value
+            weathers.clear()
+        }
+
+    private val weathers = HashMap<String, Weather>()
+
+    /** Pairs of craft that have just separated, by [pairKey], and until when they ignore each other. */
+    private val justSeparated = HashMap<Long, Double>()
+
+    private fun pairKey(a: Long, b: Long): Long = if (a < b) (a shl 32) or b else (b shl 32) or a
+
+    /** The weather over [body], or null for an airless one or a still world. */
+    fun weatherFor(body: CelestialBody): Weather? {
+        val config = weatherConfig ?: return null
+        if (body.atmosphere == null) return null
+        return weathers.getOrPut(body.id) { Weather(body, config) }
+    }
+
+    private val weatherRotation = Quat.identity()
+    private val weatherPoint = Vec3()
+    private var lightningCheckedTo = Double.NaN
+    private val strikesFound = ArrayList<Strike>()
+    private val strikesSeen = HashSet<Long>()
 
     private val vesselsById = LinkedHashMap<VesselId, Vessel>()
     private var nextVesselId = 1L
@@ -127,7 +175,9 @@ class World(
      */
     private val pendingDestruction = ArrayList<Pair<VesselId, String>>()
 
-    private val craftContacts = CraftContact()
+    private val craftContacts = CraftContact().also { contacts ->
+        contacts.ignorePair = { a, b -> justSeparated.containsKey(pairKey(a, b)) }
+    }
 
     /**
      * Vessels in step order, reused so the craft-vs-craft pass can index them
@@ -709,6 +759,11 @@ class World(
         debris.body.position.addInPlace(scratch)
 
         vesselsById[debris.id] = debris
+        // The halves overlap as they part - an engine bell inside the ring
+        // it sat on - and meet again if the craft is turning or the spent
+        // half is braked harder by the air than the live one. Neither is a
+        // collision: they are still coming apart.
+        justSeparated[pairKey(vessel.id.raw, debris.id.raw)] = time + SEPARATION_GRACE
         pendingEvents.add(WorldEvent.VesselStructureChanged(vessel.id))
         pendingEvents.add(WorldEvent.VesselSpawned(debris.id))
         return kept.indices
@@ -803,12 +858,30 @@ class World(
 
             forces.applyGravity(vessel, attractor)
             forces.applyThrust(vessel, attractor, dt, time)
-            forces.applyDrag(vessel, attractor)
+            // The air it is flying through, once per craft per tick at its
+            // centre of mass; gusts over its length come in the drag pass.
+            val weather = weatherFor(attractor)
+            attractor.rotationAt(time, weatherRotation)
+            if (weather != null) {
+                attractor.toBodyFixed(body.position, weatherRotation, weatherPoint)
+                weather.sample(weatherPoint, time, vessel.air)
+            } else {
+                vessel.air.clear()
+            }
+            forces.applyDrag(vessel, attractor, weather, weatherRotation, time)
             for (i in 0 until forces.tornCount) {
                 val index = forces.tornParachutes[i]
                 pendingEvents.add(
                     WorldEvent.PartFailed(
                         vessel.id, index, "${vessel.defs[index].title} tore away",
+                    )
+                )
+            }
+            for (i in 0 until forces.overstressedCount) {
+                val index = forces.overstressed[i]
+                pendingEvents.add(
+                    WorldEvent.PartFailed(
+                        vessel.id, index, "${vessel.defs[index].title} failed under load",
                     )
                 )
             }
@@ -853,6 +926,7 @@ class World(
         // at a sixtieth of a second is not something anyone can see.
         stepOrder.clear()
         stepOrder.addAll(vesselsById.values)
+        if (justSeparated.isNotEmpty()) justSeparated.values.removeAll { it < time }
         val impacts = craftContacts.resolve(stepOrder, dt)
         // Anything that was touched is awake again, whether or not it was
         // hurt. A sleeping base that stayed asleep while something landed on
@@ -869,8 +943,65 @@ class World(
             pendingDestruction.clear()
         }
 
+        if (tick % LIGHTNING_CHECK_TICKS == 0L) strikeLightning(tickEnd)
+
         tick++
         time += dt
+    }
+
+    /**
+     * Lightning since the last look, up to [until]: every strike near any
+     * craft - flying or parked, since a storm does not care which - that
+     * lands within [LIGHTNING_REACH] of one below the cloud hits it. The
+     * highest part takes it, and may be knocked out. Every part of it is a
+     * function of the weather and the strike, so a replica agrees.
+     */
+    private fun strikeLightning(until: Double) {
+        val from = if (lightningCheckedTo.isNaN()) until - LIGHTNING_CHECK_TICKS / 60.0 else lightningCheckedTo
+        lightningCheckedTo = until
+        if (until <= from) return
+        strikesSeen.clear()
+        for (vessel in vesselsById.values.toList()) {
+            val attractor = attractorFor(vessel)
+            val weather = weatherFor(attractor) ?: continue
+            attractor.rotationAt(until, weatherRotation)
+            attractor.toBodyFixed(vessel.body.position, weatherRotation, weatherPoint)
+            val height = weatherPoint.length - attractor.radius
+            if (height > LIGHTNING_CEILING) continue
+            weatherPoint.normalizeInPlace()
+            strikesFound.clear()
+            weather.strikes(weatherPoint, from, until, strikesFound)
+            for (strike in strikesFound) {
+                val horizontal = strike.direction.distanceTo(weatherPoint) * attractor.radius
+                if (horizontal > LIGHTNING_REACH + vessel.contactRadius) continue
+                // One craft per strike: the first found, which is stable.
+                if (!strikesSeen.add(strike.id)) continue
+                hitByLightning(vessel, attractor, strike)
+            }
+        }
+    }
+
+    private fun hitByLightning(vessel: Vessel, attractor: CelestialBody, strike: Strike) {
+        vessel.wake()
+        // The highest part, against the local vertical.
+        val up = Vec3().setTo(vessel.body.position).normalizeInPlace()
+        var highest = -1
+        var best = Double.NEGATIVE_INFINITY
+        val offset = Vec3()
+        for (i in vessel.defs.indices) {
+            if (vessel.isBroken(i)) continue
+            vessel.partOffsetWorld(i, offset)
+            val h = offset dot up
+            if (h > best) { best = h; highest = i }
+        }
+        val roll = com.rm.apogee.core.terrain.Noise.hash(weatherConfig?.seed ?: 0, (strike.id ushr 32).toInt(), strike.id.toInt(), 7)
+        val damaged = highest >= 0 && roll < 0.35 + 0.5 * strike.energy && vessel.breakPart(highest)
+        pendingEvents.add(WorldEvent.LightningHit(vessel.id, strike.id, if (damaged) highest else -1))
+        if (damaged) {
+            pendingEvents.add(
+                WorldEvent.PartFailed(vessel.id, highest, "${vessel.defs[highest].title} was struck by lightning"),
+            )
+        }
     }
 
     /**
@@ -915,17 +1046,28 @@ class World(
      * floating craft - it is still because the water has damped it. Valid
      * only while the sea is calm: with waves (M9) a floating craft is never
      * at rest, and a dormant one has to ride the surface instead.
+     *
+     * In a wind a boat left alone never stops: it drifts, steadily, at the
+     * pace the wind on its topsides and the water on its hull agree on. Held
+     * to the still-water threshold it would never sleep, and in a world
+     * people leave boats in it would drift off across the sea while nobody
+     * was there. So a boat left alone - engine off, hands off - drops
+     * anchor: drifting no faster than [ANCHOR_DRIFT], it is allowed to
+     * sleep, and asleep it stays where it is.
      */
     private fun floatingStill(vessel: Vessel): Boolean {
         if (vessel.touchingGround || hydrostatics.submergedVolume <= 0.0) return false
-        if (vessel.control.throttle > 0.0) return false
+        val control = vessel.control
+        if (control.throttle > 0.0) return false
+        val handsOff = control.pitch == 0.0 && control.yaw == 0.0 && control.roll == 0.0
+        val limit = if (handsOff && vessel.air.wind.length > 0.5) ANCHOR_DRIFT else FLOATING_REST_SPEED
         val attractor = attractorFor(vessel)
         attractor.surfaceVelocityAt(vessel.body.position, scratchSurfaceVelocity)
         scratchRelativeVelocity.setTo(vessel.body.linearVelocity).subInPlace(scratchSurfaceVelocity)
-        if (scratchRelativeVelocity.length > FLOATING_REST_SPEED) return false
+        if (scratchRelativeVelocity.length > limit) return false
         attractor.angularVelocity(scratchSpin)
         scratchSpin.subInPlace(vessel.body.angularVelocity)
-        return scratchSpin.length * vessel.contactRadius <= FLOATING_REST_SPEED
+        return scratchSpin.length * vessel.contactRadius <= limit
     }
 
     /**
@@ -1149,6 +1291,7 @@ class World(
         felledScatter = felledScatter.sorted(),
         terrainGeneration = TerrainField.GENERATION,
         lastFlown = lastFlown.toMap(),
+        weather = weatherConfig,
         universeTime = time,
         nextVesselId = nextVesselId,
         vessels = vesselsById.values.map { vessel ->
@@ -1193,6 +1336,7 @@ class World(
         if (!terrainChanged) felledScatter.addAll(save.felledScatter)
         lastFlown.clear()
         lastFlown.putAll(save.lastFlown)
+        save.weather?.let { weatherConfig = it }
 
         if (!SaveMigration.canRead(save.formatVersion)) {
             return listOf(
@@ -1444,6 +1588,21 @@ class World(
 
         /** Impacts gentler than this are not worth an event. */
         private const val TOUCHDOWN_REPORT_SPEED = 0.5
+
+        /** Seconds two halves of a staged craft pass through each other while they part. */
+        private const val SEPARATION_GRACE = 1.5
+
+        /** Fastest drift, m/s, at which a boat left alone in a wind drops anchor. */
+        private const val ANCHOR_DRIFT = 1.5
+
+        /** Lightning is looked for once a second. */
+        private const val LIGHTNING_CHECK_TICKS = 60L
+
+        /** How close to a craft a strike has to land to hit it, m. */
+        private const val LIGHTNING_REACH = 60.0
+
+        /** Above this a craft is in or over the cloud, not under the bolt, m. */
+        private const val LIGHTNING_CEILING = 3_000.0
 
         /**
          * Furthest a contact point may sweep in one substep, metres.

@@ -167,6 +167,10 @@ class GameSession private constructor(
     private var drawFarSurface = true
     private var chunkRange = 0.0
 
+    /** Clouds and the camera's air, while the world has weather and the camera is in it. */
+    private var cloudScene: CloudScene? = null
+    private val cloudCamera = Vec3()
+
     /**
      * The solar system, built once.
      *
@@ -530,6 +534,22 @@ class GameSession private constructor(
         val cameraAboveGround = attractor.heightAboveTerrain(cameraPosition, scratchCameraBodyFixed)
         if (cameraAboveGround < nearest) nearest = cameraAboveGround
 
+        // The weather: clouds to draw, and the air the camera is in. After
+        // the near-plane search, which is about the craft and the ground -
+        // a cloud a kilometre across is not a reason to pull it in.
+        val weatherConfig = client.weather
+        val clouds = if (weatherConfig != null && attractor.atmosphere != null) {
+            cloudScene?.takeIf { it.body === attractor && it.config == weatherConfig }
+                ?: CloudScene(attractor, weatherConfig, terrainQuality ?: QualityTier.MEDIUM, terrainScope)
+                    .also { cloudScene = it }
+        } else null
+        if (clouds == null) cloudScene = null
+        if (clouds != null) {
+            attractor.toBodyFixed(cameraPosition, bodyRotation, cloudCamera)
+            clouds.update(cloudCamera, renderTime)
+            if (!mapMode) clouds.append(bodyRotation, items)
+        }
+
         frameBus.publish(
             RenderFrame(
                 simTick = client.latestSnapshot?.tick ?: 0L,
@@ -552,6 +572,12 @@ class GameSession private constructor(
                     maxElevation = attractor.terrain?.maxElevation ?: 1.0,
                     drawFarSurface = drawFarSurface,
                     chunkRange = chunkRange,
+                    fogDistance = if (mapMode || clouds == null) WorldView.CLEAR_FOG else clouds.fogDistance,
+                    fogColor = clouds?.fogColor ?: floatArrayOf(0.75f, 0.77f, 0.8f),
+                    skyFog = if (mapMode) 0f else clouds?.skyFog ?: 0f,
+                    lightScale = if (mapMode) 1f else clouds?.lightScale ?: 1f,
+                    surfaceWind = clouds?.surfaceWind?.copy() ?: Vec3(),
+                    time = renderTime,
                 ),
                 nearestDistance = if (nearest == Double.MAX_VALUE) 0.0 else nearest.coerceAtLeast(0.0),
             )
@@ -597,7 +623,7 @@ class GameSession private constructor(
         val age = (now - client.latestSnapshotNanos) / 1e9
         if (prediction.needsAdopting(focus.design)) {
             // On the server's clock: see ClientPrediction.adopt.
-            prediction.adopt(focus.design, state, snapshot?.time ?: 0.0)
+            prediction.adopt(focus.design, state, snapshot?.time ?: 0.0, client.weather)
             pushControlsToPrediction()
             lastReconciledTick = -1
         }
@@ -906,6 +932,7 @@ class GameSession private constructor(
             design: CraftDesign? = null,
             catalog: PartCatalog = StockParts.catalog,
             scope: CoroutineScope,
+            weather: com.rm.apogee.core.weather.WeatherIntensity? = null,
         ): GameSession {
             val session = hostLocal(
                 frameBus, perfHints, playerName, clientId, design, catalog, scope,
@@ -913,6 +940,7 @@ class GameSession private constructor(
                 // it is what the welcome message reports, so a joining player
                 // sees the name they picked in the browser.
                 serverName = serverName,
+                weather = weather,
             )
             session.hostedServer?.let { session.openToLan(it, scope, serverName) }
             return session
@@ -973,6 +1001,8 @@ class GameSession private constructor(
             freshFlight: Boolean = false,
             /** Fly this craft of the player's, chosen from Resume Flight. */
             resumeVessel: Long? = null,
+            /** How lively the weather is, from the player's setting. */
+            weather: com.rm.apogee.core.weather.WeatherIntensity? = null,
         ): GameSession {
             val server = GameServer(
                 world = world,
@@ -984,6 +1014,7 @@ class GameSession private constructor(
                     assignCraftOnJoin = design == null,
                     freshFlight = freshFlight && design == null && resumeVessel == null,
                     resumeVessel = resumeVessel,
+                    weatherIntensity = weather,
                 ),
             )
             val link = LoopbackTransportPair()

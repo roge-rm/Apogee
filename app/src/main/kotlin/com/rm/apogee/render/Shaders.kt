@@ -21,19 +21,27 @@ object Shaders {
 
         uniform mat4 uModel;
         uniform mat4 uViewProjection;
+        // 1/scale^2 per axis: (1,1,1) for a part, the lobe's shape for a cloud.
+        uniform vec3 uInvScaleSq;
 
         // `flat`: the provoking vertex's normal is used across the whole
         // triangle instead of being interpolated. That one qualifier is the
         // entire faceted look, and it costs nothing - a smooth-normalled
         // cylinder comes out as flat strips.
         flat out vec3 vNormal;
+        out float vDistance;
+        out vec3 vToCamera;
 
         void main() {
             // The model matrix is already camera-relative (floating origin), so
             // there is no separate world-space stage here.
             vec4 worldPos = uModel * vec4(aPosition, 1.0);
-            // Uniform scale only, so the normal matrix is just the rotation.
-            vNormal = mat3(uModel) * aNormal;
+            vToCamera = -worldPos.xyz;
+            // The model matrix is R*S; R*S^-1*n is the normal, and that is
+            // R*S times n/S^2 - exact for a stretched cloud lobe, and for a
+            // part (unit scale) just the rotation.
+            vNormal = mat3(uModel) * (aNormal * uInvScaleSq);
+            vDistance = length(worldPos.xyz);
             gl_Position = uViewProjection * worldPos;
         }
     """.trimIndent()
@@ -43,20 +51,46 @@ object Shaders {
         precision mediump float;
 
         flat in vec3 vNormal;
+        in float vDistance;
+        in vec3 vToCamera;
 
         uniform vec4 uColor;
         uniform vec3 uLightDirection;
+        // A flat ambient floor stands in for bounce light; without it the
+        // unlit side of a craft reads as a hole cut in the sky. Clouds, lit
+        // through themselves, take a much higher one.
+        uniform float uAmbient;
+        // Sunlight left under a storm, 0..1.
+        uniform float uLightScale;
+        // Weather fog: metres to fade over, and what it fades to.
+        uniform float uFogDistance;
+        uniform vec3 uFogColor;
+        // 1 for cloud: light wraps round it, so a facet in shade still reads
+        // by its angle instead of every underside being one flat grey.
+        uniform float uWrap;
+        // Aerial perspective, as the ground has it: far things fade into the air.
+        uniform float uHazeDistance;
+        uniform float uAtmosphereFactor;
 
         out vec4 fragColor;
 
         void main() {
             vec3 n = normalize(vNormal);
-            float lambert = max(dot(n, -uLightDirection), 0.0);
-            // A flat ambient floor stands in for bounce light; without it the
-            // unlit side of a craft reads as a hole cut in the sky.
-            float ambient = 0.28;
-            vec3 lit = uColor.rgb * (ambient + lambert * 0.8);
-            fragColor = vec4(lit, uColor.a);
+            float facing = dot(n, -uLightDirection);
+            float wrapped = facing * 0.5 + 0.5;
+            float diffuse = mix(max(facing, 0.0), wrapped * wrapped, uWrap);
+            vec3 lit = uColor.rgb * (uAmbient + diffuse * 0.8 * uLightScale);
+            float haze = (1.0 - exp(-vDistance / max(uHazeDistance, 1.0))) * uAtmosphereFactor;
+            lit = mix(lit, vec3(0.52, 0.66, 0.85), clamp(haze, 0.0, 1.0));
+            float fog = 1.0 - exp(-vDistance / max(uFogDistance, 1.0));
+            // A cloud thins toward its outline: facets seen edge-on let the
+            // sky through, so it ends softly instead of in a hard cut-out.
+            float alpha = uColor.a;
+            if (uWrap > 0.5) {
+                float faceOn = abs(dot(n, normalize(vToCamera)));
+                alpha *= mix(0.25, 1.0, smoothstep(0.05, 0.6, faceOn));
+            }
+            fragColor = vec4(mix(lit, uFogColor, clamp(fog, 0.0, 1.0)), alpha);
         }
     """.trimIndent()
 
@@ -106,6 +140,9 @@ object Shaders {
         uniform vec3 uUpDirection;      // away from the planet's centre
         uniform vec3 uSunDirection;
         uniform float uAtmosphereFactor; // 1 at sea level, 0 in vacuum
+        uniform float uLightScale;       // sunlight left under a storm
+        uniform float uSkyFog;           // 1 inside cloud: the sky is gone
+        uniform vec3 uFogColor;
 
         out vec4 fragColor;
 
@@ -158,6 +195,12 @@ object Shaders {
             float rim = exp(-abs(height) * 14.0) * uAtmosphereFactor;
             color += vec3(0.30, 0.45, 0.70) * rim * 0.5;
 
+            // A storm overhead greys and darkens it; inside cloud there is
+            // only the cloud.
+            vec3 overcast = vec3(0.42, 0.45, 0.50) * (0.4 + 0.6 * uLightScale);
+            color = mix(color, overcast, (1.0 - uLightScale) * uAtmosphereFactor);
+            color = mix(color, uFogColor, clamp(uSkyFog, 0.0, 1.0));
+
             fragColor = vec4(color, 1.0);
         }
     """.trimIndent()
@@ -183,6 +226,9 @@ object Shaders {
         uniform mat4 uViewProjection;
         // East, up, north at the block, as columns.
         uniform mat3 uBasis;
+        // The wind at the block, in the same east, up, north axes, m/s.
+        uniform vec3 uWind;
+        uniform float uTime;
 
         flat out vec3 vNormal;
         flat out vec3 vColour;
@@ -193,6 +239,16 @@ object Shaders {
             float s = sin(aYaw);
             vec3 p = aPosition * aInstance.w;
             vec3 turned = vec3(c * p.x - s * p.z, p.y, s * p.x + c * p.z);
+            // Leaning downwind and swaying with the gusts, more the taller -
+            // a tree bends, a boulder does not. Each on its own phase, from
+            // where it stands, so a forest does not move in step.
+            float speed = length(uWind.xz);
+            if (speed > 0.1 && turned.y > 0.0) {
+                float phase = aInstance.x * 0.37 + aInstance.z * 0.51;
+                float bend = clamp(speed / 25.0, 0.0, 0.35) * (0.8 + 0.25 * sin(uTime * 2.3 + phase));
+                float reach = turned.y * turned.y / (turned.y + 6.0);
+                turned.xz += (uWind.xz / speed) * reach * bend;
+            }
             vec3 n = vec3(c * aNormal.x - s * aNormal.z, aNormal.y, s * aNormal.x + c * aNormal.z);
             vec4 world = uModel * vec4(uBasis * turned + aInstance.xyz, 1.0);
             vNormal = normalize(mat3(uModel) * (uBasis * n));
@@ -214,6 +270,9 @@ object Shaders {
         uniform vec3 uSunDirection;
         uniform float uAtmosphereFactor;
         uniform float uHazeDistance;
+        uniform float uLightScale;
+        uniform float uFogDistance;
+        uniform vec3 uFogColor;
 
         out vec4 fragColor;
 
@@ -222,10 +281,12 @@ object Shaders {
             vec3 n = normalize(vNormal);
             if (!gl_FrontFacing) n = -n;
             float lambert = max(dot(n, uSunDirection), 0.0);
-            vec3 lit = vColour * (0.28 + lambert * 0.9);
+            vec3 lit = vColour * (0.28 + lambert * 0.9 * uLightScale);
             float haze = (1.0 - exp(-vDistance / max(uHazeDistance, 1.0))) * uAtmosphereFactor;
             vec3 hazeColor = vec3(0.52, 0.66, 0.85);
-            fragColor = vec4(mix(lit, hazeColor, clamp(haze, 0.0, 1.0)), 1.0);
+            lit = mix(lit, hazeColor, clamp(haze, 0.0, 1.0));
+            float fog = 1.0 - exp(-vDistance / max(uFogDistance, 1.0));
+            fragColor = vec4(mix(lit, uFogColor, clamp(fog, 0.0, 1.0)), 1.0);
         }
     """.trimIndent()
 
@@ -293,6 +354,9 @@ object Shaders {
         uniform float uHasAtmosphere; // 1 for a body with air, 0 for one without
         uniform float uDiscardNearer; // the globe leaves the chunks' ground alone
         uniform vec3 uBodyCentre;     // the planet's centre, camera-relative
+        uniform float uLightScale;    // sunlight left under a storm
+        uniform float uFogDistance;   // weather fog: cloud, rain
+        uniform vec3 uFogColor;
 
         out vec4 fragColor;
 
@@ -315,7 +379,7 @@ object Shaders {
 
             float lambert = max(dot(n, uSunDirection), 0.0);
             float daylight = smoothstep(-0.08, 0.35, dot(n, uSunDirection));
-            vec3 lit = surface * (0.06 + lambert * 1.10) * daylight;
+            vec3 lit = surface * (0.06 + lambert * 1.10 * uLightScale) * daylight;
 
             // A glint off the water, which is most of what reads as sea
             // rather than as a blue-painted plain.
@@ -343,6 +407,9 @@ object Shaders {
             float fresnel = pow(1.0 - max(dot(up, vViewDir), 0.0), 3.0);
             lit += vec3(0.25, 0.45, 0.78) * fresnel * daylight * 0.9 *
                 (1.0 - clamp(uAtmosphereFactor, 0.0, 1.0)) * uHasAtmosphere;
+
+            float fog = 1.0 - exp(-vDistance / max(uFogDistance, 1.0));
+            lit = mix(lit, uFogColor, clamp(fog, 0.0, 1.0));
 
             fragColor = vec4(lit, 1.0);
         }

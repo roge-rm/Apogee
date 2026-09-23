@@ -236,6 +236,13 @@ class Vessel(
         private set
 
     /** Next stage to fire. Equals `design.stages.size` when staging is spent. */
+    /**
+     * The air it is in this tick: wind, cloud, rain, how rough. Sampled by
+     * the world before forces are applied; not saved, since the weather is a
+     * function of where and when.
+     */
+    val air = com.rm.apogee.core.weather.AirSample()
+
     var currentStage: Int = 0
         private set
 

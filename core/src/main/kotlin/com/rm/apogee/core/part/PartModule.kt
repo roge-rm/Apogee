@@ -114,7 +114,25 @@ data class AeroSurface(
      * not ninety.
      */
     val maxDeflection: Double = 20.0,
-) : PartModule
+    /**
+     * The normal force, N, it fails beyond - lift and control together. Zero
+     * means "work it out from its size", which is how every stock surface
+     * gets one: see [loadLimit].
+     */
+    val maxLoad: Double = 0.0,
+) : PartModule {
+    /**
+     * What it takes to break it, N. By default what its own lift would be
+     * at [DESIGN_LOAD] - a strong gust at speed, or a hard pull in rough air,
+     * well past anything the stock craft do flying normally.
+     */
+    val loadLimit: Double get() = if (maxLoad > 0.0) maxLoad else area * liftCoefficient * DESIGN_LOAD
+
+    companion object {
+        /** Pascals of lift-equivalent loading a surface is built for. */
+        const val DESIGN_LOAD = 12_000.0
+    }
+}
 
 /**
  * A rudder, keel or hydrofoil: a flying surface for water.

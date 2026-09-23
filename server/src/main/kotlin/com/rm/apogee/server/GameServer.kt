@@ -64,6 +64,12 @@ class ServerConfig(
     val resumeVessel: Long? = null,
     /** Simultaneous players, or 0 for no limit. */
     val maxPlayers: Int = 0,
+    /**
+     * How lively the weather is, overriding what the world was saved with;
+     * null keeps the world's own. The world's seed stays: the same world,
+     * calmer or wilder.
+     */
+    val weatherIntensity: com.rm.apogee.core.weather.WeatherIntensity? = null,
 )
 
 /**
@@ -122,6 +128,13 @@ class GameServer(
     val config: ServerConfig = ServerConfig(),
 ) {
     private val sessions = CopyOnWriteArrayList<PlayerSession>()
+
+    init {
+        // Every game has weather: set here, before anyone joins, so the
+        // welcome can tell each client what to compute.
+        val base = world.weatherConfig ?: com.rm.apogee.core.weather.WeatherConfig()
+        world.weatherConfig = config.weatherIntensity?.let { base.copy(intensity = it) } ?: base
+    }
 
     /** Names of everyone currently connected, for the admin view. */
     val playerNames: List<String>
@@ -390,6 +403,7 @@ class GameServer(
                 catalogHash = world.catalog.contentHash,
                 serverName = config.name,
                 controlledVessel = vessel?.id?.raw ?: -1L,
+                weather = world.weatherConfig,
             ),
             Channel.CONTROL,
         )
@@ -512,6 +526,9 @@ class GameServer(
                             Channel.STRUCTURE,
                         )
                     }
+
+                is WorldEvent.LightningHit ->
+                    broadcast(ServerMessage.Lightning(event.strikeId, event.id.raw, event.partIndex), Channel.STRUCTURE)
             }
         }
     }

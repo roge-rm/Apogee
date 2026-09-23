@@ -273,6 +273,9 @@ class GlRenderer(
             world.sunDirection.z.toFloat(),
         )
         shader.setFloat("uAtmosphereFactor", atmosphereFactor)
+        shader.setFloat("uLightScale", frame.world?.lightScale ?: 1f)
+        shader.setFloat("uSkyFog", frame.world?.skyFog ?: 0f)
+        (frame.world?.fogColor ?: CLEAR_FOG_COLOR).let { shader.setVec3("uFogColor", it[0], it[1], it[2]) }
 
         GLES30.glBindVertexArray(emptyVao[0])
         GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, 3)
@@ -370,6 +373,7 @@ class GlRenderer(
             world.sunDirection,
             atmosphereFactor,
             (world.atmosphereScaleHeight * 8.0).toFloat(),
+            world,
         )
     }
 
@@ -390,6 +394,9 @@ class GlRenderer(
         shader.setFloat("uAtmosphereFactor", atmosphereFactor)
         shader.setFloat("uHazeDistance", (world.atmosphereScaleHeight * 8.0).toFloat())
         shader.setFloat("uHasAtmosphere", if (world.atmosphereHeight > 0.0) 1f else 0f)
+        shader.setFloat("uLightScale", world.lightScale)
+        shader.setFloat("uFogDistance", world.fogDistance.toFloat())
+        shader.setVec3("uFogColor", world.fogColor[0], world.fogColor[1], world.fogColor[2])
         // The body's centre, camera-relative: the scene is drawn about the
         // camera, and the body sits at the world origin.
         shader.setVec3("uBodyCentre", (-cameraPos.x).toFloat(), (-cameraPos.y).toFloat(), (-cameraPos.z).toFloat())
@@ -449,9 +456,38 @@ class GlRenderer(
         } else {
             shader.setVec3("uLightDirection", -0.42f, -0.57f, -0.71f)
         }
+        val world = latest.world
+        shader.setFloat("uLightScale", world?.lightScale ?: 1f)
+        shader.setFloat("uFogDistance", (world?.fogDistance ?: WorldView.CLEAR_FOG).toFloat())
+        (world?.fogColor ?: CLEAR_FOG_COLOR).let { shader.setVec3("uFogColor", it[0], it[1], it[2]) }
+        shader.setFloat("uHazeDistance", ((world?.atmosphereScaleHeight ?: 1.0e6) * 8.0).toFloat())
+        shader.setFloat("uAtmosphereFactor", if (world != null) atmosphereFactorAt(world) else 0f)
 
+        // Solid things first; then the see-through ones - cloud - far to
+        // near with blending on and depth writes off, so each layer shows
+        // through the ones in front of it and nothing solid behind is lost.
+        translucent.clear()
         for ((index, item) in latest.items.withIndex()) {
-            val prevItem = previous?.items?.getOrNull(index)
+            if (item.color[3] < 0.999f) { translucent.add(index); continue }
+            drawItem(item, previous?.items?.getOrNull(index), alpha, cameraPos, shader)
+        }
+        if (translucent.isNotEmpty()) {
+            translucent.sortByDescending { latest.items[it].position.distanceTo(cameraPos) }
+            GLES30.glEnable(GLES30.GL_BLEND)
+            GLES30.glBlendFunc(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA)
+            GLES30.glDepthMask(false)
+            for (index in translucent) {
+                drawItem(latest.items[index], previous?.items?.getOrNull(index), alpha, cameraPos, shader)
+            }
+            GLES30.glDepthMask(true)
+            GLES30.glDisable(GLES30.GL_BLEND)
+        }
+    }
+
+    private val translucent = ArrayList<Int>()
+
+    private fun drawItem(item: RenderItem, prevItem: RenderItem?, alpha: Double, cameraPos: Vec3, shader: ShaderProgram) {
+        run {
             val position: Vec3
             val rotation: Quat
             if (prevItem != null && prevItem.shape == item.shape) {
@@ -468,9 +504,21 @@ class GlRenderer(
                 rotation = item.rotation
             }
 
-            modelMatrix.setFromTrs(position, rotation, cameraPos)
+            val scale = item.scale
+            if (scale == null) {
+                modelMatrix.setFromTrs(position, rotation, cameraPos)
+                shader.setVec3("uInvScaleSq", 1f, 1f, 1f)
+            } else {
+                modelMatrix.setFromTrs(position, rotation, cameraPos, scale.x, scale.y, scale.z)
+                shader.setVec3(
+                    "uInvScaleSq",
+                    (1.0 / (scale.x * scale.x)).toFloat(), (1.0 / (scale.y * scale.y)).toFloat(), (1.0 / (scale.z * scale.z)).toFloat(),
+                )
+            }
             shader.setMat4("uModel", modelMatrix.m)
             shader.setVec4("uColor", item.color)
+            shader.setFloat("uAmbient", item.ambient)
+            shader.setFloat("uWrap", if (item.scale != null) 1f else 0f)
             meshFor(item.shape, item.caps).draw()
         }
     }
@@ -499,6 +547,7 @@ class GlRenderer(
             )
             is MeshSpec.Sphere -> MeshBuilder.sphere(spec.radius.toFloat())
             is com.rm.apogee.core.part.ModelSpec -> ModelShapes.build(spec, caps).let { Mesh(it.vertices, it.indices) }
+            is CloudPuff -> CloudShapes.puff(spec).let { Mesh(it.vertices, it.indices) }
             else -> throw IllegalArgumentException("Cannot draw $spec")
         }
     }
@@ -539,6 +588,9 @@ class GlRenderer(
     private fun lerp(a: Double, b: Double, t: Double) = a + (b - a) * t
 
     private companion object {
+        /** Fog colour with no weather: never seen, since the fog distance is huge. */
+        val CLEAR_FOG_COLOR = floatArrayOf(0.75f, 0.77f, 0.8f)
+
         /**
          * Terrain chunks uploaded per frame at most. Each is ~50 KB; a dozen
          * is well inside a frame, and first arrival over new ground spreads

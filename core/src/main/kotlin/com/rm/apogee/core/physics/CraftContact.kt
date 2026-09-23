@@ -116,6 +116,13 @@ class CraftContact {
      * measures it; when that column starts to matter, this is the line to
      * change and nothing else needs to.
      */
+    /**
+     * Pairs to leave alone this tick: two halves of a craft that has just
+     * staged, still overlapping as they part. Asked with the two ids in
+     * either order.
+     */
+    var ignorePair: (Long, Long) -> Boolean = { _, _ -> false }
+
     fun resolve(vessels: List<Vessel>, dt: Double): CraftImpactReport {
         report.reset()
         touchedCount = 0
@@ -128,6 +135,7 @@ class CraftContact {
                 // Positions are relative to each craft's own attractor, so
                 // comparing them across bodies would be nonsense.
                 if (a.referenceBodyId != b.referenceBodyId) continue
+                if (ignorePair(a.id.raw, b.id.raw)) continue
 
                 scratch.setTo(a.body.position).subInPlace(b.body.position)
                 val reach = a.contactRadius + b.contactRadius

@@ -220,6 +220,7 @@ object PartModels {
         }
         is ModelSpec.Tyre -> hypot(shape.radius + shape.lugDepth, shape.width * 0.5)
         is ModelSpec.Prop -> shape.radius
+        is CloudPuff -> 1.3
         else -> 1.0
     }
 

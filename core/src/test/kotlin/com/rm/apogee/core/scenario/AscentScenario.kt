@@ -28,6 +28,8 @@ import kotlin.math.sqrt
 class AscentScenario(
     private val targetApoapsisAltitude: Double = 100_000.0,
     private val turnEndAltitude: Double = 45_000.0,
+    /** The weather to fly through; null for still air. */
+    private val weather: com.rm.apogee.core.weather.WeatherConfig? = null,
 ) {
     enum class Phase { LIFTOFF, GRAVITY_TURN, COAST, CIRCULARISE, DONE, FAILED }
 
@@ -65,6 +67,7 @@ class AscentScenario(
     fun fly(maxSeconds: Double = 2_400.0, logEvery: Double = 15.0): Result {
         val catalog = StockParts.catalog
         val world = World.default(catalog)
+        world.weatherConfig = weather
         val vessel = world.spawnOnSurface(
             StockCraft.starterRocket(catalog),
             World.launchSites.first(),
