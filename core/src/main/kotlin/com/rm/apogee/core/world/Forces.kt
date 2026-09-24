@@ -82,6 +82,8 @@ class Forces {
      */
     fun applyThrust(vessel: Vessel, attractor: CelestialBody, dt: Double, time: Double = 0.0) {
         lastMassFlow = 0.0
+        vessel.fitPose()
+        vessel.engineOutput.fill(0.0)
         val throttle = vessel.control.throttle
         if (throttle <= 0.0) return
 
@@ -115,6 +117,7 @@ class Forces {
             val feedFraction = if (unitsNeeded > 0.0) unitsDrawn / unitsNeeded else 0.0
             val actualThrust = thrustMagnitude * feedFraction
             lastMassFlow += massFlow * feedFraction
+            vessel.engineOutput[partIndex] = effectiveThrottle * feedFraction
 
             gimballedDirection(vessel, engine, scratchDirection)
             vessel.body.orientation.rotate(scratchDirection, scratchDirection)
@@ -122,6 +125,7 @@ class Forces {
             scratchForce.setTo(scratchDirection).mulInPlace(actualThrust)
             vessel.partOffsetWorld(partIndex, scratchOffset)
             vessel.body.applyForceAtOffset(scratchForce, scratchOffset)
+            vessel.recordForce(partIndex, scratchForce)
         }
     }
 
@@ -411,6 +415,7 @@ class Forces {
                 val magnitude = 0.5 * density * localSpeed * localSpeed * cdA
                 scratchForce.setTo(scratchLocalVelocity).mulInPlace(-magnitude / localSpeed)
                 vessel.body.applyForceAtOffset(scratchForce, scratchOffset)
+                vessel.recordForce(i, scratchForce)
             }
 
             // Cross-flow force on aerodynamic surfaces.
@@ -446,6 +451,7 @@ class Forces {
                     scratchForce.setTo(scratchCrossFlow)
                         .mulInPlace(-normalForce / crossSpeed)
                     vessel.body.applyForceAtOffset(scratchForce, scratchOffset)
+                    vessel.recordForce(i, scratchForce)
                 }
 
                 val controlForce = if (surface.controllable) {
@@ -453,9 +459,9 @@ class Forces {
                 } else 0.0
 
                 // Past what it was built for - a gust at speed, a hard pull
-                // in rough air - it fails.
+                // in rough air - it snaps off; the world tears it away.
                 if (abs(normalForce) + abs(controlForce) > surface.loadLimit &&
-                    vessel.breakPart(i) && overstressedCount < MAX_TORN
+                    overstressedCount < MAX_TORN
                 ) {
                     overstressed[overstressedCount++] = i
                 }
@@ -517,6 +523,7 @@ class Forces {
             kotlin.math.sin(angle) * kotlin.math.cos(angle)
         scratchForce.setTo(scratchNormal).mulInPlace(force)
         vessel.body.applyForceAtOffset(scratchForce, scratchOffset)
+        vessel.recordForce(partIndex, scratchForce)
         return force
     }
 

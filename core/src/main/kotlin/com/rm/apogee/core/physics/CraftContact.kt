@@ -12,6 +12,8 @@ class CraftImpactReport {
     val vessels = LongArray(MAX_IMPACTS)
     val parts = IntArray(MAX_IMPACTS)
     val speeds = DoubleArray(MAX_IMPACTS)
+    /** The contact normal, pointing into the part that was hit, three per impact. */
+    val normals = DoubleArray(MAX_IMPACTS * 3)
     var count: Int = 0
         private set
 
@@ -19,10 +21,13 @@ class CraftImpactReport {
         count = 0
     }
 
-    fun record(vesselId: Long, partIndex: Int, speed: Double) {
+    fun record(vesselId: Long, partIndex: Int, speed: Double, nx: Double = 0.0, ny: Double = 0.0, nz: Double = 0.0) {
         for (i in 0 until count) {
             if (vessels[i] == vesselId && parts[i] == partIndex) {
-                if (speed > speeds[i]) speeds[i] = speed
+                if (speed > speeds[i]) {
+                    speeds[i] = speed
+                    normals[i * 3] = nx; normals[i * 3 + 1] = ny; normals[i * 3 + 2] = nz
+                }
                 return
             }
         }
@@ -30,6 +35,7 @@ class CraftImpactReport {
         vessels[count] = vesselId
         parts[count] = partIndex
         speeds[count] = speed
+        normals[count * 3] = nx; normals[count * 3 + 1] = ny; normals[count * 3 + 2] = nz
         count++
     }
 
@@ -311,11 +317,12 @@ class CraftContact {
         if (approach >= 0.0) return
 
         val impactSpeed = -approach
+        // The normal points from B to A: A is struck along it, B against.
         if (impactSpeed > a.defs[partA].crashTolerance) {
-            report.record(a.id.raw, partA, impactSpeed)
+            report.record(a.id.raw, partA, impactSpeed, normal.x, normal.y, normal.z)
         }
         if (impactSpeed > b.defs[partB].crashTolerance) {
-            report.record(b.id.raw, partB, impactSpeed)
+            report.record(b.id.raw, partB, impactSpeed, -normal.x, -normal.y, -normal.z)
         }
 
         val magnitude = solveImpulse(bodyA, bodyB, normal, approach, RESTITUTION)

@@ -18,6 +18,12 @@ private const val MIN_SURFACE_MOUNT_RADIUS = 0.3
 /** Target size of a buoyancy sampling cell, metres. See [PartDef.volumeCells]. */
 private const val VOLUME_CELL_METRES = 0.75
 
+/** N a joint carries per square metre of its radius. See [PartDef.jointStrength]. */
+private const val JOINT_STRENGTH_PER_M2 = 1.0e6
+
+/** However thin a part, its joint is at least this wide, m. */
+private const val MIN_JOINT_RADIUS = 0.15
+
 @Serializable
 enum class PartCategory {
     @SerialName("command") COMMAND,
@@ -122,6 +128,17 @@ data class PartDef(
     val crashTolerance: Double = 12.0,
     /** Drag coefficient, dimensionless. */
     val dragCoefficient: Double = 0.3,
+    /**
+     * What the joint to its parent carries before it starts to give, N -
+     * force, plus bending moment over its diameter. Zero means "by its
+     * size": see [jointStrength].
+     */
+    val strength: Double = 0.0,
+    /**
+     * How hot it can get before it starts to fail, K. Zero means "by what
+     * it is": see [heatLimit].
+     */
+    val maxTemperature: Double = 0.0,
     /** Cost, for a career mode that does not exist yet. */
     val cost: Double = 0.0,
 ) {
@@ -129,6 +146,38 @@ data class PartDef(
     inline fun <reified T : PartModule> module(): T? = modules.filterIsInstance<T>().firstOrNull()
 
     inline fun <reified T : PartModule> hasModule(): Boolean = modules.any { it is T }
+
+    /** Its radius across the stack, m: what a joint to it is as wide as. */
+    val jointRadius: Double
+        get() = boundsHalfExtents.let { maxOf(it.x, it.z) }.coerceAtLeast(MIN_JOINT_RADIUS)
+
+    /**
+     * [strength], or by default by the joint's area: a ring of metal twice
+     * as wide holds four times as much. A 1.25 m stack joint takes about
+     * 390 kN, a 0.625 m one about 100 kN.
+     */
+    val jointStrength: Double
+        get() = if (strength > 0.0) strength else JOINT_STRENGTH_PER_M2 * jointRadius * jointRadius
+
+    /**
+     * [maxTemperature], or by default by what the part is: engines are
+     * built to run hot, wings and tanks are thin skins, and a heat shield
+     * is made for nothing else.
+     */
+    val heatLimit: Double
+        get() = when {
+            maxTemperature > 0.0 -> maxTemperature
+            hasModule<HeatShield>() -> 3_200.0
+            else -> when (category) {
+                PartCategory.COMMAND -> 1_500.0
+                PartCategory.PROPULSION -> 2_000.0
+                PartCategory.FUEL -> 1_300.0
+                PartCategory.STRUCTURAL -> 1_500.0
+                PartCategory.AERO -> 1_200.0
+                PartCategory.UTILITY -> 1_300.0
+                PartCategory.GROUND -> 1_100.0
+            }
+        }
 
     /** Total mass including a full load of every tank, kg. */
     val wetMass: Double

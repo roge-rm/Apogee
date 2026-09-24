@@ -37,19 +37,35 @@ class Hydrostatics {
     private val up = Vec3()
     private val cellAxis = Vec3()
 
+    /**
+     * Parts that hit the water this tick, and how hard: the speed into it,
+     * plus some of the skim across it. [splashCount] of them.
+     */
+    val splashParts = IntArray(MAX_SPLASHES)
+    val splashSpeeds = DoubleArray(MAX_SPLASHES)
+    var splashCount = 0
+        private set
+
     /** Submerged volume last tick, m³, for tests and the HUD. */
     var submergedVolume: Double = 0.0
         private set
 
     fun apply(vessel: Vessel, attractor: CelestialBody, time: Double, dt: Double) {
         submergedVolume = 0.0
-        val ocean = attractor.ocean ?: return
+        splashCount = 0
+        val ocean = attractor.ocean ?: run { vessel.wet = null; return }
         val body = vessel.body
 
         // Nowhere near the water. The generous margin is the craft's own
         // reach, since that is how far below its centre a cell can be.
         val altitude = attractor.altitudeOf(body.position)
-        if (altitude - vessel.contactRadius > SURFACE_MARGIN) return
+        if (altitude - vessel.contactRadius > SURFACE_MARGIN) {
+            // Clear of it, and known to be: whatever goes under next, fast,
+            // is a splash.
+            val n = vessel.defs.size
+            (vessel.wet?.takeIf { it.size == n } ?: BooleanArray(n).also { vessel.wet = it }).fill(false)
+            return
+        }
 
         // Whether there is sea here at all, asked once for the whole craft
         // rather than per cell: the height field is the most expensive thing
@@ -63,6 +79,8 @@ class Hydrostatics {
 
         val g = attractor.gravityAt(body.position, force).length
         val rho = ocean.density
+
+        splashes(vessel, attractor, ocean, time)
 
         // Cells go into a pass that first counts what is under, so drag can
         // be capped by each cell's share of the craft's momentum.
@@ -134,6 +152,38 @@ class Hydrostatics {
                 if (magnitude > limit) force.mulInPlace(limit / magnitude)
                 body.applyForceAtOffset(force, offset)
             }
+        }
+    }
+
+    /**
+     * Which parts went under this tick, and how fast. The first look at a
+     * craft only notes what is already wet: a craft set down in the sea, or
+     * just broken apart in it, has not hit anything.
+     */
+    private fun splashes(vessel: Vessel, attractor: CelestialBody, ocean: com.rm.apogee.core.terrain.Ocean, time: Double) {
+        val n = vessel.defs.size
+        val known = vessel.wet?.takeIf { it.size == n }
+        val wet = known ?: BooleanArray(n).also { vessel.wet = it }
+        val body = vessel.body
+        for (i in 0 until n) {
+            vessel.partOffsetWorld(i, offset)
+            point.setTo(offset).addInPlace(body.position)
+            attractor.toBodyFixed(point, rotation, bodyFixed)
+            val under = point.length < attractor.radius + ocean.surfaceHeight(bodyFixed, time)
+            if (under && !wet[i] && known != null && splashCount < MAX_SPLASHES) {
+                body.velocityAtOffset(offset, relative)
+                attractor.surfaceVelocityAt(point, waterVelocity)
+                relative.subInPlace(waterVelocity)
+                up.setTo(point).normalizeInPlace()
+                val into = -(relative dot up)
+                if (into > 0.0) {
+                    val skim = kotlin.math.sqrt((relative.lengthSq - into * into).coerceAtLeast(0.0))
+                    splashParts[splashCount] = i
+                    splashSpeeds[splashCount] = into + SKIM_SHARE * skim
+                    splashCount++
+                }
+            }
+            wet[i] = under
         }
     }
 
@@ -247,6 +297,11 @@ class Hydrostatics {
     private companion object {
         /** Metres above the surface within which a craft is worth sampling. */
         const val SURFACE_MARGIN = 2.0
+
+        const val MAX_SPLASHES = 16
+
+        /** How much of the speed across the water counts in a splash: skimming in is gentler than diving. */
+        const val SKIM_SHARE = 0.3
 
         /**
          * Drag coefficient of a hull face moving through water. Bluff-body

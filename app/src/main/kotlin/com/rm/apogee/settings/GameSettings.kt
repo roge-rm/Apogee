@@ -83,6 +83,23 @@ class GameSettings(context: Context) {
 
     var uiSoundEnabled: Boolean by booleanPref(KEY_UI_SOUND, true)
 
+    /** Everything, then each part of the mix: craft and crashes, the world around, the interface. */
+    var masterVolume: Float by floatPref(KEY_MASTER_VOLUME, 0.8f, 0f..1f)
+    var effectsVolume: Float by floatPref(KEY_EFFECTS_VOLUME, 1.0f, 0f..1f)
+    var ambienceVolume: Float by floatPref(KEY_AMBIENCE_VOLUME, 0.8f, 0f..1f)
+    var interfaceVolume: Float by floatPref(KEY_INTERFACE_VOLUME, 0.6f, 0f..1f)
+    /** For when there is music. */
+    var musicVolume: Float by floatPref(KEY_MUSIC_VOLUME, 0.6f, 0f..1f)
+
+    /** The mix, per [com.rm.apogee.audio.Buses] entry. */
+    fun busGains(): FloatArray = floatArrayOf(
+        masterVolume * effectsVolume,
+        masterVolume * ambienceVolume,
+        masterVolume * effectsVolume,
+        if (uiSoundEnabled) masterVolume * interfaceVolume else 0f,
+        masterVolume * musicVolume,
+    )
+
     var hapticsEnabled: Boolean by booleanPref(KEY_HAPTICS, true)
 
     var showDebugOverlay: Boolean by booleanPref(KEY_DEBUG_OVERLAY, false)
@@ -188,6 +205,11 @@ class GameSettings(context: Context) {
         const val KEY_WEATHER = "weather_intensity"
         const val KEY_CLOUDS = "cloud_cover"
         const val KEY_UI_SOUND = "ui_sound"
+        const val KEY_MASTER_VOLUME = "volume_master"
+        const val KEY_EFFECTS_VOLUME = "volume_effects"
+        const val KEY_AMBIENCE_VOLUME = "volume_ambience"
+        const val KEY_INTERFACE_VOLUME = "volume_interface"
+        const val KEY_MUSIC_VOLUME = "volume_music"
         const val KEY_HAPTICS = "haptics"
         const val KEY_DEBUG_OVERLAY = "debug_overlay"
         const val KEY_QUALITY = "quality_tier"

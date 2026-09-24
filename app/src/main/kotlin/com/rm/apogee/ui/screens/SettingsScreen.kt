@@ -255,11 +255,33 @@ private fun DisplayTab(settings: GameSettings, detectedTier: QualityTier?) {
 
 @Composable
 private fun AudioTab(settings: GameSettings) {
+    SectionHeading("Volume")
+    VolumeRow("Everything", settings.masterVolume) { settings.masterVolume = it }
+    VolumeRow("Craft and crashes", settings.effectsVolume) { settings.effectsVolume = it }
+    VolumeRow("Wind, weather and places", settings.ambienceVolume) { settings.ambienceVolume = it }
+    VolumeRow("Interface", settings.interfaceVolume) { settings.interfaceVolume = it }
+    Text(
+        "Music: coming later.",
+        style = MaterialTheme.typography.bodySmall,
+        color = Color.White.alpha(ApogeeAlpha.SUBTITLE),
+    )
+
     SectionHeading("Interface")
     SwitchRow(
         title = "Interface sounds",
         checked = settings.uiSoundEnabled,
         onCheckedChange = { settings.uiSoundEnabled = it },
+    )
+}
+
+@Composable
+private fun VolumeRow(title: String, value: Float, onChange: (Float) -> Unit) {
+    SliderRow(
+        title = title,
+        value = value,
+        onValueChange = onChange,
+        valueLabel = "${(value * 100).roundToInt()}%",
+        range = 0f..1f,
     )
 }
 

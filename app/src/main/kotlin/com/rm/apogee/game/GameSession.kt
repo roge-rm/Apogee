@@ -13,6 +13,15 @@ import com.rm.apogee.core.part.StockParts
 import com.rm.apogee.core.world.Command
 import com.rm.apogee.core.world.World
 import com.rm.apogee.core.world.VesselKinematics
+import com.rm.apogee.audio.AudioEngine
+import com.rm.apogee.audio.SoundScene
+import com.rm.apogee.audio.Recipes
+import com.rm.apogee.audio.Materials
+import com.rm.apogee.audio.VoiceFlags
+import com.rm.apogee.core.world.PartEventKind
+import com.rm.apogee.core.world.ServerMessage
+import kotlin.math.roundToInt
+import com.rm.apogee.core.world.VesselCondition
 import com.rm.apogee.core.world.VesselPose
 import com.rm.apogee.net.ClientPrediction
 import com.rm.apogee.net.ClientVessel
@@ -29,6 +38,7 @@ import com.rm.apogee.render.FrameBus
 import com.rm.apogee.render.RenderFrame
 import com.rm.apogee.render.PartAnim
 import com.rm.apogee.render.PartModels
+import com.rm.apogee.render.ConditionLook
 import com.rm.apogee.render.RenderItem
 import com.rm.apogee.render.StackCaps
 import com.rm.apogee.render.QualityTier
@@ -261,6 +271,8 @@ class GameSession private constructor(
 
     fun stop() {
         presentJob?.cancel(); presentJob = null
+        // Everything held lets go - once the frames that publish scenes have stopped.
+        AudioEngine.scene(0, IntArray(0), IntArray(0), IntArray(0), FloatArray(0))
         clientJob?.cancel(); clientJob = null
         serverJob?.cancel(); serverJob = null
         beaconJob?.cancel(); beaconJob = null
@@ -305,6 +317,19 @@ class GameSession private constructor(
 
     private suspend fun withControlledVessel(block: suspend (Long) -> Unit) {
         client.controlledVessel?.let { block(it) }
+    }
+
+    /** How the world's clock is running, as the last snapshot said. */
+    val clock: com.rm.apogee.core.world.Snapshot? get() = client.latestSnapshot
+
+    /** Asks for the world to run at [rate] times real time; 0 pauses it. */
+    suspend fun setWarp(rate: Double) {
+        client.send(Command.SetWarp(rate))
+    }
+
+    /** Takes craft [id] out of the world for good. */
+    suspend fun removeCraft(id: Long) {
+        client.send(Command.RemoveVessel(id))
     }
 
     suspend fun setThrottle(value: Double) {
@@ -439,6 +464,56 @@ class GameSession private constructor(
         client.send(Command.SwitchVessel(next.id))
     }
 
+    /**
+     * Every craft of the player's, for the craft list: where each is, in
+     * words, and how high. The one being flown first.
+     */
+    fun myCraft(): List<com.rm.apogee.ui.screens.CraftSummary> {
+        val current = client.controlledVessel
+        return client.vessels
+            .filter { it.owner == client.clientId }
+            .sortedWith(compareBy({ it.id != current }, { it.name }))
+            .mapNotNull { vessel ->
+                val state = vessel.latest ?: return@mapNotNull null
+                val body = system.bodies[state.referenceBodyId] ?: return@mapNotNull null
+                val bodyFixed = body.toBodyFixed(state.position, body.rotationAt(client.latestSnapshot?.time ?: 0.0))
+                val up = state.position.normalized()
+                val above = (body.heightAboveTerrain(state.position, bodyFixed) +
+                    lowestPointOffset(vessel.design, state.rotation, up)).coerceAtLeast(0.0)
+                val orbit = com.rm.apogee.core.orbit.Orbit(state.position, state.velocity, body.gravitationalParameter)
+                val floor = body.radius + body.atmosphereHeight + (body.terrain?.maxElevation ?: 0.0)
+                val situation = when {
+                    above < 2.0 && body.terrain?.isOcean(bodyFixed) == true -> "Afloat on ${body.displayName}"
+                    above < 2.0 -> "Landed on ${body.displayName}"
+                    orbit.isBound && orbit.periapsis > floor -> "In orbit of ${body.displayName}"
+                    else -> "Flying over ${body.displayName}"
+                }
+                val height = if (above < 2.0) "on the surface"
+                    else if (above < 10_000.0) "%.0f m up".format(above) else "%.1f km up".format(above / 1000.0)
+                com.rm.apogee.ui.screens.CraftSummary(vessel.id, vessel.name, situation, height)
+            }
+    }
+
+    /** The craft being flown, if any. */
+    val controlledCraft: Long? get() = client.controlledVessel
+
+    /**
+     * Removes the craft being flown, and waits - a second at most - for the
+     * server to say it is gone.
+     */
+    suspend fun retire() {
+        val id = client.controlledVessel ?: return
+        client.send(Command.RemoveVessel(id))
+        kotlinx.coroutines.withTimeoutOrNull(1_000) {
+            while (client.vessel(id) != null) kotlinx.coroutines.delay(20)
+        }
+    }
+
+    /** Takes the controls of craft [id]. */
+    suspend fun flyCraft(id: Long) {
+        client.send(Command.SwitchVessel(id))
+    }
+
     /** How many craft the player could switch between. */
     val ownedCraftCount: Int
         get() = client.vessels.count { it.owner == client.clientId }
@@ -482,11 +557,17 @@ class GameSession private constructor(
      */
     private fun buildFrame(timestampNanos: Long) {
         val focusId = client.controlledVessel ?: return
-        val focus = client.vessel(focusId) ?: return
+        // Gone - smashed or burnt up whole: the view stays where it went,
+        // on a stand-in with no parts, so the wreckage, the fire and the
+        // smoke go on being there to see.
+        val live = client.vessel(focusId)?.takeIf { it.latest != null }
+        val wrecked = live == null
+        val focus = live ?: wreckStandIn(focusId) ?: return
         val focusState = focus.latest ?: return
 
         val attractor = system.bodies[focusState.referenceBodyId] ?: return
 
+        soundCrafts.clear()
         val lines = ArrayList<RenderLine>(4)
         val items = ArrayList<RenderItem>(64)
         val farItems = ArrayList<RenderItem>()
@@ -500,10 +581,18 @@ class GameSession private constructor(
         val snapshotTime = client.latestSnapshot?.time ?: 0.0
         val snapshotAge = if (client.latestSnapshotNanos == 0L) 0.0
             else (System.nanoTime() - client.latestSnapshotNanos) / 1e9
-        var renderTime = snapshotTime + snapshotAge
+        // The world's clock runs at the warp rate - not at all while paused.
+        val warp = client.latestSnapshot?.warp ?: 1.0
+        val warping = warp != 1.0
+        // Warped, the snapshots' own time is too jumpy to draw by - a few
+        // milliseconds of arrival jitter is four times as much world time
+        // at 4x - so a clock of our own runs at the warp rate and is eased
+        // toward it.
+        var renderTime = if (warping) warpClock(snapshotTime + snapshotAge * warp, warp)
+            else { warpClockTime = Double.NaN; snapshotTime + snapshotAge }
         lastRenderTime = renderTime
         val animationNow = System.nanoTime()
-        animationDt = if (lastAnimationNanos == 0L) 0.0 else ((animationNow - lastAnimationNanos) / 1e9).coerceAtMost(0.1)
+        animationDt = if (lastAnimationNanos == 0L || warp == 0.0) 0.0 else ((animationNow - lastAnimationNanos) / 1e9).coerceAtMost(0.1)
         lastAnimationNanos = animationNow
         // Where the focused craft is drawn this frame - the prediction, not
         // the last snapshot - which is what the ground's detail follows.
@@ -529,25 +618,82 @@ class GameSession private constructor(
             }
             lines.add(marker(focusState.position, reach, CRAFT_COLOR))
         } else {
-            val focusPosition = updatePrediction(focus, focusState)
+            // Much smaller than it was - the rest of it smashed or torn
+            // away: come in to see what is left.
+            if (!wrecked && focus.design.parts.size < framedParts && framedFor == focusId) {
+                camera.frameShrunk(designRadius(focus.design, designCentreOfMass(focus.design)))
+            }
+            if (!wrecked) { framedParts = focus.design.parts.size; framedFor = focusId }
+            // Warped, the replica cannot keep up with the server's clock: it
+            // is not stepped or drawn, only kept in step with the server's
+            // staging and fuel for the gauges - and adopted afresh back at
+            // real time.
+            if (warping) {
+                if (prediction.needsAdopting(focus.design)) prediction.adopt(focus.design, focusState, snapshotTime, client.weather)
+                prediction.sync(focus.currentStage, focus.activatedParts, focus.fuel)
+                refreshStageCards()
+                lastAdvanceNanos = 0L
+                wasWarping = true
+            } else if (wasWarping) {
+                prediction.reset()
+                wasWarping = false
+            }
+            val focusPosition = when {
+                wrecked -> focusState.position
+                warping -> if (sampled(focus, renderTime, attractor, warp, predictedPosition, predictedRotation)) predictedPosition
+                    else focusState.position
+                else -> updatePrediction(focus, focusState)
+            }
             focusDrawn = focusPosition
-            if (prediction.isReady) prediction.renderTime()?.let { renderTime = it }
+            if (prediction.isReady && !wrecked && !warping) prediction.renderTime()?.let { renderTime = it }
             camera.solve(focusPosition, cameraPosition, cameraRotation)
+            keepCameraAboveGround(attractor, focusPosition, renderTime)
             for (vessel in client.vessels) {
-                if (vessel.id == focusId) {
-                    appendVessel(vessel, items, attractor, predictedPosition, predictedRotation, predicted = prediction.isReady)
+                if (vessel.id == focusId && !warping) {
+                    // Staged here and not yet heard back: draw the replica's
+                    // own shape, and what it let go of - otherwise the whole
+                    // old stack is drawn round the new, smaller craft's
+                    // centre, a stage-length out of place, until the server
+                    // catches up.
+                    val replica = prediction.replica?.takeIf { prediction.isReady && it.defs.size != vessel.design.parts.size }
+                    if (replica != null) {
+                        val shape = ClientVessel(vessel.id, replica.design, vessel.name, replica.currentStage)
+                        appendVessel(shape, items, attractor, predictedPosition, predictedRotation, stateOverride = vessel.latest, predicted = true)
+                        prediction.droppedPieces().forEachIndexed { k, (piece, at) ->
+                            val id = -1L - k
+                            val kinematics = VesselKinematics(
+                                vessel = id, referenceBodyId = piece.referenceBodyId,
+                                position = at, rotation = piece.body.orientation.copy(),
+                                velocity = piece.body.linearVelocity.copy(), angularVelocity = piece.body.angularVelocity.copy(),
+                                pose = VesselPose.encode(piece),
+                            )
+                            appendVessel(
+                                ClientVessel(id, piece.design, piece.name), items, attractor, at,
+                                piece.body.orientation, stateOverride = kinematics,
+                            )
+                        }
+                    } else {
+                        appendVessel(vessel, items, attractor, predictedPosition, predictedRotation, predicted = prediction.isReady)
+                    }
+                } else if (warping) {
+                    // Between its last two snapshots, at the frame's time.
+                    val position = Vec3()
+                    val rotation = Quat()
+                    if (!sampled(vessel, renderTime, attractor, warp, position, rotation)) continue
+                    appendVessel(vessel, items, attractor, position, rotation, stateOverride = vessel.observed?.kinematics)
                 } else {
-                    // Carried from its own snapshot to the frame's time along
-                    // its velocity, which for a parked craft is the ground's.
+                    // Carried from its own snapshot to the frame's time, and
+                    // eased where a new snapshot disagrees with the last.
                     val observed = vessel.observed ?: continue
-                    val state = observed.kinematics
-                    val carry = (renderTime - observed.time).coerceIn(0.0, MAX_EXTRAPOLATION_SECONDS)
-                    appendVessel(
-                        vessel, items, attractor,
-                        Vec3().setTo(state.position).addScaledInPlace(state.velocity, carry),
-                        stateOverride = state,
-                    )
+                    val position = carried(observed, renderTime, attractor, warp) ?: continue
+                    val rotation = spunOn(observed, renderTime)
+                    smoothed(vessel.id, observed.time, position, rotation, observed.kinematics.velocity)
+                    appendVessel(vessel, items, attractor, position, rotation, stateOverride = observed.kinematics)
                 }
+            }
+            if (drawn.size > client.vessels.size) {
+                val alive = client.vessels.mapTo(HashSet()) { it.id }
+                drawn.keys.retainAll(alive)
             }
         }
 
@@ -590,11 +736,17 @@ class GameSession private constructor(
             )
         }
 
-        joinable = neighbourInWeldingRange(focus, focusState)
+        joinable = !wrecked && neighbourInWeldingRange(focus, focusState)
+        // Where to stay, should it be lost.
+        lastSeen = LastSeen(focusId, attractor.id, bodyFixedCamera.copy(), focus.name)
 
         // Local vertical in world axes: the craft's own position direction.
         scratchUp.setTo(focusState.position).normalizeInPlace()
-        telemetry = FlightTelemetry.from(
+        if (!wrecked) peakParts[focusId] = maxOf(peakParts[focusId] ?: 0, focus.design.parts.size)
+        // Never more than it ever had: a part torn off and then smashed is
+        // one part, however many reports it made.
+        val lost = minOf(lostParts[focusId] ?: 0, peakParts[focusId] ?: Int.MAX_VALUE)
+        telemetry = if (wrecked) FlightTelemetry.lost(focus.name, crashReport(focusId), lost) else FlightTelemetry.from(
             focus, attractor, focusState.throttle, bodyFixedCamera,
             lowestPointOffset = lowestPointOffset(focus.design, focusState.rotation, scratchUp),
             air = prediction.replica?.air,
@@ -604,6 +756,10 @@ class GameSession private constructor(
             target = client.vessel(localTarget)?.latest?.takeIf { it.referenceBodyId == focusState.referenceBodyId },
             targetName = client.vessel(localTarget)?.name,
             sasMode = if (localSas) localSasMode else null,
+            condition = conditions[focus.id],
+            defs = focus.design.parts.map { catalog[it.partId] },
+            jointLoad = prediction.replica?.takeIf { !warping && it.design.parts.size == focus.design.parts.size }?.jointLoad,
+            lost = lost,
         )
 
         // The nearest thing in view, for the near plane: the closest part of
@@ -643,13 +799,63 @@ class GameSession private constructor(
         // Flames, smoke and the rest: stepped by real frame time, drawn
         // through the same weather as the clouds.
         val fx = effects ?: Effects(terrainQuality ?: QualityTier.MEDIUM).also { effects = it }
+        // Where the ears are, and what air there is to carry anything to them.
+        val cameraAir = clouds?.air
+        val listener = SoundScene.Listener(
+            position = cameraPosition.copy(),
+            right = cameraRotation.rotate(Vec3.unitX(), Vec3()),
+            density = if (mapMode) 0.0 else attractor.atmosphere?.densityAt(attractor.altitudeOf(cameraPosition)) ?: 0.0,
+            wind = cameraAir?.wind?.length ?: 0.0,
+            turbulence = cameraAir?.turbulence ?: 0.0,
+            rain = cameraAir?.precipitation ?: 0.0,
+        )
+        // Blows, breakages and blasts since last frame, where they happened
+        // on the turning ground.
+        while (true) {
+            val event = client.partEvents.poll() ?: break
+            if (event.kind == PartEventKind.DESTROYED || event.kind == PartEventKind.DETACHED) {
+                lostParts[event.vessel] = (lostParts[event.vessel] ?: 0) + 1
+                if (event.cause.isNotEmpty()) lastCause[event.vessel] = event.cause
+            }
+            if (event.kind == PartEventKind.IMPACT && event.vessel !in firstBlow) firstBlow[event.vessel] = event
+            if (event.bodyId != attractor.id || mapMode) continue
+            val at = attractor.toBodyFixed(event.position, attractor.rotationAt(event.time), Vec3())
+            if (event.kind == PartEventKind.DESTROYED) {
+                wreckSite[event.vessel] = at
+                wreckTime[event.vessel] = event.time
+            }
+            val colour = if (event.partId.isNotEmpty()) com.rm.apogee.render.PartModels.bodyColour(event.partId) else null
+            fx.partEvent(event.kind, at, event.amount, colour, (event.vessel * 977 + event.time * 1000).toInt(), water = event.cause == "water")
+            hear(listener, event, attractor, at, focusId)
+        }
+        // Where the craft went in, what is left of it burns a while.
+        if (wrecked && !mapMode && attractor.atmosphere != null) {
+            val site = wreckSite[focusId]
+            val since = renderTime - (wreckTime[focusId] ?: renderTime)
+            if (site != null && since < WRECK_BURN_SECONDS) {
+                val fade = 1.0 - since / WRECK_BURN_SECONDS
+                fx.burn(site, 1.0 + 3.0 * fade, animationDt * fade, (focusId * 7).toInt())
+            }
+        }
         attractor.toBodyFixed(cameraPosition, bodyRotation, cloudCamera)
         fx.step(animationDt, renderTime, attractor, bodyRotation, frameEmitters, clouds?.weather, cloudCamera, clouds?.air)
+        for (bolt in fx.thunder) {
+            val closeness = kotlin.math.exp(-bolt[0] / 4_000.0)
+            val delay = (bolt[0] / SoundScene.SPEED_OF_SOUND).coerceAtMost(SoundScene.MAX_DELAY * 2)
+            val v = FloatArray(com.rm.apogee.audio.SharedParams.COUNT)
+            v[0] = closeness.toFloat()
+            v[com.rm.apogee.audio.SharedParams.GAIN] = (0.3 + 0.7 * closeness * bolt[1].coerceIn(0.3, 1.0)).toFloat()
+            v[com.rm.apogee.audio.SharedParams.LOWPASS] = (18_000.0 / (1.0 + bolt[0] / 800.0)).coerceAtLeast(200.0).toFloat()
+            AudioEngine.event(com.rm.apogee.audio.Recipes.THUNDER, 0, bolt[0].toInt(), delay.toFloat(), v)
+        }
+        fx.thunder.clear()
+        playScene(listener, focus, wrecked, attractor)
         var particles: FloatArray? = null
         var particleShapes = 0
         if (!mapMode) {
             fx.flames(frameEmitters, attractor, renderTime, items)
-            val (vertices, shapes) = fx.vertices(bodyRotation, cameraPosition, cameraRotation, clouds?.lightScale ?: 1f, renderTime)
+            val daylight = com.rm.apogee.render.NightLight.daylight(cameraPosition, attractor.radius, SUN_DIRECTION)
+            val (vertices, shapes) = fx.vertices(bodyRotation, cameraPosition, cameraRotation, clouds?.lightScale ?: 1f, renderTime, daylight)
             particles = vertices
             particleShapes = shapes
         }
@@ -768,6 +974,377 @@ class GameSession private constructor(
     }
 
     private val animations = HashMap<Long, VesselAnimation>()
+
+    private val scratchBurn = Vec3()
+
+    /** Parts each craft has lost, as the events said, for the HUD. */
+    private val lostParts = HashMap<Long, Int>()
+    /** The most parts each craft has had, since launch. */
+    private val peakParts = HashMap<Long, Int>()
+
+    /** The first hard blow each craft took, for the crash report. */
+    private val firstBlow = HashMap<Long, ServerMessage.PartEvent>()
+    /** What finished each part off, most recent last. */
+    private val lastCause = HashMap<Long, String>()
+
+    /** The craft the camera last framed, and how many parts it had. */
+    private var framedFor = -1L
+    private var framedParts = 0
+
+    /**
+     * A camera swung round a craft on a hillside can end up inside the hill,
+     * looking at the back of the ground. Lifted clear, and turned back to
+     * look at the craft.
+     */
+    private fun keepCameraAboveGround(attractor: com.rm.apogee.core.orbit.CelestialBody, focus: Vec3, time: Double) {
+        if (attractor.terrain == null) return
+        attractor.toBodyFixed(cameraPosition, attractor.rotationAt(time), scratchCameraClear)
+        val above = attractor.heightAboveTerrain(cameraPosition, scratchCameraClear)
+        if (above >= CAMERA_CLEARANCE) return
+        val r = cameraPosition.length
+        cameraPosition.mulInPlace((r + CAMERA_CLEARANCE - above) / r)
+        scratchCameraClear.setTo(focus).subInPlace(cameraPosition)
+        com.rm.apogee.core.math.quatLookAt(scratchCameraClear, cameraPosition.normalized(), cameraRotation)
+    }
+
+    private val scratchCameraClear = Vec3()
+
+    /**
+     * A craft's attitude at [time], turned on from its snapshot by its spin
+     * - a tumbling spent stage turns smoothly, not in twenty steps a second.
+     */
+    private fun spunOn(observed: ClientVessel.Observation, time: Double): Quat {
+        val state = observed.kinematics
+        val carry = (time - observed.time).coerceIn(0.0, MAX_EXTRAPOLATION_SECONDS)
+        val w = state.angularVelocity
+        val rate = w.length
+        if (rate < 1e-6 || carry <= 0.0) return state.rotation.copy()
+        return Quat.fromAxisAngle(w.copy().mulInPlace(1.0 / rate), rate * carry) * state.rotation
+    }
+
+    /** Where each other craft was drawn last frame, and the ease still owed. */
+    private class Drawn(val position: Vec3, val rotation: Quat, var observedAt: Double, var nanos: Long) {
+        val offset = Vec3()
+        val turn = Quat.identity()
+    }
+    private val drawn = HashMap<Long, Drawn>()
+
+    /**
+     * Eases [position] and [rotation] - where a craft would be drawn from
+     * its newest snapshot - out of any jump from where it was drawn a frame
+     * ago. When a snapshot lands that disagrees with the guess carried from
+     * the one before, the difference is kept as an offset and let go over a
+     * tenth of a second, instead of the craft hopping. A big difference is a
+     * real jump, and is not smoothed.
+     */
+    private fun smoothed(id: Long, observedAt: Double, position: Vec3, rotation: Quat, velocity: Vec3) {
+        val now = System.nanoTime()
+        val last = drawn[id]
+        if (last == null) {
+            drawn[id] = Drawn(position.copy(), rotation.copy(), observedAt, now)
+            return
+        }
+        val dt = ((now - last.nanos) / 1e9).coerceIn(0.0, 0.1)
+        if (observedAt != last.observedAt) {
+            // Where it would have been, carried on from last frame.
+            val expected = last.position.copy().addScaledInPlace(velocity, dt)
+            val jump = expected.subInPlace(position)
+            if (jump.length < SMOOTH_LIMIT) last.offset.setTo(jump) else last.offset.setZero()
+            last.turn.setTo(last.rotation * rotation.conjugate())
+            last.observedAt = observedAt
+        }
+        val keep = kotlin.math.exp(-dt / SMOOTH_SECONDS)
+        last.offset.mulInPlace(keep)
+        Quat.slerp(Quat.identity(), last.turn, keep, last.turn)
+        position.addInPlace(last.offset)
+        rotation.setTo(last.turn * rotation).normalizeInPlace()
+        last.position.setTo(position)
+        last.rotation.setTo(rotation)
+        last.nanos = now
+    }
+
+    // --- sound ------------------------------------------------------------------
+
+    /** What can be heard, rebuilt each frame; as many voices as the device's tier allows. */
+    private val sound by lazy {
+        SoundScene(
+            when (terrainQuality) {
+                QualityTier.LOW -> 16
+                QualityTier.HIGH -> 48
+                else -> 32
+            },
+        )
+    }
+
+    /** Each craft making a sound this frame. */
+    private val soundCrafts = LinkedHashMap<Long, SoundScene.Craft>()
+
+    private fun soundCraft(id: Long, position: Vec3, attractor: com.rm.apogee.core.orbit.CelestialBody) =
+        soundCrafts.getOrPut(id) {
+            SoundScene.Craft(
+                id, own = id == client.controlledVessel, position = position.copy(),
+                pressure = attractor.atmosphere?.pressureRatioAt(attractor.altitudeOf(position)) ?: 0.0,
+            )
+        }
+
+    /** The flown craft as last heard, to catch it staging, lighting up and opening a chute. */
+    private var heardFor = -1L
+    private var heardStage = 0
+    private var heardBurning = false
+    private var heardChutes = emptySet<Int>()
+    private var heardCaution = false
+    private var lastCautionNanos = 0L
+
+    /** A blow, a breakage or a blast, as heard from here. */
+    private fun hear(
+        listener: SoundScene.Listener,
+        event: ServerMessage.PartEvent,
+        attractor: com.rm.apogee.core.orbit.CelestialBody,
+        bodyFixed: Vec3,
+        focusId: Long,
+    ) {
+        val kind = when (event.kind) {
+            PartEventKind.IMPACT -> SoundScene.Kind.IMPACT
+            PartEventKind.DESTROYED -> SoundScene.Kind.DESTROYED
+            PartEventKind.DETACHED -> SoundScene.Kind.DETACHED
+            PartEventKind.EXPLOSION -> SoundScene.Kind.EXPLOSION
+        }
+        val position = attractor.rotationAt(lastRenderTime).rotate(bodyFixed, Vec3())
+        val shot = sound.shot(
+            listener, kind, position, event.amount, own = event.vessel == focusId,
+            material = groundMaterial(attractor, bodyFixed), water = event.cause == "water",
+        ) ?: return
+        AudioEngine.event(shot.recipe, shot.flags, (event.time * 1000).toInt() xor event.vessel.toInt(), shot.delay, shot.params)
+    }
+
+    /** What the ground is at [bodyFixed], as an impact would ring on it. */
+    private fun groundMaterial(attractor: com.rm.apogee.core.orbit.CelestialBody, bodyFixed: Vec3): Int {
+        val terrain = attractor.terrain ?: return Materials.ROCK
+        val direction = bodyFixed.normalized()
+        val material = terrain.material(direction, terrain.elevation(direction), 0.0)
+        return when (material) {
+            com.rm.apogee.core.terrain.SurfaceMaterial.ROCK, com.rm.apogee.core.terrain.SurfaceMaterial.BASALT,
+            com.rm.apogee.core.terrain.SurfaceMaterial.ICE, com.rm.apogee.core.terrain.SurfaceMaterial.SCREE -> Materials.ROCK
+            com.rm.apogee.core.terrain.SurfaceMaterial.SAND, com.rm.apogee.core.terrain.SurfaceMaterial.REGOLITH -> Materials.SAND
+            com.rm.apogee.core.terrain.SurfaceMaterial.SNOW -> Materials.SNOW
+            com.rm.apogee.core.terrain.SurfaceMaterial.FOREST -> Materials.WOOD
+            else -> Materials.EARTH
+        }
+    }
+
+    /** This frame's held sounds, and the flown craft's staging and ignition, to the engine. */
+    private fun playScene(
+        listener: SoundScene.Listener,
+        focus: ClientVessel,
+        wrecked: Boolean,
+        attractor: com.rm.apogee.core.orbit.CelestialBody,
+    ) {
+        val own = if (wrecked) null else {
+            val t = telemetry
+            val rise = t.airspeed * t.airspeed / (2.0 * 1_005.0)
+            val heat = ((rise - 1_400.0) / 1_200.0).coerceIn(0.0, 1.0).let { it * it * (3 - 2 * it) }
+            val defs = focus.design.parts.mapNotNull { catalog[it.partId] }
+            val onWheels = defs.any { it.hasModule<com.rm.apogee.core.part.Wheel>() } && t.heightAboveGround < 1.0
+            SoundScene.Own(
+                airspeed = t.airspeed,
+                dynamicPressure = t.dynamicPressure,
+                mach = t.airspeed / SoundScene.SPEED_OF_SOUND,
+                heat = if (t.inAir) heat else 0.0,
+                stress = t.structure,
+                crewed = defs.any { (it.module<com.rm.apogee.core.part.Command>()?.crewCapacity ?: 0) > 0 },
+                wheelSpeed = if (onWheels) t.surfaceSpeed else 0.0,
+                wheelLoad = if (onWheels) kotlin.math.abs(localThrottle) else 0.0,
+                grit = 0.4,
+            )
+        }
+        // Paused, the world is still - and so is everything in it.
+        if ((client.latestSnapshot?.warp ?: 1.0) <= 0.0) {
+            AudioEngine.scene(0, sound.keys, sound.recipes, sound.flags, sound.params)
+            return
+        }
+        sound.build(listener, soundCrafts.values.toList(), own)
+        AudioEngine.scene(sound.count, sound.keys, sound.recipes, sound.flags, sound.params)
+        AudioEngine.room(if (listener.inAir) 0.12f else 0.45f)
+
+        // A warning coming on, now and then at most.
+        val caution = !wrecked && (telemetry.overheating || telemetry.straining)
+        val now = System.nanoTime()
+        if (caution && !heardCaution && now - lastCautionNanos > CAUTION_SPACING_NANOS) {
+            com.rm.apogee.audio.Sounds.caution()
+            lastCautionNanos = now
+        }
+        heardCaution = caution
+
+        // The flown craft's own moments: a stage going, an engine lighting, a chute opening.
+        if (wrecked) return
+        val hull = if (listener.inAir) 0 else VoiceFlags.HULL
+        fun play(recipe: Int, strength: Float) {
+            val v = FloatArray(com.rm.apogee.audio.SharedParams.COUNT)
+            v[0] = strength
+            AudioEngine.event(recipe, hull, recipe * 7919 + heardStage, 0f, v)
+        }
+        val chutes = focus.activatedParts.filter { i ->
+            focus.design.parts.getOrNull(i)?.let { catalog[it.partId]?.hasModule<com.rm.apogee.core.part.Parachute>() } == true
+        }.toSet()
+        val burning = soundCrafts[focus.id]?.let { c -> c.output.any { it > 0.05 } } ?: false
+        if (heardFor == focus.id) {
+            if (focus.currentStage > heardStage) play(Recipes.STAGE, 1f)
+            if (burning && !heardBurning) play(Recipes.IGNITION, 0.8f)
+            if ((chutes - heardChutes).isNotEmpty()) play(Recipes.CHUTE, 1f)
+        }
+        heardFor = focus.id
+        heardStage = focus.currentStage
+        heardBurning = burning
+        heardChutes = chutes
+    }
+
+    /** Whether the last frame was warped, to start the replica afresh coming out of it. */
+    private var wasWarping = false
+
+    /** The warp clock: world time as drawn, advanced at the warp rate. */
+    private var warpClockTime = Double.NaN
+    private var warpClockNanos = 0L
+
+    /**
+     * World time to draw a warped frame at: a clock that runs at [warp]
+     * times real time and eases toward [target] - the snapshots' time -
+     * rather than jumping with every one. Under physics warp it runs a
+     * snapshot and a half behind, so every craft has a snapshot either side
+     * of it to be drawn between.
+     */
+    private fun warpClock(target: Double, warp: Double): Double {
+        val now = System.nanoTime()
+        val dt = if (warpClockNanos == 0L) 0.0 else ((now - warpClockNanos) / 1e9).coerceAtMost(0.1)
+        warpClockNanos = now
+        warpClockTime = if (warpClockTime.isNaN() || kotlin.math.abs(target - warpClockTime) > WARP_CLOCK_SNAP * maxOf(warp, 1.0)) target
+            else warpClockTime + dt * warp + (target - warpClockTime) * WARP_CLOCK_EASE
+        val behind = if (warp <= World.PHYSICS_WARP) 1.5 * SNAPSHOT_SPACING * warp else 0.0
+        return warpClockTime - behind
+    }
+
+    /**
+     * Where [vessel] is, and how it is turned, at [time], into [position]
+     * and [rotation]. Under physics warp, between its last two snapshots -
+     * a curve through both positions with both velocities, and the turn
+     * between the two attitudes - so it glides rather than stepping at the
+     * snapshot rate. On rails, along its orbit from the latest.
+     */
+    private fun sampled(
+        vessel: ClientVessel,
+        time: Double,
+        attractor: com.rm.apogee.core.orbit.CelestialBody,
+        warp: Double,
+        position: Vec3,
+        rotation: Quat,
+    ): Boolean {
+        val b = vessel.observed ?: return false
+        val a = vessel.previousObserved
+        if (warp <= World.PHYSICS_WARP && a != null && b.time > a.time && time <= b.time) {
+            val h = b.time - a.time
+            val s = ((time - a.time) / h).coerceIn(0.0, 1.0)
+            val s2 = s * s
+            val s3 = s2 * s
+            val h00 = 2 * s3 - 3 * s2 + 1
+            val h10 = s3 - 2 * s2 + s
+            val h01 = -2 * s3 + 3 * s2
+            val h11 = s3 - s2
+            val pa = a.kinematics.position; val pb = b.kinematics.position
+            val va = a.kinematics.velocity; val vb = b.kinematics.velocity
+            position.setTo(
+                h00 * pa.x + h10 * h * va.x + h01 * pb.x + h11 * h * vb.x,
+                h00 * pa.y + h10 * h * va.y + h01 * pb.y + h11 * h * vb.y,
+                h00 * pa.z + h10 * h * va.z + h01 * pb.z + h11 * h * vb.z,
+            )
+            Quat.slerp(a.kinematics.rotation, b.kinematics.rotation, s, rotation)
+            return true
+        }
+        position.setTo(carried(b, time, attractor, warp) ?: return false)
+        rotation.setTo(b.kinematics.rotation)
+        return true
+    }
+
+    /**
+     * Where a craft last seen at [observed] is at [renderTime]: along its
+     * velocity for the fraction of a second between snapshots at real time;
+     * warped, when a snapshot can be most of an orbit apart, along its orbit
+     * exactly, or round with the ground if it is sitting on it.
+     */
+    private fun carried(
+        observed: ClientVessel.Observation?,
+        renderTime: Double,
+        attractor: com.rm.apogee.core.orbit.CelestialBody,
+        warp: Double,
+    ): Vec3? {
+        observed ?: return null
+        val state = observed.kinematics
+        val carry = (renderTime - observed.time).coerceIn(0.0, MAX_EXTRAPOLATION_SECONDS * maxOf(warp, 1.0))
+        if (carry < 0.5) return Vec3().setTo(state.position).addScaledInPlace(state.velocity, carry)
+        val ground = attractor.surfaceVelocityAt(state.position, Vec3())
+        return if (ground.distanceTo(state.velocity) < 0.5) {
+            // Parked: it turns with the planet.
+            val bodyFixed = attractor.toBodyFixed(state.position, attractor.rotationAt(observed.time), Vec3())
+            attractor.rotationAt(observed.time + carry).rotate(bodyFixed, Vec3())
+        } else {
+            com.rm.apogee.core.orbit.Orbit(state.position, state.velocity, attractor.gravitationalParameter)
+                .propagate(carry).position
+        }
+    }
+
+    /** Where each craft last had a part destroyed, body-fixed: where its wreck is. */
+    private val wreckSite = HashMap<Long, Vec3>()
+    private val wreckTime = HashMap<Long, Double>()
+
+    /** Where the craft being flown was last drawn, body-fixed. */
+    private class LastSeen(val id: Long, val bodyId: String, val bodyFixed: Vec3, val name: String)
+    private var lastSeen: LastSeen? = null
+
+    /**
+     * A craft of no parts standing where the flown one was last seen, moving
+     * with the ground: something for the camera to keep looking at once the
+     * real one is gone. Null if it was never seen, or somewhere else.
+     */
+    private fun wreckStandIn(id: Long): ClientVessel? {
+        val seen = lastSeen?.takeIf { it.id == id } ?: return null
+        val body = system.bodies[seen.bodyId] ?: return null
+        val time = (client.latestSnapshot?.time ?: 0.0) +
+            if (client.latestSnapshotNanos == 0L) 0.0 else (System.nanoTime() - client.latestSnapshotNanos) / 1e9
+        // Where it came apart, if that is known; else where it was last
+        // seen, brought down to the ground - it was lost at speed, and the
+        // last frame it was drawn in was well short of where it hit.
+        val site = wreckSite[id]?.copy() ?: seen.bodyFixed.copy().also { point ->
+            val above = body.heightAboveTerrain(body.rotationAt(time).rotate(point, Vec3()), point)
+            if (above > 2.0) point.mulInPlace((point.length - above + 2.0) / point.length)
+        }
+        val position = body.rotationAt(time).rotate(site, Vec3())
+        return ClientVessel(id, CraftDesign(seen.name, emptyList()), seen.name).also {
+            it.observe(
+                VesselKinematics(
+                    vessel = id, referenceBodyId = seen.bodyId,
+                    position = position, rotation = Quat.identity(),
+                    velocity = body.surfaceVelocityAt(position, Vec3()), angularVelocity = Vec3(),
+                ),
+                time,
+            )
+        }
+    }
+
+    /** What happened, in a line: the first blow and what it did, or what else took it. */
+    private fun crashReport(id: Long): String {
+        val blow = firstBlow[id]
+        val cause = lastCause[id]
+        return when {
+            cause == "burnt up" -> "Burnt up coming down"
+            blow != null -> {
+                val part = catalog[blow.partId]?.title ?: "It"
+                "$part hit at ${blow.amount.roundToInt()} m/s"
+            }
+            cause != null -> cause.replaceFirstChar { it.uppercase() }
+            else -> "Destroyed"
+        }
+    }
+
+    /** Each craft's condition, unpacked, reused frame to frame. */
+    private val conditions = HashMap<Long, VesselCondition.Values>()
     private var lastAnimationNanos = 0L
     private var animationDt = 0.0
 
@@ -834,6 +1411,9 @@ class GameSession private constructor(
         scratchWheelSpin.setTo(up).crossInPlace(scratchGroundVelocity)
 
         val caps = StackCaps.forDesign(design, catalog)
+        // How hurt, hot and dented it is, as the server last said.
+        val condition = conditions.getOrPut(vessel.id) { VesselCondition.Values() }
+        VesselCondition.decode(n, state.condition, condition)
         for ((index, placed) in design.parts.withIndex()) {
             val def = defs[index] ?: continue
 
@@ -872,10 +1452,13 @@ class GameSession private constructor(
                 // agree: staging splits it at once, before the server's new
                 // structure arrives, and indexing it by this design's parts
                 // then ran off the end.
-                val replica = prediction.replica?.takeIf { predicted && it.defs.size == design.parts.size }
-                val lit = if (replica != null) replica.isWorking(index) && replica.control.throttle > 0.0
-                    else index in vessel.activatedParts
-                if (lit && state.throttle > 0.01) {
+                // What it is actually putting out - nothing once its tank is
+                // dry, however far the throttle is open - from the replica
+                // for the craft being flown, the server's pose for the rest.
+                val output = if (fresh) animation.target.output.getOrElse(index) { 0.0 } else 0.0
+                if (output > 0.01) {
+                    soundCraft(vessel.id, position, attractor)
+                        .engine(engine.exhaustKind, output, maxOf(engine.thrustVacuum, engine.thrustSeaLevel))
                     val partRotation = rotation * placed.rotation
                     val mesh = def.mesh
                     val half = when (mesh) {
@@ -897,7 +1480,7 @@ class GameSession private constructor(
                             out = partRotation.rotate(Vec3(-thrust.x, -thrust.y, -thrust.z)).normalizeInPlace(),
                             radius = radius * 0.8,
                             kind = engine.exhaustKind,
-                            throttle = if (predicted) (prediction.replica?.control?.throttle ?: state.throttle) else state.throttle,
+                            throttle = output,
                             velocity = state.velocity.copy(),
                             seed = (vessel.id * 31 + index).toInt(),
                         ),
@@ -910,14 +1493,31 @@ class GameSession private constructor(
             val body = com.rm.apogee.render.PartModels.bodyColour(placed.partId)
             leaves.clear()
             PartModels.expand(def, caps[index], anim, leaves)
+            val health = if (condition.any) condition.health[index] else 1f
+            val heat = if (condition.any) condition.temperature[index] else 0f
+            val dent = if (condition.any) ConditionLook.dent(condition.crumple, index * 3) else null
+            // Badly hurt, it burns - in air; in vacuum there is nothing to burn in.
+            if (health < BURNING_HEALTH && !mapMode && attractor.atmosphere != null &&
+                attractor.altitudeOf(scratch) < attractor.atmosphereHeight * 0.6
+            ) {
+                attractor.toBodyFixed(scratch, bodyRotation, scratchBurn)
+                effects?.burn(scratchBurn, 2.0 * def.jointRadius, animationDt, (vessel.id * 53 + index).toInt())
+                soundCraft(vessel.id, position, attractor).burning++
+            }
             for (leaf in leaves) {
+                val base = PartModels.colour(leaf.tint, body)
+                val leafPosition = if (dent == null) leaf.position
+                    else Vec3(leaf.position.x * dent.x, leaf.position.y * dent.y, leaf.position.z * dent.z)
                 out.add(
                     RenderItem(
                         caps = leaf.caps,
                         shape = leaf.shape,
-                        position = partRotation.rotate(leaf.position).addInPlace(scratch),
+                        position = partRotation.rotate(leafPosition).addInPlace(scratch),
                         rotation = partRotation * leaf.rotation,
-                        color = PartModels.colour(leaf.tint, body),
+                        color = if (condition.any) ConditionLook.colour(base, health, heat) else base,
+                        scale = dent?.let { ConditionLook.inLeaf(it, leaf.rotation) },
+                        ambient = if (condition.any) ConditionLook.ambient(0.28f, heat) else 0.28f,
+                        wrap = false,
                     )
                 )
             }
@@ -1031,6 +1631,33 @@ class GameSession private constructor(
 
 
     companion object {
+        /** Below this share of its health a part is on fire. */
+        private const val BURNING_HEALTH = 0.35f
+
+        /** How long a correction between snapshots takes to ease out, s. */
+        private const val SMOOTH_SECONDS = 0.1
+
+        /** A disagreement bigger than this is a real jump, not jitter, m. */
+        private const val SMOOTH_LIMIT = 20.0
+
+        /** Real seconds between snapshots: the server sends them at 20 Hz. */
+        private const val SNAPSHOT_SPACING = 0.05
+
+        /** How much of the gap to the snapshots' time the warp clock closes each frame. */
+        private const val WARP_CLOCK_EASE = 0.1
+
+        /** Real seconds out, at the warp rate, past which the warp clock just jumps. */
+        private const val WARP_CLOCK_SNAP = 0.5
+
+        /** The least time between two warning tones. */
+        private const val CAUTION_SPACING_NANOS = 4_000_000_000L
+
+        /** How far above the ground the camera is kept, m. */
+        private const val CAMERA_CLEARANCE = 2.0
+
+        /** How long the place a craft was lost goes on burning, s. */
+        private const val WRECK_BURN_SECONDS = 60.0
+
         /** Most craft the target picker lists. */
         private const val MAX_TARGET_CHOICES = 12
 
@@ -1185,6 +1812,9 @@ class GameSession private constructor(
                     resumeVessel = resumeVessel,
                     weatherIntensity = weather,
                     cloudCover = clouds,
+                    // The phone's own game: pause and warp, while nobody
+                    // else is in it.
+                    allowWarp = true,
                 ),
             )
             val link = LoopbackTransportPair()
@@ -1263,7 +1893,27 @@ class FlightTelemetry(
     val verticalSpeed: Double = 0.0,
     /** What SAS is holding, or null when it is off. */
     val sasMode: com.rm.apogee.core.world.SasMode? = null,
+    /** Every part, how hurt and how hot, for the damage list; empty when all is well. */
+    val parts: List<PartStatus> = emptyList(),
+    /** The hottest part, as a share of what it can stand. */
+    val heat: Double = 0.0,
+    /** The hardest-loaded joint, as a share of its strength. */
+    val structure: Double = 0.0,
+    /** Parts hurt at all. */
+    val damaged: Int = 0,
+    /** Parts the craft has lost since it was launched. */
+    val lost: Int = 0,
+    /** What became of it, if it is gone: the crash report. Null while it flies. */
+    val destroyed: String? = null,
 ) {
+    /** One part's state, for the damage list. */
+    class PartStatus(val title: String, val health: Double, val heat: Double, val load: Double)
+
+    /** Worth a warning: nearing the heat or load a part fails at, or hurt. */
+    val overheating: Boolean get() = heat > CAUTION
+    val straining: Boolean get() = structure > CAUTION
+    val hurt: Boolean get() = damaged > 0 || lost > 0
+
     val orbitalFrame: Boolean get() = frame == com.rm.apogee.core.world.NavFrame.ORBIT
     /** Above this, aerodynamic loads are worth warning about. */
     val highDynamicPressure: Boolean get() = dynamicPressure > MAX_Q_WARNING
@@ -1278,6 +1928,9 @@ class FlightTelemetry(
          */
         const val MAX_Q_WARNING = 25_000.0
 
+        /** Share of a limit where the HUD starts to warn. */
+        const val CAUTION = 0.7
+
 
         val EMPTY = FlightTelemetry(
             altitude = 0.0, heightAboveGround = 0.0, surfaceSpeed = 0.0, orbitalSpeed = 0.0,
@@ -1285,6 +1938,15 @@ class FlightTelemetry(
             throttle = 0.0, stage = 0, inOrbit = false, craftName = "",
             dynamicPressure = 0.0, rotation = Quat.identity(), up = Vec3.unitY(),
             prograde = null,
+        )
+
+        /** For a craft that is gone: its name, what happened, and what it lost. */
+        fun lost(name: String, report: String, lost: Int) = FlightTelemetry(
+            altitude = 0.0, heightAboveGround = 0.0, surfaceSpeed = 0.0, orbitalSpeed = 0.0,
+            apoapsisAltitude = 0.0, periapsisAltitude = 0.0, timeToApoapsis = 0.0,
+            throttle = 0.0, stage = 0, inOrbit = false, craftName = name,
+            dynamicPressure = 0.0, rotation = Quat.identity(), up = Vec3.unitY(),
+            prograde = null, lost = lost, destroyed = report,
         )
 
         fun from(
@@ -1306,6 +1968,14 @@ class FlightTelemetry(
             target: com.rm.apogee.core.world.VesselKinematics? = null,
             targetName: String? = null,
             sasMode: com.rm.apogee.core.world.SasMode? = null,
+            /** Its parts' condition, as the server last said. */
+            condition: com.rm.apogee.core.world.VesselCondition.Values? = null,
+            /** Its part definitions, in design order. */
+            defs: List<com.rm.apogee.core.part.PartDef?> = emptyList(),
+            /** Joint loads from the local replica, or null. */
+            jointLoad: FloatArray? = null,
+            /** How many parts it has lost. */
+            lost: Int = 0,
         ): FlightTelemetry {
             val state = vessel.latest ?: return EMPTY
             val orbit = Orbit(
@@ -1382,6 +2052,41 @@ class FlightTelemetry(
                 windSpeed = horizontalWind.length,
                 windFrom = windFrom,
                 inAir = density > 1e-3,
+            ).withCondition(condition, defs, jointLoad, lost)
+        }
+
+        private fun FlightTelemetry.withCondition(
+            condition: com.rm.apogee.core.world.VesselCondition.Values?,
+            defs: List<com.rm.apogee.core.part.PartDef?>,
+            jointLoad: FloatArray?,
+            lost: Int,
+        ): FlightTelemetry {
+            val loads = jointLoad?.takeIf { it.size == defs.size }
+            val hot = condition?.takeIf { it.any && it.health.size == defs.size }
+            if (hot == null && loads == null && lost == 0) return this
+            var heat = 0.0; var structure = 0.0; var damaged = 0
+            val parts = defs.indices.mapNotNull { i ->
+                val def = defs[i] ?: return@mapNotNull null
+                val health = hot?.health?.get(i)?.toDouble() ?: 1.0
+                // From a mild day's warmth to what it fails at: at ambient, nothing.
+                val ambient = com.rm.apogee.core.craft.Vessel.AMBIENT_TEMPERATURE
+                val share = hot?.let { ((it.temperature[i] - ambient) / (def.heatLimit - ambient)).coerceAtLeast(0.0) } ?: 0.0
+                val load = loads?.get(i)?.toDouble() ?: 0.0
+                heat = maxOf(heat, share)
+                structure = maxOf(structure, load)
+                if (health < 0.99) damaged++
+                PartStatus(def.title, health, share, load)
+            }
+            return FlightTelemetry(
+                altitude = altitude, heightAboveGround = heightAboveGround, surfaceSpeed = surfaceSpeed,
+                orbitalSpeed = orbitalSpeed, apoapsisAltitude = apoapsisAltitude, periapsisAltitude = periapsisAltitude,
+                timeToApoapsis = timeToApoapsis, throttle = throttle, stage = stage, inOrbit = inOrbit,
+                craftName = craftName, dynamicPressure = dynamicPressure, rotation = rotation, up = up,
+                prograde = prograde, airspeed = airspeed, windSpeed = windSpeed, windFrom = windFrom, inAir = inAir,
+                frame = frame, frameChosen = frameChosen, normal = normal, radialOut = radialOut, toTarget = toTarget,
+                targetName = targetName, targetDistance = targetDistance, closingSpeed = closingSpeed,
+                throughAir = throughAir, heading = heading, verticalSpeed = verticalSpeed, sasMode = sasMode,
+                parts = parts, heat = heat, structure = structure, damaged = damaged, lost = lost,
             )
         }
     }

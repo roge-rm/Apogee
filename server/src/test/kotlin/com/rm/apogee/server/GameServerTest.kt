@@ -80,6 +80,99 @@ class GameServerTest {
      * handed the second one the first one's rocket, and the two flew it
      * together without either realising.
      */
+    /**
+     * A crash that strips parts off: the client ends up seeing what the
+     * world has - the craft it flies, smaller, and the pieces that came off
+     * as craft of their own, with none left over that are gone.
+     */
+    @Test
+    fun `a crash that breaks the craft up reaches the client`() = runTest {
+        val world = World.default(catalog)
+        val server = GameServer(world, ServerConfig())
+        val client = joinClient(server, backgroundScope, "Pilot")
+        pumpUntil(server, "a craft") { client.controlledVessel != null }
+        val id = client.controlledVessel!!
+        val rocket = world.vessel(VesselId(id))!!
+        val partsBefore = rocket.design.parts.size
+        val up = rocket.body.position.copy().normalizeInPlace()
+        rocket.body.position.addScaledInPlace(up, 1.0)
+        rocket.body.linearVelocity.addScaledInPlace(up, -60.0)
+        rocket.wake()
+        repeat(240) {
+            server.stepOnce()
+            repeat(SETTLE_YIELDS) { yield() }
+        }
+        val survivor = world.vessel(VesselId(id))
+        assertNotNull("the pod survives as the craft", survivor)
+        assertTrue(survivor!!.design.parts.size < partsBefore)
+        assertEquals(survivor.design.parts.size, client.vessel(id)?.design?.parts?.size)
+        assertEquals(
+            world.vessels.map { it.id.raw }.toSet(),
+            client.vessels.map { it.id }.toSet(),
+        )
+        val kinds = client.partEvents.map { it.kind }.toSet()
+        assertTrue("the client heard the blows: $kinds", com.rm.apogee.core.world.PartEventKind.IMPACT in kinds)
+        assertTrue("and what they destroyed", com.rm.apogee.core.world.PartEventKind.DESTROYED in kinds)
+        assertTrue(
+            "and saw the pod was hurt",
+            client.vessel(id)!!.latest!!.condition.isNotEmpty(),
+        )
+    }
+
+    /** Pause and warp are the solo player's; the moment anyone else is on, time is everyone's. */
+    @Test
+    fun `pause and warp only while alone`() = runTest {
+        val world = World.default(catalog)
+        val server = GameServer(world, ServerConfig(allowWarp = true))
+        val first = joinClient(server, backgroundScope, "Solo", clientId = "install-solo")
+        pumpUntil(server, "a craft") { first.controlledVessel != null }
+        first.send(Command.SetWarp(0.0))
+        pumpUntil(server, "the pause") { server.requestedWarp == 0.0 }
+        val paused = world.time
+        repeat(10) { server.stepOnce(); repeat(SETTLE_YIELDS) { yield() } }
+        assertEquals("paused, the clock stands still", paused, world.time, 0.0)
+
+        first.send(Command.SetWarp(4.0))
+        pumpUntil(server, "the warp") { server.requestedWarp == 4.0 }
+        val before = world.time
+        server.stepOnce()
+        assertEquals("four steps a tick", before + 4.0 / 60.0, world.time, 1e-9)
+
+        joinClient(server, backgroundScope, "Guest", clientId = "install-guest")
+        repeat(3) { server.stepOnce(); repeat(SETTLE_YIELDS) { yield() } }
+        assertFalse("not with someone else here", server.warpAllowed)
+        assertEquals("and back to real time", 1.0, server.effectiveWarp(), 0.0)
+        first.send(Command.SetWarp(4.0))
+        repeat(3) { server.stepOnce(); repeat(SETTLE_YIELDS) { yield() } }
+        assertEquals("a request now is refused", 1.0, server.requestedWarp, 0.0)
+    }
+
+    @Test
+    fun `a dedicated server never pauses`() = runTest {
+        val server = GameServer(World.default(catalog), ServerConfig())
+        val client = joinClient(server, backgroundScope, "Solo")
+        client.send(Command.SetWarp(0.0))
+        repeat(5) { server.stepOnce(); repeat(SETTLE_YIELDS) { yield() } }
+        assertEquals(1.0, server.effectiveWarp(), 0.0)
+    }
+
+    /** A player can take their own craft away, and nobody else's. */
+    @Test
+    fun `players remove their own craft only`() = runTest {
+        val world = World.default(catalog)
+        val server = GameServer(world, ServerConfig())
+        val alice = joinClient(server, backgroundScope, "Alice", clientId = "install-alice")
+        val bob = joinClient(server, backgroundScope, "Bob", clientId = "install-bob")
+        pumpUntil(server, "craft for both") { alice.controlledVessel != null && bob.controlledVessel != null }
+        val alices = alice.controlledVessel!!
+        bob.send(Command.RemoveVessel(alices))
+        repeat(5) { server.stepOnce(); repeat(SETTLE_YIELDS) { yield() } }
+        assertNotNull("Bob cannot remove Alice's craft", world.vessel(VesselId(alices)))
+        alice.send(Command.RemoveVessel(alices))
+        pumpUntil(server, "Alice's craft to go") { world.vessel(VesselId(alices)) == null }
+        pumpUntil(server, "Alice to be flying nothing") { alice.controlledVessel == null }
+    }
+
     @Test
     fun `two players sharing a name get a craft each`() = runTest {
         val server = GameServer(World.default(catalog), ServerConfig())

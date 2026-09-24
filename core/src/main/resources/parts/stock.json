@@ -220,6 +220,102 @@
     ]
   },
   {
+    "id": "shield-halo",
+    "title": "Halo Heat Shield",
+    "category": "structural",
+    "dryMass": 90.0,
+    "description": "Goes under the Halo, faces the fire, and chars away so the capsule does not. Once.",
+    "crashTolerance": 12.0,
+    "dragCoefficient": 0.3,
+    "mesh": {
+      "type": "cylinder",
+      "radius": 0.65,
+      "height": 0.2
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                0.0,
+                -0.14
+              ],
+              [
+                0.3,
+                -0.13
+              ],
+              [
+                0.55,
+                -0.1
+              ],
+              [
+                0.65,
+                -0.06
+              ],
+              [
+                0.66,
+                0.0
+              ],
+              [
+                0.64,
+                0.06
+              ],
+              [
+                0.625,
+                0.1
+              ]
+            ],
+            "segments": 20
+          },
+          "tint": "dark"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "top",
+        "position": {
+          "x": 0.0,
+          "y": 0.1,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "size": 1
+      },
+      {
+        "id": "bottom",
+        "position": {
+          "x": 0.0,
+          "y": -0.1,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 1
+      }
+    ],
+    "modules": [
+      {
+        "type": "tank",
+        "resource": "ablator",
+        "capacity": 150.0
+      },
+      {
+        "type": "heatShield"
+      }
+    ]
+  },
+  {
     "id": "chute-canopy",
     "title": "Canopy Recovery Pack",
     "category": "utility",

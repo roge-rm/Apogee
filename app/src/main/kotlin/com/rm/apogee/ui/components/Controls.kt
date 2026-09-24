@@ -41,7 +41,7 @@ fun ApogeeButton(
     enabled: Boolean = true,
 ) {
     Button(
-        onClick = onClick,
+        onClick = { com.rm.apogee.audio.Sounds.click(); onClick() },
         enabled = enabled,
         modifier = modifier
             .fillMaxWidth()

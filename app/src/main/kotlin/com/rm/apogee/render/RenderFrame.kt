@@ -29,6 +29,11 @@ class RenderItem(
     val scale: Vec3? = null,
     /** Light it has without the sun: 0.28 for a part, much more for a cloud. */
     val ambient: Float = 0.28f,
+    /**
+     * Whether it wraps its light round and thins at the edges, as cloud and
+     * vapour do; not a part, however squashed a crash has left it.
+     */
+    val wrap: Boolean = scale != null && ambient < 1f,
 )
 
 /**

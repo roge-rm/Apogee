@@ -202,10 +202,11 @@ class CraftBuilderTest {
 
         fun partIdsIn(stage: Stage) = stage.activatedParts.map { design.parts[it].partId }.toSet()
 
-        assertEquals("expected three stages, got ${stages.size}", 3, stages.size)
+        assertEquals("expected four stages, got ${stages.size}", 4, stages.size)
         assertEquals(setOf("engine-ember"), partIdsIn(stages[0]))
         assertEquals(setOf("decoupler-ring", "engine-vesper"), partIdsIn(stages[1]))
-        assertEquals(setOf("chute-canopy"), partIdsIn(stages[2]))
+        assertEquals(setOf("decoupler-ring"), partIdsIn(stages[2]))
+        assertEquals(setOf("chute-canopy"), partIdsIn(stages[3]))
     }
 
     @Test

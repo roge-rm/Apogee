@@ -62,12 +62,20 @@ class AscentScenario(
         val propellantRemaining: Double,
         val log: List<Telemetry>,
         val failure: String? = null,
+        /** The hardest any joint was loaded, as a share of its strength, and which part it was under. */
+        val peakStress: Double = 0.0,
+        val peakStressPart: String = "",
+        /** Parts lost on the way. */
+        val partsLost: Int = 0,
     )
 
     fun fly(maxSeconds: Double = 2_400.0, logEvery: Double = 15.0): Result {
         val catalog = StockParts.catalog
         val world = World.default(catalog)
         world.weatherConfig = weather
+        var peakStress = 0.0
+        var peakStressPart = ""
+        var partsLost = 0
         val vessel = world.spawnOnSurface(
             StockCraft.starterRocket(catalog),
             World.launchSites.first(),
@@ -183,6 +191,15 @@ class AscentScenario(
             }
 
             world.step(dt)
+            if (vessel.stress > peakStress) {
+                peakStress = vessel.stress
+                peakStressPart = vessel.defs.getOrNull(vessel.worstJoint)?.id ?: ""
+            }
+            // Its own parts only: the spent stage is meant to go into the sea in pieces.
+            partsLost += world.drainEvents().count {
+                (it is com.rm.apogee.core.world.WorldEvent.PartDetached && it.id == vessel.id) ||
+                    (it is com.rm.apogee.core.world.WorldEvent.PartDestroyed && it.id == vessel.id)
+            }
 
             if (world.time >= nextLogAt) {
                 log.add(sample(world, vessel, attractor, phase))
@@ -206,6 +223,9 @@ class AscentScenario(
             propellantRemaining = vessel.amountOf(ResourceType.PROPELLANT),
             log = log,
             failure = failure,
+            peakStress = peakStress,
+            peakStressPart = peakStressPart,
+            partsLost = partsLost,
         )
     }
 

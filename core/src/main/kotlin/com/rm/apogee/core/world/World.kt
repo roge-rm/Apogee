@@ -55,6 +55,49 @@ sealed interface WorldEvent {
     ) : WorldEvent
 
     /**
+     * A part struck hard enough to hurt it: [damage] of its health taken, at
+     * [position] in its attractor's frame. For sound and effects.
+     */
+    data class Impact(
+        val id: VesselId,
+        val partIndex: Int,
+        val partId: String,
+        val speed: Double,
+        val damage: Double,
+        val position: Vec3,
+        val bodyId: String,
+        /** Into the sea rather than onto something solid. */
+        val water: Boolean = false,
+    ) : WorldEvent
+
+    /** A part destroyed outright - struck, burnt, blown up - at [position] in its attractor's frame. */
+    data class PartDestroyed(
+        val id: VesselId,
+        val partIndex: Int,
+        val partId: String,
+        val cause: String,
+        val position: Vec3,
+        val bodyId: String,
+    ) : WorldEvent
+
+    /**
+     * A part torn off whole - a joint that let go, a wing snapped - taking
+     * whatever hangs from it along, as debris of its own. At [position] in
+     * its attractor's frame.
+     */
+    data class PartDetached(
+        val id: VesselId,
+        val partIndex: Int,
+        val partId: String,
+        val cause: String,
+        val position: Vec3,
+        val bodyId: String,
+    ) : WorldEvent
+
+    /** A tank going up with [energy] kg of propellant, at [position] round body [bodyId]. */
+    data class Explosion(val bodyId: String, val position: Vec3, val energy: Double) : WorldEvent
+
+    /**
      * Lightning struck a craft - [partIndex] is what it knocked out, or -1
      * if it came through unharmed. Strikes that hit nothing need no event:
      * every client works them out from the weather for itself.
@@ -157,6 +200,8 @@ class World(
     private var nextVesselId = 1L
 
     private val forces = Forces()
+    private val stress = Stress()
+    private val heat = Heat()
     private val stabilityAssist = StabilityAssist()
     private val hydrostatics = Hydrostatics()
     private val scatterContacts = com.rm.apogee.core.physics.ScatterContact()
@@ -194,6 +239,27 @@ class World(
      * than allocated per step, and empty on almost every one.
      */
     private val pendingDestruction = ArrayList<Pair<VesselId, String>>()
+
+    /** Craft with a part damaged to nothing this tick, to break up at its end. */
+    private val pendingBreakUps = LinkedHashSet<VesselId>()
+
+    /** Why a craft in [pendingBreakUps] is breaking up, when it is not a blow. */
+    private val breakUpCause = HashMap<VesselId, String>()
+
+    /** Joints that let go this tick, by craft: the part below each. */
+    private val pendingDetach = HashMap<VesselId, MutableSet<Int>>()
+    private val impactNormal = Vec3()
+
+    /**
+     * Small crash fragments, and when they go: bits of fins and rings would
+     * otherwise litter every crash site for good. Anything with controls on
+     * it, or heavy enough to be wreckage worth finding, is never here.
+     */
+    private val fragmentExpiry = HashMap<VesselId, Double>()
+
+    /** Tanks that went up this tick, to damage what is near them. */
+    private class Blast(val bodyId: String, val centre: Vec3, val energy: Double, val source: VesselId)
+    private val pendingBlasts = ArrayList<Blast>()
 
     private val craftContacts = CraftContact().also { contacts ->
         contacts.ignorePair = { a, b -> justSeparated.containsKey(pairKey(a, b)) }
@@ -526,6 +592,8 @@ class World(
             is Command.SwitchVessel -> waken(command.vessel)
 
             is Command.Chat -> Unit // handled above the world
+            is Command.SetWarp -> Unit // the server's clock, not the world's
+            is Command.RemoveVessel -> destroy(VesselId(command.vessel), "removed")
         }
     }
 
@@ -743,7 +811,6 @@ class World(
         // either design is rebuilt underneath them.
         val position = vessel.body.position.copy()
         val orientation = vessel.body.orientation.copy()
-        val linearVelocity = vessel.body.linearVelocity.copy()
         val angularVelocity = vessel.body.angularVelocity.copy()
 
         val discarded = buildSubDesign(vessel.design, separating.sorted())
@@ -757,21 +824,33 @@ class World(
         val keptDefs = kept.indices.map { originalDefs[it] }
         val discardedDefs = discarded.indices.map { originalDefs[it] }
 
-        // The half that keeps flying, at the same place in its sequence.
-        vessel.replaceStructure(kept.design, keptDefs, kept.indices)
-
-        // The half that falls away, as a new vessel with the same motion.
+        // The half that falls away, as a new vessel: its own centre of mass
+        // where that was, moving as that point of the craft was, and with
+        // its parts as they were - what is left in its tanks, what it had
+        // fired, how hurt and hot. Worked out from the whole craft, so before
+        // the kept half is rebuilt.
+        //
+        // It was placed at the whole craft's centre instead - metres up the
+        // stack, inside the stage it had just let go of - and built fresh,
+        // tanks full. The halves then met again the moment the grace after
+        // separating ran out, and stuck.
+        val centre = pieceCentre(vessel, discarded.indices, Vec3()).copy()
+        val pointVelocity = vessel.body.velocityAtOffset(centre, Vec3())
         val debris = Vessel(
             id = VesselId(nextVesselId++),
             design = discarded.design,
             defs = discardedDefs,
             referenceBodyId = vessel.referenceBodyId,
         )
+        debris.inheritParts(vessel, discarded.indices)
         debris.body.orientation.setTo(orientation)
-        debris.body.linearVelocity.setTo(linearVelocity)
+        debris.body.linearVelocity.setTo(pointVelocity)
         debris.body.angularVelocity.setTo(angularVelocity)
-        debris.body.position.setTo(position)
+        debris.body.position.setTo(position).addInPlace(centre)
         debris.recomputeMass(shiftBodyPosition = false)
+
+        // The half that keeps flying, at the same place in its sequence.
+        vessel.replaceStructure(kept.design, keptDefs, kept.indices)
 
         // Push the halves apart along the craft's long axis.
         scratch.setTo(Vec3.unitY())
@@ -865,21 +944,12 @@ class World(
             // looking at, and a base on a pad otherwise costs exactly what
             // one being flown does.
             if (vessel.dormant) {
-                // At the end of the tick, which is the time this tick's
-                // positions are reported at - integrated craft move to it,
-                // and a sleeping one has to be where the ground is then.
-                attractor.rotationAt(tickEnd, scratchRotation)
-                attractor.surfaceVelocityAt(body.position, scratchSurfaceVelocity)
-                attractor.angularVelocity(scratchSpin)
-                vessel.followRotation(scratchRotation, scratchSurfaceVelocity, scratchSpin)
-                // The ground's velocity where it now is, not where it was a
-                // tick ago: a client recognises a sleeping craft by its
-                // moving with the surface exactly.
-                attractor.surfaceVelocityAt(body.position, body.linearVelocity)
+                followGround(vessel, attractor)
                 continue
             }
 
             body.clearAccumulators()
+            vessel.clearForces()
 
             // Before any force, because the elevons deflect inside the drag
             // pass and the gimbal inside thrust: all of them act on what
@@ -909,16 +979,27 @@ class World(
                 )
             }
             for (i in 0 until forces.overstressedCount) {
-                val index = forces.overstressed[i]
-                pendingEvents.add(
-                    WorldEvent.PartFailed(
-                        vessel.id, index, "${vessel.defs[index].title} failed under load",
-                    )
-                )
+                detach(vessel, forces.overstressed[i], "snapped off under load")
             }
             hydrostatics.apply(vessel, attractor, time, dt)
+            if (hydrostatics.splashCount > 0) {
+                for (i in 0 until hydrostatics.splashCount) {
+                    impactNormal.setTo(vessel.body.position).normalizeInPlace()
+                    impact(vessel, hydrostatics.splashParts[i], hydrostatics.splashSpeeds[i], impactNormal, water = true)
+                }
+                pendingBreakUps.add(vessel.id)
+            }
             forces.applyReactionWheels(vessel)
             forces.applyRcs(vessel, dt)
+            stress.update(vessel, dt)
+            for (i in 0 until stress.snappedCount) detach(vessel, stress.snapped[i], "tore off under load")
+            heat.update(vessel, attractor, dt)
+            vessel.hottest = heat.hottest
+            vessel.hottestPart = heat.hottestPart
+            if (heat.burntCount > 0) {
+                pendingBreakUps.add(vessel.id)
+                breakUpCause[vessel.id] = "burnt up"
+            }
 
             // Integration and contact are subdivided together when the craft
             // is moving fast near the ground. Forces are not recomputed per
@@ -943,7 +1024,13 @@ class World(
             if (report.hadContact && report.worstImpactSpeed > TOUCHDOWN_REPORT_SPEED) {
                 pendingEvents.add(WorldEvent.Touchdown(vessel.id, report.worstImpactSpeed))
             }
-            if (report.failureCount > 0) applyImpactDamage(vessel, report)
+            if (report.impactCount > 0) {
+                for (i in 0 until report.impactCount) {
+                    impactNormal.setTo(report.impactNormals[i * 3], report.impactNormals[i * 3 + 1], report.impactNormals[i * 3 + 2])
+                    impact(vessel, report.impactParts[i], report.impactSpeeds[i], impactNormal)
+                }
+                pendingBreakUps.add(vessel.id)
+            }
 
             considerSleeping(vessel, report)
         }
@@ -966,7 +1053,32 @@ class World(
             vesselsById[VesselId(craftContacts.touched[i])]?.wake()
         }
         for (i in 0 until impacts.count) {
-            applyCollisionDamage(VesselId(impacts.vessels[i]), impacts.parts[i], impacts.speeds[i])
+            val struck = vesselsById[VesselId(impacts.vessels[i])] ?: continue
+            impactNormal.setTo(impacts.normals[i * 3], impacts.normals[i * 3 + 1], impacts.normals[i * 3 + 2])
+            impact(struck, impacts.parts[i], impacts.speeds[i], impactNormal)
+            pendingBreakUps.add(struck.id)
+        }
+        resolveExplosions()
+        if (pendingBreakUps.isNotEmpty() || pendingDetach.isNotEmpty()) {
+            val ids = LinkedHashSet(pendingBreakUps).apply { addAll(pendingDetach.keys) }
+            for (id in ids) vesselsById[id]?.let {
+                breakUp(it, cause = breakUpCause[id] ?: "struck", detached = pendingDetach[id] ?: emptySet())
+            }
+            pendingBreakUps.clear()
+            pendingDetach.clear()
+            breakUpCause.clear()
+        }
+
+        if (fragmentExpiry.isNotEmpty() && tick % FRAGMENT_CHECK_TICKS == 0L) {
+            val iterator = fragmentExpiry.entries.iterator()
+            while (iterator.hasNext()) {
+                val (id, at) = iterator.next()
+                if (id !in vesselsById) iterator.remove()
+                else if (at < time) {
+                    iterator.remove()
+                    pendingDestruction.add(id to "cleared away")
+                }
+            }
         }
 
         if (pendingDestruction.isNotEmpty()) {
@@ -1171,24 +1283,6 @@ class World(
      * deliberately agree - it would be strange for a tank to survive a
      * thirty-metre-a-second arrival onto a station and not onto a hillside.
      */
-    private fun applyCollisionDamage(id: VesselId, partIndex: Int, speed: Double) {
-        val vessel = vesselsById[id] ?: return
-        if (partIndex !in vessel.defs.indices) return
-        val def = vessel.defs[partIndex]
-        if (def.module<LandingLeg>() != null) {
-            if (vessel.breakPart(partIndex)) {
-                pendingEvents.add(
-                    WorldEvent.PartFailed(id, partIndex, "${def.title} collapsed")
-                )
-            }
-            return
-        }
-        if (pendingDestruction.none { it.first == id }) {
-            pendingDestruction.add(
-                id to "${def.title} was struck at ${speed.toInt()} m/s"
-            )
-        }
-    }
 
     /**
      * How finely to subdivide this tick's integration and contact test.
@@ -1235,39 +1329,406 @@ class World(
     }
 
     /**
-     * Turns "this part hit harder than it can take" into a consequence.
+     * A part struck at [speed] (m/s, into the surface) along [push] (world
+     * axes, the way the blow drives it).
      *
-     * A leg collapses and the craft keeps existing, now resting on whatever is
-     * underneath it - which is usually the next thing to fail, and is the
-     * right outcome: gear absorbs one bad landing, not every landing. Anything
-     * else failing is the end of the craft, because a tank or an engine
-     * meeting the ground above its tolerance is not a survivable event.
+     * The blow travels through the craft in order. The part that touched
+     * takes it first: below its crash tolerance nothing; above, damage
+     * rising steeply - ((v - tol) / 2tol)^1.5, so three times its tolerance
+     * finishes it. A part that survives stops the blow there, and its
+     * neighbours only feel a jolt. A part that is crushed soaks up energy as
+     * it goes - its structure's mass times its tolerance squared, for
+     * propellant does not crumple - and what is left carries on, slower,
+     * with the rest of the craft into the next part along the line of the
+     * blow. So
+     * a nose cone or an engine bell is a crumple zone: a crash can strip the
+     * front off a craft and leave the pod behind it whole.
+     *
+     * A leg is built for this and folds instead, as it always has.
      */
-    private fun applyImpactDamage(vessel: Vessel, report: ContactReport) {
-        var fatalPart = -1
-        for (i in 0 until report.failureCount) {
-            val index = report.failedParts[i]
-            val def = vessel.defs[index]
-            if (def.module<LandingLeg>() != null) {
-                if (vessel.breakPart(index)) {
-                    pendingEvents.add(
-                        WorldEvent.PartFailed(vessel.id, index, "${def.title} collapsed")
-                    )
+    fun impact(vessel: Vessel, partIndex: Int, speed: Double, push: Vec3, water: Boolean = false) {
+        var part = partIndex
+        var v = speed
+        val local = vessel.body.orientation.inverseRotate(push)
+        val visited = HashSet<Int>()
+        // What is still moving behind the blow: the crushed parts stop.
+        var moving = vessel.body.mass
+        while (part >= 0 && visited.add(part)) {
+            val def = vessel.defs[part]
+            val tolerance = def.crashTolerance
+            if (v <= tolerance) return
+            val blow = Math.pow((v - tolerance) / (2.0 * tolerance), 1.5)
+            if (def.module<LandingLeg>() != null && vessel.breakPart(part)) {
+                pendingEvents.add(WorldEvent.PartFailed(vessel.id, part, "${def.title} collapsed"))
+            }
+            val health = vessel.health[part]
+            vessel.partOffsetWorld(part, scratch)
+            pendingEvents.add(
+                WorldEvent.Impact(
+                    vessel.id, part, def.id, v, kotlin.math.min(blow, health),
+                    Vec3().setTo(vessel.body.position).addInPlace(scratch), vessel.referenceBodyId, water,
+                ),
+            )
+            if (blow < health) {
+                // It held: the blow stops here, and the parts round it are jolted.
+                vessel.damage(part, blow, local)
+                shock(vessel, part, blow * SHOCK_SHARE, 1)
+                return
+            }
+            // Crushed. It takes what it could, and passes the rest on.
+            vessel.damage(part, health, local)
+            val absorbed = CRUSH_ENERGY * def.dryMass * tolerance * tolerance * health
+            moving = (moving - vessel.partMass(part)).coerceAtLeast(1.0)
+            val remaining = v * v - 2.0 * absorbed / moving
+            if (remaining <= 0.0) return
+            v = kotlin.math.sqrt(remaining)
+            part = nextAlong(vessel, part, local, visited)
+        }
+    }
+
+    /**
+     * The neighbour of [part] - its parent or a child - that lies furthest
+     * along [push] (design axes): where a blow driving it that way goes next.
+     */
+    private fun nextAlong(vessel: Vessel, part: Int, push: Vec3, visited: Set<Int>): Int {
+        val parts = vessel.design.parts
+        val here = parts[part].position
+        var best = -1
+        var bestAlong = 0.05
+        fun consider(n: Int) {
+            if (n < 0 || n in visited || vessel.health[n] <= 0.0) return
+            val p = parts[n].position
+            val along = (p.x - here.x) * push.x + (p.y - here.y) * push.y + (p.z - here.z) * push.z
+            if (along > bestAlong) { bestAlong = along; best = n }
+        }
+        consider(parts[part].parentIndex)
+        for (i in parts.indices) if (parts[i].parentIndex == part) consider(i)
+        return best
+    }
+
+    private fun shock(vessel: Vessel, from: Int, amount: Double, depth: Int) {
+        if (depth <= 0 || amount < 0.01) return
+        val parts = vessel.design.parts
+        val parent = parts[from].parentIndex
+        if (parent >= 0) {
+            vessel.damage(parent, amount)
+            shock(vessel, parent, amount * SHOCK_SHARE, depth - 1)
+        }
+        for (i in parts.indices) {
+            if (parts[i].parentIndex != from) continue
+            vessel.damage(i, amount)
+            shock(vessel, i, amount * SHOCK_SHARE, depth - 1)
+        }
+    }
+
+    /**
+     * Breaks [vessel] up if any of its parts is damaged to nothing: those
+     * parts are gone, and the craft falls into however many pieces are left
+     * holding together. The piece with the controls on it - or the heaviest,
+     * if none has - stays this vessel, so the player is still flying what is
+     * left; the rest become debris, each carrying on at its own point's
+     * velocity. A tank that goes with propellant in it explodes.
+     *
+     * If nothing is left at all, the craft is destroyed.
+     */
+    fun breakUp(vessel: Vessel, cause: String = "struck", detached: Set<Int> = emptySet()) {
+        val destroyed = vessel.defs.indices.filter { vessel.health[it] <= 0.0 }.toSet()
+        if (destroyed.isEmpty() && detached.isEmpty()) return
+        failParts(vessel, destroyed, detached - destroyed, cause)
+    }
+
+    /**
+     * Part [index] of [vessel] tears away at the end of the tick, with
+     * whatever hangs from it. A root has no joint above it, so it tears
+     * away from everything below instead; a craft of one part has nothing
+     * to tear from.
+     */
+    private fun detach(vessel: Vessel, index: Int, cause: String) {
+        val parts = vessel.design.parts
+        val cuts = if (parts[index].parentIndex >= 0) listOf(index)
+            else parts.indices.filter { parts[it].parentIndex == index }
+        if (cuts.isEmpty()) return
+        val set = pendingDetach.getOrPut(vessel.id) { HashSet() }
+        if (!set.addAll(cuts)) return
+        vessel.partOffsetWorld(index, scratch)
+        val at = Vec3().setTo(vessel.body.position).addInPlace(scratch)
+        pendingEvents.add(WorldEvent.PartDetached(vessel.id, index, vessel.defs[index].id, "${vessel.defs[index].title} $cause", at, vessel.referenceBodyId))
+        vessel.wake()
+    }
+
+    /**
+     * Removes [destroyed] parts from [vessel] and cuts the joints above
+     * [detached] parts, then splits what remains into its connected pieces.
+     */
+    fun failParts(vessel: Vessel, destroyed: Set<Int>, detached: Set<Int>, cause: String) {
+        val design = vessel.design
+        val count = design.parts.size
+        // Blasts and events first, while the indices still mean something.
+        for (index in destroyed) {
+            vessel.partOffsetWorld(index, scratch)
+            val at = Vec3().setTo(vessel.body.position).addInPlace(scratch)
+            pendingEvents.add(WorldEvent.PartDestroyed(vessel.id, index, vessel.defs[index].id, cause, at, vessel.referenceBodyId))
+            val fuel = com.rm.apogee.core.part.ResourceType.entries.filter { it.explosive }.sumOf {
+                vessel.amountInPart(index, it) * it.densityPerUnit
+            }
+            if (fuel > MIN_EXPLOSIVE_KG) pendingBlasts.add(Blast(vessel.referenceBodyId, at, fuel, vessel.id))
+        }
+
+        // Connected pieces: parent links, minus destroyed parts and cut joints.
+        val piece = IntArray(count) { -1 }
+        var pieces = 0
+        fun joined(child: Int): Boolean {
+            val parent = design.parts[child].parentIndex
+            return parent >= 0 && parent !in destroyed && child !in detached
+        }
+        for (start in 0 until count) {
+            if (start in destroyed || piece[start] >= 0) continue
+            // Up to the top of its piece, then down through everything joined.
+            var top = start
+            while (joined(top)) top = design.parts[top].parentIndex
+            val id = pieces++
+            val stack = ArrayDeque<Int>()
+            stack.add(top)
+            while (stack.isNotEmpty()) {
+                val p = stack.removeLast()
+                if (piece[p] >= 0) continue
+                piece[p] = id
+                for (c in 0 until count) {
+                    if (design.parts[c].parentIndex == p && c !in destroyed && c !in detached) stack.add(c)
                 }
-            } else if (fatalPart < 0) {
-                fatalPart = index
             }
         }
-        if (fatalPart >= 0) {
-            val speed = report.worstImpactSpeed
-            pendingDestruction.add(
-                vessel.id to
-                    "${vessel.defs[fatalPart].title} hit the surface at ${speed.toInt()} m/s"
+        if (pieces == 0) {
+            pendingDestruction.add(vessel.id to "${vessel.name} was destroyed")
+            return
+        }
+        val members = Array(pieces) { k -> (0 until count).filter { piece[it] == k } }
+
+        // Which piece the craft carries on as: the one with the controls,
+        // else the heaviest.
+        fun mass(indices: List<Int>) = indices.sumOf { vessel.partMass(it) }
+        val keep = members.indices.maxWith(
+            compareBy<Int>({ k -> if (members[k].any { vessel.defs[it].module<com.rm.apogee.core.part.Command>() != null }) 1 else 0 })
+                .thenBy { k -> mass(members[k]) },
+        )
+
+        val position = vessel.body.position.copy()
+        val orientation = vessel.body.orientation.copy()
+        val angularVelocity = vessel.body.angularVelocity.copy()
+        val originalDefs = vessel.defs
+        val originalDesign = vessel.design
+        val offset = Vec3()
+        val pointVelocity = Vec3()
+
+        // The debris first, each from the original, before the craft itself
+        // is rebuilt underneath it.
+        val spawned = ArrayList<VesselId>()
+        for (k in members.indices) {
+            if (k == keep) continue
+            val sub = buildSubDesign(originalDesign, members[k])
+            val debris = Vessel(
+                id = VesselId(nextVesselId++),
+                design = sub.design,
+                defs = sub.indices.map { originalDefs[it] },
+                referenceBodyId = vessel.referenceBodyId,
             )
+            debris.inheritParts(vessel, sub.indices)
+            if (members[k].none { originalDefs[it].module<com.rm.apogee.core.part.Command>() != null }) {
+                debris.name = "${vessel.name} debris"
+            }
+            // Where its own centre was, moving as that point of the craft was.
+            val centre = pieceCentre(vessel, members[k], offset)
+            vessel.body.velocityAtOffset(centre, pointVelocity)
+            debris.body.orientation.setTo(orientation)
+            debris.body.position.setTo(position).addInPlace(centre)
+            debris.recomputeMass(shiftBodyPosition = false)
+            debris.body.linearVelocity.setTo(pointVelocity)
+            debris.body.angularVelocity.setTo(angularVelocity)
+            vesselsById[debris.id] = debris
+            pendingEvents.add(WorldEvent.VesselSpawned(debris.id))
+            spawned.add(debris.id)
+            if (debris.body.mass < WRECKAGE_KG && debris.defs.none { it.module<com.rm.apogee.core.part.Command>() != null }) {
+                fragmentExpiry[debris.id] = time + FRAGMENT_LIFETIME
+            }
+        }
+        // The pieces start out touching where they were joined: that is a
+        // break, not a fresh collision between them.
+        spawned.add(vessel.id)
+        for (a in spawned.indices) for (b in a + 1 until spawned.size) {
+            justSeparated[pairKey(spawned[a].raw, spawned[b].raw)] = time + SEPARATION_GRACE
+        }
+
+        val kept = buildSubDesign(originalDesign, members[keep], firedStages = vessel.currentStage)
+        val keptCentre = pieceCentre(vessel, members[keep], offset).copy()
+        vessel.body.velocityAtOffset(keptCentre, pointVelocity)
+        vessel.replaceStructure(kept.design, kept.indices.map { originalDefs[it] }, kept.indices)
+        vessel.body.linearVelocity.setTo(pointVelocity)
+        pendingEvents.add(WorldEvent.VesselStructureChanged(vessel.id))
+    }
+
+    /** The mass-weighted centre of parts [indices], as an offset from the craft's body position, world axes. */
+    private fun pieceCentre(vessel: Vessel, indices: List<Int>, out: Vec3): Vec3 {
+        out.setZero()
+        var total = 0.0
+        val part = Vec3()
+        for (i in indices) {
+            val m = vessel.partMass(i)
+            vessel.partOffsetWorld(i, part)
+            out.addScaledInPlace(part, m)
+            total += m
+        }
+        return if (total > 0.0) out.mulInPlace(1.0 / total) else out
+    }
+
+    /**
+     * Tanks that went up this tick: everything within reach, on any craft,
+     * is damaged by how close it was and pushed away from the blast.
+     */
+    private fun resolveExplosions() {
+        if (pendingBlasts.isEmpty()) return
+        val blasts = pendingBlasts.toList()
+        pendingBlasts.clear()
+        for (blast in blasts) {
+            // Energy by the propellant, capped: a big tank is a big bang, not
+            // the end of the world.
+            val energy = blast.energy.coerceAtMost(MAX_BLAST_KG)
+            val radius = BLAST_RADIUS_PER_KG * kotlin.math.sqrt(energy)
+            pendingEvents.add(WorldEvent.Explosion(blast.bodyId, blast.centre.copy(), energy))
+            val offset = Vec3()
+            for (other in vesselsById.values.toList()) {
+                if (other.referenceBodyId != blast.bodyId) continue
+                if (other.body.position.distanceTo(blast.centre) > radius + other.contactRadius) continue
+                other.wake()
+                var hit = false
+                for (i in other.defs.indices) {
+                    other.partOffsetWorld(i, offset)
+                    offset.addInPlace(other.body.position).subInPlace(blast.centre)
+                    val d = offset.length
+                    if (d > radius) continue
+                    // Falling off steeply: the shock wave spends itself fast.
+                    val strength = 1.0 - d / radius
+                    val ratio = BLAST_TOUGHNESS / other.defs[i].crashTolerance
+                    val toughness = (ratio * ratio).coerceIn(0.25, 1.5)
+                    val push = if (d > 1e-6) offset.copy().mulInPlace(1.0 / d) else Vec3(0.0, 1.0, 0.0)
+                    other.damage(i, BLAST_DAMAGE * strength * strength * strength * toughness, other.body.orientation.inverseRotate(push))
+                    hit = true
+                }
+                if (hit) {
+                    // A shove away from the blast, by the energy and how near.
+                    val away = other.body.position.copy().subInPlace(blast.centre)
+                    val d = away.length.coerceAtLeast(1.0)
+                    val impulse = (BLAST_IMPULSE_PER_KG * energy * (1.0 - (d / (radius + other.contactRadius)).coerceIn(0.0, 1.0)))
+                        .coerceAtMost(BLAST_MAX_KICK * other.body.mass)
+                    other.body.applyImpulse(away.mulInPlace(impulse / d))
+                    pendingBreakUps.add(other.id)
+                }
+            }
         }
     }
 
     fun attractorFor(vessel: Vessel): CelestialBody = system.body(vessel.referenceBodyId)
+
+    /**
+     * A sleeping craft, carried round with the ground to where it is at the
+     * end of the tick - the time the tick's positions are reported at.
+     */
+    private fun followGround(vessel: Vessel, attractor: CelestialBody) {
+        val body = vessel.body
+        attractor.rotationAt(tickEnd, scratchRotation)
+        attractor.surfaceVelocityAt(body.position, scratchSurfaceVelocity)
+        attractor.angularVelocity(scratchSpin)
+        vessel.followRotation(scratchRotation, scratchSurfaceVelocity, scratchSpin)
+        // The ground's velocity where it now is, not where it was a tick
+        // ago: a client recognises a sleeping craft by its moving with the
+        // surface exactly.
+        attractor.surfaceVelocityAt(body.position, body.linearVelocity)
+    }
+
+    // --- time warp --------------------------------------------------------------
+
+    /**
+     * The fastest the world may run just now, as a multiple of real time:
+     * the lowest any awake craft allows (see [warpLimit]). A sleeping craft
+     * rides the ground at any rate and limits nothing.
+     */
+    fun maxWarp(): Double {
+        var limit = WARP_RATES.last()
+        for (vessel in vesselsById.values) {
+            if (vessel.dormant) continue
+            limit = minOf(limit, warpLimit(vessel))
+        }
+        return limit
+    }
+
+    /**
+     * How fast one craft lets time go. Up to [PHYSICS_WARP] the world simply
+     * steps more often, and anything goes. Beyond that craft move on rails,
+     * along their orbits exactly, which is only honest for a craft that
+     * nothing but gravity is acting on: out of the air, well clear of the
+     * ground and not burning. Faster still needs more room - each rate
+     * wants a greater height, by the body's size - since a
+     * tick then covers so much of an orbit that an atmosphere or a mountain
+     * could slip by between two looks, or a burn the pilot meant to make.
+     */
+    fun warpLimit(vessel: Vessel): Double {
+        if (vessel.control.throttle > 0.0 && vessel.activeEngines().isNotEmpty()) return PHYSICS_WARP
+        val attractor = attractorFor(vessel)
+        val position = vessel.body.position
+        attractor.toBodyFixed(position, attractor.rotationAt(time), scratchWarp)
+        val floor: Double
+        if (attractor.atmosphere != null) {
+            floor = attractor.atmosphereHeight
+            if (attractor.altitudeOf(position) <= floor) return PHYSICS_WARP
+        } else {
+            floor = RAILS_CLEARANCE
+            if (attractor.heightAboveTerrain(position, scratchWarp) <= RAILS_CLEARANCE) return PHYSICS_WARP
+        }
+        val above = (attractor.altitudeOf(position) - floor) / attractor.radius
+        var allowed = PHYSICS_WARP
+        for (k in RAILS_RATES.indices) {
+            if (above >= RAILS_HEIGHTS[k]) allowed = RAILS_RATES[k]
+        }
+        return allowed
+    }
+
+    /**
+     * Moves the world on by [seconds] on rails: every awake craft along its
+     * orbit, turning as it was, every sleeping one with the ground. In
+     * slices of at most [RAILS_STEP], looking again after each: the moment
+     * any craft stops allowing it - it has reached the air, or come down
+     * toward a moon - it stops, and says how far it got.
+     */
+    fun advanceOnRails(seconds: Double): Double {
+        var done = 0.0
+        while (seconds - done > 1e-9) {
+            if (maxWarp() <= PHYSICS_WARP) break
+            val h = minOf(RAILS_STEP, seconds - done)
+            tickEnd = time + h
+            for (vessel in vesselsById.values) {
+                val attractor = attractorFor(vessel)
+                if (vessel.dormant) {
+                    followGround(vessel, attractor)
+                    continue
+                }
+                val body = vessel.body
+                val next = Orbit(body.position, body.linearVelocity, attractor.gravitationalParameter).propagate(h)
+                body.position.setTo(next.position)
+                body.linearVelocity.setTo(next.velocity)
+                // Still turning as it was.
+                val spin = body.angularVelocity.length
+                if (spin > 1e-9) {
+                    scratchWarp.setTo(body.angularVelocity).mulInPlace(1.0 / spin)
+                    body.orientation.setTo(Quat.fromAxisAngle(scratchWarp, spin * h) * body.orientation).normalizeInPlace()
+                }
+            }
+            time += h
+            done += h
+        }
+        if (done > 0.0) tick++
+        return done
+    }
+
+    private val scratchWarp = Vec3()
 
     /** The vessel's current two-body trajectory about its attractor. */
     fun orbitOf(vessel: Vessel): Orbit {
@@ -1293,6 +1754,7 @@ class World(
                 angularVelocity = vessel.body.angularVelocity.copy(),
                 throttle = vessel.control.throttle,
                 pose = VesselPose.encode(vessel),
+                condition = VesselCondition.encode(vessel),
             )
         },
     )
@@ -1350,6 +1812,9 @@ class World(
                 brakes = vessel.control.brakes,
                 resources = vessel.resourceSnapshot().map { it.toList() },
                 legDeploy = vessel.legDeploy.toList(),
+                health = vessel.health.toList(),
+                crumple = vessel.crumple.toList(),
+                temperature = vessel.temperature.toList(),
             )
         },
     )
@@ -1453,6 +1918,7 @@ class World(
             if (saved.resources.isNotEmpty()) {
                 vessel.restoreResources(saved.resources.map { it.toDoubleArray() })
             }
+            vessel.restoreCondition(saved.health, saved.crumple, saved.temperature)
             vessel.recomputeMass(shiftBodyPosition = false)
 
             vesselsById[vessel.id] = vessel
@@ -1596,6 +2062,22 @@ class World(
     }
 
     companion object {
+        /** What time warp offers, as multiples of real time. */
+        val WARP_RATES = doubleArrayOf(1.0, 2.0, 4.0, 10.0, 50.0, 100.0, 1_000.0, 10_000.0)
+
+        /** Up to this the world steps faster; past it, craft go on rails. */
+        const val PHYSICS_WARP = 4.0
+
+        /** The rails rates, and the height above the air (or [RAILS_CLEARANCE]) each needs, in the body's radii. */
+        private val RAILS_RATES = doubleArrayOf(10.0, 50.0, 100.0, 1_000.0, 10_000.0)
+        private val RAILS_HEIGHTS = doubleArrayOf(0.0, 0.1, 0.2, 0.4, 0.8)
+
+        /** Over an airless body, how far above the ground rails warp can start, m. */
+        private const val RAILS_CLEARANCE = 5_000.0
+
+        /** The longest slice of time moved on rails before looking again, s. */
+        private const val RAILS_STEP = 5.0
+
         /** Metres between adjacent launch pads at a site. */
         private const val PAD_SPACING_METRES = 40.0
 
@@ -1631,6 +2113,41 @@ class World(
 
         /** Fastest drift, m/s, at which a boat left alone in a wind drops anchor. */
         private const val ANCHOR_DRIFT = 1.5
+
+        /** Share of a blow a part that holds passes on to its neighbours as a jolt. */
+        private const val SHOCK_SHARE = 0.2
+
+        /**
+         * Energy a part soaks up being crushed, J, per kg per (m/s of crash
+         * tolerance) squared, of its dry mass: a half-tonne tank of
+         * tolerance 6 takes 2.7 MJ, the Ember's 1.5 t bell 11 MJ - enough to
+         * stop the Starter I from 40 m/s tail first, not from 60.
+         */
+        private const val CRUSH_ENERGY = 150.0
+
+        /** Crash debris lighter than this, with no controls, is cleared away, kg. */
+        private const val WRECKAGE_KG = 200.0
+        /** How long a fragment lies there first, s. */
+        private const val FRAGMENT_LIFETIME = 120.0
+        private const val FRAGMENT_CHECK_TICKS = 60L
+
+        /** Propellant below this, kg, burns rather than explodes. */
+        private const val MIN_EXPLOSIVE_KG = 20.0
+        private const val MAX_BLAST_KG = 20_000.0
+        /** Blast radius, m, per square root of kg of propellant: 1 t is about 24 m. */
+        private const val BLAST_RADIUS_PER_KG = 0.75
+        /**
+         * Damage at the heart of a blast, to a part of [BLAST_TOUGHNESS]
+         * crash tolerance; by the square of it tougher parts take less,
+         * flimsier more - a pod rides out the blast that takes the tank
+         * beside it.
+         */
+        private const val BLAST_DAMAGE = 1.2
+        private const val BLAST_TOUGHNESS = 8.0
+        /** N*s of push per kg of propellant, at the centre. */
+        private const val BLAST_IMPULSE_PER_KG = 6.0
+        /** The most a blast can change a craft's speed, m/s: it throws fins, not bullets. */
+        private const val BLAST_MAX_KICK = 25.0
 
         /** Lightning is looked for once a second. */
         private const val LIGHTNING_CHECK_TICKS = 60L

@@ -123,6 +123,16 @@ class CameraController(
         if (wanted > distance) distance = wanted
     }
 
+    /**
+     * For a craft that has just become much smaller - a pod left from a
+     * crash: comes in to frame it if the camera is now far too far out for
+     * it, and otherwise leaves the player's zoom alone.
+     */
+    fun frameShrunk(craftSize: Double) {
+        val wanted = (craftSize * 1.8 + 6.0).coerceIn(minDistance, maxDistance)
+        if (distance > wanted * 2.0) distance = wanted
+    }
+
     /** Snaps the distance to exactly frame something of this size. */
     fun frameExactly(size: Double) {
         distance = (size * 2.4).coerceIn(minDistance, maxDistance)

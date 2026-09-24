@@ -63,6 +63,14 @@ class VesselSave(
      * reordered enum cannot silently reinterpret everyone's fuel.
      */
     val resources: List<List<Double>> = emptyList(),
+    /**
+     * How hurt, dented and hot each part is, in part order - dents three to
+     * a part. Empty in saves from before damage: whole, straight and at a
+     * mild day's temperature.
+     */
+    val health: List<Double> = emptyList(),
+    val crumple: List<Float> = emptyList(),
+    val temperature: List<Double> = emptyList(),
 )
 
 /**

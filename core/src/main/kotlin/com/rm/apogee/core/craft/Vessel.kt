@@ -157,6 +157,15 @@ class Vessel(
     var gimbalYaw = DoubleArray(design.parts.size)
         private set
 
+    /**
+     * Engines: what each is actually putting out this tick, 0..1 of its full
+     * thrust - throttle times whatever propellant reached it. Zero for one
+     * that has run dry, however far the throttle is open: what the flame and
+     * the sound follow.
+     */
+    var engineOutput = DoubleArray(design.parts.size)
+        private set
+
     /** New pose arrays for a changed structure, keeping each leg's deploy. */
     private fun resetPose(deploy: DoubleArray) {
         surfaceDeflection = DoubleArray(deploy.size)
@@ -164,6 +173,7 @@ class Vessel(
         wheelCompression = DoubleArray(deploy.size)
         gimbalPitch = DoubleArray(deploy.size)
         gimbalYaw = DoubleArray(deploy.size)
+        engineOutput = DoubleArray(deploy.size)
         legDeploy = deploy
     }
 
@@ -181,6 +191,7 @@ class Vessel(
         wheelCompression = DoubleArray(n)
         gimbalPitch = DoubleArray(n)
         gimbalYaw = DoubleArray(n)
+        engineOutput = DoubleArray(n)
         legDeploy = DoubleArray(n) { if (it < activated.size && isWorking(it)) 1.0 else 0.0 }
     }
 
@@ -232,6 +243,119 @@ class Vessel(
     /** Parts whose stage has fired: engines lit, parachutes out, gear down. */
     var activated: BooleanArray = BooleanArray(design.parts.size)
         private set
+
+    /**
+     * How whole each part is, 0..1. Damage from impacts, heat and strain
+     * wears it down; at zero the part is destroyed and whatever hung from it
+     * comes away (see `World.failParts`).
+     */
+    var health: DoubleArray = DoubleArray(design.parts.size) { 1.0 }
+        private set
+
+    /**
+     * How each part is dented, in its own axes: the direction it was struck
+     * from, scaled by how badly - three floats a part. For drawing.
+     */
+    var crumple: FloatArray = FloatArray(design.parts.size * 3)
+        private set
+
+    /**
+     * Each part's temperature, K. Starts at a mild day's; the air, the sun,
+     * engines and re-entry move it from there - see
+     * [com.rm.apogee.core.world.Heat].
+     */
+    var temperature: DoubleArray = DoubleArray(design.parts.size) { AMBIENT_TEMPERATURE }
+        private set
+
+    /** Takes up to [units] of [type] from part [index] alone; returns what it got. */
+    fun takeFromPart(index: Int, type: ResourceType, units: Double): Double {
+        val row = resources[index]
+        val taken = minOf(units, row[type.ordinal]).coerceAtLeast(0.0)
+        row[type.ordinal] -= taken
+        return taken
+    }
+
+    /**
+     * This tick's thrust and air forces on each part, world axes, N - three
+     * a part. What [com.rm.apogee.core.world.Stress] works the joints out
+     * from; cleared at the start of every tick.
+     */
+    var partForce: DoubleArray = DoubleArray(design.parts.size * 3)
+        private set
+
+    fun recordForce(index: Int, force: Vec3) {
+        partForce[index * 3] += force.x
+        partForce[index * 3 + 1] += force.y
+        partForce[index * 3 + 2] += force.z
+    }
+
+    fun clearForces() = partForce.fill(0.0)
+
+    /**
+     * How near its limit the joint above each part is, as load over
+     * strength: 1 is the limit. For the HUD, the sound and the camera.
+     */
+    var jointLoad: FloatArray = FloatArray(design.parts.size)
+        private set
+
+    /**
+     * Which parts had their centres under water last tick, for telling a
+     * part hitting the sea from one already in it; null until first looked.
+     */
+    var wet: BooleanArray? = null
+
+    /** The worst of [jointLoad], and which part's joint it is (-1 for none). */
+    var stress: Double = 0.0
+    var worstJoint: Int = -1
+
+    /** The hottest part, as a share of what it can stand, and which (-1 for none). */
+    var hottest: Double = 0.0
+    var hottestPart: Int = -1
+
+    /**
+     * Takes [amount] of health from [index]; a dent toward [from] (body
+     * axes, any length) if given. Returns true if that finished it.
+     */
+    fun damage(index: Int, amount: Double, from: Vec3? = null): Boolean {
+        if (index !in health.indices || amount <= 0.0 || health[index] <= 0.0) return false
+        health[index] = (health[index] - amount).coerceAtLeast(0.0)
+        if (from != null && from.lengthSq > 1e-12) {
+            // Into the part's own axes, so the dent turns with it.
+            val local = design.parts[index].rotation.inverseRotate(from.normalized())
+            val depth = amount.coerceAtMost(1.0).toFloat()
+            crumple[index * 3] = (crumple[index * 3] + local.x.toFloat() * depth).coerceIn(-1f, 1f)
+            crumple[index * 3 + 1] = (crumple[index * 3 + 1] + local.y.toFloat() * depth).coerceIn(-1f, 1f)
+            crumple[index * 3 + 2] = (crumple[index * 3 + 2] + local.z.toFloat() * depth).coerceIn(-1f, 1f)
+        }
+        return health[index] <= 0.0
+    }
+
+    /**
+     * Takes on the state of [source]'s parts [indices] - fuel, what has
+     * fired, what has failed, how damaged, how deployed - as this craft's
+     * parts in the same order. For a piece that has just come off another:
+     * built fresh, it would otherwise start with full tanks and no damage.
+     */
+    fun inheritParts(source: Vessel, indices: List<Int>) {
+        fitPose()
+        indices.forEachIndexed { newIndex, oldIndex ->
+            source.resources[oldIndex].copyInto(resources[newIndex])
+            activated[newIndex] = source.activated[oldIndex]
+            broken[newIndex] = source.broken[oldIndex]
+            health[newIndex] = source.health.getOrElse(oldIndex) { 1.0 }
+            temperature[newIndex] = source.temperature.getOrElse(oldIndex) { AMBIENT_TEMPERATURE }
+            for (k in 0..2) crumple[newIndex * 3 + k] = source.crumple.getOrElse(oldIndex * 3 + k) { 0f }
+            setLegDeploy(newIndex, source.legDeploy.getOrElse(oldIndex) { 0.0 })
+        }
+        recomputeMass(shiftBodyPosition = false)
+    }
+
+    /** Restores condition from a save. */
+    fun restoreCondition(savedHealth: List<Double>, savedCrumple: List<Float>, savedTemperature: List<Double> = emptyList()) {
+        for (i in health.indices) health[i] = savedHealth.getOrElse(i) { 1.0 }.coerceIn(0.0, 1.0)
+        for (i in crumple.indices) crumple[i] = savedCrumple.getOrElse(i) { 0f }
+        for (i in temperature.indices) temperature[i] = savedTemperature.getOrElse(i) { AMBIENT_TEMPERATURE }
+    }
 
     /**
      * Parts that have failed but are still attached.
@@ -465,6 +589,9 @@ class Vessel(
         body.setInertia(properties.inertia)
     }
 
+    /** Part [index]'s mass as it stands, dry plus what is in it, kg. */
+    fun partMass(index: Int): Double = massOfPart(index)
+
     /** Centre of mass in design space. */
     fun centerOfMass(out: Vec3 = Vec3()): Vec3 = out.setTo(centerOfMassLocal)
 
@@ -654,11 +781,17 @@ class Vessel(
         val newActivated = BooleanArray(newDesign.parts.size)
         val newBroken = BooleanArray(newDesign.parts.size)
         val newDeploy = DoubleArray(newDesign.parts.size)
+        val newHealth = DoubleArray(newDesign.parts.size) { 1.0 }
+        val newCrumple = FloatArray(newDesign.parts.size * 3)
+        val newTemperature = DoubleArray(newDesign.parts.size) { AMBIENT_TEMPERATURE }
         keptIndices.forEachIndexed { newIndex, oldIndex ->
+            newTemperature[newIndex] = temperature.getOrElse(oldIndex) { AMBIENT_TEMPERATURE }
             resources[oldIndex].copyInto(newResources[newIndex])
             newActivated[newIndex] = activated[oldIndex]
             newBroken[newIndex] = broken[oldIndex]
             newDeploy[newIndex] = legDeploy.getOrElse(oldIndex) { 0.0 }
+            newHealth[newIndex] = health.getOrElse(oldIndex) { 1.0 }
+            for (k in 0..2) newCrumple[newIndex * 3 + k] = crumple.getOrElse(oldIndex * 3 + k) { 0f }
         }
 
         design = newDesign
@@ -666,6 +799,10 @@ class Vessel(
         resources = newResources
         activated = newActivated
         broken = newBroken
+        health = newHealth
+        crumple = newCrumple
+        temperature = newTemperature
+        resetStress(newDesign.parts.size)
         resetPose(newDeploy)
         name = newDesign.name
         computeFuelGroups()
@@ -826,17 +963,26 @@ class Vessel(
         val newBroken = BooleanArray(newDesign.parts.size)
 
         val newDeploy = DoubleArray(newDesign.parts.size)
+        val newHealth = DoubleArray(newDesign.parts.size) { 1.0 }
+        val newCrumple = FloatArray(newDesign.parts.size * 3)
+        val newTemperature = DoubleArray(newDesign.parts.size)
+        temperature.copyInto(newTemperature, 0, 0, own)
+        other.temperature.copyInto(newTemperature, own)
         for (i in 0 until own) {
             resources[i].copyInto(newResources[i])
             newActivated[i] = activated[i]
             newBroken[i] = broken[i]
             newDeploy[i] = legDeploy.getOrElse(i) { 0.0 }
+            newHealth[i] = health[i]
+            crumple.copyInto(newCrumple, i * 3, i * 3, i * 3 + 3)
         }
         for (j in other.design.parts.indices) {
             other.resources[j].copyInto(newResources[own + j])
             newActivated[own + j] = other.activated[j]
             newBroken[own + j] = other.broken[j]
             newDeploy[own + j] = other.legDeploy.getOrElse(j) { 0.0 }
+            newHealth[own + j] = other.health[j]
+            other.crumple.copyInto(newCrumple, (own + j) * 3, j * 3, j * 3 + 3)
         }
 
         design = newDesign
@@ -844,14 +990,29 @@ class Vessel(
         resources = newResources
         activated = newActivated
         broken = newBroken
+        health = newHealth
+        crumple = newCrumple
+        temperature = newTemperature
+        resetStress(newDesign.parts.size)
         resetPose(newDeploy)
         computeFuelGroups()
         recomputeMass()
+    }
+
+    private fun resetStress(parts: Int) {
+        wet = null
+        partForce = DoubleArray(parts * 3)
+        jointLoad = FloatArray(parts)
+        stress = 0.0
+        worstJoint = -1
     }
 
     override fun toString(): String = "Vessel($id '$name', ${partCount}p, ${body.mass.toInt()}kg)"
 
     companion object {
         private val RESOURCE_COUNT = ResourceType.entries.size
+
+        /** Where every part's temperature starts, K. */
+        const val AMBIENT_TEMPERATURE = 288.0
     }
 }

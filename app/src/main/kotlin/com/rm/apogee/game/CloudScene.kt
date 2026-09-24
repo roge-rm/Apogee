@@ -46,9 +46,22 @@ class CloudScene(
     /** The air at the camera this frame. */
     val air = AirSample()
 
-    private class Lobe(val centre: Vec3, val up: Quat, val scale: Vec3, val colour: FloatArray, val variant: Int, val flat: Boolean, val distance: Double) {
-        /** Near puffs are the finer mesh; the rest, a quarter of the facets. */
-        val detail: Int get() = if (distance < NEAR_DETAIL) 2 else 1
+    private class Lobe(
+        val centre: Vec3, val up: Quat, val scale: Vec3, val colour: FloatArray, val variant: Int, val flat: Boolean,
+        val distance: Double,
+        /** Whether this device can afford the finest mesh up close. */
+        val fine: Boolean,
+    ) {
+        /**
+         * Close puffs are the finest mesh, small facets that read as billows
+         * rather than slabs; near ones a quarter of that; far ones a quarter
+         * again.
+         */
+        val detail: Int get() = when {
+            fine && distance < CLOSE_DETAIL -> 3
+            distance < NEAR_DETAIL -> 2
+            else -> 1
+        }
     }
 
     @Volatile private var lobes: List<Lobe> = emptyList()
@@ -139,6 +152,7 @@ class CloudScene(
             variant = (hash and 0xFF).mod(CloudShapes.VARIANTS),
             flat = flatForced || type == CloudType.STRATUS || type == CloudType.ALTOSTRATUS || type == CloudType.CIRRUS,
             distance = distance,
+            fine = tier != QualityTier.LOW,
         )
     }
 
@@ -322,7 +336,8 @@ class CloudScene(
         /** Opacity of each kind at its thickest, by ordinal. */
         val OPACITY = doubleArrayOf(0.85, 0.55, 0.45, 0.25, 0.95)
 
-        /** Metres out to which puffs get the fine mesh. */
+        /** Metres out to which puffs get the finest mesh, and the fine one. */
+        const val CLOSE_DETAIL = 2_500.0
         const val NEAR_DETAIL = 6_000.0
 
         const val MAP_SPACING = 70_000.0

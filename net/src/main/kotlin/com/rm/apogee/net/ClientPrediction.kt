@@ -302,6 +302,29 @@ class ClientPrediction(
         scratchRotation.inverseRotate(position.copy(), position)
     }
 
+    /**
+     * Pieces the replica has dropped - a stage let go here a moment before
+     * the server hears of it - with where each is drawn, carried and
+     * corrected the way [renderPosition] carries the replica. Only until
+     * the server's own version of the split arrives: the replica is adopted
+     * afresh then, and these go with its old world.
+     */
+    fun droppedPieces(): List<Pair<Vessel, Vec3>> {
+        val local = vessel ?: return emptyList()
+        val replica = world ?: return emptyList()
+        if (replica.vessels.size < 2) return emptyList()
+        val offset = Vec3()
+        if (renderOffset.lengthSq > 0.0) {
+            system.body(local.referenceBodyId).rotationAt(replica.time + accumulator, scratchRotation)
+            scratchRotation.rotate(renderOffset, offset)
+        }
+        return replica.vessels.filter { it !== local }.map { piece ->
+            piece to Vec3().setTo(piece.body.position)
+                .addScaledInPlace(piece.body.linearVelocity, accumulator)
+                .addInPlace(offset)
+        }
+    }
+
     fun renderRotation(out: Quat = Quat()): Quat? {
         val local = vessel ?: return null
         return out.setTo(local.body.orientation)
@@ -321,6 +344,7 @@ class ClientPrediction(
         local.legDeploy.copyInto(into.deploy)
         local.gimbalPitch.copyInto(into.gimbalPitch)
         local.gimbalYaw.copyInto(into.gimbalYaw)
+        local.engineOutput.copyInto(into.output)
         return true
     }
 

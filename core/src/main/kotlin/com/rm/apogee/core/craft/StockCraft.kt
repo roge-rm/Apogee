@@ -45,9 +45,13 @@ object StockCraft {
 
         // Built top-down so the pod can be the root, but positioned in the
         // bottom-up coordinates the stack actually occupies.
-        val pod = add("pod-halo", 13.2, -1)
-        add("chute-canopy", 14.0, pod)
-        val upperTank = add("tank-cask2", 11.6, pod)
+        val pod = add("pod-halo", 13.6, -1)
+        add("chute-canopy", 14.4, pod)
+        // A shield under the pod and a ring under that: the pod comes home
+        // on its own, shield first.
+        val shield = add("shield-halo", 12.9, pod)
+        val podRing = add("decoupler-ring", 12.7, shield)
+        val upperTank = add("tank-cask2", 11.6, podRing)
         val upperEngine = add("engine-vesper", 10.1, upperTank)
         val decoupler = add("decoupler-ring", 9.5, upperEngine)
         val lowerTankTop = add("tank-cask4", 7.4, decoupler)
@@ -75,7 +79,9 @@ object StockCraft {
             // Separate the spent first stage and light the vacuum engine. Both
             // in one stage, so there is no coasting gap.
             Stage(listOf(decoupler, upperEngine)),
-            // Chute, for coming home.
+            // Let go of the upper stage: the pod goes home behind its shield.
+            Stage(listOf(podRing)),
+            // Chute, for the last of the way down.
             Stage(listOf(chute)),
         )
 

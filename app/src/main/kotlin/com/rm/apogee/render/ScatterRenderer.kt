@@ -72,6 +72,10 @@ class ScatterRenderer {
         atmosphereFactor: Float,
         hazeDistance: Float,
         world: WorldView,
+        /** How much sun reaches the camera, for the dark side. */
+        daylight: Float = 1f,
+        /** Weather fog's colour, dimmed for the time of day. */
+        fogColor: FloatArray = world.fogColor,
     ) {
         if (list.isEmpty()) return
         frame++
@@ -81,8 +85,9 @@ class ScatterRenderer {
         program.setFloat("uAtmosphereFactor", atmosphereFactor)
         program.setFloat("uHazeDistance", hazeDistance)
         program.setFloat("uLightScale", world.lightScale)
+        program.setFloat("uDaylight", daylight)
         program.setFloat("uFogDistance", world.fogDistance.toFloat())
-        program.setVec3("uFogColor", world.fogColor[0], world.fogColor[1], world.fogColor[2])
+        program.setVec3("uFogColor", fogColor[0], fogColor[1], fogColor[2])
         program.setFloat("uTime", (world.time % 10_000.0).toFloat())
         val wind = world.surfaceWind
         // Faceted meshes built by hand: drawn both sides rather than trusting

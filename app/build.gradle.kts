@@ -28,6 +28,26 @@ android {
         versionName = "0.4.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // The sound engine is native: phones, and the x86_64 emulator.
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
+        }
+        externalNativeBuild {
+            cmake {
+                cppFlags += listOf("-std=c++17", "-O2", "-ffast-math")
+                arguments += listOf("-DANDROID_STL=c++_shared")
+            }
+        }
+    }
+
+    ndkVersion = "28.2.13676358"
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "4.1.2"
+        }
     }
 
     buildTypes {
@@ -47,6 +67,8 @@ android {
         compose = true
         // For BuildConfig.DEBUG, which gates the on-screen frame/sim timing overlay.
         buildConfig = true
+        // Oboe arrives as a prefab package.
+        prefab = true
     }
 }
 
@@ -55,6 +77,7 @@ dependencies {
     implementation(project(":net"))
     implementation(project(":server"))
 
+    implementation(libs.oboe)
     implementation(libs.androidx.core.ktx)
     implementation(libs.kotlinx.coroutines.android)
 
@@ -106,4 +129,24 @@ tasks.register("dropDebugApk") {
         apk.copyTo(destination, overwrite = true)
         logger.lifecycle("Debug APK -> ${destination.absolutePath} (${destination.length() / 1024} KB)")
     }
+}
+
+/**
+ * Renders every sound in the game to WAV, on this machine, through the same
+ * synth the phone runs: `./gradlew :app:soundGallery` ->
+ * a WAV per sound in app/build/sound-gallery, each one's peak and loudness printed.
+ * `-Praw` measures with the limiter off, for setting levels.
+ */
+tasks.register<Exec>("soundGallery") {
+    group = "verification"
+    description = "Renders every sound recipe to WAV files in build/sound-gallery"
+    val out = layout.buildDirectory.dir("sound-gallery").get().asFile
+    val cpp = file("src/main/cpp")
+    val raw = project.hasProperty("raw")
+    doFirst { out.mkdirs() }
+    commandLine(
+        "sh", "-c",
+        "g++ -std=c++17 -O2 -ffast-math -o '${out}/gallery' '${cpp}/tools/sound_gallery.cpp' '${cpp}/synth/synth.cpp' " +
+            "&& '${out}/gallery' '${out}'" + (if (raw) " raw" else ""),
+    )
 }

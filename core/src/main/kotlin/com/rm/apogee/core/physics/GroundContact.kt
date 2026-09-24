@@ -17,31 +17,46 @@ class ContactReport {
     var worstPartIndex: Int = -1
 
     /**
-     * Parts that hit harder than they can take, this tick.
+     * Parts that hit harder than they can take, this tick: which, how hard
+     * (m/s into the surface, softened by soft ground), and the surface's
+     * normal - so the damage knows how much and the dent which way.
      *
-     * A fixed array rather than a list because `World.step` runs this for
-     * every vessel every tick and must not allocate. Sixteen is far more
-     * failures than any landing produces; past that the craft is scrap
-     * regardless of which part is named.
+     * Fixed arrays rather than lists because `World.step` runs this for
+     * every vessel every tick and must not allocate.
      */
-    val failedParts = IntArray(MAX_FAILURES)
-    var failureCount: Int = 0
+    val impactParts = IntArray(MAX_FAILURES)
+    val impactSpeeds = DoubleArray(MAX_FAILURES)
+    val impactNormals = DoubleArray(MAX_FAILURES * 3)
+    var impactCount: Int = 0
         private set
 
     fun reset() {
         contactCount = 0
         worstImpactSpeed = 0.0
         worstPartIndex = -1
-        failureCount = 0
+        impactCount = 0
         anchored = false
         friction = 0.0
     }
 
-    /** Records a failure, ignoring one already recorded this tick. */
-    fun recordFailure(partIndex: Int) {
-        for (i in 0 until failureCount) if (failedParts[i] == partIndex) return
-        if (failureCount >= MAX_FAILURES) return
-        failedParts[failureCount++] = partIndex
+    /**
+     * Records [partIndex] hitting at [speed] against a surface facing
+     * [normal] (world axes); a part hit twice this tick keeps the harder.
+     */
+    fun recordImpact(partIndex: Int, speed: Double, normal: Vec3) {
+        for (i in 0 until impactCount) {
+            if (impactParts[i] != partIndex) continue
+            if (speed > impactSpeeds[i]) {
+                impactSpeeds[i] = speed
+                impactNormals[i * 3] = normal.x; impactNormals[i * 3 + 1] = normal.y; impactNormals[i * 3 + 2] = normal.z
+            }
+            return
+        }
+        if (impactCount >= MAX_FAILURES) return
+        impactParts[impactCount] = partIndex
+        impactSpeeds[impactCount] = speed
+        impactNormals[impactCount * 3] = normal.x; impactNormals[impactCount * 3 + 1] = normal.y; impactNormals[impactCount * 3 + 2] = normal.z
+        impactCount++
     }
 
     val hadContact: Boolean get() = contactCount > 0
@@ -268,7 +283,7 @@ class GroundContact {
                 report.worstImpactSpeed = impactSpeed
                 report.worstPartIndex = partIndex
             }
-            if (impactSpeed > def.crashTolerance) report.recordFailure(partIndex)
+            if (impactSpeed > def.crashTolerance) report.recordImpact(partIndex, impactSpeed, normal)
 
             inverseInertiaWorld.setRotated(body.inverseInertiaLocal, body.orientation)
 

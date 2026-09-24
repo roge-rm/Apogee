@@ -1,0 +1,92 @@
+package com.rm.apogee.core.world
+
+import com.rm.apogee.core.craft.Vessel
+
+/**
+ * The state of a craft's parts - how hurt, how hot, how dented - packed for
+ * the wire, so everyone sees the scorch and the glow and the crumpled nose,
+ * not only the pilot.
+ *
+ * Five bytes a part: health, temperature, and the dent's three axes. Empty
+ * for a craft that is whole and cool, which is nearly every craft nearly all
+ * the time, so the snapshot of a fleet parked on the pad costs nothing.
+ */
+object VesselCondition {
+
+    const val BYTES_PER_PART = 5
+
+    /** Below this nothing glows, and a craft this cool and whole sends nothing, K. */
+    const val WARM = 400.0
+
+    /** The coolest and hottest a byte can say, K. */
+    const val COOLEST = 250.0
+    const val HOTTEST = 4_000.0
+
+    fun encode(vessel: Vessel): ByteArray {
+        val n = vessel.design.parts.size
+        val health = vessel.health
+        val temperature = vessel.temperature
+        val crumple = vessel.crumple
+        var anything = false
+        for (i in 0 until n) {
+            if (health[i] < 0.999 || temperature[i] > WARM ||
+                crumple[i * 3] != 0f || crumple[i * 3 + 1] != 0f || crumple[i * 3 + 2] != 0f
+            ) { anything = true; break }
+        }
+        if (!anything) return ByteArray(0)
+        val out = ByteArray(n * BYTES_PER_PART)
+        for (i in 0 until n) {
+            val k = i * BYTES_PER_PART
+            out[k] = (health[i].coerceIn(0.0, 1.0) * 255.0 + 0.5).toInt().toByte()
+            out[k + 1] = (((temperature[i] - COOLEST) / (HOTTEST - COOLEST)).coerceIn(0.0, 1.0) * 255.0 + 0.5).toInt().toByte()
+            for (a in 0..2) out[k + 2 + a] = (crumple[i * 3 + a].coerceIn(-1f, 1f) * 127f).toInt().toByte()
+        }
+        return out
+    }
+
+    /** A craft's parts as the wire last described them. */
+    class Values {
+        var health = FloatArray(0); private set
+        var temperature = FloatArray(0); private set
+        var crumple = FloatArray(0); private set
+
+        /** Whether anything is hurt, hot or dented at all. */
+        var any = false; private set
+
+        fun fit(parts: Int) {
+            if (health.size != parts) {
+                health = FloatArray(parts)
+                temperature = FloatArray(parts)
+                crumple = FloatArray(parts * 3)
+            }
+        }
+
+        internal fun clear() {
+            health.fill(1f)
+            temperature.fill(com.rm.apogee.core.craft.Vessel.AMBIENT_TEMPERATURE.toFloat())
+            crumple.fill(0f)
+            any = false
+        }
+
+        internal fun mark() { any = true }
+    }
+
+    /**
+     * Unpacks [bytes] for a craft of [parts] parts into [into]. An empty
+     * block, or one for a different number of parts - the structure changed
+     * and the snapshot has not caught up - reads as whole and cool.
+     */
+    fun decode(parts: Int, bytes: ByteArray, into: Values): Values {
+        into.fit(parts)
+        into.clear()
+        if (bytes.size != parts * BYTES_PER_PART) return into
+        into.mark()
+        for (i in 0 until parts) {
+            val k = i * BYTES_PER_PART
+            into.health[i] = (bytes[k].toInt() and 0xFF) / 255f
+            into.temperature[i] = (COOLEST + (bytes[k + 1].toInt() and 0xFF) / 255.0 * (HOTTEST - COOLEST)).toFloat()
+            for (a in 0..2) into.crumple[i * 3 + a] = bytes[k + 2 + a] / 127f
+        }
+        return into
+    }
+}

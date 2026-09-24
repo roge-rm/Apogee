@@ -1,5 +1,6 @@
 package com.rm.apogee.game
 
+import com.rm.apogee.core.world.PartEventKind
 import com.rm.apogee.core.math.Quat
 import com.rm.apogee.core.math.Vec3
 import com.rm.apogee.core.math.quatFromTo
@@ -10,6 +11,7 @@ import com.rm.apogee.core.terrain.Noise
 import com.rm.apogee.core.weather.AirSample
 import com.rm.apogee.core.weather.Strike
 import com.rm.apogee.core.weather.Weather
+import com.rm.apogee.render.NightLight
 import com.rm.apogee.render.QualityTier
 import com.rm.apogee.render.RenderItem
 import kotlin.math.exp
@@ -58,7 +60,12 @@ class Effects(tier: QualityTier) {
     /** Upward acceleration from heat, m/s^2, fading as it cools. */
     private val rise = FloatArray(capacity)
     private val streak = BooleanArray(capacity)
+    /** Lights itself - fire, sparks - rather than being lit by the sun. */
+    private val glows = BooleanArray(capacity)
+    /** Falls and comes to rest on the ground, as fragments and sparks do. */
+    private val falls = BooleanArray(capacity)
     private var count = 0
+    private var gravity = 9.81
     private var spawnCounter = 0
 
     private val scratch = Vec3()
@@ -92,6 +99,9 @@ class Effects(tier: QualityTier) {
         return out.mulInPlace(1.0 / count)
     }
 
+    /** Bolts seen since last drained: distance, m, and energy - for their thunder. */
+    val thunder = ArrayList<DoubleArray>()
+
     /** How bright the sky is from lightning, 0..1, decaying. */
     var flash = 0f
         private set
@@ -112,6 +122,7 @@ class Effects(tier: QualityTier) {
         cameraAir: AirSample?,
     ) {
         if (dt <= 0.0) return
+        gravity = body.surfaceGravity
         val terrain = body.terrain
         val atmosphere = body.atmosphere
 
@@ -273,6 +284,7 @@ class Effects(tier: QualityTier) {
             val distance = ground.distanceTo(camera)
             if (distance > LIGHTNING_VISIBLE) continue
             bolts.add(Bolt(jagged(ground, s.direction, s.id), time, s.energy))
+            thunder.add(doubleArrayOf(distance, s.energy))
             flash = max(flash, (s.energy * exp(-distance / 12_000.0)).toFloat())
         }
         bolts.removeAll { time - it.born > BOLT_SECONDS }
@@ -316,6 +328,20 @@ class Effects(tier: QualityTier) {
                 val lift = rise[i] * cool * dt / r
                 vx[i] += px[i] * lift; vy[i] += py[i] * lift; vz[i] += pz[i] * lift
             }
+            if (falls[i]) {
+                val r = sqrt(px[i] * px[i] + py[i] * py[i] + pz[i] * pz[i])
+                val ux = px[i] / r; val uy = py[i] / r; val uz = pz[i] / r
+                if (height > 0.15) {
+                    val g = gravity * dt
+                    vx[i] -= ux * g; vy[i] -= uy * g; vz[i] -= uz * g
+                } else {
+                    // Landed: it stops going down, and skids to a halt.
+                    val down = vx[i] * ux + vy[i] * uy + vz[i] * uz
+                    if (down < 0.0) { vx[i] -= ux * down; vy[i] -= uy * down; vz[i] -= uz * down }
+                    val stop = exp(-4.0 * dt)
+                    vx[i] *= stop; vy[i] *= stop; vz[i] *= stop
+                }
+            }
             px[i] += vx[i] * dt; py[i] += vy[i] * dt; pz[i] += vz[i] * dt
             i++
         }
@@ -330,6 +356,7 @@ class Effects(tier: QualityTier) {
             size0[i] = size0[last]; size1[i] = size1[last]
             for (c in 0 until 4) colour[i * 4 + c] = colour[last * 4 + c]
             grip[i] = grip[last]; rise[i] = rise[last]; streak[i] = streak[last]
+            glows[i] = glows[last]; falls[i] = falls[last]
         }
         count--
     }
@@ -338,6 +365,7 @@ class Effects(tier: QualityTier) {
         x: Double, y: Double, z: Double, vx: Double, vy: Double, vz: Double,
         life: Double, startSize: Double, endSize: Double,
         r: Float, g: Float, b: Float, a: Float, grip: Double, rise: Double, streak: Boolean = false,
+        glow: Boolean = false, fall: Boolean = false,
     ) {
         // Full: the oldest-looking one makes way, rather than the new one
         // not appearing - fresh smoke matters more than old.
@@ -348,6 +376,7 @@ class Effects(tier: QualityTier) {
         size0[i] = startSize.toFloat(); size1[i] = endSize.toFloat()
         colour[i * 4] = r; colour[i * 4 + 1] = g; colour[i * 4 + 2] = b; colour[i * 4 + 3] = a
         this.grip[i] = grip.toFloat(); this.rise[i] = rise.toFloat(); this.streak[i] = streak
+        glows[i] = glow; falls[i] = fall
     }
 
     // --- flames -----------------------------------------------------------------
@@ -461,11 +490,14 @@ class Effects(tier: QualityTier) {
             )
         }
 
-        // Re-entry heating: sqrt(density) times speed cubed, the shape of the
-        // real heat flux, scaled so a return from low orbit glows hottest
-        // through the thirties of kilometres.
-        val heat = sqrt(density) * speed * speed * speed / HEAT_SCALE
-        val glow = smoothstep(0.25, 2.0, heat)
+        // Re-entry glow: air heated to plasma. What decides it is how hot
+        // the air stopped against the craft gets - the recovery temperature,
+        // v²/2cp, the same the heat model uses - and a return from orbit
+        // passes 2,500 K where a fast dive low down, at a kilometre a second,
+        // never passes 800. Thick enough air to glow, but it hardly matters
+        // how thick past that.
+        val recovery = speed * speed / (2.0 * 1_005.0)
+        val glow = smoothstep(GLOW_FROM, GLOW_FULL, recovery) * smoothstep(1e-6, 1e-4, density)
         if (glow > 0.02) {
             val flicker = 0.9 + 0.1 * Noise.simplex(seed + 3, time * 17.0, 0.0, 0.0)
             val ahead = centre.copy().addScaledInPlace(flow, -size * 0.9)
@@ -491,12 +523,143 @@ class Effects(tier: QualityTier) {
         }
     }
 
+    // --- crashes -------------------------------------------------------------------
+
+    /**
+     * What a blow, a breakage or a blast looks like, at [at] (body-fixed).
+     * [amount] is the impact speed for an impact and the propellant for an
+     * explosion; [colour] is the part's own, for its fragments.
+     */
+    fun partEvent(kind: PartEventKind, at: Vec3, amount: Double, colour: FloatArray?, seed: Int, water: Boolean = false) {
+        up.setTo(at).normalizeInPlace()
+        when (kind) {
+            PartEventKind.IMPACT -> if (water) splash(at, amount) else {
+                val strength = (amount / 30.0).coerceIn(0.1, 2.0)
+                sparks(at, (6 + 14 * strength).toInt(), 6.0 + 10.0 * strength, 0.12)
+                // A burst of whatever the ground is made of.
+                repeat((3 + 8 * strength).toInt()) { k ->
+                    val s = 1.0 + 3.0 * strength
+                    spawn(
+                        x = at.x + jitter(k, 1), y = at.y + jitter(k, 2), z = at.z + jitter(k, 3),
+                        vx = jitter(k, 4) * s + up.x * s, vy = jitter(k, 5) * s + up.y * s, vz = jitter(k, 6) * s + up.z * s,
+                        life = 2.0 + 2.0 * rand(k), startSize = 0.8 + strength, endSize = 2.5 + 2.0 * strength,
+                        r = 0.52f, g = 0.47f, b = 0.40f, a = 0.55f, grip = 1.2, rise = 0.3,
+                    )
+                }
+            }
+            PartEventKind.DESTROYED -> {
+                val c = colour ?: floatArrayOf(0.6f, 0.6f, 0.62f, 1f)
+                // Pieces of it, in its own colour, some scorched.
+                repeat(14) { k ->
+                    val burnt = rand(k) < 0.35f
+                    val tone = if (burnt) 0.25f else 0.8f + 0.2f * rand(k + 1)
+                    val s = 6.0 + 14.0 * rand(k + 2)
+                    spawn(
+                        x = at.x, y = at.y, z = at.z,
+                        vx = jitter(k, 1) * s + up.x * s * 0.6, vy = jitter(k, 2) * s + up.y * s * 0.6, vz = jitter(k, 3) * s + up.z * s * 0.6,
+                        life = 6.0 + 4.0 * rand(k + 3), startSize = 0.25 + 0.35 * rand(k + 4), endSize = 0.2,
+                        r = c[0] * tone, g = c[1] * tone, b = c[2] * tone, a = 1f, grip = 0.05, rise = 0.0, fall = true,
+                    )
+                }
+                sparks(at, 12, 10.0, 0.1)
+                smoke(at, 6, 1.5, 0.5)
+            }
+            PartEventKind.DETACHED -> sparks(at, 10, 7.0, 0.1)
+            PartEventKind.EXPLOSION -> {
+                val scale = sqrt(amount.coerceAtLeast(20.0) / 2_000.0).coerceIn(0.15, 3.0)
+                // The fireball: bright, fast, slowing hard and rising.
+                repeat((50 * scale).toInt().coerceIn(12, 150)) { k ->
+                    val s = (6.0 + 22.0 * rand(k)) * scale
+                    val hot = rand(k + 1)
+                    spawn(
+                        x = at.x, y = at.y, z = at.z,
+                        vx = jitter(k, 1) * s, vy = jitter(k, 2) * s, vz = jitter(k, 3) * s,
+                        life = 0.9 + 1.2 * rand(k + 2), startSize = 2.0 * scale + 1.0, endSize = 7.0 * scale + 2.0,
+                        r = 1f, g = 0.55f + 0.4f * hot, b = 0.15f + 0.45f * hot * hot, a = 0.9f, grip = 2.5, rise = 3.0, glow = true,
+                    )
+                }
+                // Then the smoke it leaves, dark and climbing.
+                smoke(at, (30 * scale).toInt().coerceIn(8, 80), 5.0 * scale, 2.5 * scale)
+                // And burning debris thrown wide.
+                sparks(at, (30 * scale).toInt().coerceIn(10, 80), 25.0 * scale, 0.35)
+                flash = maxOf(flash, (0.35 * scale).toFloat().coerceAtMost(0.8f))
+            }
+        }
+    }
+
+    /**
+     * A part on fire: flames licking up off it and smoke drifting away
+     * downwind, from [at] (body-fixed), for a part [size] across.
+     */
+    fun burn(at: Vec3, size: Double, dt: Double, seed: Int) {
+        up.setTo(at).normalizeInPlace()
+        val flames = poisson(14.0 * rateScale * dt, seed)
+        for (k in 0 until flames) {
+            spawn(
+                x = at.x + jitter(k, 1) * size * 0.4, y = at.y + jitter(k, 2) * size * 0.4, z = at.z + jitter(k, 3) * size * 0.4,
+                vx = up.x * 2.0, vy = up.y * 2.0, vz = up.z * 2.0,
+                life = 0.5 + 0.5 * rand(k), startSize = size * 0.5, endSize = size * 0.15,
+                r = 1f, g = 0.45f + 0.35f * rand(k + 1), b = 0.1f, a = 0.85f, grip = 1.0, rise = 2.0, glow = true,
+            )
+        }
+        val puffs = poisson(5.0 * rateScale * dt, seed + 1)
+        for (k in 0 until puffs) {
+            spawn(
+                x = at.x, y = at.y, z = at.z,
+                vx = up.x * 1.5, vy = up.y * 1.5, vz = up.z * 1.5,
+                life = 6.0 + 4.0 * rand(k), startSize = size * 0.6, endSize = size * 3.0,
+                r = 0.16f, g = 0.15f, b = 0.14f, a = 0.5f, grip = 0.8, rise = 1.2,
+            )
+        }
+    }
+
+    /** Water thrown up where something went into it at [speed]: a white column and falling spray. */
+    private fun splash(at: Vec3, speed: Double) {
+        val strength = (speed / 30.0).coerceIn(0.2, 4.0)
+        repeat((10 + 20 * strength).toInt().coerceAtMost(120)) { k ->
+            val s = (3.0 + 9.0 * rand(k)) * strength
+            spawn(
+                x = at.x, y = at.y, z = at.z,
+                vx = jitter(k, 1) * s * 0.4 + up.x * s, vy = jitter(k, 2) * s * 0.4 + up.y * s, vz = jitter(k, 3) * s * 0.4 + up.z * s,
+                life = 1.5 + 1.5 * rand(k + 1), startSize = 0.6 * strength, endSize = 1.8 * strength,
+                r = 0.93f, g = 0.96f, b = 1f, a = 0.8f, grip = 0.3, rise = 0.0, fall = true,
+            )
+        }
+    }
+
+    private fun sparks(at: Vec3, n: Int, speed: Double, size: Double) {
+        repeat(n) { k ->
+            val s = speed * (0.4 + 0.6 * rand(k))
+            spawn(
+                x = at.x, y = at.y, z = at.z,
+                vx = jitter(k, 1) * s + up.x * s * 0.5, vy = jitter(k, 2) * s + up.y * s * 0.5, vz = jitter(k, 3) * s + up.z * s * 0.5,
+                life = 0.4 + 0.8 * rand(k + 1), startSize = size, endSize = size * 0.5,
+                r = 1f, g = 0.7f + 0.25f * rand(k + 2), b = 0.3f, a = 1f, grip = 0.1, rise = 0.0, glow = true, fall = true,
+            )
+        }
+    }
+
+    private fun smoke(at: Vec3, n: Int, size: Double, rising: Double) {
+        repeat(n) { k ->
+            val s = 2.0 + 4.0 * rand(k)
+            spawn(
+                x = at.x + jitter(k, 1) * size, y = at.y + jitter(k, 2) * size, z = at.z + jitter(k, 3) * size,
+                vx = jitter(k, 4) * s + up.x * s, vy = jitter(k, 5) * s + up.y * s, vz = jitter(k, 6) * s + up.z * s,
+                life = 6.0 + 5.0 * rand(k + 1), startSize = size, endSize = size * 3.5,
+                r = 0.13f, g = 0.12f, b = 0.11f, a = 0.6f, grip = 0.7, rise = rising,
+            )
+        }
+    }
+
     private fun smoothstep(a: Double, b: Double, x: Double): Double {
         val t = ((x - a) / (b - a)).coerceIn(0.0, 1.0)
         return t * t * (3 - 2 * t)
     }
 
     // --- drawing ------------------------------------------------------------------
+
+    private val smokeLight = FloatArray(3)
+    private val rainLight = FloatArray(3)
 
     /** Triple-buffered, so the renderer can still be reading one while the next is filled. */
     private val buffers = Array(3) { FloatArray(0) }
@@ -508,7 +671,15 @@ class Effects(tier: QualityTier) {
      * [VERTEX_FLOATS] per vertex, six vertices per shape. Returns the array
      * and how many shapes are in it.
      */
-    fun vertices(bodyRotation: Quat, cameraPos: Vec3, cameraRotation: Quat, lightScale: Float, time: Double): Pair<FloatArray, Int> {
+    fun vertices(
+        bodyRotation: Quat,
+        cameraPos: Vec3,
+        cameraRotation: Quat,
+        lightScale: Float,
+        time: Double,
+        /** How much sun reaches the camera: at night smoke and rain are moonlit, not white. */
+        daylight: Float = 1f,
+    ): Pair<FloatArray, Int> {
         val shapes = count + bolts.sumOf { it.points.size - 1 }
         val needed = shapes * 6 * VERTEX_FLOATS
         bufferIndex = (bufferIndex + 1) % buffers.size
@@ -519,6 +690,11 @@ class Effects(tier: QualityTier) {
         val p = Vec3()
         var o = 0
         var written = 0
+        // What lights a puff that does not glow: sun, or moon and twilight.
+        // Rain is lit by the sky's full light by day, not dimmed by the cloud
+        // it falls from, and smoke by what reaches under it.
+        NightLight.flatLight(daylight, 0.55f + 0.45f * lightScale, lightScale, smokeLight)
+        NightLight.flatLight(daylight, 1f, lightScale, rainLight)
         for (i in 0 until count) {
             p.setTo(px[i], py[i], pz[i])
             bodyRotation.rotate(p, p).subInPlace(cameraPos)
@@ -526,8 +702,12 @@ class Effects(tier: QualityTier) {
             val size = size0[i] + (size1[i] - size0[i]) * u
             val fadeIn = min(1f, age[i] / 0.2f)
             val alpha = colour[i * 4 + 3] * fadeIn * (1f - u) * (1f - u)
-            val shade = if (streak[i]) 1f else 0.55f + 0.45f * lightScale
-            val r = colour[i * 4] * shade; val g = colour[i * 4 + 1] * shade; val b = colour[i * 4 + 2] * shade
+            val light = when {
+                glows[i] -> GLOWING
+                streak[i] -> rainLight
+                else -> smokeLight
+            }
+            val r = colour[i * 4] * light[0]; val g = colour[i * 4 + 1] * light[1]; val b = colour[i * 4 + 2] * light[2]
             if (streak[i]) {
                 // A short streak along its fall, as seen.
                 scratch.setTo(vx[i], vy[i], vz[i])
@@ -611,11 +791,16 @@ class Effects(tier: QualityTier) {
         /** Ambient at or above 1 means "glows": drawn at its own colour. */
         const val EMISSIVE = 1.0f
 
+        /** A glowing particle's light: its own colour, day or night. */
+        private val GLOWING = floatArrayOf(1f, 1f, 1f)
+
         const val CONTRAIL_ALTITUDE = 8_000.0
         const val SPEED_OF_SOUND = 340.0
 
         /** Heat index 1: a strong glow. See [aero]. */
-        const val HEAT_SCALE = 6.0e8
+        /** Recovery temperature rise where the plasma begins to show, and where it is full, K. */
+        const val GLOW_FROM = 1_400.0
+        const val GLOW_FULL = 2_600.0
 
         /** A cone of condensed vapour, open at the back, around the craft. */
         val VAPOUR_CONE = ModelSpec.Lathe(

@@ -105,18 +105,24 @@ class LandingTest {
 
     /**
      * The control for the test above. Gear has to be the difference, not the
-     * descent rate being survivable anyway.
+     * descent rate being harmless anyway: on its engine bell the same
+     * touchdown damages the engine - and only the engine and what it jolts;
+     * the pod on top is spared, and the craft is still there.
      */
     @Test
-    fun `the same touchdown with the gear up destroys the craft`() {
+    fun `the same touchdown with the gear up damages the engine`() {
         val world = world()
         val vessel = drop(world, height = 12.0, descentRate = 6.0, gearDown = false)
         val id = vessel.id
         settle(world, id, 30.0)
 
-        assertNull("landing on the engine bell at 6 m/s should not be survivable", world.vessel(id))
-        val destroyed = world.drainEvents().filterIsInstance<WorldEvent.VesselDestroyed>()
-        assertTrue("should report what failed", destroyed.any { it.id == id })
+        val landed = world.vessel(id)
+        assertNotNull("a hard landing is damage, not the end of the craft", landed)
+        val engine = landed!!.defs.indices.first { landed.defs[it].id.startsWith("engine") }
+        val pod = landed.defs.indices.first { landed.defs[it].id.startsWith("pod") }
+        assertTrue("the engine took the blow: ${landed.health[engine]}", landed.health[engine] < 0.8)
+        assertTrue("the pod was spared: ${landed.health[pod]}", landed.health[pod] > 0.95)
+        assertTrue("it says what was hit", world.drainEvents().any { it is WorldEvent.Impact && it.id == id })
     }
 
     /**
@@ -135,8 +141,8 @@ class LandingTest {
 
         val landed = world.vessel(id)
         assertTrue(
-            "a mid-deploy touchdown at 6 m/s should break something",
-            landed == null || landed.broken.any { it },
+            "a mid-deploy touchdown at 6 m/s should hurt something",
+            landed == null || landed.broken.any { it } || landed.health.any { it < 1.0 },
         )
     }
 

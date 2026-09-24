@@ -64,6 +64,7 @@ import java.io.File
 class MainActivity : ComponentActivity() {
 
     private lateinit var settings: GameSettings
+    private var lastBusGains = FloatArray(0)
     private lateinit var hudState: HudState
     private lateinit var frameBus: FrameBus
 
@@ -132,6 +133,16 @@ class MainActivity : ComponentActivity() {
         serverName = "${settings.playerName}'s Game"
         detectedTier = settings.lastDetectedTier
 
+        // Sound: as many voices at once as the device's tier can carry.
+        com.rm.apogee.audio.AudioEngine.start(
+            when (settings.effectiveTier) {
+                com.rm.apogee.render.QualityTier.LOW -> 16
+                com.rm.apogee.render.QualityTier.HIGH -> 48
+                else -> 32
+            },
+        )
+        com.rm.apogee.audio.AudioEngine.busGains(settings.busGains())
+
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         setContentView(R.layout.activity_main)
 
@@ -195,6 +206,12 @@ class MainActivity : ComponentActivity() {
                         onJoin = ::onJoin,
                         onSwitchCraft = ::onSwitchCraft,
                         onExit = { navigateTo(AppScreen.PLAY) },
+                        onWarp = { rate -> session?.let { s -> lifecycleScope.launch { s.setWarp(rate) } } },
+                        craftChoices = { session?.myCraft() ?: emptyList() },
+                        currentCraft = { session?.controlledCraft },
+                        onFlyCraft = { id -> session?.let { s -> lifecycleScope.launch { s.flyCraft(id) } } },
+                        onRemoveCraft = { id -> session?.let { s -> lifecycleScope.launch { s.removeCraft(id) } } },
+                        onRetire = ::onRetire,
                     )
                     AppScreen.BUILDER -> builderSession?.let { builder ->
                         BuilderScreen(
@@ -373,6 +390,19 @@ class MainActivity : ComponentActivity() {
     private fun onJoin() {
         val current = session ?: return
         lifecycleScope.launch { current.join() }
+    }
+
+    /**
+     * Takes the craft being flown out of the world and goes back to the
+     * menu - once the server has done it, or the world saved on the way out
+     * would still have it.
+     */
+    private fun onRetire() {
+        val current = session ?: return
+        lifecycleScope.launch {
+            current.retire()
+            navigateTo(AppScreen.PLAY)
+        }
     }
 
     private fun onSwitchCraft() {
@@ -677,6 +707,18 @@ class MainActivity : ComponentActivity() {
                     hudState.canJoin = current.joinable
                     hudState.ownedCraft = current.ownedCraftCount
                     hudState.hasWheels = current.controlledHasWheels
+                    if (settings.showDebugOverlay) hudState.voices = com.rm.apogee.audio.AudioEngine.activeVoices
+                    // The mix follows the settings as they are moved.
+                    val gains = settings.busGains()
+                    if (!gains.contentEquals(lastBusGains)) {
+                        lastBusGains = gains
+                        com.rm.apogee.audio.AudioEngine.busGains(gains)
+                    }
+                    current.clock?.let { clock ->
+                        hudState.warp = clock.warp
+                        hudState.warpRequested = clock.warpRequested
+                        hudState.warpAllowed = clock.warpAllowed
+                    }
                 }
 
                 frameBus.latest()?.latest?.let { frame ->
@@ -691,6 +733,7 @@ class MainActivity : ComponentActivity() {
     override fun onPause() {
         super.onPause()
         surfaceView?.onPause()
+        com.rm.apogee.audio.AudioEngine.pause(true)
     }
 
     /**
@@ -713,12 +756,14 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         surfaceView?.onResume()
+        com.rm.apogee.audio.AudioEngine.pause(false)
         if (appScreen.needsWorldSurface) hideSystemBars()
     }
 
     override fun onDestroy() {
         serverBrowser.stop()
         leaveWorld()
+        com.rm.apogee.audio.AudioEngine.stop()
         super.onDestroy()
     }
 

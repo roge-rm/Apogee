@@ -31,5 +31,12 @@ enum class ResourceType(
 
     /** Massless by convention, as in most of the genre. */
     @SerialName("electricCharge")
-    ELECTRIC_CHARGE(densityPerUnit = 0.0, displayName = "Electric Charge");
+    ELECTRIC_CHARGE(densityPerUnit = 0.0, displayName = "Electric Charge"),
+
+    /** What a heat shield chars away to keep the craft behind it cool. */
+    @SerialName("ablator")
+    ABLATOR(densityPerUnit = 1.0, displayName = "Ablator");
+
+    /** Whether a tank of it goes up when the tank is destroyed. */
+    val explosive: Boolean get() = this == PROPELLANT || this == MONOPROPELLANT
 }

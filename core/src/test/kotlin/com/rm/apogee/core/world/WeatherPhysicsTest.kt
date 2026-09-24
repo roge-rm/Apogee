@@ -84,7 +84,7 @@ class WeatherPhysicsTest {
         var failed = false
         repeat((6.0 / dt).toInt()) {
             world.step(dt)
-            if (world.drainEvents().any { it is WorldEvent.PartFailed && it.reason.contains("under load") }) failed = true
+            if (world.drainEvents().any { it is WorldEvent.PartDetached && it.cause.contains("under load") }) failed = true
         }
         assertTrue("a full pull at 260 m/s should break something", failed)
     }

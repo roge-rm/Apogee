@@ -25,6 +25,9 @@ class HudState {
 
     // --- flight -------------------------------------------------------------
     var telemetry: FlightTelemetry by mutableStateOf(FlightTelemetry.EMPTY)
+
+    /** Whether the part-condition list under the caution chips is open. */
+    var damageExpanded: Boolean by mutableStateOf(false)
     var connecting: Boolean by mutableStateOf(true)
     var connectionError: String? by mutableStateOf(null)
 
@@ -66,6 +69,17 @@ class HudState {
     /** Whether the SAS mode and target picker is open. */
     var sasPickerOpen: Boolean by mutableStateOf(false)
 
+    /** Time: how fast it runs (0 paused), what was asked for, and whether this player may change it. */
+    var warp: Double by mutableStateOf(1.0)
+    var warpRequested: Double by mutableStateOf(1.0)
+    var warpAllowed: Boolean by mutableStateOf(false)
+
+    /** Sounds playing now, for diagnostics. */
+    var voices: Int by mutableIntStateOf(0)
+
+    /** Whether the warp rates are showing. */
+    var warpPickerOpen: Boolean by mutableStateOf(false)
+
     /** Clears transient state when leaving the world, so a new flight starts clean. */
     fun reset() {
         frameTimeMillis = 0f
@@ -86,5 +100,9 @@ class HudState {
         stages = emptyList()
         stagesExpanded = false
         sasPickerOpen = false
+        warp = 1.0
+        warpRequested = 1.0
+        warpAllowed = false
+        warpPickerOpen = false
     }
 }

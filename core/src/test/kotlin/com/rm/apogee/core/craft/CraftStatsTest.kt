@@ -15,11 +15,11 @@ class CraftStatsTest {
         val stats = CraftStats.analyze(StockCraft.starterRocket(catalog), catalog)
 
         assertTrue("should be flyable: ${stats.problems}", stats.isFlyable)
-        assertEquals(13, stats.partCount)
-        assertEquals("two engine stages plus the chute", 3, stats.stages.size)
+        assertEquals(15, stats.partCount)
+        assertEquals("two engine stages, the pod's release and the chute", 4, stats.stages.size)
 
-        // The chute stage still has the upper engine lit behind it, with
-        // nothing left to feed it - only two stages actually burn.
+        // The stages after the second still have the upper engine lit
+        // behind them, with nothing left to feed it - only two burn.
         val burning = stats.burns
         assertEquals(2, burning.size)
         assertTrue("first stage should out-thrust the second",

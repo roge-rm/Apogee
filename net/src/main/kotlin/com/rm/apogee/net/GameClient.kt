@@ -49,9 +49,14 @@ class ClientVessel(
     @Volatile var observed: Observation? = null
         private set
 
+    /** The observation before [observed]: the other end to draw between, under warp. */
+    @Volatile var previousObserved: Observation? = null
+        private set
+
     fun observe(kinematics: VesselKinematics, time: Double = 0.0) {
         previous = latest
         latest = kinematics
+        previousObserved = observed
         observed = Observation(kinematics, time)
     }
 }
@@ -169,6 +174,10 @@ class GameClient(
     @Volatile var weather: com.rm.apogee.core.weather.WeatherConfig? = null
         private set
 
+    /** Blows, breakages and blasts, for the presentation to show and sound. */
+    val partEvents: java.util.concurrent.ConcurrentLinkedQueue<ServerMessage.PartEvent> =
+        java.util.concurrent.ConcurrentLinkedQueue()
+
     /** Lightning that hit something, for the presentation to flash and report. */
     val lightningHits: java.util.concurrent.ConcurrentLinkedQueue<ServerMessage.Lightning> =
         java.util.concurrent.ConcurrentLinkedQueue()
@@ -235,6 +244,13 @@ class GameClient(
                 lightningHits.add(message)
             }
 
+            is ServerMessage.PartEvent -> {
+                partEvents.add(message)
+                // Nobody draining it - a headless client, a test - must not
+                // make it grow without end.
+                while (partEvents.size > MAX_PART_EVENTS) partEvents.poll()
+            }
+
             is ServerMessage.FuelLevels -> {
                 vesselsById[message.vessel]?.fuel = message.amounts
             }
@@ -253,5 +269,6 @@ class GameClient(
 
     private companion object {
         const val MAX_CHAT_LINES = 100
+        const val MAX_PART_EVENTS = 256
     }
 }

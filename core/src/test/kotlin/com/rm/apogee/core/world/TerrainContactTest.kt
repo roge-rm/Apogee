@@ -100,22 +100,32 @@ class TerrainContactTest {
     }
 
     /** Top ground speed a rover reaches in [seconds] at full throttle on [material]. */
-    private fun driveOn(material: SurfaceMaterial, design: com.rm.apogee.core.craft.CraftDesign, seconds: Double = 15.0): Double {
+    private fun driveOn(
+        material: SurfaceMaterial,
+        design: com.rm.apogee.core.craft.CraftDesign,
+        seconds: Double = 15.0,
+        throttle: Double = 1.0,
+    ): Double {
         val (world, site) = worldOn(Synthetic({ 0.0 }, material))
         val rover = world.spawnOnSurface(design, site)
         repeat(120) { world.step(dt) }
-        rover.control.throttle = 1.0
+        rover.control.throttle = throttle
         repeat((seconds / dt).toInt()) { world.step(dt) }
         return speed(rover)
     }
 
-    /** The stock rover with a full four-metre tank on top: three times the weight. */
+    /**
+     * The stock rover carrying a full four-metre tank's weight, low down at
+     * the pod: three times as heavy, without the tank on top that rolled it
+     * over the moment it moved. (It passed that way while a roll wrote the
+     * craft off, reading the wreck's last speed.)
+     */
     private fun heavyRover(): com.rm.apogee.core.craft.CraftDesign {
         val light = StockCraft.rover(catalog)
         return light.copy(
             name = "Heavy Trundler",
             parts = light.parts + com.rm.apogee.core.craft.PlacedPart(
-                "tank-cask4", Vec3(0.0, 2.6, 0.0), parentIndex = 0,
+                "tank-cask4", light.parts[0].position.copy(), parentIndex = 0,
             ),
         )
     }
@@ -166,20 +176,30 @@ class TerrainContactTest {
         assertTrue("rolled $rolled m", rolled < 15.0)
     }
 
-    /** A gearless lander dropped at [speed] onto [material]: does it survive? */
-    private fun survivesDrop(material: SurfaceMaterial, speed: Double): Boolean {
+    /**
+     * A gearless lander dropped at [speed] onto [material]: how much of it
+     * was damaged - health lost, summed over its parts, and a whole part for
+     * each part lost.
+     */
+    private fun damageFromDrop(material: SurfaceMaterial, speed: Double): Double {
         val (world, site) = worldOn(Synthetic({ 0.0 }, material))
         val lander = world.spawnOnSurface(StockCraft.lander(catalog), site)
         val up = lander.body.position.copy().normalizeInPlace()
         lander.body.position.addScaledInPlace(up, 1.0)
         lander.body.linearVelocity.setTo(up).mulInPlace(-speed)
+        val parts = lander.design.parts.size
         repeat(300) { world.step(dt) }
-        return world.vessel(lander.id) != null
+        val left = world.vessel(lander.id) ?: return parts.toDouble()
+        return (parts - left.design.parts.size) + left.health.sumOf { 1.0 - it }
     }
 
     @Test
     fun `snow cushions a hard landing that rock does not`() {
-        assertTrue("survived ten metres a second onto rock", !survivesDrop(SurfaceMaterial.ROCK, 10.0))
-        assertTrue("did not survive ten metres a second into snow", survivesDrop(SurfaceMaterial.SNOW, 10.0))
+        val rock = damageFromDrop(SurfaceMaterial.ROCK, 10.0)
+        val snow = damageFromDrop(SurfaceMaterial.SNOW, 10.0)
+        // The engine bell takes the blow and crumples - so this is the damage
+        // a crumple zone lets through, not a write-off.
+        assertTrue("ten metres a second onto rock did only $rock damage", rock > 0.1)
+        assertTrue("snow ($snow) should cushion what rock ($rock) does not", snow < rock * 0.5)
     }
 }

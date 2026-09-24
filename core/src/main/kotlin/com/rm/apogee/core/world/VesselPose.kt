@@ -9,8 +9,9 @@ import kotlin.math.roundToInt
 
 /**
  * A craft's moving parts, packed for the wire: one byte per value, in part
- * order - a control surface's deflection; a gimballed engine's pitch and yaw;
- * a wheel's steering and then its suspension; a leg's deploy.
+ * order - a control surface's deflection; an engine's output, and if it
+ * gimbals its pitch and yaw; a wheel's steering and then its suspension; a
+ * leg's deploy.
  *
  * Every client draws another player's craft from these, so the elevon, the
  * steered wheel and the half-deployed leg they see are the ones the pilot
@@ -29,10 +30,13 @@ object VesselPose {
 
     private fun gimballed(def: PartDef): Boolean = (def.module<com.rm.apogee.core.part.Engine>()?.gimbalRange ?: 0.0) > 0.0
 
+    private fun engine(def: PartDef): Boolean = def.module<com.rm.apogee.core.part.Engine>() != null
+
     /** Values per part, for [defs] in order. */
     private fun slots(def: PartDef): Int {
         var n = 0
         if (controlSurface(def)) n++
+        if (engine(def)) n++
         if (gimballed(def)) n += 2
         if (def.module<Wheel>() != null) n += 2
         if (def.module<LandingLeg>() != null) n++
@@ -50,6 +54,7 @@ object VesselPose {
             if (controlSurface(def)) {
                 out[k++] = signed(vessel.surfaceDeflection[i])
             }
+            if (engine(def)) out[k++] = signed(vessel.engineOutput[i])
             if (gimballed(def)) {
                 out[k++] = signed(vessel.gimbalPitch[i])
                 out[k++] = signed(vessel.gimbalYaw[i])
@@ -77,6 +82,7 @@ object VesselPose {
             if (controlSurface(def)) {
                 into.deflection[i] = unsigned(bytes[k++])
             }
+            if (engine(def)) into.output[i] = unsigned(bytes[k++])
             if (gimballed(def)) {
                 into.gimbalPitch[i] = unsigned(bytes[k++])
                 into.gimbalYaw[i] = unsigned(bytes[k++])
@@ -101,12 +107,15 @@ object VesselPose {
         var deploy = DoubleArray(0); private set
         var gimbalPitch = DoubleArray(0); private set
         var gimbalYaw = DoubleArray(0); private set
+        /** Engines: output, 0..1 of full thrust. */
+        var output = DoubleArray(0); private set
 
         fun fit(n: Int) {
             if (deflection.size == n) return
             deflection = DoubleArray(n); steer = DoubleArray(n)
             compression = DoubleArray(n); deploy = DoubleArray(n)
             gimbalPitch = DoubleArray(n); gimbalYaw = DoubleArray(n)
+            output = DoubleArray(n)
         }
     }
 

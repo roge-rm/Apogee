@@ -99,6 +99,23 @@ sealed interface Command {
     @Serializable
     @SerialName("chat")
     data class Chat(val text: String) : Command
+
+    /**
+     * How fast the world runs: a multiple of real time, 0 to pause. Only
+     * honoured by a server that allows it, with nobody else on it - one
+     * player cannot stop or speed up everyone else's world.
+     */
+    @Serializable
+    @SerialName("setWarp")
+    data class SetWarp(val rate: Double) : Command
+
+    /**
+     * Takes one of the player's own craft out of the world for good - from
+     * the craft list, or retiring the one being flown.
+     */
+    @Serializable
+    @SerialName("removeVessel")
+    data class RemoveVessel(val vessel: Long) : Command
 }
 
 /**
@@ -122,6 +139,8 @@ data class VesselKinematics(
     val throttle: Double = 0.0,
     /** The craft's moving parts, packed by [VesselPose]. */
     val pose: ByteArray = ByteArray(0),
+    /** How hurt, hot and dented its parts are, packed by [VesselCondition]; empty when whole and cool. */
+    val condition: ByteArray = ByteArray(0),
 ) {
     // By content: an array compares by identity, and two snapshots of the
     // same craft are equal whether or not they share one.
@@ -129,7 +148,7 @@ data class VesselKinematics(
         other is VesselKinematics && vessel == other.vessel && referenceBodyId == other.referenceBodyId &&
             position == other.position && rotation == other.rotation && velocity == other.velocity &&
             angularVelocity == other.angularVelocity && throttle == other.throttle &&
-            pose.contentEquals(other.pose)
+            pose.contentEquals(other.pose) && condition.contentEquals(other.condition)
 
     override fun hashCode(): Int =
         ((vessel.hashCode() * 31 + position.hashCode()) * 31 + rotation.hashCode()) * 31 + pose.contentHashCode()
@@ -140,6 +159,12 @@ data class Snapshot(
     val tick: Long,
     val time: Double,
     val vessels: List<VesselKinematics>,
+    /** How fast the world is running, times real time; 0 while paused. */
+    val warp: Double = 1.0,
+    /** What the player asked for, which the world may be holding below. */
+    val warpRequested: Double = 1.0,
+    /** Whether this player may pause or warp: a solo world with nobody else on it. */
+    val warpAllowed: Boolean = false,
 )
 
 /**
@@ -252,6 +277,36 @@ sealed interface ServerMessage {
     @Serializable
     @SerialName("lightning")
     data class Lightning(val strikeId: Long, val vessel: Long, val partIndex: Int) : ServerMessage
+
+    /**
+     * Something happened to a part that is worth seeing and hearing: a blow,
+     * a part destroyed or torn off, a tank going up. By part id and
+     * position rather than index alone, because by the time it arrives the
+     * craft it happened to may already be a different shape. [amount] is the
+     * impact speed, m/s, for an impact, and the propellant, kg, for an
+     * explosion.
+     */
+    @Serializable
+    @SerialName("partEvent")
+    data class PartEvent(
+        val kind: PartEventKind,
+        val vessel: Long,
+        val partId: String,
+        val bodyId: String,
+        val position: SerialVec3,
+        val amount: Double = 0.0,
+        val cause: String = "",
+        /** Universe time it happened: which way the planet was turned. */
+        val time: Double = 0.0,
+    ) : ServerMessage
+}
+
+@Serializable
+enum class PartEventKind {
+    @SerialName("impact") IMPACT,
+    @SerialName("destroyed") DESTROYED,
+    @SerialName("detached") DETACHED,
+    @SerialName("explosion") EXPLOSION,
 }
 
 /** Client -> server. */
@@ -295,5 +350,7 @@ object Protocol {
     // 5: VesselKinematics.pose.
     // 6: ServerMessage.FuelLevels, CraftDesign.manualStaging.
     // 7: Welcome.weather, ServerMessage.Lightning.
-    const val VERSION = 7
+    // 8: VesselKinematics.condition, ServerMessage.PartEvent, the ablator,
+    //    engine output in the pose, time warp, removing craft.
+    const val VERSION = 8
 }

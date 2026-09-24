@@ -54,6 +54,10 @@ class GlRenderer(
 
     private var vesselProgram: ShaderProgram? = null
     private var skyProgram: ShaderProgram? = null
+
+    // How much sun reaches the camera this frame, and the fog as it looks in it.
+    private var frameDaylight = 1f
+    private val frameFog = FloatArray(3)
     private var terrainProgram: ShaderProgram? = null
 
     /**
@@ -179,6 +183,8 @@ class GlRenderer(
         }
 
         val cameraPos = interpolateCamera(previous, latest, alpha)
+        frameDaylight = latest.world?.let { daylightAt(it, cameraPos) } ?: 1f
+        nightDim(latest.world?.fogColor ?: CLEAR_FOG_COLOR, frameDaylight, frameFog)
         latest.world?.let { now ->
             val before = previous?.world
             // Only between frames of the same body: across a change of
@@ -229,7 +235,7 @@ class GlRenderer(
             val world = latest.world
             particleRenderer?.draw(
                 particles, latest.particleShapes, nearViewProjection.m,
-                (world?.fogDistance ?: WorldView.CLEAR_FOG).toFloat(), world?.fogColor ?: CLEAR_FOG_COLOR,
+                (world?.fogDistance ?: WorldView.CLEAR_FOG).toFloat(), frameFog,
             )
         }
     }
@@ -285,7 +291,8 @@ class GlRenderer(
         shader.setFloat("uAtmosphereFactor", atmosphereFactor)
         shader.setFloat("uLightScale", frame.world?.lightScale ?: 1f)
         shader.setFloat("uSkyFog", frame.world?.skyFog ?: 0f)
-        (frame.world?.fogColor ?: CLEAR_FOG_COLOR).let { shader.setVec3("uFogColor", it[0], it[1], it[2]) }
+        shader.setVec3("uFogColor", frameFog[0], frameFog[1], frameFog[2])
+        shader.setFloat("uDaylight", frameDaylight)
 
         GLES30.glBindVertexArray(emptyVao[0])
         GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, 3)
@@ -384,6 +391,8 @@ class GlRenderer(
             atmosphereFactor,
             (world.atmosphereScaleHeight * 8.0).toFloat(),
             world,
+            frameDaylight,
+            frameFog,
         )
     }
 
@@ -406,7 +415,8 @@ class GlRenderer(
         shader.setFloat("uHasAtmosphere", if (world.atmosphereHeight > 0.0) 1f else 0f)
         shader.setFloat("uLightScale", world.lightScale)
         shader.setFloat("uFogDistance", world.fogDistance.toFloat())
-        shader.setVec3("uFogColor", world.fogColor[0], world.fogColor[1], world.fogColor[2])
+        shader.setVec3("uFogColor", frameFog[0], frameFog[1], frameFog[2])
+        shader.setFloat("uDaylight", frameDaylight)
         // The body's centre, camera-relative: the scene is drawn about the
         // camera, and the body sits at the world origin.
         shader.setVec3("uBodyCentre", (-cameraPos.x).toFloat(), (-cameraPos.y).toFloat(), (-cameraPos.z).toFloat())
@@ -478,8 +488,9 @@ class GlRenderer(
         }
         val world = latest.world
         shader.setFloat("uLightScale", world?.lightScale ?: 1f)
+        shader.setFloat("uDaylight", frameDaylight)
         shader.setFloat("uFogDistance", (world?.fogDistance ?: WorldView.CLEAR_FOG).toFloat())
-        (world?.fogColor ?: CLEAR_FOG_COLOR).let { shader.setVec3("uFogColor", it[0], it[1], it[2]) }
+        shader.setVec3("uFogColor", frameFog[0], frameFog[1], frameFog[2])
         shader.setFloat("uHazeDistance", ((world?.atmosphereScaleHeight ?: 1.0e6) * 8.0).toFloat())
         shader.setFloat("uAtmosphereFactor", if (world != null) atmosphereFactorAt(world) else 0f)
 
@@ -548,7 +559,7 @@ class GlRenderer(
             shader.setFloat("uAmbient", item.ambient)
             // Clouds wrap their light and thin at the edges; a flame (ambient
             // of one or more) glows whole.
-            shader.setFloat("uWrap", if (item.scale != null && item.ambient < 1f) 1f else 0f)
+            shader.setFloat("uWrap", if (item.wrap) 1f else 0f)
             meshFor(item.shape, item.caps).draw()
         }
     }
@@ -655,4 +666,18 @@ class GlRenderer(
         const val FAR_NEAR_PLANE = 100.0
         const val FAR_FAR_PLANE = 1.0e8
     }
+
+    /**
+     * [colour] as it looks with [daylight] of the sun: cloud and fog lit by
+     * the moon are a dim blue-grey, not the white they are by day.
+     */
+    private fun nightDim(colour: FloatArray, daylight: Float, out: FloatArray) {
+        val light = NightLight.NIGHT_AIR + (1f - NightLight.NIGHT_AIR) * daylight
+        out[0] = colour[0] * light
+        out[1] = colour[1] * light
+        out[2] = colour[2] * (light + (1f - daylight) * 0.04f)
+    }
+
+    private fun daylightAt(world: WorldView, cameraPos: Vec3): Float =
+        NightLight.daylight(cameraPos, world.radius, world.sunDirection)
 }

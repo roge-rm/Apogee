@@ -30,7 +30,8 @@ class StagingTest {
         val rocket = world.spawnOnSurface(StockCraft.starterRocket(catalog), World.launchSites.first())
         world.stage(rocket) // lower engine
         world.stage(rocket) // separation, upper engine
-        assertEquals("the chute keeps its number", 2, rocket.currentStage)
+        world.stage(rocket) // the pod lets go of the upper stage
+        assertEquals("the chute keeps its number", 3, rocket.currentStage)
         world.stage(rocket) // chute
         val chute = rocket.defs.indices.first { rocket.defs[it].module<Parachute>() != null }
         assertTrue("the chute never fired", rocket.isActivated(chute))
@@ -98,5 +99,53 @@ class StagingTest {
         assertTrue("the Sparrow should have a burn", burn != null)
         assertTrue("and delta-v: ${burn!!.deltaV}", burn.deltaV > 100.0)
         assertTrue(burn.fuel.isNotEmpty())
+    }
+
+    /** The Starter I coasting high up, lower stage lit and then let go. */
+    private fun separatedInSpace(): Triple<World, com.rm.apogee.core.craft.Vessel, com.rm.apogee.core.craft.Vessel> {
+        val world = World.default(catalog)
+        val terra = world.system.body("terra")
+        val position = Vec3(terra.radius + 240_000.0, 0.0, 0.0)
+        val rocket = world.spawnAt(
+            StockCraft.starterRocket(catalog), "terra", position,
+            Vec3(1_000.0, 0.0, kotlin.math.sqrt(terra.gravitationalParameter / position.x) * 0.5),
+            com.rm.apogee.core.math.quatFromTo(Vec3.unitY(), Vec3(1.0, 0.0, 0.0)),
+        )
+        world.stage(rocket)
+        world.apply(Command.SetThrottle(rocket.id.raw, 1.0))
+        repeat(60) { world.step(1.0 / 60) }
+        world.apply(Command.SetThrottle(rocket.id.raw, 0.0))
+        world.stage(rocket)
+        val spent = world.vessels.first { it.id != rocket.id }
+        return Triple(world, rocket, spent)
+    }
+
+    /**
+     * Let go of while coasting, the halves drift apart on the ring's push
+     * alone - and keep drifting. The spent half was once placed at the whole
+     * rocket's centre, inside the stage above it, and the two locked together
+     * as soon as they stopped ignoring each other.
+     */
+    @Test
+    fun `coasting halves drift apart and stay apart`() {
+        val (world, rocket, spent) = separatedInSpace()
+        val start = rocket.body.position.distanceTo(spent.body.position)
+        repeat(6 * 60) { world.step(1.0 / 60) }
+        val apart = rocket.body.linearVelocity.copy().subInPlace(spent.body.linearVelocity).length
+        assertTrue("still separating after six seconds: $apart m/s", apart > 0.5)
+        assertTrue(
+            "and further apart than they started",
+            rocket.body.position.distanceTo(spent.body.position) > start + 3.0,
+        )
+    }
+
+    /** A spent stage keeps what was left in it - it does not fall away refuelled. */
+    @Test
+    fun `a spent stage keeps its fuel`() {
+        val (_, rocket, spent) = separatedInSpace()
+        val full = spent.defs.filter { it.id == "tank-cask4" }.sumOf { 400.0 }
+        val left = spent.amountOf(com.rm.apogee.core.part.ResourceType.PROPELLANT)
+        assertTrue("it burned for a second before letting go: $left of $full", left < full - 1.0)
+        assertTrue(rocket.amountOf(com.rm.apogee.core.part.ResourceType.PROPELLANT) > 0.0)
     }
 }

@@ -348,3 +348,18 @@ data class SolarPanel(
 data class Battery(
     val capacity: Double,
 ) : PartModule
+
+/**
+ * Takes the heat of re-entry on itself by burning away its ablator. It
+ * heats like anything else until it reaches [charTemperature]; from there,
+ * while there is ablator left, it goes no hotter - whatever would heat it
+ * further chars ablator away instead, at [energyPerUnit] joules a unit. So
+ * it glows as hot as it can, sheds what it can, and spends ablator only on
+ * the rest. Faced into the airflow, it shades what is behind it as well.
+ */
+@Serializable
+@SerialName("heatShield")
+data class HeatShield(
+    val energyPerUnit: Double = 3.0e6,
+    val charTemperature: Double = 1_400.0,
+) : PartModule

@@ -1,5 +1,6 @@
 package com.rm.apogee.core.scenario
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -43,6 +44,12 @@ class AscentScenarioTest {
         assertTrue(
             "should reach orbit with margin, ${result.propellantRemaining} units left",
             result.propellantRemaining > 5.0,
+        )
+        println("peak joint load ${"%.2f".format(result.peakStress)} under ${result.peakStressPart}")
+        assertEquals("nothing should come off on the way up", 0, result.partsLost)
+        assertTrue(
+            "the stock rocket's joints should stay well clear of fatigue, peak ${result.peakStress} under ${result.peakStressPart}",
+            result.peakStress < 0.5,
         )
     }
 

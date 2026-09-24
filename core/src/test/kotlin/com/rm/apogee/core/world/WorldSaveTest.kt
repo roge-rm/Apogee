@@ -8,6 +8,10 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import com.rm.apogee.core.math.Vec3
+import com.rm.apogee.core.craft.Vessel
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.decodeFromString
 import org.junit.Test
 
 class WorldSaveTest {
@@ -53,6 +57,24 @@ class WorldSaveTest {
         assertEquals(before.name, after.name)
         assertEquals(before.owner, after.owner)
         assertEquals(before.currentStage, after.currentStage)
+    }
+
+    /** Damage is not undone by a restart: the dents, the scorch and the heat all come back. */
+    @Test
+    fun `damage, dents and heat survive a save`() {
+        val original = flownWorld()
+        val craft = original.vessels.first()
+        craft.damage(3, 0.4, Vec3(0.0, -1.0, 0.0))
+        val engine = craft.defs.indexOfFirst { it.id == "engine-ember" }
+        val hot = craft.temperature[engine]
+        assertTrue("a minute's burn should have warmed the Ember: $hot", hot > Vessel.AMBIENT_TEMPERATURE + 50.0)
+
+        val restored = World.default(catalog)
+        restored.restore(Json { classDiscriminator = "type" }.decodeFromString<WorldSave>(format.encodeToString(original.save())))
+        val after = restored.vessels.first()
+        assertEquals(0.6, after.health[3], 1e-9)
+        assertTrue("the dent came back", after.crumple[3 * 3 + 1] < 0f)
+        assertEquals(hot, after.temperature[engine], 1e-9)
     }
 
     @Test
@@ -269,7 +291,7 @@ class WorldSaveTest {
         // enum would silently reinterpret every saved craft's fuel as
         // something else, so the order is part of the format.
         assertEquals(
-            listOf("PROPELLANT", "MONOPROPELLANT", "ELECTRIC_CHARGE"),
+            listOf("PROPELLANT", "MONOPROPELLANT", "ELECTRIC_CHARGE", "ABLATOR"),
             ResourceType.entries.map { it.name },
         )
         assertEquals(ResourceType.entries.size, WorldSave.RESOURCE_SLOTS)

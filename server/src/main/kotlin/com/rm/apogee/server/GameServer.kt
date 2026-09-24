@@ -8,6 +8,7 @@ import com.rm.apogee.core.part.StockParts
 import com.rm.apogee.core.terrain.TerrainField
 import com.rm.apogee.core.world.ClientMessage
 import com.rm.apogee.core.world.Command
+import com.rm.apogee.core.world.PartEventKind
 import com.rm.apogee.core.world.Protocol
 import com.rm.apogee.core.world.ServerMessage
 import com.rm.apogee.core.world.World
@@ -72,6 +73,12 @@ class ServerConfig(
     val weatherIntensity: com.rm.apogee.core.weather.WeatherIntensity? = null,
     /** How cloudy, likewise overriding the world's own; null keeps it. */
     val cloudCover: com.rm.apogee.core.weather.CloudCover? = null,
+    /**
+     * Whether a player may pause the world or run it faster - the phone's
+     * own game, never a dedicated server, and even then only while that
+     * player is the only one on it.
+     */
+    val allowWarp: Boolean = false,
 )
 
 /**
@@ -225,7 +232,7 @@ class GameServer(
 
             drainInbox()
             runQueuedTasks()
-            world.step(dt)
+            advanceWorld()
             tickCount++
 
             publishEvents()
@@ -243,11 +250,44 @@ class GameServer(
         }
     }
 
+    /**
+     * One tick of the world at the rate asked for, as far as the world
+     * allows it: nothing while paused, extra steps up to physics warp,
+     * and past that the craft on rails - falling back to physics warp for
+     * whatever part of the tick the rails would not take.
+     */
+    private fun advanceWorld() {
+        val rate = effectiveWarp()
+        when {
+            rate <= 0.0 -> Unit
+            rate <= World.PHYSICS_WARP -> repeat(rate.toInt().coerceAtLeast(1)) { world.step(dt) }
+            else -> {
+                val done = world.advanceOnRails(dt * rate)
+                if (done < dt * rate) repeat(World.PHYSICS_WARP.toInt()) { world.step(dt) }
+            }
+        }
+    }
+
+    /** What the player asked for: 1 is real time, 0 paused. */
+    @Volatile
+    var requestedWarp: Double = 1.0
+        private set
+
+    /** Warp is only for a server that allows it, with one player on it. */
+    val warpAllowed: Boolean get() = config.allowWarp && playerCount <= 1
+
+    /** The rate the world actually runs at: what was asked, as far as the world allows. */
+    fun effectiveWarp(): Double {
+        if (!warpAllowed) return 1.0
+        if (requestedWarp <= 0.0) return 0.0
+        return minOf(requestedWarp, world.maxWarp())
+    }
+
     /** Steps once without any wall-clock pacing. For tests. */
     suspend fun stepOnce() {
         drainInbox()
         runQueuedTasks()
-        world.step(dt)
+        advanceWorld()
         publishEvents()
         broadcastSnapshot()
         sendFuel()
@@ -273,6 +313,16 @@ class GameServer(
                         ServerMessage.ChatMessage(session.playerName, command.text),
                         Channel.CONTROL,
                     )
+                } else if (command is Command.SetWarp) {
+                    requestedWarp = command.rate.coerceIn(0.0, World.WARP_RATES.last())
+                } else if (command is Command.RemoveVessel) {
+                    val flying = session.controlledVessel?.raw == command.vessel
+                    world.apply(command)
+                    if (flying) {
+                        session.controlledVessel = null
+                        world.lastFlown.remove(session.clientId)
+                        session.send(ServerMessage.ControlChanged(-1L), Channel.CONTROL)
+                    }
                 } else if (command is Command.SwitchVessel) {
                     world.apply(command)
                     takeControl(session, VesselId(command.vessel))
@@ -479,6 +529,9 @@ class GameServer(
                 ?.owner == session.clientId
         is Command.SpawnCraft -> true
         is Command.Chat -> true
+        is Command.SetWarp -> warpAllowed
+        // Only your own - never another player's base.
+        is Command.RemoveVessel -> world.vessel(VesselId(command.vessel))?.owner == session.clientId
     }
 
     private suspend fun publishEvents() {
@@ -537,6 +590,24 @@ class GameServer(
 
                 is WorldEvent.LightningHit ->
                     broadcast(ServerMessage.Lightning(event.strikeId, event.id.raw, event.partIndex), Channel.STRUCTURE)
+
+                // A break-up reaches clients as the structure changes it
+                // brings; these are for the effects and the sound.
+                is WorldEvent.Impact -> partEvent(
+                    ServerMessage.PartEvent(
+                        PartEventKind.IMPACT, event.id.raw, event.partId, event.bodyId, event.position.copy(), event.speed,
+                        cause = if (event.water) "water" else "", time = world.time,
+                    ),
+                )
+                is WorldEvent.PartDestroyed -> partEvent(
+                    ServerMessage.PartEvent(PartEventKind.DESTROYED, event.id.raw, event.partId, event.bodyId, event.position.copy(), cause = event.cause, time = world.time),
+                )
+                is WorldEvent.PartDetached -> partEvent(
+                    ServerMessage.PartEvent(PartEventKind.DETACHED, event.id.raw, event.partId, event.bodyId, event.position.copy(), cause = event.cause, time = world.time),
+                )
+                is WorldEvent.Explosion -> partEvent(
+                    ServerMessage.PartEvent(PartEventKind.EXPLOSION, -1L, "", event.bodyId, event.position.copy(), event.energy, time = world.time),
+                )
             }
         }
     }
@@ -559,7 +630,13 @@ class GameServer(
 
     private suspend fun broadcastSnapshot() {
         if (sessions.isEmpty()) return
-        val snapshot = world.snapshot()
+        // A second player arriving ends any pause or warp: it is their world too.
+        if (!warpAllowed) requestedWarp = 1.0
+        val snapshot = world.snapshot().copy(
+            warp = effectiveWarp(),
+            warpRequested = requestedWarp,
+            warpAllowed = warpAllowed,
+        )
         broadcast(ServerMessage.SnapshotMessage(snapshot), Channel.KINEMATICS)
     }
 
@@ -571,6 +648,8 @@ class GameServer(
             session.send(ServerMessage.FuelLevels(vessel.id.raw, vessel.flatResources()), Channel.KINEMATICS)
         }
     }
+
+    private suspend fun partEvent(event: ServerMessage.PartEvent) = broadcast(event, Channel.STRUCTURE)
 
     private suspend fun broadcast(message: ServerMessage, channel: Channel) {
         for (session in sessions) {

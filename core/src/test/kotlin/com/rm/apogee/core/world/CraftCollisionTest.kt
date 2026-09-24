@@ -102,9 +102,9 @@ class CraftCollisionTest {
             events.addAll(world.drainEvents())
         }
 
-        val wrecked = events.filterIsInstance<WorldEvent.VesselDestroyed>()
+        val wrecked = events.filterIsInstance<WorldEvent.PartDestroyed>()
         assertTrue(
-            "a 45 m/s collision should destroy something, events were $events",
+            "a 45 m/s collision should destroy parts, events were $events",
             wrecked.isNotEmpty(),
         )
     }

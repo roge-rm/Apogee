@@ -155,7 +155,7 @@ class ScatterContact {
                     report.worstImpactSpeed = impact
                     report.worstPartIndex = partIndex
                 }
-                if (impact > def.crashTolerance) report.recordFailure(partIndex)
+                if (impact > def.crashTolerance) report.recordImpact(partIndex, impact, normal)
 
                 impulse.setTo(normal).mulInPlace(j)
                 body.applyImpulseAtOffset(impulse, offset)

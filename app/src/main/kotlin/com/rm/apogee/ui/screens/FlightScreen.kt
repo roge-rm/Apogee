@@ -51,8 +51,12 @@ import com.rm.apogee.game.FlightTelemetry
 import com.rm.apogee.game.HudState
 import com.rm.apogee.ui.components.ApogeeButton
 import com.rm.apogee.ui.components.AttitudeStick
+import com.rm.apogee.ui.components.CautionChips
+import com.rm.apogee.ui.components.CraftSwitcher
+import com.rm.apogee.ui.components.WarpButton
 import com.rm.apogee.ui.components.HoldButton
 import com.rm.apogee.ui.components.NavBall
+import com.rm.apogee.ui.components.NudgeButton
 import com.rm.apogee.ui.components.VerticalAxisSlider
 import com.rm.apogee.ui.theme.ApogeeAlpha
 import com.rm.apogee.ui.theme.ApogeeColors
@@ -99,6 +103,16 @@ fun FlightScreen(
     onJoin: () -> Unit,
     onSwitchCraft: () -> Unit,
     onExit: () -> Unit,
+    /** Run the world at this many times real time; 0 pauses it. */
+    onWarp: (Double) -> Unit = {},
+    /** The player's craft, asked for when the list opens. */
+    craftChoices: () -> List<CraftSummary> = { emptyList() },
+    /** The craft being flown, for the list, asked for when it opens. */
+    currentCraft: () -> Long? = { null },
+    onFlyCraft: (Long) -> Unit = {},
+    onRemoveCraft: (Long) -> Unit = {},
+    /** Take the craft being flown out of the world and go back to the menu. */
+    onRetire: () -> Unit = {},
 ) {
     // BoxWithConstraints rather than the configuration's orientation: this is
     // a question about the space actually available, and the answer has to be
@@ -177,17 +191,27 @@ fun FlightScreen(
                 ) {
                     Icon(Icons.Filled.Public, contentDescription = "Map view")
                 }
-                // Only worth showing once there is somewhere to switch to.
-                if (hud.ownedCraft > 1) {
-                    FilledTonalIconButton(
-                        onClick = onSwitchCraft,
-                        modifier = Modifier.size(Dimens.HudIconSize),
-                    ) {
-                        Icon(
-                            Icons.Filled.SwapHoriz,
-                            contentDescription = "Fly another craft",
-                        )
-                    }
+                // The list of craft, and retiring this one.
+                if (hud.ownedCraft > 0) {
+                    CraftSwitcher(
+                        current = currentCraft,
+                        craft = craftChoices,
+                        onFly = onFlyCraft,
+                        onRemove = onRemoveCraft,
+                        onRetire = onRetire,
+                        size = Dimens.HudIconSize,
+                    )
+                }
+                // Pause and time warp: only in a world nobody else is in.
+                if (hud.warpAllowed) {
+                    WarpButton(
+                        warp = hud.warp,
+                        requested = hud.warpRequested,
+                        expanded = hud.warpPickerOpen,
+                        onExpand = { hud.warpPickerOpen = it },
+                        onWarp = onWarp,
+                        size = Dimens.HudIconSize,
+                    )
                 }
                 // The craft name is the first thing to go when the screen is
                 // narrow: the telemetry panel opposite is not optional and
@@ -206,6 +230,22 @@ fun FlightScreen(
             }
         }
 
+        // Gone: no controls to fly it with, only what happened to it.
+        hud.telemetry.destroyed?.let { report ->
+            CrashCard(
+                name = hud.telemetry.craftName,
+                report = report,
+                lost = hud.telemetry.lost,
+                onLeave = onExit,
+                onSwitchCraft = if (hud.ownedCraft > 0) onSwitchCraft else null,
+                // Low, where the controls were: the wreck is in the middle of the view.
+                modifier = Modifier.align(Alignment.BottomCenter)
+                    .windowInsetsPadding(WindowInsets.navigationBars)
+                    .padding(bottom = 16.dp),
+            )
+            return@BoxWithConstraints
+        }
+
         // --- top right: telemetry -------------------------------------------
         Column(
             modifier = Modifier
@@ -215,6 +255,10 @@ fun FlightScreen(
             horizontalAlignment = Alignment.End,
         ) {
             TelemetryPanel(hud.telemetry, Modifier.alpha(controlOpacity), twoColumns = !portrait)
+            CautionChips(
+                hud.telemetry, hud.damageExpanded, { hud.damageExpanded = !hud.damageExpanded },
+                modifier = Modifier.padding(top = 6.dp),
+            )
         }
 
         if (portrait) {
@@ -371,13 +415,18 @@ private fun ThrottleControl(
             style = TelemetryTextStyle,
             color = ApogeeColors.Accent,
         )
-        Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(4.dp))
+        NudgeButton("+", { onThrottleChange((hud.throttle + THROTTLE_STEP).coerceIn(0f, 1f)) })
+        Spacer(Modifier.height(4.dp))
         VerticalAxisSlider(
             value = throttle,
             onValueChange = onThrottleChange,
             modifier = Modifier.width(44.dp).height(height),
+            snapToZero = THROTTLE_SNAP,
         )
-        Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(4.dp))
+        NudgeButton("−", { onThrottleChange((hud.throttle - THROTTLE_STEP).coerceIn(0f, 1f)) })
+        Spacer(Modifier.height(4.dp))
         Text(
             "THR",
             style = MaterialTheme.typography.labelSmall,
@@ -668,6 +717,7 @@ private fun DebugOverlay(hud: HudState, modifier: Modifier = Modifier) {
         Text("build %5.3f ms".format(hud.frameBuildMillis), style = TelemetryTextStyle)
         Text("tick  %d".format(hud.simTick), style = TelemetryTextStyle)
         Text("parts %d".format(hud.drawnItems), style = TelemetryTextStyle)
+        Text("voices %d".format(hud.voices), style = TelemetryTextStyle)
     }
 }
 
@@ -729,16 +779,63 @@ private fun formatDuration(seconds: Double): String {
 
 private fun Double.format(decimals: Int) = "%.${decimals}f".format(this)
 
-private val THROTTLE_HEIGHT = 170.dp
+private val THROTTLE_HEIGHT = 140.dp
+
+/** One press of the throttle's + or -. */
+private const val THROTTLE_STEP = 0.01f
+
+/** At or below this the throttle is off: the bottom of the track, and a little above it. */
+private const val THROTTLE_SNAP = 0.07f
 private val STICK_SIZE = 132.dp
 private val TARGET_COLOUR = androidx.compose.ui.graphics.Color(0xFFFF5FD2)
 private val NAVBALL_SIZE = 128.dp
 
 // Portrait is short of width and generous with height, so the throttle takes
 // the height: a longer throttle is a finer throttle, over the same 0-100%.
-private val PORTRAIT_THROTTLE_HEIGHT = 210.dp
+private val PORTRAIT_THROTTLE_HEIGHT = 150.dp
 private val PORTRAIT_STICK_SIZE = 122.dp
 private val PORTRAIT_NAVBALL_SIZE = 100.dp
 
 /** The roll and SAS row above the portrait stick: three 40dp buttons and their gaps. */
 private val PORTRAIT_CLUSTER_WIDTH = 140.dp
+
+/** What became of a craft that is gone, and where to go from here. */
+@Composable
+private fun CrashCard(
+    name: String,
+    report: String,
+    lost: Int,
+    onLeave: () -> Unit,
+    onSwitchCraft: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        shape = RoundedCornerShape(Dimens.CornerPanel),
+        color = ApogeeColors.Surface.alpha(0.88f),
+        modifier = modifier.width(300.dp),
+    ) {
+        Column(Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                "${name.ifEmpty { "The craft" }} was lost",
+                style = MaterialTheme.typography.titleMedium,
+                color = ApogeeColors.Danger,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Spacer(Modifier.height(6.dp))
+            Text(report, style = MaterialTheme.typography.bodyMedium, color = Color.White.alpha(ApogeeAlpha.BODY))
+            if (lost > 0) {
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    if (lost == 1) "1 part lost" else "$lost parts lost",
+                    style = TelemetryTextStyle,
+                    color = Color.White.alpha(ApogeeAlpha.SECONDARY),
+                )
+            }
+            Spacer(Modifier.height(14.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (onSwitchCraft != null) ApogeeButton("Fly another", onClick = onSwitchCraft, modifier = Modifier.weight(1f))
+                ApogeeButton("Leave", onClick = onLeave, modifier = Modifier.weight(1f))
+            }
+        }
+    }
+}
