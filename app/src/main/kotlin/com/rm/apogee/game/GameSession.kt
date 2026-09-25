@@ -285,6 +285,7 @@ class GameSession private constructor(
             while (isActive) {
                 val started = System.nanoTime()
                 buildFrame(started)
+                refreshScreenAttitude()
                 lastFrameBuildNanos.set(System.nanoTime() - started)
                 perfHints?.reportActualWorkDuration(lastFrameBuildNanos.get())
                 delay(PRESENT_INTERVAL_MILLIS)
@@ -362,9 +363,56 @@ class GameSession private constructor(
     }
 
     suspend fun setAttitude(pitch: Double, yaw: Double, roll: Double) {
+        stickUp = pitch; stickRight = yaw; stickRoll = roll
+        if (controlledOrientation == CraftOrientation.VERTICAL) {
+            // A craft built standing up has no front to read the stick by:
+            // it is read by the screen instead - see [screenAttitude].
+            val (p, y) = screenAttitude(pitch, yaw) ?: (pitch to yaw)
+            sendAttitude(p, y, roll)
+        } else {
+            sendAttitude(pitch, yaw, roll)
+        }
+    }
+
+    private suspend fun sendAttitude(pitch: Double, yaw: Double, roll: Double) {
         localPitch = pitch; localYaw = yaw; localRoll = roll
+        lastAttitudeNanos = System.nanoTime()
         pushControlsToPrediction()
         withControlledVessel { client.send(Command.SetAttitude(it, pitch, yaw, roll)) }
+    }
+
+    // The stick as the thumb holds it, before it is turned into the craft's axes.
+    @Volatile private var stickUp = 0.0
+    @Volatile private var stickRight = 0.0
+    @Volatile private var stickRoll = 0.0
+    @Volatile private var lastAttitudeNanos = 0L
+
+    /**
+     * The stick, read by the screen, as the craft's own pitch and yaw: right
+     * tips the nose toward the screen's right, up tips it away from the
+     * camera - as if the thumb held the craft itself. A rocket is round and
+     * the camera starts wherever it starts, so turning it about its own axes
+     * went a different way on screen every time (Dan: on a symmetrical
+     * rocket I don't know which control goes which way until I test them).
+     * Null before there is a view or a craft.
+     */
+    private fun screenAttitude(up: Double, right: Double): Pair<Double, Double>? {
+        val craft = prediction.replica?.body?.orientation ?: return null
+        return ScreenStick.attitude(cameraRotation, craft, up, right)
+    }
+
+    /**
+     * Keeps a held stick meaning the same on screen as the craft turns under
+     * it and the camera moves round it: sent again when it has drifted.
+     */
+    private fun refreshScreenAttitude() {
+        if (stickUp == 0.0 && stickRight == 0.0) return
+        if (controlledOrientation != CraftOrientation.VERTICAL) return
+        if (System.nanoTime() - lastAttitudeNanos < ATTITUDE_REFRESH_NANOS) return
+        val (pitch, yaw) = screenAttitude(stickUp, stickRight) ?: return
+        if (kotlin.math.abs(pitch - localPitch) < 0.03 && kotlin.math.abs(yaw - localYaw) < 0.03) return
+        lastAttitudeNanos = System.nanoTime()
+        terrainScope.launch { sendAttitude(pitch, yaw, stickRoll) }
     }
 
     /** How the craft being flown was built, or null with none in hand yet. */
@@ -921,6 +969,7 @@ class GameSession private constructor(
             air = prediction.replica?.air,
             bodyRotation = bodyRotation,
             forwardAxis = focus.design.orientation.forward,
+            viewRotation = cameraRotation,
             navFrame = localNavFrame,
             target = client.vessel(localTarget)?.latest?.takeIf { it.referenceBodyId == focusState.referenceBodyId },
             targetName = client.vessel(localTarget)?.name,
@@ -2328,6 +2377,9 @@ class GameSession private constructor(
         /** How long, ns, a craft just parted from the flown one is not offered for joining. */
         private const val JUST_PARTED_NANOS = 10_000_000_000L
 
+        /** How often a held stick is read against the screen again, at most. */
+        private const val ATTITUDE_REFRESH_NANOS = 60_000_000L
+
         /** How far from where a craft was lost its pieces are looked for, m; how quickly the look follows them. */
         private const val WRECK_PIECE_REACH = 150.0
         private const val WRECK_EASE = 0.08
@@ -2581,8 +2633,10 @@ class FlightTelemetry(
     /** The wind's speed across the ground, m/s. */
     val windSpeed: Double = 0.0,
     /**
-     * Where the wind comes from, degrees, relative to the craft's heading:
-     * 0 dead ahead, 90 from the right, 180 from behind.
+     * Where the wind comes from, degrees, relative to the way the view looks
+     * across the ground - so the arrow turns with the screen, as the
+     * windsock in view does: 0 from straight ahead into the screen, 90 from
+     * the right, 180 from behind the camera.
      */
     val windFrom: Double = 0.0,
     /** Whether there is air to speak of: the wind readouts are hidden in space. */
@@ -2679,8 +2733,10 @@ class FlightTelemetry(
             air: com.rm.apogee.core.weather.AirSample? = null,
             /** The body's rotation now, to turn the wind into the world's frame. */
             bodyRotation: Quat? = null,
-            /** The craft's forward, design axis, for which way the wind comes from. */
+            /** The craft's forward, design axis, for which way the wind comes from without a view. */
             forwardAxis: Vec3 = Vec3.unitY(),
+            /** How the camera is turned: the wind is read against the view, not the nose. */
+            viewRotation: Quat? = null,
             navFrame: com.rm.apogee.core.world.NavFrame = com.rm.apogee.core.world.NavFrame.AUTO,
             /** The target's last state, or null for none. */
             target: com.rm.apogee.core.world.VesselKinematics? = null,
@@ -2722,8 +2778,15 @@ class FlightTelemetry(
             // Our motion toward it: positive while the gap is shrinking.
             val closing = if (target != null && nav.hasTarget) (state.velocity - target.velocity) dot nav.toTarget else 0.0
             val horizontalWind = wind.copy().addScaledInPlace(up, -(wind dot up))
-            val heading = state.rotation.rotate(forwardAxis, Vec3())
+            // Ahead is into the screen, along the ground; looking straight
+            // down, the screen's top edge. Without a view, the nose.
+            val heading = if (viewRotation != null) viewRotation.rotate(Vec3(0.0, 0.0, -1.0), Vec3())
+                else state.rotation.rotate(forwardAxis, Vec3())
             heading.addScaledInPlace(up, -(heading dot up))
+            if (viewRotation != null && heading.length < 0.1) {
+                viewRotation.rotate(Vec3.unitY(), heading)
+                heading.addScaledInPlace(up, -(heading dot up))
+            }
             val windFrom = if (horizontalWind.length > 0.3 && heading.length > 1e-6) {
                 heading.normalizeInPlace()
                 val from = horizontalWind.copy().mulInPlace(-1.0).normalizeInPlace()

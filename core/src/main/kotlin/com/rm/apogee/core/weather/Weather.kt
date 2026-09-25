@@ -44,6 +44,7 @@ class Weather(val body: CelestialBody, val config: WeatherConfig) {
     private val terrainWind = terrain?.let { TerrainWind(it, radius) }
     private val convection = Convection(this, terrainWind, radius, seed, intensity)
     private val storms = Storms(this, radius, seed, intensity)
+    private val stormShapes = StormShapes(storms, seed, radius)
 
     private val up = Vec3()
     private val east = Vec3()
@@ -415,7 +416,16 @@ class Weather(val body: CelestialBody, val config: WeatherConfig) {
      * drawing: each as lobes in the body's frame. The same shapes the air
      * samples are made of, so a cloud looks as big as it is to fly into.
      */
-    fun clouds(direction: Vec3, reach: Double, time: Double, out: MutableList<CloudShape>) {
+    fun clouds(
+        direction: Vec3,
+        reach: Double,
+        time: Double,
+        out: MutableList<CloudShape>,
+        /** How far off storms are drawn, m: further than the rest. */
+        stormReach: Double = reach,
+        /** How much detail in them, 0..1: fewer, bigger lobes for a device that can draw few. */
+        stormDetail: Double = 1.0,
+    ) {
         val e = Vec3(); val n = Vec3()
         frame(direction, e, n)
         // Cumulus, on their thermals.
@@ -445,139 +455,23 @@ class Weather(val body: CelestialBody, val config: WeatherConfig) {
             }
             out.add(shape)
         }
-        // Storm towers and their anvils: heaps of many lobes, not a few big
-        // ones stacked - those read as solid lumps, not as a storm.
+        // Storms: out to [stormReach], further than the rest - they are what
+        // a pilot most needs to see coming - in less detail the further off.
         val found = ArrayList<Storms.Storm>()
-        storms.around(direction, e, n, kotlin.math.ceil(reach / Storms.CELL).toInt() + 1, time, found)
-        val centre = Vec3(); val steer = Vec3(); val side = Vec3()
+        storms.around(direction, e, n, kotlin.math.ceil(stormReach / Storms.CELL).toInt() + 1, time, found)
+        val here = Vec3().setTo(direction).mulInPlace(radius)
+        val stormCentre = Vec3()
         for (s in found) {
-            val envelope = storms.envelope(s, time)
-            if (envelope <= 0.05) continue
-            storms.centreAt(s, time, centre)
-            val towerTop = s.base + (s.top - s.base) * smooth(0.0, 0.35, (time - s.start) / Storms.CYCLE)
-            val shape = CloudShape(CloudType.CUMULONIMBUS, envelope)
-            val width = 0.9 * s.core * (0.5 + 0.5 * envelope)
-            steer.setTo(s.steer)
-            if (steer.lengthSq > 1e-9) steer.normalizeInPlace() else steer.setTo(s.east)
-            side.setTo(centre).crossInPlace(steer).normalizeInPlace()
-            val salt = seed + 300
-            val c = s.cycle.toInt()
-            fun h(k: Int) = Noise.hash(salt + k, s.cx, s.cy, c)
-            // Built the way cumulus are - heaps of billows of a cumulus's
-            // size, a lobe or two across a level, crowding in on each other -
-            // only far bigger, darker and more of them. Built as rings of a
-            // few big lobes, it read as a stack of grey pancakes beside the
-            // cumulus (Dan: storms look strange next to the normal clouds).
-            val lean = s.lean * s.core // the tower leans downwind as it climbs
-
-            // Underneath: a ragged shelf, almost black, spreading wider than
-            // the tower, and tatters of scud hanging below it.
-            shape.lobes.add(
-                CloudLobe(Vec3().setTo(centre).mulInPlace(radius + s.base + 250.0), width * 0.9, 450.0, shade = 0.18),
-            )
-            for (j in 0 until SHELF_LOBES) {
-                val a = (j + h(400 + j)) * 2.0 * Math.PI / SHELF_LOBES
-                val out = width * (0.8 + 0.5 * h(410 + j))
-                val at = Vec3().setTo(centre).mulInPlace(radius + s.base + 120.0 + 150.0 * h(420 + j))
-                    .addScaledInPlace(steer, kotlin.math.cos(a) * out).addScaledInPlace(side, kotlin.math.sin(a) * out)
-                // Squashed billows, not flat sheets: flat, they stacked up
-                // under the storm like panes of grey glass.
-                shape.lobes.add(CloudLobe(at, width * (0.3 + 0.2 * h(430 + j)), 350.0 + 200.0 * h(435 + j), shade = 0.2 + 0.08 * h(440 + j)))
+            if (storms.envelope(s, time) <= 0.05) continue
+            storms.centreAt(s, time, stormCentre)
+            val away = stormCentre.mulInPlace(radius).distanceTo(here) - kotlin.math.hypot(s.halfAlong, s.halfAcross)
+            if (away > stormReach) continue
+            val near = when {
+                away < 15_000.0 -> 1.0
+                away < 45_000.0 -> 0.6
+                else -> 0.35
             }
-            for (j in 0 until SCUD_LOBES) {
-                val a = h(450 + j) * 2.0 * Math.PI
-                val out = width * 1.1 * h(460 + j)
-                val at = Vec3().setTo(centre).mulInPlace(radius + s.base - 150.0 - 350.0 * h(470 + j))
-                    .addScaledInPlace(steer, kotlin.math.cos(a) * out).addScaledInPlace(side, kotlin.math.sin(a) * out)
-                shape.lobes.add(CloudLobe(at, 250.0 + 450.0 * h(480 + j), 120.0 + 150.0 * h(490 + j), shade = 0.22))
-            }
-
-            // The towers: level on level of heaped billows, overlapping so
-            // no seam shows between them, bulging out and in as they climb;
-            // near black low down, grey through the middle, and lit only
-            // where they tower into the sun. The main one over the core,
-            // and in a cluster one or two lesser ones beside it.
-            val up = Vec3().setTo(centre).normalizeInPlace()
-            fun tower(foot: Vec3, top: Double, towerWidth: Double, salt: Int, levels: Int) {
-                val step = (top - s.base) / levels
-                for (k in 0 until levels) {
-                    val rise = (k + 0.5) / levels
-                    val height = s.base + step * (k + 0.5)
-                    val w = towerWidth * (1.0 - 0.3 * rise) * (0.85 + 0.3 * h(salt + k * 32))
-                    val shade = 0.22 + 0.55 * rise * rise
-                    val drift = Vec3().setTo(foot).mulInPlace(radius + height).addScaledInPlace(steer, lean * rise)
-                    shape.lobes.add(CloudLobe(drift.copy(), w * 0.5, step * 0.9, shade = shade))
-                    for (j in 0 until TOWER_HEAP) {
-                        val q = salt + k * 32 + j + 1
-                        val a = (j + h(q)) * 2.0 * Math.PI / TOWER_HEAP
-                        val out = w * 0.5 * (0.45 + 0.55 * h(q + 100))
-                        val at = drift.copy()
-                            .addScaledInPlace(steer, kotlin.math.cos(a) * out)
-                            .addScaledInPlace(side, kotlin.math.sin(a) * out)
-                            .addScaledInPlace(up, (h(q + 200) - 0.4) * step * 0.8)
-                        val size = w * (0.2 + 0.2 * h(q + 300))
-                        shape.lobes.add(CloudLobe(at, size, step * (0.55 + 0.35 * h(q + 400)), shade = shade + 0.06 * h(q + 500)))
-                    }
-                }
-            }
-            tower(up, towerTop, width, 0, TOWER_LEVELS)
-            for (t in 0 until s.towers) {
-                val foot = Vec3().setTo(up).mulInPlace(radius)
-                    .addScaledInPlace(side, s.towerOffset[t * 2] * s.core)
-                    .addScaledInPlace(steer, s.towerOffset[t * 2 + 1] * s.core)
-                    .normalizeInPlace()
-                val top = s.base + (towerTop - s.base) * s.towerHeight[t]
-                tower(foot, top, width * (0.5 + 0.3 * s.towerHeight[t]), 2_000 + t * 1_000, TOWER_LEVELS / 2 + 1)
-            }
-            // The overshooting top: a bright dome pushed up through the anvil.
-            val crown = Vec3().setTo(centre).mulInPlace(radius + towerTop + 200.0).addScaledInPlace(steer, lean)
-            shape.lobes.add(CloudLobe(crown.copy(), width * 0.45, 700.0 * envelope, shade = 0.92))
-            for (j in 0 until 4) {
-                val a = (j + h(600 + j)) * 0.5 * Math.PI
-                val at = crown.copy().addScaledInPlace(steer, kotlin.math.cos(a) * width * 0.3).addScaledInPlace(side, kotlin.math.sin(a) * width * 0.3)
-                shape.lobes.add(CloudLobe(at, width * (0.18 + 0.1 * h(610 + j)), 450.0 * envelope, shade = 0.88))
-            }
-            // The anvil: a broad flat sheet at the top, blown far downwind,
-            // and under its downwind half, dark pouches hanging - mammatus.
-            // A weak storm tops out before it spreads; a strong one's anvil
-            // runs for tens of kilometres.
-            val spread = s.anvilSpread * smooth(0.3, 0.6, s.strength) * envelope
-            val anvil = Vec3().setTo(centre).mulInPlace(radius + towerTop - 800.0).addScaledInPlace(steer, 0.8 * s.core + lean)
-            if (spread > 0.05) shape.lobes.add(CloudLobe(anvil.copy(), 1.8 * s.core * spread, 700.0, shade = 0.8, flat = true))
-            for (j in 0 until ANVIL_LOBES) {
-                if (spread <= 0.05) break
-                val a = (j + 0.5 * h(200 + j)) * 2.0 * Math.PI / ANVIL_LOBES
-                // Stretched downwind, as an anvil is.
-                val along = kotlin.math.cos(a) * 2.2 * s.core + 0.7 * s.core
-                val across = kotlin.math.sin(a) * 1.3 * s.core
-                val at = anvil.copy().addScaledInPlace(steer, along * spread).addScaledInPlace(side, across * spread)
-                shape.lobes.add(CloudLobe(at, s.core * (0.6 + 0.35 * h(220 + j)) * spread, 500.0, shade = 0.72 + 0.15 * h(230 + j), flat = true))
-            }
-            if (envelope > 0.4 && s.strength > 0.6 && spread > 0.3) {
-                for (j in 0 until MAMMATUS) {
-                    val along = (0.4 + 1.6 * h(700 + j)) * s.core
-                    val across = (h(710 + j) - 0.5) * 2.0 * s.core
-                    val at = anvil.copy().addScaledInPlace(steer, along * spread).addScaledInPlace(side, across * spread)
-                        .addScaledInPlace(up, -450.0)
-                    shape.lobes.add(CloudLobe(at, 350.0 + 250.0 * h(720 + j), 300.0, shade = 0.45))
-                }
-            }
-            // Its rain: a curtain from the base to the ground, half a core
-            // downwind of the updraught - where the downdraught is.
-            if (envelope > 0.3) {
-                val shaft = Vec3().setTo(centre).mulInPlace(radius).addScaledInPlace(steer, 0.5 * s.core).normalizeInPlace()
-                val ground = max(terrain?.elevation(shaft) ?: 0.0, 0.0)
-                val top = s.base + 100.0
-                if (top > ground + 200.0) {
-                    shape.rain.add(
-                        CloudLobe(
-                            shaft.mulInPlace(radius + (ground + top) * 0.5), 0.75 * s.core * envelope, (top - ground) * 0.5,
-                            shade = smooth(0.3, 0.6, envelope),
-                        ),
-                    )
-                }
-            }
-            out.add(shape)
+            out.add(stormShapes.build(s, time, stormDetail * near) { terrain?.elevation(it) ?: 0.0 })
         }
         // Layer cloud: the deck's puffs, cell by cell - the same puffs the
         // air is sampled from, so what is drawn is what a craft flies into.
@@ -664,7 +558,10 @@ class Weather(val body: CelestialBody, val config: WeatherConfig) {
             val cover = max(scratch[0] * thickness(up, time), scratch[3])
             most = max(most, smooth(0.3, 0.9, cover) * (if (type == CloudType.STRATUS) 1.0 else 0.75))
         }
-        return most
+        // Under a storm's base the whole sky is dark with it.
+        val e = Vec3(); val n = Vec3()
+        frame(up, e, n)
+        return max(most, storms.overcastAbove(up, e, n, altitude, time))
     }
 
     private fun buildDeck(type: CloudType, key: Long, time: Double, far: Boolean = false): CloudShape? {
@@ -758,18 +655,28 @@ class Weather(val body: CelestialBody, val config: WeatherConfig) {
         // Storms, all of them.
         val stormCells = SphereCells(radius, Storms.CELL)
         val sn = stormCells.perFace
-        val c = Vec3(); val steer = Vec3()
+        val c = Vec3(); val steer = Vec3(); val side = Vec3()
         for (face in 0 until 6) for (i in 0 until sn) for (j in 0 until sn) {
             val s = storms.storm((face.toLong() * sn + i) * sn + j, time)
             if (!s.exists) continue
             val envelope = storms.envelope(s, time)
             if (envelope <= 0.05) continue
-            storms.centreAt(s, time, c)
-            steer.setTo(s.steer)
-            if (steer.lengthSq > 1e-9) steer.normalizeInPlace() else steer.setTo(s.east)
             val shape = CloudShape(CloudType.CUMULONIMBUS, envelope)
-            shape.lobes.add(CloudLobe(Vec3().setTo(c).mulInPlace(radius + s.top - 800.0).addScaledInPlace(steer, 0.8 * s.core), 2.4 * s.core * envelope, 2_500.0, shade = 0.95))
-            shape.lobes.add(CloudLobe(Vec3().setTo(c).mulInPlace(radius + (s.base + s.top) * 0.5), 0.9 * s.core, (s.top - s.base) * 0.5, shade = 0.6))
+            // Its anvil, and its base - as wide as the storm spreads.
+            storms.frameAt(s, time, c, steer, side)
+            val main = s.mainCell
+            shape.lobes.add(
+                CloudLobe(
+                    storms.place(c, steer, side, s.cellAlong[main] + 0.8 * s.core, s.cellAcross[main], radius + s.top - 800.0, Vec3()),
+                    max(storms.anvilHalfAlong(s), storms.anvilHalfAcross(s)) * envelope, 2_500.0, shade = 0.95,
+                ),
+            )
+            shape.lobes.add(
+                CloudLobe(
+                    storms.place(c, steer, side, s.deckAlong, 0.0, radius + (s.base + s.top) * 0.5, Vec3()),
+                    max(s.halfAlong, s.halfAcross), (s.top - s.base) * 0.5, shade = 0.6,
+                ),
+            )
             out.add(shape)
         }
     }
@@ -818,17 +725,6 @@ class Weather(val body: CelestialBody, val config: WeatherConfig) {
         private val LAYER_DENSITY = doubleArrayOf(0.0, 1.0, 0.8, 0.35, 0.0)
 
         /** Spacing of the puffs a deck is drawn with, m, by ordinal. */
-        /** A storm tower's rings of billows, and billows round each ring; its anvil's lobes. */
-        /** A storm's tower: levels, and billows heaped round the middle of each. */
-        private const val TOWER_LEVELS = 10
-        private const val TOWER_HEAP = 7
-        private const val ANVIL_LOBES = 12
-        /** Under it: the dark shelf's lobes and the scud hanging below. */
-        private const val SHELF_LOBES = 6
-        private const val SCUD_LOBES = 8
-        /** Pouches hanging under the anvil. */
-        private const val MAMMATUS = 10
-
         private val LAYER_SPACING = doubleArrayOf(3_000.0, 2_500.0, 4_000.0, 8_000.0, 3_000.0)
 
         /** Heights each deck can be at, by ordinal: stratus above its ground, the rest above datum. */

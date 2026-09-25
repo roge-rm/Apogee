@@ -119,8 +119,8 @@ object Attachment {
      * the part's bottom mates with the node above it. Falls back to any
      * compatible node so that an oddly-authored part is still placeable.
      */
-    fun mountNodeFor(def: PartDef, target: OpenNode): AttachNode? {
-        val compatible = def.allAttachNodes.filter { compatible(target, it) }
+    fun mountNodeFor(def: PartDef, target: OpenNode, exclude: Set<String> = emptySet()): AttachNode? {
+        val compatible = def.allAttachNodes.filter { it.id !in exclude && compatible(target, it) }
         if (compatible.isEmpty()) return null
         return compatible.firstOrNull { (it.direction dot target.direction) < -0.5 }
             ?: compatible.first()
@@ -131,10 +131,10 @@ object Attachment {
      *
      * @return the rotation and position, in craft-design space.
      */
-    fun solve(def: PartDef, mountNode: AttachNode, target: OpenNode): Placement {
+    fun solve(def: PartDef, mountNode: AttachNode, target: OpenNode, turn: Int = 0): Placement {
         // The part must be turned so its node points back into the target's.
         val opposed = target.direction.copy().negateInPlace()
-        val rotation = settleRoll(quatFromTo(mountNode.direction, opposed), opposed)
+        val rotation = turned(settleRoll(quatFromTo(mountNode.direction, opposed), opposed), opposed, turn)
 
         // With the orientation fixed, the position is whatever puts the two
         // nodes in the same place.
@@ -158,6 +158,13 @@ object Attachment {
      * other. Every non-opposed join already came out this way; now every
      * join does.
      */
+    /** [rotation] given [quarters] quarter turns about [axis] (unit), the join. */
+    fun turned(rotation: Quat, axis: Vec3, quarters: Int): Quat {
+        val q = Math.floorMod(quarters, 4)
+        if (q == 0) return rotation
+        return Quat.fromAxisAngle(axis, q * Math.PI / 2.0) * rotation
+    }
+
     fun settleRoll(turn: Quat, axis: Vec3): Quat {
         val chord = turn.rotate(Vec3.unitY())
         val want = Vec3.unitY().addScaledInPlace(axis, -axis.y)
@@ -191,7 +198,11 @@ object Attachment {
             val opposed = open.direction.copy().negateInPlace()
             val mountDir = placed.rotation.rotate(own.direction)
             if ((mountDir dot opposed) < 0.999) continue // not seated on its node: leave it
-            val rotation = settleRoll(placed.rotation, opposed)
+            // Settled as if unturned, then turned again: along a straight
+            // stack there is no roll to settle, and turning what was already
+            // turned would add a quarter at every load.
+            val base = turned(placed.rotation, opposed, -placed.turn)
+            val rotation = turned(settleRoll(base, opposed), opposed, placed.turn)
             if (rotation.approxEqualsRotation(placed.rotation)) continue
             // The roll is about the join line through the node, so the part
             // turns about its own mounting point.

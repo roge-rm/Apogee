@@ -113,66 +113,46 @@ class CraftBuilder(
      *
      * @return the indices of the parts added, empty if the join was illegal.
      */
-    fun attach(partId: String, target: OpenNode): List<Int> {
-        val def = catalog[partId] ?: return emptyList()
-        if (!Attachment.accepts(def, target, design.orientation)) return emptyList()
-        val mountNode = Attachment.mountNodeFor(def, target) ?: return emptyList()
-        val placement = Attachment.solve(def, mountNode, target)
+    fun attach(partId: String, target: OpenNode): List<Int> = attachAssembly(Assembly.of(partId), target)
 
-        // Symmetry only makes sense radially, around the stack. Applying it to
-        // a stack join would pile several parts in the same place, so it is
-        // gated on either side of the join being a surface mount - a fin on a
-        // tank qualifies whichever side declares it.
-        val surfaceJoin = target.kind == com.rm.apogee.core.part.AttachNodeKind.SURFACE ||
-            mountNode.kind == com.rm.apogee.core.part.AttachNodeKind.SURFACE
-        val useSymmetry = surfaceJoin && symmetry.count > 1
-        // Which node each copy hangs from. Radial copies have only ever
-        // recorded the original's; a mirrored copy records its own, so the
-        // node it covers stops being offered as open.
-        val targets = ArrayList<OpenNode>(symmetry.count)
-        val placements = when {
-            !useSymmetry -> listOf(placement)
-            design.orientation == CraftOrientation.HORIZONTAL -> {
-                val mirrored = Attachment.mirror(placement)
-                // On the centreline the reflection is the part itself.
-                if (mirrored.position.distanceTo(placement.position) < CENTRELINE) {
-                    listOf(placement)
-                } else {
-                    val mirrorTarget = openNodes().firstOrNull {
-                        it.partIndex == target.partIndex && it.position.distanceTo(
-                            Vec3(-target.position.x, target.position.y, target.position.z)
-                        ) < CENTRELINE
-                    }
-                    targets.add(target)
-                    targets.add(mirrorTarget ?: target)
-                    listOf(placement, mirrored)
-                }
-            }
-            else -> Attachment.radialSymmetry(placement, symmetry.count)
-        }
+    /**
+     * Puts [assembly] on [target], copied round by the current symmetry
+     * mode as a single part would be.
+     *
+     * @return the indices of the parts added, empty if it will not go there.
+     */
+    fun attachAssembly(assembly: Assembly, target: OpenNode): List<Int> {
+        val done = Assemblies.attach(design, assembly, target, symmetry, catalog) ?: return emptyList()
+        mutate { Attachment.settled(done.design, catalog) }
+        return done.added
+    }
 
-        val group = if (placements.size > 1) nextSymmetryGroup() else -1
-        val added = ArrayList<Int>(placements.size)
+    /**
+     * What lifting part [index] would leave and hold, without lifting it:
+     * the builder shows the craft without the piece while a finger carries
+     * it, and only [move] changes the design. Null for the root.
+     */
+    fun lift(index: Int): Assemblies.Lift? = Assemblies.lift(design, index)
 
-        mutate { current ->
-            val parts = current.parts.toMutableList()
-            placements.forEachIndexed { i, p ->
-                added.add(parts.size)
-                parts.add(
-                    PlacedPart(
-                        partId = partId,
-                        position = p.position,
-                        rotation = p.rotation,
-                        parentIndex = target.partIndex,
-                        parentNodeId = (targets.getOrNull(i) ?: target).node.id,
-                        ownNodeId = mountNode.id,
-                        symmetryGroup = group,
-                    )
-                )
-            }
-            current.copy(parts = parts, catalogHash = catalog.contentHash)
-        }
-        return added
+    /**
+     * Moves part [index] - with its partners and everything below - on to
+     * [target], a node of [lift]'s [Assemblies.Lift.rest]. One undo step.
+     */
+    fun move(index: Int, target: OpenNode, symmetry: SymmetryMode = this.symmetry): List<Int> {
+        val lifted = lift(index) ?: return emptyList()
+        val done = Assemblies.attach(lifted.rest, lifted.assembly, target, symmetry, catalog) ?: return emptyList()
+        mutate { Attachment.settled(done.design, catalog) }
+        return done.added
+    }
+
+    /** A copy of part [index] and everything below it, to put somewhere else. */
+    fun duplicate(index: Int): Assembly? = Assemblies.extract(design, index)
+
+    /** Turns part [index] - and its partners - a quarter [quarters] times about its join. */
+    fun turn(index: Int, quarters: Int = 1): Boolean {
+        val turned = Assemblies.turn(design, index, quarters, catalog) ?: return false
+        mutate { Attachment.settled(turned, catalog) }
+        return true
     }
 
     /**
@@ -318,26 +298,13 @@ class CraftBuilder(
         )
     }
 
-    private fun nextSymmetryGroup(): Int =
-        (design.parts.maxOfOrNull { it.symmetryGroup } ?: -1) + 1
 
     /** Rebuilds a design from a subset of parts, remapping parent indices. */
-    private fun rebuild(source: CraftDesign, keep: List<Int>): CraftDesign {
-        val remap = HashMap<Int, Int>(keep.size)
-        keep.forEachIndexed { newIndex, oldIndex -> remap[oldIndex] = newIndex }
-        val parts = keep.map { oldIndex ->
-            val part = source.parts[oldIndex]
-            part.copy(parentIndex = remap[part.parentIndex] ?: -1)
-        }
-        val stages = source.stages.map { stage -> Stage(stage.activatedParts.mapNotNull { remap[it] }) }
-        return source.copy(parts = parts, stages = stages)
-    }
+    private fun rebuild(source: CraftDesign, keep: List<Int>): CraftDesign = source.keeping(keep)
 
     companion object {
         private const val MAX_UNDO = 64
 
-        /** Metres within which a reflected part counts as landing on itself. */
-        private const val CENTRELINE = 0.05
 
         /** Parts a stage can fire. */
         fun stageable(def: PartDef): Boolean =

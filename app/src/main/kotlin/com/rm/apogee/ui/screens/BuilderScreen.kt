@@ -1,6 +1,28 @@
 package com.rm.apogee.ui.screens
 
 import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ChevronLeft
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Redo
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.unit.IntSize
+import com.rm.apogee.settings.GameSettings
+import com.rm.apogee.ui.components.builder.CarryPicture
+import com.rm.apogee.ui.components.builder.HeldChip
+import com.rm.apogee.ui.components.builder.PaletteCarry
+import com.rm.apogee.ui.components.builder.PartActionBar
+import com.rm.apogee.ui.components.builder.PartPalette
+import com.rm.apogee.ui.components.builder.PartTab
+import com.rm.apogee.ui.components.builder.SlidePanel
+import com.rm.apogee.ui.components.builder.StatsChip
 import androidx.compose.foundation.lazy.rememberLazyListState
 import com.rm.apogee.ui.components.verticalScrollbar
 import androidx.compose.foundation.background
@@ -75,12 +97,16 @@ import kotlin.math.roundToInt
  * The vehicle assembly building.
  *
  * Transparent, like the flight HUD - the craft itself is drawn by the GL
- * surface underneath, and every panel here carries its own scrim.
+ * surface underneath, and every panel here carries its own scrim. The panels
+ * slide away to the edges: the drawer by itself while a part is in hand, so
+ * the craft is in view to put it on.
  */
 @Composable
 fun BuilderScreen(
     session: BuilderSession,
     catalog: PartCatalog,
+    settings: GameSettings,
+    pictures: Map<String, ImageBitmap>,
     onExit: () -> Unit,
     onLaunch: () -> Unit,
 ) {
@@ -91,51 +117,109 @@ fun BuilderScreen(
     var showLoadDialog by remember { mutableStateOf(false) }
     var showSiteDialog by remember { mutableStateOf(false) }
     var showNameDialog by remember { mutableStateOf(false) }
+    var confirmNew by remember { mutableStateOf(false) }
+    // Opened by its handle while something is in hand: stays out until the next pick.
+    var peek by remember { mutableStateOf(false) }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val portrait = maxWidth < maxHeight
+        val density = LocalDensity.current
+        val screen = with(density) { IntSize(maxWidth.roundToPx(), maxHeight.roundToPx()) }
+        val carrying = session.carryPoint != null
+        val holding = session.held != null
 
-        // --- part drawer or stages, left ---------------------------------------
+        // --- the drawer or the stages, left -------------------------------------
         // The same place for both: editing the staging is not placing parts,
         // and the craft stays clear down the middle either way.
+        // Pinned by its top, at one height whatever the tab holds: centred
+        // and sized to its parts, it jumped up and down from tab to tab
+        // (Dan). Below the toolbar and the stats line in portrait, clear of
+        // the launch button at the bottom.
+        val top = if (portrait) 112.dp else 8.dp
+        val bottom = if (portrait) 150.dp else 8.dp
+        val paletteHeight = (maxHeight - top - bottom).coerceIn(200.dp, 560.dp)
         val leftModifier = Modifier
-            .align(Alignment.CenterStart)
+            .align(Alignment.TopStart)
             .windowInsetsPadding(WindowInsets.displayCutout)
-            .padding(8.dp)
+            .padding(start = 8.dp, top = top)
         if (session.stagingMode) {
-            StagePanel(
-                session,
-                entries = session.stageEntries,
-                manual = session.manualStaging,
-                selected = session.selectedStage,
-                width = if (portrait) 190.dp else 230.dp,
+            SlidePanel(
+                shown = settings.builderStagesOpen,
+                onOpen = { settings.builderStagesOpen = true },
+                handleLabel = "Show the stages",
                 modifier = leftModifier,
-            )
+                onCovers = { session.leftInset = it },
+            ) {
+                StagePanel(
+                    session,
+                    entries = session.stageEntries,
+                    manual = session.manualStaging,
+                    selected = session.selectedStage,
+                    width = if (portrait) 190.dp else 230.dp,
+                    onClose = { settings.builderStagesOpen = false },
+                )
+            }
         } else {
-            PartDrawer(
-                catalog = catalog,
-                heldPartId = session.heldPartId,
-                onSelect = { session.selectPart(if (session.heldPartId == it) null else it) },
-                width = if (portrait) 170.dp else 210.dp,
+            val horizontal = session.orientation == CraftOrientation.HORIZONTAL
+            val tabName = if (horizontal) settings.builderTabHorizontal else settings.builderTabVertical
+            val tab = PartTab.entries.firstOrNull { it.name == tabName } ?: PartTab.ALL
+            SlidePanel(
+                // Tucked away while a part is in hand, carried or being worked
+                // on with the action bar, unless pulled out.
+                shown = settings.builderPartsOpen && !carrying && ((!holding && session.selectedPartIndex == null) || peek),
+                onOpen = { settings.builderPartsOpen = true; peek = true },
+                handleLabel = "Show the parts",
                 modifier = leftModifier,
-            )
+                onCovers = { session.leftInset = it },
+            ) {
+                PartPalette(
+                    catalog = catalog,
+                    pictures = pictures,
+                    tab = tab,
+                    onTab = {
+                        if (horizontal) settings.builderTabHorizontal = it.name else settings.builderTabVertical = it.name
+                    },
+                    columns = 2,
+                    tileSize = if (portrait) 66.dp else 70.dp,
+                    heldPartId = session.heldPartId,
+                    onPick = {
+                        peek = false
+                        session.selectPart(if (session.heldPartId == it) null else it)
+                    },
+                    carry = PaletteCarry(
+                        start = { peek = false; session.beginCarry(it) },
+                        move = { session.carryTo(it.x, it.y) },
+                        end = session::endCarry,
+                    ),
+                    onClose = { settings.builderPartsOpen = false; peek = false },
+                    modifier = Modifier.height(paletteHeight),
+                )
+            }
         }
 
         // --- stats, right ------------------------------------------------------
-        // Below the toolbar in either orientation: it spans most of the top
-        // edge in portrait, and with the stages button it reaches the corner
-        // in landscape too. The two panels still sit on opposite sides, which
-        // is what keeps the craft itself visible down the middle.
-        StatsPanel(
-            stats = session.stats,
-            craftName = session.builder.name,
-            width = if (portrait) 200.dp else 230.dp,
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .windowInsetsPadding(WindowInsets.displayCutout)
-                .padding(start = 8.dp, end = 8.dp, bottom = 8.dp)
-                .padding(top = 68.dp),
-        )
+        // One line until asked for more - the whole card is out by default
+        // only where there is room beside the craft.
+        val statsOpen = if (portrait) settings.builderStatsOpenPortrait else settings.builderStatsOpenLandscape
+        val setStats: (Boolean) -> Unit = { if (portrait) settings.builderStatsOpenPortrait = it else settings.builderStatsOpenLandscape = it }
+        val statsModifier = Modifier
+            .align(Alignment.TopEnd)
+            .windowInsetsPadding(WindowInsets.displayCutout)
+            .padding(start = 8.dp, end = 8.dp, bottom = 8.dp)
+            .padding(top = if (portrait) 68.dp else 64.dp)
+        if (statsOpen) {
+            StatsPanel(
+                stats = session.stats,
+                craftName = session.builder.name,
+                width = if (portrait) 200.dp else 230.dp,
+                onClose = { setStats(false) },
+                // The craft is drawn in the space left between it and the drawer.
+                modifier = statsModifier.onGloballyPositioned { session.rightInset = screen.width - it.positionInWindow().x },
+            )
+        } else {
+            LaunchedEffect(Unit) { session.rightInset = 0f }
+            StatsChip(session.stats, onOpen = { setStats(true) }, modifier = statsModifier)
+        }
 
         // --- toolbar, top -------------------------------------------------------
         Row(
@@ -148,19 +232,58 @@ fun BuilderScreen(
         ) {
             ToolButton(Icons.Filled.Close, "Leave the assembly building", onExit)
             ToolButton(Icons.Filled.Undo, "Undo", session::undo)
+            ToolButton(Icons.Filled.Redo, "Redo", session::redo)
             OrientationButton(session.orientation, session::toggleOrientation)
             SymmetryButton(session.symmetry, session::toggleSymmetry)
             StagesButton(session.stagingMode, session::toggleStagingMode)
-            ToolButton(Icons.Filled.Save, "Save", { showNameDialog = true })
-            ToolButton(Icons.Filled.FolderOpen, "Load", { showLoadDialog = true })
-            if (session.selectedPartIndex != null) {
-                ToolButton(
-                    Icons.Filled.Delete,
-                    "Remove the selected part",
-                    session::deleteSelected,
-                    tint = ApogeeColors.Danger,
-                )
-            }
+            FileMenu(
+                onSave = { if (session.builder.name == "Untitled") showNameDialog = true else session.save() },
+                onSaveAs = { showNameDialog = true },
+                onLoad = { showLoadDialog = true },
+                onNew = { confirmNew = true },
+            )
+        }
+
+        // --- in hand, below the toolbar ------------------------------------------
+        val held = session.held
+        if (held != null && !carrying) {
+            val title = held.partId?.let { catalog[it]?.title }
+                ?: "Copy of ${catalog[held.assembly.rootPartId]?.title ?: "part"}" + if (held.assembly.size > 1) " +${held.assembly.size - 1}" else ""
+            HeldChip(
+                title = title,
+                picture = pictures[held.assembly.rootPartId],
+                onDrop = { peek = false; session.dropHeld() },
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .windowInsetsPadding(WindowInsets.displayCutout)
+                    .padding(top = if (portrait) 64.dp + 40.dp else 64.dp),
+            )
+        }
+
+        // --- the tapped part's actions ---------------------------------------------
+        val selection = session.selection
+        val anchor = session.selectionAnchor
+        if (selection != null && anchor != null && !session.stagingMode && !carrying) {
+            PartActionBar(
+                selection = selection,
+                anchor = anchor,
+                screen = screen,
+                onDelete = session::deleteSelected,
+                onCopy = session::duplicateSelected,
+                onTurn = session::turnSelected,
+                onStage = session::stageSelected,
+                onClose = session::clearSelection,
+            )
+        }
+
+        // --- what a finger carries, while it has nowhere to go ------------------------
+        val point = session.carryPoint
+        if (point != null && !session.carrySnapped) {
+            CarryPicture(
+                picture = session.carryPartId?.let { pictures[it] },
+                at = point,
+                lift = screen.height * BuilderSession.FINGER_LIFT,
+            )
         }
 
         // --- launch, bottom ------------------------------------------------------
@@ -246,6 +369,16 @@ fun BuilderScreen(
         )
     }
 
+    if (confirmNew) {
+        AlertDialog(
+            onDismissRequest = { confirmNew = false },
+            title = { Text("Start a new craft?") },
+            text = { Text("This clears the building. Undo brings it back.") },
+            confirmButton = { TextButton(onClick = { session.clear(); confirmNew = false }) { Text("New") } },
+            dismissButton = { TextButton(onClick = { confirmNew = false }) { Text("Keep building") } },
+        )
+    }
+
     if (showSiteDialog) {
         SiteDialog(
             selected = session.launchSiteId,
@@ -260,6 +393,21 @@ fun BuilderScreen(
             session = session,
             onDismiss = { showLoadDialog = false },
         )
+    }
+}
+
+/** Save, save as, load and new: the file things, out of the way. */
+@Composable
+private fun FileMenu(onSave: () -> Unit, onSaveAs: () -> Unit, onLoad: () -> Unit, onNew: () -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        ToolButton(Icons.Filled.MoreVert, "Save, load or start again", { open = true })
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            DropdownMenuItem(text = { Text("Save") }, leadingIcon = { Icon(Icons.Filled.Save, null) }, onClick = { open = false; onSave() })
+            DropdownMenuItem(text = { Text("Save as…") }, leadingIcon = { Icon(Icons.Filled.Save, null) }, onClick = { open = false; onSaveAs() })
+            DropdownMenuItem(text = { Text("Load") }, leadingIcon = { Icon(Icons.Filled.FolderOpen, null) }, onClick = { open = false; onLoad() })
+            DropdownMenuItem(text = { Text("New") }, leadingIcon = { Icon(Icons.Filled.Add, null) }, onClick = { open = false; onNew() })
+        }
     }
 }
 
@@ -361,6 +509,7 @@ private fun StagePanel(
     manual: Boolean,
     selected: Int?,
     width: Dp,
+    onClose: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Surface(
@@ -370,6 +519,12 @@ private fun StagePanel(
     ) {
         Column(Modifier.padding(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Filled.ChevronLeft,
+                    contentDescription = "Put the stages away",
+                    tint = Color.White.alpha(ApogeeAlpha.SECONDARY),
+                    modifier = Modifier.clip(RoundedCornerShape(Dimens.CornerTight)).clickable(onClick = onClose).padding(2.dp),
+                )
                 Text("STAGES", style = TelemetryTextStyle, color = Color.White.alpha(ApogeeAlpha.BODY))
                 Spacer(Modifier.weight(1f))
                 // Automatic until the player changes something; tapping it
@@ -505,63 +660,11 @@ private fun SymmetryButton(symmetry: SymmetryMode, onToggle: () -> Unit) {
 }
 
 @Composable
-private fun PartDrawer(
-    catalog: PartCatalog,
-    heldPartId: String?,
-    onSelect: (String) -> Unit,
-    width: Dp,
-    modifier: Modifier = Modifier,
-) {
-    // Command first: the first part placed becomes the root, and a craft rooted
-    // at its pod is one where staging discards the spent half.
-    val ordered = remember(catalog) {
-        listOf(
-            PartCategory.COMMAND, PartCategory.FUEL, PartCategory.PROPULSION,
-            PartCategory.STRUCTURAL, PartCategory.AERO, PartCategory.UTILITY,
-            PartCategory.GROUND,
-        ).flatMap { category -> catalog.byCategory(category).map { category to it } }
-    }
-
-    Surface(
-        shape = RoundedCornerShape(Dimens.CornerPanel),
-        color = Color.Black.alpha(ApogeeAlpha.SCRIM),
-        modifier = modifier.width(width).heightIn(max = 420.dp),
-    ) {
-        val list = rememberLazyListState()
-        LazyColumn(Modifier.verticalScrollbar(list).padding(8.dp), state = list) {
-            items(ordered) { (category, part) ->
-                val held = part.id == heldPartId
-                Column(
-                    Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(Dimens.CornerTight))
-                        .background(
-                            if (held) ApogeeColors.Accent.alpha(0.25f) else Color.Transparent
-                        )
-                        .clickable { onSelect(part.id) }
-                        .padding(horizontal = 8.dp, vertical = 6.dp),
-                ) {
-                    Text(
-                        part.title,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = if (held) ApogeeColors.Accent else Color.White,
-                    )
-                    Text(
-                        "${category.name.lowercase()} · ${part.dryMass.roundToInt()} kg",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Color.White.alpha(ApogeeAlpha.SUBTITLE),
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
 private fun StatsPanel(
     stats: CraftStats,
     craftName: String,
     width: Dp,
+    onClose: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Surface(
@@ -569,12 +672,16 @@ private fun StatsPanel(
         color = Color.Black.alpha(ApogeeAlpha.SCRIM),
         modifier = modifier.width(width),
     ) {
-        Column(Modifier.padding(12.dp)) {
-            Text(
-                craftName,
-                style = MaterialTheme.typography.titleSmall,
-                color = Color.White,
-            )
+        Column(Modifier.clickable(onClick = onClose).padding(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    craftName,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = Color.White,
+                    modifier = Modifier.weight(1f),
+                )
+                Icon(Icons.Filled.ExpandLess, contentDescription = "Just the line", tint = Color.White.alpha(ApogeeAlpha.SECONDARY))
+            }
             Spacer(Modifier.height(6.dp))
             StatRow("PARTS", "${stats.partCount}")
             StatRow("MASS", "${(stats.totalMass / 1000).format(2)} t")

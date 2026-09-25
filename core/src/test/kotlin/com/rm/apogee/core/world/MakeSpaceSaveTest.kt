@@ -128,7 +128,18 @@ class MakeSpaceSaveTest {
                     val shapes = ArrayList<com.rm.apogee.core.weather.CloudShape>()
                     weather.clouds(pad, 35_000.0, t, shapes)
                     val here = pad.copy().mulInPlace(terra.radius)
-                    val storm = shapes.firstOrNull { shape ->
+                    // STORM_KIND=single|multicell|supercell|squall: that kind, grown, 15-45 km off.
+                    val kind = System.getenv("STORM_KIND")?.let { com.rm.apogee.core.weather.StormKind.valueOf(it.uppercase()) }
+                    val storm = if (kind != null) {
+                        val e = Vec3(); val n = Vec3()
+                        com.rm.apogee.core.weather.frame(pad, e, n)
+                        val list = ArrayList<com.rm.apogee.core.weather.Storms.Storm>()
+                        weather.stormModel.around(pad, e, n, 2, t, list)
+                        list.firstOrNull { st ->
+                            st.kind == kind && weather.stormModel.envelope(st, t) > 0.7 &&
+                                weather.stormModel.centreAt(st, t, Vec3()).mulInPlace(terra.radius).distanceTo(here) in 15_000.0..45_000.0
+                        }?.let { shapes.firstOrNull() }
+                    } else shapes.firstOrNull { shape ->
                         shape.type == com.rm.apogee.core.weather.CloudType.CUMULONIMBUS && shape.amount > 0.7 &&
                             shape.lobes.first().centre.copy().normalizeInPlace().mulInPlace(terra.radius).distanceTo(here) in 12_000.0..30_000.0 &&
                             (want != "rain" || shape.rain.isNotEmpty())

@@ -147,6 +147,11 @@ class CameraController(
         if (distance > wanted * 2.0) distance = wanted
     }
 
+    /** Frames a craft of this size, closer or further: back to the whole of it. */
+    fun frameFor(craftSize: Double) {
+        distance = (craftSize * 1.8 + 6.0).coerceIn(minDistance, maxDistance)
+    }
+
     /** Snaps the distance to exactly frame something of this size. */
     fun frameExactly(size: Double) {
         distance = (size * 2.4).coerceIn(minDistance, maxDistance)

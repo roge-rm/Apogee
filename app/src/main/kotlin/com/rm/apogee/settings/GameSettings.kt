@@ -113,6 +113,16 @@ class GameSettings(context: Context) {
 
     var hapticsEnabled: Boolean by booleanPref(KEY_HAPTICS, true)
 
+    /** The assembly building's panels as the player last left them. */
+    var builderPartsOpen: Boolean by booleanPref(KEY_BUILDER_PARTS, true)
+    var builderStagesOpen: Boolean by booleanPref(KEY_BUILDER_STAGES, true)
+    /** The full stats card, or just the one-line chip: out by default only where there is room. */
+    var builderStatsOpenPortrait: Boolean by booleanPref(KEY_BUILDER_STATS_PORTRAIT, false)
+    var builderStatsOpenLandscape: Boolean by booleanPref(KEY_BUILDER_STATS_LANDSCAPE, true)
+    /** The drawer tab last used, for a craft standing up and one lying down. */
+    var builderTabVertical: String by stringPref(KEY_BUILDER_TAB_VERTICAL, "ALL")
+    var builderTabHorizontal: String by stringPref(KEY_BUILDER_TAB_HORIZONTAL, "ALL")
+
     var showDebugOverlay: Boolean by booleanPref(KEY_DEBUG_OVERLAY, false)
 
     /**
@@ -234,6 +244,12 @@ class GameSettings(context: Context) {
         const val KEY_INTERFACE_VOLUME = "volume_interface"
         const val KEY_MUSIC_VOLUME = "volume_music"
         const val KEY_HAPTICS = "haptics"
+        const val KEY_BUILDER_PARTS = "builder_parts_open"
+        const val KEY_BUILDER_STAGES = "builder_stages_open"
+        const val KEY_BUILDER_STATS_PORTRAIT = "builder_stats_open_portrait"
+        const val KEY_BUILDER_STATS_LANDSCAPE = "builder_stats_open_landscape"
+        const val KEY_BUILDER_TAB_VERTICAL = "builder_tab_vertical"
+        const val KEY_BUILDER_TAB_HORIZONTAL = "builder_tab_horizontal"
         const val KEY_DEBUG_OVERLAY = "debug_overlay"
         const val KEY_QUALITY = "quality_tier"
         const val KEY_DETECTED_QUALITY = "detected_quality_tier"

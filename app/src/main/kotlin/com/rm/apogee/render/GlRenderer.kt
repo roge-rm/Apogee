@@ -194,6 +194,8 @@ class GlRenderer(
         if (lastDrawNanos != 0L) lastFrameTimeNanos.set(now - lastDrawNanos)
         lastDrawNanos = now
 
+        drawThumbnails()
+
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT or GLES30.GL_DEPTH_BUFFER_BIT)
 
         val pair = frameBus.latest() ?: return
@@ -830,7 +832,83 @@ class GlRenderer(
         )
     }
 
+    // --- part pictures ---------------------------------------------------------
+
+    /** Where the drawer's part pictures are asked for and handed back. */
+    @Volatile var thumbnails: PartThumbnails? = null
+
+    private val thumbFbo = IntArray(1)
+    private val thumbColour = IntArray(1)
+    private val thumbDepth = IntArray(1)
+    private var thumbTarget = false
+    private val thumbProjection = Mat4()
+    private val thumbViewProjection = Mat4()
+    private val thumbPixels: java.nio.ByteBuffer = java.nio.ByteBuffer
+        .allocateDirect(THUMB_RENDER * THUMB_RENDER * 4).order(java.nio.ByteOrder.nativeOrder())
+
+    /**
+     * A few waiting part pictures, drawn off screen before the frame itself:
+     * at twice the size and scaled down, for smooth edges without
+     * multisampling, lit by the builder's key light with no shadows.
+     */
+    private fun drawThumbnails() {
+        val source = thumbnails ?: return
+        var job = source.next() ?: return
+        var drawn = 0
+        if (!thumbTarget) {
+            GLES30.glGenFramebuffers(1, thumbFbo, 0)
+            GLES30.glGenRenderbuffers(1, thumbColour, 0)
+            GLES30.glBindRenderbuffer(GLES30.GL_RENDERBUFFER, thumbColour[0])
+            GLES30.glRenderbufferStorage(GLES30.GL_RENDERBUFFER, GLES30.GL_RGBA8, THUMB_RENDER, THUMB_RENDER)
+            GLES30.glGenRenderbuffers(1, thumbDepth, 0)
+            GLES30.glBindRenderbuffer(GLES30.GL_RENDERBUFFER, thumbDepth[0])
+            GLES30.glRenderbufferStorage(GLES30.GL_RENDERBUFFER, GLES30.GL_DEPTH_COMPONENT24, THUMB_RENDER, THUMB_RENDER)
+            GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, thumbFbo[0])
+            GLES30.glFramebufferRenderbuffer(GLES30.GL_FRAMEBUFFER, GLES30.GL_COLOR_ATTACHMENT0, GLES30.GL_RENDERBUFFER, thumbColour[0])
+            GLES30.glFramebufferRenderbuffer(GLES30.GL_FRAMEBUFFER, GLES30.GL_DEPTH_ATTACHMENT, GLES30.GL_RENDERBUFFER, thumbDepth[0])
+            GLES30.glBindRenderbuffer(GLES30.GL_RENDERBUFFER, 0)
+            thumbTarget = true
+        }
+        GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, thumbFbo[0])
+        GLES30.glViewport(0, 0, THUMB_RENDER, THUMB_RENDER)
+        GLES30.glClearColor(0f, 0f, 0f, 0f)
+        val near = nearOn; val far = farOn; val cloud = cloudOn
+        nearOn = false; farOn = false; cloudOn = 0f
+        frameDaylight = 1f
+        nightDim(CLEAR_FOG_COLOR, 1f, frameFog)
+        while (true) {
+            GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT or GLES30.GL_DEPTH_BUFFER_BIT)
+            viewMatrix.setViewFromCameraRotation(job.cameraRotation)
+            thumbProjection.setPerspective(job.fovY, 1.0, 0.02, 200.0)
+            thumbViewProjection.setMultiplied(thumbProjection, viewMatrix)
+            val frame = RenderFrame(0, 0, job.cameraPosition, job.cameraRotation, job.fovY, job.items)
+            drawItems(job.items, null, frame, 1.0, job.cameraPosition, thumbViewProjection.m)
+            thumbPixels.rewind()
+            GLES30.glReadPixels(0, 0, THUMB_RENDER, THUMB_RENDER, GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, thumbPixels)
+            thumbPixels.rewind()
+            val raw = android.graphics.Bitmap.createBitmap(THUMB_RENDER, THUMB_RENDER, android.graphics.Bitmap.Config.ARGB_8888)
+            raw.copyPixelsFromBuffer(thumbPixels)
+            // Read bottom row first: turned the right way up, and halved.
+            val flip = android.graphics.Matrix().apply {
+                val k = PartThumbnails.SIZE.toFloat() / THUMB_RENDER
+                setScale(k, -k)
+            }
+            val picture = android.graphics.Bitmap.createBitmap(raw, 0, 0, THUMB_RENDER, THUMB_RENDER, flip, true)
+            raw.recycle()
+            source.done(job.partId, picture)
+            // Only taken off the queue once there is time to draw it.
+            if (++drawn >= THUMBS_PER_FRAME) break
+            job = source.next() ?: break
+        }
+        nearOn = near; farOn = far; cloudOn = cloud
+        GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
+        GLES30.glViewport(0, 0, viewportWidth, viewportHeight)
+        GLES30.glClearColor(0.01f, 0.012f, 0.03f, 1f)
+    }
+
     private fun releaseGlObjects() {
+        // Names from a lost context are gone with it; made again when next needed.
+        thumbTarget = false
         vesselProgram?.release(); vesselProgram = null
         skyProgram?.release(); skyProgram = null
         terrainProgram?.release(); terrainProgram = null
@@ -864,6 +942,10 @@ class GlRenderer(
     private companion object {
         /** Fog colour with no weather: never seen, since the fog distance is huge. */
         val CLEAR_FOG_COLOR = floatArrayOf(0.75f, 0.77f, 0.8f)
+
+        /** Part pictures are drawn at this size, pixels, and halved. */
+        const val THUMB_RENDER = PartThumbnails.SIZE * 2
+        const val THUMBS_PER_FRAME = 3
 
         /**
          * Terrain chunks uploaded per frame at most. Each is ~50 KB; a dozen

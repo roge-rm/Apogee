@@ -67,6 +67,35 @@ fun Modifier.verticalScrollbar(state: LazyListState, width: Dp = 4.dp, inset: Dp
     }
 }
 
+/**
+ * The same, for a lazy grid: rows of [LazyGridState]'s items, estimated
+ * from the rows in view as for a list.
+ */
+fun Modifier.verticalScrollbar(state: androidx.compose.foundation.lazy.grid.LazyGridState, width: Dp = 4.dp, inset: Dp = 2.dp): Modifier = composed {
+    val info = state.layoutInfo
+    val visible = info.visibleItemsInfo
+    val overflows = visible.isNotEmpty() && (visible.size < info.totalItemsCount ||
+        visible.first().offset.y < info.viewportStartOffset || visible.last().let { it.offset.y + it.size.height } > info.viewportEndOffset)
+    val shown by animateFloatAsState(if (overflows) 1f else 0f, label = "scrollbar")
+    drawWithContent {
+        drawContent()
+        if (shown <= 0f || !overflows) return@drawWithContent
+        // Items per row, from how many share the first row's top.
+        val perRow = visible.count { it.offset.y == visible.first().offset.y }.coerceAtLeast(1)
+        val rowSize = visible.first().size.height.toFloat() + (visible.getOrNull(perRow)?.let { it.offset.y - visible.first().offset.y - visible.first().size.height } ?: 0).toFloat()
+        val rows = (info.totalItemsCount + perRow - 1) / perRow
+        val viewport = (info.viewportEndOffset - info.viewportStartOffset).toFloat()
+        val content = rowSize * rows
+        if (content <= viewport) return@drawWithContent
+        val scrolled = (state.firstVisibleItemIndex / perRow) * rowSize + state.firstVisibleItemScrollOffset
+        drawBar(
+            viewFraction = viewport / content,
+            position = (scrolled / (content - viewport)).coerceIn(0f, 1f),
+            width = width.toPx(), inset = inset.toPx(), alpha = shown,
+        )
+    }
+}
+
 private val Track = Color.White.copy(alpha = 0.10f)
 private val Thumb = Color.White.copy(alpha = 0.45f)
 

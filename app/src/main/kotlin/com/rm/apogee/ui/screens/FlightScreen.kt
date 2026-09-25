@@ -21,6 +21,8 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.ui.draw.rotate
+import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -749,11 +751,23 @@ private fun SurfaceReadouts(telemetry: FlightTelemetry) {
     // Through the air, and the air itself - only where there is some.
     if (telemetry.inAir) {
         Readout("AIR", "${telemetry.airspeed.roundToInt()} m/s")
-        Readout(
-            "WIND",
-            "${windArrow(telemetry.windFrom)} ${telemetry.windSpeed.roundToInt()} m/s",
-            colour = if (telemetry.windSpeed > 15.0) ApogeeColors.Caution else ApogeeColors.Data,
-        )
+        val windColour = if (telemetry.windSpeed > 15.0) ApogeeColors.Caution else ApogeeColors.Data
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("WIND", style = TelemetryTextStyle, color = Color.White.alpha(ApogeeAlpha.SUBTITLE))
+            Spacer(Modifier.width(10.dp))
+            // The way it blows, as seen on screen: turned smoothly, not
+            // snapped to eight points, so it lines up with the windsock.
+            if (telemetry.windSpeed >= 0.5) {
+                androidx.compose.material3.Icon(
+                    androidx.compose.material.icons.Icons.Filled.ArrowUpward,
+                    contentDescription = null,
+                    tint = windColour,
+                    modifier = Modifier.size(14.dp).rotate((telemetry.windFrom + 180.0).toFloat()),
+                )
+                Spacer(Modifier.width(4.dp))
+            }
+            Text("${telemetry.windSpeed.roundToInt()} m/s", style = TelemetryTextStyle, color = windColour)
+        }
     }
 }
 
@@ -859,16 +873,6 @@ private fun ConnectionProblem(message: String, onExit: () -> Unit) {
 }
 
 /** Metres below a kilometre, kilometres above it. */
-/**
- * An arrow for the way the wind is blowing, relative to the nose: the
- * direction it goes, so a headwind (from 0 degrees) points down the screen.
- */
-private fun windArrow(fromDegrees: Double): String {
-    val towards = ((fromDegrees + 180.0) % 360.0 + 360.0) % 360.0
-    val arrows = arrayOf("\u2191", "\u2197", "\u2192", "\u2198", "\u2193", "\u2199", "\u2190", "\u2196")
-    return arrows[((towards + 22.5) / 45.0).toInt() % 8]
-}
-
 private fun formatDistance(metres: Double): String {
     val magnitude = abs(metres)
     return when {

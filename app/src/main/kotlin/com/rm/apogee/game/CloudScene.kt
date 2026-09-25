@@ -89,11 +89,29 @@ class CloudScene(
         QualityTier.HIGH -> 80_000.0
     }
 
+    /**
+     * How far off storms are drawn, m: well past the rest. A storm tens of
+     * kilometres across is seen from a hundred away, and what a pilot most
+     * needs to see coming.
+     */
+    private val stormReach: Double get() = when (tier) {
+        QualityTier.LOW -> 70_000.0
+        QualityTier.MEDIUM -> 100_000.0
+        QualityTier.HIGH -> 140_000.0
+    }
+
+    /** How finely storms are built: fewer, bigger lobes where fewer can be drawn. */
+    private val stormDetail: Double get() = when (tier) {
+        QualityTier.LOW -> 0.45
+        QualityTier.MEDIUM -> 0.75
+        QualityTier.HIGH -> 1.0
+    }
+
     private val maxLobes: Int get() = when (tier) {
-        // Room on LOW for a storm - a hundred and twenty lobes, drawn first -
-        // and the cumulus round it.
-        QualityTier.LOW -> 260
-        QualityTier.MEDIUM -> 800
+        // Room on LOW for a storm or two - a big one near is two hundred
+        // lobes at LOW's detail, drawn first - and the cumulus round them.
+        QualityTier.LOW -> 320
+        QualityTier.MEDIUM -> 900
         QualityTier.HIGH -> 1_800
     }
 
@@ -130,19 +148,21 @@ class CloudScene(
 
     private fun list(camera: Vec3, time: Double, reach: Double): List<Lobe> {
         shapes.clear()
-        listingWeather.clouds(camera.copy().normalizeInPlace(), reach, time, shapes)
+        val stormReach = if (reach < this.reach) reach else stormReach
+        listingWeather.clouds(camera.copy().normalizeInPlace(), reach, time, shapes, stormReach, stormDetail)
         val list = ArrayList<Lobe>(shapes.size * 4)
         val curtains = ArrayList<Lobe>()
         for (shape in shapes) {
+            val far = if (shape.type == CloudType.CUMULONIMBUS) stormReach else reach
             for (lobe in shape.lobes) {
                 val distance = lobe.centre.distanceTo(camera) - lobe.horizontal
-                if (distance > reach) continue
-                list.add(lobeFor(shape.type, shape.amount, lobe, distance))
+                if (distance > far) continue
+                list.add(lobeFor(shape.type, shape.amount, lobe, distance, fadeAt = far))
             }
             for (lobe in shape.rain) {
                 val distance = lobe.centre.distanceTo(camera) - lobe.horizontal
-                if (distance > reach) continue
-                curtains.add(curtainFor(lobe, distance, reach))
+                if (distance > far) continue
+                curtains.add(curtainFor(lobe, distance, far))
             }
         }
         buildShadow(camera, time)
@@ -192,7 +212,15 @@ class CloudScene(
     }
 
     /** A drawable lobe: turned its own way, shaped by where it is, coloured and faded. */
-    private fun lobeFor(type: CloudType, amount: Double, lobe: com.rm.apogee.core.weather.CloudLobe, distance: Double, flatForced: Boolean = false): Lobe {
+    private fun lobeFor(
+        type: CloudType,
+        amount: Double,
+        lobe: com.rm.apogee.core.weather.CloudLobe,
+        distance: Double,
+        flatForced: Boolean = false,
+        /** Faded out toward this distance, m. */
+        fadeAt: Double = reach,
+    ): Lobe {
         val up = Vec3().setTo(lobe.centre).normalizeInPlace()
         // Each puff turned its own way about the vertical, and its shape
         // picked from where it is: turned alike and handed out in order,
@@ -207,7 +235,7 @@ class CloudScene(
         // a young cumulus lets the sky through - and fading out toward the
         // edge of the draw distance rather than appearing there.
         colour[3] = (OPACITY[type.ordinal] * (0.55 + 0.45 * amount.coerceIn(0.0, 1.0)) *
-            (1.0 - smooth(0.65 * reach, reach, distance))).toFloat()
+            (1.0 - smooth(0.65 * fadeAt, fadeAt, distance))).toFloat()
         return Lobe(
             lobe.centre, orient,
             Vec3(lobe.horizontal, lobe.vertical, lobe.horizontal),

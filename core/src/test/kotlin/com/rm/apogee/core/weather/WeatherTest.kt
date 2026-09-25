@@ -172,39 +172,39 @@ class WeatherTest {
         val moved = here.distanceTo(later) * radius
         assertEquals("it moves with its steering wind", storm.steer.length * 600.0, moved, 50.0)
 
-        // Rain below it, a cumulonimbus in it.
+        // Rain under its biggest tower's shaft, a cumulonimbus in the tower.
         val s = AirSample()
-        val shaft = here.copy().mulInPlace(radius).addScaledInPlace(storm.steer.copy().normalizeInPlace(), 0.5 * storm.core)
-        val ground = maxOf(terrain.elevation(shaft.copy().normalizeInPlace()), 0.0)
-        shaft.normalizeInPlace().mulInPlace(radius + ground + 300.0)
-        w.sample(shaft, t, s)
+        val model = w.stormModel
+        val centre = Vec3(); val track = Vec3(); val side = Vec3()
+        model.frameAt(storm, t, centre, track, side)
+        val main = storm.mainCell
+        val r = storm.cellRadius[main]
+        val shaft = model.place(centre, track, side, storm.cellAlong[main] + storm.shaftAlong * r, storm.cellAcross[main], 1.0, Vec3())
+        val ground = maxOf(terrain.elevation(shaft), 0.0)
+        w.sample(shaft.copy().mulInPlace(radius + ground + 300.0), t, s)
         assertTrue("rain under the shaft: ${s.precipitation}", s.precipitation > 0.3)
-        w.sample(here.copy().mulInPlace(radius + storm.base + 2_000.0), t, s)
+        val tower = model.place(centre, track, side, storm.cellAlong[main], storm.cellAcross[main], radius + storm.base + 2_000.0, Vec3())
+        w.sample(tower, t, s)
         assertEquals(CloudType.CUMULONIMBUS, s.cloudType)
         assertTrue("an updraught in the tower: ${s.lift}", s.lift > 3.0)
 
-        // And the gust front: low down, a core or so out beyond the shaft,
-        // a wind to knock things over, whatever the wind was before.
-        val steer = storm.steer.copy().normalizeInPlace()
+        // And the gust front: low down, somewhere round it, a wind to knock
+        // things over, whatever the wind was before.
         var strongest = 0.0
-        for (k in 0 until 16) {
-            val a = k * Math.PI / 8
-            val side = here.copy().crossInPlace(steer).normalizeInPlace()
-            val at = here.copy().mulInPlace(radius).addScaledInPlace(steer, 0.5 * storm.core)
-                .addScaledInPlace(steer, kotlin.math.cos(a) * 1.3 * storm.core)
-                .addScaledInPlace(side, kotlin.math.sin(a) * 1.3 * storm.core)
-            val g = maxOf(terrain.elevation(at.copy().normalizeInPlace()), 0.0)
-            at.normalizeInPlace().mulInPlace(radius + g + 100.0)
-            w.sample(at, t, s)
+        val reach = storm.reach
+        for (i in -12..12) for (j in -12..12) {
+            val at = model.place(centre, track, side, i * reach / 12.0, j * reach / 12.0, 1.0, Vec3())
+            val g = maxOf(terrain.elevation(at), 0.0)
+            w.sample(at.mulInPlace(radius + g + 100.0), t, s)
             strongest = maxOf(strongest, s.wind.length)
         }
         assertTrue("a storm's gust front blows hard: $strongest m/s", strongest > 20.0 * storm.strength)
 
         val strikes = ArrayList<Strike>()
-        w.strikes(here, t - 120.0, t + 120.0, strikes)
+        w.strikes(here, t - 300.0, t + 300.0, strikes)
         assertTrue("lightning from a mature storm", strikes.isNotEmpty())
         val again = ArrayList<Strike>()
-        weather(WeatherIntensity.WILD).strikes(here, t - 120.0, t + 120.0, again)
+        weather(WeatherIntensity.WILD).strikes(here, t - 300.0, t + 300.0, again)
         assertEquals("the same strikes, computed anew", strikes.map { it.id to it.time }, again.map { it.id to it.time })
     }
 
@@ -323,5 +323,92 @@ class WeatherTest {
         val curtain = s.rain.first()
         val bottom = curtain.centre.length - terra.radius - curtain.vertical
         assertTrue("the curtain reaches down to the ground: $bottom m", bottom < 2_500.0)
+    }
+
+    /** Every storm a wild sky has over a stretch of the planet, at its best. */
+    private fun manyStorms(w: Weather): List<Pair<Storms.Storm, Double>> {
+        val found = LinkedHashMap<Long, Pair<Storms.Storm, Double>>()
+        val e = Vec3(); val n = Vec3()
+        val list = ArrayList<Storms.Storm>()
+        for (i in 0 until 300) {
+            val dir = randomDirection(i)
+            frame(dir, e, n)
+            for (t in listOf(1_000.0, 4_000.0, 9_000.0)) {
+                list.clear()
+                w.stormModel.around(dir, e, n, 1, t, list)
+                for (st in list) {
+                    val key = st.cx.toLong() * 1_000_003L + st.cy * 97L + st.cycle
+                    // At its best: a third of the way through its life and more.
+                    found.getOrPut(key) { st to (st.start + 0.45 * Storms.CYCLE) }
+                }
+            }
+        }
+        return found.values.toList()
+    }
+
+    @Test
+    fun `storms come in every kind, and the big ones are tens of kilometres across`() {
+        val all = manyStorms(weather(WeatherIntensity.WILD)).map { it.first }
+        val kinds = all.groupingBy { it.kind }.eachCount()
+        for (kind in StormKind.entries) assertTrue("no $kind among ${all.size}: $kinds", (kinds[kind] ?: 0) > 0)
+        for (st in all) {
+            val across = 2.0 * maxOf(st.halfAlong, st.halfAcross)
+            when (st.kind) {
+                StormKind.SINGLE -> assertTrue("a single cell's base $across m", across in 6_000.0..20_000.0)
+                StormKind.MULTICELL -> assertTrue("a multicell's base $across m", across >= 14_000.0)
+                StormKind.SUPERCELL -> assertTrue("a supercell's base $across m", across >= 12_000.0)
+                StormKind.SQUALL -> assertTrue("a squall line $across m long", across >= 40_000.0)
+            }
+            assertTrue("${st.kind} has towers", st.cellCount >= 1)
+        }
+        // Squall lines run across their track, much longer than they are deep.
+        for (st in all.filter { it.kind == StormKind.SQUALL }) assertTrue("${st.halfAcross} by ${st.halfAlong}", st.halfAcross > 1.4 * st.halfAlong)
+    }
+
+    @Test
+    fun `under a storm's base the sky is covered right across it, not on one spot`() {
+        val w = weather(WeatherIntensity.WILD)
+        val big = manyStorms(w).first { (st, _) -> st.kind == StormKind.SQUALL || st.kind == StormKind.SUPERCELL }
+        val (st, t) = big
+        val model = w.stormModel
+        val centre = Vec3(); val track = Vec3(); val side = Vec3()
+        model.frameAt(st, t, centre, track, side)
+        val s = AirSample()
+        // Well out towards the edge of the base, all round.
+        for (k in 0 until 8) {
+            val a = k * Math.PI / 4
+            val along = st.deckAlong + cos(a) * st.halfAlong * 0.7
+            val across = sin(a) * st.halfAcross * 0.7
+            val up = model.place(centre, track, side, along, across, 1.0, Vec3())
+            w.sample(up.copy().mulInPlace(radius + st.base + 300.0), t, s)
+            assertEquals("cloud in the base at $along, $across of a ${st.kind}", CloudType.CUMULONIMBUS, s.cloudType)
+            val sky = w.overcastAbove(up, 50.0, t)
+            assertTrue("the sky overhead at $along, $across: $sky", sky > 0.6)
+        }
+    }
+
+    @Test
+    fun `a storm is wider than it is tall`() {
+        val w = weather(WeatherIntensity.WILD)
+        var wide = 0
+        var total = 0
+        for ((st, t) in manyStorms(w).take(40)) {
+            val shapes = ArrayList<CloudShape>()
+            val centre = w.stormModel.centreAt(st, t, Vec3())
+            w.clouds(centre, 10_000.0, t, shapes, stormReach = 150_000.0)
+            val shape = shapes.filter { it.type == CloudType.CUMULONIMBUS }.minByOrNull {
+                it.lobes.first().centre.copy().normalizeInPlace().distanceTo(centre)
+            } ?: continue
+            var span = 0.0
+            var lowest = Double.MAX_VALUE; var highest = 0.0
+            for (a in shape.lobes) {
+                lowest = minOf(lowest, a.centre.length - a.vertical)
+                highest = maxOf(highest, a.centre.length + a.vertical)
+                span = maxOf(span, a.centre.distanceTo(shape.lobes.first().centre) + a.horizontal)
+            }
+            total++
+            if (span > highest - lowest) wide++
+        }
+        assertTrue("wider than tall: $wide of $total", total > 10 && wide >= total * 0.7)
     }
 }

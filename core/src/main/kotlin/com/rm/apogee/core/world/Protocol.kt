@@ -386,5 +386,7 @@ object Protocol {
     // 7: Welcome.weather, ServerMessage.Lightning.
     // 8: VesselKinematics.condition, ServerMessage.PartEvent, the ablator,
     //    engine output in the pose, time warp, removing craft.
-    const val VERSION = 9
+    // 9: docking - Undock, SetDockPilot, DockedWith, Snapshot.hitches.
+    // 10: PlacedPart.turn.
+    const val VERSION = 10
 }

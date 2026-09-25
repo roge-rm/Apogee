@@ -27,6 +27,7 @@ import com.rm.apogee.core.part.StockParts
 import com.rm.apogee.core.world.World
 import com.rm.apogee.core.world.WorldStore
 import com.rm.apogee.game.BuilderSession
+import com.rm.apogee.game.BuilderGestures
 import com.rm.apogee.game.DiscoveredServer
 import com.rm.apogee.game.ServerBrowser
 import com.rm.apogee.net.ServerAddress
@@ -84,6 +85,9 @@ class MainActivity : ComponentActivity() {
     private var renderer: GlRenderer? = null
     private var session: GameSession? = null
     private var builderSession: BuilderSession? = null
+
+    /** The drawer's part pictures, drawn by the renderer once and kept. */
+    private val partThumbnails by lazy { com.rm.apogee.render.PartThumbnails(cacheDir) }
 
     /** Set by the builder's Launch button; consumed when flight starts. */
     private var pendingLaunchDesign: CraftDesign? = null
@@ -228,6 +232,8 @@ class MainActivity : ComponentActivity() {
                         BuilderScreen(
                             session = builder,
                             catalog = StockParts.catalog,
+                            settings = settings,
+                            pictures = partThumbnails.pictures,
                             onExit = { navigateTo(AppScreen.PLAY) },
                             onLaunch = ::launchFromBuilder,
                         )
@@ -514,8 +520,14 @@ class MainActivity : ComponentActivity() {
             session?.attachTerrain(rendererTerrainSource!!, settings.qualityOverride ?: tier)
         }
         rendererTerrainSource = glRenderer.terrainSource
+        glRenderer.thumbnails = partThumbnails
         val view = createSurfaceView(glRenderer)
         host.addView(view)
+        // The builder picks and pans in pixels: it needs the view's size
+        // from the start, not only once a finger has touched it.
+        view.addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
+            builderSession?.setViewSize(v.width.toFloat(), v.height.toFloat())
+        }
 
         renderer = glRenderer
         surfaceView = view
@@ -528,6 +540,8 @@ class MainActivity : ComponentActivity() {
 
         if (screen == AppScreen.BUILDER) {
             val builder = BuilderSession(frameBus, StockParts.catalog, craftStore)
+            partThumbnails.request(StockParts.catalog)
+            view.takeIf { it.width > 0 }?.let { builder.setViewSize(it.width.toFloat(), it.height.toFloat()) }
             builder.start(lifecycleScope)
             builderSession = builder
         } else {
@@ -623,7 +637,46 @@ class MainActivity : ComponentActivity() {
         // gesture is the pinch's.
         var multiTouch = false
 
+        // The assembly building's own gestures: taps, holds that lift a part,
+        // two-finger pan and pinch - worked out in one place, and testable.
+        val building = BuilderGestures(object : BuilderGestures.Listener {
+            override fun tap(x: Float, y: Float) { builderSession?.tap(x, y, view.width.toFloat(), view.height.toFloat()) }
+            override fun doubleTap(x: Float, y: Float) { builderSession?.recentre() }
+            override fun longPress(x: Float, y: Float): Boolean =
+                builderSession?.liftAt(x, y, view.width.toFloat(), view.height.toFloat()) == true
+            override fun carry(x: Float, y: Float) { builderSession?.carryTo(x, y) }
+            override fun drop(x: Float, y: Float) {
+                if (x.isNaN()) builderSession?.cancelCarry() else builderSession?.endCarry()
+            }
+            override fun orbit(dx: Float, dy: Float) {
+                builderSession?.camera?.orbitBy(deltaYaw = -dx * ORBIT_RADIANS_PER_PIXEL, deltaPitch = dy * ORBIT_RADIANS_PER_PIXEL)
+            }
+            override fun pan(dx: Float, dy: Float) { builderSession?.panBy(dx, dy) }
+            override fun zoom(factor: Float) { builderSession?.camera?.zoomBy(factor.toDouble()) }
+        })
+
         view.setOnTouchListener { v, event ->
+            if (builderSession != null && session == null) {
+                builderSession?.setViewSize(v.width.toFloat(), v.height.toFloat())
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        building.down(event.x, event.y, event.eventTime)
+                        v.postDelayed({ building.tick(android.os.SystemClock.uptimeMillis()) }, BuilderGestures.LONG_PRESS + 20)
+                    }
+                    MotionEvent.ACTION_POINTER_DOWN -> if (event.pointerCount >= 2) {
+                        building.secondDown(event.getX(0), event.getY(0), event.getX(1), event.getY(1))
+                    }
+                    MotionEvent.ACTION_MOVE -> if (event.pointerCount >= 2) {
+                        building.move(event.getX(0), event.getY(0), event.getX(1), event.getY(1))
+                    } else {
+                        building.move(event.x, event.y)
+                    }
+                    MotionEvent.ACTION_POINTER_UP -> building.secondUp()
+                    MotionEvent.ACTION_UP -> building.up(event.x, event.y, event.eventTime)
+                    MotionEvent.ACTION_CANCEL -> building.cancel()
+                }
+                return@setOnTouchListener true
+            }
             pinch.onTouchEvent(event)
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {

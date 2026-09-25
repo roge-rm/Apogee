@@ -36,6 +36,12 @@ data class PlacedPart(
      * builder can move or delete them as one.
      */
     val symmetryGroup: Int = -1,
+    /**
+     * Quarter turns about the join, on top of the way [Attachment.solve]
+     * settles the part: a cockpit turned to face sideways, a wheel turned
+     * about its strut. 0..3.
+     */
+    val turn: Int = 0,
     /** A docking part latched to another in this craft: that one's index; -1 for none. Set on both. */
     val dockedTo: Int = -1,
     /**
