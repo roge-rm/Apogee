@@ -51,9 +51,9 @@ class TerrainField(
      */
     val padDirection: Vec3? = null,
     /**
-     * A harbour: a bay carved into the coast here, round and sheltered, with
-     * a channel that bends on its way out to sea so no swell runs straight
-     * in. See [bay].
+     * A harbour: a broad natural bay in the coast here, reached from the sea
+     * by an inlet that winds on its way in, so no swell runs straight to
+     * it. See [bay].
      */
     val harbourDirection: Vec3? = null,
     /** Which kind of world this is: what shapes the land. */
@@ -214,40 +214,55 @@ class TerrainField(
     }
 
     /**
-     * The harbour's bay, cut into [ground]: a round basin [BAY_FLOOR] metres
-     * deep out to [BAY_FLAT_METRES], shelving to its shore at
-     * [BAY_SHORE_METRES], with banks rising gently behind; and a channel of
-     * the same make from its north side, north and then north-west out to
-     * sea. Only ever lowers the ground, so beyond its banks nothing changes.
+     * The harbour's bay, cut into [ground]: a broad basin with a cove to its
+     * south-east, opening northward into an inlet that winds north-east and
+     * then north-west out to sea, widening between its headlands as it
+     * goes. The bend is the point - nothing the ocean sends has a straight
+     * run in to the harbour. The shore is bent and bitten by noise, so it
+     * reads as a coast rather than a drawing, shelving gently from
+     * [BAY_FLOOR] to beaches, with banks rising behind. Only ever lowers the
+     * ground, so beyond its banks nothing changes, and out at the mouth the
+     * sea floor it meets is the ocean's own.
      */
     private fun bay(nx: Double, ny: Double, nz: Double, ground: Double): Double {
         val centre = harbourUnit ?: return ground
         val ox = nx - centre.x; val oy = ny - centre.y; val oz = nz - centre.z
         val e = harbourEast!!; val n = harbourNorth!!
-        val x = (e.x * ox + e.y * oy + e.z * oz) * bodyRadius
-        val y = (n.x * ox + n.y * oy + n.z * oz) * bodyRadius
-        if (abs(x) > BAY_REACH_METRES || abs(y) > BAY_REACH_METRES) return ground
-        var cut = cutProfile(sqrt(x * x + y * y), BAY_FLAT_METRES, BAY_SHORE_METRES, BAY_FLOOR)
-        var along = Double.MAX_VALUE
-        for (k in 0 until CHANNEL.size / 2 - 1) {
-            along = minOf(along, segmentDistance(x, y, CHANNEL[2 * k], CHANNEL[2 * k + 1], CHANNEL[2 * k + 2], CHANNEL[2 * k + 3]))
+        val x0 = (e.x * ox + e.y * oy + e.z * oz) * bodyRadius
+        val y0 = (n.x * ox + n.y * oy + n.z * oz) * bodyRadius
+        if (abs(x0) > BAY_REACH_METRES || abs(y0) > BAY_REACH_METRES) return ground
+        // Bent: the whole outline pushed about by a slow field, then its
+        // edge nibbled by a quicker one.
+        val x = x0 + BAY_WARP_METRES * Noise.simplex(BAY_SEED, x0 / BAY_WARP_SCALE, y0 / BAY_WARP_SCALE, 0.5)
+        val y = y0 + BAY_WARP_METRES * Noise.simplex(BAY_SEED + 1, x0 / BAY_WARP_SCALE, y0 / BAY_WARP_SCALE, 0.5)
+        var d = ellipseDistance(x - BAY_X, y - BAY_Y, BAY_RADIUS_X, BAY_RADIUS_Y)
+        d = smoothMin(d, sqrt((x - COVE_X) * (x - COVE_X) + (y - COVE_Y) * (y - COVE_Y)) - COVE_RADIUS, BAY_BLEND_METRES)
+        for (k in 0 until INLET.size / 3 - 1) {
+            val i = 3 * k
+            d = smoothMin(d, taperedDistance(x, y, INLET[i], INLET[i + 1], INLET[i + 2], INLET[i + 3], INLET[i + 4], INLET[i + 5]), BAY_BLEND_METRES)
         }
-        cut = minOf(cut, cutProfile(along, CHANNEL_FLAT_METRES, CHANNEL_SHORE_METRES, CHANNEL_FLOOR))
+        d += BAY_EDGE_METRES * Noise.simplex(BAY_SEED + 2, x0 / BAY_EDGE_SCALE, y0 / BAY_EDGE_SCALE, 0.5) +
+            0.2 * BAY_EDGE_METRES * Noise.simplex(BAY_SEED + 3, x0 / (0.35 * BAY_EDGE_SCALE), y0 / (0.35 * BAY_EDGE_SCALE), 0.5)
+        val cut = if (d < 0.0) BAY_FLOOR * smoothstep((-d / BAY_SHELF_METRES).coerceAtMost(1.0)) else d * BANK_GRADE
         return minOf(ground, cut)
     }
 
-    /** A cut [floor] deep out to [flat] m from its middle, up to the waterline at [shore], then a gentle bank. */
-    private fun cutProfile(d: Double, flat: Double, shore: Double, floor: Double): Double {
-        if (d <= flat) return floor
-        if (d <= shore) return floor * (1.0 - smoothstep((d - flat) / (shore - flat)))
-        return (d - shore) * BANK_GRADE
-    }
+    /** Roughly how far outside (positive) or inside an ellipse of radii [rx], [ry] the point [x], [y] from its middle is, m. */
+    private fun ellipseDistance(x: Double, y: Double, rx: Double, ry: Double): Double =
+        (sqrt((x / rx) * (x / rx) + (y / ry) * (y / ry)) - 1.0) * minOf(rx, ry)
 
-    private fun segmentDistance(x: Double, y: Double, ax: Double, ay: Double, bx: Double, by: Double): Double {
+    /** How far outside (positive) or inside a stroke from a to b is, its half-width [ra] at a narrowing or widening to [rb] at b, m. */
+    private fun taperedDistance(x: Double, y: Double, ax: Double, ay: Double, ra: Double, bx: Double, by: Double, rb: Double): Double {
         val dx = bx - ax; val dy = by - ay
         val t = (((x - ax) * dx + (y - ay) * dy) / (dx * dx + dy * dy)).coerceIn(0.0, 1.0)
         val px = ax + dx * t - x; val py = ay + dy * t - y
-        return sqrt(px * px + py * py)
+        return sqrt(px * px + py * py) - (ra + (rb - ra) * t)
+    }
+
+    /** The smaller of [a] and [b], rounded over [k]: two shapes joined without a crease. */
+    private fun smoothMin(a: Double, b: Double, k: Double): Double {
+        val h = (k - abs(a - b)).coerceAtLeast(0.0) / k
+        return minOf(a, b) - h * h * k * 0.25
     }
 
     /** The field as it comes, before anything is built into it. */
@@ -387,7 +402,7 @@ class TerrainField(
         const val DEFAULT_SEED = 0x4A06EE
 
         /** See [Terrain.generation]. 1 is the terrain every save before M7 was made on. */
-        const val GENERATION = 3
+        const val GENERATION = 4
 
         /** Slope (0 flat, 1 wall) past which ground is bare rock: about 39 degrees. */
         private const val STEEP_SLOPE = 0.22
@@ -454,32 +469,53 @@ class TerrainField(
         private const val ASPHALT_HALF_WIDTH_METRES = 25.0
 
         /**
-         * The harbour's bay, m: a basin [BAY_FLOOR] deep to [BAY_FLAT_METRES]
-         * from its middle, its shore at [BAY_SHORE_METRES] - four kilometres
-         * of water across, small enough that the wind raises only a chop on
-         * it - and a channel [CHANNEL_FLOOR] deep and some four hundred
-         * metres wide at the waterline.
+         * The harbour's bay, m east and north of its middle: a basin
+         * [BAY_RADIUS_X] by [BAY_RADIUS_Y] about ([BAY_X], [BAY_Y]) - five
+         * kilometres of water across, its west shore just past the runway's
+         * end - and a cove to its south-east, [BAY_FLOOR] deep, shelving to
+         * the shore over [BAY_SHELF_METRES].
          */
-        private const val BAY_FLOOR = -14.0
-        private const val BAY_FLAT_METRES = 1_400.0
-        private const val BAY_SHORE_METRES = 2_000.0
-        private const val CHANNEL_FLOOR = -12.0
-        private const val CHANNEL_FLAT_METRES = 110.0
-        private const val CHANNEL_SHORE_METRES = 220.0
+        private const val BAY_FLOOR = -16.0
+        private const val BAY_SHELF_METRES = 600.0
+        private const val BAY_X = 300.0
+        private const val BAY_Y = 700.0
+        private const val BAY_RADIUS_X = 2_800.0
+        private const val BAY_RADIUS_Y = 2_300.0
+        private const val COVE_X = 2_000.0
+        private const val COVE_Y = -900.0
+        private const val COVE_RADIUS = 1_300.0
+
+        /**
+         * The inlet's line, as east, north and half-width, m: out of the
+         * basin north-east, then north-west to the open sea, opening out
+         * between the headlands at its mouth. The bend is the point - there
+         * is no straight line from the harbour to open water.
+         */
+        private val INLET = doubleArrayOf(
+            300.0, 2_400.0, 1_100.0,
+            1_000.0, 4_000.0, 600.0,
+            0.0, 5_400.0, 650.0,
+            -900.0, 6_100.0, 1_100.0,
+        )
+
+        /** How smoothly the basin, cove and inlet run into one another, m. */
+        private const val BAY_BLEND_METRES = 700.0
+
+        /** The slow bending of the whole outline: how far, m, over what distance, m. */
+        private const val BAY_WARP_METRES = 450.0
+        private const val BAY_WARP_SCALE = 2_500.0
+
+        /** The quicker nibbling of the shore itself. */
+        private const val BAY_EDGE_METRES = 180.0
+        private const val BAY_EDGE_SCALE = 900.0
+
+        private const val BAY_SEED = 0xBA1
 
         /** Rise of the banks behind the waterline, m per m. */
         private const val BANK_GRADE = 0.08
 
         /** Nothing of the bay reaches past this, m from its middle, east or north. */
         private const val BAY_REACH_METRES = 12_000.0
-
-        /**
-         * The channel's line, m east and north of the bay's middle: out of
-         * the basin northward, then turning north-west for the open sea. The
-         * bend is the point - there is no straight line from the harbour to
-         * open water, so nothing the ocean sends reaches it straight.
-         */
-        private val CHANNEL = doubleArrayOf(0.0, 1_500.0, 0.0, 4_500.0, -3_340.0, 7_500.0)
 
         /**
          * Hill band. Sized in metres and added after the sharpening curve, so

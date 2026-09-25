@@ -140,7 +140,9 @@ class BoatTest {
      */
     @Test
     fun `moored, it goes to sleep, and wakes to the throttle`() {
-        val (world, boat) = afloat(settle = 30.0)
+        // Launched level, it rocks into its trim - its motor's weight is at
+        // the stern - and is still within the minute.
+        val (world, boat) = afloat(settle = 45.0)
         assertTrue("a still boat never went to sleep", boat.dormant)
 
         underWay(world, boat)

@@ -9,7 +9,6 @@ import com.rm.apogee.core.weather.WeatherConfig
 import com.rm.apogee.render.QualityTier
 import com.rm.apogee.render.SeaSurface
 import kotlinx.coroutines.async
-import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.launch
 import kotlin.math.cos
 import kotlin.math.sin
@@ -74,6 +73,21 @@ class SeaScene(
     @Volatile private var building = false
     @Volatile var lastBuildMillis = 0.0
         private set
+    private var lastStartedNanos = 0L
+
+    /**
+     * What the sea is like at each vertex - depth, tide, how big each wave
+     * train is there - kept from build to build: it changes over tens of
+     * metres and seconds, where the waves change every frame. Each vertex's
+     * is worked out again when it has moved a good part of its spacing, or
+     * has grown old. See [Sea.Prepared].
+     */
+    private val prepared = arrayOfNulls<Sea.Prepared>(1 + radii.size * segments)
+    private val preparedAt = DoubleArray(3 * (1 + radii.size * segments))
+    private val preparedTime = DoubleArray(1 + radii.size * segments) { Double.NaN }
+
+    /** How far a vertex may move before it is prepared again, m: see [REPREPARE_METRES]. For this build. */
+    @Volatile private var reprepareMetres = REPREPARE_METRES
 
     /**
      * Asks for the sea round body-fixed [centre] at [time] - if one is not
@@ -82,18 +96,27 @@ class SeaScene(
      */
     fun update(centre: Vec3, time: Double) {
         if (building) return
+        // Ten a second is plenty: the renderer carries each on a moment by
+        // how fast its water is rising, and building back to back kept two
+        // cores busy for nothing.
+        val now = System.nanoTime()
+        if (now - lastStartedNanos < MIN_BUILD_NANOS) return
+        lastStartedNanos = now
         building = true
         val at = centre.copy()
-        val ahead = time + lastBuildMillis / 1_000.0
+        // No more than [MAX_AHEAD] ahead: a slow build - the first, in a new
+        // place - would otherwise send the next one so far on that every
+        // vertex's prepared sea was stale by then, making it slow in turn.
+        val ahead = time + kotlin.math.min(lastBuildMillis / 1_000.0, MAX_AHEAD)
         scope.launch(BUILD) {
             val started = System.nanoTime()
             try {
                 latest = kotlinx.coroutines.coroutineScope { build(this, at, ahead) }
+                lastBuildMillis = (System.nanoTime() - started) / 1e6
                 // The sea state round the craft for the next while, worked out
                 // here rather than by the flight's own step when it gets there.
                 builders[0].sea.prefetch(at, ahead)
             } finally {
-                lastBuildMillis = (System.nanoTime() - started) / 1e6
                 building = false
             }
         }
@@ -114,9 +137,34 @@ class SeaScene(
         val sample = SeaSample()
         val direction = Vec3()
 
-        fun vertex(out: FloatArray, index: Int, origin: Vec3, e: Vec3, n: Vec3, x: Double, y: Double, spacing: Double, time: Double) {
+        /**
+         * Vertex [index] into [out]. Past [deadline] (ns), one that is not
+         * [near] is prepared no more: it keeps what it was last prepared
+         * with, if that was close by, or is drawn as flat water at [tide].
+         */
+        fun vertex(
+            out: FloatArray, index: Int, origin: Vec3, e: Vec3, n: Vec3, x: Double, y: Double, spacing: Double, time: Double,
+            near: Boolean = true, deadline: Long = 0L, tide: Double = 0.0,
+        ) {
             direction.setTo(origin).addScaledInPlace(e, x).addScaledInPlace(n, y).normalizeInPlace()
-            sea.surface(direction, time, sample, spacing)
+            val p = prepared[index] ?: Sea.Prepared().also { prepared[index] = it }
+            val o3 = index * 3
+            val dx = direction.x - preparedAt[o3]; val dy = direction.y - preparedAt[o3 + 1]; val dz = direction.z - preparedAt[o3 + 2]
+            val moved = kotlin.math.sqrt(dx * dx + dy * dy + dz * dz) * body.radius
+            val age = time - preparedTime[index]
+            // Staggered, so the refreshes do not all fall in one build.
+            val stale = REPREPARE_SECONDS * (1.0 + 0.5 * ((index * 0x9E3779B1L).toInt() ushr 24) / 255.0)
+            if (!(age in 0.0..stale) || moved > kotlin.math.max(REPREPARE_SHARE * spacing, reprepareMetres)) {
+                if (near || System.nanoTime() < deadline) {
+                    sea.prepare(direction, time, spacing, p)
+                    preparedAt[o3] = direction.x; preparedAt[o3 + 1] = direction.y; preparedAt[o3 + 2] = direction.z
+                    preparedTime[index] = time
+                } else if (preparedTime[index].isNaN() || moved > kotlin.math.max(KEEP_SPACINGS * spacing, KEEP_METRES)) {
+                    flat(out, index, origin, tide)
+                    return
+                }
+            }
+            sea.surface(direction, time, p, sample, spacing)
             val radius = body.radius + sample.height
             val o = index * SeaSurface.STRIDE
             out[o] = (direction.x * radius - origin.x).toFloat()
@@ -125,6 +173,18 @@ class SeaScene(
             out[o + 3] = direction.x.toFloat(); out[o + 4] = direction.y.toFloat(); out[o + 5] = direction.z.toFloat()
             colour(sample, direction, out, o + 6)
             out[o + 10] = sample.rise.toFloat()
+        }
+
+        /** Vertex [index] at [direction] as open water, flat at [tide], until there is time to work it out. */
+        private fun flat(out: FloatArray, index: Int, origin: Vec3, tide: Double) {
+            val radius = body.radius + tide
+            val o = index * SeaSurface.STRIDE
+            out[o] = (direction.x * radius - origin.x).toFloat()
+            out[o + 1] = (direction.y * radius - origin.y).toFloat()
+            out[o + 2] = (direction.z * radius - origin.z).toFloat()
+            out[o + 3] = direction.x.toFloat(); out[o + 4] = direction.y.toFloat(); out[o + 5] = direction.z.toFloat()
+            out[o + 6] = DEEP_R.toFloat(); out[o + 7] = DEEP_G.toFloat(); out[o + 8] = DEEP_B.toFloat(); out[o + 9] = DEEP_ALPHA
+            out[o + 10] = 0f
         }
     }
 
@@ -138,13 +198,35 @@ class SeaScene(
         val n = Vec3().setTo(up).crossInPlace(e).normalizeInPlace()
         val count = 1 + radii.size * segments
         val vertices = FloatArray(count * SeaSurface.STRIDE)
+        // Seen from well above, the finest rings round the middle are finer
+        // than anything that can be made out, and cost the most to keep up
+        // with a fast camera: inside a radius growing with the height, the
+        // rings collapse onto the middle, drawn as one fan out to the first
+        // ring kept.
+        val height = kotlin.math.max(0.0, centre.length - body.radius)
+        val collapse = height * COLLAPSE_SHARE
+        var kept = 0
+        while (kept < radii.size - 1 && radii[kept] < collapse) kept++
+        reprepareMetres = kotlin.math.max(REPREPARE_METRES, height * REPREPARE_HEIGHT_SHARE)
         builders[0].vertex(vertices, 0, origin, e, n, 0.0, 0.0, 0.05, time)
+        val tide = builders[0].sample.tide
+        // Somewhere new - the first build, or flying fast over fresh sea -
+        // the sea state out there takes seconds to work out while the
+        // terrain is being built too. The water near the craft is always
+        // worked out; further off, only for so long, the rest filled in by
+        // the builds that follow, and meanwhile drawn as flat water.
+        val deadline = System.nanoTime() + OUTER_BUDGET_NANOS
         val step = 2.0 * Math.PI / segments
         // Rings dealt out in turn, so each worker has near and far alike.
         val jobs = builders.mapIndexed { w, builder ->
             scope.async(BUILD) {
                 var ring = w
                 while (ring < radii.size) {
+                    if (ring < kept) {
+                        for (k in 0 until segments) System.arraycopy(vertices, 0, vertices, (1 + ring * segments + k) * SeaSurface.STRIDE, SeaSurface.STRIDE)
+                        ring += builders.size
+                        continue
+                    }
                     val r = radii[ring]
                     val spacing = r * step
                     // Every other ring turned half a step: the triangles come
@@ -153,7 +235,7 @@ class SeaScene(
                     var v = 1 + ring * segments
                     for (k in 0 until segments) {
                         val a = k * step + turn
-                        builder.vertex(vertices, v, origin, e, n, r * cos(a), r * sin(a), spacing, time)
+                        builder.vertex(vertices, v, origin, e, n, r * cos(a), r * sin(a), spacing, time, r <= NEAR_REACH, deadline, tide)
                         v++
                     }
                     ring += builders.size
@@ -233,22 +315,56 @@ class SeaScene(
         /** Workers sharing a build. */
         const val WORKERS = 2
 
+        /** The furthest ahead a build is made for, s. */
+        const val MAX_AHEAD = 0.5
+
+        /** Out to here, m, the sea is worked out in full on every build. */
+        const val NEAR_REACH = 2_000.0
+
+        /** How long a build may spend working out the sea beyond [NEAR_REACH] afresh, ns. */
+        const val OUTER_BUDGET_NANOS = 200_000_000L
+
         /**
-         * The sea's own threads, a notch below normal priority, rather than
+         * Past the budget, a vertex keeps what it was last prepared with
+         * unless it has moved more than this many of its spacings, or
+         * [KEEP_METRES], since.
+         */
+        const val KEEP_SPACINGS = 2.0
+        const val KEEP_METRES = 1_000.0
+
+        /** Builds no closer together than this, ns: ten a second. */
+        const val MIN_BUILD_NANOS = 100_000_000L
+
+        /**
+         * A vertex's [Sea.Prepared] is worked out again once it has moved
+         * this share of its spacing or [REPREPARE_METRES], whichever is
+         * more, or is this many seconds old (half as long again, staggered).
+         */
+        const val REPREPARE_SHARE = 0.25
+        const val REPREPARE_METRES = 10.0
+        const val REPREPARE_SECONDS = 3.0
+
+        /** Rings inside this share of the camera's height above the sea collapse onto the middle. */
+        const val COLLAPSE_SHARE = 0.1
+
+        /** High up, a vertex is prepared again only once it has moved this share of the camera's height. */
+        const val REPREPARE_HEIGHT_SHARE = 0.1
+
+        /**
+         * The sea's own threads, just below normal priority, rather than
          * the shared pool: a build is long and never pauses, and with the
          * terrain and scatter workers it could take every thread the shared
          * pool has on a four-core phone - the game server's among them, and
          * the world would stop.
          */
-        val BUILD = java.util.concurrent.Executors.newFixedThreadPool(WORKERS) { r ->
-            Thread(r, "sea-build").apply { isDaemon = true; priority = Thread.NORM_PRIORITY - 1 }
-        }.asCoroutineDispatcher()
+        val BUILD = workerPool("sea-build", WORKERS)
 
         /** The innermost ring, m from the centre. */
         const val INNERMOST = 0.35
 
         // Deep ocean, the middle depths, and turquoise shallows.
         const val DEEP_R = 0.03; const val DEEP_G = 0.20; const val DEEP_B = 0.42
+        const val DEEP_ALPHA = 0.92f
         const val MID_R = 0.05; const val MID_G = 0.40; const val MID_B = 0.60
         const val SHALLOW_R = 0.14; const val SHALLOW_G = 0.72; const val SHALLOW_B = 0.70
         const val STORM_R = 0.20; const val STORM_G = 0.30; const val STORM_B = 0.33

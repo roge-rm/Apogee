@@ -128,25 +128,64 @@ class CloudScene(
             overcast = weather.overcastAbove(direction, camera.length - body.radius, time)
         }
         if (listing) return
-        if (time - listedAt < RELIST_SECONDS && camera.distanceTo(listedFrom) < RELIST_DISTANCE) return
+        val farDue = farLobes == null || time - farListedAt >= FAR_RELIST_SECONDS || camera.distanceTo(farListedFrom) >= FAR_RELIST_DISTANCE
+        if (!farDue && time - listedAt < RELIST_SECONDS && camera.distanceTo(listedFrom) < RELIST_DISTANCE) return
         listedAt = time
         listedFrom.setTo(camera)
+        if (farDue) { farListedAt = time; farListedFrom.setTo(camera) }
         val from = camera.copy()
         listing = true
         val first = lobes.isEmpty()
-        scope.launch(kotlinx.coroutines.Dispatchers.Default) {
+        scope.launch(LIST) {
+            val started = System.nanoTime()
             try {
                 // A fresh sky shows the nearest clouds first, then the rest:
                 // waiting for all of them left an empty sky for seconds.
-                if (first) lobes = list(from, time, reach * 0.3)
-                lobes = list(from, time, reach)
+                if (first) lobes = list(from, time, 0.0, nearReach, withShadow = true)
+                // The far sky changes slowly and is most of the work: listed
+                // now and then, the near sky - and its shadows - every second.
+                val far = if (farDue) list(from, time, nearReach * FAR_OVERLAP, reach, withShadow = false).also { farLobes = it } else farLobes!!
+                val near = list(from, time, 0.0, nearReach, withShadow = true)
+                lobes = merged(near, far, from)
             } finally {
+                lastListMillis = (System.nanoTime() - started) / 1e6
                 listing = false
             }
         }
     }
 
-    private fun list(camera: Vec3, time: Double, reach: Double): List<Lobe> {
+    /** How long the last listing of the sky took, ms, for the debug performance log. */
+    @Volatile var lastListMillis = 0.0
+        private set
+
+    /** The far sky, as last listed; null before the first. */
+    @Volatile private var farLobes: List<Lobe>? = null
+    private var farListedAt = Double.NEGATIVE_INFINITY
+    private val farListedFrom = Vec3()
+
+    /** Out to here the sky is listed every second: at least as far as the clouds' shadows reach. */
+    private val nearReach: Double get() = kotlin.math.max(0.3 * reach, if (tier == QualityTier.HIGH) 30_000.0 else 20_000.0)
+
+    /**
+     * The near sky and the far one together: the far without what is now
+     * inside the near - listed from where the camera was, it may overlap -
+     * storms first, then nearest first, to the budget; the rain besides.
+     */
+    private fun merged(near: List<Lobe>, far: List<Lobe>, camera: Vec3): List<Lobe> {
+        val all = ArrayList<Lobe>(near.size + far.size)
+        val curtains = ArrayList<Lobe>()
+        for (lobe in near) if (lobe.rain) curtains.add(lobe) else all.add(lobe)
+        for (lobe in far) {
+            if (lobe.centre.distanceTo(camera) - lobe.scale.x < nearReach) continue
+            if (lobe.rain) curtains.add(lobe) else all.add(lobe)
+        }
+        all.sortWith(compareBy<Lobe>({ !it.storm }, { it.distance }))
+        val kept = if (all.size > maxLobes) all.subList(0, maxLobes).toMutableList() else all
+        kept.addAll(curtains)
+        return kept
+    }
+
+    private fun list(camera: Vec3, time: Double, inner: Double, reach: Double, withShadow: Boolean): List<Lobe> {
         shapes.clear()
         val stormReach = if (reach < this.reach) reach else stormReach
         listingWeather.clouds(camera.copy().normalizeInPlace(), reach, time, shapes, stormReach, stormDetail)
@@ -156,16 +195,16 @@ class CloudScene(
             val far = if (shape.type == CloudType.CUMULONIMBUS) stormReach else reach
             for (lobe in shape.lobes) {
                 val distance = lobe.centre.distanceTo(camera) - lobe.horizontal
-                if (distance > far) continue
+                if (distance > far || distance < inner) continue
                 list.add(lobeFor(shape.type, shape.amount, lobe, distance, fadeAt = far))
             }
             for (lobe in shape.rain) {
                 val distance = lobe.centre.distanceTo(camera) - lobe.horizontal
-                if (distance > far) continue
+                if (distance > far || distance < inner) continue
                 curtains.add(curtainFor(lobe, distance, far))
             }
         }
-        buildShadow(camera, time)
+        if (withShadow) buildShadow(camera, time)
         // Storms first, whatever their distance - a few dozen lobes each, and
         // what a pilot most needs to see coming: nearest-first alone, a busy
         // day's cumulus filled the budget within twenty kilometres and a
@@ -476,5 +515,19 @@ class CloudScene(
 
         const val RELIST_SECONDS = 1.0
         const val RELIST_DISTANCE = 1_000.0
+
+        /** The far sky listed again this often, s, or when the camera has gone this far, m. */
+        const val FAR_RELIST_SECONDS = 5.0
+        const val FAR_RELIST_DISTANCE = 4_000.0
+
+        /** The far listing reaches this share of the near one in, so moving between listings leaves no gap. */
+        const val FAR_OVERLAP = 0.7
+
+        /**
+         * The sky is listed on a thread of its own, just below normal: on
+         * HIGH a listing was most of a second of work, and on the shared
+         * pool it competed with the game server for the same threads.
+         */
+        val LIST = workerPool("cloud-list", 1)
     }
 }

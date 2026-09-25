@@ -72,6 +72,35 @@ class Mesh(vertices: FloatArray, indices: IntArray) {
         GLES30.glBindVertexArray(0)
     }
 
+    /**
+     * [count] copies in one call, each placed by its instance in [instances]
+     * (a buffer of [INSTANCE_FLOATS] floats an instance, starting at instance
+     * [first]): model matrix, 1/scale^2, colour, ambient - see
+     * [Shaders.CLOUD_INSTANCED_VERTEX]. The instance attributes are taken off
+     * again afterwards, so the mesh draws as before for everything else.
+     */
+    fun drawInstanced(instances: Int, first: Int, count: Int) {
+        GLES30.glBindVertexArray(vao[0])
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, instances)
+        val stride = INSTANCE_FLOATS * Float.SIZE_BYTES
+        val base = first * stride
+        // A divisor belongs to the attribute, and is ignored while it is
+        // off: set once, it saves a call each way every draw.
+        if (!divisorsSet) {
+            for (location in ATTR_MODEL until ATTR_MODEL + INSTANCE_ATTRIBUTES) GLES30.glVertexAttribDivisor(location, 1)
+            divisorsSet = true
+        }
+        for (column in 0 until INSTANCE_ATTRIBUTES) {
+            GLES30.glEnableVertexAttribArray(ATTR_MODEL + column)
+            GLES30.glVertexAttribPointer(ATTR_MODEL + column, 4, GLES30.GL_FLOAT, false, stride, base + column * 4 * Float.SIZE_BYTES)
+        }
+        GLES30.glDrawElementsInstanced(GLES30.GL_TRIANGLES, indexCount, GLES30.GL_UNSIGNED_INT, 0, count)
+        for (location in ATTR_MODEL until ATTR_MODEL + INSTANCE_ATTRIBUTES) GLES30.glDisableVertexAttribArray(location)
+        GLES30.glBindVertexArray(0)
+    }
+
+    private var divisorsSet = false
+
     fun release() {
         GLES30.glDeleteBuffers(2, buffers, 0)
         GLES30.glDeleteVertexArrays(1, vao, 0)
@@ -81,6 +110,14 @@ class Mesh(vertices: FloatArray, indices: IntArray) {
         const val ATTR_POSITION = 0
         const val ATTR_NORMAL = 1
         const val STRIDE_FLOATS = 6
+
+        /**
+         * Instance attributes, six vec4s from [ATTR_MODEL]: a model matrix
+         * (four columns), 1/scale^2 with the ambient as its fourth, colour.
+         */
+        const val ATTR_MODEL = 2
+        const val INSTANCE_ATTRIBUTES = 6
+        const val INSTANCE_FLOATS = 24
     }
 }
 

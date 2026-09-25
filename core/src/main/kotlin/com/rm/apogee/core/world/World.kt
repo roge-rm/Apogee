@@ -2722,8 +2722,8 @@ class World(
                 latitude = SolarSystem.PAD_LATITUDE,
                 longitude = SolarSystem.PAD_LONGITUDE,
             ),
-            // In a bay of its own beside the Cape: fourteen metres of calm
-            // water, open to the sea only round a bend.
+            // In a broad bay beside the Cape: sixteen metres of calm water,
+            // open to the sea only up a winding inlet.
             LaunchSite(
                 id = "harbour",
                 displayName = "Cape Harbour",

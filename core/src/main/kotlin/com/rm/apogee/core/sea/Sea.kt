@@ -54,6 +54,15 @@ class WavePatch {
     internal val centre = Vec3()
     private val sc = DetMath.SinCos()
 
+    /**
+     * How far above or below the tide the surface can possibly stand
+     * anywhere in the patch, m: every train at its crest at once. A point
+     * further from the tide than this is wet or dry without working out
+     * the waves.
+     */
+    var reach = 0.0
+        internal set
+
     /** The sea at the middle, as [Sea.sample] gave it: tide, breaking, heights, depth. */
     val middle = SeaSample()
 
@@ -386,7 +395,6 @@ class Sea(
     private val shelterOut = DoubleArray(SHELTER_SIZE)
     private val east = Vec3()
     private val north = Vec3()
-    private val amplitude = DoubleArray(COMPONENTS)
 
     /** Height of the surface above the datum at body-fixed [position] (any length), m. */
     fun height(position: Vec3, time: Double): Double = evaluate(position, time, null, 0.0, 0.0)
@@ -438,30 +446,71 @@ class Sea(
     private val velocity = Vec3()
     private val sc = DetMath.SinCos()
 
+    /**
+     * What the sea is like at a place, all but the waves' phases: the tide
+     * and depth there, and how big each wave train is once sheltered and
+     * shoaled. Changes over tens of metres and seconds, where the waves
+     * change over metres and fractions of one - so a caller drawing a great
+     * many points can work these out now and then and reuse them, and pay
+     * only for the waves each time. See [prepare] and the [surface] that
+     * takes one.
+     */
+    class Prepared {
+        internal val amplitude = DoubleArray(COMPONENTS)
+        internal var tide = 0.0
+        internal var water = 0.0
+        internal var dry = true
+        internal var shoal = false
+        internal var power = 0.0
+        internal var hs = 0.0
+        internal var biggest = 0.0
+        internal var rogueSea = false
+        internal var wind = 0.0
+        internal val windVector = Vec3()
+        internal var stormHeight = 0.0
+    }
+
+    private val evaluated = Prepared()
+
+    /** [Prepared] for body-fixed [position] (any length) at [time], sampled [spacing] m apart, into [into]. */
+    fun prepare(position: Vec3, time: Double, spacing: Double, into: Prepared): Prepared {
+        u.setTo(position).normalizeInPlace()
+        prepareAt(time, spacing, into)
+        return into
+    }
+
+    /** As [surface], from a [Prepared] made nearby a little while ago. */
+    fun surface(position: Vec3, time: Double, prepared: Prepared, out: SeaSample, spacing: Double): SeaSample {
+        motion = false
+        try {
+            u.setTo(position).normalizeInPlace()
+            waves(prepared, time, out, 0.0, spacing)
+        } finally {
+            motion = true
+        }
+        return out
+    }
+
     private fun evaluate(position: Vec3, time: Double, out: SeaSample?, below: Double, spacing: Double): Double {
         u.setTo(position).normalizeInPlace()
+        prepareAt(time, spacing, evaluated)
+        return waves(evaluated, time, out, below, spacing)
+    }
+
+    /** [Prepared] at [u]. */
+    private fun prepareAt(time: Double, spacing: Double, p: Prepared) {
         (if (spacing > COARSE_BED_SPACING) coarseDepth else depth).sample(u, 0.0, depthOut)
         val bed = depthOut[0]
         val tide = tides.height(u, time, bed)
         val water = tide - bed
-        if (out != null) {
-            out.tide = tide; out.depth = water
-            out.normal.setTo(u); out.velocity.setZero()
-            out.steepness = 0.0; out.breaking = 0.0; out.significantHeight = 0.0; out.rise = 0.0
-            out.wind = 0.0; out.stormHeight = 0.0
-        }
-        if (water <= 0.0) {
-            out?.height = tide
-            patching?.n = 0
-            return tide
-        }
+        p.tide = tide; p.water = water
+        p.dry = water <= 0.0
+        if (p.dry) return
         state.sample(u, time, stateOut)
         var hs = stateOut[COMPONENTS]
-        var rogue = 1.0
-        if (stateOut[COMPONENTS + 5] > ROGUE_SEA) rogue = rogue(u, time)
+        p.rogueSea = stateOut[COMPONENTS + 5] > ROGUE_SEA
 
         // Shelter: each train cut by how soon land lies upwave of here.
-        var sheltered = 1.0
         if (terrain != null) {
             (if (spacing > COARSE_BED_SPACING) coarseShelter else shelter).sample(u, 0.0, shelterOut)
             if (shelterOut[0] < SHELTER_OPEN) {
@@ -485,17 +534,16 @@ class Sea(
                     stateOut[i] = a * e
                     after += stateOut[i] * stateOut[i]
                 }
-                if (before > 0.0) sheltered = sqrt(after / before)
+                val sheltered = if (before > 0.0) sqrt(after / before) else 1.0
                 hs *= sheltered
                 stateOut[COMPONENTS + 5] *= sheltered
             }
         }
 
-        // Shallows: waves grow as they slow, and can stand no higher than
-        // the water is deep.
-        var scale = rogue
-        var breaking = 0.0
+        // Shallows: waves grow as they slow.
         val shoal = water < SHOAL_DEPTH
+        var power = 0.0
+        var biggest = 0.0
         for (i in 0 until COMPONENTS) {
             var a = stateOut[i]
             if (shoal) {
@@ -508,31 +556,59 @@ class Sea(
                     a *= kotlin.math.min(1.0 / sqrt(kotlin.math.max(cg, 1e-6)), MAX_SHOALING)
                 }
             }
-            amplitude[i] = a
+            p.amplitude[i] = a
+            power += a * a
+            if (a > biggest) biggest = a
         }
-        if (shoal) {
-            var power = 0.0
-            for (i in 0 until COMPONENTS) power += amplitude[i] * amplitude[i]
-            val local = 4.0 * sqrt(power / 2.0) * rogue
-            val limit = BREAKING * water
+        p.shoal = shoal
+        p.power = power
+        p.biggest = biggest
+        p.hs = hs
+        p.wind = stateOut[COMPONENTS + 1]
+        p.windVector.setTo(stateOut[COMPONENTS + 2], stateOut[COMPONENTS + 3], stateOut[COMPONENTS + 4])
+        p.stormHeight = stateOut[COMPONENTS + 5]
+    }
+
+    /** The waves at [u] and [time], from [p]: see [evaluate]. */
+    private fun waves(p: Prepared, time: Double, out: SeaSample?, below: Double, spacing: Double): Double {
+        val tide = p.tide
+        if (out != null) {
+            out.tide = tide; out.depth = p.water
+            out.normal.setTo(u); out.velocity.setZero()
+            out.steepness = 0.0; out.breaking = 0.0; out.significantHeight = 0.0; out.rise = 0.0
+            out.wind = 0.0; out.stormHeight = 0.0
+        }
+        if (p.dry) {
+            out?.height = tide
+            patching?.n = 0
+            return tide
+        }
+        val rogue = if (p.rogueSea) rogue(u, time) else 1.0
+
+        // Waves can stand no higher than the water is deep.
+        var scale = rogue
+        var breaking = 0.0
+        val hs: Double
+        if (p.shoal) {
+            val local = 4.0 * sqrt(p.power / 2.0) * rogue
+            val limit = BREAKING * p.water
             if (local > limit) {
                 scale *= limit / local
                 breaking = kotlin.math.min(1.0, (local - limit) / limit + 0.3)
             }
             hs = kotlin.math.min(local, limit)
         } else {
-            hs *= rogue
+            hs = p.hs * rogue
         }
 
+        val amplitude = p.amplitude
         val px = u.x * radius; val py = u.y * radius; val pz = u.z * radius
         // Trains too small beside the biggest to matter are left out.
-        var biggest = 0.0
-        for (i in 0 until COMPONENTS) if (amplitude[i] > biggest) biggest = amplitude[i]
-        val least = kotlin.math.max(MIN_AMPLITUDE, RELATIVE_AMPLITUDE * biggest * scale)
+        val least = kotlin.math.max(MIN_AMPLITUDE, RELATIVE_AMPLITUDE * p.biggest * scale)
         var height = tide
         val patch = patching
         if (patch != null) {
-            patch.n = 0; patch.radius = radius
+            patch.n = 0; patch.radius = radius; patch.reach = 0.0
             patch.centre.setTo(u).mulInPlace(radius)
         }
         gradient.setZero(); velocity.setZero()
@@ -551,6 +627,7 @@ class Sea(
                 patch.a[m] = a; patch.k[m] = ki; patch.omega[m] = omega[i]
                 patch.dx[m] = dx[i]; patch.dy[m] = dy[i]; patch.dz[m] = dz[i]
                 patch.phase[m] = phase
+                patch.reach += a + 0.5 * ki * a * a
             }
             DetMath.sinCos(phase, sc)
             val s = sc.sin
@@ -580,13 +657,12 @@ class Sea(
             out.normal.setTo(u).subInPlace(gradient).normalizeInPlace()
             // A little drift with the wind at the top.
             val drift = if (below < 1.0) WIND_DRIFT * (1.0 - below) else 0.0
-            out.velocity.setTo(velocity)
-                .addScaledInPlace(Vec3(stateOut[COMPONENTS + 2], stateOut[COMPONENTS + 3], stateOut[COMPONENTS + 4]), drift)
+            out.velocity.setTo(velocity).addScaledInPlace(p.windVector, drift)
             out.steepness = gradient.length
             out.rise = rise
             out.significantHeight = hs
-            out.wind = stateOut[COMPONENTS + 1]
-            out.stormHeight = stateOut[COMPONENTS + 5]
+            out.wind = p.wind
+            out.stormHeight = p.stormHeight
             // Whitecaps where the sea is steep and the wind strong; surf where it breaks.
             val whitecap = smooth(0.18, 0.4, out.steepness) * smooth(5.0, 14.0, out.wind + 1.5 * out.stormHeight)
             // In a storm sea the high crests break: the tops of the waves

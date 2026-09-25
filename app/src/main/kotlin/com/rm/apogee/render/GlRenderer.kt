@@ -49,6 +49,42 @@ class GlRenderer(
     /** Published for the debug overlay; read from the UI thread. */
     val lastFrameTimeNanos = AtomicLong(0)
 
+    /** Frames drawn since the start, for the debug performance log. */
+    val framesDrawn = AtomicLong(0)
+
+    /**
+     * Debug: time each pass, the GPU finished before the clock is read - so
+     * the frame is slower while this is on, but each pass's share is its own.
+     */
+    @Volatile var timePasses = false
+    private val passNanos = LongArray(PASS_NAMES.size)
+    private var passFrames = 0
+    private var passMark = 0L
+    private var passItems = 0L
+    private var passFarItems = 0L
+    private var passParticles = 0L
+    private var passSingles = 0L
+    private var passBatches = 0L
+
+    private fun mark(pass: Int) {
+        if (!timePasses) return
+        GLES30.glFinish()
+        val now = System.nanoTime()
+        passNanos[pass] += now - passMark
+        passMark = now
+    }
+
+    /** The pass timings since the last call, as a line - or null with none. */
+    fun takePassReport(): String? = synchronized(passNanos) {
+        if (passFrames == 0) return null
+        val line = PASS_NAMES.indices.joinToString(" ") { "%s %.1f".format(PASS_NAMES[it], passNanos[it] / 1e6 / passFrames) } +
+            " ms | items %d far %d particles %d | see-through drawn singly %d, in batches %d".format(
+                passItems / passFrames, passFarItems / passFrames, passParticles / passFrames, passSingles / passFrames, passBatches / passFrames,
+            )
+        passNanos.fill(0); passFrames = 0; passItems = 0; passFarItems = 0; passParticles = 0; passSingles = 0; passBatches = 0
+        line
+    }
+
     @Volatile var qualityTier: QualityTier = QualityTier.MEDIUM
         private set
 
@@ -212,6 +248,8 @@ class GlRenderer(
         releaseGlObjects()
 
         vesselProgram = ShaderProgram(Shaders.VESSEL_VERTEX, Shaders.VESSEL_FRAGMENT, "vessel")
+        cloudProgram = ShaderProgram(Shaders.CLOUD_INSTANCED_VERTEX, Shaders.CLOUD_INSTANCED_FRAGMENT, "cloud")
+        GLES30.glGenBuffers(1, instanceBuffer, 0)
         skyProgram = ShaderProgram(Shaders.SKY_VERTEX, Shaders.SKY_FRAGMENT, "sky")
         terrainProgram = ShaderProgram(Shaders.TERRAIN_VERTEX, Shaders.TERRAIN_FRAGMENT, "terrain")
         lineProgram = ShaderProgram(Shaders.LINE_VERTEX, Shaders.LINE_FRAGMENT, "line")
@@ -241,8 +279,10 @@ class GlRenderer(
         val now = System.nanoTime()
         if (lastDrawNanos != 0L) lastFrameTimeNanos.set(now - lastDrawNanos)
         lastDrawNanos = now
+        framesDrawn.incrementAndGet()
 
         drawThumbnails()
+        if (timePasses) { GLES30.glFinish(); passMark = System.nanoTime() }
 
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT or GLES30.GL_DEPTH_BUFFER_BIT)
 
@@ -286,7 +326,9 @@ class GlRenderer(
         latest.world?.sea?.let { next -> (seaMesh ?: SeaMesh().also { seaMesh = it }).take(next) }
         if (latest.world?.sea == null) seaMesh?.let { it.release(); seaMesh = null }
 
+        mark(0)
         prepareShadows(latest, previous, alpha, cameraPos)
+        mark(1)
 
         // --- far pass: sky and planet -------------------------------------
         val world = latest.world
@@ -301,9 +343,13 @@ class GlRenderer(
 
             val atmosphereFactor = atmosphereFactorAt(world)
             drawSky(latest, world, cameraPos, aspect, atmosphereFactor)
+            mark(2)
             uploadPendingTerrain()
+            mark(3)
             drawGlobe(world, cameraPos, atmosphereFactor)
+            mark(4)
             drawItems(latest.farItems, null, latest, 0.0, cameraPos, farViewProjection.m)
+            mark(5)
             // Trajectories belong in the far pass: an orbit is hundreds of
             // kilometres across and would be clipped away by the near frustum.
             drawLines(latest, cameraPos)
@@ -320,15 +366,26 @@ class GlRenderer(
         // a hundred metres, and clipping the nearest hundred metres of ground
         // leaves the craft standing at the edge of a hole with sky underneath
         // it - which is exactly what it looked like.
+        mark(6)
         if (world != null) drawChunks(world, cameraPos, atmosphereFactorAt(world))
+        mark(8)
         drawVessels(latest, previous, alpha, cameraPos)
+        mark(9)
         if (world != null) drawSea(world, cameraPos)
+        mark(10)
         latest.particles?.let { particles ->
             val world = latest.world
             particleRenderer?.draw(
                 particles, latest.particleShapes, nearViewProjection.m,
                 (world?.fogDistance ?: WorldView.CLEAR_FOG).toFloat(), frameFog,
             )
+        }
+        mark(11)
+        if (timePasses) synchronized(passNanos) {
+            passFrames++
+            passItems += latest.items.size
+            passFarItems += latest.farItems.size
+            passParticles += latest.particleShapes
         }
     }
 
@@ -428,6 +485,13 @@ class GlRenderer(
      * thousands - so what reaches float is a handful of metres, and the ground
      * does not shimmer at the equator.
      */
+    /** Chunk meshes no longer drawn, kept to be written over, a few at most. */
+    private val spareChunkMeshes = ArrayList<TerrainMesh>()
+
+    private fun retire(mesh: TerrainMesh) {
+        if (spareChunkMeshes.size < MAX_SPARE_CHUNK_MESHES) spareChunkMeshes.add(mesh) else mesh.release()
+    }
+
     private fun drawChunks(world: WorldView, cameraPos: Vec3, atmosphereFactor: Float) {
         val shader = terrainProgram ?: return
         val indices = chunkIndices ?: return
@@ -442,14 +506,19 @@ class GlRenderer(
         // order, and freeing after uploading would free the new one.
         while (true) {
             val key = terrainSource.nextReleased() ?: break
-            chunkMeshes.remove(key)?.release()
+            chunkMeshes.remove(key)?.let(::retire)
         }
+        // Up to a count, and a time: in fast flight low over new ground
+        // there are always more waiting, and the frame is not theirs alone.
         var uploads = 0
-        while (uploads < MAX_CHUNK_UPLOADS_PER_FRAME) {
+        val uploadStarted = System.nanoTime()
+        while (uploads < MAX_CHUNK_UPLOADS_PER_FRAME && (uploads == 0 || System.nanoTime() - uploadStarted < CHUNK_UPLOAD_BUDGET_NANOS)) {
             val chunk = terrainSource.nextToUpload() ?: break
             val vertices = chunk.vertices ?: continue
-            chunkMeshes.remove(chunk.key)?.release()
-            val mesh = TerrainMesh(indices)
+            chunkMeshes.remove(chunk.key)?.let(::retire)
+            // A mesh retired from a chunk gone is the same size as any other:
+            // its buffers are written over, not made again.
+            val mesh = if (spareChunkMeshes.isNotEmpty()) spareChunkMeshes.removeAt(spareChunkMeshes.size - 1) else TerrainMesh(indices)
             mesh.upload(vertices)
             chunk.vertices = null
             chunkMeshes[chunk.key] = mesh
@@ -476,6 +545,7 @@ class GlRenderer(
             mesh.drawQuadrants(entry.quadrants)
         }
 
+        mark(7)
         scatterRenderer?.draw(
             terrainSource.scatter.drawList(),
             interpolatedBodyRotation,
@@ -573,6 +643,34 @@ class GlRenderer(
     ) {
         if (items.isEmpty()) return
         val shader = vesselProgram ?: return
+        setItemUniforms(shader, latest, viewProjection)
+        cloudProgram?.let { setItemUniforms(it, latest, viewProjection); it.setFloat("uWrap", 1f); it.setFloat("uReceivesShadow", 0f) }
+        shader.use()
+
+        // Solid things first; then the see-through ones - cloud - far to
+        // near with blending on and depth writes off, so each layer shows
+        // through the ones in front of it and nothing solid behind is lost.
+        matchPrevious(items, previousItems)
+        translucent.clear()
+        for ((index, item) in items.withIndex()) {
+            if (item.color[3] < 0.999f) { translucent.add(index); continue }
+            drawItem(item, partners[index], alpha, cameraPos, shader)
+        }
+        if (translucent.isNotEmpty()) {
+            sortFarToNear(items, cameraPos)
+            GLES30.glEnable(GLES30.GL_BLEND)
+            GLES30.glBlendFunc(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA)
+            GLES30.glDepthMask(false)
+            drawTranslucent(items, alpha, cameraPos, shader)
+            GLES30.glDepthMask(true)
+            GLES30.glDisable(GLES30.GL_BLEND)
+        }
+    }
+
+    private val translucent = ArrayList<Int>()
+
+    /** What every item shader needs for the frame: projection, light, fog, haze, shadows. */
+    private fun setItemUniforms(shader: ShaderProgram, latest: RenderFrame, viewProjection: FloatArray) {
         shader.use()
         shader.setMat4("uViewProjection", viewProjection)
 
@@ -593,30 +691,7 @@ class GlRenderer(
         shader.setFloat("uHazeDistance", ((world?.atmosphereScaleHeight ?: 1.0e6) * 8.0).toFloat())
         shader.setFloat("uAtmosphereFactor", if (world != null) atmosphereFactorAt(world) else 0f)
         applyShadowUniforms(shader, true)
-
-        // Solid things first; then the see-through ones - cloud - far to
-        // near with blending on and depth writes off, so each layer shows
-        // through the ones in front of it and nothing solid behind is lost.
-        matchPrevious(items, previousItems)
-        translucent.clear()
-        for ((index, item) in items.withIndex()) {
-            if (item.color[3] < 0.999f) { translucent.add(index); continue }
-            drawItem(item, partners[index], alpha, cameraPos, shader)
-        }
-        if (translucent.isNotEmpty()) {
-            translucent.sortByDescending { items[it].position.distanceTo(cameraPos) }
-            GLES30.glEnable(GLES30.GL_BLEND)
-            GLES30.glBlendFunc(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA)
-            GLES30.glDepthMask(false)
-            for (index in translucent) {
-                drawItem(items[index], partners[index], alpha, cameraPos, shader)
-            }
-            GLES30.glDepthMask(true)
-            GLES30.glDisable(GLES30.GL_BLEND)
-        }
     }
-
-    private val translucent = ArrayList<Int>()
 
     /** Each item's self in the previous frame: see [ItemMatcher]. */
     private val matcher = ItemMatcher()
@@ -624,6 +699,127 @@ class GlRenderer(
 
     private fun matchPrevious(items: List<RenderItem>, previousItems: List<RenderItem>?) =
         matcher.match(items, previousItems)
+
+    /**
+     * The see-through items, far to near: cloud lobes drawn many to a call -
+     * each band of distance at a time, a call for each shape in it - and
+     * anything else one by one in its place. Within a band the lobes are no
+     * longer in strict order, which between soft lobes of about the same
+     * distance does not show; a sky of two thousand draw calls did.
+     */
+    private fun drawTranslucent(items: List<RenderItem>, alpha: Double, cameraPos: Vec3, shader: ShaderProgram) {
+        val clouds = cloudProgram
+        if (clouds == null || instanceBuffer[0] == 0) {
+            for (index in translucent) drawItem(items[index], partners[index], alpha, cameraPos, shader)
+            return
+        }
+        // Lay out every lobe's instance first, in drawing order, so the
+        // buffer goes up once; then draw.
+        commands.clear()
+        var floats = 0
+        var i = 0
+        val n = translucent.size
+        while (i < n) {
+            val item = items[translucent[i]]
+            if (!instanced(item)) { commands.add(-1 - translucent[i]); i++; continue }
+            val floor = distances[i] / BAND_RATIO
+            bands.clear()
+            while (i < n) {
+                val next = items[translucent[i]]
+                if (!instanced(next) || distances[i] < floor) break
+                bands.getOrPut(next.shape) { ArrayList() }.add(translucent[i])
+                i++
+            }
+            for ((shape, members) in bands) {
+                val first = floats / Mesh.INSTANCE_FLOATS
+                for (index in members) {
+                    val item2 = items[index]
+                    modelOf(item2, partners[index], alpha, cameraPos)
+                    floats = ensureInstanceRoom(floats)
+                    System.arraycopy(modelMatrix.m, 0, instanceData, floats, 16)
+                    instanceData[floats + 16] = invScale[0]; instanceData[floats + 17] = invScale[1]; instanceData[floats + 18] = invScale[2]
+                    instanceData[floats + 19] = item2.ambient
+                    System.arraycopy(item2.color, 0, instanceData, floats + 20, 4)
+                    floats += Mesh.INSTANCE_FLOATS
+                }
+                commands.add(first); commands.add(members.size); commandShapes.add(shape)
+            }
+        }
+        if (floats > 0) {
+            if (instanceBytes == null || instanceBytes!!.capacity() < floats * 4) {
+                instanceBytes = java.nio.ByteBuffer.allocateDirect(instanceData.size * 4).order(java.nio.ByteOrder.nativeOrder())
+            }
+            val bytes = instanceBytes!!
+            bytes.clear()
+            bytes.asFloatBuffer().put(instanceData, 0, floats)
+            GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, instanceBuffer[0])
+            GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, floats * 4, bytes, GLES30.GL_STREAM_DRAW)
+            GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, 0)
+        }
+        var current: ShaderProgram? = null
+        var c = 0
+        var shapeIndex = 0
+        while (c < commands.size) {
+            val command = commands[c]
+            if (command < 0) {
+                if (current !== shader) { shader.use(); current = shader }
+                val index = -1 - command
+                drawItem(items[index], partners[index], alpha, cameraPos, shader)
+                passSingles++
+                c++
+            } else {
+                passBatches++
+                if (current !== clouds) { clouds.use(); current = clouds }
+                meshFor(commandShapes[shapeIndex++], StackCaps.BOTH).drawInstanced(instanceBuffer[0], command, commands[c + 1])
+                c += 2
+            }
+        }
+        commandShapes.clear()
+        shader.use()
+    }
+
+    /**
+     * [translucent] far to near by distance from [cameraPos], each worked
+     * out once - into [distances], in the same order - and sorted as plain
+     * numbers: sorting boxed distances, each measured afresh at every
+     * comparison, took twelve milliseconds a frame over a HIGH sky.
+     */
+    private fun sortFarToNear(items: List<RenderItem>, cameraPos: Vec3) {
+        val n = translucent.size
+        if (sortKeys.size < n) { sortKeys = LongArray(n * 2); distances = DoubleArray(n * 2) }
+        for (k in 0 until n) {
+            val d = items[translucent[k]].position.distanceTo(cameraPos).toFloat()
+            // Far first: the distance's bits, inverted, ahead of the index.
+            sortKeys[k] = ((java.lang.Float.floatToRawIntBits(d).toLong() xor 0x7FFFFFFFL) shl 32) or translucent[k].toLong()
+        }
+        java.util.Arrays.sort(sortKeys, 0, n)
+        for (k in 0 until n) {
+            val index = (sortKeys[k] and 0xFFFFFFFFL).toInt()
+            translucent[k] = index
+            distances[k] = items[index].position.distanceTo(cameraPos)
+        }
+    }
+
+    private var sortKeys = LongArray(1024)
+    private var distances = DoubleArray(1024)
+
+    /** Whether [item] can be drawn among many in one call: a cloud lobe. */
+    private fun instanced(item: RenderItem): Boolean =
+        item.shape is CloudPuff && item.caps == StackCaps.BOTH && item.scale != null
+
+    private fun ensureInstanceRoom(floats: Int): Int {
+        if (floats + Mesh.INSTANCE_FLOATS > instanceData.size) instanceData = instanceData.copyOf(instanceData.size * 2)
+        return floats
+    }
+
+    private var cloudProgram: ShaderProgram? = null
+    private val instanceBuffer = IntArray(1)
+    private var instanceData = FloatArray(Mesh.INSTANCE_FLOATS * 512)
+    private var instanceBytes: java.nio.ByteBuffer? = null
+    private val commands = ArrayList<Int>()
+    private val commandShapes = ArrayList<com.rm.apogee.core.part.Shape>()
+    private val bands = LinkedHashMap<com.rm.apogee.core.part.Shape, ArrayList<Int>>()
+    private val invScale = FloatArray(3)
 
     private fun drawItem(item: RenderItem, prevItem: RenderItem?, alpha: Double, cameraPos: Vec3, shader: ShaderProgram) {
         placeItem(item, prevItem, alpha, cameraPos, shader)
@@ -639,6 +835,13 @@ class GlRenderer(
 
     /** Sets where [item] is drawn this frame - eased from [prevItem] - as [shader]'s model matrix. */
     private fun placeItem(item: RenderItem, prevItem: RenderItem?, alpha: Double, cameraPos: Vec3, shader: ShaderProgram) {
+        modelOf(item, prevItem, alpha, cameraPos)
+        shader.setVec3("uInvScaleSq", invScale[0], invScale[1], invScale[2])
+        shader.setMat4("uModel", modelMatrix.m)
+    }
+
+    /** Where [item] is drawn this frame - eased from [prevItem] - into [modelMatrix], and its 1/scale^2 into [invScale]. */
+    private fun modelOf(item: RenderItem, prevItem: RenderItem?, alpha: Double, cameraPos: Vec3) {
         run {
             val position: Vec3
             val rotation: Quat
@@ -648,7 +851,21 @@ class GlRenderer(
                     lerp(prevItem.position.y, item.position.y, alpha),
                     lerp(prevItem.position.z, item.position.z, alpha),
                 )
-                Quat.slerp(prevItem.rotation, item.rotation, alpha, interpolatedRotation)
+                if (item.shape is CloudPuff) {
+                    // A cloud turns only with the planet between two frames:
+                    // a normalised straight blend is as good, and far cheaper
+                    // over two thousand of them.
+                    val a = prevItem.rotation; val b = item.rotation
+                    val sign = if (a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w < 0.0) -1.0 else 1.0
+                    val t = alpha; val u = 1.0 - alpha
+                    interpolatedRotation.x = u * a.x + t * sign * b.x
+                    interpolatedRotation.y = u * a.y + t * sign * b.y
+                    interpolatedRotation.z = u * a.z + t * sign * b.z
+                    interpolatedRotation.w = u * a.w + t * sign * b.w
+                    interpolatedRotation.normalizeInPlace()
+                } else {
+                    Quat.slerp(prevItem.rotation, item.rotation, alpha, interpolatedRotation)
+                }
                 position = interpolatedPosition
                 rotation = interpolatedRotation
             } else {
@@ -659,7 +876,7 @@ class GlRenderer(
             val scale = item.scale
             if (scale == null) {
                 modelMatrix.setFromTrs(position, rotation, cameraPos)
-                shader.setVec3("uInvScaleSq", 1f, 1f, 1f)
+                invScale[0] = 1f; invScale[1] = 1f; invScale[2] = 1f
             } else {
                 modelMatrix.setFromTrs(position, rotation, cameraPos, scale.x, scale.y, scale.z)
                 // The shape only, relative to the largest axis: the shader
@@ -668,14 +885,10 @@ class GlRenderer(
                 // which a phone GPU's reduced precision rounds to nothing.
                 // A normal of zero lit the facets in random colours and black.
                 val largest = maxOf(scale.x, scale.y, scale.z)
-                shader.setVec3(
-                    "uInvScaleSq",
-                    ((largest / scale.x) * (largest / scale.x)).toFloat(),
-                    ((largest / scale.y) * (largest / scale.y)).toFloat(),
-                    ((largest / scale.z) * (largest / scale.z)).toFloat(),
-                )
+                invScale[0] = ((largest / scale.x) * (largest / scale.x)).toFloat()
+                invScale[1] = ((largest / scale.y) * (largest / scale.y)).toFloat()
+                invScale[2] = ((largest / scale.z) * (largest / scale.z)).toFloat()
             }
-            shader.setMat4("uModel", modelMatrix.m)
         }
     }
 
@@ -986,6 +1199,8 @@ class GlRenderer(
         // Names from a lost context are gone with it; made again when next needed.
         thumbTarget = false
         vesselProgram?.release(); vesselProgram = null
+        cloudProgram?.release(); cloudProgram = null
+        if (instanceBuffer[0] != 0) { GLES30.glDeleteBuffers(1, instanceBuffer, 0); instanceBuffer[0] = 0 }
         skyProgram?.release(); skyProgram = null
         terrainProgram?.release(); terrainProgram = null
         globeMesh?.release(); globeMesh = null
@@ -995,6 +1210,8 @@ class GlRenderer(
         for (key in chunkMeshes.keys) terrainSource.discarded(key)
         chunkMeshes.values.forEach { it.release() }
         chunkMeshes.clear()
+        spareChunkMeshes.forEach { it.release() }
+        spareChunkMeshes.clear()
         chunkIndices?.release(); chunkIndices = null
         scatterRenderer?.release(); scatterRenderer = null
         particleRenderer?.release(); particleRenderer = null
@@ -1019,6 +1236,12 @@ class GlRenderer(
     private fun lerp(a: Double, b: Double, t: Double) = a + (b - a) * t
 
     private companion object {
+        /** The passes [timePasses] times, in order. */
+        /** Cloud lobes within this ratio of distance share a band, drawn many to a call. */
+        const val BAND_RATIO = 1.6
+
+        val PASS_NAMES = arrayOf("setup", "shadows", "sky", "upload", "globe", "far", "lines", "terrain", "scatter", "items", "sea", "particles")
+
         /** Fog colour with no weather: never seen, since the fog distance is huge. */
         val CLEAR_FOG_COLOR = floatArrayOf(0.75f, 0.77f, 0.8f)
 
@@ -1035,6 +1258,12 @@ class GlRenderer(
          * over a few frames rather than landing in one.
          */
         const val MAX_CHUNK_UPLOADS_PER_FRAME = 12
+
+        /** And no more than this long a frame on them, ns, after the first. */
+        const val CHUNK_UPLOAD_BUDGET_NANOS = 3_000_000L
+
+        /** Retired chunk meshes kept for reuse. */
+        const val MAX_SPARE_CHUNK_MESHES = 48
 
         /**
          * Near pass: parts and the ground underfoot.

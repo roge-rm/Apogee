@@ -119,12 +119,36 @@ class Hydrostatics {
         for (i in vessel.defs.indices) partWater[i * 3] = Double.NaN
         var submergedCells = 0
         var c = 0
+        // The waves need working out only where a cell might be partly in
+        // them: one wholly below the lowest trough the sea here can make is
+        // under, one wholly above the highest crest is clear.
+        val tideRadius = attractor.radius + patch.middle.tide
+        val highest = tideRadius + patch.reach
+        val lowest = tideRadius - patch.reach
         for (i in vessel.defs.indices) {
+            val size = vessel.defs[i].volumeCellSize
+            val half = 0.5 * (size.x + size.y + size.z)
+            var columnX = Double.NaN; var columnY = Double.NaN
+            var columnSurface = 0.0
             for (cell in vessel.defs[i].volumeCells) {
                 vessel.partPointOffsetWorld(i, cell, offset)
                 point.setTo(offset).addInPlace(body.position)
-                attractor.toBodyFixed(point, rotation, bodyFixed)
-                val surface = attractor.radius + patch.height(bodyFixed)
+                val r = point.length
+                val surface = when {
+                    r + half < lowest -> lowest
+                    r - half > highest -> highest
+                    // Cells stacked in one column share the surface over them,
+                    // while the hull is near enough upright that they stand
+                    // over the same water.
+                    cell.x == columnX && cell.y == columnY && horizontalFrom(point, lastColumnPoint) < COLUMN_SHARE -> columnSurface
+                    else -> {
+                        attractor.toBodyFixed(point, rotation, bodyFixed)
+                        val s = attractor.radius + patch.height(bodyFixed)
+                        columnX = cell.x; columnY = cell.y; columnSurface = s
+                        lastColumnPoint.setTo(point)
+                        s
+                    }
+                }
                 cellSurface[c] = surface
                 val fraction = depthFraction(vessel, i, point, surface)
                 cellFraction[c] = fraction
@@ -286,6 +310,15 @@ class Hydrostatics {
         vessel.faceExposure = table
         vessel.faceExposureFor = design
         return table
+    }
+
+    private val lastColumnPoint = Vec3()
+
+    /** How far apart [a] and [b] are across the local horizontal, m. */
+    private fun horizontalFrom(a: Vec3, b: Vec3): Double {
+        val dx = a.x - b.x; val dy = a.y - b.y; val dz = a.z - b.z
+        val along = (dx * a.x + dy * a.y + dz * a.z) / a.length
+        return sqrt((dx * dx + dy * dy + dz * dz - along * along).coerceAtLeast(0.0))
     }
 
     private val spin = Vec3()
@@ -552,6 +585,9 @@ class Hydrostatics {
 
         /** Skin friction coefficient of water sliding along a wetted face: turbulent, on a hull not over-smooth. */
         const val SKIN_FRICTION = 0.006
+
+        /** Cells in one column share the surface over them while they stand within this much of each other across the horizontal, m. */
+        private const val COLUMN_SHARE = 0.1
 
         /** How far past a cell's face, m, to look for more of the craft against it. */
         private const val FACE_PROBE = 0.02

@@ -815,6 +815,50 @@ class MainActivity : ComponentActivity() {
      * rather than on the simulation's slower cadence, or it visibly trails the
      * camera whenever the view moves.
      */
+    /**
+     * Debug switches, as files in the app's own storage so adb can flip them
+     * mid-flight: `debug-no-sea` builds and draws no sea; `debug-perf` logs
+     * frame rate and build times every five seconds under "ApogeePerf".
+     */
+    private fun debugPerformance(glRenderer: com.rm.apogee.render.GlRenderer, current: GameSession) {
+        val now = System.nanoTime()
+        if (now - perfLookedNanos > 1_000_000_000L) {
+            perfLookedNanos = now
+            current.debugHideSea = java.io.File(filesDir, "debug-no-sea").exists()
+            perfLogging = java.io.File(filesDir, "debug-perf").exists()
+            glRenderer.timePasses = java.io.File(filesDir, "debug-perf-passes").exists()
+        }
+        if (!perfLogging) { perfSince = 0L; return }
+        if (perfSince == 0L) {
+            perfSince = now; perfFrames = glRenderer.framesDrawn.get(); perfBuild = 0.0; perfSea = 0.0; perfSamples = 0
+            return
+        }
+        perfBuild += current.lastFrameBuildNanos.get() / 1e6
+        perfSea += current.seaBuildMillis
+        perfSamples++
+        if (now - perfSince >= 5_000_000_000L) {
+            val frames = glRenderer.framesDrawn.get() - perfFrames
+            val seconds = (now - perfSince) / 1e9
+            android.util.Log.i(
+                "ApogeePerf",
+                "fps %.1f draw %.1f ms build %.1f ms sea-build %.1f ms clouds-list %.0f ms sea %s".format(
+                    frames / seconds, 1000.0 * seconds / frames.coerceAtLeast(1), perfBuild / perfSamples,
+                    perfSea / perfSamples, current.cloudListMillis, if (current.debugHideSea) "off" else "on",
+                ),
+            )
+            glRenderer.takePassReport()?.let { android.util.Log.i("ApogeePerf", "passes $it") }
+            perfSince = now; perfFrames = glRenderer.framesDrawn.get(); perfBuild = 0.0; perfSea = 0.0; perfSamples = 0
+        }
+    }
+
+    private var perfLookedNanos = 0L
+    private var perfLogging = false
+    private var perfSince = 0L
+    private var perfFrames = 0L
+    private var perfBuild = 0.0
+    private var perfSea = 0.0
+    private var perfSamples = 0
+
     private fun startFrameClock(): Job =
         CoroutineScope(AndroidUiDispatcher.CurrentThread).launch {
             while (isActive) {
@@ -824,6 +868,7 @@ class MainActivity : ComponentActivity() {
                 hudState.frameTimeMillis = glRenderer.lastFrameTimeNanos.get() / 1_000_000f
 
                 session?.let { current ->
+                    debugPerformance(glRenderer, current)
                     hudState.frameBuildMillis = current.lastFrameBuildNanos.get() / 1_000_000f
                     hudState.telemetry = current.telemetry
                     // Only when it changes: a new list every frame would

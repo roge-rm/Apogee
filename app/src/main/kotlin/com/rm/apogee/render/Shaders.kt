@@ -136,6 +136,49 @@ object Shaders {
         }
     """.trimIndent()
 
+    /**
+     * [VESSEL_VERTEX] for many cloud lobes in one draw: each lobe's model
+     * matrix, shape and colour come from its instance's attributes rather
+     * than uniforms. A HIGH sky was nearly two thousand draw calls a frame,
+     * one lobe each, and that alone took most of the frame.
+     */
+    val CLOUD_INSTANCED_VERTEX = """
+        #version 300 es
+        layout(location = 0) in vec3 aPosition;
+        layout(location = 1) in vec3 aNormal;
+        layout(location = 2) in mat4 iModel;
+        // 1/scale^2, and the ambient as its fourth.
+        layout(location = 6) in vec4 iInvScaleSq;
+        layout(location = 7) in vec4 iColor;
+
+        uniform mat4 uViewProjection;
+
+        flat out vec3 vNormal;
+        out float vDistance;
+        out vec3 vToCamera;
+        flat out vec4 vColor;
+        flat out float vAmbient;
+
+        void main() {
+            vec4 worldPos = iModel * vec4(aPosition, 1.0);
+            vToCamera = -worldPos.xyz;
+            vNormal = mat3(iModel) * (aNormal * iInvScaleSq.xyz);
+            vDistance = length(worldPos.xyz);
+            vColor = iColor;
+            vAmbient = iInvScaleSq.w;
+            gl_Position = uViewProjection * worldPos;
+        }
+    """.trimIndent()
+
+    /** [VESSEL_FRAGMENT], its colour and ambient per instance: see [CLOUD_INSTANCED_VERTEX]. */
+    val CLOUD_INSTANCED_FRAGMENT: String by lazy {
+        VESSEL_FRAGMENT
+            .replace("uniform vec4 uColor;", "flat in vec4 vColor;")
+            .replace("uniform float uAmbient;", "flat in float vAmbient;")
+            .replace("uColor", "vColor")
+            .replace("uAmbient", "vAmbient")
+    }
+
     val VESSEL_FRAGMENT = """
         #version 300 es
         // highp: distances run to tens of kilometres now that clouds are

@@ -21,6 +21,7 @@ private const val VOLUME_CELL_METRES = 0.75
 /** Target size, and most along any axis, of a hull's buoyancy cells. See [PartDef.volumeCells]. */
 private const val HULL_CELL_METRES = 0.4
 private const val HULL_CELLS = 6
+private const val HULL_CELLS_DEEP = 3
 
 /** N a joint carries per square metre of its radius. See [PartDef.jointStrength]. */
 private const val JOINT_STRENGTH_PER_M2 = 1.0e6
@@ -308,16 +309,16 @@ data class PartDef(
      * to lift one end of it by - pitch, roll and heave all come from *where*
      * the water is pushing, the same lesson drag taught the fins. Cells about
      * three-quarters of a metre on a side, at most four along any axis - and
-     * finer in a hull, [HULL_CELL_METRES] and up to [HULL_CELLS] along: two
+     * finer across and down a hull, [HULL_CELL_METRES] and up to [HULL_CELLS]: two
      * cells across the skiff and one deep felt so little of the buoyancy
      * shifting to the low side as she heeled that the seat's own reaction
      * wheel could roll her over.
      */
     val volumeCells: List<Vec3> by lazy {
         val h = boundsHalfExtents
-        val nx = cellsAlong(h.x)
-        val ny = cellsAlong(h.y)
-        val nz = cellsAlong(h.z)
+        val nx = cellsAlong(h.x, 0)
+        val ny = cellsAlong(h.y, 1)
+        val nz = cellsAlong(h.z, 2)
         val cells = ArrayList<Vec3>(nx * ny * nz)
         for (i in 0 until nx) for (j in 0 until ny) for (k in 0 until nz) {
             cells.add(
@@ -334,12 +335,21 @@ data class PartDef(
     /** The size of one of [volumeCells], m, in part-local axes. */
     val volumeCellSize: Vec3 by lazy {
         val h = boundsHalfExtents
-        Vec3(2.0 * h.x / cellsAlong(h.x), 2.0 * h.y / cellsAlong(h.y), 2.0 * h.z / cellsAlong(h.z))
+        Vec3(2.0 * h.x / cellsAlong(h.x, 0), 2.0 * h.y / cellsAlong(h.y, 1), 2.0 * h.z / cellsAlong(h.z, 2))
     }
 
-    private fun cellsAlong(halfExtent: Double): Int =
-        if (module<Buoyancy>() != null) kotlin.math.round(2.0 * halfExtent / HULL_CELL_METRES).toInt().coerceIn(2, HULL_CELLS)
-        else kotlin.math.round(2.0 * halfExtent / VOLUME_CELL_METRES).toInt().coerceIn(1, 4)
+    /**
+     * Cells along part [axis] (0 across, 1 along, 2 up). A hull is finer
+     * across and in depth, where its stability is decided, and as coarse as
+     * anything along its length: every cell samples the waves every tick,
+     * and a Trawler at the finer grid all round was over five hundred.
+     */
+    private fun cellsAlong(halfExtent: Double, axis: Int): Int =
+        if (axis != 1 && module<Buoyancy>() != null) {
+            kotlin.math.round(2.0 * halfExtent / HULL_CELL_METRES).toInt().coerceIn(2, if (axis == 2) HULL_CELLS_DEEP else HULL_CELLS)
+        } else {
+            kotlin.math.round(2.0 * halfExtent / VOLUME_CELL_METRES).toInt().coerceIn(1, 4)
+        }
 
     /** Authored nodes plus the generated surface ones. */
     val allAttachNodes: List<AttachNode> get() = attachNodes + surfaceNodes

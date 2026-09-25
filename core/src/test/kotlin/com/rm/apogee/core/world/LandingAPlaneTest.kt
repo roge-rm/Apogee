@@ -66,8 +66,13 @@ class LandingAPlaneTest {
         // runway itself moves 175 m/s, so a straight-line difference between
         // two of them measures the planet's spin.
         var rollout = 0.0
+        // Where it was five seconds before the end: whether it has stopped is
+        // how far it has gone since, not its speed at the last instant - at
+        // rest in a wind, an aircraft rocks on its gear.
+        var settling: Vec3? = null
         var t = 0.0
         while (t < 90.0) {
+            if (settling == null && t >= 85.0) settling = bodyFixed(world, plane)
             world.step(dt)
             t += dt
             if (touchdownSpeed < 0.0 && plane.touchingGround) {
@@ -94,12 +99,17 @@ class LandingAPlaneTest {
         return Outcome(
             touchdownSpeed = touchdownSpeed,
             rolloutMetres = rollout,
-            finalSpeed = groundSpeed(world, plane),
+            finalSpeed = bodyFixed(world, plane).distanceTo(settling!!) / 5.0,
             broken = plane.broken.count { it },
             tilt = Math.toDegrees(kotlin.math.acos((deck dot upNow).coerceIn(-1.0, 1.0))),
             onRunway = world.attractorFor(plane).altitudeOf(plane.body.position) < 1_000.0,
             offCentre = offCentre,
         )
+    }
+
+    private fun bodyFixed(world: World, vessel: Vessel): Vec3 {
+        val terra = world.attractorFor(vessel)
+        return terra.toBodyFixed(vessel.body.position, terra.rotationAt(world.time))
     }
 
     private fun groundSpeed(world: World, vessel: Vessel): Double {

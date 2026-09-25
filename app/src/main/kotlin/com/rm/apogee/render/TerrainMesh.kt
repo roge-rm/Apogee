@@ -74,9 +74,9 @@ class TerrainMesh(private val shared: SharedIndexBuffer? = null) {
         GLES30.glBindVertexArray(vao[0])
 
         val vertexBytes = vertices.size * Float.SIZE_BYTES
-        val vertexBuffer = ByteBuffer.allocateDirect(vertexBytes)
-            .order(ByteOrder.nativeOrder())
-            .apply { asFloatBuffer().put(vertices); position(0) }
+        val vertexBuffer = staging(vertexBytes)
+        vertexBuffer.asFloatBuffer().put(vertices)
+        vertexBuffer.position(0)
         GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, buffers[0])
         if (vertexBytes > vertexCapacity) {
             GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, vertexBytes, vertexBuffer, GLES30.GL_STATIC_DRAW)
@@ -104,6 +104,7 @@ class TerrainMesh(private val shared: SharedIndexBuffer? = null) {
     }
 
     val isReady: Boolean get() = hasVertices && indexCount > 0
+
 
     fun draw() {
         if (!isReady) return
@@ -138,6 +139,19 @@ class TerrainMesh(private val shared: SharedIndexBuffer? = null) {
     }
 
     private companion object {
+        /**
+         * One buffer to stage every upload through, grown as needed - GL
+         * thread only. A fresh direct buffer for each chunk was native
+         * memory the collector had to finalise, a dozen a frame in flight.
+         */
+        private var stagingBuffer: ByteBuffer? = null
+
+        fun staging(bytes: Int): ByteBuffer {
+            val current = stagingBuffer
+            if (current != null && current.capacity() >= bytes) { current.clear(); return current }
+            return ByteBuffer.allocateDirect(bytes).order(ByteOrder.nativeOrder()).also { stagingBuffer = it }
+        }
+
         const val ATTR_POSITION = 0
         const val ATTR_NORMAL = 1
         const val ATTR_COLOUR = 2

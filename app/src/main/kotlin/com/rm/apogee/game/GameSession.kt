@@ -147,6 +147,15 @@ class GameSession private constructor(
 
     /** Published for the debug overlay. */
     val lastFrameBuildNanos = AtomicLong(0)
+
+    /** Debug: the sea neither built nor drawn, to measure what it costs. */
+    @Volatile var debugHideSea = false
+
+    /** How long the last sea build took, ms, for the debug performance log. */
+    val seaBuildMillis: Double get() = seaScene?.lastBuildMillis ?: 0.0
+
+    /** How long the last cloud listing took, ms, and how many cloud lobes are in view: for the debug performance log. */
+    val cloudListMillis: Double get() = cloudScene?.lastListMillis ?: 0.0
     val framesPublished = AtomicLong(0)
 
     /** Telemetry for the HUD, refreshed each published frame. */
@@ -1054,7 +1063,7 @@ class GameSession private constructor(
         var underwater = false
         seaHeard = 0.0; seaRough = 0.0; seaStorm = 0.0
         if (sea != null) {
-            if (attractor.altitudeOf(cameraPosition) < sea.reach) {
+            if (!debugHideSea && attractor.altitudeOf(cameraPosition) < sea.reach) {
                 sea.update(bodyFixedCamera, renderTime)
                 seaSurface = sea.latest
                 if (seaSurface != null) seaReach = sea.reach

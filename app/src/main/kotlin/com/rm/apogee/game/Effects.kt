@@ -382,7 +382,12 @@ class Effects(tier: QualityTier) {
 
     private fun rain(dt: Double, precipitation: Double, camera: Vec3, body: CelestialBody) {
         up.setTo(camera).normalizeInPlace()
-        val n = poisson(precipitation * 1_800.0 * rateScale * dt, 991)
+        // As many as keeps no more than [RAIN_SHARE] of the budget falling in
+        // a downpour: at the old rate the heaviest rain filled the whole of
+        // it, and every new drop pushed out smoke, spray or flame to make room.
+        val life = 70.0 / RAIN_FALL
+        val rate = kotlin.math.min(1_800.0 * rateScale, capacity * RAIN_SHARE / life)
+        val n = poisson(precipitation * rate * dt, 991)
         for (k in 0 until n) {
             val ox = jitter(k, 1) * RAIN_RADIUS; val oy = jitter(k, 2) * RAIN_RADIUS; val oz = jitter(k, 3) * RAIN_RADIUS
             spawn(
@@ -1040,6 +1045,9 @@ class Effects(tier: QualityTier) {
 
     companion object {
         /** Spray: how high above the sea the camera still sees it, m; how far round, m; tries a second. */
+        /** The most of the particle budget rain may take, in a downpour. */
+        const val RAIN_SHARE = 0.5
+
         const val SPRAY_HEIGHT = 400.0
         const val SPRAY_REACH = 90.0
         const val SPRAY_TRIES = 40.0

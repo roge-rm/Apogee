@@ -198,10 +198,9 @@ class SolarSystem(
         const val PAD_LONGITUDE = 0.09754727774390243
 
         /**
-         * The harbour, radians: the middle of a bay carved into the coast
-         * five kilometres east of the pad - east as the planet turns, so
-         * the lower longitude - calm inside, reached from the sea by a
-         * channel with a bend in it.
+         * The harbour, radians: in a broad bay five kilometres east of the
+         * pad - east as the planet turns, so the lower longitude - calm
+         * inside, reached from the sea by a winding inlet.
          */
         const val HARBOUR_LATITUDE = 0.097227372495131
         const val HARBOUR_LONGITUDE = 0.0888403538376949
