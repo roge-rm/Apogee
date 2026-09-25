@@ -38,14 +38,16 @@ class SeaSceneTest {
                 if (terra.terrain!!.elevation(at) < -500.0) break
             }
             val centre = at.copy().mulInPlace(terra.radius)
-            var surface: SeaSurface? = null
+            // Something to draw at once - flat water - while the sea is worked out.
+            scene.update(centre, 5_000.0)
+            assertTrue("nothing to draw on the first frame", scene.latest != null)
             val deadline = System.currentTimeMillis() + 30_000
-            while (surface == null && System.currentTimeMillis() < deadline) {
-                scene.update(centre, 5_000.0)
+            while (!scene.built && System.currentTimeMillis() < deadline) {
                 Thread.sleep(20)
-                surface = scene.latest
+                scene.update(centre, 5_000.0)
             }
-            val built = surface ?: throw AssertionError("no sea built")
+            if (!scene.built) throw AssertionError("no sea built")
+            val built = scene.latest!!
             val truth = Sea(terra, system.body("luna"), Weather(terra, config), config.seed)
             var worst = 0.0
             var checked = 0

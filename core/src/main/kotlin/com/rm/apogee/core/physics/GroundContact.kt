@@ -237,6 +237,11 @@ class GroundContact {
             val springRate = leg?.springRate ?: wheel?.springRate
             val damping = leg?.damping ?: wheel?.damping
             val pointCount = def.contactPoints.size
+            // How far this part has sunk so far, and how far the ground under
+            // it would have it sink now - the deepest of its points in contact.
+            val sunkBefore = vessel.sunk.getOrElse(partIndex) { 0.0 }
+            val sinkStep = SINK_RATE * dt
+            var sinkTarget = 0.0
             for (pointIndex in 0 until pointCount) {
             vessel.contactPointWorld(partIndex, pointIndex, partPosition)
 
@@ -251,10 +256,20 @@ class GroundContact {
             // snow or regolith sits below the one drawn, by more under more
             // load and by less the faster it is moving - a heavy rover bogs in
             // where a light one going quickly skims across.
+            //
+            // Not all at once, though: the load is the craft's weight shared
+            // among the points that touched last tick, which jumps whenever
+            // one more comes down. Taken whole, a parked plane rocking from
+            // two wheels onto four had the ground under every wheel spring up
+            // ten centimetres in a tick, and was thrown clear of it - over and
+            // over, every second. So a part sinks toward that depth, and comes
+            // back up from it, at no more than [SINK_RATE].
             relativeVelocityAt(body, attractor, partPosition, pointVelocity)
-            sink = sinkDepth(ground.material, loadPerContact, pointVelocity.length)
+            val target = sinkDepth(ground.material, loadPerContact, pointVelocity.length)
+            sink = sunkBefore + (target - sunkBefore).coerceIn(-sinkStep, sinkStep)
             val radialDepth = ground.radius - sink - distance
             if (radialDepth <= 0.0) continue
+            if (target > sinkTarget) sinkTarget = target
 
             // The face's own normal, not the radial direction. Radial treats
             // every surface as a floor, so a craft driven into a cliff was
@@ -337,6 +352,9 @@ class GroundContact {
             } else {
                 applyFriction(body, attractor, normalImpulse)
             }
+            }
+            if (partIndex in vessel.sunk.indices) {
+                vessel.sunk[partIndex] = sunkBefore + (sinkTarget - sunkBefore).coerceIn(-sinkStep, sinkStep)
             }
         }
 
@@ -722,10 +740,17 @@ class GroundContact {
         /** Speed, m/s, at which sinkage has halved. */
         const val SKIM_SPEED = 6.0
 
-        /** Deepest anything sinks, metres. Mud up to the axles, not the roof. */
         /** Reverse runs up to this share of a wheel's top speed. */
         const val REVERSE_TOP = 0.35
 
+        /**
+         * How fast soft ground gives under a part, or lets it back up, m/s:
+         * a wheel settles into sand over a second or so rather than in a
+         * tick. See the sinking in [resolve].
+         */
+        const val SINK_RATE = 0.1
+
+        /** Deepest anything sinks, metres. Mud up to the axles, not the roof. */
         const val MAX_SINK_METRES = 0.35
 
         /**

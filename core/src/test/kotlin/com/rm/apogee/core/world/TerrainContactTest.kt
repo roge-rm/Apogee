@@ -115,17 +115,20 @@ class TerrainContactTest {
     }
 
     /**
-     * The stock rover carrying a full four-metre tank's weight, low down at
-     * the pod: three times as heavy, without the tank on top that rolled it
-     * over the moment it moved. (It passed that way while a roll wrote the
-     * craft off, reading the wreck's last speed.)
+     * The stock rover carrying a full four-metre tank's weight: three times
+     * as heavy, the tank lying along it between the wheels, low and clear of
+     * the ground. Not on top: that rolled it over the moment it moved. Not
+     * standing at the pod either: the tank's bottom then hung below the
+     * wheels, and the "heavy rover" was a tank lying in the grass with its
+     * wheels in the air - as stuck on firm ground as in mud.
      */
     private fun heavyRover(): com.rm.apogee.core.craft.CraftDesign {
         val light = StockCraft.rover(catalog)
         return light.copy(
             name = "Heavy Trundler",
             parts = light.parts + com.rm.apogee.core.craft.PlacedPart(
-                "tank-cask4", light.parts[0].position.copy(), parentIndex = 0,
+                "tank-cask4", Vec3(0.0, -0.1, 0.0), com.rm.apogee.core.math.Quat.fromAxisAngle(Vec3(1.0, 0.0, 0.0), Math.PI / 2),
+                parentIndex = 0,
             ),
         )
     }

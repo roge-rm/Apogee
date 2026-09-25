@@ -157,6 +157,14 @@ class Vessel(
     var wheelCompression = DoubleArray(design.parts.size)
         private set
 
+    /**
+     * How far each part has sunk into soft ground, metres - kept from tick
+     * to tick, since ground gives over time rather than all at once. See
+     * GroundContact.
+     */
+    var sunk = DoubleArray(design.parts.size)
+        private set
+
     /** Landing legs: deploy progress, 0 stowed to 1 deployed. */
     var legDeploy = DoubleArray(design.parts.size)
         private set
@@ -190,6 +198,7 @@ class Vessel(
         surfaceDeflection = DoubleArray(deploy.size)
         wheelSteer = DoubleArray(deploy.size)
         wheelCompression = DoubleArray(deploy.size)
+        sunk = DoubleArray(deploy.size)
         gimbalPitch = DoubleArray(deploy.size)
         gimbalYaw = DoubleArray(deploy.size)
         engineOutput = DoubleArray(deploy.size)
@@ -212,6 +221,7 @@ class Vessel(
         surfaceDeflection = DoubleArray(n)
         wheelSteer = DoubleArray(n)
         wheelCompression = DoubleArray(n)
+        sunk = DoubleArray(n)
         gimbalPitch = DoubleArray(n)
         gimbalYaw = DoubleArray(n)
         engineOutput = DoubleArray(n)

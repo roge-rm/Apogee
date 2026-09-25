@@ -6,6 +6,7 @@ import com.rm.apogee.core.math.Quat
 import com.rm.apogee.core.math.Vec3
 import com.rm.apogee.core.math.quatFromTo
 import com.rm.apogee.core.part.StockParts
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -27,6 +28,8 @@ class LandingAPlaneTest {
         val tilt: Double,
         val onRunway: Boolean,
         val offCentre: Double,
+        /** Ticks in the last twenty seconds, parked, with no wheel on the ground. */
+        val hopTicks: Int,
     )
 
     private fun land(
@@ -70,6 +73,7 @@ class LandingAPlaneTest {
         // how far it has gone since, not its speed at the last instant - at
         // rest in a wind, an aircraft rocks on its gear.
         var settling: Vec3? = null
+        var hopTicks = 0
         var t = 0.0
         while (t < 90.0) {
             if (settling == null && t >= 85.0) settling = bodyFixed(world, plane)
@@ -85,6 +89,7 @@ class LandingAPlaneTest {
             // ground-looped off the runway.
             if (touchdownTime >= 0.0 && t > touchdownTime + 2.0) plane.control.brakes = true
             if (touchdownSpeed >= 0.0) rollout += groundSpeed(world, plane) * dt
+            if (t > 70.0 && !plane.touchingGround) hopTicks++
         }
         val upNow = plane.body.position.copy().normalizeInPlace()
         // How far off the runway's centreline it came to rest: across the
@@ -104,6 +109,7 @@ class LandingAPlaneTest {
             tilt = Math.toDegrees(kotlin.math.acos((deck dot upNow).coerceIn(-1.0, 1.0))),
             onRunway = world.attractorFor(plane).altitudeOf(plane.body.position) < 1_000.0,
             offCentre = offCentre,
+            hopTicks = hopTicks,
         )
     }
 
@@ -139,11 +145,14 @@ class LandingAPlaneTest {
     fun `it lands in the weather`() {
         for (intensity in listOf(com.rm.apogee.core.weather.WeatherIntensity.NORMAL, com.rm.apogee.core.weather.WeatherIntensity.WILD)) {
             val o = land(weather = intensity)
-            println("$intensity: touchdown %.1f m/s, rollout %.0f m, final %.2f m/s, broken %d, tilt %.1f, %.0f m off centre"
-                .format(o.touchdownSpeed, o.rolloutMetres, o.finalSpeed, o.broken, o.tilt, o.offCentre))
+            println("$intensity: touchdown %.1f m/s, rollout %.0f m, final %.2f m/s, broken %d, tilt %.1f, %.0f m off centre, hops %d"
+                .format(o.touchdownSpeed, o.rolloutMetres, o.finalSpeed, o.broken, o.tilt, o.offCentre, o.hopTicks))
             assertTrue("$intensity: never touched down", o.touchdownSpeed >= 0.0)
             assertTrue("$intensity: ${o.broken} parts broke", o.broken == 0)
             assertTrue("$intensity: still rolling at ${o.finalSpeed} m/s", o.finalSpeed < 0.5)
+            // Parked on the grass beside the runway, in the wind: it sits. It
+            // once hopped clear of soft ground every second or so.
+            assertEquals("$intensity: parked, it left the ground", 0, o.hopTicks)
             assertTrue("$intensity: tipped ${o.tilt} degrees", o.tilt < 10.0)
             // Nobody correcting for the crosswind, which on the coast comes
             // in off the sea: it drifts, and may come down beside the tarmac.

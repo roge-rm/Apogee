@@ -70,6 +70,10 @@ class SeaScene(
 
     @Volatile var latest: SeaSurface? = null
         private set
+
+    /** Whether [latest] is a sea worked out, rather than the flat stand-in drawn until the first is. */
+    @Volatile var built = false
+        private set
     @Volatile private var building = false
     @Volatile var lastBuildMillis = 0.0
         private set
@@ -96,6 +100,9 @@ class SeaScene(
      */
     fun update(centre: Vec3, time: Double) {
         if (building) return
+        // Nothing to draw yet: flat water at once, while the first real sea
+        // is worked out - rather than a second or more of bare sea bed.
+        if (latest == null) latest = placeholder(centre, time)
         // Ten a second is plenty: the renderer carries each on a moment by
         // how fast its water is rising, and building back to back kept two
         // cores busy for nothing.
@@ -112,6 +119,7 @@ class SeaScene(
             val started = System.nanoTime()
             try {
                 latest = kotlinx.coroutines.coroutineScope { build(this, at, ahead) }
+                built = true
                 lastBuildMillis = (System.nanoTime() - started) / 1e6
                 // The sea state round the craft for the next while, worked out
                 // here rather than by the flight's own step when it gets there.
@@ -243,6 +251,41 @@ class SeaScene(
             }
         }
         jobs.forEach { it.await() }
+        return SeaSurface(origin, vertices, count, indices, layout, time)
+    }
+
+    /**
+     * The rings laid flat at the datum in deep water's colour, round
+     * body-fixed [centre]: no sea worked out at all, so quick enough for the
+     * frame thread. Only until the first build lands.
+     */
+    private fun placeholder(centre: Vec3, time: Double): SeaSurface {
+        val up = centre.copy().normalizeInPlace()
+        val origin = up.copy().mulInPlace(body.radius)
+        val e = Vec3(0.0, 1.0, 0.0).crossInPlace(up)
+        if (e.lengthSq < 1e-9) e.setTo(1.0, 0.0, 0.0).crossInPlace(up)
+        e.normalizeInPlace()
+        val n = Vec3().setTo(up).crossInPlace(e).normalizeInPlace()
+        val count = 1 + radii.size * segments
+        val vertices = FloatArray(count * SeaSurface.STRIDE)
+        val d = Vec3()
+        val step = 2.0 * Math.PI / segments
+        for (v in 0 until count) {
+            if (v == 0) {
+                d.setTo(up)
+            } else {
+                val ring = (v - 1) / segments
+                val a = ((v - 1) % segments) * step + if (ring % 2 == 0) 0.0 else 0.5 * step
+                d.setTo(origin).addScaledInPlace(e, radii[ring] * cos(a)).addScaledInPlace(n, radii[ring] * sin(a)).normalizeInPlace()
+            }
+            val o = v * SeaSurface.STRIDE
+            vertices[o] = (d.x * body.radius - origin.x).toFloat()
+            vertices[o + 1] = (d.y * body.radius - origin.y).toFloat()
+            vertices[o + 2] = (d.z * body.radius - origin.z).toFloat()
+            vertices[o + 3] = d.x.toFloat(); vertices[o + 4] = d.y.toFloat(); vertices[o + 5] = d.z.toFloat()
+            vertices[o + 6] = DEEP_R.toFloat(); vertices[o + 7] = DEEP_G.toFloat(); vertices[o + 8] = DEEP_B.toFloat(); vertices[o + 9] = DEEP_ALPHA
+            vertices[o + 10] = 0f
+        }
         return SeaSurface(origin, vertices, count, indices, layout, time)
     }
 
