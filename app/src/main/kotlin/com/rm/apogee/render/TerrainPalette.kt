@@ -48,6 +48,9 @@ object TerrainPalette {
             SurfaceMaterial.BASALT -> { r = 0.26f; g = 0.26f; b = 0.28f }
             SurfaceMaterial.CLAY -> { r = 0.64f; g = 0.37f; b = 0.23f }
             SurfaceMaterial.FOREST -> { r = 0.15f; g = 0.31f; b = 0.14f }
+            // The launch complex: pale poured concrete, and a dark runway.
+            SurfaceMaterial.CONCRETE -> { r = 0.66f; g = 0.65f; b = 0.62f }
+            SurfaceMaterial.ASPHALT -> { r = 0.17f; g = 0.17f; b = 0.18f }
         }
         // +-6% brightness, fixed per vertex. Hashed rather than random so the
         // same ground looks the same every time it is built.
@@ -63,6 +66,23 @@ object TerrainPalette {
         out[offset] = 0.10f + (0.02f - 0.10f) * t
         out[offset + 1] = 0.30f + (0.09f - 0.30f) * t
         out[offset + 2] = 0.46f + (0.22f - 0.46f) * t
+    }
+
+    /**
+     * The sea bed at [depth] m, seen through the water: pale sand in the
+     * shallows, weed-dark further down, lost to the deep beyond.
+     */
+    fun seabed(depth: Double, jitterKey: Int, out: FloatArray, offset: Int) {
+        val shallow = (depth / 12.0).coerceIn(0.0, 1.0)
+        val deep = ((depth - 12.0) / 250.0).coerceIn(0.0, 1.0)
+        var r = 0.78 + (0.40 - 0.78) * shallow
+        var g = 0.72 + (0.46 - 0.72) * shallow
+        var b = 0.52 + (0.40 - 0.52) * shallow
+        r += (0.10 - r) * deep; g += (0.18 - g) * deep; b += (0.22 - b) * deep
+        val j = 1.0 + (((jitterKey * -0x61c88647) ushr 24) and 0xFF) / 255.0 * 0.12 - 0.06
+        out[offset] = (r * j).toFloat()
+        out[offset + 1] = (g * j).toFloat()
+        out[offset + 2] = (b * j).toFloat()
     }
 
     private const val JITTER_SEED = 0x7E11A

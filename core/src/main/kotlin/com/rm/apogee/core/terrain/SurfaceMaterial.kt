@@ -42,7 +42,13 @@ enum class SurfaceMaterial(
     CLAY(friction = 0.55, rollingDrag = 1.4, softness = 0.02, bog = 1.0),
 
     /** Forest floor: loam and litter, grippy and a little soft. */
-    FOREST(friction = 0.6, rollingDrag = 1.5, softness = 0.02, bog = 1.0);
+    FOREST(friction = 0.6, rollingDrag = 1.5, softness = 0.02, bog = 1.0),
+
+    /** The launch pad: poured concrete, firm and grippy. */
+    CONCRETE(friction = 0.8, rollingDrag = 0.6, softness = 0.0, bog = 0.0),
+
+    /** The runway: smooth asphalt, the easiest rolling there is. */
+    ASPHALT(friction = 0.8, rollingDrag = 0.5, softness = 0.0, bog = 0.0);
 
     companion object {
         private val all = entries.toTypedArray()

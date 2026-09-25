@@ -41,6 +41,7 @@ class AscentScenarioTest {
             "orbit should be near-circular, eccentricity was ${result.finalOrbit.eccentricity}",
             result.finalOrbit.eccentricity < 0.02,
         )
+        println("propellant left ${result.propellantRemaining}")
         assertTrue(
             "should reach orbit with margin, ${result.propellantRemaining} units left",
             result.propellantRemaining > 5.0,

@@ -152,9 +152,114 @@ class Effects(tier: QualityTier) {
             for (e in emitters) emit(e, dt, body, bodyRotation)
             if (cameraAir != null && cameraAir.precipitation > 0.02) rain(dt, cameraAir.precipitation, cameraBodyFixed, body)
         }
+        seaSpray(dt, time, body)
         advance(dt, body)
         if (weather != null) lightning(time, weather, cameraBodyFixed, body)
         flash = (flash * exp(-dt / 0.12).toFloat()).coerceAtLeast(0f)
+    }
+
+    // --- the sea ---------------------------------------------------------------
+
+    /** Samples the sea at a body-fixed point, for spray and wakes; null over no sea. */
+    var sea: ((Vec3, Double, com.rm.apogee.core.sea.SeaSample) -> Unit)? = null
+    private val seaSample = com.rm.apogee.core.sea.SeaSample()
+    private val seaPoint = Vec3()
+
+    /**
+     * Spray torn off the breaking crests by a strong wind or a storm, round
+     * the camera: tried at a handful of points a frame, and thrown up and
+     * downwind where the sea there is breaking.
+     */
+    private fun seaSpray(dt: Double, time: Double, body: CelestialBody) {
+        val sample = sea ?: return
+        if (focusHeight - max(focusGround, 0.0) > SPRAY_HEIGHT) return
+        val east = scratch.setTo(up.z, 0.0, -up.x).let { if (it.lengthSq < 1e-12) it.setTo(1.0, 0.0, 0.0) else it.normalizeInPlace() }
+        val north = Vec3().setTo(up).crossInPlace(east)
+        val tries = poisson(SPRAY_TRIES * rateScale * dt, 0x5E4)
+        for (k in 0 until tries) {
+            val a = rand(k) * 2.0 * Math.PI
+            val r = SPRAY_REACH * kotlin.math.sqrt(rand(k + 1).toDouble())
+            seaPoint.setTo(up).mulInPlace(body.radius)
+                .addScaledInPlace(east, kotlin.math.cos(a) * r).addScaledInPlace(north, kotlin.math.sin(a) * r)
+            sample(seaPoint, time, seaSample)
+            if (seaSample.depth <= 0.0 || seaSample.breaking < 0.35) continue
+            val blow = smoothstep(9.0, 18.0, seaSample.wind + seaSample.stormHeight * 1.5)
+            if (blow <= 0.0) continue
+            seaPoint.normalizeInPlace().mulInPlace(body.radius + seaSample.height)
+            val n = (1 + 4 * blow).toInt()
+            for (j in 0 until n) {
+                val lift = 2.0 + 4.0 * rand(k * 7 + j)
+                spawn(
+                    x = seaPoint.x + jitter(j, 1), y = seaPoint.y + jitter(j, 2), z = seaPoint.z + jitter(j, 3),
+                    vx = windLow.x * 0.8 + up.x * lift, vy = windLow.y * 0.8 + up.y * lift, vz = windLow.z * 0.8 + up.z * lift,
+                    life = 1.2 + 1.8 * rand(k * 7 + j + 3), startSize = 0.4, endSize = 1.2 + 1.0 * blow,
+                    r = 0.9f, g = 0.95f, b = 0.98f, a = 0.45f, grip = 0.8, rise = 0.0, fall = true,
+                )
+            }
+        }
+    }
+
+    /**
+     * A hull moving through the water, from [stern] to [bow] (world), [beam]
+     * wide, at [velocity] (world) over the ground: foam spreading from its
+     * stern and quarters in a vee behind it, and spray thrown up and out
+     * from its bow when it drives into the sea.
+     */
+    fun wake(stern: Vec3, bow: Vec3, beam: Double, velocity: Vec3, body: CelestialBody, bodyRotation: Quat, time: Double, dt: Double, seed: Int) {
+        val sample = sea ?: return
+        bodyRotation.inverseRotate(stern, bodyFixed)
+        sample(bodyFixed, time, seaSample)
+        if (seaSample.depth <= 0.0) return
+        // Only while it is in the water.
+        if (kotlin.math.abs(bodyFixed.length - body.radius - seaSample.height) > beam + 1.5) return
+        // Through the water, not over the ground: a boat carried about by the
+        // waves' own motion makes no wake.
+        body.surfaceVelocityAt(stern, scratch)
+        relative.setTo(velocity).subInPlace(scratch)
+        bodyRotation.inverseRotate(relative, relative)
+        relative.subInPlace(seaSample.velocity)
+        val speed = relative.length
+        // Foam in a big sea is broken up in moments.
+        val lasting = 1.0 / (1.0 + seaSample.significantHeight / 1.5)
+        if (speed < 0.8) return
+        val forward = scratch2.setTo(relative).mulInPlace(1.0 / speed)
+        val u = Vec3().setTo(bodyFixed).normalizeInPlace()
+        val side = Vec3().setTo(forward).crossInPlace(u).normalizeInPlace()
+        val surface = Vec3().setTo(u).mulInPlace(body.radius + seaSample.height)
+        val n = poisson(WAKE_RATE * rateScale * kotlin.math.min(speed, 12.0) * dt, seed)
+        for (k in 0 until n) {
+            // Out to either quarter, spreading at the wake's angle.
+            val sideways = if (k % 2 == 0) 1.0 else -1.0
+            val spread = speed * 0.35
+            spawn(
+                x = surface.x + side.x * sideways * beam, y = surface.y + side.y * sideways * beam, z = surface.z + side.z * sideways * beam,
+                vx = side.x * sideways * spread - forward.x * speed * 0.1,
+                vy = side.y * sideways * spread - forward.y * speed * 0.1,
+                vz = side.z * sideways * spread - forward.z * speed * 0.1,
+                life = (7.0 + 6.0 * rand(k)) * lasting, startSize = 0.6, endSize = 3.0 + 0.2 * speed,
+                r = 0.93f, g = 0.96f, b = 1f, a = 0.7f, grip = 0.0, rise = 0.0,
+            )
+        }
+        // Bow spray, when it drives into the sea fast enough.
+        if (speed < 3.0) return
+        bodyRotation.inverseRotate(bow, seaPoint)
+        sample(seaPoint, time, seaSample)
+        val under = body.radius + seaSample.height - seaPoint.length
+        if (under < -0.3) return
+        val m = poisson(BOW_RATE * rateScale * (speed - 3.0) * dt, seed + 1)
+        for (k in 0 until m) {
+            val sideways = if (k % 2 == 0) 1.0 else -1.0
+            val throwOut = 1.0 + 0.25 * speed * rand(k + 5)
+            val lift = 1.5 + 0.3 * speed * rand(k + 6)
+            spawn(
+                x = seaPoint.x, y = seaPoint.y, z = seaPoint.z,
+                vx = side.x * sideways * throwOut + u.x * lift + forward.x * speed * 0.3,
+                vy = side.y * sideways * throwOut + u.y * lift + forward.y * speed * 0.3,
+                vz = side.z * sideways * throwOut + u.z * lift + forward.z * speed * 0.3,
+                life = 0.8 + 0.8 * rand(k + 7), startSize = 0.3, endSize = 1.2,
+                r = 0.93f, g = 0.97f, b = 1f, a = 0.75f, grip = 0.3, rise = 0.0, fall = true,
+            )
+        }
     }
 
     // --- emission -------------------------------------------------------------
@@ -174,7 +279,9 @@ class Effects(tier: QualityTier) {
         bodyRotation.inverseRotate(e.out, scratch2)
         val out = scratch2
         up.setTo(bodyFixed).normalizeInPlace()
-        val ground = body.terrain?.let { t -> max(t.elevation(up), if (t.hasOcean) 0.0 else -1e9) } ?: 0.0
+        val elevation = body.terrain?.elevation(up)
+        overSea = elevation != null && body.terrain?.hasOcean == true && elevation < 0.0
+        val ground = body.terrain?.let { t -> max(elevation!!, if (t.hasOcean) 0.0 else -1e9) } ?: 0.0
         val agl = altitude - ground
 
         when (e.kind) {
@@ -209,12 +316,13 @@ class Effects(tier: QualityTier) {
                         val speed = 12.0 + 20.0 * rand(k + 5)
                         val gx = bodyFixed.x - up.x * agl; val gy = bodyFixed.y - up.y * agl; val gz = bodyFixed.z - up.z * agl
                         val tone = 0.62f + 0.2f * rand(k + 11)
+                        // Over the sea, a white wall of spray and steam.
                         spawn(
                             x = gx, y = gy, z = gz,
                             vx = dirX * speed + up.x * 2.0, vy = dirY * speed + up.y * 2.0, vz = dirZ * speed + up.z * 2.0,
                             life = 6.0 + 6.0 * rand(k + 13),
                             startSize = 2.0, endSize = 10.0 + 8.0 * rand(k + 17),
-                            r = tone, g = tone * 0.95f, b = tone * 0.88f, a = 0.6f,
+                            r = if (overSea) 0.94f else tone, g = if (overSea) 0.96f else tone * 0.95f, b = if (overSea) 0.99f else tone * 0.88f, a = 0.6f,
                             grip = 0.6, rise = 0.6,
                         )
                     }
@@ -255,16 +363,22 @@ class Effects(tier: QualityTier) {
 
     private fun dust(e: EngineEmitter, at: Vec3, up: Vec3, agl: Double, strength: Double, dt: Double) {
         val n = poisson(20.0 * rateScale * strength * (1.0 - agl / 15.0).coerceIn(0.0, 1.0) * dt, e.seed + 2)
+        // Over the sea it is spray, not dust.
+        val wet = overSea
         for (k in 0 until n) {
             val tone = 0.6f + 0.2f * rand(k)
             spawn(
                 x = at.x - up.x * agl + jitter(k, 1) * 3, y = at.y - up.y * agl + jitter(k, 2) * 3, z = at.z - up.z * agl + jitter(k, 3) * 3,
                 vx = jitter(k, 4) * 6 + up.x, vy = jitter(k, 5) * 6 + up.y, vz = jitter(k, 6) * 6 + up.z,
                 life = 3.0 + 3.0 * rand(k + 1), startSize = 1.0, endSize = 5.0,
-                r = tone, g = tone * 0.93f, b = tone * 0.82f, a = 0.5f, grip = 1.0, rise = 0.3,
+                r = if (wet) 0.92f else tone, g = if (wet) 0.95f else tone * 0.93f, b = if (wet) 0.98f else tone * 0.82f,
+                a = 0.5f, grip = 1.0, rise = 0.3, fall = wet,
             )
         }
     }
+
+    /** Whether the emitter being worked on is over the sea. */
+    private var overSea = false
 
     private fun rain(dt: Double, precipitation: Double, camera: Vec3, body: CelestialBody) {
         up.setTo(camera).normalizeInPlace()
@@ -925,6 +1039,15 @@ class Effects(tier: QualityTier) {
     }
 
     companion object {
+        /** Spray: how high above the sea the camera still sees it, m; how far round, m; tries a second. */
+        const val SPRAY_HEIGHT = 400.0
+        const val SPRAY_REACH = 90.0
+        const val SPRAY_TRIES = 40.0
+
+        /** Wake foam a second per m/s of speed, and bow spray per m/s past a brisk pace. */
+        const val WAKE_RATE = 3.0
+        const val BOW_RATE = 8.0
+
         /** Floats per vertex: position, colour. */
         const val VERTEX_FLOATS = 7
 

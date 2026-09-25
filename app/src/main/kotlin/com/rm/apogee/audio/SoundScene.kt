@@ -99,6 +99,10 @@ class SoundScene(private val budget: Int) {
         val velocity: Vec3 = Vec3(),
         /** Waves breaking on a shore nearby, 0 none to 1 right on the beach. */
         val shore: Double = 0.0,
+        /** The open sea round the listener: how near and loud (0..1), how rough (0..1), how stormy (0..1). */
+        val sea: Double = 0.0,
+        val seaRough: Double = 0.0,
+        val seaStorm: Double = 0.0,
     ) {
         val inAir: Boolean get() = density > AIRLESS
     }
@@ -233,6 +237,13 @@ class SoundScene(private val budget: Int) {
                 v[0] = listener.shore.coerceIn(0.0, 1.0).toFloat()
                 add(KEY_SURF, Recipes.SURF, 0, v, 1f, 0f, 0f, weight = v[0] * 0.4f)
             }
+            if (listener.sea > 0.02) {
+                val v = FloatArray(SharedParams.COUNT)
+                v[0] = listener.sea.coerceIn(0.0, 1.0).toFloat()
+                v[1] = listener.seaRough.coerceIn(0.0, 1.0).toFloat()
+                v[2] = listener.seaStorm.coerceIn(0.0, 1.0).toFloat()
+                add(KEY_SEA, Recipes.SEA, 0, v, 1f, 0f, 0f, weight = v[0] * 0.35f)
+            }
         }
 
         // The loudest, as many as there are voices for.
@@ -266,6 +277,7 @@ class SoundScene(private val budget: Int) {
             Kind.DETACHED -> { v[0] = 1f; Recipes.TEAR to 0.8 }
             Kind.LATCH -> { v[0] = 1f; Recipes.CLUNK to 0.6 }
             Kind.RELEASE -> { v[0] = 0.6f; Recipes.CLUNK to 0.6 }
+            Kind.SLAP -> { v[0] = amount.coerceIn(0.1, 1.0).toFloat(); Recipes.SLAP to 0.5 }
             Kind.EXPLOSION -> {
                 val size = sqrt(amount / 2_000.0).coerceIn(0.15, 1.5)
                 v[0] = size.toFloat(); Recipes.EXPLOSION to 8.0 * size
@@ -283,7 +295,7 @@ class SoundScene(private val budget: Int) {
         return Shot(recipe, 0, delay.toFloat(), v)
     }
 
-    enum class Kind { IMPACT, DESTROYED, DETACHED, EXPLOSION, LATCH, RELEASE }
+    enum class Kind { IMPACT, DESTROYED, DETACHED, EXPLOSION, LATCH, RELEASE, SLAP }
 
     /**
      * How a sound at [position] reaches the listener: its loudness by
@@ -368,6 +380,7 @@ class SoundScene(private val budget: Int) {
         const val KEY_WIND = -5
         const val KEY_RAIN = -6
         const val KEY_SURF = -7
+        const val KEY_SEA = -8
 
         /**
          * How much an engine is built for vacuum, 0..1, from how much of its

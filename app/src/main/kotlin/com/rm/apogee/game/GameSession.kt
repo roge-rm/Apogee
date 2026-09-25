@@ -211,6 +211,22 @@ class GameSession private constructor(
 
     /** Clouds and the camera's air, while the world has weather and the camera is in it. */
     private var cloudScene: CloudScene? = null
+    private var seaScene: SeaScene? = null
+
+    // The sea at the camera this frame, for the ears.
+    private var seaHeard = 0.0
+    private var seaRough = 0.0
+    private var seaStorm = 0.0
+
+    /** Each hull's bow's height over the water last frame, by craft and part, for hearing it slap into a wave. */
+    private val bowGaps = HashMap<Long, Double>()
+    private val slapSample = com.rm.apogee.core.sea.SeaSample()
+
+    private fun smoothstepD(a: Double, b: Double, x: Double): Double {
+        val t = ((x - a) / (b - a)).coerceIn(0.0, 1.0)
+        return t * t * (3.0 - 2.0 * t)
+    }
+
     private val cloudCamera = Vec3()
 
     /**
@@ -295,8 +311,13 @@ class GameSession private constructor(
 
     fun stop() {
         presentJob?.cancel(); presentJob = null
-        // Everything held lets go - once the frames that publish scenes have stopped.
-        AudioEngine.scene(0, IntArray(0), IntArray(0), IntArray(0), FloatArray(0))
+        // Everything held lets go, for good: cancelling does not wait for a
+        // frame already being built, and one finishing after this would put
+        // its scene back - the sea went on playing over the menu (Dan).
+        synchronized(soundLock) {
+            soundStopped = true
+            AudioEngine.scene(0, IntArray(0), IntArray(0), IntArray(0), FloatArray(0))
+        }
         clientJob?.cancel(); clientJob = null
         serverJob?.cancel(); serverJob = null
         beaconJob?.cancel(); beaconJob = null
@@ -978,6 +999,8 @@ class GameSession private constructor(
             defs = focus.design.parts.map { catalog[it.partId] },
             jointLoad = prediction.replica?.takeIf { !warping && it.design.parts.size == focus.design.parts.size }?.jointLoad,
             lost = lost,
+            lunaWindow = if (focus.design.orientation == com.rm.apogee.core.craft.CraftOrientation.VERTICAL)
+                moonWindowIn(attractor, focusState.position, bodyRotation, renderTime) else Double.NaN,
         )
 
         // The nearest thing in view, for the near plane: the closest part of
@@ -1014,9 +1037,45 @@ class GameSession private constructor(
             }
         }
 
+        // The sea: round the craft, from the same waves it floats on - out to
+        // the scene's reach, beyond which the terrain draws flat water.
+        val ocean = attractor.ocean
+        val sea = if (ocean != null && !mapMode) {
+            seaScene?.takeIf { it.body === attractor && it.config == weatherConfig }
+                ?: SeaScene(
+                    attractor, system.bodies.values.firstOrNull { it.parentId == attractor.id && it.orbit != null },
+                    weatherConfig, terrainQuality ?: QualityTier.MEDIUM, terrainScope,
+                ).also { seaScene = it }
+        } else null
+        if (sea == null) seaScene = null
+        var seaSurface: com.rm.apogee.render.SeaSurface? = null
+        var seaReach = 0.0
+        var tide = 0.0
+        var underwater = false
+        seaHeard = 0.0; seaRough = 0.0; seaStorm = 0.0
+        if (sea != null) {
+            if (attractor.altitudeOf(cameraPosition) < sea.reach) {
+                sea.update(bodyFixedCamera, renderTime)
+                seaSurface = sea.latest
+                if (seaSurface != null) seaReach = sea.reach
+            }
+            val here = sea.sampleAt(scratchCameraBodyFixed, renderTime)
+            tide = here.tide
+            underwater = sea.isUnder(scratchCameraBodyFixed, here)
+            // The open sea, heard near it: louder and rougher with its waves.
+            if (here.depth > 2.0) {
+                val above = scratchCameraBodyFixed.length - attractor.radius - here.height
+                val near = 1.0 - smoothstepD(20.0, 250.0, above)
+                seaRough = smoothstepD(0.3, 4.0, here.significantHeight)
+                seaStorm = smoothstepD(2.0, 9.0, here.stormHeight)
+                seaHeard = near * (0.35 + 0.65 * seaRough)
+            }
+        }
+
         // Flames, smoke and the rest: stepped by real frame time, drawn
         // through the same weather as the clouds.
         val fx = effects ?: Effects(terrainQuality ?: QualityTier.MEDIUM).also { effects = it }
+        fx.sea = seaScene?.let { scene -> { p: Vec3, t: Double, o: com.rm.apogee.core.sea.SeaSample -> scene.sampleInto(p, t, o) } }
         // Where the ears are, and what air there is to carry anything to them.
         val cameraAir = clouds?.air
         val listener = SoundScene.Listener(
@@ -1029,7 +1088,11 @@ class GameSession private constructor(
             // The camera rides with the craft being flown.
             velocity = Vec3().setTo(focusState.velocity).subInPlace(attractor.surfaceVelocityAt(focusDrawn, Vec3())),
             shore = if (mapMode) 0.0 else shoreNear(attractor, cameraPosition, bodyRotation),
+            sea = if (mapMode) 0.0 else seaHeard,
+            seaRough = seaRough,
+            seaStorm = seaStorm,
         )
+        lastListener = listener
         // Blows, breakages and blasts since last frame, where they happened
         // on the turning ground.
         while (true) {
@@ -1111,8 +1174,9 @@ class GameSession private constructor(
                     maxElevation = attractor.terrain?.maxElevation ?: 1.0,
                     drawFarSurface = drawFarSurface,
                     chunkRange = chunkRange,
-                    fogDistance = if (mapMode || clouds == null) WorldView.CLEAR_FOG else clouds.fogDistance,
-                    fogColor = clouds?.fogColor ?: floatArrayOf(0.75f, 0.77f, 0.8f),
+                    // Under the water: a blue-green murk, a few tens of metres deep.
+                    fogDistance = if (underwater) UNDERWATER_FOG else if (mapMode || clouds == null) WorldView.CLEAR_FOG else clouds.fogDistance,
+                    fogColor = if (underwater) floatArrayOf(0.03f, 0.20f, 0.25f) else clouds?.fogColor ?: floatArrayOf(0.75f, 0.77f, 0.8f),
                     skyFog = if (mapMode) 0f else clouds?.skyFog ?: 0f,
                     // Lightning is its own light, not more sun: sun is
                     // nothing at night, and neither was the flash.
@@ -1121,6 +1185,10 @@ class GameSession private constructor(
                     cloudShadow = if (mapMode) null else clouds?.shadowGrid,
                     surfaceWind = clouds?.surfaceWind?.copy() ?: Vec3(),
                     time = renderTime,
+                    seaReach = seaReach,
+                    tide = tide,
+                    sea = seaSurface,
+                    underwater = underwater,
                 ),
                 nearestDistance = if (nearest == Double.MAX_VALUE) 0.0 else nearest.coerceAtLeast(0.0),
                 particles = particles,
@@ -1255,16 +1323,29 @@ class GameSession private constructor(
     /** The craft the camera last framed, and how many parts it had. */
     private var framedFor = -1L
     private var framedParts = 0
+    private val scratchFocusClear = Vec3()
 
     /**
      * A camera swung round a craft on a hillside can end up inside the hill,
      * looking at the back of the ground. Lifted clear, and turned back to
-     * look at the craft.
+     * look at the craft. At sea, clear of the waves as they are - unless
+     * the craft itself has gone under, when the camera follows it down.
      */
     private fun keepCameraAboveGround(attractor: com.rm.apogee.core.orbit.CelestialBody, focus: Vec3, time: Double) {
-        if (attractor.terrain == null) return
-        attractor.toBodyFixed(cameraPosition, attractor.rotationAt(time), scratchCameraClear)
-        val above = attractor.heightAboveTerrain(cameraPosition, scratchCameraClear)
+        val terrain = attractor.terrain ?: return
+        val rotation = attractor.rotationAt(time)
+        attractor.toBodyFixed(cameraPosition, rotation, scratchCameraClear)
+        var above = cameraPosition.length - terrain.solidRadius(scratchCameraClear)
+        val sea = seaScene
+        if (sea != null && terrain.isOcean(scratchCameraClear)) {
+            attractor.toBodyFixed(focus, rotation, scratchFocusClear)
+            val focusSea = sea.sampleAt(scratchFocusClear, time)
+            val sunk = sea.isUnder(scratchFocusClear, focusSea) &&
+                attractor.radius + focusSea.height - scratchFocusClear.length > CAMERA_CLEARANCE
+            if (!sunk) above = minOf(above, cameraPosition.length - attractor.radius - sea.sampleAt(scratchCameraClear, time).height)
+        } else {
+            above = attractor.heightAboveTerrain(cameraPosition, scratchCameraClear)
+        }
         if (above >= CAMERA_CLEARANCE) return
         val r = cameraPosition.length
         cameraPosition.mulInPlace((r + CAMERA_CLEARANCE - above) / r)
@@ -1519,12 +1600,15 @@ class GameSession private constructor(
         }
         // Paused, the world is still - and so is everything in it.
         if ((client.latestSnapshot?.warp ?: 1.0) <= 0.0) {
-            AudioEngine.scene(0, sound.keys, sound.recipes, sound.flags, sound.params)
+            synchronized(soundLock) { if (!soundStopped) AudioEngine.scene(0, sound.keys, sound.recipes, sound.flags, sound.params) }
             return
         }
         sound.build(listener, soundCrafts.values.toList(), own)
-        AudioEngine.scene(sound.count, sound.keys, sound.recipes, sound.flags, sound.params)
-        AudioEngine.room(if (listener.inAir) 0.12f else 0.45f)
+        synchronized(soundLock) {
+            if (soundStopped) return
+            AudioEngine.scene(sound.count, sound.keys, sound.recipes, sound.flags, sound.params)
+            AudioEngine.room(if (listener.inAir) 0.12f else 0.45f)
+        }
 
         // A warning coming on, now and then at most.
         val caution = !wrecked && (telemetry.overheating || telemetry.straining)
@@ -1903,7 +1987,81 @@ class GameSession private constructor(
     private var lastAnimationNanos = 0L
     private var animationDt = 0.0
 
-    /** Turns one craft's design plus its motion into per-part draw items. */
+    /**
+     * The wake and bow spray of a craft drawn at [position] near the camera,
+     * moving at [velocity] - one wake from its hull as a whole, sternmost
+     * to foremost - and the slap of each hull's bow into a wave.
+     */
+    private fun wakes(id: Long, design: CraftDesign, centreOfMass: Vec3, position: Vec3, rotation: Quat, velocity: Vec3, attractor: CelestialBody) {
+        val fx = effects ?: return
+        if (seaScene == null || animationDt <= 0.0 || position.distanceTo(cameraPosition) > WAKE_REACH) return
+        val bodyRotation = attractor.rotationAt(lastRenderTime, Quat())
+        var keelLine: Vec3? = null
+        var aft = Double.MAX_VALUE; var fore = -Double.MAX_VALUE; var beam = 0.0
+        val stern = Vec3(); val bow = Vec3()
+        design.parts.forEachIndexed { index, placed ->
+            val def = catalog[placed.partId] ?: return@forEachIndexed
+            if (def.module<com.rm.apogee.core.part.Buoyancy>() == null) return@forEachIndexed
+            val box = def.mesh as? com.rm.apogee.core.part.MeshSpec.Box ?: return@forEachIndexed
+            val centre = rotation.rotate(Vec3().setTo(placed.position).subInPlace(centreOfMass)).addInPlace(position)
+            val along = (rotation * placed.rotation).rotate(Vec3.unitY())
+            val line = keelLine ?: along.also { keelLine = it }
+            val end = box.height * 0.5 * kotlin.math.abs(along dot line)
+            val middle = centre.copy().subInPlace(position) dot line
+            if (middle - end < aft) { aft = middle - end; stern.setTo(centre).addScaledInPlace(line, -end) }
+            if (middle + end > fore) { fore = middle + end; bow.setTo(centre).addScaledInPlace(line, end) }
+            beam = maxOf(beam, box.width * 0.5)
+            val partBow = centre.copy().addScaledInPlace(along, box.height * 0.5)
+            // A bow driving down into a wave: the hull slaps it.
+            val scene = seaScene ?: return@forEachIndexed
+            val bowFixed = bodyRotation.inverseRotate(partBow, Vec3())
+            scene.sampleInto(bowFixed, lastRenderTime, slapSample)
+            val keel = bowFixed.length - box.depth * 0.5 - attractor.radius - slapSample.height
+            val key = id * 64 + index
+            val before = bowGaps.put(key, keel)
+            if (before != null && before > 0.0 && keel <= 0.0) {
+                val into = (before - keel) / animationDt
+                if (into > SLAP_SPEED) slap(attractor, partBow, ((into - SLAP_SPEED) / 4.0).coerceIn(0.1, 1.0), id == client.controlledVessel)
+            }
+        }
+        if (keelLine != null) fx.wake(stern, bow, beam, velocity, attractor, bodyRotation, lastRenderTime, animationDt, (id * 31).toInt())
+    }
+
+    /** A hull slapping into a wave at [where] (world), with [energy] 0..1. */
+    private fun slap(attractor: CelestialBody, where: Vec3, energy: Double, own: Boolean) {
+        val listener = lastListener ?: return
+        val shot = sound.shot(listener, SoundScene.Kind.SLAP, where, energy, own) ?: return
+        AudioEngine.event(shot.recipe, shot.flags, (lastRenderTime * 1000).toInt() xor where.hashCode(), shot.delay, shot.params)
+    }
+
+    private var lastListener: SoundScene.Listener? = null
+
+    /**
+     * Seconds to the next window for the moon of the body the craft is on -
+     * negative while one is open - or NaN with no moon to go to. Worked out
+     * afresh now and then, not every frame: it moves only as the craft does.
+     */
+    private fun moonWindowIn(attractor: com.rm.apogee.core.orbit.CelestialBody, position: Vec3, bodyRotation: Quat, time: Double): Double {
+        val moon = system.bodies.values.firstOrNull { it.parentId == attractor.id } ?: return Double.NaN
+        if (moonWindowAt.isNaN() || moonWindowBody != attractor.id || kotlin.math.abs(time - moonWindowFrom) > MOON_WINDOW_REFRESH ||
+            time > moonWindowAt + MOON_WINDOW_OPEN
+        ) {
+            val site = bodyRotation.inverseRotate(position, Vec3()).normalizeInPlace()
+            moonWindowAt = com.rm.apogee.core.orbit.LaunchWindows.next(attractor, site, moon, time - MOON_WINDOW_OPEN) ?: Double.NaN
+            moonWindowFrom = time
+            moonWindowBody = attractor.id
+        }
+        return moonWindowAt - time
+    }
+
+    private var moonWindowAt = Double.NaN
+    private var moonWindowFrom = Double.NaN
+    private var moonWindowBody = ""
+
+    /** Held between publishing a sound scene and [stop] silencing them all, so the one cannot undo the other. */
+    private val soundLock = Any()
+    @Volatile private var soundStopped = false
+
     private fun appendVessel(
         vessel: ClientVessel,
         out: MutableList<RenderItem>,
@@ -1925,6 +2083,7 @@ class GameSession private constructor(
         val centreOfMass = designCentreOfMass(design)
         val position = overridePosition ?: state.position
         val rotation = overrideRotation ?: state.rotation
+        wakes(vessel.id, design, centreOfMass, position, rotation, state.velocity, attractor)
 
         // The moving parts: from the replica for the craft being flown, so a
         // surface moves the frame the stick does; from the server's pose for
@@ -2377,6 +2536,15 @@ class GameSession private constructor(
         /** How long, ns, a craft just parted from the flown one is not offered for joining. */
         private const val JUST_PARTED_NANOS = 10_000_000_000L
 
+        /** How fast a bow must drive into the water, m/s, to be heard slapping it. */
+        private const val SLAP_SPEED = 1.2
+
+        /** How far from the camera, m, a boat's wake is drawn. */
+        private const val WAKE_REACH = 600.0
+
+        /** How far the camera sees under the water, m. */
+        private const val UNDERWATER_FOG = 40.0
+
         /** How often a held stick is read against the screen again, at most. */
         private const val ATTITUDE_REFRESH_NANOS = 60_000_000L
 
@@ -2405,6 +2573,14 @@ class GameSession private constructor(
 
         /** How far above the ground the camera is kept, m. */
         private const val CAMERA_CLEARANCE = 2.0
+
+        /**
+         * A launch window is called open this long either side of its moment,
+         * s: two minutes off, a due-east launch is still within a degree of
+         * the moon's plane. Worked out again at least this often, s.
+         */
+        const val MOON_WINDOW_OPEN = 120.0
+        private const val MOON_WINDOW_REFRESH = 30.0
 
         /** How long the place a craft was lost goes on burning, s. */
         private const val WRECK_BURN_SECONDS = 60.0
@@ -2448,7 +2624,9 @@ class GameSession private constructor(
         private val SUN_DIRECTION = com.rm.apogee.core.world.LaunchTime.SUN_DIRECTION
 
         /** Surface normal at the launch complex (latitude 0, longitude 0). */
-        private val HOME_DIRECTION = Vec3(1.0, 0.0, 0.0)
+        private val HOME_DIRECTION = com.rm.apogee.core.orbit.SolarSystem.surfaceDirection(
+            com.rm.apogee.core.orbit.SolarSystem.PAD_LATITUDE, com.rm.apogee.core.orbit.SolarSystem.PAD_LONGITUDE,
+        )
 
         /** Marker size as a fraction of the framed orbit. */
         private const val MARKER_FRACTION = 0.022
@@ -2642,6 +2820,11 @@ class FlightTelemetry(
     /** Whether there is air to speak of: the wind readouts are hidden in space. */
     val inAir: Boolean = false,
     /**
+     * Seconds to the next launch window for the moon - a due-east launch
+     * then flies into its plane - negative while one is open; NaN for none.
+     */
+    val lunaWindow: Double = Double.NaN,
+    /**
      * The navball's frame as it stands - [com.rm.apogee.core.world.NavFrame.AUTO]
      * resolved - and as chosen. [prograde] and the markers below are in it.
      */
@@ -2750,6 +2933,8 @@ class FlightTelemetry(
             jointLoad: FloatArray? = null,
             /** How many parts it has lost. */
             lost: Int = 0,
+            /** Seconds to the next launch window for the moon, negative while open; NaN for none. */
+            lunaWindow: Double = Double.NaN,
         ): FlightTelemetry {
             val state = vessel.latest ?: return EMPTY
             val orbit = Orbit(
@@ -2833,6 +3018,7 @@ class FlightTelemetry(
                 windSpeed = horizontalWind.length,
                 windFrom = windFrom,
                 inAir = density > 1e-3,
+                lunaWindow = lunaWindow,
             ).withCondition(condition, defs, jointLoad, lost)
         }
 
@@ -2868,6 +3054,7 @@ class FlightTelemetry(
                 targetName = targetName, targetDistance = targetDistance, closingSpeed = closingSpeed,
                 throughAir = throughAir, heading = heading, verticalSpeed = verticalSpeed, sasMode = sasMode,
                 parts = parts, heat = heat, structure = structure, damaged = damaged, lost = lost,
+                lunaWindow = lunaWindow,
             )
         }
     }

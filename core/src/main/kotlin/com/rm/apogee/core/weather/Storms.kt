@@ -108,7 +108,7 @@ internal class Storms(
 
     private val cells = SphereCells(bodyRadius, CELL)
     private val cache = object : LinkedHashMap<Long, Storm>(64, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Long, Storm>?) = size > 1_000
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Long, Storm>?) = size > 4_000
     }
     private val keys = LongArray(160)
     private val centre = Vec3()
@@ -460,6 +460,110 @@ internal class Storms(
         return most
     }
 
+    /** What storms do to the sea at one place: the storm sea under them, and swell from those further off. */
+    class StormSea {
+        /** Significant height of the sea raised under a storm here, m, and the way it runs (unit, tangent). */
+        var stormHs = 0.0
+        val stormDirection = Vec3()
+        /** The biggest swell arriving from storms further off: its height, m, period, s, and the way it runs. */
+        var swellHs = 0.0
+        var swellPeriod = 0.0
+        val swellDirection = Vec3()
+    }
+
+    private val seaKeys = LongArray(2_048)
+    private val seaCentre = Vec3()
+    private val seaTrack = Vec3()
+    private val seaRight = Vec3()
+    private val seaRel = Vec3()
+    private val seaE = Vec3()
+    private val seaN = Vec3()
+
+    /**
+     * The sea storms make at unit [up] at [time], into [out].
+     *
+     * Under a storm, a big confused sea - [STORM_SEA_HS] at a monster's
+     * worst - over its whole footprint, running out from its towers, or ahead
+     * of a squall line along its front. Further off, the swell it throws out,
+     * travelling at its group speed: arriving hours later and hundreds of
+     * kilometres away, smaller the further it has come, from wherever the
+     * storm was when it sent it - so swell from a storm long gone keeps coming
+     * in. Land between stops it.
+     */
+    fun seaAt(up: Vec3, time: Double, out: StormSea, land: (Vec3) -> Boolean) {
+        out.stormHs = 0.0; out.swellHs = 0.0; out.swellPeriod = 0.0
+        out.stormDirection.setZero(); out.swellDirection.setZero()
+        if (intensity.storms <= 0.0) return
+        frame(up, seaE, seaN)
+        val at = Vec3().setTo(up).mulInPlace(bodyRadius)
+
+        // The storm sea, under the storms here now.
+        val n = cells.around(up, seaE, seaN, CELL / bodyRadius, keys, reach = SEARCH)
+        for (k in 0 until n) {
+            val s = storm(keys[k], time)
+            if (!s.exists) continue
+            val env = envelope(s, time) * s.strength
+            if (env <= 0.0) continue
+            frameAt(s, time, seaCentre, seaTrack, seaRight)
+            seaRel.setTo(at).addScaledInPlace(seaCentre, -bodyRadius)
+            val along = seaRel dot seaTrack
+            val across = seaRel dot seaRight
+            val da = (along - s.deckAlong) / s.halfAlong
+            val dc = across / s.halfAcross
+            val q = kotlin.math.sqrt(da * da + dc * dc)
+            val cover = if (q <= 1.0) 1.0 else exp(-((q - 1.0) / 0.5).let { it * it })
+            val boost = if (s.kind == StormKind.SUPERCELL || s.kind == StormKind.SQUALL) 1.1 else 1.0
+            val hs = STORM_SEA_HS * env * cover * boost
+            if (hs <= out.stormHs) continue
+            out.stormHs = hs
+            if (s.kind == StormKind.SQUALL) {
+                out.stormDirection.setTo(seaTrack)
+            } else {
+                // Out from the biggest tower, and on along the track.
+                val main = s.mainCell
+                val ra = along - s.cellAlong[main]; val rc = across - s.cellAcross[main]
+                val rl = kotlin.math.hypot(ra, rc).coerceAtLeast(1.0)
+                out.stormDirection.setTo(seaTrack).mulInPlace(1.0 + 0.7 * ra / rl).addScaledInPlace(seaRight, 0.7 * rc / rl)
+            }
+            out.stormDirection.addScaledInPlace(up, -(out.stormDirection dot up))
+            if (out.stormDirection.lengthSq > 1e-12) out.stormDirection.normalizeInPlace() else out.stormDirection.setTo(seaE)
+        }
+
+        // Swell from storms further off, as they were when they sent it.
+        val far = cells.around(up, seaE, seaN, CELL / bodyRadius, seaKeys, reach = SWELL_CELLS)
+        val cellCentre = Vec3()
+        for (k in 0 until far) {
+            cells.centre(seaKeys[k], cellCentre)
+            val distance0 = kotlin.math.acos((cellCentre dot up).coerceIn(-1.0, 1.0)) * bodyRadius
+            if (distance0 > SWELL_REACH) continue
+            val then = time - distance0 / SWELL_GROUP_SPEED
+            val s = storm(seaKeys[k], then)
+            if (!s.exists) continue
+            val env = envelope(s, then) * s.strength
+            if (env <= 0.0) continue
+            centreAt(s, then, seaCentre)
+            val distance = kotlin.math.acos((seaCentre dot up).coerceIn(-1.0, 1.0)) * bodyRadius
+            val source = kotlin.math.max(s.halfAlong, s.halfAcross)
+            if (distance < source) continue
+            val hs = STORM_SEA_HS * SWELL_SHARE * env * kotlin.math.sqrt(source / distance) *
+                (1.0 - smooth(0.7 * SWELL_REACH, SWELL_REACH, distance))
+            if (hs <= out.swellHs) continue
+            // Across the sea only: a coast between stops it.
+            var blocked = false
+            for (step in 1..3) {
+                val f = step / 4.0
+                val probe = Vec3().setTo(up).mulInPlace(1.0 - f).addScaledInPlace(seaCentre, f).normalizeInPlace()
+                if (land(probe)) { blocked = true; break }
+            }
+            if (blocked) continue
+            out.swellHs = hs
+            out.swellPeriod = 10.0 + 5.0 * s.strength
+            out.swellDirection.setTo(up).addScaledInPlace(seaCentre, -1.0)
+            out.swellDirection.addScaledInPlace(up, -(out.swellDirection dot up))
+            if (out.swellDirection.lengthSq > 1e-12) out.swellDirection.normalizeInPlace() else out.swellDirection.setTo(seaE)
+        }
+    }
+
     /** Half the anvil's length downwind, m: tens of kilometres for a supercell's. */
     fun anvilHalfAlong(s: Storm): Double = max(2.4 * s.core, s.halfAlong * 0.8) * s.anvilSpread
 
@@ -549,6 +653,19 @@ internal class Storms(
 
         /** Most towers one storm has. */
         const val MAX_CELLS = 14
+
+        /** Significant wave height under the worst storm, m. */
+        const val STORM_SEA_HS = 12.0
+
+        /** How far swell travels from a storm, m, and how fast, m/s: the group speed of a ten-second swell and more. */
+        const val SWELL_REACH = 400_000.0
+        const val SWELL_GROUP_SPEED = 9.0
+
+        /** Cells searched for storms whose swell could arrive. */
+        const val SWELL_CELLS = 7
+
+        /** How big a storm's swell is beside the sea under it. */
+        const val SWELL_SHARE = 0.5
 
         /** How thick a storm's base is, m, before its strength thickens it. */
         const val DECK_DEPTH = 1_400.0

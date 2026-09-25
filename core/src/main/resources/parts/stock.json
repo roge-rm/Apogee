@@ -686,7 +686,8 @@
     "modules": [
       {
         "type": "buoyancy",
-        "displacedVolume": 23.04
+        "displacedVolume": 23.04,
+        "open": true
       }
     ]
   },
@@ -5059,6 +5060,7 @@
     "description": "A seat, a wheel and a roll bar. Light, and the view is excellent.",
     "crashTolerance": 12.0,
     "dragCoefficient": 0.6,
+    "displaces": 0.15,
     "mesh": {
       "type": "box",
       "width": 1.4,
@@ -6476,7 +6478,8 @@
     "modules": [
       {
         "type": "buoyancy",
-        "displacedVolume": 4.2
+        "displacedVolume": 4.2,
+        "open": true
       }
     ]
   },
@@ -6889,6 +6892,7 @@
     "description": "A motor hung off the transom, its propeller in the water below. Swings to steer; pushes only while the propeller is wet.",
     "crashTolerance": 10.0,
     "dragCoefficient": 0.4,
+    "displaces": 0.07,
     "mesh": {
       "type": "box",
       "width": 0.5,
@@ -7184,6 +7188,57 @@
         "controlAuthority": 1.0,
         "maxDeflection": 0.0,
         "halfDepth": 0.5
+      }
+    ]
+  },
+  {
+    "id": "keel-skeg",
+    "title": "Skeg",
+    "category": "aero",
+    "dryMass": 120.0,
+    "description": "A small keel for a small boat: a weighted fin under the hull that keeps it from skidding sideways in a turn, and from being rolled over by its own motor.",
+    "crashTolerance": 12.0,
+    "dragCoefficient": 0.2,
+    "mesh": {
+      "type": "box",
+      "width": 0.5,
+      "height": 1.8,
+      "depth": 0.06
+    },
+    "model": {
+      "type": "fin",
+      "rootChord": 1.8,
+      "tipChord": 1.3,
+      "span": 0.5,
+      "sweep": 0.4,
+      "thickness": 0.06
+    },
+    "attachNodes": [
+      {
+        "id": "root",
+        "position": {
+          "x": -0.25,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": -1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "hydroSurface",
+        "liftCoefficient": 1.2,
+        "area": 0.55,
+        "controllable": false,
+        "controlAuthority": 1.0,
+        "maxDeflection": 0.0,
+        "halfDepth": 0.25
       }
     ]
   },

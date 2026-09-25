@@ -102,6 +102,11 @@ class GameServerTest {
             server.stepOnce()
             repeat(SETTLE_YIELDS) { yield() }
         }
+        // The last pieces may come off in the last ticks: let the client hear.
+        pumpUntil(server, "the client to catch up") {
+            client.vessel(id)?.design?.parts?.size == world.vessel(VesselId(id))?.design?.parts?.size &&
+                world.vessels.map { it.id.raw }.toSet() == client.vessels.map { it.id }.toSet()
+        }
         val survivor = world.vessel(VesselId(id))
         assertNotNull("the pod survives as the craft", survivor)
         assertTrue(survivor!!.design.parts.size < partsBefore)

@@ -74,6 +74,12 @@ object TerrainChunk {
     /** Vertices along a side. */
     const val SIDE = CELLS + 1
 
+    /**
+     * Depth code: the wet attribute is 0 on land, 1 + depth/1000 on the sea
+     * bed (depth to this many metres), and 4 more on a skirt.
+     */
+    const val MAX_DEPTH_CODE = 999.0
+
     /** Position(3), normal(3), colour(3), wet(1). */
     const val STRIDE_FLOATS = 10
 
@@ -184,14 +190,17 @@ object TerrainChunk {
         // millimetre. A vertex 600 km from the planet's centre does not.
         val mid = (SIDE / 2 + 1) * bordered + (SIDE / 2 + 1)
         val sea = terrain.hasOcean
-        val centreRadius = radius + if (sea) kotlin.math.max(heights[mid], 0.0) else heights[mid]
+        // The sea bed at its real depth: the sea itself is drawn by the sea
+        // (near) or lifted to it by the shader (far). See [Shaders.TERRAIN_VERTEX].
+        val centreRadius = radius + if (sea) kotlin.math.max(heights[mid], -MAX_DEPTH_CODE) else heights[mid]
         val centre = Vec3(dx[mid] * centreRadius, dy[mid] * centreRadius, dz[mid] * centreRadius)
 
         val vertices = FloatArray(VERTEX_COUNT * STRIDE_FLOATS)
         val cellMetres = size(radius, key.level) / CELLS
         var bound = 0.0
 
-        fun surface(index: Int): Double = radius + if (sea) kotlin.math.max(heights[index], 0.0) else heights[index]
+        // No deeper than the shader can lift back up to the water.
+        fun surface(index: Int): Double = radius + if (sea) kotlin.math.max(heights[index], -MAX_DEPTH_CODE) else heights[index]
 
         for (q in 0 until SIDE) for (p in 0 until SIDE) {
             val index = (q + 1) * bordered + (p + 1)
@@ -203,8 +212,7 @@ object TerrainChunk {
             vertices[base] = x.toFloat(); vertices[base + 1] = y.toFloat(); vertices[base + 2] = z.toFloat()
             bound = maxOf(bound, x * x + y * y + z * z)
 
-            // Normal from the drawn surface either side - water is drawn flat,
-            // so it is lit flat.
+            // Normal from the drawn surface either side.
             val right = index + 1; val left = index - 1
             val up = index + bordered; val down = index - bordered
             val ex = dx[right] * surface(right) - dx[left] * surface(left)
@@ -223,8 +231,10 @@ object TerrainChunk {
 
             val height = heights[index]
             if (sea && height < 0.0) {
-                TerrainPalette.water(-height, vertices, base + 6)
-                vertices[base + 9] = 1f
+                // The bed, and how deep it lies - for the shader to lift it
+                // to the water beyond the waves, and colour it as water there.
+                TerrainPalette.seabed(-height, jitterKeyFor(key, p, q), vertices, base + 6)
+                vertices[base + 9] = (1.0 + kotlin.math.min(-height, MAX_DEPTH_CODE) / 1_000.0).toFloat()
             } else {
                 // Slope from the true ground, not the drawn one, exactly as the
                 // collider's tiles measure it for the material.
@@ -270,11 +280,11 @@ object TerrainChunk {
                 vertices[to] -= (px / l * drop).toFloat()
                 vertices[to + 1] -= (py / l * drop).toFloat()
                 vertices[to + 2] -= (pz / l * drop).toFloat()
-                // Marked as skirt (+2 on the wet flag), so the shader lights it
+                // Marked as skirt (+4 on the wet flag), so the shader lights it
                 // with the ground's normal it carries rather than its own
                 // vertical face - which, showing through a crack between
                 // chunks, drew a dark dashed line along the seam.
-                vertices[to + 9] += 2f
+                vertices[to + 9] += 4f
             }
         }
 

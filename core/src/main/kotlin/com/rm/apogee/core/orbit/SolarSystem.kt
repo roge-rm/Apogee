@@ -103,10 +103,12 @@ class SolarSystem(
                 bodyRadius = 600_000.0,
                 maxElevation = 6_000.0,
                 oceanDepth = 3_000.0,
-                // The launch complex is at latitude 0, longitude 0, so its
-                // surface normal is +X. Terrain is raised there to keep the
-                // pad out of the sea.
+                // The continent is raised about latitude 0, longitude 0 -
+                // where the launch complex first stood - so its surface
+                // normal, +X, keeps every coastline where it was.
                 homeDirection = Vec3(1.0, 0.0, 0.0),
+                padDirection = surfaceDirection(PAD_LATITUDE, PAD_LONGITUDE),
+                harbourDirection = surfaceDirection(HARBOUR_LATITUDE, HARBOUR_LONGITUDE),
             )
         }
 
@@ -172,7 +174,11 @@ class SolarSystem(
                 // relief rather than the top half of it.
                 terrain = lunaTerrain,
                 parentId = "terra",
-                orbit = Orbit.circular(lunaOrbitRadius, terra.gravitationalParameter),
+                // Tilted to the Cape's latitude, rising through Terra's
+                // equator at +X: once a Terra day the Cape is carried to the
+                // top of Luna's plane, and a rocket launched due east then
+                // flies straight into it - a launch window, as real ones are.
+                orbit = Orbit.circular(lunaOrbitRadius, terra.gravitationalParameter, inclination = LUNA_INCLINATION),
                 sphereOfInfluence = 2_429_559.0,
             )
 
@@ -181,5 +187,33 @@ class SolarSystem(
 
         /** The body new craft launch from. */
         const val HOMEWORLD_ID = "terra"
+
+        /**
+         * The launch complex, radians: on the north-west coast of the home
+         * continent, a kilometre and a half in from the sea, its runway
+         * running east to end just short of the harbour's bay, so a plane
+         * climbs out over the water.
+         */
+        const val PAD_LATITUDE = 0.09723497956796738
+        const val PAD_LONGITUDE = 0.09754727774390243
+
+        /**
+         * The harbour, radians: the middle of a bay carved into the coast
+         * five kilometres east of the pad - east as the planet turns, so
+         * the lower longitude - calm inside, reached from the sea by a
+         * channel with a bend in it.
+         */
+        const val HARBOUR_LATITUDE = 0.097227372495131
+        const val HARBOUR_LONGITUDE = 0.0888403538376949
+
+        /** Luna's orbit's tilt to Terra's equator, radians: the Cape's latitude. See [PAD_LATITUDE]. */
+        const val LUNA_INCLINATION = PAD_LATITUDE
+
+        /** The surface normal at a latitude and longitude, radians. */
+        fun surfaceDirection(latitude: Double, longitude: Double): Vec3 = Vec3(
+            kotlin.math.cos(latitude) * kotlin.math.cos(longitude),
+            kotlin.math.sin(latitude),
+            kotlin.math.cos(latitude) * kotlin.math.sin(longitude),
+        )
     }
 }

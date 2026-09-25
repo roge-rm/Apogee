@@ -44,12 +44,14 @@ object PlanetMesh {
                 val theta = 2.0 * PI * segment / segments
                 direction.setTo(ringRadius * cos(theta), y, ringRadius * sin(theta))
 
-                // Ocean clamped to the datum, so the globe carries its own
-                // water surface - one mesh for the planet, not a separate sea
+                // The sea bed at its depth - no deeper than the shader can
+                // lift - which the terrain shader raises to the water and
+                // colours as sea: one mesh for the planet, not a separate sea
                 // sphere that would intersect it along every coastline.
                 val elevation = field?.elevation(direction) ?: 0.0
                 val sea = field?.hasOcean ?: false
-                val displaced = 1.0 + (if (sea) max(elevation, 0.0) else elevation) / bodyRadius
+                val drawn = if (sea) max(elevation, -TerrainChunk.MAX_DEPTH_CODE) else elevation
+                val displaced = 1.0 + drawn / bodyRadius
 
                 vertices[v] = (direction.x * displaced).toFloat()
                 vertices[v + 1] = (direction.y * displaced).toFloat()
@@ -61,7 +63,7 @@ object PlanetMesh {
                 vertices[v + 5] = direction.z.toFloat()
                 if ((sea && elevation < 0.0) || field == null) {
                     TerrainPalette.water(-elevation, vertices, v + 6)
-                    vertices[v + 9] = if (field == null) 0f else 1f
+                    vertices[v + 9] = if (field == null) 0f else (1.0 - drawn / 1_000.0).toFloat()
                 } else {
                     val material = field.material(direction, elevation, 0.0)
                     TerrainPalette.colour(material, elevation, ring * 7919 + segment, vertices, v + 6)

@@ -34,7 +34,13 @@ import kotlin.math.sqrt
  * workers and the simulation at once, tens of thousands of times a second, and
  * allocation here became garbage collections that stalled the tick.
  */
-internal class TerraLand(seed: Int, private val radius: Double, homeX: Double, homeY: Double, homeZ: Double) {
+internal class TerraLand(
+    seed: Int,
+    private val radius: Double,
+    homeX: Double, homeY: Double, homeZ: Double,
+    /** Where the launch complex stands now, if not at home: calm country round it too. */
+    padX: Double = homeX, padY: Double = homeY, padZ: Double = homeZ,
+) {
 
     private val warpSeedX = Noise.hashInt(seed, 11, 0, 0)
     private val warpSeedY = Noise.hashInt(seed, 12, 0, 0)
@@ -57,6 +63,11 @@ internal class TerraLand(seed: Int, private val radius: Double, homeX: Double, h
     private val hx = homeX * radius
     private val hy = homeY * radius
     private val hz = homeZ * radius
+    private val px = padX * radius
+    private val py = padY * radius
+    private val pz = padZ * radius
+    private val padEastX: Double
+    private val padEastZ: Double
 
     /**
      * The runway's heading: east at home, the way the planet's spin about +Y
@@ -72,6 +83,9 @@ internal class TerraLand(seed: Int, private val radius: Double, homeX: Double, h
         val l = sqrt(ex * ex + ez * ez).coerceAtLeast(1e-12)
         eastX = ex / l
         eastZ = ez / l
+        val pl = sqrt(padZ * padZ + padX * padX).coerceAtLeast(1e-12)
+        padEastX = padZ / pl
+        padEastZ = -padX / pl
     }
 
     // --- regions --------------------------------------------------------------
@@ -137,7 +151,11 @@ internal class TerraLand(seed: Int, private val radius: Double, homeX: Double, h
      * plain radius drew a perfect circle through everything that depended on
      * it; measuring in warped coordinates moved the whole basin off the pad.
      */
-    private fun homeCalm(px: Double, py: Double, pz: Double): Double {
+    private fun homeCalm(px: Double, py: Double, pz: Double): Double =
+        kotlin.math.min(calmAround(px, py, pz, hx, hy, hz, eastX, eastZ), calmAround(px, py, pz, this.px, this.py, this.pz, padEastX, padEastZ))
+
+    /** [homeCalm] about one centre, its runway running along [eastX], [eastZ]. */
+    private fun calmAround(px: Double, py: Double, pz: Double, hx: Double, hy: Double, hz: Double, eastX: Double, eastZ: Double): Double {
         val dx = px - hx; val dy = py - hy; val dz = pz - hz
         // Stretched out ahead of the runway: a plane climbing out of the Cape
         // should have open country in front of it, not a range fifteen

@@ -480,6 +480,12 @@ object Shaders {
 
         uniform mat4 uModel;
         uniform mat4 uViewProjection;
+        // The sea: drawn as waves out to uSeaReach metres (0 for none), and
+        // beyond that the sea bed is lifted to the water - uTide above the
+        // datum - and coloured as water, as the terrain always used to draw it.
+        uniform float uSeaReach;
+        uniform float uTide;
+        uniform vec3 uBodyCentre;
 
         // Flat, for the facets: each triangle takes one vertex's colour whole,
         // which is the low-poly look. Its normal is worked out per triangle in
@@ -496,10 +502,19 @@ object Shaders {
 
         void main() {
             vec4 worldPos = uModel * vec4(aPosition, 1.0);
-            vPosition = worldPos.xyz;
+            vSkirt = aWet >= 3.5 ? 1.0 : 0.0;
+            float code = aWet >= 3.5 ? aWet - 4.0 : aWet;
             vColour = aColour;
-            vSkirt = aWet >= 1.5 ? 1.0 : 0.0;
-            vWet = aWet >= 1.5 ? aWet - 2.0 : aWet;
+            vWet = 0.0;
+            if (code >= 0.5 && length(worldPos.xyz) > uSeaReach) {
+                // Out past the waves: water, flat at the tide, blue by depth.
+                float depth = (code - 1.0) * 1000.0;
+                vec3 up = normalize(worldPos.xyz - uBodyCentre);
+                worldPos.xyz += up * (depth + uTide);
+                vColour = mix(vec3(0.10, 0.30, 0.46), vec3(0.02, 0.09, 0.22), clamp(depth / 900.0, 0.0, 1.0));
+                vWet = 1.0;
+            }
+            vPosition = worldPos.xyz;
             vGroundNormal = mat3(uModel) * aNormal;
             // The camera sits at the scene origin, so the vector to it is the
             // negated camera-relative position.
@@ -602,6 +617,122 @@ object Shaders {
             lit = mix(lit, uFogColor, clamp(fog, 0.0, 1.0));
 
             fragColor = vec4(lit, 1.0);
+        }
+    """.trimIndent()
+
+    // ---- the sea ------------------------------------------------------------
+
+    /**
+     * The sea's surface, built on the CPU from the wave function the physics
+     * uses. The only arithmetic here is carrying each vertex on by its rate
+     * of rise for the few hundredths of a second since the surface was
+     * built - the waves themselves are never worked out on the GPU.
+     */
+    val SEA_VERTEX = """
+        #version 300 es
+        layout(location = 0) in vec3 aPosition;
+        layout(location = 1) in vec3 aUp;
+        layout(location = 2) in vec4 aColour;
+        layout(location = 3) in float aRise;
+
+        uniform mat4 uModel;
+        uniform mat4 uViewProjection;
+        uniform float uAhead;   // seconds since the surface was built for
+
+        flat out vec4 vColour;
+        out vec3 vPosition;
+        out float vDistance;
+        out vec3 vViewDir;
+
+        void main() {
+            vec3 p = aPosition + aUp * (aRise * uAhead);
+            vec4 world = uModel * vec4(p, 1.0);
+            vPosition = world.xyz;
+            vColour = aColour;
+            vDistance = length(world.xyz);
+            vViewDir = -world.xyz / max(vDistance, 0.001);
+            gl_Position = uViewProjection * world;
+        }
+    """.trimIndent()
+
+    /**
+     * Flat facets, as the land: each lit as a plane, catching the sun in a
+     * sparkle or the sky in a sheen as it tilts. Colour, clarity and foam
+     * arrive from the CPU per facet. Not drawn past [uSeaReach], where the
+     * terrain draws flat water; and from beneath, a bright rippled ceiling.
+     */
+    val SEA_FRAGMENT = """
+        #version 300 es
+        precision highp float;
+
+        flat in vec4 vColour;
+        in vec3 vPosition;
+        in float vDistance;
+        in vec3 vViewDir;
+
+        uniform vec3 uSunDirection;
+        uniform float uAtmosphereFactor;
+        uniform float uHazeDistance;
+        uniform vec3 uBodyCentre;
+        uniform float uDaylight;
+        uniform float uLightScale;
+        uniform float uFogDistance;
+        uniform vec3 uFogColor;
+        uniform float uSeaReach;
+        uniform float uUnderwater;
+
+        out vec4 fragColor;
+
+        $NIGHT_LIGHT
+        $SHADOW
+
+        void main() {
+            if (vDistance > uSeaReach) discard;
+            vec3 n = normalize(cross(dFdx(vPosition), dFdy(vPosition)));
+            vec3 up = normalize(vPosition - uBodyCentre);
+            if (dot(n, up) < 0.0) n = -n;
+            bool below = uUnderwater > 0.5;
+            float daylight = smoothstep(-0.08, 0.35, dot(up, uSunDirection));
+
+            if (below) {
+                // From under the water: the surface a bright, rippling
+                // ceiling, lit by the sky above it.
+                float through = 0.35 + 0.65 * max(dot(-n, -up), 0.0);
+                vec3 lit = vec3(0.30, 0.68, 0.72) * through * (0.15 + 0.85 * daylight * uLightScale);
+                float fog = 1.0 - exp(-vDistance / max(uFogDistance, 1.0));
+                fragColor = vec4(mix(lit, uFogColor, clamp(fog, 0.0, 1.0)), 0.85);
+                return;
+            }
+
+            vec3 surface = vColour.rgb;
+            float direct = directLight(vPosition, n);
+            float lambert = max(dot(n, uSunDirection), 0.0) * direct;
+            vec3 night = MOON * (0.55 + 0.45 * max(-dot(n, uSunDirection), 0.0) * direct) * (0.4 + 0.6 * uLightScale);
+            // Facets turned to the sun bright, turned away dark: the flat
+            // look, on water as on land - harder than on land, for the sea's
+            // slopes are gentler.
+            float shade = 0.22 + 1.25 * pow(lambert, 0.8) * uLightScale;
+            vec3 lit = surface * (night * moonLeft(uDaylight) + duskGlow(uDaylight) + shade * daylight);
+            lit += surface * FLASH * uFlash;
+
+            // The sky in it, most at a glancing angle - what makes water
+            // read as water - and the sun's sparkle off facets turned to it.
+            float facing = max(dot(n, vViewDir), 0.0);
+            float fresnel = 0.03 + 0.97 * pow(1.0 - facing, 5.0);
+            vec3 sky = mix(HAZE, vec3(0.28, 0.48, 0.80), 0.5) * (NIGHT_AIR + (1.0 - NIGHT_AIR) * daylight) * (0.5 + 0.5 * uLightScale);
+            lit = mix(lit, sky, fresnel * 0.5);
+            vec3 halfway = normalize(uSunDirection + vViewDir);
+            float glint = pow(max(dot(n, halfway), 0.0), 140.0);
+            lit += vec3(1.0, 0.96, 0.88) * glint * daylight * direct * 1.6 * uLightScale;
+
+            float haze = (1.0 - exp(-vDistance / max(uHazeDistance, 1.0))) * uAtmosphereFactor;
+            lit = mix(lit, HAZE * (NIGHT_AIR + (1.0 - NIGHT_AIR) * daylight), clamp(haze, 0.0, 1.0));
+            float fog = 1.0 - exp(-vDistance / max(uFogDistance, 1.0));
+            lit = mix(lit, uFogColor, clamp(fog, 0.0, 1.0));
+
+            // Clear over the shallows, but glassy at a low angle.
+            float alpha = mix(vColour.a, 1.0, fresnel);
+            fragColor = vec4(lit, alpha);
         }
     """.trimIndent()
 

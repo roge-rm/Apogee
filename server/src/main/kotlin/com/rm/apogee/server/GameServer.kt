@@ -257,6 +257,7 @@ class GameServer(
      * whatever part of the tick the rails would not take.
      */
     private fun advanceWorld() {
+        world.hurried = warpAllowed && requestedWarp > World.PHYSICS_WARP
         val rate = effectiveWarp()
         when {
             rate <= 0.0 -> Unit

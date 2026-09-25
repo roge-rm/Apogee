@@ -289,6 +289,30 @@ class ClientPrediction(
         }
     }
 
+    private val condition = com.rm.apogee.core.world.VesselCondition.Values()
+
+    /**
+     * The water the server says each hull has shipped: a boat that swamped
+     * before this replica existed - or before it could see why - would
+     * otherwise float high and dry here, and the two would never agree.
+     */
+    private fun floodingFrom(local: com.rm.apogee.core.craft.Vessel, state: VesselKinematics) {
+        val n = local.defs.size
+        com.rm.apogee.core.world.VesselCondition.decode(n, state.condition, condition)
+        if (local.flooded.size != n) return
+        var changed = false
+        for (i in 0 until n) {
+            val capacity = com.rm.apogee.core.part.Buoyancy.capacity(local.defs[i])
+            if (capacity <= 0.0) continue
+            val server = condition.flooded[i] * capacity
+            if (kotlin.math.abs(server - local.flooded[i]) > capacity / 255.0 * 2.0) {
+                local.flooded[i] = server
+                changed = true
+            }
+        }
+        if (changed) local.recomputeMass()
+    }
+
     fun reconcile(state: VesselKinematics, ageSeconds: Double, snapshotTime: Double? = null, near: List<Neighbour> = emptyList()) {
         val replica = world ?: return
         val local = vessel ?: return
@@ -311,6 +335,7 @@ class ClientPrediction(
         local.body.orientation.setTo(state.rotation)
         local.body.angularVelocity.setTo(state.angularVelocity)
         chutesFrom(local, state)
+        floodingFrom(local, state)
         // Back to the moment the snapshot describes, so the ground is where
         // it was then; the catch-up brings both forward together. Without the
         // server's time, the replica's own clock less the snapshot's age.

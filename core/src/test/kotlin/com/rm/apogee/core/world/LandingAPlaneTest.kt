@@ -40,7 +40,10 @@ class LandingAPlaneTest {
         val terra = world.system.body("terra")!!
 
         // Over the pad end of the runway, which runs east from the Cape.
-        val up = Vec3(1.0, 0.0, 0.0)
+        val pad = com.rm.apogee.core.orbit.SolarSystem.surfaceDirection(
+            com.rm.apogee.core.orbit.SolarSystem.PAD_LATITUDE, com.rm.apogee.core.orbit.SolarSystem.PAD_LONGITUDE,
+        )
+        val up = pad.copy()
         val position = Vec3().setTo(up).mulInPlace(terra.surfaceRadiusInBodyFrame(up) + height)
         val surface = terra.surfaceVelocityAt(position, Vec3())
         val east = surface.copy().normalizeInPlace()
@@ -79,13 +82,14 @@ class LandingAPlaneTest {
             if (touchdownSpeed >= 0.0) rollout += groundSpeed(world, plane) * dt
         }
         val upNow = plane.body.position.copy().normalizeInPlace()
-        // How far off the runway's centreline it came to rest. The runway
-        // runs east from the Cape, which sits at +X, so east is -Z and the
-        // centreline is the equator.
+        // How far off the runway's centreline it came to rest: across the
+        // line running east from the pad.
         val restAt = world.attractorFor(plane).toBodyFixed(
             plane.body.position, world.attractorFor(plane).rotationAt(world.time),
         ).normalizeInPlace()
-        val offCentre = kotlin.math.abs(restAt.y) * 600_000.0
+        val along = Vec3(0.0, 1.0, 0.0).crossInPlace(pad).normalizeInPlace()
+        val across = pad.copy().crossInPlace(along)
+        val offCentre = kotlin.math.abs(restAt.copy().subInPlace(pad) dot across) * 600_000.0
         val deck = plane.body.orientation.rotate(Vec3(0.0, 0.0, 1.0))
         return Outcome(
             touchdownSpeed = touchdownSpeed,
@@ -131,7 +135,9 @@ class LandingAPlaneTest {
             assertTrue("$intensity: ${o.broken} parts broke", o.broken == 0)
             assertTrue("$intensity: still rolling at ${o.finalSpeed} m/s", o.finalSpeed < 0.5)
             assertTrue("$intensity: tipped ${o.tilt} degrees", o.tilt < 10.0)
-            assertTrue("$intensity: %.0f m off the centreline".format(o.offCentre), o.offCentre < 80.0)
+            // Nobody correcting for the crosswind, which on the coast comes
+            // in off the sea: it drifts, and may come down beside the tarmac.
+            assertTrue("$intensity: %.0f m off the centreline".format(o.offCentre), o.offCentre < 120.0)
         }
     }
 }

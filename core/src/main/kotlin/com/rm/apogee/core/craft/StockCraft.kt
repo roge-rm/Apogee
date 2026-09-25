@@ -46,13 +46,15 @@ object StockCraft {
 
         // Built top-down so the pod can be the root, but positioned in the
         // bottom-up coordinates the stack actually occupies.
-        val pod = add("pod-halo", 13.6, -1)
-        add("chute-canopy", 14.4, pod)
+        val pod = add("pod-halo", 15.6, -1)
+        add("chute-canopy", 16.4, pod)
         // A shield under the pod and a ring under that: the pod comes home
         // on its own, shield first.
-        val shield = add("shield-halo", 12.9, pod)
-        val podRing = add("decoupler-ring", 12.7, shield)
-        val upperTank = add("tank-cask2", 11.6, podRing)
+        val shield = add("shield-halo", 14.9, pod)
+        val podRing = add("decoupler-ring", 14.7, shield)
+        // The long tank on the upper stage: from the coast, at sea level, the
+        // short one reached orbit with next to nothing left (Dan).
+        val upperTank = add("tank-cask4", 12.6, podRing)
         val upperEngine = add("engine-vesper", 10.1, upperTank)
         val decoupler = add("decoupler-ring", 9.5, upperEngine)
         val lowerTankTop = add("tank-cask4", 7.4, decoupler)
@@ -474,6 +476,9 @@ object StockCraft {
         val a = Assembly(catalog, "Skiff", CraftOrientation.HORIZONTAL)
         val hull = a.root("hull-skiff")
         a.on(hull, "deck", "cab-open")
+        // A skeg under her: without it, hard over at full throttle, the
+        // motor's push rolled her past seventy degrees (Dan).
+        a.on(hull, "keel-front", "keel-skeg")
         a.on(hull, "transom", "motor-outboard")
         a.on(hull, "side-right", "mooring-clamp")
         a.on(hull, "side-left", "mooring-clamp")
@@ -490,6 +495,28 @@ object StockCraft {
         a.on(hull, "transom", "motor-outboard")
         a.on(hull, "side-right", "mooring-clamp")
         a.on(hull, "side-left", "mooring-clamp")
+        return a.design()
+    }
+
+    /**
+     * A working boat for weather: five decked hull sections, fourteen
+     * metres of her, a wheelhouse amidships and a deep keel - the one that
+     * rides out a storm sea that swamps a skiff.
+     */
+    fun trawler(catalog: PartCatalog = StockParts.catalog): CraftDesign {
+        val a = Assembly(catalog, "Trawler", CraftOrientation.HORIZONTAL)
+        val bow = a.root("hull-bow")
+        val fore = a.on(bow, "bottom", "hull-mid")
+        val mid = a.on(fore, "bottom", "hull-mid")
+        val aft = a.on(mid, "bottom", "hull-mid")
+        val stern = a.on(aft, "bottom", "hull-stern")
+        a.on(mid, "deck", "cabin-wheelhouse")
+        a.on(fore, "keel", "keel")
+        a.on(aft, "keel", "keel")
+        a.on(stern, "keel", "rudder")
+        a.on(stern, "transom", "motor-outboard")
+        a.on(mid, "side-right", "mooring-clamp")
+        a.on(mid, "side-left", "mooring-clamp")
         return a.design()
     }
 

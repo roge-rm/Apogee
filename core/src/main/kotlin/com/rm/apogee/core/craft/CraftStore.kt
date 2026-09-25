@@ -105,6 +105,7 @@ class CraftStore(private val directory: File) {
             StockCraft.hauler(catalog),
             StockCraft.skiff(catalog),
             StockCraft.cutter(catalog),
+            StockCraft.trawler(catalog),
             StockCraft.portTug(catalog),
             StockCraft.dockProbe(catalog),
             StockCraft.towBuggy(catalog),

@@ -93,7 +93,14 @@ class ControlState {
      */
     val commandPitch: Double get() = if (hasAttitudeInput) pitch else assistPitch
     val commandYaw: Double get() = if (hasAttitudeInput) yaw else assistYaw
-    val commandRoll: Double get() = if (hasAttitudeInput) roll else assistRoll
+    val commandRoll: Double get() = if (hasAttitudeInput && !(assistLevelling && roll == 0.0)) roll else assistRoll
+
+    /**
+     * Stability assist keeping a boat level while it is steered: the roll
+     * stays the assist's while the player turns, unless they roll it
+     * themselves. Written each tick by the assist.
+     */
+    var assistLevelling: Boolean = false
 
     fun reset() {
         throttle = 0.0; pitch = 0.0; yaw = 0.0; roll = 0.0
@@ -352,6 +359,23 @@ class Vessel(
      * part hitting the sea from one already in it; null until first looked.
      */
     var wet: BooleanArray? = null
+
+    /** Whether any of it was held up by the water last tick: afloat, or at least partly in the sea. */
+    var buoyed: Boolean = false
+
+    /**
+     * Which faces of each part's volume cells meet the water, and for which
+     * shape - worked out by Hydrostatics, again whenever [design] changes.
+     */
+    var faceExposure: Array<ByteArray>? = null
+    var faceExposureFor: CraftDesign? = null
+
+    /**
+     * Water shipped into each part, kg: an open hull that a wave has come
+     * over, or a holed one. Carried as weight - a boat full of water sits
+     * lower, and past a point sinks.
+     */
+    var flooded: DoubleArray = DoubleArray(design.parts.size)
 
     /** The worst of [jointLoad], and which part's joint it is (-1 for none). */
     var stress: Double = 0.0
@@ -619,7 +643,7 @@ class Vessel(
 
     /** Current mass of one part, including whatever it is carrying. */
     fun massOfPart(index: Int): Double {
-        var mass = defs[index].dryMass
+        var mass = defs[index].dryMass + flooded.getOrElse(index) { 0.0 }
         val amounts = resources[index]
         for (type in ResourceType.entries) {
             mass += amounts[type.ordinal] * type.densityPerUnit
@@ -847,8 +871,10 @@ class Vessel(
         val newHealth = DoubleArray(newDesign.parts.size) { 1.0 }
         val newCrumple = FloatArray(newDesign.parts.size * 3)
         val newTemperature = DoubleArray(newDesign.parts.size) { AMBIENT_TEMPERATURE }
+        val newFlooded = DoubleArray(keptIndices.size)
         keptIndices.forEachIndexed { newIndex, oldIndex ->
             newTemperature[newIndex] = temperature.getOrElse(oldIndex) { AMBIENT_TEMPERATURE }
+            newFlooded[newIndex] = flooded.getOrElse(oldIndex) { 0.0 }
             resources[oldIndex].copyInto(newResources[newIndex])
             newActivated[newIndex] = activated[oldIndex]
             newBroken[newIndex] = broken[oldIndex]
@@ -860,6 +886,7 @@ class Vessel(
         design = newDesign
         defs = newDefs
         resources = newResources
+        flooded = newFlooded
         activated = newActivated
         broken = newBroken
         health = newHealth
@@ -968,6 +995,7 @@ class Vessel(
             return false
         }
         dormant = false
+        afloat = false
         settledTicks = 0
         hasRestPose = false
         return true
@@ -987,6 +1015,34 @@ class Vessel(
         body.linearVelocity.setTo(surfaceVelocity)
         body.angularVelocity.setTo(spin)
     }
+
+    /**
+     * Asleep afloat: riding the sea rather than pinned to the ground. The
+     * water under a moored boat rises and falls with the tide and the waves,
+     * and it goes with it - [draft] metres from the surface to its centre,
+     * tilted as the water was ([sleepNormal], body-fixed) when it settled.
+     */
+    var afloat = false
+    var draft = 0.0
+    val sleepNormal = Vec3()
+
+    /** Where it went to sleep, body-fixed, unit. */
+    fun sleepDirection(out: Vec3): Vec3 = out.setTo(sleepPosition).normalizeInPlace()
+
+    /**
+     * The pose of a craft asleep afloat: straight out along where it went to
+     * sleep, [radius] from the centre, tipped by [tilt] (body-fixed) from how
+     * it lay - all turned by [bodyRotation].
+     */
+    fun followSea(bodyRotation: Quat, radius: Double, tilt: Quat, velocity: Vec3, spin: Vec3) {
+        seaScratch.setTo(sleepPosition).normalizeInPlace().mulInPlace(radius)
+        bodyRotation.rotate(seaScratch, body.position)
+        body.orientation.setTo(bodyRotation).mulInPlace(tilt).mulInPlace(sleepOrientation)
+        body.linearVelocity.setTo(velocity)
+        body.angularVelocity.setTo(spin)
+    }
+
+    private val seaScratch = Vec3()
 
     /**
      * Counts consecutive still ticks and reports when it has been still long
@@ -1031,6 +1087,9 @@ class Vessel(
         val newTemperature = DoubleArray(newDesign.parts.size)
         temperature.copyInto(newTemperature, 0, 0, own)
         other.temperature.copyInto(newTemperature, own)
+        val newFlooded = DoubleArray(newDesign.parts.size)
+        for (i in 0 until own) newFlooded[i] = flooded.getOrElse(i) { 0.0 }
+        for (j in other.design.parts.indices) newFlooded[own + j] = other.flooded.getOrElse(j) { 0.0 }
         for (i in 0 until own) {
             resources[i].copyInto(newResources[i])
             newActivated[i] = activated[i]
@@ -1051,6 +1110,7 @@ class Vessel(
         design = newDesign
         defs = newDefs
         resources = newResources
+        flooded = newFlooded
         activated = newActivated
         broken = newBroken
         health = newHealth

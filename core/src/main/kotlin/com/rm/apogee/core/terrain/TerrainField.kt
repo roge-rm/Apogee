@@ -43,6 +43,19 @@ class TerrainField(
      * is raised around it - which is also how real launch sites come about.
      */
     val homeDirection: Vec3? = null,
+    /**
+     * Where the launch complex itself stands - its pad levelled, its runway
+     * laid, the country round it kept gentle - if not at [homeDirection].
+     * The continent stays raised where it always was: moving that would move
+     * every coastline on the planet.
+     */
+    val padDirection: Vec3? = null,
+    /**
+     * A harbour: a bay carved into the coast here, round and sheltered, with
+     * a channel that bends on its way out to sea so no swell runs straight
+     * in. See [bay].
+     */
+    val harbourDirection: Vec3? = null,
     /** Which kind of world this is: what shapes the land. */
     val profile: Profile = Profile.TERRA,
 ) : Terrain {
@@ -61,7 +74,7 @@ class TerrainField(
     override val scatter: ScatterField? get() = scatterField
 
     override fun isLaunchComplex(direction: Vec3): Boolean {
-        val home = homeUnit ?: return false
+        val home = padUnit ?: return false
         val length = sqrt(direction.x * direction.x + direction.y * direction.y + direction.z * direction.z)
         val ox = direction.x / length - home.x
         val oy = direction.y / length - home.y
@@ -75,21 +88,28 @@ class TerrainField(
      * What stands on the continents. Only for a body with a home to keep
      * clear - that is, Terra; other bodies get their own profiles.
      */
-    private val land: TerraLand? = homeDirection?.normalized()?.let {
-        TerraLand(seed, bodyRadius, it.x, it.y, it.z)
-    }
     private val homeUnit: Vec3? = homeDirection?.normalized()
+    private val padUnit: Vec3? = (padDirection ?: homeDirection)?.normalized()
+    private val land: TerraLand? = homeUnit?.let { home ->
+        val pad = padUnit!!
+        TerraLand(seed, bodyRadius, home.x, home.y, home.z, pad.x, pad.y, pad.z)
+    }
+
+    /** The harbour's centre, and its own east and north, for laying out the bay. */
+    private val harbourUnit: Vec3? = harbourDirection?.normalized()
+    private val harbourEast: Vec3? = harbourUnit?.let { Vec3(0.0, 1.0, 0.0).crossInPlace(it).normalizeInPlace() }
+    private val harbourNorth: Vec3? = harbourUnit?.let { it.copy().crossInPlace(harbourEast!!) }
 
     /**
      * The runway's heading at home: east, the way the ground is carried by
      * the planet's spin about +Y, and the way a horizontal craft is pointed
      * when it is launched. Null at a pole, where there is no east.
      */
-    private val runwayAlong: Vec3? = homeUnit?.let { home ->
+    private val runwayAlong: Vec3? = padUnit?.let { home ->
         Vec3(0.0, 1.0, 0.0).crossInPlace(home).takeIf { it.lengthSq > 1e-12 }?.normalizeInPlace()
     }
     private val runwayAcross: Vec3? = runwayAlong?.let { along ->
-        homeUnit!!.copy().crossInPlace(along)
+        padUnit!!.copy().crossInPlace(along)
     }
 
     /**
@@ -101,7 +121,7 @@ class TerrainField(
      * path and does not want a synchronised read per contact point.
      */
     private val homeElevation: Double =
-        homeUnit?.let { shapedElevation(it.x, it.y, it.z) } ?: 0.0
+        padUnit?.let { kotlin.math.max(shapedElevation(it.x, it.y, it.z), if (hasOcean) PAD_MIN_ELEVATION else -1e9) } ?: 0.0
     /**
      * Height above the datum at [direction], in metres. Negative is sea floor.
      *
@@ -117,7 +137,7 @@ class TerrainField(
 
         luna?.let { return it.height(nx, ny, nz) }
         val shaped = shapedElevation(nx, ny, nz)
-        val home = homeUnit ?: return shaped
+        val home = padUnit ?: return shaped
 
         // A level pad, and only a level pad. Rolling ground is what makes
         // altitude and lateral drift legible from the cockpit, so the
@@ -166,8 +186,72 @@ class TerrainField(
         return smoothstep(outside / RUNWAY_BLEND_METRES)
     }
 
-    /** The field proper, before the launch complex is levelled into it. */
+    /**
+     * What the ground under the launch complex is paved with, or null off
+     * it: a concrete pad round the pads themselves, and an asphalt runway
+     * running east from it.
+     */
+    fun paving(direction: Vec3): SurfaceMaterial? {
+        val home = padUnit ?: return null
+        val length = sqrt(direction.x * direction.x + direction.y * direction.y + direction.z * direction.z)
+        val ox = direction.x / length - home.x
+        val oy = direction.y / length - home.y
+        val oz = direction.z / length - home.z
+        val metres = sqrt(ox * ox + oy * oy + oz * oz) * bodyRadius
+        if (metres < CONCRETE_METRES) return SurfaceMaterial.CONCRETE
+        val a = runwayAlong ?: return null
+        val c = runwayAcross!!
+        val along = (a.x * ox + a.y * oy + a.z * oz) * bodyRadius
+        val across = abs((c.x * ox + c.y * oy + c.z * oz) * bodyRadius)
+        if (along in 0.0..RUNWAY_LENGTH_METRES && across < ASPHALT_HALF_WIDTH_METRES) return SurfaceMaterial.ASPHALT
+        return null
+    }
+
+    /** The field proper, with the harbour carved in, before the launch complex is levelled into it. */
     private fun shapedElevation(nx: Double, ny: Double, nz: Double): Double {
+        val raw = naturalElevation(nx, ny, nz)
+        return bay(nx, ny, nz, raw)
+    }
+
+    /**
+     * The harbour's bay, cut into [ground]: a round basin [BAY_FLOOR] metres
+     * deep out to [BAY_FLAT_METRES], shelving to its shore at
+     * [BAY_SHORE_METRES], with banks rising gently behind; and a channel of
+     * the same make from its north side, north and then north-west out to
+     * sea. Only ever lowers the ground, so beyond its banks nothing changes.
+     */
+    private fun bay(nx: Double, ny: Double, nz: Double, ground: Double): Double {
+        val centre = harbourUnit ?: return ground
+        val ox = nx - centre.x; val oy = ny - centre.y; val oz = nz - centre.z
+        val e = harbourEast!!; val n = harbourNorth!!
+        val x = (e.x * ox + e.y * oy + e.z * oz) * bodyRadius
+        val y = (n.x * ox + n.y * oy + n.z * oz) * bodyRadius
+        if (abs(x) > BAY_REACH_METRES || abs(y) > BAY_REACH_METRES) return ground
+        var cut = cutProfile(sqrt(x * x + y * y), BAY_FLAT_METRES, BAY_SHORE_METRES, BAY_FLOOR)
+        var along = Double.MAX_VALUE
+        for (k in 0 until CHANNEL.size / 2 - 1) {
+            along = minOf(along, segmentDistance(x, y, CHANNEL[2 * k], CHANNEL[2 * k + 1], CHANNEL[2 * k + 2], CHANNEL[2 * k + 3]))
+        }
+        cut = minOf(cut, cutProfile(along, CHANNEL_FLAT_METRES, CHANNEL_SHORE_METRES, CHANNEL_FLOOR))
+        return minOf(ground, cut)
+    }
+
+    /** A cut [floor] deep out to [flat] m from its middle, up to the waterline at [shore], then a gentle bank. */
+    private fun cutProfile(d: Double, flat: Double, shore: Double, floor: Double): Double {
+        if (d <= flat) return floor
+        if (d <= shore) return floor * (1.0 - smoothstep((d - flat) / (shore - flat)))
+        return (d - shore) * BANK_GRADE
+    }
+
+    private fun segmentDistance(x: Double, y: Double, ax: Double, ay: Double, bx: Double, by: Double): Double {
+        val dx = bx - ax; val dy = by - ay
+        val t = (((x - ax) * dx + (y - ay) * dy) / (dx * dx + dy * dy)).coerceIn(0.0, 1.0)
+        val px = ax + dx * t - x; val py = ay + dy * t - y
+        return sqrt(px * px + py * py)
+    }
+
+    /** The field as it comes, before anything is built into it. */
+    private fun naturalElevation(nx: Double, ny: Double, nz: Double): Double {
         // Continents at the largest scale, then detail. Each octave halves in
         // size and in contribution, which is what makes the result look the
         // same at every distance.
@@ -250,6 +334,7 @@ class TerrainField(
         val nx = direction.x / length; val ny = direction.y / length; val nz = direction.z / length
         luna?.let { return it.material(nx, ny, nz, slope) }
         if (elevation < 0.0) return SurfaceMaterial.SAND
+        paving(direction)?.let { return it }
         land?.let {
             val landness = smoothstep((elevation / HILL_SHORE_FADE).coerceIn(0.0, 1.0))
             return it.material(nx, ny, nz, elevation, slope, landness)
@@ -302,7 +387,7 @@ class TerrainField(
         const val DEFAULT_SEED = 0x4A06EE
 
         /** See [Terrain.generation]. 1 is the terrain every save before M7 was made on. */
-        const val GENERATION = 2
+        const val GENERATION = 3
 
         /** Slope (0 flat, 1 wall) past which ground is bare rock: about 39 degrees. */
         private const val STEEP_SLOPE = 0.22
@@ -356,6 +441,45 @@ class TerrainField(
         private const val RUNWAY_LENGTH_METRES = 2_500.0
         private const val RUNWAY_HALF_WIDTH_METRES = 40.0
         private const val RUNWAY_BLEND_METRES = 250.0
+
+        /**
+         * The lowest a launch complex by the sea is built, m above the
+         * datum: clear of the highest tide the coast sees, and the surf on
+         * top of it. Lower ground is made up to it.
+         */
+        private const val PAD_MIN_ELEVATION = 15.0
+
+        /** Concrete round the pads, m from the middle; asphalt either side of the runway's line. */
+        private const val CONCRETE_METRES = 110.0
+        private const val ASPHALT_HALF_WIDTH_METRES = 25.0
+
+        /**
+         * The harbour's bay, m: a basin [BAY_FLOOR] deep to [BAY_FLAT_METRES]
+         * from its middle, its shore at [BAY_SHORE_METRES] - four kilometres
+         * of water across, small enough that the wind raises only a chop on
+         * it - and a channel [CHANNEL_FLOOR] deep and some four hundred
+         * metres wide at the waterline.
+         */
+        private const val BAY_FLOOR = -14.0
+        private const val BAY_FLAT_METRES = 1_400.0
+        private const val BAY_SHORE_METRES = 2_000.0
+        private const val CHANNEL_FLOOR = -12.0
+        private const val CHANNEL_FLAT_METRES = 110.0
+        private const val CHANNEL_SHORE_METRES = 220.0
+
+        /** Rise of the banks behind the waterline, m per m. */
+        private const val BANK_GRADE = 0.08
+
+        /** Nothing of the bay reaches past this, m from its middle, east or north. */
+        private const val BAY_REACH_METRES = 12_000.0
+
+        /**
+         * The channel's line, m east and north of the bay's middle: out of
+         * the basin northward, then turning north-west for the open sea. The
+         * bend is the point - there is no straight line from the harbour to
+         * open water, so nothing the ocean sends reaches it straight.
+         */
+        private val CHANNEL = doubleArrayOf(0.0, 1_500.0, 0.0, 4_500.0, -3_340.0, 7_500.0)
 
         /**
          * Hill band. Sized in metres and added after the sharpening curve, so

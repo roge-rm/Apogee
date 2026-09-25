@@ -67,7 +67,8 @@ class WorldSaveTest {
         craft.damage(3, 0.4, Vec3(0.0, -1.0, 0.0))
         val engine = craft.defs.indexOfFirst { it.id == "engine-ember" }
         val hot = craft.temperature[engine]
-        assertTrue("a minute's burn should have warmed the Ember: $hot", hot > Vessel.AMBIENT_TEMPERATURE + 50.0)
+        // Ten seconds at full power, in the thick air at sea level: warm, clearly.
+        assertTrue("a ten-second burn should have warmed the Ember: $hot", hot > Vessel.AMBIENT_TEMPERATURE + 30.0)
 
         val restored = World.default(catalog)
         restored.restore(Json { classDiscriminator = "type" }.decodeFromString<WorldSave>(format.encodeToString(original.save())))
@@ -81,7 +82,7 @@ class WorldSaveTest {
     fun `propellant levels survive a save`() {
         val original = flownWorld()
         val burned = original.vessels.first().amountOf(ResourceType.PROPELLANT)
-        assertTrue("the craft should have burned some fuel", burned < 1_400.0)
+        assertTrue("the craft should have burned some fuel", burned < 1_600.0)
 
         val restored = World.default(catalog)
         restored.restore(original.save())

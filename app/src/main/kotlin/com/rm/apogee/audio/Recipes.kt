@@ -20,6 +20,7 @@ object Recipes {
     const val OUTBOARD = 12
     const val SURF = 13
     const val RCS = 14
+    const val SEA = 15
 
     // One-shots.
     const val IMPACT = 50
@@ -34,6 +35,7 @@ object Recipes {
     const val IGNITION = 59
     const val CHUTE = 60
     const val CLUNK = 61
+    const val SLAP = 62
 }
 
 /** What an impact is on, for how it rings: `material` in recipes.h. */

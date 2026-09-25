@@ -25,7 +25,7 @@ class PartTabsTest {
             "wheel-small", "wheel-large", "hitch-ball", "hitch-coupling",
         ),
         PartTab.WATER to setOf(
-            "hull-punt", "hull-bow", "hull-mid", "hull-stern", "hull-skiff", "hull-cutter", "motor-outboard", "rudder", "keel",
+            "hull-punt", "hull-bow", "hull-mid", "hull-stern", "hull-skiff", "hull-cutter", "motor-outboard", "rudder", "keel", "keel-skeg",
         ),
         PartTab.UTILITY to setOf("chute-canopy", "rcs-nudge", "light-bar", "dock-port", "dock-port-small", "mooring-clamp"),
     )

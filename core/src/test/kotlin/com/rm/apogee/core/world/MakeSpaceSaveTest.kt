@@ -42,6 +42,52 @@ class MakeSpaceSaveTest {
             println("saved to $out at t=$midnight")
             return
         }
+        // SEA=wind|storm|surf: boats afloat somewhere the sea is like that,
+        // in daylight - an open-ocean wind sea of a few metres; a storm's
+        // sea, with a Cutter, a Skiff and a Trawler side by side; or surf over a beach.
+        System.getenv("SEA")?.let { kind ->
+            world.weatherConfig = com.rm.apogee.core.weather.WeatherConfig()
+            val sun = Vec3(0.62, 0.0, 0.64).normalizeInPlace()
+            val sample = com.rm.apogee.core.sea.SeaSample()
+            val ocean = terra.ocean!!
+            fun dir(i: Int): Vec3 {
+                val lat = (com.rm.apogee.core.terrain.Noise.hash(31, i, 0, 0) - 0.5) * 1.4
+                val lon = com.rm.apogee.core.terrain.Noise.hash(31, i, 1, 0) * 2 * Math.PI
+                return Vec3(kotlin.math.cos(lat) * kotlin.math.cos(lon), kotlin.math.sin(lat), kotlin.math.cos(lat) * kotlin.math.sin(lon))
+            }
+            var found: Pair<Vec3, Double>? = null
+            var t = 6_000.0
+            search@ while (t < 600_000.0) {
+                for (i in 0 until 3_000) {
+                    val d = dir(i)
+                    if ((terra.rotationAt(t).rotate(d, Vec3()) dot sun) < 0.4) continue
+                    val bed = terra.terrain!!.elevation(d)
+                    val ok = when (kind) {
+                        "surf" -> bed in -6.0..-2.0
+                        else -> bed < -300.0
+                    }
+                    if (!ok) continue
+                    ocean.sample(d, t, sample)
+                    val good = when (kind) {
+                        "wind" -> sample.significantHeight in 2.0..4.5 && sample.stormHeight < 0.5
+                        "storm" -> sample.stormHeight > 7.0 && sample.wind > 12.0
+                        "surf" -> sample.significantHeight > 0.8 && sample.depth > 1.0
+                        else -> true
+                    }
+                    if (good) { found = d to t; break@search }
+                }
+                t += 1_500.0
+            }
+            val (where, time) = found ?: error("no $kind sea in daylight")
+            world.restore(WorldSave(catalogHash = catalog.contentHash, universeTime = time, nextVesselId = 1L, weather = world.weatherConfig))
+            val site = LaunchSite("sea", "Sea", "terra", kotlin.math.asin(where.y), kotlin.math.atan2(where.z, where.x))
+            world.spawnOnSurface(StockCraft.cutter(catalog), site).name = "Cutter"
+            if (kind == "storm" || kind == "surf") world.spawnOnSurface(StockCraft.skiff(catalog), site, pad = 2).name = "Skiff"
+            if (kind == "storm") world.spawnOnSurface(StockCraft.trawler(catalog), site, pad = 1).name = "Trawler"
+            WorldStore(File(out)).save(world.save()).getOrThrow()
+            println("saved to $out: $kind sea, Hs ${"%.1f".format(ocean.sample(where, time, sample).significantHeight)} m, t=$time")
+            return
+        }
         // DOCK=space|luna|land|water: two craft ready to dock - tugs ring to
         // ring in orbit or on Luna, a buggy with a cart behind it, two
         // skiffs side by side - a few metres apart.

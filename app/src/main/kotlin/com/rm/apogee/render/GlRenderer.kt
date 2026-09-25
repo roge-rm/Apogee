@@ -123,6 +123,48 @@ class GlRenderer(
     private var viewportHeight = 1
     private var lastDrawNanos = 0L
 
+    // --- the sea ------------------------------------------------------------
+
+    /** Sets [shader]'s model matrix and look-ahead for the sea built at [sea]. */
+    private fun placeSea(sea: SeaSurface, cameraPos: Vec3, shader: ShaderProgram, time: Double) {
+        interpolatedBodyRotation.rotate(sea.origin, seaOrigin)
+        modelMatrix.setFromTrs(seaOrigin, interpolatedBodyRotation, cameraPos)
+        shader.setMat4("uModel", modelMatrix.m)
+        shader.setFloat("uAhead", (time - sea.time).coerceIn(-SEA_LOOKAHEAD, SEA_LOOKAHEAD).toFloat())
+    }
+
+    /**
+     * The sea, after everything solid - see-through over the shallows, so
+     * the bed and anything under it show - and both faces, for looking up
+     * at it from beneath.
+     */
+    private fun drawSea(world: WorldView, cameraPos: Vec3) {
+        val mesh = seaMesh ?: return
+        val sea = mesh.surface ?: return
+        val shader = seaProgram ?: return
+        shader.use()
+        shader.setMat4("uViewProjection", nearViewProjection.m)
+        placeSea(sea, cameraPos, shader, world.time)
+        shader.setVec3("uSunDirection", world.sunDirection.x.toFloat(), world.sunDirection.y.toFloat(), world.sunDirection.z.toFloat())
+        shader.setFloat("uAtmosphereFactor", atmosphereFactorAt(world))
+        shader.setFloat("uHazeDistance", (world.atmosphereScaleHeight * 8.0).toFloat())
+        shader.setVec3("uBodyCentre", (-cameraPos.x).toFloat(), (-cameraPos.y).toFloat(), (-cameraPos.z).toFloat())
+        shader.setFloat("uDaylight", frameDaylight)
+        shader.setFloat("uLightScale", world.lightScale)
+        shader.setFloat("uFlash", world.flash)
+        shader.setFloat("uFogDistance", world.fogDistance.toFloat())
+        shader.setVec3("uFogColor", frameFog[0], frameFog[1], frameFog[2])
+        shader.setFloat("uSeaReach", world.seaReach.toFloat())
+        shader.setFloat("uUnderwater", if (world.underwater) 1f else 0f)
+        applyShadowUniforms(shader, true)
+        GLES30.glEnable(GLES30.GL_BLEND)
+        GLES30.glBlendFunc(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA)
+        GLES30.glDisable(GLES30.GL_CULL_FACE)
+        mesh.draw()
+        GLES30.glEnable(GLES30.GL_CULL_FACE)
+        GLES30.glDisable(GLES30.GL_BLEND)
+    }
+
     // --- shadows ------------------------------------------------------------
 
     /** The player's choice; null to go by the device. Set from the UI thread. */
@@ -134,6 +176,10 @@ class GlRenderer(
     private val nearFrustum = ShadowFrustum()
     private val farFrustum = ShadowFrustum()
     private var vesselDepth: ShaderProgram? = null
+    private var seaProgram: ShaderProgram? = null
+    private var seaDepth: ShaderProgram? = null
+    private var seaMesh: SeaMesh? = null
+    private val seaOrigin = Vec3()
     private var terrainDepth: ShaderProgram? = null
     private var nearOn = false
     private var farOn = false
@@ -176,6 +222,8 @@ class GlRenderer(
         scatterRenderer = ScatterRenderer().also { it.shadows = { program -> applyShadowUniforms(program, true) } }
         particleRenderer = ParticleRenderer()
         vesselDepth = ShaderProgram(Shaders.VESSEL_VERTEX, Shaders.DEPTH_FRAGMENT, "vessel-depth")
+        seaProgram = ShaderProgram(Shaders.SEA_VERTEX, Shaders.SEA_FRAGMENT, "sea")
+        seaDepth = ShaderProgram(Shaders.SEA_VERTEX, Shaders.DEPTH_FRAGMENT, "sea-depth")
         terrainDepth = ShaderProgram(Shaders.TERRAIN_VERTEX, Shaders.DEPTH_FRAGMENT, "terrain-depth")
 
         // The sky shader generates its own vertices, but GLES still requires a
@@ -234,11 +282,20 @@ class GlRenderer(
         interpolatedCameraRot.rotate(Vec3.unitY(), cameraUp)
         interpolatedCameraRot.rotate(Vec3(0.0, 0.0, -1.0), cameraForward)
 
+        // The newest sea onto the GPU first: it casts shadows too.
+        latest.world?.sea?.let { next -> (seaMesh ?: SeaMesh().also { seaMesh = it }).take(next) }
+        if (latest.world?.sea == null) seaMesh?.let { it.release(); seaMesh = null }
+
         prepareShadows(latest, previous, alpha, cameraPos)
 
         // --- far pass: sky and planet -------------------------------------
         val world = latest.world
-        if (world != null) {
+        if (world != null && world.underwater) {
+            // Under the water there is no sky: only the murk.
+            GLES30.glClearColor(frameFog[0], frameFog[1], frameFog[2], 1f)
+            GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT or GLES30.GL_DEPTH_BUFFER_BIT)
+            GLES30.glClearColor(0.01f, 0.012f, 0.03f, 1f)
+        } else if (world != null) {
             farProjection.setPerspective(latest.fovYRadians, aspect, FAR_NEAR_PLANE, FAR_FAR_PLANE)
             farViewProjection.setMultiplied(farProjection, viewMatrix)
 
@@ -265,6 +322,7 @@ class GlRenderer(
         // it - which is exactly what it looked like.
         if (world != null) drawChunks(world, cameraPos, atmosphereFactorAt(world))
         drawVessels(latest, previous, alpha, cameraPos)
+        if (world != null) drawSea(world, cameraPos)
         latest.particles?.let { particles ->
             val world = latest.world
             particleRenderer?.draw(
@@ -458,6 +516,8 @@ class GlRenderer(
         // The body's centre, camera-relative: the scene is drawn about the
         // camera, and the body sits at the world origin.
         shader.setVec3("uBodyCentre", (-cameraPos.x).toFloat(), (-cameraPos.y).toFloat(), (-cameraPos.z).toFloat())
+        shader.setFloat("uSeaReach", if (world.sea != null) world.seaReach.toFloat() else 0f)
+        shader.setFloat("uTide", world.tide.toFloat())
     }
 
     /**
@@ -685,6 +745,18 @@ class GlRenderer(
             terrainSource.scatter.drawList(), interpolatedBodyRotation, cameraPos,
             nearFrustum.viewProjection, world, focus, reach,
         )
+        // The waves cast too: a big crest shades the trough behind it, and
+        // a boat down in it.
+        val sea = seaMesh?.surface
+        val depth = seaDepth
+        if (sea != null && depth != null && world.sea != null) {
+            depth.use()
+            depth.setMat4("uViewProjection", nearFrustum.viewProjection)
+            placeSea(sea, cameraPos, depth, world.time)
+            GLES30.glDisable(GLES30.GL_CULL_FACE)
+            seaMesh?.draw()
+            GLES30.glEnable(GLES30.GL_CULL_FACE)
+        }
         map.end(viewportWidth, viewportHeight)
         nearOn = true
     }
@@ -721,6 +793,10 @@ class GlRenderer(
         map.begin(slope = 0.5f, units = 2f)
         shader.use()
         shader.setMat4("uViewProjection", farFrustum.viewProjection)
+        // The sea as flat water to the light: waves cast nothing it could see.
+        shader.setFloat("uSeaReach", 0f)
+        shader.setFloat("uTide", world.tide.toFloat())
+        shader.setVec3("uBodyCentre", (-cameraPos.x).toFloat(), (-cameraPos.y).toFloat(), (-cameraPos.z).toFloat())
         val groundWorld = interpolatedBodyRotation.rotate(ground, Vec3())
         for (entry in terrainSource.drawList()) {
             val chunk = entry.chunk
@@ -930,6 +1006,9 @@ class GlRenderer(
         nearMap?.release(); nearMap = null
         farMap?.release(); farMap = null
         vesselDepth?.release(); vesselDepth = null
+        seaProgram?.release(); seaProgram = null
+        seaDepth?.release(); seaDepth = null
+        seaMesh = null
         terrainDepth?.release(); terrainDepth = null
         farValid = false
         if (cloudTexture[0] != 0) GLES30.glDeleteTextures(1, cloudTexture, 0)
@@ -946,6 +1025,9 @@ class GlRenderer(
         /** Part pictures are drawn at this size, pixels, and halved. */
         const val THUMB_RENDER = PartThumbnails.SIZE * 2
         const val THUMBS_PER_FRAME = 3
+
+        /** The most the sea is carried on from when it was built, s. */
+        const val SEA_LOOKAHEAD = 0.25
 
         /**
          * Terrain chunks uploaded per frame at most. Each is ~50 KB; a dozen

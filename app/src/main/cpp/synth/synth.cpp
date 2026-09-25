@@ -26,6 +26,7 @@ float lifetime(int r, const float* p) {
         case recipe::IGNITION: return 1.6f;
         case recipe::CHUTE: return 1.3f;
         case recipe::CLUNK: return 0.7f;
+        case recipe::SLAP: return 0.6f;
         default: return 1.0f;
     }
 }
@@ -109,6 +110,7 @@ float trim(int r) {
         case recipe::ROVER: return 0.19f;  // was 10 dB over a rocket at full power
         case recipe::OUTBOARD: return 0.27f;
         case recipe::SURF: return 0.33f;  // ambient: well under the engines
+        case recipe::SEA: return 0.39f;  // ambient, and long: 6-7 dB under the engines rough
         case recipe::RCS: return 0.25f;  // puffs under the engines
         case recipe::IMPACT: return 0.2f;
         case recipe::CRUNCH: return 0.09f;
@@ -122,6 +124,7 @@ float trim(int r) {
         case recipe::IGNITION: return 0.12f;
         case recipe::CHUTE: return 0.66f;
         case recipe::CLUNK: return 0.25f;
+        case recipe::SLAP: return 0.2f;  // a knock under the engines, not a bang
         default: return 1.0f;
     }
 }
@@ -283,6 +286,14 @@ void Synth::startVoice(Voice& v, int r, int flags, const float* p, uint32_t seed
         case recipe::CHUTE:
             v.env[0].trigger(0.05f, 0.4f, sr);
             v.state[0] = 300.0f;
+            break;
+        case recipe::SLAP:
+            // A hull meeting a wave: a short dull slap and the thump of the boat.
+            v.env[0].trigger(0.001f, (0.04f + 0.08f * p[0]) * vary(v.rng, 0.25f), sr);
+            v.env[1].trigger(0.002f, 0.12f * vary(v.rng, 0.2f), sr);
+            v.f[0].set(480.0f * vary(v.rng, 0.2f), 0.6f, sr);
+            v.state[0] = 80.0f * vary(v.rng, 0.15f);
+            v.state[1] = std::min(1.0f, 0.3f + p[0]);
             break;
         case recipe::CLUNK: {
             float k = vary(v.rng, 0.08f);
@@ -555,13 +566,30 @@ void Synth::renderVoice(Voice& v, float& left, float& right) {
             break;
         }
         case recipe::OUTBOARD: {
+            // A low, uneven burble - each stroke a little stronger or weaker
+            // than the last, never a buzz - and the propeller churning the
+            // water under it. All of it well down: the old one rang a saw
+            // through a narrow band at 1.2 kHz, and on a phone that whine
+            // was all there was to hear (Dan: too high pitched).
             float out = clampf(p[0], 0, 1), rev = clampf(p[1], 0, 1);
-            float f = (25.0f + 70.0f * rev) * pf;
-            if (control) { v.f[0].set(700.0f * pf, 0.7f, sr); v.f[1].set(1200.0f * pf, 2.0f, sr); v.f[2].set(400.0f * pf, 0.8f, sr); }
-            v.f[0].process(v.osc[0].pulse(f, 0.3f, sr));
-            v.f[1].process(v.osc[1].saw(f * 2.0f, sr));
-            v.f[2].process(v.pink.next(rng.white()));
-            s = (v.f[0].low * 0.5f + v.f[1].band * 0.2f + v.f[2].band * 0.5f * rev) * out;
+            float f = (16.0f + 38.0f * rev) * pf;
+            if (control) {
+                float corner = (320.0f + 220.0f * rev) * pf;
+                v.f[0].set(corner, 0.7f, sr);
+                v.f[3].set(corner, 0.7f, sr);
+                v.f[2].set((350.0f + 250.0f * rev) * pf, 0.6f, sr);
+                // The deepest thump off: felt more than heard, and on good
+                // speakers it would sit far over everything else.
+                v.f[1].set(110.0f, 0.7f, sr);
+            }
+            float pulse = v.osc[0].pulse(f, 0.4f, sr);
+            if (v.osc[0].phase < v.state[1]) v.state[0] = 0.55f + 0.45f * rng.uniform();
+            v.state[1] = v.osc[0].phase;
+            v.f[0].process(pulse * v.state[0]);
+            v.f[3].process(v.f[0].low);
+            v.f[2].process(v.brown.next(rng.white()));
+            v.f[1].process(v.f[3].low * 0.9f + v.f[2].low * (0.3f + 0.5f * rev));
+            s = v.f[1].high * out;
             break;
         }
         case recipe::SURF: {
@@ -575,6 +603,32 @@ void Synth::renderVoice(Voice& v, float& left, float& right) {
             v.f[0].process(v.brown.next(rng.white()) * 0.6f + v.pink.next(rng.white()) * 0.4f);
             v.f[1].process(v.pink2.next(rng.white()));
             s = (v.f[0].low * (0.35f + wave) + v.f[1].low * 0.25f * wave * wave) * loud * 1.5f;
+            break;
+        }
+        case recipe::SEA: {
+            // The open sea: each swell's wash rising and falling, every one
+            // its own length and strength - never a beat - low and soft; the
+            // hiss of breaking crests, kept dark, when it is rough; and in a
+            // storm a deep roll under it all.
+            float loud = clampf(p[0], 0, 1.5f), rough = clampf(p[1], 0, 1), storm = clampf(p[2], 0, 1);
+            if (v.state[1] <= 0) { v.state[1] = 5.0f + 4.0f * rng.uniform(); v.state[2] = 0.5f + 0.5f * rng.uniform(); }
+            v.state[0] += dt / v.state[1];
+            if (v.state[0] >= 1.0f) {
+                v.state[0] -= 1.0f;
+                v.state[1] = (5.0f - 1.5f * storm) + 4.0f * rng.uniform();
+                v.state[2] = 0.5f + 0.5f * rng.uniform();
+            }
+            float swell = 0.5f - 0.5f * std::cos(kTwoPi * v.state[0]);
+            float wash = swell * swell * v.state[2];
+            if (control) {
+                v.f[0].set(160.0f + 360.0f * wash + 180.0f * rough, 0.6f, sr);
+                v.f[1].set(450.0f + 450.0f * rough, 0.7f, sr);
+                v.f[2].set(85.0f, 0.7f, sr);
+            }
+            v.f[0].process(v.brown.next(rng.white()) * 0.7f + v.pink.next(rng.white()) * 0.3f);
+            v.f[1].process(v.pink2.next(rng.white()));
+            v.f[2].process(v.f[0].low);
+            s = (v.f[0].low * (0.35f + 0.8f * wash) + v.f[1].low * 0.3f * rough * wash + v.f[2].low * 1.4f * storm) * loud;
             break;
         }
         case recipe::RCS: {
@@ -648,6 +702,13 @@ void Synth::renderVoice(Voice& v, float& left, float& right) {
             v.f[2].process(v.crackle.next(rng, 90.0f, sr));
             float tail = v.f[2].band * v.env[2].next() * 1.0f;
             s = (crack + boom + sub + blast + tail) * v.state[1];
+            break;
+        }
+        case recipe::SLAP: {
+            v.f[0].process(v.pink.next(rng.white()) * v.env[0].next());
+            float slap = v.f[0].low * 2.0f;
+            float thump = v.osc[0].sine(v.state[0], sr) * v.env[1].next() * 0.8f;
+            s = (slap + thump) * v.state[1];
             break;
         }
         case recipe::SPLASH: {

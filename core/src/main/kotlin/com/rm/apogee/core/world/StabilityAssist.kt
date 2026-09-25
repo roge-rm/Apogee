@@ -31,6 +31,17 @@ import kotlin.math.sqrt
  * elevator to hold a steady angle of attack, and a controller with no
  * integral term only produces one by settling short of the target - the test
  * pilot held seven and a half degrees when asked for ten.
+ *
+ * Its commands move no faster than [SLEW] a second, as a real actuator's
+ * do. Slammed from stop to stop in a tick, a craft with a lot of control -
+ * full-span elevons at speed - overshot within the tick, was slammed back
+ * the next, and chattered at the tick rate: its wings flung sixty times a
+ * second between a hundred kilonewtons up and down, until the fuselage
+ * tore off.
+ *
+ * Afloat it is a helmsman instead: the heading held, the hull brought back
+ * level after a turn rather than kept at whatever heel it had when the
+ * wheel was let go, and the pitch left to the sea (Dan).
  */
 class StabilityAssist(
     private val proportionalGain: Double = 5.0,
@@ -42,6 +53,9 @@ class StabilityAssist(
     private val turn = Quat()
     private val errorBody = Vec3()
     private val rateBody = Vec3()
+    private val up = Vec3()
+    private val level = Quat()
+    private val heading = Vec3()
 
     /**
      * @param direction when holding a navball marker, where the nose should
@@ -49,18 +63,34 @@ class StabilityAssist(
      */
     fun update(vessel: Vessel, dt: Double, direction: Vec3? = null) {
         val control = vessel.control
+        val body = vessel.body
+        // Afloat: a helmsman, keeping the deck level - even while the wheel
+        // is being turned - and the heading once it is let go.
+        val afloat = control.sasEnabled && vessel.buoyed && !vessel.touchingGround && direction == null
+        control.assistLevelling = afloat
+        if (afloat && control.hasAttitudeInput) {
+            vessel.assistHeld.setTo(body.orientation)
+            levelled(vessel)
+            // Taken afresh when the wheel is let go: the heading then.
+            vessel.assistHolding = false
+            vessel.assistIntegral.setZero()
+            errorOf(vessel)
+            control.assistPitch = 0.0; control.assistYaw = 0.0
+            control.assistRoll = slew(control.assistRoll, command(errorBody.y, rateBody.y, 0.0), SLEW * dt)
+            return
+        }
         val holding = control.sasEnabled && !control.hasAttitudeInput && !vessel.touchingGround
         if (!holding) {
             release(vessel)
             return
         }
 
-        val body = vessel.body
         if (!vessel.assistHolding) {
             vessel.assistHeld.setTo(body.orientation)
             vessel.assistIntegral.setZero()
             vessel.assistHolding = true
         }
+        if (afloat) levelled(vessel)
         if (direction != null) {
             // A marker moves as the craft does: the attitude to hold is the
             // one that turns the nose onto it by the shortest way, keeping
@@ -71,18 +101,7 @@ class StabilityAssist(
             vessel.assistHeld.setTo(turn).mulInPlace(body.orientation)
         }
 
-        // The turn from where the craft points to where it should, in its own
-        // axes: conj(current) * held. Shortest way round.
-        error.setTo(body.orientation).conjugateInPlace().mulInPlace(vessel.assistHeld)
-        if (error.w < 0.0) error.setTo(-error.x, -error.y, -error.z, -error.w)
-        val sine = sqrt(error.x * error.x + error.y * error.y + error.z * error.z)
-        if (sine > 1e-12) {
-            val angle = 2.0 * atan2(sine, error.w)
-            errorBody.setTo(error.x, error.y, error.z).mulInPlace(angle / sine)
-        } else {
-            errorBody.setZero()
-        }
-        body.orientation.inverseRotate(body.angularVelocity, rateBody)
+        errorOf(vessel)
 
         // Integral clamped, so a craft held against something it cannot
         // overcome does not wind up a command it then spends seconds
@@ -96,13 +115,56 @@ class StabilityAssist(
         )
 
         // X pitches, Y rolls, Z yaws - the reaction wheels' convention.
-        control.assistPitch = command(errorBody.x, rateBody.x, integral.x)
-        control.assistRoll = command(errorBody.y, rateBody.y, integral.y)
-        control.assistYaw = command(errorBody.z, rateBody.z, integral.z)
+        val step = SLEW * dt
+        control.assistPitch = if (afloat) 0.0 else slew(control.assistPitch, command(errorBody.x, rateBody.x, integral.x), step)
+        control.assistRoll = slew(control.assistRoll, command(errorBody.y, rateBody.y, integral.y), step)
+        control.assistYaw = slew(control.assistYaw, command(errorBody.z, rateBody.z, integral.z), step)
+        if (afloat) integral.x = 0.0
+    }
+
+    /** The turn from where [vessel] points to where it should, in its own axes, into [errorBody]; its spin into [rateBody]. */
+    private fun errorOf(vessel: Vessel) {
+        val body = vessel.body
+        // The turn from where the craft points to where it should, in its own
+        // axes: conj(current) * held. Shortest way round.
+        error.setTo(body.orientation).conjugateInPlace().mulInPlace(vessel.assistHeld)
+        if (error.w < 0.0) error.setTo(-error.x, -error.y, -error.z, -error.w)
+        val sine = sqrt(error.x * error.x + error.y * error.y + error.z * error.z)
+        if (sine > 1e-12) {
+            val angle = 2.0 * atan2(sine, error.w)
+            errorBody.setTo(error.x, error.y, error.z).mulInPlace(angle / sine)
+        } else {
+            errorBody.setZero()
+        }
+        body.orientation.inverseRotate(body.angularVelocity, rateBody)
+    }
+
+    private fun slew(from: Double, to: Double, step: Double): Double = from + (to - from).coerceIn(-step, step)
+
+    /**
+     * The attitude a boat's helmsman holds: nose on the heading it had when
+     * the wheel was let go, deck level with the horizon here - worked out
+     * afresh each tick, since the horizon turns as the boat moves over the
+     * planet and the planet under it.
+     */
+    private fun levelled(vessel: Vessel) {
+        val body = vessel.body
+        val orientation = vessel.design.orientation
+        up.setTo(body.position).normalizeInPlace()
+        vessel.assistHeld.rotate(orientation.forward, heading)
+        heading.addScaledInPlace(up, -(heading dot up))
+        if (heading.lengthSq < 1e-9) return
+        heading.normalizeInPlace()
+        com.rm.apogee.core.math.quatFromTo(orientation.up, up, level)
+        level.rotate(orientation.forward, nose)
+        nose.addScaledInPlace(up, -(nose dot up)).normalizeInPlace()
+        val swing = if ((nose dot heading) < -0.999999) Quat.fromAxisAngle(up, Math.PI) else com.rm.apogee.core.math.quatFromTo(nose, heading)
+        vessel.assistHeld.setTo(swing).mulInPlace(level)
     }
 
     private fun release(vessel: Vessel) {
         vessel.assistHolding = false
+        vessel.control.assistLevelling = false
         vessel.control.assistPitch = 0.0
         vessel.control.assistYaw = 0.0
         vessel.control.assistRoll = 0.0
@@ -113,5 +175,8 @@ class StabilityAssist(
 
     private companion object {
         const val INTEGRAL_LIMIT = 0.6
+
+        /** How fast a command may move, of full travel a second: stop to stop in a fifth of a second. */
+        const val SLEW = 10.0
     }
 }

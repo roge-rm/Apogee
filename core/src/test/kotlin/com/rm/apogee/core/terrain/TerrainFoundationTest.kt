@@ -26,7 +26,7 @@ class TerrainFoundationTest {
      */
     @Test
     fun `terrain is bit-for-bit what it was`() {
-        assertEquals("regenerate these goldens deliberately", 2, TerrainField.GENERATION)
+        assertEquals("regenerate these goldens deliberately", 3, TerrainField.GENERATION)
         val golden = longArrayOf(
             -4578718847118141824, 4633304516215518119, -4576147226361897366,
             -4606504763289932561, 4640841390928657255, 4651358863925320039,
@@ -128,10 +128,9 @@ class TerrainFoundationTest {
     fun `the ground knows what it is made of`() {
         val point = GroundPoint()
         val lookup = TerrainTileCache.Lookup()
-        // The pad grips as all ground used to - whichever of grass or packed
-        // earth the country around it happens to be.
+        // The pad is poured concrete.
         terra.tiles.ground(Vec3(1.0, 0.0, 0.0), point, lookup)
-        assertEquals(0.6, point.material.friction, 0.0)
+        assertEquals(SurfaceMaterial.CONCRETE, point.material)
     }
 
     /**

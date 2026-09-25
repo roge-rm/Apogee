@@ -252,7 +252,25 @@ data class Parachute(
 @SerialName("buoyancy")
 data class Buoyancy(
     val displacedVolume: Double,
-) : PartModule
+    /**
+     * Open to the sky, as a skiff or a punt is: a wave coming over its top
+     * edge - the gunwale - or a heel that puts it under pours in, and enough
+     * water in it sinks it. A decked hull ships none until it is holed.
+     */
+    val open: Boolean = false,
+) : PartModule {
+    companion object {
+        /** Share of a hull box that is room for water. */
+        const val INTERIOR = 0.85
+
+        /** How much water, kg, part [def] holds full - [density] kg/m³ - or 0 if it is no hull. */
+        fun capacity(def: PartDef, density: Double = 1_025.0): Double {
+            if (def.module<Buoyancy>() == null) return 0.0
+            val box = def.mesh as? MeshSpec.Box ?: return 0.0
+            return box.width * box.height * box.depth * INTERIOR * density
+        }
+    }
+}
 
 /**
  * A landing leg: a contact point on a spring.

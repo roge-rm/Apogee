@@ -185,6 +185,10 @@ int main(int argc, char** argv) {
     render(dir, "level-rover-sand", 5, {{recipe::ROVER, 0, [](float, float* p) { p[0] = 0.6f; p[1] = 10; p[2] = 0.7f; p[4] = 1.0f; }}});
     render(dir, "level-rcs", 6, {{recipe::RCS, 0, [](float, float* p) { p[0] = 1.0f; }}});
     render(dir, "level-surf", 16, {{recipe::SURF, 0, [](float, float* p) { p[0] = 1.0f; }}});
+    render(dir, "level-sea-calm", 20, {{recipe::SEA, 0, [](float, float* p) { p[0] = 0.4f; p[1] = 0.1f; }}});
+    render(dir, "level-sea-rough", 20, {{recipe::SEA, 0, [](float, float* p) { p[0] = 1.0f; p[1] = 0.8f; }}});
+    render(dir, "level-sea-storm", 20, {{recipe::SEA, 0, [](float, float* p) { p[0] = 1.0f; p[1] = 1.0f; p[2] = 1.0f; }}});
+    render(dir, "level-slap", 1, {{recipe::SLAP, 0, [](float, float* p) { p[0] = 1.0f; }}});
     // A plane going by at 150 m/s: Doppler from high to low as it passes.
     render(dir, "doppler-flyby", 8, {{recipe::JET, 0, [](float t, float* p) {
         float x = (t - 0.5f) * 8.0f * 150.0f, d = std::sqrt(x * x + 60.0f * 60.0f);

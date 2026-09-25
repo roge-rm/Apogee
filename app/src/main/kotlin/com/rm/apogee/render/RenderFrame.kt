@@ -194,6 +194,17 @@ class WorldView(
     val surfaceWind: Vec3 = Vec3(),
     /** Universe time, for anything that sways. */
     val time: Double = 0.0,
+    /**
+     * How far round the camera the sea is drawn as waves, m; the terrain
+     * draws flat water beyond, and the sea bed within. 0 for no sea drawn.
+     */
+    val seaReach: Double = 0.0,
+    /** The tide under the camera, m above the datum: where flat water stands. */
+    val tide: Double = 0.0,
+    /** The sea round the camera, as built this frame; null for none. */
+    val sea: SeaSurface? = null,
+    /** The camera is under the water. */
+    val underwater: Boolean = false,
 ) {
     companion object {
         const val CLEAR_FOG = 1.0e9

@@ -30,11 +30,12 @@ class SlopeContactTest {
         val world = World.default(catalog)
         val terra = world.system.body("terra")
         val terrain = terra.terrain!!
-        val probe = world.spawnAtSite(StockCraft.starterRocket(catalog), World.launchSiteFor(StockCraft.starterRocket(catalog), catalog))
         val rotation = terra.rotationAt(world.time)
-        val pad = terra.toBodyFixed(probe.body.position, rotation, Vec3()).normalizeInPlace()
+        // On the equator, where the ground moves fastest, among the hills
+        // where the launch complex first stood.
+        val pad = Vec3(1.0, 0.0, 0.0)
 
-        // The steepest east-west slope near the pad that a pod can still sit
+        // The steepest east-west slope near there that a pod can still sit
         // on (under the 31 degrees its grip holds), where the lag told most.
         val east = Vec3(0.0, 1.0, 0.0).crossInPlace(pad).normalizeInPlace().mulInPlace(-1.0)
         val north = Vec3().setTo(pad).crossInPlace(east).normalizeInPlace()

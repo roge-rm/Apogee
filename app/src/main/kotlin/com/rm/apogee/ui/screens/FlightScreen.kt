@@ -792,6 +792,17 @@ private fun OrbitReadouts(telemetry: FlightTelemetry) {
     if (telemetry.timeToApoapsis.isFinite() && telemetry.apoapsisAltitude > 1_000) {
         Readout("T-AP", formatDuration(telemetry.timeToApoapsis))
     }
+    // Waiting on the pad: when to go for the moon - a due-east launch then
+    // flies straight into its plane.
+    if (telemetry.lunaWindow.isFinite() && telemetry.heightAboveGround < 50.0 && telemetry.surfaceSpeed < 5.0) {
+        Spacer(Modifier.height(4.dp))
+        val open = telemetry.lunaWindow <= com.rm.apogee.game.GameSession.MOON_WINDOW_OPEN
+        Readout(
+            "LUNA",
+            if (open) "go east" else formatDuration(telemetry.lunaWindow),
+            colour = if (open) ApogeeColors.Prograde else ApogeeColors.Data,
+        )
+    }
     telemetry.targetName?.let { name ->
         Spacer(Modifier.height(4.dp))
         Readout("TGT", name.take(12), colour = TARGET_COLOUR)
@@ -886,7 +897,11 @@ private fun formatDistance(metres: Double): String {
 private fun formatDuration(seconds: Double): String {
     if (!seconds.isFinite() || seconds < 0) return "--"
     val total = seconds.roundToInt()
-    return if (total >= 60) "%d:%02d".format(total / 60, total % 60) else "${total}s"
+    return when {
+        total >= 3_600 -> "%d:%02d:%02d".format(total / 3_600, total / 60 % 60, total % 60)
+        total >= 60 -> "%d:%02d".format(total / 60, total % 60)
+        else -> "${total}s"
+    }
 }
 
 private fun Double.format(decimals: Int) = "%.${decimals}f".format(this)

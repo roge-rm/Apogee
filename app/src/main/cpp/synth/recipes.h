@@ -20,6 +20,7 @@ constexpr int ROVER = 11;      // p0 motor load, p1 wheel speed m/s, p2 surface 
 constexpr int OUTBOARD = 12;   // p0 output, p1 revs
 constexpr int SURF = 13;       // p0 loudness
 constexpr int RCS = 14;        // p0 how many firing
+constexpr int SEA = 15;        // p0 loudness, p1 roughness, p2 storm
 constexpr int LAST_CONTINUOUS = 49;
 
 // One-shots: fired once, then they ring out.
@@ -35,6 +36,7 @@ constexpr int CAUTION = 58;    // p0 kind
 constexpr int IGNITION = 59;   // p0 size
 constexpr int CHUTE = 60;      // p0 size
 constexpr int CLUNK = 61;      // p0 size
+constexpr int SLAP = 62;       // p0 energy
 }  // namespace recipe
 
 /** Surfaces an impact can be on, for its character. */
@@ -59,9 +61,9 @@ constexpr int COUNT = 5;
 
 inline int busOf(int r) {
     switch (r) {
-        case recipe::WIND: case recipe::RAIN: case recipe::SURF: case recipe::THUNDER: case recipe::FIRE:
+        case recipe::WIND: case recipe::RAIN: case recipe::SURF: case recipe::SEA: case recipe::THUNDER: case recipe::FIRE:
             return bus::ENVIRONMENT;
-        case recipe::IMPACT: case recipe::CRUNCH: case recipe::TEAR: case recipe::EXPLOSION: case recipe::SPLASH:
+        case recipe::IMPACT: case recipe::CRUNCH: case recipe::TEAR: case recipe::EXPLOSION: case recipe::SPLASH: case recipe::SLAP:
             return bus::IMPACTS;
         case recipe::CLICK: case recipe::CAUTION:
             return bus::UI;

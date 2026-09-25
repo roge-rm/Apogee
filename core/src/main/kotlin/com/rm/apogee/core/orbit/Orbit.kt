@@ -293,11 +293,16 @@ class Orbit(
          * A circular orbit at [radiusFromCentre], in the XZ plane.
          * Convenience for spawning and for tests.
          */
-        fun circular(radiusFromCentre: Double, mu: Double, epoch: Double = 0.0): Orbit {
+        /**
+         * A circular orbit starting at +X, prograde about +Y, tilted by
+         * [inclination] radians about the X axis - so it rises through the
+         * equator there.
+         */
+        fun circular(radiusFromCentre: Double, mu: Double, epoch: Double = 0.0, inclination: Double = 0.0): Orbit {
             val speed = sqrt(mu / radiusFromCentre)
             return Orbit(
                 position = Vec3(radiusFromCentre, 0.0, 0.0),
-                velocity = Vec3(0.0, 0.0, -speed),
+                velocity = Vec3(0.0, speed * kotlin.math.sin(inclination), -speed * kotlin.math.cos(inclination)),
                 mu = mu,
                 epoch = epoch,
             )

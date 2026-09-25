@@ -172,6 +172,8 @@ class ScatterField(private val terrain: Terrain) {
     private fun kindFor(material: SurfaceMaterial, elevation: Double, slope: Double, roll: Double): ScatterKind? {
         if (slope > 0.45) return null
         return when (material) {
+            // Nothing grows on the launch complex's paving.
+            SurfaceMaterial.CONCRETE, SurfaceMaterial.ASPHALT -> null
             SurfaceMaterial.FOREST -> when {
                 // One cell in five: a forest, not a hedge. At one in three it was
                 // over four thousand trees a square kilometre, which is thick

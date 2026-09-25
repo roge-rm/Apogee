@@ -69,6 +69,8 @@ class VesselSave(
      * mild day's temperature.
      */
     val health: List<Double> = emptyList(),
+    /** Water shipped into each part, kg; empty for a dry craft. */
+    val flooded: List<Double> = emptyList(),
     val crumple: List<Float> = emptyList(),
     val temperature: List<Double> = emptyList(),
 )

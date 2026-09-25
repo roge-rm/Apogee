@@ -138,4 +138,6 @@ private fun swatch(material: SurfaceMaterial, h: Double): Triple<Double, Double,
     SurfaceMaterial.BASALT -> Triple(0.26, 0.26, 0.28)
     SurfaceMaterial.CLAY -> Triple(0.64, 0.37, 0.23)
     SurfaceMaterial.FOREST -> Triple(0.15, 0.31, 0.14)
+    SurfaceMaterial.CONCRETE -> Triple(0.66, 0.65, 0.62)
+    SurfaceMaterial.ASPHALT -> Triple(0.17, 0.17, 0.18)
 }

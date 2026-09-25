@@ -100,7 +100,14 @@ object PartModels {
                 val motion = motion(piece, anim, maxDeflection)
                 // A leg folds about its module's hinge - the one the physics
                 // folds its feet about - so the two cannot disagree.
-                val pivot = if (piece.role == PieceRole.DEPLOY) leg?.hinge ?: piece.pivot else piece.pivot
+                // And a propeller spins where it is, on its own shaft: about
+                // the part's origin, the outboard's swung round in a circle
+                // nearly a metre across, in and out of the water (Dan).
+                val pivot = when (piece.role) {
+                    PieceRole.DEPLOY -> leg?.hinge ?: piece.pivot
+                    PieceRole.SPIN -> piece.offset
+                    else -> piece.pivot
+                }
                 val placedRotation = motion * local
                 val placedOffset = motion.rotate(offset.subInPlace(pivot)).addInPlace(pivot)
                 if (piece.role == PieceRole.SUSPENSION && anim != null) {

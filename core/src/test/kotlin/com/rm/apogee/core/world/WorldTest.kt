@@ -52,9 +52,10 @@ class WorldTest {
         val bodyFixed = terra.toBodyFixed(vessel.body.position, rotation)
 
         assertFalse("a launch complex in the sea would be a poor choice", field.isOcean(bodyFixed))
+        // On the coast now, built up clear of the highest tide the shore sees.
         assertTrue(
-            "and it should be measurably above sea level",
-            terra.altitudeOf(vessel.body.position) > 100.0,
+            "and it should be clear of the tides",
+            terra.altitudeOf(vessel.body.position) > 10.0,
         )
     }
 
@@ -163,7 +164,7 @@ class WorldTest {
 
         assertEquals(
             "the upper stage tank should still be full",
-            200.0,
+            400.0,
             vessel.amountOf(ResourceType.PROPELLANT),
             1e-9,
         )

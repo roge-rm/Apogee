@@ -388,5 +388,6 @@ object Protocol {
     //    engine output in the pose, time warp, removing craft.
     // 9: docking - Undock, SetDockPilot, DockedWith, Snapshot.hitches.
     // 10: PlacedPart.turn.
-    const val VERSION = 10
+    // 11: the sea - flooding in VesselCondition, open hulls.
+    const val VERSION = 11
 }

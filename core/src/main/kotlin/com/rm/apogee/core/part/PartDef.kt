@@ -18,6 +18,10 @@ private const val MIN_SURFACE_MOUNT_RADIUS = 0.3
 /** Target size of a buoyancy sampling cell, metres. See [PartDef.volumeCells]. */
 private const val VOLUME_CELL_METRES = 0.75
 
+/** Target size, and most along any axis, of a hull's buoyancy cells. See [PartDef.volumeCells]. */
+private const val HULL_CELL_METRES = 0.4
+private const val HULL_CELLS = 6
+
 /** N a joint carries per square metre of its radius. See [PartDef.jointStrength]. */
 private const val JOINT_STRENGTH_PER_M2 = 1.0e6
 
@@ -141,6 +145,12 @@ data class PartDef(
     val maxTemperature: Double = 0.0,
     /** Cost, for a career mode that does not exist yet. */
     val cost: Double = 0.0,
+    /**
+     * What it displaces under water, m³, where its [mesh] is no guide - an
+     * open frame the water runs through, a solid lump of metal. Negative
+     * means "its mesh's volume": see [displacedVolume].
+     */
+    val displaces: Double = -1.0,
 ) {
     /** Convenience: the first module of a given type, or null. */
     inline fun <reified T : PartModule> module(): T? = modules.filterIsInstance<T>().firstOrNull()
@@ -275,10 +285,11 @@ data class PartDef(
      * Every part, not only ones carrying [Buoyancy]: a sealed tank floats
      * whether or not anyone thought of it as a boat, and a rocket that comes
      * down in the sea should bob rather than sink like a stone. [Buoyancy]
-     * overrides it, for a part whose mesh does not describe what it encloses.
+     * overrides it, for a part whose mesh does not describe what it encloses,
+     * and [displaces] for one whose mesh is only its outline.
      */
     val displacedVolume: Double by lazy {
-        module<Buoyancy>()?.displacedVolume ?: when (val m = mesh) {
+        module<Buoyancy>()?.displacedVolume ?: displaces.takeIf { it >= 0.0 } ?: when (val m = mesh) {
             is MeshSpec.Cylinder -> Math.PI * m.radius * m.radius * m.height
             is MeshSpec.Cone -> Math.PI * m.height / 3.0 *
                 (m.bottomRadius * m.bottomRadius + m.bottomRadius * m.topRadius + m.topRadius * m.topRadius)
@@ -296,7 +307,11 @@ data class PartDef(
      * hull no reason to right itself when it heels, and gives a wave nothing
      * to lift one end of it by - pitch, roll and heave all come from *where*
      * the water is pushing, the same lesson drag taught the fins. Cells about
-     * three-quarters of a metre on a side, at most four along any axis.
+     * three-quarters of a metre on a side, at most four along any axis - and
+     * finer in a hull, [HULL_CELL_METRES] and up to [HULL_CELLS] along: two
+     * cells across the skiff and one deep felt so little of the buoyancy
+     * shifting to the low side as she heeled that the seat's own reaction
+     * wheel could roll her over.
      */
     val volumeCells: List<Vec3> by lazy {
         val h = boundsHalfExtents
@@ -323,7 +338,8 @@ data class PartDef(
     }
 
     private fun cellsAlong(halfExtent: Double): Int =
-        kotlin.math.round(2.0 * halfExtent / VOLUME_CELL_METRES).toInt().coerceIn(1, 4)
+        if (module<Buoyancy>() != null) kotlin.math.round(2.0 * halfExtent / HULL_CELL_METRES).toInt().coerceIn(2, HULL_CELLS)
+        else kotlin.math.round(2.0 * halfExtent / VOLUME_CELL_METRES).toInt().coerceIn(1, 4)
 
     /** Authored nodes plus the generated surface ones. */
     val allAttachNodes: List<AttachNode> get() = attachNodes + surfaceNodes

@@ -163,7 +163,26 @@ class World(
             if (field == value) return
             field = value
             weathers.clear()
+            bindSeas()
         }
+
+    /**
+     * Gives each body's ocean its sea: its moon's tides always, and waves
+     * from this world's weather when it has one. Every world binds its own -
+     * the server's, each client's replica - and they agree, being the same
+     * function of the same config.
+     */
+    private fun bindSeas() {
+        for (body in system.bodies.values) {
+            val ocean = body.ocean ?: continue
+            val moon = system.bodies.values.firstOrNull { it.parentId == body.id && it.orbit != null }
+            ocean.sea = com.rm.apogee.core.sea.Sea(body, moon, weatherFor(body), weatherConfig?.seed ?: 0)
+        }
+    }
+
+    init {
+        bindSeas()
+    }
 
     private val weathers = HashMap<String, Weather>()
 
@@ -362,7 +381,10 @@ class World(
         // On the ground, not at sea level: the pad may be most of a kilometre
         // above the datum, and spawning at the datum would drop the craft
         // inside a hill.
-        val groundRadius = attractor.surfaceRadiusInBodyFrame(scratchBodyFixedUp)
+        // At sea, on the water as it is now - the tide may be metres up or down.
+        val sea = attractor.ocean?.let { attractor.radius + it.surfaceHeight(scratchBodyFixedUp, time) }
+        val groundRadius = kotlin.math.max(attractor.solidRadiusInBodyFrame(scratchBodyFixedUp), sea ?: 0.0)
+            .let { if (sea == null) attractor.surfaceRadiusInBodyFrame(scratchBodyFixedUp) else it }
 
         // Lift the craft until its lowest part just touches the ground.
         val clearance = lowestExtentAlong(vessel, up)
@@ -374,10 +396,47 @@ class World(
         vessel.body.position.setTo(up).mulInPlace(groundRadius + lowestExtentAlong(vessel, up))
 
         attractor.surfaceVelocityAt(vessel.body.position, vessel.body.linearVelocity)
+        if (sea != null) floatAtDraft(vessel, attractor, up, sea)
 
         vesselsById[vessel.id] = vessel
         pendingEvents.add(WorldEvent.VesselSpawned(vessel.id))
         return vessel
+    }
+
+    /**
+     * A boat set down afloat: settled at the draft its weight gives it on
+     * the water it is put in, moving as that water is. Stood on its lowest
+     * point instead - an outboard's leg - it was dropped the best part of a
+     * metre, and in a seaway landed still on a moving slope and slammed
+     * over: a skiff launched into the harbour pitched up fifty degrees and
+     * swamped where it was put (Dan). Nothing floating, or water too
+     * shallow for it, and it stays as stood on the bottom.
+     */
+    private fun floatAtDraft(vessel: Vessel, attractor: CelestialBody, up: Vec3, seaRadius: Double) {
+        val ocean = attractor.ocean ?: return
+        var area = 0.0
+        var bottom = Double.MAX_VALUE
+        var deepest = 0.0
+        val offset = Vec3()
+        for (i in vessel.defs.indices) {
+            if (vessel.defs[i].module<com.rm.apogee.core.part.Buoyancy>() == null) continue
+            val box = vessel.defs[i].mesh as? com.rm.apogee.core.part.MeshSpec.Box ?: continue
+            area += box.width * box.height
+            vessel.partPointOffsetWorld(i, Vec3(0.0, 0.0, -0.5 * box.depth), offset)
+            bottom = minOf(bottom, offset dot up)
+            deepest = maxOf(deepest, box.depth)
+        }
+        if (area <= 0.0) return
+        val draft = (vessel.body.mass / (ocean.density * area)).coerceAtMost(0.9 * deepest)
+        val radius = seaRadius - draft - bottom
+        // Only if that is not below where it already stands clear of the bottom.
+        if (radius > vessel.body.position.length) return
+        if (radius - lowestExtentAlong(vessel, up) < attractor.solidRadiusInBodyFrame(scratchBodyFixedUp)) return
+        vessel.body.position.setTo(up).mulInPlace(radius)
+        attractor.surfaceVelocityAt(vessel.body.position, vessel.body.linearVelocity)
+        ocean.sample(scratchBodyFixedUp, time, seaRide)
+        attractor.rotationAt(time, scratchRotation)
+        vessel.body.linearVelocity.addInPlace(scratchRotation.rotate(seaRide.velocity, offset))
     }
 
     /**
@@ -444,7 +503,16 @@ class World(
         val orientation = vessel.design.orientation
         val rotation = vessel.body.orientation
         quatFromTo(orientation.up, up, rotation)
-        if (orientation == CraftOrientation.VERTICAL) return
+
+        // Facing east, along the runway, if it goes anywhere along the
+        // ground: a plane, and a rover built standing up. Left to the turn
+        // that stood it upright, a rover's heading depended on where on the
+        // planet it stood - at the old Cape it happened to face east, at the
+        // new one straight off the side of the pad into the sea. A rocket
+        // or a lander has no front to face with, and keeps the turn.
+        if (orientation == CraftOrientation.VERTICAL &&
+            vessel.defs.none { it.module<com.rm.apogee.core.part.Wheel>() != null }
+        ) return
 
         // East is the way the surface moves. At a pole it does not move, and
         // any heading is as good as another.
@@ -1223,7 +1291,7 @@ class World(
             // looking at, and a base on a pad otherwise costs exactly what
             // one being flown does.
             if (vessel.dormant) {
-                followGround(vessel, attractor)
+                if (vessel.afloat) followSea(vessel, attractor, waves = true) else followGround(vessel, attractor)
                 continue
             }
 
@@ -1459,10 +1527,64 @@ class World(
         if (vessel.noteStillness(still, SLEEP_SETTLE_TICKS)) {
             // The pose was just integrated to the end of the tick, so it is
             // pinned to the ground as the ground is then.
-            attractorFor(vessel).rotationAt(tickEnd, scratchRotation)
+            val attractor = attractorFor(vessel)
+            attractor.rotationAt(tickEnd, scratchRotation)
             vessel.sleep(scratchRotation)
+            // Afloat, it rides the sea from here: note how it lies in it.
+            val ocean = attractor.ocean
+            if (!report.anchored && ocean != null && !vessel.touchingGround) {
+                attractor.toBodyFixed(vessel.body.position, scratchRotation, scratchSeaPoint)
+                ocean.sample(scratchSeaPoint, tickEnd, seaRide, spacing = riderSpacing(vessel))
+                vessel.afloat = true
+                vessel.draft = scratchSeaPoint.length - attractor.radius - seaRide.height
+                vessel.sleepNormal.setTo(seaRide.normal)
+            }
         }
     }
+
+    private val seaRide = com.rm.apogee.core.sea.SeaSample()
+    private val scratchSeaPoint = Vec3()
+    private val scratchSeaUp = Vec3()
+    private val scratchTilt = Quat()
+
+    /** Waves shorter than a craft's own length don't move it as a whole: a rider feels only the longer ones. */
+    private fun riderSpacing(vessel: Vessel): Double = kotlin.math.max(1.0, vessel.contactRadius)
+
+    /**
+     * A craft asleep afloat, riding the sea: up and down with the tide and
+     * the waves, tipped with them, where it was moored. [waves] off for time
+     * warped on rails, when only the tide is followed.
+     */
+    private fun followSea(vessel: Vessel, attractor: CelestialBody, waves: Boolean) {
+        val ocean = attractor.ocean ?: return followGround(vessel, attractor)
+        attractor.rotationAt(tickEnd, scratchRotation)
+        vessel.sleepDirection(scratchSeaUp)
+        ocean.sample(scratchSeaUp, tickEnd, seaRide, spacing = if (waves) riderSpacing(vessel) else 1.0e9)
+        val height = if (waves) seaRide.height else seaRide.tide
+        com.rm.apogee.core.math.quatFromTo(vessel.sleepNormal, if (waves) seaRide.normal else scratchSeaUp, scratchTilt)
+        scratchRotation.rotate(scratchSeaUp, scratchSeaPoint).mulInPlace(attractor.radius + height + vessel.draft)
+        attractor.surfaceVelocityAt(scratchSeaPoint, scratchSurfaceVelocity)
+        if (waves) scratchSurfaceVelocity.addInPlace(scratchRotation.rotate(seaRide.velocity, scratchSeaPoint))
+        attractor.angularVelocity(scratchSpin)
+        vessel.followSea(scratchRotation, attractor.radius + height + vessel.draft, scratchTilt, scratchSurfaceVelocity, scratchSpin)
+        // A sea got up that is big for it: what happens to it now - riding
+        // it out, shipping water, going over - is for the physics to say.
+        if (waves && !hurried && seaRide.significantHeight > tooRough(vessel)) vessel.wake()
+    }
+
+    /**
+     * Time asked to go faster than physics can follow. A boat left alone in
+     * a rough sea may then drop anchor and ride it asleep after all, as in
+     * a calm one - otherwise any storm anywhere would hold the whole world
+     * to physics warp until it blew over.
+     */
+    var hurried: Boolean = false
+
+    /**
+     * Significant wave height, m, past which the sea is rough for [vessel]:
+     * too big, for its size, to be ridden asleep like a cork.
+     */
+    private fun tooRough(vessel: Vessel): Double = kotlin.math.max(ROUGH_SEA, ROUGH_PER_METRE * vessel.contactRadius)
 
     /**
      * Afloat, clear of the bottom, engine off, and going nowhere relative to
@@ -1491,10 +1613,22 @@ class World(
         val control = vessel.control
         if (control.throttle > 0.0) return false
         val handsOff = control.pitch == 0.0 && control.yaw == 0.0 && control.roll == 0.0
-        val limit = if (handsOff && vessel.air.wind.length > 0.5) ANCHOR_DRIFT else FLOATING_REST_SPEED
         val attractor = attractorFor(vessel)
+        // In a seaway a boat is never at rest - it goes up and down with the
+        // waves - so hands off and drifting slowly is still enough: asleep,
+        // it rides them anyway.
+        val seaway = hydrostatics.seaHeight > SEAWAY_HS
+        if (seaway && !handsOff) return false
+        if (!hurried && hydrostatics.seaHeight > tooRough(vessel)) return false
+        val limit = if (seaway || (handsOff && vessel.air.wind.length > 0.5)) ANCHOR_DRIFT else FLOATING_REST_SPEED
         attractor.surfaceVelocityAt(vessel.body.position, scratchSurfaceVelocity)
         scratchRelativeVelocity.setTo(vessel.body.linearVelocity).subInPlace(scratchSurfaceVelocity)
+        if (seaway) {
+            // Only its drift across the water counts, not its heaving.
+            scratchSeaUp.setTo(vessel.body.position).normalizeInPlace()
+            scratchRelativeVelocity.addScaledInPlace(scratchSeaUp, -(scratchRelativeVelocity dot scratchSeaUp))
+            return scratchRelativeVelocity.length <= limit
+        }
         if (scratchRelativeVelocity.length > limit) return false
         attractor.angularVelocity(scratchSpin)
         scratchSpin.subInPlace(vessel.body.angularVelocity)
@@ -2010,7 +2144,7 @@ class World(
             for (vessel in vesselsById.values) {
                 val attractor = attractorFor(vessel)
                 if (vessel.dormant) {
-                    followGround(vessel, attractor)
+                    if (vessel.afloat) followSea(vessel, attractor, waves = false) else followGround(vessel, attractor)
                     continue
                 }
                 val body = vessel.body
@@ -2066,7 +2200,9 @@ class World(
         time = until
         tickEnd = until
         for (vessel in vesselsById.values) {
-            if (vessel.dormant) followGround(vessel, attractorFor(vessel))
+            if (vessel.dormant) {
+                if (vessel.afloat) followSea(vessel, attractorFor(vessel), waves = true) else followGround(vessel, attractorFor(vessel))
+            }
         }
         lightningCheckedTo = Double.NaN
         tick++
@@ -2157,6 +2293,7 @@ class World(
                 resources = vessel.resourceSnapshot().map { it.toList() },
                 legDeploy = vessel.legDeploy.toList(),
                 health = vessel.health.toList(),
+                flooded = if (vessel.flooded.any { it > 0.0 }) vessel.flooded.toList() else emptyList(),
                 crumple = vessel.crumple.toList(),
                 temperature = vessel.temperature.toList(),
             )
@@ -2265,6 +2402,7 @@ class World(
                 vessel.restoreResources(saved.resources.map { it.toDoubleArray() })
             }
             vessel.restoreCondition(saved.health, saved.crumple, saved.temperature)
+            saved.flooded.forEachIndexed { i, kg -> if (i < vessel.flooded.size) vessel.flooded[i] = kg }
             vessel.recomputeMass(shiftBodyPosition = false)
 
             vesselsById[vessel.id] = vessel
@@ -2556,24 +2694,42 @@ class World(
          */
         private const val FLOATING_REST_SPEED = 0.02
 
+        /** Significant wave height, m, above which the sea is a seaway: floating craft heave with it. */
+        private const val SEAWAY_HS = 0.3
+
+        /**
+         * How rough a sea, m of significant height per m of a craft's
+         * contact radius, it may sleep through, past [ROUGH_SEA]: a Trawler
+         * a little more than that; in a storm's sea, none.
+         */
+        private const val ROUGH_PER_METRE = 0.4
+
+        /**
+         * Significant wave height, m, that any boat may sleep through: an
+         * ordinary day's sea off an open coast. Below it, boats moored at a
+         * harbour cost nothing, as a base's should; above it is weather.
+         */
+        private const val ROUGH_SEA = 3.0
+
 
         val launchSites = listOf(
+            // On the coast, with its runway pointing out over the harbour's
+            // bay. See SolarSystem.PAD_LATITUDE.
             LaunchSite(
                 id = "cape",
                 displayName = "Cape Launch Complex",
                 bodyId = SolarSystem.HOMEWORLD_ID,
-                latitude = 0.0,
-                longitude = 0.0,
+                latitude = SolarSystem.PAD_LATITUDE,
+                longitude = SolarSystem.PAD_LONGITUDE,
             ),
-            // Offshore, north-east of the Cape where its continent first
-            // meets the sea, 87 km away. Thirty-two metres of water, and
-            // nothing shallower than seven within a kilometre and a half.
+            // In a bay of its own beside the Cape: fourteen metres of calm
+            // water, open to the sea only round a bend.
             LaunchSite(
                 id = "harbour",
-                displayName = "North-East Harbour",
+                displayName = "Cape Harbour",
                 bodyId = SolarSystem.HOMEWORLD_ID,
-                latitude = 0.102236,
-                longitude = 0.102236,
+                latitude = SolarSystem.HARBOUR_LATITUDE,
+                longitude = SolarSystem.HARBOUR_LONGITUDE,
             ),
             // For testing: straight onto the Moon without flying there. On
             // the mare north-east of Luna's prime meridian, a kilometre and a

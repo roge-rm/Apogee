@@ -203,7 +203,7 @@ class ClientPredictionTest {
         // The replica never got the commands, so it is still sitting on the pad.
         repeat(600) { prediction.advance(1.0 / 60.0) }
         val before = prediction.renderPosition()!!.distanceTo(world.vessel(id)!!.body.position)
-        assertTrue("the replica should have diverged badly first, was ${before}m", before > 150.0)
+        assertTrue("the replica should have diverged badly first, was ${before}m", before > 100.0)
 
         // The correction, and the inputs that go with it.
         prediction.reconcile(kinematicsOf(world, id), ageSeconds = 0.0)

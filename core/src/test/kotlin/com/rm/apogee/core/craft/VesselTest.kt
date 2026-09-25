@@ -20,8 +20,8 @@ class VesselTest {
     @Test
     fun `tanks start full`() {
         val vessel = starter()
-        // Three T800s at 400 units plus one T400 at 200.
-        assertEquals(1_400.0, vessel.amountOf(ResourceType.PROPELLANT), 1e-9)
+        // Three Cask-4s below and one above, at 400 units each.
+        assertEquals(1_600.0, vessel.amountOf(ResourceType.PROPELLANT), 1e-9)
     }
 
     @Test
@@ -40,7 +40,7 @@ class VesselTest {
         // groups the first stage drinks the upper stage dry and staging is
         // pure loss.
         assertEquals("first stage should reach only its own three tanks", 1_200.0, lowerAvailable, 1e-9)
-        assertEquals("upper stage should reach only its own tank", 200.0, upperAvailable, 1e-9)
+        assertEquals("upper stage should reach only its own tank", 400.0, upperAvailable, 1e-9)
     }
 
     @Test
@@ -54,7 +54,7 @@ class VesselTest {
         assertEquals(600.0, vessel.amountInGroupOf(mainEngine, ResourceType.PROPELLANT), 1e-9)
         assertEquals(
             "the upper stage must be untouched",
-            200.0,
+            400.0,
             vessel.amountInGroupOf(upperEngine, ResourceType.PROPELLANT),
             1e-9,
         )

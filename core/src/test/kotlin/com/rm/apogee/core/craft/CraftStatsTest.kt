@@ -68,7 +68,7 @@ class CraftStatsTest {
         // Three T800s at 400 units, 5 kg each.
         assertEquals("first stage propellant", 6_000.0, burning[0].propellantMass, 1.0)
         // One T400 at 200 units.
-        assertEquals("second stage propellant", 1_000.0, burning[1].propellantMass, 1.0)
+        assertEquals("second stage propellant", 2_000.0, burning[1].propellantMass, 1.0)
     }
 
     @Test
