@@ -77,7 +77,13 @@ internal class Convection(
         val elevation = terrain?.elevation(th.origin) ?: 0.0
         val heat = if (terrain == null || terrain.hasOcean && elevation < 0.0) 0.0
             else TerrainWind.heat(terrain.material(th.origin, elevation, 0.0))
-        val chance = 0.4 * heat * intensity.thermals
+        // Cumulus gather: fields of them where the air is ripe for it, clear
+        // sky between - not one here and there across the whole map, which is
+        // what an even chance per cell gave (Dan: very well spread out). The
+        // field is tens of kilometres across and drifts over hours; the
+        // cloud-cover setting makes it busier or quieter.
+        val field = fieldAt(th.origin, time)
+        val chance = (heat * intensity.thermals * (0.06 + 1.15 * field) * weather.config.clouds.pockets).coerceAtMost(0.95)
         th.exists = heat > 0.0 && Noise.hash(seed + 14, cx, cy, c) < chance
         if (th.exists) {
             th.ground = elevation
@@ -91,20 +97,37 @@ internal class Convection(
             th.drift.mulInPlace(0.8)
             // A heap of rounded lobes, the widest at the base.
             val width = th.radius * 2.5 + 200.0 + th.depth * 0.3
-            th.lobeCount = 3 + (Noise.hash(seed + 19, cx, cy, c) * (LOBES - 2)).toInt().coerceAtMost(LOBES - 3)
+            // Many smaller lobes round a broad core, heaped higher towards
+            // the middle: a few big ones read as solid lumps floating alone.
+            th.lobeCount = 4 + (Noise.hash(seed + 19, cx, cy, c) * (LOBES - 3)).toInt().coerceAtMost(LOBES - 4)
             for (l in 0 until th.lobeCount) {
                 val a = Noise.hash(seed + 20 + l, cx, cy, c) * 2.0 * Math.PI
-                val r = if (l == 0) 0.0 else width * 0.45 * Noise.hash(seed + 30 + l, cx, cy, c)
+                val out = Noise.hash(seed + 30 + l, cx, cy, c)
+                val r = if (l == 0) 0.0 else width * 0.5 * out
                 val o = l * 5
                 th.lobes[o] = kotlin.math.cos(a) * r
                 th.lobes[o + 1] = kotlin.math.sin(a) * r
-                th.lobes[o + 2] = (if (l == 0) 0.0 else (Noise.hash(seed + 40 + l, cx, cy, c) - 0.3) * th.depth * 0.5)
-                th.lobes[o + 3] = width * (0.35 + 0.25 * Noise.hash(seed + 50 + l, cx, cy, c)) * (if (l == 0) 1.3 else 1.0)
-                th.lobes[o + 4] = th.depth * (0.35 + 0.25 * Noise.hash(seed + 60 + l, cx, cy, c)) * (if (l == 0) 1.2 else 1.0)
+                th.lobes[o + 2] = if (l == 0) 0.0 else
+                    (Noise.hash(seed + 40 + l, cx, cy, c) - 0.25) * th.depth * 0.6 * (1.2 - out)
+                th.lobes[o + 3] = if (l == 0) width * (0.35 + 0.2 * Noise.hash(seed + 50, cx, cy, c)) * 1.25
+                    else width * (0.2 + 0.2 * Noise.hash(seed + 50 + l, cx, cy, c))
+                th.lobes[o + 4] = th.depth * (if (l == 0) 0.45 else 0.25 + 0.25 * Noise.hash(seed + 60 + l, cx, cy, c))
             }
         }
         cache[cacheKey] = th
         return th
+    }
+
+    /**
+     * How ripe the air is for cumulus around unit [at], 0..1: a slow,
+     * broad pattern, most of the map a little and some of it a lot.
+     */
+    private fun fieldAt(at: Vec3, time: Double): Double {
+        val k = bodyRadius / FIELD_SCALE
+        val drift = time / FIELD_DRIFT_SECONDS
+        val n = Noise.simplex(seed + 77, at.x * k + drift, at.y * k, at.z * k) +
+            0.35 * Noise.simplex(seed + 78, at.x * k * 2.3, at.y * k * 2.3 - drift, at.z * k * 2.3)
+        return smooth(-0.25, 0.55, n)
     }
 
     /**
@@ -204,7 +227,13 @@ internal class Convection(
         /** One thermal's life, s. */
         const val CYCLE = 900.0
 
-        const val LOBES = 6
+        const val LOBES = 10
+
+        /** How far across a field of cumulus is, near enough, m. */
+        const val FIELD_SCALE = 24_000.0
+
+        /** How long the fields take to drift their own width, near enough, s. */
+        const val FIELD_DRIFT_SECONDS = 4.0 * 3_600.0
 
         /** Furthest a column leans from its source, m: within reach of a 5x5 search. */
         const val MAX_LEAN = 2_000.0

@@ -76,12 +76,23 @@ class GameSettings(context: Context) {
         KEY_WEATHER, com.rm.apogee.core.weather.WeatherIntensity.NORMAL,
     )
 
+    /** When in the day a solo flight launches: now, or the next dawn, noon, dusk or midnight. */
+    var launchTime: com.rm.apogee.core.world.LaunchTime by enumPref(
+        KEY_LAUNCH_TIME, com.rm.apogee.core.world.LaunchTime.NOW,
+    )
+
     /** How cloudy the worlds this device hosts are. */
     var cloudCover: com.rm.apogee.core.weather.CloudCover by enumPref(
         KEY_CLOUDS, com.rm.apogee.core.weather.CloudCover.NORMAL,
     )
 
     var uiSoundEnabled: Boolean by booleanPref(KEY_UI_SOUND, true)
+
+    /** Craft's own sounds: engines, wheels, the air rushing past, the hull. Crashes stay. */
+    var vehicleSoundEnabled: Boolean by booleanPref(KEY_VEHICLE_SOUND, true)
+
+    /** The world's: wind, rain, thunder, surf, fires. */
+    var ambientSoundEnabled: Boolean by booleanPref(KEY_AMBIENT_SOUND, true)
 
     /** Everything, then each part of the mix: craft and crashes, the world around, the interface. */
     var masterVolume: Float by floatPref(KEY_MASTER_VOLUME, 0.8f, 0f..1f)
@@ -93,8 +104,8 @@ class GameSettings(context: Context) {
 
     /** The mix, per [com.rm.apogee.audio.Buses] entry. */
     fun busGains(): FloatArray = floatArrayOf(
-        masterVolume * effectsVolume,
-        masterVolume * ambienceVolume,
+        if (vehicleSoundEnabled) masterVolume * effectsVolume else 0f,
+        if (ambientSoundEnabled) masterVolume * ambienceVolume else 0f,
         masterVolume * effectsVolume,
         if (uiSoundEnabled) masterVolume * interfaceVolume else 0f,
         masterVolume * musicVolume,
@@ -109,7 +120,7 @@ class GameSettings(context: Context) {
      * overrides detection - needed both for players whose device is misjudged
      * and for the low-tier acceptance pass.
      */
-    var qualityOverride: QualityTier? by nullableEnumPref(KEY_QUALITY)
+    var qualityOverride: QualityTier? by nullableEnumPref<QualityTier>(KEY_QUALITY)
 
     /**
      * What detection last concluded, remembered across runs.
@@ -120,11 +131,19 @@ class GameSettings(context: Context) {
      * useless, because it is the screen where someone goes to find out what
      * their device was judged to be.
      */
-    var lastDetectedTier: QualityTier? by nullableEnumPref(KEY_DETECTED_QUALITY)
+    var lastDetectedTier: QualityTier? by nullableEnumPref<QualityTier>(KEY_DETECTED_QUALITY)
 
     /** The tier actually in force: an explicit override, else detection. */
     val effectiveTier: QualityTier?
         get() = qualityOverride ?: lastDetectedTier
+
+    /** Shadows as chosen; null to go by the tier in force. */
+    var shadowQualityOverride: com.rm.apogee.render.ShadowQuality? by nullableEnumPref<com.rm.apogee.render.ShadowQuality>(KEY_SHADOWS)
+
+    /** The shadows actually drawn: the choice, else what the tier in force gets. */
+    val shadowQuality: com.rm.apogee.render.ShadowQuality
+        get() = shadowQualityOverride
+            ?: com.rm.apogee.render.ShadowQuality.defaultFor(effectiveTier ?: QualityTier.MEDIUM)
 
     // --- delegate plumbing --------------------------------------------------
 
@@ -175,18 +194,18 @@ class GameSettings(context: Context) {
             }
         }
 
-    private fun nullableEnumPref(key: String) =
-        object : kotlin.properties.ReadWriteProperty<Any?, QualityTier?> {
+    private inline fun <reified T : Enum<T>> nullableEnumPref(key: String) =
+        object : kotlin.properties.ReadWriteProperty<Any?, T?> {
             private var state by mutableStateOf(
                 prefs.getString(key, null)?.let { stored ->
-                    QualityTier.entries.firstOrNull { it.name == stored }
+                    enumValues<T>().firstOrNull { it.name == stored }
                 }
             )
             override fun getValue(thisRef: Any?, property: kotlin.reflect.KProperty<*>) = state
             override fun setValue(
                 thisRef: Any?,
                 property: kotlin.reflect.KProperty<*>,
-                value: QualityTier?,
+                value: T?,
             ) {
                 state = value
                 prefs.edit().apply {
@@ -204,7 +223,11 @@ class GameSettings(context: Context) {
         const val KEY_PITCH_STYLE = "pitch_style"
         const val KEY_WEATHER = "weather_intensity"
         const val KEY_CLOUDS = "cloud_cover"
+        const val KEY_LAUNCH_TIME = "launch_time"
+        const val KEY_SHADOWS = "shadow_quality"
         const val KEY_UI_SOUND = "ui_sound"
+        const val KEY_VEHICLE_SOUND = "vehicle_sound"
+        const val KEY_AMBIENT_SOUND = "ambient_sound"
         const val KEY_MASTER_VOLUME = "volume_master"
         const val KEY_EFFECTS_VOLUME = "volume_effects"
         const val KEY_AMBIENCE_VOLUME = "volume_ambience"

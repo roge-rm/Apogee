@@ -40,7 +40,8 @@ import kotlin.math.roundToInt
 
 /**
  * Warnings that only appear when they mean something: a part running hot, a
- * joint near its limit, parts hurt or lost. Tap one for the parts behind it.
+ * joint near its limit, parts hurt or lost - and a parachute armed or open.
+ * Tap one for the parts behind it.
  */
 @Composable
 fun CautionChips(
@@ -49,8 +50,11 @@ fun CautionChips(
     onToggle: () -> Unit,
     listWidth: Dp = 260.dp,
     modifier: Modifier = Modifier,
+    /** The flown craft's parachute: "ARMED" waiting for safe air, "OPEN" on its drogue, "FULL", or null. */
+    chute: String? = null,
 ) {
     val chips = buildList {
+        if (chute != null) add(Chip("CHUTE", chute, if (chute == "ARMED") ApogeeColors.Data else ApogeeColors.Prograde))
         if (telemetry.overheating) add(Chip("OVERHEAT", percent(telemetry.heat), severity(telemetry.heat)))
         if (telemetry.straining) add(Chip("STRUCTURE", percent(telemetry.structure), severity(telemetry.structure)))
         if (telemetry.hurt) {

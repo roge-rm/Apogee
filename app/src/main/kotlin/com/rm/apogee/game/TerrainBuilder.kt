@@ -69,7 +69,10 @@ class TerrainBuilder(
             QualityTier.HIGH -> 256
         }
 
-    /** Levels short of the collider's resolution the finest chunk stops at. */
+    /** The collider's own resolution, as a chunk level: the finest there is. */
+    private fun fullLevel(field: Terrain): Int = TerrainChunk.finestLevel(field.tiles.tilesPerFace)
+
+    /** Levels short of the collider's resolution the finest chunk stops at - beyond [FULL_DETAIL_METRES]. */
     private val detailOffset: Int
         get() = when (quality) {
             QualityTier.LOW -> 2
@@ -110,6 +113,20 @@ class TerrainBuilder(
     private val centres = HashMap<ChunkKey, Vec3>()
 
     private var selections = 0L
+
+    /**
+     * Chunks seen stuck, and the selection they were first seen at: asked
+     * for but skipped because the source says it has them, or built and
+     * never uploaded. Neither should last; if one does - a chunk orphaned
+     * somewhere between builder, source and GPU - the loading screen waits
+     * on it for ever. Past [STUCK_SELECTIONS] it is dropped everywhere and
+     * built afresh. Game thread only.
+     */
+    private val stuckSince = HashMap<ChunkKey, Long>()
+    private val stuckSeen = HashSet<ChunkKey>()
+
+    /** Set by [stop]: a worker still finishing a chunk throws it away rather than publish it. */
+    @Volatile private var stopped = false
     private var lostThisSelection = 0
 
     /** Every square the current selection reached: the tree it wants, drawn or not. */
@@ -223,6 +240,9 @@ class TerrainBuilder(
         // chunk ground everywhere; with any square missing - after the GPU
         // lost its chunks, say - it fills in underneath rather than leaving
         // sky or sea showing through the hole.
+        // Anything no longer stuck is forgotten.
+        if (stuckSince.isNotEmpty()) stuckSince.keys.retainAll(stuckSeen)
+        stuckSeen.clear()
         if (!complete) chunkRange = 0.0
         if (complete && nearestWaiting > READY_RADIUS_METRES &&
             (requests.isEmpty() || requests.first().first > READY_RADIUS_METRES)
@@ -287,7 +307,12 @@ class TerrainBuilder(
         // by a metre across it flipped the chunk between parent and children
         // frame to frame - a coarser patch of ground blinking in and out.
         val splitAt = size * splitDistance * (if (key in splitLast) MERGE_HYSTERESIS else 1.0)
-        if (key.level < maxLevel && distance < splitAt) {
+        // Right round the craft, the ground is drawn as finely as the collider
+        // holds it, whatever the tier: a coarser mesh over rough ground sits
+        // metres off the surface the craft actually rests on, and a landed
+        // pod in the mountains was drawn buried to its nose.
+        val deepest = if (distance < FULL_DETAIL_METRES) fullLevel(field) else maxLevel
+        if (key.level < deepest && distance < splitAt) {
             splitNow.add(key)
             val start = draw.size
             var missing = 0
@@ -318,16 +343,21 @@ class TerrainBuilder(
             // Built, on its way to the GPU: nothing to request, but not
             // drawable yet either, so whatever is coarser stands in.
             if (distance < nearestWaiting) nearestWaiting = distance
+            stuck(key)
             return false
         }
         if (built.remove(key) != null) lostThisSelection++
         requests.add(distance to key)
+        // Asked for, but the source claims to have it: no worker will touch
+        // it. Normal for the frame or two before a finished build is
+        // collected; stuck if it lasts.
+        if (source.isAvailable(key) && synchronized(lock) { key !in inFlight }) stuck(key)
         // Merging back from finer ground whose parent the GPU has since let
         // go: keep the finer ground until the parent is back. Without this
         // the square fell to the nearest ancestor still uploaded - sometimes
         // a whole face of the planet - and for a frame or two the ground was
         // one flat slab, or gone with the sea showing through.
-        if (key.level < maxLevel && key in drawnBelow && drawUploadedBelow(key, maxLevel, draw)) return true
+        if (key.level < fullLevel(field) && key in drawnBelow && drawUploadedBelow(key, fullLevel(field), draw)) return true
         return false
     }
 
@@ -353,6 +383,26 @@ class TerrainBuilder(
                 return false
             }
         }
+        return true
+    }
+
+    /**
+     * Notes [key] as stuck this selection; once it has been for too long,
+     * drops it from here and the source so it is built from scratch, and
+     * says so. True if it was dropped.
+     */
+    private fun stuck(key: ChunkKey): Boolean {
+        stuckSeen.add(key)
+        val since = stuckSince.getOrPut(key) { selections }
+        if (selections - since < STUCK_SELECTIONS) return false
+        android.util.Log.w(
+            "ApogeeTerrain",
+            "chunk $key stuck for ${selections - since} selections (available=${source.isAvailable(key)} " +
+                "uploaded=${source.isUploaded(key)} built=${built[key] != null}): rebuilding it",
+        )
+        stuckSince.remove(key)
+        built.remove(key)
+        source.release(key)
         return true
     }
 
@@ -391,6 +441,10 @@ class TerrainBuilder(
                         val started = System.nanoTime()
                         val data = TerrainChunk.build(field, key)
                         recordBuild(System.nanoTime() - started)
+                        // Stopped mid-build - replaced by a builder of another
+                        // quality: published now, the source would have it and
+                        // the new builder never would, and would wait on it.
+                        if (stopped) continue
                         source.publishChunk(data)
                         onBuilt(data)
                     } finally {
@@ -428,6 +482,7 @@ class TerrainBuilder(
     }
 
     fun stop() {
+        stopped = true
         workers.forEach { it.cancel() }
         workers = emptyList()
         synchronized(lock) {
@@ -461,6 +516,9 @@ class TerrainBuilder(
         const val CHUNK_CEILING_METRES = 200_000.0
 
         const val WORKERS = 2
+
+        /** Selections a chunk may stay stuck before it is rebuilt: a few seconds. */
+        const val STUCK_SELECTIONS = 180L
         const val IDLE_POLL_MILLIS = 8L
         const val MAX_CENTRES = 20_000
 
@@ -474,5 +532,11 @@ class TerrainBuilder(
 
         /** How much further out a split chunk stays split than it split at. */
         const val MERGE_HYSTERESIS = 1.2
+
+        /**
+         * How far round the craft, m, the ground is drawn at the collider's
+         * own resolution on every tier - a few dozen extra chunks.
+         */
+        const val FULL_DETAIL_METRES = 80.0
     }
 }

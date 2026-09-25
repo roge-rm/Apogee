@@ -5,6 +5,7 @@
 //
 // Each file is a little scene: a held sound swept through its range, or a
 // one-shot at a few strengths. A line per file gives its peak and RMS.
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -54,6 +55,64 @@ struct Shot {
 
 bool raw = false;
 
+/** A direct-form biquad in double, for measuring. */
+struct Biquad {
+    double b0, b1, b2, a1, a2, z1 = 0, z2 = 0;
+    double run(double x) {
+        double y = b0 * x + z1;
+        z1 = b1 * x - a1 * y + z2;
+        z2 = b2 * x - a2 * y;
+        return y;
+    }
+};
+
+/**
+ * How loud it sounds rather than how much power it has: ITU-R BS.1770
+ * K-weighting (a lift above ~1.5 kHz, a cut below ~60 Hz) at 48 kHz,
+ * in LUFS. Two sounds at the same RMS can be far apart by ear - a high
+ * whine carries much more than a low rumble.
+ */
+double loudness(const std::vector<float>& stereo, bool phone = false) {
+    // A phone's own speaker gives little below ~350 Hz: measured through a
+    // fourth-order high pass there too, it is what Dan actually hears.
+    auto highPass = [](double freq) {
+        double w = 2.0 * M_PI * freq / 48000.0, alpha = std::sin(w) / (2.0 * 0.7071), c = std::cos(w), a0 = 1 + alpha;
+        return Biquad{(1 + c) / 2 / a0, -(1 + c) / a0, (1 + c) / 2 / a0, -2 * c / a0, (1 - alpha) / a0};
+    };
+    double sum = 0;
+    for (int ch = 0; ch < 2; ++ch) {
+        Biquad shelf{1.53512485958697, -2.69169618940638, 1.19839281085285, -1.69065929318241, 0.73248077421585};
+        Biquad high{1.0, -2.0, 1.0, -1.99004745483398, 0.99007225036621};
+        Biquad speaker1 = highPass(350), speaker2 = highPass(350);
+        for (size_t i = ch; i < stereo.size(); i += 2) {
+            double x = stereo[i];
+            if (phone) x = speaker2.run(speaker1.run(x));
+            double y = high.run(shelf.run(x));
+            sum += y * y;
+        }
+    }
+    return -0.691 + 10.0 * std::log10(std::max(1e-12, sum / std::max<size_t>(1, stereo.size() / 2)));
+}
+
+/** Where the energy sits: dB in each octave from 63 Hz to 8 kHz, relative to the loudest. */
+std::string octaves(const std::vector<float>& stereo) {
+    const float centres[] = {63, 125, 250, 500, 1000, 2000, 4000, 8000};
+    double energy[8] = {};
+    for (int b = 0; b < 8; ++b) {
+        Svf f;
+        f.set(centres[b], 1.41f, kRate);
+        for (size_t i = 0; i < stereo.size(); i += 2) { f.process(stereo[i]); energy[b] += f.band * f.band; }
+    }
+    double most = *std::max_element(energy, energy + 8);
+    std::string line;
+    char cell[16];
+    for (double e : energy) {
+        std::snprintf(cell, sizeof cell, "%5.0f", 10.0 * std::log10(std::max(1e-12, e / most)));
+        line += cell;
+    }
+    return line;
+}
+
 void render(const std::string& dir, const std::string& name, float seconds, std::vector<Held> held,
             std::vector<Shot> shots = {}, float room = 0.15f) {
     Synth synth(kRate, 48);
@@ -90,8 +149,9 @@ void render(const std::string& dir, const std::string& name, float seconds, std:
     double sum = 0; float peak = 0;
     for (float s : out) { sum += s * s; peak = std::max(peak, std::fabs(s)); }
     double rms = std::sqrt(sum / std::max<size_t>(1, out.size()));
-    std::printf("%-22s peak %6.1f dBFS   rms %6.1f dBFS\n", name.c_str(),
-                20.0 * std::log10(std::max(1e-9f, peak)), 20.0 * std::log10(std::max(1e-12, rms)));
+    std::printf("%-22s peak %6.1f  rms %6.1f dBFS  loud %6.1f  phone %6.1f LUFS  octaves 63..8k:%s\n", name.c_str(),
+                20.0 * std::log10(std::max(1e-9f, peak)), 20.0 * std::log10(std::max(1e-12, rms)),
+                loudness(out), loudness(out, true), octaves(out).c_str());
     writeWav(dir + "/" + name + ".wav", out);
 }
 
@@ -114,7 +174,34 @@ int main(int argc, char** argv) {
     render(dir, "rover-gravel", 6, {{recipe::ROVER, 0, [](float t, float* p) { p[0] = 0.6f; p[1] = 12 * ramp(t); p[2] = 0.8f; }}});
     render(dir, "rover-skid", 4, {{recipe::ROVER, 0, [](float t, float* p) { p[0] = 0.8f; p[1] = 10; p[2] = 0.2f; p[3] = t > 0.4f ? 1 : 0; }}});
     render(dir, "outboard", 6, {{recipe::OUTBOARD, 0, [](float t, float* p) { p[0] = 0.8f; p[1] = ramp(t); }}});
-    render(dir, "rcs", 3, {{recipe::RCS, 0, [](float t, float* p) { p[0] = (static_cast<int>(t * 12) % 3 == 0) ? 1.0f : 0.0f; }}});
+    render(dir, "rcs", 6, {{recipe::RCS, 0, [](float t, float* p) { p[0] = ramp(t); }}});
+
+    // Each vehicle held steady as the game drives it (SoundScene's numbers),
+    // at full power and cruising, to set them against each other by ear.
+    render(dir, "level-rocket-full", 5, {{recipe::ROCKET, 0, [](float, float* p) { p[0] = 1; p[1] = 0.8f; p[2] = 1; p[3] = 0.62f; }}});
+    render(dir, "level-rocket-booster", 5, {{recipe::ROCKET, 0, [](float, float* p) { p[0] = 1; p[1] = 0.55f; p[2] = 1; p[3] = 0.52f; p[4] = 0.22f; }}});
+    render(dir, "level-rocket-vacuum", 5, {{recipe::ROCKET, 0, [](float, float* p) { p[0] = 1; p[1] = 0.15f; p[2] = 1; p[3] = 0.36f; p[4] = 0.75f; }}});
+    render(dir, "level-rover-rock", 5, {{recipe::ROVER, 0, [](float, float* p) { p[0] = 0.6f; p[1] = 10; p[2] = 0.9f; p[4] = 0.0f; }}});
+    render(dir, "level-rover-sand", 5, {{recipe::ROVER, 0, [](float, float* p) { p[0] = 0.6f; p[1] = 10; p[2] = 0.7f; p[4] = 1.0f; }}});
+    render(dir, "level-rcs", 6, {{recipe::RCS, 0, [](float, float* p) { p[0] = 1.0f; }}});
+    render(dir, "level-surf", 16, {{recipe::SURF, 0, [](float, float* p) { p[0] = 1.0f; }}});
+    // A plane going by at 150 m/s: Doppler from high to low as it passes.
+    render(dir, "doppler-flyby", 8, {{recipe::JET, 0, [](float t, float* p) {
+        float x = (t - 0.5f) * 8.0f * 150.0f, d = std::sqrt(x * x + 60.0f * 60.0f);
+        p[0] = 1; p[1] = 0.8f; p[2] = 0.5f;
+        p[8] = 343.0f / (343.0f + 150.0f * x / d);
+        p[5] = 60.0f / (60.0f + d * 0.5f) * 3.0f;
+    }}});
+    render(dir, "level-rocket-small", 5, {{recipe::ROCKET, 0, [](float, float* p) { p[0] = 1; p[1] = 0.1f; p[2] = 1; p[3] = 0.34f; }}});
+    render(dir, "level-jet-full", 5, {{recipe::JET, 0, [](float, float* p) { p[0] = 1; p[1] = 1; p[2] = 0.5f; }}});
+    render(dir, "level-jet-cruise", 5, {{recipe::JET, 0, [](float, float* p) { p[0] = 0.35f + 0.65f * 0.6f; p[1] = 0.6f; p[2] = 0.5f; }}});
+    render(dir, "level-jet-idle", 5, {{recipe::JET, 0, [](float, float* p) { p[0] = 0.35f; p[1] = 0; p[2] = 0.5f; }}});
+    render(dir, "level-prop-full", 5, {{recipe::PROP, 0, [](float, float* p) { p[0] = 1; p[1] = 100; p[2] = 1; }}});
+    render(dir, "level-prop-cruise", 5, {{recipe::PROP, 0, [](float, float* p) { p[0] = 0.3f + 0.7f * 0.6f; p[1] = 30 + 70 * 0.6f; p[2] = 0.6f; }}});
+    render(dir, "level-outboard-full", 5, {{recipe::OUTBOARD, 0, [](float, float* p) { p[0] = 1; p[1] = 1; }}});
+    render(dir, "level-outboard-cruise", 5, {{recipe::OUTBOARD, 0, [](float, float* p) { p[0] = 0.4f + 0.6f * 0.6f; p[1] = 0.6f; }}});
+    render(dir, "level-rover-full", 5, {{recipe::ROVER, 0, [](float, float* p) { p[0] = 1; p[1] = 16; p[2] = 0.5f; }}});
+    render(dir, "level-rover-cruise", 5, {{recipe::ROVER, 0, [](float, float* p) { p[0] = 0.5f; p[1] = 8; p[2] = 0.5f; }}});
 
     // Air and strain.
     render(dir, "airflow", 8, {{recipe::AIRFLOW, 0, [](float t, float* p) { p[0] = ramp(t); p[1] = ramp(t); p[2] = std::max(0.0f, ramp(t) - 0.6f) * 2.5f; }}});
@@ -126,7 +213,7 @@ int main(int argc, char** argv) {
     render(dir, "rain", 6, {{recipe::RAIN, 0, [](float t, float* p) { p[0] = 0.7f; p[1] = t; }}});
     render(dir, "surf", 16, {{recipe::SURF, 0, [](float, float* p) { p[0] = 0.8f; }}});
     render(dir, "fire", 6, {{recipe::FIRE, 0, [](float, float* p) { p[0] = 0.8f; }}});
-    render(dir, "cabin", 10, {{recipe::CABIN, flag::HULL, [](float, float* p) { p[0] = 0.8f; }}}, {}, 0.5f);
+    render(dir, "cabin", 10, {{recipe::CABIN, flag::HULL, [](float, float* p) { p[0] = 0.8f; p[1] = 1.0f; p[2] = 1.0f; }}}, {}, 0.5f);
     render(dir, "thunder", 10, {}, {{0.2f, recipe::THUNDER, {1.0f}}, {4.5f, recipe::THUNDER, {0.2f}}});
 
     // Crashes.

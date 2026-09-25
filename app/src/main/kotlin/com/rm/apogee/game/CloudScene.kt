@@ -49,18 +49,31 @@ class CloudScene(
     private class Lobe(
         val centre: Vec3, val up: Quat, val scale: Vec3, val colour: FloatArray, val variant: Int, val flat: Boolean,
         val distance: Double,
-        /** Whether this device can afford the finest mesh up close. */
-        val fine: Boolean,
+        private val tier: QualityTier,
+        /** A rain curtain, not a puff. */
+        val rain: Boolean = false,
+        /** Part of a storm: drawn before anything else. */
+        val storm: Boolean = false,
     ) {
         /**
          * Close puffs are the finest mesh, small facets that read as billows
-         * rather than slabs; near ones a quarter of that; far ones a quarter
-         * again.
+         * rather than slabs; further out each step a quarter the facets.
+         * One step finer at every distance than it was (Dan: some still
+         * looked solid) - the finest of all only where the device can take it.
          */
-        val detail: Int get() = when {
-            fine && distance < CLOSE_DETAIL -> 3
-            distance < NEAR_DETAIL -> 2
-            else -> 1
+        val detail: Int get() = when (tier) {
+            QualityTier.HIGH -> when {
+                distance < 3_000.0 -> 4
+                distance < 9_000.0 -> 3
+                distance < 25_000.0 -> 2
+                else -> 1
+            }
+            QualityTier.MEDIUM -> when {
+                distance < 5_000.0 -> 3
+                distance < 14_000.0 -> 2
+                else -> 1
+            }
+            QualityTier.LOW -> if (distance < NEAR_DETAIL) 2 else 1
         }
     }
 
@@ -77,9 +90,11 @@ class CloudScene(
     }
 
     private val maxLobes: Int get() = when (tier) {
-        QualityTier.LOW -> 140
-        QualityTier.MEDIUM -> 450
-        QualityTier.HIGH -> 1_000
+        // Room on LOW for a storm - a hundred and twenty lobes, drawn first -
+        // and the cumulus round it.
+        QualityTier.LOW -> 260
+        QualityTier.MEDIUM -> 800
+        QualityTier.HIGH -> 1_800
     }
 
     /** The wind near the ground under the camera, body-fixed: for trees to lean in. */
@@ -92,6 +107,7 @@ class CloudScene(
         if (time - windAt > 0.25) {
             windAt = time
             weather.surfaceWind(direction.setTo(camera).normalizeInPlace(), time, surfaceWind)
+            overcast = weather.overcastAbove(direction, camera.length - body.radius, time)
         }
         if (listing) return
         if (time - listedAt < RELIST_SECONDS && camera.distanceTo(listedFrom) < RELIST_DISTANCE) return
@@ -116,16 +132,63 @@ class CloudScene(
         shapes.clear()
         listingWeather.clouds(camera.copy().normalizeInPlace(), reach, time, shapes)
         val list = ArrayList<Lobe>(shapes.size * 4)
+        val curtains = ArrayList<Lobe>()
         for (shape in shapes) {
             for (lobe in shape.lobes) {
                 val distance = lobe.centre.distanceTo(camera) - lobe.horizontal
                 if (distance > reach) continue
                 list.add(lobeFor(shape.type, shape.amount, lobe, distance))
             }
+            for (lobe in shape.rain) {
+                val distance = lobe.centre.distanceTo(camera) - lobe.horizontal
+                if (distance > reach) continue
+                curtains.add(curtainFor(lobe, distance, reach))
+            }
         }
-        // Nearest first, as many as the device can draw.
-        list.sortBy { it.distance }
-        return if (list.size > maxLobes) list.subList(0, maxLobes).toList() else list
+        buildShadow(camera, time)
+        // Storms first, whatever their distance - a few dozen lobes each, and
+        // what a pilot most needs to see coming: nearest-first alone, a busy
+        // day's cumulus filled the budget within twenty kilometres and a
+        // storm beyond them was never drawn. Then the rest, nearest first, as
+        // many as the device can draw; the rain besides.
+        list.sortWith(compareBy<Lobe>({ !it.storm }, { it.distance }))
+        val kept = if (list.size > maxLobes) list.subList(0, maxLobes).toMutableList() else list
+        kept.addAll(curtains)
+        return kept
+    }
+
+    /** The clouds' shadows on the ground round the camera, as last worked out; or null. */
+    @Volatile var shadowGrid: com.rm.apogee.render.CloudShadowGrid? = null
+        private set
+    private var shadowRevision = 0
+
+    /**
+     * Casts the clouds just listed onto the ground round [camera] (body-fixed):
+     * by the sun, or by the moon at night, more faintly.
+     */
+    private fun buildShadow(camera: Vec3, time: Double) {
+        val up = camera.copy().normalizeInPlace()
+        val sun = body.rotationAt(time).inverseRotate(com.rm.apogee.core.world.LaunchTime.SUN_DIRECTION, Vec3())
+        val (light, strength) = if ((sun dot up) > 0.08) sun to 0.6f else sun.copy().mulInPlace(-1.0) to 0.35f
+        val ground = kotlin.math.max(body.terrain?.elevation(up) ?: 0.0, 0.0)
+        val fine = tier == QualityTier.HIGH
+        shadowGrid = com.rm.apogee.render.CloudShadowGrid.build(
+            shapes, up, body.radius, ground, light, strength,
+            size = if (fine) 192 else 128, extent = if (fine) 30_000.0 else 20_000.0, revision = ++shadowRevision,
+        )
+    }
+
+    /** A storm's rain seen from outside it: a grey curtain from its base to the ground. */
+    private fun curtainFor(lobe: com.rm.apogee.core.weather.CloudLobe, distance: Double, reach: Double): Lobe {
+        val up = Vec3().setTo(lobe.centre).normalizeInPlace()
+        // Dark and nearly solid: pale, it vanished against the sky behind -
+        // and at 55% it still did, beside the darker storms (Dan).
+        val alpha = 0.8 * lobe.shade * (1.0 - smooth(0.65 * reach, reach, distance))
+        return Lobe(
+            lobe.centre, quatFromTo(Vec3.unitY(), up), Vec3(lobe.horizontal, lobe.vertical, lobe.horizontal),
+            floatArrayOf(0.22f, 0.24f, 0.29f, alpha.toFloat()), variant = 0, flat = false, distance = distance, tier = tier,
+            rain = true,
+        )
     }
 
     /** A drawable lobe: turned its own way, shaped by where it is, coloured and faded. */
@@ -150,9 +213,10 @@ class CloudScene(
             Vec3(lobe.horizontal, lobe.vertical, lobe.horizontal),
             colour,
             variant = (hash and 0xFF).mod(CloudShapes.VARIANTS),
-            flat = flatForced || type == CloudType.STRATUS || type == CloudType.ALTOSTRATUS || type == CloudType.CIRRUS,
+            flat = flatForced || lobe.flat || type == CloudType.STRATUS || type == CloudType.ALTOSTRATUS || type == CloudType.CIRRUS,
             distance = distance,
-            fine = tier != QualityTier.LOW,
+            tier = tier,
+            storm = type == CloudType.CUMULONIMBUS,
         )
     }
 
@@ -162,6 +226,15 @@ class CloudScene(
     fun append(bodyRotation: Quat, out: MutableList<RenderItem>) {
         for (lobe in lobes) {
             bodyRotation.rotate(lobe.centre, turned)
+            if (lobe.rain) {
+                out.add(
+                    RenderItem(
+                        shape = RAIN_CURTAIN, position = turned.copy(), rotation = bodyRotation * lobe.up,
+                        color = lobe.colour, caps = 0, scale = lobe.scale, ambient = 0.5f,
+                    ),
+                )
+                continue
+            }
             out.add(
                 RenderItem(
                     shape = CloudPuff(lobe.variant, lobe.flat, lobe.detail),
@@ -314,13 +387,20 @@ class CloudScene(
     val skyFog: Float get() = smooth(0.05, 0.45, air.cloudDensity).toFloat()
 
     /** Sunlight left under whatever storm is near. */
-    val lightScale: Float get() = (1.0 - 0.6 * air.storm - 0.25 * air.precipitation).coerceIn(0.25, 1.0).toFloat()
+    /** How much a deck overhead closes off the sky, 0..1. */
+    @Volatile private var overcast = 0.0
+
+    /** Sunlight left: a storm, rain, or an overcast over the camera dims it. */
+    val lightScale: Float get() =
+        (1.0 - 0.6 * air.storm - 0.25 * air.precipitation - 0.4 * overcast).coerceIn(0.25, 1.0).toFloat()
 
     private fun colourOf(type: CloudType, shade: Double): FloatArray {
         val s = shade.toFloat()
         return when (type) {
             CloudType.CUMULUS -> floatArrayOf(0.97f * s, 0.98f * s, 1.0f * s, 1f)
-            CloudType.CUMULONIMBUS -> floatArrayOf(0.80f * s, 0.82f * s, 0.88f * s, 1f)
+            // Darker than any other cloud, and a cold blue-grey: a storm
+            // should look like trouble from thirty kilometres off.
+            CloudType.CUMULONIMBUS -> floatArrayOf(0.60f * s, 0.63f * s, 0.72f * s, 1f)
             CloudType.STRATUS -> floatArrayOf(0.80f * s, 0.82f * s, 0.86f * s, 1f)
             CloudType.ALTOSTRATUS -> floatArrayOf(0.86f * s, 0.88f * s, 0.92f * s, 1f)
             CloudType.CIRRUS -> floatArrayOf(0.95f, 0.97f, 1.0f, 1f)
@@ -334,11 +414,19 @@ class CloudScene(
 
     private companion object {
         /** Opacity of each kind at its thickest, by ordinal. */
-        val OPACITY = doubleArrayOf(0.85, 0.55, 0.45, 0.25, 0.95)
+        val OPACITY = doubleArrayOf(0.85, 0.55, 0.45, 0.25, 1.0)
 
         /** Metres out to which puffs get the finest mesh, and the fine one. */
-        const val CLOSE_DETAIL = 2_500.0
         const val NEAR_DETAIL = 6_000.0
+
+        /**
+         * Rain seen from afar: a ragged column, a little wider at the ground
+         * where it spreads, open at both ends.
+         */
+        val RAIN_CURTAIN = com.rm.apogee.core.part.ModelSpec.Lathe(
+            listOf(listOf(1.05, -1.0), listOf(0.98, -0.55), listOf(0.9, 0.0), listOf(0.94, 0.5), listOf(0.85, 1.0)),
+            segments = 12,
+        )
 
         const val MAP_SPACING = 70_000.0
         const val MAP_RELIST_SECONDS = 30.0

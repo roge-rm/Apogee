@@ -11,7 +11,7 @@ import kotlin.math.roundToInt
  * A craft's moving parts, packed for the wire: one byte per value, in part
  * order - a control surface's deflection; an engine's output, and if it
  * gimbals its pitch and yaw; a wheel's steering and then its suspension; a
- * leg's deploy.
+ * leg's deploy; a thruster block's push, three values in the craft's axes.
  *
  * Every client draws another player's craft from these, so the elevon, the
  * steered wheel and the half-deployed leg they see are the ones the pilot
@@ -32,6 +32,12 @@ object VesselPose {
 
     private fun engine(def: PartDef): Boolean = def.module<com.rm.apogee.core.part.Engine>() != null
 
+    /** A leg swinging down, or a chute filling (below 0: cut away). */
+    private fun deploys(def: PartDef): Boolean =
+        def.module<LandingLeg>() != null || def.module<com.rm.apogee.core.part.Parachute>() != null
+
+    private fun thruster(def: PartDef): Boolean = def.module<com.rm.apogee.core.part.Rcs>() != null
+
     /** Values per part, for [defs] in order. */
     private fun slots(def: PartDef): Int {
         var n = 0
@@ -39,7 +45,8 @@ object VesselPose {
         if (engine(def)) n++
         if (gimballed(def)) n += 2
         if (def.module<Wheel>() != null) n += 2
-        if (def.module<LandingLeg>() != null) n++
+        if (deploys(def)) n++
+        if (thruster(def)) n += 3
         return n
     }
 
@@ -65,8 +72,11 @@ object VesselPose {
                 out[k++] = signed(vessel.wheelSteer[i] / range)
                 out[k++] = signed(vessel.wheelCompression[i] / wheel.suspensionTravel.coerceAtLeast(1e-6))
             }
-            if (def.module<LandingLeg>() != null) {
+            if (deploys(def)) {
                 out[k++] = signed(vessel.legDeploy[i])
+            }
+            if (thruster(def)) {
+                for (a in 0 until 3) out[k++] = signed(vessel.rcsFiring[i * 3 + a])
             }
         }
         return out
@@ -92,8 +102,11 @@ object VesselPose {
                 into.steer[i] = unsigned(bytes[k++]) * Math.toRadians(wheel.steeringRange)
                 into.compression[i] = unsigned(bytes[k++]) * wheel.suspensionTravel
             }
-            if (def.module<LandingLeg>() != null) {
+            if (deploys(def)) {
                 into.deploy[i] = unsigned(bytes[k++])
+            }
+            if (thruster(def)) {
+                for (a in 0 until 3) into.rcs[i * 3 + a] = unsigned(bytes[k++])
             }
         }
         return true
@@ -109,6 +122,8 @@ object VesselPose {
         var gimbalYaw = DoubleArray(0); private set
         /** Engines: output, 0..1 of full thrust. */
         var output = DoubleArray(0); private set
+        /** Thruster blocks: push, three per part in the craft's axes, length 0..1 of thrust. */
+        var rcs = DoubleArray(0); private set
 
         fun fit(n: Int) {
             if (deflection.size == n) return
@@ -116,6 +131,7 @@ object VesselPose {
             compression = DoubleArray(n); deploy = DoubleArray(n)
             gimbalPitch = DoubleArray(n); gimbalYaw = DoubleArray(n)
             output = DoubleArray(n)
+            rcs = DoubleArray(n * 3)
         }
     }
 

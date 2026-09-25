@@ -166,6 +166,15 @@ class Vessel(
     var engineOutput = DoubleArray(design.parts.size)
         private set
 
+    /**
+     * Thruster blocks: which way each is pushing the craft this tick, and
+     * how hard - three values per part, in the craft's own axes, the length
+     * 0..1 of its thrust. Sliding and turning together; zero for a block at
+     * rest and for every other part. What the puffs and the sound follow.
+     */
+    var rcsFiring = DoubleArray(design.parts.size * 3)
+        private set
+
     /** New pose arrays for a changed structure, keeping each leg's deploy. */
     private fun resetPose(deploy: DoubleArray) {
         surfaceDeflection = DoubleArray(deploy.size)
@@ -174,12 +183,16 @@ class Vessel(
         gimbalPitch = DoubleArray(deploy.size)
         gimbalYaw = DoubleArray(deploy.size)
         engineOutput = DoubleArray(deploy.size)
+        rcsFiring = DoubleArray(deploy.size * 3)
         legDeploy = deploy
     }
 
-    /** Sets a leg's deploy progress: restoring a save, or mirroring the server. */
+    /**
+     * Sets a leg's deploy progress, or a chute's (below 0 for cut away):
+     * restoring a save, mirroring the server, or the chute filling.
+     */
     fun setLegDeploy(index: Int, progress: Double) {
-        if (index in legDeploy.indices) legDeploy[index] = progress.coerceIn(0.0, 1.0)
+        if (index in legDeploy.indices) legDeploy[index] = progress.coerceIn(-1.0, 1.0)
     }
 
     /** Resizes the pose arrays after the structure changes. */
@@ -192,11 +205,36 @@ class Vessel(
         gimbalPitch = DoubleArray(n)
         gimbalYaw = DoubleArray(n)
         engineOutput = DoubleArray(n)
-        legDeploy = DoubleArray(n) { if (it < activated.size && isWorking(it)) 1.0 else 0.0 }
+        rcsFiring = DoubleArray(n * 3)
+        // Staged legs start down; a staged chute starts packed, and opens
+        // itself when it is safe to.
+        legDeploy = DoubleArray(n) {
+            if (it < activated.size && isWorking(it) && defs[it].module<com.rm.apogee.core.part.Parachute>() == null) 1.0 else 0.0
+        }
     }
 
     /** Whether anything of this craft touched the ground last tick. */
     var touchingGround: Boolean = false
+
+    /**
+     * How long it has been down, s: counting while it touches, and let go
+     * only once it has been off the ground half a second - a craft dragged
+     * or bouncing along is still down. What cuts a chute away on landing.
+     */
+    var groundedSeconds: Double = 0.0
+        private set
+    private var liftedSeconds = 0.0
+
+    /** Counts [groundedSeconds] on by [dt], from whether it touched this tick. */
+    fun countGrounded(touching: Boolean, dt: Double) {
+        if (touching) {
+            groundedSeconds += dt
+            liftedSeconds = 0.0
+        } else {
+            liftedSeconds += dt
+            if (liftedSeconds > 0.5) groundedSeconds = 0.0
+        }
+    }
 
     /**
      * How many contact points it had on the ground last tick. Sharing the
@@ -296,6 +334,14 @@ class Vessel(
      * strength: 1 is the limit. For the HUD, the sound and the camera.
      */
     var jointLoad: FloatArray = FloatArray(design.parts.size)
+        private set
+
+    /**
+     * Each wing and fin's air load this tick as a share of what it is built
+     * for, from the drag pass - handed on to [jointLoad] by the stress pass,
+     * which does not judge them itself.
+     */
+    var surfaceLoad: FloatArray = FloatArray(design.parts.size)
         private set
 
     /**
@@ -1003,6 +1049,7 @@ class Vessel(
         wet = null
         partForce = DoubleArray(parts * 3)
         jointLoad = FloatArray(parts)
+        surfaceLoad = FloatArray(parts)
         stress = 0.0
         worstJoint = -1
     }

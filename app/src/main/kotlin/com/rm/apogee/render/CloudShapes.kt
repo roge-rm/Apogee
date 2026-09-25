@@ -12,7 +12,7 @@ import kotlin.math.sqrt
 data class CloudPuff(
     val variant: Int,
     val flat: Boolean = false,
-    /** Subdivisions of the icosahedron: 3 close (1,280 facets), 2 near (320), 1 far (80). */
+    /** Subdivisions of the icosahedron: 4 closest (5,120 facets), 3 close (1,280), 2 near (320), 1 far (80). */
     val detail: Int = 2,
 ) : Shape
 
@@ -26,13 +26,16 @@ object CloudShapes {
     const val VARIANTS = 12
 
     fun puff(shape: CloudPuff): MeshData {
-        val (vertices, faces) = icosphere(shape.detail.coerceIn(0, 3))
+        val (vertices, faces) = icosphere(shape.detail.coerceIn(0, 4))
         val seed = 0xC10D + shape.variant * 7919
         val displaced = vertices.map { v ->
             // Broad billows, gently: a finer, stronger layer pushed the
             // facets out into spikes and cracks - rock, not cloud.
+            // The finest meshes carry one more, small layer of billow - only
+            // there, where there are facets enough to show it as roundness.
+            val fine = if (shape.detail >= 3) 0.035 * Noise.simplex(seed + 2, v[0] * 5.0, v[1] * 5.0, v[2] * 5.0) else 0.0
             val bump = 1.0 + 0.2 * Noise.simplex(seed, v[0] * 1.3, v[1] * 1.3, v[2] * 1.3) +
-                0.05 * Noise.simplex(seed + 1, v[0] * 2.6, v[1] * 2.6, v[2] * 2.6)
+                0.05 * Noise.simplex(seed + 1, v[0] * 2.6, v[1] * 2.6, v[2] * 2.6) + fine
             val p = doubleArrayOf(v[0] * bump, v[1] * bump, v[2] * bump)
             if (shape.flat) p[1] *= 0.55
             // A flat base: cloud forms at a level, and stops there.

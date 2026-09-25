@@ -40,6 +40,20 @@ class VesselConditionTest {
     }
 
     @Test
+    fun `a straining joint is sent, and a quiet one is not`() {
+        val world = World.default(catalog)
+        val rocket = world.spawnOnSurface(StockCraft.starterRocket(catalog), World.launchSites.first())
+        rocket.jointLoad[3] = 0.5f
+        assertEquals("under what shows, nothing to send", 0, VesselCondition.encode(rocket).size)
+        rocket.jointLoad[3] = 0.95f
+        val values = VesselCondition.decode(rocket.design.parts.size, VesselCondition.encode(rocket), VesselCondition.Values())
+        assertTrue(values.any)
+        assertEquals(0.95f, values.load[3], 0.01f)
+        assertEquals(0f, values.load[1], 0.001f)
+        assertEquals("whole, for all its straining", 1f, values.health[3], 0.001f)
+    }
+
+    @Test
     fun `a block for the wrong shape reads as whole`() {
         val values = VesselCondition.decode(4, ByteArray(3 * VesselCondition.BYTES_PER_PART) { 7 }, VesselCondition.Values())
         assertFalse(values.any)

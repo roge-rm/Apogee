@@ -321,31 +321,127 @@ class LandingTest {
         )
     }
 
-    @Test
-    fun `a parachute deployed too fast tears away instead of stopping the craft`() {
-        val world = world()
+    private fun chuteOf(vessel: com.rm.apogee.core.craft.Vessel) =
+        vessel.defs.indexOfFirst { it.module<com.rm.apogee.core.part.Parachute>() != null }
+
+    /** The lander [height] up, falling at [speed]; its chute armed. */
+    private fun falling(world: World, height: Double, speed: Double): com.rm.apogee.core.craft.Vessel {
         val vessel = world.spawnOnSurface(StockCraft.lander(catalog), World.launchSites.first())
-        val chuteIndex = vessel.defs.indexOfFirst {
-            it.module<com.rm.apogee.core.part.Parachute>() != null
-        }
-        assertTrue("the lander should carry a chute", chuteIndex >= 0)
+        assertTrue("the lander should carry a chute", chuteOf(vessel) >= 0)
         repeat(2) { world.stage(vessel) }
-
-        // Well past the canopy's 300 m/s rating, low enough for real air.
         val up = Vec3().setTo(vessel.body.position).normalizeInPlace()
-        vessel.body.position.addScaledInPlace(up, 6_000.0)
-        val attractor = world.attractorFor(vessel)
-        attractor.surfaceVelocityAt(vessel.body.position, vessel.body.linearVelocity)
-        vessel.body.linearVelocity.addScaledInPlace(up, -450.0)
+        vessel.body.position.addScaledInPlace(up, height)
+        world.attractorFor(vessel).surfaceVelocityAt(vessel.body.position, vessel.body.linearVelocity)
+        vessel.body.linearVelocity.addScaledInPlace(up, -speed)
+        return vessel
+    }
 
+    @Test
+    fun `an armed chute waits out a fast fall, then opens itself and fills`() {
+        val world = world()
+        // Well past the canopy's 300 m/s rating: armed, it must not open yet.
+        val vessel = falling(world, 6_000.0, 450.0)
+        val chute = chuteOf(vessel)
         repeat(30) { world.step(dt) }
+        assertTrue("still whole", !vessel.isBroken(chute))
+        assertEquals("still packed", 0.0, vessel.legDeploy[chute], 0.0)
 
-        assertTrue("the canopy should have torn away", vessel.isBroken(chuteIndex))
+        // Slowed to where it is safe: it opens, and fills over a second or two.
+        world.attractorFor(vessel).surfaceVelocityAt(vessel.body.position, vessel.body.linearVelocity)
+        val up = Vec3().setTo(vessel.body.position).normalizeInPlace()
+        vessel.body.linearVelocity.addScaledInPlace(up, -150.0)
+        repeat(30) { world.step(dt) }
+        val half = vessel.legDeploy[chute]
+        assertTrue("its drogue filling after half a second: $half", half > 0.0 && half < com.rm.apogee.core.part.Parachute.DROGUE_FULL)
+        repeat(150) { world.step(dt) }
+        // High up, the drogue holds: the main waits for the ground.
+        assertEquals("drogue full, main not out", com.rm.apogee.core.part.Parachute.DROGUE_FULL, vessel.legDeploy[chute], 1e-9)
+        assertTrue("whole", !vessel.isBroken(chute))
+    }
+
+    @Test
+    fun `an open chute pushed past its rating tears away and says so`() {
+        val world = world()
+        val vessel = falling(world, 6_000.0, 150.0)
+        val chute = chuteOf(vessel)
+        repeat(180) { world.step(dt) }
+        assertTrue("open", vessel.legDeploy[chute] >= com.rm.apogee.core.part.Parachute.DROGUE_FULL - 1e-9)
+        world.drainEvents()
+        val up = Vec3().setTo(vessel.body.position).normalizeInPlace()
+        world.attractorFor(vessel).surfaceVelocityAt(vessel.body.position, vessel.body.linearVelocity)
+        vessel.body.linearVelocity.addScaledInPlace(up, -450.0)
+        repeat(5) { world.step(dt) }
+        assertTrue("the canopy should have torn away", vessel.isBroken(chute))
         assertEquals(
             "and it should say so",
             1,
-            world.drainEvents().filterIsInstance<WorldEvent.PartFailed>()
-                .count { it.partIndex == chuteIndex },
+            world.drainEvents().filterIsInstance<WorldEvent.PartFailed>().count { it.partIndex == chute },
         )
+    }
+
+    @Test
+    fun `under its chute the lander comes down gently, and the chute is cut on landing`() {
+        val world = world()
+        val vessel = falling(world, 600.0, 60.0)
+        val chute = chuteOf(vessel)
+        var touchdown = Double.NaN
+        repeat(60 * 240) {
+            if (touchdown.isNaN() && vessel.touchingGround) {
+                val v = vessel.body.linearVelocity.copy()
+                world.attractorFor(vessel).surfaceVelocityAt(vessel.body.position, Vec3()).let { v.subInPlace(it) }
+                touchdown = v.length
+            }
+            world.step(dt)
+        }
+        assertTrue("touched down gently: $touchdown m/s", touchdown < 12.0)
+        assertTrue("cut away once down: ${vessel.legDeploy[chute]}", vessel.legDeploy[chute] < 0.0)
+    }
+
+    /**
+     * Dan's fall: a Starter I's pod alone, from high up, chute armed. It
+     * fell so fast - 400 m/s a kilometre up - that the chute, waiting for a
+     * safe speed, only opened on the ground. A blunt body falls slower, and
+     * the chute must be full well before the ground.
+     */
+    @Test
+    fun `a pod falling from high up has its chute open well before the ground`() {
+        val world = world()
+        val full = StockCraft.starterRocket(catalog)
+        val pod = com.rm.apogee.core.craft.CraftDesign(
+            full.name, listOf(0, 1, 2).map { full.parts[it] },
+            stages = listOf(com.rm.apogee.core.craft.Stage(listOf(1))),
+        )
+        val terra = world.system.body("terra")
+        val up = Vec3(1.0, 0.0, 0.0)
+        val position = up.copy().mulInPlace(terra.radius + 30_000.0)
+        val velocity = terra.surfaceVelocityAt(position, Vec3()).addScaledInPlace(up, -100.0)
+        val vessel = world.spawnAt(pod, "terra", position, velocity, com.rm.apogee.core.math.quatFromTo(Vec3.unitY(), up))
+        world.stage(vessel)
+        val chute = chuteOf(vessel)
+        // Dan: a couple of minutes under the chute, not many; the drogue
+        // high up, the main low down for the last ten to twenty seconds.
+        val ground = kotlin.math.max(terra.terrain!!.elevation(up), 0.0)
+        var drogueAt = Double.NaN; var drogueTime = Double.NaN
+        var mainAt = Double.NaN; var mainTime = Double.NaN
+        var downTime = Double.NaN; var downSpeed = Double.NaN
+        var t = 0.0
+        while (t < 600.0 && downTime.isNaN()) {
+            // The speed the moment before it touches: after, the ground has it.
+            val v = vessel.body.linearVelocity.copy().subInPlace(terra.surfaceVelocityAt(vessel.body.position, Vec3())).length
+            world.step(dt); t += dt
+            val d = vessel.legDeploy[chute]
+            val agl = terra.altitudeOf(vessel.body.position) - ground
+            if (drogueTime.isNaN() && d >= com.rm.apogee.core.part.Parachute.DROGUE_FULL) { drogueAt = agl; drogueTime = t }
+            if (mainTime.isNaN() && d > com.rm.apogee.core.part.Parachute.DROGUE_FULL) { mainAt = agl; mainTime = t }
+            if (vessel.touchingGround) { downTime = t; downSpeed = v }
+        }
+        assertTrue("drogue full well above the ground: $drogueAt m", drogueAt > 3_000.0)
+        assertTrue("main out low down: $mainAt m", mainAt in 100.0..250.0)
+        assertTrue("a couple of minutes under the chute: ${downTime - drogueTime} s", downTime - drogueTime in 60.0..180.0)
+        assertTrue("about twenty seconds under the main: ${downTime - mainTime} s", downTime - mainTime in 15.0..25.0)
+        assertTrue("down gently: $downSpeed m/s", downSpeed < 11.0)
+        println("chute: drogue at %.0f m, main at %.0f m, %.0f s under the chute, %.0f s under the main, down at %.1f m/s".format(
+            drogueAt, mainAt, downTime - drogueTime, downTime - mainTime, downSpeed))
+        assertTrue("whole", !vessel.isBroken(chute))
     }
 }

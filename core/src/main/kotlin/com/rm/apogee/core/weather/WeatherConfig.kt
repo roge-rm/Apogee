@@ -40,10 +40,17 @@ enum class CloudCover(
     val humidity: Double,
     /** How thick the pockets get, and how common. */
     val pockets: Double,
+    /**
+     * Where the low and middle decks close into a blanket: over the part of
+     * a slow, broad pattern above this (0..1). Past 1, never - scattered
+     * cloud only; lower, more of the map overcast, with breaks drifting
+     * through it.
+     */
+    val blanketFrom: Double,
 ) {
-    @SerialName("light") LIGHT("Light", humidity = -0.1, pockets = 0.6),
-    @SerialName("normal") NORMAL("Normal", humidity = 0.0, pockets = 1.0),
-    @SerialName("heavy") HEAVY("Heavy", humidity = 0.12, pockets = 1.5),
+    @SerialName("light") LIGHT("Light", humidity = -0.1, pockets = 0.6, blanketFrom = 2.0),
+    @SerialName("normal") NORMAL("Normal", humidity = 0.0, pockets = 1.0, blanketFrom = 0.55),
+    @SerialName("heavy") HEAVY("Heavy", humidity = 0.12, pockets = 1.5, blanketFrom = 0.33),
 }
 
 /**

@@ -194,7 +194,51 @@ data class Parachute(
     val deployedDragCoefficient: Double = 500.0,
     /** Safe deployment speed, m/s. Above this it tears away. */
     val maxDeploymentSpeed: Double = 300.0,
-) : PartModule
+) : PartModule {
+    /**
+     * Staging a chute arms it; it opens itself once it is safe - slow enough
+     * not to shred and in air thick enough to fill it - as a small drogue: a
+     * fast, steady fall, a couple of minutes from high up. Near the ground it
+     * opens fully, for a gentle last stretch. Its state rides in the part's
+     * deploy value: 0 packed, up to [DROGUE_FULL] the drogue filling, up to
+     * 1 the main, below 0 cut away after landing.
+     */
+    companion object {
+        /** Deploy value with the drogue full and the main not yet out. */
+        const val DROGUE_FULL = 0.5
+
+        /** The drogue's drag, as a share of the full canopy's. */
+        const val DROGUE_SHARE = 0.06
+
+        /** Height over the ground or sea at which the main opens, m. */
+        const val MAIN_HEIGHT = 200.0
+
+        /** How much of the full canopy's drag a chute at [deploy] gives. */
+        fun dragShare(deploy: Double): Double = when {
+            deploy <= 0.0 -> 0.0
+            deploy <= DROGUE_FULL -> DROGUE_SHARE * (deploy / DROGUE_FULL).let { it * it }
+            else -> DROGUE_SHARE + (1.0 - DROGUE_SHARE) * ((deploy - DROGUE_FULL) / (1.0 - DROGUE_FULL)).let { it * it }
+        }
+
+        /** Opens at this share of [maxDeploymentSpeed] or slower. */
+        const val OPEN_SHARE = 0.95
+
+        /** Air at least this dense, kg/m³: high enough up, a canopy has nothing to fill it. */
+        const val OPEN_DENSITY = 0.04
+
+        /** How long it takes to fill, s. */
+        const val INFLATE_SECONDS = 1.5
+
+        /** The most an opening chute pulls, in g of the craft it carries. */
+        const val MOST_PULL_G = 6.0
+
+        /** Down, and this slow or slower, m/s: cut away, so the wind cannot drag the craft along the ground. */
+        const val CUT_SPEED = 3.0
+
+        /** Or down this long, s, however fast it is being dragged. */
+        const val CUT_AFTER = 1.5
+    }
+}
 
 /**
  * Displaces [displacedVolume] m³ when submerged.

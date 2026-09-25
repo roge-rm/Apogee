@@ -134,17 +134,22 @@ class WeatherPhysicsTest {
             val lon = Noise.hash(3, i, 1, 0) * 2 * Math.PI
             val dir = Vec3(cos(lat) * cos(lon), sin(lat), cos(lat) * sin(lon))
             strikes.clear()
-            weather.strikes(dir, 500.0, 3_000.0, strikes)
+            weather.strikes(dir, 3_000.0, 6_000.0, strikes)
             strike = strikes.firstOrNull { terra.terrain!!.elevation(it.direction) > 5.0 }
             if (strike != null) break
         }
         val target = strike ?: throw AssertionError("no strike over land found in a wild sky")
 
-        // Parked there, from the start of time, until it is asleep.
-        val ground = target.direction.copy().mulInPlace(terra.radius + terra.terrain!!.elevation(target.direction) + 1.5)
+        // Parked there before its storm has formed - a storm's whole life is
+        // shorter than this - until it is asleep: under a storm's gusts it
+        // would never settle.
+        world.syncClock(target.time - 2_600.0)
+        // The strike's place is on the turning ground; where that is now.
+        val turn = terra.rotationAt(target.time - 2_600.0)
+        val ground = turn.rotate(target.direction.copy().mulInPlace(terra.radius + terra.terrain!!.elevation(target.direction) + 1.5))
         val pod = world.spawnAt(
             StockCraft.probe(catalog), "terra", ground, terra.surfaceVelocityAt(ground, Vec3()),
-            quatFromTo(Vec3.unitY(), target.direction),
+            quatFromTo(Vec3.unitY(), ground.copy().normalizeInPlace()),
         )
         repeat((30.0 / dt).toInt()) { world.step(dt) }
         assertTrue("it should have parked", pod.dormant)

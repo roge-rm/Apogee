@@ -17,6 +17,12 @@ import java.nio.ByteOrder
 class ScatterRenderer {
 
     private val program = ShaderProgram(Shaders.SCATTER_VERTEX, Shaders.SCATTER_FRAGMENT, "scatter")
+
+    /** The same trees and rocks, swaying the same, drawn as depth only: into a shadow map. */
+    private val depthProgram = ShaderProgram(Shaders.SCATTER_VERTEX, Shaders.DEPTH_FRAGMENT, "scatter-depth")
+
+    /** Sets the lit program's shadow uniforms before a frame's draw. */
+    var shadows: ((ShaderProgram) -> Unit)? = null
     private val kindVao = IntArray(ScatterDraw.KINDS)
     private val kindVbo = IntArray(ScatterDraw.KINDS)
     private val kindIbo = IntArray(ScatterDraw.KINDS)
@@ -85,10 +91,12 @@ class ScatterRenderer {
         program.setFloat("uAtmosphereFactor", atmosphereFactor)
         program.setFloat("uHazeDistance", hazeDistance)
         program.setFloat("uLightScale", world.lightScale)
+        program.setFloat("uFlash", world.flash)
         program.setFloat("uDaylight", daylight)
         program.setFloat("uFogDistance", world.fogDistance.toFloat())
         program.setVec3("uFogColor", fogColor[0], fogColor[1], fogColor[2])
         program.setFloat("uTime", (world.time % 10_000.0).toFloat())
+        shadows?.invoke(program)
         val wind = world.surfaceWind
         // Faceted meshes built by hand: drawn both sides rather than trusting
         // every triangle's winding.
@@ -148,6 +156,58 @@ class ScatterRenderer {
         evict(list)
     }
 
+    /**
+     * Draws what is already uploaded within [reach] of [focus] (absolute)
+     * into a shadow map with [viewProjection]: casters only, nothing new
+     * uploaded - a block not yet on the GPU casts from the next frame.
+     */
+    fun drawDepth(
+        list: List<ScatterDraw>,
+        bodyRotation: Quat,
+        cameraPos: Vec3,
+        viewProjection: FloatArray,
+        world: WorldView,
+        focus: Vec3,
+        reach: Double,
+    ) {
+        if (list.isEmpty()) return
+        depthProgram.use()
+        depthProgram.setMat4("uViewProjection", viewProjection)
+        depthProgram.setFloat("uTime", (world.time % 10_000.0).toFloat())
+        val wind = world.surfaceWind
+        for (block in list) {
+            if (block.offsets.isEmpty()) continue
+            val buffer = blockBuffers[block.key] ?: continue
+            if (buffer.second != block.revision) continue
+            bodyRotation.rotate(block.centre, centre)
+            if (centre.distanceTo(focus) > reach + block.boundingRadius) continue
+            model.setFromTrs(centre, bodyRotation, cameraPos)
+            depthProgram.setMat4("uModel", model.m)
+            depthProgram.setMat3("uBasis", block.basis)
+            val b = block.basis
+            depthProgram.setVec3(
+                "uWind",
+                (wind.x * b[0] + wind.y * b[1] + wind.z * b[2]).toFloat(),
+                0f,
+                (wind.x * b[6] + wind.y * b[7] + wind.z * b[8]).toFloat(),
+            )
+            val stride = ScatterDraw.INSTANCE_FLOATS * 4
+            for (k in 0 until ScatterDraw.KINDS) {
+                val count = block.counts[k]
+                if (count == 0) continue
+                GLES30.glBindVertexArray(kindVao[k])
+                GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, buffer.first)
+                val base = block.offsets[k] * stride
+                GLES30.glVertexAttribPointer(3, 4, GLES30.GL_FLOAT, false, stride, base)
+                GLES30.glVertexAttribPointer(4, 1, GLES30.GL_FLOAT, false, stride, base + 16)
+                GLES30.glDrawElementsInstanced(
+                    GLES30.GL_TRIANGLES, kindIndexCount[k], GLES30.GL_UNSIGNED_SHORT, 0, count,
+                )
+            }
+        }
+        GLES30.glBindVertexArray(0)
+    }
+
     private fun evict(current: List<ScatterDraw>) {
         if (blockBuffers.size <= MAX_BLOCKS) return
         val inUse = current.mapTo(HashSet()) { it.key }
@@ -160,6 +220,7 @@ class ScatterRenderer {
 
     fun release() {
         program.release()
+        depthProgram.release()
         GLES30.glDeleteVertexArrays(ScatterDraw.KINDS, kindVao, 0)
         GLES30.glDeleteBuffers(ScatterDraw.KINDS, kindVbo, 0)
         GLES30.glDeleteBuffers(ScatterDraw.KINDS, kindIbo, 0)

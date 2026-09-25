@@ -90,4 +90,65 @@ class SoundSceneTest {
         assertTrue("the nearest kept: $kept", 1 in kept)
         assertTrue("the farthest dropped: $kept", 10 !in kept)
     }
+
+    @Test
+    fun `a craft coming closer sounds higher, going away lower, and your own as it is`() {
+        val scene = SoundScene(16)
+        // 500 m off to the east, flying west toward us at 150 m/s.
+        val coming = SoundScene.Craft(1, false, Vec3(500.0, 0.0, 0.0), 1.0, velocity = Vec3(-150.0, 0.0, 0.0))
+        val going = SoundScene.Craft(1, false, Vec3(500.0, 0.0, 0.0), 1.0, velocity = Vec3(150.0, 0.0, 0.0))
+        assertEquals(343.0 / (343.0 - 150.0), scene.doppler(air, coming), 1e-9)
+        assertEquals(343.0 / (343.0 + 150.0), scene.doppler(air, going), 1e-9)
+        // Riding along with it: the same speed, no shift.
+        val riding = SoundScene.Listener(Vec3(), Vec3(1.0, 0.0, 0.0), density = 1.2, velocity = Vec3(150.0, 0.0, 0.0))
+        val ours = SoundScene.Craft(1, true, Vec3(10.0, 0.0, 0.0), 1.0, velocity = Vec3(150.0, 0.0, 0.0))
+        assertEquals(1.0, scene.doppler(riding, ours), 1e-9)
+        // Past the speed of sound, held to an octave.
+        val fast = SoundScene.Craft(1, false, Vec3(500.0, 0.0, 0.0), 1.0, velocity = Vec3(-900.0, 0.0, 0.0))
+        assertEquals(2.0, scene.doppler(air, fast), 1e-9)
+
+        coming.engine(Exhaust.JET, 1.0, 30_000.0)
+        scene.build(air, listOf(coming), null)
+        assertTrue(scene.param(scene.indexOf(Recipes.JET)!!, SharedParams.PITCH) > 1.5f)
+    }
+
+    @Test
+    fun `a vacuum engine is heard as one, a booster as a booster`() {
+        assertEquals(0.22, SoundScene.vacuumBuilt(167_000.0, 215_000.0), 0.01)
+        assertEquals(0.75, SoundScene.vacuumBuilt(15_000.0, 60_000.0), 0.01)
+        val craft = SoundScene.Craft(1, true, Vec3(), 1.0)
+        craft.engine(Exhaust.ROCKET, 1.0, 60_000.0, character = 0.75)
+        val scene = SoundScene(16)
+        scene.build(air, listOf(craft), null)
+        assertEquals(0.75f, scene.param(scene.indexOf(Recipes.ROCKET)!!, 4), 1e-6f)
+    }
+
+    @Test
+    fun `surf is heard by the shore, and not in space`() {
+        val scene = SoundScene(16)
+        val beach = SoundScene.Listener(Vec3(), Vec3(1.0, 0.0, 0.0), density = 1.2, shore = 0.8)
+        scene.build(beach, emptyList(), null)
+        assertNotNull(scene.indexOf(Recipes.SURF))
+        scene.build(air, emptyList(), null)
+        assertNull("inland", scene.indexOf(Recipes.SURF))
+        scene.build(SoundScene.Listener(Vec3(), Vec3(1.0, 0.0, 0.0), density = 0.0, shore = 0.8), emptyList(), null)
+        assertNull("in vacuum", scene.indexOf(Recipes.SURF))
+    }
+
+    @Test
+    fun `thrusters puff in the air, through the hull in vacuum, and another craft's are silent there`() {
+        val scene = SoundScene(16)
+        val mine = SoundScene.Craft(1, true, Vec3(), 1.0).also { it.rcs(0.8) }
+        scene.build(air, listOf(mine), null)
+        val i = scene.indexOf(Recipes.RCS)!!
+        assertEquals(0.8f, scene.param(i, 0), 1e-6f)
+        assertEquals(0, scene.flags[i] and VoiceFlags.HULL)
+
+        scene.build(vacuum, listOf(mine), null)
+        assertEquals(VoiceFlags.HULL, scene.flags[scene.indexOf(Recipes.RCS)!!] and VoiceFlags.HULL)
+
+        val theirs = SoundScene.Craft(2, false, Vec3(20.0, 0.0, 0.0), 0.0).also { it.rcs(1.0) }
+        scene.build(vacuum, listOf(theirs), null)
+        assertNull(scene.indexOf(Recipes.RCS))
+    }
 }

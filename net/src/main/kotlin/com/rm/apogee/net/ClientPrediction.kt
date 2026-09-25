@@ -91,6 +91,7 @@ class ClientPrediction(
         if (serverHasItAsleep(state)) {
             vessel?.sleep(system.body(state.referenceBodyId).rotationAt(time, scratchRotation))
         }
+        vessel?.let { chutesFrom(it, state) }
         world = replica
         designHash = design.hashCode()
         lastFuel = null
@@ -124,6 +125,27 @@ class ClientPrediction(
 
     private var lastFuel: List<Float>? = null
 
+    private val serverPose = com.rm.apogee.core.world.VesselPose.Values()
+
+    /**
+     * Each chute as the server has it - packed, filling, open or cut away.
+     * A rebuilt replica starts with every chute packed, so after a pause or
+     * a change of warp its canopy filled all over again, and for the second
+     * that took it fell with almost no drag while the server's hung under a
+     * full one.
+     */
+    private fun chutesFrom(local: Vessel, state: VesselKinematics) {
+        if (!com.rm.apogee.core.world.VesselPose.decode(local.defs, state.pose, serverPose)) return
+        for (i in local.defs.indices) {
+            if (local.defs[i].module<com.rm.apogee.core.part.Parachute>() == null) continue
+            // The wire carries it to a 127th: the drogue's 0.5 arrives as 0.504,
+            // which read as the main starting to fill. Held drogue stays held.
+            val d = serverPose.deploy[i]
+            val held = com.rm.apogee.core.part.Parachute.DROGUE_FULL
+            local.setLegDeploy(i, if (kotlin.math.abs(d - held) < 0.02) held else d)
+        }
+    }
+
     /**
      * The local replica, for reading - staging and fuel for the HUD, which
      * move with the player's own presses and burns here first.
@@ -142,6 +164,10 @@ class ClientPrediction(
         roll: Double,
         sas: Boolean,
         brakes: Boolean = false,
+        rcs: Boolean = false,
+        translateX: Double = 0.0,
+        translateY: Double = 0.0,
+        translateZ: Double = 0.0,
     ) {
         val control = vessel?.control ?: return
         control.throttle = throttle
@@ -150,6 +176,10 @@ class ClientPrediction(
         control.roll = roll
         control.sasEnabled = sas
         control.brakes = brakes
+        control.rcsEnabled = rcs
+        control.translateX = translateX
+        control.translateY = translateY
+        control.translateZ = translateZ
         // A hand on the controls is the same signal the server wakes on.
         if (!inputsNeutral(control)) vessel?.wake()
     }
@@ -214,6 +244,7 @@ class ClientPrediction(
         local.body.linearVelocity.setTo(state.velocity)
         local.body.orientation.setTo(state.rotation)
         local.body.angularVelocity.setTo(state.angularVelocity)
+        chutesFrom(local, state)
         // Back to the moment the snapshot describes, so the ground is where
         // it was then; the catch-up brings both forward together. Without the
         // server's time, the replica's own clock less the snapshot's age.
@@ -285,6 +316,20 @@ class ClientPrediction(
      * at 60 to 120: drawn at its last step, a craft parked on the equator
      * moves in 2.9 m jumps while the ground under it turns smoothly.
      */
+    /**
+     * Shifts where the craft is drawn by [delta] (inertial), to be eased away
+     * like any correction - for keeping it where it was drawn when the
+     * replica is rebuilt, rather than snapping. Nothing if it is too far to
+     * hide.
+     */
+    fun carryOffset(delta: Vec3) {
+        val replica = world ?: return
+        val local = vessel ?: return
+        system.body(local.referenceBodyId).rotationAt(replica.time + accumulator, scratchRotation)
+        val held = scratchRotation.inverseRotate(delta, Vec3())
+        if (held.addInPlace(renderOffset).length <= MAX_SMOOTHED_ERROR) renderOffset.setTo(held)
+    }
+
     fun renderPosition(out: Vec3 = Vec3()): Vec3? {
         val local = vessel ?: return null
         out.setTo(local.body.position).addScaledInPlace(local.body.linearVelocity, accumulator)
@@ -345,6 +390,7 @@ class ClientPrediction(
         local.gimbalPitch.copyInto(into.gimbalPitch)
         local.gimbalYaw.copyInto(into.gimbalYaw)
         local.engineOutput.copyInto(into.output)
+        local.rcsFiring.copyInto(into.rcs)
         return true
     }
 

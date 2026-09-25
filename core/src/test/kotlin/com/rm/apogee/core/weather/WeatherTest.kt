@@ -183,6 +183,23 @@ class WeatherTest {
         assertEquals(CloudType.CUMULONIMBUS, s.cloudType)
         assertTrue("an updraught in the tower: ${s.lift}", s.lift > 3.0)
 
+        // And the gust front: low down, a core or so out beyond the shaft,
+        // a wind to knock things over, whatever the wind was before.
+        val steer = storm.steer.copy().normalizeInPlace()
+        var strongest = 0.0
+        for (k in 0 until 16) {
+            val a = k * Math.PI / 8
+            val side = here.copy().crossInPlace(steer).normalizeInPlace()
+            val at = here.copy().mulInPlace(radius).addScaledInPlace(steer, 0.5 * storm.core)
+                .addScaledInPlace(steer, kotlin.math.cos(a) * 1.3 * storm.core)
+                .addScaledInPlace(side, kotlin.math.sin(a) * 1.3 * storm.core)
+            val g = maxOf(terrain.elevation(at.copy().normalizeInPlace()), 0.0)
+            at.normalizeInPlace().mulInPlace(radius + g + 100.0)
+            w.sample(at, t, s)
+            strongest = maxOf(strongest, s.wind.length)
+        }
+        assertTrue("a storm's gust front blows hard: $strongest m/s", strongest > 20.0 * storm.strength)
+
         val strikes = ArrayList<Strike>()
         w.strikes(here, t - 120.0, t + 120.0, strikes)
         assertTrue("lightning from a mature storm", strikes.isNotEmpty())
@@ -246,6 +263,9 @@ class WeatherTest {
             val decks = shapes.filter { it.type == CloudType.STRATUS || it.type == CloudType.ALTOSTRATUS }
             if (decks.isEmpty()) continue
             for (shape in decks) for (lobe in shape.lobes) {
+                // Only puffs well inside what was listed: beside one at the
+                // edge, a "gap" can be under a puff of a cell never listed.
+                if (lobe.centre.copy().normalizeInPlace().distanceTo(dir) * w.body.radius > 2_500.0) continue
                 // Its heart is cloud of its own kind.
                 w.sample(lobe.centre, 3_000.0, s)
                 assertTrue("no cloud at the heart of a drawn ${shape.type} puff", s.cloudDensity > 0.0)
@@ -276,5 +296,32 @@ class WeatherTest {
         val ms = (System.nanoTime() - start) / 1e6
         println("fresh cloud listing: %.0f ms".format(ms))
         assertTrue("took $ms ms", ms < 1_500.0)
+    }
+
+    @Test
+    fun `a storm is a billowing tower with a flat anvil and a rain curtain under it`() {
+        val terra = com.rm.apogee.core.orbit.SolarSystem.defaultSystem().body(com.rm.apogee.core.orbit.SolarSystem.HOMEWORLD_ID)
+        val weather = Weather(terra, WeatherConfig(intensity = WeatherIntensity.WILD))
+        // Find a storm anywhere, then look at it close to.
+        var storm: CloudShape? = null
+        for (t in listOf(1_200.0, 5_000.0, 9_000.0, 14_000.0)) {
+            val all = ArrayList<CloudShape>()
+            weather.globalCover(400_000.0, t, all)
+            for (shape in all.filter { it.type == CloudType.CUMULONIMBUS && it.amount > 0.6 }) {
+                val at = shape.lobes.last().centre.copy().normalizeInPlace()
+                val near = ArrayList<CloudShape>()
+                weather.clouds(at, 30_000.0, t, near)
+                storm = near.firstOrNull { it.type == CloudType.CUMULONIMBUS && it.amount > 0.6 }
+                if (storm != null) break
+            }
+            if (storm != null) break
+        }
+        val s = storm ?: throw AssertionError("no mature storm found in a wild sky")
+        assertTrue("many lobes, not a few big ones: ${s.lobes.size}", s.lobes.size >= 30)
+        assertTrue("a flat anvil and base", s.lobes.count { it.flat } >= 5)
+        assertTrue("rain falling out of it", s.rain.isNotEmpty())
+        val curtain = s.rain.first()
+        val bottom = curtain.centre.length - terra.radius - curtain.vertical
+        assertTrue("the curtain reaches down to the ground: $bottom m", bottom < 2_500.0)
     }
 }

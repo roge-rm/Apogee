@@ -45,6 +45,16 @@ class HudState {
 
     /** Whether the craft has wheels, so the brake control can hide itself. */
     var hasWheels: Boolean by mutableStateOf(false)
+
+    /**
+     * Thrusters: whether the craft has any (the RCS control hides itself
+     * otherwise), whether they are armed, whether the stick slides the craft
+     * rather than turning it, and the monopropellant left (0..1, or null).
+     */
+    var hasRcs: Boolean by mutableStateOf(false)
+    var rcsArmed: Boolean by mutableStateOf(false)
+    var rcsSlide: Boolean by mutableStateOf(false)
+    var rcsLeft: Float? by mutableStateOf(null)
     var mapMode: Boolean by mutableStateOf(false)
 
     /**
@@ -56,6 +66,9 @@ class HudState {
      * for authority.
      */
     var canJoin: Boolean by mutableStateOf(false)
+
+    /** The flown craft's parachute: "ARMED", "OPEN", or null for none staged. */
+    var chute: String? by mutableStateOf(null)
 
     /** How many craft the player owns, so the switch control can hide itself. */
     var ownedCraft: Int by mutableIntStateOf(0)
@@ -94,6 +107,11 @@ class HudState {
         sasEnabled = false
         brakes = false
         hasWheels = false
+        hasRcs = false
+        rcsArmed = false
+        rcsSlide = false
+        rcsLeft = null
+        chute = null
         mapMode = false
         canJoin = false
         ownedCraft = 0

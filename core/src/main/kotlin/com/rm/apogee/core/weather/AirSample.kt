@@ -95,6 +95,9 @@ class AirSample {
 /** One cloud to draw: its kind, how solid it is, and the lobes it is made of. */
 class CloudShape(val type: CloudType, val amount: Double) {
     val lobes = ArrayList<CloudLobe>(6)
+
+    /** Rain falling out of it, as curtains from its base to the ground: what shows from afar. */
+    val rain = ArrayList<CloudLobe>(0)
 }
 
 /**
@@ -102,4 +105,8 @@ class CloudShape(val type: CloudType, val amount: Double) {
  * middle each way and [vertical] up and down from [centre] (body-fixed), lit
  * [shade] bright - storm bases dark, tops bright.
  */
-class CloudLobe(val centre: Vec3, val horizontal: Double, val vertical: Double, val shade: Double)
+class CloudLobe(
+    val centre: Vec3, val horizontal: Double, val vertical: Double, val shade: Double,
+    /** Spread thin and flat, as an anvil or a storm's base is. */
+    val flat: Boolean = false,
+)

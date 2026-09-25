@@ -1,7 +1,22 @@
 package com.rm.apogee.ui.screens
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import com.rm.apogee.core.world.LaunchTime
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -38,7 +53,12 @@ fun MainMenuScreen(onNavigate: (AppScreen) -> Unit) {
 }
 
 @Composable
-fun PlayScreen(onNavigate: (AppScreen) -> Unit) {
+fun PlayScreen(
+    onNavigate: (AppScreen) -> Unit,
+    launchTime: LaunchTime = LaunchTime.NOW,
+    onLaunchTime: (LaunchTime) -> Unit = {},
+) {
+    var chosen by remember { mutableStateOf(launchTime) }
     Backdrop { contentModifier ->
         Text(
             "Play",
@@ -53,6 +73,8 @@ fun PlayScreen(onNavigate: (AppScreen) -> Unit) {
             contentModifier,
             subtitle = "A fresh craft on the pad, in place of your last one",
         )
+        // When in the day to go up - for Free Flight and the builder's launches.
+        LaunchTimeRow(chosen, contentModifier) { chosen = it; onLaunchTime(it) }
         ApogeeButton(
             "Resume Flight",
             { onNavigate(AppScreen.RESUME_FLIGHT) },
@@ -79,5 +101,36 @@ fun PlayScreen(onNavigate: (AppScreen) -> Unit) {
         )
 
 
+    }
+}
+
+/** Launch now, or at the next dawn, noon, dusk or midnight at the pad. */
+@Composable
+private fun LaunchTimeRow(selected: LaunchTime, modifier: Modifier, onSelect: (LaunchTime) -> Unit) {
+    Column(modifier.padding(bottom = 10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            "Launch at",
+            style = MaterialTheme.typography.labelSmall,
+            color = Color.White.alpha(ApogeeAlpha.SUBTITLE),
+        )
+        Spacer(Modifier.height(6.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            for (option in LaunchTime.entries) {
+                val on = option == selected
+                Box(
+                    Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(if (on) ApogeeColors.Accent else ApogeeColors.SurfaceRaised)
+                        .clickable { onSelect(option) }
+                        .padding(horizontal = 12.dp, vertical = 7.dp),
+                ) {
+                    Text(
+                        option.label,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (on) ApogeeColors.Surface else Color.White.alpha(ApogeeAlpha.BODY),
+                    )
+                }
+            }
+        }
     }
 }

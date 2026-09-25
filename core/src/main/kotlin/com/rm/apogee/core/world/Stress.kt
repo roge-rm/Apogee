@@ -23,8 +23,9 @@ import kotlin.math.sqrt
  * weighed against its strength - force, plus the bending moment over its
  * width - and past [FATIGUE_START] of it the joint fatigues, faster and
  * faster, until it lets go; past [SNAP] it lets go at once. A wing or fin is
- * judged by its own [AeroSurface.loadLimit] in the drag pass and skipped
- * here, and a chute tears by its own rule.
+ * judged by its own [AeroSurface.loadLimit] in the drag pass - its share of
+ * that is reported here as its joint's load, but not fatigued - and a chute
+ * tears by its own rule.
  *
  * Reused scratch, like [Forces]: this runs for every craft every tick.
  */
@@ -118,6 +119,14 @@ class Stress {
                     // A joint worn through lets go; it does not vanish.
                     if (wear >= vessel.health[i]) snap(i) else vessel.damage(i, wear)
                 }
+            } else if (child.module<AeroSurface>() != null) {
+                // A wing or fin: judged by its own limit in the drag pass,
+                // but how near it is still shows and still warns. Read once:
+                // a tick with no air leaves it at nothing.
+                val ratio = vessel.surfaceLoad[i]
+                vessel.surfaceLoad[i] = 0f
+                vessel.jointLoad[i] = ratio
+                if (ratio > vessel.stress) { vessel.stress = ratio.toDouble(); vessel.worstJoint = i }
             } else {
                 vessel.jointLoad[i] = 0f
             }

@@ -81,33 +81,44 @@ void setMetal(Resonators& res, float scale, float sr, Rng* rng = nullptr) { setM
  * off: a held sound at full strength sits near -18 dBFS RMS, a one-shot
  * peaks near -6, so a scene full of them mixes without the limiter working.
  * Engines sit lower again, near -26: they run for minutes at a time, and
- * at the level of a crash they wear on the ear (Dan, on his phone).
+ * at the level of a crash they wear on the ear (Dan, on his phone). Wind
+ * and airflow sit about 12 dB under the rest: beside the quieter engines
+ * they were intrusive.
+ *
+ * Listening fatigue is the rule for every sound: listenable over accurate.
+ * `./gradlew :app:soundGallery -Praw` prints each sound's loudness as heard
+ * through a phone speaker ("phone" LUFS) and its energy per octave. Engines
+ * at full power sit at -29..-31 there, the rocket being the reference;
+ * long ambient sounds 4 dB or more under them; alerts no more than ~5 dB
+ * over. Anything held keeps its energy under ~1.5 kHz, with 4 kHz and up
+ * 10 dB or more under its loudest octave: no sustained high whines or
+ * white hiss. Anything that repeats varies, never a beat.
  */
 float trim(int r) {
     switch (r) {
         case recipe::ROCKET: return 0.11f;
-        case recipe::JET: return 0.17f;
+        case recipe::JET: return 0.115f;   // just under a rocket: flights are long (Dan)
         case recipe::PROP: return 0.22f;
-        case recipe::AIRFLOW: return 0.3f;
+        case recipe::AIRFLOW: return 0.075f;
         case recipe::REENTRY: return 0.29f;
-        case recipe::WIND: return 0.4f;
-        case recipe::RAIN: return 1.0f;
+        case recipe::WIND: return 0.1f;
+        case recipe::RAIN: return 0.24f;  // under the engines: it lasts
         case recipe::CABIN: return 0.36f;
-        case recipe::STRESS: return 0.7f;
+        case recipe::STRESS: return 0.14f;  // a fifth of before: under the engines, not over them (Dan)
         case recipe::FIRE: return 0.19f;
-        case recipe::ROVER: return 0.63f;
+        case recipe::ROVER: return 0.19f;  // was 10 dB over a rocket at full power
         case recipe::OUTBOARD: return 0.27f;
-        case recipe::SURF: return 1.3f;
-        case recipe::RCS: return 1.4f;
+        case recipe::SURF: return 0.33f;  // ambient: well under the engines
+        case recipe::RCS: return 0.25f;  // puffs under the engines
         case recipe::IMPACT: return 0.2f;
         case recipe::CRUNCH: return 0.09f;
         case recipe::TEAR: return 0.18f;
         case recipe::EXPLOSION: return 0.21f;
         case recipe::SPLASH: return 0.7f;
-        case recipe::STAGE: return 0.16f;
+        case recipe::STAGE: return 0.05f;  // about 10 dB down: the stage button was still far too loud (Dan)
         case recipe::THUNDER: return 0.19f;
-        case recipe::CLICK: return 0.75f;
-        case recipe::CAUTION: return 1.4f;
+        case recipe::CLICK: return 0.15f;  // a hint of a tick, no more (Dan: far too loud)
+        case recipe::CAUTION: return 0.8f;  // a clear step over the engines, not 10 dB
         case recipe::IGNITION: return 0.12f;
         case recipe::CHUTE: return 0.66f;
         case recipe::CLUNK: return 0.25f;
@@ -261,7 +272,7 @@ void Synth::startVoice(Voice& v, int r, int flags, const float* p, uint32_t seed
             break;
         }
         case recipe::CLICK:
-            v.env[0].trigger(0.0005f, 0.012f, sr);
+            v.env[0].trigger(0.002f, 0.01f, sr);
             break;
         case recipe::CAUTION:
             break;
@@ -338,16 +349,22 @@ void Synth::renderVoice(Voice& v, float& left, float& right) {
     if (v.state[7] > 1e6f) v.state[7] = 0;
     Rng& rng = v.rng;
     float s = 0;
+    // Doppler, for what moves: engines and wheels shift every frequency they have.
+    const float pf = p[P_PITCH] > 0 ? clampf(p[P_PITCH], 0.5f, 2.0f) : 1.0f;
 
     switch (v.recipe) {
         case recipe::ROCKET: {
             float out = clampf(p[0], 0, 1), size = clampf(p[1], 0, 1), press = clampf(p[2], 0, 1), crack = clampf(p[3], 0, 1);
+            // The engine's own character: 0 a sea-level booster - rough,
+            // crackling, deep - to 1 an engine built for vacuum, whose big
+            // bell smooths its flow: a steadier, higher, softer roar.
+            float vac = clampf(p[4], 0, 1);
             if (control) {
-                v.f[0].set(lerpf(350, 2600, press) * (1.2f - 0.5f * size), 0.6f, sr);
-                v.f[1].set(lerpf(900, 1600, press) * (1.1f - 0.4f * size), 1.2f, sr);
-                v.f[2].set(55.0f + 40.0f * (1.0f - size), 0.7f, sr);
+                v.f[0].set(lerpf(350, 2600, press) * (1.2f - 0.5f * size) * pf, 0.6f, sr);
+                v.f[1].set(lerpf(900, 1600, press) * (1.1f - 0.4f * size) * pf, 1.2f, sr);
+                v.f[2].set((55.0f + 40.0f * (1.0f - size)) * pf, 0.7f, sr);
                 // The body of the roar, where a phone's speaker can carry it.
-                v.f[3].set(lerpf(260, 520, press) * (1.2f - 0.4f * size), 0.8f, sr);
+                v.f[3].set(lerpf(260, 520, press) * (1.2f - 0.4f * size) * (1.0f + 0.35f * vac) * pf, 0.8f + 0.6f * vac, sr);
             }
             float w = rng.white();
             float pinkNoise = v.pink.next(w);
@@ -355,24 +372,41 @@ void Synth::renderVoice(Voice& v, float& left, float& right) {
             v.f[1].process(v.pink2.next(rng.white()));
             v.f[2].process(v.brown2.next(rng.white()));
             v.f[3].process(pinkNoise);
-            float c = v.crackle.next(rng, 40.0f + 160.0f * crack, sr) * crack * press;
-            s = (v.f[0].low * 0.7f + v.f[3].band * 2.2f + v.f[1].band * 0.9f * (0.3f + 0.7f * press) + c * 0.8f
-                 + v.f[2].low * (0.5f + 0.6f * size)) * std::pow(out, 0.7f);
+            float rough = crack * (1.0f - 0.75f * vac);
+            float c = v.crackle.next(rng, (40.0f + 160.0f * rough) * pf, sr) * rough * press;
+            s = (v.f[0].low * 0.7f + v.f[3].band * (2.2f + 0.8f * vac) + v.f[1].band * 0.9f * (0.3f + 0.7f * press) + c * 0.8f
+                 + v.f[2].low * (0.5f + 0.6f * size) * (1.0f - 0.5f * vac)) * std::pow(out, 0.7f)
+                * (1.0f - 0.4f * vac);  // a different sound, not a louder one
             break;
         }
         case recipe::JET: {
             float out = clampf(p[0], 0, 1), spool = clampf(p[1], 0, 1), air = clampf(p[2], 0, 1);
-            float f = 400.0f + 4200.0f * spool;
-            float tone = v.osc[0].sine(f, sr) * 0.25f + v.osc[1].sine(f * 2.01f, sr) * 0.1f + v.osc[2].sine(f * 0.5f, sr) * 0.08f;
-            if (control) { v.f[0].set(500.0f + 2500.0f * spool, 0.7f, sr); v.f[1].set(900.0f + 900.0f * air, 2.0f, sr); }
-            v.f[0].process(v.pink.next(rng.white()));
+            // Heard from inside, through the airframe: the turbine's whine is
+            // there but muffled, well under the roar. It used to climb to
+            // 4.6 kHz with a harmonic at 9 - true to a jet on the apron, and
+            // tiring within a minute (Dan: too high, too hard to listen to).
+            float f = (260.0f + 1000.0f * spool) * pf;
+            float tone = v.osc[0].sine(f, sr) * 0.12f + v.osc[1].sine(f * 2.01f, sr) * 0.03f + v.osc[2].sine(f * 0.5f, sr) * 0.1f;
+            if (control) {
+                v.f[0].set((300.0f + 700.0f * spool) * pf, 0.7f, sr);
+                v.f[1].set((500.0f + 300.0f * air) * pf, 1.5f, sr);
+                // The roar's body, low where a phone speaker still carries it.
+                v.f[2].set((180.0f + 160.0f * spool) * pf, 0.8f, sr);
+                // And everything through the hull: little above a kilohertz or so.
+                v.f[3].set((900.0f + 500.0f * spool) * pf, 0.6f, sr);
+            }
+            float w = rng.white();
+            v.f[0].process(v.pink.next(w));
             v.f[1].process(v.pink2.next(rng.white()));
-            s = (tone * (0.3f + 0.7f * spool) + v.f[0].low * 1.2f + v.f[1].band * 0.6f * air) * out;
+            v.f[2].process(v.brown.next(w));
+            float raw = tone * (0.3f + 0.7f * spool) + v.f[0].low * 1.2f + v.f[1].band * 0.5f * air + v.f[2].band * 1.5f;
+            v.f[3].process(raw);
+            s = v.f[3].low * out;
             break;
         }
         case recipe::PROP: {
-            float out = clampf(p[0], 0, 1), rate = clampf(p[1], 5, 400), load = clampf(p[2], 0, 1);
-            if (control) { v.f[0].set(900.0f + 900.0f * load, 0.8f, sr); v.f[1].set(300.0f, 0.7f, sr); }
+            float out = clampf(p[0], 0, 1), rate = clampf(p[1], 5, 400) * pf, load = clampf(p[2], 0, 1);
+            if (control) { v.f[0].set((900.0f + 900.0f * load) * pf, 0.8f, sr); v.f[1].set(300.0f * pf, 0.7f, sr); }
             v.f[0].process(v.osc[0].pulse(rate, 0.15f, sr));
             v.f[1].process(v.osc[1].saw(rate * 0.5f, sr) * (0.7f + 0.3f * rng.white()));
             s = (v.f[0].low * 0.5f + v.f[1].low * 0.5f + v.brown.next(rng.white()) * 0.15f) * out;
@@ -412,25 +446,46 @@ void Synth::renderVoice(Voice& v, float& left, float& right) {
         }
         case recipe::RAIN: {
             float loud = clampf(p[0], 0, 1.5f), patter = clampf(p[1], 0, 1);
-            if (control) { v.f[0].set(5000.0f, 0.5f, sr); v.f[1].set(3800.0f, 4.0f, sr); }
-            v.f[0].process(rng.white());
+            // A soft wash with the drops ticking in it, not a hiss: it can go
+            // on for minutes, and white noise at 5 kHz wears within one.
+            if (control) { v.f[0].set(1600.0f, 0.6f, sr); v.f[1].set(2400.0f, 3.0f, sr); }
+            v.f[0].process(v.pink.next(rng.white()));
             v.f[1].process(v.crackle.next(rng, 30.0f + 120.0f * patter, sr));
-            s = (v.f[0].band * 0.6f + v.f[1].band * patter * 2.0f) * loud;
+            s = (v.f[0].low * 0.8f + v.f[1].band * patter * 2.0f) * loud;
             break;
         }
         case recipe::CABIN: {
-            float loud = clampf(p[0], 0, 1.5f);
+            float loud = clampf(p[0], 0, 1.5f), settling = clampf(p[1], 0, 1), humLevel = clampf(p[2], 0, 1);
             float hum = v.osc[0].sine(60, sr) * 0.3f + v.osc[1].sine(120, sr) * 0.15f + v.osc[2].sine(180, sr) * 0.05f;
             if (control) v.f[0].set(700.0f, 0.7f, sr);
             v.f[0].process(v.pink.next(rng.white()));
-            // Now and then the hull ticks as it warms and cools.
-            if (rng.uniform() < 0.4f * dt) {
-                const float F[] = {1800, 3100, 4700}, Q[] = {20, 20, 20}, G[] = {1, .6f, .3f};
+            // The hull ticks as it settles to the pressure outside: often while
+            // the air thins on the way up, dying away once it levels out, and
+            // almost never once it has settled in space. Mostly faint, never the
+            // same note twice (Dan: a steady tick read as a wood block).
+            // state[0] is the work left before the next tick, in mean gaps;
+            // state[1] arms it; state[2] keeps ticks from bunching up.
+            // At most one every eight seconds or so, even climbing hard
+            // (Dan: still too many pings on the way up).
+            float rate = 1.0f / 300.0f + settling * 0.12f;  // ticks a second
+            if (v.state[1] == 0) { v.state[1] = 1; v.state[0] = -std::log(1.0f - 0.95f * rng.uniform()); }
+            v.state[0] -= dt * rate;
+            v.state[2] -= dt;
+            if (v.state[0] <= 0 && v.state[2] <= 0) {
+                // Sometimes a second settles right after; otherwise a wait.
+                bool runOn = settling > 0.2f && rng.uniform() < 0.25f;
+                v.state[0] = runOn ? 0.1f : -std::log(1.0f - 0.95f * rng.uniform());
+                v.state[2] = runOn ? 0.25f : 0.8f;
+                // A thin metal ping, not a knock: bar-like inharmonic modes.
+                float pitch = 1600.0f + 2400.0f * rng.uniform();
+                const float F[] = {pitch, pitch * 2.76f, pitch * 5.4f}, Q[] = {45, 40, 35}, G[] = {1, .45f, .2f};
                 v.res.set(3, F, Q, G, sr);
-                v.env[0].trigger(0.001f, 0.03f, sr);
+                float peak = rng.uniform();
+                v.env[0].trigger(0.002f, 0.06f + 0.08f * rng.uniform(), sr,
+                                 (0.15f + 0.85f * peak * peak) * (0.4f + 0.6f * settling));
             }
-            float tick = v.res.process(rng.white() * v.env[0].next()) * 0.5f;
-            s = (hum * 0.5f + v.f[0].low * 0.25f + tick) * loud;
+            float tick = v.res.process(rng.white() * v.env[0].next()) * 0.04f;  // quieter again (Dan)
+            s = ((hum * 0.5f + v.f[0].low * 0.25f) * humLevel + tick) * loud;
             break;
         }
         case recipe::STRESS: {
@@ -474,21 +529,35 @@ void Synth::renderVoice(Voice& v, float& left, float& right) {
         }
         case recipe::ROVER: {
             float load = clampf(p[0], 0, 1), speed = clampf(p[1], 0, 40), grit = clampf(p[2], 0, 1), skid = clampf(p[3], 0, 1);
-            float f = 80.0f + 45.0f * speed;
-            float whine = v.osc[0].sine(f * 6.0f, sr) * 0.15f + v.osc[1].saw(f, sr) * 0.08f;
+            // What the ground is made of: 0 hard (rock, gravel - sharp
+            // crunches) to 1 soft (sand, snow - a duller hiss and crush).
+            float soft = clampf(p[4], 0, 1);
+            float f = (80.0f + 45.0f * speed) * pf;
+            // The motors' hum, muffled: its tone ran six times the shaft rate,
+            // up to nearly 5 kHz at speed - the loudest, shrillest thing in the
+            // game (measured 10 dB over a rocket at full power).
+            if (control) {
+                v.f[0].set((400.0f + 60.0f * speed) * (1.0f - 0.35f * soft) * pf, 0.8f, sr);
+                v.f[1].set(1800.0f * pf, 3.0f, sr);
+                v.f[2].set(1200.0f * pf, 0.7f, sr);
+                // The ground under the tyres: gravel's crunch lower on soft ground.
+                v.f[3].set(lerpf(1400.0f, 600.0f, soft), 0.9f, sr);
+            }
+            v.f[2].process(v.osc[0].sine(f * 1.5f, sr) * 0.15f + v.osc[1].saw(f, sr) * 0.08f);
+            float whine = v.f[2].low;
             float rolling = std::min(1.0f, speed / 8.0f);
-            if (control) { v.f[0].set(400.0f + 60.0f * speed, 0.8f, sr); v.f[1].set(2500.0f, 5.0f, sr); }
             v.f[0].process(v.pink.next(rng.white()));
             v.f[1].process(rng.white());
-            float gravel = v.crackle.next(rng, 20.0f + 30.0f * speed, sr) * grit * std::min(1.0f, speed / 5.0f);
+            float gravel = v.crackle.next(rng, (20.0f + 30.0f * speed) * (1.0f + 1.5f * soft), sr) * grit * std::min(1.0f, speed / 5.0f);
+            v.f[3].process(gravel);
             s = whine * (0.3f + 0.7f * load) * std::min(1.0f, speed / 2.0f + load)
-                + v.f[0].low * 0.8f * rolling + gravel * 0.5f + v.f[1].band * 0.3f * skid;
+                + v.f[0].low * (0.8f + 0.4f * soft) * rolling + v.f[3].band * 1.4f + v.f[1].band * 0.3f * skid;
             break;
         }
         case recipe::OUTBOARD: {
             float out = clampf(p[0], 0, 1), rev = clampf(p[1], 0, 1);
-            float f = 25.0f + 70.0f * rev;
-            if (control) { v.f[0].set(700.0f, 0.7f, sr); v.f[1].set(1200.0f, 2.0f, sr); v.f[2].set(400.0f, 0.8f, sr); }
+            float f = (25.0f + 70.0f * rev) * pf;
+            if (control) { v.f[0].set(700.0f * pf, 0.7f, sr); v.f[1].set(1200.0f * pf, 2.0f, sr); v.f[2].set(400.0f * pf, 0.8f, sr); }
             v.f[0].process(v.osc[0].pulse(f, 0.3f, sr));
             v.f[1].process(v.osc[1].saw(f * 2.0f, sr));
             v.f[2].process(v.pink.next(rng.white()));
@@ -500,15 +569,38 @@ void Synth::renderVoice(Voice& v, float& left, float& right) {
             v.state[0] += dt / 7.5f;
             v.state[0] -= std::floor(v.state[0]);
             float wave = std::pow(std::max(0.0f, std::sin(kTwoPi * v.state[0])), 3.0f);
-            if (control) v.f[0].set(400.0f + 1200.0f * wave, 0.6f, sr);
-            v.f[0].process(v.pink.next(rng.white()));
-            s = v.f[0].band * (0.3f + wave) * loud * 1.5f;
+            // Waves breaking on the shore: a slow swell and wash, low and
+            // soft - it goes on as long as you stay by the sea.
+            if (control) { v.f[0].set(250.0f + 500.0f * wave, 0.6f, sr); v.f[1].set(700.0f + 400.0f * wave, 0.7f, sr); }
+            v.f[0].process(v.brown.next(rng.white()) * 0.6f + v.pink.next(rng.white()) * 0.4f);
+            v.f[1].process(v.pink2.next(rng.white()));
+            s = (v.f[0].low * (0.35f + wave) + v.f[1].low * 0.25f * wave * wave) * loud * 1.5f;
             break;
         }
         case recipe::RCS: {
-            if (control) v.f[0].set(3000.0f, 0.7f, sr);
-            v.f[0].process(rng.white());
-            s = v.f[0].band * 0.6f * clampf(p[0], 0, 2);
+            // Thrusters: soft chuffs of gas, each a little different, coming
+            // faster the harder they fire - never a steady hiss, never a beat.
+            // state[0] is the wait to the next chuff; state[1] its pitch.
+            float amount = clampf(p[0], 0, 1);
+            v.state[0] -= dt;
+            if (v.state[0] <= 0) {
+                float rate = 3.0f + 9.0f * amount;  // chuffs a second
+                v.state[0] = (0.35f + 0.65f * rng.uniform()) * 2.0f / rate;
+                v.state[1] = 0.8f + 0.45f * rng.uniform();
+                float peak = 0.5f + 0.5f * rng.uniform();
+                v.env[0].trigger(0.008f, 0.06f + 0.08f * rng.uniform(), sr, peak * (0.4f + 0.6f * amount));
+            }
+            if (control) {
+                v.f[0].set(850.0f * v.state[1] * pf, 1.0f, sr);
+                v.f[1].set(900.0f * pf, 0.6f, sr);
+                v.f[2].set(1500.0f * pf, 0.6f, sr);
+            }
+            float w = v.pink.next(rng.white());
+            v.f[0].process(w * v.env[0].next());
+            v.f[1].process(w);
+            // Rounded off above: soft gas, not a hiss.
+            v.f[2].process(v.f[0].band * 2.2f + v.f[1].low * 0.08f * amount);
+            s = v.f[2].low;
             break;
         }
 
@@ -591,7 +683,7 @@ void Synth::renderVoice(Voice& v, float& left, float& right) {
             break;
         }
         case recipe::CLICK: {
-            float f = p[0] > 0.5f ? 1400.0f : 2200.0f;
+            float f = p[0] > 0.5f ? 900.0f : 1300.0f;
             float e = v.env[0].next();
             s = (v.osc[0].sine(f, sr) * 0.35f + rng.white() * 0.05f) * e;
             break;

@@ -64,8 +64,10 @@ object VoiceFlags {
 
 /** Parameters every voice shares after its recipe's own: `P_*` in synth.h. */
 object SharedParams {
-    const val COUNT = 8
+    const val COUNT = 9
     const val GAIN = 5
     const val PAN = 6
     const val LOWPASS = 7
+    /** Doppler: frequency factor, 0 for none. Engines and wheels. */
+    const val PITCH = 8
 }

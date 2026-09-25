@@ -6,6 +6,7 @@ import com.rm.apogee.core.part.StockParts
 import com.rm.apogee.core.world.Command
 import com.rm.apogee.core.world.VesselKinematics
 import com.rm.apogee.core.world.World
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -295,5 +296,41 @@ class ClientPredictionTest {
         val ahead = replica.currentStage
         prediction.sync(craft.currentStage, lit, craft.flatResources())
         org.junit.Assert.assertEquals("a local stage is not undone by older news", ahead, replica.currentStage)
+    }
+
+    /**
+     * Rebuilt after a pause or a change of warp, the replica used to start
+     * with its chute packed and fill it all over again, falling for a second
+     * with almost no drag while the server's craft hung under a full canopy.
+     */
+    @Test
+    fun `a replica built under an open chute has it open`() {
+        val world = World.default(catalog)
+        val full = StockCraft.starterRocket(catalog)
+        val pod = com.rm.apogee.core.craft.CraftDesign(
+            full.name, listOf(0, 1, 2).map { full.parts[it] },
+            stages = listOf(com.rm.apogee.core.craft.Stage(listOf(1))),
+        )
+        val terra = world.system.body("terra")
+        val up = com.rm.apogee.core.math.Vec3(1.0, 0.0, 0.0)
+        val position = up.copy().mulInPlace(terra.radius + 3_000.0)
+        val velocity = terra.surfaceVelocityAt(position, com.rm.apogee.core.math.Vec3()).addScaledInPlace(up, -60.0)
+        val vessel = world.spawnAt(pod, "terra", position, velocity, com.rm.apogee.core.math.quatFromTo(com.rm.apogee.core.math.Vec3.unitY(), up))
+        world.stage(vessel)
+        repeat(60 * 5) { world.step(1.0 / 60.0) }
+        val chute = vessel.defs.indexOfFirst { it.module<com.rm.apogee.core.part.Parachute>() != null }
+        val server = vessel.legDeploy[chute]
+        assertTrue("open on the server", server > 0.4)
+
+        val state = kinematicsOf(world, vessel.id).copy(pose = com.rm.apogee.core.world.VesselPose.encode(vessel))
+        val prediction = ClientPrediction(catalog)
+        prediction.adopt(pod, state, world.time)
+        prediction.sync(vessel.currentStage, vessel.design.parts.indices.filter { vessel.isActivated(it) }, null)
+        val replica = prediction.replica!!
+        assertEquals("open in the replica from the start", server, replica.legDeploy[chute], 0.01)
+        // And a drogue held high up stays held: stepped on, the replica must not
+        // take the wire's rounding for the main beginning to fill.
+        repeat(60) { prediction.advance(1.0 / 60.0) }
+        assertEquals("still the drogue", com.rm.apogee.core.part.Parachute.DROGUE_FULL, replica.legDeploy[chute], 1e-9)
     }
 }

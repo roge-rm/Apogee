@@ -46,8 +46,20 @@ internal class Storms(
         var core = 0.0            // radius of the core, m
         var top = 0.0             // tower top at maturity, m above datum
         var base = 0.0            // cloud base, m above datum
-        var strength = 0.0        // 0.6..1
+        var strength = 0.0        // 0.3..1: a passing shower to a monster
         var strikeInterval = 0.0  // s between strikes at maturity
+        /**
+         * Its own look: towers beside the main one (0, 1 or 2 - a cluster),
+         * each's offset from the core (across, along, in cores) and height
+         * (share of the main tower's); how far it leans downwind with
+         * height, in cores; and how far its anvil spreads, as a share of
+         * the usual.
+         */
+        var towers = 0
+        val towerOffset = DoubleArray(4)
+        val towerHeight = DoubleArray(2)
+        var lean = 0.0
+        var anvilSpread = 1.0
     }
 
     private val cells = SphereCells(bodyRadius, CELL)
@@ -78,13 +90,38 @@ internal class Storms(
         frame(s.origin, s.east, s.north)
         // Lows breed storms; highs suppress them.
         val pressure = weather.pressure(s.origin, s.start)
-        val chance = intensity.storms * 0.12 * (0.6 - 0.5 * pressure).coerceIn(0.1, 1.2)
+        // And they come in groups: bands of bad weather hundreds of
+        // kilometres long with quieter country between, not one storm here
+        // and there. About twice as many as there were, overall.
+        val chance = (intensity.storms * 0.34 * (0.6 - 0.5 * pressure).coerceIn(0.1, 1.2) *
+            (0.2 + 1.6 * bandAt(s.origin, s.start))).coerceAtMost(0.9)
         s.exists = intensity.storms > 0.0 && Noise.hash(seed + 74, cx, cy, c) < chance
         if (s.exists) {
-            s.strength = 0.6 + 0.4 * Noise.hash(seed + 75, cx, cy, c)
-            s.core = 2_500.0 + 3_000.0 * Noise.hash(seed + 76, cx, cy, c)
-            s.top = 8_000.0 + 4_000.0 * s.strength
-            s.base = 900.0 + 500.0 * Noise.hash(seed + 77, cx, cy, c)
+            // No two alike: from a lone shower a few kilometres high to a
+            // towering monster, strength, size and height going together,
+            // loosely - a big storm is usually a strong one, not always.
+            val power = Noise.hash(seed + 75, cx, cy, c)
+            s.strength = 0.3 + 0.7 * power
+            s.core = (1_500.0 + 5_500.0 * (0.6 * power + 0.4 * Noise.hash(seed + 76, cx, cy, c)))
+            s.top = 5_000.0 + 10_000.0 * s.strength * (0.8 + 0.4 * Noise.hash(seed + 79, cx, cy, c))
+            // Some grow as a cluster: one or two smaller towers beside the main one.
+            val cluster = Noise.hash(seed + 80, cx, cy, c)
+            s.towers = if (cluster > 0.8) 2 else if (cluster > 0.5) 1 else 0
+            for (t in 0 until s.towers) {
+                val a = Noise.hash(seed + 81 + t, cx, cy, c) * 2.0 * Math.PI
+                val r = 1.1 + 0.9 * Noise.hash(seed + 83 + t, cx, cy, c)
+                s.towerOffset[t * 2] = kotlin.math.cos(a) * r
+                s.towerOffset[t * 2 + 1] = kotlin.math.sin(a) * r
+                s.towerHeight[t] = 0.45 + 0.4 * Noise.hash(seed + 85 + t, cx, cy, c)
+            }
+            s.lean = 0.1 + 0.6 * Noise.hash(seed + 87, cx, cy, c)
+            s.anvilSpread = 0.6 + 0.9 * Noise.hash(seed + 88, cx, cy, c)
+            // Its base a kilometre or so above the ground it forms over -
+            // above sea level, it sat on the high ground, with no room
+            // under it for its rain to fall through.
+            val ground = max(weather.body.terrain?.elevation(s.origin) ?: 0.0, 0.0)
+            s.base = ground + 900.0 + 500.0 * Noise.hash(seed + 77, cx, cy, c)
+            s.top += ground
             s.strikeInterval = (6.0 + 18.0 * Noise.hash(seed + 78, cx, cy, c)) / s.strength
             weather.steeringWind(s.origin, s.start, s.steer)
             val speed = s.steer.length
@@ -92,6 +129,17 @@ internal class Storms(
         }
         cache[cacheKey] = s
         return s
+    }
+
+    /**
+     * How stormy the country around unit [at] is, 0..1: long bands,
+     * stretched one way as a front is, drifting over hours.
+     */
+    private fun bandAt(at: Vec3, time: Double): Double {
+        val k = bodyRadius / BAND_SCALE
+        val drift = time / BAND_DRIFT_SECONDS
+        val n = Noise.simplex(seed + 91, at.x * k * 0.35 + drift, at.y * k, at.z * k)
+        return smooth(-0.2, 0.5, n)
     }
 
     fun centreAt(s: Storm, time: Double, out: Vec3): Vec3 =
@@ -129,14 +177,14 @@ internal class Storms(
             // Updraught under the tower, inflow to it.
             val towerTop = s.base + (s.top - s.base) * smooth(0.0, 0.35, (time - s.start) / CYCLE)
             if (altitude > s.base * 0.5 && altitude < towerTop) {
-                val w = 12.0 * envelope * exp(-(d / (0.6 * s.core)).let { it * it })
+                val w = UPDRAUGHT * envelope * exp(-(d / (0.6 * s.core)).let { it * it })
                 out.lift += w
                 out.wind.addScaledInPlace(up, w)
             }
             // Downdraught and rain below the base, downwind.
             val shaft = exp(-(dShaft / (0.7 * s.core)).let { it * it })
             if (altitude < s.base + 500.0) {
-                val w = -9.0 * envelope * shaft * smooth(0.0, 200.0, altitude - groundTop)
+                val w = -DOWNDRAUGHT * envelope * shaft * smooth(0.0, 200.0, altitude - groundTop)
                 out.lift += w
                 out.wind.addScaledInPlace(up, w)
             }
@@ -146,11 +194,18 @@ internal class Storms(
             val agl = altitude - groundTop
             if (agl < 1_500.0 && dShaft > 1.0) {
                 val ring = (dShaft - 1.3 * s.core) / (0.8 * s.core)
-                val outward = 18.0 * envelope * exp(-ring * ring) * min(dShaft / s.core, 1.0) *
+                val outward = GUST_FRONT * envelope * exp(-ring * ring) * min(dShaft / s.core, 1.0) *
                     (1.0 - smooth(300.0, 1_500.0, agl))
                 out.wind.addScaledInPlace(shaftRel, outward / dShaft)
             }
-            out.turbulence += 0.9 * envelope * exp(-(d / (1.8 * s.core)).let { it * it })
+            // Inflow: the air near the ground drawn in toward the updraught
+            // from all round, strongest a core or two out.
+            if (agl < 2_000.0 && d > 1.0) {
+                val inflow = INFLOW * envelope * (d / s.core) * exp(-(d / (2.0 * s.core)).let { it * it }) *
+                    (1.0 - smooth(500.0, 2_000.0, agl))
+                out.wind.addScaledInPlace(rel, -inflow / d)
+            }
+            out.turbulence += TURBULENCE * envelope * exp(-(d / (1.8 * s.core)).let { it * it })
 
             // The cloud: a tower over the core, an anvil blown out ahead of it.
             var density = 0.0
@@ -227,6 +282,19 @@ internal class Storms(
 
     companion object {
         /** Spacing of storm cells, m. */
+        /**
+         * The storm's winds at full strength, m/s: up through the core, down
+         * out of the rain shaft, out along the gust front, in toward the
+         * core low down; and how rough the air round it is. Twice what they
+         * were (Dan: winds should be much worse in storms) - a strong storm
+         * throws a light plane about and is no place for a parachute.
+         */
+        const val UPDRAUGHT = 25.0
+        const val DOWNDRAUGHT = 18.0
+        const val GUST_FRONT = 35.0
+        const val INFLOW = 14.0
+        const val TURBULENCE = 1.6
+
         const val CELL = 60_000.0
 
         /** One storm's life, s. */
@@ -234,5 +302,11 @@ internal class Storms(
 
         /** Fastest a storm travels, m/s: keeps it within reach of its own cell's neighbours. */
         const val MAX_STEER = 15.0
+
+        /** How wide a band of storms is, near enough, m; several times that long. */
+        const val BAND_SCALE = 180_000.0
+
+        /** How long a band takes to drift its own width, near enough, s. */
+        const val BAND_DRIFT_SECONDS = 6.0 * 3_600.0
     }
 }

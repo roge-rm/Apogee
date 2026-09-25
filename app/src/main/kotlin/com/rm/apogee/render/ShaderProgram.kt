@@ -64,6 +64,10 @@ class ShaderProgram(vertexSource: String, fragmentSource: String, private val na
     fun setFloat(uniformName: String, value: Float) =
         GLES30.glUniform1f(uniform(uniformName), value)
 
+    /** For a sampler: which texture unit it reads. */
+    fun setInt(uniformName: String, value: Int) =
+        GLES30.glUniform1i(uniform(uniformName), value)
+
     fun release() {
         GLES30.glDeleteProgram(handle)
     }

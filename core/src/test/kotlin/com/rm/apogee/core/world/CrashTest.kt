@@ -220,4 +220,26 @@ class CrashTest {
         assertTrue("it went in", events.none { it is WorldEvent.PartDestroyed })
         assertTrue("unhurt: ${capsule.health.toList()}", capsule.health.all { it > 0.99 })
     }
+
+    /**
+     * With its command pod gone the craft is lost, even though pieces of it
+     * are left: they are wreckage. It used to carry on as its heaviest piece,
+     * and the player flew a heat shield across the ground.
+     */
+    @Test
+    fun `losing the last command module loses the craft, and leaves wreckage`() {
+        val world = World.default(StockParts.catalog)
+        val craft = world.spawnInOrbit(
+            StockCraft.starterRocket(StockParts.catalog), "terra",
+            com.rm.apogee.core.orbit.Orbit.circular(700_000.0, 3.5316000e12),
+        )
+        val pod = craft.defs.indices.first { craft.defs[it].module<com.rm.apogee.core.part.Command>() != null }
+        val before = world.vessels.size
+        world.failParts(craft, setOf(pod), emptySet(), "struck")
+        val events = ArrayList<WorldEvent>()
+        repeat(3) { world.step(1.0 / 60.0); events.addAll(world.drainEvents()) }
+        assertTrue("the craft is gone", world.vessels.none { it.id == craft.id })
+        assertTrue("its pieces remain as wreckage: ${world.vessels.size} craft", world.vessels.size >= before)
+        assertTrue("and it was reported lost", events.any { it is WorldEvent.VesselDestroyed && it.id == craft.id })
+    }
 }

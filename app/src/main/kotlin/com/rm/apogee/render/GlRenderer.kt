@@ -123,6 +123,34 @@ class GlRenderer(
     private var viewportHeight = 1
     private var lastDrawNanos = 0L
 
+    // --- shadows ------------------------------------------------------------
+
+    /** The player's choice; null to go by the device. Set from the UI thread. */
+    @Volatile var shadowChoice: ShadowQuality? = null
+
+    private var shadowQuality = ShadowQuality.OFF
+    private var nearMap: ShadowMap? = null
+    private var farMap: ShadowMap? = null
+    private val nearFrustum = ShadowFrustum()
+    private val farFrustum = ShadowFrustum()
+    private var vesselDepth: ShaderProgram? = null
+    private var terrainDepth: ShaderProgram? = null
+    private var nearOn = false
+    private var farOn = false
+    private var farValid = false
+    private var farDrawnNanos = 0L
+    private var farDay = true
+    private val farCameraFixed = Vec3()
+    private var shadowStrength = 0f
+    private val toLight = Vec3()
+    private val shadowMatcher = ItemMatcher()
+    private val cloudTexture = IntArray(1)
+    private var cloudRevision = -1
+    private val cloudMatrix = FloatArray(16)
+    private var cloudOn = 0f
+    private val scratchShadow = Vec3()
+    private val scratchShadow2 = Vec3()
+
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
         qualityTier = QualityTier.detect(context)
         onTierDetected(qualityTier)
@@ -145,8 +173,10 @@ class GlRenderer(
         globeMesh = TerrainMesh()
         uploadedGlobe = 0
         chunkIndices = SharedIndexBuffer(TerrainChunk.indices)
-        scatterRenderer = ScatterRenderer()
+        scatterRenderer = ScatterRenderer().also { it.shadows = { program -> applyShadowUniforms(program, true) } }
         particleRenderer = ParticleRenderer()
+        vesselDepth = ShaderProgram(Shaders.VESSEL_VERTEX, Shaders.DEPTH_FRAGMENT, "vessel-depth")
+        terrainDepth = ShaderProgram(Shaders.TERRAIN_VERTEX, Shaders.DEPTH_FRAGMENT, "terrain-depth")
 
         // The sky shader generates its own vertices, but GLES still requires a
         // bound vertex array object to draw.
@@ -201,6 +231,8 @@ class GlRenderer(
         interpolatedCameraRot.rotate(Vec3.unitX(), cameraRight)
         interpolatedCameraRot.rotate(Vec3.unitY(), cameraUp)
         interpolatedCameraRot.rotate(Vec3(0.0, 0.0, -1.0), cameraForward)
+
+        prepareShadows(latest, previous, alpha, cameraPos)
 
         // --- far pass: sky and planet -------------------------------------
         val world = latest.world
@@ -290,6 +322,7 @@ class GlRenderer(
         )
         shader.setFloat("uAtmosphereFactor", atmosphereFactor)
         shader.setFloat("uLightScale", frame.world?.lightScale ?: 1f)
+        shader.setFloat("uFlash", frame.world?.flash ?: 0f)
         shader.setFloat("uSkyFog", frame.world?.skyFog ?: 0f)
         shader.setVec3("uFogColor", frameFog[0], frameFog[1], frameFog[2])
         shader.setFloat("uDaylight", frameDaylight)
@@ -321,6 +354,7 @@ class GlRenderer(
         // and rotates them, because terrain turns with the planet.
         modelMatrix.setFromTrs(Vec3.zero(), interpolatedBodyRotation, cameraPos, world.radius)
         applySurfaceUniforms(shader, world, atmosphereFactor, cameraPos)
+        applyShadowUniforms(shader, false)
         // A little inside the chunks' reach, so there is no gap between them.
         shader.setFloat("uDiscardNearer", (world.chunkRange * 0.85).toFloat())
         mesh.draw()
@@ -365,6 +399,7 @@ class GlRenderer(
 
         shader.use()
         applySurfaceUniforms(shader, world, atmosphereFactor, cameraPos)
+        applyShadowUniforms(shader, true)
         shader.setMat4("uViewProjection", nearViewProjection.m)
         shader.setFloat("uDiscardNearer", 0f)
         for (entry in list) {
@@ -414,6 +449,7 @@ class GlRenderer(
         shader.setFloat("uHazeDistance", (world.atmosphereScaleHeight * 8.0).toFloat())
         shader.setFloat("uHasAtmosphere", if (world.atmosphereHeight > 0.0) 1f else 0f)
         shader.setFloat("uLightScale", world.lightScale)
+        shader.setFloat("uFlash", world.flash)
         shader.setFloat("uFogDistance", world.fogDistance.toFloat())
         shader.setVec3("uFogColor", frameFog[0], frameFog[1], frameFog[2])
         shader.setFloat("uDaylight", frameDaylight)
@@ -488,19 +524,22 @@ class GlRenderer(
         }
         val world = latest.world
         shader.setFloat("uLightScale", world?.lightScale ?: 1f)
+        shader.setFloat("uFlash", world?.flash ?: 0f)
         shader.setFloat("uDaylight", frameDaylight)
         shader.setFloat("uFogDistance", (world?.fogDistance ?: WorldView.CLEAR_FOG).toFloat())
         shader.setVec3("uFogColor", frameFog[0], frameFog[1], frameFog[2])
         shader.setFloat("uHazeDistance", ((world?.atmosphereScaleHeight ?: 1.0e6) * 8.0).toFloat())
         shader.setFloat("uAtmosphereFactor", if (world != null) atmosphereFactorAt(world) else 0f)
+        applyShadowUniforms(shader, true)
 
         // Solid things first; then the see-through ones - cloud - far to
         // near with blending on and depth writes off, so each layer shows
         // through the ones in front of it and nothing solid behind is lost.
+        matchPrevious(items, previousItems)
         translucent.clear()
         for ((index, item) in items.withIndex()) {
             if (item.color[3] < 0.999f) { translucent.add(index); continue }
-            drawItem(item, previousItems?.getOrNull(index), alpha, cameraPos, shader)
+            drawItem(item, partners[index], alpha, cameraPos, shader)
         }
         if (translucent.isNotEmpty()) {
             translucent.sortByDescending { items[it].position.distanceTo(cameraPos) }
@@ -508,7 +547,7 @@ class GlRenderer(
             GLES30.glBlendFunc(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA)
             GLES30.glDepthMask(false)
             for (index in translucent) {
-                drawItem(items[index], previousItems?.getOrNull(index), alpha, cameraPos, shader)
+                drawItem(items[index], partners[index], alpha, cameraPos, shader)
             }
             GLES30.glDepthMask(true)
             GLES30.glDisable(GLES30.GL_BLEND)
@@ -517,7 +556,27 @@ class GlRenderer(
 
     private val translucent = ArrayList<Int>()
 
+    /** Each item's self in the previous frame: see [ItemMatcher]. */
+    private val matcher = ItemMatcher()
+    private val partners: List<RenderItem?> get() = matcher.partners
+
+    private fun matchPrevious(items: List<RenderItem>, previousItems: List<RenderItem>?) =
+        matcher.match(items, previousItems)
+
     private fun drawItem(item: RenderItem, prevItem: RenderItem?, alpha: Double, cameraPos: Vec3, shader: ShaderProgram) {
+        placeItem(item, prevItem, alpha, cameraPos, shader)
+        shader.setVec4("uColor", item.color)
+        shader.setFloat("uAmbient", item.ambient)
+        // Clouds wrap their light and thin at the edges; a flame (ambient
+        // of one or more) glows whole.
+        shader.setFloat("uWrap", if (item.wrap) 1f else 0f)
+        // A part is shaded by what is between it and the light; a cloud or a flame is not.
+        shader.setFloat("uReceivesShadow", if (item.wrap || item.ambient >= 1f) 0f else 1f)
+        meshFor(item.shape, item.caps).draw()
+    }
+
+    /** Sets where [item] is drawn this frame - eased from [prevItem] - as [shader]'s model matrix. */
+    private fun placeItem(item: RenderItem, prevItem: RenderItem?, alpha: Double, cameraPos: Vec3, shader: ShaderProgram) {
         run {
             val position: Vec3
             val rotation: Quat
@@ -555,13 +614,178 @@ class GlRenderer(
                 )
             }
             shader.setMat4("uModel", modelMatrix.m)
-            shader.setVec4("uColor", item.color)
-            shader.setFloat("uAmbient", item.ambient)
-            // Clouds wrap their light and thin at the edges; a flame (ambient
-            // of one or more) glows whole.
-            shader.setFloat("uWrap", if (item.wrap) 1f else 0f)
+        }
+    }
+
+    // --- shadows ------------------------------------------------------------
+
+    /**
+     * Draws this frame's shadow maps and binds them, with the clouds'
+     * shadows: the near map round the craft every frame, the mountains' when
+     * it is due. Light from the sun by day and the moon by night, fading out
+     * across twilight rather than jumping from one to the other.
+     */
+    private fun prepareShadows(latest: RenderFrame, previous: RenderFrame?, alpha: Double, cameraPos: Vec3) {
+        shadowQuality = shadowChoice ?: ShadowQuality.defaultFor(qualityTier)
+        nearOn = false; farOn = false; cloudOn = 0f
+        // Never read a map while drawing into it.
+        for (unit in 1..3) {
+            GLES30.glActiveTexture(GLES30.GL_TEXTURE0 + unit)
+            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, 0)
+        }
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
+        val world = latest.world ?: return
+        val focus = latest.shadowFocus ?: return
+        if (!shadowQuality.on) return
+
+        val day = frameDaylight >= 0.3f
+        toLight.setTo(world.sunDirection)
+        if (!day) toLight.mulInPlace(-1.0)
+        shadowStrength = if (day) smooth01((frameDaylight - 0.3f) / 0.2f) else smooth01((0.3f - frameDaylight) / 0.2f)
+
+        if (shadowStrength > 0.01f) {
+            drawNearMap(latest, previous, alpha, cameraPos, world, focus)
+            if (shadowQuality.mountains) drawFarMap(world, cameraPos, day)
+        }
+        world.cloudShadow?.let { grid ->
+            if (grid.revision != cloudRevision) uploadCloudShadow(grid)
+            grid.matrix(interpolatedBodyRotation, cameraPos, cloudMatrix)
+            cloudOn = grid.strength
+        }
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE1)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, if (nearOn) nearMap?.texture ?: 0 else 0)
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE2)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, if (farOn) farMap?.texture ?: 0 else 0)
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE3)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, if (cloudOn > 0f) cloudTexture[0] else 0)
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
+    }
+
+    /** The craft, and the trees and rocks round it, from the light's side. */
+    private fun drawNearMap(latest: RenderFrame, previous: RenderFrame?, alpha: Double, cameraPos: Vec3, world: WorldView, focus: Vec3) {
+        val size = shadowQuality.nearSize
+        val map = nearMap?.takeIf { it.size == size } ?: run { nearMap?.release(); ShadowMap(size).also { nearMap = it } }
+        val reach = latest.shadowRadius.coerceAtLeast(20.0)
+        nearFrustum.update(toLight, focus, cameraPos, reach, reach + 400.0, size)
+        map.begin()
+        val shader = vesselDepth ?: return
+        shader.use()
+        shader.setMat4("uViewProjection", nearFrustum.viewProjection)
+        shadowMatcher.match(latest.items, previous?.items)
+        for ((index, item) in latest.items.withIndex()) {
+            // Solid, lit things cast: not cloud, flame, vapour or rain.
+            if (item.color[3] < 0.999f || item.ambient >= 1f || item.wrap || item.shape is CloudPuff) continue
+            if (item.position.distanceTo(focus) > reach * 1.5 + 30.0) continue
+            placeItem(item, shadowMatcher.partners[index], alpha, cameraPos, shader)
             meshFor(item.shape, item.caps).draw()
         }
+        scatterRenderer?.drawDepth(
+            terrainSource.scatter.drawList(), interpolatedBodyRotation, cameraPos,
+            nearFrustum.viewProjection, world, focus, reach,
+        )
+        map.end(viewportWidth, viewportHeight)
+        nearOn = true
+    }
+
+    /**
+     * The ground for kilometres round, from the light's side, for hills'
+     * shadows - redrawn every second or two, or when the camera has gone a
+     * fair way, since ground and sun barely move in between. Made in the
+     * planet's own turning frame, so it stays on its mountains as they turn.
+     */
+    private fun drawFarMap(world: WorldView, cameraPos: Vec3, day: Boolean) {
+        val size = shadowQuality.farSize
+        val reach = shadowQuality.farReach
+        val cameraFixed = interpolatedBodyRotation.inverseRotate(cameraPos, scratchShadow)
+        val due = !farValid || farMap?.size != size || farDay != day ||
+            (System.nanoTime() - farDrawnNanos) / 1e9 > shadowQuality.farEvery ||
+            cameraFixed.distanceTo(farCameraFixed) > reach * 0.2
+        if (!due) {
+            farFrustum.place(cameraFixed, interpolatedBodyRotation)
+            farOn = true
+            return
+        }
+        val map = farMap?.takeIf { it.size == size } ?: run { farMap?.release(); ShadowMap(size).also { farMap = it } }
+        val lightFixed = interpolatedBodyRotation.inverseRotate(toLight, scratchShadow2)
+        val ground = Vec3().setTo(cameraFixed).normalizeInPlace().mulInPlace(world.radius)
+        farFrustum.aim(lightFixed, ground, reach, reach + 15_000.0, size)
+        farFrustum.place(cameraFixed, interpolatedBodyRotation)
+        val shader = terrainDepth ?: return
+        // Barely pushed back: ground in a low sun is steep as the light sees
+        // it - a texel's slope is a hundred metres of depth at dawn - and the
+        // usual push hid every shadow within a few hundred metres of the
+        // ridge that cast it. The receivers' offset along their normal does
+        // the rest.
+        map.begin(slope = 0.5f, units = 2f)
+        shader.use()
+        shader.setMat4("uViewProjection", farFrustum.viewProjection)
+        val groundWorld = interpolatedBodyRotation.rotate(ground, Vec3())
+        for (entry in terrainSource.drawList()) {
+            val chunk = entry.chunk
+            val mesh = chunkMeshes[chunk.key] ?: continue
+            interpolatedBodyRotation.rotate(chunk.centre, scratchChunkCentre)
+            if (scratchChunkCentre.distanceTo(groundWorld) > reach * 1.5 + chunk.boundingRadius) continue
+            modelMatrix.setFromTrs(scratchChunkCentre, interpolatedBodyRotation, cameraPos)
+            shader.setMat4("uModel", modelMatrix.m)
+            mesh.drawQuadrants(entry.quadrants)
+        }
+        map.end(viewportWidth, viewportHeight)
+        farValid = true
+        farOn = true
+        farDay = day
+        farDrawnNanos = System.nanoTime()
+        farCameraFixed.setTo(cameraFixed)
+    }
+
+    private fun uploadCloudShadow(grid: CloudShadowGrid) {
+        if (cloudTexture[0] == 0) {
+            GLES30.glGenTextures(1, cloudTexture, 0)
+            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, cloudTexture[0])
+            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_LINEAR)
+            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_LINEAR)
+            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_S, GLES30.GL_CLAMP_TO_EDGE)
+            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_CLAMP_TO_EDGE)
+        }
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE3)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, cloudTexture[0])
+        val buffer = java.nio.ByteBuffer.allocateDirect(grid.data.size).order(java.nio.ByteOrder.nativeOrder())
+        buffer.put(grid.data); buffer.position(0)
+        GLES30.glPixelStorei(GLES30.GL_UNPACK_ALIGNMENT, 1)
+        GLES30.glTexImage2D(
+            GLES30.GL_TEXTURE_2D, 0, GLES30.GL_RG8, grid.size, grid.size, 0,
+            GLES30.GL_RG, GLES30.GL_UNSIGNED_BYTE, buffer,
+        )
+        GLES30.glPixelStorei(GLES30.GL_UNPACK_ALIGNMENT, 4)
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
+        cloudRevision = grid.revision
+    }
+
+    /**
+     * Tells a lit program where the shadows are this frame. Its samplers
+     * always point at units 1, 2 and 3 - even with shadows off, since two
+     * sampler types left on one unit is an error when it draws.
+     */
+    private fun applyShadowUniforms(shader: ShaderProgram, receives: Boolean) {
+        shader.setInt("uNearShadow", 1)
+        shader.setInt("uFarShadow", 2)
+        shader.setInt("uCloudShadow", 3)
+        shader.setFloat("uNearOn", if (receives && nearOn) 1f else 0f)
+        shader.setFloat("uFarOn", if (receives && farOn) 1f else 0f)
+        shader.setFloat("uCloudOn", if (receives) cloudOn else 0f)
+        shader.setMat4("uNearShadowMatrix", nearFrustum.texture)
+        shader.setMat4("uFarShadowMatrix", farFrustum.texture)
+        shader.setMat4("uCloudMatrix", cloudMatrix)
+        shader.setFloat("uNearTexel", 1f / maxOf(1, shadowQuality.nearSize))
+        shader.setFloat("uFarTexel", 1f / maxOf(1, shadowQuality.farSize))
+        shader.setFloat("uNearOffset", (nearFrustum.texelSize * 1.5).toFloat())
+        shader.setFloat("uFarOffset", (farFrustum.texelSize * 1.0).toFloat())
+        shader.setFloat("uKernel", shadowQuality.kernel.toFloat())
+        shader.setFloat("uShadowStrength", shadowStrength)
+    }
+
+    private fun smooth01(x: Float): Float {
+        val t = x.coerceIn(0f, 1f)
+        return t * t * (3f - 2f * t)
     }
 
     /**
@@ -625,6 +849,14 @@ class GlRenderer(
         lineProgram?.release(); lineProgram = null
         lineMeshes.forEach { it.release() }
         lineMeshes.clear()
+        nearMap?.release(); nearMap = null
+        farMap?.release(); farMap = null
+        vesselDepth?.release(); vesselDepth = null
+        terrainDepth?.release(); terrainDepth = null
+        farValid = false
+        if (cloudTexture[0] != 0) GLES30.glDeleteTextures(1, cloudTexture, 0)
+        cloudTexture[0] = 0
+        cloudRevision = -1
     }
 
     private fun lerp(a: Double, b: Double, t: Double) = a + (b - a) * t

@@ -99,6 +99,10 @@ fun FlightScreen(
     /** Steer by a craft, or -1 for none. */
     onTarget: (Long) -> Unit = {},
     onToggleBrakes: () -> Unit,
+    /** Arm the thrusters, or stand them down. */
+    onToggleRcs: () -> Unit = {},
+    /** With the thrusters armed: the stick slides the craft (true) or turns it. */
+    onStickMode: (Boolean) -> Unit = {},
     onToggleMap: () -> Unit,
     onJoin: () -> Unit,
     onSwitchCraft: () -> Unit,
@@ -120,7 +124,7 @@ fun FlightScreen(
     // rotation. Asking the layout is asking the thing that decides.
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val portrait = maxWidth < maxHeight
-        val sas = SasActions(onToggleSas, onSasMode, targetChoices, onTarget)
+        val sas = SasActions(onToggleSas, onSasMode, targetChoices, onTarget, onStickMode)
 
         if (hud.connectionError != null) {
             ConnectionProblem(hud.connectionError!!, onExit)
@@ -258,6 +262,7 @@ fun FlightScreen(
             CautionChips(
                 hud.telemetry, hud.damageExpanded, { hud.damageExpanded = !hud.damageExpanded },
                 modifier = Modifier.padding(top = 6.dp),
+                chute = hud.chute,
             )
         }
 
@@ -284,6 +289,7 @@ fun FlightScreen(
                         hud,
                         onThrottleChange,
                         onToggleBrakes,
+                        onToggleRcs,
                         PORTRAIT_THROTTLE_HEIGHT,
                     )
                 }
@@ -298,7 +304,10 @@ fun FlightScreen(
                             detailWidth = 300.dp,
                         )
                         if (hud.stages.isNotEmpty()) Spacer(Modifier.height(10.dp))
-                        AttitudeCluster(hud, onAttitude, onRoll, sas, PORTRAIT_STICK_SIZE)
+                        AttitudeCluster(
+                            hud, onAttitude, onRoll, sas, PORTRAIT_STICK_SIZE,
+                            Modifier.cornerInset(leftHandMode, PORTRAIT_STICK_INSET),
+                        )
                     }
                 }
 
@@ -341,7 +350,7 @@ fun FlightScreen(
                     .padding(horizontal = 16.dp, vertical = 12.dp)
                     .alpha(controlOpacity),
             ) {
-                ThrottleControl(hud, onThrottleChange, onToggleBrakes, THROTTLE_HEIGHT)
+                ThrottleControl(hud, onThrottleChange, onToggleBrakes, onToggleRcs, THROTTLE_HEIGHT)
             }
 
             val stickAlignment =
@@ -353,7 +362,7 @@ fun FlightScreen(
                     .padding(horizontal = 16.dp, vertical = 12.dp)
                     .alpha(controlOpacity),
             ) {
-                AttitudeCluster(hud, onAttitude, onRoll, sas, STICK_SIZE)
+                AttitudeCluster(hud, onAttitude, onRoll, sas, STICK_SIZE, Modifier.cornerInset(leftHandMode, STICK_INSET))
             }
 
             Row(
@@ -406,6 +415,7 @@ private fun ThrottleControl(
     hud: HudState,
     onThrottleChange: (Float) -> Unit,
     onToggleBrakes: () -> Unit,
+    onToggleRcs: () -> Unit,
     height: Dp,
 ) {
     val throttle = hud.throttle
@@ -451,6 +461,34 @@ private fun ThrottleControl(
                 )
             }
         }
+        // Thrusters, beside the brakes: armed, they help every turn and let
+        // the stick slide the craft. Only on a craft that has some.
+        if (hud.hasRcs) {
+            Spacer(Modifier.height(8.dp))
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = if (hud.rcsArmed) ApogeeColors.Accent.alpha(0.3f)
+                    else Color.White.alpha(ApogeeAlpha.CONTROL_FILL),
+                modifier = Modifier.clickable(onClick = onToggleRcs),
+            ) {
+                Column(
+                    Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    val ink = if (hud.rcsArmed) ApogeeColors.Accent else Color.White.alpha(ApogeeAlpha.SECONDARY)
+                    Text("RCS", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = ink)
+                    // What is left to push with, once there is a question of it running out.
+                    val left = hud.rcsLeft
+                    if (hud.rcsArmed && left != null) {
+                        Text(
+                            "${(left * 100).roundToInt()}%",
+                            style = TelemetryTextStyle,
+                            color = if (left < 0.1f) ApogeeColors.Danger else ink,
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -460,6 +498,8 @@ class SasActions(
     val onMode: (com.rm.apogee.core.world.SasMode) -> Unit,
     val targetChoices: () -> List<com.rm.apogee.game.GameSession.TargetChoice>,
     val onTarget: (Long) -> Unit,
+    /** With the thrusters armed: the stick slides (true) or turns. */
+    val onStickMode: (Boolean) -> Unit = {},
 )
 
 /** Roll, stability assist and the attitude stick, as one block. */
@@ -470,13 +510,16 @@ private fun AttitudeCluster(
     onRoll: (Float) -> Unit,
     sas: SasActions,
     stickSize: Dp,
+    modifier: Modifier = Modifier,
 ) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+    // Sliding on the thrusters, the roll buttons are down and up instead.
+    val sliding = hud.rcsArmed && hud.rcsSlide
+    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         Row(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            HoldButton("↺", { held -> onRoll(if (held) -1f else 0f) }, size = 40.dp)
+            HoldButton(if (sliding) "▼" else "↺", { held -> onRoll(if (held) -1f else 0f) }, size = 40.dp)
             // Stability assist lives with the attitude controls, not with
             // staging: it is the thing that holds an attitude for you.
             com.rm.apogee.ui.components.SasButton(
@@ -490,10 +533,41 @@ private fun AttitudeCluster(
                 currentTarget = hud.telemetry.targetName,
                 onTarget = sas.onTarget,
             )
-            HoldButton("↻", { held -> onRoll(if (held) 1f else 0f) }, size = 40.dp)
+            HoldButton(if (sliding) "▲" else "↻", { held -> onRoll(if (held) 1f else 0f) }, size = 40.dp)
         }
         Spacer(Modifier.height(8.dp))
         AttitudeStick(onChange = onAttitude, size = stickSize)
+        // What the stick does, right under it, while the thrusters are armed -
+        // and its room kept when they are not, so the stick sits at the same
+        // height, a little up from the corner, on every craft.
+        Spacer(Modifier.height(8.dp))
+        StickModeChip(sliding, sas.onStickMode, shown = hud.rcsArmed)
+    }
+}
+
+/** TURN | SLIDE: what the stick does while the thrusters are armed; unless [shown], only the room it takes. */
+@Composable
+private fun StickModeChip(sliding: Boolean, onStickMode: (Boolean) -> Unit, shown: Boolean = true) {
+    Row(
+        Modifier
+            .alpha(if (shown) 1f else 0f)
+            .clip(RoundedCornerShape(Dimens.CornerActionBar))
+            .background(Color.White.alpha(ApogeeAlpha.CONTROL_FILL)),
+    ) {
+        for ((label, slide) in listOf("TURN" to false, "SLIDE" to true)) {
+            val chosen = slide == sliding
+            Text(
+                label,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = if (chosen) Color(0xFF1A1030) else Color.White.alpha(ApogeeAlpha.SECONDARY),
+                modifier = Modifier
+                    .clip(RoundedCornerShape(Dimens.CornerActionBar))
+                    .background(if (chosen) ApogeeColors.Accent.alpha(0.85f) else Color.Transparent)
+                    .clickable(enabled = shown) { onStickMode(slide) }
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+            )
+        }
     }
 }
 
@@ -787,6 +861,18 @@ private const val THROTTLE_STEP = 0.01f
 /** At or below this the throttle is off: the bottom of the track, and a little above it. */
 private const val THROTTLE_SNAP = 0.07f
 private val STICK_SIZE = 132.dp
+
+/**
+ * How far the stick is kept in from its corner, beyond the screen's own
+ * margin: tucked right into it, the thumb had to bend back to reach it
+ * (Dan: too close to the corner to control easily).
+ */
+private val STICK_INSET = 40.dp
+private val PORTRAIT_STICK_INSET = 14.dp
+
+/** Keeps the stick [inset] in from the screen edge it sits against - the left in left-hand mode - and up from the bottom. */
+private fun Modifier.cornerInset(leftHand: Boolean, inset: Dp): Modifier =
+    padding(start = if (leftHand) inset else 0.dp, end = if (leftHand) 0.dp else inset, bottom = inset * 0.5f)
 private val TARGET_COLOUR = androidx.compose.ui.graphics.Color(0xFFFF5FD2)
 private val NAVBALL_SIZE = 128.dp
 

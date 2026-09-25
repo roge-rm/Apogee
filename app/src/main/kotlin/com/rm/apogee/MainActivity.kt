@@ -156,7 +156,7 @@ class MainActivity : ComponentActivity() {
 
                 when (appScreen) {
                     AppScreen.MENU -> MainMenuScreen(::navigateTo)
-                    AppScreen.PLAY -> PlayScreen(::navigateTo)
+                    AppScreen.PLAY -> PlayScreen(::navigateTo, settings.launchTime) { settings.launchTime = it }
                     AppScreen.RESUME_FLIGHT -> com.rm.apogee.ui.screens.ResumeFlightScreen(
                         craft = resumeCraft,
                         onFly = { id ->
@@ -202,6 +202,8 @@ class MainActivity : ComponentActivity() {
                         targetChoices = { session?.targetChoices() ?: emptyList() },
                         onTarget = { id -> session?.let { s -> lifecycleScope.launch { s.setTarget(id) } } },
                         onToggleBrakes = ::onToggleBrakes,
+                        onToggleRcs = ::onToggleRcs,
+                        onStickMode = ::onStickMode,
                         onToggleMap = ::onToggleMap,
                         onJoin = ::onJoin,
                         onSwitchCraft = ::onSwitchCraft,
@@ -354,14 +356,61 @@ class MainActivity : ComponentActivity() {
      * its release and silently cancel it.
      */
     private fun onAttitude(pitch: Float, yaw: Float) {
+        if (sliding()) {
+            // Thrusters armed and the stick set to slide: up is away from
+            // the camera, right is its right.
+            slideRight = yaw; slideAway = pitch
+            sendSlide()
+            return
+        }
         commandedPitch = pitch
         commandedYaw = yaw
         sendAttitude()
     }
 
     private fun onRoll(roll: Float) {
+        if (sliding()) {
+            // The roll buttons become down (left) and up (right).
+            slideLift = roll
+            sendSlide()
+            return
+        }
         commandedRoll = roll
         sendAttitude()
+    }
+
+    // The thumbs' slide while the stick is sliding: right, away and up, -1..1.
+    private var slideRight = 0f
+    private var slideAway = 0f
+    private var slideLift = 0f
+
+    private fun sliding(): Boolean = hudState.rcsArmed && hudState.rcsSlide
+
+    private fun sendSlide() {
+        session?.setSlide(slideRight.toDouble(), slideAway.toDouble(), slideLift.toDouble())
+    }
+
+    /** Lets go of everything the stick and roll buttons were holding, in either mode. */
+    private fun releaseStick() {
+        commandedPitch = 0f; commandedYaw = 0f; commandedRoll = 0f
+        slideRight = 0f; slideAway = 0f; slideLift = 0f
+        sendAttitude()
+        sendSlide()
+    }
+
+    private fun onToggleRcs() {
+        val armed = !hudState.rcsArmed
+        hudState.rcsArmed = armed
+        if (!armed) hudState.rcsSlide = false
+        releaseStick()
+        session?.setRcs(armed)
+    }
+
+    /** The stick turns the craft, or with [slide] slides it on the thrusters. */
+    private fun onStickMode(slide: Boolean) {
+        if (hudState.rcsSlide == slide) return
+        releaseStick()
+        hudState.rcsSlide = slide
     }
 
     private fun sendAttitude() {
@@ -370,7 +419,12 @@ class MainActivity : ComponentActivity() {
         // or changing the setting mid-flight takes effect on the next nudge.
         val reversed = settings.pitchStyle.reverses(current.controlledOrientation)
         val pitch = commandedPitch.toDouble() * if (reversed) -1.0 else 1.0
-        val yaw = commandedYaw.toDouble()
+        // Positive yaw is about the design's +Z, which on a craft built lying
+        // down is the sky: it turns anticlockwise seen from above - left -
+        // while the stick gives positive to the right. Flipped, so stick left
+        // turns a plane, boat or rover left.
+        val flat = current.controlledOrientation == com.rm.apogee.core.craft.CraftOrientation.HORIZONTAL
+        val yaw = commandedYaw.toDouble() * if (flat) -1.0 else 1.0
         val roll = commandedRoll.toDouble()
         lifecycleScope.launch { current.setAttitude(pitch, yaw, roll) }
     }
@@ -430,6 +484,7 @@ class MainActivity : ComponentActivity() {
         hideSystemBars()
         hudState.reset()
         commandedPitch = 0f; commandedYaw = 0f; commandedRoll = 0f
+        slideRight = 0f; slideAway = 0f; slideLift = 0f
 
         val host = findViewById<FrameLayout>(R.id.game_surface_host)
         val glRenderer = GlRenderer(this, frameBus) { tier ->
@@ -476,6 +531,7 @@ class MainActivity : ComponentActivity() {
                     resumeVessel = pendingResume,
                     weather = settings.weatherIntensity,
                     clouds = settings.cloudCover,
+                    launchTime = settings.launchTime,
                 )
 
                 is SessionMode.Host -> GameSession.hostLan(
@@ -693,6 +749,7 @@ class MainActivity : ComponentActivity() {
             while (isActive) {
                 withFrameNanos { }
                 val glRenderer = renderer ?: continue
+                glRenderer.shadowChoice = settings.shadowQuality
                 hudState.frameTimeMillis = glRenderer.lastFrameTimeNanos.get() / 1_000_000f
 
                 session?.let { current ->
@@ -705,8 +762,14 @@ class MainActivity : ComponentActivity() {
                     hudState.surfaceReady = current.surfaceReady
                     hudState.connectionError = current.rejectionReason
                     hudState.canJoin = current.joinable
+                    hudState.chute = current.chuteState
                     hudState.ownedCraft = current.ownedCraftCount
                     hudState.hasWheels = current.controlledHasWheels
+                    hudState.hasRcs = current.controlledHasRcs
+                    // The session decides - switching craft stands the thrusters down.
+                    hudState.rcsArmed = current.rcsArmed
+                    if (!hudState.rcsArmed) hudState.rcsSlide = false
+                    hudState.rcsLeft = if (hudState.hasRcs) current.rcsLeft else null
                     if (settings.showDebugOverlay) hudState.voices = com.rm.apogee.audio.AudioEngine.activeVoices
                     // The mix follows the settings as they are moved.
                     val gains = settings.busGains()

@@ -33,6 +33,8 @@ class EngineEmitter(
     val velocity: Vec3,
     /** A stable number for this engine, for its flicker. */
     val seed: Int,
+    /** The bell's mouth, m: where the flame is drawn from. */
+    val exitRadius: Double = radius * 1.25,
 )
 
 /**
@@ -259,14 +261,14 @@ class Effects(tier: QualityTier) {
 
     private fun rain(dt: Double, precipitation: Double, camera: Vec3, body: CelestialBody) {
         up.setTo(camera).normalizeInPlace()
-        val n = poisson(precipitation * 900.0 * rateScale * dt, 991)
+        val n = poisson(precipitation * 1_800.0 * rateScale * dt, 991)
         for (k in 0 until n) {
             val ox = jitter(k, 1) * RAIN_RADIUS; val oy = jitter(k, 2) * RAIN_RADIUS; val oz = jitter(k, 3) * RAIN_RADIUS
             spawn(
                 x = camera.x + ox + up.x * 35.0, y = camera.y + oy + up.y * 35.0, z = camera.z + oz + up.z * 35.0,
                 vx = windLow.x - up.x * RAIN_FALL, vy = windLow.y - up.y * RAIN_FALL, vz = windLow.z - up.z * RAIN_FALL,
                 life = 70.0 / RAIN_FALL, startSize = 0.04, endSize = 0.04,
-                r = 0.72f, g = 0.78f, b = 0.86f, a = 0.55f, grip = 0.0, rise = 0.0, streak = true,
+                r = 0.72f, g = 0.78f, b = 0.86f, a = 0.7f, grip = 0.0, rise = 0.0, streak = true,
             )
         }
     }
@@ -334,6 +336,9 @@ class Effects(tier: QualityTier) {
                 if (height > 0.15) {
                     val g = gravity * dt
                     vx[i] -= ux * g; vy[i] -= uy * g; vz[i] -= uz * g
+                } else if (streak[i] && glows[i]) {
+                    // A spark: out as it lands.
+                    kill(i); continue
                 } else {
                     // Landed: it stops going down, and skids to a halt.
                     val down = vx[i] * ux + vy[i] * uy + vz[i] * uz
@@ -399,14 +404,17 @@ class Effects(tier: QualityTier) {
                     // is still a flame at 7 km (a third of the pressure left)
                     // and a broad bloom only in the last few percent of air.
                     val vacuum = (1.0 - pressure).let { it * it * it }
-                    val width = e.radius * (1.2 + 2.5 * vacuum)
+                    // Leaves the bell at the bell's own width and only spreads
+                    // downstream of it - it used to start three bell-widths
+                    // across in thin air, a slab hiding the engine (Dan).
+                    val width = e.exitRadius
                     val length = e.radius * (22.0 + 14.0 * vacuum) * (0.35 + 0.65 * e.throttle) * flicker
-                    out.add(RenderItem(ROCKET_PLUME, e.nozzle.copy(), orient, floatArrayOf(1.0f, 0.55f, 0.2f, (0.65 - 0.35 * vacuum).toFloat()), scale = Vec3(width, length, width), ambient = EMISSIVE))
-                    out.add(RenderItem(ROCKET_CORE, e.nozzle.copy(), orient, floatArrayOf(1.0f, 0.95f, 0.8f, (0.92 - 0.35 * vacuum).toFloat()), scale = Vec3(e.radius * 0.85, length * 0.4, e.radius * 0.85), ambient = EMISSIVE))
+                    out.add(RenderItem(rocketPlume(vacuum), e.nozzle.copy(), orient, floatArrayOf(1.0f, 0.55f, 0.2f, (0.65 - 0.35 * vacuum).toFloat()), scale = Vec3(width, length, width), ambient = EMISSIVE, key = RenderItem.effectKey(e.seed.toLong(), 0)))
+                    out.add(RenderItem(ROCKET_CORE, e.nozzle.copy(), orient, floatArrayOf(1.0f, 0.95f, 0.8f, (0.92 - 0.35 * vacuum).toFloat()), scale = Vec3(e.radius * 0.85, length * 0.4, e.radius * 0.85), ambient = EMISSIVE, key = RenderItem.effectKey(e.seed.toLong(), 1)))
                 }
                 Exhaust.JET -> {
                     val length = e.radius * 3.0 * e.throttle * flicker
-                    out.add(RenderItem(JET_PLUME, e.nozzle.copy(), orient, floatArrayOf(0.55f, 0.7f, 1.0f, 0.35f), scale = Vec3(e.radius * 0.8, length, e.radius * 0.8), ambient = EMISSIVE))
+                    out.add(RenderItem(JET_PLUME, e.nozzle.copy(), orient, floatArrayOf(0.55f, 0.7f, 1.0f, 0.35f), scale = Vec3(e.radius * 0.8, length, e.radius * 0.8), ambient = EMISSIVE, key = RenderItem.effectKey(e.seed.toLong(), 2)))
                 }
                 else -> Unit
             }
@@ -466,6 +474,12 @@ class Effects(tier: QualityTier) {
         time: Double,
         seed: Int,
         out: MutableList<RenderItem>,
+        /** The craft's leading point, where the air meets it first. */
+        nose: Vec3 = centre,
+        /** How thick the craft is there, m: its widest body radius. */
+        girth: Double = size * 0.3,
+        /** Unit, from the nose back along the body: what the collar hugs. Null for along the flow. */
+        back: Vec3? = null,
     ) {
         val atmosphere = body.atmosphere ?: return
         val altitude = centre.length - body.radius
@@ -481,11 +495,18 @@ class Effects(tier: QualityTier) {
         val damp = smoothstep(0.05, 0.35, density)
         val vapour = damp * (1.0 - smoothstep(0.0, 0.2, kotlin.math.abs(mach - 1.0))) * (0.85 + 0.15 * Noise.simplex(seed, time * 9.0, 0.0, 0.0))
         if (vapour > 0.02) {
+            // A collar just behind the nose, flaring back past the shoulders:
+            // where the air speeds round the craft and drops below its dew
+            // point - the size of the body there, not of the whole craft.
+            val length = girth * 3.0
+            val along = back ?: flow
+            val collar = Vec3().setTo(nose).addScaledInPlace(along, 0.55 * length + girth * 0.6)
             out.add(
                 RenderItem(
-                    VAPOUR_CONE, centre.copy(), quatFromTo(Vec3(0.0, -1.0, 0.0), flow),
+                    VAPOUR_CONE, collar, quatFromTo(Vec3(0.0, -1.0, 0.0), along),
                     floatArrayOf(0.95f, 0.97f, 1.0f, (0.45 * vapour).toFloat()),
-                    caps = 0, scale = Vec3(size * 1.35, size * 1.6, size * 1.35), ambient = 0.9f,
+                    caps = 0, scale = Vec3(girth * 2.2, length, girth * 2.2), ambient = 0.9f,
+                    key = RenderItem.effectKey(-1L - seed, 3),
                 ),
             )
         }
@@ -500,12 +521,14 @@ class Effects(tier: QualityTier) {
         val glow = smoothstep(GLOW_FROM, GLOW_FULL, recovery) * smoothstep(1e-6, 1e-4, density)
         if (glow > 0.02) {
             val flicker = 0.9 + 0.1 * Noise.simplex(seed + 3, time * 17.0, 0.0, 0.0)
-            val ahead = centre.copy().addScaledInPlace(flow, -size * 0.9)
+            // Standing just off the nose, wrapping back round it.
+            val ahead = nose.copy().addScaledInPlace(flow, girth * 0.4)
             out.add(
                 RenderItem(
                     BOW_SHOCK, ahead, quatFromTo(Vec3(0.0, 1.0, 0.0), flow.copy().mulInPlace(-1.0)),
                     floatArrayOf(1.0f, (0.45 + 0.35 * (1 - glow)).toFloat(), (0.2 * (1 - glow)).toFloat(), (0.75 * glow * flicker).toFloat()),
-                    caps = 0, scale = Vec3(size * 1.3, size * 1.1, size * 1.3), ambient = EMISSIVE,
+                    caps = 0, scale = Vec3(girth * 2.0, girth * 1.8, girth * 2.0), ambient = EMISSIVE,
+                    key = RenderItem.effectKey(-1L - seed, 4),
                 ),
             )
             // Sparks streaming off behind it.
@@ -613,6 +636,79 @@ class Effects(tier: QualityTier) {
         }
     }
 
+    /**
+     * A seam working near its limit: sparks and now and then a fleck of
+     * metal off it, at [rate] a second. [at] is the seam (body-fixed),
+     * [across] the way out of it, [radius] its reach; [velocity] is the
+     * craft's (body-fixed), so what comes off leaves with it and falls
+     * behind as the air takes it - in vacuum nothing takes it, and it keeps
+     * going with the craft. [colour] is the part's own, for the flecks.
+     */
+    /**
+     * A thruster block firing at [strength] (0..1): quick pale puffs from
+     * [at] (body-fixed) along [out] (unit, the way the gas goes, body frame),
+     * carried along at the craft's [velocity] over the ground. In vacuum
+     * they shoot straight out and thin to nothing at once; in air they slow
+     * and hang a moment.
+     */
+    fun rcsPuff(at: Vec3, out: Vec3, velocity: Vec3, strength: Double, inAir: Boolean, dt: Double, seed: Int) {
+        if (strength < 0.02) return
+        val n = poisson(RCS_PUFFS * strength * rateScale * dt, seed)
+        for (k in 0 until n) {
+            // A narrow cone about the nozzle's axis.
+            scratch.setTo(out).addInPlace(Vec3(jitter(k, 1), jitter(k, 2), jitter(k, 3)).mulInPlace(0.18)).normalizeInPlace()
+            val speed = if (inAir) 10.0 + 8.0 * rand(k) else 24.0 + 16.0 * rand(k)
+            spawn(
+                x = at.x + out.x * 0.2, y = at.y + out.y * 0.2, z = at.z + out.z * 0.2,
+                vx = velocity.x + scratch.x * speed, vy = velocity.y + scratch.y * speed, vz = velocity.z + scratch.z * speed,
+                life = (if (inAir) 0.45 else 0.3) + 0.2 * rand(k + 5),
+                startSize = 0.12, endSize = if (inAir) 1.3 else 2.2,
+                r = 0.93f, g = 0.95f, b = 1f, a = (0.35 + 0.3 * strength).toFloat(),
+                grip = if (inAir) 4.0 else 0.0, rise = 0.0,
+            )
+        }
+    }
+
+    fun strain(
+        at: Vec3, velocity: Vec3, radius: Double, rate: Double, inAir: Boolean,
+        colour: FloatArray?, dt: Double, seed: Int,
+    ) {
+        up.setTo(at).normalizeInPlace()
+        val grip = if (inAir) 1.5 else 0.0
+        // In bursts, as metal grinding on metal gives them: a handful at a
+        // time, now and then, not a steady trickle.
+        val n = poisson(rate / BURST * rateScale * dt, seed) * BURST
+        for (k in 0 until n) {
+            // Round the seam, flung outward.
+            scratch.setTo(jitter(k, 1), jitter(k, 2), jitter(k, 3))
+            if (scratch.lengthSq < 1e-6) scratch.setTo(up)
+            scratch.normalizeInPlace()
+            val s = 3.0 + 6.0 * rand(k)
+            spawn(
+                x = at.x + scratch.x * radius, y = at.y + scratch.y * radius, z = at.z + scratch.z * radius,
+                vx = velocity.x + scratch.x * s, vy = velocity.y + scratch.y * s, vz = velocity.z + scratch.z * s,
+                life = 0.25 + 0.45 * rand(k + 1), startSize = 0.14 + 0.08 * rand(k + 2), endSize = 0.06,
+                r = 1f, g = 0.62f + 0.3f * rand(k + 3), b = 0.18f + 0.25f * rand(k + 4), a = 1f,
+                grip = grip, rise = 0.0, streak = true, glow = true, fall = inAir,
+            )
+        }
+        val flecks = poisson(rate * 0.08 * rateScale * dt, seed + 1)
+        val c = colour ?: floatArrayOf(0.62f, 0.62f, 0.64f, 1f)
+        for (k in 0 until flecks) {
+            scratch.setTo(jitter(k, 1), jitter(k, 2), jitter(k, 3))
+            if (scratch.lengthSq < 1e-6) scratch.setTo(up)
+            scratch.normalizeInPlace()
+            val s = 1.5 + 3.0 * rand(k)
+            spawn(
+                x = at.x + scratch.x * radius, y = at.y + scratch.y * radius, z = at.z + scratch.z * radius,
+                vx = velocity.x + scratch.x * s, vy = velocity.y + scratch.y * s, vz = velocity.z + scratch.z * s,
+                life = 2.0 + 2.0 * rand(k + 1), startSize = 0.12 + 0.1 * rand(k + 2), endSize = 0.1,
+                r = c[0] * 0.85f, g = c[1] * 0.85f, b = c[2] * 0.85f, a = 1f,
+                grip = grip * 0.3, rise = 0.0, fall = inAir,
+            )
+        }
+    }
+
     /** Water thrown up where something went into it at [speed]: a white column and falling spray. */
     private fun splash(at: Vec3, speed: Double) {
         val strength = (speed / 30.0).coerceIn(0.2, 4.0)
@@ -679,6 +775,8 @@ class Effects(tier: QualityTier) {
         time: Double,
         /** How much sun reaches the camera: at night smoke and rain are moonlit, not white. */
         daylight: Float = 1f,
+        /** Lightning's light this frame. */
+        flash: Float = 0f,
     ): Pair<FloatArray, Int> {
         val shapes = count + bolts.sumOf { it.points.size - 1 }
         val needed = shapes * 6 * VERTEX_FLOATS
@@ -695,13 +793,28 @@ class Effects(tier: QualityTier) {
         // it falls from, and smoke by what reaches under it.
         NightLight.flatLight(daylight, 0.55f + 0.45f * lightScale, lightScale, smokeLight)
         NightLight.flatLight(daylight, 1f, lightScale, rainLight)
+        for (c in 0 until 3) {
+            smokeLight[c] += NightLight.FLASH[c] * flash
+            rainLight[c] += NightLight.FLASH[c] * flash
+        }
         for (i in 0 until count) {
             p.setTo(px[i], py[i], pz[i])
             bodyRotation.rotate(p, p).subInPlace(cameraPos)
             val u = age[i] / life[i]
             val size = size0[i] + (size1[i] - size0[i]) * u
-            val fadeIn = min(1f, age[i] / 0.2f)
-            val alpha = colour[i * 4 + 3] * fadeIn * (1f - u) * (1f - u)
+            // Short-lived ones come in fast: a spark that took a fifth of a
+            // second to appear would be gone before it was ever bright.
+            val fadeIn = min(1f, age[i] / min(0.2f, life[i] * 0.15f))
+            // Rain holds its strength until the end: faded as smoke is, a drop
+            // had lost three quarters of it by the time it fell past the
+            // camera, and a downpour was hard to see at all (Dan).
+            val fadeOut = if (streak[i] && !glows[i]) {
+                // And gone before it reaches the lens: a drop a hand's breadth
+                // from the camera drew as a bar across the whole screen.
+                val near = ((p.length - 2.0) / 3.0).coerceIn(0.0, 1.0).toFloat()
+                (1f - ((u - 0.8f) / 0.2f).coerceIn(0f, 1f)) * near
+            } else (1f - u) * (1f - u)
+            val alpha = colour[i * 4 + 3] * fadeIn * fadeOut
             val light = when {
                 glows[i] -> GLOWING
                 streak[i] -> rainLight
@@ -709,10 +822,14 @@ class Effects(tier: QualityTier) {
             }
             val r = colour[i * 4] * light[0]; val g = colour[i * 4 + 1] * light[1]; val b = colour[i * 4 + 2] * light[2]
             if (streak[i]) {
-                // A short streak along its fall, as seen.
+                // A short streak along its travel, as seen: rain a long thin
+                // line, a spark a glowing dash as long as it is quick.
                 scratch.setTo(vx[i], vy[i], vz[i])
-                bodyRotation.rotate(scratch, scratch).normalizeInPlace().mulInPlace(1.4)
-                scratch2.setTo(p).crossInPlace(scratch).normalizeInPlace().mulInPlace(0.03)
+                bodyRotation.rotate(scratch, scratch)
+                val length = if (glows[i]) (scratch.length * 0.05).coerceIn(0.15, 1.2) else 2.2
+                val width = if (glows[i]) size * 0.22 else 0.04
+                scratch.normalizeInPlace().mulInPlace(length)
+                scratch2.setTo(p).crossInPlace(scratch).normalizeInPlace().mulInPlace(width.toDouble())
                 o = quad(v, o, p, scratch, scratch2, r, g, b, alpha)
             } else {
                 o = hexagon(v, o, p, right, upAxis, size.toDouble(), r, g, b, alpha)
@@ -795,6 +912,9 @@ class Effects(tier: QualityTier) {
         private val GLOWING = floatArrayOf(1f, 1f, 1f)
 
         const val CONTRAIL_ALTITUDE = 8_000.0
+
+        /** Sparks off a straining seam come this many at a time. */
+        private const val BURST = 5
         const val SPEED_OF_SOUND = 340.0
 
         /** Heat index 1: a strong glow. See [aero]. */
@@ -813,17 +933,36 @@ class Effects(tier: QualityTier) {
             listOf(listOf(0.0, 0.6), listOf(0.55, 0.45), listOf(0.9, 0.1), listOf(1.05, -0.35), listOf(1.1, -0.8)),
             segments = 14,
         )
+        /** Puffs a second from a thruster block firing flat out. */
+        const val RCS_PUFFS = 45.0
         const val RAIN_RADIUS = 45.0
         const val RAIN_FALL = 9.0
         const val CLOUD_BASE = 1_200.0
         const val BOLT_SECONDS = 0.35
         const val LIGHTNING_VISIBLE = 40_000.0
 
-        /** A flame: from a point far downstream, swelling, back up to the nozzle. */
-        val ROCKET_PLUME = ModelSpec.Lathe(
-            listOf(listOf(0.1, -1.0), listOf(0.55, -0.75), listOf(0.95, -0.4), listOf(1.1, -0.15), listOf(1.0, 0.0)),
-            segments = 12,
-        )
+        /**
+         * The outer flame for [vacuum] (0 in thick air, 1 in none), in units
+         * of the bell's mouth across and the flame's length along: from a
+         * point far downstream back to exactly the mouth. In air a flame,
+         * barely wider than the bell; as the air thins it fans out behind
+         * the engine like a second, larger bell - never at the nozzle itself.
+         * One of [PLUME_STEPS] shapes, so the renderer builds only a few.
+         */
+        fun rocketPlume(vacuum: Double): ModelSpec.Lathe =
+            PLUME_SHAPES[(vacuum.coerceIn(0.0, 1.0) * (PLUME_STEPS - 1) + 0.5).toInt()]
+
+        private const val PLUME_STEPS = 8
+        private val PLUME_ALONG = doubleArrayOf(-1.0, -0.9, -0.75, -0.55, -0.35, -0.18, -0.07, 0.0)
+        private val PLUME_AIR = doubleArrayOf(0.08, 0.3, 0.55, 0.85, 1.02, 1.08, 1.04, 1.0)
+        private val PLUME_VACUUM = doubleArrayOf(0.0, 2.2, 2.9, 2.8, 2.3, 1.7, 1.25, 1.0)
+        private val PLUME_SHAPES = List(PLUME_STEPS) { step ->
+            val v = step / (PLUME_STEPS - 1.0)
+            ModelSpec.Lathe(
+                PLUME_ALONG.indices.map { i -> listOf(PLUME_AIR[i] + (PLUME_VACUUM[i] - PLUME_AIR[i]) * v, PLUME_ALONG[i]) },
+                segments = 12,
+            )
+        }
         val ROCKET_CORE = ModelSpec.Lathe(
             listOf(listOf(0.0, -1.0), listOf(0.7, -0.6), listOf(1.0, -0.2), listOf(0.9, 0.0)),
             segments = 10,

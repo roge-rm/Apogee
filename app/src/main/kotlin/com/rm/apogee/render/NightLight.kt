@@ -12,6 +12,9 @@ object NightLight {
     /** A full moon's light, faint and blue: `MOON` in the shaders. */
     val MOON = floatArrayOf(0.21f, 0.25f, 0.37f)
 
+    /** Lightning's light: `FLASH` in the shaders. Change both together. */
+    val FLASH = floatArrayOf(0.8f, 0.85f, 1.0f)
+
     /** Air and fog at night, as a share of their daylight brightness. */
     const val NIGHT_AIR = 0.08f
 

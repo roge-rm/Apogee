@@ -398,7 +398,7 @@
     "modules": [
       {
         "type": "parachute",
-        "deployedDragCoefficient": 500.0,
+        "deployedDragCoefficient": 1200.0,
         "maxDeploymentSpeed": 300.0
       }
     ]

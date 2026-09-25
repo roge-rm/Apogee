@@ -29,18 +29,35 @@ class SoundScene(private val budget: Int) {
         /** Where it is, and the air's pressure there as a share of sea level's. */
         val position: Vec3,
         val pressure: Double,
+        /** Its velocity through the air, m/s, in the same frame as [position]: for Doppler. */
+        val velocity: Vec3 = Vec3(),
     ) {
         /** Per exhaust kind: output weighted by thrust (0..1), and the thrust it is out of, N. */
         val output = DoubleArray(Exhaust.entries.size)
         val thrust = DoubleArray(Exhaust.entries.size)
+        /**
+         * Per exhaust kind, thrust-weighted: how much its engines are built
+         * for vacuum, 0 a sea-level booster to 1 a vacuum engine - how they
+         * sound (see [vacuumBuilt]).
+         */
+        val character = DoubleArray(Exhaust.entries.size)
         /** Parts of it on fire. */
         var burning = 0
 
-        /** Adds an engine of [kind] putting out [output] (0..1) of [fullThrust]. */
-        fun engine(kind: Exhaust, output: Double, fullThrust: Double) {
+        /** How hard its thrusters are firing, 0..1: the hardest-working block. */
+        var rcs = 0.0
+            private set
+
+        fun rcs(strength: Double) { rcs = maxOf(rcs, strength.coerceIn(0.0, 1.0)) }
+
+        /** Adds an engine of [kind] putting out [output] (0..1) of [fullThrust], of [character]. */
+        fun engine(kind: Exhaust, output: Double, fullThrust: Double, character: Double = 0.0) {
             val k = kind.ordinal
             val total = thrust[k] + fullThrust
-            if (total > 0.0) this.output[k] = (this.output[k] * thrust[k] + output * fullThrust) / total
+            if (total > 0.0) {
+                this.output[k] = (this.output[k] * thrust[k] + output * fullThrust) / total
+                this.character[k] = (this.character[k] * thrust[k] + character * fullThrust) / total
+            }
             thrust[k] = total
         }
     }
@@ -55,10 +72,16 @@ class SoundScene(private val budget: Int) {
         /** Hardest-loaded joint, as a share of its strength. */
         val stress: Double,
         val crewed: Boolean,
-        /** On wheels: how fast over the ground, how hard driven, and the ground's grit. */
+        /**
+         * On wheels: how fast over the ground, how hard driven, the ground's
+         * grit (how much it crunches) and softness (0 rock to 1 sand or snow).
+         */
         val wheelSpeed: Double = 0.0,
         val wheelLoad: Double = 0.0,
         val grit: Double = 0.0,
+        val softness: Double = 0.0,
+        /** How much the hull is still settling to a change of outside pressure, 0..1 - see [HullSettling]. */
+        val settling: Double = 0.0,
     )
 
     /** Where the ears are. */
@@ -72,6 +95,10 @@ class SoundScene(private val budget: Int) {
         val wind: Double = 0.0,
         val turbulence: Double = 0.0,
         val rain: Double = 0.0,
+        /** How the ears are moving through the air, m/s, in the frame of [position]: for Doppler. */
+        val velocity: Vec3 = Vec3(),
+        /** Waves breaking on a shore nearby, 0 none to 1 right on the beach. */
+        val shore: Double = 0.0,
     ) {
         val inAir: Boolean get() = density > AIRLESS
     }
@@ -112,12 +139,26 @@ class SoundScene(private val budget: Int) {
                 val (g, p, lp) = if (air) place(listener, craft.position, 0.5 + 1.5 * size) else Triple(0.8f, 0.0f, 0.0f)
                 val v = FloatArray(SharedParams.COUNT)
                 val recipe = when (kind) {
-                    Exhaust.ROCKET -> { v[0] = out.toFloat(); v[1] = size.toFloat(); v[2] = craft.pressure.toFloat(); v[3] = (0.3 + 0.4 * size).toFloat(); Recipes.ROCKET }
+                    Exhaust.ROCKET -> {
+                        v[0] = out.toFloat(); v[1] = size.toFloat(); v[2] = craft.pressure.toFloat(); v[3] = (0.3 + 0.4 * size).toFloat()
+                        v[4] = craft.character[kind.ordinal].toFloat()
+                        Recipes.ROCKET
+                    }
                     Exhaust.JET -> { v[0] = (0.35 + 0.65 * out).toFloat(); v[1] = out.toFloat(); v[2] = 0.5f; Recipes.JET }
                     Exhaust.PROP -> { v[0] = (0.3 + 0.7 * out).toFloat(); v[1] = (30 + 70 * out).toFloat(); v[2] = out.toFloat(); Recipes.PROP }
                     Exhaust.WATER -> { v[0] = (0.4 + 0.6 * out).toFloat(); v[1] = out.toFloat(); Recipes.OUTBOARD }
                 }
+                if (air) v[SharedParams.PITCH] = doppler(listener, craft).toFloat()
                 add(base + kind.ordinal, recipe, hull, v, g, p, lp, weight = g * (0.5f + out.toFloat()))
+            }
+
+            if (craft.rcs > 0.02) {
+                // Thrusters: puffs of gas, heard through the hull out in vacuum.
+                val (g, p, lp) = if (air) place(listener, craft.position, 0.4) else Triple(0.8f, 0.0f, 0.0f)
+                val v = FloatArray(SharedParams.COUNT)
+                v[0] = craft.rcs.toFloat()
+                if (air) v[SharedParams.PITCH] = doppler(listener, craft).toFloat()
+                add(base + SLOT_RCS, Recipes.RCS, hull, v, g, p, lp, weight = g * (0.3f + craft.rcs.toFloat()))
             }
 
             if (air && craft.burning > 0) {
@@ -129,6 +170,8 @@ class SoundScene(private val budget: Int) {
             if (craft.own && own != null && own.wheelSpeed + own.wheelLoad > 0.05 && air) {
                 val v = FloatArray(SharedParams.COUNT)
                 v[0] = own.wheelLoad.toFloat(); v[1] = own.wheelSpeed.toFloat(); v[2] = own.grit.toFloat()
+                v[4] = own.softness.toFloat()
+                v[SharedParams.PITCH] = doppler(listener, craft).toFloat()
                 add(base + SLOT_ROVER, Recipes.ROVER, 0, v, gain, pan, lowpass, weight = gain * 0.7f)
             }
         }
@@ -150,10 +193,15 @@ class SoundScene(private val budget: Int) {
                     v[0] = own.heat.toFloat(); v[1] = own.heat.toFloat()
                     add(KEY_REENTRY, Recipes.REENTRY, 0, v, 1f, 0f, 0f, weight = own.heat.toFloat() * 1.5f)
                 }
-            } else if (own.crewed) {
+            }
+            // The cabin: its hum only out in vacuum, where nothing drowns it;
+            // the hull's ticks wherever it is still settling to the pressure.
+            if (own.crewed && (!air || own.settling > 0.02)) {
                 val v = FloatArray(SharedParams.COUNT)
                 v[0] = 0.6f
-                add(KEY_CABIN, Recipes.CABIN, VoiceFlags.HULL, v, 1f, 0f, 0f, weight = 0.2f)
+                v[1] = own.settling.coerceIn(0.0, 1.0).toFloat()
+                v[2] = if (air) 0f else 1f
+                add(KEY_CABIN, Recipes.CABIN, if (air) 0 else VoiceFlags.HULL, v, 1f, 0f, 0f, weight = 0.2f)
             }
             if (own.stress > STRESS_AUDIBLE) {
                 val v = FloatArray(SharedParams.COUNT)
@@ -179,6 +227,11 @@ class SoundScene(private val budget: Int) {
                 val r = FloatArray(SharedParams.COUNT)
                 r[0] = (listener.rain * 1.5).coerceAtMost(1.0).toFloat(); r[1] = 0.3f
                 add(KEY_RAIN, Recipes.RAIN, 0, r, 1f, 0f, 0f, weight = r[0] * 0.5f)
+            }
+            if (listener.shore > 0.02) {
+                val v = FloatArray(SharedParams.COUNT)
+                v[0] = listener.shore.coerceIn(0.0, 1.0).toFloat()
+                add(KEY_SURF, Recipes.SURF, 0, v, 1f, 0f, 0f, weight = v[0] * 0.4f)
             }
         }
 
@@ -246,6 +299,24 @@ class SoundScene(private val budget: Int) {
         return Triple(gain, pan, lowpass)
     }
 
+    /**
+     * How much higher [craft] sounds than it is, as heard by [listener]:
+     * above 1 coming closer, below going away - (c + v_listener) / (c + v_source)
+     * along the line between them. The craft you ride with moves with you
+     * and sounds as it is. Kept within an octave either way: past the speed
+     * of sound the formula runs away, and the shock is another sound.
+     */
+    fun doppler(listener: Listener, craft: Craft): Double {
+        scratch.setTo(craft.position).subInPlace(listener.position)
+        val d = scratch.length
+        if (d < 1.0) return 1.0
+        scratch.mulInPlace(1.0 / d) // listener to source
+        val towardSource = listener.velocity dot scratch
+        val awayFromListener = craft.velocity dot scratch
+        val below = (SPEED_OF_SOUND + awayFromListener).coerceAtLeast(SPEED_OF_SOUND * 0.5)
+        return ((SPEED_OF_SOUND + towardSource) / below).coerceIn(0.5, 2.0)
+    }
+
     private fun add(key: Int, recipe: Int, flags: Int, v: FloatArray, gain: Float, pan: Float, lowpass: Float, weight: Float) {
         if (gain < AUDIBLE) return
         v[SharedParams.GAIN] = gain
@@ -271,8 +342,13 @@ class SoundScene(private val budget: Int) {
         /** Thrust at which an engine sounds as big as it gets, N. */
         const val FULL_SIZE_THRUST = 400_000.0
 
-        /** Joint load, as a share of strength, where the structure starts to creak. */
-        const val STRESS_AUDIBLE = 0.55
+        /**
+         * Joint load, as a share of strength, where the structure starts to
+         * creak: where the seam starts to spark (StrainLook.SPARKS_FROM), so
+         * it is heard when it is seen. At 0.55 it creaked through most of an
+         * ascent once fins counted (Dan: too prevalent).
+         */
+        const val STRESS_AUDIBLE = 0.75
 
         /** Quieter than this, a sound is not worth a voice. */
         const val AUDIBLE = 0.01f
@@ -280,6 +356,7 @@ class SoundScene(private val budget: Int) {
         const val CRAFT_SLOTS = 8
         const val SLOT_FIRE = 5
         const val SLOT_ROVER = 6
+        const val SLOT_RCS = 7
 
         // Keys for the scene's own sounds, well clear of craft keys.
         const val KEY_AIRFLOW = -1
@@ -288,5 +365,14 @@ class SoundScene(private val budget: Int) {
         const val KEY_STRESS = -4
         const val KEY_WIND = -5
         const val KEY_RAIN = -6
+        const val KEY_SURF = -7
+
+        /**
+         * How much an engine is built for vacuum, 0..1, from how much of its
+         * thrust it keeps at sea level: a booster keeps most, a vacuum
+         * engine's big bell keeps little.
+         */
+        fun vacuumBuilt(thrustSeaLevel: Double, thrustVacuum: Double): Double =
+            if (thrustVacuum <= 0.0) 0.0 else (1.0 - thrustSeaLevel / thrustVacuum).coerceIn(0.0, 1.0)
     }
 }

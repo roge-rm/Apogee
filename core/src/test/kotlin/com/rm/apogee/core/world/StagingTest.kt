@@ -148,4 +148,37 @@ class StagingTest {
         assertTrue("it burned for a second before letting go: $left of $full", left < full - 1.0)
         assertTrue(rocket.amountOf(com.rm.apogee.core.part.ResourceType.PROPELLANT) > 0.0)
     }
+
+    /**
+     * A stage let go of while its engine is burning goes on burning - its
+     * control module is gone, but nothing told the engine to stop - at the
+     * throttle it had, until its tanks run dry (Dan).
+     */
+    @Test
+    fun `a stage dropped while burning burns on until it is dry`() {
+        val world = World.default(catalog)
+        val rocket = world.spawnInOrbit(
+            StockCraft.starterRocket(catalog), "terra",
+            com.rm.apogee.core.orbit.Orbit.circular(700_000.0, 3.5316000e12),
+        )
+        world.apply(com.rm.apogee.core.world.Command.SetThrottle(rocket.id.raw, 0.7))
+        world.stage(rocket) // lower engine
+        repeat(60) { world.step(dt) }
+        val before = world.vessels.map { it.id }.toSet()
+        world.stage(rocket) // separation, upper engine
+        val lower = world.vessels.first { it.id !in before }
+        assertEquals("it keeps the throttle it had", 0.7, lower.control.throttle, 1e-9)
+        val fuel0 = lower.amountOf(com.rm.apogee.core.part.ResourceType.PROPELLANT)
+        repeat(120) { world.step(dt) }
+        val engine = lower.defs.indices.first { lower.defs[it].module<com.rm.apogee.core.part.Engine>() != null }
+        assertTrue("still burning: ${lower.engineOutput[engine]}", lower.engineOutput[engine] > 0.5)
+        assertTrue("on its own propellant", lower.amountOf(com.rm.apogee.core.part.ResourceType.PROPELLANT) < fuel0)
+        val gap = lower.body.position.distanceTo(rocket.body.position)
+        println("two seconds on: ${"%.1f".format(gap)} m apart; upper parts ${rocket.design.parts.size}, lower alive ${world.vessels.any { it.id == lower.id }}")
+        // And it runs dry in the end, and stops.
+        repeat(60 * 400) { world.step(dt) }
+        if (world.vessels.any { it.id == lower.id }) {
+            assertEquals("dry, it has stopped", 0.0, lower.engineOutput[engine], 1e-9)
+        }
+    }
 }

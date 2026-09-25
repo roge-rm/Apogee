@@ -34,7 +34,31 @@ class RenderItem(
      * vapour do; not a part, however squashed a crash has left it.
      */
     val wrap: Boolean = scale != null && ambient < 1f,
-)
+    /**
+     * Which thing this is from frame to frame - this craft's this part's
+     * this piece - so the renderer eases it from where the same thing was
+     * last frame. Without one it is matched by its place among the unkeyed
+     * items, which holds only while nothing before it comes or goes: a
+     * flame lighting or a craft dropping out of a frame shifted every part
+     * after it onto another part's position, and the craft was drawn tens
+     * of metres off for a frame. 0 for none.
+     */
+    val key: Long = 0L,
+) {
+    companion object {
+        /** A craft's part's piece. */
+        fun partKey(vessel: Long, part: Int, piece: Int): Long =
+            ((vessel * 1_000_003L + part) * 1_024L + piece) and KEY_MASK or PART_BIT
+
+        /** One of a craft's effects - flame, vapour, shock - by a seed of its own and a slot. */
+        fun effectKey(seed: Long, slot: Int): Long =
+            (seed * 64L + slot) and KEY_MASK or EFFECT_BIT
+
+        private const val KEY_MASK = (1L shl 60) - 1
+        private const val PART_BIT = 1L shl 61
+        private const val EFFECT_BIT = 1L shl 60
+    }
+}
 
 /**
  * An immutable, complete description of one instant, ready to draw.
@@ -83,6 +107,13 @@ class RenderFrame(
      * map's cloud. Not interpolated.
      */
     val farItems: List<RenderItem> = emptyList(),
+    /**
+     * Where the craft being flown is, absolute, and how far round it things
+     * cast shadows onto each other and the ground, m; null for no shadows
+     * (the map, the assembly building).
+     */
+    val shadowFocus: Vec3? = null,
+    val shadowRadius: Double = 0.0,
 )
 
 /**
@@ -155,6 +186,10 @@ class WorldView(
     val skyFog: Float = 0f,
     /** Sunlight left, 0..1: a storm overhead dims it. */
     val lightScale: Float = 1f,
+    /** Lightning's own light this frame, 0 for none: lights the scene day or night. */
+    val flash: Float = 0f,
+    /** The clouds' shadows on the ground round the camera, or null. */
+    val cloudShadow: CloudShadowGrid? = null,
     /** The wind near the ground, in the body's frame, for trees to lean in. */
     val surfaceWind: Vec3 = Vec3(),
     /** Universe time, for anything that sways. */

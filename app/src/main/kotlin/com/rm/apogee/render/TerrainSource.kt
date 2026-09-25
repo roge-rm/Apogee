@@ -94,6 +94,17 @@ class TerrainSource {
         releaseQueue.add(key)
     }
 
+    /**
+     * Lets go of every chunk, for a new builder starting over with this
+     * source: anything the old one left here the new one knows nothing of,
+     * and would wait on without ever building it.
+     */
+    fun releaseAllChunks() {
+        for (key in available.toList() + uploaded.toList()) release(key)
+        uploadOrder.clear()
+        drawListRef.set(emptyList())
+    }
+
     /** The next chunk to free, or null. GL thread; drained before uploads. */
     fun nextReleased(): ChunkKey? = releaseQueue.poll()
 

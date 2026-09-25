@@ -3,17 +3,25 @@ package com.rm.apogee.core.world
 import com.rm.apogee.core.craft.Vessel
 
 /**
- * The state of a craft's parts - how hurt, how hot, how dented - packed for
- * the wire, so everyone sees the scorch and the glow and the crumpled nose,
- * not only the pilot.
+ * The state of a craft's parts - how hurt, how hot, how dented, how hard
+ * their joints are working - packed for the wire, so everyone sees the
+ * scorch and the glow, the crumpled nose and the sparks off a straining
+ * seam, not only the pilot.
  *
- * Five bytes a part: health, temperature, and the dent's three axes. Empty
- * for a craft that is whole and cool, which is nearly every craft nearly all
- * the time, so the snapshot of a fleet parked on the pad costs nothing.
+ * Six bytes a part: health, temperature, the dent's three axes, and the
+ * load on its joint. Empty for a craft that is whole, cool and unstrained,
+ * which is nearly every craft nearly all the time, so the snapshot of a
+ * fleet parked on the pad costs nothing.
  */
 object VesselCondition {
 
-    const val BYTES_PER_PART = 5
+    const val BYTES_PER_PART = 6
+
+    /** Joint load, as a share of strength, below which nothing shows and nothing is sent. */
+    const val LOAD_VISIBLE = 0.6
+
+    /** The most load a byte can say: past [Stress.SNAP] a joint has gone. */
+    const val MOST_LOAD = Stress.SNAP
 
     /** Below this nothing glows, and a craft this cool and whole sends nothing, K. */
     const val WARM = 400.0
@@ -27,9 +35,10 @@ object VesselCondition {
         val health = vessel.health
         val temperature = vessel.temperature
         val crumple = vessel.crumple
+        val load = vessel.jointLoad
         var anything = false
         for (i in 0 until n) {
-            if (health[i] < 0.999 || temperature[i] > WARM ||
+            if (health[i] < 0.999 || temperature[i] > WARM || load[i] > LOAD_VISIBLE ||
                 crumple[i * 3] != 0f || crumple[i * 3 + 1] != 0f || crumple[i * 3 + 2] != 0f
             ) { anything = true; break }
         }
@@ -40,6 +49,7 @@ object VesselCondition {
             out[k] = (health[i].coerceIn(0.0, 1.0) * 255.0 + 0.5).toInt().toByte()
             out[k + 1] = (((temperature[i] - COOLEST) / (HOTTEST - COOLEST)).coerceIn(0.0, 1.0) * 255.0 + 0.5).toInt().toByte()
             for (a in 0..2) out[k + 2 + a] = (crumple[i * 3 + a].coerceIn(-1f, 1f) * 127f).toInt().toByte()
+            out[k + 5] = ((load[i] / MOST_LOAD).coerceIn(0.0, 1.0) * 255.0 + 0.5).toInt().toByte()
         }
         return out
     }
@@ -49,6 +59,8 @@ object VesselCondition {
         var health = FloatArray(0); private set
         var temperature = FloatArray(0); private set
         var crumple = FloatArray(0); private set
+        /** Each part's joint to its parent: load as a share of strength. */
+        var load = FloatArray(0); private set
 
         /** Whether anything is hurt, hot or dented at all. */
         var any = false; private set
@@ -58,6 +70,7 @@ object VesselCondition {
                 health = FloatArray(parts)
                 temperature = FloatArray(parts)
                 crumple = FloatArray(parts * 3)
+                load = FloatArray(parts)
             }
         }
 
@@ -65,6 +78,7 @@ object VesselCondition {
             health.fill(1f)
             temperature.fill(com.rm.apogee.core.craft.Vessel.AMBIENT_TEMPERATURE.toFloat())
             crumple.fill(0f)
+            load.fill(0f)
             any = false
         }
 
@@ -86,6 +100,7 @@ object VesselCondition {
             into.health[i] = (bytes[k].toInt() and 0xFF) / 255f
             into.temperature[i] = (COOLEST + (bytes[k + 1].toInt() and 0xFF) / 255.0 * (HOTTEST - COOLEST)).toFloat()
             for (a in 0..2) into.crumple[i * 3 + a] = bytes[k + 2 + a] / 127f
+            into.load[i] = ((bytes[k + 5].toInt() and 0xFF) / 255.0 * MOST_LOAD).toFloat()
         }
         return into
     }

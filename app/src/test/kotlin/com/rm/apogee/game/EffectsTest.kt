@@ -8,6 +8,7 @@ import com.rm.apogee.core.weather.AirSample
 import com.rm.apogee.core.weather.Weather
 import com.rm.apogee.core.weather.WeatherConfig
 import com.rm.apogee.render.QualityTier
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -116,5 +117,57 @@ class EffectsTest {
             t += 1.0 / 60.0
         }
         assertTrue("a flash: $brightest", brightest > 0.2f)
+    }
+
+    @Test
+    fun `the vapour collar sits just behind the nose, sized to the body`() {
+        val fx = Effects(QualityTier.MEDIUM)
+        // A rocket's middle 1 km up, climbing through Mach 1 in damp low air;
+        // its nose 8 m ahead of the middle, its body 1 m in radius.
+        val up = Vec3(1.0, 0.0, 0.0)
+        val centre = up.copy().mulInPlace(terra.radius + 1_000.0)
+        val air = up.copy().mulInPlace(Effects.SPEED_OF_SOUND)
+        val nose = centre.copy().addScaledInPlace(up, 8.0)
+        val items = ArrayList<com.rm.apogee.render.RenderItem>()
+        fx.aero(centre, air, 9.0, terra, Quat.identity(), 1.0 / 60.0, 0.0, 7, items, nose, 1.0)
+        val vapour = items.firstOrNull { it.shape == Effects.VAPOUR_CONE }
+        assertTrue("vapour at Mach 1 in damp air", vapour != null)
+        vapour!!
+        val behind = (nose.copy().subInPlace(vapour.position)).dot(up)
+        assertTrue("behind the nose, not round the middle: $behind m", behind > 0.5 && behind < 4.0)
+        assertTrue("as wide as the body, give or take: ${vapour.scale}", vapour.scale!!.x in 1.5..3.0)
+    }
+
+    @Test
+    fun `a rocket's flame leaves the bell at the bell's width, in air and in vacuum`() {
+        for (vacuum in listOf(0.0, 0.5, 1.0)) {
+            val profile = Effects.rocketPlume(vacuum).profile
+            val atNozzle = profile.single { it[1] == 0.0 }[0]
+            assertTrue("vacuum $vacuum: $atNozzle at the nozzle", kotlin.math.abs(atNozzle - 1.0) < 1e-9)
+            // Spreading only downstream: a tenth of the way along, barely wider.
+            val near = profile.filter { it[1] >= -0.1 }.maxOf { it[0] }
+            assertTrue("vacuum $vacuum: $near near the nozzle", near <= 1.3)
+        }
+        // In thick air it stays a flame, hardly wider than the bell anywhere.
+        assertTrue(Effects.rocketPlume(0.0).profile.maxOf { it[0] } <= 1.1)
+        // In vacuum it fans out well past it downstream.
+        assertTrue(Effects.rocketPlume(1.0).profile.maxOf { it[0] } >= 2.5)
+    }
+
+    @Test
+    fun `a thruster's puffs leave opposite its push, in vacuum too`() {
+        val fx = Effects(QualityTier.HIGH)
+        val at = Vec3(terra.radius + 200_000.0, 0.0, 0.0)
+        val out = Vec3(0.0, 0.0, 1.0) // the gas goes +z: the block pushes -z
+        repeat(20) {
+            fx.rcsPuff(at, out, Vec3(), 1.0, inAir = false, dt = 1.0 / 60.0, seed = it)
+            fx.step(1.0 / 60.0, it / 60.0, terra, Quat.identity(), emptyList(), null, at, null)
+        }
+        assertTrue("some puffs: ${fx.particleCount}", fx.particleCount > 0)
+        val moved = fx.centroid(Vec3()).subInPlace(at)
+        assertTrue("out along +z: $moved", moved.z > 1.0 && kotlin.math.abs(moved.x) < moved.z * 0.3 && kotlin.math.abs(moved.y) < moved.z * 0.3)
+        // Stopped, they are gone within a second.
+        repeat(60) { fx.step(1.0 / 60.0, 1.0 + it / 60.0, terra, Quat.identity(), emptyList(), null, at, null) }
+        assertEquals(0, fx.particleCount)
     }
 }

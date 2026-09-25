@@ -248,4 +248,29 @@ class ForcesTest {
 
         assertEquals(0.0, vessel.body.force.length, 1e-9)
     }
+
+    /** Rain costs drag, more the heavier it is - and only drag, no lift. */
+    @Test
+    fun `heavy rain means more drag`() {
+        fun dragIn(rain: Double): Double {
+            val vessel = rocketInVacuum()
+            // Low down, moving level through the air at 150 m/s - sideways, so
+            // the rain's weight, straight down, is not along the motion.
+            vessel.body.position.setTo(0.0, terra.radius + 1_000.0, 0.0)
+            terra.surfaceVelocityAt(vessel.body.position, vessel.body.linearVelocity)
+            vessel.body.linearVelocity.addInPlace(Vec3(150.0, 0.0, 0.0))
+            vessel.air.clear()
+            vessel.air.precipitation = rain
+            vessel.body.force.setZero()
+            Forces().applyDrag(vessel, terra)
+            // Along the motion only: rain also weighs the craft down, which is not drag.
+            return -vessel.body.force.x
+        }
+        val dry = dragIn(0.0)
+        val wet = dragIn(1.0)
+        val light = dragIn(0.3)
+        assertTrue("drag in dry air: $dry N", dry > 0.0)
+        assertEquals("a quarter more in the heaviest rain", 1.25, wet / dry, 0.05)
+        assertTrue("less in light rain: $light vs $wet", light > dry && light < wet)
+    }
 }

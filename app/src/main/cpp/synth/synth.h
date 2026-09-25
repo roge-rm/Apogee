@@ -16,18 +16,21 @@
 
 namespace apogee {
 
-constexpr int kParams = 8;
+constexpr int kParams = 9;
 constexpr int kMaxVoices = 64;
 constexpr int kMaxSceneEntries = 64;
 constexpr int kEventSlots = 128;
 
 /**
  * Parameters every voice shares after its recipe's own: loudness (distance,
- * the mix; 0 means 1), pan, and the distance filter's cutoff (0 for none).
+ * the mix; 0 means 1), pan, the distance filter's cutoff (0 for none), and
+ * the Doppler pitch.
  */
 constexpr int P_GAIN = 5;
 constexpr int P_PAN = 6;
 constexpr int P_LOWPASS = 7;
+/** Doppler: frequency factor for a source moving relative to the listener (0 means 1). Engines and wheels only. */
+constexpr int P_PITCH = 8;
 
 /** One held sound, as the game describes it. */
 struct SceneEntry {

@@ -101,8 +101,18 @@ fun SettingsScreen(settings: GameSettings, detectedTier: QualityTier?) {
                         onClick = { tab = candidate },
                         selectedContentColor = ApogeeColors.Accent,
                         unselectedContentColor = Color.White.alpha(ApogeeAlpha.SUBTITLE),
-                        text = { Text(candidate.label, style = MaterialTheme.typography.titleSmall) },
-                    )
+                        // Its own padding, narrower than the stock tab's: a
+                        // quarter of a phone held upright is a hair too narrow
+                        // for "Controls" inside that, and it broke as "Control / s".
+                    ) {
+                        Text(
+                            candidate.label,
+                            style = MaterialTheme.typography.titleSmall,
+                            maxLines = 1,
+                            softWrap = false,
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 14.dp),
+                        )
+                    }
                 }
             }
 
@@ -171,9 +181,9 @@ private fun PlayerTab(settings: GameSettings) {
         label = { it.label },
         description = {
             when (it) {
-                com.rm.apogee.core.weather.CloudCover.LIGHT -> "Mostly clear, thin decks, rare thick patches"
-                com.rm.apogee.core.weather.CloudCover.NORMAL -> "See-through decks with the odd dense pocket"
-                com.rm.apogee.core.weather.CloudCover.HEAVY -> "Frequent overcast and big dense banks"
+                com.rm.apogee.core.weather.CloudCover.LIGHT -> "Scattered cloud, plenty of clear sky"
+                com.rm.apogee.core.weather.CloudCover.NORMAL -> "Big patches of cloud, some of it overcast"
+                com.rm.apogee.core.weather.CloudCover.HEAVY -> "Often overcast, sometimes breaking up"
             }
         },
         onSelect = { settings.cloudCover = it },
@@ -244,6 +254,27 @@ private fun DisplayTab(settings: GameSettings, detectedTier: QualityTier?) {
         color = Color.White.alpha(ApogeeAlpha.SUBTITLE),
     )
 
+    SectionHeading("Shadows")
+    // Remembered as the Compose state, so choosing one redraws the list at once.
+    var shadows by remember { mutableStateOf(settings.shadowQualityOverride) }
+    val byTier = com.rm.apogee.render.ShadowQuality.defaultFor(settings.effectiveTier ?: QualityTier.MEDIUM)
+    ChoiceGroup(
+        title = "Shadow quality",
+        options = listOf<com.rm.apogee.render.ShadowQuality?>(null) + com.rm.apogee.render.ShadowQuality.entries,
+        selected = shadows,
+        label = { it?.label ?: "Automatic (${byTier.label.lowercase()})" },
+        description = {
+            when (it) {
+                null -> "As suits this device's graphics quality"
+                com.rm.apogee.render.ShadowQuality.OFF -> "No shadows: the fastest"
+                com.rm.apogee.render.ShadowQuality.LOW -> "Craft, trees and clouds; no mountains"
+                com.rm.apogee.render.ShadowQuality.MEDIUM -> "Adds mountains' shadows at dawn and dusk"
+                com.rm.apogee.render.ShadowQuality.HIGH -> "Softer edges and mountains further out"
+            }
+        },
+        onSelect = { shadows = it; settings.shadowQualityOverride = it },
+    )
+
     SectionHeading("Diagnostics")
     SwitchRow(
         title = "Frame timing overlay",
@@ -255,6 +286,26 @@ private fun DisplayTab(settings: GameSettings, detectedTier: QualityTier?) {
 
 @Composable
 private fun AudioTab(settings: GameSettings) {
+    SectionHeading("Sounds")
+    SwitchRow(
+        title = "Vehicle sounds",
+        subtitle = "Engines, wheels, rushing air and the hull. Crashes still sound.",
+        checked = settings.vehicleSoundEnabled,
+        onCheckedChange = { settings.vehicleSoundEnabled = it },
+    )
+    SwitchRow(
+        title = "Ambient sounds",
+        subtitle = "Wind, rain, thunder, surf and fires",
+        checked = settings.ambientSoundEnabled,
+        onCheckedChange = { settings.ambientSoundEnabled = it },
+    )
+    SwitchRow(
+        title = "Interface sounds",
+        subtitle = "Button taps and the caution chime",
+        checked = settings.uiSoundEnabled,
+        onCheckedChange = { settings.uiSoundEnabled = it },
+    )
+
     SectionHeading("Volume")
     VolumeRow("Everything", settings.masterVolume) { settings.masterVolume = it }
     VolumeRow("Craft and crashes", settings.effectsVolume) { settings.effectsVolume = it }
@@ -264,13 +315,6 @@ private fun AudioTab(settings: GameSettings) {
         "Music: coming later.",
         style = MaterialTheme.typography.bodySmall,
         color = Color.White.alpha(ApogeeAlpha.SUBTITLE),
-    )
-
-    SectionHeading("Interface")
-    SwitchRow(
-        title = "Interface sounds",
-        checked = settings.uiSoundEnabled,
-        onCheckedChange = { settings.uiSoundEnabled = it },
     )
 }
 

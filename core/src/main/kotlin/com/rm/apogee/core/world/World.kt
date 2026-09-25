@@ -843,6 +843,10 @@ class World(
             referenceBodyId = vessel.referenceBodyId,
         )
         debris.inheritParts(vessel, discarded.indices)
+        // Let go while burning, it goes on burning: the control module it
+        // answered to is gone, but nothing ever told its engine to stop, so
+        // it runs on at the throttle it had until its tanks are dry (Dan).
+        debris.control.throttle = vessel.control.throttle
         debris.body.orientation.setTo(orientation)
         debris.body.linearVelocity.setTo(pointVelocity)
         debris.body.angularVelocity.setTo(angularVelocity)
@@ -969,7 +973,7 @@ class World(
             } else {
                 vessel.air.clear()
             }
-            forces.applyDrag(vessel, attractor, weather, weatherRotation, time)
+            forces.applyDrag(vessel, attractor, weather, weatherRotation, time, dt)
             for (i in 0 until forces.tornCount) {
                 val index = forces.tornParachutes[i]
                 pendingEvents.add(
@@ -1010,14 +1014,22 @@ class World(
             val h = dt / substeps
             for (substep in 0 until substeps) {
                 body.integrate(h)
-                contacts.resolve(vessel, attractor, h, time + substep * h, substep > 0)
+                // Against the ground where it is now the craft has moved on -
+                // the end of this substep, not its start. The ground turns
+                // with the planet, 175 m/s at the equator: a substep behind,
+                // it stood 2.9 m back along the turn, which on flat ground
+                // changes nothing and on a steep slope is metres up or down.
+                // A pod landed on a mountainside came to rest two metres
+                // inside it.
+                contacts.resolve(vessel, attractor, h, time + (substep + 1) * h, substep > 0)
             }
             // Boulders and trunks, into the same report, so a craft wrecked on a
             // rock is judged the way one wrecked on the ground is.
-            scatterContacts.resolve(vessel, attractor, time, contacts.report, felledScatter) { fell(it) }
+            scatterContacts.resolve(vessel, attractor, time + dt, contacts.report, felledScatter) { fell(it) }
             val report = contacts.report
             vessel.touchingGround = report.hadContact
             vessel.groundContacts = report.contactCount
+            vessel.countGrounded(report.hadContact, dt)
 
             // Mass changes as propellant burns, and with it the centre of mass.
             if (vessel.control.throttle > 0.0) vessel.recomputeMass()
@@ -1507,8 +1519,14 @@ class World(
         // Which piece the craft carries on as: the one with the controls,
         // else the heaviest.
         fun mass(indices: List<Int>) = indices.sumOf { vessel.partMass(it) }
-        val keep = members.indices.maxWith(
-            compareBy<Int>({ k -> if (members[k].any { vessel.defs[it].module<com.rm.apogee.core.part.Command>() != null }) 1 else 0 })
+        fun controls(indices: List<Int>) = indices.any { vessel.defs[it].module<com.rm.apogee.core.part.Command>() != null }
+        // A craft that had controls and has none left is lost with them:
+        // what is left is wreckage, not the craft. Carried on as its
+        // heaviest piece, a player went on flying a heat shield rolling
+        // across the ground, its parts counted as the craft's (Dan).
+        val lostWithControls = controls(vessel.design.parts.indices.toList()) && members.none { controls(it) }
+        val keep = if (lostWithControls) -1 else members.indices.maxWith(
+            compareBy<Int>({ k -> if (controls(members[k])) 1 else 0 })
                 .thenBy { k -> mass(members[k]) },
         )
 
@@ -1533,6 +1551,8 @@ class World(
                 referenceBodyId = vessel.referenceBodyId,
             )
             debris.inheritParts(vessel, sub.indices)
+            // A piece broken off with a lit engine keeps it lit, as a stage does.
+            debris.control.throttle = vessel.control.throttle
             if (members[k].none { originalDefs[it].module<com.rm.apogee.core.part.Command>() != null }) {
                 debris.name = "${vessel.name} debris"
             }
@@ -1550,6 +1570,13 @@ class World(
             if (debris.body.mass < WRECKAGE_KG && debris.defs.none { it.module<com.rm.apogee.core.part.Command>() != null }) {
                 fragmentExpiry[debris.id] = time + FRAGMENT_LIFETIME
             }
+        }
+        if (lostWithControls) {
+            for (a in spawned.indices) for (b in a + 1 until spawned.size) {
+                justSeparated[pairKey(spawned[a].raw, spawned[b].raw)] = time + SEPARATION_GRACE
+            }
+            pendingDestruction.add(vessel.id to "${vessel.name} was destroyed")
+            return
         }
         // The pieces start out touching where they were joined: that is a
         // break, not a fresh collision between them.
@@ -1729,6 +1756,45 @@ class World(
     }
 
     private val scratchWarp = Vec3()
+
+    /**
+     * Moves the clock straight on to [until], for a launch at a chosen time
+     * of day. A parked craft stays on its ground; one in a clear orbit goes
+     * round it; anything else - in the air, or just set down and not yet
+     * settled - is carried round with the planet, over the same ground and
+     * moving as it was, as if time had been paused for it. Lightning is not
+     * looked for over the gap.
+     */
+    fun skipTo(until: Double) {
+        val seconds = until - time
+        if (seconds <= 0.0) return
+        val turn = Quat()
+        for (vessel in vesselsById.values) {
+            val attractor = attractorFor(vessel)
+            if (vessel.dormant) continue
+            val body = vessel.body
+            if (warpLimit(vessel) > PHYSICS_WARP) {
+                val next = Orbit(body.position, body.linearVelocity, attractor.gravitationalParameter).propagate(seconds)
+                body.position.setTo(next.position)
+                body.linearVelocity.setTo(next.velocity)
+            } else {
+                // The planet's turn over the gap, applied to the craft whole.
+                attractor.rotationAt(until, turn)
+                turn.setTo(turn * attractor.rotationAt(time).conjugate())
+                turn.rotate(body.position, body.position)
+                turn.rotate(body.linearVelocity, body.linearVelocity)
+                turn.rotate(body.angularVelocity, body.angularVelocity)
+                body.orientation.setTo(turn * body.orientation).normalizeInPlace()
+            }
+        }
+        time = until
+        tickEnd = until
+        for (vessel in vesselsById.values) {
+            if (vessel.dormant) followGround(vessel, attractorFor(vessel))
+        }
+        lightningCheckedTo = Double.NaN
+        tick++
+    }
 
     /** The vessel's current two-body trajectory about its attractor. */
     fun orbitOf(vessel: Vessel): Orbit {
