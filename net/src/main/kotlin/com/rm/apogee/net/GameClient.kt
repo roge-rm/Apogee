@@ -53,11 +53,42 @@ class ClientVessel(
     @Volatile var previousObserved: Observation? = null
         private set
 
+    /**
+     * The last few observations, oldest first, replaced whole so a frame reads
+     * one consistent list. Under warp the frame is drawn a snapshot and a
+     * half behind the newest - before the older of just two - and a
+     * snapshot landing mid-frame left one craft between one pair and the
+     * next craft between the next: a stage drawn 50 m off its neighbour.
+     */
+    @Volatile var recent: List<Observation> = emptyList()
+        private set
+
     fun observe(kinematics: VesselKinematics, time: Double = 0.0) {
         previous = latest
         latest = kinematics
         previousObserved = observed
-        observed = Observation(kinematics, time)
+        val next = Observation(kinematics, time)
+        observed = next
+        val kept = recent
+        recent = if (kept.size < RECENT) kept + next else kept.subList(kept.size - RECENT + 1, kept.size) + next
+    }
+
+    /**
+     * The two kept observations either side of [time], older first: the
+     * older is null when [time] is before everything kept, and the newer is
+     * the newest when [time] is past it. Null when nothing has been seen.
+     */
+    fun around(time: Double): Pair<Observation?, Observation>? {
+        val kept = recent
+        if (kept.isEmpty()) return observed?.let { null to it }
+        var k = kept.size - 1
+        while (k > 0 && kept[k - 1].time > time) k--
+        return (if (k > 0) kept[k - 1] else null) to kept[k]
+    }
+
+    private companion object {
+        /** Observations kept: enough to span the warp clock's lag and a late snapshot. */
+        const val RECENT = 5
     }
 }
 

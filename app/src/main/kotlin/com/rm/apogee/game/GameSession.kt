@@ -663,6 +663,29 @@ class GameSession private constructor(
         withControlledVessel { client.send(Command.Stage(it)) }
     }
 
+    /**
+     * Craft near enough to the one flown to touch it soon - a stage just
+     * dropped, a ring being docked with - for the replica to meet as the
+     * server does.
+     */
+    private fun neighboursOf(focus: ClientVessel, state: com.rm.apogee.core.world.VesselKinematics, time: Double): List<ClientPrediction.Neighbour> {
+        val reach = designReach(focus.design)
+        val out = ArrayList<ClientPrediction.Neighbour>()
+        for (other in client.vessels) {
+            if (other.id == focus.id) continue
+            val seen = other.observed ?: continue
+            if (seen.kinematics.referenceBodyId != state.referenceBodyId) continue
+            // Measured at the same moment: a snapshot apart in orbit is tens
+            // of metres, and a stage pressed against us came and went from
+            // the replica frame to frame - the craft jumping about at 4x.
+            val there = Vec3().setTo(seen.kinematics.position).addScaledInPlace(seen.kinematics.velocity, time - seen.time)
+            if (there.distanceTo(state.position) > reach + designReach(other.design) + NEIGHBOUR_MARGIN) continue
+            out.add(ClientPrediction.Neighbour(other.id, other.design, seen.kinematics, seen.time, other.currentStage, other.activatedParts))
+            if (out.size >= MAX_NEIGHBOURS) break
+        }
+        return out
+    }
+
     /** Stage presses waiting for the frame thread to apply them to the replica. */
     private val pendingLocalStages = java.util.concurrent.atomic.AtomicInteger()
 
@@ -874,7 +897,7 @@ class GameSession private constructor(
             )
         }
 
-        joinable = !wrecked && neighbourInWeldingRange(focus, focusState)
+        joinable = !wrecked && neighbourInWeldingRange(focus, focus.observed?.kinematics ?: focusState)
         if (!wrecked) updateDocking(focus, focus.observed?.kinematics ?: focusState) else { dockReadout = null; joints = emptyList() }
         // Where to stay, should it be lost.
         lastSeen = LastSeen(focusId, attractor.id, bodyFixedCamera.copy(), focus.name)
@@ -1138,7 +1161,7 @@ class GameSession private constructor(
 
         if (snapshot != null && snapshot.tick != lastReconciledTick) {
             lastReconciledTick = snapshot.tick
-            prediction.reconcile(state, age, snapshot.time)
+            prediction.reconcile(state, age, snapshot.time, neighboursOf(focus, state, snapshot.time))
         }
         prediction.sync(focus.currentStage, focus.activatedParts, focus.fuel)
         refreshStageCards()
@@ -1679,9 +1702,12 @@ class GameSession private constructor(
         position: Vec3,
         rotation: Quat,
     ): Boolean {
-        val b = vessel.observed ?: return false
-        val a = vessel.previousObserved
-        if (warp <= World.PHYSICS_WARP && a != null && b.time > a.time && time <= b.time) {
+        // The two either side of the frame's time: the frame is drawn behind
+        // the newest snapshot, often before the one under it too.
+        val (a, b) = vessel.around(time) ?: return false
+        val newest = vessel.observed ?: b
+        if (warp <= World.PHYSICS_WARP && a != null && b.time > a.time && time <= b.time &&
+            a.kinematics.referenceBodyId == b.kinematics.referenceBodyId) {
             val h = b.time - a.time
             val s = ((time - a.time) / h).coerceIn(0.0, 1.0)
             val s2 = s * s
@@ -1700,8 +1726,10 @@ class GameSession private constructor(
             Quat.slerp(a.kinematics.rotation, b.kinematics.rotation, s, rotation)
             return true
         }
-        position.setTo(carried(b, time, attractor, warp) ?: return false)
-        rotation.setTo(b.kinematics.rotation)
+        // Before everything kept, or past the newest: carried from the nearest.
+        val from = if (time < b.time && warp <= World.PHYSICS_WARP) b else newest
+        position.setTo(carried(from, time, attractor, warp) ?: return false)
+        rotation.setTo(from.kinematics.rotation)
         return true
     }
 
@@ -2175,6 +2203,7 @@ class GameSession private constructor(
     private val scratchLowest = Vec3()
     private val scratchUp = Vec3()
     private val scratchNeighbour = Vec3()
+    private val scratchPosition = Vec3()
 
     /**
      * Whether another craft is close enough and still enough to weld to.
@@ -2209,17 +2238,26 @@ class GameSession private constructor(
         val hitched = client.latestSnapshot?.hitches.orEmpty()
         for (other in client.vessels) {
             if (other.id == focus.id) continue
-            val theirs = other.latest ?: continue
+            // Brought to the same moment as ours, as for docking: a snapshot
+            // apart at orbital speed a stage pressed against us read 43 m off
+            // one frame and 10 m the next.
+            val seen = other.observed ?: continue
+            val theirs = seen.kinematics
+            val lag = (focus.observed?.time ?: seen.time) - seen.time
+            val theirPosition = scratchPosition.setTo(theirs.position).addScaledInPlace(theirs.velocity, lag)
             // Towed or towing: joined already, by the hitch.
             if (hitched.any { (it.vesselA == focus.id && it.vesselB == other.id) || (it.vesselB == focus.id && it.vesselA == other.id) }) continue
             // A stage just let go of is not something to join back on to:
             // drifting off at a metre a second it met the rule, and the
             // button blinked on and off as it went (Dan).
             val born = firstSeenNear.getOrPut(other.id) {
-                if (theirs.position.distanceTo(state.position) < reach + designReach(other.design) + 20.0) now else 0L
+                if (theirPosition.distanceTo(state.position) < reach + designReach(other.design) + 20.0) now else 0L
             }
             if (born != 0L && now - born < JUST_PARTED_NANOS) continue
-            scratchNeighbour.setTo(state.position).subInPlace(theirs.position)
+            // Nor a stage let go of still burning, pushing the flown one for
+            // as long as its tanks last - joining it back is not on offer.
+            if (born != 0L && theirs.throttle > 0.0) continue
+            scratchNeighbour.setTo(state.position).subInPlace(theirPosition)
             if (scratchNeighbour.length > reach + designReach(other.design)) continue
             scratchNeighbour.setTo(state.velocity).subInPlace(theirs.velocity)
             if (scratchNeighbour.length > World.JOIN_MAX_CLOSING_SPEED) continue
@@ -2295,6 +2333,10 @@ class GameSession private constructor(
         private const val WRECK_EASE = 0.08
         /** The size the camera frames a wreck as, m. */
         private const val WRECK_VIEW = 25.0
+
+        /** Craft within this of touching ours, m, are in its replica too - at most this many. */
+        private const val NEIGHBOUR_MARGIN = 30.0
+        private const val MAX_NEIGHBOURS = 4
 
         /** How far, m, the dock readout looks for a partner's ring when no target is set. */
         private const val DOCK_READOUT_RANGE = 60.0

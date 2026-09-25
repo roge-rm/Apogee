@@ -181,4 +181,62 @@ class StagingTest {
             assertEquals("dry, it has stopped", 0.0, lower.engineOutput[engine], 1e-9)
         }
     }
+
+    /**
+     * Staged with the stage below still burning: it is solid, so it shoves
+     * the craft above along rather than flying through it (Dan).
+     */
+    @Test
+    fun `a stage let go while burning pushes the craft above, and does not pass through it`() {
+        val world = World.default(catalog)
+        val rocket = world.spawnInOrbit(
+            StockCraft.starterRocket(catalog), "terra",
+            com.rm.apogee.core.orbit.Orbit.circular(700_000.0, 3.5316000e12),
+        )
+        rocket.body.angularVelocity.setZero()
+        world.apply(com.rm.apogee.core.world.Command.SetThrottle(rocket.id.raw, 1.0))
+        world.stage(rocket) // lower engine
+        repeat(30) { world.step(dt) }
+        val before = world.vessels.map { it.id }.toSet()
+        world.stage(rocket) // separation; the upper engine lights too
+        world.apply(com.rm.apogee.core.world.Command.SetThrottle(rocket.id.raw, 0.0))
+        val lower = world.vessels.first { it.id !in before }
+        // The craft above coasts; what is below still burns.
+        val nose = rocket.body.orientation.rotate(Vec3.unitY(), Vec3())
+        val v0 = rocket.body.linearVelocity dot nose
+        var worst = Double.MAX_VALUE
+        repeat(180) {
+            world.step(dt)
+            // How far the lower stage's centre is below the upper's, along the nose.
+            val ahead = Vec3().setTo(rocket.body.position).subInPlace(lower.body.position) dot nose
+            worst = minOf(worst, ahead)
+        }
+        val pushed = (rocket.body.linearVelocity dot nose) - v0
+        println("upper pushed +${"%.1f".format(pushed)} m/s; lower never closer than ${"%.2f".format(worst)} m below; ${world.vessels.size} craft")
+        assertTrue("never passed through: the lower stage stayed below ($worst m)", worst > 0.5)
+        assertTrue("the upper stage was pushed along ($pushed m/s)", pushed > 2.0)
+    }
+
+    /**
+     * A stage let go with its engine burning pushes the one above - and
+     * pushes it straight. Taken at the touching points round the decoupler it
+     * spun the upper stage past a radian a second, which at 4x warp was a
+     * craft flickering all over the screen.
+     */
+    @Test
+    fun `a burning stage below pushes the upper one without spinning it`() {
+        val world = World.default(catalog)
+        val rocket = world.spawnInOrbit(StockCraft.starterRocket(catalog), "terra", com.rm.apogee.core.orbit.Orbit.circular(700_000.0, 3.5316000e12))
+        rocket.body.angularVelocity.setZero()
+        world.apply(Command.SetThrottle(rocket.id.raw, 1.0))
+        world.stage(rocket)
+        repeat(30) { world.step(dt) }
+        world.stage(rocket)
+        var most = 0.0
+        repeat(60 * 4) {
+            world.step(dt)
+            most = maxOf(most, rocket.body.angularVelocity.length)
+        }
+        assertTrue("the upper stage spun up to $most rad/s", most < 0.05)
+    }
 }

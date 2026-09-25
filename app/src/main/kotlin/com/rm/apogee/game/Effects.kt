@@ -66,6 +66,13 @@ class Effects(tier: QualityTier) {
     private val glows = BooleanArray(capacity)
     /** Falls and comes to rest on the ground, as fragments and sparks do. */
     private val falls = BooleanArray(capacity)
+    /**
+     * Born since the last step: where it was put is where it is at the
+     * frame's own time. Moved on by that step, everything made this frame -
+     * a spark off a seam, smoke off a nozzle - was drawn a frame ahead of the
+     * craft it came from: at 560 m/s, twenty metres off (Dan's video).
+     */
+    private val fresh = BooleanArray(capacity)
     private var count = 0
     private var gravity = 9.81
     private var spawnCounter = 0
@@ -314,6 +321,7 @@ class Effects(tier: QualityTier) {
         val dtf = dt.toFloat()
         var i = 0
         while (i < count) {
+            if (fresh[i]) { fresh[i] = false; i++; continue }
             age[i] += dtf
             if (age[i] >= life[i]) { kill(i); continue }
             // The wind at its height, between the two samples.
@@ -361,7 +369,7 @@ class Effects(tier: QualityTier) {
             size0[i] = size0[last]; size1[i] = size1[last]
             for (c in 0 until 4) colour[i * 4 + c] = colour[last * 4 + c]
             grip[i] = grip[last]; rise[i] = rise[last]; streak[i] = streak[last]
-            glows[i] = glows[last]; falls[i] = falls[last]
+            glows[i] = glows[last]; falls[i] = falls[last]; fresh[i] = fresh[last]
         }
         count--
     }
@@ -382,6 +390,7 @@ class Effects(tier: QualityTier) {
         colour[i * 4] = r; colour[i * 4 + 1] = g; colour[i * 4 + 2] = b; colour[i * 4 + 3] = a
         this.grip[i] = grip.toFloat(); this.rise[i] = rise.toFloat(); this.streak[i] = streak
         glows[i] = glow; falls[i] = fall
+        fresh[i] = true
     }
 
     // --- flames -----------------------------------------------------------------
@@ -684,7 +693,11 @@ class Effects(tier: QualityTier) {
         colour: FloatArray?, dt: Double, seed: Int,
     ) {
         up.setTo(at).normalizeInPlace()
-        val grip = if (inAir) 1.5 else 0.0
+        // Carried along with the craft for the moment they live: dragged to a
+        // stop by the air, at a kilometre a second they fell tens of metres
+        // behind within a blink and seemed to come from nowhere near the
+        // seam (Dan's video). They fly out from it, and die there.
+        val grip = 0.0
         // In bursts, as metal grinding on metal gives them: a handful at a
         // time, now and then, not a steady trickle.
         val n = poisson(rate / BURST * rateScale * dt, seed) * BURST
@@ -712,7 +725,7 @@ class Effects(tier: QualityTier) {
             spawn(
                 x = at.x + scratch.x * radius, y = at.y + scratch.y * radius, z = at.z + scratch.z * radius,
                 vx = velocity.x + scratch.x * s, vy = velocity.y + scratch.y * s, vz = velocity.z + scratch.z * s,
-                life = 2.0 + 2.0 * rand(k + 1), startSize = 0.12 + 0.1 * rand(k + 2), endSize = 0.1,
+                life = 0.6 + 0.6 * rand(k + 1), startSize = 0.12 + 0.1 * rand(k + 2), endSize = 0.1,
                 r = c[0] * 0.85f, g = c[1] * 0.85f, b = c[2] * 0.85f, a = 1f,
                 grip = grip * 0.3, rise = 0.0, fall = inAir,
             )

@@ -59,6 +59,8 @@ class CameraController(
         }
 
     private val up = Vec3()
+    private val carriedNorth = Vec3()
+    private var carried = false
     private val east = Vec3()
     private val north = Vec3()
     private val offset = Vec3()
@@ -91,10 +93,22 @@ class CameraController(
             UpReference.FIXED -> up.setTo(fixedUp)
         }
 
-        north.setTo(Vec3.unitY())
-        if (kotlin.math.abs(north dot up) > 0.99) north.setTo(Vec3.unitX())
+        // North carried on from last frame, straightened against the new up,
+        // rather than taken from the planet's axis afresh: near a pole that
+        // has to change to some other axis, and the swap turned the whole
+        // view in one frame - twice, going over (Dan's video at 4x, flying
+        // north across the polar cap).
+        if (carried) {
+            north.setTo(carriedNorth).addScaledInPlace(up, -(carriedNorth dot up))
+        }
+        if (!carried || north.lengthSq < 0.01) {
+            north.setTo(Vec3.unitY())
+            if (kotlin.math.abs(north dot up) > 0.99) north.setTo(Vec3.unitX())
+        }
         east.setTo(north).crossInPlace(up).normalizeInPlace()
         north.setTo(up).crossInPlace(east).normalizeInPlace()
+        carriedNorth.setTo(north)
+        carried = true
 
         val horizontal = cos(pitch) * distance
         val vertical = sin(pitch) * distance

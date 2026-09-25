@@ -170,4 +170,26 @@ class EffectsTest {
         repeat(60) { fx.step(1.0 / 60.0, 1.0 + it / 60.0, terra, Quat.identity(), emptyList(), null, at, null) }
         assertEquals(0, fx.particleCount)
     }
+
+    /** A joint at its limit on a craft doing a kilometre a second: its sparks stay with it, not strewn behind. */
+    @Test
+    fun `sparks off a straining seam stay with a fast craft`() {
+        val fx = Effects(QualityTier.HIGH)
+        val up = Vec3(1.0, 0.0, 0.0)
+        val start = up.copy().mulInPlace(terra.radius + 18_000.0)
+        val velocity = Vec3(0.0, 1_000.0, 0.0)
+        val seam = start.copy()
+        // As the game does it, a frame at a time: the craft moved to this
+        // frame's place, sparks thrown from there, then the effects stepped.
+        repeat(30) { k ->
+            if (k > 0) seam.addScaledInPlace(velocity, 1.0 / 60.0)
+            fx.strain(seam, velocity, 0.6, 40.0, inAir = true, colour = null, dt = 1.0 / 60.0, seed = 7)
+            fx.step(1.0 / 60.0, k / 60.0, terra, Quat.identity(), emptyList(), null, seam, null)
+        }
+        assertTrue("some sparks: ${fx.particleCount}", fx.particleCount > 5)
+        // Drawn with the craft where it is this frame: centred on the seam,
+        // not strewn behind it nor a frame ahead of it.
+        val off = fx.centroid(Vec3()).distanceTo(seam)
+        assertTrue("with the seam ($off m)", off < 3.0)
+    }
 }

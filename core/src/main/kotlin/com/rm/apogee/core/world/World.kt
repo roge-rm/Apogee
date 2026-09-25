@@ -271,7 +271,16 @@ class World(
     private val pendingBlasts = ArrayList<Blast>()
 
     private val craftContacts = CraftContact().also { contacts ->
-        contacts.ignorePair = { a, b -> justSeparated.containsKey(pairKey(a, b)) || docking.capturing(a, b) || linked(a, b) }
+        contacts.ignorePair = { a, b -> docking.capturing(a, b) || linked(a, b) }
+        // Just parted: still solid to each other, only gently so.
+        contacts.gentlePair = { a, b -> justSeparated.containsKey(pairKey(a, b)) }
+        // A stage let go under power can push the one above for seconds:
+        // gentle for as long as they touch, not only the first second and a half.
+        contacts.gentleTouching = { a, b ->
+            val key = pairKey(a, b)
+            val until = justSeparated[key]
+            if (until != null && until < time + GENTLE_HOLD) justSeparated[key] = time + GENTLE_HOLD
+        }
     }
 
     /** Docking parts drawing each other in, and latching. */
@@ -684,6 +693,8 @@ class World(
         for (other in vesselsById.values) {
             if (other.id == vessel.id) continue
             if (other.referenceBodyId != vessel.referenceBodyId) continue
+            // Two halves just parted, or one still pushing the other.
+            if (justSeparated.containsKey(pairKey(vessel.id.raw, other.id.raw))) continue
 
             scratch.setTo(vessel.body.position).subInPlace(other.body.position)
             val distance = scratch.length
@@ -833,6 +844,11 @@ class World(
     /** Everyone with a claim on [vessel]: its owner, and the owner of each craft docked into it. */
     fun ownersOf(vessel: Vessel): Set<String> =
         (listOf(vessel.owner) + vessel.design.parts.mapNotNull { it.dockedFrom?.owner }).filter { it.isNotBlank() }.toSet()
+
+    /** Lets [a] and [b] touch only gently for [seconds]: two halves just parted, as a replica first sees them. */
+    fun graceBetween(a: VesselId, b: VesselId, seconds: Double) {
+        justSeparated[pairKey(a.raw, b.raw)] = time + seconds
+    }
 
     /** A docking join: which part of each craft is the ring they latched by. */
     class DockJoin(val keeperPart: Int, val absorbedPart: Int)
@@ -2446,8 +2462,11 @@ class World(
         /** Impacts gentler than this are not worth an event. */
         private const val TOUCHDOWN_REPORT_SPEED = 0.5
 
-        /** Seconds two halves of a staged craft pass through each other while they part. */
+        /** Seconds two halves of a staged craft touch only gently while they part. */
         private const val SEPARATION_GRACE = 1.5
+
+        /** How long a gentle pair stays gentle after it last touched, s. */
+        private const val GENTLE_HOLD = 0.3
 
         /** Fastest drift, m/s, at which a boat left alone in a wind drops anchor. */
         private const val ANCHOR_DRIFT = 1.5

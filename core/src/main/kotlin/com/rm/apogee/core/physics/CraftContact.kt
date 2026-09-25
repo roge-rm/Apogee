@@ -129,6 +129,19 @@ class CraftContact {
      */
     var ignorePair: (Long, Long) -> Boolean = { _, _ -> false }
 
+    /**
+     * Pairs that touch gently this tick: two halves of a craft that has just
+     * staged. Still solid to each other - a stage let go of with its engine
+     * burning pushes the one above instead of flying through it - but the
+     * overlap they start with is eased apart slowly and nothing is hurt by it.
+     */
+    var gentlePair: (Long, Long) -> Boolean = { _, _ -> false }
+    private var gentle = false
+
+    /** Told of each gentle pair still touching this tick, so its grace can last as long as the push. */
+    var gentleTouching: (Long, Long) -> Unit = { _, _ -> }
+    private var gentleTouched = false
+
     fun resolve(vessels: List<Vessel>, dt: Double): CraftImpactReport {
         report.reset()
         touchedCount = 0
@@ -142,12 +155,15 @@ class CraftContact {
                 // comparing them across bodies would be nonsense.
                 if (a.referenceBodyId != b.referenceBodyId) continue
                 if (ignorePair(a.id.raw, b.id.raw)) continue
+                gentle = gentlePair(a.id.raw, b.id.raw)
 
                 scratch.setTo(a.body.position).subInPlace(b.body.position)
                 val reach = a.contactRadius + b.contactRadius
                 if (scratch.lengthSq > reach * reach) continue
 
+                gentleTouched = false
                 resolvePair(a, b, dt)
+                if (gentleTouched) gentleTouching(a.id.raw, b.id.raw)
             }
         }
         return report
@@ -296,8 +312,18 @@ class CraftContact {
         noteTouched(a.id.raw)
         noteTouched(b.id.raw)
 
-        offsetA.setTo(point).subInPlace(bodyA.position)
-        offsetB.setTo(point).subInPlace(bodyB.position)
+        if (gentle) {
+            // Two halves of one stack pushing apart: through the centres, as
+            // the stack's own thrust was. Taken at the touching points, the
+            // ring of them round a decoupler never balances, and a stage
+            // still burning below spun the one above into a tumble.
+            gentleTouched = true
+            offsetA.setZero()
+            offsetB.setZero()
+        } else {
+            offsetA.setTo(point).subInPlace(bodyA.position)
+            offsetB.setTo(point).subInPlace(bodyB.position)
+        }
 
         bodyA.velocityAtOffset(offsetA, velocityA)
         bodyB.velocityAtOffset(offsetB, velocityB)
@@ -308,7 +334,10 @@ class CraftContact {
         // station rather than shoving it.
         val totalInverseMass = bodyA.inverseMass + bodyB.inverseMass
         if (totalInverseMass <= 0.0) return
-        val correction = penetration * POSITION_CORRECTION / totalInverseMass
+        // Gentle only while the overlap is standing still or opening: the
+        // leftover of the split. Driven in - a stage below still burning - it
+        // is as solid as anything else, or the one flew through the other.
+        val correction = penetration * (if (gentle && approach >= 0.0) GENTLE_CORRECTION else POSITION_CORRECTION) / totalInverseMass
         scratch.setTo(normal).mulInPlace(correction * bodyA.inverseMass)
         bodyA.position.addInPlace(scratch)
         scratch.setTo(normal).mulInPlace(-correction * bodyB.inverseMass)
@@ -318,10 +347,10 @@ class CraftContact {
 
         val impactSpeed = -approach
         // The normal points from B to A: A is struck along it, B against.
-        if (impactSpeed > a.defs[partA].crashTolerance) {
+        if (!gentle && impactSpeed > a.defs[partA].crashTolerance) {
             report.record(a.id.raw, partA, impactSpeed, normal.x, normal.y, normal.z)
         }
-        if (impactSpeed > b.defs[partB].crashTolerance) {
+        if (!gentle && impactSpeed > b.defs[partB].crashTolerance) {
             report.record(b.id.raw, partB, impactSpeed, -normal.x, -normal.y, -normal.z)
         }
 
@@ -331,7 +360,7 @@ class CraftContact {
         impulse.mulInPlace(-1.0)
         bodyB.applyImpulseAtOffset(impulse, offsetB)
 
-        applyFriction(bodyA, bodyB, magnitude)
+        if (!gentle) applyFriction(bodyA, bodyB, magnitude)
     }
 
     /**
@@ -390,6 +419,9 @@ class CraftContact {
         const val MAX_TOUCHED = 64
 
         const val POSITION_CORRECTION = 0.35
+
+        /** Share of a gentle pair's overlap closed a tick: parting halves ease apart over a second or so. */
+        const val GENTLE_CORRECTION = 0.03
         const val RESTITUTION = 0.05
         const val FRICTION = 0.5
     }

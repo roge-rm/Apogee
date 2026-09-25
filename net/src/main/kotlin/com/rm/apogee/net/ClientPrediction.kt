@@ -76,6 +76,8 @@ class ClientPrediction(
         weather: com.rm.apogee.core.weather.WeatherConfig? = null,
     ) {
         val replica = World.default(catalog)
+        neighbours.clear()
+        neighbourDesigns.clear()
         replica.weatherConfig = weather
         replica.syncClock(time)
         vessel = replica.spawnAt(
@@ -225,7 +227,69 @@ class ClientPrediction(
      * catch-up re-runs the same controls over the elapsed time so the local
      * state is the server's answer brought up to date.
      */
-    fun reconcile(state: VesselKinematics, ageSeconds: Double, snapshotTime: Double? = null) {
+    /**
+     * Another craft near the one flown, as the server last had it: for the
+     * replica to push against and be pushed by. [time] is when [state] held.
+     */
+    class Neighbour(
+        val id: Long,
+        val design: com.rm.apogee.core.craft.CraftDesign,
+        val state: VesselKinematics,
+        val time: Double,
+        val stage: Int,
+        val activated: List<Int>,
+    )
+
+    /** The replica's copies of the craft near ours, by their ids on the server. */
+    private val neighbours = HashMap<Long, Vessel>()
+    private val neighbourDesigns = HashMap<Long, Int>()
+
+    /**
+     * Keeps copies of [near] in the replica, at [time]: added, moved to where
+     * the server says they are, and dropped once gone or far. A stage just let
+     * go of, still burning, pushes the flown craft; a ring being docked with
+     * draws it in - and the replica sees it, rather than every snapshot
+     * dragging the craft to where the server had it pushed.
+     */
+    private fun placeNeighbours(replica: World, near: List<Neighbour>, time: Double) {
+        val keep = near.map { it.id }.toSet()
+        val gone = neighbours.keys.filter { it !in keep }
+        for (id in gone) {
+            neighbours.remove(id)?.let { replica.destroy(it.id, "out of reach") }
+            neighbourDesigns.remove(id)
+        }
+        for (n in near) {
+            val position = n.state.position.copy().addScaledInPlace(n.state.velocity, time - n.time)
+            var copy = neighbours[n.id]
+            if (copy != null && neighbourDesigns[n.id] != n.design.hashCode()) {
+                replica.destroy(copy.id, "rebuilt")
+                copy = null
+            }
+            if (copy == null) {
+                // Staged here already and not yet heard back: the replica has
+                // its own copy of what fell away, right there. Not two.
+                val stand = replica.vessels.any { v ->
+                    v !== vessel && v !in neighbours.values && v.body.position.distanceTo(position) < LOCAL_COPY_REACH
+                }
+                if (stand) continue
+                copy = replica.spawnAt(n.design, n.state.referenceBodyId, position, n.state.velocity.copy(), n.state.rotation.copy(), n.state.angularVelocity.copy())
+                neighbours[n.id] = copy
+                neighbourDesigns[n.id] = n.design.hashCode()
+                // First seen already beside us: likely just parted from us.
+                vessel?.let { replica.graceBetween(it.id, copy.id, NEIGHBOUR_GRACE) }
+            } else {
+                copy.wake()
+                copy.body.position.setTo(position)
+                copy.body.linearVelocity.setTo(n.state.velocity)
+                copy.body.orientation.setTo(n.state.rotation)
+                copy.body.angularVelocity.setTo(n.state.angularVelocity)
+            }
+            copy.restoreStaging(n.stage, n.activated, copy.brokenIndices())
+            copy.control.throttle = n.state.throttle
+        }
+    }
+
+    fun reconcile(state: VesselKinematics, ageSeconds: Double, snapshotTime: Double? = null, near: List<Neighbour> = emptyList()) {
         val replica = world ?: return
         val local = vessel ?: return
 
@@ -252,6 +316,7 @@ class ClientPrediction(
         // server's time, the replica's own clock less the snapshot's age.
         val describes = snapshotTime ?: (replica.time + accumulator - ageSeconds)
         replica.syncClock(describes)
+        placeNeighbours(replica, near, describes)
 
         // Asleep on the server, and nobody touching the controls: asleep here
         // too, at exactly the server's pose. Woken instead, the replica's
@@ -404,11 +469,17 @@ class ClientPrediction(
     fun reset() {
         world = null
         vessel = null
+        neighbours.clear()
+        neighbourDesigns.clear()
         designHash = 0
         renderOffset.setZero()
     }
 
     private companion object {
+        /** A craft first seen beside ours touches it only gently this long, s: see World's separation grace. */
+        const val NEIGHBOUR_GRACE = 1.5
+        /** A craft of the replica's own this near a neighbour, m, is taken to be it. */
+        const val LOCAL_COPY_REACH = 12.0
         const val DT = 1.0 / 60.0
 
         /** Relative speed, m/s, below which a snapshot can only be a sleeping craft. */

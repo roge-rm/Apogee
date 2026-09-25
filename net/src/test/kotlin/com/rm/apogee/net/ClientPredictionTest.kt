@@ -333,4 +333,51 @@ class ClientPredictionTest {
         repeat(60) { prediction.advance(1.0 / 60.0) }
         assertEquals("still the drogue", com.rm.apogee.core.part.Parachute.DROGUE_FULL, replica.legDeploy[chute], 1e-9)
     }
+
+    /**
+     * Staged with the stage below still burning: the server has that stage
+     * shove the craft above along. A replica that knows the stage is there
+     * shoves it too; one that did not was dragged back to the server's
+     * answer on every snapshot, metres at a time.
+     */
+    @Test
+    fun `a burning stage below pushes the replica as it pushes the server's craft`() {
+        fun run(withNeighbours: Boolean): Double {
+            val world = World.default(catalog)
+            val rocket = world.spawnInOrbit(
+                StockCraft.starterRocket(catalog), "terra",
+                com.rm.apogee.core.orbit.Orbit.circular(700_000.0, 3.5316000e12),
+            )
+            rocket.body.angularVelocity.setZero()
+            world.apply(com.rm.apogee.core.world.Command.SetThrottle(rocket.id.raw, 1.0))
+            world.stage(rocket)
+            repeat(30) { world.step(1.0 / 60.0) }
+            val before = world.vessels.map { it.id }.toSet()
+            world.stage(rocket)
+            world.apply(com.rm.apogee.core.world.Command.SetThrottle(rocket.id.raw, 0.0))
+            val lower = world.vessels.first { it.id !in before }
+            fun neighbours() = if (!withNeighbours) emptyList() else listOf(
+                ClientPrediction.Neighbour(lower.id.raw, lower.design, kinematicsOf(world, lower.id), world.time, lower.currentStage, lower.activatedIndices()),
+            )
+            val prediction = ClientPrediction(catalog)
+            prediction.adopt(rocket.design, kinematicsOf(world, rocket.id), world.time)
+            prediction.sync(rocket.currentStage, rocket.activatedIndices(), rocket.flatResources())
+            // A second of snapshots at 20 Hz: the replica stepped between them,
+            // then set right - and how far it had gone wrong, each time.
+            var worst = 0.0
+            repeat(20) {
+                prediction.reconcile(kinematicsOf(world, rocket.id), 0.0, world.time, neighbours())
+                prediction.advance(3.0 / 60.0)
+                repeat(3) { world.step(1.0 / 60.0) }
+                // Both a snapshot on: where the replica got to on its own.
+                val predicted = prediction.renderPosition(com.rm.apogee.core.math.Vec3())!!
+                worst = maxOf(worst, predicted.distanceTo(rocket.body.position))
+            }
+            return worst
+        }
+        val without = run(false)
+        val with = run(true)
+        println("worst replica error over a second after a hot staging: without neighbours ${"%.2f".format(without)} m, with ${"%.2f".format(with)} m")
+        assertTrue("the replica feels the push ($with m vs $without m)", with < without * 0.5)
+    }
 }
