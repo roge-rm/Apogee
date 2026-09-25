@@ -105,6 +105,10 @@ class CraftStore(private val directory: File) {
             StockCraft.hauler(catalog),
             StockCraft.skiff(catalog),
             StockCraft.cutter(catalog),
+            StockCraft.portTug(catalog),
+            StockCraft.dockProbe(catalog),
+            StockCraft.towBuggy(catalog),
+            StockCraft.cart(catalog),
         )
         for (design in stock) {
             if (design.name in offered) continue

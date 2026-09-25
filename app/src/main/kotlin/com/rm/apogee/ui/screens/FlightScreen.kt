@@ -101,8 +101,14 @@ fun FlightScreen(
     onToggleBrakes: () -> Unit,
     /** Arm the thrusters, or stand them down. */
     onToggleRcs: () -> Unit = {},
+    /** Drive the wheels backwards, or forwards again. */
+    onToggleReverse: () -> Unit = {},
     /** With the thrusters armed: the stick slides the craft (true) or turns it. */
     onStickMode: (Boolean) -> Unit = {},
+    /** Let go at a docking part. */
+    onUndock: (Int) -> Unit = {},
+    /** Shared with another player: who flies - "me", "them" or "both". */
+    onDockPilot: (String) -> Unit = {},
     onToggleMap: () -> Unit,
     onJoin: () -> Unit,
     onSwitchCraft: () -> Unit,
@@ -264,6 +270,16 @@ fun FlightScreen(
                 modifier = Modifier.padding(top = 6.dp),
                 chute = hud.chute,
             )
+            com.rm.apogee.ui.components.DockingPanel(
+                hud.dock, hud.joints, onUndock,
+                modifier = Modifier.padding(top = 6.dp).alpha(controlOpacity),
+            )
+            hud.sharedWith?.let { other ->
+                com.rm.apogee.ui.components.SharedCraftCard(
+                    other, hud.sharedPilot, hud.sharedOpen, { hud.sharedOpen = it }, onDockPilot,
+                    modifier = Modifier.padding(top = 6.dp),
+                )
+            }
         }
 
         if (portrait) {
@@ -290,6 +306,7 @@ fun FlightScreen(
                         onThrottleChange,
                         onToggleBrakes,
                         onToggleRcs,
+                        onToggleReverse,
                         PORTRAIT_THROTTLE_HEIGHT,
                     )
                 }
@@ -350,7 +367,7 @@ fun FlightScreen(
                     .padding(horizontal = 16.dp, vertical = 12.dp)
                     .alpha(controlOpacity),
             ) {
-                ThrottleControl(hud, onThrottleChange, onToggleBrakes, onToggleRcs, THROTTLE_HEIGHT)
+                ThrottleControl(hud, onThrottleChange, onToggleBrakes, onToggleRcs, onToggleReverse, THROTTLE_HEIGHT)
             }
 
             val stickAlignment =
@@ -416,6 +433,7 @@ private fun ThrottleControl(
     onThrottleChange: (Float) -> Unit,
     onToggleBrakes: () -> Unit,
     onToggleRcs: () -> Unit,
+    onToggleReverse: () -> Unit,
     height: Dp,
 ) {
     val throttle = hud.throttle
@@ -445,6 +463,22 @@ private fun ThrottleControl(
         // Brakes live under the throttle: the thumb that pulls the power off
         // slides straight on to them. Only on a craft with wheels to brake.
         if (hud.hasWheels) {
+            // Reverse above the brakes: the throttle drives the wheels backwards.
+            Spacer(Modifier.height(8.dp))
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = if (hud.reverse) ApogeeColors.Caution.alpha(0.3f)
+                    else Color.White.alpha(ApogeeAlpha.CONTROL_FILL),
+                modifier = Modifier.clickable(onClick = onToggleReverse),
+            ) {
+                Text(
+                    "REV",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = if (hud.reverse) ApogeeColors.Caution else Color.White.alpha(ApogeeAlpha.SECONDARY),
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                )
+            }
             Spacer(Modifier.height(8.dp))
             Surface(
                 shape = RoundedCornerShape(8.dp),

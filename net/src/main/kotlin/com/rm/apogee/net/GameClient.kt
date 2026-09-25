@@ -182,8 +182,16 @@ class GameClient(
     val lightningHits: java.util.concurrent.ConcurrentLinkedQueue<ServerMessage.Lightning> =
         java.util.concurrent.ConcurrentLinkedQueue()
 
+    /**
+     * The craft being flown shared with another player: who they are, and
+     * who flies it (a client id, or empty for either). Null when it is not.
+     */
+    @Volatile var dockedWith: ServerMessage.DockedWith? = null
+
     private fun handle(message: ServerMessage) {
         when (message) {
+            is ServerMessage.DockedWith -> dockedWith = message
+
             is ServerMessage.Welcome -> {
                 weather = message.weather
                 serverName = message.serverName

@@ -165,6 +165,7 @@ class ClientPrediction(
         sas: Boolean,
         brakes: Boolean = false,
         rcs: Boolean = false,
+        reverse: Boolean = false,
         translateX: Double = 0.0,
         translateY: Double = 0.0,
         translateZ: Double = 0.0,
@@ -177,6 +178,7 @@ class ClientPrediction(
         control.sasEnabled = sas
         control.brakes = brakes
         control.rcsEnabled = rcs
+        control.reverse = reverse
         control.translateX = translateX
         control.translateY = translateY
         control.translateZ = translateZ

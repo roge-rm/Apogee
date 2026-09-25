@@ -203,6 +203,15 @@ class MainActivity : ComponentActivity() {
                         onTarget = { id -> session?.let { s -> lifecycleScope.launch { s.setTarget(id) } } },
                         onToggleBrakes = ::onToggleBrakes,
                         onToggleRcs = ::onToggleRcs,
+                        onToggleReverse = ::onToggleReverse,
+                        onUndock = { part -> session?.let { s -> lifecycleScope.launch { s.undock(part) } } },
+                        onDockPilot = { who ->
+                            session?.let { s ->
+                                val shared = s.sharedWith ?: return@let
+                                val pilot = when (who) { "me" -> s.myId; "them" -> shared.otherId; else -> "" }
+                                lifecycleScope.launch { s.setDockPilot(pilot) }
+                            }
+                        },
                         onStickMode = ::onStickMode,
                         onToggleMap = ::onToggleMap,
                         onJoin = ::onJoin,
@@ -370,8 +379,10 @@ class MainActivity : ComponentActivity() {
 
     private fun onRoll(roll: Float) {
         if (sliding()) {
-            // The roll buttons become down (left) and up (right).
-            slideLift = roll
+            // The roll buttons become down (left) and up (right) - gently:
+            // a button has no half-way, and full thrust was metres a second
+            // in the time it took to tap it.
+            slideLift = roll * LIFT_BUTTON
             sendSlide()
             return
         }
@@ -462,6 +473,13 @@ class MainActivity : ComponentActivity() {
     private fun onSwitchCraft() {
         val current = session ?: return
         lifecycleScope.launch { current.switchCraft() }
+    }
+
+    private fun onToggleReverse() {
+        val engaged = !hudState.reverse
+        hudState.reverse = engaged
+        val current = session ?: return
+        lifecycleScope.launch { current.setReverse(engaged) }
     }
 
     private fun onToggleBrakes() {
@@ -763,6 +781,21 @@ class MainActivity : ComponentActivity() {
                     hudState.connectionError = current.rejectionReason
                     hudState.canJoin = current.joinable
                     hudState.chute = current.chuteState
+                    hudState.dock = current.dockReadout
+                    hudState.joints = current.joints
+                    val shared = current.sharedWith
+                    if (shared == null) {
+                        hudState.sharedWith = null
+                    } else {
+                        // Newly shared: open the card, so the two of them choose.
+                        if (hudState.sharedWith == null) hudState.sharedOpen = true
+                        hudState.sharedWith = shared.other
+                        hudState.sharedPilot = when (shared.pilot) {
+                            "" -> "both"
+                            current.myId -> "me"
+                            else -> "them"
+                        }
+                    }
                     hudState.ownedCraft = current.ownedCraftCount
                     hudState.hasWheels = current.controlledHasWheels
                     hudState.hasRcs = current.controlledHasRcs
@@ -879,6 +912,9 @@ class MainActivity : ComponentActivity() {
     }
 
     private companion object {
+        /** The up and down buttons' slide, before the stick's cubed response: about a third of a metre a second squared on a tug. */
+        const val LIFT_BUTTON = 0.35f
+
         const val TAG = "Apogee"
 
         /** 60 fps budget, for the ADPF hint. */

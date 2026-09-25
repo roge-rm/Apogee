@@ -264,6 +264,8 @@ class SoundScene(private val budget: Int) {
             }
             Kind.DESTROYED -> { v[0] = 1f; Recipes.CRUNCH to 1.0 }
             Kind.DETACHED -> { v[0] = 1f; Recipes.TEAR to 0.8 }
+            Kind.LATCH -> { v[0] = 1f; Recipes.CLUNK to 0.6 }
+            Kind.RELEASE -> { v[0] = 0.6f; Recipes.CLUNK to 0.6 }
             Kind.EXPLOSION -> {
                 val size = sqrt(amount / 2_000.0).coerceIn(0.15, 1.5)
                 v[0] = size.toFloat(); Recipes.EXPLOSION to 8.0 * size
@@ -281,7 +283,7 @@ class SoundScene(private val budget: Int) {
         return Shot(recipe, 0, delay.toFloat(), v)
     }
 
-    enum class Kind { IMPACT, DESTROYED, DETACHED, EXPLOSION }
+    enum class Kind { IMPACT, DESTROYED, DETACHED, EXPLOSION, LATCH, RELEASE }
 
     /**
      * How a sound at [position] reaches the listener: its loudness by

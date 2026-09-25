@@ -42,6 +42,7 @@ class HudState {
     var throttle: Float by mutableFloatStateOf(0f)
     var sasEnabled: Boolean by mutableStateOf(false)
     var brakes: Boolean by mutableStateOf(false)
+    var reverse: Boolean by mutableStateOf(false)
 
     /** Whether the craft has wheels, so the brake control can hide itself. */
     var hasWheels: Boolean by mutableStateOf(false)
@@ -55,6 +56,15 @@ class HudState {
     var rcsArmed: Boolean by mutableStateOf(false)
     var rcsSlide: Boolean by mutableStateOf(false)
     var rcsLeft: Float? by mutableStateOf(null)
+
+    /** Docking: lining up, what the flown craft is joined by, and who it is shared with. */
+    var dock: com.rm.apogee.game.GameSession.DockReadout? by mutableStateOf(null)
+    var joints: List<com.rm.apogee.game.GameSession.Joint> by mutableStateOf(emptyList())
+    /** Shared with [sharedWith] (their name): who flies - "me", "them" or "both" - or null when not shared. */
+    var sharedWith: String? by mutableStateOf(null)
+    var sharedPilot: String by mutableStateOf("both")
+    /** Whether the who-flies card is open. */
+    var sharedOpen: Boolean by mutableStateOf(false)
     var mapMode: Boolean by mutableStateOf(false)
 
     /**
@@ -106,11 +116,17 @@ class HudState {
         throttle = 0f
         sasEnabled = false
         brakes = false
+        reverse = false
         hasWheels = false
         hasRcs = false
         rcsArmed = false
         rcsSlide = false
         rcsLeft = null
+        dock = null
+        joints = emptyList()
+        sharedWith = null
+        sharedPilot = "both"
+        sharedOpen = false
         chute = null
         mapMode = false
         canJoin = false

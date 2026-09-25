@@ -560,12 +560,15 @@ class GroundContact {
         if (wheel.motorForce > 0.0 && control.throttle != 0.0 && !control.brakes) {
             // How fast this wheel is already rolling, relative to the ground.
             relativeVelocityAt(body, attractor, partPosition, pointVelocity)
-            val rolling = pointVelocity dot rollAxis
+            // In reverse, the same motor the other way - at a crawl's top speed.
+            val way = if (control.reverse) -1.0 else 1.0
+            val rolling = (pointVelocity dot rollAxis) * way
+            val top = wheel.topSpeed * if (control.reverse) REVERSE_TOP else 1.0
             val fade = if (wheel.topSpeed <= 0.0) 1.0
-                else (1.0 - rolling / wheel.topSpeed).coerceIn(0.0, 1.0)
+                else (1.0 - rolling / top).coerceIn(0.0, 1.0)
 
-            val tractive = (wheel.motorForce * control.throttle * fade)
-                .coerceAtMost(groundFriction * normalImpulse / dt)
+            val tractive = (wheel.motorForce * control.throttle * fade * way)
+                .coerceIn(-groundFriction * normalImpulse / dt, groundFriction * normalImpulse / dt)
             driveForce.setTo(rollAxis).mulInPlace(tractive * dt)
             body.applyImpulseAtOffset(driveForce, offset)
         }
@@ -720,6 +723,9 @@ class GroundContact {
         const val SKIM_SPEED = 6.0
 
         /** Deepest anything sinks, metres. Mud up to the axles, not the roof. */
+        /** Reverse runs up to this share of a wheel's top speed. */
+        const val REVERSE_TOP = 0.35
+
         const val MAX_SINK_METRES = 0.35
 
         /**

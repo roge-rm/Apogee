@@ -612,4 +612,54 @@ class GameServerTest {
         /** Yields per pumped tick, to let both sides' coroutines drain. */
         const val SETTLE_YIELDS = 8
     }
+
+    /**
+     * Two players' craft docked: both are in the one craft, both are asked
+     * who flies it, and what they choose is what the server lets through.
+     * Undocked, each is back in their own.
+     */
+    @Test
+    fun `two players dock, choose who flies, and undock back into their own craft`() = runTest {
+        val server = GameServer.default(catalog)
+        val alice = joinClient(server, backgroundScope, "Alice")
+        val bob = joinClient(server, backgroundScope, "Bob")
+        pumpUntil(server, "both flying") { alice.controlledVessel != null && bob.controlledVessel != null }
+        val site = com.rm.apogee.core.world.World.launchSites.first().id
+        val tug = com.rm.apogee.core.craft.StockCraft.portTug(catalog)
+        val aliceOld = alice.controlledVessel; val bobOld = bob.controlledVessel
+        alice.send(Command.SpawnCraft(tug, site))
+        bob.send(Command.SpawnCraft(tug, site))
+        pumpUntil(server, "both in tugs") {
+            alice.controlledVessel != aliceOld && bob.controlledVessel != bobOld &&
+                alice.controlledVessel != null && bob.controlledVessel != null
+        }
+        val a = server.world.vessel(VesselId(alice.controlledVessel!!))!!
+        val b = server.world.vessel(VesselId(bob.controlledVessel!!))!!
+        val ring = a.defs.indices.first { a.defs[it].id == "dock-port" }
+        val whole = server.world.dockPorts(a, ring, b, ring)!!
+        pumpUntil(server, "both in the docked craft") {
+            alice.controlledVessel == whole.id.raw && bob.controlledVessel == whole.id.raw
+        }
+        pumpUntil(server, "both asked who flies") { alice.dockedWith != null && bob.dockedWith != null }
+        assertEquals("Bob", alice.dockedWith!!.other)
+        assertEquals("either, until they say", "", alice.dockedWith!!.pilot)
+
+        // Bob hands it to Alice: his throttle is refused, hers goes through.
+        bob.send(Command.SetDockPilot(whole.id.raw, alice.clientId))
+        pumpUntil(server, "the choice to reach Alice") { alice.dockedWith?.pilot == alice.clientId }
+        bob.send(Command.SetThrottle(whole.id.raw, 0.9))
+        repeat(20) { server.stepOnce(); repeat(SETTLE_YIELDS) { yield() } }
+        assertEquals("Bob is a passenger", 0.0, whole.control.throttle, 0.0)
+        alice.send(Command.SetThrottle(whole.id.raw, 0.4))
+        pumpUntil(server, "Alice's throttle") { whole.control.throttle == 0.4 }
+
+        // Apart again: each back in their own.
+        val joint = whole.defs.indices.first { whole.design.parts[it].dockedFrom != null }
+        alice.send(Command.Undock(whole.id.raw, joint))
+        pumpUntil(server, "each back in their own craft") {
+            alice.controlledVessel != null && bob.controlledVessel != null && alice.controlledVessel != bob.controlledVessel
+        }
+        assertEquals(alice.clientId, server.world.vessel(VesselId(alice.controlledVessel!!))!!.owner)
+        assertEquals(bob.clientId, server.world.vessel(VesselId(bob.controlledVessel!!))!!.owner)
+    }
 }

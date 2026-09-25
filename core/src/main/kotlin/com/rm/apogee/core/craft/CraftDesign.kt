@@ -36,6 +36,24 @@ data class PlacedPart(
      * builder can move or delete them as one.
      */
     val symmetryGroup: Int = -1,
+    /** A docking part latched to another in this craft: that one's index; -1 for none. Set on both. */
+    val dockedTo: Int = -1,
+    /**
+     * On the docking part a craft docked by: what that craft was, so it can
+     * be given back its name, owner and staging when it undocks.
+     */
+    val dockedFrom: DockedOrigin? = null,
+)
+
+/** What a craft was before it docked on to another: given back when it undocks. */
+@Serializable
+data class DockedOrigin(
+    val name: String,
+    val owner: String = "",
+    val ownerName: String = "",
+    val orientation: CraftOrientation = CraftOrientation.VERTICAL,
+    val currentStage: Int = 0,
+    val throttle: Double = 0.0,
 )
 
 /**
@@ -114,6 +132,32 @@ data class CraftDesign(
     val partCount: Int get() = parts.size
 
     /** Indices of every part hanging below [index], inclusive. */
+    /**
+     * The same parts in the same order, with the tree turned about so part
+     * [index] is its root: every joint on the way from it up to the old root
+     * reversed, the nodes on each end swapping sides. Nothing moves.
+     */
+    fun rerootedAt(index: Int): CraftDesign {
+        if (index !in parts.indices || parts[index].parentIndex < 0) return this
+        val out = parts.toMutableList()
+        var child = index
+        var parent = parts[index].parentIndex
+        out[index] = out[index].copy(parentIndex = -1, parentNodeId = null, ownNodeId = null)
+        while (parent >= 0) {
+            val next = parts[parent].parentIndex
+            // What was child-of-parent becomes parent-of-child: the node the
+            // child hung by is now the one the old parent hangs from.
+            out[parent] = out[parent].copy(
+                parentIndex = child,
+                parentNodeId = parts[child].ownNodeId,
+                ownNodeId = parts[child].parentNodeId,
+            )
+            child = parent
+            parent = next
+        }
+        return copy(parts = out)
+    }
+
     fun subtreeOf(index: Int): List<Int> {
         val result = ArrayList<Int>()
         val queue = ArrayDeque<Int>()

@@ -556,6 +556,16 @@ class Effects(tier: QualityTier) {
     fun partEvent(kind: PartEventKind, at: Vec3, amount: Double, colour: FloatArray?, seed: Int, water: Boolean = false) {
         up.setTo(at).normalizeInPlace()
         when (kind) {
+            // Docking: a little breath of gas as the latches go, more as they let go.
+            PartEventKind.DOCKED, PartEventKind.HITCHED, PartEventKind.UNHITCHED -> Unit
+            PartEventKind.UNDOCKED -> repeat(10) { k ->
+                spawn(
+                    x = at.x + jitter(k, 1) * 0.3, y = at.y + jitter(k, 2) * 0.3, z = at.z + jitter(k, 3) * 0.3,
+                    vx = jitter(k, 4) * 3.0, vy = jitter(k, 5) * 3.0, vz = jitter(k, 6) * 3.0,
+                    life = 0.5 + 0.3 * rand(k), startSize = 0.15, endSize = 1.2,
+                    r = 0.93f, g = 0.95f, b = 1f, a = 0.45f, grip = 0.0, rise = 0.0,
+                )
+            }
             PartEventKind.IMPACT -> if (water) splash(at, amount) else {
                 val strength = (amount / 30.0).coerceIn(0.1, 2.0)
                 sparks(at, (6 + 14 * strength).toInt(), 6.0 + 10.0 * strength, 0.12)

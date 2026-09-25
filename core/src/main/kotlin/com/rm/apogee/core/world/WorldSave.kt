@@ -111,6 +111,8 @@ class WorldSave(
      * any: the server then gives the world its own default.
      */
     val weather: com.rm.apogee.core.weather.WeatherConfig? = null,
+    /** Craft towing others: each hitch coupled to its ball. */
+    val links: List<SavedLink> = emptyList(),
 ) {
     companion object {
         /**
@@ -133,3 +135,7 @@ fun emptyWorldSave(catalogHash: String) = WorldSave(
     nextVesselId = 1L,
     vessels = emptyList(),
 )
+
+/** A tow hitch coupled up: part [partA] of craft [vesselA] to part [partB] of [vesselB]. */
+@Serializable
+data class SavedLink(val vesselA: Long, val partA: Int, val vesselB: Long, val partB: Int)

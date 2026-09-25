@@ -323,6 +323,9 @@ class GameServer(
                         world.lastFlown.remove(session.clientId)
                         session.send(ServerMessage.ControlChanged(-1L), Channel.CONTROL)
                     }
+                } else if (command is Command.SetDockPilot) {
+                    dockPilots[command.vessel] = command.pilot
+                    announceDock(command.vessel)
                 } else if (command is Command.SwitchVessel) {
                     world.apply(command)
                     takeControl(session, VesselId(command.vessel))
@@ -506,17 +509,33 @@ class GameServer(
         session.send(ServerMessage.ControlChanged(id.raw), Channel.CONTROL)
     }
 
+    /**
+     * Whether [session] may work the controls of [vessel]: it is the craft
+     * they are in, and - two players' craft docked - it is theirs to fly by
+     * what the two of them chose (anyone, when nobody has said).
+     */
+    private fun flies(session: PlayerSession, vessel: Long): Boolean {
+        if (session.controlledVessel?.raw != vessel) return false
+        val pilot = dockPilots[vessel] ?: return true
+        return pilot.isEmpty() || pilot == session.clientId
+    }
+
     private fun isAuthorised(session: PlayerSession, command: Command): Boolean = when (command) {
-        is Command.SetThrottle -> session.controlledVessel?.raw == command.vessel
-        is Command.SetAttitude -> session.controlledVessel?.raw == command.vessel
-        is Command.SetSas -> session.controlledVessel?.raw == command.vessel
-        is Command.SetSasMode -> session.controlledVessel?.raw == command.vessel
-        is Command.SetNavFrame -> session.controlledVessel?.raw == command.vessel
-        is Command.SetTarget -> session.controlledVessel?.raw == command.vessel
-        is Command.SetBrakes -> session.controlledVessel?.raw == command.vessel
-        is Command.SetTranslation -> session.controlledVessel?.raw == command.vessel
-        is Command.SetRcs -> session.controlledVessel?.raw == command.vessel
-        is Command.Stage -> session.controlledVessel?.raw == command.vessel
+        is Command.SetThrottle -> flies(session, command.vessel)
+        is Command.SetAttitude -> flies(session, command.vessel)
+        is Command.SetSas -> flies(session, command.vessel)
+        is Command.SetSasMode -> flies(session, command.vessel)
+        is Command.SetNavFrame -> flies(session, command.vessel)
+        is Command.SetTarget -> flies(session, command.vessel)
+        is Command.SetBrakes -> flies(session, command.vessel)
+        is Command.SetReverse -> flies(session, command.vessel)
+        is Command.SetTranslation -> flies(session, command.vessel)
+        is Command.SetRcs -> flies(session, command.vessel)
+        is Command.Stage -> flies(session, command.vessel)
+        is Command.Undock -> flies(session, command.vessel)
+        // Either of the two it is shared between may say who flies it.
+        is Command.SetDockPilot -> session.controlledVessel?.raw == command.vessel &&
+            world.vessel(VesselId(command.vessel))?.let { session.clientId in world.ownersOf(it) } == true
         // Welding consumes the *other* craft, which may belong to someone
         // else. Only the craft being flown may initiate it, and the world
         // still refuses unless the two are touching and at rest - but this is
@@ -524,9 +543,10 @@ class GameServer(
         is Command.Join -> session.controlledVessel?.raw == command.vessel
         // Only your own craft. Anything else and a player could take the
         // controls of somebody else's base on a shared server.
+        // Or one docked with yours: you have a seat in it.
         is Command.SwitchVessel ->
             world.vessel(VesselId(command.vessel))
-                ?.owner == session.clientId
+                ?.let { session.clientId in world.ownersOf(it) } == true
         is Command.SpawnCraft -> true
         is Command.Chat -> true
         is Command.SetWarp -> warpAllowed
@@ -605,6 +625,36 @@ class GameServer(
                 is WorldEvent.PartDetached -> partEvent(
                     ServerMessage.PartEvent(PartEventKind.DETACHED, event.id.raw, event.partId, event.bodyId, event.position.copy(), cause = event.cause, time = world.time),
                 )
+                is WorldEvent.Docked -> {
+                    // Whoever was in the craft that docked on is in the whole now.
+                    for (session in sessions) {
+                        if (session.controlledVessel == event.absorbed) takeControl(session, event.keeper)
+                    }
+                    world.vessel(event.keeper)?.let { whole ->
+                        if (world.ownersOf(whole).size > 1) {
+                            dockPilots.putIfAbsent(event.keeper.raw, "")
+                            announceDock(event.keeper.raw)
+                        }
+                    }
+                    partEvent(ServerMessage.PartEvent(PartEventKind.DOCKED, event.keeper.raw, "", event.bodyId, event.position.copy(), time = world.time))
+                }
+                is WorldEvent.Undocked -> {
+                    // A player whose craft that was goes with it.
+                    val spawned = world.vessel(event.spawned)
+                    for (session in sessions) {
+                        if (spawned != null && session.controlledVessel == event.from && spawned.owner == session.clientId &&
+                            world.vessel(event.from)?.owner != session.clientId
+                        ) takeControl(session, event.spawned)
+                    }
+                    if (world.vessel(event.from)?.let { world.ownersOf(it).size <= 1 } != false) dockPilots.remove(event.from.raw)
+                    partEvent(ServerMessage.PartEvent(PartEventKind.UNDOCKED, event.from.raw, "", event.bodyId, event.position.copy(), time = world.time))
+                }
+                is WorldEvent.Hitched -> partEvent(
+                    ServerMessage.PartEvent(
+                        if (event.coupled) PartEventKind.HITCHED else PartEventKind.UNHITCHED,
+                        event.a.raw, "", event.bodyId, event.position.copy(), time = world.time,
+                    ),
+                )
                 is WorldEvent.Explosion -> partEvent(
                     ServerMessage.PartEvent(PartEventKind.EXPLOSION, -1L, "", event.bodyId, event.position.copy(), event.energy, time = world.time),
                 )
@@ -650,6 +700,27 @@ class GameServer(
     }
 
     private suspend fun partEvent(event: ServerMessage.PartEvent) = broadcast(event, Channel.STRUCTURE)
+
+    /**
+     * Two players' craft docked into one: who flies each, by vessel id - a
+     * client id, or empty for either of them. Absent: no question arises.
+     */
+    private val dockPilots = java.util.concurrent.ConcurrentHashMap<Long, String>()
+
+    /** Tells each player with a seat in [vessel] who else has one and who flies it. */
+    private suspend fun announceDock(vessel: Long) {
+        val whole = world.vessel(VesselId(vessel)) ?: return
+        val owners = world.ownersOf(whole)
+        val pilot = dockPilots[vessel] ?: ""
+        for (session in sessions) {
+            if (!session.connected || !session.handshakeComplete || session.clientId !in owners) continue
+            val other = sessions.firstOrNull { it.clientId in owners && it.clientId != session.clientId }
+            val otherName = other?.playerName
+                ?: whole.design.parts.firstNotNullOfOrNull { it.dockedFrom?.takeIf { d -> d.owner != session.clientId }?.ownerName }
+                ?: whole.ownerName
+            session.send(ServerMessage.DockedWith(vessel, otherName, other?.clientId ?: "", pilot), Channel.CONTROL)
+        }
+    }
 
     private suspend fun broadcast(message: ServerMessage, channel: Channel) {
         for (session in sessions) {

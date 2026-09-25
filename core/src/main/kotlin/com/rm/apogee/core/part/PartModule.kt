@@ -407,3 +407,64 @@ data class HeatShield(
     val energyPerUnit: Double = 3.0e6,
     val charTemperature: Double = 1_400.0,
 ) : PartModule
+
+/** What a [DockingPort] is, and so what it mates with. */
+@Serializable
+enum class DockKind {
+    /** A docking ring: mates with another ring of the same size. */
+    @SerialName("port") PORT,
+    /** A tow ball, on the back of a rover: mates with a coupling. */
+    @SerialName("hitchBall") HITCH_BALL,
+    /** A tow coupling, on a trailer's drawbar: mates with a ball. */
+    @SerialName("hitchCoupling") HITCH_COUPLING,
+    /** A mooring clamp on a hull's side: mates with another clamp. */
+    @SerialName("clamp") CLAMP,
+}
+
+/**
+ * A place where two craft come together and can come apart again.
+ *
+ * Its face is at [faceOffset] along the part's own +Y, facing +Y. Brought
+ * face to face with a partner it can mate with - close, lined up and slow -
+ * it captures it and draws it in, straightening it up, and after
+ * [latchSeconds] of being face to face it latches: a docking ring or clamp
+ * into one rigid craft, a hitch into a joint the two turn about. Either can
+ * be undone later, which is what sets them apart from a weld.
+ *
+ * Capture is forgiving on purpose - within a metre, fifteen degrees and a
+ * metre a second - because a phone is no place for a pixel hunt: the magnets
+ * do the last of the work.
+ */
+@Serializable
+@SerialName("dockingPort")
+data class DockingPort(
+    val kind: DockKind = DockKind.PORT,
+    /** Size class: only equal sizes mate. */
+    val size: Int = 1,
+    /** Metres along the part's +Y from its centre to its face. */
+    val faceOffset: Double = 0.15,
+    /** How close the faces must be to capture, m. */
+    val captureRange: Double = 1.0,
+    /** How far off facing each other they may be, degrees. */
+    val captureAngle: Double = 15.0,
+    /** How slowly they must be coming together, m/s. */
+    val captureSpeed: Double = 1.0,
+    /** The most the magnets pull with, N, and turn with, N·m. */
+    val pull: Double = 3_000.0,
+    val turn: Double = 1_500.0,
+    /** Seconds face to face before it latches. */
+    val latchSeconds: Double = 0.5,
+    /** Push given to each side on undocking, N·s. */
+    val undockImpulse: Double = 400.0,
+) : PartModule {
+    /** Whether this can mate with [other] at all. */
+    fun matesWith(other: DockingPort): Boolean = size == other.size && when (kind) {
+        DockKind.PORT -> other.kind == DockKind.PORT
+        DockKind.CLAMP -> other.kind == DockKind.CLAMP
+        DockKind.HITCH_BALL -> other.kind == DockKind.HITCH_COUPLING
+        DockKind.HITCH_COUPLING -> other.kind == DockKind.HITCH_BALL
+    }
+
+    /** A hitch turns about its joint; a ring or clamp holds rigid. */
+    val rigid: Boolean get() = kind == DockKind.PORT || kind == DockKind.CLAMP
+}

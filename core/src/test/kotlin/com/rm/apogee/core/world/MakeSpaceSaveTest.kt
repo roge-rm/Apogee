@@ -42,6 +42,58 @@ class MakeSpaceSaveTest {
             println("saved to $out at t=$midnight")
             return
         }
+        // DOCK=space|luna|land|water: two craft ready to dock - tugs ring to
+        // ring in orbit or on Luna, a buggy with a cart behind it, two
+        // skiffs side by side - a few metres apart.
+        System.getenv("DOCK")?.let { where ->
+            fun ref(v: com.rm.apogee.core.craft.Vessel, part: Int) =
+                com.rm.apogee.core.physics.PortRef(v, part, v.defs[part].module<com.rm.apogee.core.part.DockingPort>()!!).update()
+            fun facing(design: com.rm.apogee.core.craft.CraftDesign, part: Int, target: com.rm.apogee.core.craft.Vessel, targetPart: Int, gap: Double, about: Vec3): com.rm.apogee.core.craft.Vessel {
+                val t = ref(target, targetPart)
+                val v = world.spawnAt(design, target.referenceBodyId, target.body.position.copy(), target.body.linearVelocity.copy(), target.body.orientation.copy())
+                val own = ref(v, part)
+                val q = if ((own.axis dot t.axis) > 0.999) com.rm.apogee.core.math.Quat.fromAxisAngle(target.body.orientation.rotate(about, Vec3()), Math.PI, com.rm.apogee.core.math.Quat())
+                    else quatFromTo(own.axis, Vec3().setTo(t.axis).mulInPlace(-1.0))
+                v.body.orientation.setTo(q * v.body.orientation).normalizeInPlace()
+                v.body.position.addInPlace(Vec3().setTo(t.face).addScaledInPlace(t.axis, gap).subInPlace(ref(v, part).face))
+                return v
+            }
+            fun settle(seconds: Double) = repeat((seconds * 60).toInt()) { world.step(1.0 / 60.0) }
+            when (where) {
+                "space", "luna" -> {
+                    val tug = StockCraft.portTug(catalog)
+                    val a = if (where == "space") world.spawnInOrbit(tug, "terra", com.rm.apogee.core.orbit.Orbit.circular(700_000.0, 3.5316000e12))
+                        else world.spawnOnSurface(tug, World.launchSites.first { it.id == "luna-mare" })
+                    a.name = "Port Tug A"
+                    if (where == "luna") { repeat(2) { world.stage(a) }; settle(8.0) }
+                    val ring = a.defs.indices.first { a.defs[it].id == "dock-port" }
+                    val b = facing(tug, ring, a, ring, if (where == "space") 12.0 else 4.0, Vec3.unitY())
+                    b.name = "Port Tug B"
+                    if (where == "luna") { repeat(2) { world.stage(b) }; settle(8.0) }
+                }
+                "land" -> {
+                    val buggy = world.spawnOnSurface(StockCraft.towBuggy(catalog), World.launchSites.first { it.id == "cape" })
+                    settle(4.0)
+                    val ball = buggy.defs.indices.first { buggy.defs[it].id == "hitch-ball" }
+                    val cart = StockCraft.cart(catalog)
+                    facing(cart, cart.parts.indices.first { cart.parts[it].partId == "hitch-coupling" }, buggy, ball, 3.0, buggy.design.orientation.up)
+                    settle(4.0)
+                }
+                "water" -> {
+                    val skiff = StockCraft.skiff(catalog)
+                    val a = world.spawnOnSurface(skiff, World.launchSites.first { it.id == "harbour" })
+                    a.name = "Skiff A"
+                    settle(8.0)
+                    val right = a.defs.indices.first { a.defs[it].id == "mooring-clamp" && a.design.parts[it].position.x > 0 }
+                    val left = skiff.parts.indices.first { skiff.parts[it].partId == "mooring-clamp" && skiff.parts[it].position.x < 0 }
+                    facing(skiff, left, a, right, 4.0, Vec3.unitZ()).name = "Skiff B"
+                    settle(4.0)
+                }
+            }
+            WorldStore(File(out)).save(world.save()).getOrThrow()
+            println("saved to $out: docking at $where, ${world.vessels.size} craft")
+            return
+        }
         val crash = System.getenv("CRASH")?.toDoubleOrNull()
         // AT=DAWN (or NOON, DUSK, MIDNIGHT): the next such time at the pad, for
         // looking at the light - with CRASH, up in the air at that time;

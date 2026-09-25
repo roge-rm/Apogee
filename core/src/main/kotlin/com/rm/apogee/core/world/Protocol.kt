@@ -66,6 +66,11 @@ sealed interface Command {
     @SerialName("setBrakes")
     data class SetBrakes(val vessel: Long, val engaged: Boolean) : Command
 
+    /** Drive the wheels backwards (or forwards again). */
+    @Serializable
+    @SerialName("setReverse")
+    data class SetReverse(val vessel: Long, val engaged: Boolean) : Command
+
     @Serializable
     @SerialName("stage")
     data class Stage(val vessel: Long) : Command
@@ -84,6 +89,19 @@ sealed interface Command {
     @Serializable
     @SerialName("join")
     data class Join(val vessel: Long) : Command
+
+    /**
+     * Two players' craft docked: who flies the combined craft [vessel] -
+     * [pilot] is a player's client id, or empty for either of them.
+     */
+    @Serializable
+    @SerialName("setDockPilot")
+    data class SetDockPilot(val vessel: Long, val pilot: String) : Command
+
+    /** Let go at docking part [part] of [vessel]: undock a ring or clamp, uncouple a hitch. */
+    @Serializable
+    @SerialName("undock")
+    data class Undock(val vessel: Long, val part: Int) : Command
 
     /**
      * Fly a different craft.
@@ -165,6 +183,8 @@ data class Snapshot(
     val warpRequested: Double = 1.0,
     /** Whether this player may pause or warp: a solo world with nobody else on it. */
     val warpAllowed: Boolean = false,
+    /** Tow hitches coupled up. */
+    val hitches: List<SavedLink> = emptyList(),
 )
 
 /**
@@ -227,6 +247,15 @@ sealed interface ServerMessage {
     @Serializable
     @SerialName("snapshot")
     data class SnapshotMessage(val snapshot: Snapshot) : ServerMessage
+
+    /**
+     * Your craft docked with another player's, and [vessel] is both now:
+     * [other] is their name, [pilot] who flies it - a client id, or empty for
+     * either of you. Sent again whenever that changes.
+     */
+    @Serializable
+    @SerialName("dockedWith")
+    data class DockedWith(val vessel: Long, val other: String, val otherId: String, val pilot: String) : ServerMessage
 
     @Serializable
     @SerialName("structure")
@@ -307,6 +336,11 @@ enum class PartEventKind {
     @SerialName("destroyed") DESTROYED,
     @SerialName("detached") DETACHED,
     @SerialName("explosion") EXPLOSION,
+    /** Two craft latched ring to ring or clamped; [ServerMessage.PartEvent.vessel] is what they became. */
+    @SerialName("docked") DOCKED,
+    @SerialName("undocked") UNDOCKED,
+    @SerialName("hitched") HITCHED,
+    @SerialName("unhitched") UNHITCHED,
 }
 
 /** Client -> server. */
@@ -352,5 +386,5 @@ object Protocol {
     // 7: Welcome.weather, ServerMessage.Lightning.
     // 8: VesselKinematics.condition, ServerMessage.PartEvent, the ablator,
     //    engine output in the pose, time warp, removing craft.
-    const val VERSION = 8
+    const val VERSION = 9
 }

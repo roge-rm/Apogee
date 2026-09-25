@@ -124,6 +124,7 @@ class GameSession private constructor(
     private var localNavFrame = com.rm.apogee.core.world.NavFrame.AUTO
     private var localTarget = -1L
     private var localBrakes = false
+    private var localReverse = false
     /** Thrusters armed, and the slide asked for: the stick's right/away and the buttons' down/up. */
     private var localRcs = false
     @Volatile private var slideRight = 0.0
@@ -373,6 +374,12 @@ class GameSession private constructor(
             return client.vessels.firstOrNull { it.id == id }?.design?.orientation
         }
 
+    suspend fun setReverse(engaged: Boolean) {
+        localReverse = engaged
+        pushControlsToPrediction()
+        withControlledVessel { client.send(Command.SetReverse(it, engaged)) }
+    }
+
     suspend fun setBrakes(engaged: Boolean) {
         localBrakes = engaged
         pushControlsToPrediction()
@@ -446,7 +453,23 @@ class GameSession private constructor(
         }
         if (!localRcs) return
         val up = focusPosition.normalized()
-        val wanted = SlideControl.command(cameraRotation, craftRotation, up, slideRight, slideAway, slideLift, Vec3())
+        // Fine near the middle of the stick, full at its edge: cubed. Linear,
+        // the lightest touch was metres a second in orbit - the thrusters
+        // are sized to walk a landed module, not to dock.
+        fun fine(x: Double) = x * x * x
+        val grounded = telemetry.heightAboveGround < SLIDE_GROUNDED_BELOW
+        val wanted = SlideControl.command(cameraRotation, craftRotation, up, fine(slideRight), fine(slideAway), fine(slideLift), Vec3(), grounded)
+        // Lining up to dock, hands off: the thrusters take out drift across
+        // the line to the other port, and leave the closing speed alone - a
+        // nudge toward it, let go, and it coasts in on the line.
+        val readout = dockReadout
+        if (!grounded && wanted.lengthSq < 1e-12 && readout != null && readout.line.lengthSq > 0.5) {
+            val across = Vec3().setTo(readout.relative).addScaledInPlace(readout.line, -(readout.relative dot readout.line))
+            if (across.length > DRIFT_DEADBAND) {
+                craftRotation.inverseRotate(across.mulInPlace(-DRIFT_GAIN), wanted)
+                if (wanted.length > DRIFT_MOST) wanted.mulInPlace(DRIFT_MOST / wanted.length)
+            }
+        }
         val now = System.nanoTime()
         val stopping = wanted.lengthSq < 1e-12 && localTranslate.lengthSq > 0.0
         val moved = wanted.distanceTo(localTranslate) > SLIDE_RESEND
@@ -646,7 +669,7 @@ class GameSession private constructor(
     private fun pushControlsToPrediction() {
         prediction.applyControl(
             localThrottle, localPitch, localYaw, localRoll, localSas, localBrakes,
-            localRcs, localTranslate.x, localTranslate.y, localTranslate.z,
+            localRcs, localReverse, localTranslate.x, localTranslate.y, localTranslate.z,
         )
         prediction.replica?.control?.let {
             it.sasMode = localSasMode
@@ -852,6 +875,7 @@ class GameSession private constructor(
         }
 
         joinable = !wrecked && neighbourInWeldingRange(focus, focusState)
+        if (!wrecked) updateDocking(focus, focus.observed?.kinematics ?: focusState) else { dockReadout = null; joints = emptyList() }
         // Where to stay, should it be lost.
         lastSeen = LastSeen(focusId, attractor.id, bodyFixedCamera.copy(), focus.name)
 
@@ -1341,6 +1365,8 @@ class GameSession private constructor(
             PartEventKind.DESTROYED -> SoundScene.Kind.DESTROYED
             PartEventKind.DETACHED -> SoundScene.Kind.DETACHED
             PartEventKind.EXPLOSION -> SoundScene.Kind.EXPLOSION
+            PartEventKind.DOCKED, PartEventKind.HITCHED -> SoundScene.Kind.LATCH
+            PartEventKind.UNDOCKED, PartEventKind.UNHITCHED -> SoundScene.Kind.RELEASE
         }
         val position = attractor.rotationAt(lastRenderTime).rotate(bodyFixed, Vec3())
         val shot = sound.shot(
@@ -1488,6 +1514,117 @@ class GameSession private constructor(
     @Volatile
     var chuteState: String? = null
         private set
+
+    // --- docking ----------------------------------------------------------------
+
+    /** Lining up to dock: how far, how fast, how far off square, and whether the magnets would take it now. */
+    class DockReadout(
+        val distance: Double, val closing: Double, val angle: Double, val ready: Boolean, val partner: String,
+        /** Our velocity relative to theirs, and the unit line from our port to theirs: inertial. */
+        val relative: Vec3 = Vec3(), val line: Vec3 = Vec3(),
+        /** Coming in faster than the magnets will take, near enough for it to matter. */
+        val tooFast: Boolean = false,
+    )
+
+    /** Somewhere the flown craft is joined and can let go: a docking part, and what it holds. */
+    class Joint(val part: Int, val label: String, val hitch: Boolean)
+
+    /** Where the flown craft's nearest free docking part stands to another craft's, or null for nothing near. */
+    @Volatile var dockReadout: DockReadout? = null
+        private set
+
+    /** The flown craft's docked rings and clamps, and coupled hitches. */
+    @Volatile var joints: List<Joint> = emptyList()
+        private set
+
+    /** Lets go at part [part] of the craft being flown. */
+    suspend fun undock(part: Int) {
+        withControlledVessel { client.send(Command.Undock(it, part)) }
+    }
+
+    /** Shared with another player: who flies it - "me", "them" or "both". */
+    val sharedWith: ServerMessage.DockedWith?
+        get() = client.dockedWith?.takeIf { it.vessel == client.controlledVessel }
+
+    /** This player's id, to tell "me" from "them" in [sharedWith]. */
+    val myId: String get() = client.clientId
+
+    suspend fun setDockPilot(pilot: String) {
+        withControlledVessel { client.send(Command.SetDockPilot(it, pilot)) }
+    }
+
+    /** A docking part's face on craft [design] at [state]: where (inertial) and which way it faces. */
+    private fun portFace(design: CraftDesign, state: com.rm.apogee.core.world.VesselKinematics, part: Int, port: com.rm.apogee.core.part.DockingPort): Pair<Vec3, Vec3> {
+        val placed = design.parts[part]
+        val axis = state.rotation.rotate(placed.rotation.rotate(Vec3.unitY(), Vec3()), Vec3()).normalizeInPlace()
+        val at = Vec3().setTo(placed.position).subInPlace(designCentreOfMass(design))
+        state.rotation.rotate(at, at).addInPlace(state.position).addScaledInPlace(axis, port.faceOffset)
+        return at to axis
+    }
+
+    /** Works out [dockReadout] and [joints] for the craft being flown. */
+    private fun updateDocking(focus: ClientVessel, state: com.rm.apogee.core.world.VesselKinematics) {
+        val design = focus.design
+        val hitches = client.latestSnapshot?.hitches.orEmpty()
+        val list = ArrayList<Joint>()
+        for ((i, placed) in design.parts.withIndex()) {
+            val from = placed.dockedFrom ?: continue
+            list.add(Joint(i, from.name, hitch = false))
+        }
+        for (h in hitches) {
+            if (h.vesselA == focus.id) list.add(Joint(h.partA, client.vessel(h.vesselB)?.name ?: "", hitch = true))
+            else if (h.vesselB == focus.id) list.add(Joint(h.partB, client.vessel(h.vesselA)?.name ?: "", hitch = true))
+        }
+        joints = list
+
+        // Our free docking parts; theirs on the target, or on anything close.
+        val mine = design.parts.indices.mapNotNull { i ->
+            val port = catalog[design.parts[i].partId]?.module<com.rm.apogee.core.part.DockingPort>() ?: return@mapNotNull null
+            if (design.parts[i].dockedTo >= 0 || hitches.any { (it.vesselA == focus.id && it.partA == i) || (it.vesselB == focus.id && it.partB == i) }) null
+            else Triple(i, port, portFace(design, state, i, port))
+        }
+        if (mine.isEmpty()) { dockReadout = null; return }
+        var best: DockReadout? = null
+        var bestDistance = DOCK_READOUT_RANGE
+        for (other in client.vessels) {
+            if (other.id == focus.id) continue
+            if (localTarget >= 0 && other.id != localTarget) continue
+            // Brought to the same moment as ours: another craft's last word
+            // can be a few snapshots older, and at orbital speed each one is
+            // a hundred metres.
+            val seen = other.observed ?: continue
+            val ours = focus.observed?.time ?: seen.time
+            val theirs = seen.kinematics.let { k ->
+                k.copy(position = Vec3().setTo(k.position).addScaledInPlace(k.velocity, ours - seen.time))
+            }
+            if (theirs.referenceBodyId != state.referenceBodyId) continue
+            if (theirs.position.distanceTo(state.position) > DOCK_READOUT_RANGE + 60.0) continue
+            for ((j, placed) in other.design.parts.withIndex()) {
+                val port = catalog[placed.partId]?.module<com.rm.apogee.core.part.DockingPort>() ?: continue
+                if (placed.dockedTo >= 0) continue
+                val (face, axis) = portFace(other.design, theirs, j, port)
+                for ((_, own, ownFace) in mine) {
+                    if (!own.matesWith(port)) continue
+                    val d = ownFace.first.distanceTo(face)
+                    if (d >= bestDistance) continue
+                    bestDistance = d
+                    val angle = Math.toDegrees(kotlin.math.acos((-(ownFace.second dot axis)).coerceIn(-1.0, 1.0)))
+                    val to = Vec3().setTo(face).subInPlace(ownFace.first)
+                    val rel = Vec3().setTo(state.velocity).subInPlace(theirs.velocity)
+                    val closing = if (d > 1e-3) (rel dot to) / d else 0.0
+                    val range = minOf(own.captureRange, port.captureRange)
+                    val allowed = minOf(own.captureAngle, port.captureAngle) * (2.0 - minOf(1.0, d / range))
+                    val fast = rel.length > minOf(own.captureSpeed, port.captureSpeed)
+                    val ready = d <= range && (!own.rigid || angle <= allowed) && !fast
+                    best = DockReadout(
+                        d, closing, if (own.rigid) angle else 0.0, ready, other.name, rel.copy(),
+                        if (d > 1e-3) to.copy().mulInPlace(1.0 / d) else Vec3(), tooFast = fast && d < 30.0,
+                    )
+                }
+            }
+        }
+        dockReadout = best
+    }
 
     private fun chuteStateOf(focus: ClientVessel, deploy: DoubleArray?): String? {
         var armed = false
@@ -2050,6 +2187,9 @@ class GameSession private constructor(
     var joinable: Boolean = false
         private set
 
+    private var joinFocus = -1L
+    private var joinParts = -1
+
     /** When each craft first showed up already beside the flown one - just parted from it - or 0. */
     private val firstSeenNear = HashMap<Long, Long>()
 
@@ -2059,9 +2199,19 @@ class GameSession private constructor(
     ): Boolean {
         val reach = designReach(focus.design)
         val now = System.nanoTime()
+        // A different craft in hand - a stage dropped, a ring undocked, a
+        // switch - starts afresh: whatever is beside it now was just parted
+        // from it, or is where it was left.
+        if (joinFocus != focus.id || joinParts != focus.design.parts.size) {
+            joinFocus = focus.id; joinParts = focus.design.parts.size
+            firstSeenNear.clear()
+        }
+        val hitched = client.latestSnapshot?.hitches.orEmpty()
         for (other in client.vessels) {
             if (other.id == focus.id) continue
             val theirs = other.latest ?: continue
+            // Towed or towing: joined already, by the hitch.
+            if (hitched.any { (it.vesselA == focus.id && it.vesselB == other.id) || (it.vesselB == focus.id && it.vesselA == other.id) }) continue
             // A stage just let go of is not something to join back on to:
             // drifting off at a metre a second it met the rule, and the
             // button blinked on and off as it went (Dan).
@@ -2127,7 +2277,14 @@ class GameSession private constructor(
         private const val CAUTION_SPACING_NANOS = 4_000_000_000L
 
         /** The slide is resent when it has moved this much on an axis-length scale, at most this often. */
-        private const val SLIDE_RESEND = 0.05
+        /** Hands-off drift holding while lining up: ignored below this, m/s; command per m/s; most it asks for. */
+        private const val DRIFT_DEADBAND = 0.02
+        private const val DRIFT_GAIN = 0.4
+        private const val DRIFT_MOST = 0.15
+
+        /** Below this height, m, the stick slides along the ground; above, by the camera's own axes. */
+        private const val SLIDE_GROUNDED_BELOW = 500.0
+        private const val SLIDE_RESEND = 0.01
         private const val SLIDE_RESEND_NANOS = 100_000_000L
 
         /** How long, ns, a craft just parted from the flown one is not offered for joining. */
@@ -2138,6 +2295,9 @@ class GameSession private constructor(
         private const val WRECK_EASE = 0.08
         /** The size the camera frames a wreck as, m. */
         private const val WRECK_VIEW = 25.0
+
+        /** How far, m, the dock readout looks for a partner's ring when no target is set. */
+        private const val DOCK_READOUT_RANGE = 60.0
 
         /** A leg is at the end of its travel, locked or stowed, this near it. */
         private const val LEG_END = 0.995

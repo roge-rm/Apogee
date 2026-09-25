@@ -68,6 +68,9 @@ class ControlState {
      */
     var brakes: Boolean = false
 
+    /** Wheels driven backwards: the throttle runs them in reverse. */
+    var reverse: Boolean = false
+
     /**
      * What stability assist is asking for, -1..1 on each axis, written each
      * tick by [com.rm.apogee.core.world.StabilityAssist] and never by a
@@ -577,6 +580,20 @@ class Vessel(
         }
         recomputeMass(shiftBodyPosition = false)
     }
+
+    /**
+     * The same parts, re-described: for changes that move nothing and add or
+     * take away nothing - a docking ring's hold on its partner let go, a
+     * craft given back its own name.
+     */
+    fun redesign(newDesign: CraftDesign) {
+        require(newDesign.parts.size == design.parts.size) { "redesign keeps the same parts" }
+        design = newDesign
+    }
+
+    /** Parts that have fired, and parts that have failed, by index. */
+    fun activatedIndices(): List<Int> = activated.indices.filter { activated[it] }
+    fun brokenIndices(): List<Int> = broken.indices.filter { broken[it] }
 
     /** Restores which parts are live and which have failed, after loading. */
     fun restoreStaging(

@@ -2,6 +2,7 @@ package com.rm.apogee.core.craft
 
 import com.rm.apogee.core.math.Quat
 import com.rm.apogee.core.math.Vec3
+import com.rm.apogee.core.math.quatFromTo
 import com.rm.apogee.core.part.PartCatalog
 import com.rm.apogee.core.part.StockParts
 
@@ -468,12 +469,14 @@ object StockCraft {
         return a.design()
     }
 
-    /** A small V-hulled boat from the boat kit: a seat and an outboard. */
+    /** A small V-hulled boat from the boat kit: a seat, an outboard, and a mooring clamp each side. */
     fun skiff(catalog: PartCatalog = StockParts.catalog): CraftDesign {
         val a = Assembly(catalog, "Skiff", CraftOrientation.HORIZONTAL)
         val hull = a.root("hull-skiff")
         a.on(hull, "deck", "cab-open")
         a.on(hull, "transom", "motor-outboard")
+        a.on(hull, "side-right", "mooring-clamp")
+        a.on(hull, "side-left", "mooring-clamp")
         return a.design()
     }
 
@@ -485,6 +488,75 @@ object StockCraft {
         a.on(hull, "keel", "keel")
         a.on(hull, "keel-rear", "rudder")
         a.on(hull, "transom", "motor-outboard")
+        a.on(hull, "side-right", "mooring-clamp")
+        a.on(hull, "side-left", "mooring-clamp")
+        return a.design()
+    }
+
+    // --- docking --------------------------------------------------------------
+
+    /**
+     * A lander made for building bases: legs out on the diagonals, thrusters
+     * above them, a standard docking ring on the side of its tank - level
+     * with every other tug's, so two landed side by side can be walked
+     * together ring to ring - and a small ring on top for a probe.
+     */
+    fun portTug(catalog: PartCatalog = StockParts.catalog): CraftDesign {
+        val parts = ArrayList<PlacedPart>()
+        fun add(partId: String, x: Double, y: Double, z: Double, parent: Int, rotation: Quat = Quat.identity()): Int {
+            parts.add(PlacedPart(partId, Vec3(x, y, z), rotation, parentIndex = parent))
+            return parts.size - 1
+        }
+        val pod = add("pod-halo", 0.0, 3.6, 0.0, -1)
+        add("dock-port-small", 0.0, 4.3, 0.0, pod)
+        val tank = add("tank-cask2", 0.0, 2.0, 0.0, pod)
+        val engine = add("engine-vesper", 0.0, 0.5, 0.0, tank)
+        // The ring sticks out past the legs, so rings meet before feet do.
+        add("dock-port", 0.775, 1.5, 0.0, tank, quatFromTo(Vec3.unitY(), Vec3.unitX()))
+        val d = kotlin.math.sqrt(0.5)
+        val legs = ArrayList<Int>()
+        for ((x, z) in listOf(d to d, -d to d, d to -d, -d to -d)) legs.add(add("leg-stilt", x, 0.2, z, tank))
+        val out = 0.775 * d
+        for ((x, z) in listOf(out to out, -out to out, out to -out, -out to -out)) add("rcs-nudge", x, 2.6, z, tank)
+        faceOutward(parts, catalog)
+        return CraftDesign(
+            name = "Port Tug",
+            parts = parts,
+            stages = listOf(Stage(listOf(engine)), Stage(legs)),
+            catalogHash = catalog.contentHash,
+        )
+    }
+
+    /** A pod with thrusters and a small docking ring on its nose: the lightest thing that docks. */
+    fun dockProbe(catalog: PartCatalog = StockParts.catalog): CraftDesign {
+        val parts = ArrayList<PlacedPart>()
+        parts.add(PlacedPart("pod-halo", Vec3.zero()))
+        parts.add(PlacedPart("dock-port-small", Vec3(0.0, 0.7, 0.0), parentIndex = 0))
+        for ((x, z) in listOf(0.62 to 0.0, -0.62 to 0.0, 0.0 to 0.62, 0.0 to -0.62)) {
+            parts.add(PlacedPart("rcs-nudge", Vec3(x, -0.1, z), parentIndex = 0))
+        }
+        faceOutward(parts, catalog)
+        return CraftDesign(name = "Dock Probe", parts = parts, stages = emptyList(), catalogHash = catalog.contentHash)
+    }
+
+    /** The land kit's buggy with a tow ball on the back. */
+    fun towBuggy(catalog: PartCatalog = StockParts.catalog): CraftDesign {
+        val a = Assembly(catalog, "Tow Buggy", CraftOrientation.HORIZONTAL)
+        val chassis = a.root("chassis-small")
+        a.on(chassis, "deck-front", "cab-rover")
+        a.on(chassis, "deck-rear", "rack-cargo")
+        for (k in 1..4) a.on(chassis, "wheel-$k", "wheel-tread")
+        a.on(chassis, "back", "hitch-ball")
+        return a.design()
+    }
+
+    /** A trailer: a chassis on four wheels with a cargo rack and a drawbar to be towed by. */
+    fun cart(catalog: PartCatalog = StockParts.catalog): CraftDesign {
+        val a = Assembly(catalog, "Cart", CraftOrientation.HORIZONTAL)
+        val chassis = a.root("chassis-small")
+        a.on(chassis, "deck", "rack-cargo")
+        for (k in 1..4) a.on(chassis, "wheel-$k", "wheel-tread")
+        a.on(chassis, "front", "hitch-coupling")
         return a.design()
     }
 

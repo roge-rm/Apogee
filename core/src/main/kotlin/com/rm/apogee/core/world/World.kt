@@ -39,6 +39,15 @@ sealed interface WorldEvent {
     data class VesselStructureChanged(val id: VesselId) : WorldEvent
     data class VesselDestroyed(val id: VesselId, val reason: String) : WorldEvent
 
+    /** [absorbed] docked on to [keeper] and is now part of it. */
+    data class Docked(val keeper: VesselId, val absorbed: VesselId, val position: Vec3, val bodyId: String) : WorldEvent
+
+    /** [spawned] undocked from [from] and is a craft of its own again. */
+    data class Undocked(val from: VesselId, val spawned: VesselId, val position: Vec3, val bodyId: String) : WorldEvent
+
+    /** A tow hitch coupled ([coupled]) or let go. */
+    data class Hitched(val a: VesselId, val b: VesselId, val coupled: Boolean, val position: Vec3, val bodyId: String) : WorldEvent
+
     /** A tree or shrub knocked down, for good. */
     data class ScatterFelled(val scatterId: Long) : WorldEvent
     data class Staged(val id: VesselId, val stage: Int) : WorldEvent
@@ -262,8 +271,25 @@ class World(
     private val pendingBlasts = ArrayList<Blast>()
 
     private val craftContacts = CraftContact().also { contacts ->
-        contacts.ignorePair = { a, b -> justSeparated.containsKey(pairKey(a, b)) }
+        contacts.ignorePair = { a, b -> justSeparated.containsKey(pairKey(a, b)) || docking.capturing(a, b) || linked(a, b) }
     }
+
+    /** Docking parts drawing each other in, and latching. */
+    private val docking = com.rm.apogee.core.physics.Docking()
+
+    /** A tow hitch coupled: two craft turning about one point. */
+    class Link(val a: VesselId, val partA: Int, val b: VesselId, val partB: Int)
+
+    /** Hitches coupled now. */
+    private val links = ArrayList<Link>()
+
+    /** The links, for drawing and for tests. */
+    val hitches: List<Link> get() = links
+
+    private fun linked(a: Long, b: Long) = links.any { (it.a.raw == a && it.b.raw == b) || (it.a.raw == b && it.b.raw == a) }
+
+    /** Whether craft [a] and [b] are drawing each other in to dock. */
+    fun capturing(a: Long, b: Long) = docking.capturing(a, b)
 
     /**
      * Vessels in step order, reused so the craft-vs-craft pass can index them
@@ -569,6 +595,8 @@ class World(
 
             is Command.SetBrakes ->
                 waken(command.vessel)?.control?.brakes = command.engaged
+            is Command.SetReverse ->
+                waken(command.vessel)?.control?.reverse = command.engaged
 
             is Command.SetTranslation -> waken(command.vessel)?.control?.let {
                 it.translateX = command.x
@@ -586,6 +614,8 @@ class World(
             is Command.SpawnCraft -> spawnFor(command, owner = "")
 
             is Command.Join -> waken(command.vessel)?.let { joinToNeighbour(it) }
+            is Command.Undock -> waken(command.vessel)?.let { undock(it, command.part) }
+            is Command.SetDockPilot -> Unit // the server's: who may fly what
 
             // Handled by the server, which owns the notion of who is flying
             // what. Reaching the world means nobody was listening.
@@ -679,7 +709,7 @@ class World(
      * in its own design space, and have to be re-expressed in [keeper]'s so
      * that every part ends up exactly where it already is in the world.
      */
-    fun join(keeper: Vessel, absorbed: Vessel): Vessel? {
+    fun join(keeper: Vessel, absorbed: Vessel, dock: DockJoin? = null): Vessel? {
         if (keeper.id == absorbed.id) return null
         if (keeper.referenceBodyId != absorbed.referenceBodyId) return null
 
@@ -707,7 +737,7 @@ class World(
         val angularMomentum = angularMomentumAbout(keeper, combinedCentre, velocity)
             .addInPlace(angularMomentumAbout(absorbed, combinedCentre, velocity))
 
-        val merged = mergeDesigns(keeper, absorbed) ?: return null
+        val merged = mergeDesigns(keeper, absorbed, dock) ?: return null
         val mergedDefs = merged.parts.map { catalog.require(it.partId) }
         keeper.absorb(merged, mergedDefs, absorbed)
 
@@ -718,7 +748,10 @@ class World(
         inverseInertiaWorld.transform(angularMomentum, keeper.body.angularVelocity)
 
         vesselsById.remove(absorbed.id)
-        pendingEvents.add(WorldEvent.VesselDestroyed(absorbed.id, "joined to ${keeper.name}"))
+        docking.forget(absorbed.id.raw)
+        docking.forget(keeper.id.raw)
+        links.removeAll { it.a == absorbed.id || it.b == absorbed.id }
+        pendingEvents.add(WorldEvent.VesselDestroyed(absorbed.id, if (dock != null) "docked to ${keeper.name}" else "joined to ${keeper.name}"))
         pendingEvents.add(WorldEvent.VesselStructureChanged(keeper.id))
         return keeper
     }
@@ -740,18 +773,21 @@ class World(
      * [absorbed]'s parts, re-expressed in [keeper]'s design space so that each
      * lands exactly where it already is in the world.
      */
-    private fun mergeDesigns(keeper: Vessel, absorbed: Vessel): CraftDesign? {
+    private fun mergeDesigns(keeper: Vessel, absorbed: Vessel, dock: DockJoin? = null): CraftDesign? {
         val offset = keeper.design.parts.size
         val parts = ArrayList<PlacedPart>(offset + absorbed.design.parts.size)
         parts.addAll(keeper.design.parts)
 
         // The part of the keeper nearest the absorbed craft becomes the parent
         // of its root, so the tree stays connected and staging still has
-        // something to walk.
-        val anchor = nearestPartTo(keeper, absorbed.body.position)
+        // something to walk. Docked, its ring is the joint instead: the
+        // absorbed craft is re-rooted at its own ring and hung from the
+        // keeper's, so undocking is cutting that one joint.
+        val anchor = dock?.keeperPart ?: nearestPartTo(keeper, absorbed.body.position)
+        val absorbedDesign = if (dock != null) absorbed.design.rerootedAt(dock.absorbedPart) else absorbed.design
 
         val worldPoint = Vec3()
-        for ((index, placed) in absorbed.design.parts.withIndex()) {
+        for ((index, placed) in absorbedDesign.parts.withIndex()) {
             absorbed.partPositionWorld(index, worldPoint)
             val local = keeper.worldToDesign(worldPoint, Vec3())
             val rotation = keeper.body.orientation.conjugate()
@@ -765,10 +801,23 @@ class World(
                     else placed.parentIndex + offset,
                     // A weld, not a node attachment; the transform is what is
                     // authoritative and there is no node pair to name.
-                    parentNodeId = null,
-                    ownNodeId = null,
+                    parentNodeId = if (placed.parentIndex < 0) null else placed.parentNodeId,
+                    ownNodeId = if (placed.parentIndex < 0) null else placed.ownNodeId,
                     symmetryGroup = -1,
+                    dockedTo = if (placed.dockedTo >= 0) placed.dockedTo + offset else -1,
                 )
+            )
+        }
+        if (dock != null) {
+            // Each ring knows its partner; the one that came knows what it came as.
+            parts[dock.keeperPart] = parts[dock.keeperPart].copy(dockedTo = offset + dock.absorbedPart, dockedFrom = null)
+            parts[offset + dock.absorbedPart] = parts[offset + dock.absorbedPart].copy(
+                dockedTo = dock.keeperPart,
+                dockedFrom = com.rm.apogee.core.craft.DockedOrigin(
+                    name = absorbed.name, owner = absorbed.owner, ownerName = absorbed.ownerName,
+                    orientation = absorbed.design.orientation, currentStage = absorbed.currentStage,
+                    throttle = absorbed.control.throttle,
+                ),
             )
         }
 
@@ -777,12 +826,220 @@ class World(
                 com.rm.apogee.core.craft.Stage(stage.activatedParts.map { it + offset })
             }
 
-        return CraftDesign(
-            name = keeper.design.name,
-            parts = parts,
-            stages = stages,
-            catalogHash = keeper.design.catalogHash,
+        // The keeper's design, extended: built lying down, it stays lying down.
+        return keeper.design.copy(parts = parts, stages = stages)
+    }
+
+    /** Everyone with a claim on [vessel]: its owner, and the owner of each craft docked into it. */
+    fun ownersOf(vessel: Vessel): Set<String> =
+        (listOf(vessel.owner) + vessel.design.parts.mapNotNull { it.dockedFrom?.owner }).filter { it.isNotBlank() }.toSet()
+
+    /** A docking join: which part of each craft is the ring they latched by. */
+    class DockJoin(val keeperPart: Int, val absorbedPart: Int)
+
+    /**
+     * Docking, each tick after craft have moved and met: the magnets pull,
+     * captures latch into one craft or a coupled hitch, and coupled hitches
+     * hold their two craft together.
+     */
+    private fun stepDocking(dt: Double) {
+        docking.step(
+            vesselsById.values, dt,
+            ignore = { a, b -> justSeparated.containsKey(pairKey(a, b)) || linked(a, b) },
+            occupied = { v, i -> links.any { (it.a == v.id && it.partA == i) || (it.b == v.id && it.partB == i) } },
         )
+        for (capture in ArrayList(docking.latching)) {
+            val a = capture.a; val b = capture.b
+            if (a.vessel.id !in vesselsById || b.vessel.id !in vesselsById) continue
+            if (a.port.rigid) dockPorts(a.vessel, a.index, b.vessel, b.index)
+            else couple(a.vessel, a.index, b.vessel, b.index)
+        }
+        solveLinks(dt)
+    }
+
+    /**
+     * Latches two rings: the lighter craft docks on to the heavier, set
+     * square on its ring - the last centimetres and degrees the magnets
+     * left - and the two become one craft.
+     */
+    fun dockPorts(a: Vessel, partA: Int, b: Vessel, partB: Int): Vessel? {
+        val (keeper, keeperPart, absorbed, absorbedPart) =
+            if (a.body.mass >= b.body.mass) Quad(a, partA, b, partB) else Quad(b, partB, a, partA)
+        val kp = keeper.defs[keeperPart].module<com.rm.apogee.core.part.DockingPort>() ?: return null
+        val ap = absorbed.defs[absorbedPart].module<com.rm.apogee.core.part.DockingPort>() ?: return null
+        // Square the absorbed craft up on the keeper's ring.
+        val keeperRef = com.rm.apogee.core.physics.PortRef(keeper, keeperPart, kp).update()
+        val absorbedRef = com.rm.apogee.core.physics.PortRef(absorbed, absorbedPart, ap).update()
+        val turn = com.rm.apogee.core.math.quatFromTo(absorbedRef.axis, Vec3().setTo(keeperRef.axis).mulInPlace(-1.0))
+        absorbed.body.orientation.setTo(turn * absorbed.body.orientation).normalizeInPlace()
+        absorbedRef.update()
+        absorbed.body.position.addInPlace(Vec3().setTo(keeperRef.face).subInPlace(absorbedRef.face))
+        val at = keeperRef.face.copy()
+        // Nobody's craft taken in hand by somebody's: it is theirs now.
+        if (keeper.owner.isBlank() && absorbed.owner.isNotBlank()) {
+            keeper.owner = absorbed.owner
+            keeper.ownerName = absorbed.ownerName
+        }
+        val joined = join(keeper, absorbed, DockJoin(keeperPart, absorbedPart)) ?: return null
+        pendingEvents.add(WorldEvent.Docked(keeper.id, absorbed.id, at, keeper.referenceBodyId))
+        return joined
+    }
+
+    private data class Quad(val a: Vessel, val ia: Int, val b: Vessel, val ib: Int)
+
+    /** Couples a hitch: the two craft stay two, turning about the one point. */
+    private fun couple(a: Vessel, partA: Int, b: Vessel, partB: Int) {
+        docking.forget(a.id.raw); docking.forget(b.id.raw)
+        links.add(Link(a.id, partA, b.id, partB))
+        val ref = com.rm.apogee.core.physics.PortRef(a, partA, a.defs[partA].module<com.rm.apogee.core.part.DockingPort>()!!).update()
+        pendingEvents.add(WorldEvent.Hitched(a.id, b.id, coupled = true, ref.face.copy(), a.referenceBodyId))
+    }
+
+    /**
+     * Lets go of whatever docking part [part] of [vessel] holds: a ring or
+     * clamp undocks - the craft that docked on is given back its own name,
+     * owner and staging, and the two are pushed gently apart - and a hitch
+     * uncouples. False if it held nothing.
+     */
+    fun undock(vessel: Vessel, part: Int): Boolean {
+        if (part !in vessel.defs.indices) return false
+        links.firstOrNull { (it.a == vessel.id && it.partA == part) || (it.b == vessel.id && it.partB == part) }?.let { link ->
+            links.remove(link)
+            vesselsById[link.a]?.wake(); vesselsById[link.b]?.wake()
+            justSeparated[pairKey(link.a.raw, link.b.raw)] = time + UNDOCK_GRACE
+            pendingEvents.add(WorldEvent.Hitched(link.a, link.b, coupled = false, vessel.partPositionWorld(part), vessel.referenceBodyId))
+            return true
+        }
+        val partner = vessel.design.parts[part].dockedTo
+        if (partner !in vessel.design.parts.indices) return false
+        // The ring that came, hung from the one it came to.
+        val child = if (vessel.design.parts[part].parentIndex == partner) part else partner
+        val parent = vessel.design.parts[child].parentIndex
+        val origin = vessel.design.parts[child].dockedFrom
+        val port = vessel.defs[child].module<com.rm.apogee.core.part.DockingPort>()
+        val ref = port?.let { com.rm.apogee.core.physics.PortRef(vessel, child, it).update() }
+        // Clear the rings' hold on each other, then cut between them.
+        val parts = vessel.design.parts.toMutableList()
+        parts[child] = parts[child].copy(dockedTo = -1, dockedFrom = null)
+        if (parent in parts.indices) parts[parent] = parts[parent].copy(dockedTo = -1, dockedFrom = null)
+        vessel.redesign(vessel.design.copy(parts = parts))
+        val spawned = splitOff(vessel, child, ref?.axis, port?.undockImpulse ?: 0.0) ?: return false
+        if (origin != null) {
+            spawned.name = origin.name
+            spawned.owner = origin.owner
+            spawned.ownerName = origin.ownerName
+            spawned.redesign(spawned.design.copy(name = origin.name, orientation = origin.orientation))
+            spawned.control.throttle = origin.throttle
+        }
+        justSeparated[pairKey(vessel.id.raw, spawned.id.raw)] = time + UNDOCK_GRACE
+        vessel.wake(); spawned.wake()
+        pendingEvents.add(WorldEvent.Undocked(vessel.id, spawned.id, ref?.face?.copy() ?: vessel.body.position.copy(), vessel.referenceBodyId))
+        return true
+    }
+
+    /**
+     * Splits the subtree under [root] off [vessel] as a craft of its own,
+     * pushed away along [along] (world, the way the root's part faces - so
+     * backward for the piece) with [impulse] N·s each way. The new craft.
+     */
+    private fun splitOff(vessel: Vessel, root: Int, along: Vec3?, impulse: Double): Vessel? {
+        val separating = vessel.design.subtreeOf(root).toSet()
+        val remaining = vessel.design.parts.indices.filter { it !in separating }
+        if (separating.isEmpty() || remaining.isEmpty()) return null
+        val position = vessel.body.position.copy()
+        val orientation = vessel.body.orientation.copy()
+        val angularVelocity = vessel.body.angularVelocity.copy()
+        val stage = vessel.currentStage
+        val off = buildSubDesign(vessel.design, separating.sorted(), firedStages = 0)
+        val kept = buildSubDesign(vessel.design, remaining, firedStages = stage)
+        val originalDefs = vessel.defs
+        val centre = pieceCentre(vessel, off.indices, Vec3()).copy()
+        val pointVelocity = vessel.body.velocityAtOffset(centre, Vec3())
+        val piece = Vessel(
+            id = VesselId(nextVesselId++),
+            design = off.design,
+            defs = off.indices.map { originalDefs[it] },
+            referenceBodyId = vessel.referenceBodyId,
+        )
+        piece.inheritParts(vessel, off.indices)
+        piece.control.throttle = vessel.control.throttle
+        piece.body.orientation.setTo(orientation)
+        piece.body.linearVelocity.setTo(pointVelocity)
+        piece.body.angularVelocity.setTo(angularVelocity)
+        piece.body.position.setTo(position).addInPlace(centre)
+        piece.recomputeMass(shiftBodyPosition = false)
+        // Its place in its own staging: past every stage all of whose parts have fired.
+        piece.restoreStaging(
+            piece.design.stages.indexOfFirst { st -> st.activatedParts.any { !piece.isActivated(it) } }
+                .let { if (it < 0) piece.design.stages.size else it },
+            piece.activatedIndices(), piece.brokenIndices(),
+        )
+        vessel.replaceStructure(kept.design, kept.indices.map { originalDefs[it] }, kept.indices)
+        if (along != null && impulse > 0.0) {
+            val push = Vec3().setTo(along).normalizeInPlace()
+            // The ring faces from the piece toward the craft it was on.
+            vessel.body.applyImpulse(Vec3().setTo(push).mulInPlace(impulse))
+            piece.body.applyImpulse(Vec3().setTo(push).mulInPlace(-impulse))
+        }
+        vesselsById[piece.id] = piece
+        pendingEvents.add(WorldEvent.VesselStructureChanged(vessel.id))
+        pendingEvents.add(WorldEvent.VesselSpawned(piece.id))
+        return piece
+    }
+
+    /**
+     * Holds each coupled hitch together: a point joint, solved as impulses
+     * on the two craft - the relative velocity of the two hitch points along
+     * each axis taken out, plus a share of any gap - so the towed craft
+     * follows and turns freely about the ball. Too hard a yank, and it
+     * breaks.
+     */
+    private fun solveLinks(dt: Double) {
+        if (links.isEmpty()) return
+        val broken = ArrayList<Link>()
+        for (link in links) {
+            val a = vesselsById[link.a]; val b = vesselsById[link.b]
+            if (a == null || b == null || link.partA !in a.defs.indices || link.partB !in b.defs.indices) { broken.add(link); continue }
+            // Both awake, or both asleep: a craft towed never sleeps while its tug moves.
+            if (!a.dormant || !b.dormant) { if (a.dormant) a.wake(); if (b.dormant) b.wake() }
+            if (a.dormant && b.dormant) continue
+            val pa = com.rm.apogee.core.physics.PortRef(a, link.partA, a.defs[link.partA].module<com.rm.apogee.core.part.DockingPort>()!!).update()
+            val pb = com.rm.apogee.core.physics.PortRef(b, link.partB, b.defs[link.partB].module<com.rm.apogee.core.part.DockingPort>()!!).update()
+            val gap = Vec3().setTo(pb.face).subInPlace(pa.face)
+            var total = 0.0
+            val axis = Vec3(); val va = Vec3(); val vb = Vec3(); val ra = Vec3(); val rb = Vec3()
+            // Every pass aims at the same closing speed - a share of the gap
+            // a tick - or the later passes undo the first's correction and a
+            // gap, once opened, never closes.
+            for (iteration in 0 until LINK_ITERATIONS) for (k in 0 until 3) {
+                axis.setTo(if (k == 0) 1.0 else 0.0, if (k == 1) 1.0 else 0.0, if (k == 2) 1.0 else 0.0)
+                a.body.velocityAtOffset(pa.offset, va); b.body.velocityAtOffset(pb.offset, vb)
+                val rel = (vb dot axis) - (va dot axis)
+                ra.setTo(pa.offset).crossInPlace(axis); rb.setTo(pb.offset).crossInPlace(axis)
+                val inverse = a.body.inverseMass + b.body.inverseMass +
+                    a.body.inverseInertiaAbout(ra.normalizedOrZero()) * ra.lengthSq + b.body.inverseInertiaAbout(rb.normalizedOrZero()) * rb.lengthSq
+                if (inverse <= 0.0) continue
+                val bias = LINK_STIFFNESS * (gap dot axis) / dt
+                val j = -(rel + bias) / inverse
+                b.body.applyImpulseAtOffset(Vec3().setTo(axis).mulInPlace(j), pb.offset)
+                a.body.applyImpulseAtOffset(Vec3().setTo(axis).mulInPlace(-j), pa.offset)
+                total += kotlin.math.abs(j)
+            }
+            val lighter = minOf(a.body.mass, b.body.mass)
+            if (total / dt > LINK_BREAK_G * 9.81 * lighter) broken.add(link)
+        }
+        for (link in broken) {
+            links.remove(link)
+            val a = vesselsById[link.a]
+            if (a != null && link.partA in a.defs.indices) {
+                pendingEvents.add(WorldEvent.Hitched(link.a, link.b, coupled = false, a.partPositionWorld(link.partA), a.referenceBodyId))
+            }
+        }
+    }
+
+    private fun Vec3.normalizedOrZero(): Vec3 {
+        val l = length
+        return if (l < 1e-12) Vec3() else Vec3().setTo(this).mulInPlace(1.0 / l)
     }
 
     private fun nearestPartTo(vessel: Vessel, worldPoint: Vec3): Int {
@@ -910,6 +1167,8 @@ class World(
                 parentNodeId = part.parentNodeId,
                 ownNodeId = part.ownNodeId,
                 symmetryGroup = part.symmetryGroup,
+                dockedTo = if (part.dockedTo >= 0) remap[part.dockedTo] ?: -1 else -1,
+                dockedFrom = part.dockedFrom.takeIf { part.dockedTo >= 0 && remap.containsKey(part.dockedTo) },
             )
         }
 
@@ -1070,6 +1329,7 @@ class World(
             impact(struck, impacts.parts[i], impacts.speeds[i], impactNormal)
             pendingBreakUps.add(struck.id)
         }
+        stepDocking(dt)
         resolveExplosions()
         if (pendingBreakUps.isNotEmpty() || pendingDetach.isNotEmpty()) {
             val ids = LinkedHashSet(pendingBreakUps).apply { addAll(pendingDetach.keys) }
@@ -1810,6 +2070,7 @@ class World(
     fun snapshot(): Snapshot = Snapshot(
         tick = tick,
         time = time,
+        hitches = links.map { SavedLink(it.a.raw, it.partA, it.b.raw, it.partB) },
         vessels = vesselsById.values.map { vessel ->
             VesselKinematics(
                 vessel = vessel.id.raw,
@@ -1846,6 +2107,7 @@ class World(
      * out live vectors would let a save observe a craft halfway through a step.
      */
     fun save(): WorldSave = WorldSave(
+        links = links.map { SavedLink(it.a.raw, it.partA, it.b.raw, it.partB) },
         catalogHash = catalog.contentHash,
         felledScatter = felledScatter.sorted(),
         terrainGeneration = TerrainField.GENERATION,
@@ -1902,6 +2164,8 @@ class World(
         lastFlown.clear()
         lastFlown.putAll(save.lastFlown)
         save.weather?.let { weatherConfig = it }
+        links.clear()
+        for (l in save.links) links.add(Link(VesselId(l.vesselA), l.partA, VesselId(l.vesselB), l.partB))
 
         if (!SaveMigration.canRead(save.formatVersion)) {
             return listOf(
@@ -2128,6 +2392,14 @@ class World(
     }
 
     companion object {
+        /** After undocking, seconds before the two may capture again. */
+        const val UNDOCK_GRACE = 6.0
+
+        /** A hitch: solver passes a tick, share of the gap closed a tick, and the yank that breaks it, g on the lighter craft. */
+        private const val LINK_ITERATIONS = 4
+        private const val LINK_STIFFNESS = 0.25
+        private const val LINK_BREAK_G = 8.0
+
         /** What time warp offers, as multiples of real time. */
         val WARP_RATES = doubleArrayOf(1.0, 2.0, 4.0, 10.0, 50.0, 100.0, 1_000.0, 10_000.0)
 
