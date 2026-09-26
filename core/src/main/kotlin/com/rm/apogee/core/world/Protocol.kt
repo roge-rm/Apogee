@@ -81,6 +81,16 @@ sealed interface Command {
     @SerialName("deploy")
     data class Deploy(val vessel: Long, val deployed: Boolean) : Command
 
+    /** Switches [vessel]'s drills and its converters - a base's refinery - on or off. */
+    @Serializable
+    @SerialName("setIndustry")
+    data class SetIndustry(val vessel: Long, val drilling: Boolean, val refining: Boolean) : Command
+
+    /** Starts or stops [vessel] emptying its ore and water into the base, or craft, it is docked to or stands on. */
+    @Serializable
+    @SerialName("unload")
+    data class Unload(val vessel: Long, val active: Boolean) : Command
+
     /** Drive the wheels backwards (or forwards again). */
     @Serializable
     @SerialName("setReverse")
@@ -362,7 +372,21 @@ sealed interface ServerMessage {
         val controllable: Boolean,
         val needsSignal: Boolean,
         val deployed: Boolean,
+        /** Its drills and converters switched on, and what its drills are doing. */
+        val drilling: Boolean = false,
+        val refining: Boolean = false,
+        val drillState: DrillState = DrillState.OFF,
+        /** Its survey of the body it orbits, 0..1, or -1 with no scanner aboard. */
+        val survey: Float = -1f,
+        /** What the ground right below holds, 0..1, read by a scanner low enough; -1 when there is no reading. */
+        val ore: Float = -1f,
+        val water: Float = -1f,
     ) : ServerMessage
+
+    /** The bodies surveyed for ore and water: all of them, whenever the list grows, and on joining. */
+    @Serializable
+    @SerialName("surveyed")
+    data class Surveyed(val bodies: List<String>) : ServerMessage
 
     /**
      * What the pilot's craft can do with a base just now, sent with its
@@ -379,6 +403,9 @@ sealed interface ServerMessage {
         val canRefuel: Boolean,
         val refuelling: Boolean,
         val stopped: String = "",
+        /** Whether it has ore or water to empty into what it is docked to or stands on, and is doing so. */
+        val canUnload: Boolean = false,
+        val unloading: Boolean = false,
     ) : ServerMessage
 
     /** A founded base near the pilot - or the one they are flying - as its card shows it. */
@@ -400,6 +427,14 @@ sealed interface ServerMessage {
         val pads: Int,
         /** How far off it is, m. */
         val distance: Float,
+        val ore: Float = 0f,
+        val oreCapacity: Float = 0f,
+        val water: Float = 0f,
+        val waterCapacity: Float = 0f,
+        /** Whether it has a refinery, and whether that is switched on; and its drills, if it has any. */
+        val hasRefinery: Boolean = false,
+        val refining: Boolean = false,
+        val drilling: Boolean = false,
     ) : ServerMessage
 
     /**
@@ -496,5 +531,6 @@ object Protocol {
     // 12: bases - Anchor, Refuel, StructureUpdate.anchored, Service, BaseStatus, launching from base pads.
     // 13: navigation - PlanBurns, SetAutopilot, WarpTo, targeting bodies.
     // 14: craft systems - Deploy, CraftSystems.
-    const val VERSION = 14
+    // 15: resources - SetIndustry, Unload, Surveyed, CraftSystems industry and readings, BaseStatus stores.
+    const val VERSION = 15
 }

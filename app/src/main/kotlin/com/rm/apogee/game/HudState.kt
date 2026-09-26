@@ -94,6 +94,14 @@ class HudState {
     /** Whether the flown craft has sun wings or dishes to fold out, so the DEPLOY control can hide itself. */
     var hasFoldouts: Boolean by mutableStateOf(false)
 
+    /** Whether the body flown about is surveyed, and what the map shows of it: "ORE", "H2O" or "OFF". */
+    var surveyedHere: Boolean by mutableStateOf(false)
+    var mapResource: String by mutableStateOf("ORE")
+
+    /** Whether it has drills, and converters, so their controls can hide themselves. */
+    var hasDrill: Boolean by mutableStateOf(false)
+    var hasConverter: Boolean by mutableStateOf(false)
+
     /**
      * A craft's power and link home, for the HUD: charge and what it holds,
      * the net rate a second, whether it has power, whether it needs a signal
@@ -110,6 +118,17 @@ class HudState {
         val relays: Int,
         val controllable: Boolean,
         val deployed: Boolean,
+        /** Drills and converters switched on, and what the drills are doing. */
+        val drilling: Boolean = false,
+        val refining: Boolean = false,
+        val drillState: com.rm.apogee.core.world.DrillState = com.rm.apogee.core.world.DrillState.OFF,
+        /** Survey of the body it orbits, 0..1, or below 0 with no scanner. */
+        val survey: Float = -1f,
+        /** The ground below, by its scanner: 0..1, or below 0 for no reading. */
+        val ore: Float = -1f,
+        val water: Float = -1f,
+        /** What it holds of ore and of water, and has room for: four numbers, or null for none known. */
+        val held: FloatArray? = null,
     ) {
         /** Charge as a share of what it holds, 0..1; 1 with no battery. */
         val share: Float get() = if (capacity > 0f) charge / capacity else 1f
@@ -167,6 +186,8 @@ class HudState {
         hasRcs = false
         power = null
         hasFoldouts = false
+        hasDrill = false
+        hasConverter = false
         rcsArmed = false
         rcsSlide = false
         rcsLeft = null

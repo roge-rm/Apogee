@@ -96,6 +96,10 @@ class CraftStats(
     val powerSunlit: Double = 0.0,
     /** What it uses just being on - pods, cores, antennas - units a second. */
     val powerIdle: Double = 0.0,
+    /** What its drills dig at best, units a second, and its converters take in; whether it can survey. */
+    val drillRate: Double = 0.0,
+    val refineRate: Double = 0.0,
+    val canSurvey: Boolean = false,
 ) {
     /** Sum over stages. Vacuum, which is the figure worth quoting for orbit. */
     val totalDeltaV: Double get() = stages.sumOf { it.deltaVVacuum }
@@ -134,7 +138,7 @@ class CraftStats(
 
             val full = Array(design.parts.size) { index ->
                 DoubleArray(ResourceType.entries.size).also { row ->
-                    resolved[index].modules.filterIsInstance<Tank>().forEach { row[it.resource.ordinal] += it.capacity }
+                    resolved[index].modules.filterIsInstance<Tank>().filter { it.resource.startsFull }.forEach { row[it.resource.ordinal] += it.capacity }
                 }
             }
             val totalMass = design.parts.indices.sumOf { massOf(resolved, full, it) }
@@ -147,6 +151,9 @@ class CraftStats(
             var charges = false
             var probe = false
             var crewed = false
+            var drill = 0.0
+            var refine = 0.0
+            var scanner = false
             for (def in resolved) for (module in def.modules) when (module) {
                 is com.rm.apogee.core.part.Battery -> capacity += module.capacity
                 is com.rm.apogee.core.part.SolarPanel -> { sunlit += module.chargeRate; charges = true }
@@ -156,6 +163,9 @@ class CraftStats(
                     if (module.crewCapacity > 0) crewed = true else probe = true
                 }
                 is com.rm.apogee.core.part.Antenna -> idle += module.draw
+                is com.rm.apogee.core.part.Scanner -> { idle += module.draw; scanner = true }
+                is com.rm.apogee.core.part.Drill -> drill += module.rate
+                is com.rm.apogee.core.part.Converter -> refine += module.recipes.maxOfOrNull { it.inputRate } ?: 0.0
                 else -> Unit
             }
             val warnings = advise(stageStats).toMutableList()
@@ -173,6 +183,9 @@ class CraftStats(
                 powerCapacity = capacity,
                 powerSunlit = sunlit,
                 powerIdle = idle,
+                drillRate = drill,
+                refineRate = refine,
+                canSurvey = scanner,
             )
         }
 

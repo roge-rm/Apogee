@@ -212,6 +212,10 @@ class MainActivity : ComponentActivity() {
                         onUndock = { part -> session?.let { s -> lifecycleScope.launch { s.undock(part) } } },
                         onFound = { founded -> session?.let { s -> lifecycleScope.launch { s.found(founded) } } },
                         onRefuel = { on -> session?.let { s -> lifecycleScope.launch { s.refuel(on) } } },
+                        onUnload = { on -> session?.let { s -> lifecycleScope.launch { s.unload(on) } } },
+                        onRefine = { base, on -> session?.let { s -> lifecycleScope.launch { s.refine(base, on) } } },
+                        onToggleDrill = ::onToggleDrill,
+                        onToggleRefine = ::onToggleRefine,
                         onDockPilot = { who ->
                             session?.let { s ->
                                 val shared = s.sharedWith ?: return@let
@@ -491,6 +495,20 @@ class MainActivity : ComponentActivity() {
     private fun onSwitchCraft() {
         val current = session ?: return
         lifecycleScope.launch { current.switchCraft() }
+    }
+
+    private fun onToggleDrill() {
+        val power = hudState.power ?: return
+        hudState.power = power.copy(drilling = !power.drilling)
+        val current = session ?: return
+        lifecycleScope.launch { current.setIndustry(!power.drilling, power.refining) }
+    }
+
+    private fun onToggleRefine() {
+        val power = hudState.power ?: return
+        hudState.power = power.copy(refining = !power.refining)
+        val current = session ?: return
+        lifecycleScope.launch { current.setIndustry(power.drilling, !power.refining) }
     }
 
     private fun onToggleDeploy() {
@@ -949,6 +967,14 @@ class MainActivity : ComponentActivity() {
                     hudState.hasWheels = current.controlledHasWheels
                     hudState.hasRcs = current.controlledHasRcs
                     hudState.hasFoldouts = current.controlledHasFoldouts
+                    hudState.hasDrill = current.controlledHasDrill
+                    hudState.surveyedHere = current.surveyedHere
+                    current.mapResource = when (hudState.mapResource) {
+                        "ORE" -> com.rm.apogee.core.part.ResourceType.ORE
+                        "H2O" -> com.rm.apogee.core.part.ResourceType.WATER
+                        else -> null
+                    }
+                    hudState.hasConverter = current.controlledHasConverter
                     hudState.power = current.powerReadout
                     // The session decides - switching craft stands the thrusters down.
                     hudState.rcsArmed = current.rcsArmed

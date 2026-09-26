@@ -514,6 +514,53 @@ data class FuelCell(
 ) : PartModule
 
 /**
+ * Digs the ground: [rate] units a second of ore and of water, each as rich
+ * as the ground is in it (see `Deposits`), while switched on, landed, still,
+ * powered, and its [head] - part space, drawn out - within [reach] metres of
+ * the ground. Uses [draw] charge a second while it digs.
+ */
+@Serializable
+@SerialName("drill")
+data class Drill(
+    val rate: Double = 1.0,
+    val draw: Double = 2.0,
+    val head: com.rm.apogee.core.math.SerialVec3 = com.rm.apogee.core.math.Vec3(0.0, -1.2, 0.0),
+    val reach: Double = 1.5,
+) : PartModule
+
+/** One of a [Converter]'s processes: [inputRate] of [input] a second in, [outputs] a second out. */
+@Serializable
+data class Recipe(
+    val input: ResourceType,
+    val inputRate: Double,
+    val outputs: Map<ResourceType, Double>,
+)
+
+/**
+ * Makes propellant out of what is dug up: runs each of its [recipes] as far
+ * as there is input, room and charge, using [draw] a second while it runs.
+ */
+@Serializable
+@SerialName("converter")
+data class Converter(
+    val recipes: List<Recipe>,
+    val draw: Double = 4.0,
+) : PartModule
+
+/**
+ * Surveys the ground: from a low, steep orbit - an apoapsis under
+ * [surveyAltitude] of its body's radius - it maps a whole body's ore and
+ * water in half an orbit; near the ground it reads what is below. Uses
+ * [draw] a second.
+ */
+@Serializable
+@SerialName("scanner")
+data class Scanner(
+    val draw: Double = 0.1,
+    val surveyAltitude: Double = 0.45,
+) : PartModule
+
+/**
  * Talks home: [range], m, to a ground station or another antenna, the
  * shorter of the two ranges deciding. A [relay] passes on what others send
  * through it. [deployable] ones fold out first. Uses [draw] a second while

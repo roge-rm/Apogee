@@ -280,7 +280,14 @@ fun keyFigure(def: PartDef): String {
     // The better of the two: an air-breather or a propeller has none in vacuum.
     if (engine != null) return "${(maxOf(engine.thrustVacuum, engine.thrustSeaLevel) / 1_000.0).roundToInt()} kN"
     val tank = def.module<Tank>()
-    if (tank != null && !def.hasModule<Command>()) return "${tank.capacity.roundToInt()} fuel"
+    if (tank != null && !def.hasModule<Command>()) {
+        val what = when (tank.resource) {
+            com.rm.apogee.core.part.ResourceType.ORE -> "ore"
+            com.rm.apogee.core.part.ResourceType.WATER -> "water"
+            else -> "fuel"
+        }
+        return "${tank.capacity.roundToInt()} $what"
+    }
     return if (def.dryMass >= 1_000.0) "%.1f t".format(def.dryMass / 1_000.0) else "${def.dryMass.roundToInt()} kg"
 }
 

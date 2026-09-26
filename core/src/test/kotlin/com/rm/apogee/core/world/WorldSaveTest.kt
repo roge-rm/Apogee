@@ -307,7 +307,7 @@ class WorldSaveTest {
         // enum would silently reinterpret every saved craft's fuel as
         // something else, so the order is part of the format.
         assertEquals(
-            listOf("PROPELLANT", "MONOPROPELLANT", "ELECTRIC_CHARGE", "ABLATOR"),
+            listOf("PROPELLANT", "MONOPROPELLANT", "ELECTRIC_CHARGE", "ABLATOR", "ORE", "WATER"),
             ResourceType.entries.map { it.name },
         )
         assertEquals(ResourceType.entries.size, WorldSave.RESOURCE_SLOTS)

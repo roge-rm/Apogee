@@ -1388,6 +1388,492 @@
     "strength": 900000.0
   },
   {
+    "id": "base-refinery",
+    "title": "Refinery",
+    "category": "base",
+    "dryMass": 6000.0,
+    "description": "Refines the base's ore and water into propellant and monopropellant, eight times as fast as a craft's converter - for thirty units of charge a second while it runs. Switch it on from the base card.",
+    "crashTolerance": 14.0,
+    "dragCoefficient": 1.0,
+    "mesh": {
+      "type": "box",
+      "width": 4.0,
+      "height": 2.6,
+      "depth": 4.0
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 4.0,
+              "height": 0.14,
+              "depth": 4.0
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": -1.23,
+            "z": 0.0
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 4.0,
+              "height": 0.1,
+              "depth": 4.0
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 1.25,
+            "z": 0.0
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 2.2,
+              "height": 2.3,
+              "depth": 3.2
+            }
+          },
+          "offset": {
+            "x": -0.8,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "body"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.55,
+              "height": 2.3
+            }
+          },
+          "offset": {
+            "x": 1.2,
+            "y": 0.0,
+            "z": -1.0
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.55,
+              "height": 2.3
+            }
+          },
+          "offset": {
+            "x": 1.2,
+            "y": 0.0,
+            "z": 1.0
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.12,
+              "height": 1.2
+            }
+          },
+          "offset": {
+            "x": 0.6,
+            "y": 1.6,
+            "z": 1.2
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.12,
+              "height": 1.2
+            }
+          },
+          "offset": {
+            "x": 0.6,
+            "y": 1.6,
+            "z": -1.2
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.06,
+              "height": 0.4,
+              "depth": 1.2
+            }
+          },
+          "offset": {
+            "x": -1.92,
+            "y": 0.6,
+            "z": 0.0
+          },
+          "tint": "accent"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.06,
+              "height": 0.2,
+              "depth": 0.2
+            }
+          },
+          "offset": {
+            "x": -1.92,
+            "y": 0.1,
+            "z": 0.0
+          },
+          "tint": "light"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "bottom",
+        "position": {
+          "x": 0.0,
+          "y": -1.3,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 3
+      },
+      {
+        "id": "top",
+        "position": {
+          "x": 0.0,
+          "y": 1.3,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "size": 3
+      }
+    ],
+    "modules": [
+      {
+        "type": "converter",
+        "recipes": [
+          {
+            "input": "water",
+            "inputRate": 8.0,
+            "outputs": {
+              "propellant": 6.4,
+              "monopropellant": 0.8
+            }
+          },
+          {
+            "input": "ore",
+            "inputRate": 8.0,
+            "outputs": {
+              "propellant": 4.0
+            }
+          }
+        ],
+        "draw": 30.0
+      }
+    ],
+    "strength": 900000.0
+  },
+  {
+    "id": "base-silo",
+    "title": "Ore Silo",
+    "category": "base",
+    "dryMass": 1600.0,
+    "description": "Three thousand units of ore in store - thirty tonnes - for the refinery, or for a tanker to take away.",
+    "crashTolerance": 14.0,
+    "dragCoefficient": 1.0,
+    "mesh": {
+      "type": "box",
+      "width": 4.0,
+      "height": 2.6,
+      "depth": 4.0
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 4.0,
+              "height": 0.14,
+              "depth": 4.0
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": -1.23,
+            "z": 0.0
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 1.8,
+              "height": 2.3
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cone",
+              "bottomRadius": 1.8,
+              "topRadius": 0.6,
+              "height": 0.5
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 1.3,
+            "z": 0.0
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.06,
+              "height": 0.4,
+              "depth": 1.2
+            }
+          },
+          "offset": {
+            "x": 1.82,
+            "y": 0.6,
+            "z": 0.0
+          },
+          "tint": "accent"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "bottom",
+        "position": {
+          "x": 0.0,
+          "y": -1.3,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 3
+      },
+      {
+        "id": "top",
+        "position": {
+          "x": 0.0,
+          "y": 1.3,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "size": 3
+      }
+    ],
+    "modules": [
+      {
+        "type": "tank",
+        "resource": "ore",
+        "capacity": 3000.0
+      }
+    ],
+    "strength": 900000.0
+  },
+  {
+    "id": "base-cistern",
+    "title": "Water Cistern",
+    "category": "base",
+    "dryMass": 1400.0,
+    "description": "Three thousand units of water in store, for the refinery.",
+    "crashTolerance": 14.0,
+    "dragCoefficient": 1.0,
+    "mesh": {
+      "type": "box",
+      "width": 4.0,
+      "height": 2.6,
+      "depth": 4.0
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 4.0,
+              "height": 0.14,
+              "depth": 4.0
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": -1.23,
+            "z": 0.0
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 1.85,
+              "height": 2.3
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                1.84,
+                -0.1
+              ],
+              [
+                1.88,
+                -0.1
+              ],
+              [
+                1.88,
+                0.1
+              ],
+              [
+                1.84,
+                0.1
+              ]
+            ],
+            "segments": 24
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.4,
+            "z": 0.0
+          },
+          "tint": "glass"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.06,
+              "height": 0.4,
+              "depth": 1.2
+            }
+          },
+          "offset": {
+            "x": 1.87,
+            "y": 0.9,
+            "z": 0.0
+          },
+          "tint": "accent"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "bottom",
+        "position": {
+          "x": 0.0,
+          "y": -1.3,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 3
+      },
+      {
+        "id": "top",
+        "position": {
+          "x": 0.0,
+          "y": 1.3,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "size": 3
+      }
+    ],
+    "modules": [
+      {
+        "type": "tank",
+        "resource": "water",
+        "capacity": 3000.0
+      }
+    ],
+    "strength": 900000.0
+  },
+  {
     "id": "base-battery",
     "title": "Power Module",
     "category": "base",

@@ -35,8 +35,19 @@ enum class ResourceType(
 
     /** What a heat shield chars away to keep the craft behind it cool. */
     @SerialName("ablator")
-    ABLATOR(densityPerUnit = 1.0, displayName = "Ablator");
+    ABLATOR(densityPerUnit = 1.0, displayName = "Ablator"),
+
+    /** Rock dug out of the ground, for refining into propellant. See `Deposits`. */
+    @SerialName("ore")
+    ORE(densityPerUnit = 10.0, displayName = "Ore"),
+
+    /** Ice dug out of the ground, melted: refines faster and more cheaply than ore. */
+    @SerialName("water")
+    WATER(densityPerUnit = 5.0, displayName = "Water");
 
     /** Whether a tank of it goes up when the tank is destroyed. */
     val explosive: Boolean get() = this == PROPELLANT || this == MONOPROPELLANT
+
+    /** Whether a new craft's tanks of it come full: what is dug up does not. */
+    val startsFull: Boolean get() = this != ORE && this != WATER
 }

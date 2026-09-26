@@ -107,6 +107,12 @@ fun FlightScreen(
     onToggleReverse: () -> Unit = {},
     /** Fold the sun wings and dishes out, or away. */
     onToggleDeploy: () -> Unit = {},
+    /** Switch the drills, and the converters. */
+    onToggleDrill: () -> Unit = {},
+    onToggleRefine: () -> Unit = {},
+    /** Empty the craft's ore and water into a base or docked craft; switch a base's refinery. */
+    onUnload: (Boolean) -> Unit = {},
+    onRefine: (com.rm.apogee.core.world.ServerMessage.BaseStatus, Boolean) -> Unit = { _, _ -> },
     /** With the thrusters armed: the stick slides the craft (true) or turns it. */
     onStickMode: (Boolean) -> Unit = {},
     /** Let go at a docking part. */
@@ -286,11 +292,37 @@ fun FlightScreen(
             com.rm.apogee.ui.components.BasePanel(
                 hud.nearBase, hud.baseService, onFound, onRefuel,
                 modifier = Modifier.padding(top = 6.dp).alpha(controlOpacity),
+                onUnload = onUnload,
+                onRefine = onRefine,
             )
             com.rm.apogee.ui.components.BurnPanel(
                 hud.burn, hud.landing, hud.mapMode, hud.autopilotNote, burnActions,
                 modifier = Modifier.padding(top = 6.dp),
             )
+            // A surveyed world's ore or water on the map: tap round ORE, H2O, off.
+            if (hud.mapMode && hud.surveyedHere) {
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = Color.Black.alpha(ApogeeAlpha.SCRIM),
+                    modifier = Modifier.padding(top = 6.dp).clickable {
+                        hud.mapResource = when (hud.mapResource) { "ORE" -> "H2O"; "H2O" -> "OFF"; else -> "ORE" }
+                    },
+                ) {
+                    Row(Modifier.padding(horizontal = 10.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("SURVEY", style = MaterialTheme.typography.labelSmall, color = Color.White.alpha(ApogeeAlpha.SUBTITLE))
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            hud.mapResource,
+                            style = TelemetryTextStyle,
+                            color = when (hud.mapResource) {
+                                "ORE" -> Color(0xFFFF9E40)
+                                "H2O" -> Color(0xFF59CCFF)
+                                else -> Color.White.alpha(ApogeeAlpha.SECONDARY)
+                            },
+                        )
+                    }
+                }
+            }
             hud.sharedWith?.let { other ->
                 com.rm.apogee.ui.components.SharedCraftCard(
                     other, hud.sharedPilot, hud.sharedOpen, { hud.sharedOpen = it }, onDockPilot,
@@ -326,6 +358,8 @@ fun FlightScreen(
                         onToggleReverse,
                         PORTRAIT_THROTTLE_HEIGHT,
                         onToggleDeploy,
+                        onToggleDrill,
+                        onToggleRefine,
                     )
                 }
                 // The stage stack rides above the attitude controls, on their
@@ -386,7 +420,7 @@ fun FlightScreen(
                     .padding(horizontal = 16.dp, vertical = 12.dp)
                     .alpha(controlOpacity),
             ) {
-                ThrottleControl(hud, onThrottleChange, onToggleBrakes, onToggleRcs, onToggleReverse, THROTTLE_HEIGHT, onToggleDeploy)
+                ThrottleControl(hud, onThrottleChange, onToggleBrakes, onToggleRcs, onToggleReverse, THROTTLE_HEIGHT, onToggleDeploy, onToggleDrill, onToggleRefine)
             }
 
             val stickAlignment =
@@ -456,6 +490,8 @@ private fun ThrottleControl(
     onToggleReverse: () -> Unit,
     height: Dp,
     onToggleDeploy: () -> Unit = {},
+    onToggleDrill: () -> Unit = {},
+    onToggleRefine: () -> Unit = {},
 ) {
     val throttle = hud.throttle
     // Out of touch, it moves nothing: shown faded, though the deploy chip
@@ -566,6 +602,22 @@ private fun ThrottleControl(
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
                 )
             }
+        }
+        // Drills: green digging, amber switched on but not getting anywhere - and why.
+        if (hud.hasDrill) {
+            val power = hud.power
+            val on = power?.drilling == true
+            val digging = power?.drillState == com.rm.apogee.core.world.DrillState.DIGGING
+            val tint = when {
+                !on -> Color.White.alpha(ApogeeAlpha.SECONDARY)
+                digging -> ApogeeColors.Prograde
+                else -> ApogeeColors.Caution
+            }
+            ToggleChip("DRILL", if (on && !digging) drillNote(power?.drillState) else null, tint, on, onToggleDrill)
+        }
+        if (hud.hasConverter) {
+            val on = hud.power?.refining == true
+            ToggleChip("REFINE", null, if (on) ApogeeColors.Prograde else Color.White.alpha(ApogeeAlpha.SECONDARY), on, onToggleRefine)
         }
     }
 }
@@ -781,10 +833,55 @@ private fun TelemetryPanel(
     }
 }
 
+/** A switch under the throttle, lit in [tint] while [on], with a small [note] under it. */
+@Composable
+private fun ToggleChip(label: String, note: String?, tint: Color, on: Boolean, onTap: () -> Unit) {
+    Spacer(Modifier.height(8.dp))
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = if (on) tint.alpha(0.3f) else Color.White.alpha(ApogeeAlpha.CONTROL_FILL),
+        modifier = Modifier.clickable(onClick = onTap),
+    ) {
+        Column(Modifier.padding(horizontal = 8.dp, vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = tint)
+            if (note != null) Text(note, style = MaterialTheme.typography.labelSmall, color = tint, maxLines = 1)
+        }
+    }
+}
+
+/** Why a drill switched on is not digging, in a word. */
+private fun drillNote(state: com.rm.apogee.core.world.DrillState?): String = when (state) {
+    com.rm.apogee.core.world.DrillState.EXTENDING -> "BIT DOWN"
+    com.rm.apogee.core.world.DrillState.NO_GROUND -> "NO GROUND"
+    com.rm.apogee.core.world.DrillState.MOVING -> "MOVING"
+    com.rm.apogee.core.world.DrillState.FULL -> "FULL"
+    com.rm.apogee.core.world.DrillState.BARREN -> "BARREN"
+    com.rm.apogee.core.world.DrillState.NO_POWER -> "NO POWER"
+    else -> ""
+}
+
 /** Charge and what it holds, and whether it is filling or draining: only on a craft with a battery. */
 @Composable
 private fun PowerReadout(power: com.rm.apogee.game.HudState.PowerReadout?) {
-    if (power == null || power.capacity <= 0f) return
+    if (power == null) return
+    // What the ground below holds, by a scanner low enough.
+    if (power.ore >= 0f) {
+        Spacer(Modifier.height(4.dp))
+        Readout("GROUND", "ORE ${(power.ore * 100).roundToInt()}%  H2O ${(power.water * 100).roundToInt()}%")
+    }
+    // What it has dug up, on a craft that can hold any.
+    power.held?.let { h ->
+        if (h[1] > 0f) Readout("ORE", "${h[0].roundToInt()}/${h[1].roundToInt()}")
+        if (h[3] > 0f) Readout("WATER", "${h[2].roundToInt()}/${h[3].roundToInt()}")
+    }
+    if (power.survey >= 0f) {
+        Readout(
+            "SCAN",
+            if (power.survey >= 1f) "SURVEYED" else "${(power.survey * 100).roundToInt()}%",
+            colour = if (power.survey >= 1f) ApogeeColors.Prograde else ApogeeColors.Data,
+        )
+    }
+    if (power.capacity <= 0f) return
     val rate = power.net
     val sign = if (rate >= 0f) "+" else "\u2212"
     Spacer(Modifier.height(4.dp))

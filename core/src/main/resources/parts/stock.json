@@ -6460,6 +6460,390 @@
     ]
   },
   {
+    "id": "drill-auger",
+    "title": "Auger Drill",
+    "category": "utility",
+    "dryMass": 250.0,
+    "description": "Digs ore and water out of the ground under it: on the ground, still, and powered. Its bit swings down when switched on; how much comes up depends on the ground.",
+    "crashTolerance": 10.0,
+    "dragCoefficient": 0.4,
+    "mesh": {
+      "type": "box",
+      "width": 0.3,
+      "height": 0.5,
+      "depth": 0.3
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.3,
+              "height": 0.5,
+              "depth": 0.3
+            }
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.12,
+              "height": 0.2,
+              "depth": 0.2
+            }
+          },
+          "offset": {
+            "x": 0.2,
+            "y": 0.1,
+            "z": 0.0
+          },
+          "tint": "accent"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.07,
+              "height": 1.0
+            }
+          },
+          "offset": {
+            "x": 0.25,
+            "y": -0.6,
+            "z": 0.0
+          },
+          "tint": "metal",
+          "role": "deploy",
+          "axis": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 1.0
+          },
+          "pivot": {
+            "x": 0.25,
+            "y": -0.1,
+            "z": 0.0
+          },
+          "travel": 180.0
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cone",
+              "bottomRadius": 0.12,
+              "topRadius": 0.02,
+              "height": 0.25
+            }
+          },
+          "offset": {
+            "x": 0.25,
+            "y": -1.18,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": 180.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "metal",
+          "role": "deploy",
+          "axis": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 1.0
+          },
+          "pivot": {
+            "x": 0.25,
+            "y": -0.1,
+            "z": 0.0
+          },
+          "travel": 180.0
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "root",
+        "position": {
+          "x": -0.15,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": -1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "drill",
+        "rate": 1.0,
+        "draw": 2.0,
+        "head": {
+          "x": 0.25,
+          "y": -1.3,
+          "z": 0.0
+        },
+        "reach": 1.5
+      }
+    ]
+  },
+  {
+    "id": "converter-small",
+    "title": "Small Converter",
+    "category": "utility",
+    "dryMass": 1200.0,
+    "description": "Refines ore and water into propellant, and water into a little monopropellant too, from the tanks on its own stage. Slow, heavy and thirsty for charge - but a lander carrying one never needs a base.",
+    "crashTolerance": 8.0,
+    "dragCoefficient": 0.3,
+    "mesh": {
+      "type": "cylinder",
+      "radius": 0.625,
+      "height": 1.2
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "tank",
+            "radius": 0.625,
+            "height": 1.2,
+            "chamfer": 0.05,
+            "bands": 0
+          },
+          "tint": "metal",
+          "stackEnds": true
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.08,
+              "height": 1.0
+            }
+          },
+          "offset": {
+            "x": 0.62,
+            "y": 0.0,
+            "z": 0.2
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.08,
+              "height": 1.0
+            }
+          },
+          "offset": {
+            "x": 0.62,
+            "y": 0.0,
+            "z": -0.2
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.06,
+              "height": 0.3,
+              "depth": 0.5
+            }
+          },
+          "offset": {
+            "x": -0.63,
+            "y": 0.2,
+            "z": 0.0
+          },
+          "tint": "accent"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.05,
+              "height": 0.12,
+              "depth": 0.12
+            }
+          },
+          "offset": {
+            "x": -0.64,
+            "y": -0.25,
+            "z": 0.0
+          },
+          "tint": "light"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "top",
+        "position": {
+          "x": 0.0,
+          "y": 0.6,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "size": 1
+      },
+      {
+        "id": "bottom",
+        "position": {
+          "x": 0.0,
+          "y": -0.6,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 1
+      }
+    ],
+    "modules": [
+      {
+        "type": "converter",
+        "recipes": [
+          {
+            "input": "water",
+            "inputRate": 1.0,
+            "outputs": {
+              "propellant": 0.8,
+              "monopropellant": 0.1
+            }
+          },
+          {
+            "input": "ore",
+            "inputRate": 1.0,
+            "outputs": {
+              "propellant": 0.5
+            }
+          }
+        ],
+        "draw": 4.0
+      }
+    ]
+  },
+  {
+    "id": "scanner-survey",
+    "title": "Survey Scanner",
+    "category": "utility",
+    "dryMass": 60.0,
+    "description": "Maps what the ground holds. From a low orbit over the poles it surveys a whole world in half an orbit, for everyone's map; near the ground it reads what is below.",
+    "crashTolerance": 8.0,
+    "dragCoefficient": 0.3,
+    "mesh": {
+      "type": "box",
+      "width": 0.25,
+      "height": 0.35,
+      "depth": 0.3
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.25,
+              "height": 0.35,
+              "depth": 0.3
+            }
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.1,
+              "height": 0.06
+            }
+          },
+          "offset": {
+            "x": 0.15,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 90.0
+          },
+          "tint": "glass"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.04,
+              "height": 0.3,
+              "depth": 0.04
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.3,
+            "z": 0.0
+          },
+          "tint": "metal"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "root",
+        "position": {
+          "x": -0.125,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": -1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "scanner",
+        "draw": 0.1,
+        "surveyAltitude": 0.45
+      }
+    ]
+  },
+  {
     "id": "hull-bow",
     "title": "Bow Section",
     "category": "structural",
@@ -8962,6 +9346,333 @@
       }
     ],
     "strength": 8000000.0
+  },
+  {
+    "id": "bin-ore",
+    "title": "Ore Bin",
+    "category": "fuel",
+    "dryMass": 300.0,
+    "description": "Holds 150 units of ore - a tonne and a half of rock - for a converter, a refinery, or the haul home. Launches empty.",
+    "crashTolerance": 8.0,
+    "dragCoefficient": 0.3,
+    "mesh": {
+      "type": "cylinder",
+      "radius": 0.625,
+      "height": 1.5
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "tank",
+            "radius": 0.625,
+            "height": 1.5,
+            "chamfer": 0.03,
+            "bands": 0
+          },
+          "tint": "dark",
+          "stackEnds": true
+        },
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                0.615,
+                0.39
+              ],
+              [
+                0.64,
+                0.39
+              ],
+              [
+                0.64,
+                0.51
+              ],
+              [
+                0.615,
+                0.51
+              ]
+            ],
+            "segments": 20
+          },
+          "tint": "accent"
+        },
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                0.615,
+                -0.51
+              ],
+              [
+                0.64,
+                -0.51
+              ],
+              [
+                0.64,
+                -0.39
+              ],
+              [
+                0.615,
+                -0.39
+              ]
+            ],
+            "segments": 20
+          },
+          "tint": "accent"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "top",
+        "position": {
+          "x": 0.0,
+          "y": 0.75,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "size": 1
+      },
+      {
+        "id": "bottom",
+        "position": {
+          "x": 0.0,
+          "y": -0.75,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 1
+      }
+    ],
+    "modules": [
+      {
+        "type": "tank",
+        "resource": "ore",
+        "capacity": 150.0
+      }
+    ]
+  },
+  {
+    "id": "bin-ore-broad",
+    "title": "Broad Ore Bin",
+    "category": "fuel",
+    "dryMass": 1400.0,
+    "description": "A tanker's hold: 800 units of ore, eight tonnes of it, 2.5 m across. Launches empty.",
+    "crashTolerance": 8.0,
+    "dragCoefficient": 0.3,
+    "mesh": {
+      "type": "cylinder",
+      "radius": 1.25,
+      "height": 2.5
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "tank",
+            "radius": 1.25,
+            "height": 2.5,
+            "chamfer": 0.05,
+            "bands": 0
+          },
+          "tint": "dark",
+          "stackEnds": true
+        },
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                1.24,
+                0.74
+              ],
+              [
+                1.265,
+                0.74
+              ],
+              [
+                1.265,
+                0.8600000000000001
+              ],
+              [
+                1.24,
+                0.8600000000000001
+              ]
+            ],
+            "segments": 20
+          },
+          "tint": "accent"
+        },
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                1.24,
+                -0.8600000000000001
+              ],
+              [
+                1.265,
+                -0.8600000000000001
+              ],
+              [
+                1.265,
+                -0.74
+              ],
+              [
+                1.24,
+                -0.74
+              ]
+            ],
+            "segments": 20
+          },
+          "tint": "accent"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "top",
+        "position": {
+          "x": 0.0,
+          "y": 1.25,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "size": 2
+      },
+      {
+        "id": "bottom",
+        "position": {
+          "x": 0.0,
+          "y": -1.25,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 2
+      }
+    ],
+    "modules": [
+      {
+        "type": "tank",
+        "resource": "ore",
+        "capacity": 800.0
+      }
+    ],
+    "strength": 8000000.0
+  },
+  {
+    "id": "tank-water",
+    "title": "Water Tank",
+    "category": "fuel",
+    "dryMass": 200.0,
+    "description": "Holds 200 units of water melted out of ice: the easiest thing there is to make propellant from. Launches empty.",
+    "crashTolerance": 8.0,
+    "dragCoefficient": 0.3,
+    "mesh": {
+      "type": "cylinder",
+      "radius": 0.625,
+      "height": 1.5
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "tank",
+            "radius": 0.625,
+            "height": 1.5,
+            "chamfer": 0.03,
+            "bands": 1
+          },
+          "tint": "metal",
+          "stackEnds": true
+        },
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                0.615,
+                -0.06
+              ],
+              [
+                0.64,
+                -0.06
+              ],
+              [
+                0.64,
+                0.06
+              ],
+              [
+                0.615,
+                0.06
+              ]
+            ],
+            "segments": 20
+          },
+          "tint": "glass"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "top",
+        "position": {
+          "x": 0.0,
+          "y": 0.75,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "size": 1
+      },
+      {
+        "id": "bottom",
+        "position": {
+          "x": 0.0,
+          "y": -0.75,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 1
+      }
+    ],
+    "modules": [
+      {
+        "type": "tank",
+        "resource": "water",
+        "capacity": 200.0
+      }
+    ]
   },
   {
     "id": "engine-forge",

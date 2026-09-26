@@ -149,6 +149,15 @@ internal class LunaLand(seed: Int, private val radius: Double) {
         // that weathering has not yet ground down to regolith. Scree carries
         // the boulders, and drives like it.
         val keep = 0.45 + 0.55 * (1.0 - mare)
+        // Near the poles the sun never climbs high enough to reach a crater's
+        // floor: ice has lain there since it arrived.
+        if (kotlin.math.abs(ny) > POLAR_ICE) {
+            for (c in 1..3) {
+                var floor = false
+                forEachCrater(px, py, pz, c, keep) { x01, _, _ -> if (x01 < ICE_FLOOR) floor = true }
+                if (floor) return SurfaceMaterial.ICE
+            }
+        }
         for (c in 1..3) {
             var rubble = false
             forEachCrater(px, py, pz, c, keep) { x01, _, age ->
@@ -183,6 +192,10 @@ internal class LunaLand(seed: Int, private val radius: Double) {
         const val EJECTA_REACH = 2.6
         const val COMPLEX_RADIUS = 4_000.0
         const val FRESH = 0.88
+        /** Poleward of this (the sine of 78 degrees of latitude), crater floors are ice. */
+        const val POLAR_ICE = 0.978
+        /** A crater's floor, in its radii from the centre: where the ice lies. */
+        const val ICE_FLOOR = 0.6
 
         val CLASSES = arrayOf(
             CraterClass(cell = 90_000.0, chance = 0.30, minRadius = 8_000.0, maxRadius = 25_000.0),

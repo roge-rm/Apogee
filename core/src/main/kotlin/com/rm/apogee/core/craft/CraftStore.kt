@@ -118,6 +118,8 @@ class CraftStore(private val directory: File) {
             StockCraft.depotHauler(catalog),
             StockCraft.baseCoreLander(catalog),
             StockCraft.moonshot(catalog),
+            StockCraft.prospector(catalog),
+            StockCraft.surveyor(catalog),
         )
         for (design in stock) {
             if (design.name in offered) continue

@@ -86,6 +86,12 @@ class ControlState {
     /** Fold-out sun wings and dishes: out, or folded away. */
     var deployed: Boolean = false
 
+    /** Its drills switched on: see `World`'s industry. */
+    var drilling: Boolean = false
+
+    /** Its converters - a craft's, a base's refinery - switched on. */
+    var refining: Boolean = false
+
     /**
      * What stability assist is asking for, -1..1 on each axis, written each
      * tick by [com.rm.apogee.core.world.StabilityAssist] and never by a
@@ -557,7 +563,7 @@ class Vessel(
     fun fillTanks() {
         for (i in defs.indices) {
             for (module in defs[i].modules) {
-                if (module is Tank) resources[i][module.resource.ordinal] = module.capacity
+                if (module is Tank && module.resource.startsFull) resources[i][module.resource.ordinal] = module.capacity
                 // A battery holds charge as a tank holds propellant.
                 if (module is com.rm.apogee.core.part.Battery) resources[i][ResourceType.ELECTRIC_CHARGE.ordinal] = module.capacity
             }
@@ -611,6 +617,41 @@ class Vessel(
 
     /** World time [signal] was last worked out, NaN for never. */
     var signalAt: Double = Double.NaN
+
+    /** What its drills are doing, as last worked out. */
+    var drillState: com.rm.apogee.core.world.DrillState = com.rm.apogee.core.world.DrillState.OFF
+
+    /** Charge its drills and converters used last, units a second: part of what [powerNet] counts. */
+    var industryDraw: Double = 0.0
+
+    /** Its drills or converters have moved mass since its mass was last worked out. */
+    var industryMoved: Boolean = false
+
+    /**
+     * Where its drill last bit, body-fixed, and how rich the ground there
+     * was in ore and in water: worked out again once it has moved.
+     */
+    val drillSite = Vec3(Double.NaN, 0.0, 0.0)
+    var drillOre: Double = 0.0
+    var drillWater: Double = 0.0
+
+    /** Seconds spent so far surveying [surveyBody] from a qualifying orbit. */
+    var surveyProgress: Double = 0.0
+    var surveyBody: String = ""
+
+    /** How much of [type] more the parts sharing part [partIndex]'s plumbing have room for. */
+    fun roomInGroupOf(partIndex: Int, type: ResourceType): Double {
+        val group = fuelGroups[partIndex]
+        var total = 0.0
+        for (i in resources.indices) if (fuelGroups[i] == group) total += (capacityInPart(i, type) - resources[i][type.ordinal]).coerceAtLeast(0.0)
+        return total
+    }
+
+    /** Puts up to [amount] of [type] into the parts sharing part [partIndex]'s plumbing; how much went in. */
+    fun putIntoGroupOf(partIndex: Int, type: ResourceType, amount: Double): Double {
+        val group = fuelGroups[partIndex]
+        return putInto(resources.indices.filter { fuelGroups[it] == group }, type, amount)
+    }
 
     /** How much of [type] parts [parts] hold between them. */
     fun amountIn(parts: Collection<Int>, type: ResourceType): Double = parts.sumOf { resources[it][type.ordinal] }

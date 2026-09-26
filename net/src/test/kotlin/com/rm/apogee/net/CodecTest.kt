@@ -33,6 +33,8 @@ class CodecTest {
             ClientMessage.CommandMessage(Command.SetAutopilot(7, autoBurn = true, autoLand = false)),
             ClientMessage.CommandMessage(Command.WarpTo(99_999.0)),
             ClientMessage.CommandMessage(Command.Deploy(7, true)),
+            ClientMessage.CommandMessage(Command.SetIndustry(7, drilling = true, refining = false)),
+            ClientMessage.CommandMessage(Command.Unload(7, true)),
             ClientMessage.CommandMessage(
                 Command.SpawnCraft(StockCraft.starterRocket(StockParts.catalog), "cape")
             ),
@@ -73,7 +75,10 @@ class CodecTest {
                 7, charge = 12.5f, capacity = 30f, net = -0.015f, powered = true,
                 signal = com.rm.apogee.core.world.Signal.RELAYED, relays = listOf(9, 11),
                 controllable = true, needsSignal = true, deployed = true,
+                drilling = true, refining = true, drillState = com.rm.apogee.core.world.DrillState.DIGGING,
+                survey = 0.4f, ore = 0.55f, water = 0.9f,
             ),
+            ServerMessage.Surveyed(listOf("luna", "terra")),
         )
 
         for (message in messages) {

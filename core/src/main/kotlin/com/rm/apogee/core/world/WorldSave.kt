@@ -56,6 +56,12 @@ class VesselSave(
     val deployed: Boolean = false,
     /** Fuel cells running: they cut out again only well charged. */
     val fuelCellsOn: Boolean = false,
+    /** Drills and converters switched on: a base mines and refines while nobody is there. */
+    val drilling: Boolean = false,
+    val refining: Boolean = false,
+    /** A survey under way: of which body, and how many seconds of it are done. */
+    val surveyBody: String = "",
+    val surveyProgress: Double = 0.0,
     /**
      * Landing-leg deploy progress per part, in part order. Empty in saves
      * from before legs deployed over time: legs then start deployed if they
@@ -107,6 +113,8 @@ class WorldSave(
     val vessels: List<VesselSave> = emptyList(),
     /** Trees and shrubs knocked down. A felled tree stays felled across a restart. */
     val felledScatter: List<Long> = emptyList(),
+    /** Bodies surveyed for ore and water, by id. */
+    val surveyed: List<String> = emptyList(),
     /**
      * Which terrain this world's craft are standing on:
      * [com.rm.apogee.core.terrain.TerrainField.GENERATION] when it was saved.

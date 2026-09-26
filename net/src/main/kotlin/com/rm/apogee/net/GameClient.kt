@@ -162,6 +162,10 @@ class GameClient(
     @Volatile var systems: ServerMessage.CraftSystems? = null
         private set
 
+    /** Bodies surveyed for ore and water: their richness is on the map. */
+    @Volatile var surveyed: Set<String> = emptySet()
+        private set
+
     /** The founded base nearest the flown craft, as the server last said; null once it stops saying. */
     val nearestBase: ServerMessage.BaseStatus?
         get() = nearBase?.takeIf { System.nanoTime() - nearBaseNanos < BASE_STALE_NANOS }
@@ -320,6 +324,8 @@ class GameClient(
             is ServerMessage.Service -> service = message
 
             is ServerMessage.CraftSystems -> systems = message
+
+            is ServerMessage.Surveyed -> surveyed = message.bodies.toSet()
 
             is ServerMessage.BaseStatus -> {
                 nearBase = message

@@ -35,9 +35,13 @@ object VesselPose {
 
     /** A leg swinging down, or a chute filling (below 0: cut away). */
     private fun deploys(def: PartDef): Boolean =
-        def.module<LandingLeg>() != null || def.module<com.rm.apogee.core.part.Parachute>() != null ||
-            def.module<com.rm.apogee.core.part.SolarPanel>()?.deployable == true ||
-            def.module<com.rm.apogee.core.part.Antenna>()?.deployable == true
+        def.module<LandingLeg>() != null || def.module<com.rm.apogee.core.part.Parachute>() != null || foldsOut(def)
+
+    /** A sun wing, dish or drill: out and back on its own, its progress kept where a leg's is. */
+    fun foldsOut(def: PartDef): Boolean =
+        def.module<com.rm.apogee.core.part.SolarPanel>()?.deployable == true ||
+            def.module<com.rm.apogee.core.part.Antenna>()?.deployable == true ||
+            def.module<com.rm.apogee.core.part.Drill>() != null
 
     private fun thruster(def: PartDef): Boolean = def.module<com.rm.apogee.core.part.Rcs>() != null
 

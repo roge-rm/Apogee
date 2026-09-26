@@ -485,6 +485,7 @@ class GameServer(
         // And what has been knocked down, so their forest matches everyone's.
         if (world.felledScatter.isNotEmpty()) {
             session.send(ServerMessage.ScatterFelled(world.felledScatter.toList()), Channel.STRUCTURE)
+            session.send(ServerMessage.Surveyed(world.surveyed.toList()), Channel.STRUCTURE)
         }
 
         // A joining client needs the structure of everything already out there,
@@ -546,6 +547,8 @@ class GameServer(
         is Command.SetBrakes -> flies(session, command.vessel)
         is Command.SetReverse -> flies(session, command.vessel)
         is Command.Deploy -> flies(session, command.vessel)
+        is Command.SetIndustry -> flies(session, command.vessel) || world.vessel(VesselId(command.vessel))?.let { it.anchored && it.owner == session.clientId } == true
+        is Command.Unload -> flies(session, command.vessel)
         is Command.SetTranslation -> flies(session, command.vessel)
         is Command.SetRcs -> flies(session, command.vessel)
         is Command.Stage -> flies(session, command.vessel)
@@ -617,6 +620,7 @@ class GameServer(
 
                 is WorldEvent.Touchdown -> Unit
                 is WorldEvent.BodyChanged -> Unit
+                is WorldEvent.Surveyed -> broadcast(ServerMessage.Surveyed(world.surveyed.toList()), Channel.STRUCTURE)
                 // Told to the pilot with the refuel state, not as an event of its own.
                 is WorldEvent.RefuelStopped -> refuelStops[event.id.raw] = event.reason
 
@@ -730,6 +734,8 @@ class GameServer(
                     canRefuel = world.canRefuel(vessel),
                     refuelling = world.isRefuelling(vessel.id),
                     stopped = refuelStops[vessel.id.raw].orEmpty(),
+                    canUnload = world.canUnload(vessel),
+                    unloading = world.isUnloading(vessel.id),
                 ),
                 Channel.KINEMATICS,
             )
@@ -771,6 +777,13 @@ class GameServer(
             monopropellantCapacity = base.capacityOf(mono).toFloat(),
             pads = base.defs.count { it.hasModule<com.rm.apogee.core.part.LaunchPad>() },
             distance = distance.toFloat(),
+            ore = base.amountOf(com.rm.apogee.core.part.ResourceType.ORE).toFloat(),
+            oreCapacity = base.capacityOf(com.rm.apogee.core.part.ResourceType.ORE).toFloat(),
+            water = base.amountOf(com.rm.apogee.core.part.ResourceType.WATER).toFloat(),
+            waterCapacity = base.capacityOf(com.rm.apogee.core.part.ResourceType.WATER).toFloat(),
+            hasRefinery = base.defs.indices.any { !base.isBroken(it) && base.defs[it].hasModule<com.rm.apogee.core.part.Converter>() },
+            refining = base.control.refining,
+            drilling = base.control.drilling,
         )
     }
 

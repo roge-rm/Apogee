@@ -64,6 +64,9 @@ sealed interface WorldEvent {
     data class RefuelStopped(val id: VesselId, val reason: String) : WorldEvent
     data class Staged(val id: VesselId, val stage: Int) : WorldEvent
     data class Touchdown(val id: VesselId, val impactSpeed: Double) : WorldEvent
+    /** [bodyId] has been surveyed, by [id]'s scanner: its ore and water are on everyone's map now. */
+    data class Surveyed(val id: VesselId, val bodyId: String) : WorldEvent
+
     /** A craft passed out of one body's pull into another's. */
     data class BodyChanged(val id: VesselId, val from: String, val to: String) : WorldEvent
 
@@ -534,6 +537,51 @@ class World(
     }
 
     private val power = Power(system)
+    private val industry = Industry()
+    private val scratchIndustry = Vec3()
+
+    /** Bodies surveyed for ore and water, by id: on everyone's map. */
+    val surveyed: MutableSet<String> = java.util.TreeSet()
+
+    /**
+     * [dt] more of [vessel]'s survey of [attractor]: counted while it has a
+     * working scanner and power, in a low, steep orbit clear of the ground
+     * - done in half an orbit, lost the moment it leaves one.
+     */
+    private fun survey(vessel: Vessel, attractor: CelestialBody, dt: Double) {
+        if (attractor.id in surveyed || attractor.terrain == null) return
+        var reach = 0.0
+        for (i in vessel.defs.indices) {
+            if (vessel.isBroken(i)) continue
+            vessel.defs[i].module<com.rm.apogee.core.part.Scanner>()?.let { reach = maxOf(reach, it.surveyAltitude) }
+        }
+        val orbit = if (reach > 0.0) orbitOf(vessel) else null
+        val floor = attractor.radius + maxOf(attractor.atmosphere?.height ?: 0.0, attractor.terrain.maxElevation)
+        val qualifies = orbit != null && orbit.isBound && orbit.periapsis > floor &&
+            orbit.apoapsis < attractor.radius * (1.0 + reach) &&
+            kotlin.math.abs(orbit.angularMomentum.normalized().y) < SURVEY_TILT
+        if (!qualifies || vessel.surveyBody != attractor.id) {
+            vessel.surveyProgress = 0.0
+            vessel.surveyBody = if (qualifies) attractor.id else ""
+            if (!qualifies) return
+        }
+        // Flat, it waits - the orbit it has is as good when the sun comes back.
+        if (!vessel.powered) return
+        vessel.surveyProgress += dt
+        if (vessel.surveyProgress >= 0.5 * orbit!!.period) {
+            surveyed.add(attractor.id)
+            vessel.surveyProgress = 0.0
+            pendingEvents.add(WorldEvent.Surveyed(vessel.id, attractor.id))
+        }
+    }
+
+    /** How far [vessel] is through surveying the body it orbits, 0..1; 1 once that body is surveyed. */
+    fun surveyShare(vessel: Vessel): Double {
+        val attractor = attractorFor(vessel)
+        if (attractor.id in surveyed) return 1.0
+        if (vessel.surveyBody != attractor.id) return 0.0
+        return (vessel.surveyProgress / (0.5 * orbitOf(vessel).period)).coerceIn(0.0, 1.0)
+    }
 
     /** How much of the sun reaches [vessel] where it is now: 0 in a shadow. */
     fun sunlight(vessel: Vessel): Double = power.sunlight(attractorFor(vessel), vessel.body.position, time)
@@ -1048,6 +1096,17 @@ class World(
                 heard(command.vessel)?.control?.reverse = command.engaged
             is Command.Deploy ->
                 heard(command.vessel)?.control?.deployed = command.deployed
+            is Command.SetIndustry -> heard(command.vessel)?.let {
+                settlePower(it)
+                it.control.drilling = command.drilling
+                it.control.refining = command.refining
+                if (!command.drilling) it.drillState = DrillState.OFF
+                // A founded base never steps its pose: its drills go straight down, or up.
+                if (it.anchored) for (i in it.defs.indices) {
+                    if (it.defs[i].module<com.rm.apogee.core.part.Drill>() != null) it.setLegDeploy(i, if (unfolded(it, i)) 1.0 else 0.0)
+                }
+            }
+            is Command.Unload -> if (command.active) unloading.add(VesselId(command.vessel)) else unloading.remove(VesselId(command.vessel))
 
             is Command.SetTranslation -> heard(command.vessel)?.control?.let {
                 it.translateX = command.x
@@ -1344,6 +1403,18 @@ class World(
     /** Whether [vessel] is being filled from a base now. */
     fun isRefuelling(vessel: VesselId): Boolean = vessel in refuelling
 
+    /** Craft emptying their ore and water into a base, or the craft docked to them, by id. */
+    private val unloading = LinkedHashSet<VesselId>()
+
+    /** Whether [vessel] is unloading now. */
+    fun isUnloading(vessel: VesselId): Boolean = vessel in unloading
+
+    /** Whether [craft] has ore or water to unload, and somewhere that has room for it. */
+    fun canUnload(craft: Vessel): Boolean {
+        val service = serviceFor(craft) ?: return false
+        return UNLOAD_TYPES.any { service.craft.amountIn(service.into, it) > 1e-6 && service.base.roomIn(service.from, it) > 1e-6 }
+    }
+
     /** Where a craft is filled from: the [base], the parts of it that give, and the [craft] parts that take. */
     class Service(val base: Vessel, val from: List<Int>, val craft: Vessel, val into: List<Int>)
 
@@ -1353,15 +1424,18 @@ class World(
      * of that base. Null if neither.
      */
     fun serviceFor(craft: Vessel): Service? {
-        if (craft.anchored) {
-            // Docked: what came is what hangs from each ring that docked on.
-            val into = LinkedHashSet<Int>()
-            for (i in craft.design.parts.indices) {
-                if (craft.design.parts[i].dockedFrom != null) into.addAll(craft.design.subtreeOf(i))
-            }
-            if (into.isEmpty()) return null
-            return Service(craft, craft.defs.indices.filter { it !in into }, craft, into.toList())
+        // Docked: what came is what hangs from each ring that docked on.
+        val docked = LinkedHashSet<Int>()
+        for (i in craft.design.parts.indices) {
+            if (craft.design.parts[i].dockedFrom != null) docked.addAll(craft.design.subtreeOf(i))
         }
+        if (craft.anchored) {
+            if (docked.isEmpty()) return null
+            return Service(craft, craft.defs.indices.filter { it !in docked }, craft, docked.toList())
+        }
+        // Two craft docked in flight: the one flown is the one that stayed,
+        // filled from - or emptied into - what docked on to it.
+        if (docked.isNotEmpty()) return Service(craft, docked.toList(), craft, craft.defs.indices.filter { it !in docked })
         val up = Vec3()
         val offset = Vec3()
         for (base in vesselsById.values) {
@@ -1407,6 +1481,25 @@ class World(
         return if (type == com.rm.apogee.core.part.ResourceType.ELECTRIC_CHARGE && room < CHARGE_TOPPED) 0.0 else room
     }
 
+    private fun stepUnloading(dt: Double) {
+        if (unloading.isEmpty()) return
+        val iterator = unloading.iterator()
+        while (iterator.hasNext()) {
+            val id = iterator.next()
+            val craft = vesselsById[id]
+            val service = craft?.let { serviceFor(it) }
+            val stop = when {
+                craft == null -> null
+                service == null -> "nothing to unload into here"
+                else -> pump(service, dt, unload = true)
+            }
+            if (craft == null || stop != null) {
+                iterator.remove()
+                if (craft != null) pendingEvents.add(WorldEvent.RefuelStopped(id, stop!!))
+            }
+        }
+    }
+
     private fun stepRefuelling(dt: Double) {
         if (refuelling.isEmpty()) return
         val iterator = refuelling.iterator()
@@ -1426,8 +1519,11 @@ class World(
         }
     }
 
-    /** One tick's pumping for [service]; why it stopped, or null while it goes on. */
-    private fun pump(service: Service, dt: Double): String? {
+    /**
+     * One tick's pumping for [service] - into the craft, or, [unload]ing,
+     * its ore and water out of it; why it stopped, or null while it goes on.
+     */
+    private fun pump(service: Service, dt: Double, unload: Boolean = false): String? {
         val base = service.base
         var rate = 0.0
         var draw = 0.0
@@ -1436,7 +1532,10 @@ class World(
             if (base.isBroken(i)) continue
             if (pump.rate > rate) { rate = pump.rate; draw = pump.draw }
         }
+        // Two craft docked: their own plumbing, through the rings.
+        if (rate <= 0.0 && service.base === service.craft && !service.base.anchored) rate = DOCKED_TRANSFER
         if (rate <= 0.0) return "this base has no pump"
+        if (unload) return unloadStep(service, rate, draw, dt)
         // The world's own - the Cape, Luna's test base - never run dry or dark.
         val endless = base.owner == WORLD_OWNER
         if (!endless && (!base.powered || !base.drawCharge(draw * dt))) return "the base has no power"
@@ -1452,6 +1551,26 @@ class World(
             val wanting = REFUEL_TYPES.any { room(service, it) > 1e-9 && base.amountIn(service.from, it) > 1e-9 }
             val holds = REFUEL_TYPES.any { base.amountIn(service.from, it) > 1e-9 }
             return if (!wanting && holds) "full" else "the base has nothing more to give"
+        }
+        base.recomputeMass()
+        if (service.craft !== base) service.craft.recomputeMass()
+        return null
+    }
+
+    /** One tick of [service]'s craft emptying its ore and water into the base; see [pump]. */
+    private fun unloadStep(service: Service, rate: Double, draw: Double, dt: Double): String? {
+        val base = service.base
+        if (draw > 0.0 && (!base.powered || !base.drawCharge(draw * dt))) return "the base has no power"
+        var moved = 0.0
+        for (type in UNLOAD_TYPES) {
+            val want = minOf(rate * dt, service.craft.amountIn(service.into, type), base.roomIn(service.from, type))
+            if (want <= 1e-9) continue
+            val out = service.craft.takeFrom(service.into, type, want)
+            moved += base.putInto(service.from, type, out)
+        }
+        if (moved <= 1e-9) {
+            val holding = UNLOAD_TYPES.any { service.craft.amountIn(service.into, it) > 1e-9 }
+            return if (holding) "no room for it here" else "empty"
         }
         base.recomputeMass()
         if (service.craft !== base) service.craft.recomputeMass()
@@ -1707,6 +1826,7 @@ class World(
                 }
                 is com.rm.apogee.core.part.Command -> upkeep += if (vessel.anchored) BASE_UPKEEP else module.idleDraw
                 is com.rm.apogee.core.part.Antenna -> if (!module.deployable || Power.deployed(vessel, i)) upkeep += module.draw
+                is com.rm.apogee.core.part.Scanner -> upkeep += module.draw
                 is com.rm.apogee.core.part.Lamp -> lamps += module.draw
                 else -> Unit
             }
@@ -1719,6 +1839,12 @@ class World(
             val h = minOf(step, until - t)
             val sun = sunHeight(attractor, site, t + 0.5 * h)
             net = solar * maxOf(0.0, sun) - upkeep - if (sun < LAMP_DUSK) lamps else 0.0
+            // Drills and converters, within what charge there is: parked on
+            // the ground where it stands now, so posed as it is now.
+            if (vessel.control.drilling || vessel.control.refining) {
+                val charged = vessel.amountOf(com.rm.apogee.core.part.ResourceType.ELECTRIC_CHARGE) > 0.0 || net > 0.0
+                net -= industry.step(vessel, attractor, time, h, still = !vessel.afloat, charge = charged)
+            }
             if (net >= 0.0) vessel.storeCharge(net * h)
             else if (!vessel.drawCharge(-net * h)) vessel.drawCharge(vessel.amountOf(com.rm.apogee.core.part.ResourceType.ELECTRIC_CHARGE))
             t += h
@@ -2387,9 +2513,13 @@ class World(
 
             if (vessel.plannedBurns.isNotEmpty()) trackBurn(vessel, attractor, dt)
             if (!isDebris(vessel)) {
+                attractor.surfaceVelocityAt(body.position, scratchIndustry).subInPlace(body.linearVelocity)
+                val still = vessel.touchingGround && scratchIndustry.length < Industry.STILL
+                industry.step(vessel, attractor, tickEnd, dt, still, vessel.powered)
                 power.step(vessel, attractor, tickEnd, dt)
                 vessel.powerSettledAt = tickEnd
                 tearWings(vessel, attractor)
+                if (!vessel.touchingGround) survey(vessel, attractor, dt)
             }
             considerSleeping(vessel, report)
             crossInfluence(vessel, tickEnd)
@@ -2420,6 +2550,7 @@ class World(
         }
         stepDocking(dt)
         stepRefuelling(dt)
+        stepUnloading(dt)
         resolveExplosions()
         if (pendingBreakUps.isNotEmpty() || pendingDetach.isNotEmpty()) {
             val ids = LinkedHashSet(pendingBreakUps).apply { addAll(pendingDetach.keys) }
@@ -2451,6 +2582,8 @@ class World(
         if (tick % LIGHTNING_CHECK_TICKS == 0L) strikeLightning(tickEnd)
         if (tick % REPAIR_CHECK_TICKS == 0L) repairStructures()
         if (tick % SIGNAL_CHECK_TICKS == 0L) {
+            // What drills and converters moved, weighed again.
+            for (vessel in vesselsById.values) if (vessel.industryMoved) { vessel.industryMoved = false; vessel.recomputeMass() }
             for (vessel in vesselsById.values) {
                 if (!vessel.dormant && !isDebris(vessel) && Comms.needsSignal(vessel)) refreshSignal(vessel, tickEnd)
             }
@@ -2703,14 +2836,17 @@ class World(
         }
     }
 
-    /** A sun wing or dish that folds out: its progress kept where a leg's is. */
-    private fun foldsOut(def: com.rm.apogee.core.part.PartDef) =
-        def.module<com.rm.apogee.core.part.SolarPanel>()?.deployable == true ||
-            def.module<com.rm.apogee.core.part.Antenna>()?.deployable == true
+    private fun foldsOut(def: com.rm.apogee.core.part.PartDef) = VesselPose.foldsOut(def)
 
-    /** Whether fold-out part [i] should be out: told to be, or staged, and not broken. */
-    private fun unfolded(vessel: Vessel, i: Int) =
-        !vessel.isBroken(i) && (vessel.control.deployed || (i < vessel.activated.size && vessel.activated[i]))
+    /**
+     * Whether fold-out part [i] should be out: a drill while drilling, a
+     * wing or dish told to be or staged - and none of them broken.
+     */
+    private fun unfolded(vessel: Vessel, i: Int): Boolean {
+        if (vessel.isBroken(i)) return false
+        if (vessel.defs[i].module<com.rm.apogee.core.part.Drill>() != null) return vessel.control.drilling
+        return vessel.control.deployed || (i < vessel.activated.size && vessel.activated[i])
+    }
 
     private fun legsMoving(vessel: Vessel): Boolean {
         for (i in vessel.defs.indices) {
@@ -2762,7 +2898,27 @@ class World(
             controllable = controllable(vessel),
             needsSignal = Comms.needsSignal(vessel),
             deployed = vessel.control.deployed,
+            drilling = vessel.control.drilling,
+            refining = vessel.control.refining,
+            drillState = vessel.drillState,
+            survey = if (hasScanner(vessel)) surveyShare(vessel).toFloat() else -1f,
+            ore = reading(vessel, com.rm.apogee.core.part.ResourceType.ORE),
+            water = reading(vessel, com.rm.apogee.core.part.ResourceType.WATER),
         )
+    }
+
+    private fun hasScanner(vessel: Vessel) =
+        vessel.defs.indices.any { !vessel.isBroken(it) && vessel.defs[it].hasModule<com.rm.apogee.core.part.Scanner>() }
+
+    /** What the ground right under [vessel] holds of [type], by its scanner, low enough and powered; -1 for no reading. */
+    private fun reading(vessel: Vessel, type: com.rm.apogee.core.part.ResourceType): Float {
+        if (!vessel.powered || !hasScanner(vessel)) return -1f
+        val attractor = attractorFor(vessel)
+        val terrain = attractor.terrain ?: return -1f
+        if (attractor.altitudeOf(vessel.body.position) > READING_HEIGHT) return -1f
+        attractor.rotationAt(time, anchorRotation)
+        val below = attractor.toBodyFixed(vessel.body.position, anchorRotation, Vec3())
+        return com.rm.apogee.core.terrain.Deposits.richness(terrain, below, type).toFloat()
     }
 
     /** Where the ground stations are at [at], in the system's frame. */
@@ -3309,6 +3465,7 @@ class World(
                 if (!isDebris(vessel)) {
                     power.step(vessel, attractorFor(vessel), time + h, h, rails = true)
                     vessel.powerSettledAt = time + h
+                    survey(vessel, attractorFor(vessel), h)
                 }
                 // Still turning as it was.
                 val spin = body.angularVelocity.length
@@ -3447,6 +3604,7 @@ class World(
         links = links.map { SavedLink(it.a.raw, it.partA, it.b.raw, it.partB) },
         catalogHash = catalog.contentHash,
         felledScatter = felledScatter.sorted(),
+        surveyed = surveyed.toList(),
         terrainGeneration = TerrainField.GENERATION,
         lastFlown = lastFlown.toMap(),
         weather = weatherConfig,
@@ -3479,6 +3637,10 @@ class World(
                 brakes = vessel.control.brakes,
                 deployed = vessel.control.deployed,
                 fuelCellsOn = vessel.fuelCellsOn,
+                drilling = vessel.control.drilling,
+                refining = vessel.control.refining,
+                surveyBody = vessel.surveyBody,
+                surveyProgress = vessel.surveyProgress,
                 resources = vessel.resourceSnapshot().map { it.toList() },
                 legDeploy = vessel.legDeploy.toList(),
                 health = vessel.health.toList(),
@@ -3507,6 +3669,8 @@ class World(
         // Scatter ids name places on one generation's ground; on another they
         // would fell some unrelated tree, so a new terrain grows back whole.
         if (!terrainChanged) felledScatter.addAll(save.felledScatter)
+        surveyed.clear()
+        surveyed.addAll(save.surveyed.filter { it in system.bodies })
         lastFlown.clear()
         lastFlown.putAll(save.lastFlown)
         save.weather?.let { weatherConfig = it }
@@ -3595,6 +3759,10 @@ class World(
             vessel.control.brakes = saved.brakes
             vessel.control.deployed = saved.deployed
             vessel.fuelCellsOn = saved.fuelCellsOn
+            vessel.control.drilling = saved.drilling
+            vessel.control.refining = saved.refining
+            vessel.surveyBody = saved.surveyBody
+            vessel.surveyProgress = saved.surveyProgress
             vessel.fitPose()
             saved.legDeploy.forEachIndexed { i, progress -> vessel.setLegDeploy(i, progress) }
             if (saved.resources.isNotEmpty()) {
@@ -3872,6 +4040,21 @@ class World(
         const val WORLD_OWNER = "world"
 
         /** What a base's pump moves into a craft. */
+        /** What a craft unloads into a base: what it has dug up. */
+        private val UNLOAD_TYPES = listOf(
+            com.rm.apogee.core.part.ResourceType.ORE,
+            com.rm.apogee.core.part.ResourceType.WATER,
+        )
+
+        /** How high above its body a scanner reads the ground below, m. */
+        const val READING_HEIGHT = 10_000.0
+
+        /** Units a second two craft docked in flight move between them, with no pump. */
+        const val DOCKED_TRANSFER = 20.0
+
+        /** How far an orbit's plane must be tipped from the equator to survey from - the cosine of 60 degrees. */
+        const val SURVEY_TILT = 0.5
+
         private val REFUEL_TYPES = listOf(
             com.rm.apogee.core.part.ResourceType.PROPELLANT,
             com.rm.apogee.core.part.ResourceType.MONOPROPELLANT,

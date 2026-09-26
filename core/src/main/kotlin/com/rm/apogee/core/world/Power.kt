@@ -80,9 +80,12 @@ class Power(private val system: SolarSystem) {
                 is Antenna -> if (!module.deployable || deployed(vessel, i)) used += module.draw
                 is Lamp -> if (night) used += module.draw
                 is FuelCell -> { cells += module.rate; cellMono += module.rate * module.monoPerCharge; anyCell = i }
+                is com.rm.apogee.core.part.Scanner -> used += module.draw
                 else -> Unit
             }
         }
+        // Its drills and converters, as they ran this step.
+        used += vessel.industryDraw
         if (!rails) {
             val control = vessel.control
             // On the ground or the water the wheels and the assist are

@@ -34,7 +34,8 @@ import kotlin.math.roundToInt
 /**
  * A base, on the HUD: the one flown, or the nearest one founded - its power
  * and its stores - and what the flown craft can do with it: be filled from
- * it, be founded where it stands, or let go.
+ * it, empty its ore and water into it, be founded where it stands, or let
+ * go; and its refinery, switched on or off.
  */
 @Composable
 fun BasePanel(
@@ -43,16 +44,32 @@ fun BasePanel(
     onFound: (Boolean) -> Unit,
     onRefuel: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
+    /** Empty the flown craft's ore and water into the base, or stop. */
+    onUnload: (Boolean) -> Unit = {},
+    /** Switch base [base]'s refinery on or off. */
+    onRefine: (base: ServerMessage.BaseStatus, on: Boolean) -> Unit = { _, _ -> },
 ) {
-    val canDo = service != null && (service.canFound || service.founded || service.canRefuel || service.refuelling)
+    val canDo = service != null && (service.canFound || service.founded || service.canRefuel || service.refuelling || service.canUnload || service.unloading)
     if (base == null && !canDo) return
     Column(modifier, horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        if (base != null) BaseCard(base)
+        if (base != null) {
+            BaseCard(base)
+            // The refinery runs while nobody is there: switched here, from nearby.
+            if (base.hasRefinery) {
+                if (base.refining) Chip("REFINING", "STOP", ApogeeColors.Prograde) { onRefine(base, false) }
+                else Chip("REFINE", "ORE · WATER", ApogeeColors.Accent) { onRefine(base, true) }
+            }
+        }
         if (service != null) {
             if (service.refuelling) {
                 Chip("STOP", "FILLING", ApogeeColors.Caution) { onRefuel(false) }
             } else if (service.canRefuel) {
                 Chip("REFUEL", service.stopped.uppercase(), ApogeeColors.Prograde) { onRefuel(true) }
+            }
+            if (service.unloading) {
+                Chip("STOP", "UNLOADING", ApogeeColors.Caution) { onUnload(false) }
+            } else if (service.canUnload) {
+                Chip("UNLOAD", "ORE · WATER", ApogeeColors.Prograde) { onUnload(true) }
             }
             if (service.canFound) Chip("FOUND BASE", "", ApogeeColors.Accent) { onFound(true) }
             if (service.founded) ArmedChip("LET GO", "UNFOUND") { onFound(false) }
@@ -83,6 +100,8 @@ private fun BaseCard(base: ServerMessage.BaseStatus) {
         Line("POWER", power, colour)
         if (base.propellantCapacity > 0f) Line("PROP", "${base.propellant.roundToInt()}/${base.propellantCapacity.roundToInt()}", colour)
         if (base.monopropellantCapacity > 0f) Line("MONO", "${base.monopropellant.roundToInt()}/${base.monopropellantCapacity.roundToInt()}", colour)
+        if (base.oreCapacity > 0f) Line("ORE", "${base.ore.roundToInt()}/${base.oreCapacity.roundToInt()}", colour)
+        if (base.waterCapacity > 0f) Line("WATER", "${base.water.roundToInt()}/${base.waterCapacity.roundToInt()}", colour)
         if (base.pads > 0) Line("PADS", "${base.pads}", colour)
     }
 }

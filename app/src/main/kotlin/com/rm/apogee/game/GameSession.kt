@@ -588,6 +588,16 @@ class GameSession private constructor(
             }
         }
 
+    /** Whether the craft being flown has drills, and converters. */
+    val controlledHasDrill: Boolean get() = controlledHas { it.hasModule<com.rm.apogee.core.part.Drill>() }
+    val controlledHasConverter: Boolean get() = controlledHas { it.hasModule<com.rm.apogee.core.part.Converter>() }
+
+    private inline fun controlledHas(test: (com.rm.apogee.core.part.PartDef) -> Boolean): Boolean {
+        val id = client.controlledVessel ?: return false
+        val design = client.vessels.firstOrNull { it.id == id }?.design ?: return false
+        return design.parts.any { placed -> catalog[placed.partId]?.let(test) == true }
+    }
+
     /** The flown craft's power and link home, as the server last said; null until it has. */
     val powerReadout: HudState.PowerReadout?
         get() {
@@ -603,6 +613,20 @@ class GameSession private constructor(
                 relays = systems.relays.size,
                 controllable = systems.controllable,
                 deployed = systems.deployed,
+                drilling = systems.drilling,
+                refining = systems.refining,
+                drillState = systems.drillState,
+                survey = systems.survey,
+                ore = systems.ore,
+                water = systems.water,
+                held = prediction.replica?.let { local ->
+                    val ore = com.rm.apogee.core.part.ResourceType.ORE
+                    val water = com.rm.apogee.core.part.ResourceType.WATER
+                    floatArrayOf(
+                        local.amountOf(ore).toFloat(), local.capacityOf(ore).toFloat(),
+                        local.amountOf(water).toFloat(), local.capacityOf(water).toFloat(),
+                    )
+                },
             )
         }
 
@@ -1136,6 +1160,7 @@ class GameSession private constructor(
             moonLines(attractor, renderTime, lines)
             lines.add(marker(focusState.position, reach, CRAFT_COLOR))
             signalLines(focusId, focusState.position, attractor, renderTime, reach, lines)
+            richnessDots(attractor, renderTime, lines)
             // Founded bases on this world - the player's own and the Cape's - where they stand.
             for (other in client.vessels) {
                 if (!other.anchored || other.id == focusId) continue
@@ -1732,6 +1757,45 @@ class GameSession private constructor(
 
     /** The moons of [attractor]: where each goes round, and how far its pull reaches, at [time]. */
     private val comms = com.rm.apogee.core.world.Comms(system)
+
+    /** What the map shows of a surveyed body's ground: ore, water, or nothing. */
+    @Volatile var mapResource: com.rm.apogee.core.part.ResourceType? = com.rm.apogee.core.part.ResourceType.ORE
+
+    /** Whether the body the flown craft is about has been surveyed. */
+    val surveyedHere: Boolean
+        get() {
+            val id = client.controlledVessel ?: return false
+            val body = client.vessels.firstOrNull { it.id == id }?.latest?.referenceBodyId ?: return false
+            return body in client.surveyed
+        }
+
+    /** A surveyed [attractor]'s ore or water, as dots on its ground: the richer, the brighter. */
+    private fun richnessDots(attractor: CelestialBody, time: Double, lines: MutableList<RenderLine>) {
+        val resource = mapResource ?: return
+        if (attractor.id !in client.surveyed) return
+        val points = RichnessGrid.points(attractor, resource) ?: return
+        val rotation = attractor.rotationAt(time)
+        val base = if (resource == com.rm.apogee.core.part.ResourceType.WATER) WATER_COLOR else ORE_COLOR
+        val size = attractor.radius * DOT_FRACTION
+        val lift = attractor.radius + (attractor.terrain?.maxElevation ?: 0.0)
+        val d = Vec3()
+        val data = points.data
+        for (k in 0 until points.count) {
+            d.setTo(data[4 * k].toDouble(), data[4 * k + 1].toDouble(), data[4 * k + 2].toDouble())
+            val at = rotation.rotate(d, Vec3()).mulInPlace(lift)
+            val r = data[4 * k + 3]
+            val color = floatArrayOf(base[0], base[1], base[2], 0.25f + 0.75f * r)
+            lines.add(dot(at, size, color))
+        }
+    }
+
+    /** A small diamond at [at], face-on to the planet. */
+    private fun dot(at: Vec3, size: Double, color: FloatArray): RenderLine {
+        val radial = at.normalized()
+        val a = (if (kotlin.math.abs(radial.y) < 0.9) Vec3.unitY() else Vec3.unitX()).cross(radial).normalizeInPlace()
+        val b = radial.cross(a).normalizeInPlace()
+        return RenderLine(listOf(at + a * size, at + b * size, at - a * size, at - b * size, at + a * size), color)
+    }
 
     /**
      * The ground stations, and a probe's link home: from the craft at
@@ -2371,6 +2435,21 @@ class GameSession private constructor(
     /** Fills the flown craft from the base it is on or docked to - or stops. */
     suspend fun refuel(on: Boolean) {
         withControlledVessel { client.send(Command.Refuel(it, on)) }
+    }
+
+    /** Empties the flown craft's ore and water into what it stands on or is docked to - or stops. */
+    suspend fun unload(on: Boolean) {
+        withControlledVessel { client.send(Command.Unload(it, on)) }
+    }
+
+    /** Switches the flown craft's drills and converters. */
+    suspend fun setIndustry(drilling: Boolean, refining: Boolean) {
+        withControlledVessel { client.send(Command.SetIndustry(it, drilling, refining)) }
+    }
+
+    /** Switches [base]'s refinery, leaving its drills as they are. */
+    suspend fun refine(base: ServerMessage.BaseStatus, on: Boolean) {
+        client.send(Command.SetIndustry(base.vessel, base.drilling, on))
     }
 
     /** What the flown craft can do with a base just now; null until the server has said. */
@@ -3463,6 +3542,10 @@ class GameSession private constructor(
         /** Ground stations, and a probe's link home through its relays. */
         private val STATION_COLOR = floatArrayOf(1.0f, 0.75f, 0.3f, 1f)
         private val SIGNAL_COLOR = floatArrayOf(0.45f, 1.0f, 0.55f, 1f)
+        /** A surveyed body's ore and water on the map, and how big each dot is, as a share of its radius. */
+        private val ORE_COLOR = floatArrayOf(1.0f, 0.62f, 0.25f, 1f)
+        private val WATER_COLOR = floatArrayOf(0.35f, 0.8f, 1.0f, 1f)
+        private const val DOT_FRACTION = 0.012
         /** A leg about a moon; the path after a planned burn; the burn; a moon's own path; its reach. */
         private val MOON_PATH_COLOR = floatArrayOf(0.85f, 0.85f, 0.88f, 1f)
         private val BURN_PATH_COLOR = floatArrayOf(1.0f, 0.62f, 0.25f, 1f)

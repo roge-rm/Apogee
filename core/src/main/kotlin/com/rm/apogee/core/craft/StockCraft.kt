@@ -144,6 +144,63 @@ object StockCraft {
     }
 
     /**
+     * A mining lander that needs no base: the Stilt Lander's engine, tank
+     * and legs under an Ore Bin, a Water Tank, a Small Converter and the
+     * pod, with an Auger Drill low on the tank, four Kite Sun Wings and a
+     * battery pack. Set it down on ice or rock, dig, refine, and fly on.
+     * Wings out on DEPLOY, not by staging: they tear off in air.
+     */
+    fun prospector(catalog: PartCatalog = StockParts.catalog): CraftDesign {
+        val parts = ArrayList<PlacedPart>()
+        fun add(partId: String, y: Double, parent: Int, x: Double = 0.0, z: Double = 0.0): Int {
+            parts.add(PlacedPart(partId, Vec3(x, y, z), Quat.identity(), parentIndex = parent))
+            return parts.size - 1
+        }
+        // Bottom up from y = 0: engine 0-1, tank 1-3, ore 3-4.5, water
+        // 4.5-6, converter 6-7.2, pod 7.2-8.4, chute on top.
+        val pod = add("pod-halo", 7.8, -1)
+        val chute = add("chute-canopy", 8.6, pod)
+        val converter = add("converter-small", 6.6, pod)
+        val water = add("tank-water", 5.25, converter)
+        val ore = add("bin-ore", 3.75, water)
+        val tank = add("tank-cask2", 2.0, ore)
+        val engine = add("engine-vesper", 0.5, tank)
+        // Legs as the Stilt Lander's, where they reach below the bell.
+        for ((x, z) in listOf(1.0 to 0.0, -1.0 to 0.0, 0.0 to 1.0, 0.0 to -1.0)) add("leg-stilt", 0.2, tank, x = x, z = z)
+        // The drill between two legs, low, its bit reaching the ground.
+        val diagonal = 0.775 / kotlin.math.sqrt(2.0)
+        add("drill-auger", 1.3, tank, x = diagonal, z = diagonal)
+        // Wings high on the water tank, hanging down the stack while folded.
+        for ((x, z) in listOf(0.725 to 0.0, -0.725 to 0.0, 0.0 to 0.725, 0.0 to -0.725)) add("wing-kite", 5.9, water, x = x, z = z)
+        val packOut = (0.625 + 0.125) / kotlin.math.sqrt(2.0)
+        add("battery-hoard", 3.75, ore, x = -packOut, z = -packOut)
+        faceOutward(parts, catalog)
+        return CraftDesign(
+            name = "Prospector",
+            parts = parts,
+            stages = listOf(
+                Stage(listOf(engine)),
+                Stage(listOf(chute)),
+                Stage(parts.indices.filter { parts[it].partId == "leg-stilt" }),
+            ),
+            catalogHash = catalog.contentHash,
+        )
+    }
+
+    /** The Mote Probe with a Survey Scanner: for a low orbit over the poles. */
+    fun surveyor(catalog: PartCatalog = StockParts.catalog): CraftDesign {
+        val probe = moteProbe(catalog)
+        val upperTank = probe.parts.indexOfFirst { it.partId == "tank-cask4" }
+        val parts = ArrayList(probe.parts)
+        parts.add(PlacedPart("scanner-survey", Vec3(0.0, 13.8, -0.75), Quat.identity(), parentIndex = upperTank))
+        // Through the night side of a low orbit on what it stored by day.
+        val pack = (0.625 + 0.125) / kotlin.math.sqrt(2.0)
+        parts.add(PlacedPart("battery-hoard", Vec3(pack, 12.0, pack), Quat.identity(), parentIndex = upperTank))
+        faceOutward(parts, catalog)
+        return probe.copy(name = "Surveyor", parts = parts)
+    }
+
+    /**
      * A lander: engine, tank, pod, chute and four sprung legs.
      *
      * Deliberately not the starter rocket with legs bolted on. Arriving is a

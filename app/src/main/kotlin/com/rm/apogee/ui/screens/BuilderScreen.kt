@@ -703,6 +703,9 @@ private fun StatsPanel(
                 if (stats.powerSunlit > 0.0) StatRow("SUN", "+${stats.powerSunlit.format(2)}/s", ApogeeColors.Prograde)
                 StatRow("IDLE", "\u2212${stats.powerIdle.format(2)}/s")
             }
+            if (stats.drillRate > 0.0) StatRow("DRILL", "${stats.drillRate.format(1)}/s")
+            if (stats.refineRate > 0.0) StatRow("REFINE", "${stats.refineRate.format(1)}/s")
+            if (stats.canSurvey) StatRow("SCANNER", "survey")
 
             if (stats.burns.isNotEmpty()) {
                 Spacer(Modifier.height(8.dp))

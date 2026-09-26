@@ -94,7 +94,7 @@ class CraftStoreTest {
     private val KIT = setOf(
         "Sparrow", "Buggy", "Hauler", "Skiff", "Cutter", "Port Tug", "Dock Probe", "Tow Buggy", "Cart", "Trawler",
         "Base Core", "Pad Base", "Base Core Hauler", "Module Hauler", "Depot Hauler", "Base Core Lander", "Moonshot",
-        "Mote Probe",
+        "Mote Probe", "Prospector", "Surveyor",
     )
 
     @Test

@@ -140,11 +140,13 @@ class ClientPrediction(
     fun syncSystems(systems: com.rm.apogee.core.world.ServerMessage.CraftSystems) {
         heard = systems.controllable
         val local = vessel ?: return
-        if (local.control.deployed != systems.deployed) {
+        if (local.control.deployed != systems.deployed || local.control.drilling != systems.drilling) {
             local.control.deployed = systems.deployed
-            // Parked, it would never step its wings out.
+            local.control.drilling = systems.drilling
+            // Parked, it would never step its wings or drill out.
             local.wake()
         }
+        local.control.refining = systems.refining
     }
 
     private val serverPose = com.rm.apogee.core.world.VesselPose.Values()
@@ -163,9 +165,7 @@ class ClientPrediction(
             // as it does on the server, and a sleeping replica never steps
             // them out.
             val def = local.defs[i]
-            if (def.module<com.rm.apogee.core.part.SolarPanel>()?.deployable == true ||
-                def.module<com.rm.apogee.core.part.Antenna>()?.deployable == true
-            ) {
+            if (com.rm.apogee.core.world.VesselPose.foldsOut(def)) {
                 local.setLegDeploy(i, serverPose.deploy[i])
                 continue
             }
