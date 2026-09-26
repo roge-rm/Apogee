@@ -31,3 +31,6 @@ local.properties
 /captures/
 .DS_Store
 *.hprof
+
+# Crash core dumps; the pre-commit hook deletes them. (Not "core" alone: that is a module.)
+core.[0-9]*

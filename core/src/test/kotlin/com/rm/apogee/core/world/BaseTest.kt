@@ -363,6 +363,25 @@ class BaseTest {
         assertTrue("no power on Luna with the sun up", charge(base) > 0.0 && base.powerNet > 0.0 && base.powered)
     }
 
+    @Test
+    fun `Luna's test base stands founded, anyone can launch from it, and it never runs dry`() {
+        val world = World.default(catalog)
+        world.ensureStructures()
+        val base = world.lunaBase()
+        assertTrue("no Luna test base", base != null && base.anchored && base.referenceBodyId == "luna")
+        val site = world.baseSites("anyone").single { it.bodyId == "luna" }
+        val depot = propellant(base!!)
+        val lander = world.spawnFor(Command.SpawnCraft(StockCraft.lander(catalog), site.id), "anyone")
+        assertEquals("launched full", lander.capacityOf(com.rm.apogee.core.part.ResourceType.PROPELLANT), propellant(lander), 1e-6)
+        settle(world, 2.0)
+        assertTrue("the lander is not standing on the pad", world.serviceFor(lander)?.base === base)
+        lander.takeFrom(lander.defs.indices.toList(), com.rm.apogee.core.part.ResourceType.PROPELLANT, propellant(lander) / 2)
+        world.apply(Command.Refuel(lander.id.raw, true))
+        repeat((20.0 / dt).toInt()) { world.step(dt) }
+        assertEquals("refilled", lander.capacityOf(com.rm.apogee.core.part.ResourceType.PROPELLANT), propellant(lander), 0.5)
+        assertEquals("the world's depot never runs down", depot, propellant(base), 1e-6)
+    }
+
     /** Ground rising northward at [degrees], round a site at +X. */
     private class Slope(degrees: Double) : com.rm.apogee.core.terrain.Terrain {
         private val grade = kotlin.math.tan(Math.toRadians(degrees))

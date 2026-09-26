@@ -1023,6 +1023,15 @@ class World(
         return null
     }
 
+    /** Whether [craft] could be filled from a base just now: standing on or docked to one, with room for something it has. */
+    fun canRefuel(craft: Vessel): Boolean {
+        val service = serviceFor(craft) ?: return false
+        val endless = service.base.owner == WORLD_OWNER
+        return REFUEL_TYPES.any { type ->
+            service.craft.roomIn(service.into, type) > 1e-6 && (endless || service.base.amountIn(service.from, type) > 1e-6)
+        }
+    }
+
     private fun stepRefuelling(dt: Double) {
         if (refuelling.isEmpty()) return
         val iterator = refuelling.iterator()
@@ -1053,12 +1062,14 @@ class World(
             if (pump.rate > rate) { rate = pump.rate; draw = pump.draw }
         }
         if (rate <= 0.0) return "this base has no pump"
-        if (!base.powered || !base.drawCharge(draw * dt)) return "the base has no power"
+        // The world's own - the Cape, Luna's test base - never run dry or dark.
+        val endless = base.owner == WORLD_OWNER
+        if (!endless && (!base.powered || !base.drawCharge(draw * dt))) return "the base has no power"
         var moved = 0.0
         for (type in REFUEL_TYPES) {
-            val want = minOf(rate * dt, service.craft.roomIn(service.into, type), base.amountIn(service.from, type))
+            val want = minOf(rate * dt, service.craft.roomIn(service.into, type), if (endless) Double.MAX_VALUE else base.amountIn(service.from, type))
             if (want <= 1e-9) continue
-            val out = base.takeFrom(service.from, type, want)
+            val out = if (endless) want else base.takeFrom(service.from, type, want)
             moved += service.craft.putInto(service.into, type, out)
         }
         if (moved <= 1e-9) {
@@ -1087,6 +1098,31 @@ class World(
             if (structureOf(complex) != null) continue
             raiseStructure(complex)
         }
+        if (lunaBase() == null) raiseLunaBase()
+    }
+
+    // --- Luna's test base ------------------------------------------------------------
+
+    /**
+     * A pad base on the Luna Mare test site, the world's: somewhere on Luna
+     * to launch from and refuel at while testing, without flying there. Its
+     * stores never run dry nor its power out, as the Cape's do not. For
+     * testing - a career would take it away.
+     */
+    fun lunaBase(): Vessel? = vesselsById.values.firstOrNull { it.owner == WORLD_OWNER && it.name == LUNA_BASE_NAME && it.anchored }
+
+    private fun raiseLunaBase(): Vessel? {
+        val site = launchSites.firstOrNull { it.id == LUNA_TEST_SITE } ?: return null
+        if (site.bodyId !in system.bodies) return null
+        val base = spawnOnSurface(com.rm.apogee.core.craft.StockCraft.padBase(catalog), site, pad = LUNA_BASE_PAD)
+        base.owner = WORLD_OWNER
+        base.ownerName = ""
+        base.name = LUNA_BASE_NAME
+        val attractor = attractorFor(base)
+        attractor.rotationAt(tickEnd, anchorRotation)
+        level(base, attractor)
+        base.anchor(anchorRotation)
+        return base
     }
 
     /** Whether this world has the Cape's buildings to look after: see [ensureStructures]. */
@@ -1129,6 +1165,30 @@ class World(
             for (piece in wreckage) destroy(piece.id, "cleared away")
             raiseStructure(complex)
         }
+        repairLunaBase(now)
+    }
+
+    /** Luna's test base put back if broken - once nothing awake is near it, or at once when [now]. */
+    private fun repairLunaBase(now: Boolean) {
+        val site = launchSites.firstOrNull { it.id == LUNA_TEST_SITE } ?: return
+        if (site.bodyId !in system.bodies) return
+        val body = system.body(site.bodyId)
+        body.rotationAt(time, scratchRotation)
+        val at = SolarSystem.surfaceDirection(site.latitude, site.longitude).mulInPlace(body.radius)
+        val here = Vec3()
+        val busy = vesselsById.values.any { v ->
+            !v.dormant && v.owner != WORLD_OWNER && v.referenceBodyId == body.id &&
+                body.toBodyFixed(v.body.position, scratchRotation, here).distanceTo(at) < REPAIR_REACH
+        }
+        if (busy) { quietSince.remove(LUNA_BASE_NAME); return }
+        val since = quietSince.getOrPut(LUNA_BASE_NAME) { time }
+        val standing = lunaBase()
+        val whole = standing != null && standing.defs.size == com.rm.apogee.core.craft.StockCraft.padBase(catalog).parts.size &&
+            standing.broken.none { it } && standing.health.all { it >= 1.0 }
+        if (whole) return
+        if (!now && time - since < REPAIR_QUIET) return
+        standing?.let { destroy(it.id, "rebuilt") }
+        raiseLunaBase()
     }
 
     /** Whether [standing] is all of [complex], and whole. */
@@ -1214,6 +1274,8 @@ class World(
         // What it carries, it carries from the base.
         settlePower(base)
         val all = craft.defs.indices.toList()
+        // The world's own bases supply it whole, as the Cape does.
+        if (base.owner == WORLD_OWNER) return craft
         val launch = base.defs[pad].module<com.rm.apogee.core.part.LaunchPad>()!!.launchCharge
         val pumping = base.powered && base.drawCharge(launch)
         for (type in listOf(com.rm.apogee.core.part.ResourceType.PROPELLANT, com.rm.apogee.core.part.ResourceType.MONOPROPELLANT)) {
@@ -3175,6 +3237,11 @@ class World(
          * worse than no button.
          */
         const val JOIN_MAX_CLOSING_SPEED = 2.0
+
+        /** Luna's test base: its name, the site it stands by, and which of the site's pads it takes. */
+        const val LUNA_BASE_NAME = "Luna Test Base"
+        const val LUNA_TEST_SITE = "luna-mare"
+        const val LUNA_BASE_PAD = 6
 
         /** Whose the Cape's own buildings are: nobody's, and everybody's to launch from. */
         const val WORLD_OWNER = "world"

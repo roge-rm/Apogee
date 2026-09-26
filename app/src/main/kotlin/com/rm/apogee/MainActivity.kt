@@ -745,6 +745,9 @@ class MainActivity : ComponentActivity() {
             if (warning != null) Log.w(TAG, "World save: $warning")
             for (problem in problems) Log.w(TAG, "World save: $problem")
         }
+        // The Cape's buildings and Luna's test base, before anything asks
+        // where it can launch from.
+        world.ensureStructures()
         soloWorld = world
         return world
     }

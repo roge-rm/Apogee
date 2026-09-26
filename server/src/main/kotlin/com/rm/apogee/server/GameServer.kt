@@ -710,7 +710,7 @@ class GameServer(
                     vessel.id.raw,
                     canFound = world.canAnchor(vessel),
                     founded = vessel.anchored,
-                    canRefuel = world.serviceFor(vessel) != null,
+                    canRefuel = world.canRefuel(vessel),
                     refuelling = world.isRefuelling(vessel.id),
                     stopped = refuelStops[vessel.id.raw].orEmpty(),
                 ),

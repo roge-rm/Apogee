@@ -156,6 +156,15 @@ class SceneSaves {
             WorldStore(File(dir, "high.json")).save(w.save()).getOrThrow()
             println("high tide ${"%.2f".format(best)} m at ${high}")
         }
+        // A lander launched from Luna's test base.
+        run {
+            val w = world(WeatherConfig(clouds = com.rm.apogee.core.weather.CloudCover.LIGHT))
+            w.ensureStructures()
+            val site = w.baseSites("scene").single { it.bodyId == "luna" }
+            w.spawnFor(Command.SpawnCraft(StockCraft.lander(c), site.id), "scene")
+            repeat(120) { w.step(1.0 / 60) }
+            WorldStore(File(dir, "luna.json")).save(w.save()).getOrThrow()
+        }
         println("scenes saved at t=$t")
     }
 }
