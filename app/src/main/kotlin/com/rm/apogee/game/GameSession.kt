@@ -806,6 +806,7 @@ class GameSession private constructor(
         val items = ArrayList<RenderItem>(64)
         val farItems = ArrayList<RenderItem>()
         frameEmitters.clear()
+        lampCount = 0
 
         // The one time this frame is drawn at. Snapshot time plus how long
         // ago it arrived, unless the controlled craft is being predicted, in
@@ -1095,6 +1096,7 @@ class GameSession private constructor(
         fx.sea = seaScene?.let { scene -> { p: Vec3, t: Double, o: com.rm.apogee.core.sea.SeaSample -> scene.sampleInto(p, t, o) } }
         // Where the ears are, and what air there is to carry anything to them.
         val cameraAir = clouds?.air
+        val ear = attractor.toBodyFixed(cameraPosition, bodyRotation, scratchEar)
         val listener = SoundScene.Listener(
             position = cameraPosition.copy(),
             right = cameraRotation.rotate(Vec3.unitX(), Vec3()),
@@ -1108,6 +1110,9 @@ class GameSession private constructor(
             sea = if (mapMode) 0.0 else seaHeard,
             seaRough = seaRough,
             seaStorm = seaStorm,
+            complex = if (mapMode) 0.0 else nearCape(attractor, ear, CAPE_PADS),
+            lampsLit = (scratchLamp.setTo(ear).normalizeInPlace() dot SUN_DIRECTION) < World.LAMP_DUSK,
+            port = if (mapMode) 0.0 else nearCape(attractor, ear, CAPE_JETTY),
         )
         lastListener = listener
         // Blows, breakages and blasts since last frame, where they happened
@@ -1206,6 +1211,7 @@ class GameSession private constructor(
                     tide = tide,
                     sea = seaSurface,
                     underwater = underwater,
+                    lamps = nearestLamps(cloudCamera),
                 ),
                 nearestDistance = if (nearest == Double.MAX_VALUE) 0.0 else nearest.coerceAtLeast(0.0),
                 particles = particles,
@@ -1460,6 +1466,22 @@ class GameSession private constructor(
      * high up. A ring of points round the spot below the camera, looked at
      * for land and for sea.
      */
+    /**
+     * How near [camera] (body-fixed) is to the Cape's [place] - a body-fixed
+     * unit direction - to hear it: 1 within [CAPE_HEARD_FULL] m of it and
+     * low, nothing by [CAPE_HEARD_UNTIL] or high above it. Terra's Cape only.
+     */
+    private fun nearCape(attractor: CelestialBody, camera: Vec3, place: Vec3): Double {
+        if (attractor.id != com.rm.apogee.core.orbit.SolarSystem.HOMEWORLD_ID) return 0.0
+        val height = camera.length - attractor.radius - (attractor.terrain?.elevation(place) ?: 0.0)
+        val across = camera.length * kotlin.math.acos((scratchCape.setTo(camera).normalizeInPlace() dot place).coerceIn(-1.0, 1.0))
+        val away = kotlin.math.sqrt(across * across + height.coerceAtLeast(0.0) * height.coerceAtLeast(0.0))
+        return 1.0 - smoothstepD(CAPE_HEARD_FULL, CAPE_HEARD_UNTIL, away)
+    }
+
+    private val scratchCape = Vec3()
+    private val scratchEar = Vec3()
+
     private fun shoreNear(attractor: CelestialBody, cameraPosition: Vec3, bodyRotation: Quat): Double {
         val now = System.nanoTime()
         val terrain = attractor.terrain
@@ -2098,6 +2120,28 @@ class GameSession private constructor(
     @Volatile private var soundStopped = false
 
     private val scratchLamp = Vec3()
+    private val scratchGlow = Vec3()
+
+    /** Lit lamps that light what is round them this frame: body-fixed x, y, z and reach, four to a lamp. */
+    private var lamps = DoubleArray(4 * 16)
+    private var lampCount = 0
+
+    /**
+     * The lamps nearest [camera] (body-fixed) whose light could reach
+     * anything in view, nearest first - as many as the renderer takes, fewer
+     * on a low tier.
+     */
+    private fun nearestLamps(camera: Vec3): DoubleArray {
+        if (lampCount == 0 || mapMode) return com.rm.apogee.render.WorldView.NO_LAMPS
+        val most = if (terrainQuality == QualityTier.LOW) LOW_TIER_LAMPS else com.rm.apogee.render.WorldView.MAX_LAMPS
+        val order = (0 until lampCount).sortedBy { k ->
+            val dx = lamps[4 * k] - camera.x; val dy = lamps[4 * k + 1] - camera.y; val dz = lamps[4 * k + 2] - camera.z
+            kotlin.math.sqrt(dx * dx + dy * dy + dz * dz) - lamps[4 * k + 3]
+        }.take(most)
+        val out = DoubleArray(4 * order.size)
+        for ((i, k) in order.withIndex()) System.arraycopy(lamps, 4 * k, out, 4 * i, 4)
+        return out
+    }
 
     /**
      * Which way a windsock at [at] hangs, world: out downwind - the wind the
@@ -2347,6 +2391,11 @@ class GameSession private constructor(
             }
             // A lamp's lights, lit at night while it has power.
             val lamp = lampsLit && def.hasModule<com.rm.apogee.core.part.Lamp>()
+            // One that lights the ground round it, from where its lights are.
+            val lampModule = if (lamp) def.module<com.rm.apogee.core.part.Lamp>() else null
+            val reach = lampModule?.reach ?: 0.0
+            var glows = 0
+            scratchGlow.setTo(0.0, 0.0, 0.0)
             val sock = placed.partId == WINDSOCK_PART
             for ((piece, leaf) in leaves.withIndex()) {
                 val lit = lamp && leaf.tint == com.rm.apogee.core.part.Tint.LIGHT
@@ -2363,6 +2412,7 @@ class GameSession private constructor(
                     leafRotation = com.rm.apogee.core.math.quatFromTo(axis, hang) * leafRotation
                     leafWorld = pivot.addScaledInPlace(hang, WINDSOCK_REACH)
                 }
+                if (lit && reach > 0.0) { scratchGlow.addInPlace(leafWorld); glows++ }
                 out.add(
                     RenderItem(
                         caps = leaf.caps,
@@ -2377,6 +2427,24 @@ class GameSession private constructor(
                         key = RenderItem.partKey(vessel.id, partIdentity(placed), piece),
                     )
                 )
+            }
+            if (glows > 0) {
+                scratchGlow.mulInPlace(1.0 / glows)
+                // Aimed: the light stands out in front, over the middle of the pool it throws.
+                val aim = lampModule?.aim ?: 0.0
+                if (aim > 0.0) {
+                    val front = partRotation.rotate(Vec3.unitZ())
+                    val up = scratch.normalized()
+                    front.addScaledInPlace(up, -(front dot up))
+                    if (front.length > 1e-3) scratchGlow.addScaledInPlace(front.normalizeInPlace(), aim)
+                }
+                attractor.toBodyFixed(scratchGlow, bodyRotation, scratchGlow)
+                if (4 * lampCount + 4 > lamps.size) lamps = lamps.copyOf(lamps.size * 2)
+                lamps[4 * lampCount] = scratchGlow.x
+                lamps[4 * lampCount + 1] = scratchGlow.y
+                lamps[4 * lampCount + 2] = scratchGlow.z
+                lamps[4 * lampCount + 3] = reach
+                lampCount++
             }
         }
 
@@ -2577,6 +2645,17 @@ class GameSession private constructor(
         /** A lamp's light, lit: warm white, and drawn this much larger for its glare. */
         val LAMP_COLOUR = floatArrayOf(1.0f, 0.9f, 0.62f, 1.0f)
         val LAMP_GLARE = Vec3(2.0, 2.0, 2.0)
+
+        /** Where the Cape is heard: the middle of the pads, and the jetty's head. */
+        private val CAPE_PADS = com.rm.apogee.core.orbit.SolarSystem.capeDirection(0.0, 0.0)
+        private val CAPE_JETTY = com.rm.apogee.core.orbit.SolarSystem.capeDirection(2_660.0, 350.0)
+
+        /** Heard fully this near a Cape place, m, and not at all past [CAPE_HEARD_UNTIL]. */
+        private const val CAPE_HEARD_FULL = 120.0
+        private const val CAPE_HEARD_UNTIL = 450.0
+
+        /** Lamps lighting the ground at once on a low tier: each is a little more per pixel. */
+        const val LOW_TIER_LAMPS = 4
 
         /** The windsock: which part, which of its pieces is the sock, where it hangs from and how far out its middle is. */
         const val WINDSOCK_PART = "struct-windsock"

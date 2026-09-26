@@ -111,6 +111,8 @@ float trim(int r) {
         case recipe::OUTBOARD: return 0.27f;
         case recipe::SURF: return 0.33f;  // ambient: well under the engines
         case recipe::SEA: return 0.39f;  // ambient, and long: 6-7 dB under the engines rough
+        case recipe::COMPLEX: return 0.3f;  // a background you notice only when it stops
+        case recipe::PORT: return 0.3f;
         case recipe::RCS: return 0.25f;  // puffs under the engines
         case recipe::IMPACT: return 0.2f;
         case recipe::CRUNCH: return 0.09f;
@@ -629,6 +631,76 @@ void Synth::renderVoice(Voice& v, float& left, float& right) {
             v.f[1].process(v.pink2.next(rng.white()));
             v.f[2].process(v.f[0].low);
             s = (v.f[0].low * (0.35f + 0.8f * wash) + v.f[1].low * 0.3f * rough * wash + v.f[2].low * 1.4f * storm) * loud;
+            break;
+        }
+        case recipe::COMPLEX: {
+            // The launch complex standing by: a low electrical hum from the
+            // tower and the lamps - more of it at night, with them lit - that
+            // wanders a little in strength, never a steady tone; and now and
+            // then the propellant farm venting, a soft breath of gas that
+            // swells and dies over a few seconds, each its own length, pitch
+            // and strength, never on a beat.
+            float loud = clampf(p[0], 0, 1.5f), lamps = clampf(p[1], 0, 1);
+            v.state[1] += dt / 11.0f;
+            v.state[1] -= std::floor(v.state[1]);
+            float wander = 0.75f + 0.25f * std::sin(kTwoPi * v.state[1]) * std::sin(kTwoPi * v.state[1] * 2.3f + 1.1f);
+            v.state[0] -= dt;
+            if (v.state[0] <= 0) {
+                v.state[0] = 9.0f + 16.0f * v.rng.uniform();
+                v.state[2] = 0.75f + 0.5f * v.rng.uniform();
+                v.env[0].trigger(0.6f + 0.9f * v.rng.uniform(), 1.2f + 1.8f * v.rng.uniform(), sr, 0.5f + 0.5f * v.rng.uniform());
+            }
+            if (control) {
+                v.f[0].set(260.0f, 0.8f, sr);
+                v.f[1].set(620.0f * v.state[2], 0.9f, sr);
+                v.f[2].set(1100.0f, 0.6f, sr);
+            }
+            // Hum: a rounded buzz, its harmonics in the band a phone can play.
+            v.f[0].process(v.osc[0].saw(100.0f, sr) * 0.6f + v.osc[1].sine(200.0f, sr) * 0.25f);
+            float hum = (v.f[0].low + v.f[0].band * 0.5f) * (0.35f + 0.65f * lamps) * wander;
+            // The vent: pink breath through a soft band, rounded off above.
+            v.f[1].process(v.pink.next(rng.white()));
+            v.f[2].process(v.f[1].band * v.env[0].next());
+            s = (hum * 0.25f + v.f[2].low * 1.6f) * loud;
+            break;
+        }
+        case recipe::PORT: {
+            // A harbour at rest: water lapping at the piles in small uneven
+            // slaps, low and soft, and now and then a halyard knocking on a
+            // mast - a dull clink, sometimes two, kept dark. Nothing on a beat.
+            float loud = clampf(p[0], 0, 1.5f);
+            v.state[0] -= dt;
+            if (v.state[0] <= 0) {
+                v.state[0] = 0.5f + 1.7f * v.rng.uniform();
+                v.state[3] = 0.8f + 0.5f * v.rng.uniform();
+                v.env[0].trigger(0.03f + 0.05f * v.rng.uniform(), 0.18f + 0.3f * v.rng.uniform(), sr, 0.35f + 0.65f * v.rng.uniform());
+                v.f[0].set(300.0f * v.state[3], 1.1f, sr);
+                v.f[1].set(160.0f * v.state[3], 0.9f, sr);
+            }
+            v.state[1] -= dt;
+            if (v.state[1] <= 0 || (v.state[2] > 0 && (v.state[2] -= dt) <= 0)) {
+                bool second = v.state[1] > 0;
+                if (!second) {
+                    v.state[1] = 3.0f + 9.0f * v.rng.uniform();
+                    // Sometimes it swings back and knocks again.
+                    v.state[2] = v.rng.uniform() < 0.35f ? 0.14f + 0.2f * v.rng.uniform() : 0.0f;
+                } else {
+                    v.state[2] = 0.0f;
+                }
+                float f0 = (640.0f + 380.0f * v.rng.uniform());
+                const float freqs[3] = {f0, f0 * 1.52f, f0 * 2.37f};
+                const float qs[3] = {18.0f, 14.0f, 10.0f};
+                const float gains[3] = {1.0f, 0.35f, 0.12f};
+                v.res.set(3, freqs, qs, gains, sr);
+                v.env[1].trigger(0.001f, 0.012f, sr, (second ? 0.45f : 0.8f) * (0.5f + 0.5f * v.rng.uniform()));
+            }
+            if (control) v.f[3].set(1300.0f, 0.6f, sr);
+            float water = v.brown.next(rng.white()) * 0.7f + v.pink.next(rng.white()) * 0.3f;
+            float lap = v.env[0].next();
+            v.f[0].process(water * lap);
+            v.f[1].process(water * lap);
+            v.f[3].process(v.res.process(rng.white() * v.env[1].next()) * 0.6f);
+            s = (v.f[0].band * 1.8f + v.f[1].band * 1.2f + v.f[3].low) * loud;
             break;
         }
         case recipe::RCS: {

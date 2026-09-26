@@ -21,6 +21,8 @@ constexpr int OUTBOARD = 12;   // p0 output, p1 revs
 constexpr int SURF = 13;       // p0 loudness
 constexpr int RCS = 14;        // p0 how many firing
 constexpr int SEA = 15;        // p0 loudness, p1 roughness, p2 storm
+constexpr int COMPLEX = 16;    // p0 loudness, p1 lamps lit (0..1)
+constexpr int PORT = 17;       // p0 loudness
 constexpr int LAST_CONTINUOUS = 49;
 
 // One-shots: fired once, then they ring out.
@@ -62,6 +64,7 @@ constexpr int COUNT = 5;
 inline int busOf(int r) {
     switch (r) {
         case recipe::WIND: case recipe::RAIN: case recipe::SURF: case recipe::SEA: case recipe::THUNDER: case recipe::FIRE:
+        case recipe::COMPLEX: case recipe::PORT:
             return bus::ENVIRONMENT;
         case recipe::IMPACT: case recipe::CRUNCH: case recipe::TEAR: case recipe::EXPLOSION: case recipe::SPLASH: case recipe::SLAP:
             return bus::IMPACTS;

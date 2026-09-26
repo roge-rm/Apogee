@@ -174,7 +174,7 @@ parts.append(part(
         piece(cyl(0.3, 0.1), at=(0, -2.95, 0), tint="dark"),
     ),
     [node("bottom", (0, -3.0, 0), (0, -1, 0), size=0, kind="surface")],
-    [{"type": "lamp", "draw": 0.3, "reach": 22.0}],
+    [{"type": "lamp", "draw": 0.3, "reach": 22.0, "aim": 8.0}],
     crash=10.0, drag=1.0,
 ))
 

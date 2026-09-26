@@ -2112,7 +2112,8 @@
       {
         "type": "lamp",
         "draw": 0.0,
-        "reach": 60.0
+        "reach": 60.0,
+        "aim": 30.0
       }
     ],
     "strength": 50000000.0,

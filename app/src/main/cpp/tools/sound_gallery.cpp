@@ -188,6 +188,9 @@ int main(int argc, char** argv) {
     render(dir, "level-sea-calm", 20, {{recipe::SEA, 0, [](float, float* p) { p[0] = 0.4f; p[1] = 0.1f; }}});
     render(dir, "level-sea-rough", 20, {{recipe::SEA, 0, [](float, float* p) { p[0] = 1.0f; p[1] = 0.8f; }}});
     render(dir, "level-sea-storm", 20, {{recipe::SEA, 0, [](float, float* p) { p[0] = 1.0f; p[1] = 1.0f; p[2] = 1.0f; }}});
+    render(dir, "level-complex-day", 30, {{recipe::COMPLEX, 0, [](float, float* p) { p[0] = 1.0f; }}});
+    render(dir, "level-complex-night", 30, {{recipe::COMPLEX, 0, [](float, float* p) { p[0] = 1.0f; p[1] = 1.0f; }}});
+    render(dir, "level-port", 30, {{recipe::PORT, 0, [](float, float* p) { p[0] = 1.0f; }}});
     render(dir, "level-slap", 1, {{recipe::SLAP, 0, [](float, float* p) { p[0] = 1.0f; }}});
     // A plane going by at 150 m/s: Doppler from high to low as it passes.
     render(dir, "doppler-flyby", 8, {{recipe::JET, 0, [](float t, float* p) {

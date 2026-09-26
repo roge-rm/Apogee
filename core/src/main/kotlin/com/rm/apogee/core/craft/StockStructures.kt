@@ -32,13 +32,13 @@ object StockStructures {
     val launchComplex = Complex(
         "Cape Launch Complex", 0.0, 0.0,
         buildList {
-            // Beside pad 0, north of the row of pads, arms toward it.
-            add(Placement("struct-launch-tower", 0.0, 17.0, facing = 180.0))
+            // Beside pad 0, north of the row of pads, arms south toward it.
+            add(Placement("struct-launch-tower", 0.0, 17.0))
             // Lightning masts round the pads, clear of the row.
             for ((e, n) in listOf(-30.0 to 30.0, 30.0 to 30.0, -30.0 to -30.0, 30.0 to -30.0)) add(Placement("struct-lightning-mast", e, n))
-            // Lamps at the concrete's edge.
+            // Lamps at the concrete's edge, each turned to the pads.
             for ((e, n) in listOf(-90.0 to 60.0, 90.0 to 60.0, -90.0 to -60.0, 90.0 to -60.0)) {
-                add(Placement("struct-floodlight", e, n, facing = if (n > 0) 180.0 else 0.0))
+                add(Placement("struct-floodlight", e, n, facing = facingToward(e, n, 0.0, 0.0)))
             }
             add(Placement("struct-assembly", -130.0, 170.0))
             add(Placement("struct-control-centre", 160.0, 190.0))
@@ -84,6 +84,10 @@ object StockStructures {
     )
 
     val complexes = listOf(launchComplex, airfield, harbour)
+
+    /** The [Placement.facing] that turns a building at [east], [north] to look at [toEast], [toNorth]. */
+    fun facingToward(east: Double, north: Double, toEast: Double, toNorth: Double): Double =
+        Math.toDegrees(kotlin.math.atan2(toEast - east, -(toNorth - north)))
 
     /**
      * [complex] as a craft design: upright, its origin on the ground at the

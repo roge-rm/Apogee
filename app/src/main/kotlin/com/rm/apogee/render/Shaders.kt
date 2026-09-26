@@ -31,6 +31,25 @@ object Shaders {
         // Twilight: with the sun about the horizon the sky itself glows and
         // lights everything from above, a little warm.
         vec3 duskGlow(float daylight) { return vec3(0.17, 0.15, 0.18) * 4.0 * daylight * (1.0 - daylight); }
+        // Lamps lit after dark: a floodlight's pool on the concrete, a
+        // hangar's light on its floor. Camera-relative position and reach,
+        // the nearest few; warm, fading to nothing at the reach, and on
+        // what faces them - the outside of a roof over one stays dark.
+        const int LAMPS = 8;
+        const vec3 LAMP = vec3(1.0, 0.9, 0.62) * 2.2;
+        uniform vec4 uLamps[LAMPS];
+        uniform int uLampCount;
+        vec3 lampLight(vec3 p, vec3 n) {
+            vec3 sum = vec3(0.0);
+            for (int i = 0; i < LAMPS; i++) {
+                if (i >= uLampCount) break;
+                vec3 d = uLamps[i].xyz - p;
+                float r = length(d);
+                float f = clamp(1.0 - r / uLamps[i].w, 0.0, 1.0);
+                sum += f * f * max(dot(n, d / max(r, 0.01)), 0.0);
+            }
+            return LAMP * sum;
+        }
     """
 
     /**
@@ -230,6 +249,7 @@ object Shaders {
             vec3 moon = MOON * (0.55 + 0.45 * moonFacing * direct) * (0.4 + 0.6 * uLightScale);
             vec3 lit = uColor.rgb * ((uAmbient + diffuse * 0.8 * uLightScale * direct) * uDaylight + moon * moonLeft(uDaylight) + duskGlow(uDaylight));
             lit += uColor.rgb * FLASH * uFlash;
+            if (uLampCount > 0) lit += uColor.rgb * lampLight(-vToCamera, n);
             // Ambient of one or more means it glows - a flame - at its own colour.
             if (uAmbient >= 1.0) lit = uColor.rgb;
             float haze = (1.0 - exp(-vDistance / max(uHazeDistance, 1.0))) * uAtmosphereFactor;
@@ -506,6 +526,7 @@ object Shaders {
             vec3 moon = MOON * (0.55 + 0.45 * max(-dot(n, uSunDirection), 0.0) * direct) * (0.4 + 0.6 * uLightScale);
             vec3 lit = vColour * ((0.28 + lambert * 0.9 * uLightScale) * uDaylight + moon * moonLeft(uDaylight) + duskGlow(uDaylight));
             lit += vColour * FLASH * uFlash;
+            if (uLampCount > 0) lit += vColour * lampLight(vPosition, n);
             float haze = (1.0 - exp(-vDistance / max(uHazeDistance, 1.0))) * uAtmosphereFactor;
             vec3 hazeColor = HAZE * (NIGHT_AIR + (1.0 - NIGHT_AIR) * uDaylight);
             lit = mix(lit, hazeColor, clamp(haze, 0.0, 1.0));
@@ -628,6 +649,7 @@ object Shaders {
             vec3 night = MOON * (0.55 + 0.45 * max(-dot(n, uSunDirection), 0.0) * direct) * (0.4 + 0.6 * uLightScale);
             vec3 lit = surface * (night * moonLeft(uDaylight) + duskGlow(uDaylight) + (0.06 + lambert * 1.10 * uLightScale) * daylight);
             lit += surface * FLASH * uFlash;
+            if (uLampCount > 0) lit += surface * lampLight(vPosition, n);
 
             // A glint off the water, which is most of what reads as sea
             // rather than as a blue-painted plain.
@@ -757,6 +779,7 @@ object Shaders {
             float shade = 0.22 + 1.25 * pow(lambert, 0.8) * uLightScale;
             vec3 lit = surface * (night * moonLeft(uDaylight) + duskGlow(uDaylight) + shade * daylight);
             lit += surface * FLASH * uFlash;
+            if (uLampCount > 0) lit += surface * lampLight(vPosition, n);
 
             // The sky in it, most at a glancing angle - what makes water
             // read as water - and the sun's sparkle off facets turned to it.

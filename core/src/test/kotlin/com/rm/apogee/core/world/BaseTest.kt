@@ -10,6 +10,9 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 /**
  * Bases: founded where they stand, immovable from then on, and built out by
@@ -344,6 +347,53 @@ class BaseTest {
     }
 
     @Test
+    fun `a world saved with an older layout of a complex gets the new one on load`() {
+        val world = World.default(catalog)
+        world.ensureStructures()
+        val complex = com.rm.apogee.core.craft.StockStructures.launchComplex
+        // As 0.6.0 had it: the tower turned round, its arms away from the pads.
+        val file = java.io.File.createTempFile("old-cape", ".json").also { it.deleteOnExit() }
+        WorldStore(file).save(world.save()).getOrThrow()
+        val json = kotlinx.serialization.json.Json.parseToJsonElement(file.readText()).jsonObject
+        val vessels = json["vessels"]!!.jsonArray.map { v ->
+            if (v.jsonObject["name"]!!.jsonPrimitive.content != complex.name) v else {
+                val design = v.jsonObject["design"]!!.jsonObject
+                val parts = design["parts"]!!.jsonArray.mapIndexed { i, p ->
+                    if (i != 0) p else kotlinx.serialization.json.JsonObject(p.jsonObject + ("rotation" to
+                        kotlinx.serialization.json.Json.parseToJsonElement("""{"x":0.0,"y":1.0,"z":0.0,"w":0.0}""")))
+                }
+                kotlinx.serialization.json.JsonObject(v.jsonObject + ("design" to kotlinx.serialization.json.JsonObject(design + ("parts" to kotlinx.serialization.json.JsonArray(parts)))))
+            }
+        }
+        file.writeText(kotlinx.serialization.json.JsonObject(json + ("vessels" to kotlinx.serialization.json.JsonArray(vessels))).toString())
+        val loaded = World.default(catalog)
+        loaded.restore(WorldStore(file).load().getOrThrow())
+        loaded.ensureStructures()
+        val before = loaded.structureOf(complex)!!.id
+        loaded.repairStructures(now = true)
+        val now = loaded.structureOf(complex)!!
+        assertTrue("the old layout was kept", now.id != before)
+        val canon = com.rm.apogee.core.craft.StockStructures.design(complex, catalog).parts[0].rotation
+        assertTrue("not the new layout", kotlin.math.abs(now.design.parts[0].rotation dot canon) > 0.99999)
+        assertEquals("one of it, not two", 1, loaded.vessels.count { it.name == complex.name })
+        // And one as designed is left alone.
+        loaded.repairStructures(now = true)
+        assertEquals("rebuilt again for nothing", now.id, loaded.structureOf(complex)!!.id)
+    }
+
+    @Test
+    fun `the launch tower's arms and the floodlights face the pads`() {
+        val design = com.rm.apogee.core.craft.StockStructures.design(com.rm.apogee.core.craft.StockStructures.launchComplex, catalog)
+        for (part in design.parts) {
+            if (part.partId != "struct-launch-tower" && part.partId != "struct-floodlight") continue
+            // Design axes: +X east, +Z south; the pads at the origin.
+            val front = part.rotation.rotate(Vec3(0.0, 0.0, 1.0))
+            val toPads = Vec3(-part.position.x, 0.0, -part.position.z).normalizeInPlace()
+            assertTrue("${part.partId} at ${part.position} faces away from the pads", (front dot toPads) > 0.95)
+        }
+    }
+
+    @Test
     fun `a world without the Cape's buildings does not grow them`() {
         val world = World.default(catalog)
         repeat(((World.REPAIR_QUIET + 3.0) / dt).toInt()) { world.step(dt) }
@@ -361,6 +411,55 @@ class BaseTest {
         // panels charge it again once the sun is well up.
         world.settlePower(base, whenSun(world, base, 0.5, rising = true))
         assertTrue("no power on Luna with the sun up", charge(base) > 0.0 && base.powerNet > 0.0 && base.powered)
+    }
+
+    @Test
+    fun `a base core lander flies itself down to the mare and is founded where it lands`() {
+        val world = World.default(catalog)
+        val mare = World.launchSites.first { it.id == "luna-mare" }
+        val lander = world.spawnOnSurface(StockCraft.baseCoreLander(catalog), mare, pad = 2)
+        repeat(2) { world.stage(lander) }
+        lander.control.sasEnabled = true
+        lander.control.rcsEnabled = true
+        val luna = world.attractorFor(lander)
+        assertEquals("luna", luna.id)
+
+        // A hundred and fifty metres up, still over the ground.
+        val up = lander.body.position.copy().normalizeInPlace()
+        lander.wake()
+        lander.body.position.addScaledInPlace(up, 150.0)
+        luna.surfaceVelocityAt(lander.body.position, lander.body.linearVelocity)
+        val thrust = 2 * 60_000.0
+        val surface = Vec3()
+        val direction = Vec3()
+        fun height(): Double {
+            luna.toBodyFixed(lander.body.position, luna.rotationAt(world.time), direction).normalizeInPlace()
+            return lander.body.position.length - luna.surfaceRadiusInBodyFrame(direction)
+        }
+        // Down the way a pilot would: slowing as the ground comes up, a
+        // metre a second at the end, the engines cut once the legs are down.
+        var t = 0.0
+        while (t < 120.0 && !lander.touchingGround) {
+            val g = luna.gravitationalParameter / lander.body.position.lengthSq
+            val climb = (lander.body.linearVelocity - luna.surfaceVelocityAt(lander.body.position, surface)) dot up
+            val want = -(height() * 0.12).coerceIn(1.0, 10.0)
+            lander.control.throttle = ((g + 2.0 * (want - climb)) * lander.body.mass / thrust).coerceIn(0.0, 1.0)
+            world.step(dt)
+            t += dt
+        }
+        assertTrue("never came down", lander.touchingGround)
+        lander.control.throttle = 0.0
+        settle(world, 20.0)
+
+        assertFalse("something broke landing", lander.broken.any { it })
+        val tilt = Math.toDegrees(kotlin.math.acos((lander.forward() dot lander.body.position.copy().normalizeInPlace()).coerceIn(-1.0, 1.0)))
+        assertTrue("landed tilted $tilt degrees", tilt < 6.0)
+        val tanks = lander.defs.indices.filter { lander.defs[it].id == "tank-cask4" }
+        val left = lander.amountIn(tanks, com.rm.apogee.core.part.ResourceType.PROPELLANT)
+        assertTrue("could not found where it landed", world.anchor(lander))
+        // What the descent did not burn is the base's store.
+        assertTrue("nothing left in the tanks", left > 100.0)
+        assertTrue("the base cannot see its store", lander.amountOf(com.rm.apogee.core.part.ResourceType.PROPELLANT) >= left - 1e-6)
     }
 
     @Test

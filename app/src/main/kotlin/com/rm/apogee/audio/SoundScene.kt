@@ -105,6 +105,11 @@ class SoundScene(private val budget: Int) {
         val sea: Double = 0.0,
         val seaRough: Double = 0.0,
         val seaStorm: Double = 0.0,
+        /** The launch complex round the listener, 0 away to 1 among its pads; and whether its lamps are lit. */
+        val complex: Double = 0.0,
+        val lampsLit: Boolean = false,
+        /** The harbour round the listener, 0 away to 1 on its jetty. */
+        val port: Double = 0.0,
     ) {
         val inAir: Boolean get() = density > AIRLESS
     }
@@ -248,6 +253,17 @@ class SoundScene(private val budget: Int) {
                 v[2] = listener.seaStorm.coerceIn(0.0, 1.0).toFloat()
                 add(KEY_SEA, Recipes.SEA, 0, v, 1f, 0f, 0f, weight = v[0] * 0.35f)
             }
+            if (listener.complex > 0.02) {
+                val v = FloatArray(SharedParams.COUNT)
+                v[0] = listener.complex.coerceIn(0.0, 1.0).toFloat()
+                v[1] = if (listener.lampsLit) 1f else 0f
+                add(KEY_COMPLEX, Recipes.COMPLEX, 0, v, 1f, 0f, 0f, weight = v[0] * 0.25f)
+            }
+            if (listener.port > 0.02) {
+                val v = FloatArray(SharedParams.COUNT)
+                v[0] = listener.port.coerceIn(0.0, 1.0).toFloat()
+                add(KEY_PORT, Recipes.PORT, 0, v, 1f, 0f, 0f, weight = v[0] * 0.3f)
+            }
         }
 
         // The loudest, as many as there are voices for.
@@ -385,6 +401,8 @@ class SoundScene(private val budget: Int) {
         const val KEY_RAIN = -6
         const val KEY_SURF = -7
         const val KEY_SEA = -8
+        const val KEY_COMPLEX = -9
+        const val KEY_PORT = -10
 
         /**
          * How much an engine is built for vacuum, 0..1, from how much of its

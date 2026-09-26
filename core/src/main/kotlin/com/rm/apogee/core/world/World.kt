@@ -1191,9 +1191,23 @@ class World(
         raiseLunaBase()
     }
 
-    /** Whether [standing] is all of [complex], and whole. */
-    private fun intact(standing: Vessel, complex: com.rm.apogee.core.craft.StockStructures.Complex): Boolean =
-        standing.defs.size == complex.placements.size && standing.broken.none { it } && standing.health.all { it >= 1.0 }
+    /**
+     * Whether [standing] is all of [complex], whole, and as it is designed
+     * now: a world saved before a building was moved or turned gets the new
+     * layout, as it would a broken one.
+     */
+    private fun intact(standing: Vessel, complex: com.rm.apogee.core.craft.StockStructures.Complex): Boolean {
+        if (standing.broken.any { it } || standing.health.any { it < 1.0 }) return false
+        val canon = canonicalStructures.getOrPut(complex.name) { com.rm.apogee.core.craft.StockStructures.design(complex, catalog) }.parts
+        val parts = standing.design.parts
+        return parts.size == canon.size && canon.indices.all { i ->
+            parts[i].partId == canon[i].partId && parts[i].position.distanceTo(canon[i].position) < 0.01 &&
+                kotlin.math.abs(parts[i].rotation dot canon[i].rotation) > 0.99999
+        }
+    }
+
+    /** Each complex as designed, by name: what [intact] holds a standing one to. */
+    private val canonicalStructures = HashMap<String, com.rm.apogee.core.craft.CraftDesign>()
 
     /** The world's standing copy of [complex], if it has one. */
     fun structureOf(complex: com.rm.apogee.core.craft.StockStructures.Complex): Vessel? =

@@ -114,6 +114,21 @@ class SceneSaves {
             w.spawnOnSurface(StockCraft.sparrow(c), World.launchSites.first { it.id == "airfield" }).name = "Sparrow"
             WorldStore(File(dir, "night.json")).save(w.save()).getOrThrow()
         }
+        // The pads at night, a rocket on pad 0 under the floodlights.
+        run {
+            val w = World.default(c).also {
+                it.restore(WorldSave(catalogHash = c.contentHash, universeTime = t + 10_775.0, nextVesselId = 1L,
+                    weather = WeatherConfig(clouds = com.rm.apogee.core.weather.CloudCover.LIGHT)))
+            }
+            w.spawnOnSurface(StockCraft.starterRocket(c), World.launchSites.first { it.id == "cape" }).name = "Starter I"
+            WorldStore(File(dir, "padnight.json")).save(w.save()).getOrThrow()
+        }
+        // A base core lander on Luna's mare, ready to fly.
+        run {
+            val w = world()
+            w.spawnOnSurface(StockCraft.baseCoreLander(c), World.launchSites.first { it.id == "luna-mare" }, pad = 2).name = "Base Core Lander"
+            WorldStore(File(dir, "lunalander.json")).save(w.save()).getOrThrow()
+        }
         // A founded pad base beside the Cape's pads, and a half-empty lander launched from it.
         run {
             val w = world(WeatherConfig(clouds = com.rm.apogee.core.weather.CloudCover.LIGHT))

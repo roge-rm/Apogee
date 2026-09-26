@@ -604,6 +604,58 @@ object StockCraft {
         return a.design()
     }
 
+    /**
+     * A base core that flies itself down: the core on its foundation, with
+     * connectors east and west, and a descent stage built round it - a tank
+     * and engine on each of the other two sides, legs on the diagonals, and
+     * thrusters on the tanks for the core has no reaction wheels.
+     *
+     * Made for Luna: the two engines are vacuum ones, a sixth of Terra's
+     * weight each. It lands on its legs with the foundation a hand's width
+     * off the ground and is founded where it stands; the descent stage stays
+     * on, and whatever it did not burn is the new base's first store.
+     */
+    fun baseCoreLander(catalog: PartCatalog = StockParts.catalog): CraftDesign {
+        val a = Assembly(catalog, "Base Core Lander", CraftOrientation.VERTICAL)
+        val foundation = a.root("base-foundation")
+        val core = a.on(foundation, "top", "base-core")
+        a.on(core, "surface-0", "base-connector")
+        a.on(core, "surface-1", "base-connector")
+        a.on(core, "top", "base-solar")
+        val parts = ArrayList(a.design().parts)
+        // Heights from the foundation's underside.
+        val floor = parts[foundation].position.y - catalog.require("base-foundation").boundsHalfExtents.y
+        fun add(partId: String, x: Double, y: Double, z: Double, parent: Int): Int {
+            parts.add(PlacedPart(partId, Vec3(x, floor + y, z), Quat.identity(), parentIndex = parent))
+            return parts.size - 1
+        }
+        // Tanks just clear of the foundation's edge; legs out on its corners.
+        val tankOut = 2.75
+        val legOut = 2.3
+        val engines = ArrayList<Int>()
+        for (side in listOf(1.0, -1.0)) {
+            // Tank 1.5-5.5 m up, bell 0.5-1.5: clear of the ground with the legs fully pressed.
+            val z = side * tankOut
+            val tank = add("tank-cask4", 0.0, 3.5, z, core)
+            engines.add(add("engine-vesper", 0.0, 1.0, z, tank))
+            for (x in listOf(0.7, -0.7)) add("rcs-nudge", x, 5.1, z, tank)
+        }
+        // Feet a quarter metre below the foundation: pressed by the landing
+        // they leave it close enough to the ground to be founded.
+        val legs = ArrayList<Int>()
+        for ((x, z) in listOf(1.0 to 1.0, -1.0 to 1.0, 1.0 to -1.0, -1.0 to -1.0)) {
+            legs.add(add("leg-stilt", x * legOut, 0.55, z * legOut, foundation))
+        }
+        faceOutward(parts, catalog)
+        return CraftDesign(
+            name = "Base Core Lander",
+            parts = parts,
+            orientation = CraftOrientation.VERTICAL,
+            stages = listOf(Stage(engines), Stage(legs)),
+            catalogHash = catalog.contentHash,
+        )
+    }
+
     /** A habitat on its own foundation, with a connector on one side to join a base by. */
     fun habitatModule(catalog: PartCatalog = StockParts.catalog): CraftDesign {
         val a = Assembly(catalog, "Habitat Module", CraftOrientation.VERTICAL)

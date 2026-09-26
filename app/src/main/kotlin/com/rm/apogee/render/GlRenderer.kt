@@ -93,6 +93,11 @@ class GlRenderer(
 
     // How much sun reaches the camera this frame, and the fog as it looks in it.
     private var frameDaylight = 1f
+
+    /** This frame's lamps, camera-relative x, y, z and reach: see [WorldView.lamps]. */
+    private val frameLamps = FloatArray(4 * WorldView.MAX_LAMPS)
+    private var frameLampCount = 0
+    private val scratchLamp = Vec3()
     private val frameFog = FloatArray(3)
     private var terrainProgram: ShaderProgram? = null
 
@@ -193,6 +198,7 @@ class GlRenderer(
         shader.setFloat("uSeaReach", world.seaReach.toFloat())
         shader.setFloat("uUnderwater", if (world.underwater) 1f else 0f)
         applyShadowUniforms(shader, true)
+        applyLamps(shader, true)
         GLES30.glEnable(GLES30.GL_BLEND)
         GLES30.glBlendFunc(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA)
         GLES30.glDisable(GLES30.GL_CULL_FACE)
@@ -250,6 +256,7 @@ class GlRenderer(
         vesselProgram = ShaderProgram(Shaders.VESSEL_VERTEX, Shaders.VESSEL_FRAGMENT, "vessel")
         cloudProgram = ShaderProgram(Shaders.CLOUD_INSTANCED_VERTEX, Shaders.CLOUD_INSTANCED_FRAGMENT, "cloud")
         GLES30.glGenBuffers(1, instanceBuffer, 0)
+        GLES30.glGenBuffers(1, solidBuffer, 0)
         skyProgram = ShaderProgram(Shaders.SKY_VERTEX, Shaders.SKY_FRAGMENT, "sky")
         terrainProgram = ShaderProgram(Shaders.TERRAIN_VERTEX, Shaders.TERRAIN_FRAGMENT, "terrain")
         lineProgram = ShaderProgram(Shaders.LINE_VERTEX, Shaders.LINE_FRAGMENT, "line")
@@ -257,7 +264,7 @@ class GlRenderer(
         globeMesh = TerrainMesh()
         uploadedGlobe = 0
         chunkIndices = SharedIndexBuffer(TerrainChunk.indices)
-        scatterRenderer = ScatterRenderer().also { it.shadows = { program -> applyShadowUniforms(program, true) } }
+        scatterRenderer = ScatterRenderer().also { it.shadows = { program -> applyShadowUniforms(program, true); applyLamps(program, true) } }
         particleRenderer = ParticleRenderer()
         vesselDepth = ShaderProgram(Shaders.VESSEL_VERTEX, Shaders.DEPTH_FRAGMENT, "vessel-depth")
         seaProgram = ShaderProgram(Shaders.SEA_VERTEX, Shaders.SEA_FRAGMENT, "sea")
@@ -315,6 +322,7 @@ class GlRenderer(
                 interpolatedBodyRotation.setTo(now.bodyRotation)
             }
         }
+        frameLampCount = latest.world?.let { placeLamps(it, cameraPos) } ?: 0
         val aspect = viewportWidth.toDouble() / viewportHeight.toDouble()
 
         viewMatrix.setViewFromCameraRotation(interpolatedCameraRot)
@@ -476,6 +484,7 @@ class GlRenderer(
         modelMatrix.setFromTrs(Vec3.zero(), interpolatedBodyRotation, cameraPos, world.radius)
         applySurfaceUniforms(shader, world, atmosphereFactor, cameraPos)
         applyShadowUniforms(shader, false)
+        applyLamps(shader, false)
         // A little inside the chunks' reach, so there is no gap between them.
         shader.setFloat("uDiscardNearer", (world.chunkRange * 0.85).toFloat())
         mesh.draw()
@@ -533,6 +542,7 @@ class GlRenderer(
         shader.use()
         applySurfaceUniforms(shader, world, atmosphereFactor, cameraPos)
         applyShadowUniforms(shader, true)
+        applyLamps(shader, true)
         shader.setMat4("uViewProjection", nearViewProjection.m)
         shader.setFloat("uDiscardNearer", 0f)
         for (entry in list) {
@@ -682,15 +692,107 @@ class GlRenderer(
         // through the ones in front of it and nothing solid behind is lost.
         matchPrevious(items, previousItems)
         translucent.clear()
+        // Solid parts by shape, to be drawn many to a call: the Cape's
+        // buildings alone are some eight hundred pieces, and one call each
+        // was the frame's biggest pass.
+        val batching = cloudProgram != null && solidBuffer[0] != 0
         for ((index, item) in items.withIndex()) {
             if (item.color[3] < 0.999f) { translucent.add(index); continue }
-            drawItem(item, partners[index], alpha, cameraPos, shader)
+            if (batching && !item.wrap) solidGroup(item.shape, item.caps).add(index)
+            else drawItem(item, partners[index], alpha, cameraPos, shader)
         }
+        if (batching) drawSolidBatches(items, alpha, cameraPos, shader)
         if (deferTranslucent) { translucentDeferred = true; return }
         if (translucent.isNotEmpty()) drawTranslucentPass(items, alpha, cameraPos, shader)
     }
 
     private val translucent = ArrayList<Int>()
+
+    /** A growable list of ints, cleared rather than made again each frame. */
+    private class IntList {
+        var values = IntArray(8)
+        var size = 0
+        fun add(v: Int) { if (size == values.size) values = values.copyOf(size * 2); values[size++] = v }
+    }
+
+    /** This frame's solid items, by shape and then by caps: see [drawSolidBatches]. */
+    private val solidGroups = LinkedHashMap<com.rm.apogee.core.part.Shape, Array<IntList?>>()
+    private val solidBuffer = IntArray(1)
+    private val solidCaps = ArrayList<Int>()
+
+    private fun solidGroup(shape: com.rm.apogee.core.part.Shape, caps: Int): IntList {
+        val byCaps = solidGroups.getOrPut(shape) { arrayOfNulls(4) }
+        return byCaps[caps] ?: IntList().also { byCaps[caps] = it }
+    }
+
+    /**
+     * The solid items [solidGroups] holds: a shape with one of it drawn as
+     * it always was, and every shape with more drawn all at once, instanced
+     * - each piece's place, colour and glow its instance's.
+     */
+    private fun drawSolidBatches(items: List<RenderItem>, alpha: Double, cameraPos: Vec3, shader: ShaderProgram) {
+        val instanced = cloudProgram ?: return
+        commands.clear()
+        commandShapes.clear()
+        solidCaps.clear()
+        var floats = 0
+        for ((shape, byCaps) in solidGroups) {
+            for (caps in byCaps.indices) {
+                val group = byCaps[caps] ?: continue
+                if (group.size == 0) continue
+                if (group.size == 1) {
+                    val index = group.values[0]
+                    drawItem(items[index], partners[index], alpha, cameraPos, shader)
+                    passSingles++
+                } else {
+                    commands.add(floats / Mesh.INSTANCE_FLOATS); commands.add(group.size)
+                    commandShapes.add(shape); solidCaps.add(caps)
+                    for (k in 0 until group.size) floats = writeInstance(items, group.values[k], alpha, cameraPos, floats)
+                }
+                group.size = 0
+            }
+        }
+        if (commands.isEmpty()) return
+        uploadInstances(solidBuffer[0], floats)
+        instanced.use()
+        instanced.setFloat("uWrap", 0f)
+        instanced.setFloat("uReceivesShadow", 1f)
+        for (k in commandShapes.indices) {
+            meshFor(commandShapes[k], solidCaps[k]).drawInstanced(solidBuffer[0], commands[2 * k], commands[2 * k + 1])
+            passBatches++
+        }
+        // Back as the clouds want it.
+        instanced.setFloat("uWrap", 1f)
+        instanced.setFloat("uReceivesShadow", 0f)
+        commandShapes.clear()
+        commands.clear()
+        shader.use()
+    }
+
+    /** Item [index]'s instance - model matrix, 1/scale^2, glow, colour - into [instanceData] at [floats]; the floats after it. */
+    private fun writeInstance(items: List<RenderItem>, index: Int, alpha: Double, cameraPos: Vec3, floats: Int): Int {
+        val item = items[index]
+        modelOf(item, partners[index], alpha, cameraPos)
+        val at = ensureInstanceRoom(floats)
+        System.arraycopy(modelMatrix.m, 0, instanceData, at, 16)
+        instanceData[at + 16] = invScale[0]; instanceData[at + 17] = invScale[1]; instanceData[at + 18] = invScale[2]
+        instanceData[at + 19] = item.ambient
+        System.arraycopy(item.color, 0, instanceData, at + 20, 4)
+        return at + Mesh.INSTANCE_FLOATS
+    }
+
+    /** The first [floats] of [instanceData] up into [buffer]. */
+    private fun uploadInstances(buffer: Int, floats: Int) {
+        if (instanceBytes == null || instanceBytes!!.capacity() < floats * 4) {
+            instanceBytes = java.nio.ByteBuffer.allocateDirect(instanceData.size * 4).order(java.nio.ByteOrder.nativeOrder())
+        }
+        val bytes = instanceBytes!!
+        bytes.clear()
+        bytes.asFloatBuffer().put(instanceData, 0, floats)
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, buffer)
+        GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, floats * 4, bytes, GLES30.GL_STREAM_DRAW)
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, 0)
+    }
 
     /** What every item shader needs for the frame: projection, light, fog, haze, shadows. */
     private fun setItemUniforms(shader: ShaderProgram, latest: RenderFrame, viewProjection: FloatArray) {
@@ -714,6 +816,7 @@ class GlRenderer(
         shader.setFloat("uHazeDistance", ((world?.atmosphereScaleHeight ?: 1.0e6) * 8.0).toFloat())
         shader.setFloat("uAtmosphereFactor", if (world != null) atmosphereFactorAt(world) else 0f)
         applyShadowUniforms(shader, true)
+        applyLamps(shader, world != null)
     }
 
     /** Each item's self in the previous frame: see [ItemMatcher]. */
@@ -755,30 +858,11 @@ class GlRenderer(
             }
             for ((shape, members) in bands) {
                 val first = floats / Mesh.INSTANCE_FLOATS
-                for (index in members) {
-                    val item2 = items[index]
-                    modelOf(item2, partners[index], alpha, cameraPos)
-                    floats = ensureInstanceRoom(floats)
-                    System.arraycopy(modelMatrix.m, 0, instanceData, floats, 16)
-                    instanceData[floats + 16] = invScale[0]; instanceData[floats + 17] = invScale[1]; instanceData[floats + 18] = invScale[2]
-                    instanceData[floats + 19] = item2.ambient
-                    System.arraycopy(item2.color, 0, instanceData, floats + 20, 4)
-                    floats += Mesh.INSTANCE_FLOATS
-                }
+                for (index in members) floats = writeInstance(items, index, alpha, cameraPos, floats)
                 commands.add(first); commands.add(members.size); commandShapes.add(shape)
             }
         }
-        if (floats > 0) {
-            if (instanceBytes == null || instanceBytes!!.capacity() < floats * 4) {
-                instanceBytes = java.nio.ByteBuffer.allocateDirect(instanceData.size * 4).order(java.nio.ByteOrder.nativeOrder())
-            }
-            val bytes = instanceBytes!!
-            bytes.clear()
-            bytes.asFloatBuffer().put(instanceData, 0, floats)
-            GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, instanceBuffer[0])
-            GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, floats * 4, bytes, GLES30.GL_STREAM_DRAW)
-            GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, 0)
-        }
+        if (floats > 0) uploadInstances(instanceBuffer[0], floats)
         var current: ShaderProgram? = null
         var c = 0
         var shapeIndex = 0
@@ -1079,6 +1163,30 @@ class GlRenderer(
      * always point at units 1, 2 and 3 - even with shadows off, since two
      * sampler types left on one unit is an error when it draws.
      */
+    /**
+     * [world]'s lamps into [frameLamps], camera-relative, on the ground as it
+     * is turned this frame - so a pool stays put on the concrete it lights.
+     */
+    private fun placeLamps(world: WorldView, cameraPos: Vec3): Int {
+        val count = minOf(world.lamps.size / 4, WorldView.MAX_LAMPS)
+        for (k in 0 until count) {
+            scratchLamp.setTo(world.lamps[4 * k], world.lamps[4 * k + 1], world.lamps[4 * k + 2])
+            interpolatedBodyRotation.rotate(scratchLamp, scratchLamp).subInPlace(cameraPos)
+            frameLamps[4 * k] = scratchLamp.x.toFloat()
+            frameLamps[4 * k + 1] = scratchLamp.y.toFloat()
+            frameLamps[4 * k + 2] = scratchLamp.z.toFloat()
+            frameLamps[4 * k + 3] = world.lamps[4 * k + 3].toFloat()
+        }
+        return count
+    }
+
+    /** The lamps' light, for a program lit by them; none where there is no world. */
+    private fun applyLamps(shader: ShaderProgram, lit: Boolean) {
+        val count = if (lit) frameLampCount else 0
+        shader.setInt("uLampCount", count)
+        if (count > 0) shader.setVec4Array("uLamps", frameLamps, count)
+    }
+
     private fun applyShadowUniforms(shader: ShaderProgram, receives: Boolean) {
         shader.setInt("uNearShadow", 1)
         shader.setInt("uFarShadow", 2)
@@ -1224,6 +1332,7 @@ class GlRenderer(
         vesselProgram?.release(); vesselProgram = null
         cloudProgram?.release(); cloudProgram = null
         if (instanceBuffer[0] != 0) { GLES30.glDeleteBuffers(1, instanceBuffer, 0); instanceBuffer[0] = 0 }
+        if (solidBuffer[0] != 0) { GLES30.glDeleteBuffers(1, solidBuffer, 0); solidBuffer[0] = 0 }
         skyProgram?.release(); skyProgram = null
         terrainProgram?.release(); terrainProgram = null
         globeMesh?.release(); globeMesh = null

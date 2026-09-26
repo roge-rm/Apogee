@@ -205,9 +205,19 @@ class WorldView(
     val sea: SeaSurface? = null,
     /** The camera is under the water. */
     val underwater: Boolean = false,
+    /**
+     * Lit lamps lighting what is round them, nearest the camera first:
+     * body-fixed x, y, z and reach, four to a lamp, at most
+     * [MAX_LAMPS] of them.
+     */
+    val lamps: DoubleArray = NO_LAMPS,
 ) {
     companion object {
         const val CLEAR_FOG = 1.0e9
+        val NO_LAMPS = DoubleArray(0)
+
+        /** Lamps the renderer lights with at once: the shaders' LAMPS. */
+        const val MAX_LAMPS = 8
     }
 }
 

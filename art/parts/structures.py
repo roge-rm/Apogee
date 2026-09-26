@@ -97,7 +97,7 @@ building("struct-floodlight", "Floodlight Tower", 8000,
                   piece(box(4.0, 1.6, 0.6), at=(0, 9.2, 0.6), rot=(-20, 0, 0), tint="dark"),
                   *[piece(box(0.8, 0.6, 0.1), at=(x, 9.2, 0.95), rot=(-20, 0, 0), tint="light") for x in (-1.4, -0.45, 0.45, 1.4)]),
          hull=[hullbox(1.2, 20.0, 1.2)],
-         modules=[{"type": "lamp", "draw": 0.0, "reach": 60.0}])
+         modules=[{"type": "lamp", "draw": 0.0, "reach": 60.0, "aim": 30.0}])
 
 # --- the airfield ----------------------------------------------------------------
 

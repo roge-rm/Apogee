@@ -450,6 +450,12 @@ data class Lamp(
     val draw: Double = 0.2,
     /** How far its pool of light reaches on the ground, m; 0 for a lamp seen but lighting nothing. */
     val reach: Double = 0.0,
+    /**
+     * How far out in front of it - along its +Z, level - its pool is
+     * centred, m: a floodlight is aimed at what it lights; 0 for a lamp that
+     * lights all round it.
+     */
+    val aim: Double = 0.0,
 ) : PartModule
 
 /** Generates electric charge from sunlight. */
