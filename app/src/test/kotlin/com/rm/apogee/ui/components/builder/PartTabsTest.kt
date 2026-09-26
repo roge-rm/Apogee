@@ -11,10 +11,10 @@ class PartTabsTest {
     /** Every stock part, where a player would look for it. */
     private val expected = mapOf(
         PartTab.PODS to setOf("pod-halo", "cockpit-sparrow", "cockpit-kestrel", "cab-rover", "cab-open", "cabin-wheelhouse"),
-        PartTab.TANKS to setOf("tank-cask2", "tank-cask4", "fuselage-short", "fuselage-long"),
-        PartTab.ENGINES to setOf("engine-ember", "engine-vesper", "engine-zephyr", "engine-prop"),
+        PartTab.TANKS to setOf("tank-cask2", "tank-cask4", "tank-broad4", "tank-broad8", "fuselage-short", "fuselage-long"),
+        PartTab.ENGINES to setOf("engine-ember", "engine-vesper", "engine-zephyr", "engine-prop", "engine-forge"),
         PartTab.STRUCTURE to setOf(
-            "shield-halo", "decoupler-ring", "fuselage-tailcone", "chassis-small", "chassis-large", "rack-cargo",
+            "shield-halo", "decoupler-ring", "decoupler-broad", "adapter-taper", "fairing-base", "fuselage-tailcone", "chassis-small", "chassis-large", "rack-cargo",
         ),
         PartTab.WINGS to setOf(
             "fin-vane", "wing-plank", "tail-elevon", "nosecone-spire", "wing-small", "wing-swept", "wing-delta",
@@ -43,6 +43,7 @@ class PartTabsTest {
     fun `every stock part is in the tab it belongs in`() {
         val all = expected.values.flatten().toSet()
         for (def in catalog.parts.values) {
+            if (def.hidden) continue
             val want = expected.entries.firstOrNull { def.id in it.value }?.key
             assertEquals("${def.id} is not in the table - which tab should it be in?", true, def.id in all)
             assertEquals(def.id, want, PartTabs.of(def))
@@ -52,7 +53,7 @@ class PartTabsTest {
     @Test
     fun `All holds every part, pods first`() {
         val all = PartTabs.parts(catalog, PartTab.ALL)
-        assertEquals(catalog.size, all.size)
+        assertEquals(catalog.parts.values.count { !it.hidden }, all.size)
         assertEquals(PartTab.PODS, PartTabs.of(all.first()))
     }
 }

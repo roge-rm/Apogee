@@ -188,6 +188,7 @@ private fun colourOf(mode: SasMode): Color = when (mode) {
     SasMode.NORMAL, SasMode.ANTI_NORMAL -> Color(0xFFD27CFF)
     SasMode.RADIAL_OUT, SasMode.RADIAL_IN -> Color(0xFF6FE3FF)
     SasMode.TARGET, SasMode.ANTI_TARGET -> Color(0xFFFF5FD2)
+    SasMode.BURN -> Color(0xFF4FA3FF)
 }
 
 private fun short(mode: SasMode): String = when (mode) {
@@ -200,6 +201,7 @@ private fun short(mode: SasMode): String = when (mode) {
     SasMode.RADIAL_IN -> "R−"
     SasMode.TARGET -> "TGT"
     SasMode.ANTI_TARGET -> "ATG"
+    SasMode.BURN -> "BRN"
 }
 
 private fun distance(metres: Double): String =

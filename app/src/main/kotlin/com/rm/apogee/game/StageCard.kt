@@ -70,6 +70,7 @@ class StageCard(
             var decouplers = 0
             var chutes = 0
             var legs = 0
+            var fairings = 0
             for (index in parts) {
                 val def = vessel.defs.getOrNull(index) ?: continue
                 when {
@@ -77,6 +78,7 @@ class StageCard(
                     def.module<Decoupler>() != null -> decouplers++
                     def.module<Parachute>() != null -> chutes++
                     def.module<LandingLeg>() != null -> legs++
+                    def.module<com.rm.apogee.core.part.Fairing>() != null -> fairings++
                 }
             }
             val words = ArrayList<String>(4)
@@ -84,6 +86,7 @@ class StageCard(
             if (decouplers > 0) words.add("separation")
             if (chutes > 0) words.add(if (chutes == 1) "chute" else "$chutes chutes")
             if (legs > 0) words.add("legs")
+            if (fairings > 0) words.add("shroud")
             return words.joinToString(" · ").ifEmpty { "empty" }
         }
     }

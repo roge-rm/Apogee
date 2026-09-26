@@ -96,6 +96,21 @@ class WorldSaveTest {
     }
 
     @Test
+    fun `planned burns and a body target survive a save`() {
+        val original = flownWorld()
+        val craft = original.vessels.first()
+        val burn = PlannedBurn(original.time + 600.0, prograde = 120.0, normal = -4.0)
+        original.apply(Command.PlanBurns(craft.id.raw, listOf(burn)))
+        original.apply(Command.SetTarget(craft.id.raw, -1L, "luna"))
+
+        val restored = World.default(catalog)
+        restored.restore(original.save())
+        val back = restored.vessels.first()
+        assertEquals(listOf(burn), back.plannedBurns.toList())
+        assertEquals("luna", back.control.targetBody)
+    }
+
+    @Test
     fun `a reloaded world keeps flying from where it stopped`() {
         val original = flownWorld()
         val restored = World.default(catalog)

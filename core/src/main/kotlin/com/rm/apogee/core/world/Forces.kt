@@ -386,6 +386,46 @@ class Forces {
      * Each part's local velocity includes the craft's rotation, so aerodynamic
      * damping falls out of the same loop.
      */
+    /**
+     * The craft's whole drag area, Cd x A in m², as [applyDrag] would find it
+     * head-on: the stack's body drag, its fins edge-on, and any canopy as far
+     * open as it is. What a descent is foretold with (see
+     * [com.rm.apogee.core.orbit.Descent]); lift and wind are left out.
+     */
+    fun dragArea(vessel: Vessel): Double {
+        var maxRadius = 0.0
+        var low = Double.MAX_VALUE
+        var high = -Double.MAX_VALUE
+        var total = 0.0
+        val enclosed = vessel.enclosed()
+        for (i in vessel.defs.indices) {
+            val def = vessel.defs[i]
+            if (enclosed.getOrElse(i) { false }) continue
+            closedShell(vessel, i)?.let { fairing ->
+                maxRadius = maxOf(maxRadius, fairing.radius)
+                high = maxOf(high, vessel.design.parts[i].position.y + def.boundsHalfExtents.y + fairing.height)
+            }
+            val surface = def.module<AeroSurface>()
+            if (surface != null) { total += surface.area * FIN_PARASITIC_CD; continue }
+            val extents = def.boundsHalfExtents
+            maxRadius = maxOf(maxRadius, extents.x, extents.z)
+            val y = vessel.design.parts[i].position.y
+            low = minOf(low, y - extents.y)
+            high = maxOf(high, y + extents.y)
+            def.module<Parachute>()?.let { chute ->
+                val open = vessel.legDeploy.getOrElse(i) { 0.0 }
+                if (open > 0.0 && vessel.isWorking(i)) total += chute.deployedDragCoefficient * def.referenceArea * Parachute.dragShare(open)
+            }
+        }
+        val fineness = if (maxRadius > 0.0) (high - low) / (2.0 * maxRadius) else 3.0
+        val blunt = ((BLUNT_UNTIL - fineness) / (BLUNT_UNTIL - 1.0)).coerceIn(0.0, 1.0)
+        return total + PI * maxRadius * maxRadius * (AVERAGE_BODY_CD + (BLUNT_BODY_CD - AVERAGE_BODY_CD) * blunt)
+    }
+
+    /** Part [index]'s fairing, if it has one still closed. */
+    private fun closedShell(vessel: Vessel, index: Int): com.rm.apogee.core.part.Fairing? =
+        vessel.defs[index].module<com.rm.apogee.core.part.Fairing>()?.takeIf { !vessel.activated[index] }
+
     fun applyDrag(
         vessel: Vessel,
         attractor: CelestialBody,
@@ -434,20 +474,27 @@ class Forces {
         // of the way, and a wet skin is a rough one. Drag only - it adds no lift.
         val rainDrag = 1.0 + air.precipitation * RAIN_DRAG
 
-        // Pass one: the stack's occlusion-corrected body drag.
+        // Pass one: the stack's occlusion-corrected body drag. What rides
+        // inside a closed fairing is out of the air; the fairing's shell
+        // counts instead, as wide and as tall as it stands.
+        val enclosed = vessel.enclosed()
         var maxRadius = 0.0
         var bodySum = 0.0
         var low = Double.MAX_VALUE
         var high = -Double.MAX_VALUE
         for (i in vessel.defs.indices) {
             val def = vessel.defs[i]
-            if (def.module<AeroSurface>() != null) continue
+            if (def.module<AeroSurface>() != null || enclosed.getOrElse(i) { false }) continue
             val extents = def.boundsHalfExtents
             maxRadius = maxOf(maxRadius, extents.x, extents.z)
             bodySum += def.referenceArea * def.dragCoefficient
             val y = vessel.design.parts[i].position.y
             low = minOf(low, y - extents.y)
             high = maxOf(high, y + extents.y)
+            closedShell(vessel, i)?.let { fairing ->
+                maxRadius = maxOf(maxRadius, fairing.radius)
+                high = maxOf(high, y + extents.y + fairing.height)
+            }
         }
         // Stubby is draggy: a capsule falling on its shield pushes a wall of
         // air ahead of it, a slender rocket slips through. Without this a
@@ -465,6 +512,7 @@ class Forces {
         // Pass two: each part's own force, at its own place on the craft.
         for (i in vessel.defs.indices) {
             val def = vessel.defs[i]
+            if (enclosed.getOrElse(i) { false }) continue
 
             vessel.partOffsetWorld(i, scratchOffset)
             vessel.body.velocityAtOffset(scratchOffset, scratchLocalVelocity)

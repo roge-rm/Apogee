@@ -7972,5 +7972,801 @@
         "undockImpulse": 500.0
       }
     ]
+  },
+  {
+    "id": "tank-broad4",
+    "title": "Broad Cask-4 Propellant Tank",
+    "category": "fuel",
+    "dryMass": 2000.0,
+    "description": "A Cask twice as wide: four times the propellant for every metre of it.",
+    "crashTolerance": 6.0,
+    "dragCoefficient": 0.3,
+    "mesh": {
+      "type": "cylinder",
+      "radius": 1.25,
+      "height": 4.0
+    },
+    "model": {
+      "type": "tank",
+      "radius": 1.25,
+      "height": 4.0,
+      "chamfer": 0.05,
+      "bands": 2
+    },
+    "attachNodes": [
+      {
+        "id": "top",
+        "position": {
+          "x": 0.0,
+          "y": 2.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "size": 2
+      },
+      {
+        "id": "bottom",
+        "position": {
+          "x": 0.0,
+          "y": -2.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 2
+      }
+    ],
+    "modules": [
+      {
+        "type": "tank",
+        "resource": "propellant",
+        "capacity": 1600.0
+      }
+    ],
+    "strength": 8000000.0
+  },
+  {
+    "id": "tank-broad8",
+    "title": "Broad Cask-8 Propellant Tank",
+    "category": "fuel",
+    "dryMass": 4000.0,
+    "description": "Eight metres of the broad kind. What a first stage is mostly made of.",
+    "crashTolerance": 6.0,
+    "dragCoefficient": 0.3,
+    "mesh": {
+      "type": "cylinder",
+      "radius": 1.25,
+      "height": 8.0
+    },
+    "model": {
+      "type": "tank",
+      "radius": 1.25,
+      "height": 8.0,
+      "chamfer": 0.05,
+      "bands": 4
+    },
+    "attachNodes": [
+      {
+        "id": "top",
+        "position": {
+          "x": 0.0,
+          "y": 4.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "size": 2
+      },
+      {
+        "id": "bottom",
+        "position": {
+          "x": 0.0,
+          "y": -4.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 2
+      }
+    ],
+    "modules": [
+      {
+        "type": "tank",
+        "resource": "propellant",
+        "capacity": 3200.0
+      }
+    ],
+    "strength": 8000000.0
+  },
+  {
+    "id": "engine-forge",
+    "title": "Forge Lifter Engine",
+    "category": "propulsion",
+    "dryMass": 5500.0,
+    "description": "The broad lifter: enough to put a moonshot on its way, and to shake the ground doing it.",
+    "crashTolerance": 7.0,
+    "dragCoefficient": 0.35,
+    "mesh": {
+      "type": "cone",
+      "bottomRadius": 1.1,
+      "topRadius": 1.25,
+      "height": 2.0
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                0.0,
+                0.1714
+              ],
+              [
+                0.44,
+                0.2286
+              ],
+              [
+                0.92,
+                0.5
+              ],
+              [
+                1.25,
+                0.6857
+              ],
+              [
+                1.25,
+                1.0
+              ]
+            ],
+            "segments": 20
+          },
+          "tint": "metal",
+          "stackEnds": true
+        },
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                0.0,
+                -0.4
+              ],
+              [
+                0.32,
+                -0.4571
+              ],
+              [
+                0.88,
+                -0.8857
+              ],
+              [
+                1.02,
+                -1.0
+              ],
+              [
+                1.1,
+                -1.0
+              ],
+              [
+                1.04,
+                -0.7143
+              ],
+              [
+                0.84,
+                -0.3571
+              ],
+              [
+                0.54,
+                0.0
+              ],
+              [
+                0.4,
+                0.2143
+              ],
+              [
+                0.0,
+                0.2857
+              ]
+            ],
+            "segments": 20
+          },
+          "tint": "metal",
+          "role": "gimbal",
+          "pivot": {
+            "x": 0.0,
+            "y": 0.2571,
+            "z": 0.0
+          }
+        },
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                1.26,
+                0.7143
+              ],
+              [
+                1.27,
+                0.7429
+              ],
+              [
+                1.27,
+                0.9429
+              ],
+              [
+                1.26,
+                0.9714
+              ]
+            ],
+            "segments": 20
+          }
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "top",
+        "position": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "size": 2
+      },
+      {
+        "id": "bottom",
+        "position": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 2
+      }
+    ],
+    "modules": [
+      {
+        "type": "engine",
+        "thrustVacuum": 1650000.0,
+        "thrustSeaLevel": 1450000.0,
+        "ispVacuum": 310.0,
+        "ispSeaLevel": 270.0,
+        "gimbalRange": 3.0,
+        "propellant": "propellant",
+        "thrustDirection": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "minThrottle": 0.0
+      }
+    ],
+    "strength": 8000000.0
+  },
+  {
+    "id": "decoupler-broad",
+    "title": "Broad Parting Ring",
+    "category": "structural",
+    "dryMass": 200.0,
+    "description": "A Parting Ring for the broad stacks: drops a spent first stage, and pushes harder doing it.",
+    "crashTolerance": 10.0,
+    "dragCoefficient": 0.3,
+    "mesh": {
+      "type": "cylinder",
+      "radius": 1.25,
+      "height": 0.3
+    },
+    "model": {
+      "type": "lathe",
+      "profile": [
+        [
+          1.25,
+          -0.15
+        ],
+        [
+          1.29,
+          -0.12
+        ],
+        [
+          1.29,
+          -0.0375
+        ],
+        [
+          1.2,
+          -0.018
+        ],
+        [
+          1.2,
+          0.018
+        ],
+        [
+          1.29,
+          0.0375
+        ],
+        [
+          1.29,
+          0.12
+        ],
+        [
+          1.25,
+          0.15
+        ]
+      ],
+      "segments": 28
+    },
+    "attachNodes": [
+      {
+        "id": "top",
+        "position": {
+          "x": 0.0,
+          "y": 0.15,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "size": 2
+      },
+      {
+        "id": "bottom",
+        "position": {
+          "x": 0.0,
+          "y": -0.15,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 2
+      }
+    ],
+    "modules": [
+      {
+        "type": "decoupler",
+        "ejectionImpulse": 8000.0
+      }
+    ],
+    "strength": 8000000.0
+  },
+  {
+    "id": "adapter-taper",
+    "title": "Taper",
+    "category": "structural",
+    "dryMass": 150.0,
+    "description": "From the broad stacks down to the narrow: a Cask-width stage on a broad one.",
+    "crashTolerance": 8.0,
+    "dragCoefficient": 0.3,
+    "mesh": {
+      "type": "cone",
+      "bottomRadius": 1.25,
+      "topRadius": 0.625,
+      "height": 1.2
+    },
+    "model": {
+      "type": "lathe",
+      "profile": [
+        [
+          1.25,
+          -0.6
+        ],
+        [
+          1.25,
+          -0.52
+        ],
+        [
+          0.625,
+          0.52
+        ],
+        [
+          0.625,
+          0.6
+        ]
+      ],
+      "segments": 28
+    },
+    "attachNodes": [
+      {
+        "id": "top",
+        "position": {
+          "x": 0.0,
+          "y": 0.6,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "size": 1
+      },
+      {
+        "id": "bottom",
+        "position": {
+          "x": 0.0,
+          "y": -0.6,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 2
+      }
+    ],
+    "modules": [],
+    "strength": 4000000.0
+  },
+  {
+    "id": "fairing-shroud",
+    "title": "Shroud Half",
+    "category": "aero",
+    "dryMass": 350.0,
+    "description": "Half of a Shroud's shell, thrown off when it opens.",
+    "crashTolerance": 8.0,
+    "dragCoefficient": 0.1,
+    "mesh": {
+      "type": "box",
+      "width": 1.5,
+      "height": 7.5,
+      "depth": 3.0
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                1.4423,
+                -3.75
+              ],
+              [
+                1.5,
+                -3.75
+              ],
+              [
+                1.5,
+                1.0
+              ],
+              [
+                1.3269,
+                2.2
+              ],
+              [
+                0.9231,
+                3.1
+              ],
+              [
+                0.4038,
+                3.65
+              ],
+              [
+                0.0,
+                3.75
+              ],
+              [
+                0.0,
+                3.68
+              ],
+              [
+                0.3462,
+                3.58
+              ],
+              [
+                0.8654,
+                3.03
+              ],
+              [
+                1.2692,
+                2.15
+              ],
+              [
+                1.4423,
+                1.0
+              ],
+              [
+                1.4423,
+                -3.75
+              ]
+            ],
+            "segments": 16,
+            "sweep": 180.0,
+            "from": -90.0
+          },
+          "offset": {
+            "x": -0.75,
+            "y": 0.0,
+            "z": 0.0
+          }
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "mount",
+        "position": {
+          "x": -0.75,
+          "y": -3.75,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [],
+    "hidden": true
+  },
+  {
+    "id": "fairing-base",
+    "title": "Shroud",
+    "category": "structural",
+    "dryMass": 800.0,
+    "description": "A fairing: put what rides on top on its ring, and it stands a smooth shell round it - out of the air, cool and slippery - until staged, when the shell falls open in two.",
+    "crashTolerance": 9.0,
+    "dragCoefficient": 0.3,
+    "strength": 8000000.0,
+    "mesh": {
+      "type": "cylinder",
+      "radius": 1.25,
+      "height": 0.2
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                1.25,
+                -0.1
+              ],
+              [
+                1.29,
+                -0.08
+              ],
+              [
+                1.29,
+                -0.025
+              ],
+              [
+                1.2,
+                -0.012
+              ],
+              [
+                1.2,
+                0.012
+              ],
+              [
+                1.29,
+                0.025
+              ],
+              [
+                1.29,
+                0.08
+              ],
+              [
+                1.25,
+                0.1
+              ]
+            ],
+            "segments": 28
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                1.4423,
+                -3.75
+              ],
+              [
+                1.5,
+                -3.75
+              ],
+              [
+                1.5,
+                1.0
+              ],
+              [
+                1.3269,
+                2.2
+              ],
+              [
+                0.9231,
+                3.1
+              ],
+              [
+                0.4038,
+                3.65
+              ],
+              [
+                0.0,
+                3.75
+              ],
+              [
+                0.0,
+                3.68
+              ],
+              [
+                0.3462,
+                3.58
+              ],
+              [
+                0.8654,
+                3.03
+              ],
+              [
+                1.2692,
+                2.15
+              ],
+              [
+                1.4423,
+                1.0
+              ],
+              [
+                1.4423,
+                -3.75
+              ]
+            ],
+            "segments": 16,
+            "sweep": 180.0,
+            "from": -90.0
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 3.85,
+            "z": 0.0
+          },
+          "role": "jettison"
+        },
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                1.4423,
+                -3.75
+              ],
+              [
+                1.5,
+                -3.75
+              ],
+              [
+                1.5,
+                1.0
+              ],
+              [
+                1.3269,
+                2.2
+              ],
+              [
+                0.9231,
+                3.1
+              ],
+              [
+                0.4038,
+                3.65
+              ],
+              [
+                0.0,
+                3.75
+              ],
+              [
+                0.0,
+                3.68
+              ],
+              [
+                0.3462,
+                3.58
+              ],
+              [
+                0.8654,
+                3.03
+              ],
+              [
+                1.2692,
+                2.15
+              ],
+              [
+                1.4423,
+                1.0
+              ],
+              [
+                1.4423,
+                -3.75
+              ]
+            ],
+            "segments": 16,
+            "sweep": 180.0,
+            "from": 90.0
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 3.85,
+            "z": 0.0
+          },
+          "role": "jettison"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "top",
+        "position": {
+          "x": 0.0,
+          "y": 0.1,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "size": 2
+      },
+      {
+        "id": "bottom",
+        "position": {
+          "x": 0.0,
+          "y": -0.1,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 2
+      }
+    ],
+    "modules": [
+      {
+        "type": "fairing",
+        "height": 7.5,
+        "radius": 1.5,
+        "shellPart": "fairing-shroud",
+        "shellMass": 350.0,
+        "ejectionImpulse": 900.0
+      }
+    ]
   }
 ]

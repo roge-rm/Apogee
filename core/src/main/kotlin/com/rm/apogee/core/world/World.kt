@@ -64,6 +64,8 @@ sealed interface WorldEvent {
     data class RefuelStopped(val id: VesselId, val reason: String) : WorldEvent
     data class Staged(val id: VesselId, val stage: Int) : WorldEvent
     data class Touchdown(val id: VesselId, val impactSpeed: Double) : WorldEvent
+    /** A craft passed out of one body's pull into another's. */
+    data class BodyChanged(val id: VesselId, val from: String, val to: String) : WorldEvent
 
     /**
      * A part failed but the craft is still flying: a leg collapsed, a chute
@@ -211,12 +213,328 @@ class World(
         val control = vessel.control
         if (!control.sasEnabled || control.sasMode == SasMode.HOLD) return null
         val target = vessel(VesselId(control.target))?.takeIf { it.referenceBodyId == vessel.referenceBodyId }
+        val body = if (target == null) targetBodyFor(vessel, attractor, time, targetPosition, targetVelocity) else false
         Navigation.compute(
             vessel.body.position, vessel.body.linearVelocity, attractor, control.navFrame,
-            target?.body?.position, target?.body?.linearVelocity, navDirections,
+            target?.body?.position ?: targetPosition.takeIf { body }, target?.body?.linearVelocity ?: targetVelocity.takeIf { body },
+            navDirections,
         )
+        navDirections.hasBurn = control.sasMode == SasMode.BURN && burnRemaining(vessel, attractor, navDirections.burn) > Burns.DONE
+        if (navDirections.hasBurn) navDirections.burn.normalizeInPlace()
         return if (navDirections.forMode(control.sasMode, holdScratch)) holdScratch else null
     }
+
+    private val targetPosition = Vec3()
+    private val targetVelocity = Vec3()
+
+    /**
+     * Where [vessel]'s target body is, relative to [attractor], at [at] -
+     * into [position] and [velocity] - if it has one other than the body it
+     * is in. False if not.
+     */
+    fun targetBodyFor(vessel: Vessel, attractor: CelestialBody, at: Double, position: Vec3, velocity: Vec3): Boolean {
+        val id = vessel.control.targetBody
+        if (id.isEmpty() || id == attractor.id || id !in system.bodies) return false
+        position.setTo(system.positionOf(id, at)).subInPlace(system.positionOf(attractor.id, at))
+        velocity.setTo(system.velocityOf(id, at)).subInPlace(system.velocityOf(attractor.id, at))
+        return true
+    }
+
+    // --- planned burns ------------------------------------------------------------
+
+    /**
+     * Whether [vessel] may fly itself - burns and landings. Everyone may,
+     * for now: a career will make it something to be earned.
+     */
+    fun mayAutopilot(vessel: Vessel): Boolean = true
+
+    /**
+     * What is left of [vessel]'s next burn, world axes, into [out], and how
+     * much (m/s); 0 with none planned. Before its window opens, the whole of
+     * it, from the orbit as it is now.
+     */
+    fun burnRemaining(vessel: Vessel, attractor: CelestialBody = attractorFor(vessel), out: Vec3 = Vec3()): Double {
+        val burn = vessel.plannedBurns.firstOrNull() ?: return 0.0.also { out.setZero() }
+        if (vessel.burnVector.x.isNaN()) Burns.vectorOf(burn, orbitAbout(vessel, attractor), out)
+        else out.setTo(vessel.burnVector).subInPlace(vessel.burnApplied)
+        return out.length
+    }
+
+    private fun orbitAbout(vessel: Vessel, attractor: CelestialBody) =
+        Orbit(vessel.body.position.copy(), vessel.body.linearVelocity.copy(), attractor.gravitationalParameter, time)
+
+    /** Before the tick: what the craft's velocity was, for what it is given toward a burn. */
+    private val burnBefore = Vec3()
+
+    /**
+     * Opens [vessel]'s next burn's window when it is due, counts what this
+     * tick gave toward it - its change of velocity, less what gravity gave -
+     * and, once there is nothing left of it, crosses it off.
+     */
+    private fun trackBurn(vessel: Vessel, attractor: CelestialBody, dt: Double) {
+        val burn = vessel.plannedBurns.firstOrNull() ?: return
+        val start = Burns.startOf(burn, vessel.burnDuration)
+        if (vessel.burnVector.x.isNaN()) {
+            if (tickEnd < start - Burns.WINDOW) return
+            // Its direction fixed in space from here on: the orbit's own
+            // axes turn as the craft burns, and a burn chasing them spirals.
+            Burns.vectorOf(burn, orbitAbout(vessel, attractor), vessel.burnVector)
+            vessel.burnApplied.setZero()
+            vessel.burnDuration = Burns.duration(vessel, burn.deltaV)
+            return
+        }
+        attractor.gravityAt(vessel.body.position, scratchBurn).mulInPlace(dt)
+        vessel.burnApplied.addInPlace(vessel.body.linearVelocity).subInPlace(burnBefore).subInPlace(scratchBurn)
+        scratchBurn.setTo(vessel.burnVector).subInPlace(vessel.burnApplied)
+        // Nothing left, or past it: done.
+        if (scratchBurn.length < Burns.DONE || (scratchBurn dot vessel.burnVector) < 0.0) {
+            vessel.plannedBurns.removeAt(0)
+            vessel.resetBurn()
+            vessel.burnDuration = vessel.plannedBurns.firstOrNull()?.let { Burns.duration(vessel, it.deltaV) } ?: 0.0
+            if (vessel.control.autoBurn) {
+                vessel.control.throttle = 0.0
+                vessel.control.autoBurn = false
+            }
+            pendingEvents.add(WorldEvent.VesselStructureChanged(vessel.id))
+        }
+    }
+
+    private val scratchBurn = Vec3()
+
+    /**
+     * Flies [vessel]'s next burn: turned onto it, waiting for its time, full
+     * throttle, easing off as it runs out, and cut. Gives up, saying why,
+     * with nothing to burn with.
+     */
+    private fun autoBurn(vessel: Vessel, attractor: CelestialBody) {
+        val control = vessel.control
+        val burn = vessel.plannedBurns.firstOrNull()
+        if (burn == null || !mayAutopilot(vessel)) {
+            control.autoBurn = false
+            control.throttle = 0.0
+            return
+        }
+        control.sasEnabled = true
+        control.rcsEnabled = true
+        control.sasMode = SasMode.BURN
+        val left = burnRemaining(vessel, attractor, scratchAuto)
+        val start = Burns.startOf(burn, vessel.burnDuration)
+        if (vessel.burnVector.x.isNaN() || time < start || left < Burns.DONE) { control.throttle = 0.0; return }
+        var thrust = litThrust(vessel)
+        // The stage burning out part way: on to the next, if it has an engine.
+        if (thrust <= 0.0 && nextStageLights(vessel)) {
+            stage(vessel)
+            thrust = litThrust(vessel)
+        }
+        if (thrust <= 0.0) {
+            control.throttle = 0.0
+            control.autoBurn = false
+            control.autopilotNote = "No engine to burn with"
+            return
+        }
+        val facing = vessel.forward(scratchFacing) dot scratchAuto.mulInPlace(1.0 / left)
+        val burning = control.throttle > 0.0
+        val aligned = facing > (if (burning) ALIGNED_BURNING else ALIGNED_START)
+        if (!aligned) { control.throttle = 0.0; return }
+        // Full, then easing off over the last half second's worth.
+        val most = thrust / vessel.body.mass
+        control.throttle = (left / (most * AUTO_TAPER)).coerceIn(AUTO_LEAST_THROTTLE, 1.0)
+    }
+
+    // --- auto-land ------------------------------------------------------------------
+
+    /**
+     * Sets [vessel] down by itself: engine off and nose into the fall until
+     * stopping would take all the height left, then braking - down at a
+     * pace that slows with the ground's nearness to a metre a second, the
+     * sideways speed taken off on the way - legs out near the ground, and
+     * cut once it stands on them. The way to hold the nose, or null to
+     * leave it to stability assist. Gives up, saying why, with too little
+     * engine to land on.
+     */
+    private fun autoLand(vessel: Vessel, attractor: CelestialBody): Vec3? {
+        val control = vessel.control
+        if (!mayAutopilot(vessel)) { control.autoLand = false; return null }
+        val body = vessel.body
+        control.sasEnabled = true
+        control.rcsEnabled = true
+        control.sasMode = SasMode.HOLD
+        attractor.surfaceVelocityAt(body.position, landVelocity).negateInPlace().addInPlace(body.linearVelocity)
+        landUp.setTo(body.position).normalizeInPlace()
+        val vertical = landVelocity dot landUp
+        landSide.setTo(landVelocity).addScaledInPlace(landUp, -vertical)
+        if (vessel.touchingGround) {
+            control.throttle = 0.0
+            if (landVelocity.length < LANDED_SPEED) {
+                control.autoLand = false
+                control.autopilotNote = "Landed"
+            }
+            return null
+        }
+        val g = attractor.gravityAt(body.position, landScratch).length
+        val thrust = litThrustHere(vessel, attractor)
+        val most = thrust / body.mass
+        if (thrust <= 0.0 || most < LAND_LEAST_TWR * g) {
+            control.throttle = 0.0
+            control.autoLand = false
+            control.autopilotNote = if (thrust <= 0.0) "No engine to land with" else "Too little thrust to land here"
+            return null
+        }
+        val height = clearance(vessel, attractor)
+        if (height < LEGS_OUT) lowerLegs(vessel)
+        val speed = landVelocity.length
+        // Coasting down: nothing lit, nose into the fall, until stopping from
+        // here would take the height there is.
+        if (!vessel.landBraking) {
+            val stopping = speed * speed / (2.0 * (LAND_BRAKE_SHARE * most - g).coerceAtLeast(0.1))
+            if (vertical > 0.0 || height > stopping * LAND_MARGIN + LAND_FLARE) {
+                control.throttle = 0.0
+                return if (speed > 1.0) landDirection.setTo(landVelocity).negateInPlace().normalizeInPlace()
+                    else landDirection.setTo(landUp)
+            }
+            vessel.landBraking = true
+        }
+        // Still going fast over the ground - down from orbit: full against
+        // the way it is going, nose never under the horizon, until the
+        // sideways speed is nearly gone.
+        if (landSide.length > LAND_SIDE_KILLED) {
+            landDirection.setTo(landVelocity).negateInPlace().normalizeInPlace()
+            val below = landDirection dot landUp
+            if (below < LAND_LEAST_RISE) landDirection.addScaledInPlace(landUp, LAND_LEAST_RISE - below).normalizeInPlace()
+            val facing = vessel.forward(scratchFacing) dot landDirection
+            control.throttle = if (facing > LAND_ALIGNED) 1.0 else 0.0
+            return landDirection
+        }
+        // Down no faster than it could still stop from - falling freely
+        // while that is faster than it is going, so no propellant is spent
+        // holding a pace high up - and easing to a metre a second at the
+        // ground; no sideways drift.
+        val canStop = kotlin.math.sqrt(2.0 * (LAND_BRAKE_SHARE * most - g).coerceAtLeast(0.5) * height.coerceAtLeast(0.0)) * LAND_CURVE
+        val want = -maxOf(LAND_TOUCHDOWN, minOf(canStop, LAND_TOUCHDOWN + height * LAND_PACE))
+        val lift = (g + LAND_GAIN * (want - vertical)).coerceAtLeast(0.0)
+        landDirection.setTo(landUp).mulInPlace(lift)
+        landScratch.setTo(landSide).mulInPlace(-LAND_SIDE_GAIN)
+        val sideways = landScratch.length
+        if (sideways > LAND_SIDE_SHARE * most) landScratch.mulInPlace(LAND_SIDE_SHARE * most / sideways)
+        landDirection.addInPlace(landScratch)
+        val need = landDirection.length
+        if (need < 1e-6) { control.throttle = 0.0; return landDirection.setTo(landUp) }
+        landDirection.mulInPlace(1.0 / need)
+        // Never leaning far over: a craft tipped well off upright near the
+        // ground cannot be brought back in time, and may not be at all. Leant
+        // no further, it pushes up no harder than the descent asks - taking
+        // off drift is never worth climbing for.
+        var push = need
+        val lean = kotlin.math.acos((landDirection dot landUp).coerceIn(-1.0, 1.0))
+        if (lean > LAND_MOST_LEAN) {
+            landScratch.setTo(landDirection).addScaledInPlace(landUp, -(landDirection dot landUp)).normalizeInPlace()
+            landDirection.setTo(landUp).mulInPlace(kotlin.math.cos(LAND_MOST_LEAN)).addScaledInPlace(landScratch, kotlin.math.sin(LAND_MOST_LEAN))
+            push = lift / kotlin.math.cos(LAND_MOST_LEAN)
+        }
+        val facing = vessel.forward(scratchFacing) dot landDirection
+        control.throttle = if (facing > LAND_ALIGNED) (push / most).coerceIn(0.0, 1.0) else 0.0
+        return landDirection
+    }
+
+    /** How far the lowest part of [vessel] is above the ground under it, m, near enough. */
+    private fun clearance(vessel: Vessel, attractor: CelestialBody): Double {
+        attractor.toBodyFixed(vessel.body.position, attractor.rotationAt(time), landScratch).normalizeInPlace()
+        val centre = attractor.heightAboveTerrain(vessel.body.position, landScratch)
+        var below = 0.0
+        for (i in vessel.defs.indices) {
+            vessel.partOffsetWorld(i, landOffset)
+            below = maxOf(below, -(landOffset dot landUp) + vessel.defs[i].boundsHalfExtents.length)
+        }
+        return centre - below
+    }
+
+    /** Fires the next stage if it is nothing but legs and gear still up: to stand on. */
+    private fun lowerLegs(vessel: Vessel) {
+        val next = vessel.design.stages.getOrNull(vessel.currentStage) ?: return
+        if (next.activatedParts.isEmpty()) return
+        val gear = next.activatedParts.all { i ->
+            val def = vessel.defs.getOrNull(i) ?: return@all false
+            def.module<com.rm.apogee.core.part.LandingLeg>() != null || def.module<com.rm.apogee.core.part.Wheel>() != null
+        }
+        if (gear) stage(vessel)
+    }
+
+    /** Thrust the lit engines can give where the craft is, N: in the air there, or in vacuum. */
+    private fun litThrustHere(vessel: Vessel, attractor: CelestialBody): Double {
+        val pressure = attractor.atmosphere?.pressureRatioAt(attractor.altitudeOf(vessel.body.position)) ?: 0.0
+        var total = 0.0
+        for (i in vessel.activeEngines()) {
+            val engine = vessel.defs[i].module<com.rm.apogee.core.part.Engine>() ?: continue
+            if (vessel.isBroken(i) || vessel.amountInGroupOf(i, engine.propellant) <= 0.0) continue
+            total += engine.thrustVacuum + (engine.thrustSeaLevel - engine.thrustVacuum) * pressure.coerceIn(0.0, 1.0)
+        }
+        return total
+    }
+
+    private val landVelocity = Vec3()
+    private val landUp = Vec3()
+    private val landSide = Vec3()
+    private val landDirection = Vec3()
+    private val landScratch = Vec3()
+    private val landOffset = Vec3()
+
+    /**
+     * Throws [vessel]'s fairing at part [index] open: its shell's two halves
+     * as craft of their own where the shell stood, pushed out sideways from
+     * the craft's axis, one each way. The base stays on, lighter by them.
+     */
+    private fun openFairing(vessel: Vessel, index: Int) {
+        val fairing = vessel.defs[index].module<com.rm.apogee.core.part.Fairing>() ?: return
+        val shell = catalog[fairing.shellPart] ?: return
+        val placed = vessel.design.parts[index]
+        val axis = vessel.body.orientation.rotate(placed.rotation.rotate(Vec3.unitY()))
+        val offset = vessel.partOffsetWorld(index, Vec3())
+        val rise = vessel.defs[index].boundsHalfExtents.y + fairing.height / 2
+        for (side in listOf(1.0, -1.0)) {
+            val turn = if (side > 0) Quat.identity() else Quat.fromAxisAngle(Vec3.unitY(), Math.PI)
+            val rotation = (vessel.body.orientation * placed.rotation * turn).normalizeInPlace()
+            val out = rotation.rotate(Vec3.unitX())
+            // The half's own middle: out from the axis by half the shell's radius, up by half its height.
+            val at = Vec3().setTo(offset).addScaledInPlace(axis, rise).addScaledInPlace(out, fairing.radius / 2)
+            val half = Vessel(
+                id = VesselId(nextVesselId++),
+                design = CraftDesign(name = shell.title, parts = listOf(PlacedPart(shell.id, Vec3.zero())), catalogHash = catalog.contentHash),
+                defs = listOf(shell),
+                referenceBodyId = vessel.referenceBodyId,
+            )
+            half.recomputeMass(shiftBodyPosition = false)
+            half.body.position.setTo(vessel.body.position).addInPlace(at)
+            half.body.orientation.setTo(rotation)
+            vessel.body.velocityAtOffset(at, half.body.linearVelocity)
+            half.body.linearVelocity.addScaledInPlace(out, fairing.ejectionImpulse / shell.dryMass)
+            half.body.angularVelocity.setTo(vessel.body.angularVelocity)
+            vesselsById[half.id] = half
+            justSeparated[pairKey(vessel.id.raw, half.id.raw)] = time + SEPARATION_GRACE
+            pendingEvents.add(WorldEvent.VesselSpawned(half.id))
+        }
+        vessel.recomputeMass()
+        pendingEvents.add(WorldEvent.VesselStructureChanged(vessel.id))
+    }
+
+    /** Whether [vessel]'s next stage lights an engine: one worth staging to, to keep a burn going. */
+    private fun nextStageLights(vessel: Vessel): Boolean {
+        val next = vessel.design.stages.getOrNull(vessel.currentStage) ?: return false
+        return next.activatedParts.any { vessel.defs.getOrNull(it)?.module<com.rm.apogee.core.part.Engine>() != null }
+    }
+
+    /** Thrust the craft's lit engines can give now, in vacuum, N: those with propellant. */
+    fun litThrust(vessel: Vessel): Double {
+        var total = 0.0
+        for (i in vessel.activeEngines()) {
+            val engine = vessel.defs[i].module<com.rm.apogee.core.part.Engine>() ?: continue
+            if (vessel.isBroken(i) || vessel.amountInGroupOf(i, engine.propellant) <= 0.0) continue
+            total += engine.thrustVacuum
+        }
+        return total
+    }
+
+    private val scratchAuto = Vec3()
+    private val scratchFacing = Vec3()
 
     /** Pairs of craft that have just separated, by [pairKey], and until when they ignore each other. */
     private val justSeparated = HashMap<Long, Double>()
@@ -679,8 +997,27 @@ class World(
 
             is Command.SetNavFrame -> waken(command.vessel)?.control?.navFrame = command.frame
 
-            is Command.SetTarget -> waken(command.vessel)?.control?.target =
-                if (command.target == command.vessel) -1L else command.target
+            is Command.SetTarget -> waken(command.vessel)?.control?.let {
+                it.target = if (command.target == command.vessel) -1L else command.target
+                it.targetBody = if (command.body in system.bodies) command.body else ""
+            }
+
+            is Command.PlanBurns -> waken(command.vessel)?.let { vessel ->
+                vessel.plannedBurns.clear()
+                vessel.plannedBurns.addAll(command.burns.filter { it.time.isFinite() && it.deltaV.isFinite() }.sortedBy { it.time }.take(Burns.MOST))
+                vessel.resetBurn()
+                vessel.burnDuration = if (vessel.plannedBurns.isEmpty()) 0.0 else Burns.duration(vessel, vessel.plannedBurns.first().deltaV)
+                pendingEvents.add(WorldEvent.VesselStructureChanged(vessel.id))
+            }
+
+            is Command.SetAutopilot -> waken(command.vessel)?.let { vessel ->
+                val allowed = mayAutopilot(vessel)
+                vessel.control.autoBurn = command.autoBurn && allowed
+                vessel.control.autoLand = command.autoLand && allowed
+                vessel.landBraking = false
+                vessel.control.autopilotNote = if ((command.autoBurn || command.autoLand) && !allowed) "Autopilot not available" else ""
+                if (!command.autoBurn && !command.autoLand) vessel.control.throttle = 0.0
+            }
 
             is Command.SetBrakes ->
                 waken(command.vessel)?.control?.brakes = command.engaged
@@ -714,6 +1051,7 @@ class World(
 
             is Command.Chat -> Unit // handled above the world
             is Command.SetWarp -> Unit // the server's clock, not the world's
+            is Command.WarpTo -> Unit
             is Command.RemoveVessel -> destroy(VesselId(command.vessel), "removed")
         }
     }
@@ -730,6 +1068,8 @@ class World(
         val activated = vessel.activateNextStage()
         if (activated.isEmpty()) return
         pendingEvents.add(WorldEvent.Staged(vessel.id, vessel.currentStage))
+        // Fairings thrown open: the shell off in halves, the ring kept.
+        for (index in activated) if (vessel.defs.getOrNull(index)?.module<com.rm.apogee.core.part.Fairing>() != null) openFairing(vessel, index)
 
         // Every decoupler in the stage, not just the first: four radial
         // boosters are four decouplers firing together. Each split renumbers
@@ -1758,10 +2098,15 @@ class World(
             return kept.indices
         }
 
-        // Push the halves apart along the craft's long axis.
+        // Push the halves apart along the craft's long axis - or, for a
+        // shell falling open, out sideways from it.
         scratch.setTo(Vec3.unitY())
         orientation.rotate(scratch, scratch)
         val separation = scratch.copy()
+        if (originalDefs[decouplerIndex].module<Decoupler>()?.radial == true) {
+            val out = Vec3().setTo(centre).addScaledInPlace(separation, -(centre dot separation))
+            if (out.lengthSq > 1e-9) separation.setTo(out).normalizeInPlace().negateInPlace()
+        }
 
         if (ejection > 0.0) {
             scratch.setTo(separation).mulInPlace(ejection)
@@ -1898,7 +2243,9 @@ class World(
             // Before any force, because the elevons deflect inside the drag
             // pass and the gimbal inside thrust: all of them act on what
             // stability assist asks for this tick.
-            stabilityAssist.update(vessel, dt, holdDirection(vessel, attractor))
+            if (vessel.control.autoBurn) autoBurn(vessel, attractor)
+            val landing = if (vessel.control.autoLand) autoLand(vessel, attractor) else null
+            stabilityAssist.update(vessel, dt, landing ?: holdDirection(vessel, attractor))
             updatePose(vessel, dt)
 
             forces.applyGravity(vessel, attractor)
@@ -1950,6 +2297,7 @@ class World(
             // substep - they change far more slowly than the geometry does,
             // and recomputing thrust and drag eight times a tick would cost
             // more than the problem is worth.
+            burnBefore.setTo(body.linearVelocity)
             val substeps = contactSubsteps(vessel, attractor, dt)
             val h = dt / substeps
             for (substep in 0 until substeps) {
@@ -1984,7 +2332,9 @@ class World(
                 pendingBreakUps.add(vessel.id)
             }
 
+            if (vessel.plannedBurns.isNotEmpty()) trackBurn(vessel, attractor, dt)
             considerSleeping(vessel, report)
+            crossInfluence(vessel, tickEnd)
         }
 
         // Craft against craft, once everything has moved.
@@ -2686,6 +3036,63 @@ class World(
         attractor.surfaceVelocityAt(body.position, body.linearVelocity)
     }
 
+    // --- spheres of influence ---------------------------------------------------
+
+    /**
+     * Hands [vessel] over to whichever body's pull now governs it at [at] -
+     * a moon's once it is near enough, its planet's again once it is clear -
+     * measured from the new body's centre: the same place and motion, so
+     * nothing jumps. The patched-conic picture every orbit is drawn in: one
+     * body pulls at a time. True if it changed.
+     */
+    private fun crossInfluence(vessel: Vessel, at: Double): Boolean {
+        if (vessel.dormant || vessel.anchored) return false
+        val attractor = attractorFor(vessel)
+        val next = system.governing(attractor, vessel.body.position, at)
+        if (next === attractor) return false
+        system.rebase(vessel.body.position, vessel.body.linearVelocity, attractor.id, next.id, at)
+        vessel.referenceBodyId = next.id
+        vessel.air.clear()
+        pendingEvents.add(WorldEvent.BodyChanged(vessel.id, attractor.id, next.id))
+        return true
+    }
+
+    /**
+     * Carries an awake [vessel] [h] seconds along its orbit on rails, into
+     * another body's pull and on about that one if it crosses - found to
+     * within a millisecond by halving the slice where it goes over.
+     */
+    private fun coast(vessel: Vessel, h: Double) {
+        val body = vessel.body
+        val start = time
+        var attractor = attractorFor(vessel)
+        var orbit = Orbit(body.position, body.linearVelocity, attractor.gravitationalParameter)
+        var from = 0.0
+        var end = orbit.propagate(h)
+        val crossed = system.governing(attractor, end.position, start + h)
+        if (crossed !== attractor) {
+            var lo = 0.0
+            var hi = h
+            while (hi - lo > 1e-3) {
+                val mid = 0.5 * (lo + hi)
+                if (system.governing(attractor, orbit.propagate(mid).position, start + mid) === attractor) lo = mid else hi = mid
+            }
+            val at = orbit.propagate(hi)
+            body.position.setTo(at.position)
+            body.linearVelocity.setTo(at.velocity)
+            val next = system.governing(attractor, body.position, start + hi)
+            system.rebase(body.position, body.linearVelocity, attractor.id, next.id, start + hi)
+            vessel.referenceBodyId = next.id
+            pendingEvents.add(WorldEvent.BodyChanged(vessel.id, attractor.id, next.id))
+            attractor = next
+            from = hi
+            orbit = Orbit(body.position, body.linearVelocity, attractor.gravitationalParameter)
+            end = orbit.propagate(h - from)
+        }
+        body.position.setTo(end.position)
+        body.linearVelocity.setTo(end.velocity)
+    }
+
     // --- time warp --------------------------------------------------------------
 
     /**
@@ -2696,11 +3103,18 @@ class World(
     fun maxWarp(): Double {
         var limit = WARP_RATES.last()
         for (vessel in vesselsById.values) {
-            if (vessel.dormant) continue
+            // Debris does not hold time back: a spent stage still falling
+            // through the air would otherwise keep every warp at physics
+            // speed until it hit the ground. See [advanceOnRails].
+            if (vessel.dormant || isDebris(vessel)) continue
             limit = minOf(limit, warpLimit(vessel))
         }
         return limit
     }
+
+    /** Nothing to fly it with: a spent stage, a fairing's shell, a piece broken off. */
+    fun isDebris(vessel: Vessel): Boolean =
+        !vessel.anchored && vessel.defs.indices.none { vessel.defs[it].module<com.rm.apogee.core.part.Command>() != null && !vessel.isBroken(it) }
 
     /**
      * How fast one craft lets time go. Up to [PHYSICS_WARP] the world simply
@@ -2714,6 +3128,12 @@ class World(
      */
     fun warpLimit(vessel: Vessel): Double {
         if (vessel.control.throttle > 0.0 && vessel.activeEngines().isNotEmpty()) return PHYSICS_WARP
+        // Setting itself down: never on rails, which would skip past where it must brake.
+        if (vessel.control.autoLand) return PHYSICS_WARP
+        // Its autopilot's burn coming up: real time for the turn onto it.
+        if (vessel.control.autoBurn) vessel.plannedBurns.firstOrNull()?.let {
+            if (time >= Burns.startOf(it, vessel.burnDuration) - Burns.WINDOW) return 1.0
+        }
         val attractor = attractorFor(vessel)
         val position = vessel.body.position
         attractor.toBodyFixed(position, attractor.rotationAt(time), scratchWarp)
@@ -2742,6 +3162,8 @@ class World(
      */
     fun advanceOnRails(seconds: Double): Double {
         var done = 0.0
+        // Never past where a warp was asked to stop.
+        val seconds = if (warpUntil.isNaN()) seconds else minOf(seconds, (warpUntil - time).coerceAtLeast(0.0))
         while (seconds - done > 1e-9) {
             if (maxWarp() <= PHYSICS_WARP) break
             val h = minOf(RAILS_STEP, seconds - done)
@@ -2752,10 +3174,15 @@ class World(
                     if (vessel.afloat) followSea(vessel, attractor, waves = false) else followGround(vessel, attractor)
                     continue
                 }
+                // Debris in the air or near the ground cannot go on rails -
+                // it would fly through both - and holds nothing back: lost
+                // on the way down.
+                if (isDebris(vessel) && warpLimit(vessel) <= PHYSICS_WARP) {
+                    pendingDestruction.add(vessel.id to "lost on the way down")
+                    continue
+                }
                 val body = vessel.body
-                val next = Orbit(body.position, body.linearVelocity, attractor.gravitationalParameter).propagate(h)
-                body.position.setTo(next.position)
-                body.linearVelocity.setTo(next.velocity)
+                coast(vessel, h)
                 // Still turning as it was.
                 val spin = body.angularVelocity.length
                 if (spin > 1e-9) {
@@ -2765,12 +3192,19 @@ class World(
             }
             time += h
             done += h
+            if (pendingDestruction.isNotEmpty()) {
+                for ((id, reason) in pendingDestruction) destroy(id, reason)
+                pendingDestruction.clear()
+            }
         }
         if (done > 0.0) tick++
         return done
     }
 
     private val scratchWarp = Vec3()
+
+    /** Universe time a warp was asked to stop at (see [Command.WarpTo]), or NaN for none. */
+    var warpUntil: Double = Double.NaN
 
     /**
      * Moves the clock straight on to [until], for a launch at a chosen time
@@ -2853,6 +3287,7 @@ class World(
         ownerName = vessel.ownerName,
         brokenParts = vessel.broken.withIndex().filter { it.value }.map { it.index },
         anchored = vessel.anchored,
+        burns = vessel.plannedBurns.toList(),
     )
 
     /**
@@ -2912,6 +3347,8 @@ class World(
                 sasMode = vessel.control.sasMode,
                 navFrame = vessel.control.navFrame,
                 target = vessel.control.target,
+                targetBody = vessel.control.targetBody,
+                burns = vessel.plannedBurns.toList(),
                 brakes = vessel.control.brakes,
                 resources = vessel.resourceSnapshot().map { it.toList() },
                 legDeploy = vessel.legDeploy.toList(),
@@ -3023,6 +3460,9 @@ class World(
             vessel.control.sasMode = saved.sasMode
             vessel.control.navFrame = saved.navFrame
             vessel.control.target = saved.target
+            vessel.control.targetBody = saved.targetBody.takeIf { it in system.bodies } ?: ""
+            vessel.plannedBurns.addAll(saved.burns)
+            vessel.burnDuration = if (saved.burns.isEmpty()) 0.0 else Burns.duration(vessel, saved.burns.first().deltaV)
             vessel.control.brakes = saved.brakes
             vessel.fitPose()
             saved.legDeploy.forEachIndexed { i, progress -> vessel.setLegDeploy(i, progress) }
@@ -3217,6 +3657,46 @@ class World(
 
         /** Up to this the world steps faster; past it, craft go on rails. */
         const val PHYSICS_WARP = 4.0
+
+        /** The auto-burn lights up once pointing this close (cosine: 2 degrees), and keeps burning within 10. */
+        private val ALIGNED_START = kotlin.math.cos(Math.toRadians(2.0))
+        private val ALIGNED_BURNING = kotlin.math.cos(Math.toRadians(10.0))
+
+        /** Seconds at full thrust over which the auto-burn eases off at the end. */
+        private const val AUTO_TAPER = 0.5
+        private const val AUTO_LEAST_THROTTLE = 0.02
+
+        /** Auto-land: stood this still on the ground, m/s, it is down. */
+        private const val LANDED_SPEED = 0.5
+        /** Too little engine to land on: thrust under this many times the weight. */
+        private const val LAND_LEAST_TWR = 1.1
+        /** Legs out this near the ground, m. */
+        private const val LEGS_OUT = 300.0
+        /** Braking is planned on this share of the engine, the rest kept in hand. */
+        private const val LAND_BRAKE_SHARE = 0.75
+        /** Braking starts with this much more height than stopping takes, and this many metres besides. */
+        private const val LAND_MARGIN = 1.15
+        private const val LAND_FLARE = 60.0
+        /**
+         * Wanted descent: this share of the stopping curve, and near the
+         * ground a metre a second more for every [1 / LAND_PACE] metres up.
+         */
+        private const val LAND_CURVE = 0.8
+        private const val LAND_PACE = 0.25
+        private const val LAND_TOUCHDOWN = 1.0
+        /** How hard a gap in descent rate, and sideways drift, are pushed against, per second. */
+        private const val LAND_GAIN = 1.5
+        private const val LAND_SIDE_GAIN = 0.6
+        /** At most this share of the engine goes to taking off sideways drift. */
+        private const val LAND_SIDE_SHARE = 0.5
+        /** Braked hard against its motion until moving sideways slower than this, m/s. */
+        private const val LAND_SIDE_KILLED = 25.0
+        /** While braking hard, the nose at least this far up from the horizon (sine: about 6 degrees). */
+        private const val LAND_LEAST_RISE = 0.1
+        /** Leaning no further than this off upright while braking, radians. */
+        private val LAND_MOST_LEAN = Math.toRadians(30.0)
+        /** Engine lit only when pointing this close to where it should (cosine: 25 degrees). */
+        private val LAND_ALIGNED = kotlin.math.cos(Math.toRadians(25.0))
 
         /** The rails rates, and the height above the air (or [RAILS_CLEARANCE]) each needs, in the body's radii. */
         private val RAILS_RATES = doubleArrayOf(10.0, 50.0, 100.0, 1_000.0, 10_000.0)

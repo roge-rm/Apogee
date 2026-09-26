@@ -67,6 +67,11 @@ class HudState {
     var sharedOpen: Boolean by mutableStateOf(false)
     var mapMode: Boolean by mutableStateOf(false)
 
+    /** The next planned burn, and coming down; see [com.rm.apogee.ui.components.BurnPanel]. */
+    var burn: com.rm.apogee.game.GameSession.BurnReadout? by mutableStateOf(null)
+    var landing: com.rm.apogee.game.GameSession.LandingReadout? by mutableStateOf(null)
+    var autopilotNote: String by mutableStateOf("")
+
     /**
      * Whether another craft is close enough and still enough to weld to.
      *

@@ -60,7 +60,17 @@ sealed interface Command {
     /** Another craft to steer by, or -1 to clear. */
     @Serializable
     @SerialName("setTarget")
-    data class SetTarget(val vessel: Long, val target: Long) : Command
+    data class SetTarget(val vessel: Long, val target: Long, val body: String = "") : Command
+
+    /** Replaces [vessel]'s planned burns with [burns]: see [PlannedBurn]. Empty clears them. */
+    @Serializable
+    @SerialName("planBurns")
+    data class PlanBurns(val vessel: Long, val burns: List<PlannedBurn>) : Command
+
+    /** Turns the autopilots on or off: flying the next burn, and landing. */
+    @Serializable
+    @SerialName("setAutopilot")
+    data class SetAutopilot(val vessel: Long, val autoBurn: Boolean, val autoLand: Boolean) : Command
 
     @Serializable
     @SerialName("setBrakes")
@@ -144,6 +154,14 @@ sealed interface Command {
     @Serializable
     @SerialName("setWarp")
     data class SetWarp(val rate: Double) : Command
+
+    /**
+     * As fast as the world allows until universe [time], then back to real
+     * time: to a planned burn, say. Honoured where [SetWarp] is.
+     */
+    @Serializable
+    @SerialName("warpTo")
+    data class WarpTo(val time: Double) : Command
 
     /**
      * Takes one of the player's own craft out of the world for good - from
@@ -239,6 +257,8 @@ data class StructureUpdate(
     val brokenParts: List<Int> = emptyList(),
     /** Founded: pinned to the ground, immovable. See [World.anchor]. */
     val anchored: Boolean = false,
+    /** Burns planned for it, soonest first. */
+    val burns: List<PlannedBurn> = emptyList(),
 )
 
 /** Server -> client. */
@@ -448,5 +468,5 @@ object Protocol {
     // 10: PlacedPart.turn.
     // 11: the sea - flooding in VesselCondition, open hulls.
     // 12: bases - Anchor, Refuel, StructureUpdate.anchored, Service, BaseStatus, launching from base pads.
-    const val VERSION = 12
+    const val VERSION = 13
 }

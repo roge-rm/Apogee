@@ -44,6 +44,18 @@ class RenderItem(
      * of metres off for a frame. 0 for none.
      */
     val key: Long = 0L,
+    /**
+     * Laid on the ground - paving - drawn over it by this many steps of
+     * depth bias, each over the ones below; casts no shadow. 0 for anything
+     * else.
+     */
+    val decal: Int = 0,
+    /**
+     * Another world seen across space - a moon, a planet: lit by the sun,
+     * not hazed away with distance as the ground is, only paled a little by
+     * a daytime sky.
+     */
+    val sky: Boolean = false,
 ) {
     companion object {
         /** A craft's part's piece. */

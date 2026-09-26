@@ -65,7 +65,8 @@ object PartTabs {
 
     /** Parts on [tab], in drawer order: tabs in order, then the catalogue's own order within each. */
     fun parts(catalog: PartCatalog, tab: PartTab): List<PartDef> {
-        val all = ORDER.flatMap { category -> catalog.byCategory(category) }
+        // Never a part that only comes off another: a fairing's half.
+        val all = ORDER.flatMap { category -> catalog.byCategory(category) }.filter { !it.hidden }
         val sorted = all.sortedBy { of(it).ordinal }
         return if (tab == PartTab.ALL) sorted else sorted.filter { of(it) == tab }
     }

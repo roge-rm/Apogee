@@ -309,7 +309,8 @@ class CraftBuilder(
         /** Parts a stage can fire. */
         fun stageable(def: PartDef): Boolean =
             def.module<Engine>() != null || def.module<Decoupler>() != null ||
-                def.module<Parachute>() != null || def.module<LandingLeg>() != null
+                def.module<Parachute>() != null || def.module<LandingLeg>() != null ||
+                def.module<com.rm.apogee.core.part.Fairing>() != null
 
         /**
          * A hand-arranged sequence, fitted to the design as it now stands:
@@ -407,6 +408,19 @@ class CraftBuilder(
                 }
                 val activated = decouplers + engines
                 if (activated.isNotEmpty()) stages.add(Stage(activated))
+            }
+
+            // Fairings thrown open just before anything they hold fires - out
+            // of the air by then - or, holding nothing that fires, once the
+            // engines are done.
+            val fairings = design.parts.indices.filter { catalog[design.parts[it].partId]?.module<com.rm.apogee.core.part.Fairing>() != null }
+            if (fairings.isNotEmpty()) {
+                val defs = design.parts.map { catalog[it.partId] }
+                if (defs.all { it != null }) {
+                    val inside = Fairings.enclosed(design, defs.map { it!! }) { false }
+                    val first = stages.indexOfFirst { stage -> stage.activatedParts.any { inside[it] } }
+                    stages.add(if (first >= 0) first else stages.size, Stage(fairings))
+                }
             }
 
             val parachutes = design.parts.indices.filter { isParachute(it) }

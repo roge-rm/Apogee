@@ -698,7 +698,7 @@ class GlRenderer(
         val batching = cloudProgram != null && solidBuffer[0] != 0
         for ((index, item) in items.withIndex()) {
             if (item.color[3] < 0.999f) { translucent.add(index); continue }
-            if (batching && !item.wrap) solidGroup(item.shape, item.caps).add(index)
+            if (batching && !item.wrap && item.decal == 0 && !item.sky) solidGroup(item.shape, item.caps).add(index)
             else drawItem(item, partners[index], alpha, cameraPos, shader)
         }
         if (batching) drawSolidBatches(items, alpha, cameraPos, shader)
@@ -936,7 +936,16 @@ class GlRenderer(
         // of one or more) glows whole.
         shader.setFloat("uWrap", if (item.wrap) 1f else 0f)
         // A part is shaded by what is between it and the light; a cloud or a flame is not.
-        shader.setFloat("uReceivesShadow", if (item.wrap || item.ambient >= 1f) 0f else 1f)
+        shader.setFloat("uReceivesShadow", if (item.wrap || item.ambient >= 1f || item.sky) 0f else 1f)
+        shader.setFloat("uSkyBody", if (item.sky) 1f else 0f)
+        if (item.decal > 0) {
+            // Paving: over the ground it lies on, and later layers over earlier.
+            GLES30.glEnable(GLES30.GL_POLYGON_OFFSET_FILL)
+            GLES30.glPolygonOffset(-1f, -4f * item.decal)
+            meshFor(item.shape, item.caps).draw()
+            GLES30.glDisable(GLES30.GL_POLYGON_OFFSET_FILL)
+            return
+        }
         meshFor(item.shape, item.caps).draw()
     }
 
@@ -1056,7 +1065,7 @@ class GlRenderer(
         shadowMatcher.match(latest.items, previous?.items)
         for ((index, item) in latest.items.withIndex()) {
             // Solid, lit things cast: not cloud, flame, vapour or rain.
-            if (item.color[3] < 0.999f || item.ambient >= 1f || item.wrap || item.shape is CloudPuff) continue
+            if (item.color[3] < 0.999f || item.ambient >= 1f || item.wrap || item.shape is CloudPuff || item.decal > 0) continue
             if (item.position.distanceTo(focus) > reach * 1.5 + 30.0) continue
             placeItem(item, shadowMatcher.partners[index], alpha, cameraPos, shader)
             meshFor(item.shape, item.caps).draw()
@@ -1235,6 +1244,7 @@ class GlRenderer(
             is MeshSpec.Sphere -> MeshBuilder.sphere(spec.radius.toFloat())
             is com.rm.apogee.core.part.ModelSpec -> ModelShapes.build(spec, caps).let { Mesh(it.vertices, it.indices) }
             is CloudPuff -> CloudShapes.puff(spec).let { Mesh(it.vertices, it.indices) }
+            is PavingShape -> Mesh(spec.vertices, spec.indices)
             else -> throw IllegalArgumentException("Cannot draw $spec")
         }
     }

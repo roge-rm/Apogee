@@ -251,7 +251,8 @@ object TerrainChunk {
                 val cosine = if (cl > 0.0) (cx * dx[index] + cy * dy[index] + cz * dz[index]) / cl else 1.0
                 val slope = (1.0 - kotlin.math.abs(cosine)).coerceIn(0.0, 1.0)
                 direction.setTo(dx[index], dy[index], dz[index])
-                val material = terrain.material(direction, height, slope)
+                // The land's own colour: the paving is drawn over it, straight-edged (see Paving).
+                val material = terrain.groundMaterial(direction, height, slope)
                 // Keyed on the global grid position at the finest spacing, so
                 // a vertex shared by two chunks - or two levels - gets the
                 // same jitter in both.

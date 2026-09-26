@@ -229,6 +229,8 @@ object Shaders {
         uniform float uAtmosphereFactor;
         // 1 for a part, which is shaded by what is between it and the sun; 0 for cloud.
         uniform float uReceivesShadow;
+        // 1 for another world, seen across space: no haze, no fog, no moon.
+        uniform float uSkyBody;
 
         out vec4 fragColor;
 
@@ -252,6 +254,13 @@ object Shaders {
             if (uLampCount > 0) lit += uColor.rgb * lampLight(-vToCamera, n);
             // Ambient of one or more means it glows - a flame - at its own colour.
             if (uAmbient >= 1.0) lit = uColor.rgb;
+            if (uSkyBody > 0.5) {
+                // Lit by the sun alone, its night side nearly black; through
+                // a day sky, washed a little toward it, as the moon is.
+                vec3 world = uColor.rgb * (0.03 + 1.1 * max(facing, 0.0));
+                fragColor = vec4(mix(world, HAZE, 0.35 * uAtmosphereFactor * uDaylight), 1.0);
+                return;
+            }
             float haze = (1.0 - exp(-vDistance / max(uHazeDistance, 1.0))) * uAtmosphereFactor;
             lit = mix(lit, HAZE * (NIGHT_AIR + (1.0 - NIGHT_AIR) * uDaylight), clamp(haze, 0.0, 1.0));
             float fog = 1.0 - exp(-vDistance / max(uFogDistance, 1.0));

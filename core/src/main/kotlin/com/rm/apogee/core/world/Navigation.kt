@@ -30,6 +30,8 @@ enum class SasMode(val label: String) {
     @SerialName("radialIn") RADIAL_IN("Radial in"),
     @SerialName("target") TARGET("Target"),
     @SerialName("antiTarget") ANTI_TARGET("Anti-target"),
+    /** Along what is left of the next planned burn. */
+    @SerialName("burn") BURN("Burn"),
 }
 
 /**
@@ -53,6 +55,9 @@ class NavDirections {
     var hasTarget = false
     /** Metres to the target. */
     var targetDistance = 0.0
+    /** Along what is left of the next planned burn, when there is one. */
+    val burn = Vec3()
+    var hasBurn = false
 
     /** A unit direction for [mode], into [out]; false if there is none just now. */
     fun forMode(mode: SasMode, out: Vec3): Boolean {
@@ -66,6 +71,7 @@ class NavDirections {
             SasMode.RADIAL_IN -> if (moving) out.setTo(radialOut).negateInPlace() else return false
             SasMode.TARGET -> if (hasTarget) out.setTo(toTarget) else return false
             SasMode.ANTI_TARGET -> if (hasTarget) out.setTo(toTarget).negateInPlace() else return false
+            SasMode.BURN -> if (hasBurn) out.setTo(burn) else return false
         }
         return true
     }

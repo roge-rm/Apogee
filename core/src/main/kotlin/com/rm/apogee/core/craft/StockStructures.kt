@@ -63,11 +63,11 @@ object StockStructures {
             }
             // Threshold bars at each end, a dashed line down the middle.
             for (end in listOf(262.0, 2_738.0)) for (n in listOf(-418.0, -410.0, -390.0, -382.0)) {
-                add(Placement("struct-paint-bar", end, n, facing = 90.0, lift = 0.01))
+                add(Placement("struct-paint-bar", end, n, facing = 90.0, lift = PAINT_LIFT))
             }
             e = 330.0
             while (e <= 2_670.0) {
-                add(Placement("struct-paint-dash", e, -400.0, facing = 90.0, lift = 0.01))
+                add(Placement("struct-paint-dash", e, -400.0, facing = 90.0, lift = PAINT_LIFT))
                 e += 50.0
             }
         },
@@ -84,6 +84,9 @@ object StockStructures {
     )
 
     val complexes = listOf(launchComplex, airfield, harbour)
+
+    /** Runway paint stands this far off the ground, m: on the paving laid over it (drawn 4 cm up). */
+    private const val PAINT_LIFT = 0.06
 
     /** The [Placement.facing] that turns a building at [east], [north] to look at [toEast], [toNorth]. */
     fun facingToward(east: Double, north: Double, toEast: Double, toNorth: Double): Double =

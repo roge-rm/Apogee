@@ -608,7 +608,7 @@ class GameSession private constructor(
             add(com.rm.apogee.core.world.NavFrame.AUTO)
             add(com.rm.apogee.core.world.NavFrame.SURFACE)
             add(com.rm.apogee.core.world.NavFrame.ORBIT)
-            if (localTarget >= 0 && client.vessel(localTarget) != null) add(com.rm.apogee.core.world.NavFrame.TARGET)
+            if ((localTarget >= 0 && client.vessel(localTarget) != null) || localTargetBody.isNotEmpty()) add(com.rm.apogee.core.world.NavFrame.TARGET)
         }
         val next = order[(order.indexOf(localNavFrame) + 1).mod(order.size)]
         setNavFrame(next)
@@ -622,16 +622,253 @@ class GameSession private constructor(
 
     /** Steer by [target], or by nothing for -1. */
     suspend fun setTarget(target: Long) {
-        localTarget = target
+        val body = bodyOfTarget(target)
+        localTarget = if (body != null) -1L else target
+        localTargetBody = body ?: ""
         pushControlsToPrediction()
-        withControlledVessel { client.send(Command.SetTarget(it, target)) }
+        withControlledVessel { client.send(Command.SetTarget(it, localTarget, localTargetBody)) }
+    }
+
+    /** The body a target id stands for - see [BODY_TARGET] - or null for a craft, or none. */
+    private fun bodyOfTarget(target: Long): String? {
+        if (target > BODY_TARGET) return null
+        return targetBodies.getOrNull((BODY_TARGET - target).toInt())?.id
+    }
+
+    /** Bodies that can be targeted, in a fixed order: every one but the star. */
+    private val targetBodies = system.bodies.values.filter { it.parentId != null }
+
+    // --- planned burns and the autopilots -------------------------------------------
+
+    /**
+     * The flown craft's burns as edited here, ahead of the server's word -
+     * so the path redraws under the finger - or null to follow the server's.
+     */
+    @Volatile private var editedBurns: List<com.rm.apogee.core.world.PlannedBurn>? = null
+    @Volatile private var editedNanos = 0L
+    private var burnsSentNanos = 0L
+
+    /** The burns the flown craft has, as far as this client knows: edited, or the server's. */
+    fun burnsOf(focus: ClientVessel): List<com.rm.apogee.core.world.PlannedBurn> = editedBurns ?: focus.burns
+
+    /** Autopilots, as asked for here; see [setAutopilot]. */
+    @Volatile var localAutoBurn = false
+        private set
+    @Volatile var localAutoLand = false
+        private set
+    private var pushedAutoBurn = false
+    private var pushedAutoLand = false
+
+    private fun editBurns(burns: List<com.rm.apogee.core.world.PlannedBurn>) {
+        editedBurns = burns
+        editedNanos = System.nanoTime()
+    }
+
+    /** Sends the edited burns, at most every [BURN_SEND_NANOS] unless [now]. */
+    private suspend fun sendBurns(now: Boolean = false) {
+        val burns = editedBurns ?: return
+        val t = System.nanoTime()
+        if (!now && t - burnsSentNanos < BURN_SEND_NANOS) return
+        burnsSentNanos = t
+        withControlledVessel { client.send(Command.PlanBurns(it, burns)) }
+    }
+
+    /** A burn of nothing yet at universe [time]: to be shaped in the burn panel. */
+    suspend fun planBurnAt(time: Double) {
+        val focus = client.controlledVessel?.let { client.vessel(it) } ?: return
+        editBurns(listOf(com.rm.apogee.core.world.PlannedBurn(time)) + burnsOf(focus).drop(1).filter { it.time > time })
+        sendBurns(now = true)
+    }
+
+    /** The next burn changed by this much along each axis, m/s. */
+    suspend fun nudgeBurn(prograde: Double, normal: Double, radial: Double) {
+        val focus = client.controlledVessel?.let { client.vessel(it) } ?: return
+        val burns = burnsOf(focus)
+        val burn = burns.firstOrNull() ?: return
+        editBurns(listOf(burn.copy(prograde = burn.prograde + prograde, normal = burn.normal + normal, radial = burn.radial + radial)) + burns.drop(1))
+        sendBurns()
+    }
+
+    /** The next burn moved to universe [time]. */
+    suspend fun moveBurn(time: Double, final: Boolean = false) {
+        val focus = client.controlledVessel?.let { client.vessel(it) } ?: return
+        val burns = burnsOf(focus)
+        val burn = burns.firstOrNull() ?: return
+        val now = lastRenderTime
+        editBurns(listOf(burn.copy(time = time.coerceAtLeast(now + 1.0))) + burns.drop(1))
+        sendBurns(now = final)
+    }
+
+    /** The next burn [seconds] later - earlier if negative. */
+    suspend fun shiftBurn(seconds: Double) {
+        val focus = client.controlledVessel?.let { client.vessel(it) } ?: return
+        val burn = burnsOf(focus).firstOrNull() ?: return
+        moveBurn(burn.time + seconds)
+    }
+
+    /** Sends what is being edited now, not in a moment: a finger lifted. */
+    suspend fun burnEdited() = sendBurns(now = true)
+
+    /** The next burn gone. */
+    suspend fun deleteBurn() {
+        val focus = client.controlledVessel?.let { client.vessel(it) } ?: return
+        editBurns(burnsOf(focus).drop(1))
+        sendBurns(now = true)
+        if (localAutoBurn) setAutopilot(autoBurn = false, autoLand = localAutoLand)
+    }
+
+    /** Warps to a little before the next burn starts: time to turn onto it. */
+    suspend fun warpToBurn() {
+        val focus = client.controlledVessel?.let { client.vessel(it) } ?: return
+        val burn = burnsOf(focus).firstOrNull() ?: return
+        val duration = prediction.replica?.let { com.rm.apogee.core.world.Burns.duration(it, burn.deltaV) } ?: 0.0
+        val start = com.rm.apogee.core.world.Burns.startOf(burn, duration)
+        val until = start - BURN_WARP_LEAD
+        if (until > lastRenderTime + 5.0) client.send(Command.WarpTo(until))
+    }
+
+    /** Turns the autopilots on or off. */
+    suspend fun setAutopilot(autoBurn: Boolean, autoLand: Boolean) {
+        localAutoBurn = autoBurn
+        localAutoLand = autoLand
+        withControlledVessel { client.send(Command.SetAutopilot(it, autoBurn, autoLand)) }
+    }
+
+    /**
+     * The plan onto the replica: the burns, the target body, and the
+     * autopilots - pushed when asked for here, and otherwise read back, so
+     * one that finishes by itself (a burn done, a landing made) shows as off.
+     */
+    private fun syncPlan(focus: ClientVessel) {
+        val replica = prediction.replica ?: return
+        // An edit the server has now taken, or long since superseded: follow the server again.
+        editedBurns?.let { edited -> if (edited == focus.burns || System.nanoTime() - editedNanos > BURN_EDIT_HOLD_NANOS) editedBurns = null }
+        val autoBurn = if (localAutoBurn != pushedAutoBurn) localAutoBurn else replica.control.autoBurn
+        val autoLand = if (localAutoLand != pushedAutoLand) localAutoLand else replica.control.autoLand
+        prediction.syncPlan(burnsOf(focus), autoBurn, autoLand, localTargetBody)
+        pushedAutoBurn = autoBurn; pushedAutoLand = autoLand
+        localAutoBurn = autoBurn; localAutoLand = autoLand
+    }
+
+    /** The next planned burn, for the HUD and the burn panel. */
+    class BurnReadout(
+        /** Seconds until it should start; negative once it has. */
+        val startsIn: Double,
+        val burn: com.rm.apogee.core.world.PlannedBurn,
+        /** What is left of it, m/s. */
+        val left: Double,
+        /** At full throttle, s. */
+        val duration: Double,
+        /** After it: its high and low points above the ground, m (+inf for none: escaping). */
+        val apoapsis: Double,
+        val periapsis: Double,
+        /** A moon it meets after, and how low it passes it, m above the ground; null for none. */
+        val meets: String?,
+        val meetsAt: Double,
+        /** The auto-burn has it. */
+        val auto: Boolean,
+    )
+
+    @Volatile var burnReadout: BurnReadout? = null
+        private set
+
+    /** Coming down: when, how fast, and when to start braking; for the HUD. */
+    class LandingReadout(val impactIn: Double, val impactSpeed: Double, val brakeIn: Double, val auto: Boolean)
+
+    @Volatile var landingReadout: LandingReadout? = null
+        private set
+
+    /** Why the autopilot last gave up, or blank. */
+    @Volatile var autopilotNote: String = ""
+        private set
+
+    private fun updateReadouts(focus: ClientVessel, attractor: CelestialBody, time: Double) {
+        val replica = prediction.replica
+        autopilotNote = replica?.control?.autopilotNote ?: ""
+        val plan = planner.plan?.takeIf { it.bodyId == attractor.id }
+        val burn = burnsOf(focus).firstOrNull()
+        burnReadout = if (burn == null) null else {
+            val duration = replica?.let { com.rm.apogee.core.world.Burns.duration(it, burn.deltaV) } ?: Double.NaN
+            val left = replica?.let { r -> (r.burnVector.takeIf { !it.x.isNaN() }?.let { Vec3().setTo(it).subInPlace(r.burnApplied).length }) } ?: burn.deltaV
+            val after = plan?.planned?.segments?.firstOrNull()
+            val met = plan?.planned?.segments?.drop(1)?.firstOrNull { it.bodyId != attractor.id && system.body(it.bodyId).parentId == attractor.id }
+            BurnReadout(
+                startsIn = com.rm.apogee.core.world.Burns.startOf(burn, duration) - time,
+                burn = burn,
+                left = left,
+                duration = duration,
+                apoapsis = after?.orbit?.let { if (it.isBound) it.apoapsis - attractor.radius else Double.POSITIVE_INFINITY } ?: Double.NaN,
+                periapsis = after?.orbit?.let { it.periapsis - attractor.radius } ?: Double.NaN,
+                meets = met?.let { system.body(it.bodyId).displayName },
+                meetsAt = met?.let { it.orbit.periapsis - system.body(it.bodyId).radius } ?: Double.NaN,
+                auto = localAutoBurn,
+            )
+        }
+        val impact = plan?.impact
+        landingReadout = if (impact == null || replica == null || replica.touchingGround || replica.dormant) null else run {
+            val up = replica.body.position.normalized()
+            val surface = attractor.surfaceVelocityAt(replica.body.position, Vec3())
+            val velocity = Vec3().setTo(replica.body.linearVelocity).subInPlace(surface)
+            // Coming down, not standing or climbing.
+            if ((velocity dot up) > -LANDING_FALLING) return@run null
+            val g = attractor.gravityAt(replica.body.position, Vec3()).length
+            val thrust = replicaThrust(replica, attractor)
+            val most = thrust / replica.body.mass
+            val speed = velocity.length
+            // Stopping from here on most of the engine takes this much height; that much before the ground, start.
+            val stopping = if (most * 0.9 > g) speed * speed / (2.0 * (most * 0.9 - g)) else Double.POSITIVE_INFINITY
+            val falling = -(velocity dot up)
+            val height = (impact.time - time) * falling.coerceAtLeast(1.0)
+            return@run LandingReadout(
+                impactIn = impact.time - time,
+                impactSpeed = impact.speed,
+                brakeIn = if (stopping.isFinite()) (height - stopping) / falling.coerceAtLeast(1.0) else Double.NaN,
+                auto = localAutoLand,
+            )
+        }
+    }
+
+    /** Along what is left of the flown craft's next burn, world axes, unit; null for none. */
+    private fun burnDirection(focus: ClientVessel, attractor: CelestialBody): Vec3? {
+        val burn = burnsOf(focus).firstOrNull() ?: return null
+        val replica = prediction.replica ?: return null
+        val left = if (!replica.burnVector.x.isNaN()) Vec3().setTo(replica.burnVector).subInPlace(replica.burnApplied)
+            else com.rm.apogee.core.world.Burns.vectorOf(
+                burn, com.rm.apogee.core.orbit.Orbit(replica.body.position.copy(), replica.body.linearVelocity.copy(), attractor.gravitationalParameter, prediction.renderTime() ?: lastRenderTime),
+            )
+        return if (left.length < com.rm.apogee.core.world.Burns.DONE) null else left.normalizeInPlace()
+    }
+
+    /** What the replica's lit engines give in the air it is in, N. */
+    private fun replicaThrust(replica: com.rm.apogee.core.craft.Vessel, attractor: CelestialBody): Double {
+        val pressure = attractor.atmosphere?.pressureRatioAt(attractor.altitudeOf(replica.body.position))?.coerceIn(0.0, 1.0) ?: 0.0
+        var total = 0.0
+        for (i in replica.activeEngines()) {
+            val engine = replica.defs[i].module<com.rm.apogee.core.part.Engine>() ?: continue
+            if (replica.isBroken(i) || replica.amountInGroupOf(i, engine.propellant) <= 0.0) continue
+            total += engine.thrustVacuum + (engine.thrustSeaLevel - engine.thrustVacuum) * pressure
+        }
+        return total
     }
 
     /** A craft that can be picked as a target: nearest first. */
     class TargetChoice(val id: Long, val name: String, val distance: Double)
 
-    /** Other craft round the same body, nearest first, for the target picker. */
-    fun targetChoices(): List<TargetChoice> {
+    /** Other craft round the same body, nearest first, then the other worlds, for the target picker. */
+    fun targetChoices(): List<TargetChoice> = craftChoices() + bodyChoices()
+
+    /** The worlds but the one the craft is in, nearest first. */
+    private fun bodyChoices(): List<TargetChoice> {
+        val focusId = client.controlledVessel ?: return emptyList()
+        val state = client.vessel(focusId)?.latest ?: return emptyList()
+        val t = lastRenderTime
+        val here = system.positionOf(state.referenceBodyId, t).addInPlace(state.position)
+        return targetBodies.withIndex().filter { it.value.id != state.referenceBodyId }.map { (k, body) ->
+            TargetChoice(BODY_TARGET - k, body.displayName, system.positionOf(body.id, t).distanceTo(here) - body.radius)
+        }.sortedBy { it.distance }
+    }
+
+    private fun craftChoices(): List<TargetChoice> {
         val focusId = client.controlledVessel ?: return emptyList()
         val focus = client.vessel(focusId)?.latest ?: return emptyList()
         return client.vessels.mapNotNull { v ->
@@ -842,15 +1079,26 @@ class GameSession private constructor(
                 velocity = focusState.velocity,
                 mu = attractor.gravitationalParameter,
             )
-            val reach = if (orbit.isBound) orbit.apoapsis else orbit.periapsis * 4.0
+            val plan = planner.plan?.takeIf { it.bodyId == attractor.id }
+            // The whole of the path in view: out to a moon and back, if that is where it goes.
+            val drawn = if (plan != null) planLines(plan, attractor.id) else emptyList()
+            var reach = if (orbit.isBound) orbit.apoapsis else orbit.periapsis * 4.0
+            if (drawn.isNotEmpty()) reach = drawn.maxOf { line -> line.points.maxOf { it.length } }
             mapCamera.frameExactly(maxOf(reach, attractor.radius * 1.5))
             mapCamera.solve(Vec3.zero(), cameraPosition, cameraRotation)
 
-            lines.add(RenderLine(orbit.sample(192), ORBIT_COLOR))
-            if (orbit.isBound) {
-                lines.add(marker(orbit.propagate(orbit.timeToApoapsis).position, reach, APOAPSIS_COLOR))
-                lines.add(marker(orbit.propagate(orbit.timeToPeriapsis).position, reach, PERIAPSIS_COLOR))
+            if (plan == null) {
+                lines.add(RenderLine(orbit.sample(192), ORBIT_COLOR))
+                if (orbit.isBound) {
+                    lines.add(marker(orbit.propagate(orbit.timeToApoapsis).position, reach, APOAPSIS_COLOR))
+                    lines.add(marker(orbit.propagate(orbit.timeToPeriapsis).position, reach, PERIAPSIS_COLOR))
+                }
+            } else {
+                lines.addAll(drawn)
+                planMarkers(plan, attractor.id, reach, lines)
             }
+            keepMapView(plan, attractor, renderTime, cameraPosition, cameraRotation)
+            moonLines(attractor, renderTime, lines)
             lines.add(marker(focusState.position, reach, CRAFT_COLOR))
             // Founded bases on this world - the player's own and the Cape's - where they stand.
             for (other in client.vessels) {
@@ -927,13 +1175,18 @@ class GameSession private constructor(
                     // Between its last two snapshots, at the frame's time.
                     val position = Vec3()
                     val rotation = Quat()
-                    if (!sampled(vessel, renderTime, attractor, warp, position, rotation)) continue
+                    val own = vessel.observed?.kinematics?.referenceBodyId?.let { system.bodies[it] } ?: attractor
+                    if (!sampled(vessel, renderTime, own, warp, position, rotation)) continue
+                    // In another body's pull: from that body, then from this one.
+                    if (own !== attractor) system.rebase(position, Vec3(), own.id, attractor.id, renderTime)
                     appendVessel(vessel, items, attractor, position, rotation, stateOverride = vessel.observed?.kinematics)
                 } else {
                     // Carried from its own snapshot to the frame's time, and
                     // eased where a new snapshot disagrees with the last.
                     val observed = vessel.observed ?: continue
-                    val position = carried(observed, renderTime, attractor, warp) ?: continue
+                    val own = system.bodies[observed.kinematics.referenceBodyId] ?: attractor
+                    val position = carried(observed, renderTime, own, warp) ?: continue
+                    if (own !== attractor) system.rebase(position, Vec3(), own.id, attractor.id, renderTime)
                     val rotation = spunOn(observed, renderTime)
                     smoothed(vessel.id, observed.time, renderTime, position, rotation, observed.kinematics.velocity)
                     appendVessel(vessel, items, attractor, position, rotation, stateOverride = observed.kinematics)
@@ -943,6 +1196,8 @@ class GameSession private constructor(
                 val alive = client.vessels.mapTo(HashSet()) { it.id }
                 drawn.keys.retainAll(alive)
             }
+            appendPaving(items, attractor, renderTime, cameraPosition)
+            appendImpact(items, attractor, renderTime)
         }
 
         // Terrain turns with the planet, so the patch follows the craft's
@@ -1010,8 +1265,9 @@ class GameSession private constructor(
             forwardAxis = focus.design.orientation.forward,
             viewRotation = cameraRotation,
             navFrame = localNavFrame,
-            target = client.vessel(localTarget)?.latest?.takeIf { it.referenceBodyId == focusState.referenceBodyId },
-            targetName = client.vessel(localTarget)?.name,
+            target = client.vessel(localTarget)?.latest?.takeIf { it.referenceBodyId == focusState.referenceBodyId }
+                ?: bodyTarget(attractor, renderTime),
+            targetName = client.vessel(localTarget)?.name ?: system.bodies[localTargetBody]?.displayName,
             sasMode = if (localSas) localSasMode else null,
             condition = conditions[focus.id],
             defs = focus.design.parts.map { catalog[it.partId] },
@@ -1019,7 +1275,7 @@ class GameSession private constructor(
             lost = lost,
             lunaWindow = if (focus.design.orientation == com.rm.apogee.core.craft.CraftOrientation.VERTICAL)
                 moonWindowIn(attractor, focusState.position, bodyRotation, renderTime) else Double.NaN,
-        )
+        ).also { it.burn = if (wrecked) null else burnDirection(focus, attractor) }
 
         // The nearest thing in view, for the near plane: the closest part of
         // any craft, allowing for its size, and the ground under the camera.
@@ -1171,6 +1427,9 @@ class GameSession private constructor(
             particleShapes = shapes
         }
         val flash = if (mapMode) 0f else fx.flash
+        appendBodies(farItems, attractor, renderTime)
+        askPlan(focus, focusState, renderTime, warping)
+        updateReadouts(focus, attractor, renderTime)
         // Shadows round the craft: out to three times its size, within reason.
         val shadowReach = (designRadius(focus.design, designCentreOfMass(focus.design)) * 3.0).coerceIn(40.0, 300.0)
 
@@ -1222,6 +1481,248 @@ class GameSession private constructor(
             )
         )
         framesPublished.incrementAndGet()
+    }
+
+    /** Where the flown craft is going: see [PathPlanner]. */
+    private val planner = PathPlanner(system)
+
+    /** The target body, as a craft to steer by, relative to [attractor] at [time]; null for none. */
+    private fun bodyTarget(attractor: CelestialBody, time: Double): VesselKinematics? {
+        val id = localTargetBody
+        if (id.isEmpty() || id == attractor.id || id !in system.bodies) return null
+        return VesselKinematics(
+            vessel = -1L, referenceBodyId = attractor.id,
+            position = system.positionOf(id, time).subInPlace(system.positionOf(attractor.id, time)),
+            rotation = Quat.identity(),
+            velocity = system.velocityOf(id, time).subInPlace(system.velocityOf(attractor.id, time)),
+            angularVelocity = Vec3(),
+        )
+    }
+
+    // --- touching the map -------------------------------------------------------------
+
+    /** What the map last showed, for finding what a finger is on: see [keepMapView]. */
+    private class MapView(
+        val camera: Vec3,
+        val rotation: Quat,
+        /** Along the path from now: times, and where (about the attractor), [MAP_SAMPLES] of each. */
+        val times: DoubleArray,
+        val points: Array<Vec3>,
+        val burn: Vec3?,
+        /** Other worlds: id, where, radius. */
+        val bodies: List<Triple<String, Vec3, Double>>,
+    )
+
+    @Volatile private var mapView: MapView? = null
+    private var draggingBurn = false
+
+    private fun keepMapView(plan: PathPlanner.Plan?, attractor: CelestialBody, time: Double, camera: Vec3, rotation: Quat) {
+        val leg = plan?.current?.segments?.firstOrNull() ?: return
+        val times = DoubleArray(MAP_SAMPLES)
+        val points = Array(MAP_SAMPLES) { k ->
+            val t = leg.start + (leg.end - leg.start) * k / (MAP_SAMPLES - 1)
+            times[k] = t
+            leg.stateAt(t).position
+        }
+        val here = system.positionOf(attractor.id, time)
+        val bodies = targetBodies.filter { it.id != attractor.id }.map { b ->
+            Triple(b.id, system.positionOf(b.id, time).subInPlace(here), b.radius)
+        }
+        mapView = MapView(camera.copy(), rotation.copy(), times, points, plan.burnPoint?.copy(), bodies)
+    }
+
+    /** Where [point] (about the attractor) is on a [width] x [height] screen, into [out]; false if behind. */
+    private fun onScreen(view: MapView, point: Vec3, width: Float, height: Float, out: FloatArray): Boolean {
+        val d = view.rotation.inverseRotate(Vec3().setTo(point).subInPlace(view.camera))
+        val depth = -d.z
+        if (depth <= 1e-6) return false
+        val f = (height / 2.0) / kotlin.math.tan(Math.toRadians(55.0) / 2.0)
+        out[0] = (width / 2.0 + d.x / depth * f).toFloat()
+        out[1] = (height / 2.0 - d.y / depth * f).toFloat()
+        return true
+    }
+
+    /** The time on the path nearest [x], [y] on screen, and how far off it is, px. */
+    private fun nearestOnPath(view: MapView, x: Float, y: Float, width: Float, height: Float): Pair<Double, Float>? {
+        val at = FloatArray(2)
+        var best = -1
+        var bestDistance = Float.MAX_VALUE
+        for (k in view.points.indices) {
+            if (!onScreen(view, view.points[k], width, height, at)) continue
+            val d = kotlin.math.hypot(at[0] - x, at[1] - y)
+            if (d < bestDistance) { bestDistance = d; best = k }
+        }
+        return if (best < 0) null else view.times[best] to bestDistance
+    }
+
+    /** A finger down on the map: true if it took hold of the burn, to drag along the path. */
+    fun mapPress(x: Float, y: Float, width: Float, height: Float): Boolean {
+        val view = mapView ?: return false
+        val burn = view.burn ?: return false
+        val at = FloatArray(2)
+        if (!onScreen(view, burn, width, height, at)) return false
+        draggingBurn = kotlin.math.hypot(at[0] - x, at[1] - y) < MAP_GRAB_PIXELS
+        return draggingBurn
+    }
+
+    /** The finger holding the burn moved: the burn to where on the path it now is. */
+    fun mapDrag(x: Float, y: Float, width: Float, height: Float) {
+        if (!draggingBurn) return
+        val view = mapView ?: return
+        val (time, _) = nearestOnPath(view, x, y, width, height) ?: return
+        terrainScope.launch { moveBurn(time) }
+    }
+
+    /** Let go of the burn. */
+    fun mapRelease() {
+        if (!draggingBurn) return
+        draggingBurn = false
+        terrainScope.launch { burnEdited() }
+    }
+
+    /**
+     * A tap on the map: a world, to target it; the path, to plan a burn
+     * there - or move the one planned. True if it meant something.
+     */
+    fun mapTap(x: Float, y: Float, width: Float, height: Float): Boolean {
+        val view = mapView ?: return false
+        val at = FloatArray(2)
+        for ((id, centre, radius) in view.bodies) {
+            if (!onScreen(view, centre, width, height, at)) continue
+            if (kotlin.math.hypot(at[0] - x, at[1] - y) < MAP_GRAB_PIXELS) {
+                val index = targetBodies.indexOfFirst { it.id == id }
+                terrainScope.launch { setTarget(if (localTargetBody == id) -1L else BODY_TARGET - index) }
+                return true
+            }
+        }
+        val (time, off) = nearestOnPath(view, x, y, width, height) ?: return false
+        if (off > MAP_GRAB_PIXELS) return false
+        val focus = client.controlledVessel?.let { client.vessel(it) } ?: return false
+        terrainScope.launch { if (burnsOf(focus).isEmpty()) planBurnAt(time) else moveBurn(time, final = true) }
+        return true
+    }
+
+    /** The planned body target, as the player last set it; blank for none. */
+    @Volatile var localTargetBody: String = ""
+        private set
+
+    /** Has the path worked out afresh from where the craft is - the replica's word when it has one. */
+    private fun askPlan(focus: ClientVessel, state: VesselKinematics, renderTime: Double, warping: Boolean) {
+        val replica = prediction.replica?.takeIf { prediction.isReady && !warping }
+        val bodyId = replica?.referenceBodyId ?: state.referenceBodyId
+        val position = replica?.body?.position?.copy() ?: state.position.copy()
+        val velocity = replica?.body?.linearVelocity?.copy() ?: state.velocity.copy()
+        val time = if (replica != null) prediction.renderTime() ?: renderTime else client.latestSnapshot?.time ?: renderTime
+        val target = client.vessel(localTarget)?.latest?.takeIf { it.referenceBodyId == bodyId }
+        planner.ask(
+            terrainScope,
+            PathPlanner.Ask(
+                bodyId, position, velocity, time, burnsOf(focus),
+                mass = replica?.body?.mass ?: 0.0,
+                dragArea = replica?.let { dragForces.dragArea(it) } ?: 0.0,
+                targetBody = localTargetBody,
+                targetPosition = target?.position?.copy(), targetVelocity = target?.velocity?.copy(),
+            ),
+        )
+    }
+
+    private val dragForces = com.rm.apogee.core.world.Forces()
+
+    /**
+     * [plan] as lines about body [aboutId]: each leg in its body's colour -
+     * a moon's leg round the moon as it will be when the craft gets there -
+     * the coasting path only as far as the planned burn, and the path after
+     * the burn in the burn's own colour.
+     */
+    private fun planLines(plan: PathPlanner.Plan, aboutId: String): List<RenderLine> {
+        val out = ArrayList<RenderLine>()
+        val cut = plan.burn?.time ?: Double.MAX_VALUE
+        fun legs(path: com.rm.apogee.core.orbit.Trajectory, until: Double, planned: Boolean) {
+            for (segment in path.segments) {
+                if (segment.start >= until) break
+                val end = minOf(segment.end, until)
+                val points = ArrayList<Vec3>(PLAN_POINTS)
+                for (k in 0 until PLAN_POINTS) {
+                    val t = segment.start + (end - segment.start) * k / (PLAN_POINTS - 1)
+                    planner.drawnAbout(segment, segment.stateAt(t).position, aboutId, Vec3().also { points.add(it) })
+                }
+                val colour = if (planned) BURN_PATH_COLOR else if (segment.bodyId == aboutId) ORBIT_COLOR else MOON_PATH_COLOR
+                out.add(RenderLine(points, colour))
+            }
+        }
+        legs(plan.current, cut, planned = false)
+        plan.planned?.let { legs(it, Double.MAX_VALUE, planned = true) }
+        return out
+    }
+
+    /** The plan's landmarks: its high and low points, the burn, meeting a moon, coming down. */
+    private fun planMarkers(plan: PathPlanner.Plan, aboutId: String, reach: Double, lines: MutableList<RenderLine>) {
+        val path = plan.planned ?: plan.current
+        val first = path.segments.first()
+        val o = first.orbit
+        if (o.isBound && o.apoapsis < system.body(first.bodyId).sphereOfInfluence) {
+            lines.add(marker(first.stateAt(first.start + o.timeToApoapsis).position, reach, APOAPSIS_COLOR))
+        }
+        if (o.timeToPeriapsis.isFinite() && first.start + o.timeToPeriapsis <= first.end) {
+            lines.add(marker(first.stateAt(first.start + o.timeToPeriapsis).position, reach, PERIAPSIS_COLOR))
+        }
+        plan.burnPoint?.let { lines.add(marker(it, reach, BURN_COLOR)) }
+        for (segment in path.segments.drop(1)) {
+            // The moon it meets, where it will be then: its outline, and its reach.
+            val met = system.body(segment.bodyId)
+            if (segment.bodyId != aboutId && met.parentId == aboutId) {
+                val centre = system.positionOf(met.id, segment.start).subInPlace(system.positionOf(aboutId, segment.start))
+                val normal = met.orbit?.angularMomentum?.normalized() ?: Vec3.unitY()
+                lines.add(ring(centre, normal, met.radius, MOON_PATH_COLOR))
+                lines.add(ring(centre, normal, met.sphereOfInfluence, REACH_COLOR))
+            }
+            // Its low point about the moon it meets.
+            val low = segment.orbit.timeToPeriapsis
+            if (low.isFinite() && segment.start + low <= segment.end) {
+                lines.add(marker(planner.drawnAbout(segment, segment.stateAt(segment.start + low).position, aboutId, Vec3()), reach, PERIAPSIS_COLOR))
+            }
+        }
+    }
+
+    /** A circle of [radius] about [centre], square to [normal]. */
+    private fun ring(centre: Vec3, normal: Vec3, radius: Double, colour: FloatArray): RenderLine {
+        val a = (if (kotlin.math.abs(normal.y) < 0.9) Vec3.unitY() else Vec3.unitX()).cross(normal).normalizeInPlace()
+        val b = normal.cross(a)
+        return RenderLine((0..96).map { k ->
+            val angle = 2.0 * Math.PI * k / 96
+            Vec3().setTo(centre).addScaledInPlace(a, radius * kotlin.math.cos(angle)).addScaledInPlace(b, radius * kotlin.math.sin(angle))
+        }, colour)
+    }
+
+    /** The moons of [attractor]: where each goes round, and how far its pull reaches, at [time]. */
+    private fun moonLines(attractor: CelestialBody, time: Double, lines: MutableList<RenderLine>) {
+        for (moon in system.childrenOf(attractor.id)) {
+            val orbit = moon.orbit ?: continue
+            lines.add(RenderLine(orbit.sample(160), MOON_ORBIT_COLOR))
+            lines.add(ring(orbit.stateAt(time).position, orbit.angularMomentum.normalized(), moon.sphereOfInfluence, REACH_COLOR))
+        }
+    }
+
+    /**
+     * The other worlds, seen from [attractor]'s neighbourhood: a moon in the
+     * sky, the planet from its moon, and on the map. Where each truly is,
+     * drawn in the far pass, where the globe hides whatever is behind it.
+     */
+    private fun appendBodies(farItems: MutableList<RenderItem>, attractor: CelestialBody, time: Double) {
+        val here = system.positionOf(attractor.id, time)
+        for ((k, body) in system.bodies.values.withIndex()) {
+            if (body.id == attractor.id || body.parentId == null) continue
+            farItems.add(
+                RenderItem(
+                    shape = com.rm.apogee.core.part.MeshSpec.Sphere(body.radius),
+                    position = system.positionOf(body.id, time).subInPlace(here),
+                    rotation = body.rotationAt(time),
+                    color = BODY_COLOURS[body.id] ?: BODY_COLOUR,
+                    key = RenderItem.partKey(BODY_KEY, k, 0),
+                    sky = true,
+                )
+            )
+        }
     }
 
     /**
@@ -1304,12 +1805,13 @@ class GameSession private constructor(
             prediction.reconcile(state, age, snapshot.time, neighboursOf(focus, state, snapshot.time), anchored = focus.anchored)
         }
         prediction.sync(focus.currentStage, focus.activatedParts, focus.fuel)
+        syncPlan(focus)
         refreshStageCards()
 
-        prediction.renderPosition(predictedPosition)
+        prediction.renderPosition(predictedPosition, state.referenceBodyId)
         if (carryFrom != null && prediction.isReady) {
             prediction.carryOffset(carryFrom.subInPlace(predictedPosition))
-            prediction.renderPosition(predictedPosition)
+            prediction.renderPosition(predictedPosition, state.referenceBodyId)
         }
         prediction.renderRotation(predictedRotation)
         return if (prediction.isReady) predictedPosition else state.position
@@ -1477,6 +1979,67 @@ class GameSession private constructor(
         val across = camera.length * kotlin.math.acos((scratchCape.setTo(camera).normalizeInPlace() dot place).coerceIn(-1.0, 1.0))
         val away = kotlin.math.sqrt(across * across + height.coerceAtLeast(0.0) * height.coerceAtLeast(0.0))
         return 1.0 - smoothstepD(CAPE_HEARD_FULL, CAPE_HEARD_UNTIL, away)
+    }
+
+    /** Each body's paving, once built (empty for one with none); see [Paving]. */
+    private val pavings = java.util.concurrent.ConcurrentHashMap<String, com.rm.apogee.render.Paving.Built>()
+    private val pavingAsked = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
+    /**
+     * The Cape's paving, laid on the turning ground at [time], when the
+     * camera is near enough to see it - built once, off the frame thread,
+     * the first time it is wanted.
+     */
+    private fun appendPaving(items: MutableList<RenderItem>, attractor: CelestialBody, time: Double, camera: Vec3) {
+        val field = attractor.terrain as? com.rm.apogee.core.terrain.TerrainField ?: return
+        val built = pavings[attractor.id]
+        if (built == null) {
+            if (pavingAsked.add(attractor.id)) terrainScope.launch(Dispatchers.Default) {
+                pavings[attractor.id] = com.rm.apogee.render.Paving.build(field)
+                    ?: com.rm.apogee.render.Paving.Built(Vec3(), emptyList())
+            }
+            return
+        }
+        if (built.pieces.isEmpty()) return
+        val rotation = attractor.rotationAt(time)
+        val position = rotation.rotate(built.origin)
+        if (position.distanceTo(camera) > PAVING_SEEN) return
+        for ((k, piece) in built.pieces.withIndex()) {
+            items.add(
+                RenderItem(
+                    shape = piece.shape,
+                    position = position.copy(),
+                    rotation = rotation.copy(),
+                    color = piece.colour,
+                    key = RenderItem.partKey(PAVING_KEY, k, 0),
+                    decal = piece.shape.order,
+                )
+            )
+        }
+    }
+
+    /**
+     * Where a craft coming down will hit, if nothing is done: a thin glowing
+     * column standing on the ground there, seen from a long way off.
+     */
+    private fun appendImpact(items: MutableList<RenderItem>, attractor: CelestialBody, time: Double) {
+        if (landingReadout == null) return
+        val plan = planner.plan?.takeIf { it.bodyId == attractor.id } ?: return
+        val impact = plan.impact ?: return
+        if (impact.time - time !in 0.0..IMPACT_SHOWN) return
+        val rotation = attractor.rotationAt(time)
+        val up = rotation.rotate(impact.direction)
+        val ground = attractor.surfaceRadiusInBodyFrame(impact.direction)
+        items.add(
+            RenderItem(
+                shape = IMPACT_BEACON,
+                position = Vec3().setTo(up).mulInPlace(ground + IMPACT_BEACON.height / 2),
+                rotation = com.rm.apogee.core.math.quatFromTo(Vec3.unitY(), up),
+                color = IMPACT_COLOR,
+                ambient = 1.2f,
+                key = RenderItem.effectKey(IMPACT_KEY, 0),
+            )
+        )
     }
 
     private val scratchCape = Vec3()
@@ -2271,6 +2834,7 @@ class GameSession private constructor(
                 deploy = animation.shown.deploy[index],
                 gimbalPitch = animation.shown.gimbalPitch[index],
                 gimbalYaw = animation.shown.gimbalYaw[index],
+                jettisoned = def.module<com.rm.apogee.core.part.Fairing>() != null && index in vessel.activatedParts,
             )
             PartModels.alignWheel(def, placed.rotation, design.orientation.forward, design.orientation.up, anim)
             PartModels.alignSurface(def, placed.rotation, Vec3().setTo(placed.position).subInPlace(centreOfMass), anim)
@@ -2425,6 +2989,8 @@ class GameSession private constructor(
                         ambient = if (lit) 1.2f else if (condition.any) ConditionLook.ambient(0.28f, heat) else 0.28f,
                         wrap = false,
                         key = RenderItem.partKey(vessel.id, partIdentity(placed), piece),
+                        // Runway paint lies on the paving, over it.
+                        decal = if (placed.partId.startsWith(PAINT_PART)) PAINT_DECAL else 0,
                     )
                 )
             }
@@ -2646,6 +3212,36 @@ class GameSession private constructor(
         val LAMP_COLOUR = floatArrayOf(1.0f, 0.9f, 0.62f, 1.0f)
         val LAMP_GLARE = Vec3(2.0, 2.0, 2.0)
 
+        /** Path points kept for touching the map, and how near a finger must be to take hold, px. */
+        private const val MAP_SAMPLES = 256
+        private const val MAP_GRAB_PIXELS = 60f
+
+        /** Target ids at and below this are bodies, by their place in [targetBodies]. */
+        const val BODY_TARGET = -100L
+
+        /** Edited burns sent at most this often, and followed over the server's for this long after. */
+        private const val BURN_SEND_NANOS = 200_000_000L
+        private const val BURN_EDIT_HOLD_NANOS = 3_000_000_000L
+        /** Warping to a burn stops this long before it starts, s: time to turn onto it. */
+        private const val BURN_WARP_LEAD = 45.0
+
+        /** Coming down: falling faster than this, m/s. */
+        private const val LANDING_FALLING = 1.0
+
+        /** The impact beacon: shown this long before, what it is, and its colour. */
+        private const val IMPACT_SHOWN = 600.0
+        private val IMPACT_BEACON = com.rm.apogee.core.part.MeshSpec.Cylinder(0.8, 40.0)
+        private val IMPACT_COLOR = floatArrayOf(1.0f, 0.55f, 0.2f, 1f)
+        private const val IMPACT_KEY = -79L
+
+        /** The paving is drawn from this near, m, and the craft-id its pieces are keyed under. */
+        private const val PAVING_SEEN = 40_000.0
+        private const val PAVING_KEY = -77L
+
+        /** Runway markings, drawn over the paving they are painted on. */
+        private const val PAINT_PART = "struct-paint"
+        private const val PAINT_DECAL = 20
+
         /** Where the Cape is heard: the middle of the pads, and the jetty's head. */
         private val CAPE_PADS = com.rm.apogee.core.orbit.SolarSystem.capeDirection(0.0, 0.0)
         private val CAPE_JETTY = com.rm.apogee.core.orbit.SolarSystem.capeDirection(2_660.0, 350.0)
@@ -2802,6 +3398,21 @@ class GameSession private constructor(
         private val CRAFT_COLOR = floatArrayOf(1.0f, 1.0f, 1.0f, 1f)
         /** A founded base on the map. */
         private val BASE_COLOR = floatArrayOf(0.55f, 0.85f, 1.0f, 1f)
+        /** A leg about a moon; the path after a planned burn; the burn; a moon's own path; its reach. */
+        private val MOON_PATH_COLOR = floatArrayOf(0.85f, 0.85f, 0.88f, 1f)
+        private val BURN_PATH_COLOR = floatArrayOf(1.0f, 0.62f, 0.25f, 1f)
+        private val BURN_COLOR = floatArrayOf(0.31f, 0.64f, 1.0f, 1f)
+        private val MOON_ORBIT_COLOR = floatArrayOf(0.45f, 0.45f, 0.5f, 1f)
+        private val REACH_COLOR = floatArrayOf(0.3f, 0.3f, 0.36f, 1f)
+        private const val PLAN_POINTS = 160
+
+        /** Other worlds, as seen from afar: see [appendBodies]. */
+        private val BODY_COLOURS = mapOf(
+            "terra" to floatArrayOf(0.24f, 0.44f, 0.70f, 1f),
+            "luna" to floatArrayOf(0.56f, 0.56f, 0.57f, 1f),
+        )
+        private val BODY_COLOUR = floatArrayOf(0.6f, 0.55f, 0.5f, 1f)
+        private const val BODY_KEY = -78L
 
         /** The port a host listens on unless it is taken. */
         const val DEFAULT_PORT = 45_678
@@ -3028,6 +3639,9 @@ class FlightTelemetry(
     /** What became of it, if it is gone: the crash report. Null while it flies. */
     val destroyed: String? = null,
 ) {
+    /** Along what is left of the next planned burn, world axes; null for none. */
+    @Volatile var burn: Vec3? = null
+
     /** One part's state, for the damage list. */
     class PartStatus(val title: String, val health: Double, val heat: Double, val load: Double)
 

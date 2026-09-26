@@ -78,6 +78,8 @@ class ClientPrediction(
         val replica = World.default(catalog)
         neighbours.clear()
         neighbourDesigns.clear()
+        // A new replica has no plan yet: the next sync gives it the server's.
+        syncedBurns = null
         replica.weatherConfig = weather
         replica.syncClock(time)
         vessel = replica.spawnAt(
@@ -173,7 +175,8 @@ class ClientPrediction(
         translateZ: Double = 0.0,
     ) {
         val control = vessel?.control ?: return
-        control.throttle = throttle
+        // Flying itself, the autopilot has the throttle.
+        if (!control.autoBurn && !control.autoLand) control.throttle = throttle
         control.pitch = pitch
         control.yaw = yaw
         control.roll = roll
@@ -186,6 +189,34 @@ class ClientPrediction(
         control.translateZ = translateZ
         // A hand on the controls is the same signal the server wakes on.
         if (!inputsNeutral(control)) vessel?.wake()
+    }
+
+    /** The server's burns last put into the replica: see [syncPlan]. */
+    private var syncedBurns: List<com.rm.apogee.core.world.PlannedBurn>? = null
+
+    /**
+     * The flown craft's plan onto the replica: its burns - only when the
+     * server's list has changed, so a burn the replica has just finished is
+     * not put back while the server finishes it too - its autopilots and its
+     * target body.
+     */
+    fun syncPlan(burns: List<com.rm.apogee.core.world.PlannedBurn>, autoBurn: Boolean, autoLand: Boolean, targetBody: String) {
+        val local = vessel ?: return
+        if (burns !== syncedBurns) {
+            syncedBurns = burns
+            if (local.plannedBurns != burns) {
+                val sameNext = local.plannedBurns.firstOrNull() == burns.firstOrNull()
+                local.plannedBurns.clear()
+                local.plannedBurns.addAll(burns)
+                if (!sameNext) {
+                    local.resetBurn()
+                    local.burnDuration = burns.firstOrNull()?.let { com.rm.apogee.core.world.Burns.duration(local, it.deltaV) } ?: 0.0
+                }
+            }
+        }
+        local.control.autoBurn = autoBurn
+        local.control.autoLand = autoLand
+        local.control.targetBody = targetBody
     }
 
     private fun inputsNeutral(control: com.rm.apogee.core.craft.ControlState): Boolean =
@@ -330,6 +361,15 @@ class ClientPrediction(
         val local = vessel ?: return
         // Let go for the moment, so the server's state can be written into it.
         if (local.anchored) replica.unanchor(local)
+        // Passed into another body's pull on one side and not yet the other:
+        // measured from the server's body from here on. The same place, from
+        // another centre - and any correction being eased away, held against
+        // the old body's ground, goes with it.
+        if (local.referenceBodyId != state.referenceBodyId && system.bodies.containsKey(state.referenceBodyId)) {
+            system.rebase(local.body.position, local.body.linearVelocity, local.referenceBodyId, state.referenceBodyId, replica.time)
+            local.referenceBodyId = state.referenceBodyId
+            renderOffset.setZero()
+        }
 
         // Where it was being drawn, not where it last stepped to: the two
         // differ by the fraction of a step since, and counting that as error
@@ -438,15 +478,25 @@ class ClientPrediction(
         if (held.addInPlace(renderOffset).length <= MAX_SMOOTHED_ERROR) renderOffset.setTo(held)
     }
 
-    fun renderPosition(out: Vec3 = Vec3()): Vec3? {
+    /**
+     * Where to draw the craft, from the centre of body [bodyId] - the one
+     * the rest of the frame is drawn about, which for a moment either side
+     * of passing into another's pull is not the one the replica has.
+     */
+    fun renderPosition(out: Vec3 = Vec3(), bodyId: String? = null): Vec3? {
         val local = vessel ?: return null
+        val replica = world ?: return null
         out.setTo(local.body.position).addScaledInPlace(local.body.linearVelocity, accumulator)
-        if (renderOffset.lengthSq == 0.0) return out
-        // The correction is held against the ground; turn it with the ground.
-        val replica = world ?: return out
-        system.body(local.referenceBodyId).rotationAt(replica.time + accumulator, scratchRotation)
-        scratchRotation.rotate(renderOffset, scratchVelocity)
-        return out.addInPlace(scratchVelocity)
+        if (renderOffset.lengthSq != 0.0) {
+            // The correction is held against the ground; turn it with the ground.
+            system.body(local.referenceBodyId).rotationAt(replica.time + accumulator, scratchRotation)
+            scratchRotation.rotate(renderOffset, scratchVelocity)
+            out.addInPlace(scratchVelocity)
+        }
+        if (bodyId != null && bodyId != local.referenceBodyId && system.bodies.containsKey(bodyId)) {
+            system.rebase(out, scratchVelocity.setZero(), local.referenceBodyId, bodyId, replica.time + accumulator)
+        }
+        return out
     }
 
     /** [position] (inertial, at [time]) into the body's rotating frame, in place. */

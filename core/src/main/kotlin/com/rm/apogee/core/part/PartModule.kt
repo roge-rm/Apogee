@@ -121,6 +121,11 @@ data class Decoupler(
      * lets go of is cargo, not a spent stage: it stays the owner's.
      */
     val stays: Boolean = false,
+    /**
+     * Pushes what it lets go of out sideways, away from the craft's axis,
+     * rather than back along it: a fairing's shell falling open.
+     */
+    val radial: Boolean = false,
 ) : PartModule
 
 /** A wing, fin or control surface. */
@@ -456,6 +461,22 @@ data class Lamp(
      * lights all round it.
      */
     val aim: Double = 0.0,
+) : PartModule
+
+/**
+ * A fairing's base: a closed shell of [radius] standing [height] above the
+ * part's top face, round whatever rides on it - out of the air, no drag, no
+ * heating - thrown open in two halves ([shellPart], [shellMass] kg each)
+ * when staged, the ring left on the craft.
+ */
+@Serializable
+@SerialName("fairing")
+data class Fairing(
+    val height: Double = 7.5,
+    val radius: Double = 1.5,
+    val shellPart: String = "fairing-shroud",
+    val shellMass: Double = 350.0,
+    val ejectionImpulse: Double = 900.0,
 ) : PartModule
 
 /** Generates electric charge from sunlight. */

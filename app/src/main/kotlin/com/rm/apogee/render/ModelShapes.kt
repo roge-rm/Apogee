@@ -21,7 +21,7 @@ import kotlin.math.sqrt
 object ModelShapes {
 
     fun build(spec: ModelSpec, caps: Int = StackCaps.BOTH): MeshData = when (spec) {
-        is ModelSpec.Lathe -> lathe(spec.profile.map { it[0] to it[1] }, spec.segments, caps)
+        is ModelSpec.Lathe -> lathe(spec.profile.map { it[0] to it[1] }, spec.segments, caps, spec.sweep, spec.from)
         is ModelSpec.NoseCone -> noseCone(spec, caps)
         is ModelSpec.Tank -> tank(spec, caps)
         is ModelSpec.Fin -> fin(spec)
@@ -42,7 +42,17 @@ object ModelShapes {
      * Ends with a radius are capped where [caps] asks; ends at the axis need
      * nothing.
      */
-    fun lathe(profile: List<Pair<Double, Double>>, segments: Int, caps: Int = StackCaps.BOTH): MeshData {
+    fun lathe(
+        profile: List<Pair<Double, Double>>,
+        segments: Int,
+        caps: Int = StackCaps.BOTH,
+        /** Degrees round, from [from]: see [ModelSpec.Lathe.sweep]. */
+        sweep: Double = 360.0,
+        from: Double = 0.0,
+    ): MeshData {
+        val start = Math.toRadians(from)
+        val span = Math.toRadians(sweep.coerceIn(1.0, 360.0))
+        val whole = sweep >= 360.0
         require(profile.size >= 2) { "a lathe needs two profile points" }
         val soup = Soup()
         for (k in 0 until profile.size - 1) {
@@ -53,8 +63,8 @@ object ModelShapes {
             val nr = y1 - y0
             val ny = -(r1 - r0)
             for (i in 0 until segments) {
-                val a0 = 2 * PI * i / segments
-                val a1 = 2 * PI * (i + 1) / segments
+                val a0 = start + span * i / segments
+                val a1 = start + span * (i + 1) / segments
                 val am = (a0 + a1) * 0.5
                 val outward = doubleArrayOf(nr * cos(am), ny, nr * sin(am))
                 val p00 = ring(r0, y0, a0); val p01 = ring(r0, y0, a1)
@@ -65,8 +75,8 @@ object ModelShapes {
         }
         val (rb, yb) = profile.first()
         val (rt, yt) = profile.last()
-        if (rb > 0.0 && caps and StackCaps.BOTTOM != 0) disc(soup, rb, yb, segments, up = false)
-        if (rt > 0.0 && caps and StackCaps.TOP != 0) disc(soup, rt, yt, segments, up = true)
+        if (whole && rb > 0.0 && caps and StackCaps.BOTTOM != 0) disc(soup, rb, yb, segments, up = false)
+        if (whole && rt > 0.0 && caps and StackCaps.TOP != 0) disc(soup, rt, yt, segments, up = true)
         return soup.data()
     }
 

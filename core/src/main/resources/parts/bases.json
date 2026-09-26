@@ -659,7 +659,7 @@
       {
         "type": "command",
         "crewCapacity": 4,
-        "reactionTorque": 0.0
+        "reactionTorque": 40000.0
       },
       {
         "type": "battery",

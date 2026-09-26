@@ -60,6 +60,18 @@ class ControlState {
     /** Another craft to steer by, or -1 for none. */
     var target: Long = -1L
 
+    /** A body to steer by - a moon, a planet - by id, or blank for none. A craft target wins. */
+    var targetBody: String = ""
+
+    /** Flying the next planned burn by itself: turning, throttling, cutting. See `World.autoBurn`. */
+    var autoBurn: Boolean = false
+
+    /** Setting itself down by itself: braking, and down gently onto its legs. See `World.autoLand`. */
+    var autoLand: Boolean = false
+
+    /** Why the autopilot last gave up, blank for no reason to tell. */
+    var autopilotNote: String = ""
+
     /**
      * Wheel brakes. A mode rather than a held button, like the parking brake
      * it mostly is: a rover left on a slope has to stay there with nobody
@@ -459,6 +471,50 @@ class Vessel(
      */
     val air = com.rm.apogee.core.weather.AirSample()
 
+    /** Burns planned for this craft, soonest first: see [com.rm.apogee.core.world.PlannedBurn]. */
+    val plannedBurns = ArrayList<com.rm.apogee.core.world.PlannedBurn>()
+
+    /**
+     * The next burn, in the world's axes, fixed from when its window opens
+     * (see `Burns.WINDOW`); NaN until then.
+     */
+    val burnVector = Vec3(Double.NaN, 0.0, 0.0)
+
+    /** What has been given toward it since - by the engines, or anything but gravity - m/s, world axes. */
+    val burnApplied = Vec3()
+
+    /** The auto-land has begun braking: see `World.autoLand`. */
+    var landBraking: Boolean = false
+
+    /** How long the next burn takes at full throttle, s, as last worked out; 0 with none. */
+    var burnDuration: Double = 0.0
+
+    /**
+     * Which parts ride inside a closed fairing, out of the air: see
+     * [com.rm.apogee.core.craft.Fairings]. Worked out again when the
+     * structure changes or a fairing opens.
+     */
+    fun enclosed(): BooleanArray {
+        var open = 0L
+        for (i in defs.indices) if (activated[i] && defs[i].module<com.rm.apogee.core.part.Fairing>() != null) open = open * 31 + i + 1
+        if (design !== enclosedDesign || open != enclosedOpen) {
+            enclosedCache = Fairings.enclosed(design, defs) { activated.getOrElse(it) { false } }
+            enclosedDesign = design
+            enclosedOpen = open
+        }
+        return enclosedCache
+    }
+
+    private var enclosedCache = BooleanArray(0)
+    private var enclosedDesign: CraftDesign? = null
+    private var enclosedOpen = -1L
+
+    /** Forgets any burn in progress: a new plan, or the last one done. */
+    fun resetBurn() {
+        burnVector.setTo(Double.NaN, 0.0, 0.0)
+        burnApplied.setZero()
+    }
+
     var currentStage: Int = 0
         private set
 
@@ -735,6 +791,8 @@ class Vessel(
     /** Current mass of one part, including whatever it is carrying. */
     fun massOfPart(index: Int): Double {
         var mass = defs[index].dryMass + flooded.getOrElse(index) { 0.0 }
+        // A fairing's shell, while it is still on.
+        defs[index].module<com.rm.apogee.core.part.Fairing>()?.let { if (!activated[index]) mass += 2.0 * it.shellMass }
         val amounts = resources[index]
         for (type in ResourceType.entries) {
             mass += amounts[type.ordinal] * type.densityPerUnit

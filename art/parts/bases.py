@@ -51,7 +51,7 @@ parts.append(part(
         *[piece(box(1.5, 0.05, 1.1), at=(x, HH + 0.1, -1.1), rot=(-12, 0, 0), tint="glass") for x in (-0.85, 0.85)],
     ]),
     MODULE_NODES,
-    [{"type": "command", "crewCapacity": 4, "reactionTorque": 0.0}, {"type": "battery", "capacity": 400.0},
+    [{"type": "command", "crewCapacity": 4, "reactionTorque": 40000.0}, {"type": "battery", "capacity": 400.0},
      {"type": "solarPanel", "chargeRate": 2.0}],
     crash=16.0, strength=900000.0,
 ))

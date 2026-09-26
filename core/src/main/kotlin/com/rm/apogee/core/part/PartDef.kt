@@ -153,6 +153,8 @@ data class PartDef(
      * size": see [jointStrength].
      */
     val strength: Double = 0.0,
+    /** Not offered in the builder: a piece that only ever comes off another, as a fairing's half does. */
+    val hidden: Boolean = false,
     /**
      * How hot it can get before it starts to fail, K. Zero means "by what
      * it is": see [heatLimit].

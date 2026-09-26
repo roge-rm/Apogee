@@ -127,6 +127,8 @@ fun FlightScreen(
     onRemoveCraft: (Long) -> Unit = {},
     /** Take the craft being flown out of the world and go back to the menu. */
     onRetire: () -> Unit = {},
+    /** Planning burns, and the autopilots. */
+    burnActions: com.rm.apogee.ui.components.BurnActions = com.rm.apogee.ui.components.BurnActions(),
 ) {
     // BoxWithConstraints rather than the configuration's orientation: this is
     // a question about the space actually available, and the answer has to be
@@ -282,6 +284,10 @@ fun FlightScreen(
                 hud.nearBase, hud.baseService, onFound, onRefuel,
                 modifier = Modifier.padding(top = 6.dp).alpha(controlOpacity),
             )
+            com.rm.apogee.ui.components.BurnPanel(
+                hud.burn, hud.landing, hud.mapMode, hud.autopilotNote, burnActions,
+                modifier = Modifier.padding(top = 6.dp),
+            )
             hud.sharedWith?.let { other ->
                 com.rm.apogee.ui.components.SharedCraftCard(
                     other, hud.sharedPilot, hud.sharedOpen, { hud.sharedOpen = it }, onDockPilot,
@@ -355,6 +361,7 @@ fun FlightScreen(
                         onCycleFrame = onCycleFrame,
                         toTarget = hud.telemetry.toTarget,
                         throughAir = hud.telemetry.throughAir,
+                    burn = hud.telemetry.burn,
                     )
                     Spacer(Modifier.height(10.dp))
                     StageButton(hud.telemetry.stage, onStage, current = hud.stages.firstOrNull { it.current })
@@ -411,6 +418,7 @@ fun FlightScreen(
                     onCycleFrame = onCycleFrame,
                     toTarget = hud.telemetry.toTarget,
                     throughAir = hud.telemetry.throughAir,
+                    burn = hud.telemetry.burn,
                 )
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     if (hud.canJoin) {

@@ -46,6 +46,10 @@ class VesselSave(
     val sasMode: SasMode = SasMode.HOLD,
     val navFrame: NavFrame = NavFrame.AUTO,
     val target: Long = -1L,
+    /** A body targeted instead of a craft, by id; blank for none. */
+    val targetBody: String = "",
+    /** Burns planned for it, soonest first. */
+    val burns: List<PlannedBurn> = emptyList(),
     /** Wheel brakes. A parked rover has to still be parked when it is reloaded. */
     val brakes: Boolean = false,
     /**

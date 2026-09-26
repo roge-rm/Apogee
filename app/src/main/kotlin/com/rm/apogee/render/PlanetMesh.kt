@@ -65,7 +65,7 @@ object PlanetMesh {
                     TerrainPalette.water(-elevation, vertices, v + 6)
                     vertices[v + 9] = if (field == null) 0f else (1.0 - drawn / 1_000.0).toFloat()
                 } else {
-                    val material = field.material(direction, elevation, 0.0)
+                    val material = field.groundMaterial(direction, elevation, 0.0)
                     TerrainPalette.colour(material, elevation, ring * 7919 + segment, vertices, v + 6)
                     vertices[v + 9] = 0f
                 }

@@ -260,6 +260,11 @@ class GameServer(
      * whatever part of the tick the rails would not take.
      */
     private fun advanceWorld() {
+        // Arrived where a warp was asked to stop: real time again.
+        if (!world.warpUntil.isNaN() && world.time >= world.warpUntil - 1e-6) {
+            world.warpUntil = Double.NaN
+            requestedWarp = 1.0
+        }
         world.hurried = warpAllowed && requestedWarp > World.PHYSICS_WARP
         val rate = effectiveWarp()
         when {
@@ -319,6 +324,12 @@ class GameServer(
                     )
                 } else if (command is Command.SetWarp) {
                     requestedWarp = command.rate.coerceIn(0.0, World.WARP_RATES.last())
+                    world.warpUntil = Double.NaN
+                } else if (command is Command.WarpTo) {
+                    if (command.time > world.time) {
+                        world.warpUntil = command.time
+                        requestedWarp = World.WARP_RATES.last()
+                    }
                 } else if (command is Command.RemoveVessel) {
                     val flying = session.controlledVessel?.raw == command.vessel
                     world.apply(command)
@@ -557,6 +568,9 @@ class GameServer(
         is Command.SpawnCraft -> true
         is Command.Chat -> true
         is Command.SetWarp -> warpAllowed
+        is Command.WarpTo -> warpAllowed
+        is Command.PlanBurns -> flies(session, command.vessel)
+        is Command.SetAutopilot -> flies(session, command.vessel)
         // Only your own - never another player's base.
         is Command.RemoveVessel -> world.vessel(VesselId(command.vessel))?.owner == session.clientId
     }
@@ -601,6 +615,7 @@ class GameServer(
                     }
 
                 is WorldEvent.Touchdown -> Unit
+                is WorldEvent.BodyChanged -> Unit
                 // Told to the pilot with the refuel state, not as an event of its own.
                 is WorldEvent.RefuelStopped -> refuelStops[event.id.raw] = event.reason
 

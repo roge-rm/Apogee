@@ -67,6 +67,8 @@ fun NavBall(
     toTarget: Vec3? = null,
     /** Direction of travel through the air, when it differs from over the ground. */
     throughAir: Vec3? = null,
+    /** Along what is left of the next planned burn; null hides it. */
+    burn: Vec3? = null,
 ) {
     val textMeasurer = androidx.compose.ui.text.rememberTextMeasurer()
     androidx.compose.foundation.layout.Box(modifier.size(size)) {
@@ -99,6 +101,7 @@ fun NavBall(
         drawCompass(centre, radius, northLocal, eastLocal, textMeasurer)
         drawMarkers(centre, radius, progradeLocal, normalLocal, radialLocal)
         drawTargetMarkers(centre, radius, targetLocal)
+        drawBurnMarker(centre, radius, local(burn))
         airLocal?.let { project(centre, radius, it) }?.let { flightPathMarker(it, radius * 0.09f) }
         drawReticle(centre, radius)
     }
@@ -394,6 +397,20 @@ private fun DrawScope.radialMarker(point: Offset, size: Float, outward: Boolean)
 }
 
 /** Target: a ring with a dot and four ticks; anti-target: crossed. Magenta, as is usual. */
+/** The next burn: a blue ring with a notch each side - the way to point to fly it. */
+private fun DrawScope.drawBurnMarker(centre: Offset, radius: Float, burn: Vec3?) {
+    if (burn == null) return
+    val size = radius * 0.11f
+    project(centre, radius, burn)?.let { p ->
+        drawCircle(BURN, size, p, style = Stroke(3f))
+        drawCircle(BURN, size * 0.3f, p)
+        drawLine(BURN, p + Offset(-size * 1.6f, 0f), p + Offset(-size, 0f), strokeWidth = 3f)
+        drawLine(BURN, p + Offset(size, 0f), p + Offset(size * 1.6f, 0f), strokeWidth = 3f)
+    }
+}
+
+private val BURN = Color(0xFF4FA3FF)
+
 private fun DrawScope.drawTargetMarkers(centre: Offset, radius: Float, target: Vec3?) {
     if (target == null) return
     val size = radius * 0.1f

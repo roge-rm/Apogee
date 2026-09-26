@@ -153,10 +153,24 @@ class Orbit(
         }
     }
 
-    /** Seconds until the craft reaches periapsis. */
+    /**
+     * Seconds until the craft reaches periapsis. On an escape trajectory,
+     * the one pass - arriving at a moon, the low point to brake at - or
+     * infinite once it is behind it.
+     */
     val timeToPeriapsis: Double = run {
-        if (!isBound) Double.POSITIVE_INFINITY
-        else {
+        if (!isBound) {
+            if (eccentricity <= 1.0 + 1e-9 || (position dot velocity) >= 0.0) Double.POSITIVE_INFINITY
+            else {
+                // Hyperbolic anomaly from the true anomaly, then Kepler's
+                // equation for the hyperbola: how long until it is zero.
+                val cosNu = ((eccentricityVector dot position) / (eccentricity * r)).coerceIn(-1.0, 1.0)
+                val coshF = (eccentricity + cosNu) / (1.0 + eccentricity * cosNu)
+                val f = ln(coshF + sqrt((coshF * coshF - 1.0).coerceAtLeast(0.0)))
+                val m = eccentricity * kotlin.math.sinh(f) - f
+                m / sqrt(mu / (-semiMajorAxis * -semiMajorAxis * -semiMajorAxis))
+            }
+        } else {
             val meanMotion = 2.0 * PI / period
             var delta = (2.0 * PI - meanAnomaly) / meanMotion
             if (delta >= period) delta -= period

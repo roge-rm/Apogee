@@ -163,6 +163,58 @@ object StockCraft {
     }
 
     /**
+     * To Luna, and down on it: a Forge first stage on two Broad Cask-8s, an
+     * Ember upper stage on a Broad Cask-4 that finishes the climb to orbit
+     * and sends it on its way, and the Stilt Lander on top under a Shroud -
+     * to brake into orbit about Luna and set down there. One way.
+     *
+     * Stages: the Forge; the first stage let go and the Ember lit; the
+     * Shroud thrown open; the lander let go and lit; its chute; its legs.
+     */
+    fun moonshot(catalog: PartCatalog = StockParts.catalog): CraftDesign {
+        val lander = lander(catalog)
+        val parts = ArrayList<PlacedPart>()
+        fun add(partId: String, y: Double, parent: Int, x: Double = 0.0, z: Double = 0.0, rotation: Quat = Quat.identity()): Int {
+            parts.add(PlacedPart(partId, Vec3(x, y, z), rotation, parentIndex = parent))
+            return parts.size - 1
+        }
+        // The lander as it is, lifted onto the stack: its parts first, so
+        // its pod is the root; everything below hangs from its engine.
+        val lift = 25.3
+        for (p in lander.parts) parts.add(p.copy(position = Vec3(p.position.x, p.position.y + lift, p.position.z)))
+        val landerEngine = lander.parts.indexOfFirst { it.partId == "engine-vesper" }
+        val landerChute = lander.parts.indexOfFirst { it.partId == "chute-canopy" }
+        val landerLegs = lander.parts.indices.filter { lander.parts[it].partId == "leg-stilt" }
+        val release = add("decoupler-ring", 25.2, landerEngine)
+        val taper = add("adapter-taper", 24.5, release)
+        // The Shroud's ring, its shell standing round everything above it.
+        val shroud = add("fairing-base", 23.8, taper)
+        val upperTank = add("tank-broad4", 21.7, shroud)
+        val upperEngine = add("engine-ember", 19.0, upperTank)
+        // The first stage hangs from the upper tank, not from the engine
+        // between them: the whole climb's thrust goes up through this joint,
+        // and an engine's narrow mount tore off under it.
+        val staging = add("decoupler-broad", 18.15, upperTank)
+        val tankA = add("tank-broad8", 14.0, staging)
+        val tankB = add("tank-broad8", 6.0, tankA)
+        val forge = add("engine-forge", 1.0, tankB)
+        return CraftDesign(
+            name = "Moonshot",
+            parts = parts,
+            stages = listOf(
+                Stage(listOf(forge)),
+                Stage(listOf(staging, upperEngine)),
+                Stage(listOf(shroud)),
+                Stage(listOf(release, landerEngine)),
+                Stage(listOf(landerChute)),
+                Stage(landerLegs),
+            ),
+            manualStaging = true,
+            catalogHash = catalog.contentHash,
+        )
+    }
+
+    /**
      * A lander with thruster blocks: the craft a base gets built out of.
      *
      * Deliberately not the plain [lander] with thrusters bolted on. That craft

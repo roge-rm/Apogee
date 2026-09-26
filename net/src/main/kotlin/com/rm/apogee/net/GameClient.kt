@@ -30,6 +30,8 @@ class ClientVessel(
     @Volatile var owner: String = "",
     /** Founded: pinned to the ground, immovable. */
     @Volatile var anchored: Boolean = false,
+    /** Burns planned for it, soonest first, as the server has them. */
+    @Volatile var burns: List<com.rm.apogee.core.world.PlannedBurn> = emptyList(),
 ) {
     /** The two most recent snapshots, kept so the renderer can interpolate. */
     @Volatile var previous: VesselKinematics? = null
@@ -269,6 +271,7 @@ class GameClient(
                             activatedParts = update.activatedParts,
                             owner = update.owner,
                             anchored = update.anchored,
+                            burns = update.burns,
                         )
                     } else {
                         existing.design = design
@@ -277,6 +280,7 @@ class GameClient(
                         existing.currentStage = update.currentStage
                         existing.activatedParts = update.activatedParts
                         existing.anchored = update.anchored
+                        existing.burns = update.burns
                     }
                 }
             }

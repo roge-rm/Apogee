@@ -33,6 +33,13 @@ interface Terrain {
      */
     fun material(direction: Vec3, elevation: Double, slope: Double): SurfaceMaterial
 
+    /**
+     * What the ground is to look at, where something is laid over it and
+     * drawn apart: the land's own under any paving. The same as [material]
+     * wherever nothing is.
+     */
+    fun groundMaterial(direction: Vec3, elevation: Double, slope: Double): SurfaceMaterial = material(direction, elevation, slope)
+
     /** The sampled, cached form of this surface, which the collider reads. */
     val tiles: TerrainTileCache
 

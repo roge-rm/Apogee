@@ -224,6 +224,15 @@ class MainActivity : ComponentActivity() {
                         onSwitchCraft = ::onSwitchCraft,
                         onExit = { navigateTo(AppScreen.PLAY) },
                         onWarp = { rate -> session?.let { s -> lifecycleScope.launch { s.setWarp(rate) } } },
+                        burnActions = com.rm.apogee.ui.components.BurnActions(
+                            onNudge = { p, n, r -> session?.let { s -> lifecycleScope.launch { s.nudgeBurn(p, n, r) } } },
+                            onShift = { dt -> session?.let { s -> lifecycleScope.launch { s.shiftBurn(dt) } } },
+                            onEdited = { session?.let { s -> lifecycleScope.launch { s.burnEdited() } } },
+                            onDelete = { session?.let { s -> lifecycleScope.launch { s.deleteBurn() } } },
+                            onWarpTo = { session?.let { s -> lifecycleScope.launch { s.warpToBurn() } } },
+                            onAutoBurn = { on -> session?.let { s -> lifecycleScope.launch { s.setAutopilot(on, s.localAutoLand) } } },
+                            onAutoLand = { on -> session?.let { s -> lifecycleScope.launch { s.setAutopilot(s.localAutoBurn, on) } } },
+                        ),
                         craftChoices = { session?.myCraft() ?: emptyList() },
                         currentCraft = { session?.controlledCraft },
                         onFlyCraft = { id -> session?.let { s -> lifecycleScope.launch { s.flyCraft(id) } } },
@@ -640,6 +649,8 @@ class MainActivity : ComponentActivity() {
         // and the camera whipped round. After a pinch, the rest of that
         // gesture is the pinch's.
         var multiTouch = false
+        // A finger holding the planned burn on the map, dragging it along the path.
+        var holdingBurn = false
 
         // The assembly building's own gestures: taps, holds that lift a part,
         // two-finger pan and pinch - worked out in one place, and testable.
@@ -688,11 +699,15 @@ class MainActivity : ComponentActivity() {
                     downX = event.x; downY = event.y
                     downTime = event.eventTime
                     multiTouch = false
+                    // On the map, a finger on the planned burn takes hold of it.
+                    holdingBurn = session?.takeIf { it.mapMode }?.mapPress(event.x, event.y, v.width.toFloat(), v.height.toFloat()) == true
                 }
 
                 MotionEvent.ACTION_POINTER_DOWN -> multiTouch = true
 
-                MotionEvent.ACTION_MOVE -> if (!multiTouch && !pinch.isInProgress && event.pointerCount == 1) {
+                MotionEvent.ACTION_MOVE -> if (holdingBurn) {
+                    session?.mapDrag(event.x, event.y, v.width.toFloat(), v.height.toFloat())
+                } else if (!multiTouch && !pinch.isInProgress && event.pointerCount == 1) {
                     val dx = event.x - lastX
                     val dy = event.y - lastY
                     lastX = event.x; lastY = event.y
@@ -709,7 +724,12 @@ class MainActivity : ComponentActivity() {
                     // makes placing a part feel broken.
                     val travelled = kotlin.math.hypot(event.x - downX, event.y - downY)
                     val duration = event.eventTime - downTime
-                    if (!multiTouch && travelled < TAP_SLOP_PIXELS && duration < TAP_TIMEOUT_MILLIS) {
+                    if (holdingBurn) {
+                        holdingBurn = false
+                        session?.mapRelease()
+                    } else if (!multiTouch && travelled < TAP_SLOP_PIXELS && duration < TAP_TIMEOUT_MILLIS && session?.mapMode == true) {
+                        session?.mapTap(event.x, event.y, v.width.toFloat(), v.height.toFloat())
+                    } else if (!multiTouch && travelled < TAP_SLOP_PIXELS && duration < TAP_TIMEOUT_MILLIS) {
                         builderSession?.tap(
                             event.x, event.y,
                             v.width.toFloat(), v.height.toFloat(),
@@ -897,6 +917,11 @@ class MainActivity : ComponentActivity() {
                     current.baseService.let { if (it != hudState.baseService) hudState.baseService = it }
                     current.nearestBase.let { if (it != hudState.nearBase) hudState.nearBase = it }
                     hudState.chute = current.chuteState
+                    hudState.burn = current.burnReadout
+                    // Flying itself, the autopilot has the throttle: show where it has it.
+                    if (current.localAutoBurn || current.localAutoLand) hudState.throttle = current.telemetry.throttle.toFloat()
+                    hudState.landing = current.landingReadout
+                    hudState.autopilotNote = current.autopilotNote
                     hudState.dock = current.dockReadout
                     hudState.joints = current.joints
                     val shared = current.sharedWith

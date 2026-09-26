@@ -280,6 +280,41 @@ class TerrainField(
         return ground + CAPE_LIFT * (1.0 - kotlin.math.exp(-ground / CAPE_LIFT_SHORE)) * kotlin.math.exp(-ground / CAPE_LIFT_HIGH) * fade
     }
 
+    /**
+     * One paved work: a strip from [fromEast], [fromNorth] to [toEast],
+     * [toNorth] (metres from the pad), paved [halfWidth] either side of its
+     * line and round its ends - a disc where the two ends are the same.
+     * Listed in the order they are laid: each over the ones before it.
+     */
+    class PavedWork(
+        val fromEast: Double,
+        val fromNorth: Double,
+        val toEast: Double,
+        val toNorth: Double,
+        val halfWidth: Double,
+        val material: SurfaceMaterial,
+        /** Cut square across its ends, as a runway is, rather than rounded. */
+        val squareEnds: Boolean = false,
+    )
+
+    /** The Cape's paving, for drawing: empty on a body without it. */
+    val pavedWorks: List<PavedWork> by lazy {
+        if (padUnit == null || runwayAlong == null) return@lazy emptyList()
+        (0 until workCount).mapNotNull { k ->
+            val material = WORK_MATERIAL[k] ?: return@mapNotNull null
+            if (WORK_PAVED[k] <= 0.0) return@mapNotNull null
+            PavedWork(WORK_FROM_EAST[k], WORK_FROM_NORTH[k], WORK_TO_EAST[k], WORK_TO_NORTH[k], WORK_PAVED[k], material, squareEnds = k == RUNWAY_WORK)
+        }
+    }
+
+    /** The unit direction [east], [north] metres from the pad, into [out]: where [pavedWorks] are. */
+    fun worksDirection(east: Double, north: Double, out: Vec3 = Vec3()): Vec3 {
+        val pad = padUnit!!
+        val a = runwayAlong!!
+        val c = runwayAcross!!
+        return out.setTo(pad).addScaledInPlace(a, east / bodyRadius).addScaledInPlace(c, north / bodyRadius).normalizeInPlace()
+    }
+
     /** Whether [east], [north] of the pad is on the levelled part of any work. */
     private fun onWorks(east: Double, north: Double): Boolean {
         for (k in 0 until workCount) if (workDistance(k, east, north) <= WORK_FLAT[k]) return true
@@ -431,12 +466,19 @@ class TerrainField(
      * moving the classification out of the shader changes nothing a player
      * can see. Biomes replace it.
      */
-    override fun material(direction: Vec3, elevation: Double, slope: Double): SurfaceMaterial {
+    override fun material(direction: Vec3, elevation: Double, slope: Double): SurfaceMaterial =
+        materialOf(direction, elevation, slope, paved = true)
+
+    /** The land under the Cape's paving, which is drawn as its own straight-edged meshes: see [pavedWorks]. */
+    override fun groundMaterial(direction: Vec3, elevation: Double, slope: Double): SurfaceMaterial =
+        materialOf(direction, elevation, slope, paved = false)
+
+    private fun materialOf(direction: Vec3, elevation: Double, slope: Double, paved: Boolean): SurfaceMaterial {
         val length = sqrt(direction.x * direction.x + direction.y * direction.y + direction.z * direction.z)
         val nx = direction.x / length; val ny = direction.y / length; val nz = direction.z / length
         luna?.let { return it.material(nx, ny, nz, slope) }
         if (elevation < 0.0) return SurfaceMaterial.SAND
-        paving(direction)?.let { return it }
+        if (paved) paving(direction)?.let { return it }
         land?.let {
             var landness = smoothstep((elevation / HILL_SHORE_FADE).coerceIn(0.0, 1.0))
             // Round the Cape's works: green country - kept grass on the works
@@ -581,6 +623,9 @@ class TerrainField(
             SurfaceMaterial.ASPHALT, SurfaceMaterial.ASPHALT, SurfaceMaterial.ASPHALT, SurfaceMaterial.ASPHALT, SurfaceMaterial.ASPHALT,
             SurfaceMaterial.CONCRETE, null,
         )
+
+        /** The runway's place in the works table. */
+        private const val RUNWAY_WORK = 1
 
         /** Where the harbour's works start in the table: the road's third leg, down toward the shore. */
         private const val HARBOUR_WORKS_FROM = 7

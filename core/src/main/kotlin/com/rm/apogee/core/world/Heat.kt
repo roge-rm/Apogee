@@ -77,6 +77,8 @@ class Heat {
         shade(vessel, n, speed)
 
         val parts = vessel.design.parts
+        // Inside a closed fairing: none of the air reaches it.
+        val enclosed = vessel.enclosed()
         for (i in 0 until n) {
             val def = vessel.defs[i]
             val half = def.boundsHalfExtents
@@ -84,7 +86,7 @@ class Heat {
             var power = 0.0
 
             // The air: toward the recovery temperature, over the area shown to it.
-            if (coefficient > 0.0) {
+            if (coefficient > 0.0 && !enclosed.getOrElse(i) { false }) {
                 parts[i].rotation.inverseRotate(flow, local)
                 val front = 4.0 * (abs(local.x) * half.y * half.z + abs(local.y) * half.x * half.z + abs(local.z) * half.x * half.y)
                 val side = skin(half) * SIDE_SHARE

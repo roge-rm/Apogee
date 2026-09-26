@@ -88,13 +88,25 @@ class PartThumbnails(private val cacheRoot: File) {
             )
         }
         // A three-quarter view from a little above, far enough back for the
-        // whole part to fit.
-        val reach = def.boundsHalfExtents.length.coerceAtLeast(0.2)
+        // whole part to fit - all of what is drawn, which for a fairing is
+        // metres of shell over a ring a hand's breadth deep.
+        val low = Vec3(Double.MAX_VALUE, Double.MAX_VALUE, Double.MAX_VALUE)
+        val high = Vec3(-Double.MAX_VALUE, -Double.MAX_VALUE, -Double.MAX_VALUE)
+        for (leaf in leaves) {
+            val r = PartModels.boundingRadius(leaf.shape)
+            low.setTo(minOf(low.x, leaf.position.x - r), minOf(low.y, leaf.position.y - r), minOf(low.z, leaf.position.z - r))
+            high.setTo(maxOf(high.x, leaf.position.x + r), maxOf(high.y, leaf.position.y + r), maxOf(high.z, leaf.position.z + r))
+        }
+        val centre = if (leaves.isEmpty()) Vec3() else Vec3().setTo(low).addInPlace(high).mulInPlace(0.5)
+        // The sphere round the drawn pieces, but never looser than the part's own box.
+        val reach = (if (leaves.isEmpty()) def.boundsHalfExtents.length
+            else minOf(Vec3().setTo(high).subInPlace(low).length * 0.5, maxOf(def.boundsHalfExtents.length, Vec3().setTo(high).subInPlace(low).length * 0.35)))
+            .coerceAtLeast(0.2)
         val distance = reach / sin(FOV_Y * 0.5) * 1.02
         val yaw = Math.toRadians(35.0)
         val pitch = Math.toRadians(22.0)
-        val from = Vec3(sin(yaw) * cos(pitch), sin(pitch), cos(yaw) * cos(pitch)).mulInPlace(distance)
-        val look = quatLookAt(Vec3().setTo(from).negateInPlace(), Vec3.unitY())
+        val from = Vec3(sin(yaw) * cos(pitch), sin(pitch), cos(yaw) * cos(pitch)).mulInPlace(distance).addInPlace(centre)
+        val look = quatLookAt(Vec3().setTo(centre).subInPlace(from), Vec3.unitY())
         return Job(def.id, items, from, look, FOV_Y)
     }
 
@@ -103,7 +115,7 @@ class PartThumbnails(private val cacheRoot: File) {
         const val SIZE = 160
 
         /** Bumped when the way pictures are drawn changes, so old ones are redrawn. */
-        const val VERSION = 1
+        const val VERSION = 2
 
         private const val FOV_Y = Math.PI / 180.0 * 30.0
     }

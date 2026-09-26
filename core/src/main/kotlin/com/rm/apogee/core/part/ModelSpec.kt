@@ -42,6 +42,13 @@ sealed interface ModelSpec : Shape {
     data class Lathe(
         val profile: List<List<Double>>,
         val segments: Int = 20,
+        /**
+         * How far round it goes, degrees, from [from] (0 at +X, turning
+         * toward +Z): all the way for a tank, half for a fairing's shell. A
+         * part of a turn is not capped.
+         */
+        val sweep: Double = 360.0,
+        val from: Double = 0.0,
     ) : ModelSpec
 
     /**
@@ -217,4 +224,6 @@ enum class PieceRole {
     @SerialName("suspension") SUSPENSION,
     /** Swings with the engine's gimbal, about [ModelSpec.Piece.pivot]: a nozzle. */
     @SerialName("gimbal") GIMBAL,
+    /** Gone once the part is staged: a fairing's shell, thrown open. */
+    @SerialName("jettison") JETTISON,
 }

@@ -1,5 +1,6 @@
 package com.rm.apogee.core.world
 
+import com.rm.apogee.core.craft.CraftDesign
 import com.rm.apogee.core.craft.StockCraft
 import com.rm.apogee.core.math.Quat
 import com.rm.apogee.core.math.Vec3
@@ -122,6 +123,89 @@ class SceneSaves {
             }
             w.spawnOnSurface(StockCraft.starterRocket(c), World.launchSites.first { it.id == "cape" }).name = "Starter I"
             WorldStore(File(dir, "padnight.json")).save(w.save()).getOrThrow()
+        }
+        // In a 100 km orbit about Terra, in Luna's plane, a transfer to Luna planned five minutes on.
+        run {
+            val w = world()
+            val system = w.system
+            val luna = system.body("luna")
+            val mu = terra.gravitationalParameter
+            val r1 = terra.radius + 100_000.0
+            val r2 = luna.orbit!!.semiMajorAxis + 800_000.0
+            val a = 0.5 * (r1 + r2)
+            val flight = Math.PI * kotlin.math.sqrt(a * a * a / mu)
+            val lead = 300.0
+            val departs = w.time + lead
+            val normal = luna.orbit!!.angularMomentum.normalized()
+            val departure = luna.orbit!!.stateAt(departs + flight).position.normalized().negateInPlace()
+            val position = Quat.fromAxisAngle(normal, -lead * kotlin.math.sqrt(mu / r1) / r1).rotate(departure).mulInPlace(r1)
+            val velocity = normal.cross(position).normalizeInPlace().mulInPlace(kotlin.math.sqrt(mu / r1))
+            val design = StockCraft.lander(c)
+            val craft = w.spawnAt(design, "terra", position, velocity, quatFromTo(design.orientation.forward, velocity.normalized()))
+            craft.name = "Stilt Lander"
+            w.stage(craft)
+            val boost = kotlin.math.sqrt(mu * (2.0 / r1 - 1.0 / a)) - kotlin.math.sqrt(mu / r1)
+            w.apply(Command.PlanBurns(craft.id.raw, listOf(PlannedBurn(departs, prograde = boost))))
+            w.apply(Command.SetTarget(craft.id.raw, -1L, "luna"))
+            WorldStore(File(dir, "transfer.json")).save(w.save()).getOrThrow()
+        }
+        // In a 30 km orbit about Luna, over the mare, engine lit: to come down on it.
+        run {
+            val w = world()
+            val luna = w.system.body("luna")
+            val mare = World.launchSites.first { it.id == "luna-mare" }
+            val over = luna.rotationAt(w.time).rotate(SolarSystem.surfaceDirection(mare.latitude, mare.longitude))
+            val r = luna.radius + 30_000.0
+            val position = over.copy().mulInPlace(r)
+            // Eastward, so it passes over the mare: along the turn of the ground.
+            val east = Vec3(0.0, 1.0, 0.0).crossInPlace(over).normalizeInPlace()
+            val velocity = east.mulInPlace(luna.circularVelocityAt(r))
+            val design = StockCraft.lander(c)
+            val craft = w.spawnAt(design, "luna", position, velocity, quatFromTo(design.orientation.forward, velocity.normalized()))
+            craft.name = "Stilt Lander"
+            w.stage(craft)
+            WorldStore(File(dir, "lunaorbit.json")).save(w.save()).getOrThrow()
+        }
+        // Three kilometres over the mare, falling and drifting, the engine lit and the legs next.
+        run {
+            val w = world()
+            val craft = w.spawnOnSurface(StockCraft.lander(c), World.launchSites.first { it.id == "luna-mare" }, pad = 3)
+            craft.name = "Stilt Lander"
+            w.stage(craft); w.stage(craft)
+            val luna = w.attractorFor(craft)
+            craft.wake()
+            val up = craft.body.position.copy().normalizeInPlace()
+            val east = Vec3(0.0, 1.0, 0.0).crossInPlace(up).normalizeInPlace()
+            craft.body.position.addScaledInPlace(up, 3_000.0)
+            luna.surfaceVelocityAt(craft.body.position, craft.body.linearVelocity).addScaledInPlace(up, -40.0).addScaledInPlace(east, 60.0)
+            WorldStore(File(dir, "lunafall.json")).save(w.save()).getOrThrow()
+        }
+        // A pod on a Shroud in a 100 km orbit: stage it and watch the shell fall open.
+        run {
+            val w = world()
+            val design = CraftDesign(
+                name = "Shrouded Pod",
+                parts = listOf(
+                    com.rm.apogee.core.craft.PlacedPart("pod-halo", Vec3(0.0, 1.9, 0.0)),
+                    com.rm.apogee.core.craft.PlacedPart("adapter-taper", Vec3(0.0, 0.7, 0.0), parentIndex = 0),
+                    com.rm.apogee.core.craft.PlacedPart("fairing-base", Vec3(0.0, 0.0, 0.0), parentIndex = 1),
+                ),
+                stages = listOf(com.rm.apogee.core.craft.Stage(listOf(2))),
+                manualStaging = true,
+                catalogHash = c.contentHash,
+            )
+            val r = terra.radius + 100_000.0
+            val up = w.system.body("terra").rotationAt(t).rotate(pad, Vec3())
+            val east = Vec3(0.0, 1.0, 0.0).crossInPlace(up).normalizeInPlace()
+            val velocity = east.copy().mulInPlace(terra.circularVelocityAt(r))
+            w.spawnAt(design, "terra", up.copy().mulInPlace(r), velocity, quatFromTo(Vec3.unitY(), east)).name = "Shrouded Pod"
+            WorldStore(File(dir, "shroud.json")).save(w.save()).getOrThrow()
+        }
+        // The Moonshot on the pad.
+        run {
+            val w = world()
+            w.spawnOnSurface(StockCraft.moonshot(c), World.launchSites.first { it.id == "cape" }).name = "Moonshot"
+            WorldStore(File(dir, "moonshot.json")).save(w.save()).getOrThrow()
         }
         // A base core lander on Luna's mare, ready to fly.
         run {

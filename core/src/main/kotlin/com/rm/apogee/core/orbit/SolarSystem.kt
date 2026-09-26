@@ -50,6 +50,42 @@ class SolarSystem(
         return velocityOf(parentId, time).addInPlace(local)
     }
 
+    /** The bodies orbiting [id] directly: its moons, or a star's planets. */
+    fun childrenOf(id: String): List<CelestialBody> = children.getOrPut(id) { bodies.values.filter { it.parentId == id } }
+
+    private val children = java.util.concurrent.ConcurrentHashMap<String, List<CelestialBody>>()
+
+    /**
+     * Carries [position] and [velocity] - relative to body [from]'s centre -
+     * over to being relative to body [to]'s at [time], in place. The same
+     * point and motion, measured from somewhere else: nothing moves.
+     */
+    fun rebase(position: Vec3, velocity: Vec3, from: String, to: String, time: Double) {
+        if (from == to) return
+        position.addInPlace(positionOf(from, time)).subInPlace(positionOf(to, time))
+        velocity.addInPlace(velocityOf(from, time)).subInPlace(velocityOf(to, time))
+    }
+
+    /**
+     * The body whose pull governs a craft at [position] (relative to
+     * [current]'s centre) at [time]: [current] itself, most of the time.
+     * Cheap when nothing can have changed - well inside [current]'s sphere
+     * of influence and nowhere near a moon's - and [dominantBody] otherwise.
+     */
+    fun governing(current: CelestialBody, position: Vec3, time: Double): CelestialBody {
+        val r = position.length
+        var near = r > current.sphereOfInfluence
+        if (!near) {
+            for (child in childrenOf(current.id)) {
+                val orbit = child.orbit ?: continue
+                // Nearer the parent than the moon's orbit ever comes, less its reach.
+                if (r >= orbit.periapsis - child.sphereOfInfluence) { near = true; break }
+            }
+        }
+        if (!near) return current
+        return dominantBody(positionOf(current.id, time).addInPlace(position), time)
+    }
+
     /** Every body between [id] and the root, nearest first. */
     fun ancestorsOf(id: String): List<CelestialBody> {
         val chain = ArrayList<CelestialBody>()

@@ -30,6 +30,12 @@ class AscentScenario(
     private val turnEndAltitude: Double = 45_000.0,
     /** The weather to fly through; null for still air. */
     private val weather: com.rm.apogee.core.weather.WeatherConfig? = null,
+    /** What flies: the stock rocket unless another is given. */
+    private val design: (com.rm.apogee.core.part.PartCatalog) -> com.rm.apogee.core.craft.CraftDesign = { StockCraft.starterRocket(it) },
+    /** Universe time to lift off at - a launch window - or null for the start. */
+    private val launchAt: Double? = null,
+    /** Called every tick before the autopilot steers: jettisoning a fairing, say. */
+    private val onTick: (World, Vessel) -> Unit = { _, _ -> },
 ) {
     enum class Phase { LIFTOFF, GRAVITY_TURN, COAST, CIRCULARISE, DONE, FAILED }
 
@@ -67,6 +73,9 @@ class AscentScenario(
         val peakStressPart: String = "",
         /** Parts lost on the way. */
         val partsLost: Int = 0,
+        /** The world and the craft as the flight left them, to fly on from. */
+        val world: World? = null,
+        val vessel: Vessel? = null,
     )
 
     fun fly(maxSeconds: Double = 2_400.0, logEvery: Double = 15.0): Result {
@@ -76,8 +85,9 @@ class AscentScenario(
         var peakStress = 0.0
         var peakStressPart = ""
         var partsLost = 0
+        launchAt?.let { world.skipTo(it) }
         val vessel = world.spawnOnSurface(
-            StockCraft.starterRocket(catalog),
+            design(catalog),
             World.launchSites.first(),
         )
         val attractor = world.attractorFor(vessel)
@@ -87,7 +97,7 @@ class AscentScenario(
         val log = ArrayList<Telemetry>()
 
         var phase = Phase.LIFTOFF
-        var nextLogAt = 0.0
+        var nextLogAt = world.time
         var failure: String? = null
 
         // Light the first stage.
@@ -100,12 +110,13 @@ class AscentScenario(
         val desired = Vec3()
         val dt = DT
 
-        while (world.time < maxSeconds && phase != Phase.DONE && phase != Phase.FAILED) {
+        val liftoff = world.time
+        while (world.time - liftoff < maxSeconds && phase != Phase.DONE && phase != Phase.FAILED) {
             val altitude = attractor.altitudeOf(vessel.body.position)
             val orbit = world.orbitOf(vessel)
 
             if (altitude < -100.0) {
-                failure = "flew into the ground at t=${"%.1f".format(world.time)}s"
+                failure = "flew into the ground at t=${"%.1f".format(world.time - liftoff)}s"
                 phase = Phase.FAILED
                 break
             }
@@ -173,6 +184,7 @@ class AscentScenario(
                 else -> Unit
             }
 
+            onTick(world, vessel)
             autopilot.steer(vessel, desired)
 
             // Stage as soon as the running stage is dry.
@@ -226,6 +238,8 @@ class AscentScenario(
             peakStress = peakStress,
             peakStressPart = peakStressPart,
             partsLost = partsLost,
+            world = world,
+            vessel = vessel,
         )
     }
 

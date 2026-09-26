@@ -27,6 +27,8 @@ class PartAnim(
     var deploy: Double = 1.0,
     /** Suspension compression, metres. */
     var compression: Double = 0.0,
+    /** Staged, where that throws something off it: a fairing's shell, gone. */
+    var jettisoned: Boolean = false,
     /** Engine gimbal, -1..1 of its range, about pitch (X) and yaw (Z). */
     var gimbalPitch: Double = 0.0,
     var gimbalYaw: Double = 0.0,
@@ -93,6 +95,7 @@ object PartModels {
     ) {
         when (model) {
             is ModelSpec.Compound -> for (piece in model.pieces) {
+                if (piece.role == PieceRole.JETTISON && anim?.jettisoned == true) continue
                 // The piece's own placement...
                 val local = euler(piece.rotation)
                 val offset = piece.offset.copy()
@@ -129,7 +132,7 @@ object PartModels {
         if (anim == null) return Quat.identity()
         val axis = piece.axis.normalized()
         return when (piece.role) {
-            PieceRole.FIXED, PieceRole.SUSPENSION -> Quat.identity()
+            PieceRole.FIXED, PieceRole.SUSPENSION, PieceRole.JETTISON -> Quat.identity()
             // As Forces.gimballedDirection turns the thrust.
             PieceRole.GIMBAL ->
                 Quat.fromAxisAngle(Vec3(1.0, 0.0, 0.0), anim.gimbalPitch * gimbalRange) *

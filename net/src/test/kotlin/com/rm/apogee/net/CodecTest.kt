@@ -26,6 +26,12 @@ class CodecTest {
             ClientMessage.CommandMessage(Command.SetSas(7, true)),
             ClientMessage.CommandMessage(Command.Stage(7)),
             ClientMessage.CommandMessage(Command.Chat("hello")),
+            ClientMessage.CommandMessage(Command.SetTarget(7, -1, "luna")),
+            ClientMessage.CommandMessage(
+                Command.PlanBurns(7, listOf(com.rm.apogee.core.world.PlannedBurn(1234.5, 846.9, -3.0, 1.5))),
+            ),
+            ClientMessage.CommandMessage(Command.SetAutopilot(7, autoBurn = true, autoLand = false)),
+            ClientMessage.CommandMessage(Command.WarpTo(99_999.0)),
             ClientMessage.CommandMessage(
                 Command.SpawnCraft(StockCraft.starterRocket(StockParts.catalog), "cape")
             ),
@@ -54,6 +60,12 @@ class CodecTest {
             ServerMessage.SnapshotMessage(Snapshot(42, 0.7, listOf(kinematics))),
             ServerMessage.StructureMessage(
                 StructureUpdate(1, StockCraft.probe(StockParts.catalog), "Probe", 0, listOf(0))
+            ),
+            ServerMessage.StructureMessage(
+                StructureUpdate(
+                    1, StockCraft.probe(StockParts.catalog), "Probe", 0, listOf(0),
+                    burns = listOf(com.rm.apogee.core.world.PlannedBurn(10.0, prograde = 5.0)),
+                )
             ),
             ServerMessage.ChatMessage("Pilot", "hello"),
         )
