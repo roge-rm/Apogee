@@ -164,9 +164,12 @@ class Comms(private val system: SolarSystem) {
             return if (range > 0.0) range to relay else null
         }
 
-        /** Whether anyone is aboard [vessel] to fly it by hand: a working command part with a seat. */
-        fun crewed(vessel: Vessel): Boolean = vessel.defs.indices.any {
-            !vessel.isBroken(it) && (vessel.defs[it].module<Command>()?.crewCapacity ?: 0) > 0
+        /** Whether anyone is aboard [vessel] to fly it by hand. */
+        fun crewed(vessel: Vessel): Boolean = vessel.hasCrew()
+
+        /** Whether [vessel] has a working probe core: a command part with no seat, flown from home. */
+        fun hasProbeCore(vessel: Vessel): Boolean = vessel.defs.indices.any {
+            !vessel.isBroken(it) && vessel.defs[it].module<Command>()?.let { c -> c.crewCapacity == 0 } == true
         }
 
         /** Whether [vessel] needs a signal to be flown: a working command part, and nobody aboard. */

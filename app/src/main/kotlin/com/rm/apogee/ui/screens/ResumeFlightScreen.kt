@@ -46,6 +46,11 @@ class CraftSummary(
     val situation: String,
     /** Height above the ground, or altitude, formatted. */
     val height: String,
+    /** What removing it does to whoever is aboard, in words; blank with nobody aboard. */
+    val crewNote: String = "",
+    /** Whether it can be put back on its launch site - not someone on EVA, nor a flag - and flown at all. */
+    val canReset: Boolean = true,
+    val canFly: Boolean = true,
 )
 
 /**
@@ -95,7 +100,12 @@ fun ResumeFlightScreen(
         AlertDialog(
             onDismissRequest = { confirmRemove = null },
             title = { Text("Remove \"${doomed.name}\"?") },
-            text = { Text("It is taken out of the world for good. The design stays in Vehicle Assembly if you saved it.") },
+            text = {
+                Text(
+                    "It is taken out of the world for good. The design stays in Vehicle Assembly if you saved it." +
+                        if (doomed.crewNote.isNotEmpty()) "\n\n${doomed.crewNote}" else "",
+                )
+            },
             confirmButton = {
                 TextButton(onClick = { onRemove(doomed.id); confirmRemove = null }) {
                     Text("Remove", color = ApogeeColors.Danger)
@@ -137,11 +147,15 @@ private fun CraftRow(summary: CraftSummary, onFly: () -> Unit, onReset: () -> Un
                 color = Color.White.alpha(ApogeeAlpha.SUBTITLE),
             )
         }
-        RowAction("RESET", ApogeeColors.Caution, onReset)
-        Spacer(Modifier.width(4.dp))
+        if (summary.canReset) {
+            RowAction("RESET", ApogeeColors.Caution, onReset)
+            Spacer(Modifier.width(4.dp))
+        }
         RowAction("REMOVE", ApogeeColors.Danger, onRemove)
-        Spacer(Modifier.width(4.dp))
-        RowAction("FLY", ApogeeColors.Accent, onFly)
+        if (summary.canFly) {
+            Spacer(Modifier.width(4.dp))
+            RowAction("FLY", ApogeeColors.Accent, onFly)
+        }
     }
 }
 

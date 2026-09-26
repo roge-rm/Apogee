@@ -19,8 +19,17 @@ import android.util.Log
  * mid-frame, which is the single largest source of frame-time jitter on mobile.
  */
 class PerfHints private constructor(
-    private val session: PerformanceHintManager.Session?,
+    private var session: PerformanceHintManager.Session?,
 ) {
+
+    /**
+     * Held for every call on [session]. The frame loop reports from a worker
+     * thread while leaving a flight closes the session from the main one, and
+     * a report reaching the native session after it is closed is a segfault -
+     * not an exception [runCatching] could catch. It took the game down on
+     * leaving a flight.
+     */
+    private val lock = Any()
 
     /**
      * Reports how long the last simulation step actually took, so the scheduler
@@ -29,7 +38,7 @@ class PerfHints private constructor(
     fun reportActualWorkDuration(nanos: Long) {
         if (nanos <= 0) return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            runCatching { session?.reportActualWorkDuration(nanos) }
+            synchronized(lock) { runCatching { session?.reportActualWorkDuration(nanos) } }
         }
     }
 
@@ -37,13 +46,17 @@ class PerfHints private constructor(
     fun updateTargetWorkDuration(nanos: Long) {
         if (nanos <= 0) return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            runCatching { session?.updateTargetWorkDuration(nanos) }
+            synchronized(lock) { runCatching { session?.updateTargetWorkDuration(nanos) } }
         }
     }
 
+    /** Closes the session; anything reported after is ignored. */
     fun close() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            runCatching { session?.close() }
+            synchronized(lock) {
+                runCatching { session?.close() }
+                session = null
+            }
         }
     }
 

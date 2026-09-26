@@ -137,6 +137,7 @@ fun FlightScreen(
     onRetire: () -> Unit = {},
     /** Planning burns, and the autopilots. */
     burnActions: com.rm.apogee.ui.components.BurnActions = com.rm.apogee.ui.components.BurnActions(),
+    crewActions: com.rm.apogee.ui.components.CrewActions = com.rm.apogee.ui.components.CrewActions(),
 ) {
     // BoxWithConstraints rather than the configuration's orientation: this is
     // a question about the space actually available, and the answer has to be
@@ -260,6 +261,7 @@ fun FlightScreen(
                 name = hud.telemetry.craftName,
                 report = report,
                 lost = hud.telemetry.lost,
+                crewLost = hud.crewLost,
                 onLeave = onExit,
                 onSwitchCraft = if (hud.ownedCraft > 0) onSwitchCraft else null,
                 // Low, where the controls were: the wreck is in the middle of the view.
@@ -279,16 +281,26 @@ fun FlightScreen(
             horizontalAlignment = Alignment.End,
         ) {
             TelemetryPanel(hud.telemetry, Modifier.alpha(controlOpacity), twoColumns = !portrait, power = hud.power)
-            CautionChips(
-                hud.telemetry, hud.damageExpanded, { hud.damageExpanded = !hud.damageExpanded },
-                modifier = Modifier.padding(top = 6.dp),
-                chute = hud.chute,
-                power = hud.power,
-            )
+            // Landscape is short: the crew chip rides beside the cautions
+            // rather than under them, clear of the roll buttons below.
+            Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (!portrait) {
+                    com.rm.apogee.ui.components.CrewPanel(hud, crewActions, Modifier.padding(top = 6.dp).alpha(controlOpacity))
+                }
+                CautionChips(
+                    hud.telemetry, hud.damageExpanded, { hud.damageExpanded = !hud.damageExpanded },
+                    modifier = Modifier.padding(top = 6.dp),
+                    chute = hud.chute,
+                    power = hud.power,
+                )
+            }
             com.rm.apogee.ui.components.DockingPanel(
                 hud.dock, hud.joints, onUndock,
                 modifier = Modifier.padding(top = 6.dp).alpha(controlOpacity),
             )
+            if (portrait) {
+                com.rm.apogee.ui.components.CrewPanel(hud, crewActions, Modifier.padding(top = 6.dp).alpha(controlOpacity))
+            }
             com.rm.apogee.ui.components.BasePanel(
                 hud.nearBase, hud.baseService, onFound, onRefuel,
                 modifier = Modifier.padding(top = 6.dp).alpha(controlOpacity),
@@ -360,6 +372,7 @@ fun FlightScreen(
                         onToggleDeploy,
                         onToggleDrill,
                         onToggleRefine,
+                        crewActions,
                     )
                 }
                 // The stage stack rides above the attitude controls, on their
@@ -383,7 +396,7 @@ fun FlightScreen(
                 if (leftHandMode) attitude() else throttle()
 
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    if (hud.canJoin) {
+                    if (hud.canJoin && !hud.isSuit) {
                         JoinButton(onJoin)
                         Spacer(Modifier.height(8.dp))
                     }
@@ -402,7 +415,8 @@ fun FlightScreen(
                     burn = hud.telemetry.burn,
                     )
                     Spacer(Modifier.height(10.dp))
-                    StageButton(hud.telemetry.stage, onStage, current = hud.stages.firstOrNull { it.current })
+                    // Someone on EVA has nothing to stage.
+                    if (!hud.isSuit) StageButton(hud.telemetry.stage, onStage, current = hud.stages.firstOrNull { it.current })
                 }
 
                 if (leftHandMode) throttle() else attitude()
@@ -420,7 +434,7 @@ fun FlightScreen(
                     .padding(horizontal = 16.dp, vertical = 12.dp)
                     .alpha(controlOpacity),
             ) {
-                ThrottleControl(hud, onThrottleChange, onToggleBrakes, onToggleRcs, onToggleReverse, THROTTLE_HEIGHT, onToggleDeploy, onToggleDrill, onToggleRefine)
+                ThrottleControl(hud, onThrottleChange, onToggleBrakes, onToggleRcs, onToggleReverse, THROTTLE_HEIGHT, onToggleDeploy, onToggleDrill, onToggleRefine, crewActions)
             }
 
             val stickAlignment =
@@ -459,7 +473,7 @@ fun FlightScreen(
                     burn = hud.telemetry.burn,
                 )
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    if (hud.canJoin) {
+                    if (hud.canJoin && !hud.isSuit) {
                         JoinButton(onJoin)
                         Spacer(Modifier.height(8.dp))
                     }
@@ -468,7 +482,7 @@ fun FlightScreen(
                         width = Dimens.HudActionBarWidth, maxChips = 3,
                     )
                     if (hud.stages.isNotEmpty()) Spacer(Modifier.height(6.dp))
-                    StageButton(
+                    if (!hud.isSuit) StageButton(
                         hud.telemetry.stage,
                         onStage,
                         Modifier.width(Dimens.HudActionBarWidth),
@@ -492,6 +506,7 @@ private fun ThrottleControl(
     onToggleDeploy: () -> Unit = {},
     onToggleDrill: () -> Unit = {},
     onToggleRefine: () -> Unit = {},
+    crew: com.rm.apogee.ui.components.CrewActions = com.rm.apogee.ui.components.CrewActions(),
 ) {
     val throttle = hud.throttle
     // Out of touch, it moves nothing: shown faded, though the deploy chip
@@ -618,6 +633,18 @@ private fun ThrottleControl(
         if (hud.hasConverter) {
             val on = hud.power?.refining == true
             ToggleChip("REFINE", null, if (on) ApogeeColors.Prograde else Color.White.alpha(ApogeeAlpha.SECONDARY), on, onToggleRefine)
+        }
+        // Someone out on EVA: jump, a ladder, climb in, plant a flag.
+        if (hud.isSuit) {
+            val power = hud.power
+            val idle = Color.White.alpha(ApogeeAlpha.SECONDARY)
+            // Feet on something: only then is there anything to jump off or plant in.
+            val grounded = hud.telemetry.heightAboveGround < GROUNDED_HEIGHT
+            if (grounded) ToggleChip("JUMP", null, idle, false, crew.onJump)
+            if (power?.onLadder == true) ToggleChip("LET GO", null, ApogeeColors.Prograde, true) { crew.onGrab(false) }
+            else if (power?.canGrab == true) ToggleChip("GRAB", "LADDER", ApogeeColors.Accent, true) { crew.onGrab(true) }
+            if (power != null && power.boardable.isNotEmpty()) ToggleChip("BOARD", power.boardable.uppercase().take(12), ApogeeColors.Prograde, true, crew.onBoard)
+            if (grounded) ToggleChip("FLAG", null, idle, false, crew.onFlag)
         }
     }
 }
@@ -1084,6 +1111,9 @@ private const val THROTTLE_STEP = 0.01f
 /** At or below this the throttle is off: the bottom of the track, and a little above it. */
 private const val THROTTLE_SNAP = 0.07f
 
+/** Height above the ground, m, under which someone on EVA is on their feet enough to jump or plant a flag. */
+private const val GROUNDED_HEIGHT = 3.0
+
 /** How faded the throttle and stick are while nothing sent to the craft is heard. */
 private const val OUT_OF_TOUCH_ALPHA = 0.35f
 private val STICK_SIZE = 132.dp
@@ -1119,6 +1149,7 @@ private fun CrashCard(
     lost: Int,
     onLeave: () -> Unit,
     onSwitchCraft: (() -> Unit)?,
+    crewLost: List<String> = emptyList(),
     modifier: Modifier = Modifier,
 ) {
     Surface(
@@ -1141,6 +1172,16 @@ private fun CrashCard(
                     if (lost == 1) "1 part lost" else "$lost parts lost",
                     style = TelemetryTextStyle,
                     color = Color.White.alpha(ApogeeAlpha.SECONDARY),
+                )
+            }
+            // Who went with it: on the memorial now.
+            if (crewLost.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    crewLost.joinToString(" · ") + if (crewLost.size == 1) " was lost with it" else " were lost with it",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = ApogeeColors.Danger,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                 )
             }
             Spacer(Modifier.height(14.dp))

@@ -67,6 +67,9 @@ sealed interface WorldEvent {
     /** [bodyId] has been surveyed, by [id]'s scanner: its ore and water are on everyone's map now. */
     data class Surveyed(val id: VesselId, val bodyId: String) : WorldEvent
 
+    /** A crew member of [owner]'s died: [how]. */
+    data class CrewLost(val crewId: Long, val name: String, val owner: String, val how: String) : WorldEvent
+
     /** A craft passed out of one body's pull into another's. */
     data class BodyChanged(val id: VesselId, val from: String, val to: String) : WorldEvent
 
@@ -800,6 +803,7 @@ class World(
         if (sea != null) floatAtDraft(vessel, attractor, up, sea)
 
         vesselsById[vessel.id] = vessel
+        seatCrew(vessel)
         pendingEvents.add(WorldEvent.VesselSpawned(vessel.id))
         return vessel
     }
@@ -853,6 +857,8 @@ class World(
         velocity: Vec3,
         rotation: Quat,
         angularVelocity: Vec3 = Vec3.zero(),
+        /** Fill its seats with crew: not for someone climbing out, or a flag. */
+        seat: Boolean = true,
     ): Vessel {
         val vessel = Vessel(
             id = VesselId(nextVesselId++),
@@ -866,6 +872,7 @@ class World(
         vessel.body.angularVelocity.setTo(angularVelocity)
         vessel.recomputeMass(shiftBodyPosition = false)
         vesselsById[vessel.id] = vessel
+        if (seat) seatCrew(vessel)
         pendingEvents.add(WorldEvent.VesselSpawned(vessel.id))
         return vessel
     }
@@ -886,6 +893,7 @@ class World(
         vessel.body.linearVelocity.setTo(orbit.velocity)
         quatFromTo(Vec3.unitY(), orbit.position.normalized(), vessel.body.orientation)
         vesselsById[vessel.id] = vessel
+        seatCrew(vessel)
         pendingEvents.add(WorldEvent.VesselSpawned(vessel.id))
         return vessel
     }
@@ -1106,6 +1114,12 @@ class World(
                     if (it.defs[i].module<com.rm.apogee.core.part.Drill>() != null) it.setLegDeploy(i, if (unfolded(it, i)) 1.0 else 0.0)
                 }
             }
+            is Command.Eva -> eva(command.vessel, command.crew)
+            is Command.Board -> boardCraft(command.vessel, command.target)
+            is Command.TransferCrew -> transferCrew(command.vessel, command.crew, command.part)
+            is Command.Jump -> heard(command.vessel)?.let { jump(it) }
+            is Command.Grab -> heard(command.vessel)?.let { grab(it, command.on) }
+            is Command.PlantFlag -> heard(command.vessel)?.let { plantFlag(it) }
             is Command.Unload -> if (command.active) unloading.add(VesselId(command.vessel)) else unloading.remove(VesselId(command.vessel))
 
             is Command.SetTranslation -> heard(command.vessel)?.control?.let {
@@ -1136,7 +1150,7 @@ class World(
             is Command.Chat -> Unit // handled above the world
             is Command.SetWarp -> Unit // the server's clock, not the world's
             is Command.WarpTo -> Unit
-            is Command.RemoveVessel -> destroy(VesselId(command.vessel), "removed")
+            is Command.RemoveVessel -> destroy(VesselId(command.vessel), REMOVED_REASON)
         }
     }
 
@@ -1609,7 +1623,7 @@ class World(
         val site = launchSites.firstOrNull { it.id == LUNA_TEST_SITE } ?: return null
         if (site.bodyId !in system.bodies) return null
         val base = spawnOnSurface(com.rm.apogee.core.craft.StockCraft.padBase(catalog), site, pad = LUNA_BASE_PAD)
-        base.owner = WORLD_OWNER
+        assignOwner(base, WORLD_OWNER)
         base.ownerName = ""
         base.name = LUNA_BASE_NAME
         val attractor = attractorFor(base)
@@ -1727,7 +1741,7 @@ class World(
         // Its centre where its centre is: the design's origin on the ground.
         probe.body.position.setTo(origin).addInPlace(rotation.rotate(probe.centerOfMass(Vec3()), Vec3()))
         body.surfaceVelocityAt(probe.body.position, probe.body.linearVelocity)
-        probe.owner = WORLD_OWNER
+        assignOwner(probe, WORLD_OWNER)
         probe.ownerName = ""
         probe.name = complex.name
         pin(probe)
@@ -2426,6 +2440,11 @@ class World(
             if (vessel.powered) stabilityAssist.update(vessel, dt, landing ?: holdDirection(vessel, attractor))
             else stabilityAssist.idle(vessel)
             updatePose(vessel, dt)
+            // Someone on foot: upright, and the stick walking rather than tipping them.
+            val walker = walking.walkerOf(vessel)
+            val hold = if (walker != null && vessel.ladderVessel >= 0) heldLadder(vessel) else null
+            if (walker != null) walking.stand(vessel, walker, attractor, hold)
+            else { vessel.onFeet = false; vessel.walking = false }
 
             forces.applyGravity(vessel, attractor)
             forces.applyThrust(vessel, attractor, dt, time)
@@ -2495,6 +2514,10 @@ class World(
             scatterContacts.resolve(vessel, attractor, time + dt, contacts.report, felledScatter) { fell(it) }
             val report = contacts.report
             vessel.touchingGround = report.hadContact
+            if (walker != null) {
+                walking.move(vessel, walker, attractor, hold, dt)
+                walking.swing(vessel, walker, attractor, hold, dt)
+            }
             vessel.groundContacts = report.contactCount
             vessel.countGrounded(report.hadContact, dt)
 
@@ -2581,6 +2604,7 @@ class World(
 
         if (tick % LIGHTNING_CHECK_TICKS == 0L) strikeLightning(tickEnd)
         if (tick % REPAIR_CHECK_TICKS == 0L) repairStructures()
+        if (tick % CREW_CHECK_TICKS == 0L) reconcileCrew()
         if (tick % SIGNAL_CHECK_TICKS == 0L) {
             // What drills and converters moved, weighed again.
             for (vessel in vesselsById.values) if (vessel.industryMoved) { vessel.industryMoved = false; vessel.recomputeMass() }
@@ -2878,9 +2902,20 @@ class World(
         return vessel.also { it.wake() }
     }
 
-    /** Whether [vessel] can be flown now: see [heard]. */
+    /**
+     * Whether [vessel] can be flown now: someone aboard; or a probe core
+     * with power and a link home. An empty pod is flown by nobody.
+     */
     fun controllable(vessel: Vessel): Boolean =
-        !Comms.needsSignal(vessel) || (vessel.powered && vessel.signal != Signal.NONE)
+        !Comms.needsSignal(vessel) || (Comms.hasProbeCore(vessel) && vessel.powered && vessel.signal != Signal.NONE)
+
+    /** Why [vessel] cannot be flown - "NO CREW", "NO POWER", "NO SIGNAL" - or blank when it can. */
+    fun whyNotControllable(vessel: Vessel): String = when {
+        controllable(vessel) -> ""
+        !Comms.hasProbeCore(vessel) -> "NO CREW"
+        !vessel.powered -> "NO POWER"
+        else -> "NO SIGNAL"
+    }
 
     private val comms = Comms(system)
 
@@ -2896,8 +2931,12 @@ class World(
             signal = vessel.signal,
             relays = vessel.signalPath,
             controllable = controllable(vessel),
+            blocked = whyNotControllable(vessel),
             needsSignal = Comms.needsSignal(vessel),
             deployed = vessel.control.deployed,
+            boardable = if (walking.walkerOf(vessel) != null) seatInReach(vessel)?.first?.name.orEmpty() else "",
+            canGrab = walking.walkerOf(vessel) != null && !onLadder(vessel) && ladderInReach(vessel) != null,
+            onLadder = onLadder(vessel),
             drilling = vessel.control.drilling,
             refining = vessel.control.refining,
             drillState = vessel.drillState,
@@ -3012,7 +3051,9 @@ class World(
             val def = vessel.defs[part]
             val tolerance = def.crashTolerance
             if (v <= tolerance) return
-            val blow = Math.pow((v - tolerance) / (2.0 * tolerance), 1.5)
+            // A person is not a tank: past what their suit takes, it is fatal.
+            val blow = if (def.module<com.rm.apogee.core.part.Walker>() != null) Double.MAX_VALUE
+                else Math.pow((v - tolerance) / (2.0 * tolerance), 1.5)
             if (def.module<LandingLeg>() != null && vessel.breakPart(part)) {
                 pendingEvents.add(WorldEvent.PartFailed(vessel.id, part, "${def.title} collapsed"))
             }
@@ -3572,6 +3613,7 @@ class World(
         brokenParts = vessel.broken.withIndex().filter { it.value }.map { it.index },
         anchored = vessel.anchored,
         burns = vessel.plannedBurns.toList(),
+        crew = if (vessel.crewAboard > 0) vessel.crew.map { it.toList() } else emptyList(),
     )
 
     /**
@@ -3605,6 +3647,8 @@ class World(
         catalogHash = catalog.contentHash,
         felledScatter = felledScatter.sorted(),
         surveyed = surveyed.toList(),
+        crew = crew.values.toList(),
+        crewSeated = true,
         terrainGeneration = TerrainField.GENERATION,
         lastFlown = lastFlown.toMap(),
         weather = weatherConfig,
@@ -3641,6 +3685,7 @@ class World(
                 refining = vessel.control.refining,
                 surveyBody = vessel.surveyBody,
                 surveyProgress = vessel.surveyProgress,
+                crew = if (vessel.crewAboard > 0) vessel.crew.map { it.toList() } else emptyList(),
                 resources = vessel.resourceSnapshot().map { it.toList() },
                 legDeploy = vessel.legDeploy.toList(),
                 health = vessel.health.toList(),
@@ -3671,6 +3716,10 @@ class World(
         if (!terrainChanged) felledScatter.addAll(save.felledScatter)
         surveyed.clear()
         surveyed.addAll(save.surveyed.filter { it in system.bodies })
+        crew.clear()
+        for (member in save.crew) crew[member.id] = member
+        crewRevision++
+        nextCrewId = (save.crew.maxOfOrNull { it.id } ?: 0L) + 1L
         lastFlown.clear()
         lastFlown.putAll(save.lastFlown)
         save.weather?.let { weatherConfig = it }
@@ -3763,6 +3812,7 @@ class World(
             vessel.control.refining = saved.refining
             vessel.surveyBody = saved.surveyBody
             vessel.surveyProgress = saved.surveyProgress
+            saved.crew.forEachIndexed { i, seat -> if (i < vessel.crew.size) vessel.crew[i] = seat.toLongArray() }
             vessel.fitPose()
             saved.legDeploy.forEachIndexed { i, progress -> vessel.setLegDeploy(i, progress) }
             if (saved.resources.isNotEmpty()) {
@@ -3781,6 +3831,9 @@ class World(
             // the counter; handing it out again would collide.
             if (saved.id >= nextVesselId) nextVesselId = saved.id + 1
         }
+
+        // From before there were crew: everyone's seats filled, so nothing is an empty pod.
+        if (!save.crewSeated) for (vessel in vesselsById.values) seatCrew(vessel)
 
         if (terrainChanged) {
             val moved = reseatOnNewTerrain()
@@ -3819,12 +3872,12 @@ class World(
                 vesselsById[VesselId(it.getOrNull(0)?.toLongOrNull() ?: -1)] to (it.getOrNull(1)?.toIntOrNull() ?: -1)
             }
             if (base != null && base.anchored && mayLaunchFrom(base, owner) && base.defs.getOrNull(pad)?.module<com.rm.apogee.core.part.LaunchPad>() != null) {
-                return spawnOnBasePad(command.design, base, pad).also { it.owner = owner }
+                return spawnOnBasePad(command.design, base, pad).also { assignOwner(it, owner) }
             }
         }
         val site = launchSites.firstOrNull { it.id == command.siteId } ?: launchSites.first()
         val vessel = spawnAtSite(command.design, site)
-        vessel.owner = owner
+        assignOwner(vessel, owner)
         return vessel
     }
 
@@ -3927,18 +3980,343 @@ class World(
         val name = old.name
         val owner = old.owner
         val ownerName = old.ownerName
-        destroy(id, "reset to its launch site")
+        destroy(id, RESET_REASON)
         val fresh = spawnAtSite(design, launchSiteFor(design, catalog))
         fresh.name = name
-        fresh.owner = owner
+        assignOwner(fresh, owner)
         fresh.ownerName = ownerName
         lastFlown.entries.filter { it.value == id.raw }.forEach { lastFlown[it.key] = fresh.id.raw }
         return fresh
     }
 
     fun destroy(id: VesselId, reason: String) {
-        if (vesselsById.remove(id) != null) {
-            pendingEvents.add(WorldEvent.VesselDestroyed(id, reason))
+        val vessel = vesselsById.remove(id) ?: return
+        // Taken away by its owner, or reset: home safe if it is somewhere
+        // they could walk away from. Anything else, they went with it.
+        val home = reason == RESET_REASON || (reason == REMOVED_REASON && recoverable(vessel))
+        for (seat in vessel.crew) for (member in seat) if (home) releaseCrew(member) else loseCrew(member, vessel, reason)
+        pendingEvents.add(WorldEvent.VesselDestroyed(id, reason))
+    }
+
+    // --- crew -------------------------------------------------------------------------
+
+    /** Everyone who has ever flown, by id: at home, aboard, or remembered. */
+    val crew = LinkedHashMap<Long, com.rm.apogee.core.crew.CrewMember>()
+    private var nextCrewId = 1L
+
+    /** Goes up whenever anyone's crew changes: who is where, who was lost. For sending rosters only when they change. */
+    var crewRevision = 0L
+        private set
+
+    private fun setCrew(member: com.rm.apogee.core.crew.CrewMember) {
+        crew[member.id] = member
+        crewRevision++
+    }
+
+    /** [owner]'s crew, in the order they joined. */
+    fun crewOf(owner: String): List<com.rm.apogee.core.crew.CrewMember> = crew.values.filter { it.owner == owner }
+
+    /** A new recruit for [owner]: free, until a career says otherwise. */
+    fun recruit(owner: String): com.rm.apogee.core.crew.CrewMember {
+        val id = nextCrewId++
+        val member = com.rm.apogee.core.crew.CrewMember(id, com.rm.apogee.core.crew.Crew.nameFor(id), owner)
+        setCrew(member)
+        return member
+    }
+
+    /**
+     * Fills [vessel]'s empty seats from its owner's crew at home, recruiting
+     * as many more as it takes. The world's own buildings seat nobody.
+     */
+    fun seatCrew(vessel: Vessel) {
+        if (vessel.owner == WORLD_OWNER) return
+        for (i in vessel.defs.indices) {
+            val seats = com.rm.apogee.core.crew.Crew.seatsIn(vessel.defs[i])
+            val have = vessel.crew[i]
+            if (have.size >= seats) continue
+            vessel.crew[i] = have + LongArray(seats - have.size) { board(vessel.owner, vessel) }
+        }
+    }
+
+    private fun board(owner: String, vessel: Vessel): Long {
+        val member = crew.values.firstOrNull { it.owner == owner && it.status == com.rm.apogee.core.crew.CrewStatus.AVAILABLE } ?: recruit(owner)
+        setCrew(member.copy(status = com.rm.apogee.core.crew.CrewStatus.ABOARD, vessel = vessel.id.raw))
+        return member.id
+    }
+
+    /** Gives [vessel] to [owner], its seats filled from their crew rather than whoever it spawned with. */
+    fun assignOwner(vessel: Vessel, owner: String) {
+        if (vessel.owner == owner && vessel.crewAboard > 0) return
+        for (i in vessel.crew.indices) {
+            for (member in vessel.crew[i]) releaseCrew(member)
+            vessel.crew[i] = Vessel.NO_CREW
+        }
+        vessel.owner = owner
+        seatCrew(vessel)
+    }
+
+    private val walking = Walking()
+
+    /** The ladder [vessel] holds, as held now; let go of if it has gone, broken or drifted out of reach. */
+    private fun heldLadder(vessel: Vessel): Walking.LadderHold? {
+        val craft = vesselsById[VesselId(vessel.ladderVessel)]
+        val hold = craft?.takeIf { it.referenceBodyId == vessel.referenceBodyId }?.let { walking.ladderOf(it, vessel.ladderPart) }
+        if (hold == null || walking.distanceTo(hold, vessel.body.position) > LADDER_SLIP) {
+            vessel.ladderVessel = -1L
+            vessel.ladderPart = -1
+            return null
+        }
+        return hold
+    }
+
+    /** Whether [vessel] is someone on a ladder. */
+    fun onLadder(vessel: Vessel): Boolean = vessel.ladderVessel >= 0
+
+    /** The design of someone out of their craft: [name] in a suit. */
+    private fun suitDesign(name: String) = CraftDesign(
+        name = name, parts = listOf(com.rm.apogee.core.craft.PlacedPart(SUIT_PART, Vec3.zero())),
+        stages = emptyList(), manualStaging = true, catalogHash = catalog.contentHash,
+    )
+
+    /**
+     * Crew member [crewId] climbs out of craft [vesselId]: into a suit of
+     * their own, a craft of one, beside it - on the ground by it if it is
+     * landed, beside their part if not - moving as it moves. Null, and
+     * nobody moves, if they are not aboard or it is going too fast to step
+     * off.
+     */
+    fun eva(vesselId: Long, crewId: Long): Vessel? {
+        val craft = vesselsById[VesselId(vesselId)] ?: return null
+        val part = craft.crew.indexOfFirst { crewId in it }
+        val member = crew[crewId]
+        if (part < 0 || member == null) return null
+        val attractor = attractorFor(craft)
+        val up = craft.body.position.normalized()
+        attractor.surfaceVelocityAt(craft.body.position, scratchCrew).subInPlace(craft.body.linearVelocity)
+        val landed = craft.touchingGround || craft.dormant || craft.anchored
+        if (landed && scratchCrew.length > EVA_LANDED_SPEED) return null
+        // Out from the craft's axis, level.
+        val partAt = craft.partPositionWorld(part, Vec3())
+        val out = partAt.copy().subInPlace(craft.body.position)
+        out.addScaledInPlace(up, -(out dot up))
+        if (out.length < 0.1) out.setTo(up.cross(if (kotlin.math.abs(up.y) < 0.9) Vec3.unitY() else Vec3.unitX()))
+        out.normalizeInPlace()
+        val position = if (landed) {
+            val foot = craft.body.position.copy().addScaledInPlace(out, craft.contactRadius + SUIT_CLEARANCE)
+            attractor.rotationAt(time, scratchRotation)
+            val fixed = attractor.toBodyFixed(foot, scratchRotation, Vec3()).normalizeInPlace()
+            foot.normalizeInPlace().mulInPlace(attractor.surfaceRadiusInBodyFrame(fixed) + SUIT_HALF_HEIGHT + 0.05)
+        } else {
+            val reach = craft.defs[part].boundsHalfExtents.let { maxOf(it.x, it.y, it.z) } + SUIT_CLEARANCE
+            partAt.copy().addScaledInPlace(out, reach)
+        }
+        val velocity = craft.body.velocityAtOffset(position.copy().subInPlace(craft.body.position))
+        // Upright, facing away from the craft they came out of: forward walks off.
+        val rotation = quatFromTo(Vec3.unitY(), up)
+        val facing = rotation.rotate(Walking.FACING, Vec3())
+        val turn = quatFromTo(facing.addScaledInPlace(up, -(facing dot up)).normalizeInPlace(), out)
+        val suit = spawnAt(suitDesign(member.name), craft.referenceBodyId, position, velocity, (turn * rotation).normalizeInPlace(), seat = false)
+        suit.owner = member.owner
+        suit.ownerName = craft.ownerName
+        suit.control.rcsEnabled = true
+        craft.crew[part] = craft.crew[part].filter { it != crewId }.toLongArray()
+        suit.crew[0] = longArrayOf(crewId)
+        setCrew(member.copy(vessel = suit.id.raw))
+        pendingEvents.add(WorldEvent.VesselStructureChanged(craft.id))
+        pendingEvents.add(WorldEvent.VesselStructureChanged(suit.id))
+        return suit
+    }
+
+    /**
+     * Someone in suit [suitId] climbs into a free seat of craft [targetId] -
+     * or, -1, the nearest craft with one in reach - and the suit is gone.
+     * Anyone's craft: aboard someone else's, they ride along. Null if there
+     * is no free seat in reach.
+     */
+    fun boardCraft(suitId: Long, targetId: Long = -1L): Vessel? {
+        val suit = vesselsById[VesselId(suitId)] ?: return null
+        if (walking.walkerOf(suit) == null) return null
+        val crewId = suit.crew.getOrNull(0)?.firstOrNull() ?: return null
+        val member = crew[crewId] ?: return null
+        val seat = seatInReach(suit, targetId) ?: return null
+        val (target, part) = seat
+        target.crew[part] = target.crew[part] + crewId
+        suit.crew[0] = Vessel.NO_CREW
+        setCrew(member.copy(vessel = target.id.raw))
+        destroy(suit.id, BOARDED_REASON)
+        target.wake()
+        pendingEvents.add(WorldEvent.VesselStructureChanged(target.id))
+        return target
+    }
+
+    /** The nearest free seat to suit [suit] within reach - in [targetId] only, if not -1 - as craft and part. */
+    fun seatInReach(suit: Vessel, targetId: Long = -1L): Pair<Vessel, Int>? {
+        var best: Pair<Vessel, Int>? = null
+        var bestGap = BOARD_REACH
+        for (craft in vesselsById.values) {
+            if (craft === suit || craft.referenceBodyId != suit.referenceBodyId) continue
+            if (targetId >= 0 && craft.id.raw != targetId) continue
+            if (walking.walkerOf(craft) != null) continue
+            // Far off: no part of it is near.
+            if (craft.body.position.distanceTo(suit.body.position) > craft.contactRadius + BOARD_REACH + SUIT_HALF_HEIGHT) continue
+            for (i in craft.defs.indices) {
+                if (craft.isBroken(i)) continue
+                if (com.rm.apogee.core.crew.Crew.seatsIn(craft.defs[i]) <= craft.crew[i].size) continue
+                val size = craft.defs[i].boundsHalfExtents.let { maxOf(it.x, it.y, it.z) }
+                val gap = craft.partPositionWorld(i, scratchCrew).distanceTo(suit.body.position) - size - SUIT_HALF_HEIGHT
+                if (gap < bestGap) { bestGap = gap; best = craft to i }
+            }
+        }
+        return best
+    }
+
+    /** Moves crew member [crewId] within craft [vesselId] to a free seat in [part]. */
+    fun transferCrew(vesselId: Long, crewId: Long, part: Int): Boolean {
+        val craft = vesselsById[VesselId(vesselId)] ?: return false
+        val from = craft.crew.indexOfFirst { crewId in it }
+        if (from < 0 || part !in craft.defs.indices || part == from || craft.isBroken(part)) return false
+        if (com.rm.apogee.core.crew.Crew.seatsIn(craft.defs[part]) <= craft.crew[part].size) return false
+        craft.crew[from] = craft.crew[from].filter { it != crewId }.toLongArray()
+        craft.crew[part] = craft.crew[part] + crewId
+        crewRevision++
+        pendingEvents.add(WorldEvent.VesselStructureChanged(craft.id))
+        return true
+    }
+
+    /** Someone on their feet jumps. */
+    private fun jump(vessel: Vessel) {
+        val walker = walking.walkerOf(vessel) ?: return
+        if (vessel.ladderVessel >= 0) { vessel.ladderVessel = -1L; vessel.ladderPart = -1 }
+        if (!vessel.touchingGround) return
+        vessel.body.linearVelocity.addScaledInPlace(vessel.body.position.normalized(), walker.jump)
+        vessel.walking = true
+    }
+
+    /** Someone takes hold of the nearest ladder in reach - or, [on] false, lets go. */
+    private fun grab(vessel: Vessel, on: Boolean) {
+        if (walking.walkerOf(vessel) == null) return
+        vessel.ladderVessel = -1L
+        vessel.ladderPart = -1
+        if (!on) return
+        val ladder = ladderInReach(vessel) ?: return
+        vessel.ladderVessel = ladder.first.id.raw
+        vessel.ladderPart = ladder.second
+    }
+
+    /** The nearest ladder within reach of someone in [suit], as craft and part. */
+    fun ladderInReach(suit: Vessel): Pair<Vessel, Int>? {
+        var best: Pair<Vessel, Int>? = null
+        var bestGap = Walking.GRAB_REACH
+        for (craft in vesselsById.values) {
+            if (craft === suit || craft.referenceBodyId != suit.referenceBodyId) continue
+            if (craft.body.position.distanceTo(suit.body.position) > craft.contactRadius + 5.0) continue
+            for (i in craft.defs.indices) {
+                val hold = walking.ladderOf(craft, i) ?: continue
+                val gap = walking.distanceTo(hold, suit.body.position)
+                if (gap < bestGap) { bestGap = gap; best = craft to i }
+            }
+        }
+        return best
+    }
+
+    /** Someone standing still on the ground plants their flag beside them: a craft of its own, theirs, for good. */
+    private fun plantFlag(suit: Vessel): Vessel? {
+        if (walking.walkerOf(suit) == null || !suit.touchingGround) return null
+        val attractor = attractorFor(suit)
+        attractor.surfaceVelocityAt(suit.body.position, scratchCrew).subInPlace(suit.body.linearVelocity)
+        if (scratchCrew.length > FLAG_STILL) return null
+        val up = suit.body.position.normalized()
+        val ahead = suit.body.orientation.rotate(Walking.FACING, Vec3())
+        ahead.addScaledInPlace(up, -(ahead dot up))
+        if (ahead.length < 1e-6) return null
+        ahead.normalizeInPlace()
+        val spot = suit.body.position.copy().addScaledInPlace(ahead, FLAG_AHEAD)
+        attractor.rotationAt(time, scratchRotation)
+        val fixed = attractor.toBodyFixed(spot, scratchRotation, Vec3()).normalizeInPlace()
+        spot.normalizeInPlace().mulInPlace(attractor.surfaceRadiusInBodyFrame(fixed) + FLAG_HALF_HEIGHT + 0.05)
+        val who = suit.crew.getOrNull(0)?.firstOrNull()?.let { crew[it]?.name } ?: suit.name
+        val flag = spawnAt(
+            CraftDesign(
+                name = "$who's flag", parts = listOf(com.rm.apogee.core.craft.PlacedPart(FLAG_PART, Vec3.zero())),
+                stages = emptyList(), manualStaging = true, catalogHash = catalog.contentHash,
+            ),
+            suit.referenceBodyId, spot, attractor.surfaceVelocityAt(spot, Vec3()), quatFromTo(Vec3.unitY(), up), seat = false,
+        )
+        flag.owner = suit.owner
+        flag.ownerName = suit.ownerName
+        // Planted: it stays up whoever walks into it.
+        attractor.rotationAt(time, anchorRotation)
+        flag.anchor(anchorRotation)
+        return flag
+    }
+
+    /** [id] home again, ready to fly. */
+    private fun releaseCrew(id: Long) {
+        val member = crew[id] ?: return
+        setCrew(member.copy(status = com.rm.apogee.core.crew.CrewStatus.AVAILABLE, vessel = -1L))
+    }
+
+    /** [id] lost, aboard [vessel], [how]: onto the memorial. */
+    private fun loseCrew(id: Long, vessel: Vessel?, how: String) {
+        val member = crew[id] ?: return
+        if (member.status == com.rm.apogee.core.crew.CrewStatus.LOST) return
+        val where = vessel?.let { system.bodies[it.referenceBodyId]?.displayName } ?: ""
+        setCrew(
+            member.copy(
+                status = com.rm.apogee.core.crew.CrewStatus.LOST, vessel = -1L, lostAt = time, lostWhere = where, lostHow = how,
+                lastVessel = vessel?.id?.raw ?: member.vessel,
+            ),
+        )
+        pendingEvents.add(WorldEvent.CrewLost(id, member.name, member.owner, how))
+    }
+
+    /**
+     * Makes [vessel] [owner]'s, and its crew aboard theirs with it: for a
+     * craft claimed by the one player of a solo world, whatever an older
+     * save had it under.
+     */
+    fun claim(vessel: Vessel, owner: String) {
+        vessel.owner = owner
+        for (seat in vessel.crew) for (id in seat) crew[id]?.let { if (it.owner != owner) setCrew(it.copy(owner = owner)) }
+    }
+
+    /** Whether [vessel] is somewhere its crew could walk away from: at rest on, or in the sea of, the homeworld. */
+    fun recoverable(vessel: Vessel): Boolean {
+        if (vessel.referenceBodyId != SolarSystem.HOMEWORLD_ID) return false
+        val attractor = attractorFor(vessel)
+        if (vessel.anchored || vessel.dormant) return true
+        if (!vessel.touchingGround && !vessel.afloat) return false
+        attractor.surfaceVelocityAt(vessel.body.position, scratchCrew).subInPlace(vessel.body.linearVelocity)
+        return scratchCrew.length < RECOVER_SPEED
+    }
+
+    private val scratchCrew = Vec3()
+
+    /**
+     * Squares the roster with where everyone actually sits: crew in a part
+     * that has failed are lost with it; crew whose part went with no craft
+     * to carry them - torn away and destroyed - are lost; and crew whose part
+     * came away as a craft of its own are aboard that craft now.
+     */
+    private fun reconcileCrew() {
+        val seatedIn = HashMap<Long, Vessel>()
+        for (vessel in vesselsById.values) {
+            for (i in vessel.crew.indices) {
+                val seat = vessel.crew[i]
+                if (seat.isEmpty()) continue
+                if (vessel.isBroken(i)) {
+                    for (member in seat) loseCrew(member, vessel, "killed when the ${vessel.defs[i].title} failed")
+                    vessel.crew[i] = Vessel.NO_CREW
+                    continue
+                }
+                for (member in seat) seatedIn[member] = vessel
+            }
+        }
+        for (member in crew.values.toList()) {
+            if (member.status != com.rm.apogee.core.crew.CrewStatus.ABOARD) continue
+            val vessel = seatedIn[member.id]
+            if (vessel == null) loseCrew(member.id, null, "lost when their craft broke up")
+            else if (vessel.id.raw != member.vessel) setCrew(member.copy(vessel = vessel.id.raw))
         }
     }
 
@@ -4045,6 +4423,32 @@ class World(
             com.rm.apogee.core.part.ResourceType.ORE,
             com.rm.apogee.core.part.ResourceType.WATER,
         )
+
+        /** The parts someone out of their craft, and a planted flag, are. */
+        const val SUIT_PART = "crew-suit"
+        const val FLAG_PART = "flag-pole"
+        /** Half a suit's height, m; how far clear of a craft someone steps out; how near a seat, m, to climb in. */
+        const val SUIT_HALF_HEIGHT = 0.9
+        const val SUIT_CLEARANCE = 0.7
+        const val BOARD_REACH = 0.8
+        /** Fastest a landed craft may be moving, m/s, for anyone to step off it. */
+        const val EVA_LANDED_SPEED = 5.0
+        /** How far from its rungs someone can drift and still be holding a ladder, m. */
+        const val LADDER_SLIP = 1.5
+        /** A flag: how still to plant it, how far ahead, and half its height. */
+        const val FLAG_STILL = 0.5
+        const val FLAG_AHEAD = 1.0
+        const val FLAG_HALF_HEIGHT = 1.1
+        /** Why a suit went: its wearer climbed aboard something. */
+        const val BOARDED_REASON = "boarded"
+
+        /** Ticks between squaring the crew roster with the seats. */
+        const val CREW_CHECK_TICKS = 15L
+        /** Why a craft taken away by its owner, or reset to its site, went: its crew go home. */
+        const val REMOVED_REASON = "removed"
+        const val RESET_REASON = "reset to its launch site"
+        /** Slowest a landed or floating craft must be, m/s, for its crew to walk away from it. */
+        const val RECOVER_SPEED = 1.0
 
         /** How high above its body a scanner reads the ground below, m. */
         const val READING_HEIGHT = 10_000.0

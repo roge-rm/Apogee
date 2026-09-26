@@ -23,6 +23,10 @@ import com.rm.apogee.core.part.StockParts
  */
 object StockCraft {
 
+    /** Where a ladder stands off a 1.25 m tank's axis, m: its rails on the skin. */
+    private const val LADDER_RADIUS = 0.675
+
+
     /**
      * Two-stage launcher sized to reach a ~100 km orbit with margin.
      *
@@ -167,6 +171,8 @@ object StockCraft {
         val engine = add("engine-vesper", 0.5, tank)
         // Legs as the Stilt Lander's, where they reach below the bell.
         for ((x, z) in listOf(1.0 to 0.0, -1.0 to 0.0, 0.0 to 1.0, 0.0 to -1.0)) add("leg-stilt", 0.2, tank, x = x, z = z)
+        val ladderOut = LADDER_RADIUS / kotlin.math.sqrt(2.0)
+        add("ladder-rung", 1.5, tank, x = -ladderOut, z = ladderOut)
         // The drill between two legs, low, its bit reaching the ground.
         val diagonal = 0.775 / kotlin.math.sqrt(2.0)
         add("drill-auger", 1.3, tank, x = diagonal, z = diagonal)
@@ -246,6 +252,9 @@ object StockCraft {
         add("leg-stilt", legHeight, tank, x = -legReach)
         add("leg-stilt", legHeight, tank, z = legReach)
         add("leg-stilt", legHeight, tank, z = -legReach)
+        // Between two legs, from near the ground up to the pod: the way back in.
+        val ladderOut = LADDER_RADIUS / kotlin.math.sqrt(2.0)
+        add("ladder-rung", 1.5, tank, x = -ladderOut, z = ladderOut)
 
         val stages = listOf(
             Stage(listOf(engine)),

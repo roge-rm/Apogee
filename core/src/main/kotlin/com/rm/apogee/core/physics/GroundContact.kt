@@ -233,6 +233,8 @@ class GroundContact {
             // A wheel is a leg that rolls, so it borrows the leg's suspension
             // wholesale rather than growing a second, near-identical one.
             val wheel = def.module<Wheel>()
+            // Feet: they grip as the walk drives them, not as a dragged hull does.
+            val walker = def.module<com.rm.apogee.core.part.Walker>() != null
             val suspensionTravel = if (!sprung) null else leg?.suspensionTravel ?: wheel?.suspensionTravel
             val springRate = leg?.springRate ?: wheel?.springRate
             val damping = leg?.damping ?: wheel?.damping
@@ -325,6 +327,8 @@ class GroundContact {
 
                 if (wheel != null) {
                     driveWheel(vessel, partIndex, attractor, wheel, normalImpulse, dt)
+                } else if (walker) {
+                    vessel.walkGrip += normalImpulse * groundFriction
                 } else {
                     applyFriction(body, attractor, normalImpulse)
                 }
@@ -349,6 +353,8 @@ class GroundContact {
 
             if (wheel != null) {
                 driveWheel(vessel, partIndex, attractor, wheel, normalImpulse, dt)
+            } else if (walker) {
+                vessel.walkGrip += normalImpulse * groundFriction
             } else {
                 applyFriction(body, attractor, normalImpulse)
             }
@@ -407,8 +413,9 @@ class GroundContact {
         if (!report.hadContact) return
         val body = vessel.body
 
-        // Under power is not at rest, however slowly it happens to be moving.
-        if (vessel.control.throttle > 0.0) return
+        // Under power is not at rest, however slowly it happens to be moving;
+        // nor is someone walking or jumping.
+        if (vessel.control.throttle > 0.0 || vessel.walking) return
 
         attractor.gravityAt(body.position, scratch)
         val budget = report.friction * scratch.length * dt

@@ -35,6 +35,12 @@ class CodecTest {
             ClientMessage.CommandMessage(Command.Deploy(7, true)),
             ClientMessage.CommandMessage(Command.SetIndustry(7, drilling = true, refining = false)),
             ClientMessage.CommandMessage(Command.Unload(7, true)),
+            ClientMessage.CommandMessage(Command.Eva(7, 42)),
+            ClientMessage.CommandMessage(Command.Board(8, -1)),
+            ClientMessage.CommandMessage(Command.TransferCrew(7, 42, 3)),
+            ClientMessage.CommandMessage(Command.Jump(8)),
+            ClientMessage.CommandMessage(Command.Grab(8, true)),
+            ClientMessage.CommandMessage(Command.PlantFlag(8)),
             ClientMessage.CommandMessage(
                 Command.SpawnCraft(StockCraft.starterRocket(StockParts.catalog), "cape")
             ),
@@ -79,6 +85,12 @@ class CodecTest {
                 survey = 0.4f, ore = 0.55f, water = 0.9f,
             ),
             ServerMessage.Surveyed(listOf("luna", "terra")),
+            ServerMessage.Roster(
+                listOf(
+                    com.rm.apogee.core.crew.CrewMember(1, "Ada Mercer", "abc", com.rm.apogee.core.crew.CrewStatus.ABOARD, vessel = 7),
+                    com.rm.apogee.core.crew.CrewMember(2, "Bram Holm", "abc", com.rm.apogee.core.crew.CrewStatus.LOST, lostAt = 12.5, lostWhere = "Luna", lostHow = "a hard landing"),
+                ),
+            ),
         )
 
         for (message in messages) {

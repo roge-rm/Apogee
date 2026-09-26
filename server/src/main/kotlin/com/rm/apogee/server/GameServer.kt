@@ -112,6 +112,9 @@ class PlayerSession internal constructor(
         internal set
 
     @Volatile var controlledVessel: VesselId? = null
+
+    /** The world's crew revision this player's roster was last sent at; -1 for never. */
+    @Volatile var rosterRevision: Long = -1L
         internal set
 
     @Volatile var connected: Boolean = true
@@ -341,6 +344,14 @@ class GameServer(
                 } else if (command is Command.SetDockPilot) {
                     dockPilots[command.vessel] = command.pilot
                     announceDock(command.vessel)
+                } else if (command is Command.Eva) {
+                    // Out into a suit of their own, which they fly now.
+                    world.eva(command.vessel, command.crew)?.let { suit ->
+                        suit.ownerName = session.playerName
+                        takeControl(session, suit.id)
+                    }
+                } else if (command is Command.Board) {
+                    world.boardCraft(command.vessel, command.target)?.let { takeControl(session, it.id) }
                 } else if (command is Command.SwitchVessel) {
                     world.apply(command)
                     takeControl(session, VesselId(command.vessel))
@@ -450,7 +461,7 @@ class GameServer(
         // a base from before craft were owned by install, left claimable.
         val chosen = config.resumeVessel?.let { world.vessel(VesselId(it)) }
             ?.takeIf { it.owner == session.clientId || it.owner.isBlank() }
-            ?.also { if (it.owner.isBlank()) { it.owner = session.clientId; it.ownerName = session.playerName } }
+            ?.also { if (it.owner.isBlank()) { world.claim(it, session.clientId); it.ownerName = session.playerName } }
         val existing = chosen ?: if (config.freshFlight) null else world.vesselOwnedBy(session.clientId)
         // The label follows the player, so renaming yourself renames your
         // craft's owner rather than orphaning it.
@@ -462,7 +473,7 @@ class GameServer(
                 config.starterCraft(world.catalog),
                 World.launchSites.first(),
             ).also {
-                it.owner = session.clientId
+                world.assignOwner(it, session.clientId)
                 it.ownerName = session.playerName
             }
         } else {
@@ -486,6 +497,8 @@ class GameServer(
         if (world.felledScatter.isNotEmpty()) {
             session.send(ServerMessage.ScatterFelled(world.felledScatter.toList()), Channel.STRUCTURE)
             session.send(ServerMessage.Surveyed(world.surveyed.toList()), Channel.STRUCTURE)
+            session.rosterRevision = world.crewRevision
+            session.send(ServerMessage.Roster(world.crewOf(session.clientId)), Channel.STRUCTURE)
         }
 
         // A joining client needs the structure of everything already out there,
@@ -533,6 +546,9 @@ class GameServer(
      */
     private fun flies(session: PlayerSession, vessel: Long): Boolean {
         if (session.controlledVessel?.raw != vessel) return false
+        // Aboard someone else's craft: a passenger, not its pilot.
+        val craft = world.vessel(VesselId(vessel)) ?: return false
+        if (session.clientId !in world.ownersOf(craft)) return false
         val pilot = dockPilots[vessel] ?: return true
         return pilot.isEmpty() || pilot == session.clientId
     }
@@ -547,6 +563,13 @@ class GameServer(
         is Command.SetBrakes -> flies(session, command.vessel)
         is Command.SetReverse -> flies(session, command.vessel)
         is Command.Deploy -> flies(session, command.vessel)
+        // Only for one's own crew, from the craft one is in.
+        is Command.Eva -> session.controlledVessel?.raw == command.vessel && world.crew[command.crew]?.owner == session.clientId
+        is Command.TransferCrew -> session.controlledVessel?.raw == command.vessel && world.crew[command.crew]?.owner == session.clientId
+        is Command.Board -> flies(session, command.vessel)
+        is Command.Jump -> flies(session, command.vessel)
+        is Command.Grab -> flies(session, command.vessel)
+        is Command.PlantFlag -> flies(session, command.vessel)
         is Command.SetIndustry -> flies(session, command.vessel) || world.vessel(VesselId(command.vessel))?.let { it.anchored && it.owner == session.clientId } == true
         is Command.Unload -> flies(session, command.vessel)
         is Command.SetTranslation -> flies(session, command.vessel)
@@ -620,6 +643,8 @@ class GameServer(
 
                 is WorldEvent.Touchdown -> Unit
                 is WorldEvent.BodyChanged -> Unit
+                // Told as the roster changes: see sendFuel.
+                is WorldEvent.CrewLost -> Unit
                 is WorldEvent.Surveyed -> broadcast(ServerMessage.Surveyed(world.surveyed.toList()), Channel.STRUCTURE)
                 // Told to the pilot with the refuel state, not as an event of its own.
                 is WorldEvent.RefuelStopped -> refuelStops[event.id.raw] = event.reason
@@ -723,9 +748,14 @@ class GameServer(
     private suspend fun sendFuel() {
         for (session in sessions) {
             if (!session.connected || !session.handshakeComplete) continue
+            // Whether or not they still have a craft: one just lost is when it matters most.
+            if (session.rosterRevision != world.crewRevision) {
+                session.rosterRevision = world.crewRevision
+                session.send(ServerMessage.Roster(world.crewOf(session.clientId)), Channel.STRUCTURE)
+            }
             val vessel = session.controlledVessel?.let { world.vessel(it) } ?: continue
             session.send(ServerMessage.FuelLevels(vessel.id.raw, vessel.flatResources()), Channel.KINEMATICS)
-            session.send(world.systemsOf(vessel), Channel.KINEMATICS)
+            session.send(world.systemsOf(vessel).copy(passenger = session.clientId !in world.ownersOf(vessel)), Channel.KINEMATICS)
             session.send(
                 ServerMessage.Service(
                     vessel.id.raw,
@@ -753,6 +783,8 @@ class GameServer(
         var bestDistance = BASE_CARD_REACH
         for (other in world.vessels) {
             if (!other.anchored || other.owner == World.WORLD_OWNER || other.referenceBodyId != vessel.referenceBodyId) continue
+            // A planted flag is founded, but it is not a base.
+            if (other.design.parts.singleOrNull()?.partId == World.FLAG_PART) continue
             val d = other.body.position.distanceTo(vessel.body.position) - other.contactRadius
             if (d < bestDistance) { bestDistance = d; best = other }
         }

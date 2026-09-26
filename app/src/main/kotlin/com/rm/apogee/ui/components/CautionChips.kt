@@ -60,7 +60,7 @@ fun CautionChips(
         if (power != null) {
             if (!power.powered) add(Chip("NO POWER", "0%", ApogeeColors.Danger))
             else if (power.low) add(Chip("LOW POWER", percent(power.share.toDouble()), ApogeeColors.Caution))
-            if (power.needsSignal && power.powered && power.signal == com.rm.apogee.core.world.Signal.NONE) add(Chip("NO SIGNAL", "", ApogeeColors.Danger))
+            if (power.needsSignal && power.powered && power.blocked == "NO SIGNAL") add(Chip("NO SIGNAL", "", ApogeeColors.Danger))
         }
         if (chute != null) add(Chip("CHUTE", chute, if (chute == "ARMED") ApogeeColors.Data else ApogeeColors.Prograde))
         if (telemetry.overheating) add(Chip("OVERHEAT", percent(telemetry.heat), severity(telemetry.heat)))

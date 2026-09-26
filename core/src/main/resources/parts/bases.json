@@ -894,7 +894,12 @@
         "size": 3
       }
     ],
-    "modules": [],
+    "modules": [
+      {
+        "type": "habitat",
+        "capacity": 6
+      }
+    ],
     "strength": 900000.0
   },
   {

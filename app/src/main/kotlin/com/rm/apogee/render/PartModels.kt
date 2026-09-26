@@ -77,7 +77,8 @@ object PartModels {
             return
         }
         val maxDeflection = def.module<AeroSurface>()?.maxDeflection
-            ?: def.module<com.rm.apogee.core.part.HydroSurface>()?.maxDeflection ?: 0.0
+            ?: def.module<com.rm.apogee.core.part.HydroSurface>()?.maxDeflection
+            ?: def.module<com.rm.apogee.core.part.Walker>()?.swing ?: 0.0
         gimbalRange = Math.toRadians(def.module<com.rm.apogee.core.part.Engine>()?.gimbalRange ?: 0.0)
         leg = def.module<com.rm.apogee.core.part.LandingLeg>()
         expand(model, Vec3.zero(), Quat.identity(), Tint.BODY, caps, anim, maxDeflection, out)

@@ -25,9 +25,11 @@ import kotlin.math.roundToInt
  */
 object VesselPose {
 
+    /** Whatever swings by a deflection: a control surface, or a walker's legs and arms. */
     private fun controlSurface(def: PartDef): Boolean =
         def.module<AeroSurface>()?.controllable == true ||
-            def.module<com.rm.apogee.core.part.HydroSurface>()?.controllable == true
+            def.module<com.rm.apogee.core.part.HydroSurface>()?.controllable == true ||
+            def.module<com.rm.apogee.core.part.Walker>() != null
 
     private fun gimballed(def: PartDef): Boolean = (def.module<com.rm.apogee.core.part.Engine>()?.gimbalRange ?: 0.0) > 0.0
 

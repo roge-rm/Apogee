@@ -157,7 +157,8 @@ class Forces {
         val firing = vessel.rcsFiring
         firing.fill(0.0)
         val control = vessel.control
-        if (!control.rcsEnabled) return
+        // A jetpack is for flying: on their feet, it is off.
+        if (!control.rcsEnabled || vessel.onFeet) return
 
         // The slide asked for, in the craft's own axes: never more than one
         // block's worth however the axes combine; a diagonal is a direction.
@@ -339,10 +340,13 @@ class Forces {
         }
         vessel.wheelWork = authority * (kotlin.math.abs(control.commandPitch) + kotlin.math.abs(control.commandRoll) + kotlin.math.abs(control.commandYaw)).coerceAtMost(1.0)
 
+        // On foot, the stick walks: only turning about their own height -
+        // their roll - is left to the wheels.
+        val tip = if (vessel.onFeet) 0.0 else 1.0
         scratchTorque.setTo(
-            control.commandPitch * authority,
+            control.commandPitch * authority * tip,
             control.commandRoll * authority,
-            control.commandYaw * authority,
+            control.commandYaw * authority * tip,
         )
         vessel.body.orientation.rotate(scratchTorque, scratchTorque)
         vessel.body.applyTorque(scratchTorque)

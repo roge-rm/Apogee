@@ -81,6 +81,36 @@ sealed interface Command {
     @SerialName("deploy")
     data class Deploy(val vessel: Long, val deployed: Boolean) : Command
 
+    /** Crew member [crew] climbs out of [vessel] on EVA. */
+    @Serializable
+    @SerialName("eva")
+    data class Eva(val vessel: Long, val crew: Long) : Command
+
+    /** Someone on EVA in suit [vessel] climbs into a free seat of [target] - or, -1, the nearest in reach. */
+    @Serializable
+    @SerialName("board")
+    data class Board(val vessel: Long, val target: Long = -1L) : Command
+
+    /** Moves crew member [crew] to a free seat in [part] of the same craft. */
+    @Serializable
+    @SerialName("transferCrew")
+    data class TransferCrew(val vessel: Long, val crew: Long, val part: Int) : Command
+
+    /** Someone on their feet jumps. */
+    @Serializable
+    @SerialName("jump")
+    data class Jump(val vessel: Long) : Command
+
+    /** Someone on EVA takes hold of the nearest ladder, or lets go. */
+    @Serializable
+    @SerialName("grab")
+    data class Grab(val vessel: Long, val on: Boolean) : Command
+
+    /** Someone standing on the ground plants a flag. */
+    @Serializable
+    @SerialName("plantFlag")
+    data class PlantFlag(val vessel: Long) : Command
+
     /** Switches [vessel]'s drills and its converters - a base's refinery - on or off. */
     @Serializable
     @SerialName("setIndustry")
@@ -274,6 +304,8 @@ data class StructureUpdate(
     val anchored: Boolean = false,
     /** Burns planned for it, soonest first. */
     val burns: List<PlannedBurn> = emptyList(),
+    /** Who sits in each part, by crew id, in part order; empty with nobody aboard. */
+    val crew: List<List<Long>> = emptyList(),
 )
 
 /** Server -> client. */
@@ -370,8 +402,16 @@ sealed interface ServerMessage {
         val signal: Signal,
         val relays: List<Long>,
         val controllable: Boolean,
+        /** Why it cannot be flown - "NO CREW", "NO POWER", "NO SIGNAL" - or blank. */
+        val blocked: String = "",
         val needsSignal: Boolean,
         val deployed: Boolean,
+        /** Someone on EVA: the craft with a free seat in reach (blank for none), a ladder in reach, and holding one. */
+        val boardable: String = "",
+        val canGrab: Boolean = false,
+        val onLadder: Boolean = false,
+        /** Aboard another player's craft: along for the ride, not flying it. */
+        val passenger: Boolean = false,
         /** Its drills and converters switched on, and what its drills are doing. */
         val drilling: Boolean = false,
         val refining: Boolean = false,
@@ -382,6 +422,11 @@ sealed interface ServerMessage {
         val ore: Float = -1f,
         val water: Float = -1f,
     ) : ServerMessage
+
+    /** A player's crew - at home, aboard, and on the memorial - sent to them on joining and whenever it changes. */
+    @Serializable
+    @SerialName("roster")
+    data class Roster(val members: List<com.rm.apogee.core.crew.CrewMember>) : ServerMessage
 
     /** The bodies surveyed for ore and water: all of them, whenever the list grows, and on joining. */
     @Serializable
@@ -532,5 +577,6 @@ object Protocol {
     // 13: navigation - PlanBurns, SetAutopilot, WarpTo, targeting bodies.
     // 14: craft systems - Deploy, CraftSystems.
     // 15: resources - SetIndustry, Unload, Surveyed, CraftSystems industry and readings, BaseStatus stores.
-    const val VERSION = 15
+    // 16: crew - Roster, seats in StructureUpdate, EVA and boarding commands.
+    const val VERSION = 16
 }

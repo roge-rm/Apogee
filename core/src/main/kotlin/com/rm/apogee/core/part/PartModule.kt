@@ -513,6 +513,38 @@ data class FuelCell(
     val monoPerCharge: Double = 0.01,
 ) : PartModule
 
+/** Room for [capacity] people to live, off duty: a base's habitat. Seats, not controls. */
+@Serializable
+@SerialName("habitat")
+data class Habitat(val capacity: Int) : PartModule
+
+/**
+ * Walks: a crew member out of their craft. On the ground it drives them
+ * toward [speed], m/s, as far as the ground's grip allows, keeps them
+ * upright with a stiff, damped [stand] torque, N·m per radian, and can
+ * [jump] them up at that many m/s. Off the ground it does nothing - the
+ * jetpack flies them there.
+ */
+@Serializable
+@SerialName("walker")
+data class Walker(
+    val speed: Double = 1.6,
+    val jump: Double = 3.0,
+    val stand: Double = 800.0,
+    /** How far legs and arms swing either way at a full stride, degrees: drawn, not felt. */
+    val swing: Double = 28.0,
+    /** A stride, m: how far a step carries them. */
+    val stride: Double = 1.4,
+) : PartModule
+
+/**
+ * A ladder: [length] metres of rungs along the part's own Y, centred on it.
+ * A crew member near it can hold on and climb.
+ */
+@Serializable
+@SerialName("ladder")
+data class Ladder(val length: Double = 2.4) : PartModule
+
 /**
  * Digs the ground: [rate] units a second of ore and of water, each as rich
  * as the ground is in it (see `Deposits`), while switched on, landed, still,

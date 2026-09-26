@@ -59,6 +59,8 @@ class VesselSave(
     /** Drills and converters switched on: a base mines and refines while nobody is there. */
     val drilling: Boolean = false,
     val refining: Boolean = false,
+    /** Who sits in each part, by crew id, in part order. */
+    val crew: List<List<Long>> = emptyList(),
     /** A survey under way: of which body, and how many seconds of it are done. */
     val surveyBody: String = "",
     val surveyProgress: Double = 0.0,
@@ -115,6 +117,14 @@ class WorldSave(
     val felledScatter: List<Long> = emptyList(),
     /** Bodies surveyed for ore and water, by id. */
     val surveyed: List<String> = emptyList(),
+    /** Everyone who has flown: at home, aboard, or on the memorial. */
+    val crew: List<com.rm.apogee.core.crew.CrewMember> = emptyList(),
+    /**
+     * Whether craft carry their crew in this save. False in saves from before
+     * there were crew: every seat is filled on loading, or every craft would
+     * be an empty pod nobody could fly.
+     */
+    val crewSeated: Boolean = false,
     /**
      * Which terrain this world's craft are standing on:
      * [com.rm.apogee.core.terrain.TerrainField.GENERATION] when it was saved.

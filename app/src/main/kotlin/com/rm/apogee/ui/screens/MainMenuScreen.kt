@@ -82,6 +82,12 @@ fun PlayScreen(
             subtitle = "Fly any craft you left out there, or tidy them away",
         )
         ApogeeButton(
+            "Crew",
+            { onNavigate(AppScreen.CREW) },
+            contentModifier,
+            subtitle = "Who is at home, who is out there, and those lost",
+        )
+        ApogeeButton(
             "Vehicle Assembly",
             { onNavigate(AppScreen.BUILDER) },
             contentModifier,

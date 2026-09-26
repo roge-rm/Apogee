@@ -32,6 +32,8 @@ class ClientVessel(
     @Volatile var anchored: Boolean = false,
     /** Burns planned for it, soonest first, as the server has them. */
     @Volatile var burns: List<com.rm.apogee.core.world.PlannedBurn> = emptyList(),
+    /** Who sits in each part, by crew id; empty with nobody aboard. */
+    @Volatile var crew: List<List<Long>> = emptyList(),
 ) {
     /** The two most recent snapshots, kept so the renderer can interpolate. */
     @Volatile var previous: VesselKinematics? = null
@@ -162,6 +164,10 @@ class GameClient(
     @Volatile var systems: ServerMessage.CraftSystems? = null
         private set
 
+    /** This player's crew, as the server last said. */
+    @Volatile var roster: List<com.rm.apogee.core.crew.CrewMember> = emptyList()
+        private set
+
     /** Bodies surveyed for ore and water: their richness is on the map. */
     @Volatile var surveyed: Set<String> = emptySet()
         private set
@@ -280,6 +286,7 @@ class GameClient(
                             owner = update.owner,
                             anchored = update.anchored,
                             burns = update.burns,
+                            crew = update.crew,
                         )
                     } else {
                         existing.design = design
@@ -289,6 +296,7 @@ class GameClient(
                         existing.activatedParts = update.activatedParts
                         existing.anchored = update.anchored
                         existing.burns = update.burns
+                        existing.crew = update.crew
                     }
                 }
             }
@@ -326,6 +334,8 @@ class GameClient(
             is ServerMessage.CraftSystems -> systems = message
 
             is ServerMessage.Surveyed -> surveyed = message.bodies.toSet()
+
+            is ServerMessage.Roster -> roster = message.members
 
             is ServerMessage.BaseStatus -> {
                 nearBase = message

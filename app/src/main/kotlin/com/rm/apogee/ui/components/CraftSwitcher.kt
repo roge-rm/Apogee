@@ -182,7 +182,7 @@ private fun CraftList(
                                 "FLYING", style = TelemetryTextStyle, color = ApogeeColors.Accent,
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
                             )
-                        } else {
+                        } else if (summary.canFly) {
                             Action("FLY", ApogeeColors.Accent) { onFly(summary.id) }
                         }
                     }

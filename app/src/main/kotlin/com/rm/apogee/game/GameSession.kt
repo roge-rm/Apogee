@@ -394,6 +394,11 @@ class GameSession private constructor(
 
     suspend fun setAttitude(pitch: Double, yaw: Double, roll: Double) {
         stickUp = pitch; stickRight = yaw; stickRoll = roll
+        // Someone on foot: up walks on, right turns them - about their own height, their roll.
+        if (controlledIsSuit) {
+            sendAttitude(pitch, 0.0, yaw + roll)
+            return
+        }
         if (controlledOrientation == CraftOrientation.VERTICAL) {
             // A craft built standing up has no front to read the stick by:
             // it is read by the screen instead - see [screenAttitude].
@@ -588,6 +593,58 @@ class GameSession private constructor(
             }
         }
 
+    private val controlledClient: ClientVessel?
+        get() = client.controlledVessel?.let { id -> client.vessels.firstOrNull { it.id == id } }
+
+    /** Whether the craft flown is someone out on EVA, in their suit. */
+    val controlledIsSuit: Boolean
+        get() = controlledClient?.design?.parts?.singleOrNull()?.partId == com.rm.apogee.core.world.World.SUIT_PART
+
+    /** How many the craft flown seats. */
+    val controlledSeats: Int
+        get() = controlledClient?.design?.parts?.sumOf { catalog[it.partId]?.let { d -> com.rm.apogee.core.crew.Crew.seatsIn(d) } ?: 0 } ?: 0
+
+    /** Who is aboard the craft flown, for the crew card. */
+    val crewCard: List<HudState.CrewSeat>
+        get() {
+            val craft = controlledClient ?: return emptyList()
+            val roster = client.roster.associateBy { it.id }
+            val free = craft.design.parts.indices.filter { i ->
+                (catalog[craft.design.parts[i].partId]?.let { com.rm.apogee.core.crew.Crew.seatsIn(it) } ?: 0) > (craft.crew.getOrNull(i)?.size ?: 0)
+            }
+            return craft.crew.flatMapIndexed { part, seat ->
+                seat.map { id ->
+                    val member = roster[id]
+                    HudState.CrewSeat(
+                        id = id,
+                        name = member?.name ?: "Crew",
+                        where = catalog[craft.design.parts[part].partId]?.title ?: "",
+                        mine = member != null,
+                        canMove = free.any { it != part },
+                    )
+                }
+            }
+        }
+
+    /** Crew member [crewId] out on EVA. */
+    suspend fun eva(crewId: Long) = withControlledVessel { client.send(Command.Eva(it, crewId)) }
+
+    /** Crew member [crewId] to the next free seat after theirs in the craft flown. */
+    suspend fun moveCrew(crewId: Long) {
+        val craft = controlledClient ?: return
+        val at = craft.crew.indexOfFirst { crewId in it }
+        val parts = craft.design.parts.indices
+        val next = (1 until parts.count()).map { (at + it) % parts.count() }.firstOrNull { i ->
+            (catalog[craft.design.parts[i].partId]?.let { com.rm.apogee.core.crew.Crew.seatsIn(it) } ?: 0) > (craft.crew.getOrNull(i)?.size ?: 0)
+        } ?: return
+        client.send(Command.TransferCrew(craft.id, crewId, next))
+    }
+
+    suspend fun board() = withControlledVessel { client.send(Command.Board(it)) }
+    suspend fun jump() = withControlledVessel { client.send(Command.Jump(it)) }
+    suspend fun grab(on: Boolean) = withControlledVessel { client.send(Command.Grab(it, on)) }
+    suspend fun plantFlag() = withControlledVessel { client.send(Command.PlantFlag(it)) }
+
     /** Whether the craft being flown has drills, and converters. */
     val controlledHasDrill: Boolean get() = controlledHas { it.hasModule<com.rm.apogee.core.part.Drill>() }
     val controlledHasConverter: Boolean get() = controlledHas { it.hasModule<com.rm.apogee.core.part.Converter>() }
@@ -619,6 +676,11 @@ class GameSession private constructor(
                 survey = systems.survey,
                 ore = systems.ore,
                 water = systems.water,
+                blocked = systems.blocked,
+                boardable = systems.boardable,
+                canGrab = systems.canGrab,
+                onLadder = systems.onLadder,
+                passenger = systems.passenger,
                 held = prediction.replica?.let { local ->
                     val ore = com.rm.apogee.core.part.ResourceType.ORE
                     val water = com.rm.apogee.core.part.ResourceType.WATER
@@ -953,8 +1015,9 @@ class GameSession private constructor(
      * and a list is worth building when there are enough of them to need one.
      */
     suspend fun switchCraft() {
+        // Not flags: nothing to fly.
         val mine = client.vessels
-            .filter { it.owner == client.clientId }
+            .filter { it.owner == client.clientId && it.design.parts.singleOrNull()?.partId != com.rm.apogee.core.world.World.FLAG_PART }
             .sortedBy { it.id }
         if (mine.size < 2) return
         val current = client.controlledVessel
@@ -980,7 +1043,10 @@ class GameSession private constructor(
                     lowestPointOffset(vessel.design, state.rotation, up)).coerceAtLeast(0.0)
                 val orbit = com.rm.apogee.core.orbit.Orbit(state.position, state.velocity, body.gravitationalParameter)
                 val floor = body.radius + body.atmosphereHeight + (body.terrain?.maxElevation ?: 0.0)
+                val only = vessel.design.parts.singleOrNull()?.partId
+                val flag = only == com.rm.apogee.core.world.World.FLAG_PART
                 val situation = when {
+                    flag -> "Planted on ${body.displayName}"
                     above < 2.0 && body.terrain?.isOcean(bodyFixed) == true -> "Afloat on ${body.displayName}"
                     above < 2.0 -> "Landed on ${body.displayName}"
                     orbit.isBound && orbit.periapsis > floor -> "In orbit of ${body.displayName}"
@@ -988,7 +1054,7 @@ class GameSession private constructor(
                 }
                 val height = if (above < 2.0) "on the surface"
                     else if (above < 10_000.0) "%.0f m up".format(above) else "%.1f km up".format(above / 1000.0)
-                com.rm.apogee.ui.screens.CraftSummary(vessel.id, vessel.name, situation, height)
+                com.rm.apogee.ui.screens.CraftSummary(vessel.id, vessel.name, situation, height, canReset = false, canFly = !flag)
             }
     }
 
@@ -1092,6 +1158,7 @@ class GameSession private constructor(
         // smoke go on being there to see.
         val live = client.vessel(focusId)?.takeIf { it.latest != null }
         val wrecked = live == null
+        wreckedId = if (wrecked) focusId else null
         val focus = live ?: wreckStandIn(focusId) ?: return
         val focusState = focus.latest ?: return
 
@@ -1168,6 +1235,13 @@ class GameSession private constructor(
                 val seen = other.latest ?: continue
                 if (seen.referenceBodyId != focusState.referenceBodyId) continue
                 lines.add(marker(seen.position, reach, BASE_COLOR))
+            }
+            // Flags planted on this world - anyone's: someone was here.
+            for (other in client.vessels) {
+                if (other.design.parts.singleOrNull()?.partId != com.rm.apogee.core.world.World.FLAG_PART) continue
+                val seen = other.latest ?: continue
+                if (seen.referenceBodyId != focusState.referenceBodyId) continue
+                lines.add(marker(seen.position, reach * 0.6, FLAG_COLOR))
             }
         } else {
             // Much smaller than it was - the rest of it smashed or torn
@@ -2723,6 +2797,18 @@ class GameSession private constructor(
     }
 
     /** What happened, in a line: the first blow and what it did, or what else took it. */
+    /**
+     * The player's crew who were aboard craft [id] when it was lost, by
+     * name: the ones the roster now remembers, who were last aboard it.
+     */
+    @Volatile private var wreckedId: Long? = null
+
+    val crewLostWith: List<String>
+        get() {
+            val id = wreckedId ?: return emptyList()
+            return client.roster.filter { it.status == com.rm.apogee.core.crew.CrewStatus.LOST && it.lastVessel == id }.map { it.name }
+        }
+
     private fun crashReport(id: Long): String {
         val blow = firstBlow[id]
         val cause = lastCause[id]
@@ -3541,6 +3627,8 @@ class GameSession private constructor(
         private val BASE_COLOR = floatArrayOf(0.55f, 0.85f, 1.0f, 1f)
         /** Ground stations, and a probe's link home through its relays. */
         private val STATION_COLOR = floatArrayOf(1.0f, 0.75f, 0.3f, 1f)
+        /** A planted flag on the map. */
+        private val FLAG_COLOR = floatArrayOf(1.0f, 0.4f, 0.55f, 1f)
         private val SIGNAL_COLOR = floatArrayOf(0.45f, 1.0f, 0.55f, 1f)
         /** A surveyed body's ore and water on the map, and how big each dot is, as a share of its radius. */
         private val ORE_COLOR = floatArrayOf(1.0f, 0.62f, 0.25f, 1f)

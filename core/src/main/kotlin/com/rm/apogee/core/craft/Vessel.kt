@@ -346,6 +346,36 @@ class Vessel(
     var temperature: DoubleArray = DoubleArray(design.parts.size) { AMBIENT_TEMPERATURE }
         private set
 
+    /**
+     * Who sits in each part, by crew id: a pod's crew, a habitat's
+     * residents, an astronaut in their suit. Carried with the parts through
+     * every change of structure, as their fuel and damage are; see
+     * `World`'s crew for who they are.
+     */
+    var crew: Array<LongArray> = Array(design.parts.size) { NO_CREW }
+
+    /** How many are aboard. */
+    val crewAboard: Int get() = crew.sumOf { it.size }
+
+    /** Someone on foot: the grip their feet found this tick, N·s, for the walk to spend; see `World`'s walking. */
+    var walkGrip: Double = 0.0
+
+    /** Where in their stride someone walking is, radians: what swings their legs. */
+    var walkPhase: Double = 0.0
+
+    /** Walking or jumping this tick: not to be held still as a parked craft is. */
+    var walking: Boolean = false
+
+    /** On foot, or on a ladder: the stick walks or climbs rather than turning them head over heels. */
+    var onFeet: Boolean = false
+
+    /** The ladder held - its craft's id and the part - or -1 for none. */
+    var ladderVessel: Long = -1L
+    var ladderPart: Int = -1
+
+    /** Whether anyone is aboard a working part. */
+    fun hasCrew(): Boolean = crew.indices.any { crew[it].isNotEmpty() && !broken[it] }
+
     /** Takes up to [units] of [type] from part [index] alone; returns what it got. */
     fun takeFromPart(index: Int, type: ResourceType, units: Double): Double {
         val row = resources[index]
@@ -448,6 +478,7 @@ class Vessel(
             broken[newIndex] = source.broken[oldIndex]
             health[newIndex] = source.health.getOrElse(oldIndex) { 1.0 }
             temperature[newIndex] = source.temperature.getOrElse(oldIndex) { AMBIENT_TEMPERATURE }
+            crew[newIndex] = source.crew.getOrElse(oldIndex) { NO_CREW }
             for (k in 0..2) crumple[newIndex * 3 + k] = source.crumple.getOrElse(oldIndex * 3 + k) { 0f }
             setLegDeploy(newIndex, source.legDeploy.getOrElse(oldIndex) { 0.0 })
         }
@@ -1088,8 +1119,10 @@ class Vessel(
         val newCrumple = FloatArray(newDesign.parts.size * 3)
         val newTemperature = DoubleArray(newDesign.parts.size) { AMBIENT_TEMPERATURE }
         val newFlooded = DoubleArray(keptIndices.size)
+        val newCrew = Array(newDesign.parts.size) { NO_CREW }
         keptIndices.forEachIndexed { newIndex, oldIndex ->
             newTemperature[newIndex] = temperature.getOrElse(oldIndex) { AMBIENT_TEMPERATURE }
+            newCrew[newIndex] = crew.getOrElse(oldIndex) { NO_CREW }
             newFlooded[newIndex] = flooded.getOrElse(oldIndex) { 0.0 }
             resources[oldIndex].copyInto(newResources[newIndex])
             newActivated[newIndex] = activated[oldIndex]
@@ -1108,6 +1141,7 @@ class Vessel(
         health = newHealth
         crumple = newCrumple
         temperature = newTemperature
+        crew = newCrew
         resetStress(newDesign.parts.size)
         resetPose(newDeploy)
         name = newDesign.name
@@ -1346,6 +1380,7 @@ class Vessel(
         val newTemperature = DoubleArray(newDesign.parts.size)
         temperature.copyInto(newTemperature, 0, 0, own)
         other.temperature.copyInto(newTemperature, own)
+        val newCrew = Array(newDesign.parts.size) { if (it < own) crew.getOrElse(it) { NO_CREW } else other.crew.getOrElse(it - own) { NO_CREW } }
         val newFlooded = DoubleArray(newDesign.parts.size)
         for (i in 0 until own) newFlooded[i] = flooded.getOrElse(i) { 0.0 }
         for (j in other.design.parts.indices) newFlooded[own + j] = other.flooded.getOrElse(j) { 0.0 }
@@ -1375,6 +1410,7 @@ class Vessel(
         health = newHealth
         crumple = newCrumple
         temperature = newTemperature
+        crew = newCrew
         resetStress(newDesign.parts.size)
         resetPose(newDeploy)
         computeFuelGroups()
@@ -1394,6 +1430,9 @@ class Vessel(
 
     companion object {
         private val RESOURCE_COUNT = ResourceType.entries.size
+
+        /** A part nobody is in. */
+        val NO_CREW = LongArray(0)
 
         /** Where every part's temperature starts, K. */
         const val AMBIENT_TEMPERATURE = 288.0

@@ -387,6 +387,35 @@ class GameServerTest {
         )
     }
 
+    /** Out on EVA into another player's empty seat: aboard, and along for the ride. */
+    @Test
+    fun `a player who boards another's craft rides as a passenger`() = runTest {
+        val world = World.default(catalog)
+        val server = GameServer(world, ServerConfig())
+        val alice = joinClient(server, backgroundScope, "Alice", clientId = "install-alice")
+        val bob = joinClient(server, backgroundScope, "Bob", clientId = "install-bob")
+        pumpUntil(server, "craft for both") { alice.controlledVessel != null && bob.controlledVessel != null }
+        val alices = world.vessel(VesselId(alice.controlledVessel!!))!!
+        val bobs = world.vessel(VesselId(bob.controlledVessel!!))!!
+        // Alice steps out, leaving her pod empty.
+        alice.send(Command.Eva(alices.id.raw, alices.crew.first { it.isNotEmpty() }.first()))
+        pumpUntil(server, "Alice on EVA") { alice.controlledVessel != alices.id.raw }
+        // Bob steps out, and up beside Alice's pod.
+        val bobCrew = bobs.crew.first { it.isNotEmpty() }.first()
+        bob.send(Command.Eva(bobs.id.raw, bobCrew))
+        pumpUntil(server, "Bob on EVA") { bob.controlledVessel != bobs.id.raw }
+        val suit = world.vessel(VesselId(bob.controlledVessel!!))!!
+        val pod = alices.defs.indexOfFirst { it.id == "pod-halo" }
+        suit.body.position.setTo(alices.partPositionWorld(pod)).addScaledInPlace(alices.body.position.normalized().cross(com.rm.apogee.core.math.Vec3.unitY()).normalizeInPlace(), 1.2)
+        suit.body.linearVelocity.setTo(alices.body.linearVelocity)
+        bob.send(Command.Board(suit.id.raw, alices.id.raw))
+        pumpUntil(server, "Bob aboard Alice's craft") { bob.controlledVessel == alices.id.raw }
+        assertEquals(alices.id.raw, world.crew.getValue(bobCrew).vessel)
+        bob.send(Command.SetThrottle(alices.id.raw, 1.0))
+        repeat(5) { server.stepOnce(); repeat(SETTLE_YIELDS) { yield() } }
+        assertEquals("a passenger worked the throttle", 0.0, alices.control.throttle, 0.0)
+    }
+
     @Test
     fun `a client cannot fly a craft it does not own`() = runTest {
         val server = GameServer.default(catalog)

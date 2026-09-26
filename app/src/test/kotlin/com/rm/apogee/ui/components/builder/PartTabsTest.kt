@@ -33,7 +33,7 @@ class PartTabsTest {
         PartTab.UTILITY to setOf(
             "chute-canopy", "rcs-nudge", "light-bar", "dock-port", "dock-port-small", "mooring-clamp",
             "panel-glint", "wing-kite", "battery-hoard", "cell-spark", "antenna-reed", "dish-beacon",
-            "drill-auger", "converter-small", "scanner-survey",
+            "drill-auger", "converter-small", "scanner-survey", "ladder-rung",
         ),
         PartTab.BASE to setOf(
             "base-foundation", "base-core", "base-habitat", "base-depot", "base-mono-depot",

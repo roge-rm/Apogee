@@ -94,6 +94,27 @@ class MainActivity : ComponentActivity() {
     private var pendingLaunchSite: String? = null
     private var pendingResume: Long? = null
     private var resumeCraft by mutableStateOf(emptyList<com.rm.apogee.ui.screens.CraftSummary>())
+    private var crewList by mutableStateOf(emptyList<com.rm.apogee.ui.screens.CrewSummary>())
+
+    /** The solo world's crew for the Crew screen: the living in the order they joined, then the lost. */
+    private fun refreshCrew() {
+        val world = openSoloWorld()
+        val me = settings.clientId
+        crewList = world.crew.values.filter { it.owner == me || it.owner.isEmpty() }.map { member ->
+            val status = when (member.status) {
+                com.rm.apogee.core.crew.CrewStatus.AVAILABLE -> "At home, ready to fly"
+                com.rm.apogee.core.crew.CrewStatus.ABOARD -> {
+                    val craft = world.vessel(com.rm.apogee.core.craft.VesselId(member.vessel))
+                    val where = craft?.let { world.attractorFor(it).displayName }.orEmpty()
+                    if (craft != null && craft.design.parts.singleOrNull()?.partId == com.rm.apogee.core.world.World.SUIT_PART) "On EVA on $where"
+                    else "Aboard ${craft?.name ?: "a craft"}" + if (where.isNotEmpty()) " · $where" else ""
+                }
+                com.rm.apogee.core.crew.CrewStatus.LOST ->
+                    member.lostHow.replaceFirstChar { it.uppercase() } + if (member.lostWhere.isNotEmpty()) " · ${member.lostWhere}" else ""
+            }
+            com.rm.apogee.ui.screens.CrewSummary(member.name, status, member.status == com.rm.apogee.core.crew.CrewStatus.LOST)
+        }.sortedBy { it.lost }
+    }
     private var frameClockJob: Job? = null
     private var perfHints: PerfHints? = null
     private var rendererTerrainSource: com.rm.apogee.render.TerrainSource? = null
@@ -165,8 +186,9 @@ class MainActivity : ComponentActivity() {
                         craft = resumeCraft,
                         onFly = { id ->
                             // Claimed, if an older save had it under another name.
-                            openSoloWorld().vessel(com.rm.apogee.core.craft.VesselId(id))?.let {
-                                it.owner = settings.clientId
+                            val world = openSoloWorld()
+                            world.vessel(com.rm.apogee.core.craft.VesselId(id))?.let {
+                                world.claim(it, settings.clientId)
                                 it.ownerName = settings.playerName
                             }
                             pendingResume = id
@@ -179,11 +201,12 @@ class MainActivity : ComponentActivity() {
                             refreshResumeCraft()
                         },
                         onRemove = { id ->
-                            openSoloWorld().destroy(com.rm.apogee.core.craft.VesselId(id), "removed by its owner")
+                            openSoloWorld().destroy(com.rm.apogee.core.craft.VesselId(id), com.rm.apogee.core.world.World.REMOVED_REASON)
                             saveSoloWorld()
                             refreshResumeCraft()
                         },
                     )
+                    AppScreen.CREW -> com.rm.apogee.ui.screens.CrewScreen(crewList)
                     AppScreen.SETTINGS -> SettingsScreen(settings, detectedTier)
                     AppScreen.ABOUT -> AboutScreen()
                     AppScreen.FLIGHT -> FlightScreen(
@@ -229,6 +252,14 @@ class MainActivity : ComponentActivity() {
                         onSwitchCraft = ::onSwitchCraft,
                         onExit = { navigateTo(AppScreen.PLAY) },
                         onWarp = { rate -> session?.let { s -> lifecycleScope.launch { s.setWarp(rate) } } },
+                        crewActions = com.rm.apogee.ui.components.CrewActions(
+                            onEva = { id -> session?.let { s -> lifecycleScope.launch { s.eva(id) } }; hudState.crewOpen = false },
+                            onMove = { id -> session?.let { s -> lifecycleScope.launch { s.moveCrew(id) } } },
+                            onBoard = { session?.let { s -> lifecycleScope.launch { s.board() } } },
+                            onJump = { session?.let { s -> lifecycleScope.launch { s.jump() } } },
+                            onGrab = { on -> session?.let { s -> lifecycleScope.launch { s.grab(on) } } },
+                            onFlag = { session?.let { s -> lifecycleScope.launch { s.plantFlag() } } },
+                        ),
                         burnActions = com.rm.apogee.ui.components.BurnActions(
                             onNudge = { p, n, r -> session?.let { s -> lifecycleScope.launch { s.nudgeBurn(p, n, r) } } },
                             onShift = { dt -> session?.let { s -> lifecycleScope.launch { s.shiftBurn(dt) } } },
@@ -284,6 +315,7 @@ class MainActivity : ComponentActivity() {
         val wasBrowsing = appScreen == AppScreen.JOIN_GAME
         appScreen = target
         if (target == AppScreen.RESUME_FLIGHT) refreshResumeCraft()
+        if (target == AppScreen.CREW) refreshCrew()
 
         // Discovery holds a multicast lock and a socket; it runs only while the
         // browser is actually on screen.
@@ -808,7 +840,9 @@ class MainActivity : ComponentActivity() {
         // debris: spent stages have no one aboard.
         resumeCraft = world.vessels.filter { vessel ->
             vessel.owner != com.rm.apogee.core.world.World.WORLD_OWNER &&
-                (vessel.owner == me || vessel.defs.any { it.hasModule<com.rm.apogee.core.part.Command>() })
+                (vessel.owner == me || vessel.defs.any { it.hasModule<com.rm.apogee.core.part.Command>() }) ||
+                // Flags stay, whoever's; listed so they can be taken down.
+                vessel.design.parts.singleOrNull()?.partId == com.rm.apogee.core.world.World.FLAG_PART
         }.sortedWith(compareBy({ !it.anchored }, { it.name })).map { vessel ->
             val body = world.attractorFor(vessel)
             val bodyFixed = body.toBodyFixed(vessel.body.position, body.rotationAt(world.time))
@@ -821,7 +855,12 @@ class MainActivity : ComponentActivity() {
                 mu = body.gravitationalParameter,
             )
             val floor = body.radius + body.atmosphereHeight + (body.terrain?.maxElevation ?: 0.0)
+            val only = vessel.design.parts.singleOrNull()?.partId
+            val suit = only == com.rm.apogee.core.world.World.SUIT_PART
+            val flag = only == com.rm.apogee.core.world.World.FLAG_PART
             val situation = when {
+                suit -> "On EVA on ${body.displayName}"
+                flag -> "Planted on ${body.displayName}"
                 // A base: where, and how it is keeping - its power and stores.
                 vessel.anchored -> {
                     world.settlePower(vessel)
@@ -836,7 +875,16 @@ class MainActivity : ComponentActivity() {
             }
             val height = if (above < 2.0) "on the surface"
                 else if (above < 10_000.0) "%.0f m up".format(above) else "%.1f km up".format(above / 1000.0)
-            com.rm.apogee.ui.screens.CraftSummary(vessel.id.raw, vessel.name, situation, height)
+            val aboard = vessel.crewAboard
+            val crewNote = when {
+                aboard == 0 -> ""
+                world.recoverable(vessel) -> "Its crew of $aboard come${if (aboard == 1) "s" else ""} home."
+                else -> "Its crew of $aboard ${if (aboard == 1) "is" else "are"} lost with it."
+            }
+            com.rm.apogee.ui.screens.CraftSummary(
+                vessel.id.raw, vessel.name, situation, height, crewNote,
+                canReset = !suit && !flag, canFly = !flag,
+            )
         }
     }
 
@@ -968,6 +1016,10 @@ class MainActivity : ComponentActivity() {
                     hudState.hasRcs = current.controlledHasRcs
                     hudState.hasFoldouts = current.controlledHasFoldouts
                     hudState.hasDrill = current.controlledHasDrill
+                    hudState.isSuit = current.controlledIsSuit
+                    hudState.crewLost = current.crewLostWith
+                    hudState.crew = current.crewCard
+                    hudState.crewSeats = current.controlledSeats
                     hudState.surveyedHere = current.surveyedHere
                     current.mapResource = when (hudState.mapResource) {
                         "ORE" -> com.rm.apogee.core.part.ResourceType.ORE

@@ -98,6 +98,20 @@ class HudState {
     var surveyedHere: Boolean by mutableStateOf(false)
     var mapResource: String by mutableStateOf("ORE")
 
+    /** The player's crew lost with the craft that was just lost, by name. */
+    var crewLost: List<String> by mutableStateOf(emptyList())
+
+    /** Whether the craft flown is someone out on EVA. */
+    var isSuit: Boolean by mutableStateOf(false)
+
+    /** Who is aboard the craft flown, how many it seats, and whether the crew card is open. */
+    var crew: List<CrewSeat> by mutableStateOf(emptyList())
+    var crewSeats: Int by mutableIntStateOf(0)
+    var crewOpen: Boolean by mutableStateOf(false)
+
+    /** Someone aboard: their [name], where they sit, whether they are the player's, and whether there is another free seat for them. */
+    data class CrewSeat(val id: Long, val name: String, val where: String, val mine: Boolean, val canMove: Boolean)
+
     /** Whether it has drills, and converters, so their controls can hide themselves. */
     var hasDrill: Boolean by mutableStateOf(false)
     var hasConverter: Boolean by mutableStateOf(false)
@@ -129,6 +143,14 @@ class HudState {
         val water: Float = -1f,
         /** What it holds of ore and of water, and has room for: four numbers, or null for none known. */
         val held: FloatArray? = null,
+        /** Why it cannot be flown, or blank. */
+        val blocked: String = "",
+        /** On EVA: a craft with a free seat in reach, a ladder in reach, holding one. */
+        val boardable: String = "",
+        val canGrab: Boolean = false,
+        val onLadder: Boolean = false,
+        /** Aboard someone else's craft. */
+        val passenger: Boolean = false,
     ) {
         /** Charge as a share of what it holds, 0..1; 1 with no battery. */
         val share: Float get() = if (capacity > 0f) charge / capacity else 1f
@@ -136,7 +158,9 @@ class HudState {
         val low: Boolean get() = capacity > 0f && share < com.rm.apogee.core.world.Power.LOW.toFloat()
         /** Out of touch - a probe with no link - or out of charge, so the controls do nothing. */
         val outOfTouch: String? get() = when {
+            passenger -> "PASSENGER"
             controllable -> null
+            blocked.isNotEmpty() -> blocked
             !powered -> "NO POWER"
             else -> "NO SIGNAL"
         }
@@ -188,6 +212,11 @@ class HudState {
         hasFoldouts = false
         hasDrill = false
         hasConverter = false
+        isSuit = false
+        crewLost = emptyList()
+        crew = emptyList()
+        crewSeats = 0
+        crewOpen = false
         rcsArmed = false
         rcsSlide = false
         rcsLeft = null
