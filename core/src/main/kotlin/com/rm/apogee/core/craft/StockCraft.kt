@@ -99,6 +99,51 @@ object StockCraft {
     }
 
     /**
+     * The Starter I's lifter with nobody aboard: a Mote Probe Core on a
+     * Vesper upper stage, two Sun Wings and a Whip Antenna - to be flown
+     * only while it can hear home. Stages: the lifter; the first stage let
+     * go and the Vesper lit; the wings out.
+     */
+    fun moteProbe(catalog: PartCatalog = StockParts.catalog): CraftDesign {
+        val parts = ArrayList<PlacedPart>()
+        fun add(partId: String, y: Double, parent: Int, x: Double = 0.0, z: Double = 0.0): Int {
+            parts.add(PlacedPart(partId, Vec3(x, y, z), Quat.identity(), parentIndex = parent))
+            return parts.size - 1
+        }
+        val core = add("probe-mote", 14.8, -1)
+        val upperTank = add("tank-cask4", 12.6, core)
+        val upperEngine = add("engine-vesper", 10.1, upperTank)
+        val decoupler = add("decoupler-ring", 9.5, upperEngine)
+        val lowerTankTop = add("tank-cask4", 7.4, decoupler)
+        val lowerTankMid = add("tank-cask4", 3.4, lowerTankTop)
+        val lowerTankBottom = add("tank-cask4", -0.6, lowerTankMid)
+        val mainEngine = add("engine-ember", -3.3, lowerTankBottom)
+        val finRadius = 0.975
+        add("fin-vane", -0.6, lowerTankBottom, x = finRadius)
+        add("fin-vane", -0.6, lowerTankBottom, x = -finRadius)
+        add("fin-vane", -0.6, lowerTankBottom, z = finRadius)
+        add("fin-vane", -0.6, lowerTankBottom, z = -finRadius)
+        // Wings high on the upper tank, hanging down it while folded.
+        val wings = listOf(
+            add("wing-kite", 14.2, upperTank, x = 0.725),
+            add("wing-kite", 14.2, upperTank, x = -0.725),
+        )
+        add("antenna-reed", 13.8, upperTank, z = 0.675)
+        faceOutward(parts, catalog)
+        return CraftDesign(
+            name = "Mote Probe",
+            parts = parts,
+            stages = listOf(
+                Stage(listOf(mainEngine)),
+                Stage(listOf(decoupler, upperEngine)),
+                Stage(wings),
+            ),
+            manualStaging = true,
+            catalogHash = catalog.contentHash,
+        )
+    }
+
+    /**
      * A lander: engine, tank, pod, chute and four sprung legs.
      *
      * Deliberately not the starter rocket with legs bolted on. Arriving is a
@@ -185,6 +230,17 @@ object StockCraft {
         val landerEngine = lander.parts.indexOfFirst { it.partId == "engine-vesper" }
         val landerChute = lander.parts.indexOfFirst { it.partId == "chute-canopy" }
         val landerLegs = lander.parts.indices.filter { lander.parts[it].partId == "leg-stilt" }
+        // Sun Panels round the lander's tank between its legs, and a Battery
+        // Pack under one: seven hours out to Luna, its pod and assist would
+        // otherwise run it flat long before it got there.
+        val landerTank = lander.parts.indexOfFirst { it.partId == "tank-cask2" }
+        val diagonal = 0.655 / kotlin.math.sqrt(2.0)
+        for ((x, z) in listOf(1.0 to 1.0, -1.0 to 1.0, -1.0 to -1.0, 1.0 to -1.0)) {
+            add("panel-glint", 2.0 + lift + 0.3, landerTank, x = x * diagonal, z = z * diagonal)
+        }
+        val packOut = (0.625 + 0.125) / kotlin.math.sqrt(2.0)
+        add("battery-hoard", 2.0 + lift - 0.7, landerTank, x = packOut, z = packOut)
+        faceOutward(parts, catalog)
         val release = add("decoupler-ring", 25.2, landerEngine)
         val taper = add("adapter-taper", 24.5, release)
         // The Shroud's ring, its shell standing round everything above it.

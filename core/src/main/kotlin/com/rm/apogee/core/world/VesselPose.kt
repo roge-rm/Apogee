@@ -11,7 +11,8 @@ import kotlin.math.roundToInt
  * A craft's moving parts, packed for the wire: one byte per value, in part
  * order - a control surface's deflection; an engine's output, and if it
  * gimbals its pitch and yaw; a wheel's steering and then its suspension; a
- * leg's deploy; a thruster block's push, three values in the craft's axes.
+ * leg's, chute's, sun wing's or dish's deploy; a thruster block's push,
+ * three values in the craft's axes.
  *
  * Every client draws another player's craft from these, so the elevon, the
  * steered wheel and the half-deployed leg they see are the ones the pilot
@@ -34,7 +35,9 @@ object VesselPose {
 
     /** A leg swinging down, or a chute filling (below 0: cut away). */
     private fun deploys(def: PartDef): Boolean =
-        def.module<LandingLeg>() != null || def.module<com.rm.apogee.core.part.Parachute>() != null
+        def.module<LandingLeg>() != null || def.module<com.rm.apogee.core.part.Parachute>() != null ||
+            def.module<com.rm.apogee.core.part.SolarPanel>()?.deployable == true ||
+            def.module<com.rm.apogee.core.part.Antenna>()?.deployable == true
 
     private fun thruster(def: PartDef): Boolean = def.module<com.rm.apogee.core.part.Rcs>() != null
 

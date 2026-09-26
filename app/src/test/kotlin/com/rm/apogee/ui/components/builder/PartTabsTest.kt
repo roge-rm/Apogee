@@ -10,7 +10,7 @@ class PartTabsTest {
 
     /** Every stock part, where a player would look for it. */
     private val expected = mapOf(
-        PartTab.PODS to setOf("pod-halo", "cockpit-sparrow", "cockpit-kestrel", "cab-rover", "cab-open", "cabin-wheelhouse"),
+        PartTab.PODS to setOf("pod-halo", "probe-mote", "cockpit-sparrow", "cockpit-kestrel", "cab-rover", "cab-open", "cabin-wheelhouse"),
         PartTab.TANKS to setOf("tank-cask2", "tank-cask4", "tank-broad4", "tank-broad8", "fuselage-short", "fuselage-long"),
         PartTab.ENGINES to setOf("engine-ember", "engine-vesper", "engine-zephyr", "engine-prop", "engine-forge"),
         PartTab.STRUCTURE to setOf(
@@ -27,7 +27,10 @@ class PartTabsTest {
         PartTab.WATER to setOf(
             "hull-punt", "hull-bow", "hull-mid", "hull-stern", "hull-skiff", "hull-cutter", "motor-outboard", "rudder", "keel", "keel-skeg",
         ),
-        PartTab.UTILITY to setOf("chute-canopy", "rcs-nudge", "light-bar", "dock-port", "dock-port-small", "mooring-clamp"),
+        PartTab.UTILITY to setOf(
+            "chute-canopy", "rcs-nudge", "light-bar", "dock-port", "dock-port-small", "mooring-clamp",
+            "panel-glint", "wing-kite", "battery-hoard", "cell-spark", "antenna-reed", "dish-beacon",
+        ),
         PartTab.BASE to setOf(
             "base-foundation", "base-core", "base-habitat", "base-depot", "base-mono-depot", "base-battery", "base-solar",
             "base-connector", "base-corridor", "base-pad", "base-floodlight", "base-flatbed", "base-release-clamp",

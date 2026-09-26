@@ -52,6 +52,10 @@ class VesselSave(
     val burns: List<PlannedBurn> = emptyList(),
     /** Wheel brakes. A parked rover has to still be parked when it is reloaded. */
     val brakes: Boolean = false,
+    /** Sun wings and dishes told to fold out. */
+    val deployed: Boolean = false,
+    /** Fuel cells running: they cut out again only well charged. */
+    val fuelCellsOn: Boolean = false,
     /**
      * Landing-leg deploy progress per part, in part order. Empty in saves
      * from before legs deployed over time: legs then start deployed if they

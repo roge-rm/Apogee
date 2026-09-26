@@ -545,6 +545,7 @@ class GameServer(
         is Command.SetTarget -> flies(session, command.vessel)
         is Command.SetBrakes -> flies(session, command.vessel)
         is Command.SetReverse -> flies(session, command.vessel)
+        is Command.Deploy -> flies(session, command.vessel)
         is Command.SetTranslation -> flies(session, command.vessel)
         is Command.SetRcs -> flies(session, command.vessel)
         is Command.Stage -> flies(session, command.vessel)
@@ -720,6 +721,7 @@ class GameServer(
             if (!session.connected || !session.handshakeComplete) continue
             val vessel = session.controlledVessel?.let { world.vessel(it) } ?: continue
             session.send(ServerMessage.FuelLevels(vessel.id.raw, vessel.flatResources()), Channel.KINEMATICS)
+            session.send(world.systemsOf(vessel), Channel.KINEMATICS)
             session.send(
                 ServerMessage.Service(
                     vessel.id.raw,

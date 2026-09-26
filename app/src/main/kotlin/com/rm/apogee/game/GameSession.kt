@@ -576,6 +576,41 @@ class GameSession private constructor(
         stageCards = StageCard.from(vessel, com.rm.apogee.core.craft.CraftStats.analyzeLive(vessel), localThrottle)
     }
 
+    /** Whether the craft being flown has sun wings or dishes that fold out. */
+    val controlledHasFoldouts: Boolean
+        get() {
+            val id = client.controlledVessel ?: return false
+            val design = client.vessels.firstOrNull { it.id == id }?.design ?: return false
+            return design.parts.any { placed ->
+                val def = catalog[placed.partId] ?: return@any false
+                def.module<com.rm.apogee.core.part.SolarPanel>()?.deployable == true ||
+                    def.module<com.rm.apogee.core.part.Antenna>()?.deployable == true
+            }
+        }
+
+    /** The flown craft's power and link home, as the server last said; null until it has. */
+    val powerReadout: HudState.PowerReadout?
+        get() {
+            val id = client.controlledVessel ?: return null
+            val systems = client.systems?.takeIf { it.vessel == id } ?: return null
+            return HudState.PowerReadout(
+                charge = systems.charge,
+                capacity = systems.capacity,
+                net = systems.net,
+                powered = systems.powered,
+                needsSignal = systems.needsSignal,
+                signal = systems.signal,
+                relays = systems.relays.size,
+                controllable = systems.controllable,
+                deployed = systems.deployed,
+            )
+        }
+
+    /** Folds the flown craft's sun wings and dishes out, or away. */
+    suspend fun setDeployed(deployed: Boolean) {
+        withControlledVessel { client.send(Command.Deploy(it, deployed)) }
+    }
+
     val controlledHasWheels: Boolean
         get() {
             val id = client.controlledVessel ?: return false
@@ -1100,6 +1135,7 @@ class GameSession private constructor(
             keepMapView(plan, attractor, renderTime, cameraPosition, cameraRotation)
             moonLines(attractor, renderTime, lines)
             lines.add(marker(focusState.position, reach, CRAFT_COLOR))
+            signalLines(focusId, focusState.position, attractor, renderTime, reach, lines)
             // Founded bases on this world - the player's own and the Cape's - where they stand.
             for (other in client.vessels) {
                 if (!other.anchored || other.id == focusId) continue
@@ -1695,6 +1731,31 @@ class GameSession private constructor(
     }
 
     /** The moons of [attractor]: where each goes round, and how far its pull reaches, at [time]. */
+    private val comms = com.rm.apogee.core.world.Comms(system)
+
+    /**
+     * The ground stations, and a probe's link home: from the craft at
+     * [craft] through its relays to the station it reaches, all in
+     * [attractor]'s frame.
+     */
+    private fun signalLines(focusId: Long, craft: Vec3, attractor: CelestialBody, time: Double, reach: Double, lines: MutableList<RenderLine>) {
+        val here = system.positionOf(attractor.id, time)
+        for (station in comms.stationPositions(time)) lines.add(marker(station.subInPlace(here), reach, STATION_COLOR))
+        val systems = client.systems?.takeIf { it.vessel == focusId && it.needsSignal } ?: return
+        if (systems.signal == com.rm.apogee.core.world.Signal.NONE) return
+        val path = ArrayList<Vec3>()
+        path.add(craft.copy())
+        for (id in systems.relays) {
+            val relay = client.vessels.firstOrNull { it.id == id }?.latest ?: return
+            val body = system.bodies[relay.referenceBodyId] ?: return
+            path.add(system.positionOf(body.id, time).subInPlace(here).addInPlace(relay.position))
+        }
+        val last = path.last().copy().addInPlace(here)
+        val station = comms.stationInSight(last, time) ?: return
+        path.add(station.subInPlace(here))
+        lines.add(RenderLine(path, SIGNAL_COLOR))
+    }
+
     private fun moonLines(attractor: CelestialBody, time: Double, lines: MutableList<RenderLine>) {
         for (moon in system.childrenOf(attractor.id)) {
             val orbit = moon.orbit ?: continue
@@ -1805,6 +1866,7 @@ class GameSession private constructor(
             prediction.reconcile(state, age, snapshot.time, neighboursOf(focus, state, snapshot.time), anchored = focus.anchored)
         }
         prediction.sync(focus.currentStage, focus.activatedParts, focus.fuel)
+        client.systems?.takeIf { it.vessel == focus.id }?.let { prediction.syncSystems(it) }
         syncPlan(focus)
         refreshStageCards()
 
@@ -3398,6 +3460,9 @@ class GameSession private constructor(
         private val CRAFT_COLOR = floatArrayOf(1.0f, 1.0f, 1.0f, 1f)
         /** A founded base on the map. */
         private val BASE_COLOR = floatArrayOf(0.55f, 0.85f, 1.0f, 1f)
+        /** Ground stations, and a probe's link home through its relays. */
+        private val STATION_COLOR = floatArrayOf(1.0f, 0.75f, 0.3f, 1f)
+        private val SIGNAL_COLOR = floatArrayOf(0.45f, 1.0f, 0.55f, 1f)
         /** A leg about a moon; the path after a planned burn; the burn; a moon's own path; its reach. */
         private val MOON_PATH_COLOR = floatArrayOf(0.85f, 0.85f, 0.88f, 1f)
         private val BURN_PATH_COLOR = floatArrayOf(1.0f, 0.62f, 0.25f, 1f)

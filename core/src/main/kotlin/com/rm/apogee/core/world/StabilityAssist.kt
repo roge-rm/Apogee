@@ -162,6 +162,9 @@ class StabilityAssist(
         vessel.assistHeld.setTo(swing).mulInPlace(level)
     }
 
+    /** Holds nothing and commands nothing: with no power to hold with. */
+    fun idle(vessel: Vessel) = release(vessel)
+
     private fun release(vessel: Vessel) {
         vessel.assistHolding = false
         vessel.control.assistLevelling = false

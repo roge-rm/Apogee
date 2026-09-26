@@ -88,6 +88,41 @@ class HudState {
     /** The founded base nearby, or the one flown, for its card. */
     var nearBase: com.rm.apogee.core.world.ServerMessage.BaseStatus? by mutableStateOf(null)
 
+    /** The flown craft's power and link home, or null before the server has said. */
+    var power: PowerReadout? by mutableStateOf(null)
+
+    /** Whether the flown craft has sun wings or dishes to fold out, so the DEPLOY control can hide itself. */
+    var hasFoldouts: Boolean by mutableStateOf(false)
+
+    /**
+     * A craft's power and link home, for the HUD: charge and what it holds,
+     * the net rate a second, whether it has power, whether it needs a signal
+     * (a probe) and which it has, through how many relays, whether it can be
+     * flown now, and whether its fold-outs are told out.
+     */
+    data class PowerReadout(
+        val charge: Float,
+        val capacity: Float,
+        val net: Float,
+        val powered: Boolean,
+        val needsSignal: Boolean,
+        val signal: com.rm.apogee.core.world.Signal,
+        val relays: Int,
+        val controllable: Boolean,
+        val deployed: Boolean,
+    ) {
+        /** Charge as a share of what it holds, 0..1; 1 with no battery. */
+        val share: Float get() = if (capacity > 0f) charge / capacity else 1f
+        /** Low enough to warn about. */
+        val low: Boolean get() = capacity > 0f && share < com.rm.apogee.core.world.Power.LOW.toFloat()
+        /** Out of touch - a probe with no link - or out of charge, so the controls do nothing. */
+        val outOfTouch: String? get() = when {
+            controllable -> null
+            !powered -> "NO POWER"
+            else -> "NO SIGNAL"
+        }
+    }
+
     /** The flown craft's parachute: "ARMED", "OPEN", or null for none staged. */
     var chute: String? by mutableStateOf(null)
 
@@ -130,6 +165,8 @@ class HudState {
         reverse = false
         hasWheels = false
         hasRcs = false
+        power = null
+        hasFoldouts = false
         rcsArmed = false
         rcsSlide = false
         rcsLeft = null

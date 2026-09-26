@@ -533,6 +533,29 @@ class World(
         return total
     }
 
+    private val power = Power(system)
+
+    /** How much of the sun reaches [vessel] where it is now: 0 in a shadow. */
+    fun sunlight(vessel: Vessel): Double = power.sunlight(attractorFor(vessel), vessel.body.position, time)
+
+    /** Fold-out panels out in air too thick for them: torn off. */
+    private fun tearWings(vessel: Vessel, attractor: CelestialBody) {
+        val atmosphere = attractor.atmosphere ?: return
+        var q = -1.0
+        for (i in vessel.defs.indices) {
+            val panel = vessel.defs[i].module<com.rm.apogee.core.part.SolarPanel>() ?: continue
+            if (!panel.deployable || vessel.isBroken(i) || vessel.legDeploy.getOrElse(i) { 0.0 } <= 0.05) continue
+            if (q < 0.0) {
+                val density = atmosphere.densityAt(attractor.altitudeOf(vessel.body.position))
+                attractor.surfaceVelocityAt(vessel.body.position, scratchAuto).negateInPlace().addInPlace(vessel.body.linearVelocity)
+                q = 0.5 * density * scratchAuto.lengthSq
+            }
+            if (q > panel.maxPressure && vessel.breakPart(i)) {
+                pendingEvents.add(WorldEvent.PartFailed(vessel.id, i, "${vessel.defs[i].title} torn off by the air"))
+            }
+        }
+    }
+
     private val scratchAuto = Vec3()
     private val scratchFacing = Vec3()
 
@@ -978,18 +1001,18 @@ class World(
             // paying attention to that craft, which is exactly the signal
             // dormancy is waiting for.
             is Command.SetThrottle ->
-                waken(command.vessel)?.control?.throttle = command.throttle
+                heard(command.vessel)?.control?.throttle = command.throttle
 
-            is Command.SetAttitude -> waken(command.vessel)?.control?.let {
+            is Command.SetAttitude -> heard(command.vessel)?.control?.let {
                 it.pitch = command.pitch
                 it.yaw = command.yaw
                 it.roll = command.roll
             }
 
             is Command.SetSas ->
-                waken(command.vessel)?.control?.sasEnabled = command.enabled
+                heard(command.vessel)?.control?.sasEnabled = command.enabled
 
-            is Command.SetSasMode -> waken(command.vessel)?.let {
+            is Command.SetSasMode -> heard(command.vessel)?.let {
                 it.control.sasMode = command.mode
                 // A new mode is a new hold: start it from where the craft is.
                 it.assistHolding = false
@@ -1002,7 +1025,7 @@ class World(
                 it.targetBody = if (command.body in system.bodies) command.body else ""
             }
 
-            is Command.PlanBurns -> waken(command.vessel)?.let { vessel ->
+            is Command.PlanBurns -> heard(command.vessel)?.let { vessel ->
                 vessel.plannedBurns.clear()
                 vessel.plannedBurns.addAll(command.burns.filter { it.time.isFinite() && it.deltaV.isFinite() }.sortedBy { it.time }.take(Burns.MOST))
                 vessel.resetBurn()
@@ -1010,7 +1033,7 @@ class World(
                 pendingEvents.add(WorldEvent.VesselStructureChanged(vessel.id))
             }
 
-            is Command.SetAutopilot -> waken(command.vessel)?.let { vessel ->
+            is Command.SetAutopilot -> heard(command.vessel)?.let { vessel ->
                 val allowed = mayAutopilot(vessel)
                 vessel.control.autoBurn = command.autoBurn && allowed
                 vessel.control.autoLand = command.autoLand && allowed
@@ -1020,20 +1043,22 @@ class World(
             }
 
             is Command.SetBrakes ->
-                waken(command.vessel)?.control?.brakes = command.engaged
+                heard(command.vessel)?.control?.brakes = command.engaged
             is Command.SetReverse ->
-                waken(command.vessel)?.control?.reverse = command.engaged
+                heard(command.vessel)?.control?.reverse = command.engaged
+            is Command.Deploy ->
+                heard(command.vessel)?.control?.deployed = command.deployed
 
-            is Command.SetTranslation -> waken(command.vessel)?.control?.let {
+            is Command.SetTranslation -> heard(command.vessel)?.control?.let {
                 it.translateX = command.x
                 it.translateY = command.y
                 it.translateZ = command.z
             }
 
             is Command.SetRcs ->
-                waken(command.vessel)?.control?.rcsEnabled = command.enabled
+                heard(command.vessel)?.control?.rcsEnabled = command.enabled
 
-            is Command.Stage -> waken(command.vessel)?.let { stage(it) }
+            is Command.Stage -> heard(command.vessel)?.let { stage(it) }
 
             // Handled by the server, which has to decide who owns and flies
             // the result. Reaching it here means nobody claimed it.
@@ -1042,7 +1067,7 @@ class World(
             is Command.Join -> waken(command.vessel)?.let { joinToNeighbour(it) }
             is Command.Anchor -> vesselsById[VesselId(command.vessel)]?.let { if (command.anchored) anchor(it) else unanchor(it) }
             is Command.Refuel -> if (command.active) refuelling.add(VesselId(command.vessel)) else refuelling.remove(VesselId(command.vessel))
-            is Command.Undock -> waken(command.vessel)?.let { undock(it, command.part) }
+            is Command.Undock -> heard(command.vessel)?.let { undock(it, command.part) }
             is Command.SetDockPilot -> Unit // the server's: who may fly what
 
             // Handled by the server, which owns the notion of who is flying
@@ -1368,8 +1393,18 @@ class World(
         val service = serviceFor(craft) ?: return false
         val endless = service.base.owner == WORLD_OWNER
         return REFUEL_TYPES.any { type ->
-            service.craft.roomIn(service.into, type) > 1e-6 && (endless || service.base.amountIn(service.from, type) > 1e-6)
+            room(service, type) > 1e-6 && (endless || service.base.amountIn(service.from, type) > 1e-6)
         }
+    }
+
+    /**
+     * Room for [type] in what [service] fills: none for charge within a
+     * trickle of full, which a craft sitting there draws on as fast as it is
+     * topped up, and would never be.
+     */
+    private fun room(service: Service, type: com.rm.apogee.core.part.ResourceType): Double {
+        val room = service.craft.roomIn(service.into, type)
+        return if (type == com.rm.apogee.core.part.ResourceType.ELECTRIC_CHARGE && room < CHARGE_TOPPED) 0.0 else room
     }
 
     private fun stepRefuelling(dt: Double) {
@@ -1407,14 +1442,14 @@ class World(
         if (!endless && (!base.powered || !base.drawCharge(draw * dt))) return "the base has no power"
         var moved = 0.0
         for (type in REFUEL_TYPES) {
-            val want = minOf(rate * dt, service.craft.roomIn(service.into, type), if (endless) Double.MAX_VALUE else base.amountIn(service.from, type))
+            val want = minOf(rate * dt, room(service, type), if (endless) Double.MAX_VALUE else base.amountIn(service.from, type))
             if (want <= 1e-9) continue
             val out = if (endless) want else base.takeFrom(service.from, type, want)
             moved += service.craft.putInto(service.into, type, out)
         }
         if (moved <= 1e-9) {
             // Full of everything the base has to give, or the base out of what the craft still wants.
-            val wanting = REFUEL_TYPES.any { service.craft.roomIn(service.into, it) > 1e-9 && base.amountIn(service.from, it) > 1e-9 }
+            val wanting = REFUEL_TYPES.any { room(service, it) > 1e-9 && base.amountIn(service.from, it) > 1e-9 }
             val holds = REFUEL_TYPES.any { base.amountIn(service.from, it) > 1e-9 }
             return if (!wanting && holds) "full" else "the base has nothing more to give"
         }
@@ -1654,7 +1689,6 @@ class World(
      * Nobody need be near: a base keeps its ledger, not its ticks.
      */
     fun settlePower(vessel: Vessel, until: Double = time) {
-        if (!vessel.anchored) return
         val from = vessel.powerSettledAt
         vessel.powerSettledAt = until
         if (from.isNaN() || until <= from) return
@@ -1665,8 +1699,14 @@ class World(
         for (i in vessel.defs.indices) {
             if (vessel.isBroken(i)) continue
             for (module in vessel.defs[i].modules) when (module) {
-                is com.rm.apogee.core.part.SolarPanel -> solar += module.chargeRate
-                is com.rm.apogee.core.part.Command -> upkeep += BASE_UPKEEP
+                // Folded, a wing makes nothing; a fixed panel on the ground meets the sun at an angle.
+                is com.rm.apogee.core.part.SolarPanel -> solar += module.chargeRate * when {
+                    module.deployable -> if (Power.deployed(vessel, i)) 1.0 else 0.0
+                    module.normal != null && !vessel.anchored -> 0.5
+                    else -> 1.0
+                }
+                is com.rm.apogee.core.part.Command -> upkeep += if (vessel.anchored) BASE_UPKEEP else module.idleDraw
+                is com.rm.apogee.core.part.Antenna -> if (!module.deployable || Power.deployed(vessel, i)) upkeep += module.draw
                 is com.rm.apogee.core.part.Lamp -> lamps += module.draw
                 else -> Unit
             }
@@ -1684,7 +1724,8 @@ class World(
             t += h
         }
         vessel.powerNet = net
-        vessel.powered = vessel.amountOf(com.rm.apogee.core.part.ResourceType.ELECTRIC_CHARGE) > 0.0 || net > 0.0
+        vessel.powered = if (vessel.anchored) vessel.amountOf(com.rm.apogee.core.part.ResourceType.ELECTRIC_CHARGE) > 0.0 || net > 0.0
+        else Power.poweredNow(vessel, vessel.capacityOf(com.rm.apogee.core.part.ResourceType.ELECTRIC_CHARGE), net)
     }
 
     /** How high the sun stands over body-fixed unit [site] at [at]: the sine of its elevation, below 0 at night. */
@@ -2240,12 +2281,24 @@ class World(
             body.clearAccumulators()
             vessel.clearForces()
 
+            // Just woken - off the ground's ledger or rails: its power
+            // brought up to now before anything draws on it.
+            if (!vessel.powerSettledAt.isNaN() && time - vessel.powerSettledAt > 1.0) settlePower(vessel, time)
+            // Dark: nothing to hold or fly with.
+            if (!vessel.powered && (vessel.control.autoBurn || vessel.control.autoLand)) {
+                vessel.control.autoBurn = false
+                vessel.control.autoLand = false
+                vessel.control.throttle = 0.0
+                vessel.control.autopilotNote = "No power"
+            }
+
             // Before any force, because the elevons deflect inside the drag
             // pass and the gimbal inside thrust: all of them act on what
             // stability assist asks for this tick.
             if (vessel.control.autoBurn) autoBurn(vessel, attractor)
             val landing = if (vessel.control.autoLand) autoLand(vessel, attractor) else null
-            stabilityAssist.update(vessel, dt, landing ?: holdDirection(vessel, attractor))
+            if (vessel.powered) stabilityAssist.update(vessel, dt, landing ?: holdDirection(vessel, attractor))
+            else stabilityAssist.idle(vessel)
             updatePose(vessel, dt)
 
             forces.applyGravity(vessel, attractor)
@@ -2333,6 +2386,11 @@ class World(
             }
 
             if (vessel.plannedBurns.isNotEmpty()) trackBurn(vessel, attractor, dt)
+            if (!isDebris(vessel)) {
+                power.step(vessel, attractor, tickEnd, dt)
+                vessel.powerSettledAt = tickEnd
+                tearWings(vessel, attractor)
+            }
             considerSleeping(vessel, report)
             crossInfluence(vessel, tickEnd)
         }
@@ -2392,8 +2450,14 @@ class World(
 
         if (tick % LIGHTNING_CHECK_TICKS == 0L) strikeLightning(tickEnd)
         if (tick % REPAIR_CHECK_TICKS == 0L) repairStructures()
+        if (tick % SIGNAL_CHECK_TICKS == 0L) {
+            for (vessel in vesselsById.values) {
+                if (!vessel.dormant && !isDebris(vessel) && Comms.needsSignal(vessel)) refreshSignal(vessel, tickEnd)
+            }
+        }
         if (tick % POWER_CHECK_TICKS == 0L) {
-            for (vessel in vesselsById.values) if (vessel.anchored) settlePower(vessel, tickEnd)
+            // Founded and parked craft keep a ledger rather than stepping.
+            for (vessel in vesselsById.values) if (vessel.anchored || (vessel.dormant && !isDebris(vessel))) settlePower(vessel, tickEnd)
         }
 
         tick++
@@ -2629,19 +2693,33 @@ class World(
                 }
             }
             val leg = def.module<LandingLeg>()
-            if (leg != null) {
-                val target = if (vessel.isWorking(i)) 1.0 else 0.0
-                val step = dt / leg.deployTime.coerceAtLeast(1e-3)
+            val unfolds = leg == null && foldsOut(def)
+            if (leg != null || unfolds) {
+                val target = if (if (unfolds) unfolded(vessel, i) else vessel.isWorking(i)) 1.0 else 0.0
+                val step = dt / (leg?.deployTime ?: UNFOLD_TIME).coerceAtLeast(1e-3)
                 val now = vessel.legDeploy[i]
                 vessel.legDeploy[i] = if (now < target) minOf(target, now + step) else maxOf(target, now - step)
             }
         }
     }
 
+    /** A sun wing or dish that folds out: its progress kept where a leg's is. */
+    private fun foldsOut(def: com.rm.apogee.core.part.PartDef) =
+        def.module<com.rm.apogee.core.part.SolarPanel>()?.deployable == true ||
+            def.module<com.rm.apogee.core.part.Antenna>()?.deployable == true
+
+    /** Whether fold-out part [i] should be out: told to be, or staged, and not broken. */
+    private fun unfolded(vessel: Vessel, i: Int) =
+        !vessel.isBroken(i) && (vessel.control.deployed || (i < vessel.activated.size && vessel.activated[i]))
+
     private fun legsMoving(vessel: Vessel): Boolean {
         for (i in vessel.defs.indices) {
-            if (vessel.defs[i].module<LandingLeg>() == null) continue
-            val target = if (vessel.isWorking(i)) 1.0 else 0.0
+            val def = vessel.defs[i]
+            val target = when {
+                def.module<LandingLeg>() != null -> if (vessel.isWorking(i)) 1.0 else 0.0
+                foldsOut(def) -> if (unfolded(vessel, i)) 1.0 else 0.0
+                else -> continue
+            }
             if (vessel.legDeploy.getOrElse(i) { target } != target) return true
         }
         return false
@@ -2649,6 +2727,51 @@ class World(
 
     /** Wakes [id] if it is asleep, so a command always reaches a live craft. */
     private fun waken(id: Long): Vessel? = vesselsById[VesselId(id)]?.also { it.wake() }
+
+    /**
+     * [id], woken, if what is sent to it is heard and acted on: a craft
+     * with somebody aboard always, a probe only with power and a link home.
+     * Null for one out of touch - it goes on as it was left.
+     */
+    private fun heard(id: Long): Vessel? {
+        val vessel = vesselsById[VesselId(id)] ?: return null
+        if (Comms.needsSignal(vessel)) {
+            if (vessel.signalAt.isNaN() || time - vessel.signalAt > SIGNAL_STALE) refreshSignal(vessel, time)
+            if (!controllable(vessel)) return null
+        }
+        return vessel.also { it.wake() }
+    }
+
+    /** Whether [vessel] can be flown now: see [heard]. */
+    fun controllable(vessel: Vessel): Boolean =
+        !Comms.needsSignal(vessel) || (vessel.powered && vessel.signal != Signal.NONE)
+
+    private val comms = Comms(system)
+
+    /** [vessel]'s power and link home, for its pilot's HUD. */
+    fun systemsOf(vessel: Vessel): ServerMessage.CraftSystems {
+        val charge = com.rm.apogee.core.part.ResourceType.ELECTRIC_CHARGE
+        return ServerMessage.CraftSystems(
+            vessel = vessel.id.raw,
+            charge = vessel.amountOf(charge).toFloat(),
+            capacity = vessel.capacityOf(charge).toFloat(),
+            net = vessel.powerNet.toFloat(),
+            powered = vessel.powered,
+            signal = vessel.signal,
+            relays = vessel.signalPath,
+            controllable = controllable(vessel),
+            needsSignal = Comms.needsSignal(vessel),
+            deployed = vessel.control.deployed,
+        )
+    }
+
+    /** Where the ground stations are at [at], in the system's frame. */
+    fun groundStationPositions(at: Double = time): List<Vec3> = comms.stationPositions(at)
+
+    private fun refreshSignal(vessel: Vessel, at: Double) {
+        comms.update(vessel, vesselsById.values, at, ::isDebris)
+        vessel.signalAt = at
+    }
 
     /**
      * A part of one craft struck another hard enough to fail.
@@ -3183,6 +3306,10 @@ class World(
                 }
                 val body = vessel.body
                 coast(vessel, h)
+                if (!isDebris(vessel)) {
+                    power.step(vessel, attractorFor(vessel), time + h, h, rails = true)
+                    vessel.powerSettledAt = time + h
+                }
                 // Still turning as it was.
                 val spin = body.angularVelocity.length
                 if (spin > 1e-9) {
@@ -3311,8 +3438,8 @@ class World(
      * out live vectors would let a save observe a craft halfway through a step.
      */
     fun save(): WorldSave {
-        // Bases' power brought up to now, so what is saved is what they have.
-        for (vessel in vesselsById.values) if (vessel.anchored) settlePower(vessel)
+        // Bases' and parked craft's power brought up to now, so what is saved is what they have.
+        for (vessel in vesselsById.values) if (vessel.anchored || (vessel.dormant && !isDebris(vessel))) settlePower(vessel)
         return saveNow()
     }
 
@@ -3350,6 +3477,8 @@ class World(
                 targetBody = vessel.control.targetBody,
                 burns = vessel.plannedBurns.toList(),
                 brakes = vessel.control.brakes,
+                deployed = vessel.control.deployed,
+                fuelCellsOn = vessel.fuelCellsOn,
                 resources = vessel.resourceSnapshot().map { it.toList() },
                 legDeploy = vessel.legDeploy.toList(),
                 health = vessel.health.toList(),
@@ -3464,6 +3593,8 @@ class World(
             vessel.plannedBurns.addAll(saved.burns)
             vessel.burnDuration = if (saved.burns.isEmpty()) 0.0 else Burns.duration(vessel, saved.burns.first().deltaV)
             vessel.control.brakes = saved.brakes
+            vessel.control.deployed = saved.deployed
+            vessel.fuelCellsOn = saved.fuelCellsOn
             vessel.fitPose()
             saved.legDeploy.forEachIndexed { i, progress -> vessel.setLegDeploy(i, progress) }
             if (saved.resources.isNotEmpty()) {
@@ -3769,6 +3900,17 @@ class World(
 
         /** Lamps come on when the sun is lower than this, the sine of its elevation: dusk. */
         const val LAMP_DUSK = 0.05
+
+        /** Charge units short of full that count as topped up at a pad. */
+        const val CHARGE_TOPPED = 1.0
+
+        /** Ticks between working out every flown probe's link home. */
+        const val SIGNAL_CHECK_TICKS = 60L
+        /** Seconds a probe's link is trusted before a command asks again. */
+        const val SIGNAL_STALE = 1.0
+
+        /** Seconds for a sun wing or dish to fold out, or away. */
+        const val UNFOLD_TIME = 4.0
 
         /** How far clear of the truck a release clamp sets its load down, m. */
         const val SET_DOWN_CLEARANCE = 0.3

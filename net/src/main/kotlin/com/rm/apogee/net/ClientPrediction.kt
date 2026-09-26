@@ -129,6 +129,24 @@ class ClientPrediction(
 
     private var lastFuel: List<Float>? = null
 
+    /**
+     * Whether the server acts on what this player sends the craft - false
+     * for a probe out of touch or flat - so the replica does not fly on
+     * inputs the server's craft never gets.
+     */
+    @Volatile var heard: Boolean = true
+
+    /** The server's word on the flown craft's power and link: see [heard]. */
+    fun syncSystems(systems: com.rm.apogee.core.world.ServerMessage.CraftSystems) {
+        heard = systems.controllable
+        val local = vessel ?: return
+        if (local.control.deployed != systems.deployed) {
+            local.control.deployed = systems.deployed
+            // Parked, it would never step its wings out.
+            local.wake()
+        }
+    }
+
     private val serverPose = com.rm.apogee.core.world.VesselPose.Values()
 
     /**
@@ -136,12 +154,22 @@ class ClientPrediction(
      * A rebuilt replica starts with every chute packed, so after a pause or
      * a change of warp its canopy filled all over again, and for the second
      * that took it fell with almost no drag while the server's hung under a
-     * full one.
+     * full one. And each fold-out's, for the same kind of reason.
      */
     private fun chutesFrom(local: Vessel, state: VesselKinematics) {
         if (!com.rm.apogee.core.world.VesselPose.decode(local.defs, state.pose, serverPose)) return
         for (i in local.defs.indices) {
-            if (local.defs[i].module<com.rm.apogee.core.part.Parachute>() == null) continue
+            // Sun wings and dishes too: a craft parked on the pad sleeps here
+            // as it does on the server, and a sleeping replica never steps
+            // them out.
+            val def = local.defs[i]
+            if (def.module<com.rm.apogee.core.part.SolarPanel>()?.deployable == true ||
+                def.module<com.rm.apogee.core.part.Antenna>()?.deployable == true
+            ) {
+                local.setLegDeploy(i, serverPose.deploy[i])
+                continue
+            }
+            if (def.module<com.rm.apogee.core.part.Parachute>() == null) continue
             // The wire carries it to a 127th: the drogue's 0.5 arrives as 0.504,
             // which read as the main starting to fill. Held drogue stays held.
             val d = serverPose.deploy[i]
@@ -175,6 +203,8 @@ class ClientPrediction(
         translateZ: Double = 0.0,
     ) {
         val control = vessel?.control ?: return
+        // Out of touch: the server's craft goes on as it was left, and so does this one.
+        if (!heard) return
         // Flying itself, the autopilot has the throttle.
         if (!control.autoBurn && !control.autoLand) control.throttle = throttle
         control.pitch = pitch
@@ -231,6 +261,7 @@ class ClientPrediction(
 
     /** Fires the next stage locally, so staging feels immediate too. */
     fun stage() {
+        if (!heard) return
         val replica = world ?: return
         val local = vessel ?: return
         local.wake()

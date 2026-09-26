@@ -2252,7 +2252,8 @@
         "type": "command",
         "crewCapacity": 1,
         "reactionTorque": 3000.0,
-        "providesControl": true
+        "providesControl": true,
+        "idleDraw": 0.0
       },
       {
         "type": "tank",
@@ -2413,7 +2414,8 @@
         "type": "command",
         "crewCapacity": 2,
         "reactionTorque": 4000.0,
-        "providesControl": true
+        "providesControl": true,
+        "idleDraw": 0.0
       },
       {
         "type": "tank",
@@ -5044,7 +5046,8 @@
         "type": "command",
         "crewCapacity": 2,
         "reactionTorque": 2500.0,
-        "providesControl": true
+        "providesControl": true,
+        "idleDraw": 0.0
       },
       {
         "type": "battery",
@@ -5229,7 +5232,8 @@
         "type": "command",
         "crewCapacity": 1,
         "reactionTorque": 1500.0,
-        "providesControl": true
+        "providesControl": true,
+        "idleDraw": 0.0
       }
     ]
   },
@@ -5762,6 +5766,698 @@
       }
     ],
     "modules": []
+  },
+  {
+    "id": "panel-glint",
+    "title": "Glint Sun Panel",
+    "category": "utility",
+    "dryMass": 25.0,
+    "description": "A fixed sheet of cells for the side of anything. Makes what it can from the sun it faces, and nothing in shadow.",
+    "crashTolerance": 10.0,
+    "dragCoefficient": 0.3,
+    "mesh": {
+      "type": "box",
+      "width": 0.06,
+      "height": 1.0,
+      "depth": 0.7
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.04,
+              "height": 1.0,
+              "depth": 0.7
+            }
+          },
+          "offset": {
+            "x": -0.01,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.02,
+              "height": 0.94,
+              "depth": 0.64
+            }
+          },
+          "offset": {
+            "x": 0.02,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "glass"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "root",
+        "position": {
+          "x": -0.03,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": -1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "solarPanel",
+        "chargeRate": 0.3,
+        "normal": {
+          "x": 1.0,
+          "y": 0.0,
+          "z": 0.0
+        }
+      }
+    ]
+  },
+  {
+    "id": "wing-kite",
+    "title": "Kite Sun Wing",
+    "category": "utility",
+    "dryMass": 60.0,
+    "description": "A folding wing of cells that turns itself to the sun. Folds out when staged or told to; out in thick air it tears off.",
+    "crashTolerance": 8.0,
+    "dragCoefficient": 0.4,
+    "mesh": {
+      "type": "box",
+      "width": 0.2,
+      "height": 0.3,
+      "depth": 0.2
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.2,
+              "height": 0.3,
+              "depth": 0.2
+            }
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.4,
+              "height": 0.05,
+              "depth": 0.05
+            }
+          },
+          "offset": {
+            "x": 0.3,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "metal",
+          "role": "deploy",
+          "axis": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 1.0
+          },
+          "pivot": {
+            "x": 0.1,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "travel": -90.0
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 2.0,
+              "height": 0.02,
+              "depth": 0.7
+            }
+          },
+          "offset": {
+            "x": 1.5,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "glass",
+          "role": "deploy",
+          "axis": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 1.0
+          },
+          "pivot": {
+            "x": 0.1,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "travel": -90.0
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 2.04,
+              "height": 0.015,
+              "depth": 0.74
+            }
+          },
+          "offset": {
+            "x": 1.5,
+            "y": -0.015,
+            "z": 0.0
+          },
+          "tint": "dark",
+          "role": "deploy",
+          "axis": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 1.0
+          },
+          "pivot": {
+            "x": 0.1,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "travel": -90.0
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "root",
+        "position": {
+          "x": -0.1,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": -1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "solarPanel",
+        "chargeRate": 1.2,
+        "deployable": true
+      }
+    ]
+  },
+  {
+    "id": "battery-hoard",
+    "title": "Hoard Battery Pack",
+    "category": "utility",
+    "dryMass": 80.0,
+    "description": "Two hundred units of charge in a box. For the night side, and the long way round.",
+    "crashTolerance": 10.0,
+    "dragCoefficient": 0.3,
+    "mesh": {
+      "type": "box",
+      "width": 0.25,
+      "height": 0.5,
+      "depth": 0.4
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.25,
+              "height": 0.5,
+              "depth": 0.4
+            }
+          }
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.26,
+              "height": 0.06,
+              "depth": 0.41
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.16,
+            "z": 0.0
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.26,
+              "height": 0.06,
+              "depth": 0.41
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": -0.16,
+            "z": 0.0
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.02,
+              "height": 0.08,
+              "depth": 0.12
+            }
+          },
+          "offset": {
+            "x": 0.13,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "accent"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "root",
+        "position": {
+          "x": -0.125,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": -1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "battery",
+        "capacity": 200.0
+      }
+    ]
+  },
+  {
+    "id": "cell-spark",
+    "title": "Spark Fuel Cell",
+    "category": "utility",
+    "dryMass": 90.0,
+    "description": "Turns monopropellant into charge: on by itself when the batteries run low, off again when they are well up. Needs monopropellant on the same stage.",
+    "crashTolerance": 10.0,
+    "dragCoefficient": 0.3,
+    "mesh": {
+      "type": "box",
+      "width": 0.3,
+      "height": 0.4,
+      "depth": 0.4
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.3,
+              "height": 0.4,
+              "depth": 0.4
+            }
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.08,
+              "height": 0.36
+            }
+          },
+          "offset": {
+            "x": 0.12,
+            "y": 0.0,
+            "z": 0.1
+          }
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.08,
+              "height": 0.36
+            }
+          },
+          "offset": {
+            "x": 0.12,
+            "y": 0.0,
+            "z": -0.1
+          }
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.02,
+              "height": 0.06,
+              "depth": 0.06
+            }
+          },
+          "offset": {
+            "x": 0.155,
+            "y": 0.14,
+            "z": 0.0
+          },
+          "tint": "light"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "root",
+        "position": {
+          "x": -0.15,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": -1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "fuelCell",
+        "rate": 1.5,
+        "monoPerCharge": 0.01
+      }
+    ]
+  },
+  {
+    "id": "antenna-reed",
+    "title": "Reed Whip Antenna",
+    "category": "utility",
+    "dryMass": 8.0,
+    "description": "A long whip aerial: far enough to hear Terra from Luna, with nothing in the way. Relays nothing.",
+    "crashTolerance": 8.0,
+    "dragCoefficient": 0.2,
+    "mesh": {
+      "type": "box",
+      "width": 0.1,
+      "height": 0.14,
+      "depth": 0.1
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.1,
+              "height": 0.14,
+              "depth": 0.1
+            }
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.012,
+              "height": 1.4
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.77,
+            "z": 0.0
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.02,
+              "height": 0.05
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 1.47,
+            "z": 0.0
+          },
+          "tint": "dark"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "root",
+        "position": {
+          "x": -0.05,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": -1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "antenna",
+        "range": 15000000.0,
+        "draw": 0.02
+      }
+    ]
+  },
+  {
+    "id": "dish-beacon",
+    "title": "Beacon Relay Dish",
+    "category": "utility",
+    "dryMass": 70.0,
+    "description": "A folding dish that reaches right across Terra's pull, and passes on what other craft send it. Put a few round Terra, or one past Luna.",
+    "crashTolerance": 8.0,
+    "dragCoefficient": 0.4,
+    "mesh": {
+      "type": "box",
+      "width": 0.2,
+      "height": 0.3,
+      "depth": 0.2
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.2,
+              "height": 0.3,
+              "depth": 0.2
+            }
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.03,
+              "height": 0.5
+            }
+          },
+          "offset": {
+            "x": 0.35,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 90.0
+          },
+          "tint": "metal",
+          "role": "deploy",
+          "axis": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 1.0
+          },
+          "pivot": {
+            "x": 0.1,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "travel": -90.0
+        },
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                0.0,
+                0.0
+              ],
+              [
+                0.25,
+                0.04
+              ],
+              [
+                0.45,
+                0.12
+              ],
+              [
+                0.5,
+                0.16
+              ]
+            ],
+            "segments": 16
+          },
+          "offset": {
+            "x": 0.6,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": -90.0
+          },
+          "tint": "metal",
+          "role": "deploy",
+          "axis": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 1.0
+          },
+          "pivot": {
+            "x": 0.1,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "travel": -90.0
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.015,
+              "height": 0.3
+            }
+          },
+          "offset": {
+            "x": 0.75,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 90.0
+          },
+          "tint": "dark",
+          "role": "deploy",
+          "axis": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 1.0
+          },
+          "pivot": {
+            "x": 0.1,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "travel": -90.0
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "root",
+        "position": {
+          "x": -0.1,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": -1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "antenna",
+        "range": 100000000.0,
+        "relay": true,
+        "deployable": true,
+        "draw": 0.1
+      }
+    ]
   },
   {
     "id": "hull-bow",
@@ -6876,11 +7572,187 @@
         "type": "command",
         "crewCapacity": 2,
         "reactionTorque": 4000.0,
-        "providesControl": true
+        "providesControl": true,
+        "idleDraw": 0.0
       },
       {
         "type": "battery",
         "capacity": 60.0
+      }
+    ]
+  },
+  {
+    "id": "probe-mote",
+    "title": "Mote Probe Core",
+    "category": "command",
+    "dryMass": 120.0,
+    "description": "Flies a craft with nobody in it: reaction wheels, a small battery and a short aerial. Only while it can hear home - a ground station, or a relay that can.",
+    "crashTolerance": 10.0,
+    "dragCoefficient": 0.3,
+    "mesh": {
+      "type": "cylinder",
+      "radius": 0.625,
+      "height": 0.4
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                0.625,
+                -0.2
+              ],
+              [
+                0.625,
+                -0.12
+              ],
+              [
+                0.6,
+                -0.1
+              ],
+              [
+                0.6,
+                0.1
+              ],
+              [
+                0.625,
+                0.12
+              ],
+              [
+                0.625,
+                0.2
+              ]
+            ],
+            "segments": 20
+          },
+          "stackEnds": true
+        },
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                0.605,
+                -0.08
+              ],
+              [
+                0.61,
+                -0.08
+              ],
+              [
+                0.61,
+                0.08
+              ],
+              [
+                0.605,
+                0.08
+              ]
+            ],
+            "segments": 20
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.12,
+              "height": 0.1,
+              "depth": 0.02
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.612
+          },
+          "tint": "light"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.012,
+              "height": 0.5
+            }
+          },
+          "offset": {
+            "x": 0.35,
+            "y": 0.45,
+            "z": 0.0
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.1,
+              "height": 0.04,
+              "depth": 0.1
+            }
+          },
+          "offset": {
+            "x": 0.35,
+            "y": 0.22,
+            "z": 0.0
+          },
+          "tint": "dark"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "top",
+        "position": {
+          "x": 0.0,
+          "y": 0.2,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "size": 1
+      },
+      {
+        "id": "bottom",
+        "position": {
+          "x": 0.0,
+          "y": -0.2,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 1
+      }
+    ],
+    "modules": [
+      {
+        "type": "command",
+        "crewCapacity": 0,
+        "reactionTorque": 1500.0,
+        "providesControl": true,
+        "idleDraw": 0.01
+      },
+      {
+        "type": "battery",
+        "capacity": 30.0
+      },
+      {
+        "type": "antenna",
+        "range": 2000000.0,
+        "draw": 0.005
       }
     ]
   },

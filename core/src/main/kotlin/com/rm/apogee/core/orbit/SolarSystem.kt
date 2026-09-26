@@ -1,6 +1,7 @@
 package com.rm.apogee.core.orbit
 
 import com.rm.apogee.core.math.Vec3
+import kotlin.math.PI
 
 /**
  * The tree of celestial bodies, and the queries the simulation asks of it.
@@ -241,6 +242,17 @@ class SolarSystem(
         const val HARBOUR_LATITUDE = 0.097227372495131
         const val HARBOUR_LONGITUDE = 0.0888403538376949
 
+        /**
+         * The ground stations craft talk to: the Cape's, and two round
+         * Terra's equator a third of the way either side of it, so a craft
+         * in orbit is seldom out of hearing for long.
+         */
+        val groundStations: List<GroundStation> = listOf(
+            GroundStation("Cape Station", HOMEWORLD_ID, PAD_LATITUDE, PAD_LONGITUDE),
+            GroundStation("Eastern Station", HOMEWORLD_ID, 0.0, PAD_LONGITUDE - 2 * PI / 3),
+            GroundStation("Western Station", HOMEWORLD_ID, 0.0, PAD_LONGITUDE + 2 * PI / 3),
+        )
+
         /** Luna's orbit's tilt to Terra's equator, radians: the Cape's latitude. See [PAD_LATITUDE]. */
         const val LUNA_INCLINATION = PAD_LATITUDE
 
@@ -268,5 +280,23 @@ class SolarSystem(
             kotlin.math.sin(latitude),
             kotlin.math.cos(latitude) * kotlin.math.sin(longitude),
         )
+    }
+}
+
+/**
+ * A dish on the ground that craft talk home to: body-fixed on [bodyId] at
+ * [latitude] and [longitude], radians, hearing an antenna within the
+ * shorter of the two ranges, [range] or the antenna's own.
+ */
+data class GroundStation(
+    val name: String,
+    val bodyId: String,
+    val latitude: Double,
+    val longitude: Double,
+    val range: Double = STATION_RANGE,
+) {
+    companion object {
+        /** A ground station's reach, m: across all of Terra's pull. */
+        const val STATION_RANGE = 200_000_000.0
     }
 }

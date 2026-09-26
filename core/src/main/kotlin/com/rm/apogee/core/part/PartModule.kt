@@ -56,6 +56,8 @@ data class Engine(
     val waterProp: SerialVec3? = null,
     /** What comes out of the back, for drawing; null lets [exhaustKind] decide. */
     val exhaust: Exhaust? = null,
+    /** Charge its alternator makes at full output, units a second. */
+    val alternator: Double = 1.0,
 ) : PartModule {
     /**
      * What it leaves behind it: a water propeller churns water, anything
@@ -103,6 +105,8 @@ data class Command(
     val reactionTorque: Double = 0.0,
     /** Whether this pod alone is enough to fly the craft. */
     val providesControl: Boolean = true,
+    /** Charge it uses just being on, units a second: its instruments and radio. */
+    val idleDraw: Double = 0.02,
 ) : PartModule
 
 /**
@@ -485,6 +489,43 @@ data class Fairing(
 data class SolarPanel(
     /** Units per second at 1 AU, facing the star. */
     val chargeRate: Double,
+    /**
+     * Folds out when staged or told to, and back in; makes nothing folded.
+     * Out, it turns itself to the sun about one axis, so it faces it
+     * whenever it is lit at all.
+     */
+    val deployable: Boolean = false,
+    /** A fixed panel's face, part space: charge by how squarely it meets the sun. Null for one that tracks it. */
+    val normal: com.rm.apogee.core.math.SerialVec3? = null,
+    /** Folded out in air pushing harder than this, Pa, it is torn off. */
+    val maxPressure: Double = 3_000.0,
+) : PartModule
+
+/**
+ * Turns monopropellant into charge: [rate] units a second, burning
+ * [monoPerCharge] units of monopropellant for each. It runs itself - on
+ * below a quarter full, off again nine tenths up.
+ */
+@Serializable
+@SerialName("fuelCell")
+data class FuelCell(
+    val rate: Double = 1.5,
+    val monoPerCharge: Double = 0.01,
+) : PartModule
+
+/**
+ * Talks home: [range], m, to a ground station or another antenna, the
+ * shorter of the two ranges deciding. A [relay] passes on what others send
+ * through it. [deployable] ones fold out first. Uses [draw] a second while
+ * it has a link.
+ */
+@Serializable
+@SerialName("antenna")
+data class Antenna(
+    val range: Double,
+    val relay: Boolean = false,
+    val deployable: Boolean = false,
+    val draw: Double = 0.02,
 ) : PartModule
 
 /** Stores electric charge. Distinct from [Tank] only for clarity in the UI. */

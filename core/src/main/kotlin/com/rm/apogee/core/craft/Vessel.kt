@@ -83,6 +83,9 @@ class ControlState {
     /** Wheels driven backwards: the throttle runs them in reverse. */
     var reverse: Boolean = false
 
+    /** Fold-out sun wings and dishes: out, or folded away. */
+    var deployed: Boolean = false
+
     /**
      * What stability assist is asking for, -1..1 on each axis, written each
      * tick by [com.rm.apogee.core.world.StabilityAssist] and never by a
@@ -593,6 +596,21 @@ class Vessel(
 
     /** Charge coming in less going out, units a second, as last worked out: what a base's card shows. */
     var powerNet: Double = 0.0
+
+    /** Its fuel cells running: see [com.rm.apogee.core.part.FuelCell]. */
+    var fuelCellsOn: Boolean = false
+
+    /** Reaction-wheel torque used last tick, N·m all axes together: what the wheels drew for. */
+    var wheelWork: Double = 0.0
+
+    /** Its link home, as last worked out: see [com.rm.apogee.core.world.Comms]. */
+    var signal: com.rm.apogee.core.world.Signal = com.rm.apogee.core.world.Signal.NONE
+
+    /** The craft its signal passes through on the way home, by id, nearest first; empty when direct or none. */
+    var signalPath: List<Long> = emptyList()
+
+    /** World time [signal] was last worked out, NaN for never. */
+    var signalAt: Double = Double.NaN
 
     /** How much of [type] parts [parts] hold between them. */
     fun amountIn(parts: Collection<Int>, type: ResourceType): Double = parts.sumOf { resources[it][type.ordinal] }

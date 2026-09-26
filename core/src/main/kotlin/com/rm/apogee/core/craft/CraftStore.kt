@@ -95,6 +95,7 @@ class CraftStore(private val directory: File) {
 
         val stock = listOf(
             StockCraft.starterRocket(catalog),
+            StockCraft.moteProbe(catalog),
             StockCraft.lander(catalog),
             StockCraft.moduleTug(catalog),
             StockCraft.rover(catalog),

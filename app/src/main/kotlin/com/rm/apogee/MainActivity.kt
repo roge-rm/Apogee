@@ -208,6 +208,7 @@ class MainActivity : ComponentActivity() {
                         onToggleBrakes = ::onToggleBrakes,
                         onToggleRcs = ::onToggleRcs,
                         onToggleReverse = ::onToggleReverse,
+                        onToggleDeploy = ::onToggleDeploy,
                         onUndock = { part -> session?.let { s -> lifecycleScope.launch { s.undock(part) } } },
                         onFound = { founded -> session?.let { s -> lifecycleScope.launch { s.found(founded) } } },
                         onRefuel = { on -> session?.let { s -> lifecycleScope.launch { s.refuel(on) } } },
@@ -490,6 +491,13 @@ class MainActivity : ComponentActivity() {
     private fun onSwitchCraft() {
         val current = session ?: return
         lifecycleScope.launch { current.switchCraft() }
+    }
+
+    private fun onToggleDeploy() {
+        val deployed = !(hudState.power?.deployed ?: false)
+        hudState.power = hudState.power?.copy(deployed = deployed)
+        val current = session ?: return
+        lifecycleScope.launch { current.setDeployed(deployed) }
     }
 
     private fun onToggleReverse() {
@@ -940,6 +948,8 @@ class MainActivity : ComponentActivity() {
                     hudState.ownedCraft = current.ownedCraftCount
                     hudState.hasWheels = current.controlledHasWheels
                     hudState.hasRcs = current.controlledHasRcs
+                    hudState.hasFoldouts = current.controlledHasFoldouts
+                    hudState.power = current.powerReadout
                     // The session decides - switching craft stands the thrusters down.
                     hudState.rcsArmed = current.rcsArmed
                     if (!hudState.rcsArmed) hudState.rcsSlide = false

@@ -697,6 +697,12 @@ private fun StatsPanel(
                 stats.liftoffTwr.format(2),
                 if (stats.liftoffTwr >= 1.0) ApogeeColors.Prograde else ApogeeColors.Danger,
             )
+            // Charge held, and a second's worth in full sun against just being on.
+            if (stats.powerCapacity > 0.0) {
+                StatRow("POWER", "${stats.powerCapacity.roundToInt()}")
+                if (stats.powerSunlit > 0.0) StatRow("SUN", "+${stats.powerSunlit.format(2)}/s", ApogeeColors.Prograde)
+                StatRow("IDLE", "\u2212${stats.powerIdle.format(2)}/s")
+            }
 
             if (stats.burns.isNotEmpty()) {
                 Spacer(Modifier.height(8.dp))

@@ -76,6 +76,11 @@ sealed interface Command {
     @SerialName("setBrakes")
     data class SetBrakes(val vessel: Long, val engaged: Boolean) : Command
 
+    /** Folds out (or away) [vessel]'s sun wings and dishes. */
+    @Serializable
+    @SerialName("deploy")
+    data class Deploy(val vessel: Long, val deployed: Boolean) : Command
+
     /** Drive the wheels backwards (or forwards again). */
     @Serializable
     @SerialName("setReverse")
@@ -339,6 +344,27 @@ sealed interface ServerMessage {
     data class FuelLevels(val vessel: Long, val amounts: List<Float>) : ServerMessage
 
     /**
+     * The pilot's craft's power and link home, sent with its tanks: charge
+     * and what it holds, units; the net rate, units a second; whether it has
+     * power; its [signal] and the relays that carries it through, nearest
+     * first; whether it can be flown at all; and its fold-outs told out.
+     */
+    @Serializable
+    @SerialName("systems")
+    data class CraftSystems(
+        val vessel: Long,
+        val charge: Float,
+        val capacity: Float,
+        val net: Float,
+        val powered: Boolean,
+        val signal: Signal,
+        val relays: List<Long>,
+        val controllable: Boolean,
+        val needsSignal: Boolean,
+        val deployed: Boolean,
+    ) : ServerMessage
+
+    /**
      * What the pilot's craft can do with a base just now, sent with its
      * tanks: be founded where it rests, or let go if it is; be filled from
      * the base it stands on or is docked to - and whether it is, or why it
@@ -468,5 +494,7 @@ object Protocol {
     // 10: PlacedPart.turn.
     // 11: the sea - flooding in VesselCondition, open hulls.
     // 12: bases - Anchor, Refuel, StructureUpdate.anchored, Service, BaseStatus, launching from base pads.
-    const val VERSION = 13
+    // 13: navigation - PlanBurns, SetAutopilot, WarpTo, targeting bodies.
+    // 14: craft systems - Deploy, CraftSystems.
+    const val VERSION = 14
 }

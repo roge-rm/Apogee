@@ -317,8 +317,12 @@ class Forces {
      * pitch about X and yaw about Z.
      */
     fun applyReactionWheels(vessel: Vessel) {
+        vessel.wheelWork = 0.0
+        // No charge, no wheels.
+        if (!vessel.powered) return
         var authority = 0.0
         for (i in vessel.defs.indices) {
+            if (vessel.isBroken(i)) continue
             authority += vessel.defs[i]
                 .module<com.rm.apogee.core.part.Command>()
                 ?.reactionTorque ?: 0.0
@@ -330,8 +334,10 @@ class Forces {
         // taken - falls back to bleeding off rotation.
         if (control.sasEnabled && !control.hasAttitudeInput && !vessel.assistHolding) {
             dampRotation(vessel, authority)
+            vessel.wheelWork = authority * DAMPING_WORK
             return
         }
+        vessel.wheelWork = authority * (kotlin.math.abs(control.commandPitch) + kotlin.math.abs(control.commandRoll) + kotlin.math.abs(control.commandYaw)).coerceAtMost(1.0)
 
         scratchTorque.setTo(
             control.commandPitch * authority,
@@ -787,6 +793,9 @@ class Forces {
     }
 
     private companion object {
+        /** Share of the wheels' strength counted as worked while only damping rotation. */
+        const val DAMPING_WORK = 0.1
+
         /** Metres under water at which a propeller has its full bite. */
         const val PROP_IMMERSION_DEPTH = 0.3
 

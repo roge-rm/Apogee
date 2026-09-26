@@ -158,6 +158,10 @@ class GameClient(
     @Volatile var service: ServerMessage.Service? = null
         private set
 
+    /** The flown craft's power and link home, as the server last said. */
+    @Volatile var systems: ServerMessage.CraftSystems? = null
+        private set
+
     /** The founded base nearest the flown craft, as the server last said; null once it stops saying. */
     val nearestBase: ServerMessage.BaseStatus?
         get() = nearBase?.takeIf { System.nanoTime() - nearBaseNanos < BASE_STALE_NANOS }
@@ -314,6 +318,8 @@ class GameClient(
             }
 
             is ServerMessage.Service -> service = message
+
+            is ServerMessage.CraftSystems -> systems = message
 
             is ServerMessage.BaseStatus -> {
                 nearBase = message

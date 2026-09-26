@@ -40,7 +40,8 @@ import kotlin.math.roundToInt
 
 /**
  * Warnings that only appear when they mean something: a part running hot, a
- * joint near its limit, parts hurt or lost - and a parachute armed or open.
+ * joint near its limit, parts hurt or lost, power low or gone, a probe out
+ * of touch - and a parachute armed or open.
  * Tap one for the parts behind it.
  */
 @Composable
@@ -52,8 +53,15 @@ fun CautionChips(
     modifier: Modifier = Modifier,
     /** The flown craft's parachute: "ARMED" waiting for safe air, "OPEN" on its drogue, "FULL", or null. */
     chute: String? = null,
+    /** Its power and link home: flat, low, or a probe out of touch. */
+    power: com.rm.apogee.game.HudState.PowerReadout? = null,
 ) {
     val chips = buildList {
+        if (power != null) {
+            if (!power.powered) add(Chip("NO POWER", "0%", ApogeeColors.Danger))
+            else if (power.low) add(Chip("LOW POWER", percent(power.share.toDouble()), ApogeeColors.Caution))
+            if (power.needsSignal && power.powered && power.signal == com.rm.apogee.core.world.Signal.NONE) add(Chip("NO SIGNAL", "", ApogeeColors.Danger))
+        }
         if (chute != null) add(Chip("CHUTE", chute, if (chute == "ARMED") ApogeeColors.Data else ApogeeColors.Prograde))
         if (telemetry.overheating) add(Chip("OVERHEAT", percent(telemetry.heat), severity(telemetry.heat)))
         if (telemetry.straining) add(Chip("STRUCTURE", percent(telemetry.structure), severity(telemetry.structure)))
@@ -82,8 +90,10 @@ fun CautionChips(
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(chip.label, style = MaterialTheme.typography.labelSmall, color = chip.colour, maxLines = 1)
-                        Spacer(Modifier.width(6.dp))
-                        Text(chip.value, style = TelemetryTextStyle, color = chip.colour, maxLines = 1)
+                        if (chip.value.isNotEmpty()) {
+                            Spacer(Modifier.width(6.dp))
+                            Text(chip.value, style = TelemetryTextStyle, color = chip.colour, maxLines = 1)
+                        }
                     }
                 }
             }

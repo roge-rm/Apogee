@@ -6,6 +6,7 @@ import com.rm.apogee.core.part.PartDef
 import com.rm.apogee.core.part.ResourceType
 import com.rm.apogee.core.part.Tank
 import kotlin.math.ln
+import kotlin.math.roundToInt
 
 /** What one stage of the staging sequence will do. */
 class StageStats(
@@ -89,6 +90,12 @@ class CraftStats(
      * lander ever built, and not a fault.
      */
     val warnings: List<String> = emptyList(),
+    /** Charge it can hold, units. */
+    val powerCapacity: Double = 0.0,
+    /** What its panels make in full sun, wings out, units a second. */
+    val powerSunlit: Double = 0.0,
+    /** What it uses just being on - pods, cores, antennas - units a second. */
+    val powerIdle: Double = 0.0,
 ) {
     /** Sum over stages. Vacuum, which is the figure worth quoting for orbit. */
     val totalDeltaV: Double get() = stages.sumOf { it.deltaVVacuum }
@@ -134,13 +141,38 @@ class CraftStats(
             val dryMass = resolved.sumOf { it.dryMass }
             val stageStats = simulate(design, resolved, full, startStage = 0, lit = emptySet(), current = false)
 
+            var capacity = 0.0
+            var sunlit = 0.0
+            var idle = 0.0
+            var charges = false
+            var probe = false
+            var crewed = false
+            for (def in resolved) for (module in def.modules) when (module) {
+                is com.rm.apogee.core.part.Battery -> capacity += module.capacity
+                is com.rm.apogee.core.part.SolarPanel -> { sunlit += module.chargeRate; charges = true }
+                is com.rm.apogee.core.part.FuelCell -> charges = true
+                is com.rm.apogee.core.part.Command -> {
+                    idle += module.idleDraw
+                    if (module.crewCapacity > 0) crewed = true else probe = true
+                }
+                is com.rm.apogee.core.part.Antenna -> idle += module.draw
+                else -> Unit
+            }
+            val warnings = advise(stageStats).toMutableList()
+            // Nobody aboard to fly it by hand once it is flat.
+            if (probe && !crewed && !charges && idle > 0.0) {
+                warnings.add("Nothing to charge it: flat in about ${(capacity / idle / 60.0).roundToInt()} min, and then it cannot be flown")
+            }
             return CraftStats(
                 totalMass = totalMass,
                 dryMass = dryMass,
                 partCount = design.parts.size,
                 stages = stageStats,
                 problems = diagnose(design, resolved, stageStats),
-                warnings = advise(stageStats),
+                warnings = warnings,
+                powerCapacity = capacity,
+                powerSunlit = sunlit,
+                powerIdle = idle,
             )
         }
 

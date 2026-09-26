@@ -105,6 +105,8 @@ fun FlightScreen(
     onToggleRcs: () -> Unit = {},
     /** Drive the wheels backwards, or forwards again. */
     onToggleReverse: () -> Unit = {},
+    /** Fold the sun wings and dishes out, or away. */
+    onToggleDeploy: () -> Unit = {},
     /** With the thrusters armed: the stick slides the craft (true) or turns it. */
     onStickMode: (Boolean) -> Unit = {},
     /** Let go at a docking part. */
@@ -270,11 +272,12 @@ fun FlightScreen(
                 .padding(horizontal = 12.dp, vertical = 6.dp),
             horizontalAlignment = Alignment.End,
         ) {
-            TelemetryPanel(hud.telemetry, Modifier.alpha(controlOpacity), twoColumns = !portrait)
+            TelemetryPanel(hud.telemetry, Modifier.alpha(controlOpacity), twoColumns = !portrait, power = hud.power)
             CautionChips(
                 hud.telemetry, hud.damageExpanded, { hud.damageExpanded = !hud.damageExpanded },
                 modifier = Modifier.padding(top = 6.dp),
                 chute = hud.chute,
+                power = hud.power,
             )
             com.rm.apogee.ui.components.DockingPanel(
                 hud.dock, hud.joints, onUndock,
@@ -322,6 +325,7 @@ fun FlightScreen(
                         onToggleRcs,
                         onToggleReverse,
                         PORTRAIT_THROTTLE_HEIGHT,
+                        onToggleDeploy,
                     )
                 }
                 // The stage stack rides above the attitude controls, on their
@@ -382,7 +386,7 @@ fun FlightScreen(
                     .padding(horizontal = 16.dp, vertical = 12.dp)
                     .alpha(controlOpacity),
             ) {
-                ThrottleControl(hud, onThrottleChange, onToggleBrakes, onToggleRcs, onToggleReverse, THROTTLE_HEIGHT)
+                ThrottleControl(hud, onThrottleChange, onToggleBrakes, onToggleRcs, onToggleReverse, THROTTLE_HEIGHT, onToggleDeploy)
             }
 
             val stickAlignment =
@@ -451,9 +455,15 @@ private fun ThrottleControl(
     onToggleRcs: () -> Unit,
     onToggleReverse: () -> Unit,
     height: Dp,
+    onToggleDeploy: () -> Unit = {},
 ) {
     val throttle = hud.throttle
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+    // Out of touch, it moves nothing: shown faded, though the deploy chip
+    // below would be as deaf.
+    Column(
+        Modifier.alpha(if (hud.power?.outOfTouch != null) OUT_OF_TOUCH_ALPHA else 1f),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
         Text(
             "${(throttle * 100).roundToInt()}%",
             style = TelemetryTextStyle,
@@ -539,6 +549,24 @@ private fun ThrottleControl(
                 }
             }
         }
+        // Sun wings and dishes: out, or folded away. Only on a craft that has some.
+        if (hud.hasFoldouts) {
+            val out = hud.power?.deployed == true
+            Spacer(Modifier.height(8.dp))
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = if (out) ApogeeColors.Prograde.alpha(0.3f) else Color.White.alpha(ApogeeAlpha.CONTROL_FILL),
+                modifier = Modifier.clickable(onClick = onToggleDeploy),
+            ) {
+                Text(
+                    "DEPLOY",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = if (out) ApogeeColors.Prograde else Color.White.alpha(ApogeeAlpha.SECONDARY),
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                )
+            }
+        }
     }
 }
 
@@ -564,7 +592,8 @@ private fun AttitudeCluster(
 ) {
     // Sliding on the thrusters, the roll buttons are down and up instead.
     val sliding = hud.rcsArmed && hud.rcsSlide
-    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+    val deaf = hud.power?.outOfTouch
+    Column(modifier.alpha(if (deaf != null) OUT_OF_TOUCH_ALPHA else 1f), horizontalAlignment = Alignment.CenterHorizontally) {
         Row(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -586,7 +615,13 @@ private fun AttitudeCluster(
             HoldButton(if (sliding) "▲" else "↻", { held -> onRoll(if (held) 1f else 0f) }, size = 40.dp)
         }
         Spacer(Modifier.height(8.dp))
-        AttitudeStick(onChange = onAttitude, size = stickSize)
+        Box(contentAlignment = Alignment.Center) {
+            AttitudeStick(onChange = onAttitude, size = stickSize)
+            // Why it does nothing, across it.
+            if (deaf != null) {
+                Text(deaf, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = ApogeeColors.Danger)
+            }
+        }
         // What the stick does, right under it, while the thrusters are armed -
         // and its room kept when they are not, so the stick sits at the same
         // height, a little up from the corner, on every craft.
@@ -720,7 +755,12 @@ private fun StageButton(
     }
 }
 @Composable
-private fun TelemetryPanel(telemetry: FlightTelemetry, modifier: Modifier = Modifier, twoColumns: Boolean = false) {
+private fun TelemetryPanel(
+    telemetry: FlightTelemetry,
+    modifier: Modifier = Modifier,
+    twoColumns: Boolean = false,
+    power: com.rm.apogee.game.HudState.PowerReadout? = null,
+) {
     // Two columns in landscape - near the ground, then the orbit and target -
     // where one tall column ran down over the roll and SAS buttons.
     val panel = modifier
@@ -730,14 +770,33 @@ private fun TelemetryPanel(telemetry: FlightTelemetry, modifier: Modifier = Modi
     if (twoColumns) {
         Row(panel, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             Column(horizontalAlignment = Alignment.End) { SurfaceReadouts(telemetry) }
-            Column(horizontalAlignment = Alignment.End) { OrbitReadouts(telemetry) }
+            Column(horizontalAlignment = Alignment.End) { OrbitReadouts(telemetry); PowerReadout(power) }
         }
     } else {
         Column(panel, horizontalAlignment = Alignment.End) {
             SurfaceReadouts(telemetry)
             OrbitReadouts(telemetry)
+            PowerReadout(power)
         }
     }
+}
+
+/** Charge and what it holds, and whether it is filling or draining: only on a craft with a battery. */
+@Composable
+private fun PowerReadout(power: com.rm.apogee.game.HudState.PowerReadout?) {
+    if (power == null || power.capacity <= 0f) return
+    val rate = power.net
+    val sign = if (rate >= 0f) "+" else "\u2212"
+    Spacer(Modifier.height(4.dp))
+    Readout(
+        "PWR",
+        "${power.charge.roundToInt()}/${power.capacity.roundToInt()} $sign${"%.2f".format(kotlin.math.abs(rate))}/s",
+        colour = when {
+            !power.powered -> ApogeeColors.Danger
+            power.low -> ApogeeColors.Caution
+            else -> ApogeeColors.Data
+        },
+    )
 }
 
 @Composable
@@ -927,6 +986,9 @@ private const val THROTTLE_STEP = 0.01f
 
 /** At or below this the throttle is off: the bottom of the track, and a little above it. */
 private const val THROTTLE_SNAP = 0.07f
+
+/** How faded the throttle and stick are while nothing sent to the craft is heard. */
+private const val OUT_OF_TOUCH_ALPHA = 0.35f
 private val STICK_SIZE = 132.dp
 
 /**
