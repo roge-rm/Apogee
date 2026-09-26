@@ -105,7 +105,8 @@ private fun Rates(warp: Double, requested: Double, onPick: (Double) -> Unit) {
         Column(Modifier.padding(10.dp)) {
             Text("TIME", style = TelemetryTextStyle, color = Color.White.alpha(ApogeeAlpha.SUBTITLE))
             Spacer(Modifier.height(6.dp))
-            val rows = listOf(listOf(0.0, 1.0, 2.0, 4.0), World.WARP_RATES.filter { it > World.PHYSICS_WARP })
+            // Four to a row: the rates on rails run on to a million now.
+            val rows = listOf(listOf(0.0, 1.0, 2.0, 4.0)) + World.WARP_RATES.filter { it > World.PHYSICS_WARP }.chunked(4)
             for (row in rows) {
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     for (r in row) {
@@ -148,6 +149,7 @@ private fun Rates(warp: Double, requested: Double, onPick: (Double) -> Unit) {
 }
 
 private fun rate(r: Double): String = when {
+    r >= 1_000_000 -> "${(r / 1_000_000).toInt()}M×"
     r >= 1_000 -> "${(r / 1_000).toInt()}k×"
     else -> "${r.toInt()}×"
 }

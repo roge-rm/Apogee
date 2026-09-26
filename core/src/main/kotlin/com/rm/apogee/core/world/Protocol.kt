@@ -549,6 +549,12 @@ sealed interface ClientMessage {
          * craft with its own idea of the surface.
          */
         val terrainGeneration: Int = 0,
+        /**
+         * [com.rm.apogee.core.orbit.SolarSystem.contentHash]: the worlds,
+         * their orbits, air and weather. Two builds with different worlds
+         * cannot share a game.
+         */
+        val systemHash: String = "",
     ) : ClientMessage
 
     @Serializable
@@ -578,5 +584,6 @@ object Protocol {
     // 14: craft systems - Deploy, CraftSystems.
     // 15: resources - SetIndustry, Unload, Surveyed, CraftSystems industry and readings, BaseStatus stores.
     // 16: crew - Roster, seats in StructureUpdate, EVA and boarding commands.
-    const val VERSION = 16
+    // 17: the wider system - Hello.systemHash; every world, tilted, round a real sun.
+    const val VERSION = 17
 }

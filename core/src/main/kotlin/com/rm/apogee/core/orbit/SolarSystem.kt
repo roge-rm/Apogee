@@ -16,6 +16,36 @@ class SolarSystem(
 ) {
     val bodies: Map<String, CelestialBody> = bodies.associateBy { it.id }
 
+    /**
+     * What the system is, boiled down: every world's size, pull, spin, tilt,
+     * orbit, air, weather, rings and ground, hashed. Two builds whose worlds
+     * differ in any of it cannot share a game - each would fly craft through
+     * its own idea of where the planets are.
+     */
+    val contentHash: String by lazy {
+        val text = StringBuilder()
+        fun d(x: Double) { text.append(java.lang.Long.toHexString(x.toRawBits())).append(',') }
+        fun v(x: Vec3) { d(x.x); d(x.y); d(x.z) }
+        text.append(rootId).append(';')
+        for (b in this.bodies.values.sortedBy { it.id }) {
+            text.append(b.id).append(':').append(b.parentId).append(':')
+            d(b.gravitationalParameter); d(b.radius); d(b.rotationPeriod); v(b.spinAxis); d(b.sphereOfInfluence)
+            b.orbit?.let { v(it.position); v(it.velocity); d(it.mu); d(it.epoch) }
+            // Numbers by their bits, never as decimal text: two platforms may print a double differently.
+            b.atmosphere?.let {
+                d(it.seaLevelDensity); d(it.seaLevelPressure); d(it.scaleHeight); d(it.height)
+                d(it.surfaceTemperature); d(it.lapseRate); d(it.tropopause); text.append(it.deep)
+            }
+            b.rings?.let { d(it.inner); d(it.outer) }
+            b.ocean?.let { d(it.density) }
+            b.terrain?.let { text.append(it.world).append('/').append(it.generation).append('/').append(it.hasOcean); d(it.maxElevation) }
+            com.rm.apogee.core.weather.Climate.of(b.id)?.let { text.append(it.fingerprint()) }
+            text.append(';')
+        }
+        java.security.MessageDigest.getInstance("SHA-256").digest(text.toString().toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }.take(16)
+    }
+
     init {
         require(this.bodies.containsKey(rootId)) { "Root body '$rootId' is not in the system" }
         for (body in bodies) {
@@ -49,6 +79,31 @@ class SolarSystem(
         val parentId = body.parentId ?: return Vec3.zero()
         val local = body.orbit!!.stateAt(time).velocity
         return velocityOf(parentId, time).addInPlace(local)
+    }
+
+    /**
+     * Toward the star from [position] - relative to body [bodyId]'s centre -
+     * at [time]: inertial, unit, written into [out]. The world's light and
+     * its seasons come from here.
+     */
+    fun sunDirection(bodyId: String, position: Vec3, time: Double, out: Vec3 = Vec3()): Vec3 {
+        // A world with no star at its heart - a test's lone planet - is lit from a fixed direction.
+        if (rootId != STAR_ID) return out.setTo(FIXED_SUN)
+        if (bodyId == rootId) return out.setTo(position).mulInPlace(-1.0).normalizeInPlace()
+        return out.setTo(positionOf(bodyId, time)).addInPlace(position).mulInPlace(-1.0).normalizeInPlace()
+    }
+
+    /**
+     * How strong the sunlight is at [position] - relative to [bodyId] - as a
+     * share of what it is at Terra: the inverse square of the distance, so
+     * a panel at Magna makes a twenty-seventh of what it did at home.
+     */
+    fun sunStrength(bodyId: String, position: Vec3, time: Double): Double {
+        if (rootId != STAR_ID) return 1.0
+        val d = if (bodyId == rootId) position.length else positionOf(bodyId, time).addInPlace(position).length
+        if (d <= 0.0) return 1.0
+        val r = SystemData.AU / d
+        return r * r
     }
 
     /** The bodies orbiting [id] directly: its moons, or a star's planets. */
@@ -126,6 +181,9 @@ class SolarSystem(
     }
 
     companion object {
+        /** [contentHash] of the [defaultSystem]: what this build's client offers a server. */
+        val DEFAULT_HASH: String by lazy { defaultSystem().contentHash }
+
         /**
          * The terrains, made once and shared by every world in the process.
          *
@@ -194,7 +252,8 @@ class SolarSystem(
                 terrain = terraTerrain,
                 ocean = com.rm.apogee.core.terrain.Ocean(),
                 parentId = "sol",
-                orbit = Orbit.circular(terraOrbitRadius, sol.gravitationalParameter),
+                // In the ecliptic, where the sun at time zero stands about as the old fixed one did.
+                orbit = SystemData.terraOrbit(sol.gravitationalParameter),
                 sphereOfInfluence = 84_159_286.0,
             )
 
@@ -219,8 +278,126 @@ class SolarSystem(
                 sphereOfInfluence = 2_429_559.0,
             )
 
-            return SolarSystem(listOf(sol, terra, luna), rootId = "sol")
+            return SolarSystem(listOf(sol, terra, luna) + otherWorlds(sol), rootId = "sol")
         }
+
+        /**
+         * Every world but Terra and Luna, to [SystemData]'s scale. Their ground
+         * comes from [worldTerrain], their air from what each has.
+         */
+        private fun otherWorlds(sol: CelestialBody): List<CelestialBody> {
+            val solMu = sol.gravitationalParameter
+            val north = SystemData.ECLIPTIC_NORTH
+            val out = ArrayList<CelestialBody>()
+            fun planet(
+                id: String, name: String, radiusKm: Double, g: Double, dayHours: Double, tilt: Double, azimuth: Double,
+                orbit: Orbit, atmosphere: Atmosphere? = null, rings: Rings? = null,
+            ): CelestialBody {
+                val r = radiusKm * 1_000.0
+                val mu = SystemData.mu(g, r)
+                val body = CelestialBody(
+                    id = id, displayName = name, gravitationalParameter = mu, radius = r,
+                    // A quarter of the real day, as Terra's is.
+                    rotationPeriod = dayHours * 3_600.0 / 4.0,
+                    atmosphere = atmosphere, terrain = worldTerrain(id, r), ocean = worldOcean(id),
+                    parentId = "sol", orbit = orbit,
+                    sphereOfInfluence = SystemData.sphereOfInfluence(orbit.semiMajorAxis, mu, solMu),
+                    spinAxis = SystemData.axis(north, Math.toRadians(tilt), Math.toRadians(azimuth)),
+                    rings = rings?.let { Rings(it.inner * r, it.outer * r) },
+                )
+                out.add(body)
+                return body
+            }
+            fun moon(
+                id: String, name: String, parent: CelestialBody, radiusKm: Double, g: Double, radii: Double, iDegrees: Double,
+                anomaly: Double, atmosphere: Atmosphere? = null, e: Double = 0.0,
+            ): CelestialBody {
+                val r = radiusKm * 1_000.0
+                val mu = SystemData.mu(g, r)
+                val orbit = SystemData.moonOrbit(parent, radii, iDegrees, anomaly, e)
+                // Held face-on to its planet: its day is its month, about the pole of its orbit.
+                val pole = orbit.angularMomentum.normalized()
+                val body = CelestialBody(
+                    id = id, displayName = name, gravitationalParameter = mu, radius = r,
+                    rotationPeriod = SystemData.period(orbit),
+                    atmosphere = atmosphere, terrain = worldTerrain(id, r), ocean = worldOcean(id),
+                    parentId = parent.id, orbit = orbit,
+                    sphereOfInfluence = SystemData.sphereOfInfluence(orbit.semiMajorAxis, mu, parent.gravitationalParameter),
+                    spinAxis = pole,
+                )
+                out.add(body)
+                return body
+            }
+            fun air(density: Double, pressure: Double, scaleKm: Double, surfaceK: Double, lapse: Double, tropopause: Double, deep: Boolean = false) =
+                Atmosphere(
+                    seaLevelDensity = density, seaLevelPressure = pressure, scaleHeight = scaleKm * 1_000.0,
+                    // Where it thins to what Terra's does at its edge.
+                    height = scaleKm * 1_000.0 * kotlin.math.ln(density / AIR_EDGE_DENSITY),
+                    surfaceTemperature = surfaceK, lapseRate = lapse, tropopause = tropopause, deep = deep,
+                )
+
+            // The inner worlds.
+            planet("celer", "Celer", 230.0, 3.70, 1_407.5, 0.03, 0.0,
+                SystemData.planetOrbit(0.387, 0.2056, 7.00, 48.3, 77.5, 170.0, solMu))
+            planet("caligo", "Caligo", 570.0, 8.87, 5_832.5, 177.4, 40.0,
+                SystemData.planetOrbit(0.723, 0.0068, 3.39, 76.7, 131.6, 60.0, solMu),
+                atmosphere = air(65.0, 9.2e6, 10.5, 735.0, 0.0078, 170.0))
+            val rubra = planet("rubra", "Rubra", 319.0, 3.72, 24.62, 25.2, 110.0,
+                SystemData.planetOrbit(1.524, 0.0934, 1.85, 49.6, 336.0, 250.0, solMu),
+                atmosphere = air(0.020, 600.0, 7.3, 210.0, 0.0025, 150.0))
+            // Too small to have a reach of their own at their real mass: heavier
+            // than they should be, and a little further out, so a craft can orbit them.
+            moon("timor", "Timor", rubra, 3.0, 0.15, 4.0, 1.1, 30.0)
+            moon("pavor", "Pavor", rubra, 2.0, 0.10, 6.9, 1.8, 200.0)
+
+            // The giants and their moons.
+            val magna = planet("magna", "Magna", 6_585.0, 24.79, 9.925, 3.1, 200.0,
+                SystemData.planetOrbit(5.203, 0.0484, 1.30, 100.5, 14.8, 20.0, solMu),
+                atmosphere = air(0.16, 1e5, 18.0, 165.0, 0.002, 110.0, deep = true), rings = Rings(1.4, 1.8))
+            moon("fornax", "Fornax", magna, 172.0, 1.796, 3.0, 0.05, 10.0)
+            moon("crusta", "Crusta", magna, 147.0, 1.315, 4.7, 0.47, 100.0)
+            moon("maxima", "Maxima", magna, 248.0, 1.428, 7.5, 0.20, 190.0)
+            moon("cicatrix", "Cicatrix", magna, 227.0, 1.235, 13.2, 0.28, 280.0)
+            val aurea = planet("aurea", "Aurea", 5_485.0, 10.44, 10.656, 26.7, 300.0,
+                SystemData.planetOrbit(9.537, 0.0539, 2.49, 113.7, 92.4, 300.0, solMu),
+                atmosphere = air(0.19, 1e5, 39.0, 134.0, 0.001, 82.0, deep = true), rings = Rings(1.24, 2.27))
+            moon("aurantia", "Aurantia", aurea, 243.0, 1.352, 10.2, 0.35, 60.0,
+                atmosphere = air(5.3, 146_700.0, 14.0, 94.0, 0.001, 70.0))
+            // Half its real distance would put it inside the rings' reach, with no room to orbit: out at four radii.
+            moon("fons", "Fons", aurea, 24.0, 0.113, 4.0, 0.02, 150.0)
+            planet("obliqua", "Obliqua", 2_389.0, 8.69, 17.24, 97.8, 20.0,
+                SystemData.planetOrbit(19.19, 0.0473, 0.77, 74.0, 170.9, 120.0, solMu),
+                atmosphere = air(0.42, 1e5, 18.0, 76.0, 0.0009, 53.0, deep = true), rings = Rings(1.64, 2.0))
+            val caerula = planet("caerula", "Caerula", 2_319.0, 11.15, 16.11, 28.3, 250.0,
+                SystemData.planetOrbit(30.07, 0.0086, 1.77, 131.8, 44.9, 210.0, solMu),
+                atmosphere = air(0.45, 1e5, 13.0, 72.0, 0.0012, 55.0, deep = true))
+            // Backwards round its planet.
+            moon("aversa", "Aversa", caerula, 127.0, 0.779, 7.2, 157.0, 330.0,
+                atmosphere = air(1.2e-4, 1.4, 8.0, 38.0, 0.0, 38.0))
+
+            // The last of them, and its companion.
+            val ultima = planet("ultima", "Ultima", 112.0, 0.62, 153.3, 119.6, 70.0,
+                SystemData.planetOrbit(39.48, 0.2488, 17.14, 110.3, 224.1, 330.0, solMu),
+                atmosphere = air(8.4e-5, 1.0, 13.0, 44.0, 0.0, 40.0))
+            moon("portitor", "Portitor", ultima, 57.0, 0.288, 8.3, 0.0, 90.0)
+            return out
+        }
+
+        /** Density, kg/m³, at which an atmosphere is taken to end: what Terra's has at its edge. */
+        private const val AIR_EDGE_DENSITY = 3e-6
+
+        /** The ground of world [id], radius [radius]: see [com.rm.apogee.core.terrain.Worlds]. Null for a gas giant. */
+        private fun worldTerrain(id: String, radius: Double): com.rm.apogee.core.terrain.Terrain? =
+            com.rm.apogee.core.terrain.Worlds.terrain(id, radius)
+
+        /** The sea of world [id], if it has one. */
+        private fun worldOcean(id: String): com.rm.apogee.core.terrain.Ocean? = com.rm.apogee.core.terrain.Worlds.ocean(id)
+
+        /** The star at the centre of it all. */
+        const val STAR_ID = "sol"
+
+        /** The light of a world with no star at its heart. */
+        private val FIXED_SUN = Vec3(0.62, 0.45, 0.64).normalizeInPlace()
 
         /** The body new craft launch from. */
         const val HOMEWORLD_ID = "terra"
@@ -296,7 +473,7 @@ data class GroundStation(
     val range: Double = STATION_RANGE,
 ) {
     companion object {
-        /** A ground station's reach, m: across all of Terra's pull. */
-        const val STATION_RANGE = 200_000_000.0
+        /** A ground station's reach, m: out to Ultima, for a dish that can answer. */
+        const val STATION_RANGE = 5e12
     }
 }

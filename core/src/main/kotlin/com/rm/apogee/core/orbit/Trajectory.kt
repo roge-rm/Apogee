@@ -63,6 +63,13 @@ class Trajectory(val segments: List<Segment>) {
         const val HORIZON = 400_000.0
 
         /**
+         * Once a path is out among the planets, about the star, it is
+         * followed this much further at least, s: long enough to reach
+         * Ultima by the slowest way there.
+         */
+        const val STAR_HORIZON = 5.0e8
+
+        /**
          * The trajectory of a craft at [position] and [velocity] about body
          * [bodyId] at [time], at most [maxSegments] conics long and
          * [horizon] seconds.
@@ -81,8 +88,10 @@ class Trajectory(val segments: List<Segment>) {
             val p = position.copy()
             val v = velocity.copy()
             var t = time
-            val limit = time + horizon
+            var limit = time + horizon
             while (segments.size < maxSegments && t < limit) {
+                // Out among the planets a crossing takes months, or years.
+                if (body.parentId == null && system.childrenOf(body.id).isNotEmpty()) limit = maxOf(limit, t + STAR_HORIZON)
                 val orbit = Orbit(p.copy(), v.copy(), body.gravitationalParameter, t)
                 val segment = follow(system, body, orbit, t, limit)
                 segments.add(segment)
@@ -106,14 +115,7 @@ class Trajectory(val segments: List<Segment>) {
             val escapes = !orbit.isBound || orbit.apoapsis >= body.sphereOfInfluence
             // Steps short enough that neither the ground nor a moon's reach
             // can slip between two looks: a fiftieth of the craft's own
-            // distance-over-speed, and never more than a quarter of the
-            // smallest moon's reach at the speed the two could close.
-            var closing = 0.0
-            var smallestReach = Double.MAX_VALUE
-            for (child in children) {
-                closing = maxOf(closing, child.orbit!!.velocity.length)
-                smallestReach = minOf(smallestReach, child.sphereOfInfluence)
-            }
+            // distance-over-speed, and closer in near a moon - see below.
             var t = t0
             var before = t0
             val scratch = Vec3()
@@ -133,7 +135,13 @@ class Trajectory(val segments: List<Segment>) {
                 val r = state.position.length
                 val speed = state.velocity.length.coerceAtLeast(1.0)
                 var step = 0.02 * r / speed
-                if (children.isNotEmpty()) step = minOf(step, 0.25 * smallestReach / (speed + closing))
+                // Short enough that no moon's reach slips between two looks:
+                // judged by how far off each one is now - long strides far
+                // out between the planets, where months must be crossed.
+                for (child in children) {
+                    val gap = scratch.setTo(state.position).subInPlace(child.orbit!!.stateAt(t).position).length - child.sphereOfInfluence
+                    step = minOf(step, maxOf(0.25 * child.sphereOfInfluence, 0.5 * gap) / (speed + child.orbit.velocity.length))
+                }
                 if (impacts) step = minOf(step, maxOf(1.0, 0.25 * (r - body.radius) / speed))
                 step = step.coerceIn(0.5, (end - t0) / 64.0 + 0.5)
                 before = t

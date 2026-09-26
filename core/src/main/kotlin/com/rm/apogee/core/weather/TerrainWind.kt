@@ -76,6 +76,9 @@ class TerrainWind(private val terrain: Terrain, private val bodyRadius: Double) 
             SurfaceMaterial.FOREST -> 0.15
             SurfaceMaterial.SNOW -> 0.05
             SurfaceMaterial.CONCRETE, SurfaceMaterial.ASPHALT -> 0.85
+            SurfaceMaterial.RED_DUST, SurfaceMaterial.TESSERA -> 0.9
+            SurfaceMaterial.SULFUR, SurfaceMaterial.LAVA -> 1.0
+            SurfaceMaterial.ORGANIC_SAND, SurfaceMaterial.THOLIN -> 0.6
             else -> 0.0
         }
 

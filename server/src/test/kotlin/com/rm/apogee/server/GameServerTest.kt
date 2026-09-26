@@ -63,10 +63,11 @@ class GameServerTest {
         // Tests about identity pass it explicitly.
         clientId: String = "install-$name",
         terrainGeneration: Int = com.rm.apogee.core.terrain.TerrainField.GENERATION,
+        systemHash: String = com.rm.apogee.core.orbit.SolarSystem.DEFAULT_HASH,
     ): GameClient {
         val link = LoopbackTransportPair()
         server.accept(link.serverSide, scope)
-        val client = GameClient(link.clientSide, name, catalogHash, clientId, terrainGeneration)
+        val client = GameClient(link.clientSide, name, catalogHash, clientId, terrainGeneration, systemHash)
         client.connect(scope)
         pumpUntil(server, "$name's handshake to resolve") {
             client.connected || client.rejectionReason != null
@@ -250,6 +251,20 @@ class GameServerTest {
         assertTrue(
             "reason should name the terrain: ${client.rejectionReason}",
             client.rejectionReason?.contains("terrain", ignoreCase = true) == true,
+        )
+        assertEquals(0, server.playerCount)
+    }
+
+    /** Same parts and ground, different worlds: the planets would not be where the server has them. */
+    @Test
+    fun `a client with a different solar system is refused`() = runTest {
+        val server = GameServer.default(catalog)
+        val client = joinClient(server, backgroundScope, "Pilot", systemHash = "0123456789abcdef")
+
+        assertFalse("should not be connected", client.connected)
+        assertTrue(
+            "reason should name the system: ${client.rejectionReason}",
+            client.rejectionReason?.contains("solar system", ignoreCase = true) == true,
         )
         assertEquals(0, server.playerCount)
     }

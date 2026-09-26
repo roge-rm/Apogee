@@ -25,8 +25,6 @@ import androidx.compose.ui.unit.dp
 import com.rm.apogee.game.HudState
 import com.rm.apogee.ui.theme.ApogeeAlpha
 import com.rm.apogee.ui.theme.ApogeeColors
-import com.rm.apogee.ui.theme.Dimens
-import com.rm.apogee.ui.theme.TelemetryTextStyle
 import com.rm.apogee.ui.theme.alpha
 
 /** What the crew card and the EVA controls do. */
@@ -43,53 +41,33 @@ class CrewActions(
 )
 
 /**
- * Who is aboard: a CREW chip - aboard of seats - that opens a card listing
- * each of them, with EVA and MOVE for the player's own. Nothing on a craft
- * with no seats, or on someone out on EVA.
+ * Who is aboard, each by name and seat, with MOVE and EVA for the
+ * player's own: what the crew chip opens.
  */
 @Composable
-fun CrewPanel(hud: HudState, actions: CrewActions, modifier: Modifier = Modifier) {
-    if (hud.isSuit || hud.crewSeats <= 0) return
-    Column(modifier, horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        val aboard = hud.crew.size
-        Row(
-            Modifier
-                .clip(RoundedCornerShape(Dimens.CornerTight))
-                .background(Color.Black.alpha(ApogeeAlpha.SCRIM))
-                .clickable { hud.crewOpen = !hud.crewOpen }
-                .padding(horizontal = 10.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            val ink = if (aboard == 0) ApogeeColors.Caution else ApogeeColors.Data
-            Text("CREW", style = MaterialTheme.typography.labelSmall, color = ink.alpha(0.8f))
-            Spacer(Modifier.width(6.dp))
-            Text("$aboard/${hud.crewSeats}", style = TelemetryTextStyle, color = ink)
+internal fun CrewList(hud: HudState, actions: CrewActions, modifier: Modifier = Modifier) {
+    val scroll = rememberScrollState()
+    Column(
+        modifier
+            .width(250.dp)
+            .heightIn(max = 200.dp)
+            .verticalScrollbar(scroll)
+            .verticalScroll(scroll),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        if (hud.crew.isEmpty()) {
+            Text("Nobody aboard", style = MaterialTheme.typography.labelSmall, color = Color.White.alpha(ApogeeAlpha.SUBTITLE))
         }
-        if (hud.crewOpen && aboard > 0) {
-            val scroll = rememberScrollState()
-            Column(
-                Modifier
-                    .clip(RoundedCornerShape(Dimens.CornerTight))
-                    .background(Color.Black.alpha(ApogeeAlpha.SCRIM))
-                    .width(250.dp)
-                    .heightIn(max = 200.dp)
-                    .verticalScrollbar(scroll)
-                    .verticalScroll(scroll)
-                    .padding(horizontal = 10.dp, vertical = 6.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                for (seat in hud.crew) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text(seat.name, style = MaterialTheme.typography.bodySmall, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(seat.where, style = MaterialTheme.typography.labelSmall, color = Color.White.alpha(ApogeeAlpha.SUBTITLE), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        }
-                        if (seat.mine) {
-                            if (seat.canMove) SmallAction("MOVE") { actions.onMove(seat.id) }
-                            Spacer(Modifier.width(6.dp))
-                            SmallAction("EVA") { actions.onEva(seat.id) }
-                        }
-                    }
+        for (seat in hud.crew) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(seat.name, style = MaterialTheme.typography.bodySmall, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(seat.where, style = MaterialTheme.typography.labelSmall, color = Color.White.alpha(ApogeeAlpha.SUBTITLE), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                if (seat.mine) {
+                    if (seat.canMove) SmallAction("MOVE") { actions.onMove(seat.id) }
+                    Spacer(Modifier.width(6.dp))
+                    SmallAction("EVA") { actions.onEva(seat.id) }
                 }
             }
         }

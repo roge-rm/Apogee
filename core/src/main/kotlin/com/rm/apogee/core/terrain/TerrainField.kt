@@ -66,6 +66,9 @@ class TerrainField(
 
     override val hasOcean: Boolean get() = profile == Profile.TERRA
 
+    override val barren: Boolean get() = profile != Profile.TERRA
+    override val world: String get() = if (profile == Profile.TERRA) "terra" else "luna"
+
     override val generation: Int get() = GENERATION
 
     override val tiles: TerrainTileCache by lazy { TerrainTileCache(this) }
@@ -552,7 +555,7 @@ class TerrainField(
         const val DEFAULT_SEED = 0x4A06EE
 
         /** See [Terrain.generation]. 1 is the terrain every save before M7 was made on. */
-        const val GENERATION = 6
+        const val GENERATION = 7
 
         /** Slope (0 flat, 1 wall) past which ground is bare rock: about 39 degrees. */
         private const val STEEP_SLOPE = 0.22

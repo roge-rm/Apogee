@@ -26,8 +26,21 @@ class HudState {
     // --- flight -------------------------------------------------------------
     var telemetry: FlightTelemetry by mutableStateOf(FlightTelemetry.EMPTY)
 
-    /** Whether the part-condition list under the caution chips is open. */
-    var damageExpanded: Boolean by mutableStateOf(false)
+    /**
+     * Which status chip's detail is open - [STATUS_PARTS], [STATUS_CREW],
+     * [STATUS_DOCK], [STATUS_BASE] or [STATUS_SHARED] - or null for none:
+     * one at a time.
+     */
+    var statusOpen: String? by mutableStateOf(null)
+
+    /** Whether the flight strip is opened out into the whole panel. */
+    var stripOpen: Boolean by mutableStateOf(false)
+
+    /** The idle clock the controls fade by: see [HudFade]. */
+    val fade = HudFade()
+
+    /** A touch anywhere, on the view or a control: the controls come back. */
+    fun touched() = fade.wake(System.nanoTime())
     var connecting: Boolean by mutableStateOf(true)
     var connectionError: String? by mutableStateOf(null)
 
@@ -63,13 +76,12 @@ class HudState {
     /** Shared with [sharedWith] (their name): who flies - "me", "them" or "both" - or null when not shared. */
     var sharedWith: String? by mutableStateOf(null)
     var sharedPilot: String by mutableStateOf("both")
-    /** Whether the who-flies card is open. */
-    var sharedOpen: Boolean by mutableStateOf(false)
     var mapMode: Boolean by mutableStateOf(false)
 
     /** The next planned burn, and coming down; see [com.rm.apogee.ui.components.BurnPanel]. */
     var burn: com.rm.apogee.game.GameSession.BurnReadout? by mutableStateOf(null)
     var landing: com.rm.apogee.game.GameSession.LandingReadout? by mutableStateOf(null)
+    var window: com.rm.apogee.game.GameSession.WindowReadout? by mutableStateOf(null)
     var autopilotNote: String by mutableStateOf("")
 
     /**
@@ -104,10 +116,9 @@ class HudState {
     /** Whether the craft flown is someone out on EVA. */
     var isSuit: Boolean by mutableStateOf(false)
 
-    /** Who is aboard the craft flown, how many it seats, and whether the crew card is open. */
+    /** Who is aboard the craft flown, and how many it seats. */
     var crew: List<CrewSeat> by mutableStateOf(emptyList())
     var crewSeats: Int by mutableIntStateOf(0)
-    var crewOpen: Boolean by mutableStateOf(false)
 
     /** Someone aboard: their [name], where they sit, whether they are the player's, and whether there is another free seat for them. */
     data class CrewSeat(val id: Long, val name: String, val where: String, val mine: Boolean, val canMove: Boolean)
@@ -216,7 +227,8 @@ class HudState {
         crewLost = emptyList()
         crew = emptyList()
         crewSeats = 0
-        crewOpen = false
+        statusOpen = null
+        stripOpen = false
         rcsArmed = false
         rcsSlide = false
         rcsLeft = null
@@ -224,7 +236,6 @@ class HudState {
         joints = emptyList()
         sharedWith = null
         sharedPilot = "both"
-        sharedOpen = false
         chute = null
         mapMode = false
         canJoin = false
@@ -236,5 +247,36 @@ class HudState {
         warpRequested = 1.0
         warpAllowed = false
         warpPickerOpen = false
+    }
+
+    companion object {
+        const val STATUS_PARTS = "parts"
+        const val STATUS_CREW = "crew"
+        const val STATUS_DOCK = "dock"
+        const val STATUS_BASE = "base"
+        const val STATUS_SHARED = "shared"
+    }
+}
+
+/**
+ * When the flight controls fade back to let the view through: [IDLE_NANOS]
+ * after the last thing that wanted them - a touch anywhere, a new warning
+ * or prompt, the engines running - and back at once on the next.
+ */
+class HudFade {
+    @Volatile private var lastWake = System.nanoTime()
+
+    fun wake(now: Long) {
+        lastWake = now
+    }
+
+    /** Whether, at [now], it has been idle long enough to fade. */
+    fun idle(now: Long): Boolean = now - lastWake > IDLE_NANOS
+
+    companion object {
+        const val IDLE_NANOS = 4_000_000_000L
+
+        /** How much of the control opacity is left once faded. */
+        const val FADED = 0.35f
     }
 }

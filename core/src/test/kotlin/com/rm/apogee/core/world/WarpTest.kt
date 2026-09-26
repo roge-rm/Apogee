@@ -34,7 +34,7 @@ class WarpTest {
         val low = World.default(catalog).let { it.warpLimit(inOrbit(it, 100_000.0)) }
         val high = World.default(catalog).let { it.warpLimit(inOrbit(it, 600_000.0)) }
         assertEquals("just above the air, rails at the slowest", 10.0, low, 0.0)
-        assertEquals("far out, the fastest", World.WARP_RATES.last(), high, 0.0)
+        assertEquals("a Terra radius out, as fast as near a world goes", 10_000.0, high, 0.0)
     }
 
     @Test

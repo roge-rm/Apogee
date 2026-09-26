@@ -46,6 +46,12 @@ interface Terrain {
     /** What lies and grows on it. Null for a surface with nothing on it. */
     val scatter: ScatterField? get() = null
 
+    /** Lifeless: only rocks are scattered on it, never Terra's trees and scrub. */
+    val barren: Boolean get() = false
+
+    /** Which world's ground this is: what it is drawn in the colours of. */
+    val world: String get() = "terra"
+
     /**
      * Ground kept clear for the launch complex - pad, runway, and their
      * blends - where nothing may grow or lie.

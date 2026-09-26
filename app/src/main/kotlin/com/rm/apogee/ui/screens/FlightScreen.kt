@@ -1,8 +1,7 @@
 package com.rm.apogee.ui.screens
 
-import com.rm.apogee.ui.components.StageStack
-import com.rm.apogee.ui.components.FuelBar
-import com.rm.apogee.game.StageCard
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -18,21 +17,17 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.ui.draw.rotate
-import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Explore
-import androidx.compose.material.icons.filled.KeyboardDoubleArrowUp
-import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Public
-import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
@@ -41,31 +36,45 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.rm.apogee.game.FlightTelemetry
+import com.rm.apogee.game.HudFade
 import com.rm.apogee.game.HudState
+import com.rm.apogee.ui.components.ActionRail
 import com.rm.apogee.ui.components.ApogeeButton
 import com.rm.apogee.ui.components.AttitudeStick
-import com.rm.apogee.ui.components.CautionChips
 import com.rm.apogee.ui.components.CraftSwitcher
-import com.rm.apogee.ui.components.WarpButton
+import com.rm.apogee.ui.components.FlightStrip
 import com.rm.apogee.ui.components.HoldButton
 import com.rm.apogee.ui.components.NavBall
 import com.rm.apogee.ui.components.NudgeButton
+import com.rm.apogee.ui.components.PromptActions
+import com.rm.apogee.ui.components.PromptSlot
+import com.rm.apogee.ui.components.RailActions
+import com.rm.apogee.ui.components.RoundStageButton
+import com.rm.apogee.ui.components.StageTab
+import com.rm.apogee.ui.components.StatusActions
+import com.rm.apogee.ui.components.StatusRow
 import com.rm.apogee.ui.components.VerticalAxisSlider
+import com.rm.apogee.ui.components.WarpButton
+import com.rm.apogee.ui.components.promptKey
 import com.rm.apogee.ui.theme.ApogeeAlpha
 import com.rm.apogee.ui.theme.ApogeeColors
 import com.rm.apogee.ui.theme.Dimens
 import com.rm.apogee.ui.theme.TelemetryTextStyle
 import com.rm.apogee.ui.theme.alpha
-import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /**
@@ -87,6 +96,8 @@ fun FlightScreen(
     controlOpacity: Float,
     showDebugOverlay: Boolean,
     leftHandMode: Boolean,
+    /** Let the controls fade back when untouched for a few seconds. */
+    fadeWhenIdle: Boolean = true,
     onThrottleChange: (Float) -> Unit,
     onAttitude: (pitch: Float, yaw: Float) -> Unit,
     onRoll: (Float) -> Unit,
@@ -100,6 +111,8 @@ fun FlightScreen(
     targetChoices: () -> List<com.rm.apogee.game.GameSession.TargetChoice> = { emptyList() },
     /** Steer by a craft, or -1 for none. */
     onTarget: (Long) -> Unit = {},
+    /** The worlds' names on the map, placed on a screen this wide and high. */
+    mapLabels: (Float, Float) -> List<com.rm.apogee.game.GameSession.MapLabel> = { _, _ -> emptyList() },
     onToggleBrakes: () -> Unit,
     /** Arm the thrusters, or stand them down. */
     onToggleRcs: () -> Unit = {},
@@ -146,6 +159,12 @@ fun FlightScreen(
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val portrait = maxWidth < maxHeight
         val sas = SasActions(onToggleSas, onSasMode, targetChoices, onTarget, onStickMode)
+        val railActions = RailActions(
+            onBrakes = onToggleBrakes, onReverse = onToggleReverse, onRcs = onToggleRcs, onDeploy = onToggleDeploy,
+            onDrill = onToggleDrill, onRefine = onToggleRefine, onJump = crewActions.onJump, onFlag = crewActions.onFlag,
+        )
+        val statusActions = StatusActions(crewActions, onUndock, onFound, onRefuel, onUnload, onRefine, onDockPilot)
+        val promptActions = PromptActions(onJoin, onFound, crewActions.onBoard, crewActions.onGrab)
 
         if (hud.connectionError != null) {
             ConnectionProblem(hud.connectionError!!, onExit)
@@ -177,7 +196,31 @@ fun FlightScreen(
             return@BoxWithConstraints
         }
 
-        // --- top left: exit, craft name, diagnostics ------------------------
+        // --- fading when idle -----------------------------------------------
+        // A few seconds with nothing touched and the controls fade back to let
+        // the view through; any touch, a new warning or prompt, or the engines
+        // running bring them straight back.
+        var idle by remember { mutableStateOf(false) }
+        val statusKey = statusKey(hud)
+        val promptKey = promptKey(hud)
+        LaunchedEffect(statusKey, promptKey) { hud.touched() }
+        LaunchedEffect(fadeWhenIdle) {
+            while (true) {
+                val now = System.nanoTime()
+                if (hud.throttle > 0f) hud.fade.wake(now)
+                idle = fadeWhenIdle && hud.fade.idle(now)
+                kotlinx.coroutines.delay(FADE_POLL_MS)
+            }
+        }
+        val alpha by animateFloatAsState(
+            targetValue = if (idle) controlOpacity * HudFade.FADED else controlOpacity,
+            animationSpec = tween(if (idle) Dimens.MOTION_FADE_MS else FADE_BACK_MS),
+            label = "hud fade",
+        )
+
+        if (hud.mapMode) MapNames(mapLabels)
+
+        // --- top left: exit, map, craft, warp, and the craft's name ----------
         // Only the *horizontal* cutout inset, so these sit up against the top
         // edge. Padding for the full cutout pushes them a notch's height down
         // the screen to clear something that is not above them: a punch-hole
@@ -192,7 +235,7 @@ fun FlightScreen(
                 .padding(horizontal = 12.dp, vertical = 6.dp),
         ) {
             Row(
-                modifier = Modifier.alpha(controlOpacity),
+                modifier = Modifier.alpha(alpha),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(Dimens.HudGroupGap),
             ) {
@@ -239,13 +282,16 @@ fun FlightScreen(
                     )
                 }
                 // The craft name is the first thing to go when the screen is
-                // narrow: the telemetry panel opposite is not optional and
-                // the two meet in the middle on a portrait phone.
+                // narrow: the flight strip opposite is not optional and the
+                // two meet in the middle on a portrait phone.
                 if (!portrait && hud.telemetry.craftName.isNotEmpty()) {
                     Text(
                         hud.telemetry.craftName,
                         style = MaterialTheme.typography.titleSmall,
                         color = Color.White.alpha(ApogeeAlpha.SECONDARY),
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        modifier = Modifier.widthIn(max = 160.dp),
                     )
                 }
             }
@@ -272,7 +318,10 @@ fun FlightScreen(
             return@BoxWithConstraints
         }
 
-        // --- top right: telemetry -------------------------------------------
+        // --- top right: the flight strip, and the status chips under it ------
+        // Along the edge, out of the view: a few numbers, tapped open for the
+        // rest; then the craft's state in small chips, each tapped open for
+        // what lies behind it.
         Column(
             modifier = Modifier
                 .align(Alignment.TopEnd)
@@ -280,237 +329,151 @@ fun FlightScreen(
                 .padding(horizontal = 12.dp, vertical = 6.dp),
             horizontalAlignment = Alignment.End,
         ) {
-            TelemetryPanel(hud.telemetry, Modifier.alpha(controlOpacity), twoColumns = !portrait, power = hud.power)
-            // Landscape is short: the crew chip rides beside the cautions
-            // rather than under them, clear of the roll buttons below.
-            Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                if (!portrait) {
-                    com.rm.apogee.ui.components.CrewPanel(hud, crewActions, Modifier.padding(top = 6.dp).alpha(controlOpacity))
+            FlightStrip(
+                hud.telemetry, hud.stripOpen, { hud.stripOpen = !hud.stripOpen },
+                twoColumns = !portrait, power = hud.power,
+                modifier = Modifier.alpha(alpha),
+                perLine = if (portrait) PORTRAIT_STRIP_PER_LINE else LANDSCAPE_STRIP_PER_LINE,
+            )
+            Spacer(Modifier.height(6.dp))
+            StatusRow(
+                hud, hud.chute, statusActions,
+                fadedAlpha = alpha,
+                detailHeight = if (portrait) 220.dp else LANDSCAPE_DETAIL_HEIGHT,
+            )
+        }
+
+        // --- top middle: whatever asks for something now ---------------------
+        PromptSlot(
+            hud, burnActions, promptActions,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Horizontal))
+                .padding(top = if (portrait) PORTRAIT_PROMPT_TOP else LANDSCAPE_PROMPT_TOP, start = 12.dp, end = 12.dp),
+        )
+
+        // --- the bottom corners: throttle and switches, stick, navball, stage -
+        // Throttle and attitude on opposite edges so the two thumbs never
+        // cross, swapping sides together in left-hand mode; the switches on
+        // the throttle's inner side; the navball and the STAGE button low in
+        // the middle between them. Nothing higher than it has to be.
+        val throttleGroup: @Composable () -> Unit = {
+            Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                val rail: @Composable () -> Unit = {
+                    ActionRail(hud, railActions, perColumn = if (portrait) PORTRAIT_RAIL_PER_COLUMN else LANDSCAPE_RAIL_PER_COLUMN)
                 }
-                CautionChips(
-                    hud.telemetry, hud.damageExpanded, { hud.damageExpanded = !hud.damageExpanded },
-                    modifier = Modifier.padding(top = 6.dp),
-                    chute = hud.chute,
-                    power = hud.power,
-                )
+                if (leftHandMode) rail()
+                ThrottleControl(hud, onThrottleChange, if (portrait) PORTRAIT_THROTTLE_HEIGHT else THROTTLE_HEIGHT)
+                if (!leftHandMode) rail()
             }
-            com.rm.apogee.ui.components.DockingPanel(
-                hud.dock, hud.joints, onUndock,
-                modifier = Modifier.padding(top = 6.dp).alpha(controlOpacity),
+        }
+        val attitude: @Composable () -> Unit = {
+            AttitudeCluster(
+                hud, onAttitude, onRoll, sas,
+                if (portrait) PORTRAIT_STICK_SIZE else STICK_SIZE,
+                Modifier.cornerInset(leftHandMode, if (portrait) PORTRAIT_STICK_INSET else STICK_INSET),
             )
-            if (portrait) {
-                com.rm.apogee.ui.components.CrewPanel(hud, crewActions, Modifier.padding(top = 6.dp).alpha(controlOpacity))
-            }
-            com.rm.apogee.ui.components.BasePanel(
-                hud.nearBase, hud.baseService, onFound, onRefuel,
-                modifier = Modifier.padding(top = 6.dp).alpha(controlOpacity),
-                onUnload = onUnload,
-                onRefine = onRefine,
+        }
+        val navball: @Composable () -> Unit = {
+            NavBall(
+                rotation = hud.telemetry.rotation,
+                worldUp = hud.telemetry.up,
+                prograde = hud.telemetry.prograde,
+                size = if (portrait) PORTRAIT_NAVBALL_SIZE else NAVBALL_SIZE,
+                normal = hud.telemetry.normal,
+                radialOut = hud.telemetry.radialOut,
+                frame = hud.telemetry.frame,
+                frameManual = hud.telemetry.frameChosen != com.rm.apogee.core.world.NavFrame.AUTO,
+                onCycleFrame = onCycleFrame,
+                toTarget = hud.telemetry.toTarget,
+                throughAir = hud.telemetry.throughAir,
+                burn = hud.telemetry.burn,
             )
-            com.rm.apogee.ui.components.BurnPanel(
-                hud.burn, hud.landing, hud.mapMode, hud.autopilotNote, burnActions,
-                modifier = Modifier.padding(top = 6.dp),
-            )
-            // A surveyed world's ore or water on the map: tap round ORE, H2O, off.
-            if (hud.mapMode && hud.surveyedHere) {
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = Color.Black.alpha(ApogeeAlpha.SCRIM),
-                    modifier = Modifier.padding(top = 6.dp).clickable {
-                        hud.mapResource = when (hud.mapResource) { "ORE" -> "H2O"; "H2O" -> "OFF"; else -> "ORE" }
-                    },
-                ) {
-                    Row(Modifier.padding(horizontal = 10.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text("SURVEY", style = MaterialTheme.typography.labelSmall, color = Color.White.alpha(ApogeeAlpha.SUBTITLE))
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            hud.mapResource,
-                            style = TelemetryTextStyle,
-                            color = when (hud.mapResource) {
-                                "ORE" -> Color(0xFFFF9E40)
-                                "H2O" -> Color(0xFF59CCFF)
-                                else -> Color.White.alpha(ApogeeAlpha.SECONDARY)
-                            },
-                        )
-                    }
+        }
+        // Someone on EVA has nothing to stage.
+        val staging: @Composable () -> Unit = {
+            if (!hud.isSuit) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    StageTab(hud.stages, hud.stagesExpanded, { hud.stagesExpanded = !hud.stagesExpanded })
+                    if (hud.stages.isNotEmpty()) Spacer(Modifier.height(6.dp))
+                    RoundStageButton(hud.telemetry.stage, onStage, current = hud.stages.firstOrNull { it.current })
                 }
-            }
-            hud.sharedWith?.let { other ->
-                com.rm.apogee.ui.components.SharedCraftCard(
-                    other, hud.sharedPilot, hud.sharedOpen, { hud.sharedOpen = it }, onDockPilot,
-                    modifier = Modifier.padding(top = 6.dp),
-                )
             }
         }
 
         if (portrait) {
-            // Throttle on one edge, attitude on the other, and the navball
-            // above staging in between - low and to the left, where the eye
-            // can take it in without leaving the controls.
-            //
-            // It sits beside the throttle rather than beneath it. Stacking the
-            // two in one column put the ball in the extreme corner and cost
-            // the throttle most of its travel, and neither was an improvement.
             Row(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
                     .windowInsetsPadding(WindowInsets.navigationBars)
                     .padding(horizontal = 12.dp, vertical = 12.dp)
-                    .alpha(controlOpacity),
+                    .alpha(alpha),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.Bottom,
             ) {
-                val throttle: @Composable () -> Unit = {
-                    ThrottleControl(
-                        hud,
-                        onThrottleChange,
-                        onToggleBrakes,
-                        onToggleRcs,
-                        onToggleReverse,
-                        PORTRAIT_THROTTLE_HEIGHT,
-                        onToggleDeploy,
-                        onToggleDrill,
-                        onToggleRefine,
-                        crewActions,
-                    )
-                }
-                // The stage stack rides above the attitude controls, on their
-                // side of the screen: in the middle it stacked on the navball
-                // and pushed both up into the view.
-                val attitude: @Composable () -> Unit = {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        StageStack(
-                            hud.stages, hud.stagesExpanded, { hud.stagesExpanded = !hud.stagesExpanded },
-                            width = PORTRAIT_CLUSTER_WIDTH, maxChips = 3,
-                            detailWidth = 300.dp,
-                        )
-                        if (hud.stages.isNotEmpty()) Spacer(Modifier.height(10.dp))
-                        AttitudeCluster(
-                            hud, onAttitude, onRoll, sas, PORTRAIT_STICK_SIZE,
-                            Modifier.cornerInset(leftHandMode, PORTRAIT_STICK_INSET),
-                        )
-                    }
-                }
-
-                if (leftHandMode) attitude() else throttle()
-
+                if (leftHandMode) attitude() else throttleGroup()
+                // The ball above the button: side by side they are wider than
+                // a portrait phone has between the thumbs.
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    if (hud.canJoin && !hud.isSuit) {
-                        JoinButton(onJoin)
-                        Spacer(Modifier.height(8.dp))
-                    }
-                    NavBall(
-                        rotation = hud.telemetry.rotation,
-                        worldUp = hud.telemetry.up,
-                        prograde = hud.telemetry.prograde,
-                        size = PORTRAIT_NAVBALL_SIZE,
-                        normal = hud.telemetry.normal,
-                        radialOut = hud.telemetry.radialOut,
-                        frame = hud.telemetry.frame,
-                        frameManual = hud.telemetry.frameChosen != com.rm.apogee.core.world.NavFrame.AUTO,
-                        onCycleFrame = onCycleFrame,
-                        toTarget = hud.telemetry.toTarget,
-                        throughAir = hud.telemetry.throughAir,
-                    burn = hud.telemetry.burn,
-                    )
-                    Spacer(Modifier.height(10.dp))
-                    // Someone on EVA has nothing to stage.
-                    if (!hud.isSuit) StageButton(hud.telemetry.stage, onStage, current = hud.stages.firstOrNull { it.current })
+                    navball()
+                    Spacer(Modifier.height(8.dp))
+                    staging()
                 }
-
-                if (leftHandMode) throttle() else attitude()
+                if (leftHandMode) throttleGroup() else attitude()
             }
         } else {
-            // Landscape: anchored to the corners, with nothing in the middle.
-            // Throttle and attitude sit on opposite edges so the two thumbs
-            // never cross, and swap sides together in left-hand mode.
-            val throttleAlignment =
-                if (leftHandMode) Alignment.BottomEnd else Alignment.BottomStart
             Box(
                 modifier = Modifier
-                    .align(throttleAlignment)
+                    .align(if (leftHandMode) Alignment.BottomEnd else Alignment.BottomStart)
                     .windowInsetsPadding(WindowInsets.navigationBars)
                     .padding(horizontal = 16.dp, vertical = 12.dp)
-                    .alpha(controlOpacity),
-            ) {
-                ThrottleControl(hud, onThrottleChange, onToggleBrakes, onToggleRcs, onToggleReverse, THROTTLE_HEIGHT, onToggleDeploy, onToggleDrill, onToggleRefine, crewActions)
-            }
-
-            val stickAlignment =
-                if (leftHandMode) Alignment.BottomStart else Alignment.BottomEnd
+                    .alpha(alpha),
+            ) { throttleGroup() }
             Box(
                 modifier = Modifier
-                    .align(stickAlignment)
+                    .align(if (leftHandMode) Alignment.BottomStart else Alignment.BottomEnd)
                     .windowInsetsPadding(WindowInsets.navigationBars)
                     .padding(horizontal = 16.dp, vertical = 12.dp)
-                    .alpha(controlOpacity),
-            ) {
-                AttitudeCluster(hud, onAttitude, onRoll, sas, STICK_SIZE, Modifier.cornerInset(leftHandMode, STICK_INSET))
-            }
-
+                    .alpha(alpha),
+            ) { attitude() }
             Row(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .windowInsetsPadding(WindowInsets.navigationBars)
-                    .padding(bottom = 12.dp)
-                    .alpha(controlOpacity),
+                    .padding(bottom = 10.dp)
+                    .alpha(alpha),
                 horizontalArrangement = Arrangement.spacedBy(Dimens.HudGroupGap),
                 verticalAlignment = Alignment.Bottom,
             ) {
-                NavBall(
-                    rotation = hud.telemetry.rotation,
-                    worldUp = hud.telemetry.up,
-                    prograde = hud.telemetry.prograde,
-                    size = NAVBALL_SIZE,
-                    normal = hud.telemetry.normal,
-                    radialOut = hud.telemetry.radialOut,
-                    frame = hud.telemetry.frame,
-                    frameManual = hud.telemetry.frameChosen != com.rm.apogee.core.world.NavFrame.AUTO,
-                    onCycleFrame = onCycleFrame,
-                    toTarget = hud.telemetry.toTarget,
-                    throughAir = hud.telemetry.throughAir,
-                    burn = hud.telemetry.burn,
-                )
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    if (hud.canJoin && !hud.isSuit) {
-                        JoinButton(onJoin)
-                        Spacer(Modifier.height(8.dp))
-                    }
-                    StageStack(
-                        hud.stages, hud.stagesExpanded, { hud.stagesExpanded = !hud.stagesExpanded },
-                        width = Dimens.HudActionBarWidth, maxChips = 3,
-                    )
-                    if (hud.stages.isNotEmpty()) Spacer(Modifier.height(6.dp))
-                    if (!hud.isSuit) StageButton(
-                        hud.telemetry.stage,
-                        onStage,
-                        Modifier.width(Dimens.HudActionBarWidth),
-                        current = hud.stages.firstOrNull { it.current },
-                    )
-                }
+                navball()
+                staging()
             }
         }
     }
 }
 
-/** The throttle, with its readout and label. */
+/** What is showing in the status row, as a key: when it changes, the controls wake. */
+private fun statusKey(hud: HudState): String = buildString {
+    val t = hud.telemetry
+    if (t.overheating) append("heat")
+    if (t.straining) append("load")
+    append(t.damaged).append('/').append(t.lost)
+    hud.power?.let { if (!it.powered) append("dark"); if (it.low) append("low"); append(it.blocked) }
+    append(hud.chute)
+    append(hud.joints.size)
+    if (hud.nearBase != null) append("base")
+}
+
+/** The throttle, with its readout and label: the craft's switches ride beside it, on the [ActionRail]. */
 @Composable
 private fun ThrottleControl(
     hud: HudState,
     onThrottleChange: (Float) -> Unit,
-    onToggleBrakes: () -> Unit,
-    onToggleRcs: () -> Unit,
-    onToggleReverse: () -> Unit,
     height: Dp,
-    onToggleDeploy: () -> Unit = {},
-    onToggleDrill: () -> Unit = {},
-    onToggleRefine: () -> Unit = {},
-    crew: com.rm.apogee.ui.components.CrewActions = com.rm.apogee.ui.components.CrewActions(),
 ) {
     val throttle = hud.throttle
-    // Out of touch, it moves nothing: shown faded, though the deploy chip
-    // below would be as deaf.
+    // Out of touch, it moves nothing: shown faded.
     Column(
         Modifier.alpha(if (hud.power?.outOfTouch != null) OUT_OF_TOUCH_ALPHA else 1f),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -537,115 +500,6 @@ private fun ThrottleControl(
             style = MaterialTheme.typography.labelSmall,
             color = Color.White.alpha(ApogeeAlpha.SUBTITLE),
         )
-        // Brakes live under the throttle: the thumb that pulls the power off
-        // slides straight on to them. Only on a craft with wheels to brake.
-        if (hud.hasWheels) {
-            // Reverse above the brakes: the throttle drives the wheels backwards.
-            Spacer(Modifier.height(8.dp))
-            Surface(
-                shape = RoundedCornerShape(8.dp),
-                color = if (hud.reverse) ApogeeColors.Caution.alpha(0.3f)
-                    else Color.White.alpha(ApogeeAlpha.CONTROL_FILL),
-                modifier = Modifier.clickable(onClick = onToggleReverse),
-            ) {
-                Text(
-                    "REV",
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = if (hud.reverse) ApogeeColors.Caution else Color.White.alpha(ApogeeAlpha.SECONDARY),
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                )
-            }
-            Spacer(Modifier.height(8.dp))
-            Surface(
-                shape = RoundedCornerShape(8.dp),
-                color = if (hud.brakes) ApogeeColors.Danger.alpha(0.3f)
-                    else Color.White.alpha(ApogeeAlpha.CONTROL_FILL),
-                modifier = Modifier.clickable(onClick = onToggleBrakes),
-            ) {
-                Text(
-                    "BRK",
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = if (hud.brakes) ApogeeColors.Danger else Color.White.alpha(ApogeeAlpha.SECONDARY),
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                )
-            }
-        }
-        // Thrusters, beside the brakes: armed, they help every turn and let
-        // the stick slide the craft. Only on a craft that has some.
-        if (hud.hasRcs) {
-            Spacer(Modifier.height(8.dp))
-            Surface(
-                shape = RoundedCornerShape(8.dp),
-                color = if (hud.rcsArmed) ApogeeColors.Accent.alpha(0.3f)
-                    else Color.White.alpha(ApogeeAlpha.CONTROL_FILL),
-                modifier = Modifier.clickable(onClick = onToggleRcs),
-            ) {
-                Column(
-                    Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    val ink = if (hud.rcsArmed) ApogeeColors.Accent else Color.White.alpha(ApogeeAlpha.SECONDARY)
-                    Text("RCS", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = ink)
-                    // What is left to push with, once there is a question of it running out.
-                    val left = hud.rcsLeft
-                    if (hud.rcsArmed && left != null) {
-                        Text(
-                            "${(left * 100).roundToInt()}%",
-                            style = TelemetryTextStyle,
-                            color = if (left < 0.1f) ApogeeColors.Danger else ink,
-                        )
-                    }
-                }
-            }
-        }
-        // Sun wings and dishes: out, or folded away. Only on a craft that has some.
-        if (hud.hasFoldouts) {
-            val out = hud.power?.deployed == true
-            Spacer(Modifier.height(8.dp))
-            Surface(
-                shape = RoundedCornerShape(8.dp),
-                color = if (out) ApogeeColors.Prograde.alpha(0.3f) else Color.White.alpha(ApogeeAlpha.CONTROL_FILL),
-                modifier = Modifier.clickable(onClick = onToggleDeploy),
-            ) {
-                Text(
-                    "DEPLOY",
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = if (out) ApogeeColors.Prograde else Color.White.alpha(ApogeeAlpha.SECONDARY),
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-                )
-            }
-        }
-        // Drills: green digging, amber switched on but not getting anywhere - and why.
-        if (hud.hasDrill) {
-            val power = hud.power
-            val on = power?.drilling == true
-            val digging = power?.drillState == com.rm.apogee.core.world.DrillState.DIGGING
-            val tint = when {
-                !on -> Color.White.alpha(ApogeeAlpha.SECONDARY)
-                digging -> ApogeeColors.Prograde
-                else -> ApogeeColors.Caution
-            }
-            ToggleChip("DRILL", if (on && !digging) drillNote(power?.drillState) else null, tint, on, onToggleDrill)
-        }
-        if (hud.hasConverter) {
-            val on = hud.power?.refining == true
-            ToggleChip("REFINE", null, if (on) ApogeeColors.Prograde else Color.White.alpha(ApogeeAlpha.SECONDARY), on, onToggleRefine)
-        }
-        // Someone out on EVA: jump, a ladder, climb in, plant a flag.
-        if (hud.isSuit) {
-            val power = hud.power
-            val idle = Color.White.alpha(ApogeeAlpha.SECONDARY)
-            // Feet on something: only then is there anything to jump off or plant in.
-            val grounded = hud.telemetry.heightAboveGround < GROUNDED_HEIGHT
-            if (grounded) ToggleChip("JUMP", null, idle, false, crew.onJump)
-            if (power?.onLadder == true) ToggleChip("LET GO", null, ApogeeColors.Prograde, true) { crew.onGrab(false) }
-            else if (power?.canGrab == true) ToggleChip("GRAB", "LADDER", ApogeeColors.Accent, true) { crew.onGrab(true) }
-            if (power != null && power.boardable.isNotEmpty()) ToggleChip("BOARD", power.boardable.uppercase().take(12), ApogeeColors.Prograde, true, crew.onBoard)
-            if (grounded) ToggleChip("FLAG", null, idle, false, crew.onFlag)
-        }
     }
 }
 
@@ -735,305 +589,6 @@ private fun StickModeChip(sliding: Boolean, onStickMode: (Boolean) -> Unit, show
     }
 }
 
-/**
- * Offered only while a weld would actually take.
- *
- * A button that is present but inert teaches the player that the control is
- * unreliable; one that appears the moment two modules are touching and still
- * teaches them the rule. The client works out the same condition the world
- * checks, so the two agree.
- */
-@Composable
-private fun JoinButton(onJoin: () -> Unit) {
-    Surface(
-        shape = RoundedCornerShape(Dimens.CornerActionBar),
-        color = ApogeeColors.Prograde.alpha(0.85f),
-        contentColor = Color(0xFF0C2418),
-    ) {
-        Row(
-            Modifier
-                .clickable(onClick = onJoin)
-                .padding(horizontal = 16.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(Icons.Filled.Link, contentDescription = null)
-            Spacer(Modifier.width(8.dp))
-            Text(
-                "JOIN",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-            )
-        }
-    }
-}
-
-/**
- * @param compact drops the chevron and tightens the padding, for the portrait
- *   bottom row where the bar only gets the width the two controls leave it.
- *   Without it "STAGE 0" wraps onto two lines at about 130dp.
- */
-@Composable
-private fun StageButton(
-    stage: Int,
-    onStage: () -> Unit,
-    modifier: Modifier = Modifier,
-    compact: Boolean = false,
-    /** The stage burning now, whose fuel the button carries as a gauge. */
-    current: StageCard? = null,
-) {
-    val ink = Color(0xFF1A1030)
-    Surface(
-        shape = RoundedCornerShape(Dimens.CornerActionBar),
-        color = ApogeeColors.Accent.alpha(0.85f),
-        contentColor = ink,
-        modifier = modifier,
-    ) {
-        Column(
-            Modifier
-                .clickable(onClick = onStage)
-                .padding(
-                    horizontal = if (compact) 12.dp else 20.dp,
-                    vertical = if (current?.fuelFraction != null) 8.dp else 12.dp,
-                ),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Row(
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                if (!compact) {
-                    Icon(Icons.Filled.KeyboardDoubleArrowUp, contentDescription = null)
-                    Spacer(Modifier.width(8.dp))
-                }
-                Text(
-                    "STAGE $stage",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                )
-            }
-            // The burning stage's fuel, in the button's own ink - a gauge in
-            // accent would vanish against it - with a number beside it.
-            val fraction = current?.fuelFraction
-            if (fraction != null) {
-                Spacer(Modifier.height(4.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    FuelBar(
-                        fraction,
-                        Modifier.width(96.dp),
-                        track = ink.alpha(0.2f),
-                        fill = if (fraction < 0.05f) ApogeeColors.Danger.copy(red = 0.7f) else ink.alpha(0.85f),
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    Text("${(fraction * 100).roundToInt()}%", style = TelemetryTextStyle, color = ink)
-                }
-            }
-        }
-    }
-}
-@Composable
-private fun TelemetryPanel(
-    telemetry: FlightTelemetry,
-    modifier: Modifier = Modifier,
-    twoColumns: Boolean = false,
-    power: com.rm.apogee.game.HudState.PowerReadout? = null,
-) {
-    // Two columns in landscape - near the ground, then the orbit and target -
-    // where one tall column ran down over the roll and SAS buttons.
-    val panel = modifier
-        .clip(RoundedCornerShape(Dimens.CornerSmall))
-        .background(Color.Black.alpha(ApogeeAlpha.SCRIM))
-        .padding(horizontal = 12.dp, vertical = 8.dp)
-    if (twoColumns) {
-        Row(panel, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            Column(horizontalAlignment = Alignment.End) { SurfaceReadouts(telemetry) }
-            Column(horizontalAlignment = Alignment.End) { OrbitReadouts(telemetry); PowerReadout(power) }
-        }
-    } else {
-        Column(panel, horizontalAlignment = Alignment.End) {
-            SurfaceReadouts(telemetry)
-            OrbitReadouts(telemetry)
-            PowerReadout(power)
-        }
-    }
-}
-
-/** A switch under the throttle, lit in [tint] while [on], with a small [note] under it. */
-@Composable
-private fun ToggleChip(label: String, note: String?, tint: Color, on: Boolean, onTap: () -> Unit) {
-    Spacer(Modifier.height(8.dp))
-    Surface(
-        shape = RoundedCornerShape(8.dp),
-        color = if (on) tint.alpha(0.3f) else Color.White.alpha(ApogeeAlpha.CONTROL_FILL),
-        modifier = Modifier.clickable(onClick = onTap),
-    ) {
-        Column(Modifier.padding(horizontal = 8.dp, vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = tint)
-            if (note != null) Text(note, style = MaterialTheme.typography.labelSmall, color = tint, maxLines = 1)
-        }
-    }
-}
-
-/** Why a drill switched on is not digging, in a word. */
-private fun drillNote(state: com.rm.apogee.core.world.DrillState?): String = when (state) {
-    com.rm.apogee.core.world.DrillState.EXTENDING -> "BIT DOWN"
-    com.rm.apogee.core.world.DrillState.NO_GROUND -> "NO GROUND"
-    com.rm.apogee.core.world.DrillState.MOVING -> "MOVING"
-    com.rm.apogee.core.world.DrillState.FULL -> "FULL"
-    com.rm.apogee.core.world.DrillState.BARREN -> "BARREN"
-    com.rm.apogee.core.world.DrillState.NO_POWER -> "NO POWER"
-    else -> ""
-}
-
-/** Charge and what it holds, and whether it is filling or draining: only on a craft with a battery. */
-@Composable
-private fun PowerReadout(power: com.rm.apogee.game.HudState.PowerReadout?) {
-    if (power == null) return
-    // What the ground below holds, by a scanner low enough.
-    if (power.ore >= 0f) {
-        Spacer(Modifier.height(4.dp))
-        Readout("GROUND", "ORE ${(power.ore * 100).roundToInt()}%  H2O ${(power.water * 100).roundToInt()}%")
-    }
-    // What it has dug up, on a craft that can hold any.
-    power.held?.let { h ->
-        if (h[1] > 0f) Readout("ORE", "${h[0].roundToInt()}/${h[1].roundToInt()}")
-        if (h[3] > 0f) Readout("WATER", "${h[2].roundToInt()}/${h[3].roundToInt()}")
-    }
-    if (power.survey >= 0f) {
-        Readout(
-            "SCAN",
-            if (power.survey >= 1f) "SURVEYED" else "${(power.survey * 100).roundToInt()}%",
-            colour = if (power.survey >= 1f) ApogeeColors.Prograde else ApogeeColors.Data,
-        )
-    }
-    if (power.capacity <= 0f) return
-    val rate = power.net
-    val sign = if (rate >= 0f) "+" else "\u2212"
-    Spacer(Modifier.height(4.dp))
-    Readout(
-        "PWR",
-        "${power.charge.roundToInt()}/${power.capacity.roundToInt()} $sign${"%.2f".format(kotlin.math.abs(rate))}/s",
-        colour = when {
-            !power.powered -> ApogeeColors.Danger
-            power.low -> ApogeeColors.Caution
-            else -> ApogeeColors.Data
-        },
-    )
-}
-
-@Composable
-private fun SurfaceReadouts(telemetry: FlightTelemetry) {
-    Readout("ALT", formatDistance(telemetry.altitude))
-    // Above the ground, not above the datum. The launch complex sits most
-    // of a kilometre up, so the two disagree from the moment you spawn,
-    // and only one of them tells you whether you are about to land.
-    if (telemetry.heightAboveGround < 20_000.0) {
-        Readout(
-            "AGL",
-            formatDistance(telemetry.heightAboveGround),
-            colour = if (telemetry.heightAboveGround < 200.0) ApogeeColors.Caution
-            else ApogeeColors.Data,
-        )
-    }
-    Readout("SRF", "${telemetry.surfaceSpeed.roundToInt()} m/s")
-    // Climb or sink, and which way the nose points on the compass.
-    Readout(
-        "VS",
-        (if (telemetry.verticalSpeed >= 0) "+" else "\u2212") + "${kotlin.math.abs(telemetry.verticalSpeed).roundToInt()} m/s",
-        colour = if (telemetry.verticalSpeed < -10.0 && telemetry.heightAboveGround < 500.0) ApogeeColors.Caution else ApogeeColors.Data,
-    )
-    Readout("HDG", "%03d\u00b0".format(telemetry.heading.roundToInt() % 360))
-    // Through the air, and the air itself - only where there is some.
-    if (telemetry.inAir) {
-        Readout("AIR", "${telemetry.airspeed.roundToInt()} m/s")
-        val windColour = if (telemetry.windSpeed > 15.0) ApogeeColors.Caution else ApogeeColors.Data
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("WIND", style = TelemetryTextStyle, color = Color.White.alpha(ApogeeAlpha.SUBTITLE))
-            Spacer(Modifier.width(10.dp))
-            // The way it blows, as seen on screen: turned smoothly, not
-            // snapped to eight points, so it lines up with the windsock.
-            if (telemetry.windSpeed >= 0.5) {
-                androidx.compose.material3.Icon(
-                    androidx.compose.material.icons.Icons.Filled.ArrowUpward,
-                    contentDescription = null,
-                    tint = windColour,
-                    modifier = Modifier.size(14.dp).rotate((telemetry.windFrom + 180.0).toFloat()),
-                )
-                Spacer(Modifier.width(4.dp))
-            }
-            Text("${telemetry.windSpeed.roundToInt()} m/s", style = TelemetryTextStyle, color = windColour)
-        }
-    }
-}
-
-@Composable
-private fun OrbitReadouts(telemetry: FlightTelemetry) {
-    Readout("ORB", "${telemetry.orbitalSpeed.roundToInt()} m/s")
-    Spacer(Modifier.height(4.dp))
-    Readout(
-        "AP",
-        formatDistance(telemetry.apoapsisAltitude),
-        colour = if (telemetry.inOrbit) ApogeeColors.Prograde else ApogeeColors.Data,
-    )
-    Readout(
-        "PE",
-        // A periapsis underground is not a number, it is a warning: it
-        // means the current trajectory ends in the ground.
-        if (telemetry.periapsisAltitude < 0) "suborbital"
-        else formatDistance(telemetry.periapsisAltitude),
-        colour = if (telemetry.periapsisAltitude < 0) ApogeeColors.Caution
-        else ApogeeColors.Prograde,
-    )
-    if (telemetry.timeToApoapsis.isFinite() && telemetry.apoapsisAltitude > 1_000) {
-        Readout("T-AP", formatDuration(telemetry.timeToApoapsis))
-    }
-    // Waiting on the pad: when to go for the moon - a due-east launch then
-    // flies straight into its plane.
-    if (telemetry.lunaWindow.isFinite() && telemetry.heightAboveGround < 50.0 && telemetry.surfaceSpeed < 5.0) {
-        Spacer(Modifier.height(4.dp))
-        val open = telemetry.lunaWindow <= com.rm.apogee.game.GameSession.MOON_WINDOW_OPEN
-        Readout(
-            "LUNA",
-            if (open) "go east" else formatDuration(telemetry.lunaWindow),
-            colour = if (open) ApogeeColors.Prograde else ApogeeColors.Data,
-        )
-    }
-    telemetry.targetName?.let { name ->
-        Spacer(Modifier.height(4.dp))
-        Readout("TGT", name.take(12), colour = TARGET_COLOUR)
-        Readout("DST", formatDistance(telemetry.targetDistance), colour = TARGET_COLOUR)
-        Readout(
-            "CLS",
-            (if (telemetry.closingSpeed >= 0) "" else "\u2212") + "${kotlin.math.abs(telemetry.closingSpeed).format(1)} m/s",
-            colour = TARGET_COLOUR,
-        )
-    }
-    if (telemetry.dynamicPressure > 100.0) {
-        Spacer(Modifier.height(4.dp))
-        Readout(
-            "Q",
-            "${(telemetry.dynamicPressure / 1000).format(1)} kPa",
-            colour = if (telemetry.highDynamicPressure) ApogeeColors.Danger
-            else ApogeeColors.Data,
-        )
-    }
-}
-
-@Composable
-private fun Readout(label: String, value: String, colour: Color = ApogeeColors.Data) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(
-            label,
-            style = TelemetryTextStyle,
-            color = Color.White.alpha(ApogeeAlpha.SUBTITLE),
-        )
-        Spacer(Modifier.width(10.dp))
-        Text(value, style = TelemetryTextStyle, color = colour)
-    }
-}
-
 @Composable
 private fun DebugOverlay(hud: HudState, modifier: Modifier = Modifier) {
     Column(
@@ -1080,29 +635,6 @@ private fun ConnectionProblem(message: String, onExit: () -> Unit) {
     }
 }
 
-/** Metres below a kilometre, kilometres above it. */
-private fun formatDistance(metres: Double): String {
-    val magnitude = abs(metres)
-    return when {
-        magnitude >= 1_000_000 -> "%.1f Mm".format(metres / 1_000_000)
-        magnitude >= 1_000 -> "%.2f km".format(metres / 1_000)
-        else -> "%d m".format(metres.roundToInt())
-    }
-}
-
-/** Seconds as m:ss, which is how a burn countdown is actually read. */
-private fun formatDuration(seconds: Double): String {
-    if (!seconds.isFinite() || seconds < 0) return "--"
-    val total = seconds.roundToInt()
-    return when {
-        total >= 3_600 -> "%d:%02d:%02d".format(total / 3_600, total / 60 % 60, total % 60)
-        total >= 60 -> "%d:%02d".format(total / 60, total % 60)
-        else -> "${total}s"
-    }
-}
-
-private fun Double.format(decimals: Int) = "%.${decimals}f".format(this)
-
 private val THROTTLE_HEIGHT = 140.dp
 
 /** One press of the throttle's + or -. */
@@ -1110,9 +642,6 @@ private const val THROTTLE_STEP = 0.01f
 
 /** At or below this the throttle is off: the bottom of the track, and a little above it. */
 private const val THROTTLE_SNAP = 0.07f
-
-/** Height above the ground, m, under which someone on EVA is on their feet enough to jump or plant a flag. */
-private const val GROUNDED_HEIGHT = 3.0
 
 /** How faded the throttle and stick are while nothing sent to the craft is heard. */
 private const val OUT_OF_TOUCH_ALPHA = 0.35f
@@ -1124,13 +653,32 @@ private val STICK_SIZE = 132.dp
  * (Dan: too close to the corner to control easily).
  */
 private val STICK_INSET = 40.dp
+
+/** How tall a status chip's detail may grow in landscape before it scrolls: clear of the stage button. */
+private val LANDSCAPE_DETAIL_HEIGHT = 150.dp
+
+/** Numbers to a line on the flight strip. */
+private const val PORTRAIT_STRIP_PER_LINE = 2
+private const val LANDSCAPE_STRIP_PER_LINE = 5
+
+/** Where the prompts start down from the top: under the strip and chips in portrait, the top row in landscape. */
+private val PORTRAIT_PROMPT_TOP = 116.dp
+private val LANDSCAPE_PROMPT_TOP = 58.dp
+
+/** Switches to a column of the rail, before a second: portrait has the height, landscape does not. */
+private const val PORTRAIT_RAIL_PER_COLUMN = 6
+private const val LANDSCAPE_RAIL_PER_COLUMN = 4
+
+/** How often the idle fade is looked at, ms, and how fast the controls come back, ms. */
+private const val FADE_POLL_MS = 200L
+private const val FADE_BACK_MS = 150
+
 private val PORTRAIT_STICK_INSET = 14.dp
 
 /** Keeps the stick [inset] in from the screen edge it sits against - the left in left-hand mode - and up from the bottom. */
 private fun Modifier.cornerInset(leftHand: Boolean, inset: Dp): Modifier =
     padding(start = if (leftHand) inset else 0.dp, end = if (leftHand) 0.dp else inset, bottom = inset * 0.5f)
-private val TARGET_COLOUR = androidx.compose.ui.graphics.Color(0xFFFF5FD2)
-private val NAVBALL_SIZE = 128.dp
+private val NAVBALL_SIZE = 112.dp
 
 // Portrait is short of width and generous with height, so the throttle takes
 // the height: a longer throttle is a finer throttle, over the same 0-100%.
@@ -1138,8 +686,6 @@ private val PORTRAIT_THROTTLE_HEIGHT = 150.dp
 private val PORTRAIT_STICK_SIZE = 122.dp
 private val PORTRAIT_NAVBALL_SIZE = 100.dp
 
-/** The roll and SAS row above the portrait stick: three 40dp buttons and their gaps. */
-private val PORTRAIT_CLUSTER_WIDTH = 140.dp
 
 /** What became of a craft that is gone, and where to go from here. */
 @Composable
@@ -1189,6 +735,30 @@ private fun CrashCard(
                 if (onSwitchCraft != null) ApogeeButton("Fly another", onClick = onSwitchCraft, modifier = Modifier.weight(1f))
                 ApogeeButton("Leave", onClick = onLeave, modifier = Modifier.weight(1f))
             }
+        }
+    }
+}
+
+/** The worlds' names beside their marks on the map, placed afresh ten times a second. */
+@Composable
+private fun MapNames(labels: (Float, Float) -> List<com.rm.apogee.game.GameSession.MapLabel>) {
+    var size by remember { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
+    var shown by remember { mutableStateOf(emptyList<com.rm.apogee.game.GameSession.MapLabel>()) }
+    LaunchedEffect(size) {
+        while (true) {
+            if (size.width > 0) shown = labels(size.width.toFloat(), size.height.toFloat())
+            kotlinx.coroutines.delay(100)
+        }
+    }
+    Box(Modifier.fillMaxSize().onSizeChanged { size = it }) {
+        for (label in shown) {
+            Text(
+                label.name.uppercase(),
+                style = MaterialTheme.typography.labelSmall,
+                color = Color.White.alpha(ApogeeAlpha.BODY),
+                maxLines = 1,
+                modifier = Modifier.offset { androidx.compose.ui.unit.IntOffset(label.x.toInt() + 10, label.y.toInt() - 20) },
+            )
         }
     }
 }

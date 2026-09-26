@@ -8,6 +8,7 @@ import com.rm.apogee.core.math.Vec3
 import com.rm.apogee.core.orbit.CelestialBody
 import com.rm.apogee.core.orbit.Orbit
 import com.rm.apogee.core.orbit.SolarSystem
+import com.rm.apogee.core.orbit.SystemData
 import com.rm.apogee.core.part.PartCatalog
 import com.rm.apogee.core.part.StockParts
 import com.rm.apogee.core.world.Command
@@ -99,7 +100,8 @@ class GameSession private constructor(
     val mapCamera = CameraController(
         upReference = UpReference.FIXED,
         minDistance = 1.0e6,
-        maxDistance = 6.0e7,
+        // Out to the whole system: Ultima's orbit is five hundred million kilometres across.
+        maxDistance = 3.0e13,
     )
 
     /** Whether the map view is showing. */
@@ -896,6 +898,19 @@ class GameSession private constructor(
     /** Coming down: when, how fast, and when to start braking; for the HUD. */
     class LandingReadout(val impactIn: Double, val impactSpeed: Double, val brakeIn: Double, val auto: Boolean)
 
+    /** A planet targeted from another: when to leave, and what it costs. Angles in degrees. */
+    class WindowReadout(
+        val target: String,
+        val waitFor: Double,
+        val phase: Double,
+        val needed: Double,
+        val flight: Double,
+        val departure: Double,
+        val arrival: Double,
+    )
+
+    @Volatile var windowReadout: WindowReadout? = null
+
     @Volatile var landingReadout: LandingReadout? = null
         private set
 
@@ -925,6 +940,7 @@ class GameSession private constructor(
                 auto = localAutoBurn,
             )
         }
+        windowReadout = windowFor(attractor, replica?.body?.position ?: focus.latest?.position, time)
         val impact = plan?.impact
         landingReadout = if (impact == null || replica == null || replica.touchingGround || replica.dormant) null else run {
             val up = replica.body.position.normalized()
@@ -1223,8 +1239,15 @@ class GameSession private constructor(
                 lines.addAll(drawn)
                 planMarkers(plan, attractor.id, reach, lines)
             }
-            keepMapView(plan, attractor, renderTime, cameraPosition, cameraRotation)
+            keepMapView(plan, attractor, renderTime, cameraPosition, cameraRotation, reach)
             moonLines(attractor, renderTime, lines)
+            // The worlds in view, each marked: past the giants a planet is far less than a pixel.
+            val here = system.positionOf(attractor.id, renderTime)
+            for (b in targetBodies) {
+                if (b.id == attractor.id) continue
+                val at = system.positionOf(b.id, renderTime).subInPlace(here)
+                if (at.length < reach * MAP_LABEL_REACH) lines.add(marker(at, reach, BODY_MARKER_COLOR))
+            }
             lines.add(marker(focusState.position, reach, CRAFT_COLOR))
             signalLines(focusId, focusState.position, attractor, renderTime, reach, lines)
             richnessDots(attractor, renderTime, lines)
@@ -1339,6 +1362,14 @@ class GameSession private constructor(
         // position in the body's frame rather than its inertial one - at the
         // frame's own time, the same one the craft is drawn at.
         attractor.rotationAt(renderTime, bodyRotation)
+        // Toward the star, this frame: seasons at the Cape, faint light among the giants.
+        system.sunDirection(attractor.id, focusDrawn, renderTime, frameSun)
+        // How big the star looks from here, and how bright: a disc at home, a spark past the giants.
+        frameSunStrength = system.sunStrength(attractor.id, focusDrawn, renderTime)
+        frameSunSize = system.bodies[SolarSystem.STAR_ID]?.let { sol ->
+            val d = SystemData.AU / kotlin.math.sqrt(frameSunStrength)
+            kotlin.math.asin((sol.radius / d).coerceIn(0.0, 1.0))
+        } ?: 0.0
         // The drawn position at the frame's time. The snapshot's position with
         // the frame's rotation was up to 50 ms apart - metres of wobble in
         // where the ground's detail was centred, enough to flip a chunk at its
@@ -1410,6 +1441,7 @@ class GameSession private constructor(
             lost = lost,
             lunaWindow = if (focus.design.orientation == com.rm.apogee.core.craft.CraftOrientation.VERTICAL)
                 moonWindowIn(attractor, focusState.position, bodyRotation, renderTime) else Double.NaN,
+            moonName = system.bodies.values.firstOrNull { it.parentId == attractor.id }?.displayName ?: "",
         ).also { it.burn = if (wrecked) null else burnDirection(focus, attractor) }
 
         // The nearest thing in view, for the near plane: the closest part of
@@ -1429,7 +1461,7 @@ class GameSession private constructor(
         val weatherConfig = client.weather
         val clouds = if (weatherConfig != null && attractor.atmosphere != null) {
             cloudScene?.takeIf { it.body === attractor && it.config == weatherConfig }
-                ?: CloudScene(attractor, weatherConfig, terrainQuality ?: QualityTier.MEDIUM, terrainScope)
+                ?: CloudScene(attractor, weatherConfig, terrainQuality ?: QualityTier.MEDIUM, terrainScope) { t -> system.sunDirection(attractor.id, Vec3.zero(), t) }
                     .also { cloudScene = it }
         } else null
         if (clouds == null) cloudScene = null
@@ -1502,7 +1534,7 @@ class GameSession private constructor(
             seaRough = seaRough,
             seaStorm = seaStorm,
             complex = if (mapMode) 0.0 else nearCape(attractor, ear, CAPE_PADS),
-            lampsLit = (scratchLamp.setTo(ear).normalizeInPlace() dot SUN_DIRECTION) < World.LAMP_DUSK,
+            lampsLit = (scratchLamp.setTo(ear).normalizeInPlace() dot frameSun) < World.LAMP_DUSK,
             port = if (mapMode) 0.0 else nearCape(attractor, ear, CAPE_JETTY),
         )
         lastListener = listener
@@ -1556,13 +1588,13 @@ class GameSession private constructor(
         var particleShapes = 0
         if (!mapMode) {
             fx.flames(frameEmitters, attractor, renderTime, items)
-            val daylight = com.rm.apogee.render.NightLight.daylight(cameraPosition, attractor.radius, SUN_DIRECTION)
+            val daylight = com.rm.apogee.render.NightLight.daylight(cameraPosition, attractor.radius, frameSun)
             val (vertices, shapes) = fx.vertices(bodyRotation, cameraPosition, cameraRotation, clouds?.lightScale ?: 1f, renderTime, daylight, if (mapMode) 0f else fx.flash)
             particles = vertices
             particleShapes = shapes
         }
         val flash = if (mapMode) 0f else fx.flash
-        appendBodies(farItems, attractor, renderTime)
+        appendBodies(farItems, attractor, renderTime, cameraPosition)
         askPlan(focus, focusState, renderTime, warping)
         updateReadouts(focus, attractor, renderTime)
         // Shadows round the craft: out to three times its size, within reason.
@@ -1581,9 +1613,8 @@ class GameSession private constructor(
                     radius = attractor.radius,
                     atmosphereHeight = attractor.atmosphereHeight,
                     atmosphereScaleHeight = attractor.atmosphere?.scaleHeight ?: 1.0,
-                    // One fixed star direction for now. The real one comes from
-                    // the system's geometry once map view needs it too.
-                    sunDirection = SUN_DIRECTION,
+                    // Toward the star from here, as it truly is.
+                    sunDirection = frameSun.copy(),
                     homeDirection = HOME_DIRECTION,
                     cameraAltitude = attractor.altitudeOf(cameraPosition),
                     bodyRotation = bodyRotation.copy(),
@@ -1606,11 +1637,16 @@ class GameSession private constructor(
                     sea = seaSurface,
                     underwater = underwater,
                     lamps = nearestLamps(cloudCamera),
+                    sky = com.rm.apogee.render.SkyColours.of(attractor.id),
+                    sunSize = frameSunSize,
+                    sunStrength = frameSunStrength,
                 ),
                 nearestDistance = if (nearest == Double.MAX_VALUE) 0.0 else nearest.coerceAtLeast(0.0),
                 particles = particles,
                 particleShapes = particleShapes,
                 farItems = farItems,
+                // On the map, as far as the view reaches: the whole system, if that is what it shows.
+                farReach = if (mapMode) maxOf(com.rm.apogee.render.RenderFrame.FAR_REACH, mapCamera.distance * 4.0) else com.rm.apogee.render.RenderFrame.FAR_REACH,
                 shadowFocus = if (mapMode) null else focusDrawn.copy(),
                 shadowRadius = shadowReach,
             )
@@ -1646,12 +1682,30 @@ class GameSession private constructor(
         val burn: Vec3?,
         /** Other worlds: id, where, radius. */
         val bodies: List<Triple<String, Vec3, Double>>,
+        /** How far out the map shows, m. */
+        val reach: Double = 0.0,
     )
+
+    /** A world's name on the map, where it is on a [width] x [height] screen. */
+    class MapLabel(val name: String, val x: Float, val y: Float)
+
+    /** The names of the worlds the map shows, placed on a [width] x [height] screen. */
+    fun mapLabels(width: Float, height: Float): List<MapLabel> {
+        if (!mapMode) return emptyList()
+        val view = mapView ?: return emptyList()
+        val at = FloatArray(2)
+        return view.bodies.mapNotNull { (id, centre, _) ->
+            if (centre.length > view.reach * MAP_LABEL_REACH) return@mapNotNull null
+            if (!onScreen(view, centre, width, height, at)) return@mapNotNull null
+            if (at[0] < 0f || at[1] < 0f || at[0] > width || at[1] > height) return@mapNotNull null
+            MapLabel(system.body(id).displayName, at[0], at[1])
+        }
+    }
 
     @Volatile private var mapView: MapView? = null
     private var draggingBurn = false
 
-    private fun keepMapView(plan: PathPlanner.Plan?, attractor: CelestialBody, time: Double, camera: Vec3, rotation: Quat) {
+    private fun keepMapView(plan: PathPlanner.Plan?, attractor: CelestialBody, time: Double, camera: Vec3, rotation: Quat, reach: Double) {
         val leg = plan?.current?.segments?.firstOrNull() ?: return
         val times = DoubleArray(MAP_SAMPLES)
         val points = Array(MAP_SAMPLES) { k ->
@@ -1663,7 +1717,7 @@ class GameSession private constructor(
         val bodies = targetBodies.filter { it.id != attractor.id }.map { b ->
             Triple(b.id, system.positionOf(b.id, time).subInPlace(here), b.radius)
         }
-        mapView = MapView(camera.copy(), rotation.copy(), times, points, plan.burnPoint?.copy(), bodies)
+        mapView = MapView(camera.copy(), rotation.copy(), times, points, plan.burnPoint?.copy(), bodies, reach)
     }
 
     /** Where [point] (about the attractor) is on a [width] x [height] screen, into [out]; false if behind. */
@@ -1735,6 +1789,29 @@ class GameSession private constructor(
         val focus = client.controlledVessel?.let { client.vessel(it) } ?: return false
         terrainScope.launch { if (burnsOf(focus).isEmpty()) planBurnAt(time) else moveBurn(time, final = true) }
         return true
+    }
+
+    /**
+     * The window to the targeted planet from the one the craft is at - or
+     * whose moon it is at - or null when the target is no planet, or is
+     * this one.
+     */
+    private fun windowFor(attractor: CelestialBody, position: Vec3?, time: Double): WindowReadout? {
+        val targetId = localTargetBody.takeIf { it.isNotEmpty() } ?: return null
+        val target = system.bodies[targetId] ?: return null
+        val star = target.parentId ?: return null
+        val planet = when {
+            attractor.parentId == star -> attractor
+            attractor.parentId != null && system.body(attractor.parentId!!).parentId == star -> system.body(attractor.parentId!!)
+            else -> return null
+        }
+        val parked = if (planet === attractor) position?.length ?: (attractor.radius * 1.1)
+            else planet.radius * 1.2
+        val w = com.rm.apogee.core.orbit.TransferWindow.between(system, planet.id, target.id, time, parked) ?: return null
+        return WindowReadout(
+            target.displayName, w.waitFor, Math.toDegrees(w.phase), Math.toDegrees(w.phaseNeeded),
+            w.flight, w.departure, w.arrival,
+        )
     }
 
     /** The planned body target, as the player last set it; blank for none. */
@@ -1907,10 +1984,34 @@ class GameSession private constructor(
      * sky, the planet from its moon, and on the map. Where each truly is,
      * drawn in the far pass, where the globe hides whatever is behind it.
      */
-    private fun appendBodies(farItems: MutableList<RenderItem>, attractor: CelestialBody, time: Double) {
+    private fun appendBodies(farItems: MutableList<RenderItem>, attractor: CelestialBody, time: Double, camera: Vec3) {
         val here = system.positionOf(attractor.id, time)
+        // The world here: a giant's rings round it, and the veil that hides
+        // a clouded world's ground from above.
+        val turned = attractor.rotationAt(time)
+        com.rm.apogee.render.GiantLook.rings(attractor, Vec3(), turned, { RenderItem.partKey(BODY_KEY - 1, 0, it) }, farItems)
+        com.rm.apogee.core.weather.Climate.of(attractor.id)?.takeIf { it.veil > 0.0 }?.let { climate ->
+            if (attractor.altitudeOf(camera) > climate.veil) {
+                val tint = com.rm.apogee.render.SkyColours.of(attractor.id).cloud
+                farItems.add(
+                    RenderItem(
+                        shape = com.rm.apogee.core.part.MeshSpec.Sphere(attractor.radius + climate.veil),
+                        position = Vec3(), rotation = turned,
+                        color = floatArrayOf(tint[0] * 0.92f, tint[1] * 0.92f, tint[2] * 0.92f, 1f),
+                        key = RenderItem.partKey(BODY_KEY - 2, 0, 0), sky = true,
+                    )
+                )
+            }
+        }
         for ((k, body) in system.bodies.values.withIndex()) {
             if (body.id == attractor.id || body.parentId == null) continue
+            if (com.rm.apogee.render.GiantLook.isGiant(body.id)) {
+                com.rm.apogee.render.GiantLook.items(
+                    body, system.positionOf(body.id, time).subInPlace(here), body.rotationAt(time),
+                    { RenderItem.partKey(BODY_KEY, k, 1 + it) }, farItems,
+                )
+                continue
+            }
             farItems.add(
                 RenderItem(
                     shape = com.rm.apogee.core.part.MeshSpec.Sphere(body.radius),
@@ -2909,6 +3010,11 @@ class GameSession private constructor(
     private val soundLock = Any()
     @Volatile private var soundStopped = false
 
+    /** Toward the star, inertial, as of this frame. */
+    private val frameSun = Vec3(0.0, 1.0, 0.0)
+    private var frameSunStrength = 1.0
+    private var frameSunSize = 0.0
+
     private val scratchLamp = Vec3()
     private val scratchGlow = Vec3()
 
@@ -3031,7 +3137,7 @@ class GameSession private constructor(
         if (chuteTrail.length > 0.5) chuteTrail.normalizeInPlace().negateInPlace() else chuteTrail.setTo(position).normalizeInPlace()
         // Lamps: lit after dusk where it stands, while it has the power -
         // the Cape's own always have.
-        val lampsLit = (scratchLamp.setTo(position).normalizeInPlace() dot com.rm.apogee.core.world.LaunchTime.SUN_DIRECTION) < World.LAMP_DUSK &&
+        val lampsLit = (scratchLamp.setTo(position).normalizeInPlace() dot frameSun) < World.LAMP_DUSK &&
             (vessel.owner == World.WORLD_OWNER || client.nearestBase?.takeIf { it.vessel == vessel.id }?.powered != false)
         for ((index, placed) in design.parts.withIndex()) {
             val def = defs[index] ?: continue
@@ -3609,7 +3715,6 @@ class GameSession private constructor(
          * planet look flat. Replaced by real system geometry when the map view
          * needs the star's true position.
          */
-        private val SUN_DIRECTION = com.rm.apogee.core.world.LaunchTime.SUN_DIRECTION
 
         /** Surface normal at the launch complex (latitude 0, longitude 0). */
         private val HOME_DIRECTION = com.rm.apogee.core.orbit.SolarSystem.surfaceDirection(
@@ -3623,6 +3728,10 @@ class GameSession private constructor(
         private val APOAPSIS_COLOR = floatArrayOf(0.49f, 1.0f, 0.70f, 1f)
         private val PERIAPSIS_COLOR = floatArrayOf(1.0f, 0.83f, 0.50f, 1f)
         private val CRAFT_COLOR = floatArrayOf(1.0f, 1.0f, 1.0f, 1f)
+        private val BODY_MARKER_COLOR = floatArrayOf(0.62f, 0.66f, 0.74f, 1f)
+
+        /** Worlds within this many of the map's reach are marked and named. */
+        private const val MAP_LABEL_REACH = 1.6
         /** A founded base on the map. */
         private val BASE_COLOR = floatArrayOf(0.55f, 0.85f, 1.0f, 1f)
         /** Ground stations, and a probe's link home through its relays. */
@@ -3646,6 +3755,21 @@ class GameSession private constructor(
         private val BODY_COLOURS = mapOf(
             "terra" to floatArrayOf(0.24f, 0.44f, 0.70f, 1f),
             "luna" to floatArrayOf(0.56f, 0.56f, 0.57f, 1f),
+            "celer" to floatArrayOf(0.45f, 0.43f, 0.41f, 1f),
+            // Under its cloud, a blank cream ball.
+            "caligo" to floatArrayOf(0.90f, 0.84f, 0.62f, 1f),
+            "rubra" to floatArrayOf(0.70f, 0.38f, 0.22f, 1f),
+            "timor" to floatArrayOf(0.35f, 0.32f, 0.30f, 1f),
+            "pavor" to floatArrayOf(0.38f, 0.35f, 0.32f, 1f),
+            "fornax" to floatArrayOf(0.85f, 0.75f, 0.35f, 1f),
+            "crusta" to floatArrayOf(0.85f, 0.80f, 0.72f, 1f),
+            "maxima" to floatArrayOf(0.55f, 0.52f, 0.48f, 1f),
+            "cicatrix" to floatArrayOf(0.36f, 0.34f, 0.32f, 1f),
+            "aurantia" to floatArrayOf(0.80f, 0.55f, 0.22f, 1f),
+            "fons" to floatArrayOf(0.97f, 0.98f, 1.0f, 1f),
+            "aversa" to floatArrayOf(0.72f, 0.68f, 0.66f, 1f),
+            "ultima" to floatArrayOf(0.80f, 0.70f, 0.58f, 1f),
+            "portitor" to floatArrayOf(0.50f, 0.50f, 0.50f, 1f),
         )
         private val BODY_COLOUR = floatArrayOf(0.6f, 0.55f, 0.5f, 1f)
         private const val BODY_KEY = -78L
@@ -3760,7 +3884,7 @@ class GameSession private constructor(
                     kotlin.math.sin(site.latitude),
                     kotlin.math.cos(site.latitude) * kotlin.math.sin(site.longitude),
                 )
-                world.skipTo(launchTime.nextAt(body, up, com.rm.apogee.core.world.LaunchTime.SUN_DIRECTION, world.time))
+                world.skipTo(launchTime.nextAt(world.system, body, up, world.time))
             }
             val server = GameServer(
                 world = world,
@@ -3838,6 +3962,8 @@ class FlightTelemetry(
      * then flies into its plane - negative while one is open; NaN for none.
      */
     val lunaWindow: Double = Double.NaN,
+    /** Whose window [lunaWindow] is: the first moon of the world the craft is on. */
+    val moonName: String = "",
     /**
      * The navball's frame as it stands - [com.rm.apogee.core.world.NavFrame.AUTO]
      * resolved - and as chosen. [prograde] and the markers below are in it.
@@ -3952,6 +4078,8 @@ class FlightTelemetry(
             lost: Int = 0,
             /** Seconds to the next launch window for the moon, negative while open; NaN for none. */
             lunaWindow: Double = Double.NaN,
+            /** That moon's name. */
+            moonName: String = "",
         ): FlightTelemetry {
             val state = vessel.latest ?: return EMPTY
             val orbit = Orbit(
@@ -4036,6 +4164,7 @@ class FlightTelemetry(
                 windFrom = windFrom,
                 inAir = density > 1e-3,
                 lunaWindow = lunaWindow,
+                moonName = moonName,
             ).withCondition(condition, defs, jointLoad, lost)
         }
 
@@ -4072,6 +4201,7 @@ class FlightTelemetry(
                 throughAir = throughAir, heading = heading, verticalSpeed = verticalSpeed, sasMode = sasMode,
                 parts = parts, heat = heat, structure = structure, damaged = damaged, lost = lost,
                 lunaWindow = lunaWindow,
+                moonName = moonName,
             )
         }
     }

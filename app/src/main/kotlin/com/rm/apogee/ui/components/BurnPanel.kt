@@ -77,9 +77,12 @@ fun BurnPanel(
     note: String,
     actions: BurnActions,
     modifier: Modifier = Modifier,
+    window: GameSession.WindowReadout? = null,
+    align: Alignment.Horizontal = Alignment.End,
 ) {
-    Column(modifier, horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(modifier, horizontalAlignment = align, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         if (mapMode) {
+            window?.let { WindowChip(it) }
             if (burn != null) BurnEditor(burn, actions) else Hint("Tap your path to plan a burn · tap a world to target it")
         } else {
             burn?.let { BurnChip(it, actions) }
@@ -247,6 +250,40 @@ private fun BurnChip(burn: GameSession.BurnReadout, actions: BurnActions) {
         }
     }
 }
+
+/** A planet targeted from another: when the window opens, and what it costs. */
+@Composable
+private fun WindowChip(window: GameSession.WindowReadout) {
+    Card {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("TO ${window.target.uppercase()}", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = BURN_BLUE, maxLines = 1)
+            Spacer(Modifier.width(8.dp))
+            val open = window.waitFor < WINDOW_OPEN
+            Text(
+                if (open) "WINDOW OPEN" else "WINDOW IN ${long(window.waitFor)}",
+                style = TelemetryTextStyle, color = if (open) ApogeeColors.Caution else Color.White, maxLines = 1,
+            )
+        }
+        Text(
+            "PHASE ${window.phase.roundToInt()}° · NEED ${window.needed.roundToInt()}° · CROSSING ${long(window.flight)}",
+            style = TelemetryTextStyle, color = Color.White.alpha(ApogeeAlpha.BODY), maxLines = 1,
+        )
+        Text(
+            "Δv ${window.departure.roundToInt()} m/s OUT · ${window.arrival.roundToInt()} m/s IN",
+            style = TelemetryTextStyle, color = Color.White, maxLines = 1,
+        )
+    }
+}
+
+/** Days and hours, for waits and crossings of weeks. */
+private fun long(seconds: Double): String {
+    if (seconds.isNaN() || seconds.isInfinite()) return "—"
+    val h = (seconds / 3600.0).roundToInt()
+    return if (h >= 48) "${h / 24} d ${h % 24} h" else duration(seconds)
+}
+
+/** Within this of the window, s, it is open: a day either side is near enough. */
+private const val WINDOW_OPEN = 86_400.0
 
 @Composable
 private fun LandingChip(landing: GameSession.LandingReadout, actions: BurnActions) {

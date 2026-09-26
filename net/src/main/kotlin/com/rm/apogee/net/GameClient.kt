@@ -123,6 +123,8 @@ class GameClient(
     val clientId: String,
     /** The ground this build simulates. Only a test would pass anything else. */
     private val terrainGeneration: Int = com.rm.apogee.core.terrain.TerrainField.GENERATION,
+    /** The worlds this build flies among. Only a test would pass anything else. */
+    private val systemHash: String = com.rm.apogee.core.orbit.SolarSystem.DEFAULT_HASH,
 ) {
     private val vesselsById = ConcurrentHashMap<Long, ClientVessel>()
 
@@ -201,6 +203,7 @@ class GameClient(
                         playerName = playerName,
                         clientId = clientId,
                         terrainGeneration = terrainGeneration,
+                        systemHash = systemHash,
                     )
                 ),
             )

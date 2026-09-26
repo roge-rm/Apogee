@@ -19,13 +19,14 @@ class LaunchTimeTest {
         val up = world.spawnAtSite(StockCraft.starterRocket(catalog), site).let { v ->
             terra.toBodyFixed(v.body.position, terra.rotationAt(world.time), Vec3()).normalizeInPlace()
         }
-        val sun = LaunchTime.SUN_DIRECTION
-        fun sunHeight(t: Double) = terra.rotationAt(t).rotate(up, Vec3()) dot sun
+        val system = world.system
+        // The sun as it really stands, moving a little through the year.
+        fun sunHeight(t: Double) = terra.rotationAt(t).rotate(up, Vec3()) dot system.sunDirection("terra", Vec3.zero(), t)
         for (from in listOf(0.0, 5_000.0, 13_000.0)) {
-            val noon = LaunchTime.NOON.nextAt(terra, up, sun, from)
-            val midnight = LaunchTime.MIDNIGHT.nextAt(terra, up, sun, from)
-            val dawn = LaunchTime.DAWN.nextAt(terra, up, sun, from)
-            val dusk = LaunchTime.DUSK.nextAt(terra, up, sun, from)
+            val noon = LaunchTime.NOON.nextAt(system, terra, up, from)
+            val midnight = LaunchTime.MIDNIGHT.nextAt(system, terra, up, from)
+            val dawn = LaunchTime.DAWN.nextAt(system, terra, up, from)
+            val dusk = LaunchTime.DUSK.nextAt(system, terra, up, from)
             for (t in listOf(noon, midnight, dawn, dusk)) {
                 assertTrue("never back in time", t >= from)
                 assertTrue("within a day", t < from + terra.rotationPeriod)
@@ -37,7 +38,7 @@ class LaunchTimeTest {
             assertTrue("dusk: the sun just up", sunHeight(dusk) in 0.0..0.3)
             assertTrue("and setting", sunHeight(dusk + 60.0) < sunHeight(dusk))
         }
-        assertEquals("now is now", 123.0, LaunchTime.NOW.nextAt(terra, up, sun, 123.0), 0.0)
+        assertEquals("now is now", 123.0, LaunchTime.NOW.nextAt(system, terra, up, 123.0), 0.0)
     }
 
     @Test

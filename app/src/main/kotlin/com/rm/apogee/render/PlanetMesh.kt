@@ -26,7 +26,7 @@ object PlanetMesh {
     class Data(val vertices: FloatArray, val indices: IntArray)
 
     /** @param rings latitude divisions. Longitude gets twice as many. */
-    fun buildGlobe(field: Terrain?, bodyRadius: Double, rings: Int): Data {
+    fun buildGlobe(field: Terrain?, bodyRadius: Double, rings: Int, world: String = "terra"): Data {
         val segments = rings * 2
         val stride = TerrainChunk.STRIDE_FLOATS
         val vertices = FloatArray((rings + 1) * (segments + 1) * stride)
@@ -61,12 +61,16 @@ object PlanetMesh {
                 vertices[v + 3] = direction.x.toFloat()
                 vertices[v + 4] = direction.y.toFloat()
                 vertices[v + 5] = direction.z.toFloat()
-                if ((sea && elevation < 0.0) || field == null) {
-                    TerrainPalette.water(-elevation, vertices, v + 6)
+                if (field == null && GiantLook.isGiant(world)) {
+                    // A giant: no ground, its bands of cloud.
+                    GiantLook.colour(world, direction, vertices, v + 6)
+                    vertices[v + 9] = 0f
+                } else if ((sea && elevation < 0.0) || field == null) {
+                    TerrainPalette.water(-elevation, vertices, v + 6, field?.world ?: "terra")
                     vertices[v + 9] = if (field == null) 0f else (1.0 - drawn / 1_000.0).toFloat()
                 } else {
                     val material = field.groundMaterial(direction, elevation, 0.0)
-                    TerrainPalette.colour(material, elevation, ring * 7919 + segment, vertices, v + 6)
+                    TerrainPalette.colour(material, elevation, ring * 7919 + segment, vertices, v + 6, field.world)
                     vertices[v + 9] = 0f
                 }
                 v += stride

@@ -68,6 +68,9 @@ class GameSettings(context: Context) {
     /** Mirrors the flight controls for left-handed play. */
     var leftHandMode: Boolean by booleanPref(KEY_LEFT_HAND, false)
 
+    /** Lets the flight controls fade back when nothing has touched them for a few seconds. */
+    var fadeWhenIdle: Boolean by booleanPref(KEY_FADE_IDLE, true)
+
     /** Which craft pull back to climb. See [PitchStyle]. */
     var pitchStyle: PitchStyle by enumPref(KEY_PITCH_STYLE, PitchStyle.AIRCRAFT)
 
@@ -230,6 +233,7 @@ class GameSettings(context: Context) {
         const val KEY_LAST_SERVER = "last_server_address"
         const val KEY_CONTROL_OPACITY = "control_opacity"
         const val KEY_LEFT_HAND = "left_hand_mode"
+        const val KEY_FADE_IDLE = "fade_when_idle"
         const val KEY_PITCH_STYLE = "pitch_style"
         const val KEY_WEATHER = "weather_intensity"
         const val KEY_CLOUDS = "cloud_cover"

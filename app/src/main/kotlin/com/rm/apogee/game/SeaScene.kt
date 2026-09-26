@@ -41,6 +41,9 @@ class SeaScene(
     private val frameSea = Sea(body, moon, config?.let { Weather(body, it) }, config?.seed ?: 0)
     private val frameSample = SeaSample()
 
+    /** A sea of something lighter than water: Aurantia's methane. */
+    private val methane = (body.ocean?.density ?: 1_025.0) < 800.0
+
     /** How far round the camera the waves are drawn, m. */
     val reach: Double = when (tier) {
         QualityTier.LOW -> 6_000.0
@@ -309,9 +312,13 @@ class SeaScene(
         var r = DEEP_R + (MID_R - DEEP_R) * mid + (SHALLOW_R - MID_R) * shallow
         var g = DEEP_G + (MID_G - DEEP_G) * mid + (SHALLOW_G - MID_G) * shallow
         var b = DEEP_B + (MID_B - DEEP_B) * mid + (SHALLOW_B - MID_B) * shallow
+        if (methane) {
+            // Liquid methane: dark and brown, glassy, amber over the shallows.
+            r = 0.06 + 0.10 * shallow; g = 0.045 + 0.07 * shallow; b = 0.025 + 0.03 * shallow
+        }
         // Crests lighter and greener, where the light comes through them.
         val crest = if (s.significantHeight > 0.05) smooth(0.1, 0.6, (s.height - s.tide) / s.significantHeight) else 0.0
-        r += 0.03 * crest; g += 0.09 * crest; b += 0.05 * crest
+        if (!methane) { r += 0.03 * crest; g += 0.09 * crest; b += 0.05 * crest }
         // A storm sea: grey and hard.
         val storm = smooth(1.0, 8.0, s.stormHeight)
         r += (STORM_R - r) * storm * 0.7; g += (STORM_G - g) * storm * 0.7; b += (STORM_B - b) * storm * 0.7

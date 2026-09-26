@@ -146,6 +146,8 @@ class CloudShadowGrid(
             it[CloudType.STRATUS.ordinal] = 0.7
             it[CloudType.ALTOSTRATUS.ordinal] = 0.55
             it[CloudType.CIRRUS.ordinal] = 0.15
+            it[CloudType.DUST.ordinal] = 0.8
+            it[CloudType.DECK.ordinal] = 0.5
         }
     }
 }

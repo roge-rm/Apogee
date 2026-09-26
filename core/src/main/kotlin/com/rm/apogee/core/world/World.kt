@@ -19,6 +19,7 @@ import com.rm.apogee.core.physics.ContactReport
 import com.rm.apogee.core.physics.CraftContact
 import com.rm.apogee.core.physics.GroundContact
 import com.rm.apogee.core.terrain.TerrainField
+import com.rm.apogee.core.weather.Climate
 import com.rm.apogee.core.weather.Strike
 import com.rm.apogee.core.weather.Weather
 import com.rm.apogee.core.weather.WeatherConfig
@@ -1841,18 +1842,23 @@ class World(
                 is com.rm.apogee.core.part.Command -> upkeep += if (vessel.anchored) BASE_UPKEEP else module.idleDraw
                 is com.rm.apogee.core.part.Antenna -> if (!module.deployable || Power.deployed(vessel, i)) upkeep += module.draw
                 is com.rm.apogee.core.part.Scanner -> upkeep += module.draw
+                is com.rm.apogee.core.part.Generator -> upkeep -= module.rate
                 is com.rm.apogee.core.part.Lamp -> lamps += module.draw
                 else -> Unit
             }
         }
         val site = vessel.sleepDirection(powerSite)
+        // What the air lets through on the ground: a tenth under Caligo's deck.
+        val gloom = if (attractor.atmosphere == null) 1.0
+            else Climate.of(attractor.id)?.sunThrough(vessel.body.position.length - attractor.radius) ?: 1.0
         val step = maxOf(POWER_STEP, (until - from) / POWER_MAX_STEPS)
         var t = from
         var net = 0.0
         while (t < until) {
             val h = minOf(step, until - t)
-            val sun = sunHeight(attractor, site, t + 0.5 * h)
-            net = solar * maxOf(0.0, sun) - upkeep - if (sun < LAMP_DUSK) lamps else 0.0
+            // Faint among the giants, as panels are anywhere.
+            val sun = sunHeight(attractor, site, t + 0.5 * h) * system.sunStrength(attractor.id, vessel.body.position, t + 0.5 * h)
+            net = solar * gloom * maxOf(0.0, sun) - upkeep - if (sun < LAMP_DUSK) lamps else 0.0
             // Drills and converters, within what charge there is: parked on
             // the ground where it stands now, so posed as it is now.
             if (vessel.control.drilling || vessel.control.refining) {
@@ -1872,11 +1878,15 @@ class World(
     fun sunHeight(attractor: CelestialBody, site: Vec3, at: Double): Double {
         attractor.rotationAt(at, powerRotation)
         powerRotation.rotate(site, powerUp)
-        return powerUp dot LaunchTime.SUN_DIRECTION
+        return powerUp dot system.sunDirection(attractor.id, powerSun.setTo(powerUp).mulInPlace(attractor.radius), at, powerSun)
     }
+
+    /** Toward the star from [vessel], inertial and unit, now. */
+    fun sunDirection(vessel: Vessel, out: Vec3 = Vec3()): Vec3 = system.sunDirection(vessel.referenceBodyId, vessel.body.position, time, out)
 
     private val powerSite = Vec3()
     private val powerUp = Vec3()
+    private val powerSun = Vec3()
     private val powerRotation = Quat.identity()
 
     /** Lets a founded [vessel] go: a craft like any other again, awake. */
@@ -2415,6 +2425,12 @@ class World(
             // one being flown does.
             if (vessel.dormant) {
                 if (vessel.afloat && !vessel.anchored) followSea(vessel, attractor, waves = true) else followGround(vessel, attractor)
+                // Parked in air that crushes - Caligo's floor - it is crushed all the same.
+                val air = attractor.atmosphere
+                if (air != null && !isDebris(vessel) && air.pressureAt(attractor.altitudeOf(vessel.body.position)) > CRUSH_FLOOR) {
+                    hostile(vessel, attractor, dt)
+                    if (vessel.id in pendingBreakUps) vessel.wake()
+                }
                 continue
             }
 
@@ -2482,13 +2498,14 @@ class World(
             forces.applyRcs(vessel, dt)
             stress.update(vessel, dt)
             for (i in 0 until stress.snappedCount) detach(vessel, stress.snapped[i], "tore off under load")
-            heat.update(vessel, attractor, dt)
+            heat.update(vessel, attractor, dt, system.sunStrength(attractor.id, body.position, time))
             vessel.hottest = heat.hottest
             vessel.hottestPart = heat.hottestPart
             if (heat.burntCount > 0) {
                 pendingBreakUps.add(vessel.id)
                 breakUpCause[vessel.id] = "burnt up"
             }
+            hostile(vessel, attractor, dt)
 
             // Integration and contact are subdivided together when the craft
             // is moving fast near the ground. Forces are not recomputed per
@@ -2514,6 +2531,12 @@ class World(
             scatterContacts.resolve(vessel, attractor, time + dt, contacts.report, felledScatter) { fell(it) }
             val report = contacts.report
             vessel.touchingGround = report.hadContact
+            crossRings(vessel, attractor)
+            // Molten ground: whatever touches it is gone.
+            if (report.lavaPart >= 0 && vessel.damage(report.lavaPart, 1.0)) {
+                pendingBreakUps.add(vessel.id)
+                breakUpCause[vessel.id] = "lost in the lava"
+            }
             if (walker != null) {
                 walking.move(vessel, walker, attractor, hold, dt)
                 walking.swing(vessel, walker, attractor, hold, dt)
@@ -3373,6 +3396,7 @@ class World(
         system.rebase(vessel.body.position, vessel.body.linearVelocity, attractor.id, next.id, at)
         vessel.referenceBodyId = next.id
         vessel.air.clear()
+        vessel.ringSide = Double.NaN
         pendingEvents.add(WorldEvent.BodyChanged(vessel.id, attractor.id, next.id))
         return true
     }
@@ -3403,6 +3427,7 @@ class World(
             val next = system.governing(attractor, body.position, start + hi)
             system.rebase(body.position, body.linearVelocity, attractor.id, next.id, start + hi)
             vessel.referenceBodyId = next.id
+            vessel.ringSide = Double.NaN
             pendingEvents.add(WorldEvent.BodyChanged(vessel.id, attractor.id, next.id))
             attractor = next
             from = hi
@@ -3485,8 +3510,11 @@ class World(
         // Never past where a warp was asked to stop.
         val seconds = if (warpUntil.isNaN()) seconds else minOf(seconds, (warpUntil - time).coerceAtLeast(0.0))
         while (seconds - done > 1e-9) {
-            if (maxWarp() <= PHYSICS_WARP) break
-            val h = minOf(RAILS_STEP, seconds - done)
+            val allowed = maxWarp()
+            if (allowed <= PHYSICS_WARP) break
+            // Longer slices only as far out as the fastest warps are allowed:
+            // on a conic, far from anything, a long one is as exact as a short one.
+            val h = minOf(RAILS_STEP * maxOf(1.0, allowed / RAILS_SLICE_WARP), seconds - done)
             tickEnd = time + h
             for (vessel in vesselsById.values) {
                 val attractor = attractorFor(vessel)
@@ -3503,6 +3531,7 @@ class World(
                 }
                 val body = vessel.body
                 coast(vessel, h)
+                crossRings(vessel, attractorFor(vessel))
                 if (!isDebris(vessel)) {
                     power.step(vessel, attractorFor(vessel), time + h, h, rails = true)
                     vessel.powerSettledAt = time + h
@@ -4057,6 +4086,69 @@ class World(
 
     private val walking = Walking()
 
+    /**
+     * What the place itself does to [vessel]: air heavy enough to crush a
+     * part - Caligo's, a gas giant's deep down - and the star's own heat
+     * close in. Parts give way as they are hurt; the craft breaks up as it
+     * would from any blow.
+     */
+    private fun hostile(vessel: Vessel, attractor: CelestialBody, dt: Double) {
+        val position = vessel.body.position
+        // The star.
+        if (attractor.id == SolarSystem.STAR_ID) {
+            val nearness = attractor.radius * SOL_REACH / position.length
+            if (nearness > 1.0) {
+                var lost = false
+                for (i in vessel.defs.indices) if (vessel.damage(i, SOL_BURN * nearness * nearness * dt)) lost = true
+                if (lost) { pendingBreakUps.add(vessel.id); breakUpCause[vessel.id] = "burnt up by the sun" }
+            }
+            return
+        }
+        val air = attractor.atmosphere ?: return
+        val pressure = air.pressureAt(attractor.altitudeOf(position))
+        if (pressure <= CRUSH_FLOOR) return
+        val inside = vessel.enclosed()
+        var lost = false
+        for (i in vessel.defs.indices) {
+            // Inside a closed shell, only the shell feels it.
+            if (inside.getOrElse(i) { false }) continue
+            val over = pressure / vessel.defs[i].maxPressure - 1.0
+            if (over > 0.0 && vessel.damage(i, CRUSH_RATE * over * dt)) lost = true
+        }
+        if (lost) {
+            pendingBreakUps.add(vessel.id)
+            breakUpCause[vessel.id] = if (air.deep) "crushed in the deep" else "crushed by the air"
+        }
+    }
+
+    /**
+     * A craft that crossed [attractor]'s rings since it was last looked at,
+     * through them rather than along with them: torn apart. Rings are
+     * gravel on circular orbits; a craft on one of its own, in their plane,
+     * can ride among them.
+     */
+    private fun crossRings(vessel: Vessel, attractor: CelestialBody) {
+        val rings = attractor.rings
+        val position = vessel.body.position
+        val side = if (rings == null) Double.NaN else position dot attractor.spinAxis
+        val before = vessel.ringSide
+        vessel.ringSide = side
+        if (rings == null || before.isNaN() || before * side > 0.0) return
+        scratchRing.setTo(position).addScaledInPlace(attractor.spinAxis, -side)
+        val r = scratchRing.length
+        if (r < rings.inner || r > rings.outer) return
+        // The gravel here: round the planet at this radius, the way it spins.
+        val speed = kotlin.math.sqrt(attractor.gravitationalParameter / r)
+        scratchRing.normalizeInPlace()
+        attractor.spinAxis.cross(scratchRing).normalizeInPlace().mulInPlace(speed).let { gravel ->
+            if (gravel.subInPlace(vessel.body.linearVelocity).length > RING_SPEED) {
+                pendingDestruction.add(vessel.id to "torn apart in the rings")
+            }
+        }
+    }
+
+    private val scratchRing = Vec3()
+
     /** The ladder [vessel] holds, as held now; let go of if it has gone, broken or drifted out of reach. */
     private fun heldLadder(vessel: Vessel): Walking.LadderHold? {
         val craft = vesselsById[VesselId(vessel.ladderVessel)]
@@ -4091,6 +4183,11 @@ class World(
         val member = crew[crewId]
         if (part < 0 || member == null) return null
         val attractor = attractorFor(craft)
+        // Nobody steps out into air that would crush or cook them.
+        attractor.atmosphere?.let { air ->
+            val altitude = attractor.altitudeOf(craft.body.position)
+            if (air.pressureAt(altitude) > EVA_PRESSURE || air.temperatureAt(altitude) > EVA_HOT) return null
+        }
         val up = craft.body.position.normalized()
         attractor.surfaceVelocityAt(craft.body.position, scratchCrew).subInPlace(craft.body.linearVelocity)
         val landed = craft.touchingGround || craft.dormant || craft.anchored
@@ -4330,7 +4427,7 @@ class World(
         private const val LINK_BREAK_G = 8.0
 
         /** What time warp offers, as multiples of real time. */
-        val WARP_RATES = doubleArrayOf(1.0, 2.0, 4.0, 10.0, 50.0, 100.0, 1_000.0, 10_000.0)
+        val WARP_RATES = doubleArrayOf(1.0, 2.0, 4.0, 10.0, 50.0, 100.0, 1_000.0, 10_000.0, 100_000.0, 1_000_000.0)
 
         /** Up to this the world steps faster; past it, craft go on rails. */
         const val PHYSICS_WARP = 4.0
@@ -4376,8 +4473,12 @@ class World(
         private val LAND_ALIGNED = kotlin.math.cos(Math.toRadians(25.0))
 
         /** The rails rates, and the height above the air (or [RAILS_CLEARANCE]) each needs, in the body's radii. */
-        private val RAILS_RATES = doubleArrayOf(10.0, 50.0, 100.0, 1_000.0, 10_000.0)
-        private val RAILS_HEIGHTS = doubleArrayOf(0.0, 0.1, 0.2, 0.4, 0.8)
+        private val RAILS_RATES = doubleArrayOf(10.0, 50.0, 100.0, 1_000.0, 10_000.0, 100_000.0, 1_000_000.0)
+        /** Heights, in the body's radii above its air or ground, each rate wants: the fastest only far out between worlds. */
+        private val RAILS_HEIGHTS = doubleArrayOf(0.0, 0.1, 0.2, 0.4, 0.8, 5.0, 20.0)
+
+        /** Up to this warp rails slices are [RAILS_STEP] long; past it, longer by as much: minutes each at a million times. */
+        private const val RAILS_SLICE_WARP = 10_000.0
 
         /** Over an airless body, how far above the ground rails warp can start, m. */
         private const val RAILS_CLEARANCE = 5_000.0
@@ -4431,6 +4532,10 @@ class World(
         const val SUIT_HALF_HEIGHT = 0.9
         const val SUIT_CLEARANCE = 0.7
         const val BOARD_REACH = 0.8
+        /** The thickest air, Pa, and the hottest, K, anyone may step out into. */
+        const val EVA_PRESSURE = 5e5
+        const val EVA_HOT = 400.0
+
         /** Fastest a landed craft may be moving, m/s, for anyone to step off it. */
         const val EVA_LANDED_SPEED = 5.0
         /** How far from its rungs someone can drift and still be holding a ladder, m. */
@@ -4441,6 +4546,16 @@ class World(
         const val FLAG_HALF_HEIGHT = 1.1
         /** Why a suit went: its wearer climbed aboard something. */
         const val BOARDED_REASON = "boarded"
+
+        /** Air, Pa, under which nothing is crushed: nothing to look at. */
+        const val CRUSH_FLOOR = 1e6
+        /** Health a second lost for each whole limit over its pressure rating. */
+        const val CRUSH_RATE = 0.002
+        /** The star: within this many of its radii its heat tells, harder the nearer. */
+        const val SOL_REACH = 2.0
+        const val SOL_BURN = 0.05
+        /** Faster than this through a ring's gravel, m/s, a craft is torn apart. */
+        const val RING_SPEED = 50.0
 
         /** Ticks between squaring the crew roster with the seats. */
         const val CREW_CHECK_TICKS = 15L
@@ -4653,7 +4768,32 @@ class World(
                 latitude = 0.131822,
                 longitude = 0.131733,
             ),
-        )
+        ) + worldSites()
+
+        /** For testing, as Luna Mare is: straight onto each world's landmark without flying there. */
+        private fun worldSites(): List<LaunchSite> {
+            fun site(id: String, name: String, body: String, lat: Double, lon: Double) =
+                LaunchSite(id, "$name (test)", body, Math.toRadians(lat), Math.toRadians(lon))
+            // Each on a flat patch near its landmark, found by looking.
+            return listOf(
+                site("celer-basin", "Celer Great Basin", "celer", 28.0, 165.0),
+                site("caligo-ishtar", "Caligo Ishtar", "caligo", 63.25, 21.85),
+                site("rubra-rift", "Rubra Rift", "rubra", -9.0, -74.55),
+                site("rubra-mount", "Rubra Great Mount foot", "rubra", 17.1, -120.3),
+                site("timor", "Timor", "timor", 0.0, 20.0),
+                site("pavor", "Pavor", "pavor", 0.0, 0.0),
+                site("fornax-lake", "Fornax lava lake shore", "fornax", -12.0, 58.0),
+                site("crusta-lineae", "Crusta crossing", "crusta", 5.0, 0.0),
+                site("maxima-grooves", "Maxima grooves", "maxima", 10.0, 35.0),
+                site("cicatrix-scar", "Cicatrix Great Scar", "cicatrix", 15.0, -60.0),
+                site("aurantia-dunes", "Aurantia dunes", "aurantia", 4.1, -39.55),
+                site("aurantia-sea", "Aurantia north sea", "aurantia", 82.0, 20.0),
+                site("fons-stripes", "Fons Stripes", "fons", -84.0, 0.0),
+                site("aversa-cap", "Aversa polar cap", "aversa", -50.0, 30.0),
+                site("ultima-heart", "Ultima Heart", "ultima", 14.4, 177.9),
+                site("portitor-belt", "Portitor Belt", "portitor", -0.45, 0.75),
+            )
+        }
 
         /**
          * Where a design should be launched from: the sea for anything built

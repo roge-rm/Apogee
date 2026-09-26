@@ -46,7 +46,23 @@ class CelestialBody(
      * propagated analytically instead of integrated.
      */
     val sphereOfInfluence: Double = Double.POSITIVE_INFINITY,
+    /**
+     * Which way the body spins about, inertial and unit: its north pole.
+     * World +Y for Terra and Luna, whose ground frames everything was built
+     * in; tipped over for the rest - Obliqua lies on its side, Caligo turns
+     * backwards.
+     */
+    spinAxis: Vec3 = Vec3.unitY(),
+    /** Its rings, if it has any: inner and outer radius, m, in its equatorial plane. */
+    val rings: Rings? = null,
 ) {
+    /** Its north pole, inertial, unit. */
+    val spinAxis: Vec3 = spinAxis.normalized()
+
+    /** Tips body-fixed +Y onto [spinAxis]; identity for an upright body. */
+    private val tilt: Quat = com.rm.apogee.core.math.quatFromTo(Vec3.unitY(), this.spinAxis)
+    private val upright: Boolean = this.spinAxis.y > 1.0 - 1e-12
+
     /** Surface gravity at the datum, m/s². */
     val surfaceGravity: Double get() = gravitationalParameter / (radius * radius)
 
@@ -140,7 +156,7 @@ class CelestialBody(
      * touching many points in one tick computes it once.
      */
     fun toBodyFixed(direction: Vec3, rotation: Quat, out: Vec3 = Vec3()): Vec3 =
-        if (rotationPeriod == 0.0) out.setTo(direction) else rotation.inverseRotate(direction, out)
+        if (rotationPeriod == 0.0 && upright) out.setTo(direction) else rotation.inverseRotate(direction, out)
 
     /**
      * Gravitational acceleration at [positionRelativeToCentre], written into
@@ -155,11 +171,16 @@ class CelestialBody(
         return out.setTo(positionRelativeToCentre).mulInPlace(scale)
     }
 
-    /** Rotation of the body's surface frame at [time], about its +Y axis. */
+    /**
+     * Rotation of the body's surface frame at [time]: turned about its own
+     * +Y by the time of day, then tipped onto [spinAxis].
+     */
     fun rotationAt(time: Double, out: Quat = Quat()): Quat {
-        if (rotationPeriod == 0.0) return out.setIdentity()
+        if (rotationPeriod == 0.0) return out.setTo(tilt)
         val angle = 2.0 * PI * (time / rotationPeriod)
-        return Quat.fromAxisAngle(Vec3.unitY(), angle, out)
+        Quat.fromAxisAngle(Vec3.unitY(), angle, out)
+        if (upright) return out
+        return out.setTo(tilt * out)
     }
 
     /**
@@ -170,20 +191,25 @@ class CelestialBody(
      */
     fun angularVelocity(out: Vec3 = Vec3()): Vec3 {
         if (rotationPeriod == 0.0) return out.setZero()
-        return out.setTo(0.0, 2.0 * PI / rotationPeriod, 0.0)
+        return out.setTo(spinAxis).mulInPlace(2.0 * PI / rotationPeriod)
     }
 
     /** Surface velocity due to rotation at [positionRelativeToCentre], m/s. */
     fun surfaceVelocityAt(positionRelativeToCentre: Vec3, out: Vec3 = Vec3()): Vec3 {
         if (rotationPeriod == 0.0) return out.setZero()
         val omega = 2.0 * PI / rotationPeriod
-        // v = omega_vector x r, with omega along +Y.
+        // v = omega_vector x r.
+        val a = spinAxis
+        val p = positionRelativeToCentre
         return out.setTo(
-            omega * positionRelativeToCentre.z,
-            0.0,
-            -omega * positionRelativeToCentre.x,
+            omega * (a.y * p.z - a.z * p.y),
+            omega * (a.z * p.x - a.x * p.z),
+            omega * (a.x * p.y - a.y * p.x),
         )
     }
 
     override fun toString(): String = "CelestialBody($id)"
 }
+
+/** A body's rings: from [inner] to [outer], m from its centre, in its equatorial plane. */
+data class Rings(val inner: Double, val outer: Double)

@@ -76,6 +76,12 @@ object Deposits {
             SurfaceMaterial.GRASS, SurfaceMaterial.FOREST, SurfaceMaterial.MUD -> 0.03 to 0.07
             SurfaceMaterial.SNOW -> 0.02 to 0.06
             SurfaceMaterial.ICE, SurfaceMaterial.CONCRETE, SurfaceMaterial.ASPHALT -> 0.0 to 0.0
+            SurfaceMaterial.SULFUR -> 0.6 to 0.95
+            SurfaceMaterial.RED_DUST -> 0.25 to 0.5
+            SurfaceMaterial.TESSERA -> 0.45 to 0.8
+            SurfaceMaterial.THOLIN -> 0.2 to 0.4
+            SurfaceMaterial.ORGANIC_SAND -> 0.1 to 0.2
+            SurfaceMaterial.NITROGEN_ICE, SurfaceMaterial.LAVA -> 0.0 to 0.0
         }
     }
 
@@ -84,6 +90,8 @@ object Deposits {
         when (SurfaceMaterial.entries[i]) {
             SurfaceMaterial.ICE -> 0.8 to 1.0
             SurfaceMaterial.SNOW -> 0.3 to 0.5
+            SurfaceMaterial.NITROGEN_ICE -> 0.5 to 0.7
+            SurfaceMaterial.THOLIN -> 0.05 to 0.15
             else -> 0.0 to 0.0
         }
     }

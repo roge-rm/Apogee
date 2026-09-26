@@ -53,6 +53,14 @@ internal class Storms(
     private val seed: Int,
     private val intensity: WeatherIntensity,
 ) {
+    private val climate = weather.climate
+
+    /** Whether this world has storms at all, at this setting. */
+    private val active = intensity.storms > 0.0 && climate.storms > 0.0
+
+    /** Whether anything falls from them. */
+    private val wet = climate.precipitation != Climate.Precipitation.NONE
+
     class Storm {
         var exists = false
         var cx = 0; var cy = 0; var cycle = 0L
@@ -138,9 +146,9 @@ internal class Storms(
         // And they come in groups: bands of bad weather hundreds of
         // kilometres long with quieter country between, not one storm here
         // and there. About twice as many as there were, overall.
-        val chance = (intensity.storms * 0.34 * (0.6 - 0.5 * pressure).coerceIn(0.1, 1.2) *
+        val chance = (intensity.storms * climate.storms * 0.34 * (0.6 - 0.5 * pressure).coerceIn(0.1, 1.2) *
             (0.2 + 1.6 * bandAt(s.origin, s.start))).coerceAtMost(0.9)
-        s.exists = intensity.storms > 0.0 && Noise.hash(seed + 74, cx, cy, c) < chance
+        s.exists = active && Noise.hash(seed + 74, cx, cy, c) < chance
         if (s.exists) {
             fun h(k: Int) = Noise.hash(seed + k, cx, cy, c)
             // No two alike: from a lone shower to a line of storms a hundred
@@ -240,9 +248,13 @@ internal class Storms(
             // Its base a kilometre or so above the ground it forms over -
             // above sea level, it sat on the high ground, with no room
             // under it for its rain to fall through.
-            val ground = max(weather.body.terrain?.elevation(s.origin) ?: 0.0, 0.0)
-            s.base = ground + 900.0 + 500.0 * h(77)
-            s.top += ground
+            // Where there is no sea to stand on, the ground however low.
+            val terrain = weather.body.terrain
+            val elevation = terrain?.elevation(s.origin) ?: 0.0
+            val ground = if (terrain == null || terrain.hasOcean) max(elevation, 0.0) else elevation
+            // (A dust storm's wall stands on the ground itself.)
+            s.base = ground + 900.0 * climate.stormBase + 500.0 * h(77) * climate.stormBase
+            s.top = s.top * climate.stormHeight + ground
             s.strikeInterval = (6.0 + 18.0 * h(78)) / s.strength
             weather.steeringWind(s.origin, s.start, s.steer)
             val speed = s.steer.length
@@ -322,7 +334,7 @@ internal class Storms(
     }
 
     fun apply(up: Vec3, east: Vec3, north: Vec3, position: Vec3, altitude: Double, groundTop: Double, time: Double, out: AirSample) {
-        if (intensity.storms <= 0.0) return
+        if (!active) return
         val n = cells.around(up, east, north, CELL / bodyRadius, keys, reach = SEARCH)
         for (k in 0 until n) {
             val s = storm(keys[k], time)
@@ -372,7 +384,7 @@ internal class Storms(
                     out.lift += w
                     out.wind.addScaledInPlace(up, w)
                 }
-                out.precipitation = max(out.precipitation, life * exp(-(dShaft / (0.9 * r)).let { it * it }))
+                if (wet) out.precipitation = max(out.precipitation, life * exp(-(dShaft / (0.9 * r)).let { it * it }))
 
                 // A lone storm's gust front: outflow spreading from each shaft.
                 // A line's is along its front, below.
@@ -417,7 +429,7 @@ internal class Storms(
 
             // Light rain over the back of the base.
             if (q < 1.0 && s.stratiform > 0.0 && da < 0.3) {
-                out.precipitation = max(out.precipitation, envelope * s.stratiform * 0.6 * (1.0 - q * q))
+                if (wet) out.precipitation = max(out.precipitation, envelope * s.stratiform * 0.6 * (1.0 - q * q))
             }
 
             // The base: a dark ceiling over the whole footprint.
@@ -431,7 +443,7 @@ internal class Storms(
             val ah = kotlin.math.hypot((along - anvilAlong) / anvilHalfAlong(s), (across - s.cellAcross[main]) / anvilHalfAcross(s))
             val av = (altitude - anvilHeight) / 900.0
             density = max(density, 1.0 - ah * ah - av * av)
-            if (density > 0.0) addCloud(out, (density * 2.0).coerceAtMost(1.0) * envelope, CloudType.CUMULONIMBUS)
+            if (density > 0.0) addCloud(out, (density * 2.0).coerceAtMost(1.0) * envelope, climate.stormCloud)
         }
     }
 
@@ -440,7 +452,7 @@ internal class Storms(
      * [altitude] up and below it, 0..1: under a big storm, all of it.
      */
     fun overcastAbove(up: Vec3, east: Vec3, north: Vec3, altitude: Double, time: Double): Double {
-        if (intensity.storms <= 0.0) return 0.0
+        if (!active) return 0.0
         val n = cells.around(up, east, north, CELL / bodyRadius, keys, reach = SEARCH)
         var most = 0.0
         val at = Vec3().setTo(up).mulInPlace(bodyRadius)
@@ -493,7 +505,7 @@ internal class Storms(
     fun seaAt(up: Vec3, time: Double, out: StormSea, land: (Vec3) -> Boolean) {
         out.stormHs = 0.0; out.swellHs = 0.0; out.swellPeriod = 0.0
         out.stormDirection.setZero(); out.swellDirection.setZero()
-        if (intensity.storms <= 0.0) return
+        if (!active) return
         frame(up, seaE, seaN)
         val at = Vec3().setTo(up).mulInPlace(bodyRadius)
 
@@ -573,7 +585,7 @@ internal class Storms(
 
     /** Storms living near [up] at [time], for drawing. */
     fun around(up: Vec3, east: Vec3, north: Vec3, radiusCells: Int, time: Double, out: MutableList<Storm>) {
-        if (intensity.storms <= 0.0) return
+        if (!active) return
         val found = LongArray((4 * radiusCells + 3) * (4 * radiusCells + 3) + (2 * radiusCells + 1) * (2 * radiusCells + 1) + 16)
         val n = cells.around(up, east, north, CELL / bodyRadius, found, reach = radiusCells)
         for (k in 0 until n) {
@@ -587,7 +599,7 @@ internal class Storms(
      * around [up], in time order.
      */
     fun strikes(up: Vec3, east: Vec3, north: Vec3, from: Double, to: Double, out: MutableList<Strike>) {
-        if (intensity.storms <= 0.0 || to <= from) return
+        if (!active || !climate.lightning || to <= from) return
         val n = cells.around(up, east, north, CELL / bodyRadius, keys, reach = SEARCH)
         for (k in 0 until n) {
             val s = storm(keys[k], from)

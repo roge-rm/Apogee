@@ -126,7 +126,14 @@ class RenderFrame(
      */
     val shadowFocus: Vec3? = null,
     val shadowRadius: Double = 0.0,
-)
+    /** How far the far pass reaches, m: further on a map of the whole system. */
+    val farReach: Double = FAR_REACH,
+) {
+    companion object {
+        /** The far pass's usual reach: a planet and its moons. */
+        const val FAR_REACH = 1.0e8
+    }
+}
 
 /**
  * A polyline in the attractor's frame - an orbit, or a marker cross.
@@ -223,6 +230,12 @@ class WorldView(
      * [MAX_LAMPS] of them.
      */
     val lamps: DoubleArray = NO_LAMPS,
+    /** The colours of this world's air. */
+    val sky: SkyColours = SkyColours.TERRA,
+    /** How big the star looks, its angular radius, rad; 0 for none drawn. */
+    val sunSize: Double = 0.0,
+    /** Its light, as a share of what it is at Terra. */
+    val sunStrength: Double = 1.0,
 ) {
     companion object {
         const val CLEAR_FOG = 1.0e9

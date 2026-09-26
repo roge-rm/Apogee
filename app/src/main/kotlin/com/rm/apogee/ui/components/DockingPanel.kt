@@ -110,61 +110,35 @@ private fun UndockChip(joint: GameSession.Joint, onUndock: (Int) -> Unit) {
 
 /**
  * Two players' craft docked into one: who flies it - you, them, or either -
- * chosen by either of you, and changeable any time from here.
+ * chosen by either of you, and changeable any time from here. What the
+ * shared chip opens.
  */
 @Composable
-fun SharedCraftCard(
-    other: String,
-    pilot: String,
-    open: Boolean,
-    onOpen: (Boolean) -> Unit,
-    onChoose: (String) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val label = when (pilot) { "me" -> "YOU FLY"; "them" -> "$other FLIES"; else -> "BOTH FLY" }
-    Column(modifier, horizontalAlignment = Alignment.End) {
-        Row(
-            Modifier
-                .clip(RoundedCornerShape(Dimens.CornerTight))
-                .background(ApogeeColors.Accent.alpha(0.22f))
-                .clickable { onOpen(!open) }
-                .padding(horizontal = 8.dp, vertical = 5.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("SHARED", style = MaterialTheme.typography.labelSmall, color = ApogeeColors.Accent, maxLines = 1)
-            Spacer(Modifier.width(6.dp))
-            Text(label, style = MaterialTheme.typography.labelSmall, color = ApogeeColors.Accent, maxLines = 1)
-        }
-        if (open) {
-            Spacer(Modifier.height(6.dp))
-            Column(
-                Modifier
-                    .clip(RoundedCornerShape(Dimens.CornerPanel))
-                    .background(ApogeeColors.Surface.alpha(0.92f))
-                    .padding(12.dp)
-                    .width(230.dp),
-            ) {
-                Text("Docked with $other", style = MaterialTheme.typography.titleSmall, color = Color.White)
-                Spacer(Modifier.height(2.dp))
-                Text("Who flies the craft now?", style = MaterialTheme.typography.bodySmall, color = Color.White.alpha(ApogeeAlpha.SUBTITLE))
-                Spacer(Modifier.height(8.dp))
-                for ((key, text) in listOf("me" to "I fly", "them" to "$other flies", "both" to "Either of us")) {
-                    val chosen = key == pilot
-                    Text(
-                        text,
-                        style = MaterialTheme.typography.labelLarge,
-                        color = if (chosen) Color(0xFF1A1030) else Color.White,
-                        modifier = Modifier
-                            .padding(vertical = 3.dp)
-                            .clip(RoundedCornerShape(Dimens.CornerActionBar))
-                            .background(if (chosen) ApogeeColors.Accent.alpha(0.9f) else Color.White.alpha(ApogeeAlpha.CONTROL_FILL))
-                            .clickable { onChoose(key); onOpen(false) }
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                    )
-                }
-            }
+internal fun SharedChooser(other: String, pilot: String, onChoose: (String) -> Unit, modifier: Modifier = Modifier) {
+    Column(modifier.width(230.dp)) {
+        Text("Docked with $other", style = MaterialTheme.typography.titleSmall, color = Color.White)
+        Spacer(Modifier.height(2.dp))
+        Text("Who flies the craft now?", style = MaterialTheme.typography.bodySmall, color = Color.White.alpha(ApogeeAlpha.SUBTITLE))
+        Spacer(Modifier.height(8.dp))
+        for ((key, text) in listOf("me" to "I fly", "them" to "$other flies", "both" to "Either of us")) {
+            val chosen = key == pilot
+            Text(
+                text,
+                style = MaterialTheme.typography.labelLarge,
+                color = if (chosen) Color(0xFF1A1030) else Color.White,
+                modifier = Modifier
+                    .padding(vertical = 3.dp)
+                    .clip(RoundedCornerShape(Dimens.CornerActionBar))
+                    .background(if (chosen) ApogeeColors.Accent.alpha(0.9f) else Color.White.alpha(ApogeeAlpha.CONTROL_FILL))
+                    .clickable { onChoose(key) }
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+            )
         }
     }
 }
+
+/** Who flies a shared craft, in a couple of words: what the shared chip says. */
+internal fun pilotLabel(other: String, pilot: String): String =
+    when (pilot) { "me" -> "YOU FLY"; "them" -> "${other.uppercase()} FLIES"; else -> "BOTH FLY" }
 
 private fun distance(m: Double): String = if (m < 10.0) "%.2f m".format(m) else if (m < 1_000.0) "${m.roundToInt()} m" else "%.1f km".format(m / 1_000.0)

@@ -19,7 +19,8 @@ import kotlin.math.sqrt
 class PowerTest {
     private val catalog = StockParts.catalog
     private val dt = 1.0 / 60.0
-    private val sun = LaunchTime.SUN_DIRECTION
+    /** Toward the star from Terra at the start: near enough the same the few minutes these run. */
+    private val sun = com.rm.apogee.core.orbit.SolarSystem.defaultSystem().sunDirection("terra", Vec3.zero(), 0.0)
 
     /** A Halo with [extras] on its sides, each on the outside of the hull facing out. */
     private fun pod(vararg extras: String): CraftDesign {

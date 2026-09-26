@@ -92,6 +92,7 @@ class ScatterRenderer {
         program.setFloat("uHazeDistance", hazeDistance)
         program.setFloat("uLightScale", world.lightScale)
         program.setFloat("uFlash", world.flash)
+        world.sky.haze.let { program.setVec3("uHaze", it[0], it[1], it[2]) }
         program.setFloat("uDaylight", daylight)
         program.setFloat("uFogDistance", world.fogDistance.toFloat())
         program.setVec3("uFogColor", fogColor[0], fogColor[1], fogColor[2])

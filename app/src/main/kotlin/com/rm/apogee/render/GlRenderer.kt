@@ -193,7 +193,9 @@ class GlRenderer(
         shader.setFloat("uDaylight", frameDaylight)
         shader.setFloat("uLightScale", world.lightScale)
         shader.setFloat("uFlash", world.flash)
+        setHaze(shader, world)
         shader.setFloat("uFogDistance", world.fogDistance.toFloat())
+        world.sky.seaSky.let { shader.setVec3("uSeaSky", it[0], it[1], it[2]) }
         shader.setVec3("uFogColor", frameFog[0], frameFog[1], frameFog[2])
         shader.setFloat("uSeaReach", world.seaReach.toFloat())
         shader.setFloat("uUnderwater", if (world.underwater) 1f else 0f)
@@ -346,7 +348,9 @@ class GlRenderer(
             GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT or GLES30.GL_DEPTH_BUFFER_BIT)
             GLES30.glClearColor(0.01f, 0.012f, 0.03f, 1f)
         } else if (world != null) {
-            farProjection.setPerspective(latest.fovYRadians, aspect, FAR_NEAR_PLANE, FAR_FAR_PLANE)
+            // A million to one, near to far, however far that is: the whole system on the map.
+            val farFar = maxOf(FAR_FAR_PLANE, latest.farReach)
+            farProjection.setPerspective(latest.fovYRadians, aspect, maxOf(FAR_NEAR_PLANE, farFar * 1e-6), farFar)
             farViewProjection.setMultiplied(farProjection, viewMatrix)
 
             val atmosphereFactor = atmosphereFactorAt(world)
@@ -408,6 +412,12 @@ class GlRenderer(
      * out exactly where drag and engine performance say it should rather than
      * at some separately-tuned altitude.
      */
+    /** The air's colour over distance, for every lit shader: this world's. */
+    private fun setHaze(shader: ShaderProgram, world: WorldView?) {
+        val haze = (world?.sky ?: SkyColours.TERRA).haze
+        shader.setVec3("uHaze", haze[0], haze[1], haze[2])
+    }
+
     private fun atmosphereFactorAt(world: WorldView): Float {
         if (world.atmosphereHeight <= 0.0) return 0f
         if (world.cameraAltitude >= world.atmosphereHeight) return 0f
@@ -418,7 +428,8 @@ class GlRenderer(
         // through the low atmosphere. Straight density has already dropped to
         // 0.87 at 800 m, which is enough for stars to show through in daylight
         // a few hundred metres off the pad.
-        return Math.pow(density, 0.30).toFloat()
+        // A thin air makes only a little of a sky: black overhead, a glow at the rim.
+        return Math.pow(density, 0.30).toFloat() * world.sky.depth
     }
 
     private fun drawSky(
@@ -452,6 +463,16 @@ class GlRenderer(
         shader.setFloat("uAtmosphereFactor", atmosphereFactor)
         shader.setFloat("uLightScale", frame.world?.lightScale ?: 1f)
         shader.setFloat("uFlash", frame.world?.flash ?: 0f)
+        setHaze(shader, frame.world)
+        (frame.world?.sky ?: SkyColours.TERRA).let { sky ->
+            shader.setVec3("uZenith", sky.zenith[0], sky.zenith[1], sky.zenith[2])
+            shader.setVec3("uHorizon", sky.horizon[0], sky.horizon[1], sky.horizon[2])
+            shader.setVec3("uSunset", sky.sunset[0], sky.sunset[1], sky.sunset[2])
+            shader.setVec3("uRim", sky.rim[0], sky.rim[1], sky.rim[2])
+        }
+        val sunSize = frame.world?.sunSize ?: 0.0
+        shader.setFloat("uSunCos", if (sunSize > 0.0) kotlin.math.cos(sunSize).toFloat() else 2f)
+        shader.setFloat("uSunGlow", kotlin.math.sqrt((frame.world?.sunStrength ?: 1.0).coerceIn(0.0, 1.0)).toFloat())
         shader.setFloat("uSkyFog", frame.world?.skyFog ?: 0f)
         shader.setVec3("uFogColor", frameFog[0], frameFog[1], frameFog[2])
         shader.setFloat("uDaylight", frameDaylight)
@@ -594,6 +615,7 @@ class GlRenderer(
         shader.setFloat("uHasAtmosphere", if (world.atmosphereHeight > 0.0) 1f else 0f)
         shader.setFloat("uLightScale", world.lightScale)
         shader.setFloat("uFlash", world.flash)
+        setHaze(shader, world)
         shader.setFloat("uFogDistance", world.fogDistance.toFloat())
         shader.setVec3("uFogColor", frameFog[0], frameFog[1], frameFog[2])
         shader.setFloat("uDaylight", frameDaylight)
@@ -810,6 +832,7 @@ class GlRenderer(
         val world = latest.world
         shader.setFloat("uLightScale", world?.lightScale ?: 1f)
         shader.setFloat("uFlash", world?.flash ?: 0f)
+        setHaze(shader, world)
         shader.setFloat("uDaylight", frameDaylight)
         shader.setFloat("uFogDistance", (world?.fogDistance ?: WorldView.CLEAR_FOG).toFloat())
         shader.setVec3("uFogColor", frameFog[0], frameFog[1], frameFog[2])

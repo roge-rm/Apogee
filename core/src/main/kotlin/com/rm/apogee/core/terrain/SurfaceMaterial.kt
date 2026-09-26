@@ -48,7 +48,28 @@ enum class SurfaceMaterial(
     CONCRETE(friction = 0.8, rollingDrag = 0.6, softness = 0.0, bog = 0.0),
 
     /** The runway: smooth asphalt, the easiest rolling there is. */
-    ASPHALT(friction = 0.8, rollingDrag = 0.5, softness = 0.0, bog = 0.0);
+    ASPHALT(friction = 0.8, rollingDrag = 0.5, softness = 0.0, bog = 0.0),
+
+    /** Rubra's: fine rust-red dust over rock, soft underfoot and wheel. */
+    RED_DUST(friction = 0.5, rollingDrag = 2.2, softness = 0.04, bog = 1.2),
+
+    /** Fornax's plains: sulfur frost and crust, firm. */
+    SULFUR(friction = 0.6, rollingDrag = 1.0, softness = 0.0, bog = 0.0),
+
+    /** Molten rock: Fornax's lakes, Caligo's fresh flows. Nothing that touches it survives. */
+    LAVA(friction = 0.3, rollingDrag = 3.0, softness = 0.0, bog = 0.0),
+
+    /** Aurantia's dunes: grains of frozen hydrocarbon, dark and soft. */
+    ORGANIC_SAND(friction = 0.45, rollingDrag = 3.0, softness = 0.06, bog = 2.0),
+
+    /** Frozen nitrogen: Ultima's great plain, Aversa's cap. Slicker than water ice, and a little soft. */
+    NITROGEN_ICE(friction = 0.06, rollingDrag = 0.7, softness = 0.01, bog = 0.5),
+
+    /** Dark red organic dust: Ultima's and Portitor's reddened ground. */
+    THOLIN(friction = 0.55, rollingDrag = 1.8, softness = 0.03, bog = 1.2),
+
+    /** Caligo's folded highland rock: rough and grippy. */
+    TESSERA(friction = 0.8, rollingDrag = 1.3, softness = 0.0, bog = 0.0);
 
     companion object {
         private val all = entries.toTypedArray()

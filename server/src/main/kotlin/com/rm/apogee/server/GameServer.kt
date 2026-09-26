@@ -430,6 +430,18 @@ class GameServer(
             return
         }
 
+        if (hello.systemHash != world.system.contentHash) {
+            session.send(
+                ServerMessage.Rejected(
+                    "Solar system mismatch: the server's worlds are ${world.system.contentHash}, " +
+                        "this game's are ${hello.systemHash}. Both need the same version of Apogee."
+                ),
+                Channel.CONTROL,
+            )
+            disconnect(session)
+            return
+        }
+
         session.playerName = hello.playerName.take(32).ifBlank { "Pilot" }
         session.clientId = hello.clientId.take(64)
         if (session.clientId.isBlank()) {

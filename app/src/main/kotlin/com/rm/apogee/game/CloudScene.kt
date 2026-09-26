@@ -29,6 +29,8 @@ class CloudScene(
     val config: WeatherConfig,
     private val tier: QualityTier,
     private val scope: kotlinx.coroutines.CoroutineScope,
+    /** Toward the star at a time, inertial: what the clouds' shadows fall away from. */
+    private val sunAt: (Double) -> Vec3 = { Vec3.unitY() },
 ) {
 
     /** For the camera's air, every frame, on the frame thread. */
@@ -192,7 +194,7 @@ class CloudScene(
         val list = ArrayList<Lobe>(shapes.size * 4)
         val curtains = ArrayList<Lobe>()
         for (shape in shapes) {
-            val far = if (shape.type == CloudType.CUMULONIMBUS) stormReach else reach
+            val far = if (shape.type == CloudType.CUMULONIMBUS || shape.type == CloudType.DUST) stormReach else reach
             for (lobe in shape.lobes) {
                 val distance = lobe.centre.distanceTo(camera) - lobe.horizontal
                 if (distance > far || distance < inner) continue
@@ -227,7 +229,7 @@ class CloudScene(
      */
     private fun buildShadow(camera: Vec3, time: Double) {
         val up = camera.copy().normalizeInPlace()
-        val sun = body.rotationAt(time).inverseRotate(com.rm.apogee.core.world.LaunchTime.SUN_DIRECTION, Vec3())
+        val sun = body.rotationAt(time).inverseRotate(sunAt(time), Vec3())
         val (light, strength) = if ((sun dot up) > 0.08) sun to 0.6f else sun.copy().mulInPlace(-1.0) to 0.35f
         val ground = kotlin.math.max(body.terrain?.elevation(up) ?: 0.0, 0.0)
         val fine = tier == QualityTier.HIGH
@@ -280,10 +282,10 @@ class CloudScene(
             Vec3(lobe.horizontal, lobe.vertical, lobe.horizontal),
             colour,
             variant = (hash and 0xFF).mod(CloudShapes.VARIANTS),
-            flat = flatForced || lobe.flat || type == CloudType.STRATUS || type == CloudType.ALTOSTRATUS || type == CloudType.CIRRUS,
+            flat = flatForced || lobe.flat || type == CloudType.STRATUS || type == CloudType.ALTOSTRATUS || type == CloudType.CIRRUS || type == CloudType.DECK,
             distance = distance,
             tier = tier,
-            storm = type == CloudType.CUMULONIMBUS,
+            storm = type == CloudType.CUMULONIMBUS || type == CloudType.DUST,
         )
     }
 
@@ -433,7 +435,14 @@ class CloudScene(
             // Visibility is where things are all but gone; the fog curve
             // reaches that at about three of its distances.
             val v = air.visibility
-            return if (v >= AirSample.CLEAR_VISIBILITY) com.rm.apogee.render.WorldView.CLEAR_FOG else v / 3.0
+            // A murky world's clear air - Aurantia's orange haze - closes in
+            // at its own distance; cloud and rain closer still.
+            val clear = weather.climate.haze
+            return when {
+                v >= AirSample.CLEAR_VISIBILITY -> com.rm.apogee.render.WorldView.CLEAR_FOG
+                v >= clear -> clear
+                else -> v / 3.0
+            }
         }
 
     /** What the fog is made of: white in cumulus, grey in stratus and rain, dark in a storm. */
@@ -445,9 +454,13 @@ class CloudScene(
                 CloudType.CUMULUS -> floatArrayOf(0.86f, 0.88f, 0.91f)
                 CloudType.STRATUS, CloudType.ALTOSTRATUS -> floatArrayOf(0.70f, 0.72f, 0.75f)
                 CloudType.CIRRUS -> floatArrayOf(0.80f, 0.84f, 0.90f)
-                null -> floatArrayOf(0.55f, 0.58f, 0.62f)
+                CloudType.DUST -> floatArrayOf(0.62f, 0.42f, 0.26f)
+                CloudType.DECK -> floatArrayOf(0.80f, 0.70f, 0.46f)
+                // Clear air: a murky world's is its haze.
+                null -> if (sky === com.rm.apogee.render.SkyColours.TERRA) floatArrayOf(0.55f, 0.58f, 0.62f) else sky.haze
             }
-            return floatArrayOf(base[0] * (0.5f + 0.5f * light), base[1] * (0.5f + 0.5f * light), base[2] * (0.5f + 0.5f * light))
+            val t = if (air.cloudType == null) WHITE else sky.cloud
+            return floatArrayOf(base[0] * t[0] * (0.5f + 0.5f * light), base[1] * t[1] * (0.5f + 0.5f * light), base[2] * t[2] * (0.5f + 0.5f * light))
         }
 
     /** 1 deep in cloud, where the sky is gone. */
@@ -471,8 +484,14 @@ class CloudScene(
             CloudType.STRATUS -> floatArrayOf(0.80f * s, 0.82f * s, 0.86f * s, 1f)
             CloudType.ALTOSTRATUS -> floatArrayOf(0.86f * s, 0.88f * s, 0.92f * s, 1f)
             CloudType.CIRRUS -> floatArrayOf(0.95f, 0.97f, 1.0f, 1f)
-        }
+            // A wall of dust, the colour of the ground it was lifted from.
+            CloudType.DUST -> floatArrayOf(0.72f * s, 0.48f * s, 0.30f * s, 1f)
+            CloudType.DECK -> floatArrayOf(0.90f * s, 0.82f * s, 0.58f * s, 1f)
+        }.also { c -> val t = sky.cloud; c[0] *= t[0]; c[1] *= t[1]; c[2] *= t[2] }
     }
+
+    /** This world's air's colours: its clouds are tinted by them. */
+    private val sky = com.rm.apogee.render.SkyColours.of(body.id)
 
     private fun smooth(a: Double, b: Double, x: Double): Double {
         val t = ((x - a) / (b - a)).coerceIn(0.0, 1.0)
@@ -481,7 +500,9 @@ class CloudScene(
 
     private companion object {
         /** Opacity of each kind at its thickest, by ordinal. */
-        val OPACITY = doubleArrayOf(0.85, 0.55, 0.45, 0.25, 1.0)
+        val OPACITY = doubleArrayOf(0.85, 0.55, 0.45, 0.25, 1.0, 0.95, 0.9)
+
+        val WHITE = floatArrayOf(1f, 1f, 1f)
 
         /** Metres out to which puffs get the finest mesh, and the fine one. */
         const val NEAR_DETAIL = 6_000.0

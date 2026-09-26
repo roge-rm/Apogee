@@ -513,6 +513,11 @@ data class FuelCell(
     val monoPerCharge: Double = 0.01,
 ) : PartModule
 
+/** Makes [rate] units of charge a second whatever the light: an isotope's slow heat, for where the sun is too faint. */
+@Serializable
+@SerialName("generator")
+data class Generator(val rate: Double) : PartModule
+
 /** Room for [capacity] people to live, off duty: a base's habitat. Seats, not controls. */
 @Serializable
 @SerialName("habitat")

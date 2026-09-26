@@ -856,10 +856,17 @@ private fun SiteDialog(
                 val choices = listOf<Pair<String?, String>>(null to "Automatic") +
                     World.launchSites.map { it.id to it.displayName } +
                     bases.map { it.id to it.displayName }
+                // Headed by world - Terra's pads, Luna's, then every other
+                // world's test site - and then the player's own bases.
+                val headings = HashMap<String?, String>()
+                World.launchSites.groupBy { it.bodyId }.forEach { (body, sites) ->
+                    headings[sites.first().id] = body.uppercase()
+                }
+                bases.firstOrNull()?.let { headings[it.id] = "YOUR BASES" }
                 for ((id, name) in choices) {
-                    if (bases.isNotEmpty() && id == bases.first().id) {
+                    headings[id]?.let { heading ->
                         Text(
-                            "YOUR BASES",
+                            heading,
                             style = MaterialTheme.typography.labelSmall,
                             color = ApogeeColors.Accent,
                             modifier = Modifier.padding(top = 12.dp, bottom = 2.dp),

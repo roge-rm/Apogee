@@ -160,6 +160,12 @@ data class PartDef(
      * it is": see [heatLimit].
      */
     val maxTemperature: Double = 0.0,
+    /**
+     * The air pressure it stands, Pa, before it starts to give: twenty
+     * times Terra's by default. Caligo's floor is nearly five times that;
+     * a gas giant's depths, without end.
+     */
+    val maxPressure: Double = 2e6,
     /** Cost, for a career mode that does not exist yet. */
     val cost: Double = 0.0,
     /**

@@ -223,6 +223,12 @@ private fun ControlsTab(settings: GameSettings) {
         range = 0.3f..1.0f,
     )
     SwitchRow(
+        title = "Fade controls when idle",
+        subtitle = "Let the view show through after a few seconds untouched",
+        checked = settings.fadeWhenIdle,
+        onCheckedChange = { settings.fadeWhenIdle = it },
+    )
+    SwitchRow(
         title = "Haptics",
         checked = settings.hapticsEnabled,
         onCheckedChange = { settings.hapticsEnabled = it },

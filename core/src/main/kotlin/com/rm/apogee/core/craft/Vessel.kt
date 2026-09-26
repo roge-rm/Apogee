@@ -363,6 +363,9 @@ class Vessel(
     /** Where in their stride someone walking is, radians: what swings their legs. */
     var walkPhase: Double = 0.0
 
+    /** Which side of its body's ring plane it was last on, NaN for not yet looked: see `World`'s rings. */
+    var ringSide: Double = Double.NaN
+
     /** Walking or jumping this tick: not to be held still as a parked craft is. */
     var walking: Boolean = false
 

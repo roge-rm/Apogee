@@ -201,6 +201,7 @@ class Orbit(
         var rNew = r
 
         var iterations = 0
+        var converged = false
         while (iterations < MAX_ITERATIONS) {
             psi = chi * chi * alpha
             c2 = Stumpff.c2(psi)
@@ -216,11 +217,30 @@ class Orbit(
                 sqrtMu * dt
 
             // dF/dchi is exactly rNew, which is what makes this cheap.
-            if (abs(rNew) < 1e-12) break
+            if (abs(rNew) < 1e-12) { converged = true; break }
             val delta = f / rNew
             chi -= delta
-            if (abs(delta) < CONVERGENCE_TOLERANCE) break
+            if (abs(delta) < CONVERGENCE_TOLERANCE) { converged = true; break }
             iterations++
+        }
+        if (converged && chi.isFinite()) {
+            // A huge wrong start "converges" too: its steps shrink as r grows
+            // with it. Checked by the time equation itself, off by no more
+            // than a hair of the time asked for.
+            val p = chi * chi * alpha
+            val residual = (rDotV / sqrtMu) * chi * chi * Stumpff.c2(p) +
+                (1.0 - alpha * r) * chi * chi * chi * Stumpff.c3(p) + r * chi - sqrtMu * dt
+            if (!(abs(residual) <= 1e-6 * sqrtMu * abs(dt) + 1e-3)) converged = false
+        }
+        if (!converged || !chi.isFinite()) {
+            // Newton lost from a poor start: coming in from far out on a
+            // fast hyperbola the analytic guess's two terms all but cancel.
+            // Solved again, slower, kept inside a bracket round the root.
+            chi = bracketed(dt, alpha, sqrtMu, rDotV)
+            psi = chi * chi * alpha
+            c2 = Stumpff.c2(psi)
+            c3 = Stumpff.c3(psi)
+            rNew = chi * chi * c2 + (rDotV / sqrtMu) * chi * (1.0 - psi * c3) + r * (1.0 - psi * c2)
         }
 
         // Lagrange coefficients turn the solved anomaly back into r and v.
@@ -261,6 +281,45 @@ class Orbit(
             val t = start + span * (i.toDouble() / (count - 1).toDouble())
             propagate(t).position
         }
+    }
+
+    /**
+     * The universal anomaly for [dt] by Newton kept inside a bracket: the
+     * time equation rises with the anomaly, so the root is always between
+     * a point below it and one above, and a step that leaves them halves
+     * them instead.
+     */
+    private fun bracketed(dt: Double, alpha: Double, sqrtMu: Double, rDotV: Double): Double {
+        fun f(chi: Double, out: DoubleArray) {
+            val psi = chi * chi * alpha
+            val c2 = Stumpff.c2(psi)
+            val c3 = Stumpff.c3(psi)
+            out[0] = (rDotV / sqrtMu) * chi * chi * c2 + (1.0 - alpha * r) * chi * chi * chi * c3 + r * chi - sqrtMu * dt
+            out[1] = chi * chi * c2 + (rDotV / sqrtMu) * chi * (1.0 - psi * c3) + r * (1.0 - psi * c2)
+        }
+        val s = sign(dt)
+        val v = DoubleArray(2)
+        var inside = 0.0
+        var beyond = s * kotlin.math.max(1e-3, sqrtMu * abs(dt) / r)
+        for (k in 0 until 400) {
+            f(beyond, v)
+            if (s * v[0] > 0.0) break
+            inside = beyond
+            beyond *= 2.0
+        }
+        var chi = 0.5 * (inside + beyond)
+        for (k in 0 until 400) {
+            f(chi, v)
+            if (!v[0].isFinite()) { beyond = chi; chi = 0.5 * (inside + beyond); continue }
+            if (s * v[0] > 0.0) beyond = chi else inside = chi
+            var next = if (abs(v[1]) > 1e-12) chi - v[0] / v[1] else Double.NaN
+            val lo = kotlin.math.min(inside, beyond)
+            val hi = kotlin.math.max(inside, beyond)
+            if (!(next > lo && next < hi)) next = 0.5 * (inside + beyond)
+            if (abs(next - chi) < CONVERGENCE_TOLERANCE) return next
+            chi = next
+        }
+        return chi
     }
 
     private fun initialGuess(dt: Double, alpha: Double, sqrtMu: Double, rDotV: Double): Double =
@@ -312,6 +371,40 @@ class Orbit(
          * [inclination] radians about the X axis - so it rises through the
          * equator there.
          */
+        /**
+         * An orbit from its elements: semi-major axis [a], eccentricity [e],
+         * inclination [i], longitude of the ascending node [node], argument
+         * of periapsis [argument] and true anomaly [anomaly] at [epoch] - the
+         * angles in radians, measured in a reference plane whose north is
+         * [frame] applied to +Y. Prograde is anticlockwise seen from that
+         * north, as [circular]'s is from +Y.
+         */
+        fun fromElements(
+            a: Double, e: Double, i: Double, node: Double, argument: Double, anomaly: Double,
+            mu: Double, epoch: Double = 0.0, frame: com.rm.apogee.core.math.Quat = com.rm.apogee.core.math.Quat.identity(),
+        ): Orbit {
+            val p = a * (1 - e * e)
+            val r = p / (1 + e * kotlin.math.cos(anomaly))
+            // Perifocal: periapsis along x, motion toward y.
+            val px = r * kotlin.math.cos(anomaly)
+            val py = r * kotlin.math.sin(anomaly)
+            val k = sqrt(mu / p)
+            val vx = -k * kotlin.math.sin(anomaly)
+            val vy = k * (e + kotlin.math.cos(anomaly))
+            fun toFrame(x: Double, y: Double): Vec3 {
+                // Rz(node) Rx(i) Rz(argument), in the usual z-up convention...
+                val cO = kotlin.math.cos(node); val sO = kotlin.math.sin(node)
+                val ci = kotlin.math.cos(i); val si = kotlin.math.sin(i)
+                val cw = kotlin.math.cos(argument); val sw = kotlin.math.sin(argument)
+                val x1 = cw * x - sw * y; val y1 = sw * x + cw * y
+                val x2 = x1; val y2 = ci * y1; val z2 = si * y1
+                val x3 = cO * x2 - sO * y2; val y3 = sO * x2 + cO * y2; val z3 = z2
+                // ...then into this world's axes, where north is +Y: z up to Y, y to -Z.
+                return frame.rotate(Vec3(x3, z3, -y3), Vec3())
+            }
+            return Orbit(position = toFrame(px, py), velocity = toFrame(vx, vy), mu = mu, epoch = epoch)
+        }
+
         fun circular(radiusFromCentre: Double, mu: Double, epoch: Double = 0.0, inclination: Double = 0.0): Orbit {
             val speed = sqrt(mu / radiusFromCentre)
             return Orbit(

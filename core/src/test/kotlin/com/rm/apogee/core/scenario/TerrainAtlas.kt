@@ -140,4 +140,11 @@ private fun swatch(material: SurfaceMaterial, h: Double): Triple<Double, Double,
     SurfaceMaterial.FOREST -> Triple(0.15, 0.31, 0.14)
     SurfaceMaterial.CONCRETE -> Triple(0.66, 0.65, 0.62)
     SurfaceMaterial.ASPHALT -> Triple(0.17, 0.17, 0.18)
+    SurfaceMaterial.RED_DUST -> Triple(0.66, 0.33, 0.19)
+    SurfaceMaterial.SULFUR -> Triple(0.87, 0.77, 0.27)
+    SurfaceMaterial.LAVA -> Triple(1.0, 0.35, 0.08)
+    SurfaceMaterial.ORGANIC_SAND -> Triple(0.27, 0.20, 0.13)
+    SurfaceMaterial.NITROGEN_ICE -> Triple(0.91, 0.87, 0.84)
+    SurfaceMaterial.THOLIN -> Triple(0.47, 0.25, 0.18)
+    SurfaceMaterial.TESSERA -> Triple(0.50, 0.39, 0.28)
 }

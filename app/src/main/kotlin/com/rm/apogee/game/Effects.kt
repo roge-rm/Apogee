@@ -153,9 +153,53 @@ class Effects(tier: QualityTier) {
             if (cameraAir != null && cameraAir.precipitation > 0.02) rain(dt, cameraAir.precipitation, cameraBodyFixed, body)
         }
         seaSpray(dt, time, body)
+        plumes(dt, body, cameraBodyFixed)
         advance(dt, body)
         if (weather != null) lightning(time, weather, cameraBodyFixed, body)
         flash = (flash * exp(-dt / 0.12).toFloat()).coerceAtLeast(0f)
+    }
+
+    // --- plumes -----------------------------------------------------------------
+
+    /**
+     * A world's vents at work near the camera: Fornax's volcanoes throwing
+     * sulfur kilometres up, Fons's geysers, Aversa's dark jets. Only to look
+     * at - fountains of big particles, arcing up and falling back with no
+     * air to slow them.
+     */
+    private fun plumes(dt: Double, body: CelestialBody, camera: Vec3) {
+        val vents = PLUMES[body.id] ?: return
+        val terrain = body.terrain
+        for ((n, vent) in vents.withIndex()) {
+            val d = vent.direction
+            val ground = terrain?.elevation(d) ?: 0.0
+            val at = scratch2.setTo(d).mulInPlace(body.radius + ground)
+            if (at.distanceTo(camera) > PLUME_REACH) continue
+            val speed = kotlin.math.sqrt(2.0 * body.surfaceGravity * vent.height)
+            val count = poisson(vent.rate * rateScale * dt, 0x9107 + n)
+            // Across the vent's two sides, for the fountain's spread.
+            val e = Vec3(d.z, 0.0, -d.x).let { if (it.lengthSq < 1e-12) it.setTo(1.0, 0.0, 0.0) else it.normalizeInPlace() }
+            val nth = Vec3().setTo(d).crossInPlace(e)
+            for (k in 0 until count) {
+                val a = rand(k) * 2.0 * Math.PI
+                val lean = vent.spread * kotlin.math.sqrt(rand(k + 1).toDouble())
+                val v = speed * (0.75 + 0.25 * rand(k + 2))
+                val vx = (d.x + (e.x * kotlin.math.cos(a) + nth.x * kotlin.math.sin(a)) * lean) * v
+                val vy = (d.y + (e.y * kotlin.math.cos(a) + nth.y * kotlin.math.sin(a)) * lean) * v
+                val vz = (d.z + (e.z * kotlin.math.cos(a) + nth.z * kotlin.math.sin(a)) * lean) * v
+                val shade = 0.85f + 0.15f * rand(k + 3)
+                spawn(
+                    x = at.x, y = at.y, z = at.z, vx = vx, vy = vy, vz = vz,
+                    life = 2.0 * v / body.surfaceGravity, startSize = vent.size, endSize = vent.size * 3.0,
+                    r = vent.colour[0] * shade, g = vent.colour[1] * shade, b = vent.colour[2] * shade, a = 0.55f,
+                    grip = 0.0, rise = 0.0, fall = true,
+                )
+            }
+        }
+    }
+
+    private class Vent(latitude: Double, longitude: Double, val height: Double, val rate: Double, val size: Double, val spread: Double, val colour: FloatArray) {
+        val direction: Vec3 = com.rm.apogee.core.orbit.SolarSystem.surfaceDirection(Math.toRadians(latitude), Math.toRadians(longitude))
     }
 
     // --- the sea ---------------------------------------------------------------
@@ -1044,6 +1088,32 @@ class Effects(tier: QualityTier) {
     }
 
     companion object {
+        /** Out to here a vent is seen at work, m. */
+        private const val PLUME_REACH = 150_000.0
+
+        private val SULFUR = floatArrayOf(0.88f, 0.82f, 0.55f)
+        private val VAPOUR = floatArrayOf(0.95f, 0.97f, 1.0f)
+        private val SOOT = floatArrayOf(0.26f, 0.22f, 0.22f)
+
+        /** Each world's vents: where, how high they throw, how often, how big and spread, what colour. */
+        private val PLUMES: Map<String, List<Vent>> = mapOf(
+            "fornax" to listOf(
+                Vent(-12.0, 50.0, 12_000.0, 1.5, 300.0, 0.45, SULFUR),
+                Vent(25.0, -140.0, 9_000.0, 1.2, 260.0, 0.4, SULFUR),
+                Vent(-40.0, 170.0, 10_000.0, 1.2, 280.0, 0.45, SULFUR),
+            ),
+            "fons" to listOf(
+                Vent(-80.0, 20.0, 2_000.0, 0.3, 60.0, 0.12, VAPOUR),
+                Vent(-83.0, 60.0, 2_500.0, 0.3, 60.0, 0.12, VAPOUR),
+                Vent(-86.0, 150.0, 2_000.0, 0.3, 60.0, 0.12, VAPOUR),
+                Vent(-82.0, -100.0, 1_800.0, 0.3, 60.0, 0.12, VAPOUR),
+            ),
+            "aversa" to listOf(
+                Vent(-55.0, 40.0, 3_000.0, 0.8, 80.0, 0.08, SOOT),
+                Vent(-60.0, 10.0, 2_500.0, 0.8, 80.0, 0.08, SOOT),
+            ),
+        )
+
         /** Spray: how high above the sea the camera still sees it, m; how far round, m; tries a second. */
         /** The most of the particle budget rain may take, in a downpour. */
         const val RAIN_SHARE = 0.5

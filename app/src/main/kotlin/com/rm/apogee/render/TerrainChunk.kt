@@ -257,7 +257,7 @@ object TerrainChunk {
                 // a vertex shared by two chunks - or two levels - gets the
                 // same jitter in both.
                 val jitterKey = jitterKeyFor(key, p, q)
-                TerrainPalette.colour(material, height, jitterKey, vertices, base + 6)
+                TerrainPalette.colour(material, height, jitterKey, vertices, base + 6, terrain.world)
                 vertices[base + 9] = 0f
             }
         }

@@ -6707,6 +6707,358 @@
     ]
   },
   {
+    "id": "dish-great",
+    "title": "Great Dish",
+    "category": "utility",
+    "dryMass": 180.0,
+    "description": "A wide folding dish that hears across the whole system: out to Ultima, if home is listening. Relays what other craft send it.",
+    "crashTolerance": 8.0,
+    "dragCoefficient": 0.4,
+    "mesh": {
+      "type": "box",
+      "width": 0.2,
+      "height": 0.3,
+      "depth": 0.2
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.2,
+              "height": 0.3,
+              "depth": 0.2
+            }
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.03,
+              "height": 0.5
+            }
+          },
+          "offset": {
+            "x": 0.35,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 90.0
+          },
+          "tint": "metal",
+          "role": "deploy",
+          "axis": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 1.0
+          },
+          "pivot": {
+            "x": 0.1,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "travel": -90.0
+        },
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                0.0,
+                0.0
+              ],
+              [
+                0.45,
+                0.07200000000000001
+              ],
+              [
+                0.81,
+                0.216
+              ],
+              [
+                0.9,
+                0.28800000000000003
+              ]
+            ],
+            "segments": 16
+          },
+          "offset": {
+            "x": 0.6,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": -90.0
+          },
+          "tint": "metal",
+          "role": "deploy",
+          "axis": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 1.0
+          },
+          "pivot": {
+            "x": 0.1,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "travel": -90.0
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.015,
+              "height": 0.3
+            }
+          },
+          "offset": {
+            "x": 0.75,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 90.0
+          },
+          "tint": "dark",
+          "role": "deploy",
+          "axis": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 1.0
+          },
+          "pivot": {
+            "x": 0.1,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "travel": -90.0
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "root",
+        "position": {
+          "x": -0.1,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": -1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "antenna",
+        "range": 2000000000000.0,
+        "relay": true,
+        "deployable": true,
+        "draw": 0.5
+      }
+    ]
+  },
+  {
+    "id": "generator-glow",
+    "title": "Glow Isotope Generator",
+    "category": "utility",
+    "dryMass": 350.0,
+    "description": "A slow nuclear warmth made into charge, day and night, near the sun or far beyond it. Heavy, and never quick - but out among the giants, where panels see a sliver of the sun, it is what keeps a probe alive.",
+    "crashTolerance": 12.0,
+    "dragCoefficient": 0.4,
+    "mesh": {
+      "type": "box",
+      "width": 0.35,
+      "height": 0.7,
+      "depth": 0.35
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.12,
+              "height": 0.7
+            }
+          },
+          "offset": {
+            "x": 0.18,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.3,
+              "height": 0.62,
+              "depth": 0.02
+            }
+          },
+          "offset": {
+            "x": 0.18,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.3,
+              "height": 0.62,
+              "depth": 0.02
+            }
+          },
+          "offset": {
+            "x": 0.18,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 45.0,
+            "z": 0.0
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.3,
+              "height": 0.62,
+              "depth": 0.02
+            }
+          },
+          "offset": {
+            "x": 0.18,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 90.0,
+            "z": 0.0
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.3,
+              "height": 0.62,
+              "depth": 0.02
+            }
+          },
+          "offset": {
+            "x": 0.18,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 135.0,
+            "z": 0.0
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.14,
+              "height": 0.12,
+              "depth": 0.2
+            }
+          },
+          "offset": {
+            "x": -0.08,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.03,
+              "height": 0.06,
+              "depth": 0.06
+            }
+          },
+          "offset": {
+            "x": 0.18,
+            "y": 0.36,
+            "z": 0.0
+          },
+          "tint": "accent"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "root",
+        "position": {
+          "x": -0.15,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": -1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "generator",
+        "rate": 0.4
+      }
+    ]
+  },
+  {
     "id": "drill-auger",
     "title": "Auger Drill",
     "category": "utility",
@@ -10600,6 +10952,247 @@
     ]
   },
   {
+    "id": "fairing-hot",
+    "title": "Hotshell",
+    "category": "structural",
+    "dryMass": 1400.0,
+    "description": "A Shroud built for Caligo: its shell stands a hundred and fifty times Terra's air pressure and the heat beneath it, and keeps what rides inside alive down there - for as long as it stays shut.",
+    "crashTolerance": 9.0,
+    "dragCoefficient": 0.3,
+    "strength": 8000000.0,
+    "mesh": {
+      "type": "cylinder",
+      "radius": 1.25,
+      "height": 0.2
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                1.25,
+                -0.1
+              ],
+              [
+                1.29,
+                -0.08
+              ],
+              [
+                1.29,
+                -0.025
+              ],
+              [
+                1.2,
+                -0.012
+              ],
+              [
+                1.2,
+                0.012
+              ],
+              [
+                1.29,
+                0.025
+              ],
+              [
+                1.29,
+                0.08
+              ],
+              [
+                1.25,
+                0.1
+              ]
+            ],
+            "segments": 28
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                1.4423,
+                -3.75
+              ],
+              [
+                1.5,
+                -3.75
+              ],
+              [
+                1.5,
+                1.0
+              ],
+              [
+                1.3269,
+                2.2
+              ],
+              [
+                0.9231,
+                3.1
+              ],
+              [
+                0.4038,
+                3.65
+              ],
+              [
+                0.0,
+                3.75
+              ],
+              [
+                0.0,
+                3.68
+              ],
+              [
+                0.3462,
+                3.58
+              ],
+              [
+                0.8654,
+                3.03
+              ],
+              [
+                1.2692,
+                2.15
+              ],
+              [
+                1.4423,
+                1.0
+              ],
+              [
+                1.4423,
+                -3.75
+              ]
+            ],
+            "segments": 16,
+            "sweep": 180.0,
+            "from": -90.0
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 3.85,
+            "z": 0.0
+          },
+          "role": "jettison",
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                1.4423,
+                -3.75
+              ],
+              [
+                1.5,
+                -3.75
+              ],
+              [
+                1.5,
+                1.0
+              ],
+              [
+                1.3269,
+                2.2
+              ],
+              [
+                0.9231,
+                3.1
+              ],
+              [
+                0.4038,
+                3.65
+              ],
+              [
+                0.0,
+                3.75
+              ],
+              [
+                0.0,
+                3.68
+              ],
+              [
+                0.3462,
+                3.58
+              ],
+              [
+                0.8654,
+                3.03
+              ],
+              [
+                1.2692,
+                2.15
+              ],
+              [
+                1.4423,
+                1.0
+              ],
+              [
+                1.4423,
+                -3.75
+              ]
+            ],
+            "segments": 16,
+            "sweep": 180.0,
+            "from": 90.0
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 3.85,
+            "z": 0.0
+          },
+          "role": "jettison",
+          "tint": "dark"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "top",
+        "position": {
+          "x": 0.0,
+          "y": 0.1,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "size": 2
+      },
+      {
+        "id": "bottom",
+        "position": {
+          "x": 0.0,
+          "y": -0.1,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 2
+      }
+    ],
+    "modules": [
+      {
+        "type": "fairing",
+        "height": 7.5,
+        "radius": 1.5,
+        "shellPart": "fairing-shroud",
+        "shellMass": 600.0,
+        "ejectionImpulse": 900.0
+      }
+    ],
+    "maxPressure": 15000000.0,
+    "maxTemperature": 2200.0
+  },
+  {
     "id": "crew-suit",
     "title": "Crew Member",
     "category": "command",
@@ -10882,7 +11475,8 @@
         "jump": 3.0,
         "stand": 800.0
       }
-    ]
+    ],
+    "maxPressure": 500000.0
   },
   {
     "id": "flag-pole",

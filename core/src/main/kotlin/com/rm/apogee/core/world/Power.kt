@@ -11,6 +11,7 @@ import com.rm.apogee.core.part.FuelCell
 import com.rm.apogee.core.part.Lamp
 import com.rm.apogee.core.part.ResourceType
 import com.rm.apogee.core.part.SolarPanel
+import com.rm.apogee.core.weather.Climate
 
 /**
  * A craft's power, tick by tick: what its panels, alternators and fuel
@@ -24,6 +25,7 @@ class Power(private val system: SolarSystem) {
     private val scratchRel = Vec3()
     private val scratchSun = Vec3()
     private val scratchFace = Vec3()
+    private val scratchSunDir = Vec3()
 
     /**
      * How much of the sun reaches [position] - relative to [attractor]'s
@@ -31,9 +33,11 @@ class Power(private val system: SolarSystem) {
      * parent or moons, a cylinder behind each along the sun's direction.
      */
     fun sunlight(attractor: CelestialBody, position: Vec3, time: Double): Double {
-        val sun = LaunchTime.SUN_DIRECTION
+        val sun = system.sunDirection(attractor.id, position, time, scratchSunDir)
         scratchHere.setTo(system.positionOf(attractor.id, time)).addInPlace(position)
         for (body in shadowers(attractor)) {
+            // The star casts no shadow of its own.
+            if (body.parentId == null) continue
             scratchRel.setTo(system.positionOf(body.id, time)).negateInPlace().addInPlace(scratchHere)
             val along = scratchRel dot sun
             if (along >= 0.0) continue
@@ -41,6 +45,20 @@ class Power(private val system: SolarSystem) {
             if (scratchRel.length < body.radius) return 0.0
         }
         return 1.0
+    }
+
+    /**
+     * How much of the sunlight the air lets through to [vessel], 0..1: all
+     * of it on an airless world and in Terra's sky; a tenth under Caligo's
+     * deck or Aurantia's haze; little inside a dust storm.
+     */
+    fun skyShade(vessel: Vessel, attractor: CelestialBody): Double {
+        if (attractor.atmosphere == null) return 1.0
+        val climate = Climate.of(attractor.id) ?: return 1.0
+        var through = climate.sunThrough(vessel.body.position.length - attractor.radius)
+        val air = vessel.air
+        if (climate.stormShade > 0.0 && air.cloudType == climate.stormCloud) through *= 1.0 - climate.stormShade * air.cloudDensity
+        return through
     }
 
     private val shadowerLists = HashMap<String, List<CelestialBody>>()
@@ -62,10 +80,13 @@ class Power(private val system: SolarSystem) {
      */
     fun step(vessel: Vessel, attractor: CelestialBody, time: Double, dt: Double, rails: Boolean = false) {
         val capacity = vessel.capacityOf(ResourceType.ELECTRIC_CHARGE)
-        val lit = sunlight(attractor, vessel.body.position, time)
+        // As bright as the distance from the star leaves it: faint among the giants.
+        val lit = sunlight(attractor, vessel.body.position, time) * system.sunStrength(attractor.id, vessel.body.position, time) *
+            skyShade(vessel, attractor)
+        val sun = system.sunDirection(attractor.id, vessel.body.position, time, scratchSunDir)
         // The sun in the craft's own axes, for which way each panel faces.
-        vessel.body.orientation.inverseRotate(LaunchTime.SUN_DIRECTION, scratchSun)
-        val night = (scratchFace.setTo(vessel.body.position).normalizeInPlace() dot LaunchTime.SUN_DIRECTION) < World.LAMP_DUSK
+        vessel.body.orientation.inverseRotate(sun, scratchSun)
+        val night = (scratchFace.setTo(vessel.body.position).normalizeInPlace() dot sun) < World.LAMP_DUSK
         var made = 0.0
         var used = 0.0
         var cells = 0.0
@@ -76,6 +97,7 @@ class Power(private val system: SolarSystem) {
             for (module in vessel.defs[i].modules) when (module) {
                 is SolarPanel -> if (lit > 0.0) made += module.chargeRate * lit * facing(vessel, i, module)
                 is Engine -> made += module.alternator * vessel.engineOutput.getOrElse(i) { 0.0 }
+                is com.rm.apogee.core.part.Generator -> made += module.rate
                 is Command -> used += module.idleDraw
                 is Antenna -> if (!module.deployable || deployed(vessel, i)) used += module.draw
                 is Lamp -> if (night) used += module.draw

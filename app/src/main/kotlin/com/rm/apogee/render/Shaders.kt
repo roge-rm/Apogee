@@ -19,7 +19,7 @@ object Shaders {
      */
     private const val NIGHT_LIGHT = """
         const vec3 MOON = vec3(0.21, 0.25, 0.37);
-        const vec3 HAZE = vec3(0.52, 0.66, 0.85);
+        uniform vec3 uHaze;              // the air's colour over distance
         const float NIGHT_AIR = 0.08;
         // Lightning: a cold white light of its own, day or night - it does
         // not come from the sun, so it is not dimmed with the sun at night.
@@ -258,11 +258,11 @@ object Shaders {
                 // Lit by the sun alone, its night side nearly black; through
                 // a day sky, washed a little toward it, as the moon is.
                 vec3 world = uColor.rgb * (0.03 + 1.1 * max(facing, 0.0));
-                fragColor = vec4(mix(world, HAZE, 0.35 * uAtmosphereFactor * uDaylight), 1.0);
+                fragColor = vec4(mix(world, uHaze, 0.35 * uAtmosphereFactor * uDaylight), 1.0);
                 return;
             }
             float haze = (1.0 - exp(-vDistance / max(uHazeDistance, 1.0))) * uAtmosphereFactor;
-            lit = mix(lit, HAZE * (NIGHT_AIR + (1.0 - NIGHT_AIR) * uDaylight), clamp(haze, 0.0, 1.0));
+            lit = mix(lit, uHaze * (NIGHT_AIR + (1.0 - NIGHT_AIR) * uDaylight), clamp(haze, 0.0, 1.0));
             float fog = 1.0 - exp(-vDistance / max(uFogDistance, 1.0));
             // A cloud thins toward its outline: facets seen edge-on let the
             // sky through, so it ends softly instead of in a hard cut-out.
@@ -370,6 +370,14 @@ object Shaders {
         uniform float uSkyFog;           // 1 inside cloud: the sky is gone
         uniform vec3 uFogColor;
         uniform float uDaylight;         // 1 by day, 0 in the planet's shadow
+        // This world's sky.
+        uniform vec3 uZenith;
+        uniform vec3 uHorizon;
+        uniform vec3 uSunset;
+        uniform vec3 uRim;
+        // The star: cos of its angular radius, and its glow, 0..1.
+        uniform float uSunCos;
+        uniform float uSunGlow;
 
         out vec4 fragColor;
 
@@ -410,9 +418,7 @@ object Shaders {
             float sunAmount = max(dot(dir, uSunDirection), 0.0);
 
             // Daylight sky: deep blue overhead, pale toward the horizon.
-            vec3 zenith = vec3(0.09, 0.22, 0.52);
-            vec3 horizon = vec3(0.55, 0.68, 0.86);
-            vec3 day = mix(horizon, zenith, clamp(height, 0.0, 1.0));
+            vec3 day = mix(uHorizon, uZenith, clamp(height, 0.0, 1.0));
             // A wash of light around the sun's direction.
             day += vec3(0.9, 0.75, 0.55) * pow(sunAmount, 12.0) * 0.5;
             // Night: a deep blue-black, a little lighter low down, with the
@@ -426,15 +432,25 @@ object Shaders {
             vec3 sunFlat = normalize(uSunDirection - uUpDirection * dot(uSunDirection, uUpDirection) + uUpDirection * 1e-4);
             float dusk = 4.0 * uDaylight * (1.0 - uDaylight);
             float sunSide = pow(max(dot(level, sunFlat), 0.0), 2.0);
-            sky += vec3(0.85, 0.42, 0.18) * dusk * sunSide * exp(-max(height, 0.0) * 7.0) * 0.55;
+            sky += uSunset * dusk * sunSide * exp(-max(height, 0.0) * 7.0) * 0.55;
 
             // The atmosphere fades out with altitude, taking the stars from
             // invisible at sea level to fully visible in vacuum.
             vec3 color = mix(space, sky, clamp(uAtmosphereFactor, 0.0, 1.0));
 
+            // The star itself: a white disc, softened a pixel's worth at its
+            // edge, in a glow that shrinks as it fades into the distance.
+            float toSun = dot(dir, uSunDirection);
+            if (uSunCos <= 1.0) {
+                // (Past the giants the disc is less than a float can tell from a point.)
+                float disc = uSunCos < 1.0 ? smoothstep(uSunCos - 0.00003, uSunCos + 0.00001, toSun) : 0.0;
+                float glow = pow(max(toSun, 0.0), mix(20000.0, 900.0, uSunGlow)) * (0.35 + 0.65 * uSunGlow);
+                color += vec3(1.0, 0.95, 0.85) * (disc * 3.0 + glow * 0.9);
+            }
+
             // A thin band of glow along the horizon, strongest just above it.
             float rim = exp(-abs(height) * 14.0) * uAtmosphereFactor * (0.1 + 0.9 * uDaylight);
-            color += vec3(0.30, 0.45, 0.70) * rim * 0.5;
+            color += uRim * rim * 0.5;
 
             // A storm overhead greys and darkens it; inside cloud there is
             // only the cloud.
@@ -537,7 +553,7 @@ object Shaders {
             lit += vColour * FLASH * uFlash;
             if (uLampCount > 0) lit += vColour * lampLight(vPosition, n);
             float haze = (1.0 - exp(-vDistance / max(uHazeDistance, 1.0))) * uAtmosphereFactor;
-            vec3 hazeColor = HAZE * (NIGHT_AIR + (1.0 - NIGHT_AIR) * uDaylight);
+            vec3 hazeColor = uHaze * (NIGHT_AIR + (1.0 - NIGHT_AIR) * uDaylight);
             lit = mix(lit, hazeColor, clamp(haze, 0.0, 1.0));
             float fog = 1.0 - exp(-vDistance / max(uFogDistance, 1.0));
             fragColor = vec4(mix(lit, uFogColor, clamp(fog, 0.0, 1.0)), 1.0);
@@ -670,7 +686,7 @@ object Shaders {
             // washed out by the air between, which is what makes a horizon read
             // as distant rather than as a painted edge.
             float haze = (1.0 - exp(-vDistance / max(uHazeDistance, 1.0))) * uAtmosphereFactor;
-            vec3 hazeColor = HAZE * (NIGHT_AIR + (1.0 - NIGHT_AIR) * daylight);
+            vec3 hazeColor = uHaze * (NIGHT_AIR + (1.0 - NIGHT_AIR) * daylight);
             lit = mix(lit, hazeColor, clamp(haze, 0.0, 1.0));
 
             // Seen from outside, a planet's edge glows because the line of
@@ -754,6 +770,7 @@ object Shaders {
         uniform vec3 uFogColor;
         uniform float uSeaReach;
         uniform float uUnderwater;
+        uniform vec3 uSeaSky;            // the sky a sea mirrors
 
         out vec4 fragColor;
 
@@ -794,14 +811,14 @@ object Shaders {
             // read as water - and the sun's sparkle off facets turned to it.
             float facing = max(dot(n, vViewDir), 0.0);
             float fresnel = 0.03 + 0.97 * pow(1.0 - facing, 5.0);
-            vec3 sky = mix(HAZE, vec3(0.28, 0.48, 0.80), 0.5) * (NIGHT_AIR + (1.0 - NIGHT_AIR) * daylight) * (0.5 + 0.5 * uLightScale);
+            vec3 sky = mix(uHaze, uSeaSky, 0.5) * (NIGHT_AIR + (1.0 - NIGHT_AIR) * daylight) * (0.5 + 0.5 * uLightScale);
             lit = mix(lit, sky, fresnel * 0.5);
             vec3 halfway = normalize(uSunDirection + vViewDir);
             float glint = pow(max(dot(n, halfway), 0.0), 140.0);
             lit += vec3(1.0, 0.96, 0.88) * glint * daylight * direct * 1.6 * uLightScale;
 
             float haze = (1.0 - exp(-vDistance / max(uHazeDistance, 1.0))) * uAtmosphereFactor;
-            lit = mix(lit, HAZE * (NIGHT_AIR + (1.0 - NIGHT_AIR) * daylight), clamp(haze, 0.0, 1.0));
+            lit = mix(lit, uHaze * (NIGHT_AIR + (1.0 - NIGHT_AIR) * daylight), clamp(haze, 0.0, 1.0));
             float fog = 1.0 - exp(-vDistance / max(uFogDistance, 1.0));
             lit = mix(lit, uFogColor, clamp(fog, 0.0, 1.0));
 

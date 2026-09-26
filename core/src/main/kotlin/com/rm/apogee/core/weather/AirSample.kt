@@ -26,6 +26,12 @@ enum class CloudType(
 
     /** A storm tower: rain, hail, updraughts and the heaviest water load. */
     CUMULONIMBUS(dragLoad = 0.15, visibility = 30.0),
+
+    /** A dust storm's wall: grit, not water, thick enough to lose the sun in. */
+    DUST(dragLoad = 0.02, visibility = 150.0),
+
+    /** A deck round the whole world that never breaks, as Caligo's acid cloud. */
+    DECK(dragLoad = 0.02, visibility = 400.0),
 }
 
 /**

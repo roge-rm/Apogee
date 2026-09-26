@@ -32,16 +32,21 @@ enum class LaunchTime(val label: String, /** The sun's hour angle at the site, r
         return from + wait
     }
 
-    companion object {
-        /**
-         * Where the star is, inertial, unit: fixed for now - one direction
-         * for lighting, night and launch times alike.
-         */
-        val SUN_DIRECTION: Vec3 = Vec3(0.62, 0.45, 0.64).normalizeInPlace()
+    /**
+     * [nextAt] under a sun that moves: the star's direction from [body] as
+     * [system] has it, followed through the wait - a few steps settle it, the
+     * sun moving a degree or so a day.
+     */
+    fun nextAt(system: com.rm.apogee.core.orbit.SolarSystem, body: CelestialBody, site: Vec3, from: Double): Double {
+        var t = nextAt(body, site, system.sunDirection(body.id, Vec3.zero(), from), from)
+        repeat(3) { t = nextAt(body, site, system.sunDirection(body.id, Vec3.zero(), t), from) }
+        return t
+    }
 
+    companion object {
         /** The sun's hour angle at unit body-fixed [site] at [time]: 0 at local noon, growing through the afternoon. */
         fun hourAngleAt(body: CelestialBody, site: Vec3, sun: Vec3, time: Double): Double {
-            val axis = body.rotationAt(time).rotate(Vec3.unitY(), Vec3()) // the spin axis, world +Y
+            val axis = body.spinAxis
             val here = body.rotationAt(time).rotate(site, Vec3())
             // Both flattened onto the equator's plane.
             val a = here.copy().addScaledInPlace(axis, -(here dot axis)).normalizeInPlace()

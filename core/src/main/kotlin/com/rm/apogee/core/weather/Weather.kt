@@ -35,7 +35,12 @@ import kotlin.math.sin
  * - layer cloud: stratus, altostratus, cirrus;
  * - turbulence, sampled part by part ([turbulence]).
  */
-class Weather(val body: CelestialBody, val config: WeatherConfig) {
+class Weather(
+    val body: CelestialBody,
+    val config: WeatherConfig,
+    /** What kind of weather this world has: Terra's unless it has its own. */
+    val climate: Climate = Climate.of(body.id) ?: Climate.TERRA,
+) {
 
     private val radius = body.radius
     private val seed = config.seed * 31 + 0x5EA7
@@ -44,7 +49,7 @@ class Weather(val body: CelestialBody, val config: WeatherConfig) {
     private val terrainWind = terrain?.let { TerrainWind(it, radius) }
     private val convection = Convection(this, terrainWind, radius, seed, intensity)
     private val storms = Storms(this, radius, seed, intensity)
-    private val stormShapes = StormShapes(storms, seed, radius)
+    private val stormShapes = StormShapes(storms, seed, radius, climate)
 
     private val up = Vec3()
     private val east = Vec3()
@@ -70,15 +75,17 @@ class Weather(val body: CelestialBody, val config: WeatherConfig) {
         if (r < 1.0) return out
         up.setTo(position).mulInPlace(1.0 / r)
         val altitude = r - radius
-        if (altitude > CEILING) return out
+        if (altitude > climate.ceiling) return out
         frame(up, east, north)
+        val still = climate.circulation == Climate.Circulation.STILL
 
         // The ground: what it is, and how high the surface of it stands.
         val described = terrainWind?.let { it.describe(up, descriptor); true } ?: false
         val ocean = described && descriptor[TerrainWind.OCEAN] > 0.5
         val ground = terrain?.elevation(up) ?: 0.0
         val groundTop = if (terrain?.hasOcean == true) max(ground, 0.0) else ground
-        val agl = max(altitude - groundTop, 0.5)
+        // A giant has no ground: the whole depth of its air is free air.
+        val agl = if (climate.ground) max(altitude - groundTop, 0.5) else BOUNDARY_LAYER + 9_000.0
         val z0 = if (described) descriptor[TerrainWind.Z0] else 0.05
         val relief = if (described) descriptor[TerrainWind.RELIEF] else 0.0
 
@@ -122,7 +129,7 @@ class Weather(val body: CelestialBody, val config: WeatherConfig) {
         } else {
             min(1.0 + (agl - BOUNDARY_LAYER) / 9_000.0, 2.2)
         }
-        val fade = 1.0 - smooth(18_000.0, CEILING, altitude)
+        val fade = 1.0 - smooth(climate.fadeFrom, climate.ceiling, altitude)
         val speed = freeSpeed * profile * speedFactor * fade * intensity.wind
         out.wind.setTo(dir).mulInPlace(speed)
         out.wind.addScaledInPlace(up, vertical * speed)
@@ -130,30 +137,37 @@ class Weather(val body: CelestialBody, val config: WeatherConfig) {
 
         // The jet stream: westerly, mid-latitudes, near ten kilometres.
         val latitude = asin(up.y.coerceIn(-1.0, 1.0))
-        val jet = JET * exp(-((altitude - 10_000.0) / 3_200.0).let { it * it }) *
+        val jet = climate.jet * exp(-((altitude - climate.jetHeight) / 3_200.0).let { it * it }) *
             exp(-((abs(latitude) - 0.7) / 0.25).let { it * it }) * fade * intensity.wind
         out.wind.addScaledInPlace(east, jet)
+        // The upper air racing round the world, faster the higher.
+        if (climate.superRotation != 0.0) {
+            out.wind.addScaledInPlace(east, climate.superRotation * smooth(0.0, climate.superRotationHeight, altitude) * fade * intensity.wind)
+        }
 
         // Rough air: the ground, the lee, shear round the jet.
         val mechanical = (speed / 15.0).coerceIn(0.0, 1.0) * (0.2 + 0.5 * (z0 / 1.0).coerceIn(0.0, 1.0)) *
             (1.0 - smooth(0.0, 400.0 + relief, agl))
-        out.turbulence += mechanical + 0.7 * lee * terrainFade + 0.15 * (jet / JET)
+        out.turbulence += mechanical + 0.7 * lee * terrainFade + (if (climate.jet > 0.0) 0.15 * (jet / climate.jet) else 0.0)
+        if (still) out.turbulence = 0.0
 
         convection.apply(up, east, north, position, altitude, time, out)
         storms.apply(up, east, north, position, altitude, groundTop, time, out)
-        layers(up, altitude, groundTop, time, out)
+        if (climate.layers) layers(up, altitude, groundTop, time, out)
+        if (climate.hasDeck) deckAt(altitude, out)
 
         // Inside cloud there is more turbulence, by kind.
         out.turbulence += out.cloudDensity * when (out.cloudType) {
             CloudType.CUMULONIMBUS -> 0.8
             CloudType.CUMULUS -> 0.35
             CloudType.STRATUS, CloudType.ALTOSTRATUS -> 0.1
+            CloudType.DUST -> 0.5
             else -> 0.02
         }
         out.turbulence = out.turbulence.coerceIn(0.0, 1.0)
 
         // How far can be seen: rain, then cloud.
-        var visibility = AirSample.CLEAR_VISIBILITY * (1.0 - 0.97 * out.precipitation)
+        var visibility = climate.haze * (1.0 - 0.97 * out.precipitation)
         out.cloudType?.let { type ->
             if (out.cloudDensity > 0.0) visibility = min(visibility, type.visibility / max(out.cloudDensity, 0.02))
         }
@@ -224,16 +238,29 @@ class Weather(val body: CelestialBody, val config: WeatherConfig) {
      */
     private fun circulation(up: Vec3, east: Vec3, north: Vec3, time: Double, out: Vec3, surfaceInflow: Double): Double {
         val latitude = asin(up.y.coerceIn(-1.0, 1.0))
-        val a = abs(latitude)
-        // Easterly trades, westerlies, polar easterlies.
-        val band = if (a <= Math.PI / 3.0) -cos(3.0 * a) else cos(6.0 * (a - Math.PI / 3.0))
-        val zonal = band * when {
-            a <= Math.PI / 6.0 -> 6.0
-            a <= Math.PI / 3.0 -> 9.0
-            else -> if (band < 0.0) 4.0 else 9.0
+        if (climate.circulation == Climate.Circulation.STILL) {
+            out.setZero()
+            return 0.0
         }
-        // Trades lean toward the equator.
-        val meridional = if (a < Math.PI / 6.0) -2.5 * sin(6.0 * latitude) else 0.0
+        val a = abs(latitude)
+        val zonal: Double
+        val meridional: Double
+        if (climate.circulation == Climate.Circulation.BANDED) {
+            // A giant's jets, alternating from the equator to the poles,
+            // weakening toward them.
+            zonal = climate.bandSpeed * cos(climate.bands * a) * (0.35 + 0.65 * cos(a))
+            meridional = 0.0
+        } else {
+            // Easterly trades, westerlies, polar easterlies.
+            val band = if (a <= Math.PI / 3.0) -cos(3.0 * a) else cos(6.0 * (a - Math.PI / 3.0))
+            zonal = band * when {
+                a <= Math.PI / 6.0 -> 6.0
+                a <= Math.PI / 3.0 -> 9.0
+                else -> if (band < 0.0) 4.0 else 9.0
+            } * climate.windScale
+            // Trades lean toward the equator.
+            meridional = (if (a < Math.PI / 6.0) -2.5 * sin(6.0 * latitude) else 0.0) * climate.windScale
+        }
 
         val p0 = pressure(up, time)
         val delta = GRADIENT_STEP / radius
@@ -251,11 +278,12 @@ class Weather(val body: CelestialBody, val config: WeatherConfig) {
         // flipped the whole flow round every time a craft crossed the line.
         val s = sin(latitude)
         val turning = s / (s * s + EQUATORIAL * EQUATORIAL)
-        val geoE = -GEOSTROPHIC * gn * turning
-        val geoN = GEOSTROPHIC * ge * turning
+        val geostrophic = GEOSTROPHIC * climate.windScale
+        val geoE = -geostrophic * gn * turning
+        val geoN = geostrophic * ge * turning
         // Friction near the ground: in toward the lows.
-        val inflowE = -GEOSTROPHIC * 0.35 * ge * surfaceInflow
-        val inflowN = -GEOSTROPHIC * 0.35 * gn * surfaceInflow
+        val inflowE = -geostrophic * 0.35 * ge * surfaceInflow
+        val inflowN = -geostrophic * 0.35 * gn * surfaceInflow
 
         out.setTo(east).mulInPlace(zonal + geoE + inflowE).addScaledInPlace(north, meridional + geoN + inflowN)
         return p0
@@ -275,6 +303,16 @@ class Weather(val body: CelestialBody, val config: WeatherConfig) {
         frame(direction, e, n)
         circulation(direction, e, n, time, out, surfaceInflow = 0.0)
         return out.mulInPlace(1.4 * intensity.wind)
+    }
+
+    // --- the permanent deck -------------------------------------------------------
+
+    /** Inside the world-wide deck: thickest in its middle, thinning to its edges. */
+    private fun deckAt(altitude: Double, out: AirSample) {
+        val base = climate.deckBase; val top = climate.deckTop
+        if (altitude < base || altitude > top) return
+        val edge = min(altitude - base, top - altitude) / (0.15 * (top - base))
+        addCloud(out, climate.deckDensity * smooth(0.0, 1.0, edge), CloudType.DECK)
     }
 
     // --- layer cloud --------------------------------------------------------------
@@ -479,6 +517,7 @@ class Weather(val body: CelestialBody, val config: WeatherConfig) {
         // an overcast would need tens of thousands of them, coarse sheets
         // over the same cover.
         for (type in LAYER_TYPES) {
+            if (!climate.layers) break
             val cells = layerCells[type.ordinal]
             val spacing = LAYER_SPACING[type.ordinal]
             val nearReach = min(reach, NEAR_DECK)
@@ -550,8 +589,9 @@ class Weather(val body: CelestialBody, val config: WeatherConfig) {
         val ground = if (ocean) 0.0 else max(elevation, 0.0)
         val humidity = humidity(up, pressure(up, time), ocean, time)
         val scratch = DoubleArray(4)
-        var most = 0.0
+        var most = if (climate.hasDeck && altitude < climate.deckTop) climate.deckDensity else 0.0
         for (type in LAYER_TYPES) {
+            if (!climate.layers) break
             if (type == CloudType.CIRRUS) continue
             if (!layer(type, up, ground, humidity, time, scratch)) continue
             if (scratch[2] < altitude) continue
@@ -639,6 +679,7 @@ class Weather(val body: CelestialBody, val config: WeatherConfig) {
             val ground = if (ocean) 0.0 else max(elevation, 0.0)
             val humidity = humidity(centre, pressure(centre, time), ocean, time)
             for (type in LAYER_TYPES) {
+                if (!climate.layers) break
                 if (!layer(type, centre, ground, humidity, time, scratch)) continue
                 val cover = max(scratch[0] * thickness(centre, time), scratch[3])
                 if (cover < 0.25) continue
@@ -661,7 +702,7 @@ class Weather(val body: CelestialBody, val config: WeatherConfig) {
             if (!s.exists) continue
             val envelope = storms.envelope(s, time)
             if (envelope <= 0.05) continue
-            val shape = CloudShape(CloudType.CUMULONIMBUS, envelope)
+            val shape = CloudShape(climate.stormCloud, envelope)
             // Its anvil, and its base - as wide as the storm spreads.
             storms.frameAt(s, time, c, steer, side)
             val main = s.mainCell
@@ -692,7 +733,7 @@ class Weather(val body: CelestialBody, val config: WeatherConfig) {
     internal val stormModel: Storms get() = storms
 
     companion object {
-        /** Above this the air is still: no weather reaches orbit. */
+        /** Above this Terra's air is still: no weather reaches orbit. Each world's is its [Climate.ceiling]. */
         const val CEILING = 30_000.0
 
         /** Height of the boundary layer, m. */
@@ -722,13 +763,13 @@ class Weather(val body: CelestialBody, val config: WeatherConfig) {
         private val LAYER_TYPES = listOf(CloudType.STRATUS, CloudType.ALTOSTRATUS, CloudType.CIRRUS)
 
         /** Peak density of each layer type, by ordinal. */
-        private val LAYER_DENSITY = doubleArrayOf(0.0, 1.0, 0.8, 0.35, 0.0)
+        private val LAYER_DENSITY = doubleArrayOf(0.0, 1.0, 0.8, 0.35, 0.0, 0.0, 0.0)
 
         /** Spacing of the puffs a deck is drawn with, m, by ordinal. */
-        private val LAYER_SPACING = doubleArrayOf(3_000.0, 2_500.0, 4_000.0, 8_000.0, 3_000.0)
+        private val LAYER_SPACING = doubleArrayOf(3_000.0, 2_500.0, 4_000.0, 8_000.0, 3_000.0, 3_000.0, 3_000.0)
 
         /** Heights each deck can be at, by ordinal: stratus above its ground, the rest above datum. */
-        private val LAYER_BANDS = arrayOf(0.0 to 0.0, 0.0 to 2_200.0, 3_500.0 to 5_600.0, 8_300.0 to 9_700.0, 0.0 to 0.0)
+        private val LAYER_BANDS = arrayOf(0.0 to 0.0, 0.0 to 2_200.0, 3_500.0 to 5_600.0, 8_300.0 to 9_700.0, 0.0 to 0.0, 0.0 to 0.0, 0.0 to 0.0)
 
         /** Seconds a deck's puffs are worked out for. */
         private const val DECK_EPOCH = 30.0

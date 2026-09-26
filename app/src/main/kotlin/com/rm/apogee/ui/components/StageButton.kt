@@ -1,5 +1,6 @@
 package com.rm.apogee.ui.components
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -8,14 +9,23 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.KeyboardDoubleArrowUp
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -25,6 +35,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -40,52 +53,99 @@ import com.rm.apogee.ui.theme.alpha
 import kotlin.math.roundToInt
 
 /**
- * The stages still to fire, stacked above the STAGE button: the next one
- * nearest the button, later ones above it, each a slim chip with its fuel.
- * Only a few show; the rest wait behind a count. Tapped, the stack opens into
- * full detail - every stage's fuels, delta-v and burn time - and tapped again
- * it folds away, so the view above stays clear unless asked for.
- *
- * The stage burning now is not here: its gauge is on the button itself.
+ * The STAGE button: round, the next stage's number on it, and the fuel of
+ * the stage burning now as a ring round its edge - red at the last few
+ * percent. A thumb's target, not a bar across the view.
  */
 @Composable
-fun StageStack(
+fun RoundStageButton(
+    stage: Int,
+    onStage: () -> Unit,
+    modifier: Modifier = Modifier,
+    /** The stage burning now, whose fuel the ring shows. */
+    current: StageCard? = null,
+    size: Dp = STAGE_BUTTON,
+) {
+    val ink = Color(0xFF1A1030)
+    val fraction = current?.fuelFraction
+    Box(
+        modifier
+            .size(size)
+            .clip(CircleShape)
+            .clickable(onClick = onStage),
+        contentAlignment = Alignment.Center,
+    ) {
+        Canvas(Modifier.fillMaxSize()) {
+            drawCircle(ApogeeColors.Accent.alpha(0.88f))
+            if (fraction != null) {
+                val stroke = RING.toPx()
+                val inset = stroke / 2f + 2.dp.toPx()
+                val arc = androidx.compose.ui.geometry.Size(this.size.width - inset * 2, this.size.height - inset * 2)
+                val topLeft = androidx.compose.ui.geometry.Offset(inset, inset)
+                drawArc(ink.alpha(0.2f), 0f, 360f, false, topLeft, arc, style = Stroke(stroke))
+                drawArc(
+                    if (fraction < 0.05f) ApogeeColors.Danger.copy(red = 0.7f) else ink.alpha(0.85f),
+                    -90f, 360f * fraction.coerceIn(0f, 1f), false, topLeft, arc,
+                    style = Stroke(stroke, cap = StrokeCap.Round),
+                )
+            }
+        }
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(Icons.Filled.KeyboardDoubleArrowUp, contentDescription = "Stage", tint = ink, modifier = Modifier.size(16.dp))
+            Text("$stage", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = ink, lineHeight = 18.sp)
+        }
+    }
+}
+
+/**
+ * The stages still to fire, folded into one small tab beside the STAGE
+ * button: the next one, what it does, and how many more after it. Tapped,
+ * it opens every stage in full - fuels, delta-v and burn time - over the
+ * view, and tapped again it folds away.
+ */
+@Composable
+fun StageTab(
     stages: List<StageCard>,
     expanded: Boolean,
     onToggle: () -> Unit,
-    width: Dp,
-    maxChips: Int,
     modifier: Modifier = Modifier,
-    /** How wide the detail opens - wider than the stack, where the stack is narrow. */
-    detailWidth: Dp = width,
+    /** How wide the detail opens. */
+    detailWidth: Dp = 260.dp,
 ) {
     if (stages.isEmpty()) return
-    // With nothing left to fire, the burning stage gets the one chip, so the
-    // detail can still be opened.
-    val chips = stages.filter { !it.current }.ifEmpty { stages }
-    val shown = chips.take(maxChips)
-    Box(modifier.width(width)) {
-        Column(
+    val waiting = stages.filter { !it.current }
+    val next = waiting.firstOrNull() ?: stages.first()
+    Box(modifier) {
+        Row(
             Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(Dimens.CornerSmall))
-                .clickable(onClick = onToggle),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
+                .clip(RoundedCornerShape(Dimens.CornerTight))
+                .background(Color.Black.alpha(ApogeeAlpha.SCRIM))
+                .clickable(onClick = onToggle)
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            val hidden = chips.size - shown.size
-            if (hidden > 0) {
-                Text(
-                    "+$hidden more",
-                    style = ChipText,
-                    color = Color.White.alpha(ApogeeAlpha.SUBTITLE),
-                    modifier = Modifier.align(Alignment.CenterHorizontally),
-                )
+            Text(if (next.current) "NOW" else "S${next.index}", style = ChipText, color = ApogeeColors.Accent)
+            Spacer(Modifier.width(5.dp))
+            Text(
+                next.contents,
+                style = ChipText,
+                color = Color.White.alpha(ApogeeAlpha.SECONDARY),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.widthIn(max = 90.dp),
+            )
+            if (waiting.size > 1) {
+                Spacer(Modifier.width(5.dp))
+                Text("+${waiting.size - 1}", style = ChipText, color = Color.White.alpha(ApogeeAlpha.SUBTITLE))
             }
-            // Latest at the top, so the stack reads upward from the button.
-            for (card in shown.asReversed()) StageChip(card)
+            Icon(
+                if (expanded) Icons.Filled.ExpandMore else Icons.Filled.ExpandLess,
+                contentDescription = "All stages",
+                tint = Color.White.alpha(ApogeeAlpha.SUBTITLE),
+                modifier = Modifier.size(14.dp),
+            )
         }
-        // Over the stack, not in the layout: opening it moves nothing else on
-        // the HUD, and it may be wider than the column it rises from.
+        // Over the view, not in the layout: opening it moves nothing else.
         if (expanded) {
             Popup(
                 alignment = Alignment.BottomCenter,
@@ -97,46 +157,12 @@ fun StageStack(
     }
 }
 
-/** Small print for the chips: they are glanced at, and every row costs view. */
+/** Small print for the tab: glanced at, and every row costs view. */
 private val ChipText = TelemetryTextStyle.copy(fontSize = 11.sp, lineHeight = 13.sp)
 
-@Composable
-private fun StageChip(card: StageCard) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .background(Color.Black.alpha(ApogeeAlpha.SCRIM), RoundedCornerShape(Dimens.CornerTight))
-            .padding(horizontal = 8.dp, vertical = 2.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text("S${card.index}", style = ChipText, color = ApogeeColors.Accent)
-        Spacer(Modifier.width(6.dp))
-        val fraction = card.fuelFraction
-        if (card.current) {
-            Text(
-                "\u0394v ${"%,d".format((card.deltaV ?: 0.0).roundToInt())}",
-                style = ChipText,
-                color = ApogeeColors.Data,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
-        } else if (fraction != null) {
-            FuelBar(fraction, Modifier.weight(1f))
-            Spacer(Modifier.width(6.dp))
-            Text(percent(fraction), style = ChipText, color = Color.White.alpha(ApogeeAlpha.BODY))
-        } else {
-            Text(
-                card.contents,
-                style = ChipText,
-                color = Color.White.alpha(ApogeeAlpha.SECONDARY),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
-        }
-    }
-}
+/** The round STAGE button's size, and its fuel ring's width. */
+val STAGE_BUTTON = 64.dp
+private val RING = 5.dp
 
 /** Every stage in full, soonest at the bottom, scrolled there to start. */
 @Composable

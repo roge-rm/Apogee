@@ -52,7 +52,12 @@ class Heat {
     private val local = Vec3()
     private val scratch = Vec3()
 
-    fun update(vessel: Vessel, attractor: CelestialBody, dt: Double) {
+    /**
+     * [sunStrength]: the sunlight where it is, as a share of Terra's - what
+     * sets how cold empty space leaves a part: bitter among the giants,
+     * hot inside Celer's orbit.
+     */
+    fun update(vessel: Vessel, attractor: CelestialBody, dt: Double, sunStrength: Double = 1.0) {
         burntCount = 0
         hottest = 0.0
         hottestPart = -1
@@ -64,7 +69,8 @@ class Heat {
 
         val altitude = attractor.altitudeOf(body.position)
         val density = attractor.atmosphere?.densityAt(altitude) ?: 0.0
-        val airTemperature = if (density > 0.0) (SEA_LEVEL_AIR - LAPSE * altitude).coerceAtLeast(STRATOSPHERE) else SPACE
+        val airTemperature = if (density > 0.0) attractor.atmosphere!!.temperatureAt(altitude)
+            else SPACE * kotlin.math.sqrt(kotlin.math.sqrt(sunStrength))
         attractor.surfaceVelocityAt(body.position, air)
         air.mulInPlace(-1.0).addInPlace(body.linearVelocity)
         val speed = air.length

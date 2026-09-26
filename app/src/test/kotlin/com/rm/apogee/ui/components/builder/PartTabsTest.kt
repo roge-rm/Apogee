@@ -17,7 +17,7 @@ class PartTabsTest {
         ),
         PartTab.ENGINES to setOf("engine-ember", "engine-vesper", "engine-zephyr", "engine-prop", "engine-forge"),
         PartTab.STRUCTURE to setOf(
-            "shield-halo", "decoupler-ring", "decoupler-broad", "adapter-taper", "fairing-base", "fuselage-tailcone", "chassis-small", "chassis-large", "rack-cargo",
+            "shield-halo", "decoupler-ring", "decoupler-broad", "adapter-taper", "fairing-base", "fairing-hot", "fuselage-tailcone", "chassis-small", "chassis-large", "rack-cargo",
         ),
         PartTab.WINGS to setOf(
             "fin-vane", "wing-plank", "tail-elevon", "nosecone-spire", "wing-small", "wing-swept", "wing-delta",
@@ -32,7 +32,7 @@ class PartTabsTest {
         ),
         PartTab.UTILITY to setOf(
             "chute-canopy", "rcs-nudge", "light-bar", "dock-port", "dock-port-small", "mooring-clamp",
-            "panel-glint", "wing-kite", "battery-hoard", "cell-spark", "antenna-reed", "dish-beacon",
+            "panel-glint", "wing-kite", "battery-hoard", "cell-spark", "antenna-reed", "dish-beacon", "dish-great", "generator-glow",
             "drill-auger", "converter-small", "scanner-survey", "ladder-rung",
         ),
         PartTab.BASE to setOf(

@@ -23,7 +23,12 @@ import kotlin.math.sqrt
  * [detail], 0..1, scales how many lobes: a storm far off, or on a device
  * that can draw few, is fewer and bigger ones in the same places.
  */
-internal class StormShapes(private val storms: Storms, private val seed: Int, private val radius: Double) {
+internal class StormShapes(
+    private val storms: Storms,
+    private val seed: Int,
+    private val radius: Double,
+    private val climate: Climate = Climate.TERRA,
+) {
 
     private val centre = Vec3()
     private val track = Vec3()
@@ -31,7 +36,7 @@ internal class StormShapes(private val storms: Storms, private val seed: Int, pr
 
     fun build(s: Storms.Storm, time: Double, detail: Double, groundAt: (Vec3) -> Double): CloudShape {
         val envelope = storms.envelope(s, time)
-        val shape = CloudShape(CloudType.CUMULONIMBUS, envelope)
+        val shape = CloudShape(climate.stormCloud, envelope)
         storms.frameAt(s, time, centre, track, right)
         val c = s.cycle.toInt()
         fun h(k: Int) = Noise.hash(seed + 300 + k, s.cx, s.cy, c)
@@ -45,7 +50,7 @@ internal class StormShapes(private val storms: Storms, private val seed: Int, pr
             else -> {}
         }
         anvil(s, time, envelope, detail, shape, ::h, ::at)
-        rain(s, time, envelope, detail, shape, ::h, ::at, groundAt)
+        if (climate.precipitation != Climate.Precipitation.NONE) rain(s, time, envelope, detail, shape, ::h, ::at, groundAt)
         return shape
     }
 

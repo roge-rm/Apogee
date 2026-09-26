@@ -149,7 +149,9 @@ class ScatterField(private val terrain: Terrain) {
             val dhy = terrain.elevation(f) - h
             val gradient = kotlin.math.sqrt(dhx * dhx + dhy * dhy)
             val slope = 1.0 - 1.0 / kotlin.math.sqrt(1.0 + gradient * gradient)
-            val kind = kindFor(terrain.material(d, h, slope), h, slope, roll) ?: continue
+            val kind = kindFor(terrain.material(d, h, slope), h, slope, roll)
+                // Nothing grows off Terra: only its rocks.
+                ?.takeIf { !terrain.barren || it.isBoulder } ?: continue
 
             ids[n] = base + cell
             kinds[n] = kind.ordinal.toByte()
@@ -235,6 +237,18 @@ class ScatterField(private val terrain: Terrain) {
             }
             SurfaceMaterial.REGOLITH -> if (roll < 0.015) ScatterKind.BOULDER_SMALL else null
             SurfaceMaterial.ICE -> null
+            // The other worlds' ground: rocks, more or fewer.
+            SurfaceMaterial.TESSERA, SurfaceMaterial.SULFUR -> when {
+                roll < 0.04 -> ScatterKind.BOULDER_SMALL
+                roll < 0.05 -> ScatterKind.BOULDER_LARGE
+                else -> null
+            }
+            SurfaceMaterial.RED_DUST, SurfaceMaterial.THOLIN -> when {
+                roll < 0.03 -> ScatterKind.BOULDER_SMALL
+                roll < 0.035 -> ScatterKind.BOULDER_LARGE
+                else -> null
+            }
+            SurfaceMaterial.ORGANIC_SAND, SurfaceMaterial.NITROGEN_ICE, SurfaceMaterial.LAVA -> null
         }
     }
 

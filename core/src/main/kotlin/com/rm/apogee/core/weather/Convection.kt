@@ -27,6 +27,8 @@ internal class Convection(
     private val seed: Int,
     private val intensity: WeatherIntensity,
 ) {
+    private val climate = weather.climate
+
     /** One thermal: fixed for its cell and cycle. */
     class Thermal {
         var exists = false
@@ -83,12 +85,12 @@ internal class Convection(
         // field is tens of kilometres across and drifts over hours; the
         // cloud-cover setting makes it busier or quieter.
         val field = fieldAt(th.origin, time)
-        val chance = (heat * intensity.thermals * (0.06 + 1.15 * field) * weather.config.clouds.pockets).coerceAtMost(0.95)
+        val chance = (heat * intensity.thermals * climate.thermals * (0.06 + 1.15 * field) * weather.config.clouds.pockets).coerceAtMost(0.95)
         th.exists = heat > 0.0 && Noise.hash(seed + 14, cx, cy, c) < chance
         if (th.exists) {
             th.ground = elevation
             val roll = Noise.hash(seed + 15, cx, cy, c)
-            th.strength = (1.5 + 4.5 * roll) * (0.6 + 0.4 * heat) * intensity.thermals.coerceAtMost(1.2)
+            th.strength = (1.5 + 4.5 * roll) * (0.6 + 0.4 * heat) * intensity.thermals.coerceAtMost(1.2) * climate.thermals
             th.radius = 150.0 + 250.0 * Noise.hash(seed + 16, cx, cy, c)
             th.base = 900.0 + 900.0 * Noise.hash(seed + 17, cx, cy, c)
             th.depth = 300.0 + 1_300.0 * roll
@@ -162,7 +164,7 @@ internal class Convection(
      * their cumulus to its cloud; [position] is the point in metres.
      */
     fun apply(up: Vec3, east: Vec3, north: Vec3, position: Vec3, altitude: Double, time: Double, out: AirSample) {
-        if (terrainWind == null || intensity.thermals <= 0.0) return
+        if (terrainWind == null || intensity.thermals <= 0.0 || climate.thermals <= 0.0) return
         val n = cells.around(up, east, north, CELL / bodyRadius, keys, reach = 2)
         for (k in 0 until n) {
             val th = thermal(keys[k], time)
@@ -189,7 +191,7 @@ internal class Convection(
             // The edge of a thermal is rough air.
             out.turbulence += 0.35 * (kotlin.math.abs(lift) / 6.0) * (1.0 - core)
 
-            if (cloud > 0.0) {
+            if (cloud > 0.0 && climate.cumulus) {
                 val cloudMiddle = th.ground + th.base + th.depth * cloud * 0.5
                 val dy = altitude - cloudMiddle
                 val relE = rel dot th.east
@@ -211,7 +213,7 @@ internal class Convection(
 
     /** Every thermal near [up] whose cloud is showing, for drawing. */
     fun clouds(up: Vec3, east: Vec3, north: Vec3, radiusCells: Int, time: Double, out: MutableList<Thermal>) {
-        if (terrainWind == null || intensity.thermals <= 0.0) return
+        if (terrainWind == null || intensity.thermals <= 0.0 || !climate.cumulus) return
         val found = LongArray((2 * radiusCells + 1) * (2 * radiusCells + 1) * 4 + 16)
         val n = cells.around(up, east, north, CELL / bodyRadius, found, reach = radiusCells)
         for (k in 0 until n) {

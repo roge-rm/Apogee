@@ -142,6 +142,15 @@ class MainActivity : ComponentActivity() {
     private var appScreen by mutableStateOf(AppScreen.MENU)
     private var detectedTier by mutableStateOf<QualityTier?>(null)
 
+    /**
+     * Every touch, wherever it lands - the view, a control, a dialog - wakes
+     * the flight controls from their idle fade. Only watched, never taken.
+     */
+    override fun dispatchTouchEvent(ev: android.view.MotionEvent): Boolean {
+        if (ev.actionMasked == android.view.MotionEvent.ACTION_DOWN && ::hudState.isInitialized) hudState.touched()
+        return super.dispatchTouchEvent(ev)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -214,6 +223,7 @@ class MainActivity : ComponentActivity() {
                         controlOpacity = settings.controlOpacity,
                         showDebugOverlay = settings.showDebugOverlay,
                         leftHandMode = settings.leftHandMode,
+                        fadeWhenIdle = settings.fadeWhenIdle,
                         onThrottleChange = ::onThrottleChange,
                         onAttitude = ::onAttitude,
                         onRoll = ::onRoll,
@@ -227,6 +237,7 @@ class MainActivity : ComponentActivity() {
                             session?.let { s -> lifecycleScope.launch { s.cycleNavFrame() } }
                         },
                         targetChoices = { session?.targetChoices() ?: emptyList() },
+                        mapLabels = { w, h -> session?.mapLabels(w, h) ?: emptyList() },
                         onTarget = { id -> session?.let { s -> lifecycleScope.launch { s.setTarget(id) } } },
                         onToggleBrakes = ::onToggleBrakes,
                         onToggleRcs = ::onToggleRcs,
@@ -253,7 +264,7 @@ class MainActivity : ComponentActivity() {
                         onExit = { navigateTo(AppScreen.PLAY) },
                         onWarp = { rate -> session?.let { s -> lifecycleScope.launch { s.setWarp(rate) } } },
                         crewActions = com.rm.apogee.ui.components.CrewActions(
-                            onEva = { id -> session?.let { s -> lifecycleScope.launch { s.eva(id) } }; hudState.crewOpen = false },
+                            onEva = { id -> session?.let { s -> lifecycleScope.launch { s.eva(id) } }; hudState.statusOpen = null },
                             onMove = { id -> session?.let { s -> lifecycleScope.launch { s.moveCrew(id) } } },
                             onBoard = { session?.let { s -> lifecycleScope.launch { s.board() } } },
                             onJump = { session?.let { s -> lifecycleScope.launch { s.jump() } } },
@@ -995,6 +1006,7 @@ class MainActivity : ComponentActivity() {
                     // Flying itself, the autopilot has the throttle: show where it has it.
                     if (current.localAutoBurn || current.localAutoLand) hudState.throttle = current.telemetry.throttle.toFloat()
                     hudState.landing = current.landingReadout
+                    hudState.window = current.windowReadout
                     hudState.autopilotNote = current.autopilotNote
                     hudState.dock = current.dockReadout
                     hudState.joints = current.joints
@@ -1003,7 +1015,7 @@ class MainActivity : ComponentActivity() {
                         hudState.sharedWith = null
                     } else {
                         // Newly shared: open the card, so the two of them choose.
-                        if (hudState.sharedWith == null) hudState.sharedOpen = true
+                        if (hudState.sharedWith == null) hudState.statusOpen = HudState.STATUS_SHARED
                         hudState.sharedWith = shared.other
                         hudState.sharedPilot = when (shared.pilot) {
                             "" -> "both"

@@ -16,6 +16,9 @@ class ContactReport {
     /** Index of the part that took [worstImpactSpeed], or -1. */
     var worstPartIndex: Int = -1
 
+    /** A part that touched molten ground this tick, or -1: see [SurfaceMaterial.LAVA]. */
+    var lavaPart: Int = -1
+
     /**
      * Parts that hit harder than they can take, this tick: which, how hard
      * (m/s into the surface, softened by soft ground), and the surface's
@@ -34,6 +37,7 @@ class ContactReport {
         contactCount = 0
         worstImpactSpeed = 0.0
         worstPartIndex = -1
+        lavaPart = -1
         impactCount = 0
         anchored = false
         friction = 0.0
@@ -158,6 +162,8 @@ class GroundContact {
         attractor.rotationAt(time, bodyRotation)
         val body = vessel.body
         if (body.inverseMass <= 0.0) return report
+        // A gas giant has no ground: only more air, all the way down.
+        if (attractor.atmosphere?.deep == true) return report
 
         // Nothing within reach of the ground, so nothing to sample.
         //
@@ -283,6 +289,7 @@ class GroundContact {
             radialUp.setTo(partPosition).mulInPlace(1.0 / distance)
             val penetration = radialDepth * (normal dot radialUp).coerceAtLeast(0.05)
             groundFriction = ground.material.friction
+            if (ground.material == com.rm.apogee.core.terrain.SurfaceMaterial.LAVA) report.lavaPart = partIndex
             if (groundFriction > report.friction) report.friction = groundFriction
             vessel.contactOffsetWorld(partIndex, pointIndex, offset)
 

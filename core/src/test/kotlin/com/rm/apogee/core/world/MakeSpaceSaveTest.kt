@@ -149,7 +149,7 @@ class MakeSpaceSaveTest {
             val probe = world.spawnAtSite(design, World.launchSiteFor(design, catalog))
             val pad = terra.toBodyFixed(probe.body.position, terra.rotationAt(world.time), Vec3()).normalizeInPlace()
             // AT_PLUS=<seconds> on from it: an hour after dawn, say.
-            val t = LaunchTime.valueOf(at).nextAt(terra, pad, LaunchTime.SUN_DIRECTION, 1_000.0) +
+            val t = LaunchTime.valueOf(at).nextAt(world.system, terra, pad, 1_000.0) +
                 (System.getenv("AT_PLUS")?.toDoubleOrNull() ?: 0.0)
             world.restore(WorldSave(catalogHash = catalog.contentHash, universeTime = t, nextVesselId = 1L))
             println("at $at: t=$t")
