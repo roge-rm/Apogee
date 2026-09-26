@@ -110,6 +110,11 @@ class CraftStore(private val directory: File) {
             StockCraft.dockProbe(catalog),
             StockCraft.towBuggy(catalog),
             StockCraft.cart(catalog),
+            StockCraft.baseCore(catalog),
+            StockCraft.padBase(catalog),
+            StockCraft.baseCoreHauler(catalog),
+            StockCraft.moduleHauler(catalog),
+            StockCraft.depotHauler(catalog),
         )
         for (design in stock) {
             if (design.name in offered) continue

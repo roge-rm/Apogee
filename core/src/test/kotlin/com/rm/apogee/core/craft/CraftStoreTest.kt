@@ -91,7 +91,10 @@ class CraftStoreTest {
     private fun names(store: CraftStore) = store.list().map { it.name }.toSet()
 
     /** The craft built from the vehicle kits, offered from 0.3.5. */
-    private val KIT = setOf("Sparrow", "Buggy", "Hauler", "Skiff", "Cutter", "Port Tug", "Dock Probe", "Tow Buggy", "Cart", "Trawler")
+    private val KIT = setOf(
+        "Sparrow", "Buggy", "Hauler", "Skiff", "Cutter", "Port Tug", "Dock Probe", "Tow Buggy", "Cart", "Trawler",
+        "Base Core", "Pad Base", "Base Core Hauler", "Module Hauler", "Depot Hauler",
+    )
 
     @Test
     fun `a new store gets every stock design`() {

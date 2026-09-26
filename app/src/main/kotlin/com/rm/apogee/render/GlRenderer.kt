@@ -372,6 +372,10 @@ class GlRenderer(
         drawVessels(latest, previous, alpha, cameraPos)
         mark(9)
         if (world != null) drawSea(world, cameraPos)
+        // Cloud after the sea: drawn before it, the sea - blended, since its
+        // shallows are clear - was laid over the clouds below a high craft,
+        // a disc of blue on the cloud deck.
+        drawDeferredTranslucent(latest, alpha, cameraPos)
         mark(10)
         latest.particles?.let { particles ->
             val world = latest.world
@@ -631,7 +635,31 @@ class GlRenderer(
         previous: RenderFrame?,
         alpha: Double,
         cameraPos: Vec3,
-    ) = drawItems(latest.items, previous?.items, latest, alpha, cameraPos, nearViewProjection.m)
+    ) = drawItems(latest.items, previous?.items, latest, alpha, cameraPos, nearViewProjection.m, deferTranslucent = true)
+
+    /** The see-through items [drawVessels] left for after the sea. */
+    private fun drawDeferredTranslucent(latest: RenderFrame, alpha: Double, cameraPos: Vec3) {
+        if (!translucentDeferred) return
+        translucentDeferred = false
+        if (translucent.isEmpty()) return
+        val shader = vesselProgram ?: return
+        setItemUniforms(shader, latest, nearViewProjection.m)
+        cloudProgram?.let { setItemUniforms(it, latest, nearViewProjection.m); it.setFloat("uWrap", 1f); it.setFloat("uReceivesShadow", 0f) }
+        shader.use()
+        drawTranslucentPass(latest.items, alpha, cameraPos, shader)
+    }
+
+    private var translucentDeferred = false
+
+    private fun drawTranslucentPass(items: List<RenderItem>, alpha: Double, cameraPos: Vec3, shader: ShaderProgram) {
+        sortFarToNear(items, cameraPos)
+        GLES30.glEnable(GLES30.GL_BLEND)
+        GLES30.glBlendFunc(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA)
+        GLES30.glDepthMask(false)
+        drawTranslucent(items, alpha, cameraPos, shader)
+        GLES30.glDepthMask(true)
+        GLES30.glDisable(GLES30.GL_BLEND)
+    }
 
     private fun drawItems(
         items: List<RenderItem>,
@@ -640,6 +668,8 @@ class GlRenderer(
         alpha: Double,
         cameraPos: Vec3,
         viewProjection: FloatArray,
+        /** Leave the see-through ones for [drawDeferredTranslucent], after the sea. */
+        deferTranslucent: Boolean = false,
     ) {
         if (items.isEmpty()) return
         val shader = vesselProgram ?: return
@@ -656,15 +686,8 @@ class GlRenderer(
             if (item.color[3] < 0.999f) { translucent.add(index); continue }
             drawItem(item, partners[index], alpha, cameraPos, shader)
         }
-        if (translucent.isNotEmpty()) {
-            sortFarToNear(items, cameraPos)
-            GLES30.glEnable(GLES30.GL_BLEND)
-            GLES30.glBlendFunc(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA)
-            GLES30.glDepthMask(false)
-            drawTranslucent(items, alpha, cameraPos, shader)
-            GLES30.glDepthMask(true)
-            GLES30.glDisable(GLES30.GL_BLEND)
-        }
+        if (deferTranslucent) { translucentDeferred = true; return }
+        if (translucent.isNotEmpty()) drawTranslucentPass(items, alpha, cameraPos, shader)
     }
 
     private val translucent = ArrayList<Int>()

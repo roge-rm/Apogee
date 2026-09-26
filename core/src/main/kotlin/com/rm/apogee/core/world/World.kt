@@ -24,6 +24,7 @@ import com.rm.apogee.core.weather.Weather
 import com.rm.apogee.core.weather.WeatherConfig
 
 /** Where a craft can be put on the ground. */
+@kotlinx.serialization.Serializable
 data class LaunchSite(
     val id: String,
     val displayName: String,
@@ -31,7 +32,15 @@ data class LaunchSite(
     /** Radians. */
     val latitude: Double,
     val longitude: Double,
-)
+) {
+    /** A pad on a founded base, rather than one of the fixed sites. */
+    val onBase: Boolean get() = id.startsWith(BASE_SITE_PREFIX)
+
+    companion object {
+        /** Base pads' site ids: this, the base's vessel id, a colon and the pad's part index. */
+        const val BASE_SITE_PREFIX = "base:"
+    }
+}
 
 /** Something worth telling the presentation layer about. */
 sealed interface WorldEvent {
@@ -50,6 +59,9 @@ sealed interface WorldEvent {
 
     /** A tree or shrub knocked down, for good. */
     data class ScatterFelled(val scatterId: Long) : WorldEvent
+
+    /** Refuelling [id] from a base stopped: [reason] - full, the base dry or dark, or nothing to fill it from. */
+    data class RefuelStopped(val id: VesselId, val reason: String) : WorldEvent
     data class Staged(val id: VesselId, val stage: Int) : WorldEvent
     data class Touchdown(val id: VesselId, val impactSpeed: Double) : WorldEvent
 
@@ -691,6 +703,8 @@ class World(
             is Command.SpawnCraft -> spawnFor(command, owner = "")
 
             is Command.Join -> waken(command.vessel)?.let { joinToNeighbour(it) }
+            is Command.Anchor -> vesselsById[VesselId(command.vessel)]?.let { if (command.anchored) anchor(it) else unanchor(it) }
+            is Command.Refuel -> if (command.active) refuelling.add(VesselId(command.vessel)) else refuelling.remove(VesselId(command.vessel))
             is Command.Undock -> waken(command.vessel)?.let { undock(it, command.part) }
             is Command.SetDockPilot -> Unit // the server's: who may fly what
 
@@ -761,6 +775,8 @@ class World(
         for (other in vesselsById.values) {
             if (other.id == vessel.id) continue
             if (other.referenceBodyId != vessel.referenceBodyId) continue
+            // The Cape's own buildings are nobody's to weld to.
+            if (other.owner == WORLD_OWNER || vessel.owner == WORLD_OWNER) continue
             // Two halves just parted, or one still pushing the other.
             if (justSeparated.containsKey(pairKey(vessel.id.raw, other.id.raw))) continue
 
@@ -791,6 +807,11 @@ class World(
     fun join(keeper: Vessel, absorbed: Vessel, dock: DockJoin? = null): Vessel? {
         if (keeper.id == absorbed.id) return null
         if (keeper.referenceBodyId != absorbed.referenceBodyId) return null
+        // A base takes in what joins it, never the other way: it stays where
+        // it is founded, and what came is fixed to it where it stands.
+        if (absorbed.anchored && !keeper.anchored) {
+            return join(absorbed, keeper, dock?.let { DockJoin(it.absorbedPart, it.keeperPart) })
+        }
 
         val massKeeper = keeper.body.mass
         val massAbsorbed = absorbed.body.mass
@@ -832,8 +853,451 @@ class World(
         links.removeAll { it.a == absorbed.id || it.b == absorbed.id }
         pendingEvents.add(WorldEvent.VesselDestroyed(absorbed.id, if (dock != null) "docked to ${keeper.name}" else "joined to ${keeper.name}"))
         pendingEvents.add(WorldEvent.VesselStructureChanged(keeper.id))
+        reseat(keeper)
         return keeper
     }
+
+    // --- anchoring ------------------------------------------------------------
+
+    /**
+     * Founds [vessel] where it rests: pinned to the ground from now on, never
+     * woken, immovable to anything that strikes it - though its parts still
+     * break. Only a craft with a working [com.rm.apogee.core.part.Foundation],
+     * on the ground and still. False, and nothing changed, otherwise.
+     */
+    fun anchor(vessel: Vessel): Boolean {
+        if (vessel.anchored) return true
+        if (!canAnchor(vessel)) return false
+        val attractor = attractorFor(vessel)
+        attractor.rotationAt(tickEnd, anchorRotation)
+        if (!level(vessel, attractor)) return false
+        vessel.anchor(anchorRotation)
+        vessel.powerSettledAt = tickEnd
+        attractor.surfaceVelocityAt(vessel.body.position, vessel.body.linearVelocity)
+        attractor.angularVelocity(vessel.body.angularVelocity)
+        pendingEvents.add(WorldEvent.VesselStructureChanged(vessel.id))
+        return true
+    }
+
+    /** Whether [vessel] could be founded where it is now: see [anchor]. */
+    fun canAnchor(vessel: Vessel): Boolean {
+        if (vessel.anchored) return false
+        val footed = vessel.defs.indices.any { vessel.defs[it].module<com.rm.apogee.core.part.Foundation>() != null && !vessel.isBroken(it) }
+        if (!footed) return false
+        if (vessel.dormant) { if (vessel.afloat) return false }
+        else {
+            if (!vessel.touchingGround) return false
+            attractorFor(vessel).surfaceVelocityAt(vessel.body.position, scratch)
+            if (scratch.subInPlace(vessel.body.linearVelocity).length >= ANCHOR_MAX_SPEED) return false
+        }
+        // Standing on its feet: a foundation still on the flatbed that
+        // brought it is not on the ground, whatever the truck is.
+        return lowestFoot(vessel) <= FOOT_ON_GROUND
+    }
+
+    /** How far the lowest foot of any working foundation of [vessel] stands above the ground, m. */
+    private fun lowestFoot(vessel: Vessel): Double {
+        val attractor = attractorFor(vessel)
+        attractor.rotationAt(tickEnd, anchorRotation)
+        var lowest = Double.MAX_VALUE
+        val point = Vec3()
+        val direction = Vec3()
+        for (i in vessel.defs.indices) {
+            val def = vessel.defs[i]
+            if (def.module<com.rm.apogee.core.part.Foundation>() == null || vessel.isBroken(i)) continue
+            val bottom = def.contactPoints.minOfOrNull { it.y } ?: continue
+            for (p in def.contactPoints.indices) {
+                if (def.contactPoints[p].y > bottom + 1e-6) continue
+                vessel.contactPointWorld(i, p, point)
+                attractor.toBodyFixed(point, anchorRotation, direction).normalizeInPlace()
+                lowest = minOf(lowest, point.length - attractor.solidRadiusInBodyFrame(direction))
+            }
+        }
+        return lowest
+    }
+
+    /**
+     * Stands [vessel] level on its foundations' feet before it is founded:
+     * turned upright about its centre - no further than the steepest ground
+     * its foundations will take - and set down on its lowest-standing foot,
+     * the rest reaching down to the ground within their travel. False, and
+     * the craft left as it was, where the ground is too steep or too uneven.
+     */
+    private fun level(vessel: Vessel, attractor: CelestialBody): Boolean {
+        val body = vessel.body
+        var maxSlope = Double.MAX_VALUE
+        var travel = Double.MAX_VALUE
+        for (i in vessel.defs.indices) {
+            val f = vessel.defs[i].module<com.rm.apogee.core.part.Foundation>() ?: continue
+            if (vessel.isBroken(i)) continue
+            maxSlope = minOf(maxSlope, f.maxSlope)
+            travel = minOf(travel, f.travel)
+        }
+        if (maxSlope == Double.MAX_VALUE) return false
+
+        val up = Vec3().setTo(body.position).normalizeInPlace()
+        val craftUp = body.orientation.rotate(vessel.design.orientation.up, Vec3())
+        val tilt = Math.toDegrees(kotlin.math.acos((craftUp dot up).coerceIn(-1.0, 1.0)))
+        if (tilt > maxSlope) return false
+        val oldOrientation = body.orientation.copy()
+        val oldPosition = body.position.copy()
+        body.orientation.setTo(com.rm.apogee.core.math.quatFromTo(craftUp, up) * body.orientation).normalizeInPlace()
+
+        // Each foot: the lowest points of each foundation, and the ground under it.
+        var lowest = Double.MAX_VALUE
+        var highest = -Double.MAX_VALUE
+        val point = Vec3()
+        val direction = Vec3()
+        for (i in vessel.defs.indices) {
+            val def = vessel.defs[i]
+            if (def.module<com.rm.apogee.core.part.Foundation>() == null || vessel.isBroken(i)) continue
+            val bottom = def.contactPoints.minOfOrNull { it.y } ?: continue
+            for (p in def.contactPoints.indices) {
+                if (def.contactPoints[p].y > bottom + 1e-6) continue
+                vessel.contactPointWorld(i, p, point)
+                attractor.toBodyFixed(point, anchorRotation, direction).normalizeInPlace()
+                val clearance = point.length - attractor.solidRadiusInBodyFrame(direction)
+                lowest = minOf(lowest, clearance)
+                highest = maxOf(highest, clearance)
+            }
+        }
+        if (lowest == Double.MAX_VALUE || highest - lowest > travel) {
+            body.orientation.setTo(oldOrientation)
+            body.position.setTo(oldPosition)
+            return false
+        }
+        // Down (or up) until the foot that stands highest meets the ground.
+        body.position.addScaledInPlace(up, -lowest)
+        return true
+    }
+
+    // --- refuelling ----------------------------------------------------------------
+
+    /** Craft being filled from a base, by id. */
+    private val refuelling = LinkedHashSet<VesselId>()
+
+    /** Whether [vessel] is being filled from a base now. */
+    fun isRefuelling(vessel: VesselId): Boolean = vessel in refuelling
+
+    /** Where a craft is filled from: the [base], the parts of it that give, and the [craft] parts that take. */
+    class Service(val base: Vessel, val from: List<Int>, val craft: Vessel, val into: List<Int>)
+
+    /**
+     * What [craft] could be filled from now: the base whose pad deck it
+     * stands on, or - docked to a base, and so one craft with it - the rest
+     * of that base. Null if neither.
+     */
+    fun serviceFor(craft: Vessel): Service? {
+        if (craft.anchored) {
+            // Docked: what came is what hangs from each ring that docked on.
+            val into = LinkedHashSet<Int>()
+            for (i in craft.design.parts.indices) {
+                if (craft.design.parts[i].dockedFrom != null) into.addAll(craft.design.subtreeOf(i))
+            }
+            if (into.isEmpty()) return null
+            return Service(craft, craft.defs.indices.filter { it !in into }, craft, into.toList())
+        }
+        val up = Vec3()
+        val offset = Vec3()
+        for (base in vesselsById.values) {
+            if (!base.anchored || base.referenceBodyId != craft.referenceBodyId) continue
+            scratch.setTo(base.body.position).subInPlace(craft.body.position)
+            val reach = base.contactRadius + craft.contactRadius
+            if (scratch.lengthSq > reach * reach) continue
+            for (i in base.defs.indices) {
+                val pad = base.defs[i]
+                if (pad.module<com.rm.apogee.core.part.LaunchPad>() == null || base.isBroken(i)) continue
+                val centre = base.partPositionWorld(i, Vec3())
+                base.design.parts[i].rotation.rotate(Vec3.unitY(), up)
+                base.body.orientation.rotate(up, up)
+                val top = pad.boundsHalfExtents.y
+                offset.setTo(craft.body.position).subInPlace(centre)
+                val height = offset dot up
+                offset.addScaledInPlace(up, -height)
+                // Over the deck, and standing on it: its lowest point near the top.
+                if (offset.length > pad.boundsHalfExtents.x) continue
+                if (height - lowestExtentAlong(craft, up) - top > PAD_SERVICE_HEIGHT) continue
+                return Service(base, base.defs.indices.toList(), craft, craft.defs.indices.toList())
+            }
+        }
+        return null
+    }
+
+    private fun stepRefuelling(dt: Double) {
+        if (refuelling.isEmpty()) return
+        val iterator = refuelling.iterator()
+        while (iterator.hasNext()) {
+            val id = iterator.next()
+            val craft = vesselsById[id]
+            val service = craft?.let { serviceFor(it) }
+            val stop = when {
+                craft == null -> null
+                service == null -> "nothing to fill from here"
+                else -> pump(service, dt)
+            }
+            if (craft == null || stop != null) {
+                iterator.remove()
+                if (craft != null) pendingEvents.add(WorldEvent.RefuelStopped(id, stop!!))
+            }
+        }
+    }
+
+    /** One tick's pumping for [service]; why it stopped, or null while it goes on. */
+    private fun pump(service: Service, dt: Double): String? {
+        val base = service.base
+        var rate = 0.0
+        var draw = 0.0
+        for (i in service.from) {
+            val pump = base.defs[i].module<com.rm.apogee.core.part.Pump>() ?: continue
+            if (base.isBroken(i)) continue
+            if (pump.rate > rate) { rate = pump.rate; draw = pump.draw }
+        }
+        if (rate <= 0.0) return "this base has no pump"
+        if (!base.powered || !base.drawCharge(draw * dt)) return "the base has no power"
+        var moved = 0.0
+        for (type in REFUEL_TYPES) {
+            val want = minOf(rate * dt, service.craft.roomIn(service.into, type), base.amountIn(service.from, type))
+            if (want <= 1e-9) continue
+            val out = base.takeFrom(service.from, type, want)
+            moved += service.craft.putInto(service.into, type, out)
+        }
+        if (moved <= 1e-9) {
+            // Full of everything the base has to give, or the base out of what the craft still wants.
+            val wanting = REFUEL_TYPES.any { service.craft.roomIn(service.into, it) > 1e-9 && base.amountIn(service.from, it) > 1e-9 }
+            val holds = REFUEL_TYPES.any { base.amountIn(service.from, it) > 1e-9 }
+            return if (!wanting && holds) "full" else "the base has nothing more to give"
+        }
+        base.recomputeMass()
+        if (service.craft !== base) service.craft.recomputeMass()
+        return null
+    }
+
+    // --- the Cape's own buildings --------------------------------------------------
+
+    /**
+     * Puts up any of the Cape's buildings that are missing: the launch
+     * complex, the airfield and the harbour, each a founded base of the
+     * world's. A new world, and one saved before they existed, both get
+     * them; one that has them keeps the ones it has.
+     */
+    fun ensureStructures() {
+        if (SolarSystem.HOMEWORLD_ID !in system.bodies) return
+        capeBuilt = true
+        for (complex in com.rm.apogee.core.craft.StockStructures.complexes) {
+            if (structureOf(complex) != null) continue
+            raiseStructure(complex)
+        }
+    }
+
+    /** Whether this world has the Cape's buildings to look after: see [ensureStructures]. */
+    private var capeBuilt = false
+
+    /** Since when nothing awake has been near each complex, by name: see [repairStructures]. */
+    private val quietSince = HashMap<String, Double>()
+
+    /**
+     * Rebuilds any of the Cape's buildings that have been broken - parts
+     * lost or hurt - once nothing awake has come within [REPAIR_REACH] of
+     * them for [REPAIR_QUIET] seconds, or at once when [now]: wreckage
+     * cleared, the complex put back as it was built. Nobody watches it
+     * happen, and the start of the game is never left in ruins.
+     */
+    fun repairStructures(now: Boolean = false) {
+        if (!capeBuilt) return
+        val body = system.body(SolarSystem.HOMEWORLD_ID)
+        body.rotationAt(time, scratchRotation)
+        val here = Vec3()
+        for (complex in com.rm.apogee.core.craft.StockStructures.complexes) {
+            val site = SolarSystem.capeDirection(complex.east, complex.north, body.radius).mulInPlace(body.radius)
+            // Anything awake close by keeps it as it is, broken or not.
+            val busy = vesselsById.values.any { v ->
+                !v.dormant && v.owner != WORLD_OWNER && v.referenceBodyId == body.id &&
+                    body.toBodyFixed(v.body.position, scratchRotation, here).distanceTo(site) < REPAIR_REACH
+            }
+            if (busy) { quietSince.remove(complex.name); continue }
+            val since = quietSince.getOrPut(complex.name) { time }
+            val standing = structureOf(complex)
+            if (standing != null && intact(standing, complex)) continue
+            if (!now && time - since < REPAIR_QUIET) continue
+            // What fell off it, lying about: every craft of nothing but buildings, loose, near it.
+            val wreckage = vesselsById.values.filter { v ->
+                !v.anchored && v.referenceBodyId == body.id &&
+                    v.defs.all { it.category == com.rm.apogee.core.part.PartCategory.STRUCTURE } &&
+                    body.toBodyFixed(v.body.position, scratchRotation, here).distanceTo(site) < REPAIR_REACH
+            }
+            standing?.let { destroy(it.id, "rebuilt") }
+            for (piece in wreckage) destroy(piece.id, "cleared away")
+            raiseStructure(complex)
+        }
+    }
+
+    /** Whether [standing] is all of [complex], and whole. */
+    private fun intact(standing: Vessel, complex: com.rm.apogee.core.craft.StockStructures.Complex): Boolean =
+        standing.defs.size == complex.placements.size && standing.broken.none { it } && standing.health.all { it >= 1.0 }
+
+    /** The world's standing copy of [complex], if it has one. */
+    fun structureOf(complex: com.rm.apogee.core.craft.StockStructures.Complex): Vessel? =
+        vesselsById.values.firstOrNull { it.owner == WORLD_OWNER && it.name == complex.name && it.anchored }
+
+    /** [complex] built where it belongs, founded and the world's. */
+    private fun raiseStructure(complex: com.rm.apogee.core.craft.StockStructures.Complex): Vessel {
+        val design = com.rm.apogee.core.craft.StockStructures.design(complex, catalog)
+        val body = system.body(SolarSystem.HOMEWORLD_ID)
+        val up = SolarSystem.capeDirection(complex.east, complex.north, body.radius)
+        val ground = body.radius + (body.terrain?.elevation(up) ?: 0.0)
+        // Its axes on the ground there: +X east, +Y up, +Z south.
+        val east = Vec3(0.0, 1.0, 0.0).crossInPlace(up).normalizeInPlace()
+        val standing = com.rm.apogee.core.math.quatFromTo(Vec3.unitY(), up)
+        val xNow = standing.rotate(Vec3.unitX(), Vec3())
+        val heading = if ((xNow dot east) < -0.999999) Quat.fromAxisAngle(up, Math.PI) else com.rm.apogee.core.math.quatFromTo(xNow, east)
+        val local = (heading * standing).normalizeInPlace()
+
+        body.rotationAt(time, scratchRotation)
+        val rotation = (scratchRotation * local).normalizeInPlace()
+        val origin = scratchRotation.rotate(Vec3().setTo(up).mulInPlace(ground), Vec3())
+        val probe = spawnAt(design, body.id, origin, Vec3(), rotation)
+        // Its centre where its centre is: the design's origin on the ground.
+        probe.body.position.setTo(origin).addInPlace(rotation.rotate(probe.centerOfMass(Vec3()), Vec3()))
+        body.surfaceVelocityAt(probe.body.position, probe.body.linearVelocity)
+        probe.owner = WORLD_OWNER
+        probe.ownerName = ""
+        probe.name = complex.name
+        pin(probe)
+        return probe
+    }
+
+    // --- launching from bases -----------------------------------------------------
+
+    /** Whether a player [owner] may launch from [base]: their own, or one of the world's. */
+    fun mayLaunchFrom(base: Vessel, owner: String): Boolean = base.owner == owner || base.owner == WORLD_OWNER
+
+    /** The pads [owner] may launch from on founded bases, as launch sites. */
+    fun baseSites(owner: String): List<LaunchSite> {
+        val sites = ArrayList<LaunchSite>()
+        val direction = Vec3()
+        for (base in vesselsById.values) {
+            if (!base.anchored || !mayLaunchFrom(base, owner)) continue
+            val pads = base.defs.indices.filter { base.defs[it].module<com.rm.apogee.core.part.LaunchPad>() != null && !base.isBroken(it) }
+            val attractor = attractorFor(base)
+            attractor.rotationAt(time, scratchRotation)
+            pads.forEachIndexed { k, pad ->
+                attractor.toBodyFixed(base.partPositionWorld(pad), scratchRotation, direction).normalizeInPlace()
+                sites.add(
+                    LaunchSite(
+                        id = "${LaunchSite.BASE_SITE_PREFIX}${base.id.raw}:$pad",
+                        displayName = if (pads.size > 1) "${base.name}, pad ${k + 1}" else base.name,
+                        bodyId = base.referenceBodyId,
+                        latitude = kotlin.math.asin(direction.y.coerceIn(-1.0, 1.0)),
+                        longitude = kotlin.math.atan2(direction.z, direction.x),
+                    )
+                )
+            }
+        }
+        return sites
+    }
+
+    /**
+     * A craft set upright on the deck of [base]'s pad [pad], its tanks filled
+     * from the base's stores as far as they go - if the base has the power
+     * to pump; dark, it is put there empty.
+     */
+    fun spawnOnBasePad(design: CraftDesign, base: Vessel, pad: Int): Vessel {
+        val site = baseSites(base.owner).firstOrNull { it.id == "${LaunchSite.BASE_SITE_PREFIX}${base.id.raw}:$pad" }
+            ?: error("no pad $pad on ${base.name}")
+        val craft = spawnOnSurface(design, site)
+        // On the deck, not on the ground under it.
+        val up = Vec3().setTo(craft.body.position).normalizeInPlace()
+        val top = Vec3().setTo(base.partPositionWorld(pad)).addScaledInPlace(up, base.defs[pad].boundsHalfExtents.y)
+        craft.body.position.setTo(up).mulInPlace(top.length + lowestExtentAlong(craft, up) + 0.02)
+        attractorFor(craft).surfaceVelocityAt(craft.body.position, craft.body.linearVelocity)
+
+        // What it carries, it carries from the base.
+        settlePower(base)
+        val all = craft.defs.indices.toList()
+        val launch = base.defs[pad].module<com.rm.apogee.core.part.LaunchPad>()!!.launchCharge
+        val pumping = base.powered && base.drawCharge(launch)
+        for (type in listOf(com.rm.apogee.core.part.ResourceType.PROPELLANT, com.rm.apogee.core.part.ResourceType.MONOPROPELLANT)) {
+            val wanted = craft.amountIn(all, type)
+            craft.takeFrom(all, type, wanted)
+            if (!pumping) continue
+            val given = base.takeFrom(base.defs.indices.toList(), type, wanted)
+            craft.putInto(all, type, given)
+        }
+        base.recomputeMass()
+        craft.recomputeMass()
+        return craft
+    }
+
+    // --- power --------------------------------------------------------------------
+
+    /**
+     * Brings a founded base's power up to [until]: its panels' charge in, by
+     * how high the sun has stood over it; its core's upkeep and, after dusk,
+     * its lamps' out - over the time since it was last worked out, in steps
+     * of a minute or, across a long absence, as many as [POWER_MAX_STEPS].
+     * Nobody need be near: a base keeps its ledger, not its ticks.
+     */
+    fun settlePower(vessel: Vessel, until: Double = time) {
+        if (!vessel.anchored) return
+        val from = vessel.powerSettledAt
+        vessel.powerSettledAt = until
+        if (from.isNaN() || until <= from) return
+        val attractor = attractorFor(vessel)
+        var solar = 0.0
+        var upkeep = 0.0
+        var lamps = 0.0
+        for (i in vessel.defs.indices) {
+            if (vessel.isBroken(i)) continue
+            for (module in vessel.defs[i].modules) when (module) {
+                is com.rm.apogee.core.part.SolarPanel -> solar += module.chargeRate
+                is com.rm.apogee.core.part.Command -> upkeep += BASE_UPKEEP
+                is com.rm.apogee.core.part.Lamp -> lamps += module.draw
+                else -> Unit
+            }
+        }
+        val site = vessel.sleepDirection(powerSite)
+        val step = maxOf(POWER_STEP, (until - from) / POWER_MAX_STEPS)
+        var t = from
+        var net = 0.0
+        while (t < until) {
+            val h = minOf(step, until - t)
+            val sun = sunHeight(attractor, site, t + 0.5 * h)
+            net = solar * maxOf(0.0, sun) - upkeep - if (sun < LAMP_DUSK) lamps else 0.0
+            if (net >= 0.0) vessel.storeCharge(net * h)
+            else if (!vessel.drawCharge(-net * h)) vessel.drawCharge(vessel.amountOf(com.rm.apogee.core.part.ResourceType.ELECTRIC_CHARGE))
+            t += h
+        }
+        vessel.powerNet = net
+        vessel.powered = vessel.amountOf(com.rm.apogee.core.part.ResourceType.ELECTRIC_CHARGE) > 0.0 || net > 0.0
+    }
+
+    /** How high the sun stands over body-fixed unit [site] at [at]: the sine of its elevation, below 0 at night. */
+    fun sunHeight(attractor: CelestialBody, site: Vec3, at: Double): Double {
+        attractor.rotationAt(at, powerRotation)
+        powerRotation.rotate(site, powerUp)
+        return powerUp dot LaunchTime.SUN_DIRECTION
+    }
+
+    private val powerSite = Vec3()
+    private val powerUp = Vec3()
+    private val powerRotation = Quat.identity()
+
+    /** Lets a founded [vessel] go: a craft like any other again, awake. */
+    fun unanchor(vessel: Vessel): Boolean {
+        if (!vessel.anchored) return false
+        vessel.unanchor()
+        pendingEvents.add(WorldEvent.VesselStructureChanged(vessel.id))
+        return true
+    }
+
+    /** An anchored craft's pose taken afresh after its structure - and so its centre of mass - changed. */
+    private fun reseat(vessel: Vessel) {
+        if (!vessel.anchored) return
+        attractorFor(vessel).rotationAt(tickEnd, anchorRotation)
+        vessel.reanchor(anchorRotation)
+    }
+
+    private val anchorRotation = Quat.identity()
 
     /** Angular momentum of [vessel] about [centre], for a body moving at [velocity]. */
     private fun angularMomentumAbout(vessel: Vessel, centre: Vec3, velocity: Vec3): Vec3 {
@@ -947,8 +1411,9 @@ class World(
      * left - and the two become one craft.
      */
     fun dockPorts(a: Vessel, partA: Int, b: Vessel, partB: Int): Vessel? {
+        // The heavier keeps - or a base, whatever it weighs.
         val (keeper, keeperPart, absorbed, absorbedPart) =
-            if (a.body.mass >= b.body.mass) Quad(a, partA, b, partB) else Quad(b, partB, a, partA)
+            if (a.anchored || (!b.anchored && a.body.mass >= b.body.mass)) Quad(a, partA, b, partB) else Quad(b, partB, a, partA)
         val kp = keeper.defs[keeperPart].module<com.rm.apogee.core.part.DockingPort>() ?: return null
         val ap = absorbed.defs[absorbedPart].module<com.rm.apogee.core.part.DockingPort>() ?: return null
         // Square the absorbed craft up on the keeper's ring.
@@ -1059,6 +1524,7 @@ class World(
             piece.activatedIndices(), piece.brokenIndices(),
         )
         vessel.replaceStructure(kept.design, kept.indices.map { originalDefs[it] }, kept.indices)
+        reseat(vessel)
         if (along != null && impulse > 0.0) {
             val push = Vec3().setTo(along).normalizeInPlace()
             // The ring faces from the piece toward the craft it was on.
@@ -1142,7 +1608,8 @@ class World(
     }
 
     private fun splitAt(vessel: Vessel, decouplerIndex: Int): List<Int>? {
-        val separating = vessel.design.subtreeOf(decouplerIndex).toSet()
+        val clamp = vessel.defs[decouplerIndex].module<Decoupler>()?.stays == true
+        val separating = vessel.design.subtreeOf(decouplerIndex).toSet().let { if (clamp) it - decouplerIndex else it }
         val remaining = vessel.design.parts.indices.filter { it !in separating }
         if (separating.isEmpty() || remaining.isEmpty()) return null
 
@@ -1193,9 +1660,27 @@ class World(
         debris.body.angularVelocity.setTo(angularVelocity)
         debris.body.position.setTo(position).addInPlace(centre)
         debris.recomputeMass(shiftBodyPosition = false)
+        // A load set down, not a stage thrown away: still the owner's, and
+        // named for what it is.
+        if (clamp) {
+            debris.owner = vessel.owner
+            debris.ownerName = vessel.ownerName
+            debris.name = discardedDefs.firstOrNull { it.hasModule<com.rm.apogee.core.part.Command>() }?.title
+                ?: discardedDefs.maxByOrNull { it.dryMass }?.title ?: debris.name
+        }
 
         // The half that keeps flying, at the same place in its sequence.
         vessel.replaceStructure(kept.design, keptDefs, kept.indices)
+        reseat(vessel)
+        if (clamp) {
+            // Lifted off and set down beside the truck, not pushed away.
+            setDownBeside(vessel, debris)
+            vesselsById[debris.id] = debris
+            justSeparated[pairKey(vessel.id.raw, debris.id.raw)] = time + SEPARATION_GRACE
+            pendingEvents.add(WorldEvent.VesselStructureChanged(vessel.id))
+            pendingEvents.add(WorldEvent.VesselSpawned(debris.id))
+            return kept.indices
+        }
 
         // Push the halves apart along the craft's long axis.
         scratch.setTo(Vec3.unitY())
@@ -1222,6 +1707,42 @@ class World(
         pendingEvents.add(WorldEvent.VesselStructureChanged(vessel.id))
         pendingEvents.add(WorldEvent.VesselSpawned(debris.id))
         return kept.indices
+    }
+
+    /**
+     * [load] lifted off [truck] and set on the ground to its right: clear of
+     * it by [SET_DOWN_CLEARANCE], stood upright the way its own design
+     * stands, resting on its lowest part and moving with the ground.
+     */
+    private fun setDownBeside(truck: Vessel, load: Vessel) {
+        val attractor = attractorFor(truck)
+        val up = Vec3().setTo(truck.body.position).normalizeInPlace()
+        val right = truck.body.orientation.rotate(Vec3(1.0, 0.0, 0.0), Vec3())
+        right.addScaledInPlace(up, -(right dot up)).normalizeInPlace()
+        // Upright, keeping its heading.
+        val loadUp = load.body.orientation.rotate(load.design.orientation.up, Vec3())
+        load.body.orientation.setTo(com.rm.apogee.core.math.quatFromTo(loadUp, up) * load.body.orientation).normalizeInPlace()
+        // Out to the side by both their half-widths and a little more.
+        val out = truck.contactRadius.coerceAtMost(halfWidth(truck, right)) + halfWidth(load, right) + SET_DOWN_CLEARANCE
+        val centre = Vec3().setTo(truck.body.position).addScaledInPlace(right, out)
+        attractor.rotationAt(time, scratchRotation)
+        val direction = attractor.toBodyFixed(centre, scratchRotation, Vec3()).normalizeInPlace()
+        val ground = attractor.solidRadiusInBodyFrame(direction)
+        val along = Vec3().setTo(centre).normalizeInPlace()
+        load.body.position.setTo(along).mulInPlace(ground + lowestExtentAlong(load, along) + 0.02)
+        attractor.surfaceVelocityAt(load.body.position, load.body.linearVelocity)
+        attractor.angularVelocity(load.body.angularVelocity)
+    }
+
+    /** How far [vessel] reaches from its centre along [direction], m: the furthest of its contact points. */
+    private fun halfWidth(vessel: Vessel, direction: Vec3): Double {
+        var most = 0.0
+        val offset = Vec3()
+        for (i in vessel.defs.indices) for (p in vessel.defs[i].contactPoints.indices) {
+            vessel.contactOffsetWorld(i, p, offset)
+            most = maxOf(most, offset dot direction)
+        }
+        return most
     }
 
     private class SubDesign(val design: CraftDesign, val indices: List<Int>)
@@ -1291,7 +1812,7 @@ class World(
             // looking at, and a base on a pad otherwise costs exactly what
             // one being flown does.
             if (vessel.dormant) {
-                if (vessel.afloat) followSea(vessel, attractor, waves = true) else followGround(vessel, attractor)
+                if (vessel.afloat && !vessel.anchored) followSea(vessel, attractor, waves = true) else followGround(vessel, attractor)
                 continue
             }
 
@@ -1414,6 +1935,7 @@ class World(
             pendingBreakUps.add(struck.id)
         }
         stepDocking(dt)
+        stepRefuelling(dt)
         resolveExplosions()
         if (pendingBreakUps.isNotEmpty() || pendingDetach.isNotEmpty()) {
             val ids = LinkedHashSet(pendingBreakUps).apply { addAll(pendingDetach.keys) }
@@ -1443,6 +1965,10 @@ class World(
         }
 
         if (tick % LIGHTNING_CHECK_TICKS == 0L) strikeLightning(tickEnd)
+        if (tick % REPAIR_CHECK_TICKS == 0L) repairStructures()
+        if (tick % POWER_CHECK_TICKS == 0L) {
+            for (vessel in vesselsById.values) if (vessel.anchored) settlePower(vessel, tickEnd)
+        }
 
         tick++
         time += dt
@@ -1519,7 +2045,9 @@ class World(
      */
     private fun considerSleeping(vessel: Vessel, report: ContactReport) {
         // Not while a leg is still swinging: asleep, it would stop half out.
-        if (legsMoving(vessel)) {
+        // Nor while it is being drawn in to dock: held still short of the
+        // latch by the ground's friction, asleep it would stay there.
+        if (legsMoving(vessel) || docking.capturing(vessel.id.raw)) {
             vessel.noteStillness(false, SLEEP_SETTLE_TICKS)
             return
         }
@@ -1999,6 +2527,7 @@ class World(
         val keptCentre = pieceCentre(vessel, members[keep], offset).copy()
         vessel.body.velocityAtOffset(keptCentre, pointVelocity)
         vessel.replaceStructure(kept.design, kept.indices.map { originalDefs[it] }, kept.indices)
+        reseat(vessel)
         vessel.body.linearVelocity.setTo(pointVelocity)
         pendingEvents.add(WorldEvent.VesselStructureChanged(vessel.id))
     }
@@ -2247,7 +2776,19 @@ class World(
         owner = vessel.owner,
         ownerName = vessel.ownerName,
         brokenParts = vessel.broken.withIndex().filter { it.value }.map { it.index },
+        anchored = vessel.anchored,
     )
+
+    /**
+     * Pins [vessel] where it is now, as the server says it is founded: for a
+     * client's replica, which takes the server's word rather than asking
+     * whether it could be.
+     */
+    fun pin(vessel: Vessel) {
+        if (vessel.anchored) return
+        attractorFor(vessel).rotationAt(time, anchorRotation)
+        vessel.anchor(anchorRotation)
+    }
 
     // --- persistence ---------------------------------------------------------
 
@@ -2258,7 +2799,13 @@ class World(
      * thread as the tick in this design, but the moment it does not, handing
      * out live vectors would let a save observe a craft halfway through a step.
      */
-    fun save(): WorldSave = WorldSave(
+    fun save(): WorldSave {
+        // Bases' power brought up to now, so what is saved is what they have.
+        for (vessel in vesselsById.values) if (vessel.anchored) settlePower(vessel)
+        return saveNow()
+    }
+
+    private fun saveNow(): WorldSave = WorldSave(
         links = links.map { SavedLink(it.a.raw, it.partA, it.b.raw, it.partB) },
         catalogHash = catalog.contentHash,
         felledScatter = felledScatter.sorted(),
@@ -2296,6 +2843,7 @@ class World(
                 flooded = if (vessel.flooded.any { it > 0.0 }) vessel.flooded.toList() else emptyList(),
                 crumple = vessel.crumple.toList(),
                 temperature = vessel.temperature.toList(),
+                anchored = vessel.anchored,
             )
         },
     )
@@ -2309,6 +2857,9 @@ class World(
      */
     fun restore(save: WorldSave): List<String> {
         val problems = ArrayList<String>()
+        // Founded bases, pinned again once everything is in place - after
+        // any setting down on changed ground.
+        val founded = ArrayList<Vessel>()
         val terrainChanged = save.terrainGeneration != TerrainField.GENERATION
         felledScatter.clear()
         // Scatter ids name places on one generation's ground; on another they
@@ -2334,6 +2885,7 @@ class World(
         vesselsById.clear()
         pendingEvents.clear()
         time = save.universeTime
+        tickEnd = time
         nextVesselId = save.nextVesselId
 
         for (saved in save.vessels) {
@@ -2404,6 +2956,7 @@ class World(
             vessel.restoreCondition(saved.health, saved.crumple, saved.temperature)
             saved.flooded.forEachIndexed { i, kg -> if (i < vessel.flooded.size) vessel.flooded[i] = kg }
             vessel.recomputeMass(shiftBodyPosition = false)
+            if (saved.anchored) founded.add(vessel)
 
             vesselsById[vessel.id] = vessel
             // Everyone connected needs to be told these exist.
@@ -2421,6 +2974,10 @@ class World(
                     "${TerrainField.GENERATION}): set $moved landed craft back on the ground" +
                     if (save.felledScatter.isNotEmpty()) "; felled trees have regrown" else ""
             )
+        }
+        for (vessel in founded) {
+            attractorFor(vessel).rotationAt(time, anchorRotation)
+            vessel.anchor(anchorRotation)
         }
 
         // Only worth saying once, and only when something actually suffered.
@@ -2442,6 +2999,14 @@ class World(
      * merely adding one to the scenery.
      */
     fun spawnFor(command: Command.SpawnCraft, owner: String): Vessel {
+        if (command.siteId.startsWith(LaunchSite.BASE_SITE_PREFIX)) {
+            val (base, pad) = command.siteId.removePrefix(LaunchSite.BASE_SITE_PREFIX).split(":").let {
+                vesselsById[VesselId(it.getOrNull(0)?.toLongOrNull() ?: -1)] to (it.getOrNull(1)?.toIntOrNull() ?: -1)
+            }
+            if (base != null && base.anchored && mayLaunchFrom(base, owner) && base.defs.getOrNull(pad)?.module<com.rm.apogee.core.part.LaunchPad>() != null) {
+                return spawnOnBasePad(command.design, base, pad).also { it.owner = owner }
+            }
+        }
         val site = launchSites.firstOrNull { it.id == command.siteId } ?: launchSites.first()
         val vessel = spawnAtSite(command.design, site)
         vessel.owner = owner
@@ -2496,7 +3061,11 @@ class World(
                 if (other.referenceBodyId != site.bodyId) continue
                 val gap = scratch.setTo(other.body.position).subInPlace(spot).length -
                     other.contactRadius - radius - PAD_MARGIN_METRES
-                if (gap < clearance) clearance = gap
+                // A founded base can be hundreds of metres across with its
+                // pads in the middle of it: what matters is its buildings,
+                // one by one, not the reach of the whole.
+                val near = if (other.anchored && gap < 0.0) partsGap(other, spot, radius) else gap
+                if (near < clearance) clearance = near
             }
             if (clearance >= 0.0) return pad
             if (clearance > bestClearance) {
@@ -2509,6 +3078,19 @@ class World(
     }
 
     private fun attractorFor(site: LaunchSite): CelestialBody = system.body(site.bodyId)
+
+    /** The tightest gap from a craft of [radius] at [spot] to any solid part of [vessel], beyond the margin. */
+    private fun partsGap(vessel: Vessel, spot: Vec3, radius: Double): Double {
+        var least = Double.POSITIVE_INFINITY
+        val at = Vec3()
+        for (i in vessel.defs.indices) {
+            val def = vessel.defs[i]
+            if (!def.solid) continue
+            val gap = vessel.partPositionWorld(i, at).subInPlace(spot).length - def.boundsHalfExtents.length - radius - PAD_MARGIN_METRES
+            if (gap < least) least = gap
+        }
+        return least
+    }
 
     /** Finds a craft belonging to [owner], so a returning player gets it back. */
     fun vesselOwnedBy(owner: String): Vessel? =
@@ -2593,6 +3175,48 @@ class World(
          * worse than no button.
          */
         const val JOIN_MAX_CLOSING_SPEED = 2.0
+
+        /** Whose the Cape's own buildings are: nobody's, and everybody's to launch from. */
+        const val WORLD_OWNER = "world"
+
+        /** What a base's pump moves into a craft. */
+        private val REFUEL_TYPES = listOf(
+            com.rm.apogee.core.part.ResourceType.PROPELLANT,
+            com.rm.apogee.core.part.ResourceType.MONOPROPELLANT,
+            com.rm.apogee.core.part.ResourceType.ELECTRIC_CHARGE,
+        )
+
+        /** How far above a pad deck's top a craft's lowest point may be and still be standing on it, m. */
+        const val PAD_SERVICE_HEIGHT = 0.8
+
+        /** How often the Cape's buildings are looked at for repair, ticks. */
+        const val REPAIR_CHECK_TICKS = 60L
+
+        /** Nothing awake may be within this of a complex, m, for [REPAIR_QUIET] s, for it to be rebuilt. */
+        const val REPAIR_REACH = 2_000.0
+        const val REPAIR_QUIET = 60.0
+
+        /** How often founded bases' power is brought up to date, ticks. */
+        const val POWER_CHECK_TICKS = 60L
+
+        /** A base's power ledger is worked out in steps of this, s - or coarser, to [POWER_MAX_STEPS] of them. */
+        const val POWER_STEP = 60.0
+        const val POWER_MAX_STEPS = 20_000
+
+        /** What a base's command part takes to keep it running, charge a second. */
+        const val BASE_UPKEEP = 0.05
+
+        /** Lamps come on when the sun is lower than this, the sine of its elevation: dusk. */
+        const val LAMP_DUSK = 0.05
+
+        /** How far clear of the truck a release clamp sets its load down, m. */
+        const val SET_DOWN_CLEARANCE = 0.3
+
+        /** How near the ground a foundation's lowest foot must be for the craft to be founded, m. */
+        const val FOOT_ON_GROUND = 0.3
+
+        /** The fastest over the ground a craft may be going and still be founded, m/s. */
+        const val ANCHOR_MAX_SPEED = 0.3
 
         /** Metres the two halves of a separation are pushed apart immediately. */
         private const val SEPARATION_CLEARANCE = 0.5
@@ -2713,8 +3337,8 @@ class World(
 
 
         val launchSites = listOf(
-            // On the coast, with its runway pointing out over the harbour's
-            // bay. See SolarSystem.PAD_LATITUDE.
+            // The pads: a row of them east and west of the launch tower, on
+            // the coast. See SolarSystem.PAD_LATITUDE.
             LaunchSite(
                 id = "cape",
                 displayName = "Cape Launch Complex",
@@ -2722,15 +3346,12 @@ class World(
                 latitude = SolarSystem.PAD_LATITUDE,
                 longitude = SolarSystem.PAD_LONGITUDE,
             ),
-            // In a broad bay beside the Cape: sixteen metres of calm water,
-            // open to the sea only up a winding inlet.
-            LaunchSite(
-                id = "harbour",
-                displayName = "Cape Harbour",
-                bodyId = SolarSystem.HOMEWORLD_ID,
-                latitude = SolarSystem.HARBOUR_LATITUDE,
-                longitude = SolarSystem.HARBOUR_LONGITUDE,
-            ),
+            // The airfield: at the runway's west end, facing down it, east,
+            // toward the bay - the next one along it forty metres on.
+            capeSite("airfield", "Cape Airfield", 340.0, -400.0),
+            // The harbour's berth, off its jetty in the broad bay beside the
+            // Cape: dredged deep, open to the sea only up a winding inlet.
+            capeSite("harbour", "Cape Harbour", 2_700.0, 330.0),
             // For testing: straight onto the Moon without flying there. On
             // the mare north-east of Luna's prime meridian, a kilometre and a
             // half below the datum, where the ground under the whole row of
@@ -2754,7 +3375,17 @@ class World(
             val floats = design.parts.any {
                 catalog[it.partId]?.hasModule<com.rm.apogee.core.part.Buoyancy>() == true
             }
-            return launchSites.first { it.id == if (floats) "harbour" else "cape" }
+            // Built lying down, with wings: a plane, for the runway.
+            val flies = design.orientation == com.rm.apogee.core.craft.CraftOrientation.HORIZONTAL && design.parts.any {
+                catalog[it.partId]?.hasModule<com.rm.apogee.core.part.AeroSurface>() == true
+            }
+            return launchSites.first { it.id == if (floats) "harbour" else if (flies) "airfield" else "cape" }
+        }
+
+        /** A site at the Cape, [east] and [north] metres from the pad. */
+        private fun capeSite(id: String, name: String, east: Double, north: Double): LaunchSite {
+            val d = SolarSystem.capeDirection(east, north)
+            return LaunchSite(id, name, SolarSystem.HOMEWORLD_ID, SolarSystem.latitudeOf(d), SolarSystem.longitudeOf(d))
         }
 
         fun default(catalog: PartCatalog) = World(SolarSystem.defaultSystem(), catalog)

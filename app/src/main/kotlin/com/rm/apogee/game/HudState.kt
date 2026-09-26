@@ -77,6 +77,12 @@ class HudState {
      */
     var canJoin: Boolean by mutableStateOf(false)
 
+    /** What the flown craft can do with a base: found, let go, refuel. */
+    var baseService: com.rm.apogee.core.world.ServerMessage.Service? by mutableStateOf(null)
+
+    /** The founded base nearby, or the one flown, for its card. */
+    var nearBase: com.rm.apogee.core.world.ServerMessage.BaseStatus? by mutableStateOf(null)
+
     /** The flown craft's parachute: "ARMED", "OPEN", or null for none staged. */
     var chute: String? by mutableStateOf(null)
 

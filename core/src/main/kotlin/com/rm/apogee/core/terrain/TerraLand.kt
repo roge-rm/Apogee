@@ -357,13 +357,20 @@ internal class TerraLand(
      * is rock, high and cold is snow, dry dunes are sand, badlands are clay,
      * wet valley floors are mud, forests have their own floor.
      */
-    fun material(nx: Double, ny: Double, nz: Double, elevation: Double, slope: Double, landness: Double): SurfaceMaterial {
+    /**
+     * What the ground is made of. [watered], 0..1, draws the country's
+     * moisture toward that of grassland, for somewhere kept green.
+     */
+    fun material(nx: Double, ny: Double, nz: Double, elevation: Double, slope: Double, landness: Double, watered: Double = 0.0): SurfaceMaterial {
         val px = nx * radius; val py = ny * radius; val pz = nz * radius
         val qx = px + warp(warpSeedX, px, py, pz)
         val qy = py + warp(warpSeedY, px, py, pz)
         val qz = pz + warp(warpSeedZ, px, py, pz)
         val warm = warmth(qx, qy, qz, ny, elevation)
-        val wet = moisture(qx, qy, qz, ny, landness)
+        // Watered country is drawn to grassland's moisture - up from dry,
+        // down from bog - so it is green, neither sand nor mud.
+        val soaked = moisture(qx, qy, qz, ny, landness)
+        val wet = soaked + (GRASSLAND_MOISTURE - soaked) * watered
 
         if (warm < 0.1) return if (slope < 0.08) SurfaceMaterial.ICE else SurfaceMaterial.SNOW
         val snowLine = 1_300.0 + 3_600.0 * warm
@@ -515,6 +522,9 @@ internal class TerraLand(
         const val VOLCANO_HOME_CLEARANCE = 40_000.0
 
         const val BEACH_METRES = 10.0
+
+        /** Moisture of grass country: wet enough not to be sand, not so wet as to be forest. */
+        const val GRASSLAND_MOISTURE = 0.5
         const val PATCH_FREQUENCY = 1.0 / 3_500.0
         const val EDGE_FREQUENCY = 1.0 / 6_000.0
         const val PATCH_WARP_METRES = 1_800.0

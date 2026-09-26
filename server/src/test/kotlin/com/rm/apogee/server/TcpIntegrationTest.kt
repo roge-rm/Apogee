@@ -3,6 +3,7 @@ package com.rm.apogee.server
 import com.rm.apogee.core.craft.VesselId
 import com.rm.apogee.core.part.StockParts
 import com.rm.apogee.core.world.Command
+import com.rm.apogee.core.world.World
 import com.rm.apogee.net.Channel
 import com.rm.apogee.net.Codec
 import com.rm.apogee.net.GameClient
@@ -101,7 +102,7 @@ class TcpIntegrationTest {
         val bob = join(port, net, "Bob")
 
         pumpUntil(server, "both clients to see both craft") {
-            alice.vessels.size == 2 && bob.vessels.size == 2
+            alice.vessels.count { it.owner != World.WORLD_OWNER } == 2 && bob.vessels.count { it.owner != World.WORLD_OWNER } == 2
         }
 
         assertEquals(2, server.playerCount)
@@ -120,7 +121,7 @@ class TcpIntegrationTest {
         val alice = join(port, net, "Alice")
         val bob = join(port, net, "Bob")
         pumpUntil(server, "both clients to see both craft") {
-            alice.vessels.size == 2 && bob.vessels.size == 2
+            alice.vessels.count { it.owner != World.WORLD_OWNER } == 2 && bob.vessels.count { it.owner != World.WORLD_OWNER } == 2
         }
 
         val aliceVessel = alice.controlledVessel!!

@@ -173,13 +173,20 @@ class SeaScene(
                 }
             }
             sea.surface(direction, time, p, sample, spacing)
-            val radius = body.radius + sample.height
+            // Over dry land, sunk under it: left at the tide's height, the
+            // coarse water far off and the coarse ground crossed each other
+            // facet by facet along every low coast, a speckle of sea and sand
+            // seen from high up (Dan). Sunk, the coast is where they cross.
+            val height = if (sample.depth <= 0.0) {
+                minOf(sample.height, sample.tide - sample.depth - kotlin.math.max(DRY_SINK, DRY_SINK_SHARE * spacing))
+            } else sample.height
+            val radius = body.radius + height
             val o = index * SeaSurface.STRIDE
             out[o] = (direction.x * radius - origin.x).toFloat()
             out[o + 1] = (direction.y * radius - origin.y).toFloat()
             out[o + 2] = (direction.z * radius - origin.z).toFloat()
             out[o + 3] = direction.x.toFloat(); out[o + 4] = direction.y.toFloat(); out[o + 5] = direction.z.toFloat()
-            colour(sample, direction, out, o + 6)
+            colour(sample, direction, out, o + 6, spacing)
             out[o + 10] = sample.rise.toFloat()
         }
 
@@ -295,7 +302,7 @@ class SeaScene(
      * lighter on the crests, grey-green under a storm, and white where it
      * breaks: whitecaps, storm crests, and surf along the shore.
      */
-    private fun colour(s: SeaSample, at: Vec3, out: FloatArray, o: Int) {
+    private fun colour(s: SeaSample, at: Vec3, out: FloatArray, o: Int, spacing: Double) {
         val depth = s.depth
         val shallow = 1.0 - smooth(1.0, 14.0, depth)
         val mid = 1.0 - smooth(10.0, 60.0, depth)
@@ -313,7 +320,10 @@ class SeaScene(
         val speckle = com.rm.apogee.core.terrain.Noise.hash(
             0xF0A, Math.floor(at.x * r0).toInt(), Math.floor(at.y * r0).toInt(), Math.floor(at.z * r0).toInt(),
         )
-        val surf = if (depth in 0.0..1.2 && s.significantHeight > 0.2) 1.0 - depth / 1.2 else 0.0
+        // Surf only where the rings are fine enough to draw it: out where
+        // they are tens of metres apart it was a scatter of white facets
+        // along every shore.
+        val surf = if (depth in 0.0..1.2 && s.significantHeight > 0.2 && spacing < SURF_SPACING) 1.0 - depth / 1.2 else 0.0
         val foam = kotlin.math.max(s.breaking, surf)
         val white = if (foam > 0.05 && speckle < foam * 1.2) 1.0 else 0.0
         r += (FOAM - r) * white; g += (FOAM - g) * white; b += (FOAM_B - b) * white
@@ -412,6 +422,13 @@ class SeaScene(
         const val SHALLOW_R = 0.14; const val SHALLOW_G = 0.72; const val SHALLOW_B = 0.70
         const val STORM_R = 0.20; const val STORM_G = 0.30; const val STORM_B = 0.33
         const val FOAM = 0.93; const val FOAM_B = 0.97
+
+        /** Water over dry land is drawn this far under it, m, or this share of the rings' spacing if more. */
+        const val DRY_SINK = 2.0
+        const val DRY_SINK_SHARE = 0.03
+
+        /** Surf is drawn only where the rings are closer than this, m. */
+        const val SURF_SPACING = 25.0
 
         /** Foam patches per metre, as the grain its speckle is hashed on. */
         const val FOAM_GRAIN = 0.35

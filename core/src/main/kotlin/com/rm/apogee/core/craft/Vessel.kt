@@ -499,6 +499,8 @@ class Vessel(
         for (i in defs.indices) {
             for (module in defs[i].modules) {
                 if (module is Tank) resources[i][module.resource.ordinal] = module.capacity
+                // A battery holds charge as a tank holds propellant.
+                if (module is com.rm.apogee.core.part.Battery) resources[i][ResourceType.ELECTRIC_CHARGE.ordinal] = module.capacity
             }
         }
     }
@@ -511,12 +513,91 @@ class Vessel(
 
     fun capacityOf(type: ResourceType): Double {
         var total = 0.0
-        for (i in defs.indices) {
-            for (module in defs[i].modules) {
-                if (module is Tank && module.resource == type) total += module.capacity
-            }
+        for (i in defs.indices) total += capacityInPart(i, type)
+        return total
+    }
+
+    /** What part [index] can hold of [type]: its tanks, and its batteries for charge. */
+    fun capacityInPart(index: Int, type: ResourceType): Double {
+        var total = 0.0
+        for (module in defs[index].modules) {
+            if (module is Tank && module.resource == type) total += module.capacity
+            if (module is com.rm.apogee.core.part.Battery && type == ResourceType.ELECTRIC_CHARGE) total += module.capacity
         }
         return total
+    }
+
+    // --- a base's power -------------------------------------------------------
+
+    /** When its power was last worked out to, universe seconds; NaN before it ever has been. See `World.settlePower`. */
+    var powerSettledAt: Double = Double.NaN
+
+    /** Whether it has charge to run on: a base with none is dark - no lamps, no pumping, no launching. */
+    var powered: Boolean = true
+
+    /** Charge coming in less going out, units a second, as last worked out: what a base's card shows. */
+    var powerNet: Double = 0.0
+
+    /** How much of [type] parts [parts] hold between them. */
+    fun amountIn(parts: Collection<Int>, type: ResourceType): Double = parts.sumOf { resources[it][type.ordinal] }
+
+    /** How much more of [type] parts [parts] have room for. */
+    fun roomIn(parts: Collection<Int>, type: ResourceType): Double =
+        parts.sumOf { (capacityInPart(it, type) - resources[it][type.ordinal]).coerceAtLeast(0.0) }
+
+    /** Takes up to [amount] of [type] out of [parts], in their order; how much came out. */
+    fun takeFrom(parts: Collection<Int>, type: ResourceType, amount: Double): Double {
+        var left = amount
+        for (i in parts) {
+            if (left <= 0.0) break
+            val take = minOf(left, resources[i][type.ordinal])
+            resources[i][type.ordinal] -= take
+            left -= take
+        }
+        return amount - left
+    }
+
+    /** Puts up to [amount] of [type] into [parts], as far as they hold; how much went in. */
+    fun putInto(parts: Collection<Int>, type: ResourceType, amount: Double): Double {
+        var left = amount
+        for (i in parts) {
+            if (left <= 0.0) break
+            val room = capacityInPart(i, type) - resources[i][type.ordinal]
+            if (room <= 0.0) continue
+            val put = minOf(room, left)
+            resources[i][type.ordinal] += put
+            left -= put
+        }
+        return amount - left
+    }
+
+    /** Takes [amount] of charge from wherever it is held; false, and nothing taken, if there is not that much. */
+    fun drawCharge(amount: Double): Boolean {
+        val slot = ResourceType.ELECTRIC_CHARGE.ordinal
+        if (amountOf(ResourceType.ELECTRIC_CHARGE) < amount) return false
+        var left = amount
+        for (i in resources.indices) {
+            val take = minOf(left, resources[i][slot])
+            resources[i][slot] -= take
+            left -= take
+            if (left <= 0.0) break
+        }
+        return true
+    }
+
+    /** Puts [amount] of charge into its batteries, as far as they hold; how much went in. */
+    fun storeCharge(amount: Double): Double {
+        val slot = ResourceType.ELECTRIC_CHARGE.ordinal
+        var left = amount
+        for (i in resources.indices) {
+            if (left <= 0.0) break
+            val room = capacityInPart(i, ResourceType.ELECTRIC_CHARGE) - resources[i][slot]
+            if (room <= 0.0) continue
+            val put = minOf(room, left)
+            resources[i][slot] += put
+            left -= put
+        }
+        return amount - left
     }
 
     fun amountInPart(partIndex: Int, type: ResourceType): Double =
@@ -677,6 +758,14 @@ class Vessel(
             if (scratch.lengthSq > 0.0) {
                 body.orientation.rotate(scratch, scratchB)
                 body.position.addInPlace(scratchB)
+                // Asleep, or a founded base, it is posed from where its
+                // centre of mass sleeps: that moves with it, or the next
+                // tick puts the old centre back where it was and the whole
+                // craft jumps by the shift.
+                if (dormant) {
+                    sleepOrientation.rotate(scratch, scratchB)
+                    sleepPosition.addInPlace(scratchB)
+                }
             }
         }
 
@@ -998,8 +1087,51 @@ class Vessel(
         settledTicks = 0
     }
 
-    /** Returns true if this call is what woke it. */
+    /**
+     * Pinned to the ground: a founded base. Asleep for good - it rides the
+     * planet round as any sleeping craft does - but touching it never wakes
+     * it, and its body is [com.rm.apogee.core.physics.RigidBody.fixed], so
+     * nothing that strikes it moves it. Its parts still take the blow.
+     */
+    var anchored: Boolean = false
+        private set
+
+    /** Anchors it where it is now, in the rotating frame [bodyRotation] describes. */
+    fun anchor(bodyRotation: Quat) {
+        if (dormant && !anchored) wake()
+        anchored = false
+        dormant = false
+        sleep(bodyRotation)
+        body.linearVelocity.setZero()
+        body.angularVelocity.setZero()
+        anchored = true
+        body.fixed = true
+    }
+
+    /**
+     * Its pose taken afresh where it now is, still anchored: after its
+     * structure changed - a module joined, a part broken off - and its
+     * centre of mass with it.
+     */
+    fun reanchor(bodyRotation: Quat) {
+        if (!anchored) return
+        anchored = false
+        dormant = false
+        body.fixed = false
+        anchor(bodyRotation)
+    }
+
+    /** Lets go of the ground: an ordinary craft again, awake. */
+    fun unanchor() {
+        if (!anchored) return
+        anchored = false
+        body.fixed = false
+        wake()
+    }
+
+    /** Returns true if this call is what woke it. Never wakes one [anchored]. */
     fun wake(): Boolean {
+        if (anchored) return false
         if (!dormant) {
             settledTicks = 0
             return false

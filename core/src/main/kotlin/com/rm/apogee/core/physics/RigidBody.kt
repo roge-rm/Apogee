@@ -33,11 +33,25 @@ class RigidBody {
     var mass: Double = 1.0
         set(value) {
             field = value
-            inverseMass = if (value > 0.0) 1.0 / value else 0.0
+            inverseMass = if (value > 0.0 && !fixed) 1.0 / value else 0.0
         }
 
     var inverseMass: Double = 1.0
         private set
+
+    /**
+     * Immovable: an anchored base. Its mass and inertia are kept, but it
+     * answers every push as if infinitely heavy - no impulse moves it and
+     * no contact shares a correction with it - so everything that meets it
+     * works unchanged, against something that does not give. Whoever sets it
+     * poses the body themselves.
+     */
+    var fixed: Boolean = false
+        set(value) {
+            field = value
+            inverseMass = if (mass > 0.0 && !value) 1.0 / mass else 0.0
+            if (value) inverseInertiaLocal.setZero() else inverseInertiaLocal.setTo(inertiaLocal.inverted())
+        }
 
     /** Inertia tensor about the centre of mass, in body-local axes. */
     val inertiaLocal: Mat3 = Mat3.identity()
@@ -58,7 +72,7 @@ class RigidBody {
 
     fun setInertia(tensor: Mat3) {
         inertiaLocal.setTo(tensor)
-        inverseInertiaLocal.setTo(tensor.inverted())
+        if (fixed) inverseInertiaLocal.setZero() else inverseInertiaLocal.setTo(tensor.inverted())
     }
 
     fun clearAccumulators() {

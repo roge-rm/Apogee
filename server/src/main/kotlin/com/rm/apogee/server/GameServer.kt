@@ -146,6 +146,9 @@ class GameServer(
             intensity = config.weatherIntensity ?: base.intensity,
             clouds = config.cloudCover ?: base.clouds,
         )
+        // The Cape's buildings, in a new world or one saved before them.
+        world.ensureStructures()
+        world.repairStructures(now = true)
     }
 
     /** Names of everyone currently connected, for the admin view. */
@@ -340,6 +343,7 @@ class GameServer(
                     vessel.ownerName = session.playerName
                     takeControl(session, vessel.id)
                 } else {
+                    if (command is Command.Refuel) refuelStops.remove(command.vessel)
                     world.apply(command)
                 }
             }
@@ -542,6 +546,8 @@ class GameServer(
         // still refuses unless the two are touching and at rest - but this is
         // the line to revisit when bases get owners worth defending.
         is Command.Join -> session.controlledVessel?.raw == command.vessel
+        is Command.Anchor -> world.vessel(VesselId(command.vessel))?.owner == session.clientId
+        is Command.Refuel -> flies(session, command.vessel)
         // Only your own craft. Anything else and a player could take the
         // controls of somebody else's base on a shared server.
         // Or one docked with yours: you have a seat in it.
@@ -595,6 +601,8 @@ class GameServer(
                     }
 
                 is WorldEvent.Touchdown -> Unit
+                // Told to the pilot with the refuel state, not as an event of its own.
+                is WorldEvent.RefuelStopped -> refuelStops[event.id.raw] = event.reason
 
                 is WorldEvent.ScatterFelled ->
                     broadcast(ServerMessage.ScatterFelled(listOf(event.scatterId)), Channel.STRUCTURE)
@@ -691,13 +699,62 @@ class GameServer(
         broadcast(ServerMessage.SnapshotMessage(snapshot), Channel.KINEMATICS)
     }
 
-    /** Each pilot's own tanks. */
+    /** Each pilot's own tanks, what their craft can do with a base, and the base nearest them. */
     private suspend fun sendFuel() {
         for (session in sessions) {
             if (!session.connected || !session.handshakeComplete) continue
             val vessel = session.controlledVessel?.let { world.vessel(it) } ?: continue
             session.send(ServerMessage.FuelLevels(vessel.id.raw, vessel.flatResources()), Channel.KINEMATICS)
+            session.send(
+                ServerMessage.Service(
+                    vessel.id.raw,
+                    canFound = world.canAnchor(vessel),
+                    founded = vessel.anchored,
+                    canRefuel = world.serviceFor(vessel) != null,
+                    refuelling = world.isRefuelling(vessel.id),
+                    stopped = refuelStops[vessel.id.raw].orEmpty(),
+                ),
+                Channel.KINEMATICS,
+            )
+            nearestBase(vessel)?.let { (base, distance) -> session.send(baseStatus(base, distance), Channel.KINEMATICS) }
         }
+    }
+
+    /** Why each craft's refuelling last stopped, by id: told to its pilot. */
+    private val refuelStops = java.util.concurrent.ConcurrentHashMap<Long, String>()
+
+    /** The founded base nearest [vessel], within [BASE_CARD_REACH] - itself, if it is one - and how far. */
+    private fun nearestBase(vessel: com.rm.apogee.core.craft.Vessel): Pair<com.rm.apogee.core.craft.Vessel, Double>? {
+        if (vessel.anchored) return vessel to 0.0
+        var best: com.rm.apogee.core.craft.Vessel? = null
+        var bestDistance = BASE_CARD_REACH
+        for (other in world.vessels) {
+            if (!other.anchored || other.owner == World.WORLD_OWNER || other.referenceBodyId != vessel.referenceBodyId) continue
+            val d = other.body.position.distanceTo(vessel.body.position) - other.contactRadius
+            if (d < bestDistance) { bestDistance = d; best = other }
+        }
+        return best?.let { it to bestDistance.coerceAtLeast(0.0) }
+    }
+
+    private fun baseStatus(base: com.rm.apogee.core.craft.Vessel, distance: Double): ServerMessage.BaseStatus {
+        world.settlePower(base)
+        val charge = com.rm.apogee.core.part.ResourceType.ELECTRIC_CHARGE
+        val propellant = com.rm.apogee.core.part.ResourceType.PROPELLANT
+        val mono = com.rm.apogee.core.part.ResourceType.MONOPROPELLANT
+        return ServerMessage.BaseStatus(
+            vessel = base.id.raw,
+            name = base.name,
+            powered = base.powered,
+            charge = base.amountOf(charge).toFloat(),
+            chargeCapacity = base.capacityOf(charge).toFloat(),
+            net = base.powerNet.toFloat(),
+            propellant = base.amountOf(propellant).toFloat(),
+            propellantCapacity = base.capacityOf(propellant).toFloat(),
+            monopropellant = base.amountOf(mono).toFloat(),
+            monopropellantCapacity = base.capacityOf(mono).toFloat(),
+            pads = base.defs.count { it.hasModule<com.rm.apogee.core.part.LaunchPad>() },
+            distance = distance.toFloat(),
+        )
     }
 
     private suspend fun partEvent(event: ServerMessage.PartEvent) = broadcast(event, Channel.STRUCTURE)
@@ -730,6 +787,9 @@ class GameServer(
     }
 
     companion object {
+        /** How near a founded base must be for its card to show, m beyond its edge. */
+        const val BASE_CARD_REACH = 300.0
+
         private const val MAX_CATCHUP_NANOS = 250_000_000L
         private const val FUEL_HZ = 4
 

@@ -79,9 +79,12 @@ class TerrainField(
         val ox = direction.x / length - home.x
         val oy = direction.y / length - home.y
         val oz = direction.z / length - home.z
-        val metres = sqrt(ox * ox + oy * oy + oz * oz) * bodyRadius
-        if (metres < PAD_BLEND_METRES) return true
-        return runwayBlend(ox, oy, oz) < 1.0
+        val a = runwayAlong ?: return false
+        val c = runwayAcross!!
+        val east = (a.x * ox + a.y * oy + a.z * oz) * bodyRadius
+        val north = (c.x * ox + c.y * oy + c.z * oz) * bodyRadius
+        if (abs(east) > WORKS_REACH || abs(north) > WORKS_REACH) return false
+        return nearestWork(east, north) >= 0
     }
 
     /**
@@ -94,6 +97,14 @@ class TerrainField(
         val pad = padUnit!!
         TerraLand(seed, bodyRadius, home.x, home.y, home.z, pad.x, pad.y, pad.z)
     }
+
+    /**
+     * How many of the works this world has: all of them where there is a
+     * harbour, only the launch complex and the airfield where there is not -
+     * the road down to the quay, the quay and its berth are laid out
+     * against the bay's own shore, and anywhere else would cut a pit.
+     */
+    private val workCount: Int = if (harbourDirection != null) WORK_FROM_EAST.size else HARBOUR_WORKS_FROM
 
     /** The harbour's centre, and its own east and north, for laying out the bay. */
     private val harbourUnit: Vec3? = harbourDirection?.normalized()
@@ -147,43 +158,73 @@ class TerrainField(
         // is within a rounding error of 1 and acos throws away most of its
         // precision, while the chord is still exact.
         val ox = nx - home.x; val oy = ny - home.y; val oz = nz - home.z
-        val metres = sqrt(ox * ox + oy * oy + oz * oz) * bodyRadius
-        if (metres >= PAD_BLEND_METRES + RUNWAY_LENGTH_METRES + RUNWAY_BLEND_METRES) return shaped
-        val padBlend = if (metres >= PAD_BLEND_METRES) 1.0 else smoothstep(
-            ((metres - PAD_FLAT_METRES) / (PAD_BLEND_METRES - PAD_FLAT_METRES))
-                .coerceIn(0.0, 1.0)
-        )
-        val t = minOf(padBlend, runwayBlend(ox, oy, oz))
-        if (t >= 1.0) return shaped
-        return homeElevation + (shaped - homeElevation) * t
+        val a = runwayAlong ?: return shaped
+        val c = runwayAcross!!
+        val east = (a.x * ox + a.y * oy + a.z * oz) * bodyRadius
+        val north = (c.x * ox + c.y * oy + c.z * oz) * bodyRadius
+        if (abs(east) > WORKS_REACH || abs(north) > WORKS_REACH) return shaped
+        // Every work near enough to reach here has its say, by how near: the
+        // level is their heights weighed so, and the land gives way to it as
+        // far as the nearest of them demands. Taking only the nearest put a
+        // fourteen-metre step where a road's blend met the quay's.
+        var total = 0.0
+        var weighed = 0.0
+        var strongest = 0.0
+        for (k in 0 until workCount) {
+            val a = 1.0 - workBlend(k, east, north)
+            if (a <= 0.0) continue
+            total += a
+            weighed += a * workHeight(k, east, north)
+            if (a > strongest) strongest = a
+        }
+        if (total <= 0.0) return shaped
+        val level = weighed / total
+        return level + (shaped - level) * (1.0 - strongest)
     }
 
     /**
-     * 0 on the runway, rising to 1 where the real terrain takes over.
-     *
-     * A strip of dead-level ground running east from the pad, because a craft
-     * that takes off along the ground needs somewhere to do it: the pad is
-     * level for three hundred metres, and the stock aeroplane rolled off the
-     * end of that into rising ground and was shoved up the hillside by the
-     * contact solver while its log reported a take-off. Kept narrow, like the
-     * pad, so the country either side still rolls.
-     *
-     * [offset] is from home to the point on the unit sphere; at these
-     * distances that is as good as a flat map, which is all a strip a few
-     * kilometres long needs.
+     * The Cape's works: the pad complex, the runway, the airfield's apron,
+     * roads, the harbour's quay and its dredged berth - each a disc or a
+     * strip in metres east and north of the pad, levelled to its own height
+     * and blended back into the land round it. See [WORK_FROM_EAST].
      */
-    private fun runwayBlend(ox: Double, oy: Double, oz: Double): Double {
-        val a = runwayAlong ?: return 1.0
-        val c = runwayAcross!!
-        val along = (a.x * ox + a.y * oy + a.z * oz) * bodyRadius
-        val across = abs((c.x * ox + c.y * oy + c.z * oz) * bodyRadius)
-        // Distance outside the strip's rectangle; nought anywhere on it. The
-        // near end starts at the pad, which covers everything west of it.
-        val beyondEnd = max(0.0, max(along - RUNWAY_LENGTH_METRES, -along))
-        val beyondEdge = max(0.0, across - RUNWAY_HALF_WIDTH_METRES)
-        val outside = sqrt(beyondEnd * beyondEnd + beyondEdge * beyondEdge)
-        if (outside >= RUNWAY_BLEND_METRES) return 1.0
-        return smoothstep(outside / RUNWAY_BLEND_METRES)
+    private fun nearestWork(east: Double, north: Double): Int {
+        var best = -1
+        var bestT = 1.0
+        for (k in 0 until workCount) {
+            val t = workBlend(k, east, north)
+            if (t < bestT) { bestT = t; best = k }
+        }
+        return best
+    }
+
+    /** 0 on work [k], rising to 1 where the land takes over again. */
+    private fun workBlend(k: Int, east: Double, north: Double): Double {
+        val outside = max(0.0, workDistance(k, east, north) - WORK_FLAT[k])
+        if (outside >= WORK_BLEND[k]) return 1.0
+        return smoothstep(outside / WORK_BLEND[k])
+    }
+
+    /** How far the point is from work [k]'s line, m. */
+    private fun workDistance(k: Int, east: Double, north: Double): Double {
+        val ax = WORK_FROM_EAST[k]; val ay = WORK_FROM_NORTH[k]
+        val dx = WORK_TO_EAST[k] - ax; val dy = WORK_TO_NORTH[k] - ay
+        val lengthSq = dx * dx + dy * dy
+        val t = if (lengthSq <= 0.0) 0.0 else (((east - ax) * dx + (north - ay) * dy) / lengthSq).coerceIn(0.0, 1.0)
+        val px = ax + dx * t - east; val py = ay + dy * t - north
+        return sqrt(px * px + py * py)
+    }
+
+    /** The height work [k] is levelled to where the point is: its own, or sloping from one end's to the other's. */
+    private fun workHeight(k: Int, east: Double, north: Double): Double {
+        val from = WORK_FROM_HEIGHT[k].let { if (it.isNaN()) homeElevation else it }
+        val to = WORK_TO_HEIGHT[k].let { if (it.isNaN()) homeElevation else it }
+        if (from == to) return from
+        val ax = WORK_FROM_EAST[k]; val ay = WORK_FROM_NORTH[k]
+        val dx = WORK_TO_EAST[k] - ax; val dy = WORK_TO_NORTH[k] - ay
+        val lengthSq = dx * dx + dy * dy
+        val t = if (lengthSq <= 0.0) 0.0 else (((east - ax) * dx + (north - ay) * dy) / lengthSq).coerceIn(0.0, 1.0)
+        return from + (to - from) * smoothstep(t)
     }
 
     /**
@@ -197,20 +238,66 @@ class TerrainField(
         val ox = direction.x / length - home.x
         val oy = direction.y / length - home.y
         val oz = direction.z / length - home.z
-        val metres = sqrt(ox * ox + oy * oy + oz * oz) * bodyRadius
-        if (metres < CONCRETE_METRES) return SurfaceMaterial.CONCRETE
         val a = runwayAlong ?: return null
         val c = runwayAcross!!
-        val along = (a.x * ox + a.y * oy + a.z * oz) * bodyRadius
-        val across = abs((c.x * ox + c.y * oy + c.z * oz) * bodyRadius)
-        if (along in 0.0..RUNWAY_LENGTH_METRES && across < ASPHALT_HALF_WIDTH_METRES) return SurfaceMaterial.ASPHALT
-        return null
+        val east = (a.x * ox + a.y * oy + a.z * oz) * bodyRadius
+        val north = (c.x * ox + c.y * oy + c.z * oz) * bodyRadius
+        if (abs(east) > WORKS_REACH || abs(north) > WORKS_REACH) return null
+        // The last listed wins where two overlap: roads over the land they
+        // cross, the runway over the road that meets it.
+        var found: SurfaceMaterial? = null
+        for (k in 0 until workCount) {
+            val material = WORK_MATERIAL[k] ?: continue
+            if (workDistance(k, east, north) <= WORK_PAVED[k]) found = material
+        }
+        return found
     }
 
     /** The field proper, with the harbour carved in, before the launch complex is levelled into it. */
     private fun shapedElevation(nx: Double, ny: Double, nz: Double): Double {
-        val raw = naturalElevation(nx, ny, nz)
+        val raw = capeLift(nx, ny, nz, naturalElevation(nx, ny, nz))
         return bay(nx, ny, nz, raw)
+    }
+
+    /**
+     * The Cape's low country lifted clear of the tide. The plain round the
+     * pad came out of the field a metre or two above the datum - under the
+     * four-metre tides of this coast, so at high water it was a tidal flat
+     * kilometres wide, the pad an island in it, and seen from above the
+     * drawn sea round the craft a disc of shallows and foam on dry-looking
+     * land (Dan). Low land is raised most, higher land less, the shore not
+     * at all, so the coastline stays where it was; nothing beyond
+     * [CAPE_LIFT_FADE] of the pad changes.
+     */
+    private fun capeLift(nx: Double, ny: Double, nz: Double, ground: Double): Double {
+        if (ground <= 0.0) return ground
+        val pad = padUnit ?: return ground
+        if (harbourUnit == null) return ground
+        val ox = nx - pad.x; val oy = ny - pad.y; val oz = nz - pad.z
+        val metres = sqrt(ox * ox + oy * oy + oz * oz) * bodyRadius
+        if (metres >= CAPE_LIFT_FADE) return ground
+        val fade = 1.0 - smoothstep(((metres - CAPE_LIFT_REACH) / (CAPE_LIFT_FADE - CAPE_LIFT_REACH)).coerceIn(0.0, 1.0))
+        return ground + CAPE_LIFT * (1.0 - kotlin.math.exp(-ground / CAPE_LIFT_SHORE)) * kotlin.math.exp(-ground / CAPE_LIFT_HIGH) * fade
+    }
+
+    /** Whether [east], [north] of the pad is on the levelled part of any work. */
+    private fun onWorks(east: Double, north: Double): Boolean {
+        for (k in 0 until workCount) if (workDistance(k, east, north) <= WORK_FLAT[k]) return true
+        return false
+    }
+
+    /**
+     * How much the land at [east], [north] of the pad is the Cape's green
+     * country, 0..1: fully on and round the works, fading out over the
+     * kilometre and more beyond them along an edge bent by noise, so the
+     * grass meets the dry country round it as a ragged margin, not a ring.
+     */
+    private fun capeGreen(east: Double, north: Double): Double {
+        var nearest = Double.MAX_VALUE
+        for (k in 0 until workCount) nearest = minOf(nearest, workDistance(k, east, north) - WORK_FLAT[k])
+        val bend = GREEN_BEND * Noise.simplex(GREEN_SEED, east / GREEN_BEND_SCALE, north / GREEN_BEND_SCALE, 0.5) +
+            0.4 * GREEN_BEND * Noise.simplex(GREEN_SEED + 1, east / (0.3 * GREEN_BEND_SCALE), north / (0.3 * GREEN_BEND_SCALE), 0.5)
+        return 1.0 - smoothstep(((nearest + bend) / GREEN_REACH).coerceIn(0.0, 1.0))
     }
 
     /**
@@ -351,8 +438,29 @@ class TerrainField(
         if (elevation < 0.0) return SurfaceMaterial.SAND
         paving(direction)?.let { return it }
         land?.let {
-            val landness = smoothstep((elevation / HILL_SHORE_FADE).coerceIn(0.0, 1.0))
-            return it.material(nx, ny, nz, elevation, slope, landness)
+            var landness = smoothstep((elevation / HILL_SHORE_FADE).coerceIn(0.0, 1.0))
+            // Round the Cape's works: green country - kept grass on the works
+            // themselves, and grass country round them, the dry coast's
+            // sand and clay giving way to grass, copses and bare patches.
+            // The beach at the water's very edge stays sand.
+            var watered = 0.0
+            val pad = padUnit
+            val a = runwayAlong
+            if (pad != null && a != null && harbourUnit != null) {
+                val ox = nx - pad.x; val oy = ny - pad.y; val oz = nz - pad.z
+                val c = runwayAcross!!
+                val east = (a.x * ox + a.y * oy + a.z * oz) * bodyRadius
+                val north = (c.x * ox + c.y * oy + c.z * oz) * bodyRadius
+                if (abs(east) < WORKS_REACH + GREEN_REACH && abs(north) < WORKS_REACH + GREEN_REACH) {
+                    if (elevation < GREEN_BEACH) return SurfaceMaterial.SAND
+                    // Kept grass on the works' own levelled ground.
+                    if (slope < 0.15 && onWorks(east, north)) return SurfaceMaterial.GRASS
+                    val green = capeGreen(east, north)
+                    landness = maxOf(landness, green)
+                    watered = green
+                }
+            }
+            return it.material(nx, ny, nz, elevation, slope, landness, watered)
         }
         return when {
             slope > STEEP_SLOPE -> SurfaceMaterial.ROCK
@@ -402,7 +510,7 @@ class TerrainField(
         const val DEFAULT_SEED = 0x4A06EE
 
         /** See [Terrain.generation]. 1 is the terrain every save before M7 was made on. */
-        const val GENERATION = 4
+        const val GENERATION = 5
 
         /** Slope (0 flat, 1 wall) past which ground is bare rock: about 39 degrees. */
         private const val STEEP_SLOPE = 0.22
@@ -434,28 +542,77 @@ class TerrainField(
         private const val HOME_FALLOFF_START = 0.985
         private const val HOME_LIFT = 0.22
 
-        /** Dead level out to here, metres: the launch complex itself. */
-        private const val PAD_FLAT_METRES = 300.0
-
         /**
-         * Blended back into the real terrain by here, metres.
+         * The Cape's works, in metres east and north of the pad - each a
+         * strip from one point to another (a disc where the two are the
+         * same) levelled flat out to [WORK_FLAT] from its line and blended
+         * back into the land by [WORK_BLEND] beyond, paved with
+         * [WORK_MATERIAL] out to [WORK_PAVED]. Heights NaN are the pad's own.
          *
-         * Kept tight. A wide blend is invisible on a contour plot and very
-         * visible from the cockpit: at twelve hundred metres it flattened
-         * everything the eye can actually resolve from the pad, and the
-         * homeworld looked like a billiard table with hills painted on the
-         * horizon.
+         * The pad complex: dead level to three hundred metres, rising to it
+         * over seven hundred more - a low hill, where a tighter blend made a
+         * flat-topped mesa of it (Dan).
+         * The runway: 2.5 km east, parallel to the pad row and 400 m south
+         * of it, clear of every pad, ending short of the bay's west shore
+         * so a plane climbs out over the water.
+         * The airfield's apron at its west end, north of it, and two
+         * taxiways down to it.
+         * Roads: pad to apron, apron along the runway, then winding down
+         * inland of the shore to the harbour's quay, which runs along the
+         * bay's west shore; its berth, dredged deep enough for the Trawler,
+         * runs out east from the quay alongside the jetty.
          */
-        private const val PAD_BLEND_METRES = 600.0
+        // pad, runway, apron, two taxiways, roads (four legs), quay, berth
+        private val WORK_FROM_EAST = doubleArrayOf(0.0, 250.0, 350.0, 420.0, 640.0, 0.0, 700.0, 2_650.0, 2_600.0, 2_560.0, 2_570.0, 2_625.0)
+        private val WORK_FROM_NORTH = doubleArrayOf(0.0, -400.0, -285.0, -330.0, -330.0, -110.0, -235.0, -235.0, 0.0, 200.0, 270.0, 350.0)
+        private val WORK_TO_EAST = doubleArrayOf(0.0, 2_750.0, 700.0, 420.0, 640.0, 350.0, 2_650.0, 2_600.0, 2_560.0, 2_560.0, 2_570.0, 2_770.0)
+        private val WORK_TO_NORTH = doubleArrayOf(0.0, -400.0, -285.0, -390.0, -390.0, -235.0, -235.0, 0.0, 200.0, 270.0, 430.0, 350.0)
+        private val WORK_FLAT = doubleArrayOf(300.0, 40.0, 70.0, 16.0, 16.0, 7.0, 7.0, 7.0, 7.0, 7.0, 45.0, 32.0)
+        private val WORK_BLEND = doubleArrayOf(700.0, 250.0, 150.0, 40.0, 40.0, 40.0, 40.0, 40.0, 40.0, 40.0, 100.0, 40.0)
+        private val WORK_FROM_HEIGHT = doubleArrayOf(
+            Double.NaN, Double.NaN, Double.NaN, Double.NaN, Double.NaN, Double.NaN, Double.NaN, Double.NaN, 10.0, 6.0, QUAY_HEIGHT, BERTH_DEPTH,
+        )
+        private val WORK_TO_HEIGHT = doubleArrayOf(
+            Double.NaN, Double.NaN, Double.NaN, Double.NaN, Double.NaN, Double.NaN, Double.NaN, 10.0, 6.0, QUAY_HEIGHT, QUAY_HEIGHT, BERTH_DEPTH,
+        )
+        private val WORK_PAVED = doubleArrayOf(110.0, 25.0, 62.0, 12.0, 12.0, 4.0, 4.0, 4.0, 4.0, 4.0, 42.0, 0.0)
+        private val WORK_MATERIAL = arrayOf<SurfaceMaterial?>(
+            SurfaceMaterial.CONCRETE, SurfaceMaterial.ASPHALT, SurfaceMaterial.CONCRETE, SurfaceMaterial.ASPHALT, SurfaceMaterial.ASPHALT,
+            SurfaceMaterial.ASPHALT, SurfaceMaterial.ASPHALT, SurfaceMaterial.ASPHALT, SurfaceMaterial.ASPHALT, SurfaceMaterial.ASPHALT,
+            SurfaceMaterial.CONCRETE, null,
+        )
 
-        /**
-         * The runway, metres. Long enough for the stock aeroplane's roll of
-         * about three hundred metres several times over, since a player's
-         * first design will be heavier and slower than it.
-         */
-        private const val RUNWAY_LENGTH_METRES = 2_500.0
-        private const val RUNWAY_HALF_WIDTH_METRES = 40.0
-        private const val RUNWAY_BLEND_METRES = 250.0
+        /** Where the harbour's works start in the table: the road's third leg, down toward the shore. */
+        private const val HARBOUR_WORKS_FROM = 7
+
+        /** The Cape's low country is lifted by up to this, m: see [capeLift]. */
+        private const val CAPE_LIFT = 7.0
+
+        /** How quickly the lift comes in above the shoreline, m, and dies away over higher ground, m. */
+        private const val CAPE_LIFT_SHORE = 0.4
+        private const val CAPE_LIFT_HIGH = 6.0
+
+        /** Lifted fully within this of the pad, m, and not at all past [CAPE_LIFT_FADE]. */
+        private const val CAPE_LIFT_REACH = 5_000.0
+        private const val CAPE_LIFT_FADE = 8_000.0
+
+        /** The Cape's green country: how far beyond the works it fades out, m, and how bent its edge. See [capeGreen]. */
+        private const val GREEN_REACH = 1_200.0
+        private const val GREEN_BEND = 350.0
+        private const val GREEN_BEND_SCALE = 900.0
+        private const val GREEN_SEED = 0x6EE
+
+        /** Below this, m, the Cape's country is still beach. */
+        private const val GREEN_BEACH = 1.5
+
+        /** Nothing of the works reaches past this, m east or north of the pad. */
+        private const val WORKS_REACH = 3_500.0
+
+        /** The harbour's quay, m above the datum: clear of the highest tide the bay sees. */
+        private const val QUAY_HEIGHT = 4.5
+
+        /** Its berth, dredged to this, m: room under the Trawler at the lowest tide. */
+        private const val BERTH_DEPTH = -7.0
 
         /**
          * The lowest a launch complex by the sea is built, m above the
@@ -464,9 +621,6 @@ class TerrainField(
          */
         private const val PAD_MIN_ELEVATION = 15.0
 
-        /** Concrete round the pads, m from the middle; asphalt either side of the runway's line. */
-        private const val CONCRETE_METRES = 110.0
-        private const val ASPHALT_HALF_WIDTH_METRES = 25.0
 
         /**
          * The harbour's bay, m east and north of its middle: a basin

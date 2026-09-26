@@ -208,6 +208,24 @@ class SolarSystem(
         /** Luna's orbit's tilt to Terra's equator, radians: the Cape's latitude. See [PAD_LATITUDE]. */
         const val LUNA_INCLINATION = PAD_LATITUDE
 
+        /**
+         * The place [east] and [north] metres from the pad, body-fixed and
+         * unit: how everything at the Cape is laid out. See `TerrainField`'s
+         * works and `StockStructures`.
+         */
+        fun capeDirection(east: Double, north: Double, radius: Double = 600_000.0): Vec3 {
+            val pad = surfaceDirection(PAD_LATITUDE, PAD_LONGITUDE)
+            val eastward = Vec3(0.0, 1.0, 0.0).crossInPlace(pad).normalizeInPlace()
+            val northward = pad.copy().crossInPlace(eastward).normalizeInPlace()
+            return pad.mulInPlace(radius).addScaledInPlace(eastward, east).addScaledInPlace(northward, north).normalizeInPlace()
+        }
+
+        /** Latitude of body-fixed unit [direction], radians. */
+        fun latitudeOf(direction: Vec3): Double = kotlin.math.asin(direction.y.coerceIn(-1.0, 1.0))
+
+        /** Longitude of body-fixed unit [direction], radians. */
+        fun longitudeOf(direction: Vec3): Double = kotlin.math.atan2(direction.z, direction.x)
+
         /** The surface normal at a latitude and longitude, radians. */
         fun surfaceDirection(latitude: Double, longitude: Double): Vec3 = Vec3(
             kotlin.math.cos(latitude) * kotlin.math.cos(longitude),

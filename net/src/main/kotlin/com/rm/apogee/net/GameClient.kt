@@ -28,6 +28,8 @@ class ClientVessel(
 
     /** Blank for debris and other players' craft are their own name. */
     @Volatile var owner: String = "",
+    /** Founded: pinned to the ground, immovable. */
+    @Volatile var anchored: Boolean = false,
 ) {
     /** The two most recent snapshots, kept so the renderer can interpolate. */
     @Volatile var previous: VesselKinematics? = null
@@ -150,6 +152,17 @@ class GameClient(
 
     val vessels: Collection<ClientVessel> get() = vesselsById.values
 
+    /** What the flown craft can do with a base just now, as the server last said. */
+    @Volatile var service: ServerMessage.Service? = null
+        private set
+
+    /** The founded base nearest the flown craft, as the server last said; null once it stops saying. */
+    val nearestBase: ServerMessage.BaseStatus?
+        get() = nearBase?.takeIf { System.nanoTime() - nearBaseNanos < BASE_STALE_NANOS }
+
+    @Volatile private var nearBase: ServerMessage.BaseStatus? = null
+    @Volatile private var nearBaseNanos = 0L
+
     fun vessel(id: Long): ClientVessel? = vesselsById[id]
 
     fun chatHistory(): List<String> = synchronized(chatLines) { chatLines.toList() }
@@ -255,6 +268,7 @@ class GameClient(
                             currentStage = update.currentStage,
                             activatedParts = update.activatedParts,
                             owner = update.owner,
+                            anchored = update.anchored,
                         )
                     } else {
                         existing.design = design
@@ -262,6 +276,7 @@ class GameClient(
                         existing.name = update.name
                         existing.currentStage = update.currentStage
                         existing.activatedParts = update.activatedParts
+                        existing.anchored = update.anchored
                     }
                 }
             }
@@ -294,6 +309,13 @@ class GameClient(
                 vesselsById[message.vessel]?.fuel = message.amounts
             }
 
+            is ServerMessage.Service -> service = message
+
+            is ServerMessage.BaseStatus -> {
+                nearBase = message
+                nearBaseNanos = System.nanoTime()
+            }
+
             is ServerMessage.ScatterFelled -> {
                 felledScatter.addAll(message.ids)
                 felledRevision++
@@ -309,5 +331,8 @@ class GameClient(
     private companion object {
         const val MAX_CHAT_LINES = 100
         const val MAX_PART_EVENTS = 256
+
+        /** A base the server has not mentioned for this long is out of reach. */
+        const val BASE_STALE_NANOS = 3_000_000_000L
     }
 }

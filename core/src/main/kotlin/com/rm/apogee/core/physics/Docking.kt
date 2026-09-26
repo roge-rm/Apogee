@@ -88,7 +88,8 @@ class Docking {
                 iterator.remove(); continue
             }
             pull(a, b, m, dt)
-            val settled = m.distance < LATCH_DISTANCE && (!a.port.rigid || m.angle < LATCH_ANGLE) && m.speed < LATCH_SPEED
+            val settled = m.distance < minOf(a.port.latchRange, b.port.latchRange) &&
+                (!a.port.rigid || m.angle < minOf(a.port.latchAngle, b.port.latchAngle)) && m.speed < LATCH_SPEED
             c.together = if (settled) c.together + dt else 0.0
             if (c.together >= maxOf(a.port.latchSeconds, b.port.latchSeconds)) latching.add(c)
         }
@@ -123,6 +124,9 @@ class Docking {
     fun forget(vessel: Long) {
         captures.values.removeAll { it.a.vessel.id.raw == vessel || it.b.vessel.id.raw == vessel }
     }
+
+    /** Whether [vessel] is drawing, or being drawn to, anything right now. */
+    fun capturing(vessel: Long): Boolean = captures.values.any { it.a.vessel.id.raw == vessel || it.b.vessel.id.raw == vessel }
 
     /** Whether craft [a] and [b] are drawing each other in right now. */
     fun capturing(a: Long, b: Long): Boolean = captures.values.any {
@@ -175,9 +179,11 @@ class Docking {
      */
     private fun pull(a: PortRef, b: PortRef, m: Measure, dt: Double) {
         val bodyA = a.vessel.body; val bodyB = b.vessel.body
-        val massA = bodyA.mass; val massB = bodyB.mass
-        if (massA <= 0.0 || massB <= 0.0) return
-        val reduced = massA * massB / (massA + massB)
+        // From the inverse masses, so a founded base - immovable, infinitely
+        // heavy - leaves the other craft's own mass to be drawn in.
+        val inverseMass = bodyA.inverseMass + bodyB.inverseMass
+        if (inverseMass <= 0.0) return
+        val reduced = 1.0 / inverseMass
         // Stiff enough to reach full pull by half the capture range - soft,
         // a cart's rolling resistance held a hitch a quarter metre short -
         // and critically damped on the two craft's masses.
@@ -211,7 +217,9 @@ class Docking {
 
     companion object {
         /** Faces within this, m, this many degrees and this slow, m/s, are ready to latch. */
+        /** The default for [DockingPort.latchRange]. */
         const val LATCH_DISTANCE = 0.06
+        /** The default for [DockingPort.latchAngle]. */
         const val LATCH_ANGLE = 2.5
         const val LATCH_SPEED = 0.25
 

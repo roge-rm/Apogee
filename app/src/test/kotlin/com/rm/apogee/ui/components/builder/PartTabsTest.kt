@@ -28,6 +28,15 @@ class PartTabsTest {
             "hull-punt", "hull-bow", "hull-mid", "hull-stern", "hull-skiff", "hull-cutter", "motor-outboard", "rudder", "keel", "keel-skeg",
         ),
         PartTab.UTILITY to setOf("chute-canopy", "rcs-nudge", "light-bar", "dock-port", "dock-port-small", "mooring-clamp"),
+        PartTab.BASE to setOf(
+            "base-foundation", "base-core", "base-habitat", "base-depot", "base-mono-depot", "base-battery", "base-solar",
+            "base-connector", "base-corridor", "base-pad", "base-floodlight", "base-flatbed", "base-release-clamp",
+        ),
+        PartTab.BUILDINGS to setOf(
+            "struct-launch-tower", "struct-lightning-mast", "struct-assembly", "struct-control-centre", "struct-propellant-farm",
+            "struct-floodlight", "struct-hangar", "struct-control-tower", "struct-windsock", "struct-runway-lamp",
+            "struct-paint-bar", "struct-paint-dash", "struct-jetty", "struct-boathouse", "struct-crane",
+        ),
     )
 
     @Test

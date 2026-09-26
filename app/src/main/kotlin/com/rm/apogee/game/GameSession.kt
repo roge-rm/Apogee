@@ -638,7 +638,7 @@ class GameSession private constructor(
             if (v.id == focusId) return@mapNotNull null
             val state = v.latest ?: return@mapNotNull null
             if (state.referenceBodyId != focus.referenceBodyId) return@mapNotNull null
-            TargetChoice(v.id, v.name.ifBlank { "Debris" }, state.position.distanceTo(focus.position))
+            TargetChoice(v.id, v.name.ifBlank { "Debris" } + if (v.anchored) " (base)" else "", state.position.distanceTo(focus.position))
         }.sortedBy { it.distance }.take(MAX_TARGET_CHOICES)
     }
 
@@ -758,7 +758,7 @@ class GameSession private constructor(
             // the replica frame to frame - the craft jumping about at 4x.
             val there = Vec3().setTo(seen.kinematics.position).addScaledInPlace(seen.kinematics.velocity, time - seen.time)
             if (there.distanceTo(state.position) > reach + designReach(other.design) + NEIGHBOUR_MARGIN) continue
-            out.add(ClientPrediction.Neighbour(other.id, other.design, seen.kinematics, seen.time, other.currentStage, other.activatedParts))
+            out.add(ClientPrediction.Neighbour(other.id, other.design, seen.kinematics, seen.time, other.currentStage, other.activatedParts, other.anchored))
             if (out.size >= MAX_NEIGHBOURS) break
         }
         return out
@@ -851,6 +851,14 @@ class GameSession private constructor(
                 lines.add(marker(orbit.propagate(orbit.timeToPeriapsis).position, reach, PERIAPSIS_COLOR))
             }
             lines.add(marker(focusState.position, reach, CRAFT_COLOR))
+            // Founded bases on this world - the player's own and the Cape's - where they stand.
+            for (other in client.vessels) {
+                if (!other.anchored || other.id == focusId) continue
+                if (other.owner != World.WORLD_OWNER && other.owner != client.clientId) continue
+                val seen = other.latest ?: continue
+                if (seen.referenceBodyId != focusState.referenceBodyId) continue
+                lines.add(marker(seen.position, reach, BASE_COLOR))
+            }
         } else {
             // Much smaller than it was - the rest of it smashed or torn
             // away: come in to see what is left.
@@ -1287,7 +1295,7 @@ class GameSession private constructor(
 
         if (snapshot != null && snapshot.tick != lastReconciledTick) {
             lastReconciledTick = snapshot.tick
-            prediction.reconcile(state, age, snapshot.time, neighboursOf(focus, state, snapshot.time))
+            prediction.reconcile(state, age, snapshot.time, neighboursOf(focus, state, snapshot.time), anchored = focus.anchored)
         }
         prediction.sync(focus.currentStage, focus.activatedParts, focus.fuel)
         refreshStageCards()
@@ -1605,6 +1613,7 @@ class GameSession private constructor(
                 grit = ground?.first ?: 0.4,
                 softness = ground?.second ?: 0.3,
                 settling = settling,
+                pumping = baseService?.refuelling == true,
             )
         }
         // Paused, the world is still - and so is everything in it.
@@ -1706,6 +1715,23 @@ class GameSession private constructor(
     suspend fun undock(part: Int) {
         withControlledVessel { client.send(Command.Undock(it, part)) }
     }
+
+    /** Founds the flown craft where it rests - or, [founded] false, lets it go. */
+    suspend fun found(founded: Boolean) {
+        withControlledVessel { client.send(Command.Anchor(it, founded)) }
+    }
+
+    /** Fills the flown craft from the base it is on or docked to - or stops. */
+    suspend fun refuel(on: Boolean) {
+        withControlledVessel { client.send(Command.Refuel(it, on)) }
+    }
+
+    /** What the flown craft can do with a base just now; null until the server has said. */
+    val baseService: ServerMessage.Service?
+        get() = client.service?.takeIf { it.vessel == client.controlledVessel }
+
+    /** The founded base nearest the flown craft - or the one being flown - for its card. */
+    val nearestBase: ServerMessage.BaseStatus? get() = client.nearestBase
 
     /** Shared with another player: who flies it - "me", "them" or "both". */
     val sharedWith: ServerMessage.DockedWith?
@@ -2071,6 +2097,23 @@ class GameSession private constructor(
     private val soundLock = Any()
     @Volatile private var soundStopped = false
 
+    private val scratchLamp = Vec3()
+
+    /**
+     * Which way a windsock at [at] hangs, world: out downwind - the wind the
+     * flown craft is in, near enough the same across an airfield - and
+     * lower the lighter it blows, limp in a calm.
+     */
+    private fun windsockHang(at: Vec3, bodyRotation: Quat): Vec3 {
+        val up = at.copy().normalizeInPlace()
+        val wind = prediction.replica?.air?.wind?.let { bodyRotation.rotate(it, Vec3()) } ?: Vec3()
+        wind.addScaledInPlace(up, -(wind dot up))
+        val speed = wind.length
+        val out = if (speed > 0.1) wind.mulInPlace(1.0 / speed) else Vec3(0.0, 1.0, 0.0).crossInPlace(up).normalizeInPlace()
+        val droop = Math.toRadians(80.0 - 75.0 * (speed / WINDSOCK_FULL_WIND).coerceIn(0.0, 1.0))
+        return out.mulInPlace(kotlin.math.cos(droop)).addScaledInPlace(up, -kotlin.math.sin(droop)).normalizeInPlace()
+    }
+
     private fun appendVessel(
         vessel: ClientVessel,
         out: MutableList<RenderItem>,
@@ -2152,6 +2195,10 @@ class GameSession private constructor(
         val chuteTrail = Vec3().setTo(state.velocity).subInPlace(attractor.surfaceVelocityAt(position, Vec3()))
         if (predicted) prediction.replica?.air?.let { air -> chuteTrail.subInPlace(bodyRotation.rotate(air.wind, Vec3())) }
         if (chuteTrail.length > 0.5) chuteTrail.normalizeInPlace().negateInPlace() else chuteTrail.setTo(position).normalizeInPlace()
+        // Lamps: lit after dusk where it stands, while it has the power -
+        // the Cape's own always have.
+        val lampsLit = (scratchLamp.setTo(position).normalizeInPlace() dot com.rm.apogee.core.world.LaunchTime.SUN_DIRECTION) < World.LAMP_DUSK &&
+            (vessel.owner == World.WORLD_OWNER || client.nearestBase?.takeIf { it.vessel == vessel.id }?.powered != false)
         for ((index, placed) in design.parts.withIndex()) {
             val def = defs[index] ?: continue
 
@@ -2298,19 +2345,34 @@ class GameSession private constructor(
                 effects?.burn(scratchBurn, 2.0 * def.jointRadius, animationDt, (vessel.id * 53 + index).toInt())
                 soundCraft(vessel.id, position, state.velocity, attractor).burning++
             }
+            // A lamp's lights, lit at night while it has power.
+            val lamp = lampsLit && def.hasModule<com.rm.apogee.core.part.Lamp>()
+            val sock = placed.partId == WINDSOCK_PART
             for ((piece, leaf) in leaves.withIndex()) {
-                val base = PartModels.colour(leaf.tint, body)
+                val lit = lamp && leaf.tint == com.rm.apogee.core.part.Tint.LIGHT
+                val base = if (lit) LAMP_COLOUR else PartModels.colour(leaf.tint, body)
                 val leafPosition = if (dent == null) leaf.position
                     else Vec3(leaf.position.x * dent.x, leaf.position.y * dent.y, leaf.position.z * dent.z)
+                var leafWorld = partRotation.rotate(leafPosition).addInPlace(scratch)
+                var leafRotation = partRotation * leaf.rotation
+                if (sock && piece == WINDSOCK_PIECE) {
+                    // Blown out downwind from the mast's top, hanging lower the lighter the wind.
+                    val pivot = partRotation.rotate(WINDSOCK_PIVOT.copy()).addInPlace(scratch)
+                    val axis = leafRotation.rotate(Vec3.unitY(), Vec3())
+                    val hang = windsockHang(position, bodyRotation)
+                    leafRotation = com.rm.apogee.core.math.quatFromTo(axis, hang) * leafRotation
+                    leafWorld = pivot.addScaledInPlace(hang, WINDSOCK_REACH)
+                }
                 out.add(
                     RenderItem(
                         caps = leaf.caps,
                         shape = leaf.shape,
-                        position = partRotation.rotate(leafPosition).addInPlace(scratch),
-                        rotation = partRotation * leaf.rotation,
-                        color = if (condition.any) ConditionLook.colour(base, health, heat) else base,
-                        scale = dent?.let { ConditionLook.inLeaf(it, leaf.rotation) },
-                        ambient = if (condition.any) ConditionLook.ambient(0.28f, heat) else 0.28f,
+                        position = leafWorld,
+                        rotation = leafRotation,
+                        color = if (condition.any && !lit) ConditionLook.colour(base, health, heat) else base,
+                        // Lit, a lamp's glare makes it look bigger than it is.
+                        scale = if (lit) LAMP_GLARE else dent?.let { ConditionLook.inLeaf(it, leaf.rotation) },
+                        ambient = if (lit) 1.2f else if (condition.any) ConditionLook.ambient(0.28f, heat) else 0.28f,
                         wrap = false,
                         key = RenderItem.partKey(vessel.id, partIdentity(placed), piece),
                     )
@@ -2455,6 +2517,8 @@ class GameSession private constructor(
         val hitched = client.latestSnapshot?.hitches.orEmpty()
         for (other in client.vessels) {
             if (other.id == focus.id) continue
+            // The Cape's own buildings are nobody's to weld to.
+            if (other.owner == World.WORLD_OWNER) continue
             // Brought to the same moment as ours, as for docking: a snapshot
             // apart at orbital speed a stage pressed against us read 43 m off
             // one frame and 10 m the next.
@@ -2510,6 +2574,19 @@ class GameSession private constructor(
 
 
     companion object {
+        /** A lamp's light, lit: warm white, and drawn this much larger for its glare. */
+        val LAMP_COLOUR = floatArrayOf(1.0f, 0.9f, 0.62f, 1.0f)
+        val LAMP_GLARE = Vec3(2.0, 2.0, 2.0)
+
+        /** The windsock: which part, which of its pieces is the sock, where it hangs from and how far out its middle is. */
+        const val WINDSOCK_PART = "struct-windsock"
+        const val WINDSOCK_PIECE = 1
+        val WINDSOCK_PIVOT = Vec3(0.0, 3.2, 0.1)
+        const val WINDSOCK_REACH = 1.5
+
+        /** Wind that blows a windsock straight out, m/s. */
+        const val WINDSOCK_FULL_WIND = 12.0
+
         /** Below this share of its health a part is on fire. */
         private const val BURNING_HEALTH = 0.35f
 
@@ -2644,6 +2721,8 @@ class GameSession private constructor(
         private val APOAPSIS_COLOR = floatArrayOf(0.49f, 1.0f, 0.70f, 1f)
         private val PERIAPSIS_COLOR = floatArrayOf(1.0f, 0.83f, 0.50f, 1f)
         private val CRAFT_COLOR = floatArrayOf(1.0f, 1.0f, 1.0f, 1f)
+        /** A founded base on the map. */
+        private val BASE_COLOR = floatArrayOf(0.55f, 0.85f, 1.0f, 1f)
 
         /** The port a host listens on unless it is taken. */
         const val DEFAULT_PORT = 45_678

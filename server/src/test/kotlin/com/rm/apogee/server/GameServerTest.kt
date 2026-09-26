@@ -339,7 +339,7 @@ class GameServerTest {
         val bob = joinClient(server, backgroundScope, "Bob")
 
         pumpUntil(server, "both clients to see both craft") {
-            alice.vessels.size == 2 && bob.vessels.size == 2
+            alice.vessels.count { it.owner != World.WORLD_OWNER } == 2 && bob.vessels.count { it.owner != World.WORLD_OWNER } == 2
         }
 
         assertEquals(2, server.playerCount)
@@ -359,7 +359,7 @@ class GameServerTest {
         val alice = joinClient(server, backgroundScope, "Alice")
         val bob = joinClient(server, backgroundScope, "Bob")
         pumpUntil(server, "both clients to see both craft") {
-            alice.vessels.size == 2 && bob.vessels.size == 2
+            alice.vessels.count { it.owner != World.WORLD_OWNER } == 2 && bob.vessels.count { it.owner != World.WORLD_OWNER } == 2
         }
 
         val aliceVessel = alice.controlledVessel!!
@@ -559,7 +559,7 @@ class GameServerTest {
             "and certainly not back on the launch pad",
             now > server.world.system.body("terra").radius + 100.0,
         )
-        assertEquals("with no second craft spawned", 1, server.world.vessels.size)
+        assertEquals("with no second craft spawned", 1, server.world.vessels.count { it.owner != World.WORLD_OWNER })
     }
 
     @Test
@@ -575,7 +575,7 @@ class GameServerTest {
             "two players must not be handed the same craft",
             alice.controlledVessel != bob.controlledVessel,
         )
-        assertEquals(2, server.world.vessels.size)
+        assertEquals(2, server.world.vessels.count { it.owner != World.WORLD_OWNER })
     }
 
     @Test

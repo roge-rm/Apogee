@@ -91,6 +91,24 @@ sealed interface Command {
     data class Join(val vessel: Long) : Command
 
     /**
+     * Pins this craft to the ground where it rests - a base founded - or,
+     * [anchored] false, lets it go again. Only a craft with a working
+     * foundation, at rest; the world checks.
+     */
+    @Serializable
+    @SerialName("anchor")
+    data class Anchor(val vessel: Long, val anchored: Boolean) : Command
+
+    /**
+     * Fill this craft from the base it stands on the pad of, or is docked to
+     * - propellant, monopropellant and charge, as far as the base has them
+     * and has the power to pump - or, [active] false, stop.
+     */
+    @Serializable
+    @SerialName("refuel")
+    data class Refuel(val vessel: Long, val active: Boolean) : Command
+
+    /**
      * Two players' craft docked: who flies the combined craft [vessel] -
      * [pilot] is a player's client id, or empty for either of them.
      */
@@ -219,6 +237,8 @@ data class StructureUpdate(
      * would show it as still available to deploy.
      */
     val brokenParts: List<Int> = emptyList(),
+    /** Founded: pinned to the ground, immovable. See [World.anchor]. */
+    val anchored: Boolean = false,
 )
 
 /** Server -> client. */
@@ -297,6 +317,44 @@ sealed interface ServerMessage {
     @Serializable
     @SerialName("fuel")
     data class FuelLevels(val vessel: Long, val amounts: List<Float>) : ServerMessage
+
+    /**
+     * What the pilot's craft can do with a base just now, sent with its
+     * tanks: be founded where it rests, or let go if it is; be filled from
+     * the base it stands on or is docked to - and whether it is, or why it
+     * last stopped.
+     */
+    @Serializable
+    @SerialName("service")
+    data class Service(
+        val vessel: Long,
+        val canFound: Boolean,
+        val founded: Boolean,
+        val canRefuel: Boolean,
+        val refuelling: Boolean,
+        val stopped: String = "",
+    ) : ServerMessage
+
+    /** A founded base near the pilot - or the one they are flying - as its card shows it. */
+    @Serializable
+    @SerialName("base")
+    data class BaseStatus(
+        val vessel: Long,
+        val name: String,
+        val powered: Boolean,
+        val charge: Float,
+        val chargeCapacity: Float,
+        /** Charge coming in less going out, a second. */
+        val net: Float,
+        val propellant: Float,
+        val propellantCapacity: Float,
+        val monopropellant: Float,
+        val monopropellantCapacity: Float,
+        /** Launch pads it has. */
+        val pads: Int,
+        /** How far off it is, m. */
+        val distance: Float,
+    ) : ServerMessage
 
     /**
      * Lightning struck [vessel], knocking out [partIndex] (or nothing, -1).
@@ -389,5 +447,6 @@ object Protocol {
     // 9: docking - Undock, SetDockPilot, DockedWith, Snapshot.hitches.
     // 10: PlacedPart.turn.
     // 11: the sea - flooding in VesselCondition, open hulls.
-    const val VERSION = 11
+    // 12: bases - Anchor, Refuel, StructureUpdate.anchored, Service, BaseStatus, launching from base pads.
+    const val VERSION = 12
 }

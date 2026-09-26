@@ -238,6 +238,8 @@ class ClientPrediction(
         val time: Double,
         val stage: Int,
         val activated: List<Int>,
+        /** Founded on the server: immovable here too. */
+        val anchored: Boolean = false,
     )
 
     /** The replica's copies of the craft near ours, by their ids on the server. */
@@ -261,7 +263,8 @@ class ClientPrediction(
         for (n in near) {
             val position = n.state.position.copy().addScaledInPlace(n.state.velocity, time - n.time)
             var copy = neighbours[n.id]
-            if (copy != null && neighbourDesigns[n.id] != n.design.hashCode()) {
+            val key = n.design.hashCode() * 31 + if (n.anchored) 1 else 0
+            if (copy != null && neighbourDesigns[n.id] != key) {
                 replica.destroy(copy.id, "rebuilt")
                 copy = null
             }
@@ -274,10 +277,12 @@ class ClientPrediction(
                 if (stand) continue
                 copy = replica.spawnAt(n.design, n.state.referenceBodyId, position, n.state.velocity.copy(), n.state.rotation.copy(), n.state.angularVelocity.copy())
                 neighbours[n.id] = copy
-                neighbourDesigns[n.id] = n.design.hashCode()
+                neighbourDesigns[n.id] = key
+                // A founded base does not give: it is where the server has it, for good.
+                if (n.anchored) replica.pin(copy)
                 // First seen already beside us: likely just parted from us.
                 vessel?.let { replica.graceBetween(it.id, copy.id, NEIGHBOUR_GRACE) }
-            } else {
+            } else if (!copy.anchored) {
                 copy.wake()
                 copy.body.position.setTo(position)
                 copy.body.linearVelocity.setTo(n.state.velocity)
@@ -313,9 +318,18 @@ class ClientPrediction(
         if (changed) local.recomputeMass()
     }
 
-    fun reconcile(state: VesselKinematics, ageSeconds: Double, snapshotTime: Double? = null, near: List<Neighbour> = emptyList()) {
+    fun reconcile(
+        state: VesselKinematics,
+        ageSeconds: Double,
+        snapshotTime: Double? = null,
+        near: List<Neighbour> = emptyList(),
+        /** Founded on the server: pinned here too, where the server has it. */
+        anchored: Boolean = false,
+    ) {
         val replica = world ?: return
         val local = vessel ?: return
+        // Let go for the moment, so the server's state can be written into it.
+        if (local.anchored) replica.unanchor(local)
 
         // Where it was being drawn, not where it last stepped to: the two
         // differ by the fraction of a step since, and counting that as error
@@ -348,7 +362,9 @@ class ClientPrediction(
         // craft settles onto its sprung legs for the three frames until the
         // next snapshot resets it - a few centimetres of bounce, which with
         // the camera following the craft is the ground jittering under it.
-        if (serverHasItAsleep(state) && inputsNeutral(local.control)) {
+        if (anchored) {
+            replica.pin(local)
+        } else if (serverHasItAsleep(state) && inputsNeutral(local.control)) {
             local.sleep(system.body(state.referenceBodyId).rotationAt(describes, scratchRotation))
         }
 

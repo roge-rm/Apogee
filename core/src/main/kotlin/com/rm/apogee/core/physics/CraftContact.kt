@@ -101,6 +101,7 @@ class CraftContact {
      */
     private val contactWorld = Vec3()
     private val localPoint = Vec3()
+    private val partLocal = Vec3()
     private val localNormal = Vec3()
     private val relativeVelocity = Vec3()
     private val velocityA = Vec3()
@@ -147,10 +148,11 @@ class CraftContact {
         touchedCount = 0
         for (i in vessels.indices) {
             val a = vessels[i]
-            if (a.body.inverseMass <= 0.0) continue
             for (j in i + 1 until vessels.size) {
                 val b = vessels[j]
-                if (b.body.inverseMass <= 0.0) continue
+                // Two immovable things - two founded bases - cannot push
+                // each other anywhere. One is a wall to the other.
+                if (a.body.inverseMass <= 0.0 && b.body.inverseMass <= 0.0) continue
                 // Positions are relative to each craft's own attractor, so
                 // comparing them across bodies would be nonsense.
                 if (a.referenceBodyId != b.referenceBodyId) continue
@@ -175,11 +177,18 @@ class CraftContact {
 
         for (partA in a.defs.indices) {
             val defA = a.defs[partA]
+            if (!defA.solid) continue
             a.partPositionWorld(partA, positionA)
             val radiusA = defA.boundsHalfExtents.length
+            // Nowhere near the other craft at all: none of its parts to try.
+            // A spaceport of hundreds of parts beside a rover is mostly this.
+            scratch.setTo(positionA).subInPlace(b.body.position)
+            val reachB = radiusA + b.contactRadius
+            if (scratch.lengthSq > reachB * reachB) continue
 
             for (partB in b.defs.indices) {
                 val defB = b.defs[partB]
+                if (!defB.solid) continue
                 b.partPositionWorld(partB, positionB)
                 val radiusB = defB.boundsHalfExtents.length
 
@@ -213,8 +222,21 @@ class CraftContact {
     private var penetration: Double = 0.0
 
     private fun penetrationOf(worldPoint: Vec3, vessel: Vessel, partIndex: Int): Boolean {
+        val def = vessel.defs[partIndex]
+        if (!def.solid) return false
         vessel.worldToPartLocal(partIndex, worldPoint, localPoint)
-        if (!insidePrimitive(vessel.defs[partIndex].mesh)) return false
+        if (def.hull.isEmpty()) {
+            if (!insidePrimitive(def.mesh)) return false
+        } else {
+            // Inside any one of its volumes, each tested in its own place.
+            partLocal.setTo(localPoint)
+            var inside = false
+            for (volume in def.hull) {
+                localPoint.setTo(partLocal).subInPlace(volume.offset)
+                if (insidePrimitive(volume.mesh)) { inside = true; break }
+            }
+            if (!inside) return false
+        }
 
         // Part local -> world, for the normal.
         vessel.design.parts[partIndex].rotation.rotate(localNormal, normal)

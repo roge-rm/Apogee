@@ -29,6 +29,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Apps
+import androidx.compose.material.icons.filled.Domain
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.Construction
 import androidx.compose.material.icons.filled.Flight
@@ -292,4 +294,6 @@ fun iconFor(tab: PartTab): ImageVector = when (tab) {
     PartTab.GROUND -> Icons.Filled.TireRepair
     PartTab.WATER -> Icons.Filled.Sailing
     PartTab.UTILITY -> Icons.Filled.Hub
+    PartTab.BASE -> Icons.Filled.Home
+    PartTab.BUILDINGS -> Icons.Filled.Domain
 }

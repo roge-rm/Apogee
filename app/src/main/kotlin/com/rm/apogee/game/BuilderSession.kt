@@ -117,6 +117,15 @@ class BuilderSession(
      */
     var launchSiteId: String? by mutableStateOf(null)
 
+    /**
+     * The pads on the player's own founded bases, as launch sites: offered
+     * beside the Cape's. A craft launched from one fills from that base.
+     */
+    var baseSites: List<com.rm.apogee.core.world.LaunchSite> by mutableStateOf(emptyList())
+
+    /** Every site that can be launched from: the Cape's, then the player's bases'. */
+    fun allSites(): List<com.rm.apogee.core.world.LaunchSite> = com.rm.apogee.core.world.World.launchSites + baseSites
+
     var stats: CraftStats by mutableStateOf(CraftStats.analyze(builder.design, catalog))
         private set
 

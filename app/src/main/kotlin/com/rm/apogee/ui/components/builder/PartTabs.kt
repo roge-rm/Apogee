@@ -29,6 +29,8 @@ enum class PartTab(val label: String) {
     GROUND("Wheels & legs"),
     WATER("Water"),
     UTILITY("Docking & utility"),
+    BASE("Base"),
+    BUILDINGS("Buildings"),
 }
 
 object PartTabs {
@@ -42,6 +44,10 @@ object PartTabs {
     fun of(def: PartDef): PartTab {
         OVERRIDES[def.id]?.let { return it }
         val docking = def.module<DockingPort>()
+        // By what they are before what they do: a base's core is a command
+        // part and its depot a tank, but they belong with the base.
+        if (def.category == PartCategory.BASE) return PartTab.BASE
+        if (def.category == PartCategory.STRUCTURE) return PartTab.BUILDINGS
         return when {
             def.hasModule<Command>() -> PartTab.PODS
             docking != null && (docking.kind == DockKind.HITCH_BALL || docking.kind == DockKind.HITCH_COUPLING) -> PartTab.GROUND
@@ -67,7 +73,7 @@ object PartTabs {
     private val ORDER = listOf(
         PartCategory.COMMAND, PartCategory.FUEL, PartCategory.PROPULSION,
         PartCategory.STRUCTURAL, PartCategory.AERO, PartCategory.UTILITY,
-        PartCategory.GROUND,
+        PartCategory.GROUND, PartCategory.BASE, PartCategory.STRUCTURE,
     )
 
     /** The odd ones the rules do not place. */

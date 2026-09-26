@@ -82,6 +82,8 @@ class SoundScene(private val budget: Int) {
         val softness: Double = 0.0,
         /** How much the hull is still settling to a change of outside pressure, 0..1 - see [HullSettling]. */
         val settling: Double = 0.0,
+        /** Being filled from a base: its pump hums through the hull. */
+        val pumping: Boolean = false,
     )
 
     /** Where the ears are. */
@@ -200,11 +202,13 @@ class SoundScene(private val budget: Int) {
             }
             // The cabin: its hum only out in vacuum, where nothing drowns it;
             // the hull's ticks wherever it is still settling to the pressure.
-            if (own.crewed && (!air || own.settling > 0.02)) {
+            // Being filled from a base, the pump's hum comes through the hull
+            // too - the cabin's own, already measured, rather than a new noise.
+            if (own.pumping || (own.crewed && (!air || own.settling > 0.02))) {
                 val v = FloatArray(SharedParams.COUNT)
                 v[0] = 0.6f
                 v[1] = own.settling.coerceIn(0.0, 1.0).toFloat()
-                v[2] = if (air) 0f else 1f
+                v[2] = if (air && !own.pumping) 0f else 1f
                 add(KEY_CABIN, Recipes.CABIN, if (air) 0 else VoiceFlags.HULL, v, 1f, 0f, 0f, weight = 0.2f)
             }
             if (own.stress > STRESS_AUDIBLE) {

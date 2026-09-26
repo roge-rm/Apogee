@@ -38,6 +38,10 @@ enum class PartCategory {
     @SerialName("aero") AERO,
     @SerialName("utility") UTILITY,
     @SerialName("ground") GROUND,
+    /** Modules for building bases: foundations, habitats, depots, pads. */
+    @SerialName("base") BASE,
+    /** Buildings and fittings: towers, hangars, jetties, lamps. */
+    @SerialName("structure") STRUCTURE,
 }
 
 /**
@@ -108,6 +112,16 @@ data class AttachNode(
 )
 
 /**
+ * One of the volumes a part is solid as, where it is more than one: a
+ * primitive, placed at [offset] in the part's own frame.
+ */
+@Serializable
+data class HullVolume(
+    val mesh: MeshSpec,
+    val offset: SerialVec3 = Vec3(0.0, 0.0, 0.0),
+)
+
+/**
  * The immutable definition of a kind of part.
  *
  * Loaded from JSON rather than written in Kotlin so the catalogue is data the
@@ -152,6 +166,18 @@ data class PartDef(
      * means "its mesh's volume": see [displacedVolume].
      */
     val displaces: Double = -1.0,
+    /**
+     * What it is solid as, if not simply its [mesh]: several volumes - a
+     * hangar's walls and roof, with the room inside open to taxi into. [mesh]
+     * is then only its outline, for its size and bounds. See [HullVolume].
+     */
+    val hull: List<HullVolume> = emptyList(),
+    /**
+     * False for things that are only seen - paint on a runway, a lamp on a
+     * mast, a windsock: drawn, but nothing meets them and they cost nothing
+     * in collision.
+     */
+    val solid: Boolean = true,
 ) {
     /** Convenience: the first module of a given type, or null. */
     inline fun <reified T : PartModule> module(): T? = modules.filterIsInstance<T>().firstOrNull()
@@ -187,6 +213,8 @@ data class PartDef(
                 PartCategory.AERO -> 1_200.0
                 PartCategory.UTILITY -> 1_300.0
                 PartCategory.GROUND -> 1_100.0
+                PartCategory.BASE -> 1_300.0
+                PartCategory.STRUCTURE -> 1_300.0
             }
         }
 
@@ -367,7 +395,16 @@ data class PartDef(
      * Computed once per definition; the catalogue is loaded once.
      */
     val contactPoints: List<Vec3> by lazy {
-        when (val m = mesh) {
+        if (!solid) return@lazy emptyList()
+        if (hull.isNotEmpty()) {
+            return@lazy hull.flatMap { volume -> pointsOf(volume.mesh).map { it.addInPlace(volume.offset) } }
+        }
+        pointsOf(mesh)
+    }
+
+    /** Points on the surface of [shape], in its own frame, for contact. */
+    private fun pointsOf(shape: MeshSpec): List<Vec3> =
+        when (val m = shape) {
             is MeshSpec.Cylinder -> rim(m.radius, -m.height * 0.5) + rim(m.radius, m.height * 0.5)
             is MeshSpec.Cone ->
                 rim(m.bottomRadius, -m.height * 0.5) + rim(m.topRadius, m.height * 0.5)
@@ -390,7 +427,6 @@ data class PartDef(
                 )
             }
         }
-    }
 
     /** Four points around a circle of [radius] at height [y]. */
     private fun rim(radius: Double, y: Double): List<Vec3> = listOf(

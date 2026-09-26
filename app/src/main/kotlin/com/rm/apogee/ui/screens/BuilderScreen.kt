@@ -39,6 +39,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -311,7 +312,7 @@ fun BuilderScreen(
 
             // Where it goes. Small and above the button rather than a step
             // before it: nearly every launch wants the default.
-            val chosen = World.launchSites.firstOrNull { it.id == session.launchSiteId }
+            val chosen = session.allSites().firstOrNull { it.id == session.launchSiteId }
             Surface(
                 shape = RoundedCornerShape(Dimens.CornerSmall),
                 color = Color.Black.alpha(ApogeeAlpha.SCRIM),
@@ -383,6 +384,7 @@ fun BuilderScreen(
         SiteDialog(
             selected = session.launchSiteId,
             automatic = session.automaticSite().displayName,
+            bases = session.baseSites,
             onPick = { session.launchSiteId = it; showSiteDialog = false },
             onDismiss = { showSiteDialog = false },
         )
@@ -826,6 +828,7 @@ private fun LoadDialog(session: BuilderSession, onDismiss: () -> Unit) {
 private fun SiteDialog(
     selected: String?,
     automatic: String,
+    bases: List<com.rm.apogee.core.world.LaunchSite>,
     onPick: (String?) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -833,10 +836,26 @@ private fun SiteDialog(
         onDismissRequest = onDismiss,
         title = { Text("Launch from") },
         text = {
-            Column {
+            // A player with many bases has many pads: scrolled, with a bar to say so.
+            val scroll = androidx.compose.foundation.rememberScrollState()
+            Column(
+                Modifier
+                    .heightIn(max = 420.dp)
+                    .verticalScrollbar(scroll)
+                    .verticalScroll(scroll),
+            ) {
                 val choices = listOf<Pair<String?, String>>(null to "Automatic") +
-                    World.launchSites.map { it.id to it.displayName }
+                    World.launchSites.map { it.id to it.displayName } +
+                    bases.map { it.id to it.displayName }
                 for ((id, name) in choices) {
+                    if (bases.isNotEmpty() && id == bases.first().id) {
+                        Text(
+                            "YOUR BASES",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = ApogeeColors.Accent,
+                            modifier = Modifier.padding(top = 12.dp, bottom = 2.dp),
+                        )
+                    }
                     Row(
                         Modifier
                             .fillMaxWidth()
@@ -852,7 +871,7 @@ private fun SiteDialog(
                             )
                             if (id == null) {
                                 Text(
-                                    "Boats to the harbour, everything else to the pad - now $automatic",
+                                    "Boats to the harbour, planes to the airfield, everything else to the pad - now $automatic",
                                     style = MaterialTheme.typography.labelSmall,
                                 )
                             }

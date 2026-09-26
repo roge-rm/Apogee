@@ -42,10 +42,9 @@ class LandingAPlaneTest {
         world.weatherConfig = weather?.let { com.rm.apogee.core.weather.WeatherConfig(intensity = it) }
         val terra = world.system.body("terra")!!
 
-        // Over the pad end of the runway, which runs east from the Cape.
-        val pad = com.rm.apogee.core.orbit.SolarSystem.surfaceDirection(
-            com.rm.apogee.core.orbit.SolarSystem.PAD_LATITUDE, com.rm.apogee.core.orbit.SolarSystem.PAD_LONGITUDE,
-        )
+        // Over the west end of the runway, which runs east from the airfield
+        // four hundred metres south of the pads.
+        val pad = com.rm.apogee.core.orbit.SolarSystem.capeDirection(260.0, -400.0)
         val up = pad.copy()
         val position = Vec3().setTo(up).mulInPlace(terra.surfaceRadiusInBodyFrame(up) + height)
         val surface = terra.surfaceVelocityAt(position, Vec3())
@@ -93,7 +92,7 @@ class LandingAPlaneTest {
         }
         val upNow = plane.body.position.copy().normalizeInPlace()
         // How far off the runway's centreline it came to rest: across the
-        // line running east from the pad.
+        // line running east from its west end.
         val restAt = world.attractorFor(plane).toBodyFixed(
             plane.body.position, world.attractorFor(plane).rotationAt(world.time),
         ).normalizeInPlace()

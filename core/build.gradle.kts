@@ -99,6 +99,18 @@ tasks.register<JavaExec>("terrainAtlas") {
     args = listOf(layout.buildDirectory.dir("terrain-atlas").get().asFile.absolutePath)
 }
 
+/**
+ * Draws the Cape from above, with what stands where: `./gradlew :core:capeMap`.
+ * PNGs in build/cape-map.
+ */
+tasks.register<JavaExec>("capeMap") {
+    group = "verification"
+    description = "Writes maps of the Cape's spaceport, airfield and harbour to build/cape-map."
+    classpath = sourceSets["test"].runtimeClasspath
+    mainClass.set("com.rm.apogee.core.scenario.CapeMapKt")
+    args = listOf(layout.buildDirectory.dir("cape-map").get().asFile.absolutePath)
+}
+
 tasks.register<JavaExec>("restSurvey") {
     group = "verification"
     description = "Prints how still each reference craft settles."

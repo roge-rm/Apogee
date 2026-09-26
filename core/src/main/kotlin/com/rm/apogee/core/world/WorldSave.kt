@@ -73,6 +73,8 @@ class VesselSave(
     val flooded: List<Double> = emptyList(),
     val crumple: List<Float> = emptyList(),
     val temperature: List<Double> = emptyList(),
+    /** Founded: pinned to the ground where it stands. See [World.anchor]. */
+    val anchored: Boolean = false,
 )
 
 /**

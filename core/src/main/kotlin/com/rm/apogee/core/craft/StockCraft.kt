@@ -587,6 +587,85 @@ object StockCraft {
         return a.design()
     }
 
+    // --- bases ------------------------------------------------------------------
+
+    /**
+     * The start of a base: a core on a foundation, with connectors on two
+     * sides to build out from and a solar array on top. Set down, founded,
+     * and modules brought up to its connectors join it.
+     */
+    fun baseCore(catalog: PartCatalog = StockParts.catalog): CraftDesign {
+        val a = Assembly(catalog, "Base Core", CraftOrientation.VERTICAL)
+        val foundation = a.root("base-foundation")
+        val core = a.on(foundation, "top", "base-core")
+        a.on(core, "surface-0", "base-connector")
+        a.on(core, "surface-2", "base-connector")
+        a.on(core, "top", "base-solar")
+        return a.design()
+    }
+
+    /** A habitat on its own foundation, with a connector on one side to join a base by. */
+    fun habitatModule(catalog: PartCatalog = StockParts.catalog): CraftDesign {
+        val a = Assembly(catalog, "Habitat Module", CraftOrientation.VERTICAL)
+        val foundation = a.root("base-foundation")
+        val habitat = a.on(foundation, "top", "base-habitat")
+        a.on(habitat, "surface-1", "base-connector")
+        return a.design()
+    }
+
+    /**
+     * A flatbed truck carrying [load]: a cab, eight big wheels, and a release
+     * clamp holding the load on its own foundation. Driven up beside where
+     * it is to go and staged, the clamp lets go and the load drops onto its
+     * feet - next to a base's connector, to be drawn in and joined.
+     */
+    private fun flatbed(catalog: PartCatalog, name: String, load: (Assembly, Int) -> Unit): CraftDesign {
+        val a = Assembly(catalog, name, CraftOrientation.HORIZONTAL)
+        val bed = a.root("base-flatbed")
+        a.on(bed, "cab", "cab-rover")
+        for (k in 1..8) a.on(bed, "wheel-$k", "wheel-large")
+        val clamp = a.on(bed, "deck", "base-release-clamp")
+        val foundation = a.on(clamp, "top", "base-foundation")
+        load(a, foundation)
+        return a.design()
+    }
+
+    /** A habitat module on a flatbed, with a connector on its right-hand side to join a base by. */
+    fun moduleHauler(catalog: PartCatalog = StockParts.catalog): CraftDesign =
+        flatbed(catalog, "Module Hauler") { a, foundation ->
+            val habitat = a.on(foundation, "top", "base-habitat")
+            a.on(habitat, "surface-0", "base-connector")
+        }
+
+    /** A base's core on a flatbed: drive it out, set it down, found it where it lands. */
+    fun baseCoreHauler(catalog: PartCatalog = StockParts.catalog): CraftDesign =
+        flatbed(catalog, "Base Core Hauler") { a, foundation ->
+            val core = a.on(foundation, "top", "base-core")
+            a.on(core, "surface-0", "base-connector")
+            a.on(core, "surface-1", "base-connector")
+        }
+
+    /**
+     * A pad on its own: a deck to launch from and land on, with a depot and
+     * a power module standing at two corners and a solar array on the power
+     * module. Founded where it is set down, it is a base of its own.
+     */
+    fun padBase(catalog: PartCatalog = StockParts.catalog): CraftDesign {
+        val a = Assembly(catalog, "Pad Base", CraftOrientation.VERTICAL)
+        val pad = a.root("base-pad")
+        a.on(pad, "corner-1", "base-depot")
+        val power = a.on(pad, "corner-2", "base-battery")
+        a.on(power, "top", "base-solar")
+        return a.design()
+    }
+
+    /** A propellant depot on a flatbed, to be joined to a base as its store. */
+    fun depotHauler(catalog: PartCatalog = StockParts.catalog): CraftDesign =
+        flatbed(catalog, "Depot Hauler") { a, foundation ->
+            val depot = a.on(foundation, "top", "base-depot")
+            a.on(depot, "surface-0", "base-connector")
+        }
+
     /** The smallest thing that counts as a craft. Used by physics tests. */
     fun probe(catalog: PartCatalog = StockParts.catalog): CraftDesign =
         CraftDesign(

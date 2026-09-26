@@ -114,6 +114,13 @@ data class Command(
 data class Decoupler(
     /** Impulse applied to push the halves apart, N·s. */
     val ejectionImpulse: Double = 2_500.0,
+    /**
+     * Stays on the craft it is mounted to, letting go only of what it holds:
+     * a release clamp on a flatbed, setting its load down on the ground
+     * beside the truck - its right-hand side - level and just clear. What it
+     * lets go of is cargo, not a spent stage: it stays the owner's.
+     */
+    val stays: Boolean = false,
 ) : PartModule
 
 /** A wing, fin or control surface. */
@@ -396,6 +403,55 @@ data class Wheel(
     val damping: Double = 6_000.0,
 ) : PartModule
 
+/**
+ * Feet that pin a base to the ground. A craft with one working, resting on
+ * the ground, can be anchored: levelled on its feet - each reaching down as
+ * far as [travel] to meet ground that is not flat, up to [maxSlope] - and
+ * from then immovable. See `World.anchor`.
+ */
+@Serializable
+@SerialName("foundation")
+data class Foundation(
+    /** How far its feet reach down to level it, m. */
+    val travel: Double = 1.0,
+    /** The steepest ground it will level on, degrees. */
+    val maxSlope: Double = 10.0,
+) : PartModule
+
+/**
+ * Makes the part a place to launch from: a craft can be set down on it, and
+ * takes its propellant from the base's stores. See `World.spawnOnPad`.
+ */
+@Serializable
+@SerialName("launchPad")
+data class LaunchPad(
+    /** Charge a launch takes from the base, units. */
+    val launchCharge: Double = 50.0,
+) : PartModule
+
+/**
+ * Moves propellant and charge between a base and a craft docked to it or
+ * standing on its pad, while the base has power.
+ */
+@Serializable
+@SerialName("pump")
+data class Pump(
+    /** Units a second, of whatever it moves. */
+    val rate: Double = 20.0,
+    /** Charge it draws while pumping, units a second. */
+    val draw: Double = 2.0,
+) : PartModule
+
+/** A light: lit at night while there is power for it. */
+@Serializable
+@SerialName("lamp")
+data class Lamp(
+    /** Charge it draws while lit, units a second. */
+    val draw: Double = 0.2,
+    /** How far its pool of light reaches on the ground, m; 0 for a lamp seen but lighting nothing. */
+    val reach: Double = 0.0,
+) : PartModule
+
 /** Generates electric charge from sunlight. */
 @Serializable
 @SerialName("solarPanel")
@@ -472,6 +528,15 @@ data class DockingPort(
     val turn: Double = 1_500.0,
     /** Seconds face to face before it latches. */
     val latchSeconds: Double = 0.5,
+    /**
+     * How close the faces must be to latch, m; the latch squares up the
+     * rest. More for a base's connectors: a module standing on its feet is
+     * held by the ground's friction, which the magnets outpull at arm's
+     * length but not a hand's breadth away.
+     */
+    val latchRange: Double = 0.06,
+    /** How far off square the faces may be to latch, degrees; the latch squares up the rest. */
+    val latchAngle: Double = 2.5,
     /** Push given to each side on undocking, N·s. */
     val undockImpulse: Double = 400.0,
 ) : PartModule {

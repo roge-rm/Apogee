@@ -109,6 +109,8 @@ fun FlightScreen(
     onStickMode: (Boolean) -> Unit = {},
     /** Let go at a docking part. */
     onUndock: (Int) -> Unit = {},
+    onFound: (Boolean) -> Unit = {},
+    onRefuel: (Boolean) -> Unit = {},
     /** Shared with another player: who flies - "me", "them" or "both". */
     onDockPilot: (String) -> Unit = {},
     onToggleMap: () -> Unit,
@@ -274,6 +276,10 @@ fun FlightScreen(
             )
             com.rm.apogee.ui.components.DockingPanel(
                 hud.dock, hud.joints, onUndock,
+                modifier = Modifier.padding(top = 6.dp).alpha(controlOpacity),
+            )
+            com.rm.apogee.ui.components.BasePanel(
+                hud.nearBase, hud.baseService, onFound, onRefuel,
                 modifier = Modifier.padding(top = 6.dp).alpha(controlOpacity),
             )
             hud.sharedWith?.let { other ->

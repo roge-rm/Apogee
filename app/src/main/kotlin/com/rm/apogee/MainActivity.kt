@@ -209,6 +209,8 @@ class MainActivity : ComponentActivity() {
                         onToggleRcs = ::onToggleRcs,
                         onToggleReverse = ::onToggleReverse,
                         onUndock = { part -> session?.let { s -> lifecycleScope.launch { s.undock(part) } } },
+                        onFound = { founded -> session?.let { s -> lifecycleScope.launch { s.found(founded) } } },
+                        onRefuel = { on -> session?.let { s -> lifecycleScope.launch { s.refuel(on) } } },
                         onDockPilot = { who ->
                             session?.let { s ->
                                 val shared = s.sharedWith ?: return@let
@@ -540,6 +542,8 @@ class MainActivity : ComponentActivity() {
 
         if (screen == AppScreen.BUILDER) {
             val builder = BuilderSession(frameBus, StockParts.catalog, craftStore)
+            // Somewhere of the player's own to launch from, as well as the Cape.
+            builder.baseSites = runCatching { openSoloWorld().baseSites(settings.clientId) }.getOrDefault(emptyList())
             partThumbnails.request(StockParts.catalog)
             view.takeIf { it.width > 0 }?.let { builder.setViewSize(it.width.toFloat(), it.height.toFloat()) }
             builder.start(lifecycleScope)
@@ -754,8 +758,9 @@ class MainActivity : ComponentActivity() {
         // the player's, whatever an older save recorded as its owner. Not
         // debris: spent stages have no one aboard.
         resumeCraft = world.vessels.filter { vessel ->
-            vessel.owner == me || vessel.defs.any { it.hasModule<com.rm.apogee.core.part.Command>() }
-        }.sortedBy { it.name }.map { vessel ->
+            vessel.owner != com.rm.apogee.core.world.World.WORLD_OWNER &&
+                (vessel.owner == me || vessel.defs.any { it.hasModule<com.rm.apogee.core.part.Command>() })
+        }.sortedWith(compareBy({ !it.anchored }, { it.name })).map { vessel ->
             val body = world.attractorFor(vessel)
             val bodyFixed = body.toBodyFixed(vessel.body.position, body.rotationAt(world.time))
             // From its lowest reach, not its centre: a rocket on the pad has
@@ -768,6 +773,13 @@ class MainActivity : ComponentActivity() {
             )
             val floor = body.radius + body.atmosphereHeight + (body.terrain?.maxElevation ?: 0.0)
             val situation = when {
+                // A base: where, and how it is keeping - its power and stores.
+                vessel.anchored -> {
+                    world.settlePower(vessel)
+                    val pads = vessel.defs.count { it.hasModule<com.rm.apogee.core.part.LaunchPad>() }
+                    "Base on ${body.displayName}" + (if (!vessel.powered) " · dark" else "") +
+                        (if (pads > 0) " · $pads pad${if (pads > 1) "s" else ""}" else "")
+                }
                 above < 2.0 && body.terrain?.isOcean(bodyFixed) == true -> "Afloat on ${body.displayName}"
                 above < 2.0 -> "Landed on ${body.displayName}"
                 orbit.isBound && orbit.periapsis > floor -> "In orbit of ${body.displayName}"
@@ -878,6 +890,9 @@ class MainActivity : ComponentActivity() {
                     hudState.surfaceReady = current.surfaceReady
                     hudState.connectionError = current.rejectionReason
                     hudState.canJoin = current.joinable
+                    // Only when changed: new messages arrive each second, not each frame.
+                    current.baseService.let { if (it != hudState.baseService) hudState.baseService = it }
+                    current.nearestBase.let { if (it != hudState.nearBase) hudState.nearBase = it }
                     hudState.chute = current.chuteState
                     hudState.dock = current.dockReadout
                     hudState.joints = current.joints
