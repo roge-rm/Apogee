@@ -2452,29 +2452,20 @@ class GameSession private constructor(
     /** The craft the camera last framed, and how many parts it had. */
     private var framedFor = -1L
     private var framedParts = 0
-    private val scratchFocusClear = Vec3()
 
     /**
      * A camera swung round a craft on a hillside can end up inside the hill, looking at the back of
-     * the ground. It gets lifted clear, and turned back to look at the craft. At sea it's kept
-     * clear of the waves as they are, unless the craft itself has gone under, when the camera
-     * follows it down.
+     * the ground. It gets lifted clear, and turned back to look at the craft. The ground is all
+     * that stops it. Water doesn't, so you can swing down under a boat to see its keel, or follow a
+     * submarine anywhere above the sea floor. It used to be kept above the waves unless the craft
+     * had gone well under, and that took away half the angles at sea. I didn't want that.
      */
     private fun keepCameraAboveGround(attractor: com.rm.apogee.core.orbit.CelestialBody, focus: Vec3, time: Double) {
         val terrain = attractor.terrain ?: return
         val rotation = attractor.rotationAt(time)
         attractor.toBodyFixed(cameraPosition, rotation, scratchCameraClear)
-        var above = cameraPosition.length - terrain.solidRadius(scratchCameraClear)
-        val sea = seaScene
-        if (sea != null && terrain.isOcean(scratchCameraClear)) {
-            attractor.toBodyFixed(focus, rotation, scratchFocusClear)
-            val focusSea = sea.sampleAt(scratchFocusClear, time)
-            val sunk = sea.isUnder(scratchFocusClear, focusSea) &&
-                attractor.radius + focusSea.height - scratchFocusClear.length > CAMERA_CLEARANCE
-            if (!sunk) above = minOf(above, cameraPosition.length - attractor.radius - sea.sampleAt(scratchCameraClear, time).height)
-        } else {
-            above = attractor.heightAboveTerrain(cameraPosition, scratchCameraClear)
-        }
+        // The solid ground, sea floor and all, not the sea's surface over it.
+        val above = cameraPosition.length - terrain.solidRadius(scratchCameraClear.normalizeInPlace())
         if (above >= CAMERA_CLEARANCE) return
         val r = cameraPosition.length
         cameraPosition.mulInPlace((r + CAMERA_CLEARANCE - above) / r)
