@@ -29,6 +29,8 @@ class FlightLog(
     var flown: Double = 0.0,
     var driven: Double = 0.0,
     var sailed: Double = 0.0,
+    /** How far it has sailed on the wind alone since an engine last ran, in metres. */
+    var underSail: Double = 0.0,
     /**
      * Whether it was standing on a runway at the last look, and whether this flight started from
      * one.
@@ -86,6 +88,7 @@ class FlightLog(
         flown = 0.0
         driven = 0.0
         sailed = 0.0
+        underSail = 0.0
         fromRunway = onRunway
         airApoapsis = -1.0
         airThrust = false

@@ -1450,7 +1450,9 @@
         "liftCoefficient": 1.4,
         "area": 19.2,
         "controllable": true,
-        "controlAuthority": 1.0
+        "controlAuthority": 1.0,
+        "flapLift": 0.4,
+        "flapDrag": 0.06
       }
     ]
   },
@@ -3249,7 +3251,18 @@
             "y": -0.6000000000000001,
             "z": 0.0
           },
-          "tint": "light"
+          "tint": "light",
+          "role": "flap",
+          "axis": {
+            "x": 1.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "pivot": {
+            "x": 0.0,
+            "y": -0.4,
+            "z": 0.0
+          }
         }
       ]
     },
@@ -3277,7 +3290,9 @@
         "area": 5.8,
         "controllable": true,
         "controlAuthority": 0.3,
-        "maxDeflection": 18.0
+        "maxDeflection": 18.0,
+        "flapLift": 0.5,
+        "flapDrag": 0.08
       }
     ]
   },
@@ -3353,7 +3368,18 @@
             "y": -1.2000000000000002,
             "z": 0.0
           },
-          "tint": "light"
+          "tint": "light",
+          "role": "flap",
+          "axis": {
+            "x": 1.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "pivot": {
+            "x": 0.0,
+            "y": -0.8,
+            "z": 0.0
+          }
         }
       ]
     },
@@ -3381,7 +3407,9 @@
         "area": 15.4,
         "controllable": true,
         "controlAuthority": 0.3,
-        "maxDeflection": 18.0
+        "maxDeflection": 18.0,
+        "flapLift": 0.45,
+        "flapDrag": 0.08
       }
     ]
   },
@@ -8153,6 +8181,36 @@
         },
         "size": 0,
         "kind": "surface"
+      },
+      {
+        "id": "mast",
+        "position": {
+          "x": 0.0,
+          "y": 0.45,
+          "z": 0.42
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "stern",
+        "position": {
+          "x": 0.0,
+          "y": -2.05,
+          "z": -0.28
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -1.0
+        },
+        "size": 0,
+        "kind": "surface"
       }
     ],
     "modules": [
@@ -9728,6 +9786,141 @@
     ]
   },
   {
+    "id": "winch-drum",
+    "title": "Winch",
+    "category": "ground",
+    "dryMass": 90.0,
+    "description": "A drum of line with a hook on the end, for the front or back of a rover. Hook it onto another craft, or onto the ground, a tree or a rock, and wind in. It's how you get yourself out of a ditch, or drag someone else out of one.",
+    "crashTolerance": 20.0,
+    "dragCoefficient": 0.3,
+    "mesh": {
+      "type": "box",
+      "width": 0.6,
+      "height": 0.4,
+      "depth": 0.36
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.6,
+              "height": 0.14,
+              "depth": 0.34
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": -0.13,
+            "z": 0.0
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.13,
+              "height": 0.46
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.03,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 90.0
+          },
+          "tint": "accent"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.06,
+              "height": 0.3,
+              "depth": 0.34
+            }
+          },
+          "offset": {
+            "x": 0.27,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.06,
+              "height": 0.3,
+              "depth": 0.34
+            }
+          },
+          "offset": {
+            "x": -0.27,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.12,
+              "height": 0.06,
+              "depth": 0.1
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.19,
+            "z": 0.0
+          },
+          "tint": "metal"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "mount",
+        "position": {
+          "x": 0.0,
+          "y": -0.2,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 1
+      }
+    ],
+    "modules": [
+      {
+        "type": "winch",
+        "reach": 30.0,
+        "pull": 25000.0,
+        "reelSpeed": 0.8,
+        "draw": 0.5,
+        "faceOffset": 0.2
+      }
+    ]
+  },
+  {
     "id": "mooring-clamp",
     "title": "Mooring Clamp",
     "category": "utility",
@@ -9826,6 +10019,244 @@
         "pull": 6000.0,
         "turn": 4000.0,
         "undockImpulse": 500.0
+      }
+    ]
+  },
+  {
+    "id": "sail-sloop",
+    "title": "Sloop Rig",
+    "category": "propulsion",
+    "dryMass": 70.0,
+    "description": "A mast with a mainsail, for a skiff or a punt. It trims itself to the wind, and the throttle sets how much sail is out, from furled to full. It can't sail closer than about forty degrees to the wind, so beat up to it in zigzags.",
+    "crashTolerance": 8.0,
+    "dragCoefficient": 0.3,
+    "mesh": {
+      "type": "box",
+      "width": 0.14,
+      "height": 5.0,
+      "depth": 0.14
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.06,
+              "height": 5.0
+            }
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.045,
+              "height": 2.3
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": -1.5,
+            "z": -1.15
+          },
+          "rotation": {
+            "x": 90.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "metal",
+          "role": "sail",
+          "axis": {
+            "x": 0.0,
+            "y": 1.0,
+            "z": 0.0
+          },
+          "pivot": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        },
+        {
+          "model": {
+            "type": "fin",
+            "rootChord": 2.2,
+            "tipChord": 0.08,
+            "span": 3.7,
+            "sweep": 0.0,
+            "thickness": 0.03
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.40000000000000013,
+            "z": -1.1
+          },
+          "rotation": {
+            "x": 90.0,
+            "y": 0.0,
+            "z": 90.0
+          },
+          "tint": "light",
+          "role": "sail",
+          "axis": {
+            "x": 0.0,
+            "y": 1.0,
+            "z": 0.0
+          },
+          "pivot": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "base",
+        "position": {
+          "x": 0.0,
+          "y": -2.5,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "sail",
+        "area": 10.0,
+        "effortHeight": -0.6
+      }
+    ]
+  },
+  {
+    "id": "sail-cutter",
+    "title": "Cutter Rig",
+    "category": "propulsion",
+    "dryMass": 320.0,
+    "description": "A tall mast and a big mainsail for a cutter's hull. It trims itself to the wind, and the throttle reefs it, from furled to full. In a blow, take some sail in or she'll lie right over.",
+    "crashTolerance": 8.0,
+    "dragCoefficient": 0.3,
+    "mesh": {
+      "type": "box",
+      "width": 0.14,
+      "height": 9.0,
+      "depth": 0.14
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.10800000000000001,
+              "height": 9.0
+            }
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.08099999999999999,
+              "height": 4.2
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": -3.5,
+            "z": -2.1
+          },
+          "rotation": {
+            "x": 90.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "metal",
+          "role": "sail",
+          "axis": {
+            "x": 0.0,
+            "y": 1.0,
+            "z": 0.0
+          },
+          "pivot": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        },
+        {
+          "model": {
+            "type": "fin",
+            "rootChord": 4.0,
+            "tipChord": 0.08,
+            "span": 6.8,
+            "sweep": 0.0,
+            "thickness": 0.03
+          },
+          "offset": {
+            "x": 0.0,
+            "y": -0.050000000000000266,
+            "z": -2.0
+          },
+          "rotation": {
+            "x": 90.0,
+            "y": 0.0,
+            "z": 90.0
+          },
+          "tint": "light",
+          "role": "sail",
+          "axis": {
+            "x": 0.0,
+            "y": 1.0,
+            "z": 0.0
+          },
+          "pivot": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "base",
+        "position": {
+          "x": 0.0,
+          "y": -4.5,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "sail",
+        "area": 30.0,
+        "effortHeight": -1.2
       }
     ]
   },

@@ -582,6 +582,12 @@ class GameServer(
         is Command.SetTarget -> flies(session, command.vessel)
         is Command.SetBrakes -> flies(session, command.vessel)
         is Command.SetReverse -> flies(session, command.vessel)
+        is Command.SetFlaps -> flies(session, command.vessel)
+        is Command.ToggleGroup -> flies(session, command.vessel)
+        is Command.SetCruise -> flies(session, command.vessel)
+        is Command.Hook -> flies(session, command.vessel)
+        is Command.Reel -> flies(session, command.vessel)
+        is Command.ReleaseLine -> flies(session, command.vessel)
         is Command.Deploy -> flies(session, command.vessel)
         // Only for your own crew, from the craft you're in.
         is Command.Eva -> session.controlledVessel?.raw == command.vessel && world.crew[command.crew]?.owner == session.clientId
@@ -742,6 +748,14 @@ class GameServer(
                         event.a.raw, "", event.bodyId, event.position.copy(), time = world.time,
                     ),
                 )
+                is WorldEvent.Winched -> world.vessel(event.a)?.let { vessel ->
+                    partEvent(
+                        ServerMessage.PartEvent(
+                            when { event.snapped -> PartEventKind.SNAPPED; event.hooked -> PartEventKind.HOOKED; else -> PartEventKind.UNHOOKED },
+                            event.a.raw, "", vessel.referenceBodyId, vessel.body.position.copy(), time = world.time,
+                        ),
+                    )
+                }
                 is WorldEvent.Explosion -> partEvent(
                     ServerMessage.PartEvent(PartEventKind.EXPLOSION, -1L, "", event.bodyId, event.position.copy(), event.energy, time = world.time),
                 )

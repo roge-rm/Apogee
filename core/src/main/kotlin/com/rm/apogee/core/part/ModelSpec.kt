@@ -218,4 +218,8 @@ enum class PieceRole {
     @SerialName("gimbal") GIMBAL,
     /** Gone once the part is staged, like a fairing's shell once it opens. */
     @SerialName("jettison") JETTISON,
+    /** Swings down around [ModelSpec.Piece.pivot] as the wing's flaps run out. */
+    @SerialName("flap") FLAP,
+    /** A sail: swings around the mast ([ModelSpec.Piece.axis] through the pivot) to its angle. */
+    @SerialName("sail") SAIL,
 }

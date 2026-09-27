@@ -139,6 +139,14 @@ class ClientPrediction(
             local.wake()
         }
         local.control.refining = systems.refining
+        // Holding its height and heading, and its action groups, as the server has them, so the
+        // replica flies the same attitude and runs the same parts.
+        local.control.cruise = systems.cruiseHeight >= 0f
+        if (local.control.cruise) {
+            local.control.cruiseHeight = systems.cruiseHeight.toDouble()
+            local.control.cruiseHeading = systems.cruiseHeading.toDouble()
+        }
+        for (k in local.groupStates.indices) local.groupStates[k] = systems.groups.getOrElse(k) { 0 }
     }
 
     private val serverPose = com.rm.apogee.core.world.VesselPose.Values()
@@ -174,6 +182,13 @@ class ClientPrediction(
      */
     val replica: Vessel? get() = vessel
 
+    /** The sea's current where the replica is, in the world's frame, or null with no replica. */
+    fun currentAt(out: Vec3 = Vec3()): Vec3? {
+        val w = world ?: return null
+        val v = vessel ?: return null
+        return w.currentAt(v, out = out)
+    }
+
     /** True when [design] isn't what the replica was built from. */
     fun needsAdopting(design: CraftDesign): Boolean =
         vessel == null || design.hashCode() != designHash
@@ -191,6 +206,7 @@ class ClientPrediction(
         translateX: Double = 0.0,
         translateY: Double = 0.0,
         translateZ: Double = 0.0,
+        flaps: Boolean = false,
     ) {
         val control = vessel?.control ?: return
         // Out of touch, so the server's craft carries on as it was left, and so does this one.
@@ -204,6 +220,7 @@ class ClientPrediction(
         control.brakes = brakes
         control.rcsEnabled = rcs
         control.reverse = reverse
+        control.flaps = flaps
         control.translateX = translateX
         control.translateY = translateY
         control.translateZ = translateZ
@@ -559,6 +576,9 @@ class ClientPrediction(
         local.gimbalYaw.copyInto(into.gimbalYaw)
         local.engineOutput.copyInto(into.output)
         local.rcsFiring.copyInto(into.rcs)
+        local.flapPosition.copyInto(into.flap)
+        local.sailAngle.copyInto(into.sailAngle)
+        local.sailFill.copyInto(into.sailFill)
         return true
     }
 

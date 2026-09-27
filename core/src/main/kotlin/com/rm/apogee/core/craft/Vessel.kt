@@ -74,6 +74,16 @@ class ControlState {
     /** Landing by itself: braking, and settling gently onto its legs. See `World.autoLand`. */
     var autoLand: Boolean = false
 
+    /**
+     * Holding an aircraft's height and heading: [cruiseHeight] above the datum in metres, and
+     * [cruiseHeading] in degrees north of east. See `World`'s cruise.
+     */
+    var cruise: Boolean = false
+    var cruiseHeight: Double = 0.0
+    var cruiseHeading: Double = 0.0
+    /** The nose over the flight path it has found it needs to fly level, in degrees. */
+    var cruiseTrim: Double = 2.0
+
     /** Why the autopilot last gave up, or blank if there's no reason to show. */
     var autopilotNote: String = ""
 
@@ -86,6 +96,9 @@ class ControlState {
 
     /** Wheels driven backwards, so the throttle runs them in reverse. */
     var reverse: Boolean = false
+
+    /** Flaps down, on every wing that has them. */
+    var flaps: Boolean = false
 
     /** Fold-out sun wings and dishes, out or folded away. */
     var deployed: Boolean = false
@@ -208,6 +221,17 @@ class Vessel(
      * the throttle is open, and it's what the flame and the sound follow.
      */
     var engineOutput = DoubleArray(design.parts.size)
+
+    /** How far each wing's flaps are down, 0..1. They take a couple of seconds to run out. */
+    var flapPosition = DoubleArray(design.parts.size)
+
+    /**
+     * Each sail's angle, in radians around its mast (the part's +Y) from the part's own -Z, and how full
+     * it is, 0..1: furled or flapping is 0, and drawing hard is 1. The forces set these, and
+     * everyone draws them.
+     */
+    var sailAngle = DoubleArray(design.parts.size)
+    var sailFill = DoubleArray(design.parts.size)
         private set
 
     /**
@@ -229,6 +253,9 @@ class Vessel(
         gimbalYaw = DoubleArray(deploy.size)
         engineOutput = DoubleArray(deploy.size)
         rcsFiring = DoubleArray(deploy.size * 3)
+        flapPosition = DoubleArray(deploy.size)
+        sailAngle = DoubleArray(deploy.size)
+        sailFill = DoubleArray(deploy.size)
         legDeploy = deploy
     }
 
@@ -252,6 +279,9 @@ class Vessel(
         gimbalYaw = DoubleArray(n)
         engineOutput = DoubleArray(n)
         rcsFiring = DoubleArray(n * 3)
+        flapPosition = DoubleArray(n)
+        sailAngle = DoubleArray(n)
+        sailFill = DoubleArray(n)
         // Staged legs start down. A staged chute starts packed, and opens by itself when it's safe
         // to.
         legDeploy = DoubleArray(n) {
@@ -698,6 +728,9 @@ class Vessel(
      */
     var industryDraw: Double = 0.0
 
+    /** Charge a second its winch used this tick, winding in. */
+    var winchDraw: Double = 0.0
+
     /** Its drills or converters have moved mass since its mass was last worked out. */
     var industryMoved: Boolean = false
 
@@ -1121,7 +1154,29 @@ class Vessel(
     fun isActivated(index: Int): Boolean = activated[index]
 
     /** Whether part [index] is working, meaning it's staged and hasn't failed since. */
-    fun isWorking(index: Int): Boolean = activated[index] && !broken[index]
+    fun isWorking(index: Int): Boolean = activated[index] && !broken[index] && groupState(index) >= 0
+
+    /**
+     * Each action group's state, by group number (1 to 3): 0 left alone, so its parts do what the
+     * craft's own controls say, 1 switched on, and -1 switched off.
+     */
+    var groupStates = IntArray(GROUPS + 1)
+
+    /** The state of the action group part [index] is in, or 0 if it's in none. */
+    fun groupState(index: Int): Int {
+        val group = design.parts.getOrNull(index)?.group ?: 0
+        return if (group in 1..GROUPS) groupStates[group] else 0
+    }
+
+    /**
+     * Whether part [index] runs, given that it would by the craft's own controls when [normal]: a
+     * group switched on runs it anyway, and one switched off stops it.
+     */
+    fun running(index: Int, normal: Boolean): Boolean = when (groupState(index)) {
+        1 -> true
+        -1 -> false
+        else -> normal
+    }
 
     fun isBroken(index: Int): Boolean = broken[index]
 
@@ -1153,7 +1208,7 @@ class Vessel(
     fun activeEngines(): List<Int> {
         val result = ArrayList<Int>(4)
         for (i in defs.indices) {
-            if (!activated[i]) continue
+            if (!activated[i] || groupState(i) < 0) continue
             if (defs[i].module<Engine>() != null) result.add(i)
         }
         return result
@@ -1480,6 +1535,9 @@ class Vessel(
     override fun toString(): String = "Vessel($id '$name', ${partCount}p, ${body.mass.toInt()}kg)"
 
     companion object {
+        /** How many action groups a craft can have. */
+        const val GROUPS = 3
+
         private val RESOURCE_COUNT = ResourceType.entries.size
 
         /** A part nobody is in. */

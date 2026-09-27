@@ -57,6 +57,8 @@ class VesselSave(
     val fuelCellsOn: Boolean = false,
     /** Drills and converters switched on, so a base mines and refines while nobody's there. */
     val drilling: Boolean = false,
+    /** Its action groups' states, by group number, or empty for all left alone. */
+    val groups: List<Int> = emptyList(),
     val refining: Boolean = false,
     /** Ballast flooding or blowing, and a depth being held. */
     val ballast: Int = 0,
@@ -149,6 +151,8 @@ class WorldSave(
     val weather: com.rm.apogee.core.weather.WeatherConfig? = null,
     /** Craft towing others: each hitch coupled to its ball. */
     val links: List<SavedLink> = emptyList(),
+    /** Winch lines out. */
+    val lines: List<SavedLine> = emptyList(),
     /**
      * [MODE_CAREER] or [MODE_SANDBOX]. Missing means a sandbox, which is what every world was
      * before careers.
@@ -187,3 +191,23 @@ fun emptyWorldSave(catalogHash: String) = WorldSave(
 /** A tow hitch coupled up: part [partA] of craft [vesselA] to part [partB] of [vesselB]. */
 @Serializable
 data class SavedLink(val vesselA: Long, val partA: Int, val vesselB: Long, val partB: Int)
+
+/**
+ * A winch line: from winch [partA] on craft [vesselA] to a hook on part [partB] of [vesselB] at
+ * [hook] (in that part's own axes), or with [vesselB] -1, to the ground at body-fixed [ground] on
+ * [bodyId]. [length] is how much line is out, in metres, [reel] is 1 winding in, -1 letting out or 0
+ * holding, and [taut] is whether it's pulling.
+ */
+@Serializable
+data class SavedLine(
+    val vesselA: Long,
+    val partA: Int,
+    val vesselB: Long,
+    val partB: Int,
+    val hook: com.rm.apogee.core.math.SerialVec3,
+    val ground: com.rm.apogee.core.math.SerialVec3,
+    val bodyId: String,
+    val length: Double,
+    val reel: Int = 0,
+    val taut: Boolean = false,
+)

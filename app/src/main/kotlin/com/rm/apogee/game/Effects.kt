@@ -780,7 +780,8 @@ class Effects(tier: QualityTier) {
         up.setTo(at).normalizeInPlace()
         when (kind) {
             // Docking: a little breath of gas as the latches go, and more as they let go.
-            PartEventKind.DOCKED, PartEventKind.HITCHED, PartEventKind.UNHITCHED -> Unit
+            PartEventKind.DOCKED, PartEventKind.HITCHED, PartEventKind.UNHITCHED,
+            PartEventKind.HOOKED, PartEventKind.UNHOOKED, PartEventKind.SNAPPED -> Unit
             PartEventKind.UNDOCKED -> repeat(10) { k ->
                 spawn(
                     x = at.x + jitter(k, 1) * 0.3, y = at.y + jitter(k, 2) * 0.3, z = at.z + jitter(k, 3) * 0.3,

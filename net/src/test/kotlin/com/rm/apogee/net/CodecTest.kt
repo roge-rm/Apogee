@@ -45,6 +45,12 @@ class CodecTest {
             ClientMessage.CommandMessage(Command.PlantFlag(8)),
             ClientMessage.CommandMessage(Command.SetBallast(7, -1)),
             ClientMessage.CommandMessage(Command.HoldDepth(7, true)),
+            ClientMessage.CommandMessage(Command.SetFlaps(7, true)),
+            ClientMessage.CommandMessage(Command.SetCruise(7, true)),
+            ClientMessage.CommandMessage(Command.ToggleGroup(7, 2)),
+            ClientMessage.CommandMessage(Command.Hook(7)),
+            ClientMessage.CommandMessage(Command.Reel(7, -1)),
+            ClientMessage.CommandMessage(Command.ReleaseLine(7)),
             ClientMessage.CommandMessage(
                 Command.SpawnCraft(StockCraft.starterRocket(StockParts.catalog), "cape")
             ),
@@ -96,6 +102,17 @@ class CodecTest {
                 survey = 0.4f, ore = 0.55f, water = 0.9f,
                 ballast = 0.6f, ballastMode = 1, holdingDepth = 120f, crush = 0.85f,
                 seabed = 14.5f, findBearing = -32f, findRange = 640f,
+                cruiseHeight = 1_500f, cruiseHeading = 12.5f, mayCruise = false, groups = listOf(0, 1, -1, 0),
+                hasWinch = true, canHook = "ground", hooked = true, reel = 1, taut = true,
+            ),
+            ServerMessage.SnapshotMessage(
+                Snapshot(
+                    43, 0.8, listOf(kinematics),
+                    lines = listOf(
+                        com.rm.apogee.core.world.SavedLine(1, 2, -1, -1, Vec3(), Vec3(1.0, 2.0, 3.0), "terra", 12.5, reel = 1, taut = true),
+                        com.rm.apogee.core.world.SavedLine(1, 2, 5, 3, Vec3(0.1, 0.0, 0.2), Vec3(), "terra", 8.0),
+                    ),
+                ),
             ),
             ServerMessage.Surveyed(listOf("luna", "terra")),
             ServerMessage.Roster(

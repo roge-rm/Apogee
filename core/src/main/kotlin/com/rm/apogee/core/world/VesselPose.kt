@@ -47,6 +47,10 @@ object VesselPose {
 
     private fun thruster(def: PartDef): Boolean = def.module<com.rm.apogee.core.part.Rcs>() != null
 
+    private fun flapped(def: PartDef): Boolean = (def.module<AeroSurface>()?.flapLift ?: 0.0) > 0.0
+
+    private fun sail(def: PartDef): Boolean = def.module<com.rm.apogee.core.part.Sail>() != null
+
     /** Values per part, for [defs] in order. */
     private fun slots(def: PartDef): Int {
         var n = 0
@@ -56,6 +60,8 @@ object VesselPose {
         if (def.module<Wheel>() != null) n += 2
         if (deploys(def)) n++
         if (thruster(def)) n += 3
+        if (flapped(def)) n++
+        if (sail(def)) n += 2
         return n
     }
 
@@ -87,6 +93,11 @@ object VesselPose {
             if (thruster(def)) {
                 for (a in 0 until 3) out[k++] = signed(vessel.rcsFiring[i * 3 + a])
             }
+            if (flapped(def)) out[k++] = signed(vessel.flapPosition[i])
+            if (sail(def)) {
+                out[k++] = signed(vessel.sailAngle[i] / Math.PI)
+                out[k++] = signed(vessel.sailFill[i])
+            }
         }
         return out
     }
@@ -117,6 +128,11 @@ object VesselPose {
             if (thruster(def)) {
                 for (a in 0 until 3) into.rcs[i * 3 + a] = unsigned(bytes[k++])
             }
+            if (flapped(def)) into.flap[i] = unsigned(bytes[k++])
+            if (sail(def)) {
+                into.sailAngle[i] = unsigned(bytes[k++]) * Math.PI
+                into.sailFill[i] = unsigned(bytes[k++])
+            }
         }
         return true
     }
@@ -136,6 +152,11 @@ object VesselPose {
          * thrust.
          */
         var rcs = DoubleArray(0); private set
+        /** Wings with flaps: how far down, 0..1. */
+        var flap = DoubleArray(0); private set
+        /** Sails: the angle off the centreline, in radians, and how full, 0..1. */
+        var sailAngle = DoubleArray(0); private set
+        var sailFill = DoubleArray(0); private set
 
         fun fit(n: Int) {
             if (deflection.size == n) return
@@ -144,6 +165,9 @@ object VesselPose {
             gimbalPitch = DoubleArray(n); gimbalYaw = DoubleArray(n)
             output = DoubleArray(n)
             rcs = DoubleArray(n * 3)
+            flap = DoubleArray(n)
+            sailAngle = DoubleArray(n)
+            sailFill = DoubleArray(n)
         }
     }
 

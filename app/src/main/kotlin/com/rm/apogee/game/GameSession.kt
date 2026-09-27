@@ -122,6 +122,7 @@ class GameSession private constructor(
     private var localNavFrame = com.rm.apogee.core.world.NavFrame.AUTO
     private var localTarget = -1L
     private var localBrakes = false
+    private var localFlaps = false
     private var localReverse = false
     /** Thrusters armed, and the slide asked for: the stick's right/away and the buttons' down/up. */
     private var localRcs = false
@@ -685,6 +686,14 @@ class GameSession private constructor(
                 seabed = systems.seabed,
                 findBearing = systems.findBearing,
                 findRange = systems.findRange,
+                cruiseHeight = systems.cruiseHeight,
+                mayCruise = systems.mayCruise,
+                groups = systems.groups,
+                hasWinch = systems.hasWinch,
+                canHook = systems.canHook,
+                hooked = systems.hooked,
+                reel = systems.reel,
+                taut = systems.taut,
                 held = prediction.replica?.let { local ->
                     val ore = com.rm.apogee.core.part.ResourceType.ORE
                     val water = com.rm.apogee.core.part.ResourceType.WATER
@@ -707,6 +716,49 @@ class GameSession private constructor(
     suspend fun holdDepth(on: Boolean) {
         withControlledVessel { client.send(Command.HoldDepth(it, on)) }
     }
+
+    /** Whether the craft being flown has wings with flaps. */
+    val controlledHasFlaps: Boolean get() = controlledHas { (it.module<com.rm.apogee.core.part.AeroSurface>()?.flapLift ?: 0.0) > 0.0 }
+
+    /** The craft being flown, or null. */
+    val controlledId: Long? get() = client.controlledVessel
+
+    /** Whether the craft being flown is a plane in the air, which can hold height and heading. */
+    val controlledCanCruise: Boolean
+        get() {
+            val replica = prediction.replica ?: return false
+            return !replica.touchingGround && replica.defs.any { it.hasModule<com.rm.apogee.core.part.AeroSurface>() }
+        }
+
+    /** The action groups the craft being flown's parts are in, in order. */
+    val controlledGroups: List<Int>
+        get() {
+            val id = client.controlledVessel ?: return emptyList()
+            val design = client.vessels.firstOrNull { it.id == id }?.design ?: return emptyList()
+            return design.parts.map { it.group }.filter { it > 0 }.distinct().sorted()
+        }
+
+    /** Flaps down or up, here straight away and on the server. */
+    suspend fun setFlaps(down: Boolean) {
+        localFlaps = down
+        pushControlsToPrediction()
+        withControlledVessel { client.send(Command.SetFlaps(it, down)) }
+    }
+
+    /** Holds the flown craft's height and heading as they are now, or lets go. */
+    suspend fun setCruise(on: Boolean) {
+        withControlledVessel { client.send(Command.SetCruise(it, on)) }
+    }
+
+    /** Switches action group [group] on, or off if it's on. */
+    suspend fun toggleGroup(group: Int) {
+        withControlledVessel { client.send(Command.ToggleGroup(it, group)) }
+    }
+
+    /** The winch: hook on, wind in (1), let out (-1) or hold (0), or let go. */
+    suspend fun hook() = withControlledVessel { client.send(Command.Hook(it)) }
+    suspend fun reel(mode: Int) = withControlledVessel { client.send(Command.Reel(it, mode)) }
+    suspend fun releaseLine() = withControlledVessel { client.send(Command.ReleaseLine(it)) }
 
     /** Folds the flown craft's sun wings and dishes out, or away. */
     suspend fun setDeployed(deployed: Boolean) {
@@ -977,6 +1029,43 @@ class GameSession private constructor(
     @Volatile var autopilotNote: String = ""
         private set
 
+    /** The runway approach cue, while a plane is coming in to the Cape's runway, or null. */
+    @Volatile var approachReadout: com.rm.apogee.core.world.Approach.Cue? = null
+        private set
+
+    /** The current the flown craft is floating in: speed in m/s and compass bearing it runs toward. Null for none. */
+    @Volatile var currentReadout: Pair<Float, Float>? = null
+        private set
+
+    /** The runway's height above the datum, in metres, looked up once. */
+    private val runwayHeight: Double by lazy {
+        system.body("terra").terrain?.elevation(com.rm.apogee.core.orbit.SolarSystem.capeDirection(1_500.0, com.rm.apogee.core.terrain.TerrainField.RUNWAY_NORTH)) ?: 0.0
+    }
+
+    /** The cue for [replica] coming in to land on the runway, or null when it isn't. */
+    private fun approachFor(replica: com.rm.apogee.core.craft.Vessel, attractor: CelestialBody, time: Double): com.rm.apogee.core.world.Approach.Cue? {
+        if (attractor.id != "terra" || replica.touchingGround || replica.dormant) return null
+        if (replica.defs.none { it.hasModule<com.rm.apogee.core.part.Wheel>() } || replica.defs.none { it.hasModule<com.rm.apogee.core.part.AeroSurface>() }) return null
+        val height = attractor.altitudeOf(replica.body.position) - runwayHeight
+        if (height > APPROACH_HIGHEST) return null
+        val rotation = attractor.rotationAt(time)
+        val position = attractor.toBodyFixed(replica.body.position, rotation)
+        val velocity = Vec3().setTo(replica.body.linearVelocity).subInPlace(attractor.surfaceVelocityAt(replica.body.position, Vec3()))
+        rotation.inverseRotate(velocity, velocity)
+        val cue = com.rm.apogee.core.world.Approach.Cue()
+        return if (com.rm.apogee.core.world.Approach.cue(position, velocity, height, attractor.radius, cue)) cue else null
+    }
+
+    /** The current [replica] is floating in, or null for none worth showing. */
+    private fun currentFor(replica: com.rm.apogee.core.craft.Vessel, attractor: CelestialBody): Pair<Float, Float>? {
+        if (attractor.ocean == null) return null
+        val altitude = attractor.altitudeOf(replica.body.position)
+        if (altitude > CURRENT_ABOVE) return null
+        val current = prediction.currentAt() ?: return null
+        if (current.length < CURRENT_SHOWN) return null
+        return current.length.toFloat() to com.rm.apogee.core.world.Navigation.heading(replica.body.position, current).toFloat()
+    }
+
     private fun updateReadouts(focus: ClientVessel, attractor: CelestialBody, time: Double) {
         val replica = prediction.replica
         autopilotNote = replica?.control?.autopilotNote ?: ""
@@ -1001,6 +1090,8 @@ class GameSession private constructor(
             )
         }
         windowReadout = windowFor(attractor, replica?.body?.position ?: focus.latest?.position, time)
+        approachReadout = replica?.let { approachFor(it, attractor, time) }
+        currentReadout = replica?.let { currentFor(it, attractor) }
         val impact = plan?.impact
         landingReadout = if (impact == null || replica == null || replica.touchingGround || replica.dormant) null else run {
             val up = replica.body.position.normalized()
@@ -1048,6 +1139,57 @@ class GameSession private constructor(
             total += engine.thrustVacuum + (engine.thrustSeaLevel - engine.thrustVacuum) * pressure
         }
         return total
+    }
+
+    /** The winch lines to draw this frame, and where their parts were drawn, by [lineKey]. */
+    private var frameLines: List<com.rm.apogee.core.world.SavedLine> = emptyList()
+    private val lineEnds = HashMap<Long, Pair<Vec3, Quat>>()
+
+    private fun lineKey(vessel: Long, part: Int): Long = vessel * 65_536L + part
+
+    /**
+     * The winch lines: a thin dark cable from each drum to what it's hooked on, straight when it's
+     * pulling and sagging when there's slack, in a few pieces.
+     */
+    private fun appendLines(out: MutableList<RenderItem>, attractor: CelestialBody) {
+        for ((k, line) in frameLines.withIndex()) {
+            if (line.bodyId != attractor.id && line.vesselB < 0) continue
+            val (drum, drumTurn) = lineEnds[lineKey(line.vesselA, line.partA)] ?: continue
+            val winch = catalog[client.vessels.firstOrNull { it.id == line.vesselA }?.design?.parts?.getOrNull(line.partA)?.partId ?: continue]
+                ?.module<com.rm.apogee.core.part.Winch>() ?: continue
+            val from = drumTurn.rotate(Vec3(0.0, winch.faceOffset, 0.0)).addInPlace(drum)
+            val to = if (line.vesselB >= 0) {
+                val (part, turn) = lineEnds[lineKey(line.vesselB, line.partB)] ?: continue
+                turn.rotate(line.hook).addInPlace(part)
+            } else {
+                bodyRotation.rotate(line.ground, Vec3())
+            }
+            val span = to.distanceTo(from)
+            if (span < 0.05) continue
+            // Slack hangs down in the middle, about as far as a rope that long between those ends.
+            val slack = (line.length - span).coerceAtLeast(0.0)
+            val sag = if (line.taut) 0.0 else kotlin.math.sqrt(slack * (line.length + span)) / 2.0
+            val down = Vec3().setTo(from).addInPlace(to).mulInPlace(0.5).normalizeInPlace().negateInPlace()
+            val previous = Vec3().setTo(from)
+            for (piece in 1..LINE_PIECES) {
+                val t = piece.toDouble() / LINE_PIECES
+                val point = Vec3().setTo(from).addScaledInPlace(Vec3().setTo(to).subInPlace(from), t)
+                    .addScaledInPlace(down, 4.0 * sag * t * (1.0 - t))
+                val along = Vec3().setTo(point).subInPlace(previous)
+                val length = along.length
+                if (length > 1e-6) {
+                    out.add(
+                        RenderItem(
+                            WINCH_LINE, Vec3().setTo(previous).addScaledInPlace(along, 0.5),
+                            com.rm.apogee.core.math.quatFromTo(Vec3.unitY(), along.mulInPlace(1.0 / length)), WINCH_LINE_COLOUR,
+                            caps = 0, scale = Vec3(1.0, length, 1.0), ambient = 0.3f, wrap = false,
+                            key = RenderItem.effectKey(LINE_KEY + k, piece),
+                        ),
+                    )
+                }
+                previous.setTo(point)
+            }
+        }
     }
 
     /** A craft that can be picked as a target, nearest first. */
@@ -1215,7 +1357,7 @@ class GameSession private constructor(
     private fun pushControlsToPrediction() {
         prediction.applyControl(
             localThrottle, localPitch, localYaw, localRoll, localSas, localBrakes,
-            localRcs, localReverse, localTranslate.x, localTranslate.y, localTranslate.z,
+            localRcs, localReverse, localTranslate.x, localTranslate.y, localTranslate.z, localFlaps,
         )
         prediction.replica?.control?.let {
             it.sasMode = localSasMode
@@ -1314,6 +1456,7 @@ class GameSession private constructor(
             lines.add(marker(focusState.position, reach, CRAFT_COLOR))
             signalLines(focusId, focusState.position, attractor, renderTime, reach, lines)
             richnessDots(attractor, renderTime, lines)
+            if (mapCurrents) currentArrows(attractor, renderTime, cameraPosition, lines)
             // Founded bases on this world (the player's own and the Cape's), where they stand.
             for (other in client.vessels) {
                 if (!other.anchored || other.id == focusId) continue
@@ -1369,6 +1512,9 @@ class GameSession private constructor(
             // frame's turn out (metres at the Cape), and a submarine's lamps lit the sea floor ten
             // metres off to one side.
             attractor.rotationAt(renderTime, bodyRotation)
+            // The parts winch lines run between, so the craft loop can say where they're drawn.
+            lineEnds.clear()
+            frameLines = if (mapMode) emptyList() else client.latestSnapshot?.lines ?: emptyList()
             for (vessel in client.vessels) {
                 if (vessel.id == focusId && !warping) {
                     // Staged here and not heard back yet, so draw the replica's own shape, and what
@@ -1421,7 +1567,8 @@ class GameSession private constructor(
                 drawn.keys.retainAll(alive)
             }
             appendPaving(items, attractor, renderTime, cameraPosition)
-            appendImpact(items, attractor, renderTime)
+            appendLines(items, attractor)
+            appendApproachLights(items, attractor, renderTime, cameraPosition)
         }
 
         // Terrain turns with the planet, so the patch follows the craft's position in the body's
@@ -2027,6 +2174,17 @@ class GameSession private constructor(
     /** What the map shows of a surveyed body's ground: ore, water, or nothing. */
     @Volatile var mapResource: com.rm.apogee.core.part.ResourceType? = com.rm.apogee.core.part.ResourceType.ORE
 
+    /** Whether the map shows the sea's currents. */
+    @Volatile var mapCurrents: Boolean = false
+
+    /** Whether the body the flown craft is around has a sea with currents to show. */
+    val currentsHere: Boolean
+        get() {
+            val id = client.controlledVessel ?: return false
+            val body = client.vessels.firstOrNull { it.id == id }?.latest?.referenceBodyId?.let { system.bodies[it] } ?: return false
+            return body.ocean != null && body.terrain != null
+        }
+
     /** Whether the body the flown craft is around has been surveyed. */
     val surveyedHere: Boolean
         get() {
@@ -2052,6 +2210,37 @@ class GameSession private constructor(
             val r = data[4 * k + 3]
             val color = floatArrayOf(base[0], base[1], base[2], 0.25f + 0.75f * r)
             lines.add(dot(at, size, color))
+        }
+    }
+
+    /**
+     * [attractor]'s sea currents as arrows on the water, longer and brighter the faster, on the
+     * side facing [camera] only. The lines aren't hidden by the globe, and the far side's showed
+     * through it.
+     */
+    private fun currentArrows(attractor: CelestialBody, time: Double, camera: Vec3, lines: MutableList<RenderLine>) {
+        val points = CurrentGrid.points(attractor, null, client.weather?.seed ?: 0) ?: return
+        val rotation = attractor.rotationAt(time)
+        val gap = attractor.radius * Math.toRadians(CurrentGrid.STEP)
+        val lift = attractor.radius * CURRENT_LIFT
+        val data = points.data
+        val d = Vec3(); val v = Vec3(); val side = Vec3()
+        for (k in 0 until points.count) {
+            d.setTo(data[6 * k].toDouble(), data[6 * k + 1].toDouble(), data[6 * k + 2].toDouble())
+            v.setTo(data[6 * k + 3].toDouble(), data[6 * k + 4].toDouble(), data[6 * k + 5].toDouble())
+            val speed = v.length
+            rotation.rotate(d, d)
+            if ((camera dot d) < attractor.radius) continue
+            val fast = (speed / CURRENT_FAST).coerceAtMost(1.0)
+            val length = gap * CURRENT_ARROW * (0.4 + 0.6 * fast)
+            rotation.rotate(v, v).normalizeInPlace()
+            val tail = Vec3().setTo(d).mulInPlace(lift).addScaledInPlace(v, -length / 2)
+            val head = Vec3().setTo(tail).addScaledInPlace(v, length)
+            side.setTo(d).crossInPlace(v)
+            val colour = floatArrayOf(CURRENT_COLOR[0], CURRENT_COLOR[1], CURRENT_COLOR[2], (0.35 + 0.65 * fast).toFloat())
+            val barb = length * 0.3
+            lines.add(RenderLine(listOf(tail, head, head.copy().addScaledInPlace(v, -barb).addScaledInPlace(side, barb * 0.6)), colour))
+            lines.add(RenderLine(listOf(head, head.copy().addScaledInPlace(v, -barb).addScaledInPlace(side, -barb * 0.6)), colour))
         }
     }
 
@@ -2430,30 +2619,53 @@ class GameSession private constructor(
     }
 
     /**
-     * Where a craft coming down will hit if nothing is done: a thin glowing column standing on the
-     * ground there, visible from a long way off.
+     * The runway's approach lights, body-fixed: four beside each end, where the glide slope comes
+     * down, to the left of it as you come in, with the lowest setting outermost. Null until worked
+     * out, and empty away from Terra.
      */
-    private fun appendImpact(items: MutableList<RenderItem>, attractor: CelestialBody, time: Double) {
-        if (landingReadout == null) return
-        val plan = planner.plan?.takeIf { it.bodyId == attractor.id } ?: return
-        val impact = plan.impact ?: return
-        // Not in the last seconds, because by then the craft is on top of it, and the column stood
-        // up through a capsule coming down under its chute, right across the landing the player was
-        // watching.
-        if (impact.time - time !in IMPACT_HIDDEN..IMPACT_SHOWN) return
+    private val approachLights: List<Pair<Vec3, Double>> by lazy {
+        val terra = system.body("terra")
+        val field = terra.terrain ?: return@lazy emptyList()
+        val out = ArrayList<Pair<Vec3, Double>>()
+        for (sense in doubleArrayOf(1.0, -1.0)) {
+            val threshold = if (sense > 0) com.rm.apogee.core.terrain.TerrainField.RUNWAY_WEST else com.rm.apogee.core.terrain.TerrainField.RUNWAY_EAST
+            val east = threshold + sense * com.rm.apogee.core.world.Approach.AIM
+            // Landing east, the left is north. Landing west, it's south.
+            for ((k, setAt) in com.rm.apogee.core.world.Approach.LIGHTS.withIndex()) {
+                val out3 = com.rm.apogee.core.terrain.TerrainField.RUNWAY_HALF_WIDTH + PAPI_CLEAR + (com.rm.apogee.core.world.Approach.LIGHTS.size - 1 - k) * PAPI_SPACING
+                val direction = com.rm.apogee.core.orbit.SolarSystem.capeDirection(east, com.rm.apogee.core.terrain.TerrainField.RUNWAY_NORTH + sense * out3)
+                out += direction.copy().mulInPlace(terra.radius + field.elevation(direction) + PAPI_HEIGHT) to setAt
+            }
+        }
+        out
+    }
+
+    /**
+     * The approach lights, lit white or red by the angle they're seen from, here from the camera,
+     * the way a pilot sees them. Far off, they're drawn bigger, the way a light's glare is.
+     */
+    private fun appendApproachLights(items: MutableList<RenderItem>, attractor: CelestialBody, time: Double, camera: Vec3) {
+        if (attractor.id != "terra" || mapMode) return
         val rotation = attractor.rotationAt(time)
-        val up = rotation.rotate(impact.direction)
-        val ground = attractor.surfaceRadiusInBodyFrame(impact.direction)
-        items.add(
-            RenderItem(
-                shape = IMPACT_BEACON,
-                position = Vec3().setTo(up).mulInPlace(ground + IMPACT_BEACON.height / 2),
-                rotation = com.rm.apogee.core.math.quatFromTo(Vec3.unitY(), up),
-                color = IMPACT_COLOR,
-                ambient = 1.2f,
-                key = RenderItem.effectKey(IMPACT_KEY, 0),
+        for ((k, light) in approachLights.withIndex()) {
+            val (at, setAt) = light
+            val position = rotation.rotate(at)
+            val seen = Vec3().setTo(camera).subInPlace(position)
+            val distance = seen.length
+            if (distance > com.rm.apogee.core.world.Approach.REACH || distance < 1.0) continue
+            val up = position.normalized()
+            val angle = Math.toDegrees(kotlin.math.asin(((seen dot up) / distance).coerceIn(-1.0, 1.0)))
+            val white = com.rm.apogee.core.world.Approach.white(angle, setAt)
+            val size = (distance * PAPI_GLARE).coerceAtLeast(1.0)
+            items.add(
+                RenderItem(
+                    shape = PAPI_LIGHT, position = position, rotation = Quat(),
+                    color = if (white) PAPI_WHITE else PAPI_RED,
+                    scale = Vec3(size, size, size), ambient = 1.2f, wrap = false,
+                    key = RenderItem.partKey(PAPI_KEY, k, 0),
+                ),
             )
-        )
+        }
     }
 
     private val scratchCape = Vec3()
@@ -2536,8 +2748,10 @@ class GameSession private constructor(
             PartEventKind.DESTROYED -> SoundScene.Kind.DESTROYED
             PartEventKind.DETACHED -> SoundScene.Kind.DETACHED
             PartEventKind.EXPLOSION -> SoundScene.Kind.EXPLOSION
-            PartEventKind.DOCKED, PartEventKind.HITCHED -> SoundScene.Kind.LATCH
-            PartEventKind.UNDOCKED, PartEventKind.UNHITCHED -> SoundScene.Kind.RELEASE
+            PartEventKind.DOCKED, PartEventKind.HITCHED, PartEventKind.HOOKED -> SoundScene.Kind.LATCH
+            PartEventKind.UNDOCKED, PartEventKind.UNHITCHED, PartEventKind.UNHOOKED -> SoundScene.Kind.RELEASE
+            // A line snapping cracks like a part torn away.
+            PartEventKind.SNAPPED -> SoundScene.Kind.DETACHED
         }
         val position = attractor.rotationAt(lastRenderTime).rotate(bodyFixed, Vec3())
         val shot = sound.shot(
@@ -3235,6 +3449,13 @@ class GameSession private constructor(
                 sh.deploy[i] += (t.deploy[i] - sh.deploy[i]) * ease
                 sh.gimbalPitch[i] += (t.gimbalPitch[i] - sh.gimbalPitch[i]) * ease
                 sh.gimbalYaw[i] += (t.gimbalYaw[i] - sh.gimbalYaw[i]) * ease
+                sh.flap[i] += (t.flap[i] - sh.flap[i]) * ease
+                // The shorter way round, so a sail gybing across doesn't spin the long way.
+                var swing = t.sailAngle[i] - sh.sailAngle[i]
+                if (swing > Math.PI) swing -= 2.0 * Math.PI
+                if (swing < -Math.PI) swing += 2.0 * Math.PI
+                sh.sailAngle[i] += swing * ease
+                sh.sailFill[i] += (t.sailFill[i] - sh.sailFill[i]) * ease
             }
             animation.initialised = true
         }
@@ -3295,6 +3516,10 @@ class GameSession private constructor(
                 )
             }
 
+            if (frameLines.isNotEmpty() && frameLines.any { (it.vesselA == vessel.id && it.partA == index) || (it.vesselB == vessel.id && it.partB == index) }) {
+                lineEnds[lineKey(vessel.id, index)] = scratch.copy() to rotation * placedRotation
+            }
+
             val anim = PartAnim(
                 deflection = animation.shown.deflection[index],
                 steer = animation.shown.steer[index],
@@ -3302,10 +3527,14 @@ class GameSession private constructor(
                 deploy = animation.shown.deploy[index],
                 gimbalPitch = animation.shown.gimbalPitch[index],
                 gimbalYaw = animation.shown.gimbalYaw[index],
+                flap = animation.shown.flap[index],
+                sailAngle = animation.shown.sailAngle[index],
+                sailFill = animation.shown.sailFill[index],
                 jettisoned = def.module<com.rm.apogee.core.part.Fairing>() != null && index in vessel.activatedParts,
             )
             PartModels.alignWheel(def, placed.rotation, design.orientation.forward, design.orientation.up, anim)
             PartModels.alignSurface(def, placed.rotation, Vec3().setTo(placed.position).subInPlace(centreOfMass), anim)
+            PartModels.alignFlap(placed.rotation, design.orientation.up, anim)
             val wheel = def.module<com.rm.apogee.core.part.Wheel>()
             if (wheel != null && anim.wheelAlign != null) {
                 // The rate about this wheel's own axle, as mounted.
@@ -3699,12 +3928,44 @@ class GameSession private constructor(
         /** Coming down means falling faster than this, in m/s. */
         private const val LANDING_FALLING = 1.0
 
-        /** The impact beacon: shown from this long before until this long before, what it is, and its colour. */
-        private const val IMPACT_SHOWN = 600.0
-        private const val IMPACT_HIDDEN = 10.0
-        private val IMPACT_BEACON = com.rm.apogee.core.part.MeshSpec.Cylinder(0.8, 40.0)
-        private val IMPACT_COLOR = floatArrayOf(1.0f, 0.55f, 0.2f, 1f)
-        private const val IMPACT_KEY = -79L
+        /**
+         * The approach lights: metres out from the runway's edge to the first, between them, and
+         * up off the ground; how much bigger they're drawn per metre away; their look; draw key.
+         */
+        private const val PAPI_CLEAR = 15.0
+        private const val PAPI_SPACING = 9.0
+        private const val PAPI_HEIGHT = 0.6
+        private const val PAPI_GLARE = 0.0012
+        private val PAPI_LIGHT = com.rm.apogee.core.part.MeshSpec.Sphere(0.5)
+        private val PAPI_WHITE = floatArrayOf(1.0f, 0.97f, 0.9f, 1f)
+        private val PAPI_RED = floatArrayOf(1.0f, 0.12f, 0.08f, 1f)
+        private const val PAPI_KEY = -78L
+
+        /**
+         * The map's current arrows: their colour, how far off the datum, the longest as a share of
+         * the gap to the next, and the speed, in m/s, that's drawn longest and brightest.
+         */
+        private val CURRENT_COLOR = floatArrayOf(0.35f, 0.88f, 0.82f, 1f)
+        private const val CURRENT_LIFT = 1.0005
+        private const val CURRENT_ARROW = 0.85
+        private const val CURRENT_FAST = 0.8
+
+        /** A winch line: how many straight pieces, how thick, its colour, and its draw keys. */
+        private const val LINE_PIECES = 8
+        private val WINCH_LINE = com.rm.apogee.core.part.MeshSpec.Cylinder(radius = 0.015, height = 1.0)
+        private val WINCH_LINE_COLOUR = floatArrayOf(0.12f, 0.12f, 0.13f, 1f)
+        private const val LINE_KEY = -79_000L
+
+        /** The highest over the runway, in metres, the approach cue shows. */
+        private const val APPROACH_HIGHEST = 3_000.0
+
+        /**
+         * The weakest current shown, in m/s, and the most above the datum, in metres, a craft can
+         * be and still be floating in it.
+         */
+        private const val CURRENT_SHOWN = 0.3
+        private const val CURRENT_ABOVE = 5.0
+
 
         /**
          * The paving is drawn from this near, in metres, and the craft id its pieces are keyed

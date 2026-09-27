@@ -29,6 +29,7 @@ class Hydrostatics {
     private val offset = Vec3()
     private val point = Vec3()
     private val waterVelocity = Vec3()
+    private val scratchCurrent = Vec3()
     private val relative = Vec3()
     private val local = Vec3()
     private val force = Vec3()
@@ -253,7 +254,10 @@ class Hydrostatics {
         scratchPoint.setTo(scratchOffset).addInPlace(vessel.body.position)
         attractor.toBodyFixed(scratchPoint, rotation, scratchFixed)
         val surface = attractor.radius + patch.height(scratchFixed)
-        patch.velocity(scratchFixed, kotlin.math.max(0.0, surface - scratchPoint.length), scratchVelocity)
+        val below = kotlin.math.max(0.0, surface - scratchPoint.length)
+        patch.velocity(scratchFixed, below, scratchVelocity)
+        // And the current it's in, carrying the whole sea along.
+        ocean.sea?.let { scratchVelocity.addInPlace(it.current(scratchFixed, below, scratchCurrent)) }
         rotation.rotate(scratchVelocity, out)
         attractor.surfaceVelocityAt(scratchPoint, scratchGround)
         out.addInPlace(scratchGround)

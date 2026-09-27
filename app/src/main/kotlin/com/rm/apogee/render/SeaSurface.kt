@@ -3,15 +3,16 @@ package com.rm.apogee.render
 import com.rm.apogee.core.math.Vec3
 
 /**
- * The sea around the camera as it was last built: a disc of rings around a centre, finest in the
- * middle, with each vertex sampled from the same wave function the physics floats boats on.
+ * The sea around the camera as it was last built: square grids fixed on the ground and nested one
+ * inside the other, finest around the camera, with each vertex sampled from the same wave function
+ * the physics floats boats on.
  *
  * It's built off the frame thread at [time]. The shader carries each vertex on by its rate of rise
  * to the moment it's drawn, a few hundredths of a second, so the water and the boats on it agree to
  * the millimetre.
  */
 class SeaSurface(
-    /** Where the rings are laid out from: a point on the datum, body-fixed, in metres. */
+    /** What the vertices are measured from: a point on the datum, body-fixed, in metres. */
     val origin: Vec3,
     /**
      * [STRIDE] floats per vertex: position from [origin] (body-fixed), up (unit), colour and
@@ -19,7 +20,7 @@ class SeaSurface(
      */
     val vertices: FloatArray,
     val vertexCount: Int,
-    /** The rings' triangles. They're the same for every surface with the same [layout]. */
+    /** The grids' triangles. They're the same for every surface with the same [layout]. */
     val indices: IntArray,
     val layout: Int,
     /** The universe time it was built for. */

@@ -11,8 +11,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.filled.Anchor
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.LinkOff
 import androidx.compose.material.icons.automirrored.filled.Login
 import androidx.compose.material.icons.filled.PanTool
 import androidx.compose.material3.Icon
@@ -40,13 +43,16 @@ class PromptActions(
     val onBoard: () -> Unit = {},
     /** Take hold of the nearest ladder (true), or let go. */
     val onGrab: (Boolean) -> Unit = {},
+    /** Hook the winch's line onto what's in front of it, or let it go. */
+    val onHook: () -> Unit = {},
+    val onRelease: () -> Unit = {},
 )
 
 /**
  * The top middle of the screen, only for what's asking for something right now. In flight that's
- * the next burn counting down, the landing coming up, lining up to dock, and the one-tap chances:
- * JOIN two modules, FOUND BASE where the craft stands, BOARD a craft, and GRAB or LET GO of a
- * ladder. On the map it's planning: the transfer window, the burn's editor, and which survey shows.
+ * the next burn counting down, the landing coming up, the runway approach, lining up to dock, and
+ * the one-tap chances: JOIN two modules, FOUND BASE where the craft stands, BOARD a craft, GRAB or
+ * LET GO of a ladder, and HOOK or RELEASE the winch's line. On the map it's planning: the transfer window, the burn's editor, and which survey shows.
  * There's nothing at all while there's nothing to do.
  */
 @Composable
@@ -70,10 +76,11 @@ fun PromptSlot(
             window = hud.window, align = Alignment.CenterHorizontally,
         )
         if (hud.mapMode) {
-            // A surveyed world's ore or water on the map. Tap round ORE, H2O and off.
-            if (hud.surveyedHere) SurveyToggle(hud)
+            // A surveyed world's ore or water on the map, and a sea's currents. Tap round them and off.
+            if (hud.surveyedHere || hud.currentsHere) SurveyToggle(hud)
             return@Column
         }
+        hud.approach?.let { ApproachChip(it) }
         hud.dock?.let { DockingPanel(it, emptyList(), {}) }
         val power = hud.power
         val service = hud.baseService
@@ -84,6 +91,10 @@ fun PromptSlot(
                 if (power.boardable.isNotEmpty()) Prompt(Icons.AutoMirrored.Filled.Login, "BOARD ${power.boardable.uppercase().take(12)}", ApogeeColors.Prograde, actions.onBoard)
                 if (power.onLadder) Prompt(Icons.Filled.PanTool, "LET GO", ApogeeColors.Prograde) { actions.onGrab(false) }
                 else if (power.canGrab) Prompt(Icons.Filled.PanTool, "GRAB LADDER", ApogeeColors.Accent) { actions.onGrab(true) }
+            }
+            if (power != null && power.hasWinch) {
+                if (power.hooked) Prompt(Icons.Filled.LinkOff, "RELEASE", ApogeeColors.Caution, actions.onRelease)
+                else if (power.canHook.isNotEmpty()) Prompt(Icons.Filled.Anchor, "HOOK ${power.canHook.uppercase().take(12)}", ApogeeColors.Accent, actions.onHook)
             }
         }
     }
@@ -127,24 +138,84 @@ private fun Prompt(icon: ImageVector, text: String, colour: Color, onTap: () -> 
     }
 }
 
+/**
+ * Coming in to the runway: which end, how far to go, four lights like the ones beside it (two white
+ * and two red on the slope, more white when high, more red when low), whether that's high or low
+ * and by how much, and how far off the centreline.
+ */
+@Composable
+private fun ApproachChip(cue: com.rm.apogee.core.world.Approach.Cue) {
+    val slope = com.rm.apogee.core.world.Approach.GLIDE_DEGREES
+    val off = cue.angle - slope
+    val (word, colour) = when {
+        kotlin.math.abs(off) <= com.rm.apogee.core.world.Approach.ON_SLOPE -> "ON SLOPE" to ApogeeColors.Prograde
+        off > 0 -> "HIGH ${kotlin.math.abs(cue.aboveSlope).toInt()} m" to ApogeeColors.Caution
+        else -> "LOW ${kotlin.math.abs(cue.aboveSlope).toInt()} m" to ApogeeColors.Danger
+    }
+    Row(
+        Modifier
+            .clip(RoundedCornerShape(Dimens.CornerPanel))
+            .background(Color.Black.alpha(ApogeeAlpha.SCRIM))
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Text(if (cue.sense > 0) "RWY 09" else "RWY 27", style = TelemetryTextStyle, color = Color.White.alpha(ApogeeAlpha.SUBTITLE))
+        Text(if (cue.toThreshold > 0) formatDistance(cue.toThreshold) else "OVER", style = TelemetryTextStyle, color = ApogeeColors.Data)
+        Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+            // The way they look beside the runway, with the lowest setting outermost, on the left.
+            for (setAt in com.rm.apogee.core.world.Approach.LIGHTS) {
+                val white = com.rm.apogee.core.world.Approach.white(cue.angle, setAt)
+                androidx.compose.foundation.layout.Box(
+                    Modifier
+                        .size(9.dp)
+                        .clip(CircleShape)
+                        .background(if (white) Color.White else Color(0xFFFF3B30)),
+                )
+            }
+        }
+        Text(word, style = TelemetryTextStyle, fontWeight = FontWeight.Bold, color = colour)
+        val side = cue.offCentre
+        if (kotlin.math.abs(side) >= CENTRED) {
+            Text(
+                "${kotlin.math.abs(side).toInt()} m ${if (side > 0) "RIGHT" else "LEFT"}",
+                style = TelemetryTextStyle,
+                color = if (kotlin.math.abs(side) > WIDE_OF_CENTRE) ApogeeColors.Caution else ApogeeColors.Data,
+            )
+        }
+    }
+}
+
+/** Metres off the centreline under which it reads as centred, and over which it's a warning. */
+private const val CENTRED = 5.0
+private const val WIDE_OF_CENTRE = 25.0
+
 @Composable
 private fun SurveyToggle(hud: HudState) {
+    // Only what this world has: ore and water once it's surveyed, and currents if it has a sea.
+    val layers = buildList {
+        if (hud.surveyedHere) { add("ORE"); add("H2O") }
+        if (hud.currentsHere) add("CURRENTS")
+        add("OFF")
+    }
+    val shown = if (hud.mapResource in layers) hud.mapResource else "OFF"
     Row(
         Modifier
             .clip(RoundedCornerShape(8.dp))
             .background(Color.Black.alpha(ApogeeAlpha.SCRIM))
-            .clickable { hud.mapResource = when (hud.mapResource) { "ORE" -> "H2O"; "H2O" -> "OFF"; else -> "ORE" } }
+            .clickable { hud.mapResource = layers[(layers.indexOf(shown) + 1) % layers.size] }
             .padding(horizontal = 10.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("SURVEY", style = MaterialTheme.typography.labelSmall, color = Color.White.alpha(ApogeeAlpha.SUBTITLE))
+        Text("MAP", style = MaterialTheme.typography.labelSmall, color = Color.White.alpha(ApogeeAlpha.SUBTITLE))
         Spacer(Modifier.width(6.dp))
         Text(
-            hud.mapResource,
+            shown,
             style = TelemetryTextStyle,
-            color = when (hud.mapResource) {
+            color = when (shown) {
                 "ORE" -> Color(0xFFFF9E40)
                 "H2O" -> Color(0xFF59CCFF)
+                "CURRENTS" -> Color(0xFF59E0D0)
                 else -> Color.White.alpha(ApogeeAlpha.SECONDARY)
             },
         )
@@ -155,10 +226,15 @@ private fun SurveyToggle(hud: HudState) {
 fun promptKey(hud: HudState): String = buildString {
     hud.burn?.let { append("burn").append(if (it.startsIn <= 0.0) "now" else "") }
     hud.landing?.let { append("land") }
+    if (hud.approach != null) append("approach")
     if (hud.dock != null) append("dock")
     if (hud.canJoin) append("join")
     if (hud.baseService?.canFound == true) append("found")
-    hud.power?.let { if (it.boardable.isNotEmpty()) append("board"); if (it.canGrab) append("grab") }
+    hud.power?.let {
+        if (it.boardable.isNotEmpty()) append("board")
+        if (it.canGrab) append("grab")
+        if (it.hooked) append("hooked") else if (it.canHook.isNotEmpty()) append("hook")
+    }
     if (hud.autopilotNote.isNotEmpty()) append(hud.autopilotNote)
     hud.banner?.let { append(it.id) }
 }

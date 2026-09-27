@@ -350,9 +350,10 @@ class CraftStats(
             // Something has to move it. An engine does, and so does a driven wheel. A rover has no
             // engine at all, and when this check refused it, the stock rover could be built but
             // never launched.
-            val driven = defs.any { (it.module<com.rm.apogee.core.part.Wheel>()?.motorForce ?: 0.0) > 0.0 }
+            val driven = defs.any { (it.module<com.rm.apogee.core.part.Wheel>()?.motorForce ?: 0.0) > 0.0 } ||
+                defs.any { it.module<com.rm.apogee.core.part.Sail>() != null }
             if (!driven && defs.none { it.module<Engine>() != null }) {
-                problems.add("No engines or driven wheels")
+                problems.add("No engines, sails or driven wheels")
             }
 
             // An electric one, like a submarine's screw, runs off any battery aboard, because

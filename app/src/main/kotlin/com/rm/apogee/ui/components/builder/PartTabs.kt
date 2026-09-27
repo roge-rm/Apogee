@@ -31,6 +31,9 @@ enum class PartTab(val label: String) {
     UTILITY("Docking & utility"),
     BASE("Base"),
     BUILDINGS("Buildings"),
+
+    /** Pieces of craft you've saved to use again, not parts. */
+    SAVED("Saved"),
 }
 
 object PartTabs {
@@ -50,6 +53,9 @@ object PartTabs {
         return when {
             def.hasModule<Command>() -> PartTab.PODS
             docking != null && (docking.kind == DockKind.HITCH_BALL || docking.kind == DockKind.HITCH_COUPLING) -> PartTab.GROUND
+            // A winch goes with the hitches, and a sail with the hulls.
+            def.hasModule<com.rm.apogee.core.part.Winch>() -> PartTab.GROUND
+            def.hasModule<com.rm.apogee.core.part.Sail>() -> PartTab.WATER
             docking != null || def.hasModule<Rcs>() || def.hasModule<Parachute>() -> PartTab.UTILITY
             def.hasModule<Buoyancy>() || def.hasModule<HydroSurface>() || def.hasModule<com.rm.apogee.core.part.Ballast>() ||
                 def.module<Engine>()?.exhaustKind == Exhaust.WATER -> PartTab.WATER
@@ -68,7 +74,11 @@ object PartTabs {
         // Never a part that only comes off another one, like a fairing's half.
         val all = ORDER.flatMap { category -> catalog.byCategory(category) }.filter { !it.hidden }
         val sorted = all.sortedBy { of(it).ordinal }
-        return if (tab == PartTab.ALL) sorted else sorted.filter { of(it) == tab }
+        return when (tab) {
+            PartTab.ALL -> sorted
+            PartTab.SAVED -> emptyList()
+            else -> sorted.filter { of(it) == tab }
+        }
     }
 
     private val ORDER = listOf(

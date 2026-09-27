@@ -71,6 +71,31 @@ class CraftStore(private val directory: File) {
 
     fun exists(name: String): Boolean = File(directory, fileNameFor(name)).exists()
 
+    /** [design] as the text of a craft file, to share. */
+    fun encode(design: CraftDesign): String = format.encodeToString(design)
+
+    /**
+     * A design from the text of a shared craft file. It's refused, with the reason, if it isn't a
+     * craft file, or if it's made of parts [catalog] doesn't have, say from a newer version.
+     */
+    fun decode(text: String, catalog: com.rm.apogee.core.part.PartCatalog): Result<CraftDesign> = runCatching {
+        val design = runCatching { format.decodeFromString<CraftDesign>(text) }
+            .getOrElse { throw IllegalArgumentException("That isn't a craft file") }
+        if (design.parts.isEmpty()) throw IllegalArgumentException("That craft has no parts")
+        val unknown = design.parts.map { it.partId }.filter { catalog[it] == null }.distinct()
+        if (unknown.isNotEmpty()) throw IllegalArgumentException("Parts this version doesn't have: ${unknown.take(4).joinToString()}")
+        design
+    }
+
+    /** [name], or with a number after it if a craft here already has that name. */
+    fun freeName(name: String): String {
+        val base = name.trim().ifBlank { "Shared craft" }
+        if (!exists(base)) return base
+        var n = 2
+        while (exists("$base $n")) n++
+        return "$base $n"
+    }
+
     /**
      * Writes any reference craft into the store that it hasn't been given before.
      *
@@ -106,6 +131,7 @@ class CraftStore(private val directory: File) {
             StockCraft.buggy(catalog),
             StockCraft.hauler(catalog),
             StockCraft.skiff(catalog),
+            StockCraft.sloop(catalog),
             StockCraft.cutter(catalog),
             StockCraft.trawler(catalog),
             StockCraft.portTug(catalog),

@@ -106,6 +106,25 @@ class MainActivity : ComponentActivity() {
     private var pendingLaunchDesign: CraftDesign? = null
     private var pendingLaunchSite: String? = null
     private var pendingResume: Long? = null
+
+    /**
+     * A save point: the whole world as it was (careers and all), the craft that was being flown,
+     * and when it was taken, by the clock. There's one for each world, the sandbox and the career,
+     * kept on disk beside it.
+     */
+    private class SavePoint(val save: com.rm.apogee.core.world.WorldSave, val vessel: Long?, val at: String)
+    private val savePoints = HashMap<Boolean, SavePoint?>()
+
+    /**
+     * The world just before this flight's launch, and what was launched from where, to revert to.
+     * Null when the flight wasn't a launch (Resume Flight), or it's not a solo flight.
+     */
+    private class LaunchPoint(val save: com.rm.apogee.core.world.WorldSave, val design: CraftDesign?, val site: String?)
+    private var launchPoint: LaunchPoint? = null
+
+    /** Whether the flight up is solo, in this device's own world, and a rewind is starting it. */
+    private var flyingSolo = false
+    private var rewinding = false
     private var resumeCraft by mutableStateOf(emptyList<com.rm.apogee.ui.screens.CraftSummary>())
     private var crewList by mutableStateOf(emptyList<com.rm.apogee.ui.screens.CrewSummary>())
 
@@ -195,6 +214,8 @@ class MainActivity : ComponentActivity() {
 
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         setContentView(R.layout.activity_main)
+        // A craft file this was opened with, once everything's set up.
+        window.decorView.post { handleSharedIntent(intent) }
 
         findViewById<ComposeView>(R.id.hud_compose_view).setContent {
             ApogeeTheme {
@@ -287,6 +308,12 @@ class MainActivity : ComponentActivity() {
                         onDive = { onBallast(1) },
                         onRise = { onBallast(-1) },
                         onHoldDepth = ::onToggleHoldDepth,
+                        onToggleFlaps = ::onToggleFlaps,
+                        onGroup = { group -> session?.let { s -> lifecycleScope.launch { s.toggleGroup(group) } } },
+                        onWinch = ::onWinch,
+                        onHook = { session?.let { s -> lifecycleScope.launch { s.hook() } } },
+                        onReleaseLine = { session?.let { s -> lifecycleScope.launch { s.releaseLine() } } },
+                        onCruise = ::onCruise,
                         onDockPilot = { who ->
                             session?.let { s ->
                                 val shared = s.sharedWith ?: return@let
@@ -299,6 +326,11 @@ class MainActivity : ComponentActivity() {
                         onJoin = ::onJoin,
                         onSwitchCraft = ::onSwitchCraft,
                         onExit = { navigateTo(AppScreen.PLAY) },
+                        rewind = com.rm.apogee.ui.screens.RewindActions(
+                            onSavePoint = ::takeSavePoint,
+                            onLoadSavePoint = ::loadSavePoint,
+                            onRevert = ::revertToLaunch,
+                        ),
                         onWarp = { rate -> session?.let { s -> lifecycleScope.launch { s.setWarp(rate) } } },
                         me = settings.clientId,
                         onUnlock = { id ->
@@ -345,6 +377,8 @@ class MainActivity : ComponentActivity() {
                             pictures = partThumbnails.pictures,
                             onExit = { navigateTo(AppScreen.PLAY) },
                             onLaunch = ::launchFromBuilder,
+                            onShare = ::shareCraft,
+                            onOpenShared = { openShared.launch(arrayOf("application/json", "application/octet-stream", "text/plain")) },
                         )
                     }
                     AppScreen.HOST_GAME -> HostGameScreen(
@@ -403,6 +437,78 @@ class MainActivity : ComponentActivity() {
             target.needsWorldSurface -> enterWorld(target)
             wasInWorld -> leaveWorld()
         }
+    }
+
+    // --- sharing craft ------------------------------------------------------------
+
+    /** A shared craft opened from outside, to put on the floor when the builder comes up. */
+    private var pendingShared: CraftDesign? = null
+
+    /** The system's file picker, for a craft file someone sent. */
+    private val openShared = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let(::importCraft)
+    }
+
+    /** The craft on the floor, as a file, out through the share sheet. */
+    private fun shareCraft() {
+        val builder = builderSession ?: return
+        val design = builder.builder.design
+        if (design.parts.isEmpty()) return
+        runCatching {
+            val folder = File(cacheDir, "shared").apply { mkdirs() }
+            val safe = design.name.map { if (it.isLetterOrDigit() || it == '-') it else '-' }.joinToString("").trim('-').ifBlank { "craft" }
+            val file = File(folder, "$safe.apogee.json")
+            file.writeText(craftStore.encode(design))
+            val uri = androidx.core.content.FileProvider.getUriForFile(this, "$packageName.files", file)
+            val send = android.content.Intent(android.content.Intent.ACTION_SEND)
+                .setType("application/json")
+                .putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                .putExtra(android.content.Intent.EXTRA_SUBJECT, "${design.name}, an Apogee craft")
+                .addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            startActivity(android.content.Intent.createChooser(send, "Share ${design.name}"))
+        }.onFailure { builder.statusMessage = "Couldn't share it: ${it.message}" }
+    }
+
+    /**
+     * A craft file someone shared: checked, saved with the player's own craft under a free name,
+     * and opened in the builder. One with parts this version doesn't have is refused, with why.
+     */
+    private fun importCraft(uri: android.net.Uri) {
+        val text = runCatching { contentResolver.openInputStream(uri)?.use { it.readBytes().decodeToString() } }.getOrNull()
+        val result = if (text == null) Result.failure(IllegalArgumentException("Couldn't read that file")) else craftStore.decode(text, StockParts.catalog)
+        result.onFailure {
+            android.widget.Toast.makeText(this, it.message ?: "That isn't a craft file", android.widget.Toast.LENGTH_LONG).show()
+        }.onSuccess { shared ->
+            val design = shared.copy(name = craftStore.freeName(shared.name))
+            craftStore.save(design)
+            val builder = builderSession
+            if (builder != null) builder.openShared(design)
+            else {
+                pendingShared = design
+                navigateTo(AppScreen.BUILDER)
+            }
+        }
+    }
+
+    /** A craft file sent or opened from outside the app, if that's what [intent] is. */
+    private fun handleSharedIntent(intent: android.content.Intent?) {
+        intent ?: return
+        val uri = when (intent.action) {
+            android.content.Intent.ACTION_VIEW -> intent.data
+            android.content.Intent.ACTION_SEND -> androidx.core.content.IntentCompat.getParcelableExtra(intent, android.content.Intent.EXTRA_STREAM, android.net.Uri::class.java)
+            else -> null
+        } ?: return
+        // Not in the middle of a flight. It waits in the builder for next time.
+        if (session != null) {
+            android.widget.Toast.makeText(this, "Leave the flight to open a shared craft", android.widget.Toast.LENGTH_LONG).show()
+            return
+        }
+        importCraft(uri)
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        handleSharedIntent(intent)
     }
 
     private fun launchFromBuilder() {
@@ -621,6 +727,28 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch { current.holdDepth(on) }
     }
 
+    private fun onToggleFlaps() {
+        val down = !hudState.flaps
+        hudState.flaps = down
+        val current = session ?: return
+        lifecycleScope.launch { current.setFlaps(down) }
+    }
+
+    /** The winch: winding in if it's holding, holding if it's winding in. */
+    private fun onWinch() {
+        val power = hudState.power ?: return
+        val mode = if (power.reel > 0) 0 else 1
+        hudState.power = power.copy(reel = mode)
+        val current = session ?: return
+        lifecycleScope.launch { current.reel(mode) }
+    }
+
+    private fun onCruise(on: Boolean) {
+        if (on) hudState.sasEnabled = true
+        val current = session ?: return
+        lifecycleScope.launch { current.setCruise(on) }
+    }
+
     private fun onToggleDeploy() {
         val deployed = !(hudState.power?.deployed ?: false)
         hudState.power = hudState.power?.copy(deployed = deployed)
@@ -685,7 +813,10 @@ class MainActivity : ComponentActivity() {
         )
 
         if (screen == AppScreen.BUILDER) {
-            val builder = BuilderSession(frameBus, StockParts.catalog, craftStore)
+            val builder = BuilderSession(
+                frameBus, StockParts.catalog, craftStore,
+                com.rm.apogee.core.craft.AssemblyStore(File(filesDir, if (careerMode) "assemblies-career" else "assemblies")),
+            )
             // Somewhere of the player's own to launch from, as well as the Cape.
             builder.baseSites = runCatching { openSoloWorld().baseSites(settings.clientId) }.getOrDefault(emptyList())
             // In a career, only what the player has unlocked, and no more than their pad can take.
@@ -694,7 +825,17 @@ class MainActivity : ComponentActivity() {
             view.takeIf { it.width > 0 }?.let { builder.setViewSize(it.width.toFloat(), it.height.toFloat()) }
             builder.start(lifecycleScope)
             builderSession = builder
+            pendingShared?.let { builder.openShared(it) }
+            pendingShared = null
         } else {
+            flyingSolo = pendingMode is SessionMode.Solo
+            if (flyingSolo && !rewinding) {
+                // A launch (not a resume) can be reverted to, so the world is kept as it was just
+                // before it. Nothing's running yet, so it's safe to take here.
+                launchPoint = if (pendingResume == null) LaunchPoint(openSoloWorld().save(), pendingLaunchDesign, pendingLaunchSite) else null
+            }
+            if (!flyingSolo) launchPoint = null
+            rewinding = false
             val newSession = when (val mode = pendingMode) {
                 is SessionMode.Solo -> GameSession.hostLocal(
                     frameBus = frameBus,
@@ -993,6 +1134,73 @@ class MainActivity : ComponentActivity() {
             .onFailure { Log.w(TAG, "Could not save the world: ${it.message}") }
     }
 
+    /** This world's save point file, and the craft and time beside it. */
+    private fun savePointFile(): File = File(filesDir, if (careerMode) "world/career-savepoint.json" else "world/solo-savepoint.json")
+    private fun savePointNote(): File = File(filesDir, if (careerMode) "world/career-savepoint.txt" else "world/solo-savepoint.txt")
+
+    /** This world's save point, read from disk the first time it's asked for. */
+    private fun currentSavePoint(): SavePoint? {
+        if (savePoints.containsKey(careerMode)) return savePoints[careerMode]
+        val point = runCatching {
+            val save = WorldStore(savePointFile()).load().getOrThrow()
+            val note = savePointNote().readLines()
+            SavePoint(save, note.getOrNull(0)?.toLongOrNull(), note.getOrNull(1) ?: "")
+        }.getOrNull()
+        savePoints[careerMode] = point
+        return point
+    }
+
+    /** Takes a save point of the world as it is now, between the server's ticks. */
+    private fun takeSavePoint() {
+        val running = session ?: return
+        val world = soloWorld ?: return
+        val vessel = running.controlledId
+        val career = careerMode
+        running.betweenTicks {
+            val save = world.save()
+            val at = java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT).format(java.util.Date())
+            runOnUiThread {
+                savePoints[career] = SavePoint(save, vessel, at)
+                hudState.banner = HudState.Banner("SAVE POINT", "Taken at $at", good = true, id = System.nanoTime())
+            }
+            lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                WorldStore(savePointFile()).save(save)
+                    .onFailure { Log.w(TAG, "Could not keep the save point: ${it.message}") }
+                runCatching { savePointNote().writeText("${vessel ?: ""}\n$at\n") }
+            }
+        }
+    }
+
+    /**
+     * Puts the world back as it was in [save] and flies again: [resume] if it names a craft, or else
+     * [design] launched from [site], or a fresh craft on the pad when there's neither.
+     */
+    private fun rewindTo(save: com.rm.apogee.core.world.WorldSave, resume: Long?, design: CraftDesign?, site: String?) {
+        leaveWorld()
+        val world = World.default(StockParts.catalog)
+        for (problem in world.restore(save)) Log.w(TAG, "Rewind: $problem")
+        if (careerMode && world.program == null) world.program = com.rm.apogee.core.career.Program()
+        world.ensureStructures()
+        soloWorld = world
+        saveSoloWorld()
+        pendingResume = resume?.takeIf { id -> world.vessel(com.rm.apogee.core.craft.VesselId(id)) != null }
+        pendingLaunchDesign = if (pendingResume == null) design else null
+        pendingLaunchSite = site
+        pendingMode = SessionMode.Solo
+        rewinding = true
+        enterWorld(AppScreen.FLIGHT)
+    }
+
+    private fun loadSavePoint() {
+        val point = currentSavePoint() ?: return
+        rewindTo(point.save, point.vessel, null, null)
+    }
+
+    private fun revertToLaunch() {
+        val point = launchPoint ?: return
+        rewindTo(point.save, null, point.design, point.site)
+    }
+
     private fun leaveWorld() {
         frameClockJob?.cancel(); frameClockJob = null
 
@@ -1133,12 +1341,22 @@ class MainActivity : ComponentActivity() {
                     hudState.crew = current.crewCard
                     hudState.crewSeats = current.controlledSeats
                     hudState.surveyedHere = current.surveyedHere
+                    hudState.currentsHere = current.currentsHere
+                    current.mapCurrents = hudState.mapResource == "CURRENTS"
                     current.mapResource = when (hudState.mapResource) {
                         "ORE" -> com.rm.apogee.core.part.ResourceType.ORE
                         "H2O" -> com.rm.apogee.core.part.ResourceType.WATER
                         else -> null
                     }
                     hudState.hasConverter = current.controlledHasConverter
+                    hudState.hasFlaps = current.controlledHasFlaps
+                    hudState.canCruise = current.controlledCanCruise
+                    current.controlledGroups.let { if (it != hudState.groupsUsed) hudState.groupsUsed = it }
+                    hudState.approach = current.approachReadout
+                    current.currentReadout.let {
+                        hudState.currentSpeed = it?.first ?: 0f
+                        hudState.currentBearing = it?.second ?: 0f
+                    }
                     hudState.power = current.powerReadout
                     // The session decides, because switching craft stands the thrusters down.
                     hudState.rcsArmed = current.rcsArmed
@@ -1156,6 +1374,11 @@ class MainActivity : ComponentActivity() {
                         hudState.warpRequested = clock.warpRequested
                         hudState.warpAllowed = clock.warpAllowed
                     }
+                    // Rewinding is only for your own world with nobody else in it, the same as
+                    // warp.
+                    hudState.canRewind = flyingSolo && hudState.warpAllowed
+                    hudState.savePoint = currentSavePoint()?.at
+                    hudState.canRevert = launchPoint != null
                 }
 
                 frameBus.latest()?.latest?.let { frame ->

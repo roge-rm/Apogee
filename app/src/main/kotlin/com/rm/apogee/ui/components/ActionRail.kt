@@ -12,6 +12,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Air
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.Cable
+import androidx.compose.material.icons.filled.FlightLand
+import androidx.compose.material.icons.filled.Looks3
+import androidx.compose.material.icons.filled.LooksOne
+import androidx.compose.material.icons.filled.LooksTwo
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.Hardware
 import androidx.compose.material.icons.filled.KeyboardDoubleArrowUp
@@ -52,15 +57,21 @@ class RailActions(
     val onDive: () -> Unit = {},
     val onRise: () -> Unit = {},
     val onHold: () -> Unit = {},
+    val onFlaps: () -> Unit = {},
+    /** Switch an action group, 1 to 3. */
+    val onGroup: (Int) -> Unit = {},
+    /** Wind the winch in, or hold it. */
+    val onWinch: () -> Unit = {},
 )
 
 /** One switch on the rail: its picture, its word, and how it's set. */
 private class RailSwitch(val icon: ImageVector, val caption: String, val tint: Color, val on: Boolean, val onTap: () -> Unit)
 
 /**
- * The craft's switches, beside the throttle: brakes and reverse on something with wheels, the
- * thrusters, sun wings and dishes, drills and converters, ballast to dive, rise and hold a depth,
- * and on EVA, jumping and planting a flag. Only the ones the craft has are shown. Each is a small
+ * The craft's switches, beside the throttle: brakes and reverse on something with wheels, flaps,
+ * the thrusters, sun wings and dishes, drills and converters, ballast to dive, rise and hold a
+ * depth, the action groups the craft uses, the winch once it's hooked on, and on EVA, jumping and
+ * planting a flag. Only the ones the craft has are shown. Each is a small
  * picture with its word under it, lit while on. It's green when working, amber when on but not
  * getting anywhere (with the reason in place of the word), and grey when off. Past [perColumn] they
  * go two across.
@@ -79,6 +90,9 @@ fun ActionRail(
         if (hud.hasWheels) {
             add(RailSwitch(Icons.Filled.SwapVert, "REV", if (hud.reverse) ApogeeColors.Caution else idle, hud.reverse, actions.onReverse))
             add(RailSwitch(Icons.Filled.PanTool, "BRK", if (hud.brakes) ApogeeColors.Danger else idle, hud.brakes, actions.onBrakes))
+        }
+        if (hud.hasFlaps) {
+            add(RailSwitch(Icons.Filled.FlightLand, "FLAPS", if (hud.flaps) ApogeeColors.Accent else idle, hud.flaps, actions.onFlaps))
         }
         if (hud.hasRcs) {
             val left = hud.rcsLeft
@@ -121,6 +135,21 @@ fun ActionRail(
                 if (holding) "${power.holdingDepth.roundToInt()} m" else "HOLD",
                 if (holding) ApogeeColors.Prograde else idle, holding, actions.onHold,
             ))
+        }
+        for (group in hud.groupsUsed) {
+            // Left alone or switched on, its parts run as they would. Switched off, they don't.
+            val off = power?.group(group) == -1
+            val icon = when (group) { 1 -> Icons.Filled.LooksOne; 2 -> Icons.Filled.LooksTwo; else -> Icons.Filled.Looks3 }
+            add(RailSwitch(icon, if (off) "$group OFF" else "GROUP $group", if (off) idle else ApogeeColors.Prograde, !off) { actions.onGroup(group) })
+        }
+        if (power != null && power.hooked) {
+            val reeling = power.reel > 0
+            val tint = when {
+                !reeling -> idle
+                power.taut -> ApogeeColors.Prograde
+                else -> ApogeeColors.Accent
+            }
+            add(RailSwitch(Icons.Filled.Cable, if (reeling) "REEL IN" else "WINCH", tint, reeling, actions.onWinch))
         }
         if (hud.isSuit && hud.telemetry.heightAboveGround < groundedBelow) {
             add(RailSwitch(Icons.Filled.KeyboardDoubleArrowUp, "JUMP", idle, false, actions.onJump))

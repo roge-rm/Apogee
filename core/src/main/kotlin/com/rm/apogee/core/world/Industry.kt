@@ -48,10 +48,10 @@ class Industry {
     fun step(vessel: Vessel, attractor: CelestialBody, time: Double, dt: Double, still: Boolean, charge: Boolean): Double {
         var draw = 0.0
         var state = DrillState.OFF
-        if (vessel.control.drilling) {
+        run {
             for (i in vessel.defs.indices) {
                 val drill = vessel.defs[i].module<Drill>() ?: continue
-                if (vessel.isBroken(i)) continue
+                if (vessel.isBroken(i) || !vessel.running(i, vessel.control.drilling)) continue
                 val here = dig(vessel, i, drill, attractor, time, dt, still, charge)
                 if (here == DrillState.DIGGING) draw += drill.draw
                 // The best of what its drills are doing is what the pilot hears about.
@@ -59,10 +59,10 @@ class Industry {
             }
         }
         vessel.drillState = state
-        if (vessel.control.refining && charge) {
+        if (charge) {
             for (i in vessel.defs.indices) {
                 val converter = vessel.defs[i].module<Converter>() ?: continue
-                if (vessel.isBroken(i)) continue
+                if (vessel.isBroken(i) || !vessel.running(i, vessel.control.refining)) continue
                 if (convert(vessel, i, converter, dt)) draw += converter.draw
             }
         }

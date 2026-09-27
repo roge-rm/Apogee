@@ -642,6 +642,8 @@ object StockCraft {
         a.on(chassis, "deck-rear", "rack-cargo")
         a.on(chassis, "deck", "light-bar")
         for (k in 1..6) a.on(chassis, "wheel-$k", "wheel-large")
+        // A winch on the front, for getting out of trouble.
+        a.on(chassis, "front", "winch-drum")
         return a.design()
     }
 
@@ -657,6 +659,24 @@ object StockCraft {
         // past seventy degrees.
         a.on(hull, "keel-front", "keel-skeg")
         a.on(hull, "transom", "motor-outboard")
+        a.on(hull, "side-right", "mooring-clamp")
+        a.on(hull, "side-left", "mooring-clamp")
+        return a.design()
+    }
+
+    /**
+     * A small sailing boat: a skiff's hull with a sloop rig in front of the seat, a keel under the
+     * middle and another further aft to stop her sliding sideways, and a rudder at the stern. No
+     * motor, so the throttle is her sheet.
+     */
+    fun sloop(catalog: PartCatalog = StockParts.catalog): CraftDesign {
+        val a = Assembly(catalog, "Sloop", CraftOrientation.HORIZONTAL)
+        val hull = a.root("hull-skiff")
+        a.on(hull, "deck", "cab-open")
+        a.on(hull, "mast", "sail-sloop")
+        a.on(hull, "keel-front", "keel-skeg")
+        a.on(hull, "keel", "keel-skeg")
+        a.on(hull, "stern", "rudder")
         a.on(hull, "side-right", "mooring-clamp")
         a.on(hull, "side-left", "mooring-clamp")
         return a.design()

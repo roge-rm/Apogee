@@ -43,6 +43,8 @@ class BuilderSession(
     private val frameBus: FrameBus,
     private val catalog: PartCatalog,
     private val store: CraftStore,
+    /** Saved pieces of craft, to put on again. Null for none. */
+    private val assemblies: com.rm.apogee.core.craft.AssemblyStore? = null,
 ) {
     val builder = CraftBuilder(catalog)
     // FIXED, not RADIAL. There's no planet in the assembly building, and a design centred below the
@@ -53,7 +55,7 @@ class BuilderSession(
      * What's in hand, waiting to be put on: a part picked from the drawer (kept in hand to put on
      * again and again), or a copy of a piece of the craft, put on once.
      */
-    class Held(val assembly: Assembly, val partId: String?, val once: Boolean)
+    class Held(val assembly: Assembly, val partId: String?, val once: Boolean, val name: String? = null)
 
     var held: Held? by mutableStateOf(null)
         private set
@@ -189,6 +191,7 @@ class BuilderSession(
 
     fun start(scope: CoroutineScope) {
         refreshSavedList()
+        refreshAssemblies()
         camera.distance = 18.0
         camera.pitch = 0.1
         job = scope.launch(Dispatchers.Default) {
@@ -236,7 +239,11 @@ class BuilderSession(
     // --- the selected part's actions -------------------------------------------
 
     /** What the action bar says about the selected part. */
-    class Selection(val index: Int, val title: String, val count: Int, val root: Boolean, val stage: Int, val stageable: Boolean)
+    class Selection(
+        val index: Int, val title: String, val count: Int, val root: Boolean, val stage: Int, val stageable: Boolean,
+        /** Whether an action group can switch it, and which it's in, 0 for none. */
+        val groupable: Boolean = false, val group: Int = 0,
+    )
 
     val selection: Selection?
         get() {
@@ -250,6 +257,7 @@ class BuilderSession(
             return Selection(
                 index, catalog[placed.partId]?.title ?: placed.partId, count, placed.parentIndex < 0,
                 builder.stageOf(index), builder.isStageable(index),
+                builder.groupable(index), placed.group,
             )
         }
 
@@ -267,6 +275,59 @@ class BuilderSession(
         selectedPartIndex = null
         statusMessage = "Copy in hand. Tap a green node, or drag it on"
         revision++
+    }
+
+    /** The selected part (and its symmetry partners) into the next action group: none, 1, 2, 3. */
+    fun cycleGroupSelected() {
+        val index = selectedPartIndex ?: return
+        val next = (builder.design.parts[index].group + 1) % (com.rm.apogee.core.craft.Vessel.GROUPS + 1)
+        if (builder.setGroup(index, next)) {
+            statusMessage = if (next == 0) "In no group" else "In group $next. Its switch is on the flight's rail"
+            onEdited()
+        }
+    }
+
+    // --- saved pieces ------------------------------------------------------------
+
+    /** The saved pieces, newest first, with their files. */
+    var savedAssemblies: List<Pair<com.rm.apogee.core.craft.SavedAssembly, String>> by mutableStateOf(emptyList())
+        private set
+
+    fun refreshAssemblies() {
+        savedAssemblies = assemblies?.list() ?: emptyList()
+    }
+
+    /** The selected part and everything below it, saved as [name] to put on again. */
+    fun saveSelectedAssembly(name: String) {
+        val index = selectedPartIndex ?: return
+        val store = assemblies ?: return
+        val piece = builder.duplicate(index) ?: return
+        store.save(name, piece)
+            .onSuccess { statusMessage = "Saved. It's in the drawer's Saved tab"; refreshAssemblies() }
+            .onFailure { statusMessage = "Couldn't save it: ${it.message}" }
+    }
+
+    /** A saved piece into the hand, to put on once. */
+    fun holdAssembly(fileName: String) {
+        val saved = savedAssemblies.firstOrNull { it.second == fileName }?.first ?: return
+        val locked = lockedParts()
+        saved.parts.firstOrNull { it.partId in locked }?.let {
+            statusMessage = "${catalog[it.partId]?.title ?: it.partId} needs ${locked[it.partId]}"
+            return
+        }
+        if (saved.parts.any { catalog[it.partId] == null }) {
+            statusMessage = "That piece has parts this version doesn't have"
+            return
+        }
+        held = Held(saved.assembly, null, once = true, name = saved.name)
+        selectedPartIndex = null
+        statusMessage = "${saved.name} in hand. Tap a green node, or drag it on"
+        revision++
+    }
+
+    fun deleteAssembly(fileName: String) {
+        assemblies?.delete(fileName)
+        refreshAssemblies()
     }
 
     fun turnSelected() {
@@ -605,6 +666,15 @@ class BuilderSession(
                 onEdited()
             }
             .onFailure { statusMessage = "Couldn't load: ${it.message}" }
+    }
+
+    /** A craft someone shared, already saved as [design]'s name, onto the floor to build on. */
+    fun openShared(design: CraftDesign) {
+        builder.load(design)
+        selectedPartIndex = null
+        statusMessage = "Opened \"${design.name}\". It's saved with your craft"
+        refreshSavedList()
+        onEdited()
     }
 
     fun delete(saved: SavedCraft) {

@@ -46,6 +46,19 @@ class PartAnim(
      * See [PartModels.alignSurface].
      */
     var hingeSign: Double = 1.0,
+    /** A wing's flaps, 0 up to 1 all the way down. */
+    var flap: Double = 0.0,
+    /**
+     * Which way round its hinge a flap goes down, as mounted: 1 when the part's +Z is the sky side,
+     * -1 on a wing mounted the other way up. See [PartModels.alignFlap].
+     */
+    var flapSign: Double = 1.0,
+    /**
+     * A sail's angle around its mast, in radians from the part's -Z, and how full it is: 0 furled
+     * or flapping, 1 drawing hard.
+     */
+    var sailAngle: Double = 0.0,
+    var sailFill: Double = 1.0,
 )
 
 /**
@@ -131,6 +144,10 @@ object PartModels {
         val axis = piece.axis.normalized()
         return when (piece.role) {
             PieceRole.FIXED, PieceRole.SUSPENSION, PieceRole.JETTISON -> Quat.identity()
+            // Down with the flaps: the trailing edge (-Y) swings toward -Z, a flap's underside.
+            PieceRole.FLAP -> Quat.fromAxisAngle(axis, anim.flapSign * Math.toRadians(FLAP_ANGLE) * anim.flap)
+            // Around the mast. Positive swings the chord (-Z) toward +X.
+            PieceRole.SAIL -> Quat.fromAxisAngle(axis, -anim.sailAngle)
             // The same way Forces.gimballedDirection turns the thrust.
             PieceRole.GIMBAL ->
                 Quat.fromAxisAngle(Vec3(1.0, 0.0, 0.0), anim.gimbalPitch * gimbalRange) *
@@ -155,6 +172,17 @@ object PartModels {
                 else Quat.fromAxisAngle(axis, Math.toRadians(piece.travel) * (1.0 - anim.deploy))
             }
         }
+    }
+
+    /** How far flaps go down, in degrees. */
+    private const val FLAP_ANGLE = 25.0
+
+    /**
+     * Sets [anim]'s flap sign for a wing mounted at [partRotation] on a craft whose sky side is
+     * [up] (both design space), so its flaps go down toward the ground whichever way it's mounted.
+     */
+    fun alignFlap(partRotation: Quat, up: Vec3, anim: PartAnim) {
+        anim.flapSign = if ((partRotation.rotate(Vec3(0.0, 0.0, 1.0)) dot up) >= 0.0) 1.0 else -1.0
     }
 
     /**

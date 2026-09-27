@@ -29,6 +29,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Apps
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Domain
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.ChevronLeft
@@ -116,6 +118,10 @@ fun PartPalette(
     locked: Map<String, String> = emptyMap(),
     /** A locked part was tapped, so say what unlocks it. */
     onLocked: (String) -> Unit = {},
+    /** The saved pieces, for the Saved tab: each one's name, root part, part count and file. */
+    saved: List<SavedPiece> = emptyList(),
+    onPickSaved: (String) -> Unit = {},
+    onDeleteSaved: (String) -> Unit = {},
 ) {
     val parts = remember(catalog, tab) { PartTabs.parts(catalog, tab) }
     Surface(
@@ -167,6 +173,21 @@ fun PartPalette(
                     items(parts, key = { it.id }) { def ->
                         if (def.id in locked) LockedTile(def, pictures[def.id], tileSize, onLocked)
                         else PartTile(def, pictures[def.id], tileSize, def.id == heldPartId, onPick, carry)
+                    }
+                    if (tab == PartTab.SAVED) {
+                        if (saved.isEmpty()) {
+                            item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
+                                Text(
+                                    "Tap a part on the craft, then SAVE ASSEMBLY, to keep it and everything on it here.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color.White.alpha(ApogeeAlpha.SUBTITLE),
+                                    modifier = Modifier.padding(6.dp),
+                                )
+                            }
+                        }
+                        items(saved, key = { it.file }) { piece ->
+                            SavedTile(piece, pictures[piece.rootPartId], tileSize, locked, onPickSaved, onDeleteSaved)
+                        }
                     }
                 }
             }
@@ -283,6 +304,68 @@ private fun PartTile(
     }
 }
 
+/** A saved piece of craft, as the drawer shows it. */
+class SavedPiece(val name: String, val rootPartId: String, val partIds: List<String>, val file: String)
+
+/**
+ * A saved piece: tap to take it in hand, press and hold to delete it (which asks first). Faded when
+ * the career hasn't unlocked all it's made of.
+ */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+private fun SavedTile(
+    piece: SavedPiece,
+    picture: ImageBitmap?,
+    size: Dp,
+    locked: Map<String, String>,
+    onPick: (String) -> Unit,
+    onDelete: (String) -> Unit,
+) {
+    var asking by remember { mutableStateOf(false) }
+    if (asking) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { asking = false },
+            title = { Text("Delete ${piece.name}?") },
+            text = { Text("It's gone for good. Craft built with it keep it.") },
+            confirmButton = { androidx.compose.material3.TextButton(onClick = { asking = false; onDelete(piece.file) }) { Text("Delete") } },
+            dismissButton = { androidx.compose.material3.TextButton(onClick = { asking = false }) { Text("Keep") } },
+        )
+    }
+    val usable = piece.partIds.none { it in locked }
+    Column(
+        Modifier
+            .width(size)
+            .clip(RoundedCornerShape(Dimens.CornerTight))
+            .background(Color.White.alpha(ApogeeAlpha.FILL_FAINT))
+            .combinedClickable(onClick = { onPick(piece.file) }, onLongClick = { asking = true })
+            .padding(4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Box(Modifier.size(size - 16.dp), contentAlignment = Alignment.Center) {
+            if (picture != null) {
+                Image(picture, contentDescription = null, modifier = Modifier.size(size - 16.dp).alpha(if (usable) 1f else 0.3f))
+            } else {
+                Icon(Icons.Filled.Bookmark, contentDescription = null, tint = Color.White.alpha(ApogeeAlpha.BORDER))
+            }
+            if (!usable) Icon(Icons.Filled.Lock, contentDescription = "Locked", tint = Color.White.alpha(ApogeeAlpha.SECONDARY), modifier = Modifier.size(18.dp))
+        }
+        Text(
+            piece.name,
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 11.sp),
+            color = if (usable) Color.White else Color.White.alpha(ApogeeAlpha.SUBTITLE),
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
+        )
+        Text(
+            if (piece.partIds.size == 1) "1 part" else "${piece.partIds.size} parts",
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 10.sp),
+            color = Color.White.alpha(ApogeeAlpha.SUBTITLE),
+            maxLines = 1,
+        )
+    }
+}
+
 /** A part the career hasn't unlocked yet. It's there to see what's coming, not to build with. */
 @Composable
 private fun LockedTile(def: PartDef, picture: ImageBitmap?, size: Dp, onLocked: (String) -> Unit) {
@@ -344,4 +427,5 @@ fun iconFor(tab: PartTab): ImageVector = when (tab) {
     PartTab.UTILITY -> Icons.Filled.Hub
     PartTab.BASE -> Icons.Filled.Home
     PartTab.BUILDINGS -> Icons.Filled.Domain
+    PartTab.SAVED -> Icons.Filled.Bookmark
 }

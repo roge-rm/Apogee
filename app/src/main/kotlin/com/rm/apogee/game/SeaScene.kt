@@ -4,24 +4,29 @@ import com.rm.apogee.core.math.Vec3
 import com.rm.apogee.core.orbit.CelestialBody
 import com.rm.apogee.core.sea.Sea
 import com.rm.apogee.core.sea.SeaSample
+import com.rm.apogee.core.terrain.CubeSphere
 import com.rm.apogee.core.weather.Weather
 import com.rm.apogee.core.weather.WeatherConfig
 import com.rm.apogee.render.QualityTier
 import com.rm.apogee.render.SeaSurface
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
-import kotlin.math.cos
-import kotlin.math.sin
 
 /**
- * The sea to draw, sampled from the same [Sea] the physics floats boats on, around the craft being
- * flown, on a worker.
+ * The sea to draw, sampled from the same [Sea] the physics floats boats on, around the camera, on a
+ * worker.
  *
- * It's laid out as rings around the craft, with vertices a few tens of centimetres apart at its
- * hull, growing outward in step with how far apart they are around each ring, out to [reach]. It's
- * centred on the craft, so the water is finest exactly where a hull meets it, and moves with it
- * instead of crawling past. Waves too short to show at a ring's spacing are left out there, because
- * they'd only alias.
+ * It's laid out on the ground, not around the craft: square grids nested one inside the other, each
+ * twice as coarse as the one inside it, finest around the camera and coarsest out at [reach]. Every
+ * vertex sits on a fixed point of the planet (a lattice in the same cube-face coordinates the
+ * terrain uses), and each grid only moves by whole cells of the one outside it, so the facets stay
+ * where they are on the water as the camera flies over. There's no centre to it. It used to be
+ * rings around the craft, and the rings (and from high up, the fan they collapsed into) showed as
+ * a pattern that followed it wherever it went.
+ *
+ * Where two grids meet, the finer one's edge takes its points from the coarser one, so they join
+ * without a crack. Waves too short to show at a grid's spacing are left out there, because they'd
+ * only alias. From high up, the finest grids aren't drawn at all.
  */
 class SeaScene(
     val body: CelestialBody,
@@ -50,27 +55,60 @@ class SeaScene(
         QualityTier.HIGH -> 20_000.0
     }
 
-    /** Vertices around each ring. */
-    private val segments = when (tier) {
-        QualityTier.LOW -> 48
-        QualityTier.MEDIUM -> 72
-        QualityTier.HIGH -> 96
+    /** Cells along each side of a grid. A multiple of four, so each grid sits on the next one's lines. */
+    private val cells = when (tier) {
+        QualityTier.LOW -> 24
+        QualityTier.MEDIUM -> 32
+        QualityTier.HIGH -> 40
     }
+    private val side = cells + 1
+    private val perLevel = side * side
+
+    /** The finest grid's spacing, in metres. */
+    private val finest = if (tier == QualityTier.LOW) 1.0 else 0.5
 
     /**
-     * Ring radii, in metres, from the innermost out past [reach], each a step bigger in proportion.
+     * How many grids, finest to coarsest, it takes to reach [reach], with room to spare: toward a
+     * face's corners the lattice is up to a third finer than at its middle.
      */
-    private val radii: DoubleArray = run {
-        val grow = 1.0 + 2.0 * Math.PI / segments
-        val list = ArrayList<Double>()
-        var r = INNERMOST
-        while (r < reach * 1.05) { list.add(r); r *= grow }
-        list.add(r)
-        list.toDoubleArray()
+    private val levels: Int = run {
+        var k = 0
+        while (cells / 2 * finest * (1 shl k) < reach * REACH_MARGIN) k++
+        k + 1
     }
 
-    private val layout = segments * 10_000 + radii.size
-    private val indices: IntArray = buildIndices()
+    /** Grid [level]'s spacing, in metres, near the middle of a cube face. */
+    private fun spacing(level: Int): Double = finest * (1 shl level)
+
+    /** Grid [level]'s spacing in face coordinates, which run a quarter turn from middle to edge. */
+    private fun step(level: Int): Double = spacing(level) / (body.radius * Math.PI / 4.0)
+
+    /** Unit [out] for lattice point ([gi], [gj]) at [step] apart on the face. */
+    private fun point(gi: Int, gj: Int, step: Double, out: Vec3): Vec3 =
+        out.setTo(faceAxis).addScaledInPlace(faceU, CubeSphere.warp(gi * step)).addScaledInPlace(faceV, CubeSphere.warp(gj * step))
+            .normalizeInPlace()
+
+    /**
+     * Which cube face the grids are laid out on, and its axes: [faceAxis] out through its middle,
+     * [faceU] and [faceV] across it. It only changes when the camera is well over the edge of it.
+     */
+    @Volatile private var face = -1
+    private val faceAxis = Vec3()
+    private val faceU = Vec3()
+    private val faceV = Vec3()
+
+    /**
+     * What the sea is like at each lattice point (depth, tide, how big each wave train is there),
+     * kept from build to build, per grid. It changes over tens of metres and seconds, whereas the
+     * waves change every frame, so it's only worked out again once it's old. The points are fixed
+     * on the ground, so they're kept by where they are, in a small wrap-around table per grid.
+     * See [Sea.Prepared].
+     */
+    private val table = side + 4
+    private val prepared = Array(levels) { arrayOfNulls<Sea.Prepared>(table * table) }
+    private val preparedI = Array(levels) { IntArray(table * table) }
+    private val preparedJ = Array(levels) { IntArray(table * table) }
+    private val preparedTime = Array(levels) { DoubleArray(table * table) { Double.NaN } }
 
     @Volatile var latest: SeaSurface? = null
         private set
@@ -85,22 +123,6 @@ class SeaScene(
     @Volatile var lastBuildMillis = 0.0
         private set
     private var lastStartedNanos = 0L
-
-    /**
-     * What the sea is like at each vertex (depth, tide, how big each wave train is there), kept
-     * from build to build. It changes over tens of metres and seconds, whereas the waves change
-     * every frame. Each vertex's is worked out again when it has moved a good part of its spacing,
-     * or has got old. See [Sea.Prepared].
-     */
-    private val prepared = arrayOfNulls<Sea.Prepared>(1 + radii.size * segments)
-    private val preparedAt = DoubleArray(3 * (1 + radii.size * segments))
-    private val preparedTime = DoubleArray(1 + radii.size * segments) { Double.NaN }
-
-    /**
-     * How far a vertex can move before it's prepared again, in metres. See [REPREPARE_METRES]. For
-     * this build.
-     */
-    @Volatile private var reprepareMetres = REPREPARE_METRES
 
     /**
      * Asks for the sea around body-fixed [centre] at [time], if one isn't already being built. It's
@@ -153,28 +175,31 @@ class SeaScene(
         val direction = Vec3()
 
         /**
-         * Vertex [index] into [out]. Past [deadline] (ns), one that isn't [near] isn't prepared any
-         * more. It keeps what it was last prepared with, if that was close by, or it's drawn as
-         * flat water at [tide].
+         * Lattice point ([gi], [gj]) of grid [level] into vertex [index] of [out]. Past [deadline]
+         * (ns), one that isn't [near] isn't prepared any more. It keeps what it was last prepared
+         * with, if it has been, or it's drawn as flat water at [tide].
          */
         fun vertex(
-            out: FloatArray, index: Int, origin: Vec3, e: Vec3, n: Vec3, x: Double, y: Double, spacing: Double, time: Double,
+            out: FloatArray, index: Int, origin: Vec3, level: Int, gi: Int, gj: Int, time: Double,
             near: Boolean = true, deadline: Long = 0L, tide: Double = 0.0,
         ) {
-            direction.setTo(origin).addScaledInPlace(e, x).addScaledInPlace(n, y).normalizeInPlace()
-            val p = prepared[index] ?: Sea.Prepared().also { prepared[index] = it }
-            val o3 = index * 3
-            val dx = direction.x - preparedAt[o3]; val dy = direction.y - preparedAt[o3 + 1]; val dz = direction.z - preparedAt[o3 + 2]
-            val moved = kotlin.math.sqrt(dx * dx + dy * dy + dz * dz) * body.radius
-            val age = time - preparedTime[index]
+            val spacing = spacing(level)
+            val h = step(level)
+            point(gi, gj, h, direction)
+            val slot = Math.floorMod(gi, table) * table + Math.floorMod(gj, table)
+            val cache = prepared[level]
+            val p = cache[slot] ?: Sea.Prepared().also { cache[slot] = it }
+            val times = preparedTime[level]
+            val mine = preparedI[level][slot] == gi && preparedJ[level][slot] == gj && !times[slot].isNaN()
+            val age = time - times[slot]
             // Staggered, so the refreshes don't all fall in one build.
-            val stale = REPREPARE_SECONDS * (1.0 + 0.5 * ((index * 0x9E3779B1L).toInt() ushr 24) / 255.0)
-            if (!(age in 0.0..stale) || moved > kotlin.math.max(REPREPARE_SHARE * spacing, reprepareMetres)) {
+            val stale = REPREPARE_SECONDS * (1.0 + 0.5 * ((slot * 0x9E3779B1L).toInt() ushr 24) / 255.0)
+            if (!mine || age !in 0.0..stale) {
                 if (near || System.nanoTime() < deadline) {
                     sea.prepare(direction, time, spacing, p)
-                    preparedAt[o3] = direction.x; preparedAt[o3 + 1] = direction.y; preparedAt[o3 + 2] = direction.z
-                    preparedTime[index] = time
-                } else if (preparedTime[index].isNaN() || moved > kotlin.math.max(KEEP_SPACINGS * spacing, KEEP_METRES)) {
+                    preparedI[level][slot] = gi; preparedJ[level][slot] = gj
+                    times[slot] = time
+                } else if (!mine) {
                     flat(out, index, origin, tide)
                     return
                 }
@@ -199,106 +224,234 @@ class SeaScene(
 
         /** Vertex [index] at [direction] as open water, flat at [tide], until there's time to work it out. */
         private fun flat(out: FloatArray, index: Int, origin: Vec3, tide: Double) {
-            val radius = body.radius + tide
-            val o = index * SeaSurface.STRIDE
-            out[o] = (direction.x * radius - origin.x).toFloat()
-            out[o + 1] = (direction.y * radius - origin.y).toFloat()
-            out[o + 2] = (direction.z * radius - origin.z).toFloat()
-            out[o + 3] = direction.x.toFloat(); out[o + 4] = direction.y.toFloat(); out[o + 5] = direction.z.toFloat()
-            out[o + 6] = DEEP_R.toFloat(); out[o + 7] = DEEP_G.toFloat(); out[o + 8] = DEEP_B.toFloat(); out[o + 9] = DEEP_ALPHA
-            out[o + 10] = 0f
+            flatVertex(out, index, direction, origin, body.radius + tide)
         }
     }
 
+    /** Vertex [index] at unit [direction] as deep open water, flat at [radius] from the centre. */
+    private fun flatVertex(out: FloatArray, index: Int, direction: Vec3, origin: Vec3, radius: Double) {
+        val o = index * SeaSurface.STRIDE
+        out[o] = (direction.x * radius - origin.x).toFloat()
+        out[o + 1] = (direction.y * radius - origin.y).toFloat()
+        out[o + 2] = (direction.z * radius - origin.z).toFloat()
+        out[o + 3] = direction.x.toFloat(); out[o + 4] = direction.y.toFloat(); out[o + 5] = direction.z.toFloat()
+        out[o + 6] = DEEP_R.toFloat(); out[o + 7] = DEEP_G.toFloat(); out[o + 8] = DEEP_B.toFloat(); out[o + 9] = DEEP_ALPHA
+        out[o + 10] = 0f
+    }
+
+    /**
+     * The grids for a build: which is the finest drawn, where each one's middle is (as a lattice
+     * index, always even, so it sits on the next one's lines), and the point the vertices are
+     * measured from.
+     */
+    private inner class Layout(centre: Vec3) {
+        val first: Int
+        val middleI = IntArray(levels)
+        val middleJ = IntArray(levels)
+        val origin: Vec3
+
+        init {
+            val up = centre.copy().normalizeInPlace()
+            chooseFace(up)
+            val along = up dot faceAxis
+            val u = CubeSphere.unwarp((up dot faceU) / along)
+            val v = CubeSphere.unwarp((up dot faceV) / along)
+            // Seen from well above, the finest grids are finer than anything you can make out, and
+            // cost the most to keep up with a fast camera, so they're left out.
+            val height = kotlin.math.max(0.0, centre.length - body.radius)
+            var k = 0
+            while (k < levels - 1 && spacing(k) < height * FINEST_SHARE) k++
+            first = k
+            for (level in 0 until levels) {
+                val h = step(level)
+                middleI[level] = 2 * Math.round(u / (2.0 * h)).toInt()
+                middleJ[level] = 2 * Math.round(v / (2.0 * h)).toInt()
+            }
+            val top = levels - 1
+            val h = step(top)
+            origin = point(middleI[top], middleJ[top], h, Vec3()).mulInPlace(body.radius)
+        }
+
+        /** Grid [level]'s first lattice index across and up. */
+        fun startI(level: Int) = middleI[level] - cells / 2
+        fun startJ(level: Int) = middleJ[level] - cells / 2
+
+        /** Grid [level]'s hole (where the grid inside it is), as its first cell across and up; -1 for the finest. */
+        fun holeI(level: Int) = if (level <= first) -1 else startI(level - 1) / 2 - startI(level)
+        fun holeJ(level: Int) = if (level <= first) -1 else startJ(level - 1) / 2 - startJ(level)
+
+        /** Where vertex (i, j) of grid [level] is in the arrays. */
+        fun index(level: Int, i: Int, j: Int) = (level - first) * perLevel + j * side + i
+
+        val count: Int get() = (levels - first) * perLevel
+
+        /** Whether cell (i, j) of grid [level] is drawn: not in the hole the grid inside fills. */
+        fun drawn(level: Int, i: Int, j: Int): Boolean {
+            if (level <= first) return true
+            val hi = holeI(level); val hj = holeJ(level)
+            return !(i >= hi && i < hi + cells / 2 && j >= hj && j < hj + cells / 2)
+        }
+
+        /** Whether vertex (i, j) of grid [level] is used by a drawn cell. */
+        fun used(level: Int, i: Int, j: Int): Boolean {
+            if (level <= first) return true
+            val hi = holeI(level); val hj = holeJ(level)
+            return !(i > hi && i < hi + cells / 2 && j > hj && j < hj + cells / 2)
+        }
+
+        /** Whether vertex (i, j) of grid [level] is on its edge, taken from the grid outside it. */
+        fun edge(level: Int, i: Int, j: Int) = level < levels - 1 && (i == 0 || j == 0 || i == cells || j == cells)
+
+        fun indices(): IntArray {
+            val list = ArrayList<Int>()
+            for (level in first until levels) {
+                for (j in 0 until cells) for (i in 0 until cells) {
+                    if (!drawn(level, i, j)) continue
+                    val a = index(level, i, j); val b = index(level, i + 1, j)
+                    val c = index(level, i, j + 1); val d = index(level, i + 1, j + 1)
+                    // Counterclockwise seen from above: U, then V.
+                    list.add(a); list.add(b); list.add(c)
+                    list.add(b); list.add(d); list.add(c)
+                }
+            }
+            return list.toIntArray()
+        }
+
+        /** Which grids are drawn and where their holes are: when it changes, the triangles do. */
+        val shape: List<Int> get() = buildList {
+            add(first)
+            for (level in first + 1 until levels) { add(holeI(level)); add(holeJ(level)) }
+        }
+    }
+
+    /** The triangles for the last shape of grids, and its number for [SeaSurface.layout]. */
+    private var lastShape: List<Int>? = null
+    private var lastIndices = IntArray(0)
+    private var lastLayout = 0
+
+    /** [layout]'s triangles and their layout number, made again only when the shape changes. */
+    @Synchronized
+    private fun triangles(layout: Layout): Pair<IntArray, Int> {
+        val shape = layout.shape
+        if (shape != lastShape) {
+            lastShape = shape
+            lastIndices = layout.indices()
+            lastLayout++
+        }
+        return lastIndices to lastLayout
+    }
+
+    /**
+     * Picks the cube face to lay the grids on for a camera over unit [up]. It keeps the one it has
+     * until the camera is well past its edge, so the grids don't jump from face to face along it.
+     */
+    private fun chooseFace(up: Vec3) {
+        if (face >= 0) {
+            val along = up dot faceAxis
+            if (along > 0.3 && kotlin.math.abs((up dot faceU) / along) < FACE_KEEP && kotlin.math.abs((up dot faceV) / along) < FACE_KEEP) return
+        }
+        val ax = kotlin.math.abs(up.x); val ay = kotlin.math.abs(up.y); val az = kotlin.math.abs(up.z)
+        face = when {
+            ax >= ay && ax >= az -> if (up.x > 0) 0 else 1
+            ay >= az -> if (up.y > 0) 2 else 3
+            else -> if (up.z > 0) 4 else 5
+        }
+        when (face) {
+            0 -> faceAxis.setTo(1.0, 0.0, 0.0); 1 -> faceAxis.setTo(-1.0, 0.0, 0.0)
+            2 -> faceAxis.setTo(0.0, 1.0, 0.0); 3 -> faceAxis.setTo(0.0, -1.0, 0.0)
+            4 -> faceAxis.setTo(0.0, 0.0, 1.0); else -> faceAxis.setTo(0.0, 0.0, -1.0)
+        }
+        if (face == 2 || face == 3) faceU.setTo(1.0, 0.0, 0.0).crossInPlace(faceAxis).normalizeInPlace()
+        else faceU.setTo(0.0, 1.0, 0.0).crossInPlace(faceAxis).normalizeInPlace()
+        faceV.setTo(faceAxis).crossInPlace(faceU)
+        // A new face: nothing kept is where it was.
+        for (times in preparedTime) times.fill(Double.NaN)
+    }
+
     private suspend fun build(scope: kotlinx.coroutines.CoroutineScope, centre: Vec3, time: Double): SeaSurface {
-        val up = centre.copy().normalizeInPlace()
-        val origin = up.copy().mulInPlace(body.radius)
-        // East and north on the ground here, for laying the rings out.
-        val e = Vec3(0.0, 1.0, 0.0).crossInPlace(up)
-        if (e.lengthSq < 1e-9) e.setTo(1.0, 0.0, 0.0).crossInPlace(up)
-        e.normalizeInPlace()
-        val n = Vec3().setTo(up).crossInPlace(e).normalizeInPlace()
-        val count = 1 + radii.size * segments
-        val vertices = FloatArray(count * SeaSurface.STRIDE)
-        // Seen from well above, the finest rings around the middle are finer than anything you can
-        // make out, and they cost the most to keep up with a fast camera. So inside a radius that
-        // grows with the height, the rings collapse onto the middle and get drawn as one fan out to
-        // the first ring kept.
-        val height = kotlin.math.max(0.0, centre.length - body.radius)
-        val collapse = height * COLLAPSE_SHARE
-        var kept = 0
-        while (kept < radii.size - 1 && radii[kept] < collapse) kept++
-        reprepareMetres = kotlin.math.max(REPREPARE_METRES, height * REPREPARE_HEIGHT_SHARE)
-        builders[0].vertex(vertices, 0, origin, e, n, 0.0, 0.0, 0.05, time)
+        val layout = Layout(centre)
+        val origin = layout.origin
+        val vertices = FloatArray(layout.count * SeaSurface.STRIDE)
+        val cameraUp = centre.copy().normalizeInPlace()
+        builders[0].let { b ->
+            b.sea.prepare(cameraUp, time, spacing(layout.first), Sea.Prepared()).let { p -> b.sea.surface(cameraUp, time, p, b.sample, spacing(layout.first)) }
+        }
         val tide = builders[0].sample.tide
         // Somewhere new (the first build, or flying fast over fresh sea), the sea state out there
-        // takes seconds to work out while the terrain is being built too. The water near the craft
+        // takes seconds to work out while the terrain is being built too. The water near the camera
         // is always worked out. Further off, it's only worked out for so long, and the rest gets
         // filled in by the builds that follow, drawn as flat water in the meantime.
         val deadline = System.nanoTime() + OUTER_BUDGET_NANOS
-        val step = 2.0 * Math.PI / segments
-        // Rings are dealt out in turn, so each worker gets near and far alike.
+        // Rows are dealt out in turn, so each worker gets near and far alike.
+        val rows = ArrayList<Pair<Int, Int>>()
+        for (level in layout.first until levels) for (j in 0..cells) rows.add(level to j)
         val jobs = builders.mapIndexed { w, builder ->
             scope.async(BUILD) {
-                var ring = w
-                while (ring < radii.size) {
-                    if (ring < kept) {
-                        for (k in 0 until segments) System.arraycopy(vertices, 0, vertices, (1 + ring * segments + k) * SeaSurface.STRIDE, SeaSurface.STRIDE)
-                        ring += builders.size
-                        continue
+                var r = w
+                while (r < rows.size) {
+                    val (level, j) = rows[r]
+                    val si = layout.startI(level); val sj = layout.startJ(level)
+                    val h = spacing(level)
+                    for (i in 0..cells) {
+                        if (!layout.used(level, i, j) || layout.edge(level, i, j)) continue
+                        // How far from the camera, roughly, for what has to be worked out now.
+                        val di = (si + i - layout.middleI[layout.first]) * h
+                        val dj = (sj + j - layout.middleJ[layout.first]) * h
+                        val near = di * di + dj * dj <= NEAR_REACH * NEAR_REACH
+                        builder.vertex(vertices, layout.index(level, i, j), origin, level, si + i, sj + j, time, near, deadline, tide)
                     }
-                    val r = radii[ring]
-                    val spacing = r * step
-                    // Every other ring is turned half a step, so the triangles come out nearly
-                    // equilateral instead of as slivers.
-                    val turn = if (ring % 2 == 0) 0.0 else 0.5 * step
-                    var v = 1 + ring * segments
-                    for (k in 0 until segments) {
-                        val a = k * step + turn
-                        builder.vertex(vertices, v, origin, e, n, r * cos(a), r * sin(a), spacing, time, r <= NEAR_REACH, deadline, tide)
-                        v++
-                    }
-                    ring += builders.size
+                    r += builders.size
                 }
             }
         }
         jobs.forEach { it.await() }
-        return SeaSurface(origin, vertices, count, indices, layout, time)
+        // Each grid's edge from the grid outside it: on its points exactly, and halfway between
+        // them where the finer grid has a point the coarser one doesn't. That way they meet with
+        // no crack.
+        for (level in layout.first until levels - 1) {
+            val si = layout.startI(level); val sj = layout.startJ(level)
+            val ci = layout.startI(level + 1); val cj = layout.startJ(level + 1)
+            for (j in 0..cells) for (i in 0..cells) {
+                if (!layout.edge(level, i, j)) continue
+                val gi = si + i; val gj = sj + j
+                val i0 = Math.floorDiv(gi, 2) - ci; val j0 = Math.floorDiv(gj, 2) - cj
+                val i1 = if (gi % 2 != 0) i0 + 1 else i0
+                val j1 = if (gj % 2 != 0) j0 + 1 else j0
+                blend(vertices, layout.index(level, i, j), layout.index(level + 1, i0, j0), layout.index(level + 1, i1, j1))
+            }
+        }
+        val (indices, number) = triangles(layout)
+        return SeaSurface(origin, vertices, layout.count, indices, number, time)
+    }
+
+    /** Vertex [into] as the average of vertices [a] and [b] (which can be the same). */
+    private fun blend(vertices: FloatArray, into: Int, a: Int, b: Int) {
+        val o = into * SeaSurface.STRIDE; val pa = a * SeaSurface.STRIDE; val pb = b * SeaSurface.STRIDE
+        for (n in 0 until SeaSurface.STRIDE) vertices[o + n] = 0.5f * (vertices[pa + n] + vertices[pb + n])
+        // Up stays unit length.
+        val x = vertices[o + 3]; val y = vertices[o + 4]; val z = vertices[o + 5]
+        val l = kotlin.math.sqrt(x * x + y * y + z * z).coerceAtLeast(1e-6f)
+        vertices[o + 3] = x / l; vertices[o + 4] = y / l; vertices[o + 5] = z / l
     }
 
     /**
-     * The rings laid flat at the datum in deep water's colour, around body-fixed [centre]. No sea
+     * The grids laid flat at the datum in deep water's colour, around body-fixed [centre]. No sea
      * is worked out at all, so it's quick enough for the frame thread. It's only used until the
      * first build lands.
      */
     private fun placeholder(centre: Vec3, time: Double): SeaSurface {
-        val up = centre.copy().normalizeInPlace()
-        val origin = up.copy().mulInPlace(body.radius)
-        val e = Vec3(0.0, 1.0, 0.0).crossInPlace(up)
-        if (e.lengthSq < 1e-9) e.setTo(1.0, 0.0, 0.0).crossInPlace(up)
-        e.normalizeInPlace()
-        val n = Vec3().setTo(up).crossInPlace(e).normalizeInPlace()
-        val count = 1 + radii.size * segments
-        val vertices = FloatArray(count * SeaSurface.STRIDE)
+        val layout = Layout(centre)
+        val vertices = FloatArray(layout.count * SeaSurface.STRIDE)
         val d = Vec3()
-        val step = 2.0 * Math.PI / segments
-        for (v in 0 until count) {
-            if (v == 0) {
-                d.setTo(up)
-            } else {
-                val ring = (v - 1) / segments
-                val a = ((v - 1) % segments) * step + if (ring % 2 == 0) 0.0 else 0.5 * step
-                d.setTo(origin).addScaledInPlace(e, radii[ring] * cos(a)).addScaledInPlace(n, radii[ring] * sin(a)).normalizeInPlace()
+        for (level in layout.first until levels) {
+            val h = step(level)
+            for (j in 0..cells) for (i in 0..cells) {
+                point(layout.startI(level) + i, layout.startJ(level) + j, h, d)
+                flatVertex(vertices, layout.index(level, i, j), d, layout.origin, body.radius)
             }
-            val o = v * SeaSurface.STRIDE
-            vertices[o] = (d.x * body.radius - origin.x).toFloat()
-            vertices[o + 1] = (d.y * body.radius - origin.y).toFloat()
-            vertices[o + 2] = (d.z * body.radius - origin.z).toFloat()
-            vertices[o + 3] = d.x.toFloat(); vertices[o + 4] = d.y.toFloat(); vertices[o + 5] = d.z.toFloat()
-            vertices[o + 6] = DEEP_R.toFloat(); vertices[o + 7] = DEEP_G.toFloat(); vertices[o + 8] = DEEP_B.toFloat(); vertices[o + 9] = DEEP_ALPHA
-            vertices[o + 10] = 0f
         }
-        return SeaSurface(origin, vertices, count, indices, layout, time)
+        val (indices, number) = triangles(layout)
+        return SeaSurface(layout.origin, vertices, layout.count, indices, number, time)
     }
 
     /**
@@ -328,42 +481,23 @@ class SeaScene(
         val speckle = com.rm.apogee.core.terrain.Noise.hash(
             0xF0A, Math.floor(at.x * r0).toInt(), Math.floor(at.y * r0).toInt(), Math.floor(at.z * r0).toInt(),
         )
-        // Surf only where the rings are fine enough to draw it. Out where they're tens of metres
-        // apart it was a scatter of white facets along every shore.
-        val surf = if (depth in 0.0..1.2 && s.significantHeight > 0.2 && spacing < SURF_SPACING) 1.0 - depth / 1.2 else 0.0
-        val foam = kotlin.math.max(s.breaking, surf)
-        val white = if (foam > 0.05 && speckle < foam * 1.2) 1.0 else 0.0
-        r += (FOAM - r) * white; g += (FOAM - g) * white; b += (FOAM_B - b) * white
+        // Foam (surf, waves breaking in the shallows, whitecaps and storm crests) only where the
+        // grid is fine enough to draw it, fading out as the facets get coarser. Out where they're
+        // tens of metres apart, each white facet was a big grey diamond, and a shore wore a solid
+        // band of them with a staircase edge. Out there it's only a paler tint.
+        val fine = 1.0 - smooth(SURF_SPACING, SURF_SPACING * 2.5, spacing)
+        val surf = if (depth in 0.0..1.2 && s.significantHeight > 0.2) 1.0 - depth / 1.2 else 0.0
+        val breaking = kotlin.math.max(s.breaking, surf)
+        val foam = breaking * fine
+        // Never a solid sheet: even where it's breaking hardest, some facets stay water.
+        val white = if (foam > 0.05 && speckle < foam * FOAM_COVER) 1.0 else 0.0
+        val tint = breaking * (1.0 - fine) * FAR_SURF_TINT
+        val lift = kotlin.math.max(white, tint)
+        r += (FOAM - r) * lift; g += (FOAM - g) * lift; b += (FOAM_B - b) * lift
         out[o] = r.toFloat(); out[o + 1] = g.toFloat(); out[o + 2] = b.toFloat()
         // See-through over the shallows, and solid where it's deep or foaming.
         val alpha = (0.35 + 0.57 * smooth(0.5, 20.0, depth)).coerceAtLeast(white)
         out[o + 3] = alpha.toFloat()
-    }
-
-    private fun buildIndices(): IntArray {
-        val list = IntArray(segments * 3 + (radii.size - 1) * segments * 6)
-        var n = 0
-        // The centre fan.
-        for (k in 0 until segments) {
-            list[n++] = 0; list[n++] = 1 + k; list[n++] = 1 + (k + 1) % segments
-        }
-        for (ring in 0 until radii.size - 1) {
-            val a = 1 + ring * segments
-            val b = a + segments
-            val odd = ring % 2 == 1
-            for (k in 0 until segments) {
-                val k1 = (k + 1) % segments
-                // Odd rings are turned half a step ahead of the even ones.
-                if (!odd) {
-                    list[n++] = a + k; list[n++] = b + k; list[n++] = a + k1
-                    list[n++] = a + k1; list[n++] = b + k; list[n++] = b + k1
-                } else {
-                    list[n++] = a + k; list[n++] = b + k; list[n++] = b + k1
-                    list[n++] = a + k; list[n++] = b + k1; list[n++] = a + k1
-                }
-            }
-        }
-        return list
     }
 
     private fun smooth(a: Double, b: Double, x: Double): Double {
@@ -384,30 +518,8 @@ class SeaScene(
         /** How long a build can spend working out the sea beyond [NEAR_REACH] afresh, in ns. */
         const val OUTER_BUDGET_NANOS = 200_000_000L
 
-        /**
-         * Past the budget, a vertex keeps what it was last prepared with unless it has moved more
-         * than this many of its spacings, or [KEEP_METRES], since then.
-         */
-        const val KEEP_SPACINGS = 2.0
-        const val KEEP_METRES = 1_000.0
-
         /** Builds no closer together than this, in ns: ten a second. */
         const val MIN_BUILD_NANOS = 100_000_000L
-
-        /**
-         * A vertex's [Sea.Prepared] is worked out again once it has moved this share of its spacing
-         * or [REPREPARE_METRES], whichever is more, or is this many seconds old (half as long
-         * again, staggered).
-         */
-        const val REPREPARE_SHARE = 0.25
-        const val REPREPARE_METRES = 10.0
-        const val REPREPARE_SECONDS = 3.0
-
-        /** Rings inside this share of the camera's height above the sea collapse onto the middle. */
-        const val COLLAPSE_SHARE = 0.1
-
-        /** High up, a vertex is only prepared again once it has moved this share of the camera's height. */
-        const val REPREPARE_HEIGHT_SHARE = 0.1
 
         /**
          * The sea's own threads, just below normal priority, instead of the shared pool. A build is
@@ -417,8 +529,23 @@ class SeaScene(
          */
         val BUILD = workerPool("sea-build", WORKERS)
 
-        /** The innermost ring, in metres from the centre. */
-        const val INNERMOST = 0.35
+        /**
+         * A grid's [Sea.Prepared] is worked out again once it's this many seconds old (half as long
+         * again, staggered).
+         */
+        const val REPREPARE_SECONDS = 3.0
+
+        /** How far past [reach] the coarsest grid goes, as a share of it. */
+        const val REACH_MARGIN = 1.5
+
+        /** The finest grid drawn is no finer than this share of the camera's height above the sea. */
+        const val FINEST_SHARE = 0.005
+
+        /**
+         * How far past its face's edge, in face coordinates (1 is the edge), the camera can go
+         * before the grids move to the next face.
+         */
+        const val FACE_KEEP = 1.15
 
         // Deep ocean, the middle depths, and turquoise shallows.
         const val DEEP_R = 0.03; const val DEEP_G = 0.20; const val DEEP_B = 0.42
@@ -429,14 +556,23 @@ class SeaScene(
         const val FOAM = 0.93; const val FOAM_B = 0.97
 
         /**
-         * Water over dry land is drawn this far under it, in metres, or this share of the rings'
+         * Water over dry land is drawn this far under it, in metres, or this share of the grid's
          * spacing if that's more.
          */
         const val DRY_SINK = 2.0
         const val DRY_SINK_SHARE = 0.03
 
-        /** Surf is only drawn where the rings are closer together than this, in metres. */
+        /**
+         * Surf is drawn fully where the grid is finer than this, in metres, and fades out by two
+         * and a half times it.
+         */
         const val SURF_SPACING = 25.0
+
+        /** The most of the facets foam covers where it's breaking hardest. */
+        const val FOAM_COVER = 0.75
+
+        /** How much paler surf too far off to draw makes the water. */
+        const val FAR_SURF_TINT = 0.18
 
         /** Foam patches per metre, as the grain its speckle is hashed on. */
         const val FOAM_GRAIN = 0.35

@@ -202,6 +202,13 @@ class Program(val tree: TechTree = TechTree.stock) {
         if (suit && !home && down) award(world, vessel, Feat.MOONWALK)
 
         // How far it went, and how: flown, driven or sailed.
+        // Sailing: the sail drawing and no engine running. Any engine starts the count again.
+        if (wet) {
+            val engine = vessel.engineOutput.any { it > 0.0 }
+            if (engine) log.underSail = 0.0
+            else if (vessel.sailFill.any { it > 0.0 }) log.underSail += speed * dt
+            if (log.underSail >= UNDER_SAIL) award(world, vessel, Feat.UNDER_SAIL, log.underSail / 1000.0)
+        }
         when {
             wet -> log.sailed += speed * dt
             down && hasWheels(vessel) && upright(vessel, attractor) -> log.driven += speed * dt
@@ -491,6 +498,7 @@ class Program(val tree: TechTree = TechTree.stock) {
         const val OFF_WORLD_DRIVE = 2_000.0
         const val ALIEN_SAIL = 100.0
         const val SEAWORTHY = 5_000.0
+        const val UNDER_SAIL = 1_000.0
         const val LONG_HAUL = 100_000.0
         const val HARBOUR_REACH = 400.0
 

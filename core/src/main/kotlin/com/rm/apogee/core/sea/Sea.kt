@@ -217,6 +217,50 @@ class Sea(
         shelterAt(d, out, fine = false)
     }
 
+    /**
+     * The currents, on a world with ground and a sea. Terra's run at full strength, and any other
+     * world's (Aurantia's methane) much weaker. See [Currents].
+     */
+    private val currents: Currents? = if (terrain == null) null else Currents(
+        body,
+        if (body.id == "terra") 1.0 else OTHER_CURRENTS,
+        this.seed,
+        { d, out ->
+            coarseShelter.sample(d, 0.0, shelterSample)
+            coarseDepth.sample(d, 0.0, bedSample)
+            out[0] = shelterSample[0]
+            out[1] = -bedSample[0]
+        },
+        { d ->
+            coarseDepth.sample(d, 0.0, roughBed)
+            -roughBed[0]
+        },
+        calmPlaces(body),
+    )
+    private val roughBed = DoubleArray(1)
+    private val shelterSample = DoubleArray(SHELTER_SIZE)
+    private val bedSample = DoubleArray(1)
+    private val currentPoint = Vec3()
+
+    /**
+     * The current at body-fixed [position] (metres from the centre), [below] metres under the
+     * surface, in m/s along the ground, body-fixed, into [out]. Zero on a world without them, and in
+     * calm water.
+     */
+    fun current(position: Vec3, below: Double, out: Vec3): Vec3 {
+        val c = currents ?: return out.setZero()
+        return c.velocity(currentPoint.setTo(position).normalizeInPlace(), below, out)
+    }
+
+    /**
+     * The current at the surface at body-fixed [position], roughly, for a map of the whole world:
+     * see [Currents.velocity]. Much quicker, and the same out in the open sea.
+     */
+    fun roughCurrent(position: Vec3, out: Vec3): Vec3 {
+        val c = currents ?: return out.setZero()
+        return c.velocity(currentPoint.setTo(position).normalizeInPlace(), 0.0, out, rough = true)
+    }
+
     private val rayPoint = Vec3()
     private val rayEast = Vec3()
     private val rayNorth = Vec3()
@@ -702,7 +746,29 @@ class Sea(
         return t * t * (3.0 - 2.0 * t)
     }
 
+    private fun calmPlaces(body: CelestialBody): List<Pair<Vec3, Double>> {
+        val places = ArrayList<Pair<Vec3, Double>>()
+        // Every launch site at sea: the harbour's berth, and the test sites out over the deep.
+        for (site in com.rm.apogee.core.world.World.launchSites) {
+            if (site.bodyId != body.id) continue
+            val d = com.rm.apogee.core.orbit.SolarSystem.surfaceDirection(site.latitude, site.longitude)
+            if ((terrain?.elevation(d) ?: 0.0) < 0.0) places.add(d to CALM_SITE)
+        }
+        // And every named place under the sea.
+        for (wonder in com.rm.apogee.core.world.SeaWonders.all) {
+            if (wonder.bodyId == body.id) places.add(wonder.direction.copy() to CALM_WONDER)
+        }
+        return places
+    }
+
     companion object {
+        /** How strong another world's currents are, as a share of Terra's. */
+        const val OTHER_CURRENTS = 0.3
+
+        /** How far around a launch site at sea, and a named place, the water's kept calm, in metres. */
+        const val CALM_SITE = 2_500.0
+        const val CALM_WONDER = 1_200.0
+
         /**
          * Wave trains: [BANDS] wavelengths from [SHORTEST] to [LONGEST] m, with [DIRECTIONS] of
          * each.

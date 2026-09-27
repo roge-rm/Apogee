@@ -9,6 +9,7 @@ import com.rm.apogee.core.part.AeroSurface
 import com.rm.apogee.core.part.Engine
 import com.rm.apogee.core.part.Parachute
 import com.rm.apogee.core.part.Rcs
+import com.rm.apogee.core.part.Sail
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.sqrt
@@ -463,9 +464,9 @@ class Forces {
 
         // The wind, in the world's frame. The air moves with the ground, and on top of that with
         // the weather.
-        val windy = weather != null && bodyRotation != null
+        val windy = bodyRotation != null && air.wind.lengthSq > 0.0
         if (windy) bodyRotation!!.rotate(air.wind, scratchWind) else scratchWind.setZero()
-        val gusty = windy && air.turbulence > 0.0
+        val gusty = windy && weather != null && air.turbulence > 0.0
 
         attractor.surfaceVelocityAt(vessel.body.position, scratchSurface)
         scratchSurface.addInPlace(scratchWind)
@@ -499,7 +500,7 @@ class Forces {
         var high = -Double.MAX_VALUE
         for (i in vessel.defs.indices) {
             val def = vessel.defs[i]
-            if (def.module<AeroSurface>() != null || enclosed.getOrElse(i) { false }) continue
+            if (def.module<AeroSurface>() != null || def.module<Sail>() != null || enclosed.getOrElse(i) { false }) continue
             val extents = def.boundsHalfExtents
             maxRadius = maxOf(maxRadius, extents.x, extents.z)
             bodySum += def.referenceArea * def.dragCoefficient
@@ -542,6 +543,12 @@ class Forces {
             }
             val localSpeed = scratchLocalVelocity.length
             if (localSpeed < 1e-6) continue
+
+            // A sail makes its own lift and drag.
+            def.module<Sail>()?.let { sail ->
+                sail(vessel, i, sail, density)
+                continue
+            }
 
             // A surface that has failed makes no lift. It just hangs there as drag.
             val surface = def.module<AeroSurface>()?.takeIf { !vessel.isBroken(i) }
@@ -643,12 +650,14 @@ class Forces {
                     vessel.recordForce(i, scratchForce)
                 }
 
+                val flapForce = flaps(vessel, i, surface, density)
+
                 val controlForce = if (surface.controllable) {
                     deflect(vessel, i, surface, density, localSpeed)
                 } else 0.0
 
                 // How hard it's working, for the stress pass to report.
-                val airLoad = abs(normalForce) + abs(controlForce)
+                val airLoad = abs(normalForce) + abs(controlForce) + flapForce
                 if (i < vessel.surfaceLoad.size) vessel.surfaceLoad[i] = (airLoad / surface.loadLimit).toFloat()
                 // Past what it was built for, like a gust at speed or a hard pull in rough air, it
                 // snaps off, and the world tears it away.
@@ -660,6 +669,136 @@ class Forces {
             }
         }
     }
+
+    /**
+     * Flaps down on part [partIndex]: the extra lift they give, square to the airflow on the side the
+     * sky is on, and the extra drag. It returns the lift, for the surface's load.
+     *
+     * The flat-plate lift above only comes from the angle of attack. Flaps add camber, which lifts
+     * even with the wing flying straight into the airflow, so a plane can hold itself up at a
+     * slower speed and a lower nose, and land shorter. They cost drag while they do it.
+     * [scratchLocalVelocity] is the part's airflow, as the drag pass left it.
+     */
+    private fun flaps(vessel: Vessel, partIndex: Int, surface: AeroSurface, density: Double): Double {
+        val out = vessel.flapPosition.getOrElse(partIndex) { 0.0 }
+        if (out <= 0.0 || surface.flapLift <= 0.0) return 0.0
+        val speed = scratchLocalVelocity.length
+        if (speed < 1e-3) return 0.0
+        // The part's motion through the air, unit length.
+        scratchFlapFlow.setTo(scratchLocalVelocity).mulInPlace(1.0 / speed)
+        // Only the motion along the wing's chord counts (leading edge at +Y), and a wing flying
+        // backwards gets nothing.
+        vessel.design.parts[partIndex].rotation.rotate(Vec3.unitY(), scratchFlapChord)
+        vessel.body.orientation.rotate(scratchFlapChord, scratchFlapChord)
+        val along = scratchLocalVelocity dot scratchFlapChord
+        if (along <= 0.0) return 0.0
+        val pressure = 0.5 * density * along * along * surface.area * out
+        // The plate's normal, turned to the sky's side and made square to the airflow.
+        vessel.design.parts[partIndex].rotation.rotate(Vec3.unitZ(), scratchFlapLift)
+        vessel.body.orientation.rotate(scratchFlapLift, scratchFlapLift)
+        if ((scratchFlapLift dot vessel.body.position) < 0.0) scratchFlapLift.negateInPlace()
+        scratchFlapLift.addScaledInPlace(scratchFlapFlow, -(scratchFlapLift dot scratchFlapFlow))
+        val sideways = scratchFlapLift.length
+        if (sideways < 1e-6) return 0.0
+        scratchFlapLift.mulInPlace(1.0 / sideways)
+        val lift = pressure * surface.flapLift * sideways
+        scratchForce.setTo(scratchFlapLift).mulInPlace(lift)
+            .addScaledInPlace(scratchFlapFlow, -pressure * surface.flapDrag)
+        vessel.body.applyForceAtOffset(scratchForce, scratchOffset)
+        vessel.recordForce(partIndex, scratchForce)
+        return lift
+    }
+
+    /**
+     * The wind's push on sail [partIndex], trimmed to drive the boat as well as it can.
+     * [scratchLocalVelocity] is the part's motion through the air and [scratchOffset] its place on
+     * the craft, as the drag pass left them.
+     *
+     * It works in the horizontal plane. The wind comes from an angle off the bow, and the sail is
+     * swung out to leeward to meet it at [SAIL_ATTACK], as far as the sheet lets it ([SAIL_MOST_OUT]).
+     * The air pushes square to the sail, harder the more it's angled to the wind, up to a flat plate
+     * square to the flow, plus a little drag along it. Pointed closer to the wind than
+     * [SAIL_CLOSEST], it just flaps, and that's only drag.
+     */
+    private fun sail(vessel: Vessel, partIndex: Int, sail: Sail, density: Double) {
+        vessel.sailFill[partIndex] = 0.0
+        // A sail needs no staging: it's up whenever it's whole and the sheet is out.
+        val set = if (!vessel.isBroken(partIndex) && vessel.groupState(partIndex) >= 0) vessel.control.throttle.coerceIn(0.0, 1.0) else 0.0
+        // The sky's direction, and the wind across the deck in the horizontal plane.
+        scratchSailUp.setTo(vessel.body.position).normalizeInPlace()
+        scratchSailWind.setTo(scratchLocalVelocity).negateInPlace()
+        scratchSailWind.addScaledInPlace(scratchSailUp, -(scratchSailWind dot scratchSailUp))
+        val wind = scratchSailWind.length
+        // The boat's forward, flattened the same way.
+        vessel.body.orientation.rotate(vessel.design.orientation.forward, scratchSailForward)
+        scratchSailForward.addScaledInPlace(scratchSailUp, -(scratchSailForward dot scratchSailUp))
+        val forwardLength = scratchSailForward.length
+        if (wind < 0.2 || forwardLength < 1e-3) { settleSail(vessel, partIndex, 0.0); return }
+        scratchSailWind.mulInPlace(1.0 / wind)
+        scratchSailForward.mulInPlace(1.0 / forwardLength)
+        // How far off the bow the wind comes from: 0 dead ahead, pi dead astern.
+        val offBow = kotlin.math.acos((-(scratchSailWind dot scratchSailForward)).coerceIn(-1.0, 1.0))
+        // Leeward: the side the wind blows the sail out to. Dead ahead or astern, keep the side it
+        // was already on.
+        scratchSailLee.setTo(scratchSailWind).addScaledInPlace(scratchSailForward, -(scratchSailWind dot scratchSailForward))
+        if (scratchSailLee.length < 1e-3) {
+            scratchSailLee.setTo(scratchSailUp).crossInPlace(scratchSailForward)
+            if (vessel.sailAngle[partIndex] < 0.0) scratchSailLee.negateInPlace()
+        }
+        scratchSailLee.normalizeInPlace()
+        // Set to meet the wind at the best angle, as far out as the sheet goes.
+        val out = (offBow - SAIL_ATTACK).coerceIn(0.0, SAIL_MOST_OUT)
+        val attack = offBow - out
+        val drawing = smooth(SAIL_LUFFS, SAIL_CLOSEST, offBow)
+        val normal = if (attack < PI / 4.0) SAIL_NORMAL * kotlin.math.sin(2.0 * attack) else SAIL_NORMAL
+        val pressure = 0.5 * density * wind * wind * sail.area * set
+        // Square to the sail, on its leeward side: forward by sin(out) and to leeward by cos(out).
+        val push = pressure * normal * drawing
+        val drag = pressure * (SAIL_DRAG + SAIL_FLOGGING * (1.0 - drawing))
+        scratchForce.setTo(scratchSailForward).mulInPlace(push * kotlin.math.sin(out))
+            .addScaledInPlace(scratchSailLee, push * kotlin.math.cos(out))
+            .addScaledInPlace(scratchSailWind, drag)
+        // At the centre of effort, up the mast.
+        vessel.design.parts[partIndex].rotation.rotate(Vec3.unitY(), scratchSailMast)
+        vessel.body.orientation.rotate(scratchSailMast, scratchSailMast)
+        scratchSailPoint.setTo(scratchOffset).addScaledInPlace(scratchSailMast, sail.effortHeight)
+        if (set > 0.0) {
+            vessel.body.applyForceAtOffset(scratchForce, scratchSailPoint)
+            vessel.recordForce(partIndex, scratchForce)
+        }
+        vessel.sailFill[partIndex] = set * drawing
+        // The chord runs aft from the mast, swung out to leeward: its angle around the mast in the
+        // part's own frame, for drawing. Flapping, it streams straight downwind instead.
+        scratchSailChord.setTo(scratchSailForward).mulInPlace(-kotlin.math.cos(out)).addScaledInPlace(scratchSailLee, kotlin.math.sin(out))
+        if (drawing < 1.0) {
+            scratchSailChord.mulInPlace(drawing).addScaledInPlace(scratchSailWind, 1.0 - drawing)
+        }
+        vessel.body.orientation.inverseRotate(scratchSailChord, scratchSailChord)
+        vessel.design.parts[partIndex].rotation.inverseRotate(scratchSailChord, scratchSailChord)
+        // Around the mast (+Y), from the rest chord (-Z): positive swings it toward +X.
+        settleSail(vessel, partIndex, kotlin.math.atan2(scratchSailChord.x, -scratchSailChord.z))
+    }
+
+    private fun settleSail(vessel: Vessel, partIndex: Int, angle: Double) {
+        vessel.sailAngle[partIndex] = angle.coerceIn(-PI, PI)
+    }
+
+    private fun smooth(from: Double, to: Double, x: Double): Double {
+        val t = ((x - from) / (to - from)).coerceIn(0.0, 1.0)
+        return t * t * (3.0 - 2.0 * t)
+    }
+
+    private val scratchSailUp = Vec3()
+    private val scratchSailWind = Vec3()
+    private val scratchSailForward = Vec3()
+    private val scratchSailLee = Vec3()
+    private val scratchSailMast = Vec3()
+    private val scratchSailPoint = Vec3()
+    private val scratchSailChord = Vec3()
+
+    private val scratchFlapFlow = Vec3()
+    private val scratchFlapChord = Vec3()
+    private val scratchFlapLift = Vec3()
 
     /**
      * A control surface moving with the stick.
@@ -794,6 +933,26 @@ class Forces {
     }
 
     private companion object {
+        /** The angle a sail is set to meet the wind at, in radians: about twenty degrees. */
+        const val SAIL_ATTACK = 0.35
+
+        /** The furthest out the sheet lets a sail go, in radians: about eighty-five degrees. */
+        const val SAIL_MOST_OUT = 1.48
+
+        /**
+         * Closer to the wind than this, in radians, a sail only flaps, and from [SAIL_CLOSEST] out
+         * it draws fully (about thirty and forty-two degrees off the bow).
+         */
+        const val SAIL_LUFFS = 0.52
+        const val SAIL_CLOSEST = 0.73
+
+        /** The push square to a sail at its best, as a coefficient, like a flat plate across the flow. */
+        const val SAIL_NORMAL = 1.6
+
+        /** A drawing sail's drag along the wind, and a flapping one's extra, as coefficients. */
+        const val SAIL_DRAG = 0.05
+        const val SAIL_FLOGGING = 0.25
+
         /** The share of the wheels' strength counted as used while only damping rotation. */
         const val DAMPING_WORK = 0.1
 

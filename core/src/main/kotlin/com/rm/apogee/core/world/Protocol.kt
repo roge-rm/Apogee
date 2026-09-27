@@ -141,6 +141,39 @@ sealed interface Command {
     @SerialName("setReverse")
     data class SetReverse(val vessel: Long, val engaged: Boolean) : Command
 
+    /** Hook the winch onto whatever's in reach in front of it: a craft first, then the ground. */
+    @Serializable
+    @SerialName("hook")
+    data class Hook(val vessel: Long) : Command
+
+    /** Wind the winch in (1), let it out (-1), or hold it (0). */
+    @Serializable
+    @SerialName("reel")
+    data class Reel(val vessel: Long, val mode: Int) : Command
+
+    /** Let go of the winch line, and wind it back onto the drum. */
+    @Serializable
+    @SerialName("releaseLine")
+    data class ReleaseLine(val vessel: Long) : Command
+
+    /**
+     * Hold the aircraft's height and heading as they are now, or let go. A career has to have
+     * unlocked Cruise Control.
+     */
+    @Serializable
+    @SerialName("cruise")
+    data class SetCruise(val vessel: Long, val on: Boolean) : Command
+
+    /** Switch action group [group] (1 to 3) on, or off if it's on. */
+    @Serializable
+    @SerialName("toggleGroup")
+    data class ToggleGroup(val vessel: Long, val group: Int) : Command
+
+    /** Flaps down, or back up. */
+    @Serializable
+    @SerialName("flaps")
+    data class SetFlaps(val vessel: Long, val down: Boolean) : Command
+
     @Serializable
     @SerialName("stage")
     data class Stage(val vessel: Long) : Command
@@ -287,6 +320,8 @@ data class Snapshot(
     val warpAllowed: Boolean = false,
     /** Tow hitches coupled up. */
     val hitches: List<SavedLink> = emptyList(),
+    /** Winch lines out, for drawing. */
+    val lines: List<SavedLine> = emptyList(),
 )
 
 /**
@@ -463,6 +498,25 @@ sealed interface ServerMessage {
         val seabed: Float = -1f,
         val findBearing: Float = 0f,
         val findRange: Float = -1f,
+        /**
+         * Holding its height and heading: the height above the datum in metres, and the heading in
+         * degrees north of east. Height below 0 means it isn't. And whether it's allowed to at all.
+         */
+        val cruiseHeight: Float = -1f,
+        val cruiseHeading: Float = 0f,
+        val mayCruise: Boolean = true,
+        /** Its action groups' states, by group number: 0 left alone, 1 on, -1 off. */
+        val groups: List<Int> = emptyList(),
+        /**
+         * Its winch, if it has one: what it would hook onto now ("ground", a craft's name, or blank
+         * for nothing in reach), whether it's hooked, which way it's winding (1 in, -1 out, 0
+         * holding), and whether the line is pulling.
+         */
+        val hasWinch: Boolean = false,
+        val canHook: String = "",
+        val hooked: Boolean = false,
+        val reel: Int = 0,
+        val taut: Boolean = false,
     ) : ServerMessage
 
     /**
@@ -598,6 +652,10 @@ enum class PartEventKind {
     @SerialName("undocked") UNDOCKED,
     @SerialName("hitched") HITCHED,
     @SerialName("unhitched") UNHITCHED,
+    /** A winch hooked on, let go, or snapped. */
+    @SerialName("hooked") HOOKED,
+    @SerialName("unhooked") UNHOOKED,
+    @SerialName("snapped") SNAPPED,
 }
 
 /** Client to server. */
@@ -657,5 +715,7 @@ object Protocol {
     // 16: crew - Roster, seats in StructureUpdate, EVA and boarding commands.
     // 17: the wider system - Hello.systemHash; every world, tilted, round a real sun.
     // 18: career - Welcome.mode, Career, Feat, CareerRefused, Command.Unlock, feats watched per player.
-    const val VERSION = 18
+    // 19: play comfort - SetFlaps, SetCruise, ToggleGroup, the winch, PlacedPart.group, sails and
+    //     flaps in the pose, winch lines in the snapshot, the new CraftSystems fields.
+    const val VERSION = 19
 }

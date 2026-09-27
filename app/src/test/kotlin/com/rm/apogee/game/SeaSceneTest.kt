@@ -17,9 +17,66 @@ import org.junit.Test
 
 /**
  * The sea that's drawn is the sea the boats float on. Around the craft, where hull meets water,
- * every vertex is the physics' own surface.
+ * every vertex is the physics' own surface. And it's laid out on the ground, not around the craft,
+ * so moving the craft doesn't move the facets.
  */
 class SeaSceneTest {
+
+    /** Somewhere deep on Terra, as a unit direction. */
+    private fun deep(terra: com.rm.apogee.core.orbit.CelestialBody): Vec3 {
+        for (i in 0 until 5_000) {
+            val lat = (com.rm.apogee.core.terrain.Noise.hash(9, i, 0, 0) - 0.5) * 1.2
+            val lon = com.rm.apogee.core.terrain.Noise.hash(9, i, 1, 0) * 2 * Math.PI
+            val at = Vec3(Math.cos(lat) * Math.cos(lon), Math.sin(lat), Math.cos(lat) * Math.sin(lon))
+            if (terra.terrain!!.elevation(at) < -500.0) return at
+        }
+        throw AssertionError("no deep sea")
+    }
+
+    /** A sea built around body-fixed [centre] at [time]. */
+    private fun builtAt(scene: SeaScene, centre: Vec3, time: Double): SeaSurface {
+        scene.update(centre, time)
+        val deadline = System.currentTimeMillis() + 30_000
+        while (!scene.built && System.currentTimeMillis() < deadline) {
+            Thread.sleep(20)
+            scene.update(centre, time)
+        }
+        if (!scene.built) throw AssertionError("no sea built")
+        return scene.latest!!
+    }
+
+    @Test
+    fun `moving the craft a little doesn't move the water's facets`() {
+        val system = SolarSystem.defaultSystem()
+        val terra = system.body("terra")
+        val config = WeatherConfig(intensity = WeatherIntensity.WILD)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val at = deep(terra)
+            val east = Vec3(0.0, 1.0, 0.0).crossInPlace(at).normalizeInPlace()
+            val here = at.copy().mulInPlace(terra.radius)
+            val there = here.copy().addScaledInPlace(east, 3.3)
+            // Both for the same moment, so a point on the ground has the same wave on it.
+            val a = builtAt(SeaScene(terra, system.body("luna"), config, QualityTier.LOW, scope), here, 5_000.0)
+            val b = builtAt(SeaScene(terra, system.body("luna"), config, QualityTier.LOW, scope), there, 5_000.0)
+            fun points(s: SeaSurface) = (0 until s.vertexCount).map { v ->
+                val o = v * SeaSurface.STRIDE
+                Vec3(s.origin.x + s.vertices[o], s.origin.y + s.vertices[o + 1], s.origin.z + s.vertices[o + 2])
+            }
+            val before = points(a).filter { it.distanceTo(here) < 12.0 }
+            val after = points(b)
+            var matched = 0
+            for (p in before) {
+                if (p.distanceTo(there) > 6.0) continue
+                val nearest = after.minOf { it.distanceTo(p) }
+                assertTrue("a vertex moved $nearest m", nearest < 0.01)
+                matched++
+            }
+            assertTrue("matched $matched", matched > 20)
+        } finally {
+            scope.cancel()
+        }
+    }
 
     @Test
     fun `the drawn sea around a craft is the surface it floats on`() {
@@ -57,7 +114,7 @@ class SeaSceneTest {
                     built.origin.x + built.vertices[o], built.origin.y + built.vertices[o + 1], built.origin.z + built.vertices[o + 2],
                 )
                 // The hull's neighbourhood. Every wave train is in these.
-                if (p.distanceTo(built.origin) > 8.0) continue
+                if (p.distanceTo(centre) > 8.0) continue
                 val drawn = p.length - terra.radius
                 worst = maxOf(worst, kotlin.math.abs(drawn - truth.height(p, built.time)))
                 checked++

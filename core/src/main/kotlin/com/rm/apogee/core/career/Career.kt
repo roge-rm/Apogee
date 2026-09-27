@@ -69,6 +69,7 @@ enum class Feat(
     ROVER_OFF_WORLD("rover-off-world", "Off-World Rover", Branch.GROUND, "Drive 2 km on another world.", Metric.DISTANCE, 5.0, 10.0),
     SEAWORTHY("seaworthy", "Seaworthy", Branch.SEA, "Sail 5 km and bring her back into harbour."),
     ALIEN_SEA("alien-sea", "Alien Sea", Branch.SEA, "Sail on another world's sea."),
+    UNDER_SAIL("under-sail", "Under Sail", Branch.SEA, "Sail a kilometre on the wind alone, with no engine running.", Metric.DISTANCE, 3.0, 8.0),
     DIVE("dive", "Dive", Branch.DEEP, "Take a crewed craft under the sea, and bring it back up.", Metric.DEPTH, 300.0, 1_000.0),
     SEAFLOOR("seafloor", "Seafloor", Branch.DEEP, "Set down on the sea floor more than a hundred metres down, and come back up."),
     VENTS("vents", "Vents", Branch.DEEP, "Find a vent on the sea floor, where the water comes up hot."),
@@ -184,6 +185,9 @@ data class TechTree(
 
     companion object {
         const val AUTOPILOT = "autopilot"
+
+        /** The ability to hold an aircraft's height and heading. */
+        const val CRUISE = "cruise"
 
         private val json = Json { ignoreUnknownKeys = true }
 

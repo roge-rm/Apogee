@@ -55,6 +55,8 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.RocketLaunch
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.FileOpen
 import androidx.compose.material.icons.filled.Undo
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilledTonalIconButton
@@ -109,6 +111,9 @@ fun BuilderScreen(
     pictures: Map<String, ImageBitmap>,
     onExit: () -> Unit,
     onLaunch: () -> Unit,
+    /** Send the craft to someone, and open one someone sent. */
+    onShare: () -> Unit = {},
+    onOpenShared: () -> Unit = {},
 ) {
     // Reading `revision` is what subscribes this composable to the plain mutable builder model
     // underneath.
@@ -117,6 +122,7 @@ fun BuilderScreen(
     var showLoadDialog by remember { mutableStateOf(false) }
     var showSiteDialog by remember { mutableStateOf(false) }
     var showNameDialog by remember { mutableStateOf(false) }
+    var savingAssembly by remember { mutableStateOf<String?>(null) }
     var confirmNew by remember { mutableStateOf(false) }
     // Opened by its handle while something is in hand, it stays out until the next pick.
     var peek by remember { mutableStateOf(false) }
@@ -197,6 +203,11 @@ fun BuilderScreen(
                     onLocked = { id ->
                         session.statusMessage = "${catalog[id]?.title ?: id}: unlocked by ${session.lockedParts()[id] ?: "the Program"}, in the Program"
                     },
+                    saved = session.savedAssemblies.map { (piece, file) ->
+                        com.rm.apogee.ui.components.builder.SavedPiece(piece.name, piece.rootPartId, piece.parts.map { it.partId }, file)
+                    },
+                    onPickSaved = { peek = false; session.holdAssembly(it) },
+                    onDeleteSaved = session::deleteAssembly,
                 )
             }
         }
@@ -246,13 +257,15 @@ fun BuilderScreen(
                 onSaveAs = { showNameDialog = true },
                 onLoad = { showLoadDialog = true },
                 onNew = { confirmNew = true },
+                onShare = onShare,
+                onOpenShared = onOpenShared,
             )
         }
 
         // --- in hand, below the toolbar ------------------------------------------
         val held = session.held
         if (held != null && !carrying) {
-            val title = held.partId?.let { catalog[it]?.title }
+            val title = held.partId?.let { catalog[it]?.title } ?: held.name
                 ?: "Copy of ${catalog[held.assembly.rootPartId]?.title ?: "part"}" + if (held.assembly.size > 1) " +${held.assembly.size - 1}" else ""
             HeldChip(
                 title = title,
@@ -278,6 +291,8 @@ fun BuilderScreen(
                 onTurn = session::turnSelected,
                 onStage = session::stageSelected,
                 onClose = session::clearSelection,
+                onGroup = session::cycleGroupSelected,
+                onSaveAssembly = { savingAssembly = selection.title },
             )
         }
 
@@ -399,6 +414,15 @@ fun BuilderScreen(
         )
     }
 
+    savingAssembly?.let { title ->
+        NameDialog(
+            initial = title,
+            title = "Save assembly",
+            onDismiss = { savingAssembly = null },
+            onConfirm = { name -> session.saveSelectedAssembly(name); savingAssembly = null },
+        )
+    }
+
     if (confirmNew) {
         AlertDialog(
             onDismissRequest = { confirmNew = false },
@@ -430,7 +454,10 @@ fun BuilderScreen(
 
 /** Save, save as, load and new: the file things, out of the way. */
 @Composable
-private fun FileMenu(onSave: () -> Unit, onSaveAs: () -> Unit, onLoad: () -> Unit, onNew: () -> Unit) {
+private fun FileMenu(
+    onSave: () -> Unit, onSaveAs: () -> Unit, onLoad: () -> Unit, onNew: () -> Unit,
+    onShare: () -> Unit, onOpenShared: () -> Unit,
+) {
     var open by remember { mutableStateOf(false) }
     Box {
         ToolButton(Icons.Filled.MoreVert, "Save, load or start again", { open = true })
@@ -439,6 +466,8 @@ private fun FileMenu(onSave: () -> Unit, onSaveAs: () -> Unit, onLoad: () -> Uni
             DropdownMenuItem(text = { Text("Save as…") }, leadingIcon = { Icon(Icons.Filled.Save, null) }, onClick = { open = false; onSaveAs() })
             DropdownMenuItem(text = { Text("Load") }, leadingIcon = { Icon(Icons.Filled.FolderOpen, null) }, onClick = { open = false; onLoad() })
             DropdownMenuItem(text = { Text("New") }, leadingIcon = { Icon(Icons.Filled.Add, null) }, onClick = { open = false; onNew() })
+            DropdownMenuItem(text = { Text("Share…") }, leadingIcon = { Icon(Icons.Filled.Share, null) }, onClick = { open = false; onShare() })
+            DropdownMenuItem(text = { Text("Open a shared craft…") }, leadingIcon = { Icon(Icons.Filled.FileOpen, null) }, onClick = { open = false; onOpenShared() })
         }
     }
 }
@@ -785,11 +814,11 @@ private fun StatRow(label: String, value: String, colour: Color = ApogeeColors.D
 }
 
 @Composable
-private fun NameDialog(initial: String, onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
+private fun NameDialog(initial: String, onDismiss: () -> Unit, onConfirm: (String) -> Unit, title: String = "Save craft") {
     var text by remember { mutableStateOf(initial) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Save craft") },
+        title = { Text(title) },
         text = {
             OutlinedTextField(
                 value = text,

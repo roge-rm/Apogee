@@ -155,6 +155,13 @@ data class AeroSurface(
      * [loadLimit].
      */
     val maxLoad: Double = 0.0,
+    /**
+     * The extra lift coefficient with the flaps down, or 0 for a surface that has none. Flaps let
+     * a wing hold a plane up at a slower speed, so it can land shorter.
+     */
+    val flapLift: Double = 0.0,
+    /** The extra drag coefficient with the flaps down. They cost speed as well as giving lift. */
+    val flapDrag: Double = 0.0,
 ) : PartModule {
     /**
      * What it takes to break it, in N. By default that's what its own lift would be at
@@ -192,6 +199,51 @@ data class HydroSurface(
     val maxDeflection: Double = 30.0,
     /** Half its depth, in metres: how far it reaches either side of its centre. */
     val halfDepth: Double = 0.5,
+) : PartModule
+
+/**
+ * A sail on a mast, for a boat.
+ *
+ * It trims itself. Each tick it's set at the best angle it can be for the wind the boat feels,
+ * swung out to leeward as the wind comes further aft, and the air's push on it (lift like a wing
+ * across the wind, drag along it) drives the boat and heels it. The keel and the hull hold the rest.
+ * It can't drive a boat pointed closer than about forty degrees to the wind. There it just flaps.
+ *
+ * The throttle is the sheet: 0 is furled, and anything more sets that share of the sail, the way a
+ * sailor reefs in a blow. The mast stands along the part's +Y, and the sail's chord runs aft from it
+ * along the part's -Z when it's centred.
+ */
+@Serializable
+@SerialName("sail")
+data class Sail(
+    /** Sail area set full, in m². */
+    val area: Double,
+    /** How far up the mast the wind's push acts, in metres from the part's centre along its +Y. */
+    val effortHeight: Double = 0.0,
+) : PartModule
+
+/**
+ * A winch: a drum of line with a hook on the end. Hooked onto another craft, or onto the ground,
+ * a tree or a rock, it winds the line in and pulls the two together, up to [pull]. That's how a
+ * rover gets itself out of a ditch, or drags another one out.
+ *
+ * The line leaves from the part's front, along its +Y (it mounts by its base, like a tow hitch),
+ * [faceOffset] from its centre. Past its
+ * pull the drum slips instead of the line breaking. A hard enough yank snaps it.
+ */
+@Serializable
+@SerialName("winch")
+data class Winch(
+    /** How much line there is, in metres: the furthest it can hook. */
+    val reach: Double = 30.0,
+    /** The most it pulls with, in N. */
+    val pull: Double = 25_000.0,
+    /** How fast it winds in or lets out, in m/s. */
+    val reelSpeed: Double = 0.8,
+    /** Charge a second while it winds in. */
+    val draw: Double = 0.5,
+    /** Metres along the part's +Y from its centre to where the line comes out. */
+    val faceOffset: Double = 0.2,
 ) : PartModule
 
 /** A drag device. It does nothing until deployed, and then it dominates. */

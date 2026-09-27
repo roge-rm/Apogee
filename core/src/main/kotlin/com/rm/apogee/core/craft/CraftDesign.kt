@@ -41,6 +41,11 @@ data class PlacedPart(
      */
     val turn: Int = 0,
     /**
+     * Which action group it's in, 1 to 3, or 0 for none. A group is switched on and off together
+     * from one button in flight.
+     */
+    val group: Int = 0,
+    /**
      * If this is a docking part latched to another in this craft, that part's index, or -1 for
      * none. It's set on both.
      */

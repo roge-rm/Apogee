@@ -169,8 +169,9 @@ fun HeldChip(title: String, picture: ImageBitmap?, onDrop: () -> Unit, modifier:
 }
 
 /**
- * Next to a tapped part: take it off, copy it, turn it, or see its stage. It goes under the part
- * where there's room, otherwise over it, and it's always on screen.
+ * Next to a tapped part: take it off, copy it, turn it, or see its stage, and under those, put it in
+ * an action group or save it (with everything on it) to use again. It goes under the part where
+ * there's room, otherwise over it, and it's always on screen.
  */
 @Composable
 fun PartActionBar(
@@ -182,6 +183,8 @@ fun PartActionBar(
     onTurn: () -> Unit,
     onStage: () -> Unit,
     onClose: () -> Unit,
+    onGroup: () -> Unit = {},
+    onSaveAssembly: () -> Unit = {},
 ) {
     var size by remember { mutableStateOf(IntSize.Zero) }
     val gap = with(LocalDensity.current) { 44.dp.toPx() }
@@ -200,6 +203,7 @@ fun PartActionBar(
             .offset { IntOffset(x.roundToInt(), y.roundToInt()) }
             .onSizeChanged { size = it },
     ) {
+        androidx.compose.foundation.layout.Column {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)) {
             Text(
                 selection.title,
@@ -220,6 +224,13 @@ fun PartActionBar(
                 tint = Color.White.alpha(ApogeeAlpha.SECONDARY),
                 modifier = Modifier.clip(CircleShape).clickable(onClick = onClose).padding(8.dp).size(16.dp),
             )
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 94.dp, end = 4.dp, bottom = 2.dp)) {
+            if (selection.groupable) {
+                Action(if (selection.group > 0) "GROUP ${selection.group}" else "NO GROUP", if (selection.group > 0) ApogeeColors.Prograde else Color.White.alpha(ApogeeAlpha.SECONDARY), onGroup)
+            }
+            Action("SAVE ASSEMBLY", ApogeeColors.Accent, onSaveAssembly)
+        }
         }
     }
 }

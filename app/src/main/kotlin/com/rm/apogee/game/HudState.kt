@@ -129,6 +129,9 @@ class HudState {
     var surveyedHere: Boolean by mutableStateOf(false)
     var mapResource: String by mutableStateOf("ORE")
 
+    /** Whether the world here has sea currents, for the map's CURRENTS layer. */
+    var currentsHere: Boolean by mutableStateOf(false)
+
     /** The player's crew who were lost with the craft that was just lost, by name. */
     var crewLost: List<String> by mutableStateOf(emptyList())
 
@@ -145,6 +148,32 @@ class HudState {
     /** Whether it has drills and converters, so their controls can hide themselves. */
     var hasDrill: Boolean by mutableStateOf(false)
     var hasConverter: Boolean by mutableStateOf(false)
+
+    /** Whether it has wings with flaps, and whether they're down. */
+    var hasFlaps: Boolean by mutableStateOf(false)
+    var flaps: Boolean by mutableStateOf(false)
+
+    /** Whether it's a plane in the air, which can hold its height and heading. */
+    var canCruise: Boolean by mutableStateOf(false)
+
+    /** The action groups its parts are in, 1 to 3, so the rail shows a switch for each. */
+    var groupsUsed: List<Int> by mutableStateOf(emptyList())
+
+    /**
+     * Whether this flight can be rewound (a save point taken, loaded, or the flight reverted to its
+     * launch): only in your own world, with nobody else on it. And when the save point was taken,
+     * in words, or null with none, and whether there's a launch to revert to.
+     */
+    var canRewind: Boolean by mutableStateOf(false)
+    var savePoint: String? by mutableStateOf(null)
+    var canRevert: Boolean by mutableStateOf(false)
+
+    /** The runway approach cue, while coming in to land on it, or null. */
+    var approach: com.rm.apogee.core.world.Approach.Cue? by mutableStateOf(null)
+
+    /** The current the craft is floating in, over the ground: speed in m/s and where it's going, in compass degrees. */
+    var currentSpeed: Float by mutableStateOf(0f)
+    var currentBearing: Float by mutableStateOf(0f)
 
     /**
      * A craft's power and link home, for the HUD: charge and what it holds, the net rate per
@@ -197,7 +226,27 @@ class HudState {
         val seabed: Float = -1f,
         val findBearing: Float = 0f,
         val findRange: Float = -1f,
+        /** Holding height and heading: the height, or below 0 when not, and whether it can at all. */
+        val cruiseHeight: Float = -1f,
+        val mayCruise: Boolean = true,
+        /** Its action groups' states, by group number: 0 left alone, 1 on, -1 off. */
+        val groups: List<Int> = emptyList(),
+        /**
+         * Its winch: whether it has one, what it could hook now (blank for nothing), whether it's
+         * hooked, which way it's winding (1 in, -1 out, 0 holding), and whether the line is pulling.
+         */
+        val hasWinch: Boolean = false,
+        val canHook: String = "",
+        val hooked: Boolean = false,
+        val reel: Int = 0,
+        val taut: Boolean = false,
     ) {
+        /** Whether it's holding height and heading. */
+        val cruising: Boolean get() = cruiseHeight >= 0f
+
+        /** Action group [group]'s state: 0 left alone, 1 on, -1 off. */
+        fun group(group: Int): Int = groups.getOrElse(group) { 0 }
+
         /** Close enough to its depth limit to warn, and past it. */
         val deepCaution: Boolean get() = crush > DEEP_CAUTION
         val deepDanger: Boolean get() = crush > 1f
@@ -264,6 +313,12 @@ class HudState {
         hasFoldouts = false
         hasDrill = false
         hasConverter = false
+        hasFlaps = false
+        flaps = false
+        groupsUsed = emptyList()
+        canCruise = false
+        approach = null
+        currentSpeed = 0f
         isSuit = false
         crewLost = emptyList()
         crew = emptyList()

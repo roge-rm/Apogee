@@ -125,6 +125,15 @@ fun FlightScreen(
     onDive: () -> Unit = {},
     onRise: () -> Unit = {},
     onHoldDepth: () -> Unit = {},
+    /** Flaps down or up, an action group switched, and the winch wound in or held. */
+    onToggleFlaps: () -> Unit = {},
+    onGroup: (Int) -> Unit = {},
+    onWinch: () -> Unit = {},
+    /** The winch's line hooked on, or let go. */
+    onHook: () -> Unit = {},
+    onReleaseLine: () -> Unit = {},
+    /** Hold a plane's height and heading, or stop. */
+    onCruise: (Boolean) -> Unit = {},
     /** Empty the craft's ore and water into a base or docked craft, or switch a base's refinery. */
     onUnload: (Boolean) -> Unit = {},
     onRefine: (com.rm.apogee.core.world.ServerMessage.BaseStatus, Boolean) -> Unit = { _, _ -> },
@@ -140,6 +149,8 @@ fun FlightScreen(
     onJoin: () -> Unit,
     onSwitchCraft: () -> Unit,
     onExit: () -> Unit,
+    /** Taking a save point, going back to it, and reverting to the launch. */
+    rewind: RewindActions = RewindActions(),
     /** Run the world at this many times real time. 0 pauses it. */
     onWarp: (Double) -> Unit = {},
     /** The player's craft, asked for when the list opens. */
@@ -165,14 +176,15 @@ fun FlightScreen(
     // multi-window as well as after a rotation. Asking the layout is asking the thing that decides.
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val portrait = maxWidth < maxHeight
-        val sas = SasActions(onToggleSas, onSasMode, targetChoices, onTarget, onStickMode)
+        val sas = SasActions(onToggleSas, onSasMode, targetChoices, onTarget, onStickMode, onCruise)
         val railActions = RailActions(
             onBrakes = onToggleBrakes, onReverse = onToggleReverse, onRcs = onToggleRcs, onDeploy = onToggleDeploy,
             onDrill = onToggleDrill, onRefine = onToggleRefine, onJump = crewActions.onJump, onFlag = crewActions.onFlag,
             onDive = onDive, onRise = onRise, onHold = onHoldDepth,
+            onFlaps = onToggleFlaps, onGroup = onGroup, onWinch = onWinch,
         )
         val statusActions = StatusActions(crewActions, onUndock, onFound, onRefuel, onUnload, onRefine, onDockPilot)
-        val promptActions = PromptActions(onJoin, onFound, crewActions.onBoard, crewActions.onGrab)
+        val promptActions = PromptActions(onJoin, onFound, crewActions.onBoard, crewActions.onGrab, onHook, onReleaseLine)
 
         if (hud.connectionError != null) {
             ConnectionProblem(hud.connectionError!!, onExit)
@@ -209,6 +221,9 @@ fun FlightScreen(
             }
             return@BoxWithConstraints
         }
+
+        var exitMenu by remember { mutableStateOf(false) }
+        if (exitMenu) ExitMenu(hud, rewind, onExit, onClose = { exitMenu = false })
 
         // --- fading when idle -----------------------------------------------
         //
@@ -253,7 +268,9 @@ fun FlightScreen(
                 horizontalArrangement = Arrangement.spacedBy(Dimens.HudGroupGap),
             ) {
                 FilledTonalIconButton(
-                    onClick = onExit,
+                    // Alone in your own world, it's a menu, with the save points in it. Otherwise
+                    // it just leaves.
+                    onClick = { if (hud.canRewind) exitMenu = true else onExit() },
                     modifier = Modifier.size(Dimens.HudIconSize),
                 ) {
                     Icon(Icons.Filled.Close, contentDescription = "Leave flight")
@@ -358,6 +375,7 @@ fun FlightScreen(
                 hud.telemetry, hud.stripOpen, { hud.stripOpen = !hud.stripOpen },
                 twoColumns = !portrait, power = hud.power,
                 modifier = Modifier.alpha(alpha),
+                current = if (hud.currentSpeed > 0f) hud.currentSpeed to hud.currentBearing else null,
                 perLine = if (portrait) PORTRAIT_STRIP_PER_LINE else LANDSCAPE_STRIP_PER_LINE,
             )
             Spacer(Modifier.height(6.dp))
@@ -529,6 +547,78 @@ private fun ThrottleControl(
     }
 }
 
+/** What the flight's exit menu can do besides leave. */
+class RewindActions(
+    val onSavePoint: () -> Unit = {},
+    val onLoadSavePoint: () -> Unit = {},
+    val onRevert: () -> Unit = {},
+)
+
+/**
+ * The X button's menu, alone in your own world: take a save point, go back to it, start the flight
+ * again from its launch, or leave. Going back asks first, since whatever's happened since is lost,
+ * feats and all.
+ */
+@Composable
+private fun ExitMenu(hud: HudState, rewind: RewindActions, onExit: () -> Unit, onClose: () -> Unit) {
+    var confirm by remember { mutableStateOf<String?>(null) }
+    val asking = confirm
+    if (asking != null) {
+        val loading = asking == "load"
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { confirm = null },
+            title = { Text(if (loading) "Load the save point?" else "Revert to the launch?") },
+            text = {
+                Text(
+                    (if (loading) "Everything goes back to how it was at ${hud.savePoint}." else "Everything goes back to just before this launch.") +
+                        if (hud.career != null) " Feats earned since then are taken back too." else "",
+                )
+            },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = {
+                    confirm = null; onClose()
+                    if (loading) rewind.onLoadSavePoint() else rewind.onRevert()
+                }) { Text(if (loading) "Load" else "Revert") }
+            },
+            dismissButton = { androidx.compose.material3.TextButton(onClick = { confirm = null }) { Text("Keep flying") } },
+        )
+        return
+    }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onClose,
+        title = { Text("Flight") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                MenuRow("Save point", hud.savePoint?.let { "Last taken at $it" } ?: "Take one now, to come back to") {
+                    rewind.onSavePoint(); onClose()
+                }
+                MenuRow("Load save point", hud.savePoint?.let { "Back to $it" } ?: "None taken yet", enabled = hud.savePoint != null) {
+                    confirm = "load"
+                }
+                MenuRow("Revert to launch", if (hud.canRevert) "Start this flight again" else "Not launched this time", enabled = hud.canRevert) {
+                    confirm = "revert"
+                }
+                MenuRow("Leave flight", "Back to the menu") { onClose(); onExit() }
+            }
+        },
+        confirmButton = { androidx.compose.material3.TextButton(onClick = onClose) { Text("Keep flying") } },
+    )
+}
+
+@Composable
+private fun MenuRow(title: String, detail: String, enabled: Boolean = true, onClick: () -> Unit) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(Dimens.CornerTight))
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 10.dp),
+    ) {
+        Text(title, style = MaterialTheme.typography.titleSmall, color = if (enabled) Color.White else Color.White.alpha(ApogeeAlpha.BORDER))
+        Text(detail, style = MaterialTheme.typography.bodySmall, color = Color.White.alpha(if (enabled) ApogeeAlpha.SUBTITLE else ApogeeAlpha.BORDER))
+    }
+}
+
 /** What the SAS button and its picker do. */
 class SasActions(
     val onToggle: () -> Unit,
@@ -537,6 +627,8 @@ class SasActions(
     val onTarget: (Long) -> Unit,
     /** With the thrusters armed, the stick slides (true) or turns. */
     val onStickMode: (Boolean) -> Unit = {},
+    /** Hold a plane's height and heading, or stop. */
+    val onCruise: (Boolean) -> Unit = {},
 )
 
 /** Roll, stability assist and the attitude stick, as one block. */
@@ -570,6 +662,9 @@ private fun AttitudeCluster(
                 targetChoices = sas.targetChoices,
                 currentTarget = hud.telemetry.targetName,
                 onTarget = sas.onTarget,
+                canCruise = hud.canCruise,
+                cruising = hud.power?.cruising == true,
+                onCruise = sas.onCruise,
             )
             HoldButton(if (sliding) "▲" else "↻", { held -> onRoll(if (held) 1f else 0f) }, size = 40.dp)
         }

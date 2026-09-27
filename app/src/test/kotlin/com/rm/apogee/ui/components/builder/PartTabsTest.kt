@@ -27,11 +27,12 @@ class PartTabsTest {
         ),
         PartTab.GROUND to setOf(
             "leg-stilt", "wheel-tread", "wheel-gear", "wheel-gear-main", "wheel-gear-nose", "wheel-tail",
-            "wheel-small", "wheel-large", "hitch-ball", "hitch-coupling",
+            "wheel-small", "wheel-large", "hitch-ball", "hitch-coupling", "winch-drum",
         ),
         PartTab.WATER to setOf(
             "hull-punt", "hull-bow", "hull-mid", "hull-stern", "hull-skiff", "hull-cutter", "motor-outboard", "rudder", "keel", "keel-skeg",
             "ballast-trim", "ballast-deep", "ballast-abyss", "float-foam", "keel-lead", "screw-drive", "planes-dive",
+            "sail-sloop", "sail-cutter",
         ),
         PartTab.UTILITY to setOf(
             "chute-canopy", "rcs-nudge", "light-bar", "dock-port", "dock-port-small", "mooring-clamp",

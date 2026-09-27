@@ -107,6 +107,9 @@ class CareerBalanceTest {
         addAll(buy("rovers", "boats"))
         add(Fly(StockCraft.rover(catalog), "cape")); addAll(earn(Feat.ROAD_TRIP))
         add(Fly(StockCraft.skiff(catalog), "harbour")); addAll(earn(Feat.SEAWORTHY))
+        // A sloop out of the harbour, on the wind alone.
+        addAll(buy("sails"))
+        add(Fly(StockCraft.sloop(catalog), "harbour")); addAll(earn(Feat.UNDER_SAIL))
         // Under the sea, from the harbour: the Minnow, down its canyon and onto its floor.
         addAll(buy("submersibles"))
         add(Fly(StockCraft.minnow(catalog), "harbour")); addAll(earn(Feat.DIVE, Feat.SEAFLOOR))
@@ -148,7 +151,7 @@ class CareerBalanceTest {
         addAll(buy("abyssal-hulls"))
         add(Fly(StockCraft.abyss(catalog), "harbour")); addAll(earn(Feat.ABYSS)); addAll(go("wonder:nodule-plain", "wonder:terra-deep"))
         addAll(earn(Feat.ALIEN_DEEP)); addAll(go("wonder:kraken-deep", "wonder:ligeia-spires"))
-        addAll(buy("astronaut-corps", "deep-space", "pad-4"))
+        addAll(buy("astronaut-corps", "deep-space", "pad-4", "cruise-control"))
     }
 
     @Test

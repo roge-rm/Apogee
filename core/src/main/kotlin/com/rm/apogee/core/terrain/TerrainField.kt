@@ -612,10 +612,10 @@ class TerrainField(
          * berth, dredged deep enough for the Trawler, runs out east from the quay beside the jetty.
          */
         // pad, runway, apron, two taxiways, roads (four legs), quay, berth
-        private val WORK_FROM_EAST = doubleArrayOf(0.0, 250.0, 350.0, 420.0, 640.0, 0.0, 700.0, 2_650.0, 2_600.0, 2_560.0, 2_570.0, 2_625.0)
-        private val WORK_FROM_NORTH = doubleArrayOf(0.0, -400.0, -285.0, -330.0, -330.0, -110.0, -235.0, -235.0, 0.0, 200.0, 270.0, 350.0)
-        private val WORK_TO_EAST = doubleArrayOf(0.0, 2_750.0, 700.0, 420.0, 640.0, 350.0, 2_650.0, 2_600.0, 2_560.0, 2_560.0, 2_570.0, 2_770.0)
-        private val WORK_TO_NORTH = doubleArrayOf(0.0, -400.0, -285.0, -390.0, -390.0, -235.0, -235.0, 0.0, 200.0, 270.0, 430.0, 350.0)
+        private val WORK_FROM_EAST = doubleArrayOf(0.0, RUNWAY_WEST, 350.0, 420.0, 640.0, 0.0, 700.0, 2_650.0, 2_600.0, 2_560.0, 2_570.0, 2_625.0)
+        private val WORK_FROM_NORTH = doubleArrayOf(0.0, RUNWAY_NORTH, -285.0, -330.0, -330.0, -110.0, -235.0, -235.0, 0.0, 200.0, 270.0, 350.0)
+        private val WORK_TO_EAST = doubleArrayOf(0.0, RUNWAY_EAST, 700.0, 420.0, 640.0, 350.0, 2_650.0, 2_600.0, 2_560.0, 2_560.0, 2_570.0, 2_770.0)
+        private val WORK_TO_NORTH = doubleArrayOf(0.0, RUNWAY_NORTH, -285.0, -390.0, -390.0, -235.0, -235.0, 0.0, 200.0, 270.0, 430.0, 350.0)
         private val WORK_FLAT = doubleArrayOf(300.0, 40.0, 70.0, 16.0, 16.0, 7.0, 7.0, 7.0, 7.0, 7.0, 45.0, 32.0)
         private val WORK_BLEND = doubleArrayOf(700.0, 250.0, 150.0, 40.0, 40.0, 40.0, 40.0, 40.0, 40.0, 40.0, 100.0, 40.0)
         private val WORK_FROM_HEIGHT = doubleArrayOf(
@@ -630,6 +630,15 @@ class TerrainField(
             SurfaceMaterial.ASPHALT, SurfaceMaterial.ASPHALT, SurfaceMaterial.ASPHALT, SurfaceMaterial.ASPHALT, SurfaceMaterial.ASPHALT,
             SurfaceMaterial.CONCRETE, null,
         )
+
+        /**
+         * The runway's centreline, in metres east and north of the pad: from its west end to its east
+         * end, along a line [RUNWAY_NORTH] metres north (so it's south), and its paved half-width.
+         */
+        const val RUNWAY_WEST = 250.0
+        const val RUNWAY_EAST = 2_750.0
+        const val RUNWAY_NORTH = -400.0
+        const val RUNWAY_HALF_WIDTH = 25.0
 
         /** The runway's place in the works table. */
         private const val RUNWAY_WORK = 1

@@ -45,8 +45,8 @@ import kotlin.math.roundToInt
 
 /**
  * Stability assist. Tap to turn it on and off. Press and hold to choose what it holds (the attitude
- * when you let go, or any navball marker) and a target to steer by. The button shows the marker
- * it's holding.
+ * when you let go, any navball marker, or on a plane in the air, its height and heading) and a
+ * target to steer by. The button shows what it's holding.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -60,6 +60,10 @@ fun SasButton(
     targetChoices: () -> List<GameSession.TargetChoice>,
     currentTarget: String?,
     onTarget: (Long) -> Unit,
+    /** Whether it can hold height and heading here, whether it is, and to switch that. */
+    canCruise: Boolean = false,
+    cruising: Boolean = false,
+    onCruise: (Boolean) -> Unit = {},
 ) {
     val holdingMarker = enabled && mode != null && mode != SasMode.HOLD
     Box {
@@ -72,7 +76,9 @@ fun SasButton(
                 Modifier.combinedClickable(onClick = onToggle, onLongClick = { onExpand(true) }),
                 contentAlignment = Alignment.Center,
             ) {
-                if (holdingMarker) {
+                if (cruising) {
+                    Text("A+H", style = TelemetryTextStyle, color = ApogeeColors.Prograde, maxLines = 1)
+                } else if (holdingMarker) {
                     Text(short(mode!!), style = TelemetryTextStyle, color = ApogeeColors.Prograde, maxLines = 1)
                 } else {
                     Icon(
@@ -89,7 +95,10 @@ fun SasButton(
                 onDismissRequest = { onExpand(false) },
                 properties = PopupProperties(focusable = true),
             ) {
-                Picker(mode, currentTarget, targetChoices(), onMode = { onMode(it); onExpand(false) }, onTarget = { onTarget(it); onExpand(false) })
+                Picker(
+                    mode, currentTarget, targetChoices(), onMode = { onMode(it); onExpand(false) }, onTarget = { onTarget(it); onExpand(false) },
+                    canCruise = canCruise, cruising = cruising, onCruise = { onCruise(it); onExpand(false) },
+                )
             }
         }
     }
@@ -102,6 +111,9 @@ private fun Picker(
     targets: List<GameSession.TargetChoice>,
     onMode: (SasMode) -> Unit,
     onTarget: (Long) -> Unit,
+    canCruise: Boolean,
+    cruising: Boolean,
+    onCruise: (Boolean) -> Unit,
 ) {
     val scroll = rememberScrollState()
     Surface(
@@ -118,6 +130,15 @@ private fun Picker(
         ) {
             Text("HOLD", style = TelemetryTextStyle, color = Color.White.alpha(ApogeeAlpha.SUBTITLE))
             Spacer(Modifier.height(6.dp))
+            // A plane's height and heading, flown for you. The stick still steers, and it holds
+            // wherever you let go.
+            if (canCruise || cruising) {
+                Chip(
+                    if (cruising) "ALT + HDG · off" else "ALT + HDG", ApogeeColors.Prograde,
+                    selected = cruising, enabled = true, modifier = Modifier.fillMaxWidth(),
+                ) { onCruise(!cruising) }
+                Spacer(Modifier.height(6.dp))
+            }
             val rows = listOf(
                 listOf(SasMode.HOLD),
                 listOf(SasMode.PROGRADE, SasMode.RETROGRADE),

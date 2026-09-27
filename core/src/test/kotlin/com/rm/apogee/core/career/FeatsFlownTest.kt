@@ -287,6 +287,33 @@ class FeatsFlownTest {
     }
 
     @Test
+    fun `the Sloop sailed a kilometre with no engine is Under Sail, and a skiff's motor never is`() {
+        val world = careerWorld()
+        // A fresh breeze on her beam, out on open water off the Cape.
+        world.steadyWind = com.rm.apogee.core.math.Vec3(0.0, 12.0, 0.0)
+        val d = com.rm.apogee.core.orbit.SolarSystem.capeDirection(-8_000.0, 12_000.0)
+        val site = com.rm.apogee.core.world.LaunchSite("sea", "Sea", "terra",
+            com.rm.apogee.core.orbit.SolarSystem.latitudeOf(d), com.rm.apogee.core.orbit.SolarSystem.longitudeOf(d))
+        val boat = world.spawnOnSurface(StockCraft.sloop(catalog), site)
+        world.assignOwner(boat, "p1")
+        world.seatCrew(boat)
+        world.apply(Command.SetSas(boat.id.raw, true))
+        world.apply(Command.SetThrottle(boat.id.raw, 1.0))
+        var t = 0.0
+        while (t < 1_500.0 && Feat.UNDER_SAIL.id !in earned(world)) { world.step(dt); t += dt }
+        assertTrue("no Under Sail: sailed ${boat.log?.underSail} m on the wind", Feat.UNDER_SAIL.id in earned(world))
+
+        // A skiff under power, the same distance, earns nothing of the kind.
+        val motor = careerWorld()
+        val skiff = launch(motor, StockCraft.skiff(catalog), "harbour")
+        motor.apply(Command.Stage(skiff.id.raw))
+        val driver = Driver(motor, skiff, sense = Driver.BOAT)
+        t = 0.0
+        while (t < 800.0) { driver.wheel(0.5); driver.throttle(1.0); motor.step(dt); t += dt }
+        assertTrue(Feat.UNDER_SAIL.id !in earned(motor))
+    }
+
+    @Test
     fun `a Skiff under way on Aurantia's sea is an Alien Sea`() {
         val world = careerWorld()
         val aurantia = world.system.body("aurantia")

@@ -55,6 +55,12 @@ sealed interface WorldEvent {
     /** [spawned] undocked from [from] and is a craft of its own again. */
     data class Undocked(val from: VesselId, val spawned: VesselId, val position: Vec3, val bodyId: String) : WorldEvent
 
+    /**
+     * A winch on [a] hooked onto [b] (null for the ground), or let go ([hooked] false), and whether it
+     * [snapped] doing it.
+     */
+    data class Winched(val a: VesselId, val b: VesselId?, val hooked: Boolean, val snapped: Boolean = false) : WorldEvent
+
     /** A tow hitch coupled ([coupled]) or let go. */
     data class Hitched(val a: VesselId, val b: VesselId, val coupled: Boolean, val position: Vec3, val bodyId: String) : WorldEvent
 
@@ -229,6 +235,15 @@ class World(
         }
 
     /**
+     * A steady wind over the ground everywhere there's air, in place of the weather: x is the part
+     * blowing toward the east and y toward the north, in m/s. Null for the weather as usual. It's
+     * for tests and tuning, where a sail or a windsock needs a wind that doesn't gust or turn.
+     */
+    var steadyWind: Vec3? = null
+    private val scratchEast = Vec3()
+    private val scratchNorth = Vec3()
+
+    /**
      * Gives each body's ocean its sea: always its moon's tides, and waves from this world's weather
      * when it has any. Every world does its own (the server's, and each client's replica), and they
      * agree because they're the same function of the same config.
@@ -291,6 +306,91 @@ class World(
      * Whether [vessel] can fly itself, doing burns and landings. Everyone can for now. A career
      * will make it something to earn.
      */
+    /** Whether [vessel] can hold its height and heading: in a career, once its owner has Cruise Control. */
+    fun mayCruise(vessel: Vessel): Boolean {
+        val program = program ?: return true
+        return vessel.owner.isBlank() || program.allows(vessel.owner, com.rm.apogee.core.career.TechTree.CRUISE)
+    }
+
+    private val cruise = Cruise()
+
+    /** Whether [vessel] has wings to cruise on. */
+    private fun winged(vessel: Vessel): Boolean = vessel.defs.any { it.module<AeroSurface>() != null }
+
+    /**
+     * Turns [vessel]'s height and heading hold on at its height and heading now, or off. It only
+     * takes over a craft with wings, in the air, at least [Cruise.LOWEST] up.
+     */
+    private fun setCruise(vessel: Vessel, on: Boolean) {
+        val control = vessel.control
+        if (!on) { control.cruise = false; return }
+        val attractor = attractorFor(vessel)
+        val reason = when {
+            !mayCruise(vessel) -> "Cruise Control not available"
+            !winged(vessel) -> "No wings to cruise on"
+            vessel.touchingGround || attractor.atmosphere == null || groundClearance(vessel, attractor) < Cruise.LOWEST -> "Too low to cruise"
+            else -> ""
+        }
+        control.autopilotNote = reason
+        if (reason.isNotEmpty()) return
+        control.cruise = true
+        control.sasEnabled = true
+        control.sasMode = SasMode.HOLD
+        control.cruiseHeight = attractor.altitudeOf(vessel.body.position)
+        control.cruiseHeading = cruise.track(vessel, attractor)
+        control.cruiseTrim = cruise.attack(vessel, attractor).coerceIn(-Cruise.MAX_ATTACK, Cruise.MAX_ATTACK)
+        vessel.wake()
+    }
+
+    /** How high [vessel] is above the ground under it, or the sea, in metres. */
+    private fun groundClearance(vessel: Vessel, attractor: CelestialBody): Double {
+        val altitude = attractor.altitudeOf(vessel.body.position)
+        val terrain = attractor.terrain ?: return altitude
+        val up = attractor.toBodyFixed(vessel.body.position, attractor.rotationAt(time)).normalizeInPlace()
+        return altitude - maxOf(terrain.elevation(up), 0.0)
+    }
+
+    /** Whether the stick was being held last tick, per cruising craft: letting go picks up the new heading and height. */
+    private val cruiseSteered = HashSet<VesselId>()
+
+    /**
+     * Flies [vessel]'s height and heading hold for this tick, before stability assist. Steered by
+     * hand it lets the stick fly, and when the stick is let go it holds the heading and height it
+     * has then.
+     */
+    private fun flyCruise(vessel: Vessel, attractor: CelestialBody, dt: Double) {
+        val control = vessel.control
+        if (vessel.touchingGround || !vessel.powered || attractor.atmosphere == null) {
+            control.cruise = false
+            control.autopilotNote = if (!vessel.powered) "No power" else ""
+            return
+        }
+        if (control.hasAttitudeInput) { cruiseSteered.add(vessel.id); return }
+        if (cruiseSteered.remove(vessel.id)) {
+            control.cruiseHeight = attractor.altitudeOf(vessel.body.position)
+            control.cruiseHeading = cruise.track(vessel, attractor)
+        }
+        control.sasEnabled = true
+        cruise.fly(vessel, attractor, dt)
+    }
+
+    /**
+     * Switches [vessel]'s action group [group] on, or off if it's on. Switched on, its engines light
+     * even if they haven't been staged.
+     */
+    private fun toggleGroup(vessel: Vessel, group: Int) {
+        if (group !in 1..Vessel.GROUPS) return
+        if (vessel.design.parts.none { it.group == group }) return
+        val on = vessel.groupStates[group] != 1
+        vessel.groupStates[group] = if (on) 1 else -1
+        if (on) {
+            for (i in vessel.design.parts.indices) {
+                if (vessel.design.parts[i].group == group && vessel.defs[i].module<com.rm.apogee.core.part.Engine>() != null) vessel.activated[i] = true
+            }
+        }
+        vessel.wake()
+    }
+
     fun mayAutopilot(vessel: Vessel): Boolean {
         val program = program ?: return true
         return vessel.owner.isBlank() || program.allows(vessel.owner, com.rm.apogee.core.career.TechTree.AUTOPILOT)
@@ -811,6 +911,36 @@ class World(
     /** The links, for drawing and for tests. */
     val hitches: List<Link> get() = links
 
+    /**
+     * A winch line out: from winch [partA] on craft [a] to a hook on part [partB] of craft [b] at
+     * [hook] (in that part's own axes), or with [b] null, to the ground at body-fixed [ground] on
+     * [bodyId]. [length] is how much line is out, in metres.
+     */
+    class Line(
+        val a: VesselId,
+        val partA: Int,
+        val b: VesselId?,
+        val partB: Int,
+        val hook: Vec3,
+        val ground: Vec3,
+        val bodyId: String,
+        var length: Double,
+    ) {
+        /** Winding in (1), letting out (-1), or holding (0). */
+        var reel = 0
+        /** Whether it's pulling right now. */
+        var taut = false
+    }
+
+    /** Winch lines out right now. */
+    private val lines = ArrayList<Line>()
+
+    /** The lines, for drawing and for tests. */
+    val winchLines: List<Line> get() = lines
+
+    /** [vessel]'s line out, if it has one. */
+    fun lineOf(vessel: Vessel): Line? = lines.firstOrNull { it.a == vessel.id }
+
     private fun linked(a: Long, b: Long) = links.any { (it.a.raw == a && it.b.raw == b) || (it.a.raw == b && it.b.raw == a) }
 
     /** Whether craft [a] and [b] are drawing each other in to dock. */
@@ -1189,6 +1319,16 @@ class World(
                 heard(command.vessel)?.control?.brakes = command.engaged
             is Command.SetReverse ->
                 heard(command.vessel)?.control?.reverse = command.engaged
+            is Command.SetFlaps ->
+                heard(command.vessel)?.control?.flaps = command.down
+            is Command.SetCruise -> heard(command.vessel)?.let { setCruise(it, command.on) }
+            is Command.ToggleGroup -> heard(command.vessel)?.let { toggleGroup(it, command.group) }
+            is Command.Hook -> heard(command.vessel)?.let { hook(it) }
+            is Command.Reel -> heard(command.vessel)?.let { vessel ->
+                lineOf(vessel)?.reel = command.mode.coerceIn(-1, 1)
+                vessel.wake()
+            }
+            is Command.ReleaseLine -> heard(command.vessel)?.let { releaseLine(it) }
             is Command.Deploy ->
                 heard(command.vessel)?.control?.deployed = command.deployed
             is Command.SetBallast -> heard(command.vessel)?.let {
@@ -2178,6 +2318,7 @@ class World(
             else couple(a.vessel, a.index, b.vessel, b.index)
         }
         solveLinks(dt)
+        solveLines(dt)
     }
 
     /**
@@ -2355,6 +2496,161 @@ class World(
             if (a != null && link.partA in a.defs.indices) {
                 pendingEvents.add(WorldEvent.Hitched(link.a, link.b, coupled = false, a.partPositionWorld(link.partA), a.referenceBodyId))
             }
+        }
+    }
+
+    // --- winches ------------------------------------------------------------------------------
+
+    /** [vessel]'s first whole winch, and its index. */
+    private fun winchOf(vessel: Vessel): Pair<Int, com.rm.apogee.core.part.Winch>? {
+        for (i in vessel.defs.indices) {
+            if (vessel.isBroken(i)) continue
+            val winch = vessel.defs[i].module<com.rm.apogee.core.part.Winch>() ?: continue
+            return i to winch
+        }
+        return null
+    }
+
+    /** Where a winch's line comes out, as an offset from its craft's centre, world axes, into [out]. */
+    private fun winchFace(vessel: Vessel, index: Int, winch: com.rm.apogee.core.part.Winch, out: Vec3): Vec3 =
+        vessel.partPointOffsetWorld(index, Vec3(0.0, winch.faceOffset, 0.0), out)
+
+    /**
+     * What [vessel]'s winch could hook onto if asked: its nearest other craft's part in reach in front
+     * of it (within [HOOK_CONE] of straight ahead), or failing that, the ground in front of it. Null
+     * with no winch, a line already out, or nothing in reach.
+     */
+    class HookTarget(val craft: Vessel?, val part: Int, val hook: Vec3, val ground: Vec3, val distance: Double)
+
+    fun hookTarget(vessel: Vessel): HookTarget? {
+        val (index, winch) = winchOf(vessel) ?: return null
+        if (lineOf(vessel) != null) return null
+        val attractor = attractorFor(vessel)
+        val offset = winchFace(vessel, index, winch, Vec3())
+        val face = Vec3().setTo(offset).addInPlace(vessel.body.position)
+        val ahead = vessel.design.parts[index].rotation.rotate(Vec3.unitY())
+        vessel.body.orientation.rotate(ahead, ahead)
+        // Another craft's part.
+        var best: HookTarget? = null
+        val point = Vec3(); val toward = Vec3()
+        for (other in vesselsById.values) {
+            if (other === vessel || other.referenceBodyId != vessel.referenceBodyId) continue
+            if (other.body.position.distanceTo(face) > winch.reach + other.contactRadius) continue
+            for (j in other.defs.indices) {
+                if (other.isBroken(j)) continue
+                other.partPointOffsetWorld(j, Vec3(), point).addInPlace(other.body.position)
+                toward.setTo(point).subInPlace(face)
+                val d = toward.length
+                if (d > winch.reach || d < 1e-3) continue
+                if ((toward dot ahead) / d < HOOK_CONE) continue
+                if (best == null || d < best.distance) best = HookTarget(other, j, Vec3(), Vec3(), d)
+            }
+        }
+        if (best != null) return best
+        // The ground, a little way ahead: along the line flattened onto the ground, where the
+        // terrain is there.
+        if (attractor.terrain == null) return null
+        val up = Vec3().setTo(vessel.body.position).normalizeInPlace()
+        val flat = Vec3().setTo(ahead).addScaledInPlace(up, -(ahead dot up))
+        if (flat.length < 0.2) flat.setTo(ahead) else flat.normalizeInPlace()
+        val rotation = attractor.rotationAt(time)
+        point.setTo(face).addScaledInPlace(flat, minOf(winch.reach, GROUND_HOOK_DISTANCE))
+        val direction = attractor.toBodyFixed(point, rotation).normalizeInPlace()
+        val ground = Vec3().setTo(direction).mulInPlace(attractor.surfaceRadiusInBodyFrame(direction))
+        val distance = rotation.rotate(ground).distanceTo(face)
+        return if (distance <= winch.reach) HookTarget(null, -1, Vec3(), ground, distance) else null
+    }
+
+    /** Hooks [vessel]'s winch onto what [hookTarget] finds. False if there's nothing. */
+    fun hook(vessel: Vessel): Boolean {
+        val (index, _) = winchOf(vessel) ?: return false
+        val target = hookTarget(vessel) ?: return false
+        lines.add(Line(vessel.id, index, target.craft?.id, target.part, target.hook, target.ground, vessel.referenceBodyId, target.distance + LINE_SLACK))
+        vessel.wake()
+        target.craft?.wake()
+        pendingEvents.add(WorldEvent.Winched(vessel.id, target.craft?.id, hooked = true))
+        return true
+    }
+
+    /** Lets go of [vessel]'s line. False if it had none. */
+    fun releaseLine(vessel: Vessel): Boolean {
+        val line = lineOf(vessel) ?: return false
+        lines.remove(line)
+        pendingEvents.add(WorldEvent.Winched(vessel.id, line.b, hooked = false))
+        return true
+    }
+
+    /**
+     * Each winch line, as a rope: it pulls only when it's taut, along the line, and never pushes.
+     * Winding in shortens it, while there's charge. It pulls no harder than its winch can, and past
+     * that the drum slips and lets line out instead. A sudden yank well past that, with the two
+     * flying apart, snaps it.
+     */
+    private fun solveLines(dt: Double) {
+        for (vessel in vesselsById.values) vessel.winchDraw = 0.0
+        if (lines.isEmpty()) return
+        val gone = ArrayList<Pair<Line, Boolean>>()
+        val offA = Vec3(); val offB = Vec3(); val pa = Vec3(); val pb = Vec3()
+        val va = Vec3(); val vb = Vec3(); val n = Vec3(); val r = Vec3(); val impulse = Vec3()
+        for (line in lines) {
+            val a = vesselsById[line.a]
+            val winch = a?.takeIf { line.partA in it.defs.indices && !it.isBroken(line.partA) }
+                ?.defs?.get(line.partA)?.module<com.rm.apogee.core.part.Winch>()
+            if (a == null || winch == null) { gone.add(line to false); continue }
+            val b = line.b?.let { vesselsById[it] }
+            if (line.b != null && (b == null || line.partB !in b.defs.indices)) { gone.add(line to false); continue }
+            if (b == null && a.referenceBodyId != line.bodyId) { gone.add(line to false); continue }
+            val attractor = attractorFor(a)
+            winchFace(a, line.partA, winch, offA)
+            pa.setTo(offA).addInPlace(a.body.position)
+            if (b != null) {
+                b.partPointOffsetWorld(line.partB, line.hook, offB)
+                pb.setTo(offB).addInPlace(b.body.position)
+            } else {
+                attractor.rotationAt(time).rotate(line.ground, pb)
+            }
+            // Winding in, while there's charge, or letting out.
+            if (line.reel > 0 && a.powered) {
+                line.length = maxOf(LINE_SHORTEST, line.length - winch.reelSpeed * dt)
+                a.winchDraw += winch.draw
+            } else if (line.reel < 0) {
+                line.length = minOf(winch.reach, line.length + winch.reelSpeed * dt)
+            }
+            n.setTo(pb).subInPlace(pa)
+            val distance = n.length
+            if (distance <= line.length || distance < 1e-6) { line.taut = false; continue }
+            n.mulInPlace(1.0 / distance)
+            line.taut = true
+            if (a.dormant) a.wake()
+            if (b != null && b.dormant) b.wake()
+            a.body.velocityAtOffset(offA, va)
+            if (b != null) b.body.velocityAtOffset(offB, vb) else attractor.surfaceVelocityAt(pb, vb)
+            // Coming apart along the line, positive.
+            val apart = (vb dot n) - (va dot n)
+            r.setTo(offA).crossInPlace(n)
+            var inverse = a.body.inverseMass + a.body.inverseInertiaAbout(r.normalizedOrZero()) * r.lengthSq
+            if (b != null) {
+                r.setTo(offB).crossInPlace(n)
+                inverse += b.body.inverseMass + b.body.inverseInertiaAbout(r.normalizedOrZero()) * r.lengthSq
+            }
+            if (inverse <= 0.0) continue
+            val bias = LINE_STIFFNESS * (distance - line.length) / dt
+            var j = (apart + bias) / inverse
+            if (j <= 0.0) continue
+            val most = winch.pull * dt
+            if (j > most) {
+                // A yank, with the two flying apart, snaps it. Otherwise the drum slips.
+                if (j > LINE_SNAP * most && apart > LINE_SNAP_SPEED) { gone.add(line to true); continue }
+                j = most
+                line.length = maxOf(line.length, distance - LINE_SLIP)
+            }
+            impulse.setTo(n).mulInPlace(j)
+            a.body.applyImpulseAtOffset(impulse, offA)
+            if (b != null) b.body.applyImpulseAtOffset(impulse.negateInPlace(), offB)
+        }
+        for ((line, snapped) in gone) {
+            lines.remove(line)
+            pendingEvents.add(WorldEvent.Winched(line.a, line.b, hooked = false, snapped = snapped))
         }
     }
 
@@ -2614,7 +2910,9 @@ class World(
             // thrust, and all of them act on what stability assist asks for this tick.
             if (vessel.control.autoBurn) autoBurn(vessel, attractor)
             val landing = if (vessel.control.autoLand) autoLand(vessel, attractor) else null
-            if (vessel.powered) stabilityAssist.update(vessel, dt, landing ?: holdDirection(vessel, attractor))
+            if (vessel.control.cruise && landing == null) flyCruise(vessel, attractor, dt)
+            val cruising = vessel.control.cruise && landing == null
+            if (vessel.powered) stabilityAssist.update(vessel, dt, landing ?: if (cruising) null else holdDirection(vessel, attractor))
             else stabilityAssist.idle(vessel)
             updatePose(vessel, dt)
             // Someone on foot: kept upright, with the stick walking instead of tipping them over.
@@ -2629,7 +2927,15 @@ class World(
             // Gusts over its length come in the drag pass.
             val weather = weatherFor(attractor)
             attractor.rotationAt(time, weatherRotation)
-            if (weather != null) {
+            val steady = steadyWind
+            if (steady != null && attractor.atmosphere != null) {
+                vessel.air.clear()
+                attractor.toBodyFixed(body.position, weatherRotation, weatherPoint).normalizeInPlace()
+                // East and north at the craft, as the planet's spin about +Y defines them.
+                scratchEast.setTo(0.0, 1.0, 0.0).crossInPlace(weatherPoint).normalizeInPlace()
+                scratchNorth.setTo(weatherPoint).crossInPlace(scratchEast)
+                vessel.air.wind.setTo(scratchEast).mulInPlace(steady.x).addScaledInPlace(scratchNorth, steady.y)
+            } else if (weather != null) {
                 attractor.toBodyFixed(body.position, weatherRotation, weatherPoint)
                 weather.sample(weatherPoint, time, vessel.air)
             } else {
@@ -2876,7 +3182,11 @@ class World(
         //
         // And not while its ballast is working, or holding it at a depth. Asleep, its tanks stop,
         // and one resting on the sea floor with its tanks blown stayed there.
-        if (legsMoving(vessel) || docking.capturing(vessel.id.raw) || vessel.control.ballast != 0 || vessel.control.holdDepth) {
+        //
+        // Or while a winch line on it is winding or pulling.
+        if (legsMoving(vessel) || docking.capturing(vessel.id.raw) || vessel.control.ballast != 0 || vessel.control.holdDepth ||
+            lines.any { (it.a == vessel.id || it.b == vessel.id) && (it.reel != 0 || it.taut) }
+        ) {
             vessel.noteStillness(false, SLEEP_SETTLE_TICKS)
             return
         }
@@ -2962,6 +3272,23 @@ class World(
      * nobody was there. So a boat left alone (engine off, hands off) drops anchor. Drifting no
      * faster than [ANCHOR_DRIFT], it's allowed to sleep, and while asleep it stays where it is.
      */
+    /**
+     * The sea's current where [vessel] floats, in the world's frame, into [out]. Zero out of the
+     * water, or on a world without currents.
+     */
+    fun currentAt(vessel: Vessel, attractor: CelestialBody = attractorFor(vessel), out: Vec3 = Vec3()): Vec3 {
+        val sea = attractor.ocean?.sea ?: return out.setZero()
+        val rotation = attractor.rotationAt(time, scratchCurrentRotation)
+        attractor.toBodyFixed(vessel.body.position, rotation, scratchCurrentPoint)
+        val below = (-attractor.altitudeOf(vessel.body.position)).coerceAtLeast(0.0)
+        sea.current(scratchCurrentPoint, below, out)
+        return rotation.rotate(out, out)
+    }
+
+    private val scratchCurrent = Vec3()
+    private val scratchCurrentPoint = Vec3()
+    private val scratchCurrentRotation = com.rm.apogee.core.math.Quat()
+
     private fun floatingStill(vessel: Vessel): Boolean {
         if (vessel.touchingGround || hydrostatics.submergedVolume <= 0.0) return false
         val control = vessel.control
@@ -2976,6 +3303,8 @@ class World(
         val limit = if (seaway || (handsOff && vessel.air.wind.length > 0.5)) ANCHOR_DRIFT else FLOATING_REST_SPEED
         attractor.surfaceVelocityAt(vessel.body.position, scratchSurfaceVelocity)
         scratchRelativeVelocity.setTo(vessel.body.linearVelocity).subInPlace(scratchSurfaceVelocity)
+        // Across the water, not the ground: a boat carried along by a current is still in it.
+        scratchRelativeVelocity.subInPlace(currentAt(vessel, attractor, scratchCurrent))
         if (seaway) {
             // Only its drift across the water counts, not its heaving.
             scratchSeaUp.setTo(vessel.body.position).normalizeInPlace()
@@ -3008,6 +3337,12 @@ class World(
                 def.module<com.rm.apogee.core.part.HydroSurface>()?.controllable == true
             ) {
                 vessel.surfaceDeflection[i] = forces.controlDeflection(vessel, i)
+            }
+            if ((def.module<AeroSurface>()?.flapLift ?: 0.0) > 0.0) {
+                val target = if (vessel.running(i, vessel.control.flaps) && !vessel.isBroken(i)) 1.0 else 0.0
+                val now = vessel.flapPosition[i]
+                val step = dt / FLAP_TIME
+                vessel.flapPosition[i] = if (now < target) minOf(target, now + step) else maxOf(target, now - step)
             }
             val engine = def.module<com.rm.apogee.core.part.Engine>()
             if (engine != null && engine.gimbalRange > 0.0) {
@@ -3053,8 +3388,8 @@ class World(
      */
     private fun unfolded(vessel: Vessel, i: Int): Boolean {
         if (vessel.isBroken(i)) return false
-        if (vessel.defs[i].module<com.rm.apogee.core.part.Drill>() != null) return vessel.control.drilling
-        return vessel.control.deployed || (i < vessel.activated.size && vessel.activated[i])
+        if (vessel.defs[i].module<com.rm.apogee.core.part.Drill>() != null) return vessel.running(i, vessel.control.drilling)
+        return vessel.running(i, vessel.control.deployed || (i < vessel.activated.size && vessel.activated[i]))
     }
 
     private fun legsMoving(vessel: Vessel): Boolean {
@@ -3132,6 +3467,15 @@ class World(
             ballastMode = vessel.control.ballast,
             holdingDepth = if (vessel.control.holdDepth) vessel.control.holdDepthAt.toFloat() else -1f,
             crush = vessel.crushShare.toFloat(),
+            cruiseHeight = if (vessel.control.cruise) vessel.control.cruiseHeight.toFloat() else -1f,
+            cruiseHeading = vessel.control.cruiseHeading.toFloat(),
+            mayCruise = mayCruise(vessel),
+            groups = if (vessel.groupStates.any { it != 0 }) vessel.groupStates.toList() else emptyList(),
+            hasWinch = winchOf(vessel) != null,
+            canHook = hookTarget(vessel)?.let { it.craft?.name ?: "ground" }.orEmpty(),
+            hooked = lineOf(vessel) != null,
+            reel = lineOf(vessel)?.reel ?: 0,
+            taut = lineOf(vessel)?.taut == true,
         ).let { sonar(vessel, it) }
     }
 
@@ -3810,10 +4154,15 @@ class World(
         )
     }
 
+    private fun savedLines(): List<SavedLine> = lines.map {
+        SavedLine(it.a.raw, it.partA, it.b?.raw ?: -1L, it.partB, it.hook.copy(), it.ground.copy(), it.bodyId, it.length, it.reel, it.taut)
+    }
+
     fun snapshot(): Snapshot = Snapshot(
         tick = tick,
         time = time,
         hitches = links.map { SavedLink(it.a.raw, it.partA, it.b.raw, it.partB) },
+        lines = savedLines(),
         vessels = vesselsById.values.map { vessel ->
             VesselKinematics(
                 vessel = vessel.id.raw,
@@ -3870,6 +4219,7 @@ class World(
 
     private fun saveNow(): WorldSave = WorldSave(
         links = links.map { SavedLink(it.a.raw, it.partA, it.b.raw, it.partB) },
+        lines = savedLines(),
         catalogHash = catalog.contentHash,
         felledScatter = felledScatter.sorted(),
         surveyed = surveyed.toList(),
@@ -3913,6 +4263,7 @@ class World(
                 fuelCellsOn = vessel.fuelCellsOn,
                 drilling = vessel.control.drilling,
                 refining = vessel.control.refining,
+                groups = if (vessel.groupStates.any { it != 0 }) vessel.groupStates.toList() else emptyList(),
                 ballast = vessel.control.ballast,
                 holdDepth = vessel.control.holdDepth,
                 holdDepthAt = vessel.control.holdDepthAt,
@@ -3966,6 +4317,12 @@ class World(
         }
         links.clear()
         for (l in save.links) links.add(Link(VesselId(l.vesselA), l.partA, VesselId(l.vesselB), l.partB))
+        lines.clear()
+        for (l in save.lines) {
+            lines.add(Line(VesselId(l.vesselA), l.partA, if (l.vesselB < 0) null else VesselId(l.vesselB), l.partB, l.hook.copy(), l.ground.copy(), l.bodyId, l.length).also {
+                it.reel = l.reel; it.taut = l.taut
+            })
+        }
 
         if (!SaveMigration.canRead(save.formatVersion)) {
             return listOf(
@@ -4049,6 +4406,7 @@ class World(
             vessel.control.deployed = saved.deployed
             vessel.fuelCellsOn = saved.fuelCellsOn
             vessel.control.drilling = saved.drilling
+            saved.groups.forEachIndexed { k, state -> if (k < vessel.groupStates.size) vessel.groupStates[k] = state }
             vessel.control.refining = saved.refining
             vessel.control.ballast = saved.ballast
             vessel.control.holdDepth = saved.holdDepth
@@ -5044,6 +5402,28 @@ class World(
         const val SIGNAL_CHECK_TICKS = 60L
         /** Seconds a probe's link is trusted before a command asks again. */
         const val SIGNAL_STALE = 1.0
+
+        /** How far off straight ahead, as a cosine, a craft can be and still be hooked: 60 degrees. */
+        const val HOOK_CONE = 0.5
+
+        /** How far ahead the ground is hooked, in metres, when there's no craft to hook. */
+        const val GROUND_HOOK_DISTANCE = 15.0
+
+        /**
+         * A winch line: the slack left on hooking, in metres, the shortest it winds in to, the share
+         * of a stretch taken up per tick, how much harder than its pull a yank has to be to snap it,
+         * and how fast the two have to be flying apart for that, in m/s. And how much it lets out at
+         * a time when the drum slips.
+         */
+        const val LINE_SLACK = 0.3
+        const val LINE_SHORTEST = 1.0
+        const val LINE_STIFFNESS = 0.2
+        const val LINE_SNAP = 2.0
+        const val LINE_SNAP_SPEED = 3.0
+        const val LINE_SLIP = 0.02
+
+        /** Seconds for flaps to run all the way out, or back in. */
+        const val FLAP_TIME = 2.0
 
         /** Seconds for a sun wing or dish to fold out, or away. */
         const val UNFOLD_TIME = 4.0

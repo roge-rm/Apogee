@@ -151,6 +151,37 @@ class CraftBuilder(
     }
 
     /**
+     * Whether part [index] can go in an action group: something a group can switch, like an engine,
+     * a lamp, a drill or converter, a fold-out, a wing with flaps, or a sail.
+     */
+    fun groupable(index: Int): Boolean {
+        val def = design.parts.getOrNull(index)?.let { catalog[it.partId] } ?: return false
+        return def.module<com.rm.apogee.core.part.Engine>() != null ||
+            def.module<com.rm.apogee.core.part.Lamp>() != null ||
+            def.module<com.rm.apogee.core.part.Drill>() != null ||
+            def.module<com.rm.apogee.core.part.Converter>() != null ||
+            def.module<com.rm.apogee.core.part.SolarPanel>()?.deployable == true ||
+            def.module<com.rm.apogee.core.part.Antenna>()?.deployable == true ||
+            (def.module<com.rm.apogee.core.part.AeroSurface>()?.flapLift ?: 0.0) > 0.0 ||
+            def.module<com.rm.apogee.core.part.Sail>() != null
+    }
+
+    /**
+     * Puts part [index] and its symmetry partners in action group [group] (1 to 3), or in none with
+     * 0. False if it's not something a group can switch.
+     */
+    fun setGroup(index: Int, group: Int): Boolean {
+        if (!groupable(index) || group !in 0..Vessel.GROUPS) return false
+        val partners = design.parts[index].symmetryGroup
+        mutate { d ->
+            d.copy(parts = d.parts.mapIndexed { i, p ->
+                if (i == index || (partners >= 0 && p.symmetryGroup == partners)) p.copy(group = group) else p
+            })
+        }
+        return true
+    }
+
+    /**
      * Removes a part and everything hanging below it.
      *
      * Symmetry partners go with it, so parts placed together are removed together. Leaving three of

@@ -45,9 +45,14 @@ data class StripField(val label: String, val value: String, val colour: Color = 
  * air, it's the orbit's high and low points, the time to the high one, and the speed. A target,
  * when there is one, takes the last place, showing how far. A dangerous load of air always shows.
  * Under the sea, it's how deep, how far above the floor, climbing or sinking, and how fast, which
- * is slow enough down there to want the tenths.
+ * is slow enough down there to want the tenths. Afloat in a current that's worth knowing about, it's
+ * how fast that runs and which way.
  */
-fun stripFields(t: FlightTelemetry): List<StripField> {
+fun stripFields(
+    t: FlightTelemetry,
+    /** The current it's floating in, in m/s and the compass bearing it runs toward, or null. */
+    current: Pair<Float, Float>? = null,
+): List<StripField> {
     if (t.destroyed != null) return emptyList()
     val out = ArrayList<StripField>(5)
     val onGround = t.heightAboveGround < GROUND_HEIGHT && t.surfaceSpeed < GROUND_SPEED
@@ -94,6 +99,10 @@ fun stripFields(t: FlightTelemetry): List<StripField> {
             out += StripField("ORB", "${t.orbitalSpeed.roundToInt()}")
         }
     }
+    if (current != null && t.inOrbit.not()) {
+        if (out.size >= MAX_FIELDS) out.removeAt(out.lastIndex)
+        out += StripField("CURRENT", "%.1f %s".format(current.first, compassPoint(current.second)), CURRENT_COLOUR)
+    }
     if (t.targetName != null) {
         if (out.size >= MAX_FIELDS) out.removeAt(out.lastIndex)
         out += StripField("DST", formatDistance(t.targetDistance), TARGET_COLOUR)
@@ -114,6 +123,8 @@ fun FlightStrip(
     twoColumns: Boolean,
     power: com.rm.apogee.game.HudState.PowerReadout?,
     modifier: Modifier = Modifier,
+    /** The current it's floating in, in m/s and the bearing it runs toward, or null. */
+    current: Pair<Float, Float>? = null,
     /**
      * Numbers per line: two in portrait, beside the top-left buttons, and all of them in landscape.
      */
@@ -129,7 +140,7 @@ fun FlightStrip(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(3.dp), horizontalAlignment = Alignment.End) {
-                for (line in stripFields(telemetry).chunked(perLine.coerceAtLeast(1))) {
+                for (line in stripFields(telemetry, current).chunked(perLine.coerceAtLeast(1))) {
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         for (field in line) Cell(field)
                     }
@@ -358,6 +369,15 @@ private fun Readout(label: String, value: String, colour: Color = ApogeeColors.D
 }
 
 /** Metres below a kilometre, and kilometres above it. */
+/** The nearest of the eight compass points to [bearing] degrees. */
+internal fun compassPoint(bearing: Float): String {
+    val points = arrayOf("N", "NE", "E", "SE", "S", "SW", "W", "NW")
+    return points[(((bearing % 360f + 360f) % 360f + 22.5f) / 45f).toInt() % 8]
+}
+
+/** The current's field, the sea's own blue-green. */
+private val CURRENT_COLOUR = Color(0xFF59E0D0)
+
 internal fun formatDistance(metres: Double): String {
     val magnitude = abs(metres)
     return when {
