@@ -258,7 +258,6 @@ class CloudScene(
         amount: Double,
         lobe: com.rm.apogee.core.weather.CloudLobe,
         distance: Double,
-        flatForced: Boolean = false,
         /** Faded out toward this distance, m. */
         fadeAt: Double = reach,
     ): Lobe {
@@ -282,7 +281,7 @@ class CloudScene(
             Vec3(lobe.horizontal, lobe.vertical, lobe.horizontal),
             colour,
             variant = (hash and 0xFF).mod(CloudShapes.VARIANTS),
-            flat = flatForced || lobe.flat || type == CloudType.STRATUS || type == CloudType.ALTOSTRATUS || type == CloudType.CIRRUS || type == CloudType.DECK,
+            flat = lobe.flat || type == CloudType.STRATUS || type == CloudType.ALTOSTRATUS || type == CloudType.CIRRUS || type == CloudType.DECK,
             distance = distance,
             tier = tier,
             storm = type == CloudType.CUMULONIMBUS || type == CloudType.DUST,
@@ -320,45 +319,72 @@ class CloudScene(
     // --- the map's cloud -----------------------------------------------------
 
     private val mapWeather = Weather(body, config)
-    @Volatile private var mapLobes: List<Lobe> = emptyList()
+    @Volatile private var mapShell: com.rm.apogee.render.CloudShell? = null
     private var mapListedAt = Double.NEGATIVE_INFINITY
     @Volatile private var mapListing = false
+    private var mapRevision = 0
 
     /**
-     * The whole planet's cloud for the map, turned to [bodyRotation], into
-     * [out]: coarse sheets and storm anvils, refreshed every half minute of
-     * game time on a worker, since the whole globe is a few thousand cells.
+     * The whole planet's cloud for the map, as a veil over the globe: the
+     * decks' cover at each of its vertices, and every storm laid over it,
+     * greyer - refreshed every half minute of game time on a worker. Puffs
+     * tens of kilometres across were drawn here once, and from orbit they
+     * looked like plates laid on the planet, not like cloud.
      */
-    fun mapItems(time: Double, bodyRotation: Quat, out: MutableList<RenderItem>) {
+    fun mapShell(time: Double): com.rm.apogee.render.CloudShell? {
         if (!mapListing && time - mapListedAt > MAP_RELIST_SECONDS) {
             mapListedAt = time
             mapListing = true
             scope.launch(kotlinx.coroutines.Dispatchers.Default) {
                 try {
-                    val shapes = ArrayList<CloudShape>()
-                    mapWeather.globalCover(MAP_SPACING, time, shapes)
-                    mapLobes = shapes.flatMap { shape ->
-                        shape.lobes.map { lobe -> lobeFor(shape.type, shape.amount, lobe, 0.0, flatForced = true) }
+                    val storms = ArrayList<CloudShape>()
+                    mapWeather.globalStorms(time, storms)
+                    // Each storm's lobes as directions, reach (as a chord of the
+                    // unit sphere), how much and how dark.
+                    val lobes = storms.flatMap { shape ->
+                        shape.lobes.map { lobe -> StormPatch(lobe.centre.normalized(), lobe.horizontal / body.radius, shape.amount, lobe.shade) }
                     }
+                    val scratch = DoubleArray(4)
+                    fun storm(direction: Vec3): StormPatch? = lobes.minByOrNull { it.centre.distanceTo(direction) / it.reach }
+                        ?.takeIf { it.centre.distanceTo(direction) < it.reach }
+                    fun stormCover(direction: Vec3): Double {
+                        val s = storm(direction) ?: return 0.0
+                        val t = 1.0 - s.centre.distanceTo(direction) / s.reach
+                        return s.amount * (t * (2.0 - t))
+                    }
+                    // The decks averaged over a patch round each vertex: their
+                    // finer noise, sampled once a vertex tens of kilometres
+                    // apart, came out as blocks.
+                    val east = Vec3(); val north = Vec3(); val probe = Vec3()
+                    val step = MAP_SHELL_BLUR / body.radius
+                    fun decks(d: Vec3): Double {
+                        east.setTo(0.0, 1.0, 0.0).crossInPlace(d)
+                        if (east.lengthSq < 1e-9) east.setTo(1.0, 0.0, 0.0) else east.normalizeInPlace()
+                        north.setTo(d).crossInPlace(east)
+                        var sum = 0.0
+                        for (i in -1..1) for (j in -1..1) {
+                            probe.setTo(d).addScaledInPlace(east, i * step).addScaledInPlace(north, j * step).normalizeInPlace()
+                            sum += mapWeather.coverAt(probe, time, scratch)
+                        }
+                        return sum / 9.0
+                    }
+                    mapShell = com.rm.apogee.render.CloudShell.build(
+                        radius = body.radius,
+                        height = MAP_SHELL_HEIGHT,
+                        revision = ++mapRevision,
+                        cover = { d -> maxOf(decks(d), stormCover(d)) },
+                        shade = { d -> storm(d)?.let { s -> 1.0 - (1.0 - s.shade) * stormCover(d) } ?: 1.0 },
+                    )
                 } finally {
                     mapListing = false
                 }
             }
         }
-        for (lobe in mapLobes) {
-            bodyRotation.rotate(lobe.centre, turned)
-            out.add(
-                RenderItem(
-                    shape = CloudPuff(lobe.variant, lobe.flat, detail = 1),
-                    position = turned.copy(),
-                    rotation = bodyRotation * lobe.up,
-                    color = lobe.colour,
-                    scale = lobe.scale,
-                    ambient = 0.55f,
-                ),
-            )
-        }
+        return mapShell
     }
+
+    /** A storm's cloud on the map's veil: where, how far across (a chord of the unit sphere), how much, how dark. */
+    private class StormPatch(val centre: Vec3, val reach: Double, val amount: Double, val shade: Double)
 
     // --- the windsock ---------------------------------------------------------
 
@@ -516,7 +542,11 @@ class CloudScene(
             segments = 12,
         )
 
-        const val MAP_SPACING = 70_000.0
+        /** How high the map's veil of cloud floats, m - over the ground, and it is drawn no higher than a share of the world. */
+        const val MAP_SHELL_HEIGHT = 8_000.0
+
+        /** How far round each of its vertices the map's veil averages the cloud, m. */
+        const val MAP_SHELL_BLUR = 30_000.0
         const val MAP_RELIST_SECONDS = 30.0
 
         const val SOCK_OFFSET = 35.0

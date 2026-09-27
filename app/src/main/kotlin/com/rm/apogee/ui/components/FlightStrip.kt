@@ -45,7 +45,9 @@ data class StripField(val label: String, val value: String, val colour: Color = 
  * climbing or sinking, how fast through the air, and a strong wind. Out
  * of the air: the orbit's high and low points, the time to the high one,
  * and the speed. A target, when there is one, takes the last place: how
- * far. A dangerous load of air always shows.
+ * far. A dangerous load of air always shows. Under the sea: how deep,
+ * how far above its floor, climbing or sinking, and how fast - slow
+ * enough there to want the tenths.
  */
 fun stripFields(t: FlightTelemetry): List<StripField> {
     if (t.destroyed != null) return emptyList()
@@ -53,6 +55,14 @@ fun stripFields(t: FlightTelemetry): List<StripField> {
     val onGround = t.heightAboveGround < GROUND_HEIGHT && t.surfaceSpeed < GROUND_SPEED
     val low = !onGround && (t.inAir || t.heightAboveGround < LOW_HEIGHT) && !t.inOrbit
     when {
+        t.depth > UNDER_DEPTH -> {
+            out += StripField("DEPTH", formatDistance(t.depth), ApogeeColors.Data)
+            if (t.belowFloor.isFinite()) {
+                out += StripField("BELOW", formatDistance(t.belowFloor.coerceAtLeast(0.0)), if (t.belowFloor < FLOOR_NEAR) ApogeeColors.Caution else ApogeeColors.Data)
+            }
+            out += StripField("VS", (if (t.verticalSpeed >= 0) "+" else "\u2212") + "%.1f".format(abs(t.verticalSpeed)))
+            out += StripField("SRF", "%.1f".format(t.surfaceSpeed))
+        }
         onGround -> {
             out += StripField("SRF", "${t.surfaceSpeed.roundToInt()} m/s")
             out += StripField("HDG", "%03d\u00b0".format(t.heading.roundToInt() % 360))
@@ -164,6 +174,12 @@ private const val AGL_BELOW = 2_000.0
 
 /** Wind worth a place on the strip, m/s. */
 private const val STRONG_WIND = 15.0
+
+/** Deeper than this the craft is under the sea, not riding on it, m. */
+private const val UNDER_DEPTH = 1.5
+
+/** Closer than this to the sea's floor is worth a warning colour, m. */
+private const val FLOOR_NEAR = 10.0
 
 internal val TARGET_COLOUR = Color(0xFFFF5FD2)
 

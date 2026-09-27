@@ -57,6 +57,11 @@ fun PlayScreen(
     onNavigate: (AppScreen) -> Unit,
     launchTime: LaunchTime = LaunchTime.NOW,
     onLaunchTime: (LaunchTime) -> Unit = {},
+    /** On the career world rather than the sandbox. */
+    career: Boolean = false,
+    onCareer: (Boolean) -> Unit = {},
+    /** The career's insight to spend, when on it. */
+    insight: Int? = null,
 ) {
     var chosen by remember { mutableStateOf(launchTime) }
     Backdrop { contentModifier ->
@@ -65,14 +70,29 @@ fun PlayScreen(
             style = MaterialTheme.typography.titleLarge,
             color = Color.White,
         )
-        Spacer(Modifier.height(28.dp))
+        Spacer(Modifier.height(16.dp))
+        // Two worlds: a career grown from nothing, or everything at once.
+        PillRow(listOf("Career" to true, "Sandbox" to false), career, onCareer)
+        Spacer(Modifier.height(20.dp))
+        if (career) {
+            ApogeeButton(
+                "Program",
+                { onNavigate(AppScreen.PROGRAM) },
+                contentModifier,
+                subtitle = (insight?.let { "$it insight · " } ?: "") + "Your tech tree, your feats, the worlds",
+            )
+        }
 
-        ApogeeButton(
-            "Free Flight",
-            { onNavigate(AppScreen.FLIGHT) },
-            contentModifier,
-            subtitle = "A fresh craft on the pad, in place of your last one",
-        )
+        // Not in a career: there is no stock craft to put on the pad - it
+        // starts from scratch, in the Vehicle Assembly.
+        if (!career) {
+            ApogeeButton(
+                "Free Flight",
+                { onNavigate(AppScreen.FLIGHT) },
+                contentModifier,
+                subtitle = "A fresh craft on the pad, in place of your last one",
+            )
+        }
         // When in the day to go up - for Free Flight and the builder's launches.
         LaunchTimeRow(chosen, contentModifier) { chosen = it; onLaunchTime(it) }
         ApogeeButton(
@@ -107,6 +127,29 @@ fun PlayScreen(
         )
 
 
+    }
+}
+
+/** One of a few, as a row of pills: the chosen one lit. */
+@Composable
+internal fun <T> PillRow(options: List<Pair<String, T>>, selected: T, onSelect: (T) -> Unit) {
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        for ((label, value) in options) {
+            val on = value == selected
+            Box(
+                Modifier
+                    .clip(RoundedCornerShape(50))
+                    .background(if (on) ApogeeColors.Accent else ApogeeColors.SurfaceRaised)
+                    .clickable { onSelect(value) }
+                    .padding(horizontal = 20.dp, vertical = 8.dp),
+            ) {
+                Text(
+                    label,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = if (on) ApogeeColors.Surface else Color.White.alpha(ApogeeAlpha.BODY),
+                )
+            }
+        }
     }
 }
 

@@ -20,7 +20,6 @@ object Deposits {
         if (resource != ResourceType.ORE && resource != ResourceType.WATER) return 0.0
         val d = scratchD.get().setTo(direction).normalizeInPlace()
         val h = terrain.elevation(d)
-        if (terrain.hasOcean && h < 0.0) return 0.0
         val material = terrain.material(d, h, slopeAt(terrain, d, h))
         return richnessOf(material, resource, patch(terrain, d, resource))
     }
@@ -82,6 +81,10 @@ object Deposits {
             SurfaceMaterial.THOLIN -> 0.2 to 0.4
             SurfaceMaterial.ORGANIC_SAND -> 0.1 to 0.2
             SurfaceMaterial.NITROGEN_ICE, SurfaceMaterial.LAVA -> 0.0 to 0.0
+            // The sea floor's: the vents' crust richest of anything, the nodules rich, the ooze poor.
+            SurfaceMaterial.VENT_CRUST -> 0.75 to 1.0
+            SurfaceMaterial.NODULES -> 0.55 to 0.85
+            SurfaceMaterial.OOZE -> 0.02 to 0.08
         }
     }
 

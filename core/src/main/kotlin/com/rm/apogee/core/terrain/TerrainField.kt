@@ -259,8 +259,18 @@ class TerrainField(
     /** The field proper, with the harbour carved in, before the launch complex is levelled into it. */
     private fun shapedElevation(nx: Double, ny: Double, nz: Double): Double {
         val raw = capeLift(nx, ny, nz, naturalElevation(nx, ny, nz))
-        return bay(nx, ny, nz, raw)
+        val ground = bay(nx, ny, nz, raw)
+        return seabed?.cape(nx, ny, nz, ground) ?: ground
     }
+
+    override fun ventField(direction: Vec3): Double {
+        val s = seabed ?: return 0.0
+        val l = sqrt(direction.x * direction.x + direction.y * direction.y + direction.z * direction.z)
+        return s.ventField(direction.x / l, direction.y / l, direction.z / l)
+    }
+
+    /** The sea floor's own shapes and ground: see [Seabed]. Terra's, with the Cape's off its coast. */
+    private val seabed: Seabed? = if (profile == Profile.TERRA) Seabed(seed, bodyRadius, padDirection ?: homeDirection) else null
 
     /**
      * The Cape's low country lifted clear of the tide. The plain round the
@@ -427,7 +437,7 @@ class TerrainField(
             val depth = (-centred / SEA_FRACTION * (1.0 - SEA_FRACTION)).coerceIn(0.0, 1.0)
             -StrictMath.pow(depth, OCEAN_SHARPNESS) * oceanDepth
         }
-        if (base <= 0.0) return base
+        if (base <= 0.0) return seabed?.global(nx, ny, nz, base) ?: base
 
         // Hills, in metres rather than as another octave of the curve above.
         //
@@ -480,7 +490,7 @@ class TerrainField(
         val length = sqrt(direction.x * direction.x + direction.y * direction.y + direction.z * direction.z)
         val nx = direction.x / length; val ny = direction.y / length; val nz = direction.z / length
         luna?.let { return it.material(nx, ny, nz, slope) }
-        if (elevation < 0.0) return SurfaceMaterial.SAND
+        if (elevation < 0.0) return seabed?.material(nx, ny, nz, elevation, slope) ?: SurfaceMaterial.SAND
         if (paved) paving(direction)?.let { return it }
         land?.let {
             var landness = smoothstep((elevation / HILL_SHORE_FADE).coerceIn(0.0, 1.0))
@@ -555,7 +565,7 @@ class TerrainField(
         const val DEFAULT_SEED = 0x4A06EE
 
         /** See [Terrain.generation]. 1 is the terrain every save before M7 was made on. */
-        const val GENERATION = 7
+        const val GENERATION = 8
 
         /** Slope (0 flat, 1 wall) past which ground is bare rock: about 39 degrees. */
         private const val STEEP_SLOPE = 0.22

@@ -3425,5 +3425,269 @@
         }
       }
     ]
+  },
+  {
+    "id": "rock-arch",
+    "title": "Rock Arch",
+    "category": "structure",
+    "hidden": true,
+    "dryMass": 20000000.0,
+    "description": "A span of rock the sea has worn through, on the edge of the Cape's shelf.",
+    "crashTolerance": 200.0,
+    "dragCoefficient": 1.0,
+    "hollow": false,
+    "mesh": {
+      "type": "box",
+      "width": 34.0,
+      "height": 20.0,
+      "depth": 9.0
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 7.0,
+              "height": 20.0,
+              "depth": 9.0
+            }
+          },
+          "offset": {
+            "x": -13.5,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 7.0,
+              "height": 20.0,
+              "depth": 9.0
+            }
+          },
+          "offset": {
+            "x": 13.5,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 34.0,
+              "height": 5.0,
+              "depth": 9.0
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 7.5,
+            "z": 0.0
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 5.0,
+              "height": 6.0,
+              "depth": 7.0
+            }
+          },
+          "offset": {
+            "x": -14.0,
+            "y": -6.0,
+            "z": 1.5
+          },
+          "tint": "body",
+          "rotation": {
+            "x": 8.0,
+            "y": 20.0,
+            "z": 5.0
+          }
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 4.0,
+              "height": 5.0,
+              "depth": 6.0
+            }
+          },
+          "offset": {
+            "x": 12.5,
+            "y": -7.0,
+            "z": -1.8
+          },
+          "tint": "body",
+          "rotation": {
+            "x": -6.0,
+            "y": -15.0,
+            "z": 9.0
+          }
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 9.0,
+              "height": 3.5,
+              "depth": 7.0
+            }
+          },
+          "offset": {
+            "x": -6.0,
+            "y": 9.5,
+            "z": 0.8
+          },
+          "tint": "body",
+          "rotation": {
+            "x": 4.0,
+            "y": 10.0,
+            "z": -6.0
+          }
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 8.0,
+              "height": 3.0,
+              "depth": 6.5
+            }
+          },
+          "offset": {
+            "x": 7.0,
+            "y": 9.8,
+            "z": -0.6
+          },
+          "tint": "body",
+          "rotation": {
+            "x": -5.0,
+            "y": -12.0,
+            "z": 7.0
+          }
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 4.0,
+              "height": 7.0,
+              "depth": 5.0
+            }
+          },
+          "offset": {
+            "x": -15.5,
+            "y": 3.0,
+            "z": -2.5
+          },
+          "tint": "body",
+          "rotation": {
+            "x": 12.0,
+            "y": 5.0,
+            "z": -8.0
+          }
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 4.0,
+              "height": 6.0,
+              "depth": 5.0
+            }
+          },
+          "offset": {
+            "x": 15.8,
+            "y": 2.0,
+            "z": 2.2
+          },
+          "tint": "body",
+          "rotation": {
+            "x": -10.0,
+            "y": 8.0,
+            "z": 6.0
+          }
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "ground",
+        "position": {
+          "x": 0.0,
+          "y": -10.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 0
+      }
+    ],
+    "modules": [],
+    "strength": 1000000000.0,
+    "hull": [
+      {
+        "mesh": {
+          "type": "box",
+          "width": 7.0,
+          "height": 20.0,
+          "depth": 9.0
+        },
+        "offset": {
+          "x": -13.5,
+          "y": 0.0,
+          "z": 0.0
+        }
+      },
+      {
+        "mesh": {
+          "type": "box",
+          "width": 7.0,
+          "height": 20.0,
+          "depth": 9.0
+        },
+        "offset": {
+          "x": 13.5,
+          "y": 0.0,
+          "z": 0.0
+        }
+      },
+      {
+        "mesh": {
+          "type": "box",
+          "width": 34.0,
+          "height": 5.0,
+          "depth": 9.0
+        },
+        "offset": {
+          "x": 0.0,
+          "y": 7.5,
+          "z": 0.0
+        }
+      }
+    ]
   }
 ]

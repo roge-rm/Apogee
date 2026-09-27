@@ -9,6 +9,8 @@ class SavedCraft(
     val fileName: String,
     val partCount: Int,
     val lastModified: Long,
+    /** Which parts it is made of: for a career to say what it still needs. */
+    val partIds: Set<String> = emptySet(),
 )
 
 /**
@@ -43,7 +45,7 @@ class CraftStore(private val directory: File) {
                 // down with it - the player should still see their other craft.
                 runCatching {
                     val design = format.decodeFromString<CraftDesign>(file.readText())
-                    SavedCraft(design.name, file.name, design.parts.size, file.lastModified())
+                    SavedCraft(design.name, file.name, design.parts.size, file.lastModified(), design.parts.map { it.partId }.toSet())
                 }.getOrNull()
             }
             ?.sortedByDescending { it.lastModified }
@@ -95,6 +97,8 @@ class CraftStore(private val directory: File) {
 
         val stock = listOf(
             StockCraft.starterRocket(catalog),
+            // A career's first rocket: nothing but the starting kit.
+            StockCraft.sounder(catalog),
             StockCraft.moteProbe(catalog),
             StockCraft.lander(catalog),
             StockCraft.moduleTug(catalog),
@@ -120,6 +124,10 @@ class CraftStore(private val directory: File) {
             StockCraft.moonshot(catalog),
             StockCraft.prospector(catalog),
             StockCraft.surveyor(catalog),
+            // Under the sea, a hull tier each.
+            StockCraft.minnow(catalog),
+            StockCraft.nautilus(catalog),
+            StockCraft.abyss(catalog),
         )
         for (design in stock) {
             if (design.name in offered) continue

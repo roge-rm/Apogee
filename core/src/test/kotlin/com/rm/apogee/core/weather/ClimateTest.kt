@@ -62,8 +62,10 @@ class ClimateTest {
                 mix(weather.overcastAbove(d, 500.0, t))
             }
         }
-        // Worked out by the weather as it stood at 0.8.1, before climates.
-        assertEquals("e3e2fd9e2b0e7cef", java.lang.Long.toHexString(h))
+        // Worked out by the weather as it stood at 0.8.1, before climates -
+        // and pinned again at 0.8.3, when the sea floor was reshaped and the
+        // wind stopped feeling it through the water.
+        assertEquals("edb444d039f89ac", java.lang.Long.toHexString(h))
     }
 
     @Test

@@ -10,7 +10,9 @@ class PartTabsTest {
 
     /** Every stock part, where a player would look for it. */
     private val expected = mapOf(
-        PartTab.PODS to setOf("pod-halo", "probe-mote", "cockpit-sparrow", "cockpit-kestrel", "cab-rover", "cab-open", "cabin-wheelhouse"),
+        PartTab.PODS to setOf("pod-halo", "probe-mote", "cockpit-sparrow", "cockpit-kestrel", "cab-rover", "cab-open", "cabin-wheelhouse",
+            "pod-pearl", "pod-abyss", "hull-nautilus",
+        ),
         PartTab.TANKS to setOf(
             "tank-cask2", "tank-cask4", "tank-broad4", "tank-broad8", "bin-ore", "bin-ore-broad", "tank-water",
             "fuselage-short", "fuselage-long",
@@ -29,11 +31,13 @@ class PartTabsTest {
         ),
         PartTab.WATER to setOf(
             "hull-punt", "hull-bow", "hull-mid", "hull-stern", "hull-skiff", "hull-cutter", "motor-outboard", "rudder", "keel", "keel-skeg",
+            "ballast-trim", "ballast-deep", "ballast-abyss", "float-foam", "keel-lead", "screw-drive", "planes-dive",
         ),
         PartTab.UTILITY to setOf(
             "chute-canopy", "rcs-nudge", "light-bar", "dock-port", "dock-port-small", "mooring-clamp",
             "panel-glint", "wing-kite", "battery-hoard", "cell-spark", "antenna-reed", "dish-beacon", "dish-great", "generator-glow",
             "drill-auger", "converter-small", "scanner-survey", "ladder-rung",
+            "battery-deep", "battery-abyss", "lamp-deep", "sonar-array",
         ),
         PartTab.BASE to setOf(
             "base-foundation", "base-core", "base-habitat", "base-depot", "base-mono-depot",

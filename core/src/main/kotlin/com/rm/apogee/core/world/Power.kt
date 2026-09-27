@@ -86,7 +86,9 @@ class Power(private val system: SolarSystem) {
         val sun = system.sunDirection(attractor.id, vessel.body.position, time, scratchSunDir)
         // The sun in the craft's own axes, for which way each panel faces.
         vessel.body.orientation.inverseRotate(sun, scratchSun)
-        val night = (scratchFace.setTo(vessel.body.position).normalizeInPlace() dot sun) < World.LAMP_DUSK
+        // Dark at night, and under the sea deep enough that the daylight is gone.
+        val night = (scratchFace.setTo(vessel.body.position).normalizeInPlace() dot sun) < World.LAMP_DUSK ||
+            (attractor.ocean != null && attractor.altitudeOf(vessel.body.position) < -World.LAMP_DEPTH)
         var made = 0.0
         var used = 0.0
         var cells = 0.0
@@ -103,6 +105,7 @@ class Power(private val system: SolarSystem) {
                 is Lamp -> if (night) used += module.draw
                 is FuelCell -> { cells += module.rate; cellMono += module.rate * module.monoPerCharge; anyCell = i }
                 is com.rm.apogee.core.part.Scanner -> used += module.draw
+                is com.rm.apogee.core.part.Sonar -> used += module.draw
                 else -> Unit
             }
         }

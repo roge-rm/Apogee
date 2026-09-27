@@ -28,6 +28,40 @@ object StockCraft {
 
 
     /**
+     * The Sounder: what a career's starting kit builds, and nothing more - a
+     * pod on a parting ring, two small tanks and an Ember, four fins, a
+     * chute; a career is not given it, but it is the first a player would
+     * build, and the balance is worked from it. Up,
+     * let the spent stage go, and come down under the canopy: the Hop and
+     * the Staging feats in one flight.
+     */
+    fun sounder(catalog: PartCatalog = StockParts.catalog): CraftDesign {
+        val parts = ArrayList<PlacedPart>()
+        fun add(partId: String, y: Double, parent: Int, x: Double = 0.0, z: Double = 0.0): Int {
+            parts.add(PlacedPart(partId = partId, position = Vec3(x, y, z), rotation = Quat.identity(), parentIndex = parent))
+            return parts.size - 1
+        }
+        val pod = add("pod-halo", 2.2, -1)
+        val chute = add("chute-canopy", 3.0, pod)
+        val ring = add("decoupler-ring", 1.5, pod)
+        val upperTank = add("tank-cask2", 0.4, ring)
+        val lowerTank = add("tank-cask2", -1.6, upperTank)
+        val engine = add("engine-ember", -3.3, lowerTank)
+        val finRadius = 0.975
+        add("fin-vane", -1.6, lowerTank, x = finRadius)
+        add("fin-vane", -1.6, lowerTank, x = -finRadius)
+        add("fin-vane", -1.6, lowerTank, z = finRadius)
+        add("fin-vane", -1.6, lowerTank, z = -finRadius)
+        faceOutward(parts, catalog)
+        return CraftDesign(
+            name = "Sounder",
+            parts = parts,
+            stages = listOf(Stage(listOf(engine)), Stage(listOf(ring)), Stage(listOf(chute))),
+            catalogHash = catalog.contentHash,
+        )
+    }
+
+    /**
      * Two-stage launcher sized to reach a ~100 km orbit with margin.
      *
      * Roughly 3.5 km/s of delta-v against the ~3.4 km/s the homeworld demands,
@@ -375,7 +409,10 @@ object StockCraft {
     }
 
     /**
-     * A rover: a pod on four wheels.
+     * A rover from the first of the land kit: a small chassis, an open seat,
+     * and four tread wheels, the front pair steering. Low and wide - it was
+     * once a pod standing on four wheels, and rolled in any hard turn and on
+     * the first rock on Luna.
      *
      * No engine and no stages. Driving is the throttle acting through the
      * wheels instead of through a bell, which is the whole claim being tested
@@ -383,33 +420,11 @@ object StockCraft {
      * different simulation.
      */
     fun rover(catalog: PartCatalog = StockParts.catalog): CraftDesign {
-        val parts = ArrayList<PlacedPart>()
-        parts.add(PlacedPart("pod-halo", Vec3.zero()))
-
-        // Wheels at the four corners, below the pod so it rides clear of the
-        // ground. The front pair steer.
-        // A metre out each side, not seventy centimetres: a track of two
-        // metres under a pod this tall is what keeps it on its wheels across
-        // real country. At 1.4 m it rolled over half a kilometre off the pad.
-        for ((x, z) in listOf(1.0 to 0.8, -1.0 to 0.8, 1.0 to -0.8, -1.0 to -0.8)) {
-            parts.add(
-                PlacedPart(
-                    partId = "wheel-tread",
-                    position = Vec3(x, -0.85, z),
-                    rotation = Quat.identity(),
-                    parentIndex = 0,
-                )
-            )
-        }
-
-        faceOutward(parts, catalog)
-
-        return CraftDesign(
-            name = "Trundler",
-            parts = parts,
-            stages = emptyList(),
-            catalogHash = catalog.contentHash,
-        )
+        val a = Assembly(catalog, "Trundler", CraftOrientation.HORIZONTAL)
+        val chassis = a.root("chassis-small")
+        a.on(chassis, "deck-front", "cab-open")
+        for (k in 1..4) a.on(chassis, "wheel-$k", "wheel-tread")
+        return a.design()
     }
 
     /**
@@ -656,6 +671,67 @@ object StockCraft {
         a.on(hull, "transom", "motor-outboard")
         a.on(hull, "side-right", "mooring-clamp")
         a.on(hull, "side-left", "mooring-clamp")
+        return a.design()
+    }
+
+    // --- submarines ---------------------------------------------------------------
+    //
+    // Each a pressure hull amidships with a trim tank fore and aft of it, a
+    // screw at the tail, bow planes either side and a rudder on top, lamps
+    // under the hull aimed at the floor - and on the deep ones, a sonar under
+    // it to find the way in the dark. Nearly as heavy as the water it
+    // displaces with its tanks blown, so it floats; flooded, a little
+    // heavier, so it sinks.
+    //
+    // The tanks either side of the middle, as far forward as aft: all its
+    // lift is in them, and with only one, behind the hull, it floated
+    // standing on its nose - and flooding it or blowing it would tip it
+    // again. Balanced so, it lies level either way.
+
+    /** The first: a Pearl sphere between two trim tanks, good to three hundred metres. */
+    fun minnow(catalog: PartCatalog = StockParts.catalog): CraftDesign = submarine(catalog, "Minnow", "pod-pearl", "ballast-trim")
+
+    /** Two aboard, to a kilometre and a half: the Nautilus hull between two deep trim tanks. */
+    fun nautilus(catalog: PartCatalog = StockParts.catalog): CraftDesign =
+        submarine(catalog, "Nautilus", "hull-nautilus", "ballast-deep", sonar = true)
+
+    /**
+     * To the bottom of the Terra Deep: the Abyss sphere between abyssal
+     * tanks, and standing on it a float to hold up its weight - a sail, high,
+     * that keeps it upright too.
+     */
+    fun abyss(catalog: PartCatalog = StockParts.catalog): CraftDesign =
+        submarine(catalog, "Abyss", "pod-abyss", "ballast-abyss", float = "float-foam", cell = "battery-abyss", sonar = true)
+
+    private fun submarine(
+        catalog: PartCatalog, name: String, hull: String, tank: String,
+        float: String? = null, cell: String? = null, sonar: Boolean = false,
+    ): CraftDesign {
+        val a = Assembly(catalog, name, CraftOrientation.HORIZONTAL)
+        val middle = a.root(hull)
+        val fore = a.on(middle, "top", tank)
+        val aft = a.on(middle, "bottom", tank)
+        a.on(aft, "bottom", "screw-drive")
+        // Bow planes on the fore tank, the rudder aft; lamps and sonar under
+        // the hull. The planes forward to even out the water's drag along it:
+        // with them aft by the screw and rudder, that end dragged most, and
+        // sinking, it trailed up and she went down nose first.
+        a.on(fore, "side-right", "planes-dive")
+        a.on(fore, "side-left", "planes-dive")
+        a.on(aft, "spine-aft", "rudder")
+        a.on(middle, "belly-right", "lamp-deep")
+        a.on(middle, "belly-left", "lamp-deep")
+        // Upright under the water: weight low, lift high. A lead keel under
+        // the hull - with everything else on its axis, nothing held it level,
+        // and the least push from its screw or planes stood it on end - and
+        // for the Abyss, a float standing on it too. The keel's weight is
+        // also what takes it down at a metre or so a second, flooded:
+        // sinking broadside, lighter ones took half an hour to a kilometre.
+        a.on(middle, "belly", "keel-lead")
+        val sail = float?.let { a.on(middle, "spine", it) }
+        // A spare cell amidships, on the float, where its weight tips nothing.
+        cell?.let { a.on(sail ?: middle, "spine", it) }
+        if (sonar) a.on(fore, "belly", "sonar-array")
         return a.design()
     }
 

@@ -52,7 +52,8 @@ object PartTabs {
             def.hasModule<Command>() -> PartTab.PODS
             docking != null && (docking.kind == DockKind.HITCH_BALL || docking.kind == DockKind.HITCH_COUPLING) -> PartTab.GROUND
             docking != null || def.hasModule<Rcs>() || def.hasModule<Parachute>() -> PartTab.UTILITY
-            def.hasModule<Buoyancy>() || def.hasModule<HydroSurface>() || def.module<Engine>()?.exhaustKind == Exhaust.WATER -> PartTab.WATER
+            def.hasModule<Buoyancy>() || def.hasModule<HydroSurface>() || def.hasModule<com.rm.apogee.core.part.Ballast>() ||
+                def.module<Engine>()?.exhaustKind == Exhaust.WATER -> PartTab.WATER
             def.hasModule<Wheel>() || def.hasModule<LandingLeg>() -> PartTab.GROUND
             def.hasModule<Engine>() -> PartTab.ENGINES
             def.hasModule<AeroSurface>() || def.category == PartCategory.AERO -> PartTab.WINGS
@@ -81,5 +82,8 @@ object PartTabs {
     private val OVERRIDES = mapOf(
         // Lamps, no module to say so.
         "light-bar" to PartTab.UTILITY,
+        // A submarine's float and keel: foam and lead, no module to say so.
+        "float-foam" to PartTab.WATER,
+        "keel-lead" to PartTab.WATER,
     )
 }

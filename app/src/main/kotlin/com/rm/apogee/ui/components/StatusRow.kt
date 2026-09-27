@@ -16,7 +16,9 @@ import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.Compress
 import androidx.compose.material.icons.filled.Paragliding
+import androidx.compose.material.icons.filled.Radar
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.SignalWifiOff
 import androidx.compose.material.icons.filled.Warning
@@ -44,6 +46,8 @@ import com.rm.apogee.ui.theme.ApogeeColors
 import com.rm.apogee.ui.theme.Dimens
 import com.rm.apogee.ui.theme.TelemetryTextStyle
 import com.rm.apogee.ui.theme.alpha
+import kotlin.math.abs
+import kotlin.math.roundToInt
 
 /** What the status chips' details can do. */
 class StatusActions(
@@ -98,6 +102,18 @@ fun StatusRow(
             if (power.needsSignal && power.powered && power.blocked == "NO SIGNAL") {
                 add(StatusChip("signal", Icons.Filled.SignalWifiOff, "NO SIGNAL", ApogeeColors.Danger, true, null))
             }
+        }
+        if (power != null && power.deepCaution) {
+            add(StatusChip("crush", Icons.Filled.Compress, "DEPTH LIMIT", if (power.deepDanger) ApogeeColors.Danger else ApogeeColors.Caution, power.deepDanger, HudState.STATUS_PARTS))
+        }
+        if (power != null && power.findRange >= 0f) {
+            val side = power.findBearing.roundToInt()
+            val way = when {
+                abs(side) < 10 -> "AHEAD"
+                side > 0 -> "R$side\u00b0"
+                else -> "L${-side}\u00b0"
+            }
+            add(StatusChip("sonar", Icons.Filled.Radar, "${formatDistance(power.findRange.toDouble())} $way", ApogeeColors.Accent, false, null))
         }
         if (chute != null) add(StatusChip("chute", Icons.Filled.Paragliding, chute, if (chute == "ARMED") ApogeeColors.Data else ApogeeColors.Prograde, false, null))
         if (telemetry.overheating) {

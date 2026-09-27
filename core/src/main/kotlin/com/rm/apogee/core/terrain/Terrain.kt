@@ -58,6 +58,9 @@ interface Terrain {
      */
     fun isLaunchComplex(direction: Vec3): Boolean = false
 
+    /** How much of a vent field there is on the sea floor at [direction], 0..1: see [Seabed.ventField]. */
+    fun ventField(direction: Vec3): Double = 0.0
+
     /**
      * Whether ground below the datum is under a sea. False for an airless
      * body, whose low places - Luna's maria - are just low.

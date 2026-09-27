@@ -68,6 +68,14 @@ object TerrainPalette {
             SurfaceMaterial.NITROGEN_ICE -> { r = 0.93f; g = 0.90f; b = 0.86f }
             SurfaceMaterial.THOLIN -> { r = 0.40f; g = 0.20f; b = 0.12f }
             SurfaceMaterial.TESSERA -> { r = 0.46f; g = 0.38f; b = 0.28f }
+            // The deep sea's floor: pale ooze, the dark of metal nodules
+            // strewn over it, and a vent's crust, rust and black.
+            SurfaceMaterial.OOZE -> { r = 0.58f; g = 0.56f; b = 0.50f }
+            SurfaceMaterial.NODULES -> { r = 0.30f; g = 0.28f; b = 0.26f }
+            SurfaceMaterial.VENT_CRUST -> {
+                val t = Noise.hash(JITTER_SEED + 2, jitterKey, 0, 0).toFloat()
+                r = 0.45f - 0.28f * t; g = 0.24f - 0.14f * t; b = 0.14f - 0.07f * t
+            }
         }
         // +-6% brightness, fixed per vertex. Hashed rather than random so the
         // same ground looks the same every time it is built.
@@ -90,23 +98,6 @@ object TerrainPalette {
         out[offset] = 0.10f + (0.02f - 0.10f) * t
         out[offset + 1] = 0.30f + (0.09f - 0.30f) * t
         out[offset + 2] = 0.46f + (0.22f - 0.46f) * t
-    }
-
-    /**
-     * The sea bed at [depth] m, seen through the water: pale sand in the
-     * shallows, weed-dark further down, lost to the deep beyond.
-     */
-    fun seabed(depth: Double, jitterKey: Int, out: FloatArray, offset: Int) {
-        val shallow = (depth / 12.0).coerceIn(0.0, 1.0)
-        val deep = ((depth - 12.0) / 250.0).coerceIn(0.0, 1.0)
-        var r = 0.78 + (0.40 - 0.78) * shallow
-        var g = 0.72 + (0.46 - 0.72) * shallow
-        var b = 0.52 + (0.40 - 0.52) * shallow
-        r += (0.10 - r) * deep; g += (0.18 - g) * deep; b += (0.22 - b) * deep
-        val j = 1.0 + (((jitterKey * -0x61c88647) ushr 24) and 0xFF) / 255.0 * 0.12 - 0.06
-        out[offset] = (r * j).toFloat()
-        out[offset + 1] = (g * j).toFloat()
-        out[offset + 2] = (b * j).toFloat()
     }
 
     private const val JITTER_SEED = 0x7E11A

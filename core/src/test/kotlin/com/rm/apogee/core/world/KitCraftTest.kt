@@ -196,4 +196,25 @@ class KitCraftTest {
         val horizontal = v.copy().addScaledInPlace(up(boat), -(v dot up(boat))).length
         assertTrue("it drove through the air at $horizontal m/s", horizontal < 0.3)
     }
+
+    /**
+     * One stick, one way round: the same yaw turns every craft that steers
+     * - the rovers on their wheels, a boat on its rudder, a jet on its tail -
+     * toward the same side of itself. The Trundler, once a pod standing on
+     * wheels, turned the other way to every other rover.
+     */
+    @Test
+    fun `the same yaw turns every rover, boat and plane the same way`() {
+        for (design in listOf(StockCraft.rover(catalog), StockCraft.buggy(catalog), StockCraft.skiff(catalog), StockCraft.sparrow(catalog))) {
+            val (world, craft) = spawn(design)
+            world.apply(Command.Stage(craft.id.raw))
+            world.apply(Command.SetThrottle(craft.id.raw, if (design.name == "Sparrow") 0.4 else 1.0))
+            run(world, 5.0)
+            val before = groundVelocity(world, craft).normalizeInPlace()
+            val side = craft.body.orientation.rotate(Vec3.unitX())
+            run(world, 2.0) { world.apply(Command.SetAttitude(craft.id.raw, 0.0, 0.5, 0.0)) }
+            val swung = groundVelocity(world, craft).normalizeInPlace().subInPlace(before) dot side
+            assertTrue("${design.name} turned the other way: $swung", swung < -0.05)
+        }
+    }
 }

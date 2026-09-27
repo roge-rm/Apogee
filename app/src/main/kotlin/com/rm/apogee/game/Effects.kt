@@ -154,12 +154,68 @@ class Effects(tier: QualityTier) {
         }
         seaSpray(dt, time, body)
         plumes(dt, body, cameraBodyFixed)
+        seaVents(dt, body, cameraBodyFixed)
         advance(dt, body)
         if (weather != null) lightning(time, weather, cameraBodyFixed, body)
         flash = (flash * exp(-dt / 0.12).toFloat()).coerceAtLeast(0f)
     }
 
     // --- plumes -----------------------------------------------------------------
+
+    /** The chimneys on the sea floor near the camera, body-fixed tops; where and on what they were last looked for. */
+    private val ventTops = ArrayList<Vec3>()
+    private val ventsLookedFrom = Vec3()
+    private var ventsBody = ""
+
+    /**
+     * The sea floor's vents near the camera at work: dark water welling up
+     * out of each chimney, spreading as it rises, and a faint shimmer of
+     * heat at its mouth. Only in the water, and only close - past the
+     * murk nothing would show.
+     */
+    private fun seaVents(dt: Double, body: CelestialBody, camera: Vec3) {
+        val scatter = body.terrain?.scatter
+        if (scatter == null || body.ocean == null || camera.length - body.radius > 0.0) {
+            ventTops.clear(); ventsBody = ""; return
+        }
+        if (ventsBody != body.id || ventsLookedFrom.distanceTo(camera) > VENT_LOOK_AGAIN) {
+            ventTops.clear()
+            ventsBody = body.id
+            ventsLookedFrom.setTo(camera)
+            scatter.forEachBlockNear(camera, VENT_REACH, scratch2) { block ->
+                for (k in 0 until block.count) {
+                    val kind = com.rm.apogee.core.terrain.ScatterKind.of(block.kinds[k].toInt())
+                    if (kind != com.rm.apogee.core.terrain.ScatterKind.VENT) continue
+                    val at = Vec3(block.x[k], block.y[k], block.z[k])
+                    if (at.distanceTo(camera) > VENT_REACH) continue
+                    // Its mouth, at the top of the chimney.
+                    ventTops += at.addScaledInPlace(at.copy().normalizeInPlace(), kind.height * block.sizes[k])
+                }
+            }
+        }
+        for ((n, top) in ventTops.withIndex()) {
+            up.setTo(top).normalizeInPlace()
+            val puffs = poisson(VENT_PUFFS * rateScale * dt, 0x5E47 + n)
+            for (k in 0 until puffs) {
+                val rise = 0.6 + 0.5 * rand(k)
+                spawn(
+                    x = top.x + jitter(k, 1) * 0.3, y = top.y + jitter(k, 2) * 0.3, z = top.z + jitter(k, 3) * 0.3,
+                    vx = up.x * rise + jitter(k, 4) * 0.08, vy = up.y * rise + jitter(k, 5) * 0.08, vz = up.z * rise + jitter(k, 6) * 0.08,
+                    life = 10.0 + 6.0 * rand(k + 1), startSize = 0.6, endSize = 4.5,
+                    r = 0.20f, g = 0.18f, b = 0.16f, a = 0.55f, grip = 0.0, rise = 0.0,
+                )
+            }
+            val shimmer = poisson(VENT_SHIMMER * rateScale * dt, 0x5E48 + n)
+            for (k in 0 until shimmer) {
+                spawn(
+                    x = top.x, y = top.y, z = top.z,
+                    vx = up.x * 1.2, vy = up.y * 1.2, vz = up.z * 1.2,
+                    life = 0.8 + 0.6 * rand(k), startSize = 0.5, endSize = 1.1,
+                    r = 0.55f, g = 0.22f, b = 0.08f, a = 0.25f, grip = 0.0, rise = 0.0, glow = true,
+                )
+            }
+        }
+    }
 
     /**
      * A world's vents at work near the camera: Fornax's volcanoes throwing
@@ -1090,6 +1146,14 @@ class Effects(tier: QualityTier) {
     companion object {
         /** Out to here a vent is seen at work, m. */
         private const val PLUME_REACH = 150_000.0
+
+        /** A sea-floor vent's, m, well past what the murk lets be seen; how far the camera goes before they are looked for again. */
+        private const val VENT_REACH = 150.0
+        private const val VENT_LOOK_AGAIN = 25.0
+
+        /** A sea-floor vent's smoke and shimmer, a second each. */
+        private const val VENT_PUFFS = 3.0
+        private const val VENT_SHIMMER = 6.0
 
         private val SULFUR = floatArrayOf(0.88f, 0.82f, 0.55f)
         private val VAPOUR = floatArrayOf(0.95f, 0.97f, 1.0f)

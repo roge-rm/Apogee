@@ -134,6 +134,39 @@ class BuilderSession(
 
     var statusMessage: String? by mutableStateOf(null)
 
+    /** The player's career, or null building for a sandbox: everything unlocked, nothing limited. */
+    var career: com.rm.apogee.core.career.CareerState? by mutableStateOf(null)
+    val tree: com.rm.apogee.core.career.TechTree get() = com.rm.apogee.core.career.TechTree.stock
+
+    /** Parts the career has not unlocked yet, each to the title of the node that unlocks it. */
+    fun lockedParts(): Map<String, String> {
+        val c = career ?: return emptyMap()
+        val have = c.parts(tree)
+        return tree.nodes.flatMap { node -> node.parts.map { it to node.title } }.filter { it.first !in have }.toMap()
+    }
+
+    /** Why the career will not let this launch where it is going, or null if it will (or this is a sandbox). */
+    fun careerRefusal(): String? {
+        val c = career ?: return null
+        val design = designForLaunch() ?: return null
+        return com.rm.apogee.core.career.CareerRules.refusal(tree, c, design, launchSiteId ?: automaticSite().id, catalog)
+    }
+
+    /** What the facility it goes from takes, against what it is: "12.3 / 45 t · 22 / 40 parts"; null outside a career. */
+    fun careerLimits(): Pair<String, Boolean>? {
+        val c = career ?: return null
+        val site = launchSiteId ?: automaticSite().id
+        val facility = if (site.startsWith(com.rm.apogee.core.world.LaunchSite.BASE_SITE_PREFIX)) com.rm.apogee.core.career.Facility.PAD
+            else com.rm.apogee.core.career.CareerRules.facilityFor(site)
+        val limits = com.rm.apogee.core.career.CareerRules.limits(tree, c, facility) ?: return "No ${facility.title.lowercase()} yet" to true
+        val mass = com.rm.apogee.core.career.CareerRules.massOf(builder.design, catalog)
+        val parts = builder.design.parts.size
+        val massText = if (limits.mass > 0.0) "%.1f / %.0f t".format(mass / 1000.0, limits.mass / 1000.0) else "%.1f t".format(mass / 1000.0)
+        val partText = if (limits.parts > 0) "$parts / ${limits.parts} parts" else "$parts parts"
+        val over = (limits.mass > 0.0 && mass > limits.mass) || (limits.parts > 0 && parts > limits.parts)
+        return "${facility.title.uppercase()} · $massText · $partText" to over
+    }
+
     /** Bumped on every edit so Compose recomposes off a plain mutable model. */
     var revision: Int by mutableIntStateOf(0)
         private set

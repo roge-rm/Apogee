@@ -23,6 +23,7 @@ class CodecTest {
             ClientMessage.Hello(Protocol.VERSION, "abc123", "Pilot", "install-1"),
             ClientMessage.Hello(Protocol.VERSION, "abc123", "Pilot", "install-1", terrainGeneration = 7, systemHash = "0f1e2d3c4b5a6978"),
             ClientMessage.CommandMessage(Command.SetThrottle(7, 0.75)),
+            ClientMessage.CommandMessage(Command.Unlock("tanks")),
             ClientMessage.CommandMessage(Command.SetAttitude(7, 0.1, -0.2, 0.3)),
             ClientMessage.CommandMessage(Command.SetSas(7, true)),
             ClientMessage.CommandMessage(Command.Stage(7)),
@@ -42,6 +43,8 @@ class CodecTest {
             ClientMessage.CommandMessage(Command.Jump(8)),
             ClientMessage.CommandMessage(Command.Grab(8, true)),
             ClientMessage.CommandMessage(Command.PlantFlag(8)),
+            ClientMessage.CommandMessage(Command.SetBallast(7, -1)),
+            ClientMessage.CommandMessage(Command.HoldDepth(7, true)),
             ClientMessage.CommandMessage(
                 Command.SpawnCraft(StockCraft.starterRocket(StockParts.catalog), "cape")
             ),
@@ -66,6 +69,13 @@ class CodecTest {
         )
         val messages = listOf(
             ServerMessage.Welcome(Protocol.VERSION, "abc123", "Test Server", 1),
+            ServerMessage.Welcome(Protocol.VERSION, "abc123", "Test Server", 1, mode = com.rm.apogee.core.world.WorldSave.MODE_CAREER),
+            ServerMessage.Career(
+                com.rm.apogee.core.career.CareerState("install-1", insight = 42, nodes = listOf("tanks"), feats = mapOf("hop" to 0, "staging" to 2), visits = listOf("luna:orbit")),
+                listOf(com.rm.apogee.core.career.WorldFirst("luna", "land", "install-1", "Pilot", 1234.5)),
+            ),
+            ServerMessage.Feat("Staging", "Gold", 35),
+            ServerMessage.CareerRefused("Not unlocked yet: Vesper Vacuum Engine"),
             ServerMessage.Rejected("part catalogue mismatch"),
             ServerMessage.SnapshotMessage(Snapshot(42, 0.7, listOf(kinematics))),
             ServerMessage.StructureMessage(
@@ -84,6 +94,8 @@ class CodecTest {
                 controllable = true, needsSignal = true, deployed = true,
                 drilling = true, refining = true, drillState = com.rm.apogee.core.world.DrillState.DIGGING,
                 survey = 0.4f, ore = 0.55f, water = 0.9f,
+                ballast = 0.6f, ballastMode = 1, holdingDepth = 120f, crush = 0.85f,
+                seabed = 14.5f, findBearing = -32f, findRange = 640f,
             ),
             ServerMessage.Surveyed(listOf("luna", "terra")),
             ServerMessage.Roster(

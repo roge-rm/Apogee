@@ -170,6 +170,24 @@ class GameClient(
     @Volatile var roster: List<com.rm.apogee.core.crew.CrewMember> = emptyList()
         private set
 
+    /** This player's career, and the world's firsts; null in a sandbox. */
+    @Volatile var career: com.rm.apogee.core.career.CareerState? = null
+        private set
+    @Volatile var firsts: List<com.rm.apogee.core.career.WorldFirst> = emptyList()
+        private set
+
+    /** The sea's named places this player has found, in a career or in free play. */
+    @Volatile var wondersFound: Set<String> = emptySet()
+        private set
+
+    /** Which kind of world this is: [com.rm.apogee.core.world.WorldSave.MODE_CAREER] or sandbox. */
+    @Volatile var mode: String = com.rm.apogee.core.world.WorldSave.MODE_SANDBOX
+        private set
+
+    /** Feats just earned, and career refusals, for the HUD to show once each. */
+    val feats: java.util.concurrent.ConcurrentLinkedQueue<ServerMessage.Feat> = java.util.concurrent.ConcurrentLinkedQueue()
+    val refusals: java.util.concurrent.ConcurrentLinkedQueue<String> = java.util.concurrent.ConcurrentLinkedQueue()
+
     /** Bodies surveyed for ore and water: their richness is on the map. */
     @Volatile var surveyed: Set<String> = emptySet()
         private set
@@ -257,6 +275,7 @@ class GameClient(
 
             is ServerMessage.Welcome -> {
                 weather = message.weather
+                mode = message.mode
                 serverName = message.serverName
                 controlledVessel = message.controlledVessel.takeIf { it >= 0 }
                 connected = true
@@ -339,6 +358,13 @@ class GameClient(
             is ServerMessage.Surveyed -> surveyed = message.bodies.toSet()
 
             is ServerMessage.Roster -> roster = message.members
+            is ServerMessage.Career -> {
+                career = message.state
+                firsts = message.firsts
+            }
+            is ServerMessage.WondersFound -> wondersFound = message.ids.toSet()
+            is ServerMessage.Feat -> feats.add(message)
+            is ServerMessage.CareerRefused -> refusals.add(message.reason)
 
             is ServerMessage.BaseStatus -> {
                 nearBase = message

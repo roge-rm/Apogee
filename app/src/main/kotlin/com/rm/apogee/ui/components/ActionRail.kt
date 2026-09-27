@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Air
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.Hardware
 import androidx.compose.material.icons.filled.KeyboardDoubleArrowUp
@@ -17,6 +19,7 @@ import androidx.compose.material.icons.filled.PanTool
 import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.SolarPower
 import androidx.compose.material.icons.filled.SwapVert
+import androidx.compose.material.icons.filled.VerticalAlignCenter
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -46,6 +49,9 @@ class RailActions(
     val onRefine: () -> Unit = {},
     val onJump: () -> Unit = {},
     val onFlag: () -> Unit = {},
+    val onDive: () -> Unit = {},
+    val onRise: () -> Unit = {},
+    val onHold: () -> Unit = {},
 )
 
 /** One switch on the rail: its picture, its word, and how it stands. */
@@ -54,7 +60,8 @@ private class RailSwitch(val icon: ImageVector, val caption: String, val tint: C
 /**
  * The craft's switches, beside the throttle: brakes and reverse on
  * something with wheels, the thrusters, sun wings and dishes, drills and
- * converters - and on EVA, jumping and planting a flag. Only those the
+ * converters, ballast to dive, rise and hold a depth - and on EVA,
+ * jumping and planting a flag. Only those the
  * craft has. Each a small picture with its word under it, lit while on:
  * green working, amber on but not getting anywhere (and why, in place of
  * the word), grey off. Past [perColumn] they go two abreast.
@@ -102,6 +109,19 @@ fun ActionRail(
         if (hud.hasConverter) {
             val on = power?.refining == true
             add(RailSwitch(Icons.Filled.Science, "REFINE", if (on) ApogeeColors.Prograde else idle, on, actions.onRefine))
+        }
+        if (power != null && power.ballast >= 0f) {
+            val full = "${(power.ballast * 100).roundToInt()}%"
+            val diving = power.ballastMode > 0
+            val rising = power.ballastMode < 0
+            val holding = power.holdingDepth >= 0f
+            add(RailSwitch(Icons.Filled.ArrowDownward, if (diving) "DIVE $full" else "DIVE", if (diving) ApogeeColors.Accent else idle, diving, actions.onDive))
+            add(RailSwitch(Icons.Filled.ArrowUpward, if (rising) "RISE $full" else "RISE", if (rising) ApogeeColors.Accent else idle, rising, actions.onRise))
+            add(RailSwitch(
+                Icons.Filled.VerticalAlignCenter,
+                if (holding) "${power.holdingDepth.roundToInt()} m" else "HOLD",
+                if (holding) ApogeeColors.Prograde else idle, holding, actions.onHold,
+            ))
         }
         if (hud.isSuit && hud.telemetry.heightAboveGround < groundedBelow) {
             add(RailSwitch(Icons.Filled.KeyboardDoubleArrowUp, "JUMP", idle, false, actions.onJump))

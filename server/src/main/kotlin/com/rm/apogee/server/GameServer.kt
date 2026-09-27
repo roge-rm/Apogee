@@ -2,6 +2,7 @@ package com.rm.apogee.server
 
 import com.rm.apogee.core.craft.CraftDesign
 import com.rm.apogee.core.craft.StockCraft
+import com.rm.apogee.core.world.WorldSave
 import com.rm.apogee.core.craft.VesselId
 import com.rm.apogee.core.part.PartCatalog
 import com.rm.apogee.core.part.StockParts
@@ -117,6 +118,13 @@ class PlayerSession internal constructor(
     @Volatile var rosterRevision: Long = -1L
         internal set
 
+    /** The career's revision this player's career was last sent at; -1 for never. */
+    @Volatile var careerRevision: Long = -1L
+
+    /** The world's finds as last told to this player: see [com.rm.apogee.core.world.World.wondersRevision]. */
+    @Volatile var wondersRevision: Int = -1
+        internal set
+
     @Volatile var connected: Boolean = true
         internal set
 
@@ -140,6 +148,9 @@ class GameServer(
     val config: ServerConfig = ServerConfig(),
 ) {
     private val sessions = CopyOnWriteArrayList<PlayerSession>()
+
+    /** Feats earned by players not connected at the time, by owner, to tell them when they are. */
+    private val unsentFeats = java.util.concurrent.ConcurrentHashMap<String, ArrayDeque<ServerMessage.Feat>>()
 
     init {
         // Every game has weather: set here, before anyone joins, so the
@@ -355,15 +366,24 @@ class GameServer(
                 } else if (command is Command.SwitchVessel) {
                     world.apply(command)
                     takeControl(session, VesselId(command.vessel))
+                } else if (command is Command.Unlock) {
+                    world.unlock(session.clientId, command.node)?.let { session.send(ServerMessage.CareerRefused(it), Channel.CONTROL) }
                 } else if (command is Command.SpawnCraft) {
-                    // Launching is how a player gets a *new* craft in a world
-                    // they already have one in. Without this the spawn would
-                    // land on the pad and they would still be flying whatever
-                    // they arrived in - which is what made building a base out
-                    // of several launches impossible.
-                    val vessel = world.spawnFor(command, session.clientId)
-                    vessel.ownerName = session.playerName
-                    takeControl(session, vessel.id)
+                    // In a career, only what the player has unlocked, and no
+                    // more than the pad they launch from can take.
+                    val refused = world.program?.refusal(session.clientId, command.design, command.siteId, world.catalog)
+                    if (refused != null) {
+                        session.send(ServerMessage.CareerRefused(refused), Channel.CONTROL)
+                    } else {
+                        // Launching is how a player gets a *new* craft in a world
+                        // they already have one in. Without this the spawn would
+                        // land on the pad and they would still be flying whatever
+                        // they arrived in - which is what made building a base out
+                        // of several launches impossible.
+                        val vessel = world.spawnFor(command, session.clientId)
+                        vessel.ownerName = session.playerName
+                        takeControl(session, vessel.id)
+                    }
                 } else {
                     if (command is Command.Refuel) refuelStops.remove(command.vessel)
                     world.apply(command)
@@ -478,13 +498,12 @@ class GameServer(
         // The label follows the player, so renaming yourself renames your
         // craft's owner rather than orphaning it.
         existing?.ownerName = session.playerName
-        val vessel = existing ?: if (config.assignCraftOnJoin) {
+        // A career is given nothing: it starts from scratch, with what its
+        // player builds from the starting kit.
+        val vessel = existing ?: if (config.assignCraftOnJoin && world.program == null) {
             // The nearest clear pad, so joining never drops a craft inside one
             // already standing there - not even one left from before a restart.
-            world.spawnAtSite(
-                config.starterCraft(world.catalog),
-                World.launchSites.first(),
-            ).also {
+            world.spawnAtSite(config.starterCraft(world.catalog), World.launchSites.first()).also {
                 world.assignOwner(it, session.clientId)
                 it.ownerName = session.playerName
             }
@@ -501,6 +520,7 @@ class GameServer(
                 serverName = config.name,
                 controlledVessel = vessel?.id?.raw ?: -1L,
                 weather = world.weatherConfig,
+                mode = if (world.program != null) WorldSave.MODE_CAREER else WorldSave.MODE_SANDBOX,
             ),
             Channel.CONTROL,
         )
@@ -584,6 +604,8 @@ class GameServer(
         is Command.PlantFlag -> flies(session, command.vessel)
         is Command.SetIndustry -> flies(session, command.vessel) || world.vessel(VesselId(command.vessel))?.let { it.anchored && it.owner == session.clientId } == true
         is Command.Unload -> flies(session, command.vessel)
+        is Command.SetBallast -> flies(session, command.vessel)
+        is Command.HoldDepth -> flies(session, command.vessel)
         is Command.SetTranslation -> flies(session, command.vessel)
         is Command.SetRcs -> flies(session, command.vessel)
         is Command.Stage -> flies(session, command.vessel)
@@ -612,6 +634,8 @@ class GameServer(
         is Command.SetAutopilot -> flies(session, command.vessel)
         // Only your own - never another player's base.
         is Command.RemoveVessel -> world.vessel(VesselId(command.vessel))?.owner == session.clientId
+        // Their own career, whatever they are flying.
+        is Command.Unlock -> true
     }
 
     private suspend fun publishEvents() {
@@ -657,6 +681,18 @@ class GameServer(
                 is WorldEvent.BodyChanged -> Unit
                 // Told as the roster changes: see sendFuel.
                 is WorldEvent.CrewLost -> Unit
+                // Told to the player whose career it is, wherever they are.
+                is WorldEvent.FeatEarned -> {
+                    val feat = ServerMessage.Feat(event.title, event.grade, event.insight)
+                    val present = sessions.filter { it.clientId == event.owner && it.connected }
+                    for (s in present) s.send(feat, Channel.CONTROL)
+                    // Earned while they were away - a craft of theirs coming to
+                    // rest before they had finished joining - told when they are back.
+                    if (present.isEmpty()) unsentFeats.getOrPut(event.owner) { ArrayDeque() }.let { waiting ->
+                        if (waiting.size >= MAX_UNSENT_FEATS) waiting.removeFirst()
+                        waiting.addLast(feat)
+                    }
+                }
                 is WorldEvent.Surveyed -> broadcast(ServerMessage.Surveyed(world.surveyed.toList()), Channel.STRUCTURE)
                 // Told to the pilot with the refuel state, not as an event of its own.
                 is WorldEvent.RefuelStopped -> refuelStops[event.id.raw] = event.reason
@@ -765,6 +801,18 @@ class GameServer(
                 session.rosterRevision = world.crewRevision
                 session.send(ServerMessage.Roster(world.crewOf(session.clientId)), Channel.STRUCTURE)
             }
+            world.program?.let { program ->
+                if (session.careerRevision != program.revision) {
+                    session.careerRevision = program.revision
+                    session.send(ServerMessage.Career(program.careerOf(session.clientId), program.firsts.toList()), Channel.STRUCTURE)
+                }
+            }
+            if (session.wondersRevision != world.wondersRevision) {
+                session.wondersRevision = world.wondersRevision
+                session.send(ServerMessage.WondersFound(world.wondersFoundBy(session.clientId).sorted()), Channel.STRUCTURE)
+            }
+            // Feats in a career, finds in free play too.
+            unsentFeats.remove(session.clientId)?.forEach { session.send(it, Channel.CONTROL) }
             val vessel = session.controlledVessel?.let { world.vessel(it) } ?: continue
             session.send(ServerMessage.FuelLevels(vessel.id.raw, vessel.flatResources()), Channel.KINEMATICS)
             session.send(world.systemsOf(vessel).copy(passenger = session.clientId !in world.ownersOf(vessel)), Channel.KINEMATICS)
@@ -861,6 +909,9 @@ class GameServer(
     }
 
     companion object {
+        /** The most feats kept for a player who is away: a few to tell, not a backlog. */
+        const val MAX_UNSENT_FEATS = 5
+
         /** How near a founded base must be for its card to show, m beyond its edge. */
         const val BASE_CARD_REACH = 300.0
 

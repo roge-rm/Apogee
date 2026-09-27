@@ -59,6 +59,10 @@ class VesselSave(
     /** Drills and converters switched on: a base mines and refines while nobody is there. */
     val drilling: Boolean = false,
     val refining: Boolean = false,
+    /** Ballast flooding or blowing, and a depth held. */
+    val ballast: Int = 0,
+    val holdDepth: Boolean = false,
+    val holdDepthAt: Double = 0.0,
     /** Who sits in each part, by crew id, in part order. */
     val crew: List<List<Long>> = emptyList(),
     /** A survey under way: of which body, and how many seconds of it are done. */
@@ -91,6 +95,8 @@ class VesselSave(
     val temperature: List<Double> = emptyList(),
     /** Founded: pinned to the ground where it stands. See [World.anchor]. */
     val anchored: Boolean = false,
+    /** What it has done this flight, for a career; null outside one. */
+    val log: com.rm.apogee.core.career.FlightLog? = null,
 )
 
 /**
@@ -136,6 +142,8 @@ class WorldSave(
     val terrainGeneration: Int = 1,
     /** Owner id to the vessel id they last flew; see [World.lastFlown]. */
     val lastFlown: Map<String, Long> = emptyMap(),
+    /** Owner id to the sea's named places they have found; see [World.wondersFound]. */
+    val wondersFound: Map<String, List<String>> = emptyMap(),
     /**
      * What the weather is made from. Absent in saves from before there was
      * any: the server then gives the world its own default.
@@ -143,6 +151,12 @@ class WorldSave(
     val weather: com.rm.apogee.core.weather.WeatherConfig? = null,
     /** Craft towing others: each hitch coupled to its ball. */
     val links: List<SavedLink> = emptyList(),
+    /** [MODE_CAREER] or [MODE_SANDBOX]: absent, a sandbox, as every world was before careers. */
+    val mode: String = MODE_SANDBOX,
+    /** Every player's career, in a career world. */
+    val careers: List<com.rm.apogee.core.career.CareerState> = emptyList(),
+    /** Who got where first. */
+    val firsts: List<com.rm.apogee.core.career.WorldFirst> = emptyList(),
 ) {
     companion object {
         /**
@@ -152,6 +166,9 @@ class WorldSave(
          * be read, not have it quietly half-loaded.
          */
         const val FORMAT_VERSION = 2
+
+        const val MODE_SANDBOX = "sandbox"
+        const val MODE_CAREER = "career"
 
         /** Number of resource slots each part records. Pinned by a test. */
         val RESOURCE_SLOTS = ResourceType.entries.size

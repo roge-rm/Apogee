@@ -194,6 +194,10 @@ fun BuilderScreen(
                     ),
                     onClose = { settings.builderPartsOpen = false; peek = false },
                     modifier = Modifier.height(paletteHeight),
+                    locked = session.lockedParts(),
+                    onLocked = { id ->
+                        session.statusMessage = "${catalog[id]?.title ?: id}: unlocked by ${session.lockedParts()[id] ?: "the Program"}, in the Program"
+                    },
                 )
             }
         }
@@ -328,7 +332,32 @@ fun BuilderScreen(
             }
             Spacer(Modifier.height(8.dp))
 
-            val launchable = session.designForLaunch() != null
+            // In a career: what the facility takes, and why it will not launch if it will not.
+            session.careerLimits()?.let { (text, over) ->
+                Surface(shape = RoundedCornerShape(Dimens.CornerSmall), color = Color.Black.alpha(ApogeeAlpha.SCRIM)) {
+                    Text(
+                        text,
+                        style = TelemetryTextStyle,
+                        color = if (over) ApogeeColors.Danger else Color.White.alpha(ApogeeAlpha.SECONDARY),
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
+                    )
+                }
+                Spacer(Modifier.height(6.dp))
+            }
+            val refusal = session.careerRefusal()
+            if (refusal != null) {
+                Surface(shape = RoundedCornerShape(Dimens.CornerSmall), color = ApogeeColors.Danger.alpha(0.22f)) {
+                    Text(
+                        refusal,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = ApogeeColors.Danger,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp).widthIn(max = 320.dp),
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+            }
+
+            val launchable = session.designForLaunch() != null && refusal == null
             Surface(
                 shape = RoundedCornerShape(Dimens.CornerActionBar),
                 color = if (launchable) {
@@ -385,6 +414,7 @@ fun BuilderScreen(
             selected = session.launchSiteId,
             automatic = session.automaticSite().displayName,
             bases = session.baseSites,
+            career = session.career != null,
             onPick = { session.launchSiteId = it; showSiteDialog = false },
             onDismiss = { showSiteDialog = false },
         )
@@ -822,6 +852,15 @@ private fun LoadDialog(session: BuilderSession, onDismiss: () -> Unit) {
                                     "${saved.partCount} parts",
                                     style = MaterialTheme.typography.labelSmall,
                                 )
+                                // In a career, what it is waiting on.
+                                val waiting = session.lockedParts().filterKeys { it in saved.partIds }.values.toSet()
+                                if (waiting.isNotEmpty()) {
+                                    Text(
+                                        "Needs ${waiting.joinToString(", ")}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = ApogeeColors.Caution,
+                                    )
+                                }
                             }
                             TextButton(onClick = { confirmDelete = saved }) { Text("Delete") }
                         }
@@ -838,6 +877,8 @@ private fun SiteDialog(
     selected: String?,
     automatic: String,
     bases: List<com.rm.apogee.core.world.LaunchSite>,
+    /** A career launches from the Cape and its own bases only: no test sites on other worlds. */
+    career: Boolean = false,
     onPick: (String?) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -854,7 +895,7 @@ private fun SiteDialog(
                     .verticalScroll(scroll),
             ) {
                 val choices = listOf<Pair<String?, String>>(null to "Automatic") +
-                    World.launchSites.map { it.id to it.displayName } +
+                    World.launchSites.filter { !career || it.id in com.rm.apogee.core.career.CareerRules.CAREER_SITES }.map { it.id to it.displayName } +
                     bases.map { it.id to it.displayName }
                 // Headed by world - Terra's pads, Luna's, then every other
                 // world's test site - and then the player's own bases.

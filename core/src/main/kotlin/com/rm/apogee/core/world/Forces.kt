@@ -106,9 +106,21 @@ class Forces {
             if (thrustMagnitude <= 0.0 || isp <= 0.0) continue
 
             // Mass flow from the rocket equation's definition of Isp.
-            val massFlow = thrustMagnitude / (isp * g0)
-            val unitsNeeded = massFlow * dt / engine.propellant.densityPerUnit
-            val unitsDrawn = vessel.drainFromGroupOf(partIndex, engine.propellant, unitsNeeded)
+            var massFlow = thrustMagnitude / (isp * g0)
+            val electric = engine.propellant == com.rm.apogee.core.part.ResourceType.ELECTRIC_CHARGE
+            val unitsNeeded: Double
+            val unitsDrawn: Double
+            if (electric) {
+                // A motor on the batteries: charge weighs nothing, so its "isp"
+                // is only how many newton-seconds a unit of charge buys, and
+                // it runs on what the whole craft holds or not at all.
+                unitsNeeded = massFlow * dt
+                unitsDrawn = if (vessel.drawCharge(unitsNeeded)) unitsNeeded else 0.0
+                massFlow = 0.0
+            } else {
+                unitsNeeded = massFlow * dt / engine.propellant.densityPerUnit
+                unitsDrawn = vessel.drainFromGroupOf(partIndex, engine.propellant, unitsNeeded)
+            }
             if (unitsDrawn <= 0.0) continue
 
             // A partially-fed engine produces proportionally less thrust rather
@@ -574,6 +586,10 @@ class Forces {
                     // slow, a pod landed in a breeze was dragged along the
                     // ground by its full canopy for half a minute.
                     vessel.touchingGround && (localSpeed < Parachute.CUT_SPEED || vessel.groundedSeconds > Parachute.CUT_AFTER) ->
+                        vessel.setLegDeploy(i, -1.0)
+                    // Down in the sea: let go at once. Kept, the canopy towed a
+                    // capsule on its side across the waves in a wind (Dan).
+                    vessel.buoyed && !vessel.touchingGround ->
                         vessel.setLegDeploy(i, -1.0)
                     else -> {
                         // Two stages: the drogue fills and holds - a fast,

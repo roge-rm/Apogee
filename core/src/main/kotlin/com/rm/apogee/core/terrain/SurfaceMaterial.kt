@@ -69,7 +69,16 @@ enum class SurfaceMaterial(
     THOLIN(friction = 0.55, rollingDrag = 1.8, softness = 0.03, bog = 1.2),
 
     /** Caligo's folded highland rock: rough and grippy. */
-    TESSERA(friction = 0.8, rollingDrag = 1.3, softness = 0.0, bog = 0.0);
+    TESSERA(friction = 0.8, rollingDrag = 1.3, softness = 0.0, bog = 0.0),
+
+    /** The deep sea's floor: fine pale ooze settled over ages, soft. */
+    OOZE(friction = 0.35, rollingDrag = 2.5, softness = 0.1, bog = 1.5),
+
+    /** Ooze strewn with dark nodules of metal, fist-sized: rich in ore. */
+    NODULES(friction = 0.5, rollingDrag = 2.0, softness = 0.06, bog = 1.2),
+
+    /** Round a vent: rock crusted rust and black with what the hot water leaves. */
+    VENT_CRUST(friction = 0.7, rollingDrag = 1.2, softness = 0.0, bog = 0.0);
 
     companion object {
         private val all = entries.toTypedArray()

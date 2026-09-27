@@ -33,6 +33,22 @@ class HudState {
      */
     var statusOpen: String? by mutableStateOf(null)
 
+    /**
+     * A feat just earned, or a launch the career refused: shown a few
+     * seconds in the prompt slot. [good] for a feat, false for a refusal.
+     */
+    data class Banner(val title: String, val detail: String, val good: Boolean, val id: Long)
+    var banner: Banner? by mutableStateOf(null)
+
+    /**
+     * This player's career in the world being flown in, as its server keeps
+     * it - the host's, when joined - and that world's firsts; null in a
+     * sandbox. And whether the program is open over the flight.
+     */
+    var career: com.rm.apogee.core.career.CareerState? by mutableStateOf(null)
+    var worldFirsts: List<com.rm.apogee.core.career.WorldFirst> by mutableStateOf(emptyList())
+    var programOpen: Boolean by mutableStateOf(false)
+
     /** Whether the flight strip is opened out into the whole panel. */
     var stripOpen: Boolean by mutableStateOf(false)
 
@@ -162,7 +178,20 @@ class HudState {
         val onLadder: Boolean = false,
         /** Aboard someone else's craft. */
         val passenger: Boolean = false,
+        /** Its ballast, 0..1 full, or below 0 with no tanks; flooding 1, blowing -1, or 0; the depth held, m, or below 0. */
+        val ballast: Float = -1f,
+        val ballastMode: Int = 0,
+        val holdingDepth: Float = -1f,
+        /** How near the sea is to crushing it: 1 is its limit. */
+        val crush: Float = 0f,
+        /** By its sonar: the floor below, m, and the nearest thing not yet found, bearing and range - below 0 for none. */
+        val seabed: Float = -1f,
+        val findBearing: Float = 0f,
+        val findRange: Float = -1f,
     ) {
+        /** Near enough its depth limit to warn, and past it. */
+        val deepCaution: Boolean get() = crush > DEEP_CAUTION
+        val deepDanger: Boolean get() = crush > 1f
         /** Charge as a share of what it holds, 0..1; 1 with no battery. */
         val share: Float get() = if (capacity > 0f) charge / capacity else 1f
         /** Low enough to warn about. */
@@ -229,6 +258,10 @@ class HudState {
         crewSeats = 0
         statusOpen = null
         stripOpen = false
+        banner = null
+        career = null
+        worldFirsts = emptyList()
+        programOpen = false
         rcsArmed = false
         rcsSlide = false
         rcsLeft = null
@@ -255,6 +288,9 @@ class HudState {
         const val STATUS_DOCK = "dock"
         const val STATUS_BASE = "base"
         const val STATUS_SHARED = "shared"
+
+        /** The share of its depth limit where a diving craft is warned. */
+        const val DEEP_CAUTION = 0.8f
     }
 }
 

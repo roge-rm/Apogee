@@ -148,7 +148,7 @@ class RoverTest {
             groundSpeed(world, rover) < 0.5,
         )
         val up = rover.body.position.copy().normalizeInPlace()
-        val mast = rover.body.orientation.rotate(com.rm.apogee.core.math.Vec3(0.0, 1.0, 0.0))
+        val mast = rover.body.orientation.rotate(rover.design.orientation.up)
         assertTrue("it went over braking", (mast dot up) > 0.9)
     }
 
@@ -185,9 +185,28 @@ class RoverTest {
         repeat((60.0 / dt).toInt()) { world.step(dt) }
         assertTrue("destroyed on the way", world.vessel(rover.id) != null)
         val up = rover.body.position.copy().normalizeInPlace()
-        val mast = rover.body.orientation.rotate(com.rm.apogee.core.math.Vec3(0.0, 1.0, 0.0))
+        val mast = rover.body.orientation.rotate(rover.design.orientation.up)
         val travelled = groundSpeed(world, rover)
         assertTrue("rolled over (mast at ${Math.toDegrees(kotlin.math.acos((mast dot up).coerceIn(-1.0, 1.0)))} degrees)", (mast dot up) > 0.7)
         assertTrue("stopped moving: $travelled m/s", travelled > 3.0)
+    }
+
+    /**
+     * Flat out along the runway and hard over: its steering gives less lock
+     * the faster it goes, and it stays on its wheels. At full lock at eleven
+     * metres a second, the Trundler once rolled.
+     */
+    @Test
+    fun `hard over at top speed, it turns and stays on its wheels`() {
+        val world = World.default(catalog)
+        val rover = world.spawnFor(Command.SpawnCraft(StockCraft.rover(catalog), "airfield"), "p1")
+        world.apply(Command.SetThrottle(rover.id.raw, 1.0))
+        repeat((15.0 / dt).toInt()) { world.step(dt) }
+        val fast = groundSpeed(world, rover)
+        assertTrue("never got going: $fast m/s", fast > 8.0)
+        repeat((10.0 / dt).toInt()) { world.apply(Command.SetAttitude(rover.id.raw, 0.0, 1.0, 0.0)); world.step(dt) }
+        val up = rover.body.position.copy().normalizeInPlace()
+        val deck = rover.body.orientation.rotate(rover.design.orientation.up)
+        assertTrue("rolled over at $fast m/s: deck ${Math.toDegrees(kotlin.math.acos((deck dot up).coerceIn(-1.0, 1.0)))} degrees off", (deck dot up) > 0.8)
     }
 }

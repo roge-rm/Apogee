@@ -7,6 +7,7 @@ import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.floor
 import kotlin.math.hypot
+import kotlin.math.max
 import kotlin.math.sin
 import kotlin.math.sqrt
 
@@ -132,7 +133,11 @@ class TerrainWind(private val terrain: Terrain, private val bodyRadius: Double) 
 
     private fun compute(d: Vec3): FloatArray {
         frame(d, east, north)
-        val h0 = terrain.elevation(d)
+        // The air feels the sea's surface, not the floor under it: a canyon
+        // or a seamount down there steers no wind.
+        val sea = terrain.hasOcean
+        val ground = terrain.elevation(d)
+        val h0 = if (sea) max(ground, 0.0) else ground
         var sum = 0.0; var a1 = 0.0; var b1 = 0.0; var a2 = 0.0; var b2 = 0.0
         val heights = DoubleArray(8)
         for (k in 0 until 8) {
@@ -141,7 +146,7 @@ class TerrainWind(private val terrain: Terrain, private val bodyRadius: Double) 
             ringDir.setTo(d).mulInPlace(bodyRadius)
                 .addScaledInPlace(east, c * RING).addScaledInPlace(north, s * RING)
                 .normalizeInPlace()
-            val h = terrain.elevation(ringDir)
+            val h = terrain.elevation(ringDir).let { if (sea) max(it, 0.0) else it }
             heights[k] = h
             sum += h
             a1 += h * c; b1 += h * s
@@ -162,7 +167,7 @@ class TerrainWind(private val terrain: Terrain, private val bodyRadius: Double) 
         val hollow = mean - h0
         val channel = ((anisotropy / 200.0).coerceIn(0.0, 0.8) * smooth(-50.0, 150.0, hollow))
 
-        val ocean = terrain.hasOcean && h0 < 0.0
+        val ocean = sea && ground < 0.0
         val gradient = hypot(ge, gn)
         val slope = 1.0 - 1.0 / sqrt(1.0 + gradient * gradient)
         val material = if (ocean) null else terrain.material(d, h0, slope)

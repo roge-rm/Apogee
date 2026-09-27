@@ -92,6 +92,13 @@ class ControlState {
     /** Its converters - a craft's, a base's refinery - switched on. */
     var refining: Boolean = false
 
+    /** Its ballast tanks: flooding (1), blowing (-1), or neither (0). */
+    var ballast: Int = 0
+
+    /** Holding a depth by the ballast, and which, m below the surface. */
+    var holdDepth: Boolean = false
+    var holdDepthAt: Double = 0.0
+
     /**
      * What stability assist is asking for, -1..1 on each axis, written each
      * tick by [com.rm.apogee.core.world.StabilityAssist] and never by a
@@ -427,6 +434,16 @@ class Vessel(
     /** Whether any of it was held up by the water last tick: afloat, or at least partly in the sea. */
     var buoyed: Boolean = false
 
+    /** Whether all of it, near enough, was under the water last tick: diving, not riding the sea. */
+    var submerged: Boolean = false
+
+    /**
+     * How near the sea is to crushing it: the worst of its hollow parts'
+     * water pressure over what that part is built for, last tick. Over 1 and
+     * it is giving way. 0 out of the water.
+     */
+    var crushShare: Double = 0.0
+
     /**
      * Which faces of each part's volume cells meet the water, and for which
      * shape - worked out by Hydrostatics, again whenever [design] changes.
@@ -648,6 +665,9 @@ class Vessel(
 
     /** The craft its signal passes through on the way home, by id, nearest first; empty when direct or none. */
     var signalPath: List<Long> = emptyList()
+
+    /** What it has done since it last left the ground, for a career's feats; null outside a career. */
+    var log: com.rm.apogee.core.career.FlightLog? = null
 
     /** World time [signal] was last worked out, NaN for never. */
     var signalAt: Double = Double.NaN

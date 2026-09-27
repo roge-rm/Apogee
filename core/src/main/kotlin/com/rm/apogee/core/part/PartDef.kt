@@ -153,7 +153,7 @@ data class PartDef(
      * size": see [jointStrength].
      */
     val strength: Double = 0.0,
-    /** Not offered in the builder: a piece that only ever comes off another, as a fairing's half does. */
+    /** Not offered in the builder: a piece that only ever comes off another, as a fairing's half does - or the sea's own rock. */
     val hidden: Boolean = false,
     /**
      * How hot it can get before it starts to fail, K. Zero means "by what
@@ -166,6 +166,12 @@ data class PartDef(
      * a gas giant's depths, without end.
      */
     val maxPressure: Double = 2e6,
+    /**
+     * Whether the sea can crush it: true for something with room inside - a
+     * cabin, a tank, a hull, a battery's case - false for a solid lump the
+     * water only squeezes. Null lets its modules say: see [isHollow].
+     */
+    val hollow: Boolean? = null,
     /** Cost, for a career mode that does not exist yet. */
     val cost: Double = 0.0,
     /**
@@ -325,6 +331,17 @@ data class PartDef(
      * overrides it, for a part whose mesh does not describe what it encloses,
      * and [displaces] for one whose mesh is only its outline.
      */
+    /**
+     * Room inside, so the sea can crush it: crew or a probe core, a tank, a
+     * hull, a habitat, a battery. [maxPressure] is what it stands. Anything
+     * else is a solid lump, however deep it goes.
+     */
+    val isHollow: Boolean by lazy {
+        hollow ?: modules.any {
+            it is Command || it is Tank || it is Buoyancy || it is Habitat || it is Battery || it is Ballast
+        }
+    }
+
     val displacedVolume: Double by lazy {
         module<Buoyancy>()?.displacedVolume ?: displaces.takeIf { it >= 0.0 } ?: when (val m = mesh) {
             is MeshSpec.Cylinder -> Math.PI * m.radius * m.radius * m.height

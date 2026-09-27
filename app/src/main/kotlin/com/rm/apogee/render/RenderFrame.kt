@@ -224,6 +224,12 @@ class WorldView(
     val sea: SeaSurface? = null,
     /** The camera is under the water. */
     val underwater: Boolean = false,
+    /** The planet's cloud as a veil, for the map; null for none drawn. */
+    val cloudShell: CloudShell? = null,
+    /** The sea's surface, m from the body's centre, for the light under it; 0 for no sea. */
+    val seaRadius: Double = 0.0,
+    /** How far each of red, green and blue light gets through the sea, m per e-fold. */
+    val water: FloatArray = TERRA_WATER,
     /**
      * Lit lamps lighting what is round them, nearest the camera first:
      * body-fixed x, y, z and reach, four to a lamp, at most
@@ -239,6 +245,12 @@ class WorldView(
 ) {
     companion object {
         const val CLEAR_FOG = 1.0e9
+
+        /** Sea water: red gone in the first few tens of metres, blue lasting longest. */
+        val TERRA_WATER = floatArrayOf(12f, 40f, 55f)
+
+        /** Liquid methane: murkier, and the reds and browns last. */
+        val AURANTIA_WATER = floatArrayOf(28f, 20f, 12f)
         val NO_LAMPS = DoubleArray(0)
 
         /** Lamps the renderer lights with at once: the shaders' LAMPS. */

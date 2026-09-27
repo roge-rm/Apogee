@@ -69,8 +69,21 @@ class MainActivity : ComponentActivity() {
     private lateinit var hudState: HudState
     private lateinit var frameBus: FrameBus
 
-    private lateinit var craftStore: CraftStore
-    private lateinit var soloWorldStore: WorldStore
+    /** The designs saved in free play, and in a career: a career starts from scratch, with none of the stock ones. */
+    private lateinit var sandboxCraft: CraftStore
+    private lateinit var careerCraft: CraftStore
+    private val craftStore: CraftStore get() = if (careerMode) careerCraft else sandboxCraft
+    /** The two worlds on this device: the sandbox, everything unlocked, and the career. */
+    private lateinit var sandboxStore: WorldStore
+    private lateinit var careerStore: WorldStore
+    private val soloWorldStore: WorldStore get() = if (careerMode) careerStore else sandboxStore
+
+    /** Whether the Play screen is on the career world, as the player last chose. */
+    private var careerMode by mutableStateOf(false)
+
+    /** The player's career in it, for the Play and Program screens; null in the sandbox. */
+    private var careerState by mutableStateOf<com.rm.apogee.core.career.CareerState?>(null)
+    private var worldFirsts by mutableStateOf(emptyList<com.rm.apogee.core.career.WorldFirst>())
 
     /**
      * The single-player world, held across flights.
@@ -157,12 +170,15 @@ class MainActivity : ComponentActivity() {
         settings = GameSettings(this)
         hudState = HudState()
         frameBus = FrameBus()
-        craftStore = CraftStore(File(filesDir, "craft"))
+        sandboxCraft = CraftStore(File(filesDir, "craft"))
+        careerCraft = CraftStore(File(filesDir, "craft-career"))
         // One world, kept on disk, rather than a fresh universe per launch.
-        soloWorldStore = WorldStore(File(filesDir, "world/solo.json"))
+        sandboxStore = WorldStore(File(filesDir, "world/solo.json"))
+        careerStore = WorldStore(File(filesDir, "world/career.json"))
+        careerMode = settings.careerMode
         // So there is something to fly, and something to land, before the
-        // player has built anything.
-        craftStore.seedStockDesigns(StockParts.catalog)
+        // player has built anything - in free play. A career's are all its own.
+        sandboxCraft.seedStockDesigns(StockParts.catalog)
         serverBrowser = ServerBrowser(this, StockParts.catalog.contentHash)
         serverName = "${settings.playerName}'s Game"
         detectedTier = settings.lastDetectedTier
@@ -190,7 +206,25 @@ class MainActivity : ComponentActivity() {
 
                 when (appScreen) {
                     AppScreen.MENU -> MainMenuScreen(::navigateTo)
-                    AppScreen.PLAY -> PlayScreen(::navigateTo, settings.launchTime) { settings.launchTime = it }
+                    AppScreen.PLAY -> PlayScreen(
+                        ::navigateTo, settings.launchTime, { settings.launchTime = it },
+                        career = careerMode,
+                        onCareer = ::switchMode,
+                        insight = careerState?.insight,
+                    )
+                    AppScreen.PROGRAM -> careerState?.let { state ->
+                        com.rm.apogee.ui.screens.ProgramScreen(
+                            state = state,
+                            firsts = worldFirsts,
+                            me = settings.clientId,
+                            onUnlock = { id ->
+                                val refused = openSoloWorld().unlock(settings.clientId, id)
+                                saveSoloWorld()
+                                refreshProgram()
+                                refused
+                            },
+                        )
+                    }
                     AppScreen.RESUME_FLIGHT -> com.rm.apogee.ui.screens.ResumeFlightScreen(
                         craft = resumeCraft,
                         onFly = { id ->
@@ -250,6 +284,9 @@ class MainActivity : ComponentActivity() {
                         onRefine = { base, on -> session?.let { s -> lifecycleScope.launch { s.refine(base, on) } } },
                         onToggleDrill = ::onToggleDrill,
                         onToggleRefine = ::onToggleRefine,
+                        onDive = { onBallast(1) },
+                        onRise = { onBallast(-1) },
+                        onHoldDepth = ::onToggleHoldDepth,
                         onDockPilot = { who ->
                             session?.let { s ->
                                 val shared = s.sharedWith ?: return@let
@@ -263,6 +300,19 @@ class MainActivity : ComponentActivity() {
                         onSwitchCraft = ::onSwitchCraft,
                         onExit = { navigateTo(AppScreen.PLAY) },
                         onWarp = { rate -> session?.let { s -> lifecycleScope.launch { s.setWarp(rate) } } },
+                        me = settings.clientId,
+                        onUnlock = { id ->
+                            // Checked here, so the answer is immediate; asked of the server, whose career it is.
+                            val state = hudState.career
+                            val node = com.rm.apogee.core.career.TechTree.stock.node(id)
+                            val why = when {
+                                state == null -> "Not a career"
+                                node == null -> "No such node"
+                                else -> state.blocker(com.rm.apogee.core.career.TechTree.stock, node)
+                            }
+                            if (why == null) session?.let { s -> lifecycleScope.launch { s.unlock(id) } }
+                            why
+                        },
                         crewActions = com.rm.apogee.ui.components.CrewActions(
                             onEva = { id -> session?.let { s -> lifecycleScope.launch { s.eva(id) } }; hudState.statusOpen = null },
                             onMove = { id -> session?.let { s -> lifecycleScope.launch { s.moveCrew(id) } } },
@@ -299,6 +349,8 @@ class MainActivity : ComponentActivity() {
                     AppScreen.HOST_GAME -> HostGameScreen(
                         serverName = serverName,
                         onServerNameChange = { serverName = it },
+                        career = careerMode,
+                        onCareer = ::switchMode,
                         onStartHosting = {
                             pendingMode = SessionMode.Host(serverName.ifBlank { "Apogee Game" })
                             navigateTo(AppScreen.FLIGHT)
@@ -327,6 +379,7 @@ class MainActivity : ComponentActivity() {
         appScreen = target
         if (target == AppScreen.RESUME_FLIGHT) refreshResumeCraft()
         if (target == AppScreen.CREW) refreshCrew()
+        if (target == AppScreen.PLAY || target == AppScreen.PROGRAM) refreshProgram()
 
         // Discovery holds a multicast lock and a socket; it runs only while the
         // browser is actually on screen.
@@ -554,6 +607,23 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch { current.setIndustry(power.drilling, !power.refining) }
     }
 
+    /** Floods the tanks ([mode] 1) or blows them (-1) - or, tapped again, stops. */
+    private fun onBallast(mode: Int) {
+        val power = hudState.power ?: return
+        val next = if (power.ballastMode == mode) 0 else mode
+        hudState.power = power.copy(ballastMode = next, holdingDepth = -1f)
+        val current = session ?: return
+        lifecycleScope.launch { current.setBallast(next) }
+    }
+
+    private fun onToggleHoldDepth() {
+        val power = hudState.power ?: return
+        val on = power.holdingDepth < 0f
+        hudState.power = power.copy(ballastMode = 0, holdingDepth = if (on) hudState.telemetry.depth.toFloat().coerceAtLeast(0f) else -1f)
+        val current = session ?: return
+        lifecycleScope.launch { current.holdDepth(on) }
+    }
+
     private fun onToggleDeploy() {
         val deployed = !(hudState.power?.deployed ?: false)
         hudState.power = hudState.power?.copy(deployed = deployed)
@@ -622,6 +692,8 @@ class MainActivity : ComponentActivity() {
             val builder = BuilderSession(frameBus, StockParts.catalog, craftStore)
             // Somewhere of the player's own to launch from, as well as the Cape.
             builder.baseSites = runCatching { openSoloWorld().baseSites(settings.clientId) }.getOrDefault(emptyList())
+            // In a career, only what the player has unlocked, and no more than their pad takes.
+            builder.career = openSoloWorld().program?.careerOf(settings.clientId)
             partThumbnails.request(StockParts.catalog)
             view.takeIf { it.width > 0 }?.let { builder.setViewSize(it.width.toFloat(), it.height.toFloat()) }
             builder.start(lifecycleScope)
@@ -658,6 +730,8 @@ class MainActivity : ComponentActivity() {
                     scope = lifecycleScope,
                     weather = settings.weatherIntensity,
                     clouds = settings.cloudCover,
+                    // The world chosen, as solo play uses it: the others join it.
+                    world = openSoloWorld(),
                 )
 
                 // Already connected: joining happens before navigation so a
@@ -834,6 +908,8 @@ class MainActivity : ComponentActivity() {
             if (warning != null) Log.w(TAG, "World save: $warning")
             for (problem in problems) Log.w(TAG, "World save: $problem")
         }
+        // A career world new to this device begins its program here.
+        if (careerMode && world.program == null) world.program = com.rm.apogee.core.career.Program()
         // The Cape's buildings and Luna's test base, before anything asks
         // where it can launch from.
         world.ensureStructures()
@@ -869,6 +945,7 @@ class MainActivity : ComponentActivity() {
             val only = vessel.design.parts.singleOrNull()?.partId
             val suit = only == com.rm.apogee.core.world.World.SUIT_PART
             val flag = only == com.rm.apogee.core.world.World.FLAG_PART
+            val depth = world.depthOf(vessel)
             val situation = when {
                 suit -> "On EVA on ${body.displayName}"
                 flag -> "Planted on ${body.displayName}"
@@ -879,12 +956,14 @@ class MainActivity : ComponentActivity() {
                     "Base on ${body.displayName}" + (if (!vessel.powered) " · dark" else "") +
                         (if (pads > 0) " · $pads pad${if (pads > 1) "s" else ""}" else "")
                 }
+                depth > com.rm.apogee.game.GameSession.UNDER_SEA -> "Under the sea off ${body.displayName}"
                 above < 2.0 && body.terrain?.isOcean(bodyFixed) == true -> "Afloat on ${body.displayName}"
                 above < 2.0 -> "Landed on ${body.displayName}"
                 orbit.isBound && orbit.periapsis > floor -> "In orbit of ${body.displayName}"
                 else -> "Flying over ${body.displayName}"
             }
-            val height = if (above < 2.0) "on the surface"
+            val height = if (depth > com.rm.apogee.game.GameSession.UNDER_SEA) "%.0f m down".format(depth)
+                else if (above < 2.0) "on the surface"
                 else if (above < 10_000.0) "%.0f m up".format(above) else "%.1f km up".format(above / 1000.0)
             val aboard = vessel.crewAboard
             val crewNote = when {
@@ -897,6 +976,27 @@ class MainActivity : ComponentActivity() {
                 canReset = !suit && !flag, canFly = !flag,
             )
         }
+    }
+
+    /**
+     * Career or sandbox: the world on the Play and Host screens. The one open is
+     * saved and put away first - never mid-flight - and the other opened
+     * the next time something asks for it.
+     */
+    private fun switchMode(career: Boolean) {
+        if (career == careerMode || session != null) return
+        saveSoloWorld()
+        soloWorld = null
+        careerMode = career
+        settings.careerMode = career
+        refreshProgram()
+    }
+
+    /** The player's career in the open world, for the Play and Program screens. */
+    private fun refreshProgram() {
+        val program = if (careerMode) openSoloWorld().program else null
+        careerState = program?.careerOf(settings.clientId)
+        worldFirsts = program?.firsts?.toList() ?: emptyList()
     }
 
     private fun saveSoloWorld() {
@@ -1006,6 +1106,15 @@ class MainActivity : ComponentActivity() {
                     // Flying itself, the autopilot has the throttle: show where it has it.
                     if (current.localAutoBurn || current.localAutoLand) hudState.throttle = current.telemetry.throttle.toFloat()
                     hudState.landing = current.landingReadout
+                    // The career's news: one at a time, each for a few seconds.
+                    if (hudState.banner == null) {
+                        current.nextFeat()?.let { feat ->
+                            val detail = listOf(feat.grade.uppercase(), if (feat.insight > 0) "+${feat.insight} insight" else "").filter { it.isNotEmpty() }.joinToString(" · ")
+                            hudState.banner = HudState.Banner(feat.title.uppercase(), detail, good = true, id = System.nanoTime())
+                        } ?: current.nextRefusal()?.let { reason ->
+                            hudState.banner = HudState.Banner("NOT ALLOWED", reason, good = false, id = System.nanoTime())
+                        }
+                    }
                     hudState.window = current.windowReadout
                     hudState.autopilotNote = current.autopilotNote
                     hudState.dock = current.dockReadout
@@ -1024,6 +1133,8 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                     hudState.ownedCraft = current.ownedCraftCount
+                    current.career.let { if (it != hudState.career) hudState.career = it }
+                    current.worldFirsts.let { if (it != hudState.worldFirsts) hudState.worldFirsts = it }
                     hudState.hasWheels = current.controlledHasWheels
                     hudState.hasRcs = current.controlledHasRcs
                     hudState.hasFoldouts = current.controlledHasFoldouts

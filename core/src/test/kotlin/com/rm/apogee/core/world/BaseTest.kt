@@ -463,11 +463,12 @@ class BaseTest {
     }
 
     @Test
-    fun `Luna's test base stands founded, anyone can launch from it, and it never runs dry`() {
+    fun `Riccioli Base stands founded on Luna, anyone can launch from it in free play, and it never runs dry`() {
         val world = World.default(catalog)
         world.ensureStructures()
         val base = world.lunaBase()
-        assertTrue("no Luna test base", base != null && base.anchored && base.referenceBodyId == "luna")
+        assertTrue("no base on Luna", base != null && base.anchored && base.referenceBodyId == "luna")
+        assertEquals("Riccioli Base", base!!.name)
         val site = world.baseSites("anyone").single { it.bodyId == "luna" }
         val depot = propellant(base!!)
         val lander = world.spawnFor(Command.SpawnCraft(StockCraft.lander(catalog), site.id), "anyone")
@@ -479,6 +480,55 @@ class BaseTest {
         repeat((20.0 / dt).toInt()) { world.step(dt) }
         assertEquals("refilled", lander.capacityOf(com.rm.apogee.core.part.ResourceType.PROPELLANT), propellant(lander), 0.5)
         assertEquals("the world's depot never runs down", depot, propellant(base), 1e-6)
+    }
+
+    @Test
+    fun `free play has a base on every world that can hold one, each standing level and whole, and launched from`() {
+        val world = World.default(catalog)
+        world.ensureStructures()
+        settle(world, 60.0)
+        for (spec in WorldBases.all) {
+            val base = world.worldBase(spec.bodyId)
+            assertTrue("no ${spec.name} on ${spec.bodyId}", base != null && base.anchored && base.referenceBodyId == spec.bodyId)
+            assertTrue("${spec.name} is hurt", base!!.broken.none { it } && base.health.all { it >= 1.0 })
+            val up = base.body.position.normalized()
+            val deck = base.body.orientation.rotate(base.design.orientation.up)
+            assertTrue("${spec.name} leans ${Math.toDegrees(kotlin.math.acos((deck dot up).coerceIn(-1.0, 1.0)))} degrees", (deck dot up) > 0.99)
+        }
+        // None on Caligo: its air would crush one.
+        assertTrue(world.worldBase("caligo") == null)
+        // A craft put on each base's pad stands on it.
+        for (site in world.baseSites("anyone")) {
+            val craft = world.spawnFor(Command.SpawnCraft(StockCraft.lander(catalog), site.id), "anyone")
+            settle(world, 3.0)
+            assertTrue("not standing on its pad at ${site.displayName}", world.serviceFor(craft)?.base?.owner == World.WORLD_OWNER)
+            world.destroy(craft.id, "done")
+        }
+    }
+
+    @Test
+    fun `a career has none of the world's bases, and cannot launch from them`() {
+        val world = World.default(catalog)
+        world.program = com.rm.apogee.core.career.Program()
+        world.ensureStructures()
+        assertTrue("world bases in a career: ${world.worldBases().map { it.name }}", world.worldBases().isEmpty())
+        assertTrue(world.baseSites("anyone").isEmpty())
+        // One from a world played in free play before: gone once it is a career.
+        val sandbox = World.default(catalog).also { it.ensureStructures() }
+        val career = World(sandbox.system, catalog).also { it.restore(sandbox.save()); it.program = com.rm.apogee.core.career.Program(); it.ensureStructures() }
+        assertTrue(career.worldBases().isEmpty())
+        // The Cape stays: it is home.
+        assertTrue(career.vessels.any { it.owner == World.WORLD_OWNER && it.anchored && it.referenceBodyId == "terra" })
+    }
+
+    @Test
+    fun `an old world's Luna Test Base is Riccioli Base now`() {
+        val world = World.default(catalog)
+        world.ensureStructures()
+        world.lunaBase()!!.name = WorldBases.OLD_LUNA_NAME
+        val restored = World(world.system, catalog).also { it.restore(world.save()); it.ensureStructures() }
+        assertEquals(1, restored.vessels.count { it.referenceBodyId == "luna" && it.owner == World.WORLD_OWNER })
+        assertEquals("Riccioli Base", restored.lunaBase()?.name)
     }
 
     /** Ground rising northward at [degrees], round a site at +X. */

@@ -48,6 +48,9 @@ fun HostGameScreen(
     serverName: String,
     onServerNameChange: (String) -> Unit,
     onStartHosting: () -> Unit,
+    /** Hosting the career world rather than the sandbox. */
+    career: Boolean = false,
+    onCareer: (Boolean) -> Unit = {},
 ) {
     Backdrop(maxContentWidth = Dimens.PanelContentMaxWidth) { contentModifier ->
         Text("Host a Game", style = MaterialTheme.typography.titleLarge, color = Color.White)
@@ -56,6 +59,19 @@ fun HostGameScreen(
             "Others on the same network will see this game in their list.",
             style = MaterialTheme.typography.bodyMedium,
             color = Color.White.alpha(ApogeeAlpha.BODY),
+            textAlign = TextAlign.Center,
+            modifier = contentModifier,
+        )
+
+        // The world on this phone the others join: the career, where each
+        // player who joins has a career of their own, or the sandbox.
+        SectionHeading("World", contentModifier)
+        PillRow(listOf("Career" to true, "Sandbox" to false), career, onCareer)
+        Spacer(Modifier.height(6.dp))
+        Text(
+            if (career) "Your career world. Everyone who joins starts a career of their own in it." else "Your sandbox: everything unlocked, for everyone.",
+            style = MaterialTheme.typography.bodySmall,
+            color = Color.White.alpha(ApogeeAlpha.SECONDARY),
             textAlign = TextAlign.Center,
             modifier = contentModifier,
         )

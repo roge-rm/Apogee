@@ -68,6 +68,9 @@ class GameSettings(context: Context) {
     /** Mirrors the flight controls for left-handed play. */
     var leftHandMode: Boolean by booleanPref(KEY_LEFT_HAND, false)
 
+    /** Whether the Play screen is on the career world rather than the sandbox. */
+    var careerMode: Boolean by booleanPref(KEY_CAREER_MODE, false)
+
     /** Lets the flight controls fade back when nothing has touched them for a few seconds. */
     var fadeWhenIdle: Boolean by booleanPref(KEY_FADE_IDLE, true)
 
@@ -234,6 +237,7 @@ class GameSettings(context: Context) {
         const val KEY_CONTROL_OPACITY = "control_opacity"
         const val KEY_LEFT_HAND = "left_hand_mode"
         const val KEY_FADE_IDLE = "fade_when_idle"
+        const val KEY_CAREER_MODE = "career_mode"
         const val KEY_PITCH_STYLE = "pitch_style"
         const val KEY_WEATHER = "weather_intensity"
         const val KEY_CLOUDS = "cloud_cover"

@@ -147,4 +147,7 @@ private fun swatch(material: SurfaceMaterial, h: Double): Triple<Double, Double,
     SurfaceMaterial.NITROGEN_ICE -> Triple(0.91, 0.87, 0.84)
     SurfaceMaterial.THOLIN -> Triple(0.47, 0.25, 0.18)
     SurfaceMaterial.TESSERA -> Triple(0.50, 0.39, 0.28)
+    SurfaceMaterial.OOZE -> Triple(0.58, 0.56, 0.50)
+    SurfaceMaterial.NODULES -> Triple(0.30, 0.28, 0.26)
+    SurfaceMaterial.VENT_CRUST -> Triple(0.45, 0.24, 0.14)
 }

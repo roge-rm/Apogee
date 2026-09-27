@@ -97,6 +97,10 @@ class GlRenderer(
     /** This frame's lamps, camera-relative x, y, z and reach: see [WorldView.lamps]. */
     private val frameLamps = FloatArray(4 * WorldView.MAX_LAMPS)
     private var frameLampCount = 0
+
+    /** The body's centre, camera-relative, and the sea's surface radius; and how far light gets through it: see [WorldView.seaRadius]. */
+    private val frameSea = FloatArray(4)
+    private val frameWater = FloatArray(3) { 1f }
     private val scratchLamp = Vec3()
     private val frameFog = FloatArray(3)
     private var terrainProgram: ShaderProgram? = null
@@ -325,6 +329,9 @@ class GlRenderer(
             }
         }
         frameLampCount = latest.world?.let { placeLamps(it, cameraPos) } ?: 0
+        frameSea[0] = (-cameraPos.x).toFloat(); frameSea[1] = (-cameraPos.y).toFloat(); frameSea[2] = (-cameraPos.z).toFloat()
+        frameSea[3] = (latest.world?.seaRadius ?: 0.0).toFloat()
+        latest.world?.water?.copyInto(frameWater)
         val aspect = viewportWidth.toDouble() / viewportHeight.toDouble()
 
         viewMatrix.setViewFromCameraRotation(interpolatedCameraRot)
@@ -361,6 +368,7 @@ class GlRenderer(
             drawGlobe(world, cameraPos, atmosphereFactor)
             mark(4)
             drawItems(latest.farItems, null, latest, 0.0, cameraPos, farViewProjection.m)
+            drawCloudShell(world, cameraPos)
             mark(5)
             // Trajectories belong in the far pass: an orbit is hundreds of
             // kilometres across and would be clipped away by the near frustum.
@@ -491,6 +499,33 @@ class GlRenderer(
             globeMesh?.upload(pending.data.vertices, pending.data.indices)
             uploadedGlobe = pending.revision
         }
+    }
+
+    private var cloudShellProgram: ShaderProgram? = null
+    private var cloudShellMesh: CloudShellMesh? = null
+
+    /**
+     * The planet's cloud over the globe, on the map: a veil, blended, the
+     * far half hidden behind the planet by the depth already drawn.
+     */
+    private fun drawCloudShell(world: WorldView, cameraPos: Vec3) {
+        val shell = world.cloudShell ?: return
+        val shader = cloudShellProgram ?: ShaderProgram(Shaders.CLOUD_SHELL_VERTEX, Shaders.CLOUD_SHELL_FRAGMENT, "cloud-shell").also { cloudShellProgram = it }
+        val mesh = cloudShellMesh ?: CloudShellMesh().also { cloudShellMesh = it }
+        if (mesh.revision != shell.revision) mesh.upload(shell)
+        shader.use()
+        modelMatrix.setFromTrs(Vec3.zero(), interpolatedBodyRotation, cameraPos, world.radius)
+        shader.setMat4("uModel", modelMatrix.m)
+        shader.setMat4("uViewProjection", farViewProjection.m)
+        shader.setVec3("uSunDirection", world.sunDirection.x.toFloat(), world.sunDirection.y.toFloat(), world.sunDirection.z.toFloat())
+        GLES30.glEnable(GLES30.GL_BLEND)
+        GLES30.glBlendFunc(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA)
+        GLES30.glDepthMask(false)
+        GLES30.glDisable(GLES30.GL_CULL_FACE)
+        mesh.draw()
+        GLES30.glEnable(GLES30.GL_CULL_FACE)
+        GLES30.glDepthMask(true)
+        GLES30.glDisable(GLES30.GL_BLEND)
     }
 
     /** The whole body, for the view from any distance. */
@@ -1217,6 +1252,9 @@ class GlRenderer(
         val count = if (lit) frameLampCount else 0
         shader.setInt("uLampCount", count)
         if (count > 0) shader.setVec4Array("uLamps", frameLamps, count)
+        // The sea's dark goes with the lamps: wherever they light, it does.
+        shader.setVec4("uSea", if (lit) frameSea else NO_SEA)
+        shader.setVec3("uWater", frameWater[0], frameWater[1], frameWater[2])
     }
 
     private fun applyShadowUniforms(shader: ShaderProgram, receives: Boolean) {
@@ -1368,6 +1406,8 @@ class GlRenderer(
         if (solidBuffer[0] != 0) { GLES30.glDeleteBuffers(1, solidBuffer, 0); solidBuffer[0] = 0 }
         skyProgram?.release(); skyProgram = null
         terrainProgram?.release(); terrainProgram = null
+        cloudShellProgram?.release(); cloudShellProgram = null
+        cloudShellMesh?.release(); cloudShellMesh = null
         globeMesh?.release(); globeMesh = null
         uploadedGlobe = 0
         // Every chunk on the GPU is gone with the context; say so, so they are
@@ -1401,6 +1441,9 @@ class GlRenderer(
     private fun lerp(a: Double, b: Double, t: Double) = a + (b - a) * t
 
     private companion object {
+        /** For what the sea's dark does not reach: the globe from afar. */
+        val NO_SEA = FloatArray(4)
+
         /** The passes [timePasses] times, in order. */
         /** Cloud lobes within this ratio of distance share a band, drawn many to a call. */
         const val BAND_RATIO = 1.6

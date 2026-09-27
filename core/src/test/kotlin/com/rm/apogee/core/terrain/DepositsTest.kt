@@ -66,8 +66,10 @@ class DepositsTest {
         val ores = tropics.map { Deposits.richness(terra, it, ResourceType.ORE) }
         assertTrue("no land sampled", ores.size > 100)
         assertTrue("all the same: ${ores.min()}..${ores.max()}", ores.max() - ores.min() > 0.3)
-        // The sea holds nothing a drill can reach.
-        val sea = band(-40.0, 40.0, 40).first { terra.isOcean(it) }
-        assertEquals(0.0, Deposits.richness(terra, sea, ResourceType.ORE), 0.0)
+        // The sea floor holds ore too, for a drill taken down to it: little
+        // in its ooze and sand, most round its vents and on its nodule fields.
+        val floor = band(-40.0, 40.0, 40).filter { terra.isOcean(it) }.map { Deposits.richness(terra, it, ResourceType.ORE) }
+        assertTrue("no sea floor sampled", floor.size > 100)
+        assertTrue("the sea floor is barren", floor.all { it in 0.0..1.0 } && floor.average() in 0.01..0.3)
     }
 }

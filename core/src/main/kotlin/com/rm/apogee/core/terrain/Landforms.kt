@@ -396,13 +396,26 @@ class WorldField internal constructor(
     private val scatterField: ScatterField by lazy { ScatterField(this) }
     override val scatter: ScatterField? get() = scatterField
 
+    override fun ventField(direction: Vec3): Double {
+        val s = seabed ?: return 0.0
+        val l = sqrt(direction.x * direction.x + direction.y * direction.y + direction.z * direction.z)
+        return s.ventField(direction.x / l, direction.y / l, direction.z / l)
+    }
+
+    /** Under its sea, the open ocean's floor, as Terra's is: see [Seabed]. */
+    private val seabed: Seabed? = if (hasSea) Seabed(world.hashCode(), bodyRadius) else null
+
     override fun elevation(direction: Vec3): Double {
         val l = sqrt(direction.x * direction.x + direction.y * direction.y + direction.z * direction.z)
-        return land.height(direction.x / l, direction.y / l, direction.z / l)
+        val nx = direction.x / l; val ny = direction.y / l; val nz = direction.z / l
+        val h = land.height(nx, ny, nz)
+        return if (seabed != null && h < 0.0) seabed.global(nx, ny, nz, h) else h
     }
 
     override fun material(direction: Vec3, elevation: Double, slope: Double): SurfaceMaterial {
         val l = sqrt(direction.x * direction.x + direction.y * direction.y + direction.z * direction.z)
-        return land.material(direction.x / l, direction.y / l, direction.z / l, elevation, slope)
+        val nx = direction.x / l; val ny = direction.y / l; val nz = direction.z / l
+        if (seabed != null && elevation < -Seabed.SEA_EDGE) return seabed.material(nx, ny, nz, elevation, slope)
+        return land.material(nx, ny, nz, elevation, slope)
     }
 }

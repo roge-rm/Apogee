@@ -151,7 +151,7 @@ private fun BurnEditor(burn: GameSession.BurnReadout, actions: BurnActions) {
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             SmallButton("DELETE", ApogeeColors.Caution) { actions.onDelete() }
             if (burn.startsIn > 60.0) SmallButton("WARP TO") { actions.onWarpTo() }
-            SmallButton(if (burn.auto) "AUTO ✓" else "AUTO", if (burn.auto) BURN_BLUE else Color.White) { actions.onAutoBurn(!burn.auto) }
+            if (burn.canAuto) SmallButton(if (burn.auto) "AUTO ✓" else "AUTO", if (burn.auto) BURN_BLUE else Color.White) { actions.onAutoBurn(!burn.auto) }
         }
     }
 }
@@ -246,7 +246,7 @@ private fun BurnChip(burn: GameSession.BurnReadout, actions: BurnActions) {
         }
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             if (burn.startsIn > 60.0) SmallButton("WARP TO") { actions.onWarpTo() }
-            SmallButton(if (burn.auto) "AUTO ✓" else "AUTO", if (burn.auto) BURN_BLUE else Color.White) { actions.onAutoBurn(!burn.auto) }
+            if (burn.canAuto) SmallButton(if (burn.auto) "AUTO ✓" else "AUTO", if (burn.auto) BURN_BLUE else Color.White) { actions.onAutoBurn(!burn.auto) }
         }
     }
 }
@@ -302,7 +302,7 @@ private fun LandingChip(landing: GameSession.LandingReadout, actions: BurnAction
                 color = if (now) ApogeeColors.Caution else ApogeeColors.Data,
             )
         }
-        SmallButton(if (landing.auto) "AUTO LAND ✓" else "AUTO LAND", if (landing.auto) BURN_BLUE else Color.White) { actions.onAutoLand(!landing.auto) }
+        if (landing.canAuto) SmallButton(if (landing.auto) "AUTO LAND ✓" else "AUTO LAND", if (landing.auto) BURN_BLUE else Color.White) { actions.onAutoLand(!landing.auto) }
     }
 }
 

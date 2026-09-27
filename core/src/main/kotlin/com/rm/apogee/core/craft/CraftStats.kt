@@ -358,15 +358,19 @@ class CraftStats(
                 problems.add("No engines or driven wheels")
             }
 
+            // An electric one - a submarine's screw - runs off any battery
+            // aboard: charge is the whole craft's, not a fuel line's.
+            val charged = defs.any { it.hasModule<com.rm.apogee.core.part.Battery>() }
             val enginesWithoutFuel = design.parts.indices.filter { index ->
-                defs[index].module<Engine>() != null &&
-                    FuelGroups.compute(design, defs).let { groups ->
-                        design.parts.indices.none {
-                            groups[it] == groups[index] &&
-                                defs[it].modules.filterIsInstance<Tank>()
-                                    .any { tank -> tank.resource == ResourceType.PROPELLANT }
-                        }
+                val engine = defs[index].module<Engine>() ?: return@filter false
+                if (engine.propellant == ResourceType.ELECTRIC_CHARGE) return@filter !charged
+                FuelGroups.compute(design, defs).let { groups ->
+                    design.parts.indices.none {
+                        groups[it] == groups[index] &&
+                            defs[it].modules.filterIsInstance<Tank>()
+                                .any { tank -> tank.resource == ResourceType.PROPELLANT }
                     }
+                }
             }
             if (enginesWithoutFuel.isNotEmpty()) {
                 problems.add("${enginesWithoutFuel.size} engine(s) have no fuel tank connected")

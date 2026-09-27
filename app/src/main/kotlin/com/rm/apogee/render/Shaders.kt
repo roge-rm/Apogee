@@ -50,6 +50,18 @@ object Shaders {
             }
             return LAMP * sum;
         }
+        // Under the sea the day's light fades with depth, red first: blue-
+        // green in the shallows, deep blue lower down, and below a few
+        // hundred metres dark but for lamps. uSea is the body's centre,
+        // camera-relative, and the sea's surface radius, 0 for no sea;
+        // uWater how far each of red, green and blue gets, m per e-fold.
+        uniform vec4 uSea;
+        uniform vec3 uWater;
+        vec3 underSea(vec3 p) {
+            if (uSea.w <= 0.0) return vec3(1.0);
+            float below = uSea.w - length(p - uSea.xyz);
+            return below > 0.0 ? exp(-below / uWater) : vec3(1.0);
+        }
     """
 
     /**
@@ -249,8 +261,9 @@ object Shaders {
             // moon, opposite it, lights things faint and blue instead.
             float moonFacing = mix(max(-facing, 0.0), 1.0 - wrapped, uWrap);
             vec3 moon = MOON * (0.55 + 0.45 * moonFacing * direct) * (0.4 + 0.6 * uLightScale);
-            vec3 lit = uColor.rgb * ((uAmbient + diffuse * 0.8 * uLightScale * direct) * uDaylight + moon * moonLeft(uDaylight) + duskGlow(uDaylight));
-            lit += uColor.rgb * FLASH * uFlash;
+            vec3 sea = underSea(-vToCamera);
+            vec3 lit = uColor.rgb * ((uAmbient + diffuse * 0.8 * uLightScale * direct) * uDaylight + moon * moonLeft(uDaylight) + duskGlow(uDaylight)) * sea;
+            lit += uColor.rgb * FLASH * uFlash * sea;
             if (uLampCount > 0) lit += uColor.rgb * lampLight(-vToCamera, n);
             // Ambient of one or more means it glows - a flame - at its own colour.
             if (uAmbient >= 1.0) lit = uColor.rgb;
@@ -549,8 +562,9 @@ object Shaders {
             float direct = directLight(vPosition, n);
             float lambert = max(dot(n, uSunDirection), 0.0) * direct;
             vec3 moon = MOON * (0.55 + 0.45 * max(-dot(n, uSunDirection), 0.0) * direct) * (0.4 + 0.6 * uLightScale);
-            vec3 lit = vColour * ((0.28 + lambert * 0.9 * uLightScale) * uDaylight + moon * moonLeft(uDaylight) + duskGlow(uDaylight));
-            lit += vColour * FLASH * uFlash;
+            vec3 sea = underSea(vPosition);
+            vec3 lit = vColour * ((0.28 + lambert * 0.9 * uLightScale) * uDaylight + moon * moonLeft(uDaylight) + duskGlow(uDaylight)) * sea;
+            lit += vColour * FLASH * uFlash * sea;
             if (uLampCount > 0) lit += vColour * lampLight(vPosition, n);
             float haze = (1.0 - exp(-vDistance / max(uHazeDistance, 1.0))) * uAtmosphereFactor;
             vec3 hazeColor = uHaze * (NIGHT_AIR + (1.0 - NIGHT_AIR) * uDaylight);
@@ -672,8 +686,9 @@ object Shaders {
             // Night is not black: a full moon opposite the sun, faint and
             // blue, so the land keeps its shape after dark.
             vec3 night = MOON * (0.55 + 0.45 * max(-dot(n, uSunDirection), 0.0) * direct) * (0.4 + 0.6 * uLightScale);
-            vec3 lit = surface * (night * moonLeft(uDaylight) + duskGlow(uDaylight) + (0.06 + lambert * 1.10 * uLightScale) * daylight);
-            lit += surface * FLASH * uFlash;
+            vec3 sea = underSea(vPosition);
+            vec3 lit = surface * (night * moonLeft(uDaylight) + duskGlow(uDaylight) + (0.06 + lambert * 1.10 * uLightScale) * daylight) * sea;
+            lit += surface * FLASH * uFlash * sea;
             if (uLampCount > 0) lit += surface * lampLight(vPosition, n);
 
             // A glint off the water, which is most of what reads as sea
@@ -825,6 +840,44 @@ object Shaders {
             // Clear over the shallows, but glassy at a low angle.
             float alpha = mix(vColour.a, 1.0, fresnel);
             fragColor = vec4(lit, alpha);
+        }
+    """.trimIndent()
+
+    // ---- the map's cloud: a veil over the globe --------------------------
+
+    val CLOUD_SHELL_VERTEX = """
+        #version 300 es
+        layout(location = 0) in vec3 aPosition;
+        layout(location = 1) in vec4 aColour;
+
+        uniform mat4 uModel;
+        uniform mat4 uViewProjection;
+
+        out vec4 vColour;
+        out vec3 vUp;
+
+        void main() {
+            vColour = aColour;
+            vUp = mat3(uModel) * aPosition;
+            gl_Position = uViewProjection * uModel * vec4(aPosition, 1.0);
+        }
+    """.trimIndent()
+
+    /** Lit by the sun as the ground under it is: bright by day, a faint grey at night. */
+    val CLOUD_SHELL_FRAGMENT = """
+        #version 300 es
+        precision highp float;
+
+        in vec4 vColour;
+        in vec3 vUp;
+
+        uniform vec3 uSunDirection;
+
+        out vec4 fragColor;
+
+        void main() {
+            float day = smoothstep(-0.12, 0.3, dot(normalize(vUp), uSunDirection));
+            fragColor = vec4(vColour.rgb * (0.05 + 0.95 * day), vColour.a * (0.3 + 0.7 * day));
         }
     """.trimIndent()
 

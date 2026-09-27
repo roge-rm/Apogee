@@ -66,7 +66,9 @@ class StabilityAssist(
         val body = vessel.body
         // Afloat: a helmsman, keeping the deck level - even while the wheel
         // is being turned - and the heading once it is let go.
-        val afloat = control.sasEnabled && vessel.buoyed && !vessel.touchingGround && direction == null
+        // Under the water it is a pilot again, holding pitch as well: a
+        // submarine left to pitch as the sea takes it goes down nose first.
+        val afloat = control.sasEnabled && vessel.buoyed && !vessel.submerged && !vessel.touchingGround && direction == null
         control.assistLevelling = afloat
         if (afloat && control.hasAttitudeInput) {
             vessel.assistHeld.setTo(body.orientation)

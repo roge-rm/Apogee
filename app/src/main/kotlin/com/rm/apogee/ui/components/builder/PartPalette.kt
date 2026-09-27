@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.Domain
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.ChevronLeft
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Construction
 import androidx.compose.material.icons.filled.Flight
 import androidx.compose.material.icons.filled.Hub
@@ -52,6 +53,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -108,6 +110,10 @@ fun PartPalette(
     carry: PaletteCarry,
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
+    /** In a career, the parts not unlocked yet, each to the tech node that unlocks it: shown, faded and locked. */
+    locked: Map<String, String> = emptyMap(),
+    /** A locked part tapped: say what unlocks it. */
+    onLocked: (String) -> Unit = {},
 ) {
     val parts = remember(catalog, tab) { PartTabs.parts(catalog, tab) }
     Surface(
@@ -157,7 +163,8 @@ fun PartPalette(
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     items(parts, key = { it.id }) { def ->
-                        PartTile(def, pictures[def.id], tileSize, def.id == heldPartId, onPick, carry)
+                        if (def.id in locked) LockedTile(def, pictures[def.id], tileSize, onLocked)
+                        else PartTile(def, pictures[def.id], tileSize, def.id == heldPartId, onPick, carry)
                     }
                 }
             }
@@ -270,6 +277,35 @@ private fun PartTile(
             style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 10.sp),
             color = Color.White.alpha(ApogeeAlpha.SUBTITLE),
             maxLines = 1,
+        )
+    }
+}
+
+/** A part the career has not unlocked yet: to see what is coming, not to build with. */
+@Composable
+private fun LockedTile(def: PartDef, picture: ImageBitmap?, size: Dp, onLocked: (String) -> Unit) {
+    Column(
+        Modifier
+            .width(size)
+            .clip(RoundedCornerShape(Dimens.CornerTight))
+            .background(Color.White.alpha(ApogeeAlpha.FILL_FAINT))
+            .clickable { onLocked(def.id) }
+            .padding(4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Box(Modifier.size(size - 16.dp), contentAlignment = Alignment.Center) {
+            if (picture != null) {
+                Image(picture, contentDescription = null, modifier = Modifier.size(size - 16.dp).alpha(0.3f))
+            }
+            Icon(Icons.Filled.Lock, contentDescription = "Locked", tint = Color.White.alpha(ApogeeAlpha.SECONDARY), modifier = Modifier.size(18.dp))
+        }
+        Text(
+            def.title,
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 11.sp),
+            color = Color.White.alpha(ApogeeAlpha.SUBTITLE),
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
         )
     }
 }

@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material3.CircularProgressIndicator
@@ -123,6 +124,9 @@ fun FlightScreen(
     /** Switch the drills, and the converters. */
     onToggleDrill: () -> Unit = {},
     onToggleRefine: () -> Unit = {},
+    onDive: () -> Unit = {},
+    onRise: () -> Unit = {},
+    onHoldDepth: () -> Unit = {},
     /** Empty the craft's ore and water into a base or docked craft; switch a base's refinery. */
     onUnload: (Boolean) -> Unit = {},
     onRefine: (com.rm.apogee.core.world.ServerMessage.BaseStatus, Boolean) -> Unit = { _, _ -> },
@@ -151,6 +155,9 @@ fun FlightScreen(
     /** Planning burns, and the autopilots. */
     burnActions: com.rm.apogee.ui.components.BurnActions = com.rm.apogee.ui.components.BurnActions(),
     crewActions: com.rm.apogee.ui.components.CrewActions = com.rm.apogee.ui.components.CrewActions(),
+    /** This player's id, for the program's firsts; and spending insight there: null if asked for, or why not. */
+    me: String = "",
+    onUnlock: (String) -> String? = { null },
 ) {
     // BoxWithConstraints rather than the configuration's orientation: this is
     // a question about the space actually available, and the answer has to be
@@ -162,12 +169,21 @@ fun FlightScreen(
         val railActions = RailActions(
             onBrakes = onToggleBrakes, onReverse = onToggleReverse, onRcs = onToggleRcs, onDeploy = onToggleDeploy,
             onDrill = onToggleDrill, onRefine = onToggleRefine, onJump = crewActions.onJump, onFlag = crewActions.onFlag,
+            onDive = onDive, onRise = onRise, onHold = onHoldDepth,
         )
         val statusActions = StatusActions(crewActions, onUndock, onFound, onRefuel, onUnload, onRefine, onDockPilot)
         val promptActions = PromptActions(onJoin, onFound, crewActions.onBoard, crewActions.onGrab)
 
         if (hud.connectionError != null) {
             ConnectionProblem(hud.connectionError!!, onExit)
+            return@BoxWithConstraints
+        }
+        // The program, over the flight: in a world someone else hosts, the
+        // only place a player's career there can be seen and spent.
+        val career = hud.career
+        if (hud.programOpen && career != null) {
+            androidx.activity.compose.BackHandler { hud.programOpen = false }
+            ProgramScreen(career, hud.worldFirsts, me, onUnlock, onClose = { hud.programOpen = false })
             return@BoxWithConstraints
         }
         if (hud.connecting || !hud.surfaceReady) {
@@ -281,6 +297,15 @@ fun FlightScreen(
                         size = Dimens.HudIconSize,
                     )
                 }
+                // The career's program: what to spend the insight just earned on.
+                if (career != null) {
+                    FilledTonalIconButton(
+                        onClick = { hud.programOpen = true },
+                        modifier = Modifier.size(Dimens.HudIconSize),
+                    ) {
+                        Icon(Icons.Filled.AccountTree, contentDescription = "Program")
+                    }
+                }
                 // The craft name is the first thing to go when the screen is
                 // narrow: the flight strip opposite is not optional and the
                 // two meet in the middle on a portrait phone.
@@ -321,12 +346,15 @@ fun FlightScreen(
         // --- top right: the flight strip, and the status chips under it ------
         // Along the edge, out of the view: a few numbers, tapped open for the
         // rest; then the craft's state in small chips, each tapped open for
-        // what lies behind it.
+        // what lies behind it. In portrait a row below the buttons, not
+        // beside them: beside them there is no room, and a wide number -
+        // "suborbital" - pushed the strip over the warp button.
         Column(
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Horizontal))
-                .padding(horizontal = 12.dp, vertical = 6.dp),
+                .padding(horizontal = 12.dp, vertical = 6.dp)
+                .padding(top = if (portrait) Dimens.HudIconSize + 6.dp else 0.dp),
             horizontalAlignment = Alignment.End,
         ) {
             FlightStrip(
@@ -658,11 +686,11 @@ private val STICK_INSET = 40.dp
 private val LANDSCAPE_DETAIL_HEIGHT = 150.dp
 
 /** Numbers to a line on the flight strip. */
-private const val PORTRAIT_STRIP_PER_LINE = 2
+private const val PORTRAIT_STRIP_PER_LINE = 5
 private const val LANDSCAPE_STRIP_PER_LINE = 5
 
-/** Where the prompts start down from the top: under the strip and chips in portrait, the top row in landscape. */
-private val PORTRAIT_PROMPT_TOP = 116.dp
+/** Where the prompts start down from the top: under the buttons, the strip and the chips in portrait; the top row in landscape. */
+private val PORTRAIT_PROMPT_TOP = 150.dp
 private val LANDSCAPE_PROMPT_TOP = 58.dp
 
 /** Switches to a column of the rail, before a second: portrait has the height, landscape does not. */
@@ -752,6 +780,19 @@ private fun MapNames(labels: (Float, Float) -> List<com.rm.apogee.game.GameSessi
     }
     Box(Modifier.fillMaxSize().onSizeChanged { size = it }) {
         for (label in shown) {
+            if (label.place) {
+                // A found place: a small dot on the world, no more - its name is in the Program.
+                Box(
+                    Modifier
+                        .offset { androidx.compose.ui.unit.IntOffset(label.x.toInt(), label.y.toInt()) }
+                        .offset(-PLACE_DOT / 2, -PLACE_DOT / 2)
+                        .size(PLACE_DOT)
+                        .background(Color.Black.alpha(0.6f), androidx.compose.foundation.shape.CircleShape)
+                        .padding(1.dp)
+                        .background(ApogeeColors.Accent, androidx.compose.foundation.shape.CircleShape),
+                )
+                continue
+            }
             Text(
                 label.name.uppercase(),
                 style = MaterialTheme.typography.labelSmall,
@@ -762,3 +803,6 @@ private fun MapNames(labels: (Float, Float) -> List<com.rm.apogee.game.GameSessi
         }
     }
 }
+
+/** How big a found place's dot is on the map. */
+private val PLACE_DOT = 6.dp

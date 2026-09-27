@@ -72,6 +72,7 @@ class Hydrostatics {
         submergedVolume = 0.0
         splashCount = 0
         vessel.buoyed = false
+        vessel.submerged = false
         val ocean = attractor.ocean ?: run { vessel.wet = null; return }
         val body = vessel.body
 
@@ -242,6 +243,9 @@ class Hydrostatics {
                 body.applyForceAtOffset(force, offset)
             }
         }
+        var whole = 0.0
+        for (def in vessel.defs) whole += def.displacedVolume
+        vessel.submerged = whole > 0.0 && submergedVolume > SUBMERGED_SHARE * whole
     }
 
     /**
@@ -540,6 +544,9 @@ class Hydrostatics {
     }
 
     private companion object {
+        /** The share of its volume under the water past which a craft is submerged. */
+        const val SUBMERGED_SHARE = 0.97
+
         /** Metres above the surface within which a craft is worth sampling. */
         const val SURFACE_MARGIN = 2.0
 

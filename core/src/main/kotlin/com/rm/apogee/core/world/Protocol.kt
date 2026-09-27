@@ -111,6 +111,16 @@ sealed interface Command {
     @SerialName("plantFlag")
     data class PlantFlag(val vessel: Long) : Command
 
+    /** Floods [vessel]'s ballast tanks (1), blows them (-1), or stops them (0) - and lets go of any depth held. */
+    @Serializable
+    @SerialName("setBallast")
+    data class SetBallast(val vessel: Long, val mode: Int) : Command
+
+    /** Holds [vessel] at the depth it is at by its ballast, or stops. */
+    @Serializable
+    @SerialName("holdDepth")
+    data class HoldDepth(val vessel: Long, val on: Boolean) : Command
+
     /** Switches [vessel]'s drills and its converters - a base's refinery - on or off. */
     @Serializable
     @SerialName("setIndustry")
@@ -215,6 +225,11 @@ sealed interface Command {
     @Serializable
     @SerialName("removeVessel")
     data class RemoveVessel(val vessel: Long) : Command
+
+    /** In a career, spend insight on tech node [node]. */
+    @Serializable
+    @SerialName("unlock")
+    data class Unlock(val node: String) : Command
 }
 
 /**
@@ -325,6 +340,8 @@ sealed interface ServerMessage {
          * Null for still air.
          */
         val weather: com.rm.apogee.core.weather.WeatherConfig? = null,
+        /** [WorldSave.MODE_CAREER] or [WorldSave.MODE_SANDBOX]. */
+        val mode: String = WorldSave.MODE_SANDBOX,
     ) : ServerMessage
 
     @Serializable
@@ -421,12 +438,45 @@ sealed interface ServerMessage {
         /** What the ground right below holds, 0..1, read by a scanner low enough; -1 when there is no reading. */
         val ore: Float = -1f,
         val water: Float = -1f,
+        /** Its ballast, 0..1 full, or -1 with no tanks; what they are doing; and a depth held, m, or -1. */
+        val ballast: Float = -1f,
+        val ballastMode: Int = 0,
+        val holdingDepth: Float = -1f,
+        /** How near the sea is to crushing its weakest hollow part: 1 is its limit. */
+        val crush: Float = 0f,
+        /** Its sonar's reading: the sea floor below, m, or -1; and the nearest place not yet found, as a bearing (degrees) and range (m), range -1 for none. */
+        val seabed: Float = -1f,
+        val findBearing: Float = 0f,
+        val findRange: Float = -1f,
     ) : ServerMessage
 
     /** A player's crew - at home, aboard, and on the memorial - sent to them on joining and whenever it changes. */
     @Serializable
     @SerialName("roster")
     data class Roster(val members: List<com.rm.apogee.core.crew.CrewMember>) : ServerMessage
+
+    /** A player's career, sent to them on joining and whenever it changes; and the world firsts, which are everyone's. */
+    @Serializable
+    @SerialName("career")
+    data class Career(
+        val state: com.rm.apogee.core.career.CareerState,
+        val firsts: List<com.rm.apogee.core.career.WorldFirst> = emptyList(),
+    ) : ServerMessage
+
+    /** The sea's named places this player has found, by id: the rest stay hidden. */
+    @Serializable
+    @SerialName("wonders-found")
+    data class WondersFound(val ids: List<String>) : ServerMessage
+
+    /** A feat or a visit just credited to this player: [grade] blank for an ungraded one. */
+    @Serializable
+    @SerialName("feat")
+    data class Feat(val title: String, val grade: String, val insight: Int) : ServerMessage
+
+    /** A launch or an unlock the career would not allow, and why. */
+    @Serializable
+    @SerialName("careerRefused")
+    data class CareerRefused(val reason: String) : ServerMessage
 
     /** The bodies surveyed for ore and water: all of them, whenever the list grows, and on joining. */
     @Serializable
@@ -585,5 +635,6 @@ object Protocol {
     // 15: resources - SetIndustry, Unload, Surveyed, CraftSystems industry and readings, BaseStatus stores.
     // 16: crew - Roster, seats in StructureUpdate, EVA and boarding commands.
     // 17: the wider system - Hello.systemHash; every world, tilted, round a real sun.
-    const val VERSION = 17
+    // 18: career - Welcome.mode, Career, Feat, CareerRefused, Command.Unlock, feats watched per player.
+    const val VERSION = 18
 }

@@ -683,6 +683,13 @@ class GameSession private constructor(
                 canGrab = systems.canGrab,
                 onLadder = systems.onLadder,
                 passenger = systems.passenger,
+                ballast = systems.ballast,
+                ballastMode = systems.ballastMode,
+                holdingDepth = systems.holdingDepth,
+                crush = systems.crush,
+                seabed = systems.seabed,
+                findBearing = systems.findBearing,
+                findRange = systems.findRange,
                 held = prediction.replica?.let { local ->
                     val ore = com.rm.apogee.core.part.ResourceType.ORE
                     val water = com.rm.apogee.core.part.ResourceType.WATER
@@ -693,6 +700,16 @@ class GameSession private constructor(
                 },
             )
         }
+
+    /** Floods the flown craft's ballast tanks ([mode] 1), blows them (-1), or leaves them be (0). */
+    suspend fun setBallast(mode: Int) {
+        withControlledVessel { client.send(Command.SetBallast(it, mode)) }
+    }
+
+    /** Holds the flown craft at the depth it is at now, or lets it go. */
+    suspend fun holdDepth(on: Boolean) {
+        withControlledVessel { client.send(Command.HoldDepth(it, on)) }
+    }
 
     /** Folds the flown craft's sun wings and dishes out, or away. */
     suspend fun setDeployed(deployed: Boolean) {
@@ -890,13 +907,15 @@ class GameSession private constructor(
         val meetsAt: Double,
         /** The auto-burn has it. */
         val auto: Boolean,
+        /** Whether there is an autopilot to hand it to: a career has to unlock one. */
+        val canAuto: Boolean = true,
     )
 
     @Volatile var burnReadout: BurnReadout? = null
         private set
 
     /** Coming down: when, how fast, and when to start braking; for the HUD. */
-    class LandingReadout(val impactIn: Double, val impactSpeed: Double, val brakeIn: Double, val auto: Boolean)
+    class LandingReadout(val impactIn: Double, val impactSpeed: Double, val brakeIn: Double, val auto: Boolean, val canAuto: Boolean = true)
 
     /** A planet targeted from another: when to leave, and what it costs. Angles in degrees. */
     class WindowReadout(
@@ -910,6 +929,33 @@ class GameSession private constructor(
     )
 
     @Volatile var windowReadout: WindowReadout? = null
+
+    /** The next feat or visit the career credited, or career refusal, to show once; null when there is none. */
+    fun nextFeat(): com.rm.apogee.core.world.ServerMessage.Feat? = client.feats.poll()
+    fun nextRefusal(): String? = client.refusals.poll()
+
+    /** This player's career in the world flown in, as its server keeps it, and the world's firsts; null in a sandbox. */
+    val career: com.rm.apogee.core.career.CareerState? get() = client.career
+    val worldFirsts: List<com.rm.apogee.core.career.WorldFirst> get() = client.firsts
+
+    /**
+     * Spends insight on a node, in the career of whichever world this is -
+     * the host's, when joined: null if asked for, or why it cannot be yet.
+     */
+    suspend fun unlock(nodeId: String): String? {
+        val state = client.career ?: return "Not a career"
+        val node = com.rm.apogee.core.career.TechTree.stock.node(nodeId) ?: return "No such node"
+        state.blocker(com.rm.apogee.core.career.TechTree.stock, node)?.let { return it }
+        client.send(Command.Unlock(nodeId))
+        return null
+    }
+
+    /** Whether this is a career world, as the server said. */
+    val careerWorld: Boolean get() = client.mode == com.rm.apogee.core.world.WorldSave.MODE_CAREER
+
+    /** Whether there is an autopilot to fly burns and landings: in a career, once the Flight Computer is unlocked. */
+    val autopilotAllowed: Boolean get() = !careerWorld ||
+        client.career?.ability(com.rm.apogee.core.career.TechTree.stock, com.rm.apogee.core.career.TechTree.AUTOPILOT) == true
 
     @Volatile var landingReadout: LandingReadout? = null
         private set
@@ -938,6 +984,7 @@ class GameSession private constructor(
                 meets = met?.let { system.body(it.bodyId).displayName },
                 meetsAt = met?.let { it.orbit.periapsis - system.body(it.bodyId).radius } ?: Double.NaN,
                 auto = localAutoBurn,
+                canAuto = autopilotAllowed,
             )
         }
         windowReadout = windowFor(attractor, replica?.body?.position ?: focus.latest?.position, time)
@@ -961,6 +1008,7 @@ class GameSession private constructor(
                 impactSpeed = impact.speed,
                 brakeIn = if (stopping.isFinite()) (height - stopping) / falling.coerceAtLeast(1.0) else Double.NaN,
                 auto = localAutoLand,
+                canAuto = autopilotAllowed,
             )
         }
     }
@@ -1061,14 +1109,18 @@ class GameSession private constructor(
                 val floor = body.radius + body.atmosphereHeight + (body.terrain?.maxElevation ?: 0.0)
                 val only = vessel.design.parts.singleOrNull()?.partId
                 val flag = only == com.rm.apogee.core.world.World.FLAG_PART
+                // Under the sea: below its datum, near enough - the tide is a metre or two.
+                val depth = if (body.terrain?.isOcean(bodyFixed) == true) -body.altitudeOf(state.position) else 0.0
                 val situation = when {
                     flag -> "Planted on ${body.displayName}"
+                    depth > UNDER_SEA -> "Under the sea off ${body.displayName}"
                     above < 2.0 && body.terrain?.isOcean(bodyFixed) == true -> "Afloat on ${body.displayName}"
                     above < 2.0 -> "Landed on ${body.displayName}"
                     orbit.isBound && orbit.periapsis > floor -> "In orbit of ${body.displayName}"
                     else -> "Flying over ${body.displayName}"
                 }
-                val height = if (above < 2.0) "on the surface"
+                val height = if (depth > UNDER_SEA) "%.0f m down".format(depth)
+                    else if (above < 2.0) "on the surface"
                     else if (above < 10_000.0) "%.0f m up".format(above) else "%.1f km up".format(above / 1000.0)
                 com.rm.apogee.ui.screens.CraftSummary(vessel.id, vessel.name, situation, height, canReset = false, canFly = !flag)
             }
@@ -1302,6 +1354,12 @@ class GameSession private constructor(
             camera.solve(focusPosition, cameraPosition, cameraRotation)
             keepCameraAboveGround(attractor, focusPosition, renderTime)
             if (!wrecked) updateSlide(focusId, prediction.replica?.body?.orientation ?: focusState.rotation, focusPosition)
+            // The planet turned to the frame's time before the craft are laid
+            // out: their lamps, dust and flames go into its frame by it. Left
+            // at the last frame's, they were a frame's turn out - metres at
+            // the Cape - and a submarine's lamps lit the sea floor ten metres
+            // off to one side.
+            attractor.rotationAt(renderTime, bodyRotation)
             for (vessel in client.vessels) {
                 if (vessel.id == focusId && !warping) {
                     // Staged here and not yet heard back: draw the replica's
@@ -1426,6 +1484,7 @@ class GameSession private constructor(
         telemetry = if (wrecked) FlightTelemetry.lost(focus.name, crashReport(focusId), lost) else FlightTelemetry.from(
             focus, attractor, focusState.throttle, bodyFixedCamera,
             lowestPointOffset = lowestPointOffset(focus.design, focusState.rotation, scratchUp),
+            seaHeight = attractor.ocean?.surfaceHeight(bodyFixedCamera, renderTime) ?: 0.0,
             air = prediction.replica?.air,
             bodyRotation = bodyRotation,
             forwardAxis = focus.design.orientation.forward,
@@ -1465,6 +1524,7 @@ class GameSession private constructor(
                     .also { cloudScene = it }
         } else null
         if (clouds == null) cloudScene = null
+        var mapCloud: com.rm.apogee.render.CloudShell? = null
         if (clouds != null) {
             attractor.toBodyFixed(cameraPosition, bodyRotation, cloudCamera)
             clouds.update(cloudCamera, renderTime)
@@ -1474,7 +1534,7 @@ class GameSession private constructor(
                     clouds.windsock(cape, cloudCamera, renderTime, bodyRotation, items)
                 }
             } else {
-                clouds.mapItems(renderTime, bodyRotation, farItems)
+                mapCloud = clouds.mapShell(renderTime)
             }
         }
 
@@ -1493,6 +1553,7 @@ class GameSession private constructor(
         var seaReach = 0.0
         var tide = 0.0
         var underwater = false
+        var cameraDepth = 0.0
         seaHeard = 0.0; seaRough = 0.0; seaStorm = 0.0
         if (sea != null) {
             if (!debugHideSea && attractor.altitudeOf(cameraPosition) < sea.reach) {
@@ -1503,6 +1564,7 @@ class GameSession private constructor(
             val here = sea.sampleAt(scratchCameraBodyFixed, renderTime)
             tide = here.tide
             underwater = sea.isUnder(scratchCameraBodyFixed, here)
+            cameraDepth = attractor.radius + here.height - scratchCameraBodyFixed.length
             // The open sea, heard near it: louder and rougher with its waves.
             if (here.depth > 2.0) {
                 val above = scratchCameraBodyFixed.length - attractor.radius - here.height
@@ -1586,9 +1648,9 @@ class GameSession private constructor(
         playScene(listener, focus, wrecked, attractor)
         var particles: FloatArray? = null
         var particleShapes = 0
+        val daylight = com.rm.apogee.render.NightLight.daylight(cameraPosition, attractor.radius, frameSun)
         if (!mapMode) {
             fx.flames(frameEmitters, attractor, renderTime, items)
-            val daylight = com.rm.apogee.render.NightLight.daylight(cameraPosition, attractor.radius, frameSun)
             val (vertices, shapes) = fx.vertices(bodyRotation, cameraPosition, cameraRotation, clouds?.lightScale ?: 1f, renderTime, daylight, if (mapMode) 0f else fx.flash)
             particles = vertices
             particleShapes = shapes
@@ -1621,10 +1683,12 @@ class GameSession private constructor(
                     maxElevation = attractor.terrain?.maxElevation ?: 1.0,
                     drawFarSurface = drawFarSurface,
                     chunkRange = chunkRange,
-                    // Under the water: a blue-green murk, a few tens of metres deep.
-                    fogDistance = if (underwater) UNDERWATER_FOG else if (mapMode || clouds == null) WorldView.CLEAR_FOG else clouds.fogDistance,
-                    fogColor = if (underwater) floatArrayOf(0.03f, 0.20f, 0.25f) else clouds?.fogColor ?: floatArrayOf(0.75f, 0.77f, 0.8f),
-                    skyFog = if (mapMode) 0f else clouds?.skyFog ?: 0f,
+                    // Under the water: a murk a few tens of metres deep,
+                    // closer where a storm stirs the shallows, its colour
+                    // fading with the light as the camera goes down.
+                    fogDistance = if (underwater) underwaterFog(cameraDepth) else if (mapMode || clouds == null) WorldView.CLEAR_FOG else clouds.fogDistance,
+                    fogColor = if (underwater) underwaterColour(attractor.id, cameraDepth, daylight, clouds?.lightScale ?: 1f) else clouds?.fogColor ?: floatArrayOf(0.75f, 0.77f, 0.8f),
+                    skyFog = if (mapMode) 0f else if (underwater) 1f else clouds?.skyFog ?: 0f,
                     // Lightning is its own light, not more sun: sun is
                     // nothing at night, and neither was the flash.
                     lightScale = if (mapMode) 1f else (clouds?.lightScale ?: 1f),
@@ -1636,6 +1700,9 @@ class GameSession private constructor(
                     tide = tide,
                     sea = seaSurface,
                     underwater = underwater,
+                    cloudShell = mapCloud,
+                    seaRadius = if (attractor.ocean != null && !mapMode) attractor.radius + tide else 0.0,
+                    water = waterOf(attractor.id),
                     lamps = nearestLamps(cloudCamera),
                     sky = com.rm.apogee.render.SkyColours.of(attractor.id),
                     sunSize = frameSunSize,
@@ -1684,10 +1751,12 @@ class GameSession private constructor(
         val bodies: List<Triple<String, Vec3, Double>>,
         /** How far out the map shows, m. */
         val reach: Double = 0.0,
+        /** The sea's named places on the world below that have been found: name, where. */
+        val places: List<Pair<String, Vec3>> = emptyList(),
     )
 
-    /** A world's name on the map, where it is on a [width] x [height] screen. */
-    class MapLabel(val name: String, val x: Float, val y: Float)
+    /** A world's name on the map, where it is on a [width] x [height] screen - or, [place], a named place on the world below. */
+    class MapLabel(val name: String, val x: Float, val y: Float, val place: Boolean = false)
 
     /** The names of the worlds the map shows, placed on a [width] x [height] screen. */
     fun mapLabels(width: Float, height: Float): List<MapLabel> {
@@ -1699,6 +1768,32 @@ class GameSession private constructor(
             if (!onScreen(view, centre, width, height, at)) return@mapNotNull null
             if (at[0] < 0f || at[1] < 0f || at[0] > width || at[1] > height) return@mapNotNull null
             MapLabel(system.body(id).displayName, at[0], at[1])
+        } + placeLabels(view, width, height)
+    }
+
+    /** The found places on the world below, on its near side, each clear of those before it. */
+    private fun placeLabels(view: MapView, width: Float, height: Float): List<MapLabel> {
+        val out = ArrayList<MapLabel>()
+        val at = FloatArray(2)
+        for ((name, where) in view.places) {
+            // On the side turned to the camera, not behind the world.
+            if ((view.camera - where) dot where <= 0.0) continue
+            if (!onScreen(view, where, width, height, at)) continue
+            if (at[0] < 0f || at[1] < 0f || at[0] > width || at[1] > height) continue
+            if (out.any { kotlin.math.hypot(it.x - at[0], it.y - at[1]) < MAP_PLACE_GAP }) continue
+            out += MapLabel(name, at[0], at[1], place = true)
+        }
+        return out
+    }
+
+    /** The sea's named places on [attractor] this player has found - the rest stay hidden, in free play too - and where each is now. */
+    private fun foundPlaces(attractor: CelestialBody, time: Double): List<Pair<String, Vec3>> {
+        val found = client.wondersFound
+        val wonders = com.rm.apogee.core.world.SeaWonders.all.filter { it.bodyId == attractor.id && it.id in found }
+        if (wonders.isEmpty()) return emptyList()
+        val rotation = attractor.rotationAt(time, Quat())
+        return wonders.map {
+            it.name to rotation.rotate(Vec3().setTo(it.direction).mulInPlace(attractor.radius), Vec3())
         }
     }
 
@@ -1717,7 +1812,7 @@ class GameSession private constructor(
         val bodies = targetBodies.filter { it.id != attractor.id }.map { b ->
             Triple(b.id, system.positionOf(b.id, time).subInPlace(here), b.radius)
         }
-        mapView = MapView(camera.copy(), rotation.copy(), times, points, plan.burnPoint?.copy(), bodies, reach)
+        mapView = MapView(camera.copy(), rotation.copy(), times, points, plan.burnPoint?.copy(), bodies, reach, foundPlaces(attractor, time))
     }
 
     /** Where [point] (about the attractor) is on a [width] x [height] screen, into [out]; false if behind. */
@@ -2327,7 +2422,10 @@ class GameSession private constructor(
         if (landingReadout == null) return
         val plan = planner.plan?.takeIf { it.bodyId == attractor.id } ?: return
         val impact = plan.impact ?: return
-        if (impact.time - time !in 0.0..IMPACT_SHOWN) return
+        // Not in the last seconds: then the craft is on top of it, and the
+        // column stood up through a capsule coming down under its chute,
+        // across the very landing the player was watching.
+        if (impact.time - time !in IMPACT_HIDDEN..IMPACT_SHOWN) return
         val rotation = attractor.rotationAt(time)
         val up = rotation.rotate(impact.direction)
         val ground = attractor.surfaceRadiusInBodyFrame(impact.direction)
@@ -3027,6 +3125,22 @@ class GameSession private constructor(
      * anything in view, nearest first - as many as the renderer takes, fewer
      * on a low tier.
      */
+    /** How far the camera sees under the sea [depth] m down: murkier in the stirred shallows of a storm, a little in the deep. */
+    private fun underwaterFog(depth: Double): Double =
+        UNDERWATER_FOG_DEEP + (UNDERWATER_FOG - UNDERWATER_FOG_DEEP) * kotlin.math.exp(-depth / UNDERWATER_FOG_FALL) -
+            UNDERWATER_STIRRED * seaStorm * kotlin.math.exp(-depth / UNDERWATER_STIRRED_DEPTH)
+
+    private fun waterOf(bodyId: String) =
+        if (bodyId == "aurantia") com.rm.apogee.render.WorldView.AURANTIA_WATER else com.rm.apogee.render.WorldView.TERRA_WATER
+
+    /** The murk's colour [depth] m down in [bodyId]'s sea: its water lit by what daylight is left there, black in the deep. */
+    private fun underwaterColour(bodyId: String, depth: Double, daylight: Float, lightScale: Float): FloatArray {
+        val water = waterOf(bodyId)
+        val tint = if (bodyId == "aurantia") AURANTIA_MURK else TERRA_MURK
+        val light = 0.15f + 0.85f * daylight * lightScale
+        return FloatArray(3) { tint[it] * light * kotlin.math.exp(-depth.coerceAtLeast(0.0) / water[it]).toFloat() }
+    }
+
     private fun nearestLamps(camera: Vec3): DoubleArray {
         if (lampCount == 0 || mapMode) return com.rm.apogee.render.WorldView.NO_LAMPS
         val most = if (terrainQuality == QualityTier.LOW) LOW_TIER_LAMPS else com.rm.apogee.render.WorldView.MAX_LAMPS
@@ -3135,9 +3249,11 @@ class GameSession private constructor(
         val chuteTrail = Vec3().setTo(state.velocity).subInPlace(attractor.surfaceVelocityAt(position, Vec3()))
         if (predicted) prediction.replica?.air?.let { air -> chuteTrail.subInPlace(bodyRotation.rotate(air.wind, Vec3())) }
         if (chuteTrail.length > 0.5) chuteTrail.normalizeInPlace().negateInPlace() else chuteTrail.setTo(position).normalizeInPlace()
-        // Lamps: lit after dusk where it stands, while it has the power -
-        // the Cape's own always have.
-        val lampsLit = (scratchLamp.setTo(position).normalizeInPlace() dot frameSun) < World.LAMP_DUSK &&
+        // Lamps: lit after dusk where it stands, or down in the sea's dark,
+        // while it has the power - the Cape's own always have.
+        val dark = (scratchLamp.setTo(position).normalizeInPlace() dot frameSun) < World.LAMP_DUSK ||
+            (attractor.ocean != null && attractor.altitudeOf(position) < -World.LAMP_DEPTH)
+        val lampsLit = dark &&
             (vessel.owner == World.WORLD_OWNER || client.nearestBase?.takeIf { it.vessel == vessel.id }?.powered != false)
         for ((index, placed) in design.parts.withIndex()) {
             val def = defs[index] ?: continue
@@ -3561,8 +3677,9 @@ class GameSession private constructor(
         /** Coming down: falling faster than this, m/s. */
         private const val LANDING_FALLING = 1.0
 
-        /** The impact beacon: shown this long before, what it is, and its colour. */
+        /** The impact beacon: shown from this long before until this long before, what it is, and its colour. */
         private const val IMPACT_SHOWN = 600.0
+        private const val IMPACT_HIDDEN = 10.0
         private val IMPACT_BEACON = com.rm.apogee.core.part.MeshSpec.Cylinder(0.8, 40.0)
         private val IMPACT_COLOR = floatArrayOf(1.0f, 0.55f, 0.2f, 1f)
         private const val IMPACT_KEY = -79L
@@ -3636,8 +3753,24 @@ class GameSession private constructor(
         /** How far from the camera, m, a boat's wake is drawn. */
         private const val WAKE_REACH = 600.0
 
-        /** How far the camera sees under the water, m. */
-        private const val UNDERWATER_FOG = 40.0
+        /** How far the camera sees under the water, m: near the top, and in the deep; how deep the change takes. */
+        private const val UNDERWATER_FOG = 55.0
+
+        /** Deeper than this, m, a craft is under the sea rather than afloat on it, in the craft lists. */
+        const val UNDER_SEA = 3.0
+
+        /** Named places on the map closer than this on screen, px, show only the first. */
+        private const val MAP_PLACE_GAP = 60f
+        private const val UNDERWATER_FOG_DEEP = 45.0
+        private const val UNDERWATER_FOG_FALL = 100.0
+
+        /** Taken off it by a storm stirring the water, m, over about this depth. */
+        private const val UNDERWATER_STIRRED = 30.0
+        private const val UNDERWATER_STIRRED_DEPTH = 20.0
+
+        /** The water's own colour, lit by a full day: Terra's blue-green, Aurantia's brown. */
+        private val TERRA_MURK = floatArrayOf(0.05f, 0.24f, 0.30f)
+        private val AURANTIA_MURK = floatArrayOf(0.22f, 0.14f, 0.07f)
 
         /** How often a held stick is read against the screen again, at most. */
         private const val ATTITUDE_REFRESH_NANOS = 60_000_000L
@@ -3796,6 +3929,8 @@ class GameSession private constructor(
             scope: CoroutineScope,
             weather: com.rm.apogee.core.weather.WeatherIntensity? = null,
             clouds: com.rm.apogee.core.weather.CloudCover? = null,
+            /** The world the others join: the host's own, career or sandbox. */
+            world: World = World.default(catalog),
         ): GameSession {
             val session = hostLocal(
                 frameBus, perfHints, playerName, clientId, design, catalog, scope,
@@ -3805,6 +3940,7 @@ class GameSession private constructor(
                 serverName = serverName,
                 weather = weather,
                 clouds = clouds,
+                world = world,
             )
             session.hostedServer?.let { session.openToLan(it, scope, serverName) }
             return session
@@ -3957,6 +4093,10 @@ class FlightTelemetry(
     val windFrom: Double = 0.0,
     /** Whether there is air to speak of: the wind readouts are hidden in space. */
     val inAir: Boolean = false,
+    /** How far under the sea the craft is, m; 0 or less out of it, or with no sea. */
+    val depth: Double = 0.0,
+    /** Under the sea, how far above its floor, m; NaN out of it. */
+    val belowFloor: Double = Double.NaN,
     /**
      * Seconds to the next launch window for the moon - a due-east launch
      * then flies into its plane - negative while one is open; NaN for none.
@@ -4055,6 +4195,8 @@ class FlightTelemetry(
             bodyFixedPosition: Vec3,
             /** Metres from the craft's centre down to its lowest point. */
             lowestPointOffset: Double = 0.0,
+            /** The sea's surface over it, m above the datum: the tide and the waves. */
+            seaHeight: Double = 0.0,
             /** The air the craft is in, body-fixed wind, or null for none. */
             air: com.rm.apogee.core.weather.AirSample? = null,
             /** The body's rotation now, to turn the wind into the world's frame. */
@@ -4091,6 +4233,10 @@ class FlightTelemetry(
             val relative = state.velocity - surfaceVelocity
             val altitude = attractor.altitudeOf(state.position)
             val density = attractor.atmosphere?.densityAt(altitude) ?: 0.0
+            // Under the sea: below its surface, tide and waves, and above its floor.
+            val floor = attractor.terrain?.takeIf { attractor.ocean != null }?.elevation(bodyFixedPosition)
+            val depth = if (floor != null && floor < seaHeight) seaHeight - altitude else 0.0
+            val belowFloor = if (floor != null) altitude - floor - lowestPointOffset else Double.NaN
 
             // The wind, and the craft's motion through the air it makes.
             val up = state.position.normalized()
@@ -4163,6 +4309,8 @@ class FlightTelemetry(
                 windSpeed = horizontalWind.length,
                 windFrom = windFrom,
                 inAir = density > 1e-3,
+                depth = depth,
+                belowFloor = if (depth > 0.0) belowFloor else Double.NaN,
                 lunaWindow = lunaWindow,
                 moonName = moonName,
             ).withCondition(condition, defs, jointLoad, lost)
@@ -4200,6 +4348,7 @@ class FlightTelemetry(
                 targetName = targetName, targetDistance = targetDistance, closingSpeed = closingSpeed,
                 throughAir = throughAir, heading = heading, verticalSpeed = verticalSpeed, sasMode = sasMode,
                 parts = parts, heat = heat, structure = structure, damaged = damaged, lost = lost,
+                depth = depth, belowFloor = belowFloor,
                 lunaWindow = lunaWindow,
                 moonName = moonName,
             )

@@ -693,7 +693,31 @@ class Weather(
                 out.add(shape)
             }
         }
-        // Storms, all of them.
+        globalStorms(time, out)
+    }
+
+    /**
+     * How much of the sky over body-fixed unit [direction] its decks cover
+     * at [time], 0..1 - stratus, altostratus and cirrus, not storms: the
+     * same fields as [globalCover], asked point by point, for a veil of
+     * cloud over the whole globe on the map.
+     */
+    fun coverAt(direction: Vec3, time: Double, scratch: DoubleArray = DoubleArray(4)): Double {
+        if (!climate.layers) return 0.0
+        val elevation = terrain?.elevation(direction) ?: 0.0
+        val ocean = terrain?.hasOcean == true && elevation < 0.0
+        val ground = if (ocean) 0.0 else max(elevation, 0.0)
+        val humidity = humidity(direction, pressure(direction, time), ocean, time)
+        var most = 0.0
+        for (type in LAYER_TYPES) {
+            if (!layer(type, direction, ground, humidity, time, scratch)) continue
+            most = max(most, max(scratch[0] * thickness(direction, time), scratch[3]))
+        }
+        return most
+    }
+
+    /** Every storm on the planet at [time]: its anvil and its base, as [globalCover] gives them. */
+    fun globalStorms(time: Double, out: MutableList<CloudShape>) {
         val stormCells = SphereCells(radius, Storms.CELL)
         val sn = stormCells.perFace
         val c = Vec3(); val steer = Vec3(); val side = Vec3()

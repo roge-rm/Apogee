@@ -139,6 +139,15 @@ class CraftStatsTest {
         assertFalse(stats.isFlyable)
     }
 
+    /** A submarine's screw runs on charge, not propellant: its batteries are its fuel. */
+    @Test
+    fun `the submarines can be launched`() {
+        for (design in listOf(StockCraft.minnow(catalog), StockCraft.nautilus(catalog), StockCraft.abyss(catalog))) {
+            val stats = CraftStats.analyze(design, catalog)
+            assertTrue("${design.name} refused: ${stats.problems}", stats.isFlyable)
+        }
+    }
+
     /** A rover has no engine; its wheels are what move it. */
     @Test
     fun `a rover can be launched`() {

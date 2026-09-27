@@ -34,7 +34,16 @@ enum class ScatterKind(
     BROADLEAF(radius = 0.35, height = 7.0, breakImpulse = 6_000.0),
     DEAD_TREE(radius = 0.25, height = 6.0, breakImpulse = 2_500.0),
     SHRUB(radius = 0.6, height = 1.1, breakImpulse = 600.0),
-    CACTUS(radius = 0.3, height = 3.0, breakImpulse = 900.0);
+    CACTUS(radius = 0.3, height = 3.0, breakImpulse = 900.0),
+
+    /** A spire of rock on the sea floor, tall as a house or taller: on a canyon's walls, a seamount's flanks. */
+    PINNACLE(radius = 2.2, height = 18.0, breakImpulse = Double.POSITIVE_INFINITY),
+
+    /** A vent's chimney: mineral stacked up round hot water rising, a few metres tall, brittle. */
+    VENT(radius = 0.9, height = 6.0, breakImpulse = 40_000.0),
+
+    /** A nodule of metal lying on the ooze, fist-sized and more. */
+    NODULE(radius = 0.2, height = 0.0, breakImpulse = Double.POSITIVE_INFINITY);
 
     val breakable: Boolean get() = breakImpulse.isFinite()
     val isBoulder: Boolean get() = height == 0.0
@@ -140,8 +149,10 @@ class ScatterField(private val terrain: Terrain) {
             CubeSphere.direction(face, s, t, d)
             if (terrain.isLaunchComplex(d)) continue
             val h = terrain.elevation(d)
-            // Nothing on the sea floor - on a world with a sea.
-            if (terrain.hasOcean && h < 1.0) continue
+            // On the sea floor, only what lies there - and nothing in the
+            // swash, where the sea comes and goes.
+            val underwater = terrain.hasOcean && h < 1.0
+            if (underwater && h > -SWASH) continue
             // Slope from two more samples a metre away along the face axes.
             CubeSphere.direction(face, s + step, t, e)
             CubeSphere.direction(face, s, t + step, f)
@@ -149,9 +160,9 @@ class ScatterField(private val terrain: Terrain) {
             val dhy = terrain.elevation(f) - h
             val gradient = kotlin.math.sqrt(dhx * dhx + dhy * dhy)
             val slope = 1.0 - 1.0 / kotlin.math.sqrt(1.0 + gradient * gradient)
-            val kind = kindFor(terrain.material(d, h, slope), h, slope, roll)
-                // Nothing grows off Terra: only its rocks.
-                ?.takeIf { !terrain.barren || it.isBoulder } ?: continue
+            val kind = (if (underwater) seaKindFor(terrain.material(d, h, slope), roll) else kindFor(terrain.material(d, h, slope), h, slope, roll))
+                // Nothing grows off Terra: only its rocks - and the sea floor's spires and chimneys.
+                ?.takeIf { !terrain.barren || it.isBoulder || underwater } ?: continue
 
             ids[n] = base + cell
             kinds[n] = kind.ordinal.toByte()
@@ -171,11 +182,21 @@ class ScatterField(private val terrain: Terrain) {
      * What, if anything, grows or lies in a cell of this ground. [roll] is
      * the cell's own 0..1 draw; the ground's odds are cumulative bands of it.
      */
+    /** What lies in a cell of sea floor of [material]: chimneys at the vents, nodules on their fields, spires on the rock. */
+    private fun seaKindFor(material: SurfaceMaterial, roll: Double): ScatterKind? = when (material) {
+        SurfaceMaterial.VENT_CRUST -> if (roll < 0.07) ScatterKind.VENT else if (roll < 0.1) ScatterKind.BOULDER_SMALL else null
+        SurfaceMaterial.NODULES -> if (roll < 0.14) ScatterKind.NODULE else null
+        SurfaceMaterial.BASALT -> if (roll < 0.004) ScatterKind.PINNACLE else if (roll < 0.02) ScatterKind.BOULDER_LARGE else null
+        SurfaceMaterial.OOZE -> if (roll < 0.0015) ScatterKind.PINNACLE else if (roll < 0.004) ScatterKind.BOULDER_SMALL else null
+        SurfaceMaterial.SAND -> if (roll < 0.004) ScatterKind.BOULDER_SMALL else null
+        else -> null
+    }
+
     private fun kindFor(material: SurfaceMaterial, elevation: Double, slope: Double, roll: Double): ScatterKind? {
         if (slope > 0.45) return null
         return when (material) {
-            // Nothing grows on the launch complex's paving.
-            SurfaceMaterial.CONCRETE, SurfaceMaterial.ASPHALT -> null
+            // Nothing grows on the launch complex's paving, nor on sea floor lifted dry.
+            SurfaceMaterial.CONCRETE, SurfaceMaterial.ASPHALT, SurfaceMaterial.OOZE, SurfaceMaterial.NODULES, SurfaceMaterial.VENT_CRUST -> null
             SurfaceMaterial.FOREST -> when {
                 // One cell in five: a forest, not a hedge. At one in three it was
                 // over four thousand trees a square kilometre, which is thick
@@ -264,6 +285,9 @@ class ScatterField(private val terrain: Terrain) {
         /** Cells along a block's side: about eight metres each on Terra. */
         const val CELLS = 14
         const val MAX_DENSITY = 0.26
+
+        /** Metres below the datum where the sea floor proper begins: above it, the swash. */
+        const val SWASH = 4.0
         const val CAPACITY = 2_048
         private const val SEED = 0x5CA77E
     }

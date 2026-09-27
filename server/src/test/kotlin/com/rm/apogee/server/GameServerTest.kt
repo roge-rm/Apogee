@@ -255,6 +255,85 @@ class GameServerTest {
         assertEquals(0, server.playerCount)
     }
 
+    /**
+     * A career world: each player gets their own career on joining, is
+     * given no craft - a career starts from scratch - and cannot launch
+     * what they have not unlocked.
+     */
+    @Test
+    fun `a career refuses what a player has not unlocked, and each player has their own`() = runTest {
+        val server = GameServer.default(catalog)
+        server.world.program = com.rm.apogee.core.career.Program()
+        val alice = joinClient(server, backgroundScope, "Alice")
+        pumpUntil(server, "Alice's career to arrive") { alice.career != null }
+        assertEquals(com.rm.apogee.core.world.WorldSave.MODE_CAREER, alice.mode)
+        assertTrue("handed a craft", alice.vessels.none { it.owner == "install-Alice" })
+        // The stock rocket needs a vacuum engine she has not got.
+        alice.send(Command.SpawnCraft(com.rm.apogee.core.craft.StockCraft.starterRocket(catalog), "cape"))
+        pumpUntil(server, "the launch to be refused") { alice.refusals.isNotEmpty() }
+        assertTrue(alice.refusals.peek()!!.contains("Not unlocked"))
+        // Unlocking spends her insight, not Bob's.
+        val bob = joinClient(server, backgroundScope, "Bob")
+        pumpUntil(server, "Bob's career to arrive") { bob.career != null }
+        val before = alice.career!!.insight
+        alice.send(Command.Unlock("tanks"))
+        pumpUntil(server, "Alice's unlock to arrive") { alice.career?.has("tanks") == true }
+        assertTrue(alice.career!!.insight < before)
+        repeat(20) { server.stepOnce(); yield() }
+        assertFalse(bob.career!!.has("tanks"))
+    }
+
+    /** A feat reaches the player who pulled it off - as a banner and in their career - and nobody else. */
+    @Test
+    fun `a feat is told to its owner alone`() = runTest {
+        val server = GameServer.default(catalog)
+        server.world.program = com.rm.apogee.core.career.Program()
+        val alice = joinClient(server, backgroundScope, "Alice")
+        val bob = joinClient(server, backgroundScope, "Bob")
+        pumpUntil(server, "careers to arrive") { alice.career != null && bob.career != null }
+        // Two of Alice's craft side by side in orbit: a rendezvous.
+        val world = server.world
+        val terra = world.system.body("terra")
+        val r = terra.radius + 200_000.0
+        val v = com.rm.apogee.core.math.Vec3(0.0, 0.0, kotlin.math.sqrt(terra.gravitationalParameter / r))
+        for (z in listOf(0.0, 20.0)) {
+            val craft = world.spawnAt(
+                com.rm.apogee.core.craft.StockCraft.sounder(catalog), "terra",
+                com.rm.apogee.core.math.Vec3(r, 0.0, z), v.copy(), com.rm.apogee.core.math.Quat.identity(),
+            )
+            world.assignOwner(craft, "install-Alice")
+        }
+        // Orbit first - they are in one - and the rendezvous with it.
+        pumpUntil(server, "Alice's rendezvous to arrive") { alice.feats.any { it.title == "Rendezvous" } }
+        pumpUntil(server, "Alice's career to show it") { alice.career?.feats?.containsKey("rendezvous") == true }
+        repeat(20) { server.stepOnce(); yield() }
+        assertTrue(bob.feats.isEmpty())
+        assertFalse(bob.career!!.feats.containsKey("rendezvous"))
+    }
+
+    /** A feat earned before its owner has joined - a craft of theirs coming to rest as they connect - is told once they have. */
+    @Test
+    fun `a feat earned while its owner is away is told when they join`() = runTest {
+        val server = GameServer.default(catalog)
+        server.world.program = com.rm.apogee.core.career.Program()
+        val world = server.world
+        val terra = world.system.body("terra")
+        val r = terra.radius + 200_000.0
+        val v = com.rm.apogee.core.math.Vec3(0.0, 0.0, kotlin.math.sqrt(terra.gravitationalParameter / r))
+        for (z in listOf(0.0, 20.0)) {
+            val craft = world.spawnAt(
+                com.rm.apogee.core.craft.StockCraft.sounder(catalog), "terra",
+                com.rm.apogee.core.math.Vec3(r, 0.0, z), v.copy(), com.rm.apogee.core.math.Quat.identity(),
+            )
+            world.assignOwner(craft, "install-Carol")
+        }
+        // Nobody here: the feats are earned all the same.
+        repeat(30) { server.stepOnce(); yield() }
+        assertTrue(world.program!!.careerOf("install-Carol").feats.containsKey("rendezvous"))
+        val carol = joinClient(server, backgroundScope, "Carol")
+        pumpUntil(server, "Carol's rendezvous to be told") { carol.feats.any { it.title == "Rendezvous" } }
+    }
+
     /** Same parts and ground, different worlds: the planets would not be where the server has them. */
     @Test
     fun `a client with a different solar system is refused`() = runTest {

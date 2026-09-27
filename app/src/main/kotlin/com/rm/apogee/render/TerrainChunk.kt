@@ -230,36 +230,33 @@ object TerrainChunk {
             vertices[base + 3] = nx.toFloat(); vertices[base + 4] = ny.toFloat(); vertices[base + 5] = nz.toFloat()
 
             val height = heights[index]
-            if (sea && height < 0.0) {
-                // The bed, and how deep it lies - for the shader to lift it
-                // to the water beyond the waves, and colour it as water there.
-                TerrainPalette.seabed(-height, jitterKeyFor(key, p, q), vertices, base + 6)
-                vertices[base + 9] = (1.0 + kotlin.math.min(-height, MAX_DEPTH_CODE) / 1_000.0).toFloat()
-            } else {
-                // Slope from the true ground, not the drawn one, exactly as the
-                // collider's tiles measure it for the material.
-                val tx = dx[right] * (radius + heights[right]) - dx[left] * (radius + heights[left])
-                val ty = dy[right] * (radius + heights[right]) - dy[left] * (radius + heights[left])
-                val tz = dz[right] * (radius + heights[right]) - dz[left] * (radius + heights[left])
-                val ux = dx[up] * (radius + heights[up]) - dx[down] * (radius + heights[down])
-                val uy = dy[up] * (radius + heights[up]) - dy[down] * (radius + heights[down])
-                val uz = dz[up] * (radius + heights[up]) - dz[down] * (radius + heights[down])
-                val cx = ty * uz - tz * uy
-                val cy = tz * ux - tx * uz
-                val cz = tx * uy - ty * ux
-                val cl = kotlin.math.sqrt(cx * cx + cy * cy + cz * cz)
-                val cosine = if (cl > 0.0) (cx * dx[index] + cy * dy[index] + cz * dz[index]) / cl else 1.0
-                val slope = (1.0 - kotlin.math.abs(cosine)).coerceIn(0.0, 1.0)
-                direction.setTo(dx[index], dy[index], dz[index])
-                // The land's own colour: the paving is drawn over it, straight-edged (see Paving).
-                val material = terrain.groundMaterial(direction, height, slope)
-                // Keyed on the global grid position at the finest spacing, so
-                // a vertex shared by two chunks - or two levels - gets the
-                // same jitter in both.
-                val jitterKey = jitterKeyFor(key, p, q)
-                TerrainPalette.colour(material, height, jitterKey, vertices, base + 6, terrain.world)
-                vertices[base + 9] = 0f
-            }
+            // Slope from the true ground, not the drawn one, exactly as the
+            // collider's tiles measure it for the material.
+            val tx = dx[right] * (radius + heights[right]) - dx[left] * (radius + heights[left])
+            val ty = dy[right] * (radius + heights[right]) - dy[left] * (radius + heights[left])
+            val tz = dz[right] * (radius + heights[right]) - dz[left] * (radius + heights[left])
+            val ux = dx[up] * (radius + heights[up]) - dx[down] * (radius + heights[down])
+            val uy = dy[up] * (radius + heights[up]) - dy[down] * (radius + heights[down])
+            val uz = dz[up] * (radius + heights[up]) - dz[down] * (radius + heights[down])
+            val cx = ty * uz - tz * uy
+            val cy = tz * ux - tx * uz
+            val cz = tx * uy - ty * ux
+            val cl = kotlin.math.sqrt(cx * cx + cy * cy + cz * cz)
+            val cosine = if (cl > 0.0) (cx * dx[index] + cy * dy[index] + cz * dz[index]) / cl else 1.0
+            val slope = (1.0 - kotlin.math.abs(cosine)).coerceIn(0.0, 1.0)
+            direction.setTo(dx[index], dy[index], dz[index])
+            // The land's own colour: the paving is drawn over it, straight-edged (see Paving).
+            // Under the sea too - its ooze and vents their own colours, the
+            // shader taking the light away with the depth.
+            val material = terrain.groundMaterial(direction, height, slope)
+            // Keyed on the global grid position at the finest spacing, so
+            // a vertex shared by two chunks - or two levels - gets the
+            // same jitter in both.
+            val jitterKey = jitterKeyFor(key, p, q)
+            TerrainPalette.colour(material, height, jitterKey, vertices, base + 6, terrain.world)
+            // Under the sea, how deep the bed lies - for the shader to lift
+            // it to the water beyond the waves, and colour it as water there.
+            vertices[base + 9] = if (sea && height < 0.0) (1.0 + kotlin.math.min(-height, MAX_DEPTH_CODE) / 1_000.0).toFloat() else 0f
         }
 
         // Skirts: each edge vertex again, dropped a few cells' depth straight

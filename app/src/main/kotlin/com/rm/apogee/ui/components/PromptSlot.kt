@@ -58,6 +58,14 @@ fun PromptSlot(
     modifier: Modifier = Modifier,
 ) {
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        hud.banner?.let { banner ->
+            // A few seconds, then gone.
+            androidx.compose.runtime.LaunchedEffect(banner.id) {
+                kotlinx.coroutines.delay(BANNER_MS)
+                if (hud.banner?.id == banner.id) hud.banner = null
+            }
+            Banner(banner)
+        }
         BurnPanel(
             hud.burn, hud.landing, hud.mapMode, hud.autopilotNote, burnActions,
             window = hud.window, align = Alignment.CenterHorizontally,
@@ -81,6 +89,26 @@ fun PromptSlot(
         }
     }
 }
+
+/** A feat earned - or a launch refused - across the top, briefly. */
+@Composable
+private fun Banner(banner: HudState.Banner) {
+    val colour = if (banner.good) ApogeeColors.Prograde else ApogeeColors.Danger
+    Column(
+        Modifier
+            .clip(RoundedCornerShape(Dimens.CornerPanel))
+            .background(Color.Black.alpha(ApogeeAlpha.SCRIM))
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(banner.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = colour, maxLines = 1)
+        if (banner.detail.isNotEmpty()) {
+            Text(banner.detail, style = TelemetryTextStyle, color = Color.White.alpha(ApogeeAlpha.BODY), maxLines = 2)
+        }
+    }
+}
+
+private const val BANNER_MS = 4_000L
 
 /** One chance to take: solid, so it reads against a bright sky as well as the ground. */
 @Composable
@@ -133,4 +161,5 @@ fun promptKey(hud: HudState): String = buildString {
     if (hud.baseService?.canFound == true) append("found")
     hud.power?.let { if (it.boardable.isNotEmpty()) append("board"); if (it.canGrab) append("grab") }
     if (hud.autopilotNote.isNotEmpty()) append(hud.autopilotNote)
+    hud.banner?.let { append(it.id) }
 }

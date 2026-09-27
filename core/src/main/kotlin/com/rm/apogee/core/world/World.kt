@@ -75,6 +75,12 @@ sealed interface WorldEvent {
     data class BodyChanged(val id: VesselId, val from: String, val to: String) : WorldEvent
 
     /**
+     * [owner]'s career credited: a feat ([grade] blank for an ungraded one)
+     * or a visit, worth [insight], earned by craft [vessel].
+     */
+    data class FeatEarned(val owner: String, val title: String, val grade: String, val insight: Int, val vessel: VesselId) : WorldEvent
+
+    /**
      * A part failed but the craft is still flying: a leg collapsed, a chute
      * tore away. Distinct from [VesselDestroyed], which ends the craft.
      */
@@ -173,6 +179,35 @@ class World(
         private set
 
     /**
+     * The careers in this world, or null for a sandbox: everything unlocked,
+     * nothing watched. See [com.rm.apogee.core.career.Program].
+     */
+    var program: com.rm.apogee.core.career.Program? = null
+
+    /** A world event from outside this class - the career's feats. */
+    internal fun raise(event: WorldEvent) {
+        pendingEvents.add(event)
+    }
+
+    /** Events the career has already seen, from the start of [pendingEvents]. */
+    private var careerSeen = 0
+
+    /** The career watching what happened since it last looked; and every craft, if [look]. */
+    private fun watchCareer(look: Boolean) {
+        if (look) lookForWonders()
+        val program = program ?: run { careerSeen = pendingEvents.size; return }
+        val fresh = if (careerSeen < pendingEvents.size) pendingEvents.subList(careerSeen, pendingEvents.size).toList() else emptyList()
+        program.observe(this, fresh, look)
+        careerSeen = pendingEvents.size
+    }
+
+    /** [owner] spends insight on tech node [node]: null if done, or why not. */
+    fun unlock(owner: String, node: String): String? {
+        val program = program ?: return "Not a career"
+        return program.unlock(owner, node)
+    }
+
+    /**
      * What the weather is made from: the world's seed and how lively the
      * host wants it - or null for still air. A game's world is given its
      * config by the server that owns it, and a replica takes the server's;
@@ -253,7 +288,10 @@ class World(
      * Whether [vessel] may fly itself - burns and landings. Everyone may,
      * for now: a career will make it something to be earned.
      */
-    fun mayAutopilot(vessel: Vessel): Boolean = true
+    fun mayAutopilot(vessel: Vessel): Boolean {
+        val program = program ?: return true
+        return vessel.owner.isBlank() || program.allows(vessel.owner, com.rm.apogee.core.career.TechTree.AUTOPILOT)
+    }
 
     /**
      * What is left of [vessel]'s next burn, world axes, into [out], and how
@@ -653,6 +691,50 @@ class World(
      * purpose.
      */
     val lastFlown: MutableMap<String, Long> = java.util.concurrent.ConcurrentHashMap()
+
+    /**
+     * The sea's named places each player has found, by owner: in a career
+     * and in free play alike - somewhere to go, and hidden until reached.
+     * A career also pays for each, and keeps the world's firsts.
+     */
+    val wondersFound: MutableMap<String, MutableSet<String>> = java.util.concurrent.ConcurrentHashMap()
+
+    /** Bumped whenever anyone finds one, so a server knows to tell them. */
+    @Volatile var wondersRevision = 0
+        private set
+
+    /** What [owner] has found of the sea's named places, by id. */
+    fun wondersFoundBy(owner: String): Set<String> = wondersFound[owner]?.toSet().orEmpty()
+
+    /**
+     * Every craft under the sea, looked at for the named places it has
+     * reached: close by, and near as deep. The first time for its owner, a
+     * find - paid for in a career, and in free play a banner of its own.
+     */
+    private fun lookForWonders() {
+        for (vessel in vesselsById.values) {
+            if (vessel.anchored || vessel.owner.isBlank() || vessel.owner == WORLD_OWNER) continue
+            val attractor = attractorFor(vessel)
+            if (attractor.ocean == null) continue
+            val terrain = attractor.terrain ?: continue
+            val depth = depthOf(vessel)
+            if (depth <= WONDER_LOOK_DEPTH) continue
+            attractor.rotationAt(time, scratchRotation)
+            val here = attractor.toBodyFixed(vessel.body.position, scratchRotation, scratchWonder).normalizeInPlace()
+            for (wonder in SeaWonders.all) {
+                if (wonder.bodyId != attractor.id) continue
+                if (here.distanceTo(wonder.direction) * attractor.radius > SeaWonders.REACH) continue
+                if (depth < -terrain.elevation(wonder.direction) * SeaWonders.DEPTH_SHARE) continue
+                if (!wondersFound.getOrPut(vessel.owner) { java.util.concurrent.ConcurrentHashMap.newKeySet() }.add(wonder.id)) continue
+                wondersRevision++
+                val program = program
+                if (program != null) program.found(this, vessel, wonder)
+                else raise(WorldEvent.FeatEarned(vessel.owner, wonder.name, com.rm.apogee.core.career.Program.FOUND, 0, vessel.id))
+            }
+        }
+    }
+
+    private val scratchWonder = Vec3()
     private val contacts = GroundContact()
 
     private val pendingEvents = ArrayList<WorldEvent>()
@@ -745,8 +827,10 @@ class World(
     /** Drains and returns events raised since the last call. */
     fun drainEvents(): List<WorldEvent> {
         if (pendingEvents.isEmpty()) return emptyList()
+        watchCareer(look = false)
         val copy = ArrayList<WorldEvent>(pendingEvents)
         pendingEvents.clear()
+        careerSeen = 0
         return copy
     }
 
@@ -1105,6 +1189,19 @@ class World(
                 heard(command.vessel)?.control?.reverse = command.engaged
             is Command.Deploy ->
                 heard(command.vessel)?.control?.deployed = command.deployed
+            is Command.SetBallast -> heard(command.vessel)?.let {
+                it.wake()
+                it.control.ballast = command.mode.coerceIn(-1, 1)
+                it.control.holdDepth = false
+            }
+
+            is Command.HoldDepth -> heard(command.vessel)?.let {
+                it.wake()
+                it.control.holdDepth = command.on
+                it.control.ballast = 0
+                if (command.on) it.control.holdDepthAt = depthOf(it)
+            }
+
             is Command.SetIndustry -> heard(command.vessel)?.let {
                 settlePower(it)
                 it.control.drilling = command.drilling
@@ -1152,6 +1249,8 @@ class World(
             is Command.SetWarp -> Unit // the server's clock, not the world's
             is Command.WarpTo -> Unit
             is Command.RemoveVessel -> destroy(VesselId(command.vessel), REMOVED_REASON)
+            // Whose insight is the server's to say: see [unlock].
+            is Command.Unlock -> Unit
         }
     }
 
@@ -1315,6 +1414,7 @@ class World(
         attractor.surfaceVelocityAt(vessel.body.position, vessel.body.linearVelocity)
         attractor.angularVelocity(vessel.body.angularVelocity)
         pendingEvents.add(WorldEvent.VesselStructureChanged(vessel.id))
+        program?.founded(this, vessel)
         return true
     }
 
@@ -1607,26 +1707,84 @@ class World(
             if (structureOf(complex) != null) continue
             raiseStructure(complex)
         }
-        if (lunaBase() == null) raiseLunaBase()
+        // Luna's, from before it had a name of its own.
+        vesselsById.values.firstOrNull { it.owner == WORLD_OWNER && it.name == WorldBases.OLD_LUNA_NAME }
+            ?.let { it.name = WorldBases.all.first { b -> b.bodyId == "luna" }.name }
+        // What lies on the sea floor to be found: an arch, wrecks.
+        for (wonder in SeaWonders.all) if (wonder.landmark.isNotEmpty() && landmark(wonder) == null) raiseLandmark(wonder)
+        if (program == null) {
+            for (base in WorldBases.all) if (worldBase(base.bodyId) == null) raiseWorldBase(base)
+        } else {
+            // A career builds its own: the world's are not there to find.
+            for (standing in worldBases()) destroy(standing.id, "not in a career")
+        }
     }
 
-    // --- Luna's test base ------------------------------------------------------------
+    // --- the world's bases, in free play ------------------------------------------------
 
     /**
-     * A pad base on the Luna Mare test site, the world's: somewhere on Luna
-     * to launch from and refuel at while testing, without flying there. Its
-     * stores never run dry nor its power out, as the Cape's do not. For
-     * testing - a career would take it away.
+     * The world's base on [bodyId], if it has one standing: a pad base beside
+     * that world's test site, somewhere to launch from and refuel at in free
+     * play without flying there. Its stores never run dry nor its power out,
+     * as the Cape's do not. See [WorldBases].
      */
-    fun lunaBase(): Vessel? = vesselsById.values.firstOrNull { it.owner == WORLD_OWNER && it.name == LUNA_BASE_NAME && it.anchored }
+    fun worldBase(bodyId: String): Vessel? {
+        val name = WorldBases.all.firstOrNull { it.bodyId == bodyId }?.name ?: return null
+        return vesselsById.values.firstOrNull { it.owner == WORLD_OWNER && it.name == name && it.anchored }
+    }
 
-    private fun raiseLunaBase(): Vessel? {
-        val site = launchSites.firstOrNull { it.id == LUNA_TEST_SITE } ?: return null
-        if (site.bodyId !in system.bodies) return null
-        val base = spawnOnSurface(com.rm.apogee.core.craft.StockCraft.padBase(catalog), site, pad = LUNA_BASE_PAD)
+    /** What stands at [wonder] to be found, if it is there. */
+    fun landmark(wonder: SeaWonders.Wonder): Vessel? =
+        vesselsById.values.firstOrNull { it.owner == WORLD_OWNER && it.name == wonder.landmark && it.anchored }
+
+    /**
+     * Puts [wonder]'s landmark on the sea floor there: the Great Arch
+     * standing, a wreck lying as it came to rest - a rocket on its side, a
+     * trawler heeled over - pinned where it lies, the world's.
+     */
+    private fun raiseLandmark(wonder: SeaWonders.Wonder): Vessel? {
+        if (wonder.bodyId !in system.bodies) return null
+        val body = system.body(wonder.bodyId)
+        val terrain = body.terrain ?: return null
+        val (design, tip) = when (wonder.landmark) {
+            SeaWonders.GREAT_ARCH -> CraftDesign("Rock Arch", listOf(com.rm.apogee.core.craft.PlacedPart("rock-arch", Vec3.zero())), catalogHash = catalog.contentHash) to 0.0
+            SeaWonders.LOST_SOUNDER -> com.rm.apogee.core.craft.StockCraft.sounder(catalog) to Math.toRadians(84.0)
+            SeaWonders.CANYON_WRECK -> com.rm.apogee.core.craft.StockCraft.trawler(catalog) to Math.toRadians(22.0)
+            SeaWonders.PLAIN_ROCKET -> com.rm.apogee.core.craft.StockCraft.starterRocket(catalog) to Math.toRadians(88.0)
+            else -> return null
+        }
+        val up = wonder.direction.normalized()
+        val ground = body.radius + terrain.elevation(up)
+        val east = Vec3(0.0, 1.0, 0.0).crossInPlace(up).normalizeInPlace()
+        val standing = com.rm.apogee.core.math.quatFromTo(design.orientation.up, up)
+        val local = (Quat.fromAxisAngle(east, tip) * standing).normalizeInPlace()
+        body.rotationAt(time, scratchRotation)
+        val rotation = (scratchRotation * local).normalizeInPlace()
+        val upNow = scratchRotation.rotate(up, Vec3())
+        val wreck = spawnAt(design, body.id, Vec3().setTo(upNow).mulInPlace(ground), Vec3(), rotation)
+        // Resting on the floor, not in it: as low as it goes, on the ground.
+        wreck.body.position.setTo(upNow).mulInPlace(ground + lowestExtentAlong(wreck, upNow))
+        body.surfaceVelocityAt(wreck.body.position, wreck.body.linearVelocity)
+        assignOwner(wreck, WORLD_OWNER)
+        wreck.ownerName = ""
+        wreck.name = wonder.landmark
+        pin(wreck)
+        return wreck
+    }
+
+    /** Every one of the world's bases standing. */
+    fun worldBases(): List<Vessel> = vesselsById.values.filter { it.owner == WORLD_OWNER && WorldBases.named(it.name) != null }
+
+    /** Luna's: see [worldBase]. */
+    fun lunaBase(): Vessel? = worldBase("luna")
+
+    private fun raiseWorldBase(spec: WorldBases.Base): Vessel? {
+        if (spec.bodyId !in system.bodies) return null
+        val site = launchSites.firstOrNull { it.id == spec.siteId } ?: return null
+        val base = spawnOnSurface(com.rm.apogee.core.craft.StockCraft.padBase(catalog), site, pad = WorldBases.PAD)
         assignOwner(base, WORLD_OWNER)
         base.ownerName = ""
-        base.name = LUNA_BASE_NAME
+        base.name = spec.name
         val attractor = attractorFor(base)
         attractor.rotationAt(tickEnd, anchorRotation)
         level(base, attractor)
@@ -1674,12 +1832,12 @@ class World(
             for (piece in wreckage) destroy(piece.id, "cleared away")
             raiseStructure(complex)
         }
-        repairLunaBase(now)
+        if (program == null) for (base in WorldBases.all) repairWorldBase(base, now)
     }
 
-    /** Luna's test base put back if broken - once nothing awake is near it, or at once when [now]. */
-    private fun repairLunaBase(now: Boolean) {
-        val site = launchSites.firstOrNull { it.id == LUNA_TEST_SITE } ?: return
+    /** The world's base on a world put back if broken - once nothing awake is near it, or at once when [now]. */
+    private fun repairWorldBase(spec: WorldBases.Base, now: Boolean) {
+        val site = launchSites.firstOrNull { it.id == spec.siteId } ?: return
         if (site.bodyId !in system.bodies) return
         val body = system.body(site.bodyId)
         body.rotationAt(time, scratchRotation)
@@ -1689,15 +1847,15 @@ class World(
             !v.dormant && v.owner != WORLD_OWNER && v.referenceBodyId == body.id &&
                 body.toBodyFixed(v.body.position, scratchRotation, here).distanceTo(at) < REPAIR_REACH
         }
-        if (busy) { quietSince.remove(LUNA_BASE_NAME); return }
-        val since = quietSince.getOrPut(LUNA_BASE_NAME) { time }
-        val standing = lunaBase()
+        if (busy) { quietSince.remove(spec.name); return }
+        val since = quietSince.getOrPut(spec.name) { time }
+        val standing = worldBase(spec.bodyId)
         val whole = standing != null && standing.defs.size == com.rm.apogee.core.craft.StockCraft.padBase(catalog).parts.size &&
             standing.broken.none { it } && standing.health.all { it >= 1.0 }
         if (whole) return
         if (!now && time - since < REPAIR_QUIET) return
         standing?.let { destroy(it.id, "rebuilt") }
-        raiseLunaBase()
+        raiseWorldBase(spec)
     }
 
     /**
@@ -1751,8 +1909,8 @@ class World(
 
     // --- launching from bases -----------------------------------------------------
 
-    /** Whether a player [owner] may launch from [base]: their own, or one of the world's. */
-    fun mayLaunchFrom(base: Vessel, owner: String): Boolean = base.owner == owner || base.owner == WORLD_OWNER
+    /** A player's own, and in free play the world's too; a career's players have only their own. */
+    fun mayLaunchFrom(base: Vessel, owner: String): Boolean = base.owner == owner || (base.owner == WORLD_OWNER && program == null)
 
     /** The pads [owner] may launch from on founded bases, as launch sites. */
     fun baseSites(owner: String): List<LaunchSite> {
@@ -2425,9 +2583,11 @@ class World(
             // one being flown does.
             if (vessel.dormant) {
                 if (vessel.afloat && !vessel.anchored) followSea(vessel, attractor, waves = true) else followGround(vessel, attractor)
-                // Parked in air that crushes - Caligo's floor - it is crushed all the same.
+                // Parked in air that crushes - Caligo's floor - or deeper in
+                // the sea than it is built for, it is crushed all the same.
                 val air = attractor.atmosphere
-                if (air != null && !isDebris(vessel) && air.pressureAt(attractor.altitudeOf(vessel.body.position)) > CRUSH_FLOOR) {
+                val deep = attractor.ocean != null && attractor.altitudeOf(vessel.body.position) < -WATER_PARKED_SAFE
+                if (!isDebris(vessel) && (deep || air != null && air.pressureAt(attractor.altitudeOf(vessel.body.position)) > CRUSH_FLOOR)) {
                     hostile(vessel, attractor, dt)
                     if (vessel.id in pendingBreakUps) vessel.wake()
                 }
@@ -2506,6 +2666,7 @@ class World(
                 breakUpCause[vessel.id] = "burnt up"
             }
             hostile(vessel, attractor, dt)
+            ballast(vessel, attractor, dt)
 
             // Integration and contact are subdivided together when the craft
             // is moving fast near the ground. Forces are not recomputed per
@@ -2640,6 +2801,7 @@ class World(
             for (vessel in vesselsById.values) if (vessel.anchored || (vessel.dormant && !isDebris(vessel))) settlePower(vessel, tickEnd)
         }
 
+        watchCareer(look = tick % com.rm.apogee.core.career.Program.LOOK_TICKS == 0L)
         tick++
         time += dt
     }
@@ -2717,7 +2879,9 @@ class World(
         // Not while a leg is still swinging: asleep, it would stop half out.
         // Nor while it is being drawn in to dock: held still short of the
         // latch by the ground's friction, asleep it would stay there.
-        if (legsMoving(vessel) || docking.capturing(vessel.id.raw)) {
+        // Nor while its ballast is working, or holding it at a depth: asleep,
+        // its tanks stop - one resting on the sea floor, blown, stayed there.
+        if (legsMoving(vessel) || docking.capturing(vessel.id.raw) || vessel.control.ballast != 0 || vessel.control.holdDepth) {
             vessel.noteStillness(false, SLEEP_SETTLE_TICKS)
             return
         }
@@ -2845,6 +3009,9 @@ class World(
         val yaw = vessel.control.yaw
         val forward = vessel.design.orientation.forward
         vessel.centerOfMass(scratch)
+        // Less lock the faster it goes, as a car's steering is geared: hard
+        // over at speed, the Trundler rolled at eleven metres a second.
+        var lock = Double.NaN
         for (i in vessel.defs.indices) {
             val def = vessel.defs[i]
             if (def.module<AeroSurface>()?.controllable == true ||
@@ -2869,7 +3036,12 @@ class World(
                         (vessel.design.parts[i].position.y - scratch.y) * forward.y +
                         (vessel.design.parts[i].position.z - scratch.z) * forward.z
                     val end = if (ahead >= 0.0) 1.0 else -1.0
-                    Math.toRadians(wheel.steeringRange * yaw) * end
+                    if (lock.isNaN()) {
+                        val ground = attractorFor(vessel).surfaceVelocityAt(vessel.body.position, scratchSteer)
+                            .subInPlace(vessel.body.linearVelocity).length
+                        lock = (FULL_LOCK_SPEED / ground.coerceAtLeast(1e-3)).coerceAtMost(1.0)
+                    }
+                    Math.toRadians(wheel.steeringRange * yaw * lock) * end
                 }
             }
             val leg = def.module<LandingLeg>()
@@ -2966,6 +3138,48 @@ class World(
             survey = if (hasScanner(vessel)) surveyShare(vessel).toFloat() else -1f,
             ore = reading(vessel, com.rm.apogee.core.part.ResourceType.ORE),
             water = reading(vessel, com.rm.apogee.core.part.ResourceType.WATER),
+            ballast = ballastShare(vessel).toFloat(),
+            ballastMode = vessel.control.ballast,
+            holdingDepth = if (vessel.control.holdDepth) vessel.control.holdDepthAt.toFloat() else -1f,
+            crush = vessel.crushShare.toFloat(),
+        ).let { sonar(vessel, it) }
+    }
+
+    /**
+     * [systems] with what [vessel]'s sonar hears, powered and under the sea:
+     * the floor below it, and the nearest of the sea's named places its
+     * owner has not yet found, in the sonar's range - how far, and which
+     * way from its nose, degrees, to the right positive.
+     */
+    private fun sonar(vessel: Vessel, systems: ServerMessage.CraftSystems): ServerMessage.CraftSystems {
+        if (!vessel.powered) return systems
+        var range = 0.0
+        for (i in vessel.defs.indices) {
+            if (vessel.isBroken(i)) continue
+            vessel.defs[i].module<com.rm.apogee.core.part.Sonar>()?.let { range = maxOf(range, it.range) }
+        }
+        if (range <= 0.0 || depthOf(vessel) <= 0.0) return systems
+        val attractor = attractorFor(vessel)
+        val terrain = attractor.terrain ?: return systems
+        attractor.rotationAt(time, scratchRotation)
+        val here = attractor.toBodyFixed(vessel.body.position, scratchRotation, Vec3()).normalizeInPlace()
+        val floor = attractor.altitudeOf(vessel.body.position) - terrain.elevation(here)
+        val found = wondersFound[vessel.owner]
+        var best: SeaWonders.Wonder? = null
+        var bestRange = range
+        for (wonder in SeaWonders.all) {
+            if (wonder.bodyId != attractor.id || found?.contains(wonder.id) == true) continue
+            val far = here.distanceTo(wonder.direction) * attractor.radius
+            if (far < bestRange) { best = wonder; bestRange = far }
+        }
+        val nearest = best ?: return systems.copy(seabed = floor.toFloat())
+        // Which way it lies against which way the nose points, both along the ground, in the body's turning frame.
+        val nose = attractor.toBodyFixed(vessel.forward(), scratchRotation, Vec3())
+        val relative = Navigation.heading(here, nearest.direction.copy().subInPlace(here)) - Navigation.heading(here, nose)
+        return systems.copy(
+            seabed = floor.toFloat(),
+            findBearing = (((relative % 360.0) + 540.0) % 360.0 - 180.0).toFloat(),
+            findRange = bestRange.toFloat(),
         )
     }
 
@@ -3398,6 +3612,7 @@ class World(
         vessel.air.clear()
         vessel.ringSide = Double.NaN
         pendingEvents.add(WorldEvent.BodyChanged(vessel.id, attractor.id, next.id))
+        program?.crossed(this, vessel, attractor.id, next.id, at)
         return true
     }
 
@@ -3429,6 +3644,7 @@ class World(
             vessel.referenceBodyId = next.id
             vessel.ringSide = Double.NaN
             pendingEvents.add(WorldEvent.BodyChanged(vessel.id, attractor.id, next.id))
+            program?.crossed(this, vessel, attractor.id, next.id, start + hi)
             attractor = next
             from = hi
             orbit = Orbit(body.position, body.linearVelocity, attractor.gravitationalParameter)
@@ -3551,7 +3767,10 @@ class World(
                 pendingDestruction.clear()
             }
         }
-        if (done > 0.0) tick++
+        if (done > 0.0) {
+            watchCareer(look = true)
+            tick++
+        }
         return done
     }
 
@@ -3598,6 +3817,7 @@ class World(
             }
         }
         lightningCheckedTo = Double.NaN
+        watchCareer(look = true)
         tick++
     }
 
@@ -3680,7 +3900,11 @@ class World(
         crewSeated = true,
         terrainGeneration = TerrainField.GENERATION,
         lastFlown = lastFlown.toMap(),
+        wondersFound = wondersFound.mapValues { it.value.sorted() },
         weather = weatherConfig,
+        mode = if (program != null) WorldSave.MODE_CAREER else WorldSave.MODE_SANDBOX,
+        careers = program?.all?.toList() ?: emptyList(),
+        firsts = program?.firsts?.toList() ?: emptyList(),
         universeTime = time,
         nextVesselId = nextVesselId,
         vessels = vesselsById.values.map { vessel ->
@@ -3712,6 +3936,9 @@ class World(
                 fuelCellsOn = vessel.fuelCellsOn,
                 drilling = vessel.control.drilling,
                 refining = vessel.control.refining,
+                ballast = vessel.control.ballast,
+                holdDepth = vessel.control.holdDepth,
+                holdDepthAt = vessel.control.holdDepthAt,
                 surveyBody = vessel.surveyBody,
                 surveyProgress = vessel.surveyProgress,
                 crew = if (vessel.crewAboard > 0) vessel.crew.map { it.toList() } else emptyList(),
@@ -3722,6 +3949,7 @@ class World(
                 crumple = vessel.crumple.toList(),
                 temperature = vessel.temperature.toList(),
                 anchored = vessel.anchored,
+                log = vessel.log,
             )
         },
     )
@@ -3751,7 +3979,14 @@ class World(
         nextCrewId = (save.crew.maxOfOrNull { it.id } ?: 0L) + 1L
         lastFlown.clear()
         lastFlown.putAll(save.lastFlown)
+        wondersFound.clear()
+        for ((owner, ids) in save.wondersFound) wondersFound[owner] = java.util.concurrent.ConcurrentHashMap.newKeySet<String>().also { it.addAll(ids) }
         save.weather?.let { weatherConfig = it }
+        program = if (save.mode == WorldSave.MODE_CAREER) {
+            com.rm.apogee.core.career.Program().also { it.restore(save.careers, save.firsts) }
+        } else {
+            null
+        }
         links.clear()
         for (l in save.links) links.add(Link(VesselId(l.vesselA), l.partA, VesselId(l.vesselB), l.partB))
 
@@ -3839,6 +4074,10 @@ class World(
             vessel.fuelCellsOn = saved.fuelCellsOn
             vessel.control.drilling = saved.drilling
             vessel.control.refining = saved.refining
+            vessel.control.ballast = saved.ballast
+            vessel.control.holdDepth = saved.holdDepth
+            vessel.control.holdDepthAt = saved.holdDepthAt
+            vessel.log = saved.log
             vessel.surveyBody = saved.surveyBody
             vessel.surveyProgress = saved.surveyProgress
             saved.crew.forEachIndexed { i, seat -> if (i < vessel.crew.size) vessel.crew[i] = seat.toLongArray() }
@@ -4063,18 +4302,26 @@ class World(
             val seats = com.rm.apogee.core.crew.Crew.seatsIn(vessel.defs[i])
             val have = vessel.crew[i]
             if (have.size >= seats) continue
-            vessel.crew[i] = have + LongArray(seats - have.size) { board(vessel.owner, vessel) }
+            val boarded = (0 until seats - have.size).map { board(vessel.owner, vessel) }.filter { it >= 0L }
+            vessel.crew[i] = have + boarded.toLongArray()
         }
     }
 
+    /** Someone of [owner]'s at home into [vessel]: recruited if need be - in a career, only while there is room - or -1. */
     private fun board(owner: String, vessel: Vessel): Long {
-        val member = crew.values.firstOrNull { it.owner == owner && it.status == com.rm.apogee.core.crew.CrewStatus.AVAILABLE } ?: recruit(owner)
+        val member = crew.values.firstOrNull { it.owner == owner && it.status == com.rm.apogee.core.crew.CrewStatus.AVAILABLE }
+            ?: run {
+                val cap = program?.crewCap(owner) ?: Int.MAX_VALUE
+                if (crew.values.count { it.owner == owner && it.status != com.rm.apogee.core.crew.CrewStatus.LOST } >= cap) return -1L
+                recruit(owner)
+            }
         setCrew(member.copy(status = com.rm.apogee.core.crew.CrewStatus.ABOARD, vessel = vessel.id.raw))
         return member.id
     }
 
     /** Gives [vessel] to [owner], its seats filled from their crew rather than whoever it spawned with. */
     fun assignOwner(vessel: Vessel, owner: String) {
+        if (vessel.log == null) program?.launched(vessel)
         if (vessel.owner == owner && vessel.crewAboard > 0) return
         for (i in vessel.crew.indices) {
             for (member in vessel.crew[i]) releaseCrew(member)
@@ -4085,6 +4332,7 @@ class World(
     }
 
     private val walking = Walking()
+    private val scratchSteer = Vec3()
 
     /**
      * What the place itself does to [vessel]: air heavy enough to crush a
@@ -4104,6 +4352,7 @@ class World(
             }
             return
         }
+        underSea(vessel, attractor, dt)
         val air = attractor.atmosphere ?: return
         val pressure = air.pressureAt(attractor.altitudeOf(position))
         if (pressure <= CRUSH_FLOOR) return
@@ -4119,6 +4368,120 @@ class World(
             pendingBreakUps.add(vessel.id)
             breakUpCause[vessel.id] = if (air.deep) "crushed in the deep" else "crushed by the air"
         }
+    }
+
+    /**
+     * The sea's weight on [vessel]'s hollow parts, each at its own depth: the
+     * air on the surface over it and the water between. A part past what it
+     * is built for gives - slowly just over, in seconds at twice it - and
+     * [Vessel.crushShare] is how near the worst of them is, for the HUD to
+     * warn by. Solid parts it only squeezes; a closed shell keeps it off
+     * what is inside.
+     */
+    private fun underSea(vessel: Vessel, attractor: CelestialBody, dt: Double) {
+        vessel.crushShare = 0.0
+        // The world's own - a wreck on the floor - already went down.
+        if (vessel.owner == WORLD_OWNER) return
+        val ocean = attractor.ocean ?: return
+        if (attractor.altitudeOf(vessel.body.position) > SEA_CHECK_HEIGHT) return
+        attractor.rotationAt(time, scratchRotation)
+        attractor.toBodyFixed(vessel.body.position, scratchRotation, scratchSea)
+        val surface = ocean.surfaceHeight(scratchSea, time)
+        val onTop = attractor.atmosphere?.pressureAt(surface) ?: 0.0
+        val g = attractor.gravitationalParameter / (attractor.radius * attractor.radius)
+        var inside: BooleanArray? = null
+        var lost = false
+        var worst = 0.0
+        for (i in vessel.defs.indices) {
+            val def = vessel.defs[i]
+            if (!def.isHollow || vessel.isBroken(i)) continue
+            val depth = surface - attractor.altitudeOf(vessel.partPositionWorld(i, scratchPart))
+            if (depth <= 0.0) continue
+            if ((inside ?: vessel.enclosed().also { inside = it }).getOrElse(i) { false }) continue
+            val share = (onTop + ocean.density * g * depth) / def.maxPressure
+            worst = maxOf(worst, share)
+            if (share > 1.0 && vessel.damage(i, WATER_CRUSH_RATE * (share - 1.0) * dt)) lost = true
+        }
+        vessel.crushShare = worst
+        if (lost) {
+            pendingBreakUps.add(vessel.id)
+            breakUpCause[vessel.id] = "crushed by the sea"
+        }
+    }
+
+    private val scratchSea = Vec3()
+    private val scratchPart = Vec3()
+
+    /** How far [vessel]'s centre is below the sea's surface over it, m; 0 or less out of the water or with no sea. */
+    fun depthOf(vessel: Vessel): Double {
+        val attractor = attractorFor(vessel)
+        val ocean = attractor.ocean ?: return 0.0
+        attractor.rotationAt(time, scratchRotation)
+        attractor.toBodyFixed(vessel.body.position, scratchRotation, scratchSea)
+        return ocean.surfaceHeight(scratchSea, time) - attractor.altitudeOf(vessel.body.position)
+    }
+
+    /**
+     * [vessel]'s ballast tanks letting the sea in or blowing it out, and -
+     * holding a depth - the tanks worked to hold it: sinking faster than it
+     * should toward the depth, a little blown; rising, a little let in.
+     * Aimed at a gentle climb or sink toward the depth rather than at the
+     * depth itself, and left alone within a small band, so it does not
+     * hunt.
+     */
+    private fun ballast(vessel: Vessel, attractor: CelestialBody, dt: Double) {
+        val control = vessel.control
+        if (control.ballast == 0 && !control.holdDepth) return
+        val ocean = attractor.ocean
+        var mode = control.ballast
+        if (control.holdDepth) {
+            val depth = depthOf(vessel)
+            attractor.surfaceVelocityAt(vessel.body.position, scratchSea)
+            val climb = scratchSea.subInPlace(vessel.body.linearVelocity).mulInPlace(-1.0) dot vessel.body.position.normalized()
+            val wanted = ((depth - control.holdDepthAt) * HOLD_DEPTH_GAIN).coerceIn(-HOLD_DEPTH_SPEED, HOLD_DEPTH_SPEED)
+            mode = when {
+                climb < wanted - HOLD_DEPTH_BAND -> -1
+                climb > wanted + HOLD_DEPTH_BAND -> 1
+                else -> 0
+            }
+            if (mode == 0) return
+        }
+        var changed = false
+        for (i in vessel.defs.indices) {
+            val tank = vessel.defs[i].module<com.rm.apogee.core.part.Ballast>() ?: continue
+            if (vessel.isBroken(i) || ocean == null) continue
+            val full = tank.volume * ocean.density
+            val step = tank.rate * ocean.density * dt
+            val had = vessel.flooded[i]
+            if (mode > 0) {
+                // Only the sea it is in can come in - through vents in its
+                // underside: while any of it is under, it floods.
+                attractor.rotationAt(time, scratchRotation)
+                attractor.toBodyFixed(vessel.partPositionWorld(i, scratchPart), scratchRotation, scratchSea)
+                val reach = vessel.defs[i].boundsHalfExtents.let { maxOf(it.x, it.y, it.z) }
+                if (ocean.surfaceHeight(scratchSea, time) < attractor.altitudeOf(scratchPart) - reach) continue
+                vessel.flooded[i] = minOf(full, had + step)
+            } else if (had > 0.0 && vessel.drawCharge(tank.draw * dt)) {
+                vessel.flooded[i] = maxOf(0.0, had - step)
+            }
+            if (vessel.flooded[i] != had) changed = true
+        }
+        if (changed && ++ballastSinceMass >= BALLAST_MASS_EVERY) { vessel.recomputeMass(); ballastSinceMass = 0 }
+    }
+
+    private var ballastSinceMass = 0
+
+    /** How full [vessel]'s ballast tanks are, 0..1, or -1 with none. */
+    fun ballastShare(vessel: Vessel): Double {
+        val ocean = attractorFor(vessel).ocean
+        var room = 0.0
+        var held = 0.0
+        for (i in vessel.defs.indices) {
+            val tank = vessel.defs[i].module<com.rm.apogee.core.part.Ballast>() ?: continue
+            room += tank.volume * (ocean?.density ?: 1_025.0)
+            held += vessel.flooded[i]
+        }
+        return if (room > 0.0) (held / room).coerceIn(0.0, 1.0) else -1.0
     }
 
     /**
@@ -4214,6 +4577,7 @@ class World(
         val turn = quatFromTo(facing.addScaledInPlace(up, -(facing dot up)).normalizeInPlace(), out)
         val suit = spawnAt(suitDesign(member.name), craft.referenceBodyId, position, velocity, (turn * rotation).normalizeInPlace(), seat = false)
         suit.owner = member.owner
+        program?.launched(suit)
         suit.ownerName = craft.ownerName
         suit.control.rcsEnabled = true
         craft.crew[part] = craft.crew[part].filter { it != crewId }.toLongArray()
@@ -4240,6 +4604,7 @@ class World(
         target.crew[part] = target.crew[part] + crewId
         suit.crew[0] = Vessel.NO_CREW
         setCrew(member.copy(vessel = target.id.raw))
+        program?.boarded(this, suit, target)
         destroy(suit.id, BOARDED_REASON)
         target.wake()
         pendingEvents.add(WorldEvent.VesselStructureChanged(target.id))
@@ -4511,12 +4876,13 @@ class World(
         const val JOIN_MAX_CLOSING_SPEED = 2.0
 
         /** Luna's test base: its name, the site it stands by, and which of the site's pads it takes. */
-        const val LUNA_BASE_NAME = "Luna Test Base"
         const val LUNA_TEST_SITE = "luna-mare"
-        const val LUNA_BASE_PAD = 6
 
         /** Whose the Cape's own buildings are: nobody's, and everybody's to launch from. */
         const val WORLD_OWNER = "world"
+
+        /** Ground speed, m/s, up to which a wheel steers to its full lock; beyond it, proportionally less. */
+        const val FULL_LOCK_SPEED = 5.0
 
         /** What a base's pump moves into a craft. */
         /** What a craft unloads into a base: what it has dug up. */
@@ -4551,6 +4917,27 @@ class World(
         const val CRUSH_FLOOR = 1e6
         /** Health a second lost for each whole limit over its pressure rating. */
         const val CRUSH_RATE = 0.002
+
+        /**
+         * The same, under water, where a hull gives far quicker than a lander
+         * in heavy air: a tenth over and it has minutes; twice what it is
+         * built for, seconds.
+         */
+        const val WATER_CRUSH_RATE = 0.05
+
+        /** Above this, m over the datum, a craft is clear of any sea: nothing to weigh. */
+        const val SEA_CHECK_HEIGHT = 50.0
+
+        /** Holding a depth: climb wanted, m/s, for each metre off it, and at most; and the band left alone, m/s. */
+        const val HOLD_DEPTH_GAIN = 0.15
+        const val HOLD_DEPTH_SPEED = 0.8
+        const val HOLD_DEPTH_BAND = 0.05
+
+        /** Ticks between weighing a craft again while its ballast changes. */
+        const val BALLAST_MASS_EVERY = 6
+
+        /** Parked no deeper than this, m, nothing hollow is near what it stands: not worth weighing. */
+        const val WATER_PARKED_SAFE = 150.0
         /** The star: within this many of its radii its heat tells, harder the nearer. */
         const val SOL_REACH = 2.0
         const val SOL_BURN = 0.05
@@ -4602,6 +4989,12 @@ class World(
 
         /** Lamps come on when the sun is lower than this, the sine of its elevation: dusk. */
         const val LAMP_DUSK = 0.05
+
+        /** ...and under the sea deeper than this, m, where the day's light has gone. */
+        const val LAMP_DEPTH = 60.0
+
+        /** Shallower than this, m, a craft is not looked at for the sea's named places: it is at the surface. */
+        const val WONDER_LOOK_DEPTH = 5.0
 
         /** Charge units short of full that count as topped up at a pad. */
         const val CHARGE_TOPPED = 1.0
@@ -4757,6 +5150,12 @@ class World(
             // The harbour's berth, off its jetty in the broad bay beside the
             // Cape: dredged deep, open to the sea only up a winding inlet.
             capeSite("harbour", "Cape Harbour", 2_700.0, 330.0),
+            // For testing, as the worlds' sites are: out over the deep, a
+            // submarine's long way from the harbour - just west of the Great
+            // Arch on the shelf's edge, facing it, and upstream of the Chimneys on Farrow's
+            // flank, where going down, the planet's turn carries it onto them.
+            capeSite("arch-sea", "Great Arch (test)", -2_635.0, 7_100.0),
+            capeSite("chimneys-sea", "The Chimneys (test)", com.rm.apogee.core.terrain.Seabed.CHIMNEYS_EAST - 130.0, com.rm.apogee.core.terrain.Seabed.CHIMNEYS_NORTH),
             // For testing: straight onto the Moon without flying there. On
             // the mare north-east of Luna's prime meridian, a kilometre and a
             // half below the datum, where the ground under the whole row of
@@ -4802,8 +5201,9 @@ class World(
          * says which it wants.
          */
         fun launchSiteFor(design: CraftDesign, catalog: PartCatalog): LaunchSite {
+            // A hull, or ballast tanks: a boat or a submarine, for the harbour.
             val floats = design.parts.any {
-                catalog[it.partId]?.hasModule<com.rm.apogee.core.part.Buoyancy>() == true
+                catalog[it.partId]?.let { p -> p.hasModule<com.rm.apogee.core.part.Buoyancy>() || p.hasModule<com.rm.apogee.core.part.Ballast>() } == true
             }
             // Built lying down, with wings: a plane, for the runway.
             val flies = design.orientation == com.rm.apogee.core.craft.CraftOrientation.HORIZONTAL && design.parts.any {

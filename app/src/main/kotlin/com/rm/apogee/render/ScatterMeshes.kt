@@ -130,6 +130,25 @@ object ScatterMeshes {
                 val h = kind.height.toFloat()
                 b.lathe(listOf(0f to 0.3f, h to 0.25f, h + 0.1f to 0f), 6, 0.30f, 0.48f, 0.26f)
             }
+            ScatterKind.PINNACLE -> {
+                // A spire of rock, broad at its foot and leaning to a point,
+                // in two pieces turned against each other.
+                val h = kind.height.toFloat()
+                val r = kind.radius.toFloat()
+                b.lathe(listOf(-1f to r * 1.3f, h * 0.35f to r * 0.9f, h * 0.6f to r * 0.55f), 5, 0.40f, 0.37f, 0.33f)
+                b.lathe(listOf(h * 0.55f to r * 0.6f, h * 0.85f to r * 0.3f, h to 0f), 5, 0.36f, 0.34f, 0.31f, twist = 0.5f)
+            }
+            ScatterKind.VENT -> {
+                // A chimney: lumpy, stacked mineral, black at its mouth.
+                val h = kind.height.toFloat()
+                val r = kind.radius.toFloat()
+                b.lathe(listOf(-0.5f to r * 1.4f, h * 0.3f to r * 0.9f, h * 0.55f to r * 1.05f, h * 0.8f to r * 0.7f), 6, 0.40f, 0.24f, 0.15f)
+                b.lathe(listOf(h * 0.78f to r * 0.72f, h to r * 0.5f, h + 0.05f to 0f), 6, 0.10f, 0.09f, 0.08f, twist = 0.5f)
+            }
+            ScatterKind.NODULE -> {
+                val r = kind.radius.toFloat()
+                b.rock(kind.ordinal * 31 + 11, r * 0.4f, r, 0.6f, 0.20f, 0.19f, 0.18f)
+            }
         }
         return b.build()
     }

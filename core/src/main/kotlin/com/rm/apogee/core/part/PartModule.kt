@@ -612,6 +612,34 @@ data class Antenna(
     val draw: Double = 0.02,
 ) : PartModule
 
+/**
+ * A ballast tank: room for [volume] m³ of the sea, let in to go down and
+ * blown out to come up. Carried as weight in the part while it is in -
+ * the same way a swamped hull carries what it has shipped - so a craft
+ * sinks as it floods and rises as it blows, with nothing else to it.
+ * Flooding needs the tank under water; blowing it out takes charge, [draw]
+ * units a second, and [rate] m³ a second either way.
+ */
+@Serializable
+@SerialName("ballast")
+data class Ballast(
+    val volume: Double,
+    val rate: Double = 0.08,
+    val draw: Double = 0.6,
+) : PartModule
+
+/**
+ * Sound off the sea floor: what lies below and ahead of a craft in the
+ * water, out to [range] metres - the depth under it, and the nearest of the
+ * sea's named places not yet found. Draws [draw] charge a second.
+ */
+@Serializable
+@SerialName("sonar")
+data class Sonar(
+    val range: Double = 2_000.0,
+    val draw: Double = 0.02,
+) : PartModule
+
 /** Stores electric charge. Distinct from [Tank] only for clarity in the UI. */
 @Serializable
 @SerialName("battery")
