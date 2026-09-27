@@ -52,15 +52,26 @@ Dan
 
 ---
 
+## Installing
+
+The easiest way to install Apogee and keep it up to date is through my F-Droid repo:
+
+[https://roge-rm.gitlab.io/repo](https://roge-rm.gitlab.io/repo?fingerprint=80438B253C257BCCE05CDCB9E3AC9B6174C2250659962B14FCBE7F32FD42D53E)
+
+Then search for Apogee in F-Droid. When a new version comes out, F-Droid will offer it as an update.
+
+You can also download the APK from the [Releases](https://github.com/roge-rm/Apogee/releases) page and sideload it.
+
 ## Building it
 
 You need a JDK (17 or newer, which Gradle needs to run) and, for the app, the Android SDK.
 
 ```sh
-./gradlew :app:assembleDebug
+./gradlew :app:assembleDebug     # the debug APK, in app/build/outputs/apk/debug/
+./gradlew :app:assembleRelease   # the release APK, in app/build/outputs/apk/release/
 ```
 
-That builds the debug APK in `app/build/outputs/apk/debug/`.
+The release build is signed with my key, which lives outside the repository, so anywhere else it comes out unsigned.
 
 The tests:
 
@@ -87,3 +98,9 @@ A dedicated server is a persistent world that players join from the game's **Joi
 | `art` | The icon and the tools for the parts' pictures. |
 
 The server is in charge of every world. The app runs its own copy of the craft you're flying to hide the lag, and the server's word always wins.
+
+## Licence
+
+Apogee is free software under the **GNU General Public License, version 3 or later**. See [LICENSE](LICENSE).
+
+Copyright © 2026 Dan Hunke.
