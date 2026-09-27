@@ -152,11 +152,12 @@ class CraftBuilder(
 
     /**
      * Whether part [index] can go in an action group: something a group can switch, like an engine,
-     * a lamp, a drill or converter, a fold-out, a wing with flaps, or a sail.
+     * a driven wheel, a lamp, a drill or converter, a fold-out, a wing with flaps, or a sail.
      */
     fun groupable(index: Int): Boolean {
         val def = design.parts.getOrNull(index)?.let { catalog[it.partId] } ?: return false
         return def.module<com.rm.apogee.core.part.Engine>() != null ||
+            (def.module<com.rm.apogee.core.part.Wheel>()?.motorForce ?: 0.0) > 0.0 ||
             def.module<com.rm.apogee.core.part.Lamp>() != null ||
             def.module<com.rm.apogee.core.part.Drill>() != null ||
             def.module<com.rm.apogee.core.part.Converter>() != null ||

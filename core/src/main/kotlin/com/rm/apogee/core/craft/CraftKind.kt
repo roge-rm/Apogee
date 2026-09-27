@@ -28,19 +28,22 @@ enum class CraftKind(val label: String) {
 
         /**
          * [design]'s kind, by what it's built from. A base part makes it a base, or something to
-         * carry one, which is where it's wanted. Trim tanks make a submarine, and a hull, a sail
-         * or a water screw a boat. Lying down, wings make a plane and wheels a rover. Anything else,
+         * carry one, which is where it's wanted. Trim tanks make a submarine, and a hull or a
+         * water screw a boat, and so does a sail with no wheels under it. Lying down, wings make a plane and wheels a rover. Anything else,
          * standing up, is a rocket: landers, probes and tugs too.
          */
         fun of(design: CraftDesign, catalog: PartCatalog): CraftKind {
             val defs = design.parts.mapNotNull { catalog[it.partId] }
             if (defs.any { it.category == PartCategory.BASE }) return BASE
             if (defs.any { it.hasModule<Ballast>() }) return SUB
-            if (defs.any { it.hasModule<Buoyancy>() || it.hasModule<Sail>() || it.module<Engine>()?.exhaustKind == Exhaust.WATER }) return BOAT
+            val wheels = defs.any { it.hasModule<Wheel>() }
+            if (defs.any { it.hasModule<Buoyancy>() || it.module<Engine>()?.exhaustKind == Exhaust.WATER }) return BOAT
+            // A sail on wheels is a land yacht, and that's a rover.
+            if (!wheels && defs.any { it.hasModule<Sail>() }) return BOAT
             val lying = design.orientation == CraftOrientation.HORIZONTAL
             val wings = defs.sumOf { d -> d.module<AeroSurface>()?.takeIf { it.liftCoefficient > 0.0 }?.area ?: 0.0 }
             if (lying && wings >= WINGS) return PLANE
-            if (defs.any { it.hasModule<Wheel>() } && lying) return ROVER
+            if (wheels && lying) return ROVER
             return ROCKET
         }
     }

@@ -60,6 +60,31 @@ class GroupsTest {
     }
 
     @Test
+    fun `switched off, a group's driven wheels freewheel, and back on they drive`() {
+        val base = StockCraft.rover(catalog)
+        val driven = base.parts.indices.filter { (catalog[base.parts[it].partId]?.module<com.rm.apogee.core.part.Wheel>()?.motorForce ?: 0.0) > 0.0 }
+        assertTrue(driven.isNotEmpty())
+        val design = base.copy(parts = base.parts.mapIndexed { i, p -> if (i in driven) p.copy(group = 1) else p })
+        val world = World.default(catalog)
+        val rover = world.spawnOnSurface(design, World.launchSites.first { it.id == "cape" })
+        world.assignOwner(rover, "p1")
+        world.seatCrew(rover)
+        repeat(120) { world.step(dt) }
+        fun groundSpeed(): Double {
+            val attractor = world.attractorFor(rover)
+            return rover.body.linearVelocity.copy().subInPlace(attractor.surfaceVelocityAt(rover.body.position, com.rm.apogee.core.math.Vec3())).length
+        }
+        world.apply(Command.ToggleGroup(rover.id.raw, 1))
+        world.apply(Command.ToggleGroup(rover.id.raw, 1))
+        world.apply(Command.SetThrottle(rover.id.raw, 1.0))
+        repeat(300) { world.step(dt) }
+        assertTrue("rolled off at ${groundSpeed()} m/s with its motors off", groundSpeed() < 0.3)
+        world.apply(Command.ToggleGroup(rover.id.raw, 1))
+        repeat(300) { world.step(dt) }
+        assertTrue("only ${groundSpeed()} m/s with its motors back on", groundSpeed() > 1.0)
+    }
+
+    @Test
     fun `groups and their state survive a save`() {
         val base = StockCraft.starterRocket(catalog)
         val engine = base.parts.indices.first { catalog[base.parts[it].partId]?.module<Engine>() != null }

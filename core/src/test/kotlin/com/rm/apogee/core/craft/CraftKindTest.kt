@@ -39,4 +39,11 @@ class CraftKindTest {
         }
         assertEquals(emptyList<String>(), wrong)
     }
+
+    @Test
+    fun `a sail on wheels is a land yacht, and sorts with the rovers`() {
+        val buggy = StockCraft.buggy(catalog)
+        val yacht = buggy.copy(name = "Land Yacht", parts = buggy.parts + PlacedPart("sail-sloop", com.rm.apogee.core.math.Vec3(0.0, 0.0, 3.0), parentIndex = 0))
+        assertEquals(CraftKind.ROVER, CraftKind.of(yacht, catalog))
+    }
 }

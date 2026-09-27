@@ -558,8 +558,10 @@ class GroundContact {
         applyFriction(body, attractor, normalImpulse, rollAxis, rolling)
 
         // Traction. Torque comes from where the wheel is, like every other force on a craft, so a
-        // rover with all its drive at one end pitches under power exactly like it should.
-        if (wheel.motorForce > 0.0 && control.throttle != 0.0 && !control.brakes) {
+        // rover with all its drive at one end pitches under power exactly like it should. A wheel
+        // in an action group that's switched off freewheels, so a land yacht can sail on the
+        // throttle without its motors running too.
+        if (wheel.motorForce > 0.0 && control.throttle != 0.0 && !control.brakes && vessel.groupState(steeringPart) >= 0) {
             // How fast this wheel is already rolling, relative to the ground.
             relativeVelocityAt(body, attractor, partPosition, pointVelocity)
             // In reverse, it's the same motor running the other way, at a crawl's top speed.
