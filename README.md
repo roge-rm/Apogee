@@ -1,15 +1,22 @@
 # Apogee
 
-Apogee is a spaceflight and vehicle game for Android 8.1 and up.
+Apogee is a physics sim for Android 8.1+.
 
-You build craft out of parts and fly them in a small solar system that behaves the way a real one does. Rockets to orbit and on to other worlds, planes off the runway, rovers across the ground, boats and submarines on and under the sea, and now helicopters, drones, balloons and airships in the air. Everything flies by the same physics, so a rover can be carried to the Moon on a rocket, a boat can be winched out of the harbour by a truck, and a platform can float in the clouds of a world whose ground would crush you.
+Build vehicles out of a variety of parts and take them wherever you want - on land, in the air, in space, in (and under) the sea.
+Make rovers, planes, rockets, drones, balloons and airships, ships and submarines. Build bases on land, in the air, and on the water.
 
-I wanted a game where the whole world is one place. You build a base, fly away from it, and come back later to find it where you left it. Craft you leave behind stay where they are, bases keep mining and refining while nobody's there, and a boat left out at sea rides the swell until you return.
+Play in sandbox mode and explore freely with a variety of bases on different bodies and stock vehicles to take there. Or play in career mode and explore the solar system for yourself, unlocking new parts with the various feats you achieve and building your way up from nothing. 
 
-Apogee is at 0.8.5, the last of its feature releases before 1.0. What's here now is meant to be played, and the 0.9 releases are for testing it properly and fixing what that turns up. Please play it, and then tell me what works, what doesn't, and what you'd like to see. Feel free to open an issue here.
+Do it with friends, too. Apogee is multiplayer at its core, includes a standalone server (easily run with docker) but also runs one
+on your phone every time you play a game. Build things together, explore the solar system, come to each other's rescue and show off what you can do.
 
-Enjoy,<br>
-Dan (rm)
+The game is complete enough to play and test so I am opening it up to the world to join me in doing so. Build things, break things, tell me what works or what doesn't. 
+
+Join me in the #apogee channel **[on my discord](https://discord.gg/9Wun47jGC6)** to discuss the game or report any bugs.
+<br>You can also add an issue here for me to look at.
+
+Enjoy!
+Dan
 
 ---
 
