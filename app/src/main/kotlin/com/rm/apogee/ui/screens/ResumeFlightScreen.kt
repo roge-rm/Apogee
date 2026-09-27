@@ -38,7 +38,7 @@ import com.rm.apogee.ui.theme.Dimens
 import com.rm.apogee.ui.theme.TelemetryTextStyle
 import com.rm.apogee.ui.theme.alpha
 
-/** One of the player's craft, as the Resume Flight list shows it. */
+/** One of the player's craft, as the Out There list shows it. */
 class CraftSummary(
     val id: Long,
     val name: String,
@@ -54,13 +54,15 @@ class CraftSummary(
      */
     val canReset: Boolean = true,
     val canFly: Boolean = true,
+    /** How it gets about, for its button: FLY, DRIVE, SAIL and so on. */
+    val going: com.rm.apogee.game.Going = com.rm.apogee.game.Going.FLY,
 )
 
 /**
- * Every craft the player has out in the solo world. You can fly any of them, put one back on its
- * launch site, or take one away for good.
+ * Out There: every craft the player has out in the solo world. You can take up any of them, put one
+ * back on its launch site, or take one away for good.
  *
- * This is the other half of Free Flight, which always starts fresh. A world people leave bases in
+ * This is the other half of Quick Launch, which always starts fresh. A world people leave bases in
  * needs a way back to each of them, and a way to tidy up.
  */
 @Composable
@@ -74,11 +76,11 @@ fun ResumeFlightScreen(
     var confirmReset by remember { mutableStateOf<CraftSummary?>(null) }
 
     Backdrop(maxContentWidth = Dimens.PanelContentMaxWidth) { contentModifier ->
-        Text("Resume Flight", style = MaterialTheme.typography.titleLarge, color = Color.White)
+        Text("Out There", style = MaterialTheme.typography.titleLarge, color = Color.White)
         Spacer(Modifier.height(8.dp))
         if (craft.isEmpty()) {
             Text(
-                "Nothing out there yet. Free Flight or a launch from Vehicle Assembly puts a craft on the pad.",
+                "Nothing out there yet. Quick Launch or a launch from Vehicle Assembly puts a craft on the pad.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = Color.White.alpha(ApogeeAlpha.SUBTITLE),
                 textAlign = TextAlign.Center,
@@ -157,7 +159,7 @@ private fun CraftRow(summary: CraftSummary, onFly: () -> Unit, onReset: () -> Un
         RowAction("REMOVE", ApogeeColors.Danger, onRemove)
         if (summary.canFly) {
             Spacer(Modifier.width(4.dp))
-            RowAction("FLY", ApogeeColors.Accent, onFly)
+            RowAction(summary.going.verb.uppercase(), ApogeeColors.Accent, onFly)
         }
     }
 }

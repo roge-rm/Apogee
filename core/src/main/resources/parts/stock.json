@@ -11644,204 +11644,367 @@
       "pieces": [
         {
           "model": {
-            "type": "primitive",
-            "mesh": {
-              "type": "box",
-              "width": 0.2,
-              "height": 0.85,
-              "depth": 0.22
-            }
+            "type": "compound",
+            "pieces": [
+              {
+                "model": {
+                  "type": "lathe",
+                  "profile": [
+                    [
+                      0.0,
+                      -0.5
+                    ],
+                    [
+                      0.0383,
+                      -0.4924
+                    ],
+                    [
+                      0.0707,
+                      -0.4707
+                    ],
+                    [
+                      0.0924,
+                      -0.4383
+                    ],
+                    [
+                      0.1,
+                      -0.4
+                    ],
+                    [
+                      0.1016,
+                      0.0021
+                    ],
+                    [
+                      0.0778,
+                      0.0378
+                    ],
+                    [
+                      0.0421,
+                      0.0616
+                    ],
+                    [
+                      0.0,
+                      0.07
+                    ]
+                  ],
+                  "segments": 12
+                },
+                "offset": {
+                  "x": 0.0,
+                  "y": 0.0,
+                  "z": 0.0
+                },
+                "tint": "light"
+              },
+              {
+                "model": {
+                  "type": "lathe",
+                  "profile": [
+                    [
+                      0.107,
+                      -0.25
+                    ],
+                    [
+                      0.119,
+                      -0.22
+                    ],
+                    [
+                      0.107,
+                      -0.19
+                    ]
+                  ],
+                  "segments": 12
+                },
+                "offset": {
+                  "x": 0.0,
+                  "y": 0.0,
+                  "z": 0.0
+                },
+                "tint": "accent"
+              },
+              {
+                "model": {
+                  "type": "loft",
+                  "around": 12,
+                  "sections": [
+                    {
+                      "y": -0.6,
+                      "halfWidth": 0.115,
+                      "top": 0.19,
+                      "bottom": -0.1,
+                      "round": 0.75
+                    },
+                    {
+                      "y": -0.53,
+                      "halfWidth": 0.125,
+                      "top": 0.19,
+                      "bottom": -0.11,
+                      "round": 0.75
+                    },
+                    {
+                      "y": -0.47,
+                      "halfWidth": 0.11,
+                      "top": 0.12,
+                      "bottom": -0.1,
+                      "round": 0.8
+                    }
+                  ]
+                },
+                "offset": {
+                  "x": 0.0,
+                  "y": 0.0,
+                  "z": 0.0
+                },
+                "tint": "dark"
+              }
+            ]
           },
           "offset": {
             "x": -0.12,
-            "y": -0.47,
-            "z": 0.0
+            "y": -0.3,
+            "z": 0
           },
           "tint": "light",
           "role": "hinged",
           "axis": {
             "x": 1.0,
-            "y": 0.0,
-            "z": 0.0
+            "y": 0,
+            "z": 0
           },
           "pivot": {
-            "x": 0.0,
-            "y": -0.05,
-            "z": 0.0
+            "x": 0,
+            "y": -0.3,
+            "z": 0
           }
         },
         {
           "model": {
-            "type": "primitive",
-            "mesh": {
-              "type": "box",
-              "width": 0.2,
-              "height": 0.85,
-              "depth": 0.22
-            }
+            "type": "compound",
+            "pieces": [
+              {
+                "model": {
+                  "type": "lathe",
+                  "profile": [
+                    [
+                      0.0,
+                      -0.5
+                    ],
+                    [
+                      0.0383,
+                      -0.4924
+                    ],
+                    [
+                      0.0707,
+                      -0.4707
+                    ],
+                    [
+                      0.0924,
+                      -0.4383
+                    ],
+                    [
+                      0.1,
+                      -0.4
+                    ],
+                    [
+                      0.1016,
+                      0.0021
+                    ],
+                    [
+                      0.0778,
+                      0.0378
+                    ],
+                    [
+                      0.0421,
+                      0.0616
+                    ],
+                    [
+                      0.0,
+                      0.07
+                    ]
+                  ],
+                  "segments": 12
+                },
+                "offset": {
+                  "x": 0.0,
+                  "y": 0.0,
+                  "z": 0.0
+                },
+                "tint": "light"
+              },
+              {
+                "model": {
+                  "type": "lathe",
+                  "profile": [
+                    [
+                      0.107,
+                      -0.25
+                    ],
+                    [
+                      0.119,
+                      -0.22
+                    ],
+                    [
+                      0.107,
+                      -0.19
+                    ]
+                  ],
+                  "segments": 12
+                },
+                "offset": {
+                  "x": 0.0,
+                  "y": 0.0,
+                  "z": 0.0
+                },
+                "tint": "accent"
+              },
+              {
+                "model": {
+                  "type": "loft",
+                  "around": 12,
+                  "sections": [
+                    {
+                      "y": -0.6,
+                      "halfWidth": 0.115,
+                      "top": 0.19,
+                      "bottom": -0.1,
+                      "round": 0.75
+                    },
+                    {
+                      "y": -0.53,
+                      "halfWidth": 0.125,
+                      "top": 0.19,
+                      "bottom": -0.11,
+                      "round": 0.75
+                    },
+                    {
+                      "y": -0.47,
+                      "halfWidth": 0.11,
+                      "top": 0.12,
+                      "bottom": -0.1,
+                      "round": 0.8
+                    }
+                  ]
+                },
+                "offset": {
+                  "x": 0.0,
+                  "y": 0.0,
+                  "z": 0.0
+                },
+                "tint": "dark"
+              }
+            ]
           },
           "offset": {
             "x": 0.12,
-            "y": -0.47,
-            "z": 0.0
+            "y": -0.3,
+            "z": 0
           },
           "tint": "light",
           "role": "hinged",
           "axis": {
             "x": -1.0,
-            "y": 0.0,
-            "z": 0.0
+            "y": 0,
+            "z": 0
           },
           "pivot": {
-            "x": 0.0,
-            "y": -0.05,
-            "z": 0.0
+            "x": 0,
+            "y": -0.3,
+            "z": 0
           }
         },
         {
           "model": {
-            "type": "primitive",
-            "mesh": {
-              "type": "box",
-              "width": 0.5,
-              "height": 0.72,
-              "depth": 0.34
-            }
+            "type": "loft",
+            "around": 14,
+            "sections": [
+              {
+                "y": -0.36,
+                "halfWidth": 0.19,
+                "top": 0.14,
+                "bottom": -0.14,
+                "round": 0.9
+              },
+              {
+                "y": -0.3,
+                "halfWidth": 0.235,
+                "top": 0.17,
+                "bottom": -0.17,
+                "round": 0.9
+              },
+              {
+                "y": -0.02,
+                "halfWidth": 0.25,
+                "top": 0.18,
+                "bottom": -0.18,
+                "round": 0.9
+              },
+              {
+                "y": 0.14,
+                "halfWidth": 0.235,
+                "top": 0.165,
+                "bottom": -0.165,
+                "round": 0.9
+              },
+              {
+                "y": 0.22,
+                "halfWidth": 0.17,
+                "top": 0.12,
+                "bottom": -0.12,
+                "round": 0.9
+              }
+            ]
           },
           "offset": {
             "x": 0.0,
-            "y": 0.27,
+            "y": 0.0,
             "z": 0.0
           },
           "tint": "light"
         },
         {
           "model": {
-            "type": "primitive",
-            "mesh": {
-              "type": "box",
-              "width": 0.12,
-              "height": 0.6,
-              "depth": 0.14
-            }
+            "type": "loft",
+            "around": 14,
+            "sections": [
+              {
+                "y": -0.29,
+                "halfWidth": 0.245,
+                "top": 0.182,
+                "bottom": -0.182,
+                "round": 0.9
+              },
+              {
+                "y": -0.22,
+                "halfWidth": 0.25,
+                "top": 0.186,
+                "bottom": -0.186,
+                "round": 0.9
+              }
+            ]
           },
           "offset": {
-            "x": -0.32,
-            "y": 0.22,
-            "z": 0.0
-          },
-          "tint": "light",
-          "role": "hinged",
-          "axis": {
-            "x": -1.0,
+            "x": 0.0,
             "y": 0.0,
             "z": 0.0
           },
-          "pivot": {
-            "x": 0.0,
-            "y": 0.5,
-            "z": 0.0
-          }
+          "tint": "accent"
         },
         {
           "model": {
             "type": "primitive",
             "mesh": {
               "type": "box",
-              "width": 0.12,
-              "height": 0.6,
-              "depth": 0.14
+              "width": 0.1,
+              "height": 0.07,
+              "depth": 0.03
             }
           },
           "offset": {
-            "x": 0.32,
-            "y": 0.22,
-            "z": 0.0
-          },
-          "tint": "light",
-          "role": "hinged",
-          "axis": {
-            "x": 1.0,
-            "y": 0.0,
-            "z": 0.0
-          },
-          "pivot": {
-            "x": 0.0,
-            "y": 0.5,
-            "z": 0.0
-          }
-        },
-        {
-          "model": {
-            "type": "primitive",
-            "mesh": {
-              "type": "box",
-              "width": 0.44,
-              "height": 0.6,
-              "depth": 0.2
-            }
-          },
-          "offset": {
-            "x": 0.0,
-            "y": 0.3,
-            "z": -0.26
-          },
-          "tint": "metal"
-        },
-        {
-          "model": {
-            "type": "lathe",
-            "profile": [
-              [
-                0.0,
-                -0.2
-              ],
-              [
-                0.15,
-                -0.17
-              ],
-              [
-                0.2,
-                -0.05
-              ],
-              [
-                0.19,
-                0.08
-              ],
-              [
-                0.13,
-                0.18
-              ],
-              [
-                0.0,
-                0.21
-              ]
-            ],
-            "segments": 14
-          },
-          "offset": {
-            "x": 0.0,
-            "y": 0.85,
-            "z": 0.0
-          },
-          "tint": "light"
-        },
-        {
-          "model": {
-            "type": "primitive",
-            "mesh": {
-              "type": "box",
-              "width": 0.26,
-              "height": 0.16,
-              "depth": 0.04
-            }
-          },
-          "offset": {
-            "x": 0.0,
-            "y": 0.86,
+            "x": -0.1,
+            "y": 0.05,
             "z": 0.18
           },
-          "tint": "glass"
+          "tint": "accent"
         },
         {
           "model": {
@@ -11849,16 +12012,478 @@
             "mesh": {
               "type": "box",
               "width": 0.16,
-              "height": 0.06,
-              "depth": 0.03
+              "height": 0.1,
+              "depth": 0.05
             }
           },
           "offset": {
-            "x": 0.0,
-            "y": 0.45,
-            "z": 0.18
+            "x": 0.05,
+            "y": -0.08,
+            "z": 0.175
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "loft",
+            "around": 14,
+            "sections": [
+              {
+                "y": -0.24,
+                "halfWidth": 0.15,
+                "top": 0.09,
+                "bottom": -0.09,
+                "round": 0.85
+              },
+              {
+                "y": -0.19,
+                "halfWidth": 0.19,
+                "top": 0.12,
+                "bottom": -0.12,
+                "round": 0.85
+              },
+              {
+                "y": 0.14,
+                "halfWidth": 0.19,
+                "top": 0.12,
+                "bottom": -0.12,
+                "round": 0.85
+              },
+              {
+                "y": 0.21,
+                "halfWidth": 0.15,
+                "top": 0.09,
+                "bottom": -0.09,
+                "round": 0.85
+              }
+            ]
+          },
+          "offset": {
+            "x": 0,
+            "y": 0.02,
+            "z": -0.25
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "loft",
+            "around": 14,
+            "sections": [
+              {
+                "y": -0.05,
+                "halfWidth": 0.195,
+                "top": 0.125,
+                "bottom": -0.125,
+                "round": 0.85
+              },
+              {
+                "y": 0.01,
+                "halfWidth": 0.195,
+                "top": 0.125,
+                "bottom": -0.125,
+                "round": 0.85
+              }
+            ]
+          },
+          "offset": {
+            "x": 0,
+            "y": 0.02,
+            "z": -0.25
           },
           "tint": "accent"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.045,
+              "height": 0.08
+            }
+          },
+          "offset": {
+            "x": -0.09,
+            "y": -0.26,
+            "z": -0.25
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.045,
+              "height": 0.08
+            }
+          },
+          "offset": {
+            "x": 0.09,
+            "y": -0.26,
+            "z": -0.25
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "compound",
+            "pieces": [
+              {
+                "model": {
+                  "type": "lathe",
+                  "profile": [
+                    [
+                      0.0,
+                      -0.38
+                    ],
+                    [
+                      0.0306,
+                      -0.3739
+                    ],
+                    [
+                      0.0566,
+                      -0.3566
+                    ],
+                    [
+                      0.0739,
+                      -0.3306
+                    ],
+                    [
+                      0.08,
+                      -0.3
+                    ],
+                    [
+                      0.0878,
+                      0.0064
+                    ],
+                    [
+                      0.0672,
+                      0.0372
+                    ],
+                    [
+                      0.0364,
+                      0.0578
+                    ],
+                    [
+                      0.0,
+                      0.065
+                    ]
+                  ],
+                  "segments": 12
+                },
+                "offset": {
+                  "x": 0.0,
+                  "y": 0.0,
+                  "z": 0.0
+                },
+                "tint": "light"
+              },
+              {
+                "model": {
+                  "type": "lathe",
+                  "profile": [
+                    [
+                      0.086,
+                      -0.33
+                    ],
+                    [
+                      0.098,
+                      -0.3
+                    ],
+                    [
+                      0.086,
+                      -0.27
+                    ]
+                  ],
+                  "segments": 12
+                },
+                "offset": {
+                  "x": 0.0,
+                  "y": 0.0,
+                  "z": 0.0
+                },
+                "tint": "accent"
+              },
+              {
+                "model": {
+                  "type": "primitive",
+                  "mesh": {
+                    "type": "sphere",
+                    "radius": 0.085
+                  }
+                },
+                "offset": {
+                  "x": 0,
+                  "y": -0.41,
+                  "z": 0
+                },
+                "tint": "dark"
+              }
+            ]
+          },
+          "offset": {
+            "x": -0.3,
+            "y": 0.14,
+            "z": 0
+          },
+          "tint": "light",
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": -8.0
+          },
+          "role": "hinged",
+          "axis": {
+            "x": -1.0,
+            "y": 0,
+            "z": 0
+          },
+          "pivot": {
+            "x": 0,
+            "y": 0.14,
+            "z": 0
+          }
+        },
+        {
+          "model": {
+            "type": "compound",
+            "pieces": [
+              {
+                "model": {
+                  "type": "lathe",
+                  "profile": [
+                    [
+                      0.0,
+                      -0.38
+                    ],
+                    [
+                      0.0306,
+                      -0.3739
+                    ],
+                    [
+                      0.0566,
+                      -0.3566
+                    ],
+                    [
+                      0.0739,
+                      -0.3306
+                    ],
+                    [
+                      0.08,
+                      -0.3
+                    ],
+                    [
+                      0.0878,
+                      0.0064
+                    ],
+                    [
+                      0.0672,
+                      0.0372
+                    ],
+                    [
+                      0.0364,
+                      0.0578
+                    ],
+                    [
+                      0.0,
+                      0.065
+                    ]
+                  ],
+                  "segments": 12
+                },
+                "offset": {
+                  "x": 0.0,
+                  "y": 0.0,
+                  "z": 0.0
+                },
+                "tint": "light"
+              },
+              {
+                "model": {
+                  "type": "lathe",
+                  "profile": [
+                    [
+                      0.086,
+                      -0.33
+                    ],
+                    [
+                      0.098,
+                      -0.3
+                    ],
+                    [
+                      0.086,
+                      -0.27
+                    ]
+                  ],
+                  "segments": 12
+                },
+                "offset": {
+                  "x": 0.0,
+                  "y": 0.0,
+                  "z": 0.0
+                },
+                "tint": "accent"
+              },
+              {
+                "model": {
+                  "type": "primitive",
+                  "mesh": {
+                    "type": "sphere",
+                    "radius": 0.085
+                  }
+                },
+                "offset": {
+                  "x": 0,
+                  "y": -0.41,
+                  "z": 0
+                },
+                "tint": "dark"
+              }
+            ]
+          },
+          "offset": {
+            "x": 0.3,
+            "y": 0.14,
+            "z": 0
+          },
+          "tint": "light",
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 8.0
+          },
+          "role": "hinged",
+          "axis": {
+            "x": 1.0,
+            "y": 0,
+            "z": 0
+          },
+          "pivot": {
+            "x": 0,
+            "y": 0.14,
+            "z": 0
+          }
+        },
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                0.0,
+                0.2
+              ],
+              [
+                0.1026,
+                0.2181
+              ],
+              [
+                0.1928,
+                0.2702
+              ],
+              [
+                0.2598,
+                0.35
+              ],
+              [
+                0.2954,
+                0.4479
+              ],
+              [
+                0.2954,
+                0.5521
+              ],
+              [
+                0.2598,
+                0.65
+              ],
+              [
+                0.1928,
+                0.7298
+              ],
+              [
+                0.1026,
+                0.7819
+              ],
+              [
+                0.0,
+                0.8
+              ]
+            ],
+            "segments": 16
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "light"
+        },
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                0.2755,
+                0.3535
+              ],
+              [
+                0.3005,
+                0.4161
+              ],
+              [
+                0.3115,
+                0.4826
+              ],
+              [
+                0.308,
+                0.5499
+              ],
+              [
+                0.2901,
+                0.6149
+              ],
+              [
+                0.2587,
+                0.6745
+              ]
+            ],
+            "segments": 12,
+            "sweep": 136.0,
+            "from": 22.0
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "glass"
+        },
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                0.2,
+                0.15
+              ],
+              [
+                0.215,
+                0.19
+              ],
+              [
+                0.2,
+                0.23
+              ]
+            ],
+            "segments": 16
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "metal"
         }
       ]
     },

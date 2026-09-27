@@ -152,6 +152,8 @@ class WorldSave(
     val terrainGeneration: Int = 1,
     /** Owner id to the vessel id they last flew. See [World.lastFlown]. */
     val lastFlown: Map<String, Long> = emptyMap(),
+    /** Owner id to the stripe their crew wear. See [World.stripes]. */
+    val stripes: Map<String, Int> = emptyMap(),
     /** Owner id to the named places under the sea they've found. See [World.wondersFound]. */
     val wondersFound: Map<String, List<String>> = emptyMap(),
     /**

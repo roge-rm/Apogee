@@ -74,7 +74,7 @@ fun ProgramScreen(
             Text("${state.insight} insight to spend", style = TelemetryTextStyle, color = ApogeeColors.Accent)
             onClose?.let {
                 Spacer(Modifier.height(10.dp))
-                com.rm.apogee.ui.components.ApogeeButton("Back to flight", it)
+                com.rm.apogee.ui.components.ApogeeButton("Back", it)
             }
             Spacer(Modifier.height(14.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {

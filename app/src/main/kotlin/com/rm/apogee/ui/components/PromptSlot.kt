@@ -73,7 +73,7 @@ fun PromptSlot(
         }
         BurnPanel(
             hud.burn, hud.landing, hud.mapMode, hud.autopilotNote, burnActions,
-            window = hud.window, align = Alignment.CenterHorizontally,
+            window = hud.window, align = Alignment.CenterHorizontally, plannable = hud.mapPlannable,
         )
         if (hud.mapMode) {
             // A surveyed world's ore or water on the map, and a sea's currents. Tap round them and off.

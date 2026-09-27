@@ -18,6 +18,10 @@ Join me in the #apogee channel **[on my discord](https://discord.gg/9Wun47jGC6)*
 Enjoy!
 Dan
 
+<img src="docs/shot-launch.png" alt="A rocket climbing away from the Cape on a long flame, its smoke over the grass, with the beach and the sea beyond and the throttle, navball and staging controls round the edges" width="180" /> <img src="docs/shot-zeppelin.png" alt="The Zeppelin climbing over the Cape's coast, with sandy beaches and bright shallows below it and fair weather clouds on the horizon" width="180" /> <img src="docs/shot-sloop.png" alt="The Sloop on the harbour's clear water in the sun, its shadow on the water, with the boathouse, the beach and green hills behind it" width="180" />
+
+<img src="docs/shot-undersea.png" alt="The Minnow submarine under the harbour, over the sandy bottom, with its reflection on the surface above and the pier's pilings off to the right" width="180" /> <img src="docs/shot-luna.png" alt="An astronaut in a white suit with teal stripes beside the flag they've just planted on Luna, their lander standing on its legs behind them under a black sky" width="180" /> <img src="docs/shot-aurantia.png" alt="Two base landers on Aurantia at dusk under a thick orange sky and low clouds, one of them ready to found a base" width="180" />
+
 ---
 
 ## What's in it

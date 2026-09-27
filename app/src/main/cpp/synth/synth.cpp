@@ -8,6 +8,8 @@ namespace {
 
 /** Samples between working out a voice's filter coefficients again. */
 constexpr int kControlInterval = 32;
+// How loud the harbour's lapping is, set by ear against the engines with the sound gallery.
+constexpr float kPortWater = 0.75f;
 
 bool continuous(int r) { return r <= recipe::LAST_CONTINUOUS; }
 
@@ -592,12 +594,18 @@ void Synth::renderVoice(Voice& v, float& left, float& right) {
             break;
         }
         case recipe::SURF: {
-            float loud = clampf(p[0], 0, 1.5f);
-            v.state[0] += dt / 7.5f;
-            v.state[0] -= std::floor(v.state[0]);
-            float wave = std::pow(std::max(0.0f, std::sin(kTwoPi * v.state[0])), 3.0f);
             // Waves breaking on the shore: a slow swell and wash, low and soft, because it goes on
-            // as long as you stay by the sea.
+            // as long as you stay by the sea. Each wave is its own length and strength, so they
+            // never fall into a beat.
+            float loud = clampf(p[0], 0, 1.5f);
+            if (v.state[1] <= 0) { v.state[1] = 6.0f + 3.5f * rng.uniform(); v.state[2] = 0.6f + 0.4f * rng.uniform(); }
+            v.state[0] += dt / v.state[1];
+            if (v.state[0] >= 1.0f) {
+                v.state[0] -= 1.0f;
+                v.state[1] = 6.0f + 3.5f * rng.uniform();
+                v.state[2] = 0.6f + 0.4f * rng.uniform();
+            }
+            float wave = std::pow(std::max(0.0f, std::sin(kTwoPi * v.state[0])), 3.0f) * v.state[2];
             if (control) { v.f[0].set(250.0f + 500.0f * wave, 0.6f, sr); v.f[1].set(700.0f + 400.0f * wave, 0.7f, sr); }
             v.f[0].process(v.brown.next(rng.white()) * 0.6f + v.pink.next(rng.white()) * 0.4f);
             v.f[1].process(v.pink2.next(rng.white()));
@@ -729,17 +737,19 @@ void Synth::renderVoice(Voice& v, float& left, float& right) {
             break;
         }
         case recipe::PORT: {
-            // A harbour at rest: water lapping at the piles in small uneven slaps, low and soft,
-            // and now and then a halyard knocking on a mast, a dull clink, sometimes two, kept
-            // dark. Nothing on a beat.
+            // A harbour at rest: water lapping at the piles, soft sloshes that run into each other,
+            // each its own length and strength, with nothing low enough to thud. Now and then a
+            // halyard knocks on a mast, a dull clink, sometimes two, kept dark. Nothing on a beat.
             float loud = clampf(p[0], 0, 1.5f);
             v.state[0] -= dt;
             if (v.state[0] <= 0) {
-                v.state[0] = 0.5f + 1.7f * v.rng.uniform();
+                v.state[0] = 0.3f + 1.1f * v.rng.uniform();
                 v.state[3] = 0.8f + 0.5f * v.rng.uniform();
-                v.env[0].trigger(0.03f + 0.05f * v.rng.uniform(), 0.18f + 0.3f * v.rng.uniform(), sr, 0.35f + 0.65f * v.rng.uniform());
-                v.f[0].set(300.0f * v.state[3], 1.1f, sr);
-                v.f[1].set(160.0f * v.state[3], 0.9f, sr);
+                // Two laps take turns, so one is still dying away as the next comes in.
+                v.state[4] = v.state[4] > 0.5f ? 0.0f : 1.0f;
+                Decay& lap = v.env[v.state[4] > 0.5f ? 2 : 0];
+                lap.trigger(0.12f + 0.2f * v.rng.uniform(), 0.25f + 0.35f * v.rng.uniform(), sr, 0.3f + 0.7f * v.rng.uniform());
+                v.f[0].set(480.0f * v.state[3], 0.7f, sr);
             }
             v.state[1] -= dt;
             if (v.state[1] <= 0 || (v.state[2] > 0 && (v.state[2] -= dt) <= 0)) {
@@ -758,13 +768,13 @@ void Synth::renderVoice(Voice& v, float& left, float& right) {
                 v.res.set(3, freqs, qs, gains, sr);
                 v.env[1].trigger(0.001f, 0.012f, sr, (second ? 0.45f : 0.8f) * (0.5f + 0.5f * v.rng.uniform()));
             }
-            if (control) v.f[3].set(1300.0f, 0.6f, sr);
-            float water = v.brown.next(rng.white()) * 0.7f + v.pink.next(rng.white()) * 0.3f;
-            float lap = v.env[0].next();
-            v.f[0].process(water * lap);
-            v.f[1].process(water * lap);
+            if (control) { v.f[1].set(200.0f, 0.6f, sr); v.f[3].set(1300.0f, 0.6f, sr); }
+            // The water, with the thud taken out below, a little of it always moving.
+            v.f[1].process(v.pink.next(rng.white()));
+            float lap = 0.12f + v.env[0].next() + v.env[2].next();
+            v.f[0].process(v.f[1].high * lap);
             v.f[3].process(v.res.process(rng.white() * v.env[1].next()) * 0.6f);
-            s = (v.f[0].band * 1.8f + v.f[1].band * 1.2f + v.f[3].low) * loud;
+            s = (v.f[0].low * kPortWater + v.f[3].low) * loud;
             break;
         }
         case recipe::RCS: {

@@ -134,7 +134,7 @@ class MainActivity : ComponentActivity() {
         val me = settings.clientId
         crewList = world.crew.values.filter { it.owner == me || it.owner.isEmpty() }.map { member ->
             val status = when (member.status) {
-                com.rm.apogee.core.crew.CrewStatus.AVAILABLE -> "At home, ready to fly"
+                com.rm.apogee.core.crew.CrewStatus.AVAILABLE -> "At home, ready to go"
                 com.rm.apogee.core.crew.CrewStatus.ABOARD -> {
                     val craft = world.vessel(com.rm.apogee.core.craft.VesselId(member.vessel))
                     val where = craft?.let { world.attractorFor(it).displayName }.orEmpty()
@@ -144,7 +144,10 @@ class MainActivity : ComponentActivity() {
                 com.rm.apogee.core.crew.CrewStatus.LOST ->
                     member.lostHow.replaceFirstChar { it.uppercase() } + if (member.lostWhere.isNotEmpty()) " · ${member.lostWhere}" else ""
             }
-            com.rm.apogee.ui.screens.CrewSummary(member.name, status, member.status == com.rm.apogee.core.crew.CrewStatus.LOST)
+            com.rm.apogee.ui.screens.CrewSummary(
+                member.id, member.name, status, member.status == com.rm.apogee.core.crew.CrewStatus.LOST,
+                visor = com.rm.apogee.core.crew.Crew.visorOf(member),
+            )
         }.sortedBy { it.lost }
     }
     private var frameClockJob: Job? = null
@@ -270,7 +273,11 @@ class MainActivity : ComponentActivity() {
                             refreshResumeCraft()
                         },
                     )
-                    AppScreen.CREW -> com.rm.apogee.ui.screens.CrewScreen(crewList)
+                    AppScreen.CREW -> com.rm.apogee.ui.screens.CrewScreen(crewList) { id, visor ->
+                        openSoloWorld().setVisor(id, visor)
+                        saveSoloWorld()
+                        refreshCrew()
+                    }
                     AppScreen.SETTINGS -> SettingsScreen(settings, detectedTier)
                     AppScreen.ABOUT -> AboutScreen()
                     AppScreen.FLIGHT -> FlightScreen(
@@ -500,7 +507,7 @@ class MainActivity : ComponentActivity() {
         } ?: return
         // Not in the middle of a flight. It waits in the builder for next time.
         if (session != null) {
-            android.widget.Toast.makeText(this, "Leave the flight to open a shared craft", android.widget.Toast.LENGTH_LONG).show()
+            android.widget.Toast.makeText(this, "Go back to the menu to open a shared craft", android.widget.Toast.LENGTH_LONG).show()
             return
         }
         importCraft(uri)
@@ -557,6 +564,7 @@ class MainActivity : ComponentActivity() {
                 perfHints = null,
                 playerName = settings.playerName,
                 clientId = settings.clientId,
+                stripe = settings.suitStripe,
                 host = host,
                 port = port,
             )
@@ -848,6 +856,7 @@ class MainActivity : ComponentActivity() {
                     perfHints = perfHints,
                     playerName = settings.playerName,
                     clientId = settings.clientId,
+                    stripe = settings.suitStripe,
                     design = pendingLaunchDesign,
                     scope = lifecycleScope,
                     world = openSoloWorld(),
@@ -867,6 +876,7 @@ class MainActivity : ComponentActivity() {
                     perfHints = perfHints,
                     playerName = settings.playerName,
                     clientId = settings.clientId,
+                    stripe = settings.suitStripe,
                     serverName = mode.name,
                     design = pendingLaunchDesign,
                     scope = lifecycleScope,
@@ -915,7 +925,8 @@ class MainActivity : ComponentActivity() {
         // the 3D world doesn't have to travel through the overlay's hit testing to get here.
         val pinch = ScaleGestureDetector(this, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
             override fun onScale(detector: ScaleGestureDetector): Boolean {
-                session?.camera?.zoomBy(detector.scaleFactor.toDouble())
+                // The map's own camera in map view, or it zoomed the flight view behind the map.
+                session?.let { (if (it.mapMode) it.mapCamera else it.camera).zoomBy(detector.scaleFactor.toDouble()) }
                 return true
             }
         })
@@ -1053,7 +1064,7 @@ class MainActivity : ComponentActivity() {
         return world
     }
 
-    /** The player's craft in the solo world, for Resume Flight. */
+    /** The player's craft in the solo world, for Out There. */
     private fun refreshResumeCraft() {
         val world = openSoloWorld()
         val me = settings.clientId
@@ -1095,7 +1106,7 @@ class MainActivity : ComponentActivity() {
                 above < 2.0 && body.terrain?.isOcean(bodyFixed) == true -> "Afloat on ${body.displayName}"
                 above < 2.0 -> "Landed on ${body.displayName}"
                 orbit.isBound && orbit.periapsis > floor -> "In orbit of ${body.displayName}"
-                else -> "Flying over ${body.displayName}"
+                else -> "${com.rm.apogee.game.Going.aloft(vessel.design, StockParts.catalog)} over ${body.displayName}"
             }
             val height = if (depth > com.rm.apogee.game.GameSession.UNDER_SEA) "%.0f m down".format(depth)
                 else if (above < 2.0) "on the surface"
@@ -1109,6 +1120,7 @@ class MainActivity : ComponentActivity() {
             com.rm.apogee.ui.screens.CraftSummary(
                 vessel.id.raw, vessel.name, situation, height, crewNote,
                 canReset = !suit && !flag, canFly = !flag,
+                going = com.rm.apogee.game.Going.of(vessel.design, StockParts.catalog, vessel.anchored),
             )
         }
     }
@@ -1239,7 +1251,8 @@ class MainActivity : ComponentActivity() {
     /**
      * Debug switches, as files in the app's own storage so adb can flip them mid-flight.
      * `debug-no-sea` builds and draws no sea, and `debug-perf` logs frame rate and build times
-     * every five seconds under "ApogeePerf".
+     * every five seconds under "ApogeePerf". `debug-sound` logs the sounds playing every two seconds
+     * under "ApogeeSound".
      */
     private fun debugPerformance(glRenderer: com.rm.apogee.render.GlRenderer, current: GameSession) {
         val now = System.nanoTime()
@@ -1248,6 +1261,7 @@ class MainActivity : ComponentActivity() {
             current.debugHideSea = java.io.File(filesDir, "debug-no-sea").exists()
             perfLogging = java.io.File(filesDir, "debug-perf").exists()
             glRenderer.timePasses = java.io.File(filesDir, "debug-perf-passes").exists()
+            com.rm.apogee.audio.AudioEngine.logging = java.io.File(filesDir, "debug-sound").exists()
         }
         if (!perfLogging) { perfSince = 0L; return }
         if (perfSince == 0L) {
@@ -1292,6 +1306,7 @@ class MainActivity : ComponentActivity() {
                     debugPerformance(glRenderer, current)
                     hudState.frameBuildMillis = current.lastFrameBuildNanos.get() / 1_000_000f
                     hudState.telemetry = current.telemetry
+                    hudState.going = current.controlledGoing
                     // Only when it changes. A new list every frame would recompose the stack sixty
                     // times a second for nothing.
                     if (hudState.stages !== current.stageCards) hudState.stages = current.stageCards
@@ -1309,6 +1324,7 @@ class MainActivity : ComponentActivity() {
                     // it has the throttle, so show where it has it.
                     if (current.localAutoBurn || current.localAutoLand || hudState.power?.keeping == true) hudState.throttle = current.telemetry.throttle.toFloat()
                     hudState.landing = current.landingReadout
+                    if (hudState.mapPlannable != current.mapPlannable) hudState.mapPlannable = current.mapPlannable
                     // The career's news, one at a time, each for a few seconds.
                     if (hudState.banner == null) {
                         current.nextFeat()?.let { feat ->

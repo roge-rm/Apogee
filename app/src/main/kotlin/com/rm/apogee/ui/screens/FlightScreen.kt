@@ -274,7 +274,7 @@ fun FlightScreen(
                     onClick = { if (hud.canRewind) exitMenu = true else onExit() },
                     modifier = Modifier.size(Dimens.HudIconSize),
                 ) {
-                    Icon(Icons.Filled.Close, contentDescription = "Leave flight")
+                    Icon(Icons.Filled.Close, contentDescription = "Leave")
                 }
                 FilledTonalIconButton(
                     onClick = onToggleMap,
@@ -586,13 +586,13 @@ private fun ExitMenu(hud: HudState, rewind: RewindActions, onExit: () -> Unit, o
                     if (loading) rewind.onLoadSavePoint() else rewind.onRevert()
                 }) { Text(if (loading) "Load" else "Revert") }
             },
-            dismissButton = { androidx.compose.material3.TextButton(onClick = { confirm = null }) { Text("Keep flying") } },
+            dismissButton = { androidx.compose.material3.TextButton(onClick = { confirm = null }) { Text(hud.going.keep) } },
         )
         return
     }
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onClose,
-        title = { Text("Flight") },
+        title = { Text(hud.telemetry.craftName.ifBlank { "Paused" }) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 MenuRow("Save point", hud.savePoint?.let { "Last taken at $it" } ?: "Take one now, to come back to") {
@@ -601,13 +601,13 @@ private fun ExitMenu(hud: HudState, rewind: RewindActions, onExit: () -> Unit, o
                 MenuRow("Load save point", hud.savePoint?.let { "Back to $it" } ?: "None taken yet", enabled = hud.savePoint != null) {
                     confirm = "load"
                 }
-                MenuRow("Revert to launch", if (hud.canRevert) "Start this flight again" else "Not launched this time", enabled = hud.canRevert) {
+                MenuRow("Revert to launch", if (hud.canRevert) "Start again from the launch" else "Not launched this time", enabled = hud.canRevert) {
                     confirm = "revert"
                 }
-                MenuRow("Leave flight", "Back to the menu") { onClose(); onExit() }
+                MenuRow("Leave", "Back to the menu") { onClose(); onExit() }
             }
         },
-        confirmButton = { androidx.compose.material3.TextButton(onClick = onClose) { Text("Keep flying") } },
+        confirmButton = { androidx.compose.material3.TextButton(onClick = onClose) { Text(hud.going.keep) } },
     )
 }
 
@@ -868,7 +868,7 @@ private fun CrashCard(
             }
             Spacer(Modifier.height(14.dp))
             // One over the other, full width, so they're the same size whatever they say.
-            if (onFlyAnother != null) ApogeeButton("Fly another craft", onClick = onFlyAnother)
+            if (onFlyAnother != null) ApogeeButton("Pick another craft", onClick = onFlyAnother)
             ApogeeButton("Leave", onClick = onLeave)
         }
     }

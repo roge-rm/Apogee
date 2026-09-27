@@ -8,12 +8,18 @@ build/
 !src/**/build/
 
 # --- Local configuration (never committed) ----------------------------------
-# Holds this machine's SDK path, and is where release signing credentials go.
+# Holds this machine's SDK path.
 local.properties
 
 # The server's compose configuration, which holds ADMIN_PASSWORD.
 # .env.example is the template that IS committed.
 .env
+
+# Release signing material. The keystore and its passwords live outside the
+# repository, in ../Keys, and must never be committed: a signing key in a
+# public repository is the key given away.
+*.jks
+*.keystore
 
 # --- IDE --------------------------------------------------------------------
 # The whole .idea directory stays local. Note git does not descend into an

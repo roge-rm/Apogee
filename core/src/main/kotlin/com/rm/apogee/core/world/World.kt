@@ -875,6 +875,12 @@ class World(
     val lastFlown: MutableMap<String, Long> = java.util.concurrent.ConcurrentHashMap()
 
     /**
+     * The stripe each player picked for their crew's suits, by owner id. Kept with the world, so a
+     * player's crew still wear it while they're away.
+     */
+    val stripes: MutableMap<String, Int> = java.util.concurrent.ConcurrentHashMap()
+
+    /**
      * The named places under the sea each player has found, by owner. It works the same in a career
      * and in free play, giving you somewhere to go that stays hidden until you reach it. A career
      * also pays for each one and keeps the world firsts.
@@ -1057,7 +1063,13 @@ class World(
      * to the ground it's standing on, and would get dragged off the pad the moment friction kicked
      * in.
      */
-    fun spawnOnSurface(design: CraftDesign, site: LaunchSite, pad: Int = 0): Vessel {
+    fun spawnOnSurface(
+        design: CraftDesign,
+        site: LaunchSite,
+        pad: Int = 0,
+        /** A player's launch: it stands on its landing legs if they reach the ground. See [standOnLegs]. */
+        legsOut: Boolean = false,
+    ): Vessel {
         val problems = design.validate(catalog)
         require(problems.isEmpty()) {
             "Cannot spawn '${design.name}': ${problems.joinToString("; ")}"
@@ -1087,6 +1099,8 @@ class World(
         val sea = attractor.ocean?.let { attractor.radius + it.surfaceHeight(scratchBodyFixedUp, time) }
         val groundRadius = kotlin.math.max(attractor.solidRadiusInBodyFrame(scratchBodyFixedUp), sea ?: 0.0)
             .let { if (sea == null) attractor.surfaceRadiusInBodyFrame(scratchBodyFixedUp) else it }
+
+        if (legsOut && (sea == null || groundRadius > sea)) standOnLegs(vessel, up)
 
         // Lift the craft until its lowest part just touches the ground.
         val clearance = lowestExtentAlong(vessel, up)
@@ -1264,6 +1278,28 @@ class World(
      * already meeting the contact constraint. Working out clearance one way and collision another
      * leaves every craft either hovering or spawning inside the ground.
      */
+    /**
+     * A craft a player launches stands on its landing legs if they're what it would stand on:
+     * out and working, as if it had landed, instead of balanced on its engine bell with them folded
+     * against it. Only the legs whose feet reach the bottom go out, so a rocket with a lander high
+     * up its stack keeps that lander's folded. Their stage still fires in its turn, and changes
+     * nothing.
+     */
+    private fun standOnLegs(vessel: Vessel, up: Vec3) {
+        val legs = vessel.defs.indices.filter { vessel.defs[it].hasModule<LandingLeg>() }
+        if (legs.isEmpty()) return
+        val folded = lowestExtentAlong(vessel, up)
+        for (i in legs) vessel.setLegDeploy(i, 1.0)
+        val out = lowestExtentAlong(vessel, up)
+        val offset = Vec3()
+        for (i in legs) {
+            var reach = Double.MAX_VALUE
+            for (p in vessel.defs[i].contactPoints.indices) reach = minOf(reach, vessel.contactOffsetWorld(i, p, offset) dot up)
+            val feetDown = out > folded + LEGS_REACH && -reach > out - LEGS_REACH
+            if (feetDown) vessel.activated[i] = true else vessel.setLegDeploy(i, 0.0)
+        }
+    }
+
     private fun lowestExtentAlong(vessel: Vessel, up: Vec3): Double {
         var deepest = 0.0
         val offset = Vec3()
@@ -2193,10 +2229,10 @@ class World(
      * stores as far as they go, if the base has the power to pump. If the base is dark, it's put
      * there empty.
      */
-    fun spawnOnBasePad(design: CraftDesign, base: Vessel, pad: Int): Vessel {
+    fun spawnOnBasePad(design: CraftDesign, base: Vessel, pad: Int, legsOut: Boolean = false): Vessel {
         val site = baseSites(base.owner).firstOrNull { it.id == "${LaunchSite.BASE_SITE_PREFIX}${base.id.raw}:$pad" }
             ?: error("no pad $pad on ${base.name}")
-        val craft = spawnOnSurface(design, site)
+        val craft = spawnOnSurface(design, site, legsOut = legsOut)
         // On the deck, not on the ground under it.
         val up = Vec3().setTo(craft.body.position).normalizeInPlace()
         val top = Vec3().setTo(base.partPositionWorld(pad)).addScaledInPlace(up, base.defs[pad].boundsHalfExtents.y)
@@ -4367,7 +4403,15 @@ class World(
         anchored = vessel.anchored,
         burns = vessel.plannedBurns.toList(),
         crew = if (vessel.crewAboard > 0) vessel.crew.map { it.toList() } else emptyList(),
+        stripe = suitWearer(vessel)?.let { com.rm.apogee.core.crew.Crew.stripeFor(vessel.owner, stripes[vessel.owner]) } ?: -1,
+        visor = suitWearer(vessel)?.let { com.rm.apogee.core.crew.Crew.visorOf(it) } ?: -1,
     )
+
+    /** Who's in [vessel], if it's someone out in a suit. */
+    private fun suitWearer(vessel: Vessel): com.rm.apogee.core.crew.CrewMember? {
+        if (vessel.design.parts.singleOrNull()?.partId != SUIT_PART) return null
+        return vessel.crew.firstOrNull()?.firstOrNull()?.let { crew[it] }
+    }
 
     /**
      * Tells each sea where the founded bases on it are, so the currents leave the water round them
@@ -4441,6 +4485,7 @@ class World(
         crewSeated = true,
         terrainGeneration = TerrainField.GENERATION,
         lastFlown = lastFlown.toMap(),
+        stripes = stripes.toMap(),
         wondersFound = wondersFound.mapValues { it.value.sorted() },
         weather = weatherConfig,
         mode = if (program != null) WorldSave.MODE_CAREER else WorldSave.MODE_SANDBOX,
@@ -4529,6 +4574,8 @@ class World(
         nextCrewId = (save.crew.maxOfOrNull { it.id } ?: 0L) + 1L
         lastFlown.clear()
         lastFlown.putAll(save.lastFlown)
+        stripes.clear()
+        stripes.putAll(save.stripes)
         wondersFound.clear()
         for ((owner, ids) in save.wondersFound) wondersFound[owner] = java.util.concurrent.ConcurrentHashMap.newKeySet<String>().also { it.addAll(ids) }
         save.weather?.let { weatherConfig = it }
@@ -4702,11 +4749,11 @@ class World(
                 vesselsById[VesselId(it.getOrNull(0)?.toLongOrNull() ?: -1)] to (it.getOrNull(1)?.toIntOrNull() ?: -1)
             }
             if (base != null && base.anchored && mayLaunchFrom(base, owner) && base.defs.getOrNull(pad)?.module<com.rm.apogee.core.part.LaunchPad>() != null) {
-                return spawnOnBasePad(command.design, base, pad).also { assignOwner(it, owner) }
+                return spawnOnBasePad(command.design, base, pad, legsOut = true).also { assignOwner(it, owner) }
             }
         }
         val site = launchSites.firstOrNull { it.id == command.siteId } ?: launchSites.first()
-        val vessel = spawnAtSite(command.design, site)
+        val vessel = spawnAtSite(command.design, site, legsOut = true)
         assignOwner(vessel, owner)
         return vessel
     }
@@ -4719,8 +4766,8 @@ class World(
      * craft is closer than the two craft's radii plus a margin, so a wide aeroplane doesn't get a
      * rocket put through its wing.
      */
-    fun spawnAtSite(design: CraftDesign, site: LaunchSite): Vessel =
-        spawnOnSurface(design, site, pad = nextFreePad(site, radiusOf(design)))
+    fun spawnAtSite(design: CraftDesign, site: LaunchSite, legsOut: Boolean = false): Vessel =
+        spawnOnSurface(design, site, pad = nextFreePad(site, radiusOf(design)), legsOut = legsOut)
 
     /** How far [design]'s furthest contact point reaches from its centre of mass. */
     private fun radiusOf(design: CraftDesign): Double {
@@ -4808,7 +4855,7 @@ class World(
         val owner = old.owner
         val ownerName = old.ownerName
         destroy(id, RESET_REASON)
-        val fresh = spawnAtSite(design, launchSiteFor(design, catalog))
+        val fresh = spawnAtSite(design, launchSiteFor(design, catalog), legsOut = true)
         fresh.name = name
         assignOwner(fresh, owner)
         fresh.ownerName = ownerName
@@ -4838,6 +4885,12 @@ class World(
     private fun setCrew(member: com.rm.apogee.core.crew.CrewMember) {
         crew[member.id] = member
         crewRevision++
+    }
+
+    /** Gives crew member [id] visor [visor] (-1 for one of their own). */
+    fun setVisor(id: Long, visor: Int) {
+        val member = crew[id] ?: return
+        setCrew(member.copy(visor = visor.coerceIn(-1, com.rm.apogee.core.crew.Crew.VISORS - 1)))
     }
 
     /** [owner]'s crew, in the order they joined. */
@@ -5522,6 +5575,9 @@ class World(
 
         /** Luna's test base: its name, the site it stands by, and which of the site's pads it takes. */
         const val LUNA_TEST_SITE = "luna-mare"
+
+        /** How far, in metres, a leg's feet have to reach below the rest to be stood on at launch. */
+        private const val LEGS_REACH = 0.05
 
         /** Who the Cape's own buildings belong to: nobody, and everybody can launch from them. */
         const val WORLD_OWNER = "world"

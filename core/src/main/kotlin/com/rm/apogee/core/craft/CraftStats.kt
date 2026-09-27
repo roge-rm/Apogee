@@ -191,7 +191,7 @@ class CraftStats(
             val warnings = advise(stageStats).toMutableList()
             // There's nobody aboard to fly it by hand once it runs flat.
             if (probe && !crewed && !charges && idle > 0.0) {
-                warnings.add("Nothing to charge it. It goes flat in about ${(capacity / idle / 60.0).roundToInt()} min, and then it can't be flown")
+                warnings.add("Nothing to charge it. It goes flat in about ${(capacity / idle / 60.0).roundToInt()} min, and then it can't be controlled")
             }
             return CraftStats(
                 totalMass = totalMass,
@@ -368,7 +368,7 @@ class CraftStats(
             val problems = ArrayList<String>()
 
             if (defs.none { it.module<com.rm.apogee.core.part.Command>() != null }) {
-                problems.add("No command pod, so there's nothing to fly it from")
+                problems.add("No command pod, so there's nothing to control it from")
             }
             // Something has to move it. An engine does, and so does a driven wheel. A rover has no
             // engine at all, and when this check refused it, the stock rover could be built but

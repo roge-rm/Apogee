@@ -282,7 +282,7 @@ class BuilderSession(
         val index = selectedPartIndex ?: return
         val next = (builder.design.parts[index].group + 1) % (com.rm.apogee.core.craft.Vessel.GROUPS + 1)
         if (builder.setGroup(index, next)) {
-            statusMessage = if (next == 0) "In no group" else "In group $next. Its switch is on the flight's rail"
+            statusMessage = if (next == 0) "In no group" else "In group $next. Its switch is on the action rail"
             onEdited()
         }
     }

@@ -157,6 +157,23 @@ private fun PlayerTab(settings: GameSettings) {
         color = Color.White.alpha(ApogeeAlpha.SUBTITLE),
     )
 
+    SectionHeading("Suit stripe")
+    com.rm.apogee.ui.components.Swatches(
+        choices = com.rm.apogee.render.SuitColours.STRIPES,
+        selected = settings.suitStripe,
+        onPick = { settings.suitStripe = it },
+        size = 28.dp,
+        autoLabel = "Picked for you",
+    )
+    Spacer(Modifier.height(6.dp))
+    Text(
+        (com.rm.apogee.render.SuitColours.STRIPES.getOrNull(settings.suitStripe)?.name ?: "Picked for you") +
+            ". All your crew wear it, so others can tell whose they are. Each one's visor is their " +
+            "own, and you can change it on the Crew screen. A new stripe shows from your next flight.",
+        style = MaterialTheme.typography.labelSmall,
+        color = Color.White.alpha(ApogeeAlpha.SUBTITLE),
+    )
+
     SectionHeading("Weather")
     ChoiceGroup(
         title = "In games you host",

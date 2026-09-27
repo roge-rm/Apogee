@@ -29,18 +29,22 @@ import com.rm.apogee.ui.theme.alpha
 
 /** One of the player's crew, as the Crew screen shows them. */
 class CrewSummary(
+    val id: Long,
     val name: String,
     /** "At home", "Aboard Stilt Lander", or how they were lost. */
     val status: String,
     val lost: Boolean,
+    /** Their visor, as [com.rm.apogee.core.crew.Crew] numbers them. */
+    val visor: Int = 0,
 )
 
 /**
- * The player's crew in the solo world: who's at home ready to fly, who's out there and in what, and
- * below that, the ones who were lost, and how.
+ * The player's crew in the solo world: who's at home ready to go, who's out there and in what, and
+ * below that, the ones who were lost, and how. Each of the living has a visor colour of their own to
+ * pick.
  */
 @Composable
-fun CrewScreen(crew: List<CrewSummary>) {
+fun CrewScreen(crew: List<CrewSummary>, onVisor: (Long, Int) -> Unit) {
     Backdrop(maxContentWidth = Dimens.PanelContentMaxWidth) { contentModifier ->
         Text("Crew", style = MaterialTheme.typography.titleLarge, color = Color.White)
         Spacer(Modifier.height(8.dp))
@@ -62,7 +66,7 @@ fun CrewScreen(crew: List<CrewSummary>) {
             modifier = contentModifier.heightIn(max = 520.dp).verticalScrollbar(list),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            items(living) { Row(it) }
+            items(living, key = { it.id }) { Row(it, onVisor) }
             if (lost.isNotEmpty()) {
                 item {
                     Text(
@@ -72,14 +76,14 @@ fun CrewScreen(crew: List<CrewSummary>) {
                         modifier = Modifier.padding(top = 12.dp),
                     )
                 }
-                items(lost) { Row(it) }
+                items(lost, key = { it.id }) { Row(it, onVisor) }
             }
         }
     }
 }
 
 @Composable
-private fun Row(member: CrewSummary) {
+private fun Row(member: CrewSummary, onVisor: (Long, Int) -> Unit) {
     Column(
         Modifier
             .fillMaxWidth()
@@ -89,5 +93,15 @@ private fun Row(member: CrewSummary) {
     ) {
         Text(member.name, style = MaterialTheme.typography.bodyLarge, color = if (member.lost) Color.White.alpha(ApogeeAlpha.SUBTITLE) else Color.White)
         Text(member.status, style = MaterialTheme.typography.labelMedium, color = Color.White.alpha(ApogeeAlpha.SUBTITLE))
+        if (!member.lost) {
+            // Their visor, so crew out together can be told apart.
+            Spacer(Modifier.height(8.dp))
+            com.rm.apogee.ui.components.Swatches(
+                choices = com.rm.apogee.render.SuitColours.VISORS,
+                selected = member.visor,
+                onPick = { onVisor(member.id, it) },
+                size = 26.dp,
+            )
+        }
     }
 }

@@ -22,6 +22,7 @@ class CodecTest {
         val messages = listOf(
             ClientMessage.Hello(Protocol.VERSION, "abc123", "Pilot", "install-1"),
             ClientMessage.Hello(Protocol.VERSION, "abc123", "Pilot", "install-1", terrainGeneration = 7, systemHash = "0f1e2d3c4b5a6978"),
+            ClientMessage.Hello(Protocol.VERSION, "abc123", "Pilot", "install-1", stripe = 4),
             ClientMessage.CommandMessage(Command.SetThrottle(7, 0.75)),
             ClientMessage.CommandMessage(Command.Unlock("tanks")),
             ClientMessage.CommandMessage(Command.SetAttitude(7, 0.1, -0.2, 0.3)),
@@ -94,6 +95,8 @@ class CodecTest {
                     burns = listOf(com.rm.apogee.core.world.PlannedBurn(10.0, prograde = 5.0)),
                 )
             ),
+            // Someone out in a suit, in their colours.
+            ServerMessage.StructureMessage(StructureUpdate(3, name = "Hugo Ibarra", crew = listOf(listOf(12L)), stripe = 6, visor = 2)),
             ServerMessage.ChatMessage("Pilot", "hello"),
             ServerMessage.CraftSystems(
                 7, charge = 12.5f, capacity = 30f, net = -0.015f, powered = true,

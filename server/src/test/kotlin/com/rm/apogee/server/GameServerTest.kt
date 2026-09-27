@@ -62,10 +62,11 @@ class GameServerTest {
         clientId: String = "install-$name",
         terrainGeneration: Int = com.rm.apogee.core.terrain.TerrainField.GENERATION,
         systemHash: String = com.rm.apogee.core.orbit.SolarSystem.DEFAULT_HASH,
+        stripe: Int = -1,
     ): GameClient {
         val link = LoopbackTransportPair()
         server.accept(link.serverSide, scope)
-        val client = GameClient(link.clientSide, name, catalogHash, clientId, terrainGeneration, systemHash)
+        val client = GameClient(link.clientSide, name, catalogHash, clientId, terrainGeneration, systemHash, stripe)
         client.connect(scope)
         pumpUntil(server, "$name's handshake to resolve") {
             client.connected || client.rejectionReason != null
@@ -125,6 +126,23 @@ class GameServerTest {
     /**
      * Pause and warp belong to the solo player. The moment anyone else is on, time is everyone's.
      */
+    /** The stripe a player picked is kept with the world, and their suits show it to everyone. */
+    @Test
+    fun `a player's suit stripe reaches the world and the other players`() = runTest {
+        val world = World.default(catalog)
+        val server = GameServer(world, ServerConfig())
+        val alice = joinClient(server, backgroundScope, "Alice", stripe = 5)
+        assertEquals(5, world.stripes["install-Alice"])
+        pumpUntil(server, "a craft") { alice.controlledVessel != null }
+        val rocket = world.vessel(VesselId(alice.controlledVessel!!))!!
+        val pilot = rocket.crew.first { it.isNotEmpty() }.first()
+        val suit = world.eva(rocket.id.raw, pilot)!!
+        suit.ownerName = "Alice"
+        val bob = joinClient(server, backgroundScope, "Bob")
+        pumpUntil(server, "Bob to see Alice's suit") { bob.vessel(suit.id.raw)?.stripe == 5 }
+        assertEquals(com.rm.apogee.core.crew.Crew.visorOf(world.crew.getValue(pilot)), bob.vessel(suit.id.raw)!!.visor)
+    }
+
     @Test
     fun `pause and warp only while alone`() = runTest {
         val world = World.default(catalog)

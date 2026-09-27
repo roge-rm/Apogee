@@ -25,6 +25,9 @@ class HudState {
     // --- flight -------------------------------------------------------------
     var telemetry: FlightTelemetry by mutableStateOf(FlightTelemetry.EMPTY)
 
+    /** How the craft being flown gets about, for the words about it: "Keep sailing". */
+    var going: Going by mutableStateOf(Going.FLY)
+
     /**
      * Which status chip's detail is open ([STATUS_PARTS], [STATUS_CREW], [STATUS_DOCK],
      * [STATUS_BASE] or [STATUS_SHARED]), or null for none. Only one at a time.
@@ -98,6 +101,9 @@ class HudState {
     /** The next planned burn, and coming down. See [com.rm.apogee.ui.components.BurnPanel]. */
     var burn: com.rm.apogee.game.GameSession.BurnReadout? by mutableStateOf(null)
     var landing: com.rm.apogee.game.GameSession.LandingReadout? by mutableStateOf(null)
+
+    /** On the map, whether the path shown is one to plan burns on, or a course over the ground. */
+    var mapPlannable: Boolean by mutableStateOf(true)
     var window: com.rm.apogee.game.GameSession.WindowReadout? by mutableStateOf(null)
     var autopilotNote: String by mutableStateOf("")
 

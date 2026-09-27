@@ -34,6 +34,9 @@ class ClientVessel(
     @Volatile var burns: List<com.rm.apogee.core.world.PlannedBurn> = emptyList(),
     /** Who sits in each part, by crew id. Empty with nobody aboard. */
     @Volatile var crew: List<List<Long>> = emptyList(),
+    /** Someone in a suit: its stripe and visor, as [com.rm.apogee.core.crew.Crew] numbers them, or -1. */
+    @Volatile var stripe: Int = -1,
+    @Volatile var visor: Int = -1,
 ) {
     /** The two most recent snapshots, kept so the renderer can interpolate. */
     @Volatile var previous: VesselKinematics? = null
@@ -121,6 +124,8 @@ class GameClient(
     private val terrainGeneration: Int = com.rm.apogee.core.terrain.TerrainField.GENERATION,
     /** The worlds this build flies among. Only a test would pass anything else. */
     private val systemHash: String = com.rm.apogee.core.orbit.SolarSystem.DEFAULT_HASH,
+    /** The stripe this player's crew wear, or -1 to leave it to the server. */
+    private val stripe: Int = -1,
 ) {
     private val vesselsById = ConcurrentHashMap<Long, ClientVessel>()
 
@@ -218,6 +223,7 @@ class GameClient(
                         clientId = clientId,
                         terrainGeneration = terrainGeneration,
                         systemHash = systemHash,
+                        stripe = stripe,
                     )
                 ),
             )
@@ -305,6 +311,8 @@ class GameClient(
                             anchored = update.anchored,
                             burns = update.burns,
                             crew = update.crew,
+                            stripe = update.stripe,
+                            visor = update.visor,
                         )
                     } else {
                         existing.design = design
@@ -315,6 +323,8 @@ class GameClient(
                         existing.anchored = update.anchored
                         existing.burns = update.burns
                         existing.crew = update.crew
+                        existing.stripe = update.stripe
+                        existing.visor = update.visor
                     }
                 }
             }

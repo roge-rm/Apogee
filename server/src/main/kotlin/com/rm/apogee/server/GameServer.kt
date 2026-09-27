@@ -467,6 +467,15 @@ class GameServer(
             disconnect(session)
             return
         }
+        // The stripe their crew wear, kept with the world for when they're away. A change shows
+        // on their crew already out in suits too.
+        val stripe = hello.stripe.takeIf { it in 0 until com.rm.apogee.core.crew.Crew.STRIPES }
+        if (world.stripes[session.clientId] != stripe) {
+            if (stripe != null) world.stripes[session.clientId] = stripe else world.stripes.remove(session.clientId)
+            for (suit in world.vessels.filter { it.owner == session.clientId && it.design.parts.singleOrNull()?.partId == World.SUIT_PART }) {
+                broadcast(ServerMessage.StructureMessage(world.structureUpdateFor(suit)), Channel.STRUCTURE)
+            }
+        }
         session.handshakeComplete = true
 
         // A returning player gets their craft back, wherever they left it. That's what "persistent
@@ -493,7 +502,7 @@ class GameServer(
         val vessel = existing ?: if (config.assignCraftOnJoin && world.program == null) {
             // The nearest clear pad, so joining never drops a craft inside one already standing
             // there, not even one left from before a restart.
-            world.spawnAtSite(config.starterCraft(world.catalog), World.launchSites.first()).also {
+            world.spawnAtSite(config.starterCraft(world.catalog), World.launchSites.first(), legsOut = true).also {
                 world.assignOwner(it, session.clientId)
                 it.ownerName = session.playerName
             }

@@ -52,7 +52,7 @@ import com.rm.apogee.ui.theme.TelemetryTextStyle
 import com.rm.apogee.ui.theme.alpha
 
 /**
- * The player's craft. Tap it for the list of them all, where you can fly any of them or take one
+ * The player's craft. Tap it for the list of them all, where you can take up any of them or take one
  * out of the world. Hold it to retire the one you're flying and go back to the menu.
  */
 @OptIn(ExperimentalFoundationApi::class)
@@ -131,7 +131,7 @@ fun CraftSwitcher(
             confirmButton = {
                 TextButton(onClick = { retireAsked = false; onRetire() }) { Text("Retire", color = ApogeeColors.Danger) }
             },
-            dismissButton = { TextButton(onClick = { retireAsked = false }) { Text("Keep flying") } },
+            dismissButton = { TextButton(onClick = { retireAsked = false }) { Text(craft().firstOrNull { it.id == current() }?.going?.keep ?: "Keep going") } },
         )
     }
 }
@@ -180,11 +180,11 @@ private fun CraftList(
                         Action("REMOVE", ApogeeColors.Danger) { onRemove(summary) }
                         if (flying) {
                             Text(
-                                "FLYING", style = TelemetryTextStyle, color = ApogeeColors.Accent,
+                                summary.going.doing.uppercase(), style = TelemetryTextStyle, color = ApogeeColors.Accent,
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
                             )
                         } else if (summary.canFly) {
-                            Action("FLY", ApogeeColors.Accent) { onFly(summary.id) }
+                            Action(summary.going.verb.uppercase(), ApogeeColors.Accent) { onFly(summary.id) }
                         }
                     }
                 }

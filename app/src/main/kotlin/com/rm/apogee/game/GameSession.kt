@@ -94,7 +94,8 @@ class GameSession private constructor(
      */
     val mapCamera = CameraController(
         upReference = UpReference.FIXED,
-        minDistance = 1.0e6,
+        // Close enough to see a rover's course across a few kilometres of ground.
+        minDistance = 2_000.0,
         // Out to the whole system, because Ultima's orbit is five hundred million kilometres
         // across.
         maxDistance = 3.0e13,
@@ -593,6 +594,20 @@ class GameSession private constructor(
 
     private val controlledClient: ClientVessel?
         get() = client.controlledVessel?.let { id -> client.vessels.firstOrNull { it.id == id } }
+
+    /** How the craft being flown gets about, worked out again only when it changes. */
+    val controlledGoing: Going
+        get() {
+            val vessel = controlledClient ?: return Going.FLY
+            if (vessel.design !== goingDesign || vessel.anchored != goingAnchored) {
+                goingDesign = vessel.design; goingAnchored = vessel.anchored
+                going = Going.of(vessel.design, catalog, vessel.anchored)
+            }
+            return going
+        }
+    private var goingDesign: com.rm.apogee.core.craft.CraftDesign? = null
+    private var goingAnchored = false
+    private var going = Going.FLY
 
     /** Whether the craft being flown is someone out on EVA, in their suit. */
     val controlledIsSuit: Boolean
@@ -1260,12 +1275,15 @@ class GameSession private constructor(
                     above < 2.0 && body.terrain?.isOcean(bodyFixed) == true -> "Afloat on ${body.displayName}"
                     above < 2.0 -> "Landed on ${body.displayName}"
                     orbit.isBound && orbit.periapsis > floor -> "In orbit of ${body.displayName}"
-                    else -> "Flying over ${body.displayName}"
+                    else -> "${Going.aloft(vessel.design, catalog)} over ${body.displayName}"
                 }
                 val height = if (depth > UNDER_SEA) "%.0f m down".format(depth)
                     else if (above < 2.0) "on the surface"
                     else if (above < 10_000.0) "%.0f m up".format(above) else "%.1f km up".format(above / 1000.0)
-                com.rm.apogee.ui.screens.CraftSummary(vessel.id, vessel.name, situation, height, canReset = false, canFly = !flag)
+                com.rm.apogee.ui.screens.CraftSummary(
+                    vessel.id, vessel.name, situation, height, canReset = false, canFly = !flag,
+                    going = Going.of(vessel.design, catalog, vessel.anchored),
+                )
             }
     }
 
@@ -1409,32 +1427,65 @@ class GameSession private constructor(
         var focusDrawn: Vec3 = focusState.position
 
         if (mapMode) {
-            // Look at the planet, not the craft. In map view the question is the shape of the path,
-            // and that only makes sense against the body it goes around.
             val orbit = Orbit(
                 position = focusState.position,
                 velocity = focusState.velocity,
                 mu = attractor.gravitationalParameter,
             )
-            val plan = planner.plan?.takeIf { it.bodyId == attractor.id }
-            // The whole path in view, out to a moon and back if that's where it goes.
-            val drawn = if (plan != null) planLines(plan, attractor.id) else emptyList()
-            var reach = if (orbit.isBound) orbit.apoapsis else orbit.periapsis * 4.0
-            if (drawn.isNotEmpty()) reach = drawn.maxOf { line -> line.points.maxOf { it.length } }
-            mapCamera.frameExactly(maxOf(reach, attractor.radius * 1.5))
-            mapCamera.solve(Vec3.zero(), cameraPosition, cameraRotation)
-
-            if (plan == null) {
-                lines.add(RenderLine(orbit.sample(192), ORBIT_COLOR))
-                if (orbit.isBound) {
-                    lines.add(marker(orbit.propagate(orbit.timeToApoapsis).position, reach, APOAPSIS_COLOR))
-                    lines.add(marker(orbit.propagate(orbit.timeToPeriapsis).position, reach, PERIAPSIS_COLOR))
-                }
-            } else {
-                lines.addAll(drawn)
-                planMarkers(plan, attractor.id, reach, lines)
+            // A hop that comes down before it gets anywhere, with no burn planned, goes by the fall
+            // over the real ground: the planner's path is cut short at the datum, and in a basin
+            // below it, like Luna's mare, that's before it's even started.
+            val highest = attractor.radius + maxOf(attractor.terrain?.maxElevation ?: 0.0, 0.0)
+            val plan = planner.plan?.takeIf { it.bodyId == attractor.id && (it.burn != null || orbit.periapsis > highest) }
+            // Where it's going: falling free, the path predicted for it (with any burns planned) or
+            // its orbit, and driving, sailing or flying in the air, its course over the ground.
+            val free = fallingFree(attractor, focusState, renderTime, rocket = focus.design.let { d ->
+                if (d !== mapKindDesign) { mapKindDesign = d; mapRocket = com.rm.apogee.core.craft.CraftKind.of(d, catalog) == com.rm.apogee.core.craft.CraftKind.ROCKET }
+                mapRocket
+            })
+            mapPlannable = free
+            val drawn = if (plan != null && free) planLines(plan, attractor.id) else emptyList()
+            val course = if (!free) courseLine(attractor, focusState, renderTime) else null
+            val fall = if (plan == null && free) fallLine(attractor, orbit, renderTime) else null
+            val craft = focusState.position
+            if (mapFramedFor != focusId) {
+                // Opened over the craft, looking straight down on it, with where it's going in view.
+                // After that the view is the player's, to pinch and turn.
+                mapFramedFor = focusId
+                var span = 0.0
+                for (line in drawn + listOfNotNull(course?.first, fall?.first)) for (p in line.points) span = maxOf(span, p.distanceTo(craft))
+                val down = craft.normalized()
+                mapCamera.pitch = kotlin.math.asin(down.y.coerceIn(-1.0, 1.0))
+                mapCamera.yaw = kotlin.math.atan2(down.x, down.z)
+                mapCamera.frameExactly(if (!free) maxOf(span, MAP_LOCAL) else span)
             }
-            keepMapView(plan, attractor, renderTime, cameraPosition, cameraRotation, reach)
+            mapCamera.solve(craft, cameraPosition, cameraRotation)
+            // How much the view takes in, which the markers are sized to.
+            val reach = mapCamera.distance / 2.4
+
+            when {
+                !free -> if (course != null) {
+                    lines.addAll(thick(course.first, reach * COURSE_WIDTH))
+                    // No bigger than a third of the way to the next, so they never run together.
+                    val ticks = course.second
+                    val gap = if (ticks.size > 1) ticks[0].distanceTo(ticks[1]) else Double.MAX_VALUE
+                    for (tick in ticks) lines.add(dot(tick, minOf(reach * TICK_FRACTION, gap / 3.0), COURSE_COLOR))
+                }
+                plan != null -> {
+                    lines.addAll(drawn)
+                    planMarkers(plan, attractor.id, reach, lines)
+                }
+                fall != null -> {
+                    lines.addAll(thick(fall.first, reach * COURSE_WIDTH))
+                    val lands = fall.second
+                    if (lands != null) lines.add(marker(lands, reach, IMPACT_COLOR))
+                    else if (orbit.isBound) {
+                        lines.add(marker(orbit.propagate(orbit.timeToApoapsis).position, reach, APOAPSIS_COLOR))
+                        lines.add(marker(orbit.propagate(orbit.timeToPeriapsis).position, reach, PERIAPSIS_COLOR))
+                    }
+                }
+            }
+            keepMapView(plan?.takeIf { free }, attractor, renderTime, cameraPosition, cameraRotation, reach)
             moonLines(attractor, renderTime, lines)
             // The worlds in view, each one marked, because past the giants a planet is far less
             // than a pixel.
@@ -1464,6 +1515,8 @@ class GameSession private constructor(
                 lines.add(marker(seen.position, reach * 0.6, FLAG_COLOR))
             }
         } else {
+            // Next time the map opens, it opens over the craft again.
+            mapFramedFor = Long.MIN_VALUE
             // Much smaller than it was, with the rest of it smashed or torn away, so come in to see
             // what's left.
             if (!wrecked && focus.design.parts.size < framedParts && framedFor == focusId) {
@@ -1590,7 +1643,13 @@ class GameSession private constructor(
                 seenFelledRevision = client.felledRevision
                 prediction.felled(client.felledScatter)
             }
-            builder.followCraft(
+            if (mapMode) {
+                // On the map, the ground's detail goes where the map is looking from, the way it
+                // would for a craft that high. Left around the craft, a rover's map was the coarse
+                // globe everywhere but a few kilometres round it.
+                attractor.toBodyFixed(cameraPosition, bodyRotation, mapTerrainCamera)
+                builder.followCraft(attractor, mapTerrainCamera, attractor.heightAboveTerrain(cameraPosition, mapTerrainCamera), terrainScope)
+            } else builder.followCraft(
                 attractor,
                 bodyFixedCamera,
                 attractor.heightAboveTerrain(focusState.position, bodyFixedCamera),
@@ -1966,6 +2025,114 @@ class GameSession private constructor(
             Triple(b.id, system.positionOf(b.id, time).subInPlace(here), b.radius)
         }
         mapView = MapView(camera.copy(), rotation.copy(), times, points, plan.burnPoint?.copy(), bodies, reach, foundPlaces(attractor, time))
+    }
+
+    private val mapTerrainCamera = Vec3()
+
+    /** On the map, whether the path shown is one to plan burns on, or a course over the ground. */
+    @Volatile var mapPlannable = true
+        private set
+
+    /** On (or under) a sea, near enough its surface. Ground below the datum isn't sea. */
+    private fun afloat(attractor: CelestialBody, position: Vec3): Boolean =
+        attractor.ocean != null && attractor.altitudeOf(position) < AFLOAT
+
+    /** Whether the craft the map was last drawn for is a rocket, worked out once per design. */
+    private var mapKindDesign: com.rm.apogee.core.craft.CraftDesign? = null
+    private var mapRocket = false
+
+    /** Which craft the map view was last opened over, so it only frames itself once. */
+    private var mapFramedFor = Long.MIN_VALUE
+
+    /**
+     * Whether the craft in [state] is falling freely, so its orbit is where it's going: off the
+     * ground and out of the water, and above the air, or where there's none, or near enough orbital
+     * speed that the air hardly bends its path. Anything else (driving, sailing, flying on wings or
+     * rotors) goes where it's steered, and gets its course over the ground drawn instead.
+     */
+    private fun fallingFree(attractor: CelestialBody, state: com.rm.apogee.core.world.VesselKinematics, time: Double, rocket: Boolean): Boolean {
+        val position = state.position
+        val fixed = attractor.toBodyFixed(position, attractor.rotationAt(time))
+        if (attractor.heightAboveTerrain(position, fixed) < GROUNDED || afloat(attractor, position)) return false
+        // A rocket off the ground is on its way up or down, and its path is what matters.
+        if (rocket || attractor.atmosphere == null || attractor.altitudeOf(position) > attractor.atmosphereHeight) return true
+        val over = attractor.surfaceVelocityAt(position, Vec3()).negateInPlace().addInPlace(state.velocity).length
+        return over > kotlin.math.sqrt(attractor.gravitationalParameter / position.length) * NEAR_ORBITAL
+    }
+
+    /**
+     * The craft's course over the ground for the next [COURSE_SECONDS] at the speed it's going now,
+     * along a great circle, on the ground (or, flying, at its height), with a point at each minute.
+     * Null when it's hardly moving.
+     */
+    private fun courseLine(attractor: CelestialBody, state: com.rm.apogee.core.world.VesselKinematics, time: Double): Pair<RenderLine, List<Vec3>>? {
+        val position = state.position
+        val up = position.normalized()
+        val over = attractor.surfaceVelocityAt(position, Vec3()).negateInPlace().addInPlace(state.velocity)
+        over.addScaledInPlace(up, -(over dot up))
+        val speed = over.length
+        if (speed < COURSE_SLOWEST) return null
+        val along = over.mulInPlace(1.0 / speed)
+        val rotation = attractor.rotationAt(time)
+        val fixed = attractor.toBodyFixed(position, rotation)
+        val flying = attractor.heightAboveTerrain(position, fixed) > GROUNDED && !afloat(attractor, position)
+        val length = minOf(speed * COURSE_SECONDS, attractor.radius * COURSE_MOST)
+        val sea = attractor.ocean != null
+        fun at(distance: Double): Vec3 {
+            val angle = distance / attractor.radius
+            val d = Vec3().setTo(up).mulInPlace(kotlin.math.cos(angle)).addScaledInPlace(along, kotlin.math.sin(angle))
+            val elevation = attractor.terrain?.elevation(rotation.inverseRotate(d, Vec3()))?.let { if (sea) maxOf(it, 0.0) else it } ?: 0.0
+            val ground = attractor.radius + elevation
+            return d.mulInPlace(if (flying) maxOf(position.length, ground) else ground)
+        }
+        val points = (0..COURSE_STEPS).map { at(length * it / COURSE_STEPS) }
+        val ticks = ArrayList<Vec3>()
+        // A mark a minute, or every few when they'd crowd together.
+        val every = 60.0 * maxOf(1.0, kotlin.math.ceil(length / COURSE_TICKS_MOST / (speed * 60.0)))
+        var minute = every
+        while (speed * minute <= length) { ticks.add(at(speed * minute)); minute += every }
+        return RenderLine(points, COURSE_COLOR) to ticks
+    }
+
+    /**
+     * [line] drawn [width] wide, as copies of it either side along the ground, because a line on
+     * its own is a single pixel and a course across the ground got lost in it.
+     */
+    private fun thick(line: RenderLine, width: Double): List<RenderLine> {
+        val points = line.points
+        if (points.size < 2) return listOf(line)
+        val sides = points.indices.map { i ->
+            val along = points[minOf(i + 1, points.size - 1)] - points[maxOf(i - 1, 0)]
+            points[i].cross(along).normalizeInPlace()
+        }
+        return listOf(-1.0, -0.5, 0.0, 0.5, 1.0).map { k ->
+            RenderLine(points.indices.map { i -> points[i] + sides[i] * (k * width) }, line.color)
+        }
+    }
+
+    /**
+     * The craft's path through space: the whole orbit, or, if it comes down, the arc until it meets
+     * the ground, and where.
+     */
+    private fun fallLine(attractor: CelestialBody, orbit: Orbit, time: Double): Pair<RenderLine, Vec3?> {
+        val highest = attractor.radius + maxOf(attractor.terrain?.maxElevation ?: 0.0, 0.0)
+        if (orbit.periapsis > highest) return RenderLine(orbit.sample(192), ORBIT_COLOR) to null
+        val span = if (orbit.isBound) orbit.period else FALL_LONGEST
+        val sea = attractor.ocean != null
+        val points = ArrayList<Vec3>(FALL_STEPS + 1)
+        points.add(orbit.position.copy())
+        for (k in 1..FALL_STEPS) {
+            val t = span * k / FALL_STEPS
+            val p = orbit.propagate(t).position
+            val fixed = attractor.rotationAt(time + t).inverseRotate(p.normalized(), Vec3())
+            val elevation = attractor.terrain?.elevation(fixed)?.let { if (sea) maxOf(it, 0.0) else it } ?: 0.0
+            if (p.length <= attractor.radius + elevation) {
+                points.add(p)
+                return RenderLine(points, ORBIT_COLOR) to p
+            }
+            points.add(p)
+        }
+        return RenderLine(points, ORBIT_COLOR) to null
     }
 
     /**
@@ -3670,7 +3837,13 @@ class GameSession private constructor(
             val sock = placed.partId == WINDSOCK_PART
             for ((piece, leaf) in leaves.withIndex()) {
                 val lit = lamp && leaf.tint == com.rm.apogee.core.part.Tint.LIGHT
-                val base = if (lit) LAMP_COLOUR else PartModels.colour(leaf.tint, body)
+                val base = when {
+                    lit -> LAMP_COLOUR
+                    // Someone in a suit wears their player's stripe and their own visor.
+                    vessel.stripe >= 0 && leaf.tint == com.rm.apogee.core.part.Tint.ACCENT -> com.rm.apogee.render.SuitColours.stripe(vessel.stripe)
+                    vessel.visor >= 0 && leaf.tint == com.rm.apogee.core.part.Tint.GLASS -> com.rm.apogee.render.SuitColours.visor(vessel.visor)
+                    else -> PartModels.colour(leaf.tint, body)
+                }
                 val leafPosition = if (dent == null) leaf.position
                     else Vec3(leaf.position.x * dent.x, leaf.position.y * dent.y, leaf.position.z * dent.z)
                 var leafWorld = partRotation.rotate(leafPosition).addInPlace(scratch)
@@ -4195,6 +4368,39 @@ class GameSession private constructor(
         private const val MARKER_FRACTION = 0.022
 
         private val ORBIT_COLOR = floatArrayOf(0.70f, 0.62f, 1.0f, 1f)
+
+        /** A craft's course over the ground on the map, and its minute marks. */
+        private val COURSE_COLOR = floatArrayOf(0.55f, 0.90f, 0.95f, 1f)
+        private const val TICK_FRACTION = 0.012
+
+        /** How wide the course is drawn, as a share of what the map takes in. About three pixels. */
+        private const val COURSE_WIDTH = 0.0015
+
+        /** Where a falling craft comes down. */
+        private val IMPACT_COLOR = floatArrayOf(1.0f, 0.45f, 0.35f, 1f)
+
+        /** How far ahead the course over the ground goes, in seconds, and at most, in radians of the world. */
+        private const val COURSE_SECONDS = 600.0
+        private const val COURSE_MOST = 1.0
+        private const val COURSE_STEPS = 64
+        private const val COURSE_TICKS_MOST = 10.0
+
+        /** Slower than this over the ground, in m/s, there's no course to draw. */
+        private const val COURSE_SLOWEST = 0.5
+
+        /** Closer than this over the ground or the sea, in metres, it's on it, not falling. */
+        private const val GROUNDED = 5.0
+        private const val AFLOAT = 2.0
+
+        /** In the air, this share of orbital speed and up, it's falling, not flying. */
+        private const val NEAR_ORBITAL = 0.5
+
+        /** How long ahead an escaping path is looked along for the ground, in seconds, and in how many steps. */
+        private const val FALL_LONGEST = 3_600.0
+        private const val FALL_STEPS = 240
+
+        /** How much the map takes in, in metres, opened on something that isn't falling. */
+        private const val MAP_LOCAL = 30_000.0
         private val APOAPSIS_COLOR = floatArrayOf(0.49f, 1.0f, 0.70f, 1f)
         private val PERIAPSIS_COLOR = floatArrayOf(1.0f, 0.83f, 0.50f, 1f)
         private val CRAFT_COLOR = floatArrayOf(1.0f, 1.0f, 1.0f, 1f)
@@ -4262,6 +4468,8 @@ class GameSession private constructor(
             perfHints: PerfHints?,
             playerName: String,
             clientId: String,
+            /** The stripe this player's crew wear, or -1 to leave it to the server. */
+            stripe: Int = -1,
             serverName: String,
             design: CraftDesign? = null,
             catalog: PartCatalog = StockParts.catalog,
@@ -4272,7 +4480,7 @@ class GameSession private constructor(
             world: World = World.default(catalog),
         ): GameSession {
             val session = hostLocal(
-                frameBus, perfHints, playerName, clientId, design, catalog, scope,
+                frameBus, perfHints, playerName, clientId, stripe, design, catalog, scope,
                 // The name has to reach the server config, not just the beacon. It's what the
                 // welcome message reports, so a joining player sees the name they picked in the
                 // browser.
@@ -4296,6 +4504,8 @@ class GameSession private constructor(
             perfHints: PerfHints?,
             playerName: String,
             clientId: String,
+            /** The stripe this player's crew wear, or -1 to leave it to the server. */
+            stripe: Int = -1,
             host: String,
             port: Int,
             catalog: PartCatalog = StockParts.catalog,
@@ -4305,7 +4515,7 @@ class GameSession private constructor(
                 perfHints = perfHints,
                 catalog = catalog,
                 hostedServer = null,
-                client = GameClient(transport, playerName, catalog.contentHash, clientId),
+                client = GameClient(transport, playerName, catalog.contentHash, clientId, stripe = stripe),
                 transport = transport,
             )
         }
@@ -4318,6 +4528,8 @@ class GameSession private constructor(
             perfHints: PerfHints?,
             playerName: String,
             clientId: String,
+            /** The stripe this player's crew wear, or -1 to leave it to the server. */
+            stripe: Int = -1,
             /** What to fly. Null falls back to the stock rocket. */
             design: CraftDesign? = null,
             catalog: PartCatalog = StockParts.catalog,
@@ -4379,7 +4591,7 @@ class GameSession private constructor(
             val link = LoopbackTransportPair()
             server.accept(link.serverSide, scope)
 
-            val client = GameClient(link.clientSide, playerName, catalog.contentHash, clientId)
+            val client = GameClient(link.clientSide, playerName, catalog.contentHash, clientId, stripe = stripe)
             return GameSession(
                 frameBus, perfHints, catalog, server, client, link.clientSide,
                 launchDesign = design,

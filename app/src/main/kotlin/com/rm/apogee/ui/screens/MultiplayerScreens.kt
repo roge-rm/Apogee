@@ -89,7 +89,7 @@ fun HostGameScreen(
             "Start hosting",
             onStartHosting,
             contentModifier,
-            subtitle = "You'll fly while others join",
+            subtitle = "You'll play while others join",
         )
     }
 }
@@ -259,7 +259,7 @@ private fun ServerRow(
                 // Naming the reason matters. "Different parts" is something you can act on, and a
                 // greyed-out row that says nothing isn't.
                 incompatibility ?: "${server.beacon.address}  ·  " +
-                    "${server.beacon.players} flying",
+                    "${server.beacon.players} playing",
                 style = MaterialTheme.typography.labelSmall,
                 color = if (joinable) Color.White.alpha(ApogeeAlpha.SUBTITLE)
                 else ApogeeColors.Caution,

@@ -365,9 +365,10 @@ class GlRenderer(
             drawItems(latest.farItems, null, latest, 0.0, cameraPos, farViewProjection.m)
             drawCloudShell(world, cameraPos)
             mark(5)
-            // Paths belong in the far pass. An orbit is hundreds of kilometres across and would get
-            // clipped away by the near frustum.
-            drawLines(latest, cameraPos)
+            // Paths go through the far projection, since an orbit is hundreds of kilometres across
+            // and the near frustum would clip it away. They're drawn last, over everything: close in
+            // on the map, the ground drawn in the near pass covered a rover's course.
+            linesDue = true
 
             // Take back the whole depth range for the near pass.
             GLES30.glClear(GLES30.GL_DEPTH_BUFFER_BIT)
@@ -398,6 +399,12 @@ class GlRenderer(
             )
         }
         mark(11)
+        if (linesDue) {
+            linesDue = false
+            GLES30.glDisable(GLES30.GL_DEPTH_TEST)
+            drawLines(latest, cameraPos)
+            GLES30.glEnable(GLES30.GL_DEPTH_TEST)
+        }
         if (timePasses) synchronized(passNanos) {
             passFrames++
             passItems += latest.items.size
@@ -659,6 +666,9 @@ class GlRenderer(
      * path, instead of being sliced into arcs by its own far side, which is the whole point of a
      * map view.
      */
+    /** Whether this frame's far pass set up the lines to be drawn at its end. */
+    private var linesDue = false
+
     private fun drawLines(frame: RenderFrame, cameraPos: Vec3) {
         if (frame.lines.isEmpty()) return
         val shader = lineProgram ?: return

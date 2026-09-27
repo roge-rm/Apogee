@@ -78,11 +78,17 @@ fun BurnPanel(
     modifier: Modifier = Modifier,
     window: GameSession.WindowReadout? = null,
     align: Alignment.Horizontal = Alignment.End,
+    /** On the map, whether the path shown is one to plan burns on, or a course over the ground. */
+    plannable: Boolean = true,
 ) {
     Column(modifier, horizontalAlignment = align, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         if (mapMode) {
             window?.let { WindowChip(it) }
-            if (burn != null) BurnEditor(burn, actions) else Hint("Tap your path to plan a burn · tap a world to target it")
+            when {
+                burn != null -> BurnEditor(burn, actions)
+                plannable -> Hint("Tap your path to plan a burn · tap a world to target it")
+                else -> Hint("Your course for the next ten minutes, a dot a minute")
+            }
         } else {
             burn?.let { BurnChip(it, actions) }
             landing?.takeIf { it.impactIn in 0.0..LANDING_SHOWN }?.let { LandingChip(it, actions) }

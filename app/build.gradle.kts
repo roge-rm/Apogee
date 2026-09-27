@@ -1,9 +1,19 @@
 // AGP 9 supplies Kotlin support itself, so there's no kotlin-android plugin here, only the separate
 // Compose compiler plugin.
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
 }
+
+// Release signing comes from ../Keys/apogee-keystore.properties, beside the project rather than in
+// it (the same layout as my other apps), so neither the keystore nor its passwords can ever be
+// committed. Without that file, on a fresh clone say, the release build is just unsigned.
+val signingProperties: Properties? = rootProject.file("../Keys/apogee-keystore.properties")
+    .takeIf { it.exists() }
+    ?.let { f -> Properties().apply { f.inputStream().use { load(it) } } }
+val releaseStoreFile = signingProperties?.getProperty("storeFile")
 
 android {
     namespace = "com.rm.apogee"
@@ -23,8 +33,8 @@ android {
         // change. Note that this isn't what decides whether a client can join a server.
         // Protocol.VERSION and the part catalogue's content hash do that, and they move on their
         // own.
-        versionCode = 30
-        versionName = "0.8.5"
+        versionCode = 31
+        versionName = "0.8.6"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -49,10 +59,24 @@ android {
         }
     }
 
+    signingConfigs {
+        if (releaseStoreFile != null) {
+            create("release") {
+                storeFile = file(releaseStoreFile)
+                storePassword = signingProperties?.getProperty("storePassword")
+                keyAlias = signingProperties?.getProperty("keyAlias")
+                keyPassword = signingProperties?.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
             optimization {
                 enable = false
+            }
+            if (releaseStoreFile != null) {
+                signingConfig = signingConfigs.getByName("release")
             }
         }
     }

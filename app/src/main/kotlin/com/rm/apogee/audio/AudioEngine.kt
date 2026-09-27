@@ -41,12 +41,32 @@ object AudioEngine {
      * sound does, its recipe, flags, and [SharedParams.COUNT] parameters in [params].
      */
     fun scene(count: Int, keys: IntArray, recipes: IntArray, flags: IntArray, params: FloatArray) {
+        if (logging) logScene(count, recipes, params)
         if (running) nativeScene(count, keys, recipes, flags, params)
     }
 
     /** A one-shot, [delay] seconds from now. */
     fun event(recipe: Int, flags: Int, seed: Int, delay: Float, params: FloatArray) {
+        if (logging) eventsSince[recipe] = (eventsSince[recipe] ?: 0) + 1
         if (running) nativeEvent(recipe, flags, seed, delay, params)
+    }
+
+    /** Logs what's playing every two seconds under "ApogeeSound", for the `debug-sound` switch. */
+    @Volatile
+    var logging = false
+    private var loggedNanos = 0L
+    private val eventsSince = HashMap<Int, Int>()
+
+    private fun logScene(count: Int, recipes: IntArray, params: FloatArray) {
+        val now = System.nanoTime()
+        if (now - loggedNanos < 2_000_000_000L) return
+        loggedNanos = now
+        val held = (0 until count).joinToString(" ") { i ->
+            val o = i * SharedParams.COUNT
+            "r${recipes[i]}[" + (0 until SharedParams.COUNT).joinToString(",") { "%.2f".format(params[o + it]) } + "]"
+        }
+        Log.i("ApogeeSound", "held $held · shots $eventsSince")
+        eventsSince.clear()
     }
 
     /** Loudness of each [Buses] entry, 0..1. */

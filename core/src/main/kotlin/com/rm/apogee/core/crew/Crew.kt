@@ -26,9 +26,27 @@ data class CrewMember(
     val lostHow: String = "",
     /** The craft they were lost with, by id, or -1 if it isn't known. */
     val lastVessel: Long = -1L,
+    /** Their visor's colour, 0 until [Crew.VISORS], or -1 for one of their own. See [Crew.visorOf]. */
+    val visor: Int = -1,
 )
 
 object Crew {
+
+    /**
+     * How many stripe colours a suit can have, and how many visor colours. A player's stripe is the
+     * same on all their crew, so you can tell whose they are, and each one's visor is their own,
+     * so crew out together can be told apart. The colours themselves are the app's.
+     */
+    const val STRIPES = 8
+    const val VISORS = 8
+
+    /** [member]'s visor: the one picked for them, or else one of their own, from their id. */
+    fun visorOf(member: CrewMember): Int =
+        if (member.visor in 0 until VISORS) member.visor else Math.floorMod(member.id - 1, VISORS.toLong()).toInt()
+
+    /** The stripe [owner]'s crew wear: the one they [picked], or else one from who they are. */
+    fun stripeFor(owner: String, picked: Int?): Int =
+        if (picked != null && picked in 0 until STRIPES) picked else Math.floorMod(owner.hashCode(), STRIPES)
 
     /** How many people part [def] seats: a pod's or cockpit's crew, or a habitat's residents. */
     fun seatsIn(def: PartDef): Int =

@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.rm.apogee.render.QualityTier
@@ -31,6 +32,12 @@ class GameSettings(context: Context) {
 
     /** What other players see. It's only cosmetic. See [clientId]. */
     var playerName: String by stringPref(KEY_PLAYER_NAME, "Pilot")
+
+    /**
+     * The stripe on your crew's suits, as [com.rm.apogee.core.crew.Crew] numbers them, or -1 for
+     * one picked from who you are.
+     */
+    var suitStripe: Int by intPref(KEY_SUIT_STRIPE, -1, -1 until com.rm.apogee.core.crew.Crew.STRIPES)
 
     /**
      * This install's identity, made once and never shown as something to edit.
@@ -197,6 +204,17 @@ class GameSettings(context: Context) {
             }
         }
 
+    private fun intPref(key: String, default: Int, range: IntRange) =
+        object : kotlin.properties.ReadWriteProperty<Any?, Int> {
+            private var state by mutableIntStateOf(prefs.getInt(key, default).coerceIn(range))
+            override fun getValue(thisRef: Any?, property: kotlin.reflect.KProperty<*>) = state
+            override fun setValue(thisRef: Any?, property: kotlin.reflect.KProperty<*>, value: Int) {
+                val clamped = value.coerceIn(range)
+                state = clamped
+                prefs.edit().putInt(key, clamped).apply()
+            }
+        }
+
     private inline fun <reified T : Enum<T>> enumPref(key: String, default: T) =
         object : kotlin.properties.ReadWriteProperty<Any?, T> {
             // An unknown stored name (a value from a later version, or one that's been removed
@@ -235,6 +253,7 @@ class GameSettings(context: Context) {
 
     private companion object {
         const val KEY_PLAYER_NAME = "player_name"
+        const val KEY_SUIT_STRIPE = "suit_stripe"
         const val KEY_CLIENT_ID = "client_id"
         const val KEY_LAST_SERVER = "last_server_address"
         const val KEY_CONTROL_OPACITY = "control_opacity"

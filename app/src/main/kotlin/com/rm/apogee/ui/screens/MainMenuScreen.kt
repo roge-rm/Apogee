@@ -87,7 +87,7 @@ fun PlayScreen(
         // scratch, in the Vehicle Assembly.
         if (!career) {
             ApogeeButton(
-                "Free Flight",
+                "Quick Launch",
                 { onNavigate(AppScreen.FLIGHT) },
                 contentModifier,
                 subtitle = "A fresh craft on the pad, in place of your last one",
@@ -96,10 +96,10 @@ fun PlayScreen(
         // When in the day to go up, for Free Flight and the builder's launches.
         LaunchTimeRow(chosen, contentModifier) { chosen = it; onLaunchTime(it) }
         ApogeeButton(
-            "Resume Flight",
+            "Out There",
             { onNavigate(AppScreen.RESUME_FLIGHT) },
             contentModifier,
-            subtitle = "Fly any craft you left out there, or tidy them away",
+            subtitle = "Go back to any craft you left out there, or tidy them away",
         )
         ApogeeButton(
             "Crew",

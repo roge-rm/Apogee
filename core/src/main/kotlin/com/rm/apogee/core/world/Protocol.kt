@@ -368,6 +368,12 @@ data class StructureUpdate(
     val burns: List<PlannedBurn> = emptyList(),
     /** Who sits in each part, by crew id, in part order. Empty with nobody aboard. */
     val crew: List<List<Long>> = emptyList(),
+    /**
+     * For someone out in a suit, its colours: the stripe their player picked and their own visor,
+     * as [com.rm.apogee.core.crew.Crew] numbers them. -1 for anything else.
+     */
+    val stripe: Int = -1,
+    val visor: Int = -1,
 )
 
 /** Server to client. */
@@ -701,6 +707,8 @@ sealed interface ClientMessage {
          * weather. Two builds with different worlds can't share a game.
          */
         val systemHash: String = "",
+        /** The stripe this player's crew wear, or -1 to leave it to the server. See [com.rm.apogee.core.crew.Crew.stripeFor]. */
+        val stripe: Int = -1,
     ) : ClientMessage
 
     @Serializable
@@ -736,5 +744,6 @@ object Protocol {
     //     flaps in the pose, winch lines in the snapshot, the new CraftSystems fields.
     // 20: rotors and lighter than air - SetStationKeep, the keeper, lift and ballonet in
     //     CraftSystems.
-    const val VERSION = 20
+    // 21: suit colours - Hello.stripe, StructureUpdate.stripe and visor.
+    const val VERSION = 21
 }
