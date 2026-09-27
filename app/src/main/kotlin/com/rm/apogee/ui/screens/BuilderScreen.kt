@@ -447,6 +447,7 @@ fun BuilderScreen(
     if (showLoadDialog) {
         LoadDialog(
             session = session,
+            pictures = pictures,
             onDismiss = { showLoadDialog = false },
         )
     }
@@ -835,7 +836,7 @@ private fun NameDialog(initial: String, onDismiss: () -> Unit, onConfirm: (Strin
 }
 
 @Composable
-private fun LoadDialog(session: BuilderSession, onDismiss: () -> Unit) {
+private fun LoadDialog(session: BuilderSession, pictures: Map<String, ImageBitmap>, onDismiss: () -> Unit) {
     // Deleting is permanent (there's no undo for a file), so it asks first.
     var confirmDelete by remember { mutableStateOf<com.rm.apogee.core.craft.SavedCraft?>(null) }
     confirmDelete?.let { doomed ->
@@ -857,46 +858,90 @@ private fun LoadDialog(session: BuilderSession, onDismiss: () -> Unit) {
         onDismissRequest = onDismiss,
         title = { Text("Load craft") },
         text = {
+            val entries = session.loadEntries
             if (session.savedCraft.isEmpty()) {
                 Text("No saved craft yet.")
+            } else if (entries.isEmpty()) {
+                Text("Reading your craft…", color = Color.White.alpha(ApogeeAlpha.SUBTITLE))
             } else {
-                val list = rememberLazyListState()
-                LazyColumn(Modifier.verticalScrollbar(list), state = list) {
-                    items(session.savedCraft) { saved ->
-                        Row(
-                            Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    session.load(saved)
-                                    onDismiss()
+                // Tabs for the kinds there are, and All. Newest first within each.
+                val kinds = com.rm.apogee.core.craft.CraftKind.entries.filter { k -> entries.any { it.kind == k } }
+                var chosen by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
+                val kind = kinds.firstOrNull { it.name == chosen }
+                Column {
+                    // Wrapping onto a second line when they don't fit, so none are hidden off the edge.
+                    @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+                    androidx.compose.foundation.layout.FlowRow(
+                        Modifier.padding(bottom = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        KindTab("All", kind == null) { chosen = null }
+                        for (k in kinds) KindTab(k.label, k == kind) { chosen = k.name }
+                    }
+                    val shown = if (kind == null) entries else entries.filter { it.kind == kind }
+                    val list = rememberLazyListState()
+                    LazyColumn(Modifier.heightIn(max = 460.dp).verticalScrollbar(list), state = list) {
+                        items(shown, key = { it.saved.fileName }) { entry ->
+                            val saved = entry.saved
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(Dimens.CornerTight))
+                                    .clickable {
+                                        session.load(saved)
+                                        onDismiss()
+                                    }
+                                    .padding(vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Box(
+                                    Modifier
+                                        .size(56.dp)
+                                        .clip(RoundedCornerShape(Dimens.CornerTight))
+                                        .background(Color.White.alpha(ApogeeAlpha.FILL_FAINT)),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    pictures[entry.picture]?.let { androidx.compose.foundation.Image(it, contentDescription = null, modifier = Modifier.size(56.dp)) }
                                 }
-                                .padding(vertical = 10.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Column {
-                                Text(saved.name, style = MaterialTheme.typography.bodyMedium)
-                                Text(
-                                    "${saved.partCount} parts",
-                                    style = MaterialTheme.typography.labelSmall,
-                                )
-                                // In a career, what it's waiting on.
-                                val waiting = session.lockedParts().filterKeys { it in saved.partIds }.values.toSet()
-                                if (waiting.isNotEmpty()) {
-                                    Text(
-                                        "Needs ${waiting.joinToString(", ")}",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = ApogeeColors.Caution,
-                                    )
+                                Spacer(Modifier.width(10.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text(saved.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                                    Text(entry.summary, style = MaterialTheme.typography.labelSmall, color = Color.White.alpha(ApogeeAlpha.SUBTITLE), maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                                    // In a career, what it's waiting on.
+                                    val waiting = session.lockedParts().filterKeys { it in saved.partIds }.values.toSet()
+                                    if (waiting.isNotEmpty()) {
+                                        Text(
+                                            "Needs ${waiting.joinToString(", ")}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = ApogeeColors.Caution,
+                                        )
+                                    }
                                 }
+                                TextButton(onClick = { confirmDelete = saved }) { Text("Delete") }
                             }
-                            TextButton(onClick = { confirmDelete = saved }) { Text("Delete") }
                         }
                     }
                 }
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+    )
+}
+
+/** One kind of craft to show in the load list, lit when it's the one showing. */
+@Composable
+private fun KindTab(label: String, selected: Boolean, onClick: () -> Unit) {
+    Text(
+        label,
+        style = MaterialTheme.typography.labelLarge,
+        color = if (selected) ApogeeColors.Accent else Color.White.alpha(ApogeeAlpha.SECONDARY),
+        maxLines = 1,
+        modifier = Modifier
+            .clip(RoundedCornerShape(Dimens.CornerActionBar))
+            .background(if (selected) ApogeeColors.Accent.alpha(0.22f) else Color.White.alpha(ApogeeAlpha.FILL_FAINT))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 6.dp),
     )
 }
 

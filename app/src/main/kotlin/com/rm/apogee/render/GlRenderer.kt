@@ -1373,7 +1373,7 @@ class GlRenderer(
             }
             val picture = android.graphics.Bitmap.createBitmap(raw, 0, 0, THUMB_RENDER, THUMB_RENDER, flip, true)
             raw.recycle()
-            source.done(job.partId, picture)
+            source.done(job.key, picture)
             // Only taken off the queue once there's time to draw it.
             if (++drawn >= THUMBS_PER_FRAME) break
             job = source.next() ?: break

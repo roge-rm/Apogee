@@ -2869,6 +2869,11 @@ class World(
      */
     fun step(dt: Double) {
         tickEnd = time + dt
+        // The first tick after a world's made or restored, and then once a second.
+        if (calmCheckedAt < 0L || tick - calmCheckedAt >= CALM_BASES_EVERY) {
+            calmCheckedAt = tick
+            calmBases()
+        }
         for (vessel in vesselsById.values) {
             val attractor = attractorFor(vessel)
             val body = vessel.body
@@ -4196,6 +4201,33 @@ class World(
      * Pins [vessel] where it is now, because the server says it's founded. This is for a client's
      * replica, which takes the server's word instead of asking whether it could be.
      */
+    /**
+     * Tells each sea where the founded bases on it are, so the currents leave the water round them
+     * calm. Bases don't move, so now and then is plenty. It goes by the anchored craft this world
+     * holds, which on a client's replica are the bases near the craft being flown, so the replica's
+     * water agrees with the server's where it matters.
+     */
+    private var calmCheckedAt = -1L
+
+    private fun calmBases() {
+        val direction = Vec3()
+        val byBody = HashMap<String, MutableList<Pair<Vec3, Double>>>()
+        for (vessel in vesselsById.values) {
+            if (!vessel.anchored) continue
+            val attractor = attractorFor(vessel)
+            if (attractor.ocean?.sea == null) continue
+            attractor.toBodyFixed(vessel.body.position, attractor.rotationAt(time, scratchRotation), direction).normalizeInPlace()
+            byBody.getOrPut(attractor.id) { ArrayList() }.add(direction.copy() to com.rm.apogee.core.sea.Sea.CALM_BASE)
+        }
+        for (body in system.bodies.values) {
+            val sea = body.ocean?.sea ?: continue
+            val wanted = byBody[body.id] ?: emptyList()
+            if (sea.calmBases.size != wanted.size || sea.calmBases.zip(wanted).any { (a, b) -> a.first.distanceTo(b.first) > 1e-9 }) {
+                sea.calmBases = wanted
+            }
+        }
+    }
+
     fun pin(vessel: Vessel) {
         if (vessel.anchored) return
         attractorFor(vessel).rotationAt(time, anchorRotation)
@@ -4291,6 +4323,8 @@ class World(
      */
     fun restore(save: WorldSave): List<String> {
         val problems = ArrayList<String>()
+        // Its bases tell the seas where to stay calm on the next tick.
+        calmCheckedAt = -1L
         // Founded bases, pinned again once everything is in place, after any setting down on
         // changed ground.
         val founded = ArrayList<Vessel>()
@@ -5319,6 +5353,9 @@ class World(
          * isn't worth weighing.
          */
         const val WATER_PARKED_SAFE = 150.0
+
+        /** Ticks between telling the seas where the founded bases are. */
+        const val CALM_BASES_EVERY = 60L
         /**
          * The star: within this many of its radii its heat starts to tell, harder the closer you
          * get.

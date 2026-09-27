@@ -46,12 +46,15 @@ data class StripField(val label: String, val value: String, val colour: Color = 
  * when there is one, takes the last place, showing how far. A dangerous load of air always shows.
  * Under the sea, it's how deep, how far above the floor, climbing or sinking, and how fast, which
  * is slow enough down there to want the tenths. Afloat in a current that's worth knowing about, it's
- * how fast that runs and which way.
+ * how fast that runs and which way. Under sail, the wind always shows, with an arrow for the way it
+ * blows across the view, since it's what a sail goes by.
  */
 fun stripFields(
     t: FlightTelemetry,
     /** The current it's floating in, in m/s and the compass bearing it runs toward, or null. */
     current: Pair<Float, Float>? = null,
+    /** Whether the craft has a sail, so the wind always shows. */
+    sailing: Boolean = false,
 ): List<StripField> {
     if (t.destroyed != null) return emptyList()
     val out = ArrayList<StripField>(5)
@@ -99,6 +102,11 @@ fun stripFields(
             out += StripField("ORB", "${t.orbitalSpeed.roundToInt()}")
         }
     }
+    if (sailing && !t.inOrbit && out.none { it.label == "WIND" }) {
+        // In place of the heading if there's no room: the wind matters more to a sail.
+        if (out.size >= MAX_FIELDS) out.removeAt(out.indexOfFirst { it.label == "HDG" }.takeIf { it >= 0 } ?: out.lastIndex)
+        out.add(1.coerceAtMost(out.size), StripField("WIND", windReading(t), if (t.windSpeed > STRONG_WIND) ApogeeColors.Caution else ApogeeColors.Data))
+    }
     if (current != null && t.inOrbit.not()) {
         if (out.size >= MAX_FIELDS) out.removeAt(out.lastIndex)
         out += StripField("CURRENT", "%.1f %s".format(current.first, compassPoint(current.second)), CURRENT_COLOUR)
@@ -125,6 +133,8 @@ fun FlightStrip(
     modifier: Modifier = Modifier,
     /** The current it's floating in, in m/s and the bearing it runs toward, or null. */
     current: Pair<Float, Float>? = null,
+    /** Whether the craft has a sail, so the wind always shows. */
+    sailing: Boolean = false,
     /**
      * Numbers per line: two in portrait, beside the top-left buttons, and all of them in landscape.
      */
@@ -140,7 +150,7 @@ fun FlightStrip(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(3.dp), horizontalAlignment = Alignment.End) {
-                for (line in stripFields(telemetry, current).chunked(perLine.coerceAtLeast(1))) {
+                for (line in stripFields(telemetry, current, sailing).chunked(perLine.coerceAtLeast(1))) {
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         for (field in line) Cell(field)
                     }
@@ -369,6 +379,18 @@ private fun Readout(label: String, value: String, colour: Color = ApogeeColors.D
 }
 
 /** Metres below a kilometre, and kilometres above it. */
+/**
+ * The wind's speed and an arrow for the way it blows as seen on screen: up is away from you, into
+ * the view. Calm, just the speed.
+ */
+internal fun windReading(t: FlightTelemetry): String {
+    val speed = "${t.windSpeed.roundToInt()}"
+    if (t.windSpeed < 0.5) return speed
+    val arrows = arrayOf("\u2191", "\u2197", "\u2192", "\u2198", "\u2193", "\u2199", "\u2190", "\u2196")
+    val toward = ((t.windFrom + 180.0) % 360.0 + 360.0) % 360.0
+    return "$speed ${arrows[((toward + 22.5) / 45.0).toInt() % 8]}"
+}
+
 /** The nearest of the eight compass points to [bearing] degrees. */
 internal fun compassPoint(bearing: Float): String {
     val points = arrayOf("N", "NE", "E", "SE", "S", "SW", "W", "NW")

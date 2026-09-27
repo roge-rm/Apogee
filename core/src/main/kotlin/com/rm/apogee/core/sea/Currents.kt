@@ -16,8 +16,8 @@ import kotlin.math.sin
  * over them for gyres, eddies and a few faster streams.
  *
  * Then it's scaled by how much the water there is open sea: nothing at the shore, in the shallows,
- * in a bay or harbour cut off from the ocean, or in a protected place like a launch site at sea or
- * one of the sea's named places. Near a coast the part of the flow heading into it or away from it
+ * in a bay or harbour cut off from the ocean, or in a protected place like a launch site at sea, a
+ * base someone has founded there, or one of the sea's named places. Near a coast the part of the flow heading into it or away from it
  * is taken out, so a current runs along the shore instead. The currents fall away with depth, so a
  * submarine near the surface feels them and the deep floor is still.
  *
@@ -34,6 +34,8 @@ internal class Currents(
     private val depth: (d: Vec3) -> Double,
     /** Places kept calm, as unit directions and radii in metres. */
     private val calm: List<Pair<Vec3, Double>>,
+    /** More places kept calm that come and go with the world, like founded bases. */
+    private val moreCalm: () -> List<Pair<Vec3, Double>> = { emptyList() },
 ) {
     private val radius = body.radius
 
@@ -109,6 +111,10 @@ internal class Currents(
     private fun calmness(direction: Vec3): Double {
         var kept = 1.0
         for ((centre, reach) in calm) {
+            val distance = centre.distanceTo(direction) * radius
+            if (distance < reach + CALM_EDGE) kept = minOf(kept, smooth(reach, reach + CALM_EDGE, distance))
+        }
+        for ((centre, reach) in moreCalm()) {
             val distance = centre.distanceTo(direction) * radius
             if (distance < reach + CALM_EDGE) kept = minOf(kept, smooth(reach, reach + CALM_EDGE, distance))
         }

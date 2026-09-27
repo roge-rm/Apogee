@@ -110,6 +110,7 @@ float trim(int r) {
         case recipe::SEA: return 0.39f;  // ambient, and long, so 6-7 dB under the engines when rough
         case recipe::COMPLEX: return 0.3f;  // a background you only notice when it stops
         case recipe::PORT: return 0.3f;
+        case recipe::SAIL: return 0.3f;  // under the engines: a sail can flog for as long as you let it
         case recipe::RCS: return 0.25f;  // puffs under the engines
         case recipe::IMPACT: return 0.2f;
         case recipe::CRUNCH: return 0.09f;
@@ -655,6 +656,41 @@ void Synth::renderVoice(Voice& v, float& left, float& right) {
             v.f[1].process(v.pink.next(rng.white()));
             v.f[2].process(v.f[1].band * v.env[0].next());
             s = (hum * 0.25f + v.f[2].low * 1.6f) * loud;
+            break;
+        }
+        case recipe::SAIL: {
+            // A sail that's lost its wind, flogging: the canvas shaking in soft uneven ruffles,
+            // quicker and harder the stronger the wind, and in a blow the odd dull snap as it
+            // fills and empties. Every shake is its own strength and the rate wanders, so it's
+            // never a beat, and it's kept low and dark, since you can leave a sail flapping for
+            // as long as you like.
+            float luff = clampf(p[0], 0, 1), wind = clampf(p[1], 0, 1);
+            v.state[2] -= dt;
+            if (v.state[2] <= 0) {
+                v.state[2] = 0.3f + 0.9f * v.rng.uniform();
+                v.state[3] = (2.5f + 5.0f * wind) * (0.8f + 0.4f * v.rng.uniform());
+            }
+            v.state[4] += (v.state[3] - v.state[4]) * clampf(dt / 0.4f, 0, 1);
+            v.state[0] += dt * v.state[4];
+            if (v.state[0] >= 1.0f) {
+                v.state[0] -= std::floor(v.state[0]);
+                v.state[5] = 0.4f + 0.6f * v.rng.uniform();
+                if (wind > 0.45f && v.rng.uniform() < 0.18f * wind) {
+                    v.env[0].trigger(0.004f, 0.07f + 0.08f * v.rng.uniform(), sr, 0.5f + 0.5f * v.rng.uniform());
+                }
+            }
+            float shake = std::sin(kTwoPi * v.state[0]);
+            shake = shake * shake * v.state[5];
+            if (control) {
+                v.f[0].set(230.0f + 220.0f * wind, 0.9f, sr);
+                v.f[1].set(130.0f, 0.7f, sr);
+                v.f[2].set(520.0f + 160.0f * wind, 1.2f, sr);
+            }
+            float w = rng.white();
+            v.f[0].process(v.pink.next(w));
+            v.f[1].process(v.brown.next(rng.white()));
+            v.f[2].process(v.pink2.next(rng.white()) * v.env[0].next());
+            s = (v.f[0].band * 1.6f * shake + v.f[1].low * 0.35f * (0.3f + 0.7f * shake) + v.f[2].band * 1.2f) * luff * (0.4f + 0.6f * wind);
             break;
         }
         case recipe::PORT: {

@@ -153,6 +153,12 @@ class HudState {
     var hasFlaps: Boolean by mutableStateOf(false)
     var flaps: Boolean by mutableStateOf(false)
 
+    /** Whether it has a sail, so the strip always shows the wind. */
+    var hasSails: Boolean by mutableStateOf(false)
+
+    /** Whether the list of the player's craft is open. */
+    var craftListOpen: Boolean by mutableStateOf(false)
+
     /** Whether it's a plane in the air, which can hold its height and heading. */
     var canCruise: Boolean by mutableStateOf(false)
 
@@ -317,6 +323,7 @@ class HudState {
         flaps = false
         groupsUsed = emptyList()
         canCruise = false
+        hasSails = false
         approach = null
         currentSpeed = 0f
         isSuit = false

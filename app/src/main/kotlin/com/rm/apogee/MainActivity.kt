@@ -324,7 +324,6 @@ class MainActivity : ComponentActivity() {
                         onStickMode = ::onStickMode,
                         onToggleMap = ::onToggleMap,
                         onJoin = ::onJoin,
-                        onSwitchCraft = ::onSwitchCraft,
                         onExit = { navigateTo(AppScreen.PLAY) },
                         rewind = com.rm.apogee.ui.screens.RewindActions(
                             onSavePoint = ::takeSavePoint,
@@ -691,11 +690,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun onSwitchCraft() {
-        val current = session ?: return
-        lifecycleScope.launch { current.switchCraft() }
-    }
-
     private fun onToggleDrill() {
         val power = hudState.power ?: return
         hudState.power = power.copy(drilling = !power.drilling)
@@ -822,6 +816,7 @@ class MainActivity : ComponentActivity() {
             // In a career, only what the player has unlocked, and no more than their pad can take.
             builder.career = openSoloWorld().program?.careerOf(settings.clientId)
             partThumbnails.request(StockParts.catalog)
+            builder.thumbnails = partThumbnails
             view.takeIf { it.width > 0 }?.let { builder.setViewSize(it.width.toFloat(), it.height.toFloat()) }
             builder.start(lifecycleScope)
             builderSession = builder
@@ -1350,6 +1345,7 @@ class MainActivity : ComponentActivity() {
                     }
                     hudState.hasConverter = current.controlledHasConverter
                     hudState.hasFlaps = current.controlledHasFlaps
+                    hudState.hasSails = current.controlledHasSails
                     hudState.canCruise = current.controlledCanCruise
                     current.controlledGroups.let { if (it != hudState.groupsUsed) hudState.groupsUsed = it }
                     hudState.approach = current.approachReadout

@@ -23,6 +23,7 @@ object Recipes {
     const val SEA = 15
     const val COMPLEX = 16
     const val PORT = 17
+    const val SAIL = 18
 
     // One-shots.
     const val IMPACT = 50

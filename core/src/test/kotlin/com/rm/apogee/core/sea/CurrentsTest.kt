@@ -70,6 +70,24 @@ class CurrentsTest {
     }
 
     @Test
+    fun `a base founded out in a current calms the water round it`() {
+        val world = World.default(catalog)
+        val terra = world.system.body("terra")!!
+        val sea = terra.ocean!!.sea!!
+        val (d, speed) = strongest(sea)
+        assertTrue("current $speed m/s", speed > 0.15)
+        val site = LaunchSite("sea", "Sea", "terra", SolarSystem.latitudeOf(d), SolarSystem.longitudeOf(d))
+        val base = world.spawnOnSurface(StockCraft.skiff(catalog), site)
+        world.pin(base)
+        world.step(dt)
+        assertEquals(0.0, speedAt(sea, d), 0.02)
+        // Taken up again, the current comes back.
+        world.unanchor(base)
+        repeat(World.CALM_BASES_EVERY.toInt() + 1) { world.step(dt) }
+        assertEquals(speed, speedAt(sea, d), 0.02)
+    }
+
+    @Test
     fun `currents are the same wherever they're worked out`() {
         val a = terraSea(); val b = terraSea()
         val d = strongest(a).first

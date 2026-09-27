@@ -61,6 +61,26 @@ class SoundSceneTest {
     }
 
     @Test
+    fun `a flogging sail is heard in a wind, louder in more, and not in a calm`() {
+        fun heard(wind: Double): Float? {
+            val scene = SoundScene(16)
+            val listener = SoundScene.Listener(Vec3(0.0, 0.0, 0.0), Vec3(1.0, 0.0, 0.0), density = 1.2, wind = wind)
+            val boat = SoundScene.Craft(1, own = true, Vec3(5.0, 0.0, 0.0), pressure = 1.0).also { it.luff = 1.0 }
+            scene.build(listener, listOf(boat), null)
+            return scene.indexOf(Recipes.SAIL)?.let { scene.param(it, 1) }
+        }
+        assertNull("calm", heard(0.5))
+        val breeze = heard(6.0)!!
+        val gale = heard(18.0)!!
+        assertTrue("stronger in more wind: $breeze, $gale", gale > breeze)
+        // Drawing well, not flogging, it's silent.
+        val scene = SoundScene(16)
+        val listener = SoundScene.Listener(Vec3(0.0, 0.0, 0.0), Vec3(1.0, 0.0, 0.0), density = 1.2, wind = 10.0)
+        scene.build(listener, listOf(SoundScene.Craft(1, own = true, Vec3(5.0, 0.0, 0.0), pressure = 1.0)), null)
+        assertNull(scene.indexOf(Recipes.SAIL))
+    }
+
+    @Test
     fun `a dry engine makes no sound`() {
         val scene = SoundScene(16)
         scene.build(air, listOf(rocket(1, own = true, at = Vec3.zero(), output = 0.0)), null)

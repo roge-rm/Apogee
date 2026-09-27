@@ -42,6 +42,9 @@ class SoundScene(private val budget: Int) {
         /** Parts of it that are on fire. */
         var burning = 0
 
+        /** How much its sails are flogging, 0..1: set, with the wind gone out of them. */
+        var luff = 0.0
+
         /** How hard its thrusters are firing, 0..1, from the hardest-working block. */
         var rcs = 0.0
             private set
@@ -178,6 +181,14 @@ class SoundScene(private val budget: Int) {
                 add(base + SLOT_RCS, Recipes.RCS, hull, v, g, p, lp, weight = g * (0.3f + craft.rcs.toFloat()))
             }
 
+            if (air && craft.luff > 0.02 && listener.wind > CALM) {
+                // A sail flogging, louder and quicker in more wind.
+                val (g, p, lp) = place(listener, craft.position, 0.5)
+                val v = FloatArray(SharedParams.COUNT)
+                v[0] = craft.luff.coerceIn(0.0, 1.0).toFloat()
+                v[1] = ((listener.wind - CALM) / (GALE - CALM)).coerceIn(0.0, 1.0).toFloat()
+                add(base + SLOT_SAIL, Recipes.SAIL, 0, v, g, p, lp, weight = g * 0.4f * v[0])
+            }
             if (air && craft.burning > 0) {
                 val (g, p, lp) = place(listener, craft.position, 0.6)
                 val v = FloatArray(SharedParams.COUNT)
@@ -392,6 +403,7 @@ class SoundScene(private val budget: Int) {
         const val AUDIBLE = 0.01f
 
         const val CRAFT_SLOTS = 8
+        const val SLOT_SAIL = 4
         const val SLOT_FIRE = 5
         const val SLOT_ROVER = 6
         const val SLOT_RCS = 7

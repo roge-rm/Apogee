@@ -147,7 +147,6 @@ fun FlightScreen(
     onDockPilot: (String) -> Unit = {},
     onToggleMap: () -> Unit,
     onJoin: () -> Unit,
-    onSwitchCraft: () -> Unit,
     onExit: () -> Unit,
     /** Taking a save point, going back to it, and reverting to the launch. */
     rewind: RewindActions = RewindActions(),
@@ -298,6 +297,8 @@ fun FlightScreen(
                         onRemove = onRemoveCraft,
                         onRetire = onRetire,
                         size = Dimens.HudIconSize,
+                        listOpen = hud.craftListOpen,
+                        onListOpen = { hud.craftListOpen = it },
                     )
                 }
                 // Pause and time warp, only in a world nobody else is in.
@@ -348,7 +349,8 @@ fun FlightScreen(
                 lost = hud.telemetry.lost,
                 crewLost = hud.crewLost,
                 onLeave = onExit,
-                onSwitchCraft = if (hud.ownedCraft > 0) onSwitchCraft else null,
+                // Opens the craft list, from the button at the top, to choose which.
+                onFlyAnother = if (hud.ownedCraft > 0) ({ hud.craftListOpen = true }) else null,
                 // Low, where the controls were, because the wreck is in the middle of the view.
                 modifier = Modifier.align(Alignment.BottomCenter)
                     .windowInsetsPadding(WindowInsets.navigationBars)
@@ -376,6 +378,7 @@ fun FlightScreen(
                 twoColumns = !portrait, power = hud.power,
                 modifier = Modifier.alpha(alpha),
                 current = if (hud.currentSpeed > 0f) hud.currentSpeed to hud.currentBearing else null,
+                sailing = hud.hasSails,
                 perLine = if (portrait) PORTRAIT_STRIP_PER_LINE else LANDSCAPE_STRIP_PER_LINE,
             )
             Spacer(Modifier.height(6.dp))
@@ -823,7 +826,7 @@ private fun CrashCard(
     report: String,
     lost: Int,
     onLeave: () -> Unit,
-    onSwitchCraft: (() -> Unit)?,
+    onFlyAnother: (() -> Unit)?,
     crewLost: List<String> = emptyList(),
     modifier: Modifier = Modifier,
 ) {
@@ -860,10 +863,9 @@ private fun CrashCard(
                 )
             }
             Spacer(Modifier.height(14.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                if (onSwitchCraft != null) ApogeeButton("Fly another", onClick = onSwitchCraft, modifier = Modifier.weight(1f))
-                ApogeeButton("Leave", onClick = onLeave, modifier = Modifier.weight(1f))
-            }
+            // One over the other, full width, so they're the same size whatever they say.
+            if (onFlyAnother != null) ApogeeButton("Fly another craft", onClick = onFlyAnother)
+            ApogeeButton("Leave", onClick = onLeave)
         }
     }
 }

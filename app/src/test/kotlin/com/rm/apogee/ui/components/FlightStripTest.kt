@@ -17,6 +17,7 @@ class FlightStripTest {
         inOrbit: Boolean = false,
         inAir: Boolean = false,
         wind: Double = 0.0,
+        windFrom: Double = 0.0,
         q: Double = 0.0,
         target: String? = null,
         moonWindow: Double = Double.NaN,
@@ -26,7 +27,7 @@ class FlightStripTest {
         apoapsisAltitude = 120_000.0, periapsisAltitude = 95_000.0, timeToApoapsis = 600.0,
         throttle = 0.0, stage = 0, inOrbit = inOrbit, craftName = "Test", dynamicPressure = q,
         rotation = Quat.identity(), up = Vec3.unitY(), prograde = null,
-        inAir = inAir, windSpeed = wind, lunaWindow = moonWindow, moonName = if (moonWindow.isNaN()) "" else "Luna",
+        inAir = inAir, windSpeed = wind, windFrom = windFrom, lunaWindow = moonWindow, moonName = if (moonWindow.isNaN()) "" else "Luna",
         targetName = target, targetDistance = 1_500.0, destroyed = destroyed,
     )
 
@@ -45,6 +46,18 @@ class FlightStripTest {
         assertEquals(listOf("ALT", "VS", "AIR", "WIND"), labels(telemetry(altitude = 6_000.0, agl = 5_000.0, srf = 200.0, inAir = true, wind = 22.0)))
         // Low over an airless world, so speed over the ground.
         assertEquals(listOf("AGL", "VS", "SRF"), labels(telemetry(altitude = 900.0, agl = 900.0, srf = 40.0)))
+    }
+
+    @Test
+    fun `under sail the wind always shows, with the way it blows`() {
+        val afloat = stripFields(telemetry(srf = 1.5, inAir = true, wind = 7.0, windFrom = 0.0), sailing = true)
+        assertEquals(listOf("SRF", "WIND", "HDG"), afloat.map { it.label })
+        // From dead ahead, it blows toward you.
+        assertEquals("7 \u2193", afloat[1].value)
+        // From the left, it blows to the right.
+        assertEquals("7 \u2192", stripFields(telemetry(srf = 1.5, inAir = true, wind = 7.0, windFrom = 270.0), sailing = true)[1].value)
+        // Not sailing, a light wind doesn't show.
+        assertEquals(listOf("SRF", "HDG"), labels(telemetry(srf = 1.5, inAir = true, wind = 7.0)))
     }
 
     @Test

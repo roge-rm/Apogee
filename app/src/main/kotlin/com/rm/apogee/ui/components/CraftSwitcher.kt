@@ -64,8 +64,10 @@ fun CraftSwitcher(
     onRemove: (Long) -> Unit,
     onRetire: () -> Unit,
     size: Dp,
+    /** Whether the list is open, kept outside so the crash card can open it too. */
+    listOpen: Boolean,
+    onListOpen: (Boolean) -> Unit,
 ) {
-    var listOpen by remember { mutableStateOf(false) }
     var retireAsked by remember { mutableStateOf(false) }
     var confirmRemove by remember { mutableStateOf<CraftSummary?>(null) }
 
@@ -77,7 +79,7 @@ fun CraftSwitcher(
         ) {
             Box(
                 Modifier.combinedClickable(
-                    onClick = { listOpen = true },
+                    onClick = { onListOpen(true) },
                     onLongClick = { retireAsked = true },
                 ),
                 contentAlignment = Alignment.Center,
@@ -89,12 +91,12 @@ fun CraftSwitcher(
             Popup(
                 alignment = Alignment.TopStart,
                 offset = IntOffset(0, with(LocalDensity.current) { (size + 6.dp).roundToPx() }),
-                onDismissRequest = { listOpen = false },
+                onDismissRequest = { onListOpen(false) },
                 properties = PopupProperties(focusable = true),
             ) {
                 CraftList(
                     craft(), current(),
-                    onFly = { onFly(it); listOpen = false },
+                    onFly = { onFly(it); onListOpen(false) },
                     onRemove = { confirmRemove = it },
                 )
             }
@@ -114,7 +116,7 @@ fun CraftSwitcher(
             confirmButton = {
                 TextButton(onClick = {
                     confirmRemove = null
-                    listOpen = false
+                    onListOpen(false)
                     if (doomed.id == current()) onRetire() else onRemove(doomed.id)
                 }) { Text("Remove", color = ApogeeColors.Danger) }
             },

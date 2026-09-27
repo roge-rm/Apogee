@@ -718,6 +718,8 @@ class GameSession private constructor(
     }
 
     /** Whether the craft being flown has wings with flaps. */
+    val controlledHasSails: Boolean get() = controlledHas { it.hasModule<com.rm.apogee.core.part.Sail>() }
+
     val controlledHasFlaps: Boolean get() = controlledHas { (it.module<com.rm.apogee.core.part.AeroSurface>()?.flapLift ?: 0.0) > 0.0 }
 
     /** The craft being flown, or null. */
@@ -1224,31 +1226,6 @@ class GameSession private constructor(
     }
 
     /**
-     * Welds the controlled craft to whatever it's resting against.
-     *
-     * It isn't predicted locally, unlike staging. A merge rewrites both craft's structure and
-     * destroys one of them, and guessing wrong about that would leave the client showing a craft
-     * the server still has. Staging only flips a flag, which is cheap to get wrong for one
-     * snapshot.
-     */
-    /**
-     * Moves to the next craft the player owns, in id order.
-     *
-     * It cycles instead of opening a chooser. With a handful of craft it's one tap, and a list is
-     * worth building when there are enough of them to need one.
-     */
-    suspend fun switchCraft() {
-        // Not flags, because there's nothing to fly.
-        val mine = client.vessels
-            .filter { it.owner == client.clientId && it.design.parts.singleOrNull()?.partId != com.rm.apogee.core.world.World.FLAG_PART }
-            .sortedBy { it.id }
-        if (mine.size < 2) return
-        val current = client.controlledVessel
-        val next = mine.indexOfFirst { it.id == current }.let { mine[(it + 1) % mine.size] }
-        client.send(Command.SwitchVessel(next.id))
-    }
-
-    /**
      * Every craft of the player's, for the craft list: where each one is, in words, and how high.
      * The one being flown comes first.
      */
@@ -1305,7 +1282,7 @@ class GameSession private constructor(
         client.send(Command.SwitchVessel(id))
     }
 
-    /** How many craft the player could switch between. */
+    /** How many craft the player has, for whether there's a list of them to choose from. */
     val ownedCraftCount: Int
         get() = client.vessels.count { it.owner == client.clientId }
 
@@ -1315,6 +1292,14 @@ class GameSession private constructor(
         client.send(Command.SpawnCraft(design, launchSiteId ?: World.launchSiteFor(design, catalog).id))
     }
 
+    /**
+     * Welds the controlled craft to whatever it's resting against.
+     *
+     * It isn't predicted locally, unlike staging. A merge rewrites both craft's structure and
+     * destroys one of them, and guessing wrong about that would leave the client showing a craft
+     * the server still has. Staging only flips a flag, which is cheap to get wrong for one
+     * snapshot.
+     */
     suspend fun join() {
         withControlledVessel { client.send(Command.Join(it)) }
     }
@@ -3624,6 +3609,18 @@ class GameSession private constructor(
                 }
             }
 
+            // A sail that's set (the throttle's the sheet) with the wind gone out of it flogs, and
+            // a big one louder than a small one.
+            def.module<com.rm.apogee.core.part.Sail>()?.let { sail ->
+                if (fresh && !mapMode && state.throttle > SAIL_SET) {
+                    // How full it is for how far the sheet lets it out, so a reefed sail drawing well
+                    // is quiet.
+                    val empty = 1.0 - (animation.shown.sailFill.getOrElse(index) { 1.0 } / state.throttle).coerceIn(0.0, 1.0)
+                    val flog = empty * (sail.area / SAIL_BIG).coerceAtMost(1.0)
+                    soundCraft(vessel.id, position, state.velocity, attractor).let { it.luff = maxOf(it.luff, flog) }
+                }
+            }
+
             val partRotation = rotation * placedRotation
             val body = com.rm.apogee.render.PartModels.bodyColour(placed.partId)
             leaves.clear()
@@ -3940,6 +3937,10 @@ class GameSession private constructor(
         private const val CURRENT_LIFT = 1.0005
         private const val CURRENT_ARROW = 0.85
         private const val CURRENT_FAST = 0.8
+
+        /** Throttle over which a sail counts as set, and the sail area, in m², that flogs loudest. */
+        private const val SAIL_SET = 0.02
+        private const val SAIL_BIG = 20.0
 
         /** A winch line: how many straight pieces, how thick, its colour, and its draw keys. */
         private const val LINE_PIECES = 8

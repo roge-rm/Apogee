@@ -236,8 +236,16 @@ class Sea(
             -roughBed[0]
         },
         calmPlaces(body),
+        { calmBases },
     )
     private val roughBed = DoubleArray(1)
+
+    /**
+     * Founded bases on this sea, as body-fixed unit directions and how far round each the water's
+     * kept calm, in metres. The world keeps it up to date. A harbour you build yourself deserves the
+     * same still water as the Cape's.
+     */
+    @Volatile var calmBases: List<Pair<Vec3, Double>> = emptyList()
     private val shelterSample = DoubleArray(SHELTER_SIZE)
     private val bedSample = DoubleArray(1)
     private val currentPoint = Vec3()
@@ -768,6 +776,9 @@ class Sea(
         /** How far around a launch site at sea, and a named place, the water's kept calm, in metres. */
         const val CALM_SITE = 2_500.0
         const val CALM_WONDER = 1_200.0
+
+        /** How far round a founded base the water's kept calm, in metres. */
+        const val CALM_BASE = 1_500.0
 
         /**
          * Wave trains: [BANDS] wavelengths from [SHORTEST] to [LONGEST] m, with [DIRECTIONS] of
