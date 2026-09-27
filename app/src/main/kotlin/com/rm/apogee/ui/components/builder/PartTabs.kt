@@ -26,6 +26,7 @@ enum class PartTab(val label: String) {
     ENGINES("Engines"),
     STRUCTURE("Structure"),
     WINGS("Wings & tail"),
+    AIR("Rotors & gas"),
     GROUND("Wheels & legs"),
     WATER("Water"),
     UTILITY("Docking & utility"),
@@ -53,6 +54,8 @@ object PartTabs {
         return when {
             def.hasModule<Command>() -> PartTab.PODS
             docking != null && (docking.kind == DockKind.HITCH_BALL || docking.kind == DockKind.HITCH_COUPLING) -> PartTab.GROUND
+            // Rotors and fans, and gas cells and envelopes, together.
+            def.hasModule<com.rm.apogee.core.part.Rotor>() || def.hasModule<com.rm.apogee.core.part.LiftGas>() -> PartTab.AIR
             // A winch goes with the hitches, and a sail with the hulls.
             def.hasModule<com.rm.apogee.core.part.Winch>() -> PartTab.GROUND
             def.hasModule<com.rm.apogee.core.part.Sail>() -> PartTab.WATER

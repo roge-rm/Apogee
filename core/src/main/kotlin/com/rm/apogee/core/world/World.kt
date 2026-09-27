@@ -313,6 +313,78 @@ class World(
     }
 
     private val cruise = Cruise()
+    private val rotors = Rotors()
+    private val aerostatics = Aerostatics()
+    private val keeper = StationKeeping()
+    private val keeperSteered = HashSet<VesselId>()
+
+    /** Whether [vessel] carries a working keeper core. */
+    fun hasKeeper(vessel: Vessel): Boolean =
+        vessel.defs.indices.any { vessel.defs[it].module<com.rm.apogee.core.part.StationKeeper>() != null && !vessel.isBroken(it) }
+
+    /**
+     * Turns [vessel]'s keeper core on, to hold it where it is now, or off. It needs a working
+     * keeper core, something to hold the craft with, and to be off the ground or afloat.
+     */
+    private fun setStationKeep(vessel: Vessel, on: Boolean) {
+        val control = vessel.control
+        if (!on) {
+            if (control.keeping) control.ballast = 0
+            control.keeping = false
+            return
+        }
+        val attractor = attractorFor(vessel)
+        val means = keeper.means(vessel, attractor, vessel.buoyed)
+        val reason = when {
+            !hasKeeper(vessel) -> "No keeper core"
+            !vessel.powered -> "No power"
+            means == null -> "Nothing to hold it with"
+            vessel.touchingGround && !vessel.buoyed -> "Lift off first"
+            else -> ""
+        }
+        control.autopilotNote = reason
+        if (reason.isNotEmpty()) return
+        control.keeping = true
+        control.cruise = false
+        control.autoLand = false
+        control.autoBurn = false
+        control.holdDepth = false
+        control.sasEnabled = true
+        control.sasMode = SasMode.HOLD
+        attractor.toBodyFixed(vessel.body.position, attractor.rotationAt(time), control.keepPoint)
+        control.keepTrim = control.throttle
+        vessel.heightIntegral = 0.0
+        vessel.wake()
+    }
+
+    /** One tick of the keeper core holding [vessel] where it was asked to. */
+    private fun flyKeeper(vessel: Vessel, attractor: CelestialBody, dt: Double) {
+        val control = vessel.control
+        val means = keeper.means(vessel, attractor, vessel.buoyed)
+        val keeperPart = vessel.defs.indices.firstOrNull { vessel.defs[it].module<com.rm.apogee.core.part.StationKeeper>() != null && !vessel.isBroken(it) }
+        val draw = keeperPart?.let { vessel.defs[it].module<com.rm.apogee.core.part.StationKeeper>()!!.draw } ?: 0.0
+        val reason = when {
+            keeperPart == null -> "No keeper core"
+            means == null -> "Nothing to hold it with"
+            !vessel.powered || !vessel.drawCharge(draw * dt) -> "No power"
+            else -> ""
+        }
+        if (reason.isNotEmpty()) {
+            control.keeping = false
+            control.ballast = 0
+            control.autopilotNote = reason
+            return
+        }
+        // Let go of the stick, and it holds wherever it is then, at the height it's at.
+        val steered = control.hasAttitudeInput
+        if (steered) keeperSteered.add(vessel.id)
+        else if (keeperSteered.remove(vessel.id)) {
+            attractor.toBodyFixed(vessel.body.position, attractor.rotationAt(time), control.keepPoint)
+        }
+        keeper.fly(vessel, attractor, attractor.rotationAt(time, scratchKeeperRotation), means!!, steered, dt)
+    }
+
+    private val scratchKeeperRotation = com.rm.apogee.core.math.Quat()
 
     /** Whether [vessel] has wings to cruise on. */
     private fun winged(vessel: Vessel): Boolean = vessel.defs.any { it.module<AeroSurface>() != null }
@@ -1335,14 +1407,20 @@ class World(
                 it.wake()
                 it.control.ballast = command.mode.coerceIn(-1, 1)
                 it.control.holdDepth = false
+                it.control.keeping = false
             }
 
             is Command.HoldDepth -> heard(command.vessel)?.let {
                 it.wake()
                 it.control.holdDepth = command.on
                 it.control.ballast = 0
-                if (command.on) it.control.holdDepthAt = depthOf(it)
+                it.control.keeping = false
+                // Aloft it holds a height instead, kept as a depth below the datum.
+                if (command.on) it.control.holdDepthAt = if (gasCraft(it)) -attractorFor(it).altitudeOf(it.body.position) else depthOf(it)
+                it.heightIntegral = 0.0
             }
+
+            is Command.SetStationKeep -> heard(command.vessel)?.let { setStationKeep(it, command.on) }
 
             is Command.SetIndustry -> heard(command.vessel)?.let {
                 settlePower(it)
@@ -1547,8 +1625,13 @@ class World(
         if (!canAnchor(vessel)) return false
         val attractor = attractorFor(vessel)
         attractor.rotationAt(tickEnd, anchorRotation)
-        if (!level(vessel, attractor)) return false
+        // Standing on the ground, it's set level on its feet first. Afloat or aloft, it's pinned
+        // as it floats.
+        if (!floatingFoundable(vessel) && !level(vessel, attractor)) return false
+        val onSea = !vessel.touchingGround && (if (vessel.dormant) vessel.afloat else vessel.buoyed)
         vessel.anchor(anchorRotation)
+        // Founded on the sea, it rides it: up and down with the swell, and tipped with it.
+        if (onSea) settleAfloat(vessel, attractor)
         vessel.powerSettledAt = tickEnd
         attractor.surfaceVelocityAt(vessel.body.position, vessel.body.linearVelocity)
         attractor.angularVelocity(vessel.body.angularVelocity)
@@ -1557,11 +1640,31 @@ class World(
         return true
     }
 
+    /**
+     * Whether [vessel] floats where it is on its own and is still enough to be founded there: afloat
+     * on the sea, or aloft, with its gas cells lifting its weight or its keeper core holding it.
+     */
+    private fun floatingFoundable(vessel: Vessel): Boolean {
+        if (vessel.touchingGround) return false
+        val afloat = if (vessel.dormant) vessel.afloat else vessel.buoyed
+        val aloft = !afloat && !vessel.dormant && (liftShare(vessel) >= FLOATS_ALONE || vessel.control.keeping)
+        if (!afloat && !aloft) return false
+        if (vessel.dormant) return true
+        attractorFor(vessel).surfaceVelocityAt(vessel.body.position, scratch).subInPlace(vessel.body.linearVelocity)
+        if (!afloat) return scratch.length < FLOAT_FOUND_SPEED
+        // Afloat, only its drift across the sea counts, not its heaving and swaying with the waves.
+        val up = vessel.body.position.normalized()
+        scratch.addScaledInPlace(up, -(scratch dot up))
+        return scratch.length < FLOAT_FOUND_DRIFT
+    }
+
     /** Whether [vessel] could be founded where it is now. See [anchor]. */
     fun canAnchor(vessel: Vessel): Boolean {
         if (vessel.anchored) return false
         val footed = vessel.defs.indices.any { vessel.defs[it].module<com.rm.apogee.core.part.Foundation>() != null && !vessel.isBroken(it) }
         if (!footed) return false
+        // A platform floating on its own, on the sea or in the sky.
+        if (floatingFoundable(vessel)) return true
         if (vessel.dormant) { if (vessel.afloat) return false }
         else {
             if (!vessel.touchingGround) return false
@@ -2098,7 +2201,9 @@ class World(
         val up = Vec3().setTo(craft.body.position).normalizeInPlace()
         val top = Vec3().setTo(base.partPositionWorld(pad)).addScaledInPlace(up, base.defs[pad].boundsHalfExtents.y)
         craft.body.position.setTo(up).mulInPlace(top.length + lowestExtentAlong(craft, up) + 0.02)
-        attractorFor(craft).surfaceVelocityAt(craft.body.position, craft.body.linearVelocity)
+        // Moving with the deck: the ground's speed, or on a base afloat, the swell's too.
+        if (base.afloat) base.body.velocityAtOffset(Vec3().setTo(craft.body.position).subInPlace(base.body.position), craft.body.linearVelocity)
+        else attractorFor(craft).surfaceVelocityAt(craft.body.position, craft.body.linearVelocity)
 
         // Whatever it carries, it carries from the base.
         settlePower(base)
@@ -2885,7 +2990,7 @@ class World(
             // things nobody is looking at, and otherwise a base on a pad costs exactly as much as
             // one being flown.
             if (vessel.dormant) {
-                if (vessel.afloat && !vessel.anchored) followSea(vessel, attractor, waves = true) else followGround(vessel, attractor)
+                if (vessel.afloat) followSea(vessel, attractor, waves = true, dt = dt) else followGround(vessel, attractor)
                 // Parked in air that crushes, like Caligo's floor, or deeper in the sea than it's
                 // built for, it gets crushed all the same.
                 val air = attractor.atmosphere
@@ -2916,7 +3021,8 @@ class World(
             if (vessel.control.autoBurn) autoBurn(vessel, attractor)
             val landing = if (vessel.control.autoLand) autoLand(vessel, attractor) else null
             if (vessel.control.cruise && landing == null) flyCruise(vessel, attractor, dt)
-            val cruising = vessel.control.cruise && landing == null
+            if (vessel.control.keeping) flyKeeper(vessel, attractor, dt)
+            val cruising = (vessel.control.cruise || vessel.control.keeping) && landing == null
             if (vessel.powered) stabilityAssist.update(vessel, dt, landing ?: if (cruising) null else holdDirection(vessel, attractor))
             else stabilityAssist.idle(vessel)
             updatePose(vessel, dt)
@@ -2947,6 +3053,10 @@ class World(
                 vessel.air.clear()
             }
             forces.applyDrag(vessel, attractor, weather, weatherRotation, time, dt)
+            // Rotors and gas cells, after the drag pass, which is where the air at the craft is
+            // sampled for this tick.
+            rotors.apply(vessel, attractor, weatherRotation, time, dt)
+            aerostatics.apply(vessel, attractor)
             for (i in 0 until forces.tornCount) {
                 val index = forces.tornParachutes[i]
                 pendingEvents.add(
@@ -3195,7 +3305,7 @@ class World(
             vessel.noteStillness(false, SLEEP_SETTLE_TICKS)
             return
         }
-        val still = report.anchored || floatingStill(vessel)
+        val still = report.anchored || floatingStill(vessel) || aloftStill(vessel)
         if (vessel.noteStillness(still, SLEEP_SETTLE_TICKS)) {
             // The pose was just integrated to the end of the tick, so it gets pinned to the ground
             // as the ground is then.
@@ -3204,17 +3314,28 @@ class World(
             vessel.sleep(scratchRotation)
             // Afloat, it rides the sea from here on, so note how it lies in it.
             val ocean = attractor.ocean
-            if (!report.anchored && ocean != null && !vessel.touchingGround) {
-                attractor.toBodyFixed(vessel.body.position, scratchRotation, scratchSeaPoint)
-                ocean.sample(scratchSeaPoint, tickEnd, seaRide, spacing = riderSpacing(vessel))
-                vessel.afloat = true
-                vessel.draft = scratchSeaPoint.length - attractor.radius - seaRide.height
-                vessel.sleepNormal.setTo(seaRide.normal)
-            }
+            if (!report.anchored && ocean != null && !vessel.touchingGround && vessel.buoyed) settleAfloat(vessel, attractor)
         }
     }
 
+    /**
+     * Notes how [vessel] lies in the sea where it floats now: afloat, its centre [Vessel.draft]
+     * metres from the surface, tilted the way the water is, so asleep (or founded) it rides the sea
+     * from here on.
+     */
+    private fun settleAfloat(vessel: Vessel, attractor: CelestialBody) {
+        val ocean = attractor.ocean ?: return
+        attractor.rotationAt(tickEnd, scratchRotation)
+        attractor.toBodyFixed(vessel.body.position, scratchRotation, scratchSeaPoint)
+        ocean.sample(scratchSeaPoint, tickEnd, seaRide, spacing = riderSpacing(vessel))
+        vessel.afloat = true
+        vessel.draft = scratchSeaPoint.length - attractor.radius - seaRide.height
+        vessel.sleepNormal.setTo(seaRide.normal)
+    }
+
     private val seaRide = com.rm.apogee.core.sea.SeaSample()
+    private val scratchRide = com.rm.apogee.core.math.Quat()
+    private val scratchRideTurn = com.rm.apogee.core.math.Quat()
     private val scratchSeaPoint = Vec3()
     private val scratchSeaUp = Vec3()
     private val scratchTilt = Quat()
@@ -3230,8 +3351,12 @@ class World(
      * them, where it was moored. [waves] is off for time warped on rails, when only the tide is
      * followed.
      */
-    private fun followSea(vessel: Vessel, attractor: CelestialBody, waves: Boolean) {
+    private fun followSea(vessel: Vessel, attractor: CelestialBody, waves: Boolean, dt: Double = 0.0) {
         val ocean = attractor.ocean ?: return followGround(vessel, attractor)
+        // A founded base afloat carries whatever stands on its deck, and for that its deck has to
+        // move with the turning speed it really has, worked out from how it turned this tick.
+        val carrying = vessel.anchored && dt > 0.0
+        if (carrying) scratchRide.setTo(vessel.body.orientation)
         attractor.rotationAt(tickEnd, scratchRotation)
         vessel.sleepDirection(scratchSeaUp)
         ocean.sample(scratchSeaUp, tickEnd, seaRide, spacing = if (waves) riderSpacing(vessel) else 1.0e9)
@@ -3242,9 +3367,19 @@ class World(
         if (waves) scratchSurfaceVelocity.addInPlace(scratchRotation.rotate(seaRide.velocity, scratchSeaPoint))
         attractor.angularVelocity(scratchSpin)
         vessel.followSea(scratchRotation, attractor.radius + height + vessel.draft, scratchTilt, scratchSurfaceVelocity, scratchSpin)
+        if (carrying) {
+            // conj(before) then after: the turn this tick, as an angle about an axis.
+            scratchRideTurn.setTo(vessel.body.orientation).mulInPlace(scratchRide.conjugateInPlace())
+            if (scratchRideTurn.w < 0.0) scratchRideTurn.setTo(-scratchRideTurn.x, -scratchRideTurn.y, -scratchRideTurn.z, -scratchRideTurn.w)
+            val sine = kotlin.math.sqrt(scratchRideTurn.x * scratchRideTurn.x + scratchRideTurn.y * scratchRideTurn.y + scratchRideTurn.z * scratchRideTurn.z)
+            if (sine > 1e-12) {
+                val angle = 2.0 * kotlin.math.atan2(sine, scratchRideTurn.w)
+                vessel.body.angularVelocity.setTo(scratchRideTurn.x, scratchRideTurn.y, scratchRideTurn.z).mulInPlace(angle / (sine * dt))
+            }
+        }
         // The sea has got up big for it, so what happens to it now (riding it out, taking on water,
         // going over) is for the physics to decide.
-        if (waves && !hurried && seaRide.significantHeight > tooRough(vessel)) vessel.wake()
+        if (waves && !hurried && !vessel.anchored && seaRide.significantHeight > tooRough(vessel)) vessel.wake()
     }
 
     /**
@@ -3293,6 +3428,36 @@ class World(
     private val scratchCurrent = Vec3()
     private val scratchCurrentPoint = Vec3()
     private val scratchCurrentRotation = com.rm.apogee.core.math.Quat()
+
+    /**
+     * Up in the air and going nowhere: held by its keeper core with hands off the stick, or floating
+     * in balance on its gas cells with nothing running. Then it may sleep aloft, and asleep it rides
+     * the planet round at its height, like a sleeping craft on the ground, so a platform left in the
+     * sky is where it was when you come back.
+     */
+    private fun aloftStill(vessel: Vessel): Boolean {
+        if (vessel.touchingGround || vessel.buoyed) return false
+        val control = vessel.control
+        if (control.hasAttitudeInput) return false
+        val keeping = control.keeping
+        // Held by its keeper, only once it's back where it's meant to be.
+        if (keeping) {
+            val attractor = attractorFor(vessel)
+            attractor.rotationAt(time, scratchCurrentRotation).rotate(control.keepPoint, scratchCurrent).subInPlace(vessel.body.position)
+            if (scratchCurrent.length > KEEP_SETTLED) return false
+        }
+        val share = liftShare(vessel)
+        val balanced = share in (1.0 - BALANCED)..(1.0 + BALANCED) && control.throttle == 0.0
+        if (!keeping && !balanced) return false
+        val attractor = attractorFor(vessel)
+        attractor.surfaceVelocityAt(vessel.body.position, scratchSurfaceVelocity)
+        scratchRelativeVelocity.setTo(vessel.body.linearVelocity).subInPlace(scratchSurfaceVelocity)
+        // Kept over its spot, it's still over the ground. Left to float, it's still in the air.
+        if (!keeping) scratchRelativeVelocity.subInPlace(attractor.rotationAt(time, scratchCurrentRotation).rotate(vessel.air.wind, scratchCurrent))
+        if (scratchRelativeVelocity.length > ANCHOR_DRIFT) return false
+        attractor.angularVelocity(scratchSpin)
+        return vessel.body.angularVelocity.distanceTo(scratchSpin) < ALOFT_TURN
+    }
 
     private fun floatingStill(vessel: Vessel): Boolean {
         if (vessel.touchingGround || hydrostatics.submergedVolume <= 0.0) return false
@@ -3470,7 +3635,9 @@ class World(
             water = reading(vessel, com.rm.apogee.core.part.ResourceType.WATER),
             ballast = ballastShare(vessel).toFloat(),
             ballastMode = vessel.control.ballast,
-            holdingDepth = if (vessel.control.holdDepth) vessel.control.holdDepthAt.toFloat() else -1f,
+            // Aloft on gas, it's a height it holds, kept as a depth below the datum.
+            holdingDepth = if (!vessel.control.holdDepth) -1f
+                else if (gasCraft(vessel)) (-vessel.control.holdDepthAt).toFloat() else vessel.control.holdDepthAt.toFloat(),
             crush = vessel.crushShare.toFloat(),
             cruiseHeight = if (vessel.control.cruise) vessel.control.cruiseHeight.toFloat() else -1f,
             cruiseHeading = vessel.control.cruiseHeading.toFloat(),
@@ -3481,6 +3648,11 @@ class World(
             hooked = lineOf(vessel) != null,
             reel = lineOf(vessel)?.reel ?: 0,
             taut = lineOf(vessel)?.taut == true,
+            hasKeeper = hasKeeper(vessel),
+            keeping = vessel.control.keeping,
+            keepPoint = vessel.control.keepPoint.copy(),
+            ballonet = vessel.ballonet.toFloat(),
+            lift = liftShare(vessel).toFloat(),
         ).let { sonar(vessel, it) }
     }
 
@@ -4198,10 +4370,6 @@ class World(
     )
 
     /**
-     * Pins [vessel] where it is now, because the server says it's founded. This is for a client's
-     * replica, which takes the server's word instead of asking whether it could be.
-     */
-    /**
      * Tells each sea where the founded bases on it are, so the currents leave the water round them
      * calm. Bases don't move, so now and then is plenty. It goes by the anchored craft this world
      * holds, which on a client's replica are the bases near the craft being flown, so the replica's
@@ -4228,10 +4396,24 @@ class World(
         }
     }
 
+    /**
+     * Pins [vessel] where it is now, because the server says it's founded. This is for a client's
+     * replica, which takes the server's word instead of asking whether it could be.
+     */
     fun pin(vessel: Vessel) {
         if (vessel.anchored) return
-        attractorFor(vessel).rotationAt(time, anchorRotation)
+        val attractor = attractorFor(vessel)
+        attractor.rotationAt(time, anchorRotation)
         vessel.anchor(anchorRotation)
+        // A base afloat rides the same sea here as on the server, since the sea is worked out the
+        // same everywhere.
+        if (floatsOnSea(vessel, attractor)) settleAfloat(vessel, attractor)
+    }
+
+    /** Whether [vessel] sits in the sea, with hulls or pontoons, near enough the surface to float. */
+    private fun floatsOnSea(vessel: Vessel, attractor: CelestialBody): Boolean {
+        if (attractor.ocean == null || vessel.defs.none { it.hasModule<com.rm.apogee.core.part.Buoyancy>() }) return false
+        return kotlin.math.abs(depthOf(vessel)) < vessel.contactRadius
     }
 
     // --- persistence ---------------------------------------------------------
@@ -4299,6 +4481,10 @@ class World(
                 ballast = vessel.control.ballast,
                 holdDepth = vessel.control.holdDepth,
                 holdDepthAt = vessel.control.holdDepthAt,
+                keeping = vessel.control.keeping,
+                keepPoint = vessel.control.keepPoint.copy(),
+                keepTrim = vessel.control.keepTrim,
+                ballonet = vessel.ballonet,
                 surveyBody = vessel.surveyBody,
                 surveyProgress = vessel.surveyProgress,
                 crew = if (vessel.crewAboard > 0) vessel.crew.map { it.toList() } else emptyList(),
@@ -4309,6 +4495,7 @@ class World(
                 crumple = vessel.crumple.toList(),
                 temperature = vessel.temperature.toList(),
                 anchored = vessel.anchored,
+                afloat = vessel.anchored && vessel.afloat,
                 log = vessel.log,
             )
         },
@@ -4328,6 +4515,7 @@ class World(
         // Founded bases, pinned again once everything is in place, after any setting down on
         // changed ground.
         val founded = ArrayList<Vessel>()
+        val foundedAfloat = HashSet<VesselId>()
         val terrainChanged = save.terrainGeneration != TerrainField.GENERATION
         felledScatter.clear()
         // Scatter ids name places on one generation's ground. On another they'd knock down some
@@ -4445,6 +4633,10 @@ class World(
             vessel.control.ballast = saved.ballast
             vessel.control.holdDepth = saved.holdDepth
             vessel.control.holdDepthAt = saved.holdDepthAt
+            vessel.control.keeping = saved.keeping
+            vessel.control.keepPoint.setTo(saved.keepPoint)
+            vessel.control.keepTrim = saved.keepTrim
+            vessel.ballonet = saved.ballonet
             vessel.log = saved.log
             vessel.surveyBody = saved.surveyBody
             vessel.surveyProgress = saved.surveyProgress
@@ -4458,6 +4650,7 @@ class World(
             saved.flooded.forEachIndexed { i, kg -> if (i < vessel.flooded.size) vessel.flooded[i] = kg }
             vessel.recomputeMass(shiftBodyPosition = false)
             if (saved.anchored) founded.add(vessel)
+            if (saved.anchored && saved.afloat) foundedAfloat.add(vessel.id)
 
             vesselsById[vessel.id] = vessel
             // Everyone connected needs to be told these exist.
@@ -4482,6 +4675,8 @@ class World(
         for (vessel in founded) {
             attractorFor(vessel).rotationAt(time, anchorRotation)
             vessel.anchor(anchorRotation)
+            // A base founded afloat rides the sea again.
+            if (vessel.id in foundedAfloat) settleAfloat(vessel, attractorFor(vessel))
         }
 
         // Only worth saying once, and only when something actually suffered.
@@ -4802,6 +4997,8 @@ class World(
     private fun ballast(vessel: Vessel, attractor: CelestialBody, dt: Double) {
         val control = vessel.control
         if (control.ballast == 0 && !control.holdDepth) return
+        // Up in the air, the same buttons work the gas cells' ballonets.
+        if (gasCraft(vessel)) { ballonets(vessel, attractor, dt); return }
         val ocean = attractor.ocean
         var mode = control.ballast
         if (control.holdDepth) {
@@ -4841,6 +5038,53 @@ class World(
 
     private var ballastSinceMass = 0
 
+    /** What [vessel]'s gas cells lift as a share of its weight, or -1 with none. */
+    fun liftShare(vessel: Vessel): Double {
+        if (vessel.defs.none { it.module<com.rm.apogee.core.part.LiftGas>() != null }) return -1.0
+        val weight = vessel.body.mass * attractorFor(vessel).gravityAt(vessel.body.position, scratchLift).length
+        return if (weight > 0.0) vessel.gasLift / weight else 0.0
+    }
+
+    private val scratchLift = Vec3()
+
+    /** Whether [vessel] floats on gas cells and isn't in the water, so its ballast is air. */
+    private fun gasCraft(vessel: Vessel): Boolean =
+        !vessel.buoyed && vessel.defs.indices.any { vessel.defs[it].module<com.rm.apogee.core.part.LiftGas>() != null && !vessel.isBroken(it) }
+
+    /**
+     * Fills [vessel]'s ballonets with air to sink, or lets it out to rise, or holds a height with
+     * them, the way a submarine's tanks hold a depth. Pumping air in takes charge; letting it out
+     * doesn't.
+     */
+    private fun ballonets(vessel: Vessel, attractor: CelestialBody, dt: Double) {
+        val control = vessel.control
+        var mode = control.ballast
+        if (control.holdDepth) {
+            // The fill that gives the lift for the climb it should have, like the keeper core.
+            val below = -attractor.altitudeOf(vessel.body.position) - control.holdDepthAt
+            attractor.surfaceVelocityAt(vessel.body.position, scratchSea)
+            val climb = scratchSea.subInPlace(vessel.body.linearVelocity).mulInPlace(-1.0) dot vessel.body.position.normalized()
+            val g = attractor.gravityAt(vessel.body.position, scratchLift).length
+            val trim = Aerostatics.trimFor(vessel, below, climb, g, dt)
+            mode = when {
+                trim > vessel.ballonet + Aerostatics.TRIM_NEAR -> 1
+                trim < vessel.ballonet - Aerostatics.TRIM_NEAR -> -1
+                else -> 0
+            }
+            if (mode == 0) return
+        }
+        var rate = 0.0
+        var draw = 0.0
+        for (i in vessel.defs.indices) {
+            val gas = vessel.defs[i].module<com.rm.apogee.core.part.LiftGas>() ?: continue
+            if (vessel.isBroken(i)) continue
+            rate = maxOf(rate, gas.trimRate)
+            draw += gas.draw
+        }
+        if (mode > 0) { if (vessel.drawCharge(draw * dt)) vessel.ballonet += rate * dt }
+        else if (mode < 0) vessel.ballonet -= rate * dt
+    }
+
     /** How full [vessel]'s ballast tanks are, 0..1, or -1 if it has none. */
     fun ballastShare(vessel: Vessel): Double {
         val ocean = attractorFor(vessel).ocean
@@ -4851,7 +5095,9 @@ class World(
             room += tank.volume * (ocean?.density ?: 1_025.0)
             held += vessel.flooded[i]
         }
-        return if (room > 0.0) (held / room).coerceIn(0.0, 1.0) else -1.0
+        if (room > 0.0) return (held / room).coerceIn(0.0, 1.0)
+        // Aloft on gas cells, how full the ballonets are.
+        return if (gasCraft(vessel)) vessel.ballonet else -1.0
     }
 
     /**
@@ -5344,6 +5590,26 @@ class World(
         const val HOLD_DEPTH_GAIN = 0.15
         const val HOLD_DEPTH_SPEED = 0.8
         const val HOLD_DEPTH_BAND = 0.05
+
+
+        /** Gas lift, as a share of weight, that floats a craft on its own, for founding it aloft. */
+        const val FLOATS_ALONE = 0.97
+
+        /** Gas lift this close to its weight, as a share, counts as floating in balance. */
+        const val BALANCED = 0.03
+
+        /**
+         * Slower than this over the ground, in m/s, a floating platform can be founded aloft, and
+         * drifting slower than the other across the sea, afloat, where the waves sway it.
+         */
+        const val FLOAT_FOUND_SPEED = 1.0
+        const val FLOAT_FOUND_DRIFT = 3.0
+
+        /** How near its held spot, in metres, a craft held by its keeper has to be to sleep there. */
+        const val KEEP_SETTLED = 4.0
+
+        /** Turning slower than this against the planet, in rad/s, it's still enough to sleep aloft. */
+        const val ALOFT_TURN = 0.02
 
         /** Ticks between weighing a craft again while its ballast is changing. */
         const val BALLAST_MASS_EVERY = 6

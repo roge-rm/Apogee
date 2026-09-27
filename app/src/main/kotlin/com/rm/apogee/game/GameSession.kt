@@ -694,6 +694,9 @@ class GameSession private constructor(
                 hooked = systems.hooked,
                 reel = systems.reel,
                 taut = systems.taut,
+                hasKeeper = systems.hasKeeper,
+                keeping = systems.keeping,
+                lift = systems.lift,
                 held = prediction.replica?.let { local ->
                     val ore = com.rm.apogee.core.part.ResourceType.ORE
                     val water = com.rm.apogee.core.part.ResourceType.WATER
@@ -748,6 +751,9 @@ class GameSession private constructor(
     }
 
     /** Holds the flown craft's height and heading as they are now, or lets go. */
+    /** Holds the craft still where it is with its keeper core, or stops. */
+    suspend fun setStationKeep(on: Boolean) = withControlledVessel { client.send(Command.SetStationKeep(it, on)) }
+
     suspend fun setCruise(on: Boolean) {
         withControlledVessel { client.send(Command.SetCruise(it, on)) }
     }
@@ -3525,6 +3531,24 @@ class GameSession private constructor(
             } else if (def.module<com.rm.apogee.core.part.Engine>() != null) {
                 // A propeller turns with the throttle.
                 animation.spin[index] += state.throttle * PROPELLER_RATE * animationDt
+            } else if (fresh) def.module<com.rm.apogee.core.part.Rotor>()?.let { rotor ->
+                // A rotor turns while it runs, and close over the ground its downwash blows up
+                // dust, and it's heard.
+                val out = animation.shown.output.getOrElse(index) { 0.0 }
+                if (out > 0.0) {
+                    animation.spin[index] += ROTOR_RATE * (0.6 + 0.4 * out) * animationDt
+                    if (!mapMode && !rotor.tail) {
+                        val down = (rotation * placedRotation).rotate(rotor.liftDirection).normalizeInPlace().negateInPlace()
+                        emitters.add(
+                            EngineEmitter(
+                                nozzle = scratch.copy(), out = down, radius = rotor.diameter * 0.5, exitRadius = rotor.diameter * 0.5,
+                                kind = com.rm.apogee.core.part.Exhaust.PROP, throttle = out, velocity = state.velocity.copy(),
+                                seed = (vessel.id * 31 + index).toInt(),
+                            ),
+                        )
+                    }
+                    soundCraft(vessel.id, position, state.velocity, attractor).rotor(out, rotor.diameter)
+                }
             }
             // A thruster block firing: puffs come out of it, opposite its push, and there's a chuff
             // in the sound. The push is in the craft's axes, from the replica for the craft being
@@ -4150,6 +4174,9 @@ class GameSession private constructor(
 
         /** A propeller's turn at full throttle, in radians per second. */
         private const val PROPELLER_RATE = 60.0
+
+        /** How fast a running rotor is drawn turning, in radians a second. */
+        private const val ROTOR_RATE = 30.0
 
         /**
          * The direction to the star, in the planet's frame.

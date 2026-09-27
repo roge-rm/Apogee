@@ -64,6 +64,14 @@ class VesselSave(
     val ballast: Int = 0,
     val holdDepth: Boolean = false,
     val holdDepthAt: Double = 0.0,
+    /**
+     * Holding station with its keeper core: the body-fixed place held, and the throttle it found it
+     * needs. And how much air its gas cells' ballonets hold, 0..1.
+     */
+    val keeping: Boolean = false,
+    val keepPoint: com.rm.apogee.core.math.SerialVec3 = com.rm.apogee.core.math.Vec3(),
+    val keepTrim: Double = 0.0,
+    val ballonet: Double = 0.0,
     /** Who sits in each part, by crew id, in part order. */
     val crew: List<List<Long>> = emptyList(),
     /** A survey in progress: which body, and how many seconds of it are done. */
@@ -95,6 +103,8 @@ class VesselSave(
     val temperature: List<Double> = emptyList(),
     /** Founded: pinned to the ground where it stands. See [World.anchor]. */
     val anchored: Boolean = false,
+    /** Founded afloat, so it rides the sea. */
+    val afloat: Boolean = false,
     /** What it has done this flight, for a career. Null outside one. */
     val log: com.rm.apogee.core.career.FlightLog? = null,
 )

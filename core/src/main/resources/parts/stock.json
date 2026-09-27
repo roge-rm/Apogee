@@ -14929,5 +14929,1686 @@
         "draw": 0.02
       }
     ]
+  },
+  {
+    "id": "rotor-main",
+    "title": "Rotor Head",
+    "category": "propulsion",
+    "dryMass": 380.0,
+    "description": "A helicopter's main rotor on its mast: four long blades on an engine that burns propellant. The throttle is the collective, and the stick tilts its lift to fly it about. It twists the craft the other way as it turns, so it wants a tail rotor to hold the heading.",
+    "crashTolerance": 9.0,
+    "dragCoefficient": 0.3,
+    "mesh": {
+      "type": "cylinder",
+      "radius": 0.35,
+      "height": 0.8
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.12,
+              "height": 0.8
+            }
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                0.35,
+                -0.4
+              ],
+              [
+                0.35,
+                -0.1
+              ],
+              [
+                0.2,
+                0.1
+              ],
+              [
+                0.0,
+                0.14
+              ]
+            ],
+            "segments": 20
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.2,
+            "z": 0.0
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                0.16,
+                0.3
+              ],
+              [
+                0.16,
+                0.42
+              ],
+              [
+                0.0,
+                0.46
+              ]
+            ],
+            "segments": 20
+          },
+          "tint": "metal",
+          "role": "spin",
+          "axis": {
+            "x": 0.0,
+            "y": 1.0,
+            "z": 0.0
+          }
+        },
+        {
+          "model": {
+            "type": "prop",
+            "radius": 4.0,
+            "blades": 4,
+            "chord": 0.3,
+            "pitchDegrees": 6.0
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.38,
+            "z": 0.0
+          },
+          "tint": "dark",
+          "role": "spin",
+          "axis": {
+            "x": 0.0,
+            "y": 1.0,
+            "z": 0.0
+          }
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "base",
+        "position": {
+          "x": 0.0,
+          "y": -0.4,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "rotor",
+        "lift": 26000.0,
+        "diameter": 8.0,
+        "spin": 1,
+        "cyclic": 8.0,
+        "torque": 0.35,
+        "tail": false,
+        "liftDirection": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "propellant": "propellant",
+        "efficiency": 120000.0
+      }
+    ]
+  },
+  {
+    "id": "rotor-tail",
+    "title": "Tail Rotor",
+    "category": "propulsion",
+    "dryMass": 60.0,
+    "description": "A small rotor that pushes sideways at the end of a tail boom. It holds the heading against the main rotor's twist, and the stick turns the craft with it.",
+    "crashTolerance": 8.0,
+    "dragCoefficient": 0.3,
+    "mesh": {
+      "type": "cylinder",
+      "radius": 0.15,
+      "height": 0.3
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.1,
+              "height": 0.3
+            }
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "prop",
+            "radius": 0.8,
+            "blades": 2,
+            "chord": 0.12,
+            "pitchDegrees": 10.0
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.16,
+            "z": 0.0
+          },
+          "tint": "dark",
+          "role": "spin",
+          "axis": {
+            "x": 0.0,
+            "y": 1.0,
+            "z": 0.0
+          }
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "base",
+        "position": {
+          "x": 0.0,
+          "y": -0.15,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "rotor",
+        "lift": 4000.0,
+        "diameter": 1.6,
+        "spin": 1,
+        "cyclic": 0.0,
+        "torque": 0.0,
+        "tail": true,
+        "liftDirection": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "propellant": "propellant",
+        "efficiency": 120000.0
+      }
+    ]
+  },
+  {
+    "id": "rotor-drone",
+    "title": "Drone Rotor",
+    "category": "propulsion",
+    "dryMass": 3.0,
+    "description": "A small electric rotor in a guard ring, for drones. Four or more of them on a frame, and the craft steers by speeding some up and slowing others.",
+    "crashTolerance": 6.0,
+    "dragCoefficient": 0.3,
+    "mesh": {
+      "type": "cylinder",
+      "radius": 0.38,
+      "height": 0.12
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.05,
+              "height": 0.12
+            }
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                0.38,
+                -0.04
+              ],
+              [
+                0.4,
+                -0.04
+              ],
+              [
+                0.4,
+                0.04
+              ],
+              [
+                0.38,
+                0.04
+              ],
+              [
+                0.38,
+                -0.04
+              ]
+            ],
+            "segments": 24
+          },
+          "tint": "body"
+        },
+        {
+          "model": {
+            "type": "prop",
+            "radius": 0.35,
+            "blades": 2,
+            "chord": 0.05,
+            "pitchDegrees": 12.0
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.04,
+            "z": 0.0
+          },
+          "tint": "dark",
+          "role": "spin",
+          "axis": {
+            "x": 0.0,
+            "y": 1.0,
+            "z": 0.0
+          }
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "base",
+        "position": {
+          "x": 0.0,
+          "y": -0.06,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "rotor",
+        "lift": 500.0,
+        "diameter": 0.7,
+        "spin": 1,
+        "cyclic": 0.0,
+        "torque": 0.03,
+        "tail": false,
+        "liftDirection": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "propellant": "electricCharge",
+        "efficiency": 3200.0
+      }
+    ]
+  },
+  {
+    "id": "fan-lift",
+    "title": "Lift Fan",
+    "category": "propulsion",
+    "dryMass": 120.0,
+    "description": "An electric fan in a duct that blows straight down, to hold up and steer a platform. Hang them under the corners.",
+    "crashTolerance": 8.0,
+    "dragCoefficient": 0.3,
+    "mesh": {
+      "type": "cylinder",
+      "radius": 0.8,
+      "height": 0.6
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                0.8,
+                -0.3
+              ],
+              [
+                0.85,
+                -0.3
+              ],
+              [
+                0.85,
+                0.3
+              ],
+              [
+                0.8,
+                0.3
+              ],
+              [
+                0.8,
+                -0.3
+              ]
+            ],
+            "segments": 24
+          },
+          "tint": "body"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.18,
+              "height": 0.5
+            }
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "prop",
+            "radius": 0.75,
+            "blades": 6,
+            "chord": 0.12,
+            "pitchDegrees": 20.0
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.05,
+            "z": 0.0
+          },
+          "tint": "dark",
+          "role": "spin",
+          "axis": {
+            "x": 0.0,
+            "y": 1.0,
+            "z": 0.0
+          }
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "top",
+        "position": {
+          "x": 0.0,
+          "y": 0.3,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "rotor",
+        "lift": 3000.0,
+        "diameter": 1.6,
+        "spin": 1,
+        "cyclic": 0.0,
+        "torque": 0.02,
+        "tail": false,
+        "liftDirection": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "propellant": "electricCharge",
+        "efficiency": 3200.0
+      }
+    ]
+  },
+  {
+    "id": "cockpit-bubble",
+    "title": "Bubble Cockpit",
+    "category": "command",
+    "dryMass": 900.0,
+    "description": "A helicopter's cabin for two, with a clear bubble for a nose. The rotor goes on its roof, a boom on its tail, and skids underneath.",
+    "crashTolerance": 10.0,
+    "dragCoefficient": 0.3,
+    "mesh": {
+      "type": "cylinder",
+      "radius": 0.9,
+      "height": 2.6
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                0.0,
+                -1.3
+              ],
+              [
+                0.7,
+                -1.25
+              ],
+              [
+                0.9,
+                -0.8
+              ],
+              [
+                0.9,
+                0.2
+              ],
+              [
+                0.8,
+                0.7
+              ],
+              [
+                0.0,
+                0.75
+              ]
+            ],
+            "segments": 20
+          },
+          "tint": "body"
+        },
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                0.8,
+                0.65
+              ],
+              [
+                0.72,
+                0.95
+              ],
+              [
+                0.5,
+                1.2
+              ],
+              [
+                0.0,
+                1.3
+              ]
+            ],
+            "segments": 20
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "glass"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "bottom",
+        "position": {
+          "x": 0.0,
+          "y": -1.3,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 1
+      },
+      {
+        "id": "spine",
+        "position": {
+          "x": 0.0,
+          "y": -1.1,
+          "z": 0.8
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "belly",
+        "position": {
+          "x": 0.0,
+          "y": -0.2,
+          "z": -0.9
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "command",
+        "crewCapacity": 2,
+        "reactionTorque": 1500.0,
+        "providesControl": true,
+        "idleDraw": 0.02
+      },
+      {
+        "type": "battery",
+        "capacity": 60.0
+      }
+    ]
+  },
+  {
+    "id": "boom-tail",
+    "title": "Tail Boom",
+    "category": "structural",
+    "dryMass": 80.0,
+    "description": "A slim boom to carry a tail rotor well back from the main one.",
+    "crashTolerance": 8.0,
+    "dragCoefficient": 0.3,
+    "mesh": {
+      "type": "cylinder",
+      "radius": 0.22,
+      "height": 4.5
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                0.3,
+                2.25
+              ],
+              [
+                0.22,
+                1.5
+              ],
+              [
+                0.16,
+                -2.25
+              ]
+            ],
+            "segments": 20
+          },
+          "tint": "body"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "top",
+        "position": {
+          "x": 0.0,
+          "y": 2.25,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "size": 1
+      },
+      {
+        "id": "tail-side",
+        "position": {
+          "x": 0.2,
+          "y": -1.9,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "tail-fin",
+        "position": {
+          "x": 0.0,
+          "y": -1.9,
+          "z": 0.2
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": []
+  },
+  {
+    "id": "skids",
+    "title": "Landing Skids",
+    "category": "structural",
+    "dryMass": 60.0,
+    "description": "A pair of skids to stand a helicopter on.",
+    "crashTolerance": 12.0,
+    "dragCoefficient": 0.3,
+    "mesh": {
+      "type": "box",
+      "width": 2.0,
+      "height": 0.6,
+      "depth": 2.6
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.08,
+              "height": 0.08,
+              "depth": 2.6
+            }
+          },
+          "offset": {
+            "x": 0.9,
+            "y": -0.25,
+            "z": 0.0
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.08,
+              "height": 0.08,
+              "depth": 2.6
+            }
+          },
+          "offset": {
+            "x": -0.9,
+            "y": -0.25,
+            "z": 0.0
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 1.9,
+              "height": 0.06,
+              "depth": 0.06
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.8
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 1.9,
+              "height": 0.06,
+              "depth": 0.06
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": -0.8
+          },
+          "tint": "metal"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "base",
+        "position": {
+          "x": 0.0,
+          "y": 0.3,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": []
+  },
+  {
+    "id": "frame-drone",
+    "title": "Drone Frame",
+    "category": "structural",
+    "dryMass": 6.0,
+    "description": "A light cross of arms for a drone, with a rotor at the end of each and room in the middle for a core and a battery.",
+    "crashTolerance": 6.0,
+    "dragCoefficient": 0.3,
+    "mesh": {
+      "type": "box",
+      "width": 1.4,
+      "height": 1.4,
+      "depth": 0.1
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 1.7,
+              "height": 0.08,
+              "depth": 0.06
+            }
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 45.0
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 1.7,
+              "height": 0.08,
+              "depth": 0.06
+            }
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": -45.0
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.4,
+              "height": 0.4,
+              "depth": 0.08
+            }
+          },
+          "tint": "body"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "arm-1",
+        "position": {
+          "x": 0.6,
+          "y": 0.6,
+          "z": 0.05
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "arm-2",
+        "position": {
+          "x": -0.6,
+          "y": 0.6,
+          "z": 0.05
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "arm-3",
+        "position": {
+          "x": -0.6,
+          "y": -0.6,
+          "z": 0.05
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "arm-4",
+        "position": {
+          "x": 0.6,
+          "y": -0.6,
+          "z": 0.05
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "top",
+        "position": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.05
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "bottom",
+        "position": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -0.05
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": []
+  },
+  {
+    "id": "core-keeper",
+    "title": "Keeper Core",
+    "category": "command",
+    "dryMass": 40.0,
+    "description": "A flight computer that holds a craft still where you leave it: in the air on rotors, fans, gas or engines pointing down, or on the water. Switch it on with HOLD STATION. It flies a craft with nobody in it while it can hear home.",
+    "crashTolerance": 8.0,
+    "dragCoefficient": 0.3,
+    "mesh": {
+      "type": "cylinder",
+      "radius": 0.3,
+      "height": 0.3
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                0.3,
+                -0.15
+              ],
+              [
+                0.3,
+                0.08
+              ],
+              [
+                0.22,
+                0.15
+              ],
+              [
+                0.0,
+                0.18
+              ]
+            ],
+            "segments": 20
+          },
+          "tint": "body"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.1,
+              "height": 0.04,
+              "depth": 0.02
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.3
+          },
+          "tint": "light"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.01,
+              "height": 0.35
+            }
+          },
+          "offset": {
+            "x": 0.18,
+            "y": 0.3,
+            "z": 0.0
+          },
+          "tint": "metal"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "base",
+        "position": {
+          "x": 0.0,
+          "y": -0.15,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "top",
+        "position": {
+          "x": 0.0,
+          "y": 0.15,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "size": 1
+      },
+      {
+        "id": "bottom",
+        "position": {
+          "x": 0.0,
+          "y": -0.15,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 1
+      }
+    ],
+    "modules": [
+      {
+        "type": "command",
+        "crewCapacity": 0,
+        "reactionTorque": 400.0,
+        "providesControl": true,
+        "idleDraw": 0.01
+      },
+      {
+        "type": "battery",
+        "capacity": 40.0
+      },
+      {
+        "type": "antenna",
+        "range": 2000000.0,
+        "draw": 0.005
+      },
+      {
+        "type": "stationKeeper",
+        "draw": 0.05
+      }
+    ]
+  },
+  {
+    "id": "balloon-small",
+    "title": "Balloon Envelope",
+    "category": "structural",
+    "dryMass": 90.0,
+    "description": "A round envelope of light gas, with a skirt of ropes to hang a basket from. It lifts about three hundred kilograms near the ground on Terra, and less the higher it goes, until it floats. RISE and SINK work its ballonet.",
+    "crashTolerance": 4.0,
+    "dragCoefficient": 0.4,
+    "mesh": {
+      "type": "cylinder",
+      "radius": 4.0,
+      "height": 9.0
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                0.0,
+                -4.5
+              ],
+              [
+                1.236,
+                -4.28
+              ],
+              [
+                2.351,
+                -3.641
+              ],
+              [
+                3.236,
+                -2.645
+              ],
+              [
+                3.804,
+                -1.391
+              ],
+              [
+                4.0,
+                0.0
+              ],
+              [
+                3.804,
+                1.391
+              ],
+              [
+                3.236,
+                2.645
+              ],
+              [
+                2.351,
+                3.641
+              ],
+              [
+                1.236,
+                4.28
+              ],
+              [
+                0.0,
+                4.5
+              ]
+            ],
+            "segments": 20
+          },
+          "tint": "light"
+        },
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                0.8,
+                -4.4
+              ],
+              [
+                0.4,
+                -4.8
+              ]
+            ],
+            "segments": 12
+          },
+          "tint": "dark"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "bottom",
+        "position": {
+          "x": 0.0,
+          "y": -4.8,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "liftGas",
+        "volume": 302,
+        "trimRate": 0.05,
+        "draw": 0.1
+      }
+    ]
+  },
+  {
+    "id": "basket-wicker",
+    "title": "Balloon Basket",
+    "category": "command",
+    "dryMass": 120.0,
+    "description": "A wicker basket for two, with a small battery for the ballonet's pump. Hang it under a balloon.",
+    "crashTolerance": 6.0,
+    "dragCoefficient": 0.3,
+    "mesh": {
+      "type": "box",
+      "width": 1.4,
+      "height": 1.1,
+      "depth": 1.4
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 1.4,
+              "height": 1.0,
+              "depth": 1.4
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": -0.05,
+            "z": 0.0
+          },
+          "tint": "body"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 1.44,
+              "height": 0.08,
+              "depth": 1.44
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.46,
+            "z": 0.0
+          },
+          "tint": "dark"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "top",
+        "position": {
+          "x": 0.0,
+          "y": 0.55,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "command",
+        "crewCapacity": 2,
+        "reactionTorque": 0.0,
+        "providesControl": true,
+        "idleDraw": 0.01
+      },
+      {
+        "type": "battery",
+        "capacity": 80.0
+      }
+    ]
+  },
+  {
+    "id": "cell-gas",
+    "title": "Gas Cell",
+    "category": "structural",
+    "dryMass": 150.0,
+    "description": "A big box of light gas, eight metres on a side and fourteen tall, for floating a platform or a heavy airship. It lifts nearly a tonne near the ground on Terra.",
+    "crashTolerance": 4.0,
+    "dragCoefficient": 0.8,
+    "mesh": {
+      "type": "box",
+      "width": 8.0,
+      "height": 14.0,
+      "depth": 8.0
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 7.8,
+              "height": 13.8,
+              "depth": 7.8
+            }
+          },
+          "tint": "light"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 8.0,
+              "height": 0.1,
+              "depth": 8.0
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 6.95,
+            "z": 0.0
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 8.0,
+              "height": 0.1,
+              "depth": 8.0
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": -6.95,
+            "z": 0.0
+          },
+          "tint": "metal"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "top",
+        "position": {
+          "x": 0.0,
+          "y": 7.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "bottom",
+        "position": {
+          "x": 0.0,
+          "y": -7.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "side-right",
+        "position": {
+          "x": 4.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "side-left",
+        "position": {
+          "x": -4.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": -1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "liftGas",
+        "volume": 896.0,
+        "trimRate": 0.04,
+        "draw": 0.2
+      }
+    ]
+  },
+  {
+    "id": "envelope-airship",
+    "title": "Airship Envelope",
+    "category": "structural",
+    "dryMass": 600.0,
+    "description": "A long streamlined envelope of light gas for an airship, thirty-six metres from nose to tail. Hang a gondola under the middle and a power car with a propeller behind it, and put fins on its tail.",
+    "crashTolerance": 4.0,
+    "dragCoefficient": 0.08,
+    "mesh": {
+      "type": "cylinder",
+      "radius": 6.5,
+      "height": 36.0
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                0.0,
+                -18.0
+              ],
+              [
+                1.682,
+                -17.387
+              ],
+              [
+                3.25,
+                -15.588
+              ],
+              [
+                4.596,
+                -12.728
+              ],
+              [
+                5.629,
+                -9.0
+              ],
+              [
+                6.279,
+                -4.659
+              ],
+              [
+                6.5,
+                0.0
+              ],
+              [
+                6.279,
+                4.659
+              ],
+              [
+                5.629,
+                9.0
+              ],
+              [
+                4.596,
+                12.728
+              ],
+              [
+                3.25,
+                15.588
+              ],
+              [
+                1.682,
+                17.387
+              ],
+              [
+                0.0,
+                18.0
+              ]
+            ],
+            "segments": 24
+          },
+          "tint": "light"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "top",
+        "position": {
+          "x": 0.0,
+          "y": 18.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "size": 1
+      },
+      {
+        "id": "belly",
+        "position": {
+          "x": 0.0,
+          "y": 3.0,
+          "z": -6.4
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "belly-rear",
+        "position": {
+          "x": 0.0,
+          "y": -2.3,
+          "z": -6.4
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "tail-top",
+        "position": {
+          "x": 0.0,
+          "y": -14.0,
+          "z": 3.99
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "tail-right",
+        "position": {
+          "x": 3.99,
+          "y": -14.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "tail-left",
+        "position": {
+          "x": -3.99,
+          "y": -14.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": -1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "liftGas",
+        "volume": 3186,
+        "trimRate": 0.03,
+        "draw": 0.3
+      }
+    ]
+  },
+  {
+    "id": "pontoon",
+    "title": "Pontoon",
+    "category": "structural",
+    "dryMass": 1200.0,
+    "description": "A sealed float seven metres long, to hold up a platform on the sea. Put four under a sea deck.",
+    "crashTolerance": 15.0,
+    "dragCoefficient": 0.6,
+    "mesh": {
+      "type": "box",
+      "width": 2.4,
+      "height": 1.6,
+      "depth": 7.0
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 2.4,
+              "height": 1.6,
+              "depth": 7.0
+            }
+          },
+          "tint": "body"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 2.44,
+              "height": 0.1,
+              "depth": 7.04
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.4,
+            "z": 0.0
+          },
+          "tint": "accent"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "top",
+        "position": {
+          "x": 0.0,
+          "y": 0.8,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "buoyancy",
+        "displacedVolume": 26.9
+      }
+    ]
   }
 ]

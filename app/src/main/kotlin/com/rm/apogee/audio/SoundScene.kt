@@ -45,6 +45,17 @@ class SoundScene(private val budget: Int) {
         /** How much its sails are flogging, 0..1: set, with the wind gone out of them. */
         var luff = 0.0
 
+        /** Its rotors: how hard the busiest one works, 0..1, and the biggest one's width, in metres. */
+        var rotor = 0.0
+            private set
+        var rotorSize = 0.0
+            private set
+
+        fun rotor(output: Double, diameter: Double) {
+            rotor = maxOf(rotor, output.coerceIn(0.0, 1.0))
+            rotorSize = maxOf(rotorSize, diameter)
+        }
+
         /** How hard its thrusters are firing, 0..1, from the hardest-working block. */
         var rcs = 0.0
             private set
@@ -181,6 +192,18 @@ class SoundScene(private val budget: Int) {
                 add(base + SLOT_RCS, Recipes.RCS, hull, v, g, p, lp, weight = g * (0.3f + craft.rcs.toFloat()))
             }
 
+            if (air && craft.rotor > 0.02) {
+                // Rotors: a big one's slow chop, a drone's small ones a soft buzz, faster the smaller.
+                val size = (craft.rotorSize / BIG_ROTOR).coerceIn(0.05, 1.0)
+                val (g, p, lp) = place(listener, craft.position, 0.6 + 1.2 * size)
+                val v = FloatArray(SharedParams.COUNT)
+                v[0] = (0.4 + 0.6 * craft.rotor).toFloat()
+                // Blades passing a second: about twenty for a helicopter, far more for a drone.
+                v[1] = (18.0 / size.coerceAtLeast(0.1)).coerceAtMost(160.0).toFloat()
+                v[2] = size.toFloat()
+                v[SharedParams.PITCH] = doppler(listener, craft).toFloat()
+                add(base + SLOT_ROTOR, Recipes.ROTOR, 0, v, g, p, lp, weight = g * (0.4f + v[0]))
+            }
             if (air && craft.luff > 0.02 && listener.wind > CALM) {
                 // A sail flogging, louder and quicker in more wind.
                 val (g, p, lp) = place(listener, craft.position, 0.5)
@@ -402,8 +425,13 @@ class SoundScene(private val budget: Int) {
         /** Quieter than this, a sound isn't worth a voice. */
         const val AUDIBLE = 0.01f
 
-        const val CRAFT_SLOTS = 8
+        const val CRAFT_SLOTS = 10
         const val SLOT_SAIL = 4
+
+        const val SLOT_ROTOR = 8
+
+        /** A rotor this wide, in metres, sounds as big as a rotor gets. */
+        const val BIG_ROTOR = 8.0
         const val SLOT_FIRE = 5
         const val SLOT_ROVER = 6
         const val SLOT_RCS = 7

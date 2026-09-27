@@ -24,6 +24,7 @@ constexpr int SEA = 15;        // p0 loudness, p1 roughness, p2 storm
 constexpr int COMPLEX = 16;    // p0 loudness, p1 lamps lit (0..1)
 constexpr int PORT = 17;       // p0 loudness
 constexpr int SAIL = 18;       // p0 how much it's flogging (0..1), p1 wind (0..1)
+constexpr int ROTOR = 19;      // p0 output, p1 blades passing a second, p2 size (0..1)
 constexpr int LAST_CONTINUOUS = 49;
 
 // One-shots: fired once, then they ring out.

@@ -147,6 +147,11 @@ class ClientPrediction(
             local.control.cruiseHeading = systems.cruiseHeading.toDouble()
         }
         for (k in local.groupStates.indices) local.groupStates[k] = systems.groups.getOrElse(k) { 0 }
+        // Holding station, and the gas cells' trim, the same way, since the keeper has the
+        // throttle.
+        local.control.keeping = systems.keeping
+        if (systems.keeping) local.control.keepPoint.setTo(systems.keepPoint)
+        local.ballonet = systems.ballonet.toDouble()
     }
 
     private val serverPose = com.rm.apogee.core.world.VesselPose.Values()

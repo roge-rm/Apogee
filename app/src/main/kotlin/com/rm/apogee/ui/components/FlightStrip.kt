@@ -55,6 +55,8 @@ fun stripFields(
     current: Pair<Float, Float>? = null,
     /** Whether the craft has a sail, so the wind always shows. */
     sailing: Boolean = false,
+    /** Its gas cells' lift as a share of its weight, or below 0 with none. */
+    lift: Float = -1f,
 ): List<StripField> {
     if (t.destroyed != null) return emptyList()
     val out = ArrayList<StripField>(5)
@@ -107,6 +109,11 @@ fun stripFields(
         if (out.size >= MAX_FIELDS) out.removeAt(out.indexOfFirst { it.label == "HDG" }.takeIf { it >= 0 } ?: out.lastIndex)
         out.add(1.coerceAtMost(out.size), StripField("WIND", windReading(t), if (t.windSpeed > STRONG_WIND) ApogeeColors.Caution else ApogeeColors.Data))
     }
+    // Floating on gas: how much of its weight its cells hold up. Over a hundred, it rises.
+    if (lift >= 0f && !t.inOrbit && t.depth <= UNDER_DEPTH) {
+        if (out.size >= MAX_FIELDS) out.removeAt(out.lastIndex)
+        out += StripField("LIFT", "${(lift * 100).roundToInt()}%", if (lift < 0.9f) ApogeeColors.Caution else ApogeeColors.Data)
+    }
     if (current != null && t.inOrbit.not()) {
         if (out.size >= MAX_FIELDS) out.removeAt(out.lastIndex)
         out += StripField("CURRENT", "%.1f %s".format(current.first, compassPoint(current.second)), CURRENT_COLOUR)
@@ -135,6 +142,8 @@ fun FlightStrip(
     current: Pair<Float, Float>? = null,
     /** Whether the craft has a sail, so the wind always shows. */
     sailing: Boolean = false,
+    /** Its gas cells' lift as a share of its weight, or below 0 with none. */
+    lift: Float = -1f,
     /**
      * Numbers per line: two in portrait, beside the top-left buttons, and all of them in landscape.
      */
@@ -150,7 +159,7 @@ fun FlightStrip(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(3.dp), horizontalAlignment = Alignment.End) {
-                for (line in stripFields(telemetry, current, sailing).chunked(perLine.coerceAtLeast(1))) {
+                for (line in stripFields(telemetry, current, sailing, lift).chunked(perLine.coerceAtLeast(1))) {
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         for (field in line) Cell(field)
                     }

@@ -14,6 +14,7 @@ import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Cable
 import androidx.compose.material.icons.filled.FlightLand
+import androidx.compose.material.icons.filled.GpsFixed
 import androidx.compose.material.icons.filled.Looks3
 import androidx.compose.material.icons.filled.LooksOne
 import androidx.compose.material.icons.filled.LooksTwo
@@ -62,6 +63,8 @@ class RailActions(
     val onGroup: (Int) -> Unit = {},
     /** Wind the winch in, or hold it. */
     val onWinch: () -> Unit = {},
+    /** Hold the craft still where it is with its keeper core, or stop. */
+    val onStationKeep: () -> Unit = {},
 )
 
 /** One switch on the rail: its picture, its word, and how it's set. */
@@ -69,8 +72,8 @@ private class RailSwitch(val icon: ImageVector, val caption: String, val tint: C
 
 /**
  * The craft's switches, beside the throttle: brakes and reverse on something with wheels, flaps,
- * the thrusters, sun wings and dishes, drills and converters, ballast to dive, rise and hold a
- * depth, the action groups the craft uses, the winch once it's hooked on, and on EVA, jumping and
+ * the thrusters, sun wings and dishes, drills and converters, the keeper core holding station,
+ * ballast to dive, rise and hold a depth (or ballonets to sink, rise and hold a height aloft), the action groups the craft uses, the winch once it's hooked on, and on EVA, jumping and
  * planting a flag. Only the ones the craft has are shown. Each is a small
  * picture with its word under it, lit while on. It's green when working, amber when on but not
  * getting anywhere (with the reason in place of the word), and grey when off. Past [perColumn] they
@@ -123,12 +126,18 @@ fun ActionRail(
             val on = power?.refining == true
             add(RailSwitch(Icons.Filled.Science, "REFINE", if (on) ApogeeColors.Prograde else idle, on, actions.onRefine))
         }
+        if (power != null && power.hasKeeper) {
+            val keeping = power.keeping
+            add(RailSwitch(Icons.Filled.GpsFixed, if (keeping) "HOLDING" else "STATION", if (keeping) ApogeeColors.Prograde else idle, keeping, actions.onStationKeep))
+        }
         if (power != null && power.ballast >= 0f) {
             val full = "${(power.ballast * 100).roundToInt()}%"
             val diving = power.ballastMode > 0
             val rising = power.ballastMode < 0
             val holding = power.holdingDepth >= 0f
-            add(RailSwitch(Icons.Filled.ArrowDownward, if (diving) "DIVE $full" else "DIVE", if (diving) ApogeeColors.Accent else idle, diving, actions.onDive))
+            // Up in the air on gas cells, the same buttons work the ballonets.
+            val sink = if (power.lift >= 0f && hud.telemetry.depth <= 0.0) "SINK" else "DIVE"
+            add(RailSwitch(Icons.Filled.ArrowDownward, if (diving) "$sink $full" else sink, if (diving) ApogeeColors.Accent else idle, diving, actions.onDive))
             add(RailSwitch(Icons.Filled.ArrowUpward, if (rising) "RISE $full" else "RISE", if (rising) ApogeeColors.Accent else idle, rising, actions.onRise))
             add(RailSwitch(
                 Icons.Filled.VerticalAlignCenter,

@@ -202,6 +202,77 @@ data class HydroSurface(
 ) : PartModule
 
 /**
+ * A rotor: blades turning on a hub, lifting along the part's [liftDirection] (+Y by default).
+ *
+ * The throttle is the collective, how hard all the blades bite. Lift goes with the air, since a
+ * rotor pushes air down to be pushed up: none in vacuum, weak in Rubra's thin air, and more in
+ * thick air, though not in proportion, because the engine turning it only has so much power.
+ *
+ * How it steers depends on the craft:
+ * - Several rotors on one craft (a drone or a platform) each speed up or slow down by where they
+ *   sit, so the craft tips the way the stick says, and turns by speeding up the rotors spinning one
+ *   way against the ones spinning the other.
+ * - A single main rotor with [cyclic] tilts its lift by the stick, and a [tail] rotor pushes
+ *   sideways against the main rotor's twist, and turns it.
+ *
+ * It needs no staging. It turns whenever the throttle's up.
+ */
+@Serializable
+@SerialName("rotor")
+data class Rotor(
+    /** Lift in newtons at full collective in Terra's air at sea level. */
+    val lift: Double,
+    /** Across the blades, in metres. */
+    val diameter: Double,
+    /** Which way it turns, seen from above: 1 or -1. A craft with an even number of them alternates. */
+    val spin: Int = 1,
+    /** How far the stick can tilt its lift, in degrees. Zero for a rotor that can't. */
+    val cyclic: Double = 0.0,
+    /**
+     * How hard it twists the craft the other way, as newton-metres per newton of lift. A tail rotor
+     * or a craft of paired rotors cancels it.
+     */
+    val torque: Double = 0.0,
+    /** A tail rotor: it holds the craft's heading against the main rotor's twist, and turns it. */
+    val tail: Boolean = false,
+    /** Which way it lifts, part-local. */
+    val liftDirection: SerialVec3 = Vec3(0.0, 1.0, 0.0),
+    /** What turns it: an engine burning propellant, or a motor on charge. */
+    val propellant: ResourceType = ResourceType.PROPELLANT,
+    /** Newton-seconds of lift per kilogram of propellant, or per unit of charge. */
+    val efficiency: Double = 30_000.0,
+) : PartModule
+
+/**
+ * A gas cell: a bag of light gas that floats in the air the way a hull floats in water. It lifts
+ * with the weight of the air it pushes aside, less the gas's own weight, so a cell that lifts its
+ * craft near the ground lifts less higher up, and the craft settles at the height where the two
+ * match. A ballonet inside it takes in air to sink and lets it out to rise, using charge to pump.
+ */
+@Serializable
+@SerialName("liftGas")
+data class LiftGas(
+    /** The gas it holds, in m³. */
+    val volume: Double,
+    /** How fast its ballonet fills or empties, as a share a second. */
+    val trimRate: Double = 0.05,
+    /** Charge drawn while pumping air in, in units a second. */
+    val draw: Double = 0.3,
+) : PartModule
+
+/**
+ * The keeper core: a flight computer that holds a craft still in the air, or on the water, where it
+ * was when it was asked to. It uses whatever the craft has: rotors, gas cells and fans, props, or
+ * engines pointing down.
+ */
+@Serializable
+@SerialName("stationKeeper")
+data class StationKeeper(
+    /** Charge drawn while it's holding, in units a second. */
+    val draw: Double = 0.1,
+) : PartModule
+
+/**
  * A sail on a mast, for a boat.
  *
  * It trims itself. Each tick it's set at the best angle it can be for the wind the boat feels,

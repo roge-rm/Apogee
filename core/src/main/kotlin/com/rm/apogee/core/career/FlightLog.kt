@@ -32,6 +32,19 @@ class FlightLog(
     /** How far it has sailed on the wind alone since an engine last ran, in metres. */
     var underSail: Double = 0.0,
     /**
+     * Hovering by hand: the body-fixed spot it's holding over, when it started (-1 for not), and
+     * the furthest it has strayed from it, in metres.
+     */
+    var hoverSpot: com.rm.apogee.core.math.SerialVec3 = com.rm.apogee.core.math.Vec3(),
+    var hoverSince: Double = -1.0,
+    var hoverWorst: Double = 0.0,
+    /**
+     * Floating on gas: the height it started rising from with nothing running (NaN for not), and
+     * how far it has travelled aloft on gas, in metres.
+     */
+    var floatFrom: Double = Double.NaN,
+    var floated: Double = 0.0,
+    /**
      * Whether it was standing on a runway at the last look, and whether this flight started from
      * one.
      */

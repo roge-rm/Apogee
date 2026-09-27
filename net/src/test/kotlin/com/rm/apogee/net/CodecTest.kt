@@ -47,6 +47,7 @@ class CodecTest {
             ClientMessage.CommandMessage(Command.HoldDepth(7, true)),
             ClientMessage.CommandMessage(Command.SetFlaps(7, true)),
             ClientMessage.CommandMessage(Command.SetCruise(7, true)),
+            ClientMessage.CommandMessage(Command.SetStationKeep(7, true)),
             ClientMessage.CommandMessage(Command.ToggleGroup(7, 2)),
             ClientMessage.CommandMessage(Command.Hook(7)),
             ClientMessage.CommandMessage(Command.Reel(7, -1)),
@@ -104,6 +105,7 @@ class CodecTest {
                 seabed = 14.5f, findBearing = -32f, findRange = 640f,
                 cruiseHeight = 1_500f, cruiseHeading = 12.5f, mayCruise = false, groups = listOf(0, 1, -1, 0),
                 hasWinch = true, canHook = "ground", hooked = true, reel = 1, taut = true,
+                hasKeeper = true, keeping = true, keepPoint = Vec3(1.0, 2.0, 3.0), ballonet = 0.4f, lift = 1.02f,
             ),
             ServerMessage.SnapshotMessage(
                 Snapshot(

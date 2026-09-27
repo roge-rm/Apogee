@@ -99,7 +99,24 @@ class CraftStats(
     val drillRate: Double = 0.0,
     val refineRate: Double = 0.0,
     val canSurvey: Boolean = false,
+    /** What its rotors lift at full collective in Terra's air at sea level, in newtons. */
+    val rotorLift: Double = 0.0,
+    /** The gas its cells hold, in m³. */
+    val gasVolume: Double = 0.0,
 ) {
+    /** Its rotors' lift over its weight on Terra, or 0 with none. Above 1 it can hover. */
+    val hoverRatio: Double get() = if (totalMass > 0.0) rotorLift / (totalMass * REFERENCE_GRAVITY) else 0.0
+
+    /** Its gas cells' lift over its weight at sea level on Terra, or 0 with none. Above 1 it floats. */
+    val floatRatio: Double get() =
+        if (totalMass > 0.0) gasVolume * TERRA_AIR * (1.0 - com.rm.apogee.core.world.Aerostatics.GAS_SHARE) / totalMass else 0.0
+
+    /**
+     * How high it floats on Terra with its ballonets empty, in metres: where the air has thinned
+     * until its gas lifts just its weight. Zero if it doesn't float at all.
+     */
+    val ceiling: Double get() = if (floatRatio > 1.0) TERRA_SCALE_HEIGHT * kotlin.math.ln(floatRatio) else 0.0
+
     /** The total over all stages, in vacuum, which is the number worth showing for orbit. */
     val totalDeltaV: Double get() = stages.sumOf { it.deltaVVacuum }
 
@@ -117,6 +134,10 @@ class CraftStats(
 
         /** The homeworld's surface gravity, which the quoted TWR is measured against. */
         private const val REFERENCE_GRAVITY = 9.81
+
+        /** Terra's air at sea level, in kg/m³, and how fast it thins, in metres per e-fold. */
+        private const val TERRA_AIR = 1.225
+        private const val TERRA_SCALE_HEIGHT = 5_600.0
 
         fun analyze(design: CraftDesign, catalog: PartCatalog): CraftStats {
             if (design.parts.isEmpty()) {
@@ -185,6 +206,8 @@ class CraftStats(
                 drillRate = drill,
                 refineRate = refine,
                 canSurvey = scanner,
+                rotorLift = resolved.sumOf { d -> d.module<com.rm.apogee.core.part.Rotor>()?.takeIf { !it.tail }?.lift ?: 0.0 },
+                gasVolume = resolved.sumOf { it.module<com.rm.apogee.core.part.LiftGas>()?.volume ?: 0.0 },
             )
         }
 
@@ -351,9 +374,13 @@ class CraftStats(
             // engine at all, and when this check refused it, the stock rover could be built but
             // never launched.
             val driven = defs.any { (it.module<com.rm.apogee.core.part.Wheel>()?.motorForce ?: 0.0) > 0.0 } ||
-                defs.any { it.module<com.rm.apogee.core.part.Sail>() != null }
+                defs.any { it.module<com.rm.apogee.core.part.Sail>() != null } ||
+                defs.any { it.module<com.rm.apogee.core.part.Rotor>() != null || it.module<com.rm.apogee.core.part.LiftGas>() != null } ||
+                // Something with a foundation is meant to be founded where it's put, like a sea
+                // platform launched in the harbour, and needs nothing to move it.
+                defs.any { it.module<com.rm.apogee.core.part.Foundation>() != null }
             if (!driven && defs.none { it.module<Engine>() != null }) {
-                problems.add("No engines, sails or driven wheels")
+                problems.add("No engines, sails, rotors, gas cells or driven wheels")
             }
 
             // An electric one, like a submarine's screw, runs off any battery aboard, because

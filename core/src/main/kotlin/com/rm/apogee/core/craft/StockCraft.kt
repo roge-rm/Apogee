@@ -682,6 +682,88 @@ object StockCraft {
         return a.design()
     }
 
+    // --- rotors, and lighter than air ----------------------------------------------
+
+    /**
+     * A light helicopter: a bubble cockpit for two, a rotor on its roof, a fuel tank and a tail boom
+     * behind it with a tail rotor at the end, and skids to stand on.
+     */
+    fun hummingbird(catalog: PartCatalog = StockParts.catalog): CraftDesign {
+        val a = Assembly(catalog, "Hummingbird", CraftOrientation.HORIZONTAL)
+        val cabin = a.root("cockpit-bubble")
+        a.on(cabin, "spine", "rotor-main")
+        a.on(cabin, "belly", "skids")
+        val tank = a.on(cabin, "bottom", "fuselage-short")
+        val boom = a.on(tank, "bottom", "boom-tail")
+        a.on(boom, "tail-side", "rotor-tail")
+        a.on(boom, "tail-fin", "tail-rudder")
+        return a.design()
+    }
+
+    /** A drone: a keeper core and a battery on a cross frame, with a rotor at the end of each arm. */
+    fun quad(catalog: PartCatalog = StockParts.catalog): CraftDesign {
+        val a = Assembly(catalog, "Quad", CraftOrientation.HORIZONTAL)
+        val frame = a.root("frame-drone")
+        a.on(frame, "top", "core-keeper")
+        a.on(frame, "bottom", "battery-hoard")
+        for (k in 1..4) a.on(frame, "arm-$k", "rotor-drone")
+        return a.design()
+    }
+
+    /** A gas balloon with a basket for two. */
+    fun skylark(catalog: PartCatalog = StockParts.catalog): CraftDesign {
+        val a = Assembly(catalog, "Skylark", CraftOrientation.VERTICAL)
+        val basket = a.root("basket-wicker")
+        a.on(basket, "top", "balloon-small")
+        return a.design()
+    }
+
+    /**
+     * An airship: a long envelope with a gondola under it and a power car behind that (a tank and a
+     * propeller), fins and a rudder on its tail, and a keeper core to hold it over a spot.
+     */
+    fun zeppelin(catalog: PartCatalog = StockParts.catalog): CraftDesign {
+        val a = Assembly(catalog, "Zeppelin", CraftOrientation.HORIZONTAL)
+        val envelope = a.root("envelope-airship")
+        val gondola = a.on(envelope, "belly", "cockpit-bubble")
+        a.on(gondola, "belly", "core-keeper")
+        a.on(envelope, "tail-top", "tail-rudder")
+        // The power car hangs behind the gondola, under the middle, since on the nose its weight
+        // tipped the whole ship over.
+        val tank = a.on(envelope, "belly-rear", "fuselage-short")
+        a.on(tank, "top", "engine-prop")
+        // Charge for the ballonets' pumps, topped up by the engine while it runs.
+        a.on(tank, "side-right", "battery-hoard")
+        a.on(tank, "side-left", "battery-hoard")
+        a.on(envelope, "tail-right", "tail-stabilator")
+        a.on(envelope, "tail-left", "tail-stabilator")
+        return a.design()
+    }
+
+    /**
+     * A platform that floats in the sky: a sky deck (a pad over a hull of light gas), a lift fan
+     * under each corner, and a keeper core and batteries under the middle.
+     */
+    fun skyPlatform(catalog: PartCatalog = StockParts.catalog): CraftDesign {
+        val a = Assembly(catalog, "Sky Platform", CraftOrientation.VERTICAL)
+        val deck = a.root("deck-sky")
+        val core = a.on(deck, "under", "core-keeper")
+        for (k in 1..4) a.on(deck, "corner-$k", "fan-lift")
+        a.on(deck, "side-1", "battery-hoard")
+        a.on(deck, "side-2", "battery-hoard")
+        check(core > 0)
+        return a.design()
+    }
+
+    /** A platform that floats on the sea: a sea deck on four pontoons, with a keeper core. */
+    fun seaPlatform(catalog: PartCatalog = StockParts.catalog): CraftDesign {
+        val a = Assembly(catalog, "Sea Platform", CraftOrientation.VERTICAL)
+        val deck = a.root("deck-sea")
+        for (k in 1..4) a.on(deck, "pontoon-$k", "pontoon")
+        a.on(deck, "equipment", "core-keeper")
+        return a.design()
+    }
+
     // --- submarines ---------------------------------------------------------------
     //
     // Each one has a pressure hull in the middle with a trim tank in front of it and behind it, a

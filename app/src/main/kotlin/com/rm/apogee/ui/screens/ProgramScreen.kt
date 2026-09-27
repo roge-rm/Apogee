@@ -107,7 +107,7 @@ fun ProgramScreen(
 
 // --- the tree ------------------------------------------------------------------
 
-private val BRANCH_ORDER = listOf("rocketry", "systems", "aviation", "ground", "sea", "deep", "crew")
+private val BRANCH_ORDER = listOf("rocketry", "systems", "aviation", "skies", "ground", "sea", "deep", "crew")
 
 @Composable
 private fun TreeTab(state: CareerState, tree: TechTree, onUnlock: (String) -> Unit) {

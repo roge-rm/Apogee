@@ -585,6 +585,7 @@ class GameServer(
         is Command.SetFlaps -> flies(session, command.vessel)
         is Command.ToggleGroup -> flies(session, command.vessel)
         is Command.SetCruise -> flies(session, command.vessel)
+        is Command.SetStationKeep -> flies(session, command.vessel)
         is Command.Hook -> flies(session, command.vessel)
         is Command.Reel -> flies(session, command.vessel)
         is Command.ReleaseLine -> flies(session, command.vessel)

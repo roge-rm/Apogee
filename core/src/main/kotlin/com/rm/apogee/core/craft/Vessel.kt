@@ -84,6 +84,14 @@ class ControlState {
     /** The nose over the flight path it has found it needs to fly level, in degrees. */
     var cruiseTrim: Double = 2.0
 
+    /**
+     * Holding station with a keeper core: the body-fixed place it holds (metres from the planet's
+     * centre, turning with it), and the collective it has found it needs to hover, 0..1.
+     */
+    var keeping: Boolean = false
+    val keepPoint: Vec3 = Vec3()
+    var keepTrim: Double = 0.0
+
     /** Why the autopilot last gave up, or blank if there's no reason to show. */
     var autopilotNote: String = ""
 
@@ -487,6 +495,55 @@ class Vessel(
      * one. It's carried as weight, so a boat full of water sits lower and past a point sinks.
      */
     var flooded: DoubleArray = DoubleArray(design.parts.size)
+
+    /**
+     * Air let into its gas cells' ballonets, 0..1: none lifts fully, and full takes away the most
+     * lift it can. See [com.rm.apogee.core.part.LiftGas].
+     */
+    var ballonet: Double = 0.0
+        set(value) { field = value.coerceIn(0.0, 1.0) }
+
+    /**
+     * What holding a height on gas has learned it needs beyond what it works out, in m/s², for
+     * whatever pushes it that isn't in the sum.
+     */
+    var heightIntegral: Double = 0.0
+
+    /** What its gas cells lifted last tick, in newtons, for the HUD and for founding aloft. */
+    var gasLift: Double = 0.0
+
+    /**
+     * Which way each rotor turns, by part: 1, -1, or 0 for a part that isn't a rotor. With an even
+     * number of lifting rotors they alternate round the craft, so a pair or a ring cancels each
+     * other's twist, however the builder's symmetry placed them. Otherwise each turns its own way.
+     */
+    val rotorSpin: IntArray
+        get() {
+            val cached = rotorSpinCache
+            if (cached != null && rotorSpinFor === defs) return cached
+            val spins = IntArray(defs.size)
+            val lifting = defs.indices.filter { defs[it].module<com.rm.apogee.core.part.Rotor>()?.tail == false }
+            for (i in defs.indices) spins[i] = defs[i].module<com.rm.apogee.core.part.Rotor>()?.spin?.let { if (it < 0) -1 else 1 } ?: 0
+            if (lifting.size >= 2 && lifting.size % 2 == 0) {
+                // Round the craft's up axis, from the middle of the rotors.
+                val up = design.orientation.up
+                val middle = Vec3()
+                for (i in lifting) middle.addInPlace(design.parts[i].position)
+                middle.mulInPlace(1.0 / lifting.size)
+                val across = (if (kotlin.math.abs(up.x) < 0.9) Vec3.unitX() else Vec3.unitY()).cross(up).normalizeInPlace()
+                val other = up.cross(across)
+                val order = lifting.sortedBy { i ->
+                    val r = Vec3().setTo(design.parts[i].position).subInPlace(middle)
+                    kotlin.math.atan2(r dot other, r dot across)
+                }
+                order.forEachIndexed { k, i -> spins[i] = if (k % 2 == 0) 1 else -1 }
+            }
+            rotorSpinCache = spins
+            rotorSpinFor = defs
+            return spins
+        }
+    private var rotorSpinCache: IntArray? = null
+    private var rotorSpinFor: List<com.rm.apogee.core.part.PartDef>? = null
 
     /** The worst of [jointLoad], and which part's joint it is (-1 for none). */
     var stress: Double = 0.0

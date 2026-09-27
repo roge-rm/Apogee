@@ -756,6 +756,15 @@ private fun StatsPanel(
                 stats.liftoffTwr.format(2),
                 if (stats.liftoffTwr >= 1.0) ApogeeColors.Prograde else ApogeeColors.Danger,
             )
+            // Rotors: what they lift against its weight on Terra. Over one, it hovers.
+            if (stats.rotorLift > 0.0) {
+                StatRow("HOVER", "${stats.hoverRatio.format(2)} of weight", if (stats.hoverRatio >= 1.0) ApogeeColors.Prograde else ApogeeColors.Caution)
+            }
+            // Gas: what it lifts at sea level on Terra, and how high it floats with nothing running.
+            if (stats.gasVolume > 0.0) {
+                StatRow("FLOATS", "${stats.floatRatio.format(2)} of weight", if (stats.floatRatio >= 1.0) ApogeeColors.Prograde else ApogeeColors.Caution)
+                if (stats.ceiling > 0.0) StatRow("CEILING", if (stats.ceiling >= 1_000.0) "${(stats.ceiling / 1000.0).format(1)} km" else "${stats.ceiling.roundToInt()} m")
+            }
             // Charge held, and a second's worth in full sun against just being on.
             if (stats.powerCapacity > 0.0) {
                 StatRow("POWER", "${stats.powerCapacity.roundToInt()}")

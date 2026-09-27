@@ -311,6 +311,7 @@ class MainActivity : ComponentActivity() {
                         onToggleFlaps = ::onToggleFlaps,
                         onGroup = { group -> session?.let { s -> lifecycleScope.launch { s.toggleGroup(group) } } },
                         onWinch = ::onWinch,
+                        onStationKeep = ::onStationKeep,
                         onHook = { session?.let { s -> lifecycleScope.launch { s.hook() } } },
                         onReleaseLine = { session?.let { s -> lifecycleScope.launch { s.releaseLine() } } },
                         onCruise = ::onCruise,
@@ -735,6 +736,16 @@ class MainActivity : ComponentActivity() {
         hudState.power = power.copy(reel = mode)
         val current = session ?: return
         lifecycleScope.launch { current.reel(mode) }
+    }
+
+    /** The keeper core: holding still where it is, or letting go. */
+    private fun onStationKeep() {
+        val power = hudState.power ?: return
+        val on = !power.keeping
+        hudState.power = power.copy(keeping = on)
+        if (on) hudState.sasEnabled = true
+        val current = session ?: return
+        lifecycleScope.launch { current.setStationKeep(on) }
     }
 
     private fun onCruise(on: Boolean) {
@@ -1294,9 +1305,9 @@ class MainActivity : ComponentActivity() {
                     current.nearestBase.let { if (it != hudState.nearBase) hudState.nearBase = it }
                     hudState.chute = current.chuteState
                     hudState.burn = current.burnReadout
-                    // When it's flying itself, the autopilot has the throttle, so show where it has
-                    // it.
-                    if (current.localAutoBurn || current.localAutoLand) hudState.throttle = current.telemetry.throttle.toFloat()
+                    // When it's flying itself (the autopilot, or the keeper core holding station),
+                    // it has the throttle, so show where it has it.
+                    if (current.localAutoBurn || current.localAutoLand || hudState.power?.keeping == true) hudState.throttle = current.telemetry.throttle.toFloat()
                     hudState.landing = current.landingReadout
                     // The career's news, one at a time, each for a few seconds.
                     if (hudState.banner == null) {

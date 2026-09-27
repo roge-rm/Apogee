@@ -29,9 +29,13 @@ class CraftKindTest {
                 StockCraft.cutter(catalog), StockCraft.trawler(catalog),
             ),
             CraftKind.SUB to listOf(StockCraft.minnow(catalog), StockCraft.nautilus(catalog), StockCraft.abyss(catalog)),
+            CraftKind.ROTORCRAFT to listOf(StockCraft.hummingbird(catalog), StockCraft.quad(catalog)),
+            CraftKind.AIRSHIP to listOf(StockCraft.skylark(catalog), StockCraft.zeppelin(catalog)),
             CraftKind.BASE to listOf(
                 StockCraft.baseCore(catalog), StockCraft.baseCoreLander(catalog), StockCraft.padBase(catalog),
                 StockCraft.moduleHauler(catalog), StockCraft.baseCoreHauler(catalog), StockCraft.depotHauler(catalog),
+                // Platforms are founded as bases, in the sky and on the sea.
+                StockCraft.skyPlatform(catalog), StockCraft.seaPlatform(catalog),
             ),
         )
         val wrong = expected.flatMap { (kind, designs) ->

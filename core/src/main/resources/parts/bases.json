@@ -3419,5 +3419,462 @@
       }
     ],
     "strength": 1200000.0
+  },
+  {
+    "id": "deck-sky",
+    "title": "Sky Deck",
+    "category": "base",
+    "dryMass": 1100.0,
+    "description": "A twenty-metre deck over a hull of light gas, that floats in the air. With lift fans under its corners and a keeper core, it holds itself where you put it, and founded, it's a base in the sky with a pad on top. Aloft on Caligo, where the ground crushes everything, it's the one place to live.",
+    "crashTolerance": 12.0,
+    "dragCoefficient": 0.9,
+    "mesh": {
+      "type": "box",
+      "width": 20.0,
+      "height": 4.0,
+      "depth": 20.0
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 20.0,
+              "height": 0.4,
+              "depth": 20.0
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 1.8,
+            "z": 0.0
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 19.6,
+              "height": 0.04,
+              "depth": 19.6
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 2.02,
+            "z": 0.0
+          },
+          "tint": "body"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 19.4,
+              "height": 3.5,
+              "depth": 19.4
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": -0.2,
+            "z": 0.0
+          },
+          "tint": "light"
+        },
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                3.0,
+                0.0
+              ],
+              [
+                3.3,
+                0.0
+              ],
+              [
+                3.3,
+                0.02
+              ],
+              [
+                3.0,
+                0.02
+              ]
+            ],
+            "segments": 24
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 2.05,
+            "z": 0.0
+          },
+          "tint": "accent"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "under",
+        "position": {
+          "x": 0.0,
+          "y": -2.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "corner-1",
+        "position": {
+          "x": 9.0,
+          "y": -2.0,
+          "z": 9.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "corner-2",
+        "position": {
+          "x": -9.0,
+          "y": -2.0,
+          "z": 9.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "corner-3",
+        "position": {
+          "x": -9.0,
+          "y": -2.0,
+          "z": -9.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "corner-4",
+        "position": {
+          "x": 9.0,
+          "y": -2.0,
+          "z": -9.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "side-1",
+        "position": {
+          "x": 10.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "side-2",
+        "position": {
+          "x": -10.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": -1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "side-3",
+        "position": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 10.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "side-4",
+        "position": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -10.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "foundation",
+        "travel": 1.0,
+        "maxSlope": 10.0
+      },
+      {
+        "type": "launchPad",
+        "launchCharge": 20.0
+      },
+      {
+        "type": "liftGas",
+        "volume": 1800.0,
+        "trimRate": 0.03,
+        "draw": 0.3
+      }
+    ]
+  },
+  {
+    "id": "deck-sea",
+    "title": "Sea Deck",
+    "category": "base",
+    "dryMass": 4000.0,
+    "description": "A sixteen-metre deck to stand on four pontoons, for a base afloat, with a pad on top for whatever you fly off it.",
+    "crashTolerance": 15.0,
+    "dragCoefficient": 1.0,
+    "mesh": {
+      "type": "box",
+      "width": 16.0,
+      "height": 0.6,
+      "depth": 16.0
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 16.0,
+              "height": 0.5,
+              "depth": 16.0
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": -0.05,
+            "z": 0.0
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 15.6,
+              "height": 0.04,
+              "depth": 15.6
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.22,
+            "z": 0.0
+          },
+          "tint": "body"
+        },
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                2.5,
+                0.0
+              ],
+              [
+                2.8,
+                0.0
+              ],
+              [
+                2.8,
+                0.02
+              ],
+              [
+                2.5,
+                0.02
+              ]
+            ],
+            "segments": 24
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.25,
+            "z": 0.0
+          },
+          "tint": "accent"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "pontoon-1",
+        "position": {
+          "x": 6.0,
+          "y": -0.3,
+          "z": 4.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "pontoon-2",
+        "position": {
+          "x": -6.0,
+          "y": -0.3,
+          "z": 4.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "pontoon-3",
+        "position": {
+          "x": -6.0,
+          "y": -0.3,
+          "z": -4.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "pontoon-4",
+        "position": {
+          "x": 6.0,
+          "y": -0.3,
+          "z": -4.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "equipment",
+        "position": {
+          "x": 7.0,
+          "y": 0.3,
+          "z": 7.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "side-1",
+        "position": {
+          "x": 8.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "side-2",
+        "position": {
+          "x": -8.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": -1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "foundation",
+        "travel": 1.0,
+        "maxSlope": 10.0
+      },
+      {
+        "type": "launchPad",
+        "launchCharge": 20.0
+      }
+    ]
   }
 ]

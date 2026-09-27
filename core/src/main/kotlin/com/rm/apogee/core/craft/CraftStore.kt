@@ -132,6 +132,13 @@ class CraftStore(private val directory: File) {
             StockCraft.hauler(catalog),
             StockCraft.skiff(catalog),
             StockCraft.sloop(catalog),
+            // Rotors and lighter than air, and platforms for the sky and the sea.
+            StockCraft.hummingbird(catalog),
+            StockCraft.quad(catalog),
+            StockCraft.skylark(catalog),
+            StockCraft.zeppelin(catalog),
+            StockCraft.skyPlatform(catalog),
+            StockCraft.seaPlatform(catalog),
             StockCraft.cutter(catalog),
             StockCraft.trawler(catalog),
             StockCraft.portTug(catalog),

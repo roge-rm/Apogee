@@ -10,7 +10,7 @@ class PartTabsTest {
 
     /** Every stock part, where a player would look for it. */
     private val expected = mapOf(
-        PartTab.PODS to setOf("pod-halo", "probe-mote", "cockpit-sparrow", "cockpit-kestrel", "cab-rover", "cab-open", "cabin-wheelhouse",
+        PartTab.PODS to setOf("cockpit-bubble", "basket-wicker", "core-keeper", "pod-halo", "probe-mote", "cockpit-sparrow", "cockpit-kestrel", "cab-rover", "cab-open", "cabin-wheelhouse",
             "pod-pearl", "pod-abyss", "hull-nautilus",
         ),
         PartTab.TANKS to setOf(
@@ -19,6 +19,7 @@ class PartTabsTest {
         ),
         PartTab.ENGINES to setOf("engine-ember", "engine-vesper", "engine-zephyr", "engine-prop", "engine-forge"),
         PartTab.STRUCTURE to setOf(
+            "boom-tail", "skids", "frame-drone",
             "shield-halo", "decoupler-ring", "decoupler-broad", "adapter-taper", "fairing-base", "fairing-hot", "fuselage-tailcone", "chassis-small", "chassis-large", "rack-cargo",
         ),
         PartTab.WINGS to setOf(
@@ -32,7 +33,7 @@ class PartTabsTest {
         PartTab.WATER to setOf(
             "hull-punt", "hull-bow", "hull-mid", "hull-stern", "hull-skiff", "hull-cutter", "motor-outboard", "rudder", "keel", "keel-skeg",
             "ballast-trim", "ballast-deep", "ballast-abyss", "float-foam", "keel-lead", "screw-drive", "planes-dive",
-            "sail-sloop", "sail-cutter",
+            "sail-sloop", "sail-cutter", "pontoon",
         ),
         PartTab.UTILITY to setOf(
             "chute-canopy", "rcs-nudge", "light-bar", "dock-port", "dock-port-small", "mooring-clamp",
@@ -40,7 +41,9 @@ class PartTabsTest {
             "drill-auger", "converter-small", "scanner-survey", "ladder-rung",
             "battery-deep", "battery-abyss", "lamp-deep", "sonar-array",
         ),
+        PartTab.AIR to setOf("rotor-main", "rotor-tail", "rotor-drone", "fan-lift", "balloon-small", "cell-gas", "envelope-airship"),
         PartTab.BASE to setOf(
+            "deck-sky", "deck-sea",
             "base-foundation", "base-core", "base-habitat", "base-depot", "base-mono-depot",
             "base-refinery", "base-silo", "base-cistern", "base-battery", "base-solar",
             "base-connector", "base-corridor", "base-pad", "base-floodlight", "base-flatbed", "base-release-clamp",

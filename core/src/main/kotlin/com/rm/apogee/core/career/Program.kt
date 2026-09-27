@@ -150,7 +150,50 @@ class Program(val tree: TechTree = TechTree.stock) {
 
     /** A base was founded where [vessel] stands. */
     fun founded(world: World, vessel: Vessel) {
-        if (vessel.referenceBodyId != SolarSystem.HOMEWORLD_ID) award(world, vessel, Feat.OUTPOST)
+        val home = vessel.referenceBodyId == SolarSystem.HOMEWORLD_ID
+        if (!home) award(world, vessel, Feat.OUTPOST)
+        // Afloat on the sea, or floating in the sky.
+        if (vessel.buoyed) award(world, vessel, Feat.SEA_STEAD)
+        else if (!vessel.touchingGround && !home && vessel.defs.any { it.hasModule<com.rm.apogee.core.part.LiftGas>() }) award(world, vessel, Feat.CLOUD_CITY)
+    }
+
+    private val hoverPoint = Vec3()
+
+    private fun skies(
+        world: World, vessel: Vessel, log: FlightLog, attractor: com.rm.apogee.core.orbit.CelestialBody,
+        home: Boolean, grounded: Boolean, height: Double, altitude: Double, speed: Double, dt: Double,
+    ) {
+        val rotors = vessel.defs.indices.any { vessel.defs[it].module<com.rm.apogee.core.part.Rotor>()?.tail == false && vessel.engineOutput[it] > 0.0 }
+        val gas = vessel.defs.any { it.hasModule<com.rm.apogee.core.part.LiftGas>() }
+        val aloft = !grounded && attractor.atmosphere != null
+        // Held still over a spot by hand for half a minute.
+        if (aloft && rotors && height > HOVER_HEIGHT && !vessel.control.keeping) {
+            attractor.toBodyFixed(vessel.body.position, attractor.rotationAt(world.time), hoverPoint)
+            if (log.hoverSince < 0.0 || hoverPoint.distanceTo(log.hoverSpot) > HOVER_LOST) {
+                log.hoverSpot.setTo(hoverPoint)
+                log.hoverSince = world.time
+                log.hoverWorst = 0.0
+            } else {
+                log.hoverWorst = maxOf(log.hoverWorst, hoverPoint.distanceTo(log.hoverSpot))
+                if (world.time - log.hoverSince >= HOVER_TIME) award(world, vessel, Feat.HOVER, log.hoverWorst)
+            }
+        } else {
+            log.hoverSince = -1.0
+        }
+        // On gas, with nothing running: up a kilometre, and a long way across.
+        val running = vessel.engineOutput.any { it > 0.0 }
+        if (aloft && gas && !running) {
+            if (log.floatFrom.isNaN()) log.floatFrom = altitude
+            val risen = altitude - log.floatFrom
+            if (risen >= UP_AND_AWAY) award(world, vessel, Feat.UP_AND_AWAY, risen / 1000.0)
+        } else {
+            log.floatFrom = Double.NaN
+        }
+        if (aloft && gas) {
+            log.floated += speed * dt
+            if (log.floated >= LONG_FLOAT) award(world, vessel, Feat.LONG_FLOAT, log.floated / 1000.0)
+        }
+        if (aloft && !home && (rotors || gas)) award(world, vessel, Feat.ALIEN_SKIES)
     }
 
     /** Someone on a spacewalk, [suit], climbed aboard [into]. */
@@ -217,6 +260,10 @@ class Program(val tree: TechTree = TechTree.stock) {
         if (home && log.driven >= ROAD_TRIP) award(world, vessel, Feat.ROAD_TRIP, log.driven / 1000.0)
         if (!home && log.driven >= OFF_WORLD_DRIVE) award(world, vessel, Feat.ROVER_OFF_WORLD, log.driven / 1000.0)
         if (!home && wet && log.sailed >= ALIEN_SAIL) award(world, vessel, Feat.ALIEN_SEA)
+
+        // Rotors and gas: hovering by hand, rising on gas alone, floating a long way, and other
+        // worlds' air.
+        skies(world, vessel, log, attractor, home, grounded, height, altitude, speed, dt)
 
         // Aircraft: fast and high.
         if (horizontal && !grounded && attractor.atmosphere != null) {
@@ -499,6 +546,18 @@ class Program(val tree: TechTree = TechTree.stock) {
         const val ALIEN_SAIL = 100.0
         const val SEAWORTHY = 5_000.0
         const val UNDER_SAIL = 1_000.0
+
+        /**
+         * Hovering: the least height above the ground, in metres, how far off the spot counts as
+         * having left it, and how long it has to be held, in seconds.
+         */
+        const val HOVER_HEIGHT = 20.0
+        const val HOVER_LOST = 20.0
+        const val HOVER_TIME = 30.0
+
+        /** Metres risen on gas alone, and floated across, for their feats. */
+        const val UP_AND_AWAY = 1_000.0
+        const val LONG_FLOAT = 20_000.0
         const val LONG_HAUL = 100_000.0
         const val HARBOUR_REACH = 400.0
 

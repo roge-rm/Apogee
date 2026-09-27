@@ -138,6 +138,11 @@ class CareerBalanceTest {
         add(Fly(StockCraft.moonshot(catalog), "cape"))
         // Out to the planets, and everything that was put off on the way.
         addAll(go("rubra", Visit.ORBIT, Visit.LAND, Visit.RETURN))
+        // A helicopter hovered by hand, and a balloon let go.
+        addAll(buy("rotorcraft"))
+        add(Fly(StockCraft.hummingbird(catalog), "airfield")); addAll(earn(Feat.HOVER))
+        addAll(buy("balloons"))
+        add(Fly(StockCraft.skylark(catalog), "cape")); addAll(earn(Feat.UP_AND_AWAY))
         addAll(buy("flight-computer", "airframes", "haulers", "ships"))
         addAll(go("timor", Visit.ORBIT, Visit.LAND, Visit.RETURN))
         // The Hotshell before Caligo, because that's what it takes to land in that air.
@@ -152,6 +157,16 @@ class CareerBalanceTest {
         add(Fly(StockCraft.abyss(catalog), "harbour")); addAll(earn(Feat.ABYSS)); addAll(go("wonder:nodule-plain", "wonder:terra-deep"))
         addAll(earn(Feat.ALIEN_DEEP)); addAll(go("wonder:kraken-deep", "wonder:ligeia-spires"))
         addAll(buy("astronaut-corps", "deep-space", "pad-4", "cruise-control"))
+        // The keeper core, a drone, an airship across the country, a platform afloat, and one in
+        // the sky.
+        addAll(buy("station-keeping", "drones", "airships"))
+        add(Fly(StockCraft.quad(catalog), "cape"))
+        add(Fly(StockCraft.zeppelin(catalog), "airfield")); addAll(earn(Feat.LONG_FLOAT))
+        addAll(buy("sea-platforms"))
+        add(Fly(StockCraft.seaPlatform(catalog), "harbour")); addAll(earn(Feat.SEA_STEAD))
+        addAll(buy("sky-platforms"))
+        add(Fly(StockCraft.skyPlatform(catalog), "cape"))
+        addAll(earn(Feat.ALIEN_SKIES, Feat.CLOUD_CITY))
     }
 
     @Test

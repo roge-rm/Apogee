@@ -129,6 +129,8 @@ fun FlightScreen(
     onToggleFlaps: () -> Unit = {},
     onGroup: (Int) -> Unit = {},
     onWinch: () -> Unit = {},
+    /** The keeper core holding the craft still, or not. */
+    onStationKeep: () -> Unit = {},
     /** The winch's line hooked on, or let go. */
     onHook: () -> Unit = {},
     onReleaseLine: () -> Unit = {},
@@ -180,7 +182,7 @@ fun FlightScreen(
             onBrakes = onToggleBrakes, onReverse = onToggleReverse, onRcs = onToggleRcs, onDeploy = onToggleDeploy,
             onDrill = onToggleDrill, onRefine = onToggleRefine, onJump = crewActions.onJump, onFlag = crewActions.onFlag,
             onDive = onDive, onRise = onRise, onHold = onHoldDepth,
-            onFlaps = onToggleFlaps, onGroup = onGroup, onWinch = onWinch,
+            onFlaps = onToggleFlaps, onGroup = onGroup, onWinch = onWinch, onStationKeep = onStationKeep,
         )
         val statusActions = StatusActions(crewActions, onUndock, onFound, onRefuel, onUnload, onRefine, onDockPilot)
         val promptActions = PromptActions(onJoin, onFound, crewActions.onBoard, crewActions.onGrab, onHook, onReleaseLine)
@@ -379,6 +381,7 @@ fun FlightScreen(
                 modifier = Modifier.alpha(alpha),
                 current = if (hud.currentSpeed > 0f) hud.currentSpeed to hud.currentBearing else null,
                 sailing = hud.hasSails,
+                lift = hud.power?.lift ?: -1f,
                 perLine = if (portrait) PORTRAIT_STRIP_PER_LINE else LANDSCAPE_STRIP_PER_LINE,
             )
             Spacer(Modifier.height(6.dp))
@@ -668,6 +671,7 @@ private fun AttitudeCluster(
                 canCruise = hud.canCruise,
                 cruising = hud.power?.cruising == true,
                 onCruise = sas.onCruise,
+                keeping = hud.power?.keeping == true,
             )
             HoldButton(if (sliding) "▲" else "↻", { held -> onRoll(if (held) 1f else 0f) }, size = 40.dp)
         }

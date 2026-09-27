@@ -126,6 +126,14 @@ sealed interface Command {
     @SerialName("holdDepth")
     data class HoldDepth(val vessel: Long, val on: Boolean) : Command
 
+    /**
+     * Holds [vessel] still where it is now with its keeper core, over the ground and at its height,
+     * or stops.
+     */
+    @Serializable
+    @SerialName("stationKeep")
+    data class SetStationKeep(val vessel: Long, val on: Boolean) : Command
+
     /** Switches [vessel]'s drills and its converters (a base's refinery) on or off. */
     @Serializable
     @SerialName("setIndustry")
@@ -517,6 +525,15 @@ sealed interface ServerMessage {
         val hooked: Boolean = false,
         val reel: Int = 0,
         val taut: Boolean = false,
+        /** Whether it has a working keeper core, and whether it's holding station with it. */
+        val hasKeeper: Boolean = false,
+        val keeping: Boolean = false,
+        /** The body-fixed place it's holding, so a client's replica holds the same one. */
+        val keepPoint: com.rm.apogee.core.math.SerialVec3 = com.rm.apogee.core.math.Vec3(),
+        /** How much air its gas cells' ballonets hold, 0..1. */
+        val ballonet: Float = 0f,
+        /** What its gas cells lift as a share of its weight, or below 0 with none. */
+        val lift: Float = -1f,
     ) : ServerMessage
 
     /**
@@ -717,5 +734,7 @@ object Protocol {
     // 18: career - Welcome.mode, Career, Feat, CareerRefused, Command.Unlock, feats watched per player.
     // 19: play comfort - SetFlaps, SetCruise, ToggleGroup, the winch, PlacedPart.group, sails and
     //     flaps in the pose, winch lines in the snapshot, the new CraftSystems fields.
-    const val VERSION = 19
+    // 20: rotors and lighter than air - SetStationKeep, the keeper, lift and ballonet in
+    //     CraftSystems.
+    const val VERSION = 20
 }

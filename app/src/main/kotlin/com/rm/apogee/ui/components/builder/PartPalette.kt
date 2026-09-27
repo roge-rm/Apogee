@@ -31,6 +31,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Domain
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.ChevronLeft
@@ -422,6 +423,7 @@ fun iconFor(tab: PartTab): ImageVector = when (tab) {
     PartTab.ENGINES -> Icons.Filled.LocalFireDepartment
     PartTab.STRUCTURE -> Icons.Filled.Construction
     PartTab.WINGS -> Icons.Filled.Flight
+    PartTab.AIR -> Icons.Filled.Cloud
     PartTab.GROUND -> Icons.Filled.TireRepair
     PartTab.WATER -> Icons.Filled.Sailing
     PartTab.UTILITY -> Icons.Filled.Hub

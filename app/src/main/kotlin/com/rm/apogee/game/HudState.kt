@@ -246,6 +246,11 @@ class HudState {
         val hooked: Boolean = false,
         val reel: Int = 0,
         val taut: Boolean = false,
+        /** Whether it has a keeper core, and whether it's holding station with it. */
+        val hasKeeper: Boolean = false,
+        val keeping: Boolean = false,
+        /** Its gas cells' lift as a share of its weight, or below 0 with none. */
+        val lift: Float = -1f,
     ) {
         /** Whether it's holding height and heading. */
         val cruising: Boolean get() = cruiseHeight >= 0f

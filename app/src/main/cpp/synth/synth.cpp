@@ -110,7 +110,8 @@ float trim(int r) {
         case recipe::SEA: return 0.39f;  // ambient, and long, so 6-7 dB under the engines when rough
         case recipe::COMPLEX: return 0.3f;  // a background you only notice when it stops
         case recipe::PORT: return 0.3f;
-        case recipe::SAIL: return 0.3f;  // under the engines: a sail can flog for as long as you let it
+        case recipe::SAIL: return 0.3f;
+        case recipe::ROTOR: return 0.35f;  // under the engines: a sail can flog for as long as you let it
         case recipe::RCS: return 0.25f;  // puffs under the engines
         case recipe::IMPACT: return 0.2f;
         case recipe::CRUNCH: return 0.09f;
@@ -656,6 +657,40 @@ void Synth::renderVoice(Voice& v, float& left, float& right) {
             v.f[1].process(v.pink.next(rng.white()));
             v.f[2].process(v.f[1].band * v.env[0].next());
             s = (hum * 0.25f + v.f[2].low * 1.6f) * loud;
+            break;
+        }
+        case recipe::ROTOR: {
+            // Rotors. A helicopter's is a slow blade slap: rounded thumps low down, each its own
+            // strength, with the rate wandering a little so it's never a machine's beat, over the
+            // wash of air it pushes down. A drone's small ones blur into a soft buzz, rounded off
+            // well under the kilohertz and a half, over the same wash.
+            float out = clampf(p[0], 0, 1), rate = clampf(p[1], 5.0f, 200.0f) * pf, size = clampf(p[2], 0, 1);
+            v.state[2] -= dt;
+            if (v.state[2] <= 0) { v.state[2] = 0.5f + v.rng.uniform(); v.state[3] = 0.97f + 0.06f * v.rng.uniform(); }
+            if (v.state[4] <= 0) v.state[4] = 1.0f;
+            v.state[4] += (v.state[3] - v.state[4]) * clampf(dt / 0.8f, 0, 1);
+            float r = rate * v.state[4];
+            v.state[0] += dt * r;
+            if (v.state[0] >= 1.0f) {
+                v.state[0] -= std::floor(v.state[0]);
+                v.env[0].trigger(0.003f, 0.3f / r, sr, 0.75f + 0.25f * v.rng.uniform());
+            }
+            if (control) {
+                v.f[0].set(85.0f + 70.0f * (1.0f - size), 1.3f, sr);
+                v.f[1].set(300.0f + 420.0f * (1.0f - size), 0.7f, sr);
+                v.f[2].set(700.0f + 300.0f * (1.0f - size), 0.7f, sr);
+                v.f[3].set(340.0f, 1.1f, sr);
+            }
+            float w = rng.white();
+            float pulse = v.env[0].next();
+            v.f[0].process(v.brown.next(w) * 0.25f + pulse);
+            v.f[1].process(v.pink.next(rng.white()));
+            v.f[2].process(v.osc[0].saw(r, sr) * (0.8f + 0.2f * rng.white()));
+            // The whop of each blade, up where a phone can play it.
+            v.f[3].process(v.pink2.next(rng.white()) * pulse * 4.0f);
+            float chop = (v.f[0].band * 1.05f + v.f[3].band * 0.75f) * size;
+            float buzz = v.f[2].low * 0.3f * (1.0f - size);
+            s = (chop + buzz + v.f[1].low * (0.25f + 0.35f * out)) * out;
             break;
         }
         case recipe::SAIL: {

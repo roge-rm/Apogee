@@ -64,6 +64,8 @@ fun SasButton(
     canCruise: Boolean = false,
     cruising: Boolean = false,
     onCruise: (Boolean) -> Unit = {},
+    /** Held still by the keeper core. */
+    keeping: Boolean = false,
 ) {
     val holdingMarker = enabled && mode != null && mode != SasMode.HOLD
     Box {
@@ -76,7 +78,9 @@ fun SasButton(
                 Modifier.combinedClickable(onClick = onToggle, onLongClick = { onExpand(true) }),
                 contentAlignment = Alignment.Center,
             ) {
-                if (cruising) {
+                if (keeping) {
+                    Text("STN", style = TelemetryTextStyle, color = ApogeeColors.Prograde, maxLines = 1)
+                } else if (cruising) {
                     Text("A+H", style = TelemetryTextStyle, color = ApogeeColors.Prograde, maxLines = 1)
                 } else if (holdingMarker) {
                     Text(short(mode!!), style = TelemetryTextStyle, color = ApogeeColors.Prograde, maxLines = 1)
