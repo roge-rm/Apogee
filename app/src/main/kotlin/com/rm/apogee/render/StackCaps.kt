@@ -7,26 +7,23 @@ import com.rm.apogee.core.part.PartCatalog
 import java.util.IdentityHashMap
 
 /**
- * Which end caps of each part are actually exposed.
+ * Which end caps of each part are actually showing.
  *
- * Parts in a stack abut exactly, which leaves each joint with two coplanar cap
- * discs, and back-face culling then does something unhelpful: from above, the
- * lower part's top cap faces the camera and is drawn, while the surface that
- * ought to hide it - the upper part's *bottom* cap - faces away and is culled.
- * The wall of the upper part cannot help, because a ray heading inward to the
- * cap stays inside the cylinder and never crosses it. The result is a dark
- * disc across every joint, which reads as the parts not fitting together.
+ * Parts in a stack meet exactly, which leaves each joint with two cap discs in the same plane, and
+ * back-face culling then does something unhelpful. From above, the lower part's top cap faces the
+ * camera and gets drawn, while the surface that ought to hide it (the upper part's *bottom* cap)
+ * faces away and gets culled. The wall of the upper part can't help, because a ray heading inward
+ * to the cap stays inside the cylinder and never crosses it. The result is a dark disc across every
+ * joint, which looks like the parts don't fit together.
  *
- * Lengthening the parts so they overlap does not fix it, for the same reason:
- * the occluder is still a culled back face. Recessing the caps is worse - it
- * opens a well that can be seen into from a steeper angle. The only thing that
- * works is not drawing a cap that something else is covering, which is what
- * this decides.
+ * Making the parts longer so they overlap doesn't fix it, for the same reason: the thing in the way
+ * is still a culled back face. Sinking the caps in is worse, because it opens a well you can see
+ * into from a steeper angle. The only thing that works is not drawing a cap that something else is
+ * covering, and that's what this decides.
  *
- * Geometric rather than derived from the attachment tree. Attach nodes say
- * what was joined to what in the builder, and a merged base - modules welded
- * where they stood - has parts that cover each other without any node saying
- * so. Asking where the faces actually are answers both.
+ * It's geometric, not taken from the attachment tree. Attach nodes say what was joined to what in
+ * the builder, and a merged base (modules welded where they stood) has parts that cover each other
+ * without any node saying so. Asking where the faces actually are answers both.
  */
 object StackCaps {
 
@@ -34,16 +31,15 @@ object StackCaps {
     const val BOTTOM = 2
     const val BOTH = TOP or BOTTOM
 
-    /** Metres two faces may differ by and still count as the same plane. */
+    /** Metres two faces can differ by and still count as the same plane. */
     private const val PLANE_TOLERANCE = 0.05
 
     /**
-     * Designs are immutable, so the answer is cached against the instance.
+     * Designs don't change, so the answer is cached against the instance.
      *
-     * Bounded, because a craft gets a *new* design object every time its
-     * structure changes - staging, decoupling, welding - and a long flight
-     * would otherwise leave one entry per event behind it. Dropping the lot
-     * when it grows costs one recomputation of a few dozen comparisons.
+     * It's limited, because a craft gets a *new* design object every time its structure changes
+     * (staging, decoupling, welding), and a long flight would otherwise leave one entry per event
+     * behind it. Dropping the lot when it grows costs one recomputation of a few dozen comparisons.
      */
     private val cache = IdentityHashMap<CraftDesign, IntArray>()
 
@@ -88,10 +84,9 @@ object StackCaps {
                 // Only parts standing the same way up can cap each other.
                 if (kotlin.math.abs(ai dot aj) < 0.99) continue
 
-                // i's top is covered by a face of j lying in the same plane,
-                // as long as j is at least as wide there - a narrower part
-                // leaves a visible shoulder, which is real geometry and should
-                // be drawn.
+                // i's top is covered by a face of j lying in the same plane, as long as j is at
+                // least as wide there. A narrower part leaves a visible shoulder, which is real
+                // geometry and should be drawn.
                 if (masks[i] and TOP != 0 && coversFace(
                         topFace[i]!!, topRadius[i], bottomFace[j]!!, bottomRadius[j],
                     ) || masks[i] and TOP != 0 && coversFace(

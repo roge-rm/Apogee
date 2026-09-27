@@ -48,7 +48,7 @@ fun HostGameScreen(
     serverName: String,
     onServerNameChange: (String) -> Unit,
     onStartHosting: () -> Unit,
-    /** Hosting the career world rather than the sandbox. */
+    /** Hosting the career world instead of the sandbox. */
     career: Boolean = false,
     onCareer: (Boolean) -> Unit = {},
 ) {
@@ -63,8 +63,8 @@ fun HostGameScreen(
             modifier = contentModifier,
         )
 
-        // The world on this phone the others join: the career, where each
-        // player who joins has a career of their own, or the sandbox.
+        // The world on this phone that the others join: the career, where each player who joins has
+        // a career of their own, or the sandbox.
         SectionHeading("World", contentModifier)
         PillRow(listOf("Career" to true, "Sandbox" to false), career, onCareer)
         Spacer(Modifier.height(6.dp))
@@ -89,7 +89,7 @@ fun HostGameScreen(
             "Start hosting",
             onStartHosting,
             contentModifier,
-            subtitle = "You will fly while others join",
+            subtitle = "You'll fly while others join",
         )
     }
 }
@@ -133,12 +133,11 @@ fun JoinGameScreen(
                 }
                 Spacer(Modifier.height(12.dp))
                 Text(
-                    // Naming the usual causes matters. Discovery is a UDP
-                    // broadcast, and a VPN, a guest network or a server on
-                    // another subnet all swallow it silently while the game
-                    // itself stays perfectly reachable by address.
+                    // Naming the usual causes matters. Discovery is a UDP broadcast, and a VPN, a
+                    // guest network or a server on another subnet all swallow it without a word,
+                    // while the game itself can still be reached perfectly well by address.
                     "Games announce themselves over Wi\u2011Fi. A VPN or a guest " +
-                        "network will hide them \u2014 type the address instead.",
+                        "network will hide them, so type the address instead.",
                     style = MaterialTheme.typography.bodySmall,
                     color = Color.White.alpha(ApogeeAlpha.SUBTITLE),
                     textAlign = TextAlign.Center,
@@ -178,9 +177,9 @@ fun JoinGameScreen(
 /**
  * Connecting to a typed address.
  *
- * Always on screen rather than hidden behind a "having trouble?" link: for
- * anyone on a VPN or joining a server that is not on their own network this is
- * not the fallback path, it is the only path.
+ * It's always on screen, not hidden behind a "having trouble?" link. For anyone on a VPN, or
+ * joining a server that isn't on their own network, this isn't the fallback path, it's the only
+ * path.
  */
 @Composable
 private fun ManualAddressEntry(
@@ -203,8 +202,8 @@ private fun ManualAddressEntry(
                 color = Color.White.alpha(ApogeeAlpha.SUBTITLE),
             )
         },
-        // A URI keyboard puts the dots and digits on the first page and,
-        // importantly, does not capitalise or autocorrect what is typed.
+        // A URI keyboard puts the dots and digits on the first page and, just as important, doesn't
+        // capitalise or autocorrect what you type.
         keyboardOptions = KeyboardOptions(
             keyboardType = KeyboardType.Uri,
             imeAction = ImeAction.Go,
@@ -257,8 +256,8 @@ private fun ServerRow(
                 color = if (joinable) Color.White else Color.White.alpha(ApogeeAlpha.BORDER),
             )
             Text(
-                // Naming the reason matters: "different parts" is actionable,
-                // a greyed-out row that says nothing is not.
+                // Naming the reason matters. "Different parts" is something you can act on, and a
+                // greyed-out row that says nothing isn't.
                 incompatibility ?: "${server.beacon.address}  ·  " +
                     "${server.beacon.players} flying",
                 style = MaterialTheme.typography.labelSmall,

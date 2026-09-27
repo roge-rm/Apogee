@@ -16,13 +16,13 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 /**
- * The M2 loop end to end: assemble a craft with the builder, save it, load it
- * back, and fly the result.
+ * The M2 loop end to end: put a craft together with the builder, save it, load it back, and fly the
+ * result.
  *
- * The builder and the simulation share their part model, their crossfeed rule
- * and their staging derivation, but they are still two consumers of it. This is
- * the test that says a craft someone actually built is a craft that actually
- * flies - and that the delta-v the builder promised is the delta-v it delivers.
+ * The builder and the simulation share their part model, their crossfeed rule and how they work out
+ * staging, but they're still two users of it. This is the test that says a craft someone actually
+ * built is a craft that actually flies, and that the delta-v the builder promised is the delta-v it
+ * delivers.
  */
 class BuiltCraftFliesTest {
 
@@ -31,7 +31,7 @@ class BuiltCraftFliesTest {
 
     private val catalog = StockParts.catalog
 
-    /** Assembles a small two-stage rocket the way a player would. */
+    /** Puts a small two-stage rocket together the way a player would. */
     private fun assemble(): CraftBuilder {
         val builder = CraftBuilder(catalog)
         builder.placeRoot("pod-halo")
@@ -39,10 +39,10 @@ class BuiltCraftFliesTest {
         fun stackNode(partIndex: Int, nodeId: String) =
             builder.openNodes().first { it.partIndex == partIndex && it.node.id == nodeId }
 
-        // Top down: capsule, upper tank, vacuum engine, separator, two lower
-        // tanks, lifter. Exactly the order a player works in, and it only
-        // assembles at all because engines carry a bottom node - without one
-        // nothing can be hung beneath them, which is how that gap was found.
+        // Top down: capsule, upper tank, vacuum engine, separator, two lower tanks, lifter. That's
+        // exactly the order a player works in, and it only goes together at all because engines
+        // have a bottom node. Without one nothing can be hung under them, which is how that gap was
+        // found.
         val upperTank = builder.attach("tank-cask2", stackNode(0, "bottom")).first()
         val upperEngine = builder.attach("engine-vesper", stackNode(upperTank, "bottom")).first()
         val decoupler = builder.attach("decoupler-ring", stackNode(upperEngine, "bottom")).first()
@@ -112,9 +112,9 @@ class BuiltCraftFliesTest {
         val world = World.default(catalog)
         val vessel = world.spawnOnSurface(builder.design, World.launchSites.first())
 
-        // Whatever the builder says the first burn will consume, the vessel must
-        // actually be able to reach. Two implementations of the crossfeed rule
-        // would drift, and the builder would predict flights that cannot happen.
+        // Whatever the builder says the first burn will use, the vessel really has to be able to
+        // reach. Two versions of the crossfeed rule would drift apart, and the builder would
+        // predict flights that can't happen.
         val firstBurn = stats.burns.first()
         world.apply(Command.Stage(vessel.id.raw))
 

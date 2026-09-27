@@ -33,22 +33,22 @@ class FlightStripTest {
     private fun labels(t: FlightTelemetry) = stripFields(t).map { it.label }
 
     @Test
-    fun `on the ground it is speed and heading, and the moon's window`() {
+    fun `on the ground it's speed and heading, and the moon's window`() {
         assertEquals(listOf("SRF", "HDG"), labels(telemetry()))
         assertEquals(listOf("SRF", "HDG", "LUNA"), labels(telemetry(moonWindow = 900.0)))
     }
 
     @Test
-    fun `low in the air it is height over the ground, climb and airspeed, and a strong wind`() {
+    fun `low in the air it's height over the ground, climb and airspeed, and a strong wind`() {
         assertEquals(listOf("AGL", "VS", "AIR"), labels(telemetry(altitude = 1_500.0, agl = 800.0, srf = 90.0, inAir = true)))
         assertEquals(listOf("ALT", "VS", "AIR"), labels(telemetry(altitude = 6_000.0, agl = 5_000.0, srf = 200.0, inAir = true)))
         assertEquals(listOf("ALT", "VS", "AIR", "WIND"), labels(telemetry(altitude = 6_000.0, agl = 5_000.0, srf = 200.0, inAir = true, wind = 22.0)))
-        // Low over an airless world: speed over the ground.
+        // Low over an airless world, so speed over the ground.
         assertEquals(listOf("AGL", "VS", "SRF"), labels(telemetry(altitude = 900.0, agl = 900.0, srf = 40.0)))
     }
 
     @Test
-    fun `out of the air it is the orbit`() {
+    fun `out of the air it's the orbit`() {
         assertEquals(listOf("AP", "PE", "T-AP", "ORB"), labels(telemetry(altitude = 100_000.0, agl = 100_000.0, srf = 2_000.0, inOrbit = true)))
     }
 
@@ -62,7 +62,7 @@ class FlightStripTest {
     }
 
     @Test
-    fun `nothing for a craft that is gone`() {
+    fun `nothing for a craft that's gone`() {
         assertTrue(stripFields(telemetry(destroyed = "Crashed")).isEmpty())
     }
 }

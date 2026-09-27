@@ -19,10 +19,10 @@ import com.rm.apogee.ui.theme.ApogeeColors
 import com.rm.apogee.ui.theme.Dimens
 
 /**
- * The full-screen navy-to-plum gradient every non-flight screen sits on.
+ * The full-screen navy-to-plum gradient every screen except flight sits on.
  *
- * Scrolls only when its content overflows, so a short menu stays vertically
- * centred instead of pinning to the top.
+ * It only scrolls when its content overflows, so a short menu stays centred instead of sticking to
+ * the top.
  */
 @Composable
 fun Backdrop(
@@ -39,13 +39,13 @@ fun Backdrop(
                     listOf(ApogeeColors.BackdropTop, ApogeeColors.BackdropBottom),
                 )
             )
-            // After the background, so the gradient still fills the screen
-            // while the content centres itself in what the keyboard leaves.
-            // Without it the join screen's Connect button sits under the
-            // keyboard raised to type the address into the field above it.
+            // After the background, so the gradient still fills the screen while the content
+            // centres itself in the space the keyboard leaves. Without it the join screen's Connect
+            // button sits under the keyboard you raised to type the address into the field above
+            // it.
             .imePadding()
-            // On the full-screen box, not the content column: the bar sits at
-            // the screen's right edge, where a scroll bar is looked for.
+            // On the full-screen box, not the content column, so the bar sits at the screen's right
+            // edge, where you'd look for a scroll bar.
             .verticalScrollbar(scroll),
         contentAlignment = Alignment.Center,
     ) {

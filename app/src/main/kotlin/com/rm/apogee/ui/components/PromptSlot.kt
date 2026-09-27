@@ -43,12 +43,11 @@ class PromptActions(
 )
 
 /**
- * The top of the screen, in the middle: only what asks for something now.
- * In flight, the next burn counting down and the landing coming up, lining
- * up to dock, and the one-tap chances - JOIN two modules, FOUND BASE where
- * the craft stands, BOARD a craft, GRAB or LET GO a ladder. On the map,
- * planning: the transfer window, the burn's editor, and which survey shows.
- * Nothing at all while there is nothing to do.
+ * The top middle of the screen, only for what's asking for something right now. In flight that's
+ * the next burn counting down, the landing coming up, lining up to dock, and the one-tap chances:
+ * JOIN two modules, FOUND BASE where the craft stands, BOARD a craft, and GRAB or LET GO of a
+ * ladder. On the map it's planning: the transfer window, the burn's editor, and which survey shows.
+ * There's nothing at all while there's nothing to do.
  */
 @Composable
 fun PromptSlot(
@@ -71,7 +70,7 @@ fun PromptSlot(
             window = hud.window, align = Alignment.CenterHorizontally,
         )
         if (hud.mapMode) {
-            // A surveyed world's ore or water on the map: tap round ORE, H2O, off.
+            // A surveyed world's ore or water on the map. Tap round ORE, H2O and off.
             if (hud.surveyedHere) SurveyToggle(hud)
             return@Column
         }
@@ -90,7 +89,7 @@ fun PromptSlot(
     }
 }
 
-/** A feat earned - or a launch refused - across the top, briefly. */
+/** A feat earned (or a launch refused) across the top, briefly. */
 @Composable
 private fun Banner(banner: HudState.Banner) {
     val colour = if (banner.good) ApogeeColors.Prograde else ApogeeColors.Danger
@@ -110,7 +109,7 @@ private fun Banner(banner: HudState.Banner) {
 
 private const val BANNER_MS = 4_000L
 
-/** One chance to take: solid, so it reads against a bright sky as well as the ground. */
+/** One chance to take, solid so it reads against a bright sky as well as the ground. */
 @Composable
 private fun Prompt(icon: ImageVector, text: String, colour: Color, onTap: () -> Unit) {
     val ink = Color(0xFF0C1824)
@@ -152,7 +151,7 @@ private fun SurveyToggle(hud: HudState) {
     }
 }
 
-/** What is showing in the slot, as a key: when it changes, the controls wake. */
+/** What's showing in the slot, as a key. When it changes, the controls wake up. */
 fun promptKey(hud: HudState): String = buildString {
     hud.burn?.let { append("burn").append(if (it.startsIn <= 0.0) "now" else "") }
     hud.landing?.let { append("land") }

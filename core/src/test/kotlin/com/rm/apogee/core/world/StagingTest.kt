@@ -13,16 +13,16 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** Staging in flight: what separates, what fires next, and what is left. */
+/** Staging in flight: what separates, what fires next, and what's left. */
 class StagingTest {
 
     private val catalog = StockParts.catalog
     private val dt = 1.0 / 60.0
 
     /**
-     * After the upper stage separates, the chute is still next - and still
-     * stage 2, the number the player saw it by in the builder and on the
-     * stack. The lower stage's entry stays in the sequence, empty.
+     * After the upper stage separates, the chute is still next, and still stage 2, the number the
+     * player saw it by in the builder and on the stack. The lower stage's entry stays in the
+     * sequence, empty.
      */
     @Test
     fun `the chute still fires after the stages below it are gone`() {
@@ -38,7 +38,7 @@ class StagingTest {
         assertEquals(0, rocket.stagesRemaining)
     }
 
-    /** Radial boosters: several decouplers in one stage, and every one lets go. */
+    /** Radial boosters: several decouplers in one stage, and every one of them lets go. */
     @Test
     fun `every decoupler in a stage separates`() {
         val parts = listOf(
@@ -68,9 +68,8 @@ class StagingTest {
     }
 
     /**
-     * The flight HUD's figures: burning brings the current stage's fuel and
-     * delta-v down from what the builder promised, and the stages above
-     * still read full.
+     * The flight HUD's figures. Burning brings the current stage's fuel and delta-v down from what
+     * the builder promised, and the stages above still read full.
      */
     @Test
     fun `live stage figures follow the burn`() {
@@ -101,7 +100,7 @@ class StagingTest {
         assertTrue(burn.fuel.isNotEmpty())
     }
 
-    /** The Starter I coasting high up, lower stage lit and then let go. */
+    /** The Starter I coasting high up, with its lower stage lit and then let go. */
     private fun separatedInSpace(): Triple<World, com.rm.apogee.core.craft.Vessel, com.rm.apogee.core.craft.Vessel> {
         val world = World.default(catalog)
         val terra = world.system.body("terra")
@@ -121,10 +120,9 @@ class StagingTest {
     }
 
     /**
-     * Let go of while coasting, the halves drift apart on the ring's push
-     * alone - and keep drifting. The spent half was once placed at the whole
-     * rocket's centre, inside the stage above it, and the two locked together
-     * as soon as they stopped ignoring each other.
+     * Let go of while coasting, the halves drift apart on the ring's push alone, and keep drifting.
+     * The spent half was once placed at the whole rocket's centre, inside the stage above it, and
+     * the two locked together as soon as they stopped ignoring each other.
      */
     @Test
     fun `coasting halves drift apart and stay apart`() {
@@ -139,7 +137,7 @@ class StagingTest {
         )
     }
 
-    /** A spent stage keeps what was left in it - it does not fall away refuelled. */
+    /** A spent stage keeps what was left in it. It doesn't fall away refuelled. */
     @Test
     fun `a spent stage keeps its fuel`() {
         val (_, rocket, spent) = separatedInSpace()
@@ -150,9 +148,9 @@ class StagingTest {
     }
 
     /**
-     * A stage let go of while its engine is burning goes on burning - its
-     * control module is gone, but nothing told the engine to stop - at the
-     * throttle it had, until its tanks run dry (Dan).
+     * A stage let go of while its engine is burning keeps on burning. Its control module is gone,
+     * but nothing told the engine to stop, so it burns at the throttle it had until its tanks run
+     * dry. That's how I wanted it.
      */
     @Test
     fun `a stage dropped while burning burns on until it is dry`() {
@@ -183,11 +181,11 @@ class StagingTest {
     }
 
     /**
-     * Staged with the stage below still burning: it is solid, so it shoves
-     * the craft above along rather than flying through it (Dan).
+     * Staged with the stage below still burning. It's solid, so it shoves the craft above along
+     * instead of flying through it, which is what I asked for.
      */
     @Test
-    fun `a stage let go while burning pushes the craft above, and does not pass through it`() {
+    fun `a stage let go while burning pushes the craft above, and doesn't pass through it`() {
         val world = World.default(catalog)
         val rocket = world.spawnInOrbit(
             StockCraft.starterRocket(catalog), "terra",
@@ -198,10 +196,10 @@ class StagingTest {
         world.stage(rocket) // lower engine
         repeat(30) { world.step(dt) }
         val before = world.vessels.map { it.id }.toSet()
-        world.stage(rocket) // separation; the upper engine lights too
+        world.stage(rocket) // separation, and the upper engine lights too
         world.apply(com.rm.apogee.core.world.Command.SetThrottle(rocket.id.raw, 0.0))
         val lower = world.vessels.first { it.id !in before }
-        // The craft above coasts; what is below still burns.
+        // The craft above coasts, and what's below still burns.
         val nose = rocket.body.orientation.rotate(Vec3.unitY(), Vec3())
         val v0 = rocket.body.linearVelocity dot nose
         var worst = Double.MAX_VALUE
@@ -218,10 +216,9 @@ class StagingTest {
     }
 
     /**
-     * A stage let go with its engine burning pushes the one above - and
-     * pushes it straight. Taken at the touching points round the decoupler it
-     * spun the upper stage past a radian a second, which at 4x warp was a
-     * craft flickering all over the screen.
+     * A stage let go with its engine burning pushes the one above, and pushes it straight. Taken at
+     * the touching points around the decoupler, it spun the upper stage past a radian a second,
+     * which at 4x warp was a craft flickering all over the screen.
      */
     @Test
     fun `a burning stage below pushes the upper one without spinning it`() {

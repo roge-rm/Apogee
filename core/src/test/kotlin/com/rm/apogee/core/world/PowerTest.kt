@@ -19,7 +19,10 @@ import kotlin.math.sqrt
 class PowerTest {
     private val catalog = StockParts.catalog
     private val dt = 1.0 / 60.0
-    /** Toward the star from Terra at the start: near enough the same the few minutes these run. */
+    /**
+     * Toward the star from Terra at the start, which is near enough the same for the few minutes
+     * these run.
+     */
     private val sun = com.rm.apogee.core.orbit.SolarSystem.defaultSystem().sunDirection("terra", Vec3.zero(), 0.0)
 
     /** A Halo with [extras] on its sides, each on the outside of the hull facing out. */
@@ -29,7 +32,7 @@ class PowerTest {
         parts += PlacedPart("pod-halo", Vec3(0.0, 0.0, 0.0))
         extras.forEachIndexed { k, id ->
             val angle = sides[k]
-            // Its own -X to the hull: turned about Y to face out at [angle].
+            // Its own -X to the hull, turned about Y to face out at [angle].
             val out = Vec3(kotlin.math.cos(angle), 0.0, -kotlin.math.sin(angle))
             parts += PlacedPart(
                 id, out.copy().mulInPlace(0.7),
@@ -41,8 +44,8 @@ class PowerTest {
     }
 
     /**
-     * [design] in a circular orbit [height] up, over the sunlit side of
-     * Terra or ([lit] false) in the middle of its shadow, its +X to the sun.
+     * [design] in a circular orbit [height] up, over the sunlit side of Terra or (with [lit] false)
+     * in the middle of its shadow, with its +X to the sun.
      */
     private fun inOrbit(world: World, design: CraftDesign, lit: Boolean = true, height: Double = 100_000.0): Vessel {
         val terra = world.system.body("terra")
@@ -73,7 +76,7 @@ class PowerTest {
         val behind = sun.copy().mulInPlace(-3.0 * terra.radius)
         assertEquals(0.0, power.sunlight(terra, behind.copy().addScaledInPlace(across, terra.radius - 10_000.0), 0.0), 0.0)
         assertEquals(1.0, power.sunlight(terra, behind.copy().addScaledInPlace(across, terra.radius + 10_000.0), 0.0), 0.0)
-        // Beside it, level with it: lit.
+        // Beside it, level with it, so lit.
         assertEquals(1.0, power.sunlight(terra, across.copy().mulInPlace(r), 0.0), 0.0)
     }
 
@@ -87,18 +90,18 @@ class PowerTest {
         assertFalse("still powered with ${charge(pod)}", pod.powered)
         assertEquals(0.0, charge(pod), 1e-9)
 
-        // A spin it cannot stop.
+        // A spin it can't stop.
         pod.body.angularVelocity.setTo(0.3, 0.0, 0.0)
         run(world, 5.0)
         assertEquals("a flat pod's wheels bit", 0.3, pod.body.angularVelocity.length, 0.01)
 
-        // Nor fly itself.
+        // It can't fly itself either.
         world.apply(Command.SetAutopilot(pod.id.raw, autoBurn = false, autoLand = true))
         run(world, 0.1)
         assertFalse(pod.control.autoLand)
         assertEquals("No power", pod.control.autopilotNote)
 
-        // With charge, the same spin is stopped.
+        // With charge, the same spin gets stopped.
         val other = World.default(catalog)
         val live = inOrbit(other, pod())
         other.apply(Command.SetSas(live.id.raw, true))
@@ -210,7 +213,7 @@ class PowerTest {
         val pod = inOrbit(world, pod("wing-kite", "cell-spark"))
         world.apply(Command.Deploy(pod.id.raw, true))
         run(world, 5.0)
-        // Running, as it would be halfway through filling a flat battery.
+        // Running, the way it would be halfway through filling a flat battery.
         pod.fuelCellsOn = true
         val again = World.default(catalog)
         again.restore(world.save())

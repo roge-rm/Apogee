@@ -8,14 +8,16 @@ import com.rm.apogee.core.terrain.Deposits
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * A surveyed body's ore or water, sampled on a latitude-longitude grid for
- * the map: worked out once per body and resource on a thread of its own -
- * a few thousand terrain samples, too many for a frame - and kept for as
- * long as the app runs, since the ground is the same in every world.
+ * A surveyed body's ore or water, sampled on a latitude-longitude grid for the map. It's worked out
+ * once per body and resource on its own thread (a few thousand terrain samples, too many for a
+ * frame) and kept for as long as the app runs, since the ground is the same in every world.
  */
 object RichnessGrid {
 
-    /** The points worth drawing: body-fixed unit direction x, y, z, then richness, four floats each. */
+    /**
+     * The points worth drawing: a body-fixed unit direction x, y, z, then richness, four floats
+     * each.
+     */
     class Points(val data: FloatArray) {
         val count: Int get() = data.size / 4
     }
@@ -29,7 +31,7 @@ object RichnessGrid {
         }, "richness").apply { isDaemon = true }
     }
 
-    /** [body]'s grid of [resource], or null while it is still being worked out. */
+    /** [body]'s grid of [resource], or null while it's still being worked out. */
     fun points(body: CelestialBody, resource: ResourceType): Points? {
         val key = body.id to resource
         ready[key]?.let { return it }
@@ -55,9 +57,9 @@ object RichnessGrid {
         return null
     }
 
-    /** Grid spacing, degrees. */
+    /** Grid spacing, in degrees. */
     private const val STEP = 3.0
 
-    /** Richness under which a point is not worth a dot. */
+    /** Richness under which a point isn't worth a dot. */
     private const val SHOWN = 0.15
 }

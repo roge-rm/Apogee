@@ -42,7 +42,7 @@ class EffectsTest {
         val air = AirSample()
         weather.sample(up.copy().mulInPlace(ground + 150.0), 0.0, air)
         val wind = air.wind.copy().addScaledInPlace(up, -(air.wind dot up))
-        // A second of burn, then four of drifting - inside smoke's lifetime.
+        // A second of burn, then four of drifting, inside smoke's lifetime.
         repeat(60) { fx.step(1.0 / 60.0, it / 60.0, terra, Quat.identity(), listOf(emitterAt(nozzle)), weather, nozzle, null) }
         val start = fx.centroid(Vec3())
         repeat(240) { fx.step(1.0 / 60.0, 1.0 + it / 60.0, terra, Quat.identity(), emptyList(), weather, nozzle, null) }
@@ -51,7 +51,7 @@ class EffectsTest {
         moved.addScaledInPlace(up, -(moved dot up))
         assertTrue("need wind: $wind", wind.length > 1.0)
         val along = (moved dot wind) / wind.length
-        // Taking up the wind over the first second or so, then carried by it.
+        // It takes up the wind over the first second or so, then gets carried by it.
         assertTrue("drifted $moved in a wind of $wind", along > 0.5 * wind.length * 4.0 * 0.5)
     }
 
@@ -83,7 +83,7 @@ class EffectsTest {
     }
 
     @Test
-    fun `rain falls round the camera`() {
+    fun `rain falls around the camera`() {
         val fx = Effects(QualityTier.MEDIUM)
         val up = Vec3(1.0, 0.0, 0.0)
         val camera = up.copy().mulInPlace(terra.radius + maxOf(terra.terrain!!.elevation(up), 0.0) + 50.0)
@@ -122,8 +122,8 @@ class EffectsTest {
     @Test
     fun `the vapour collar sits just behind the nose, sized to the body`() {
         val fx = Effects(QualityTier.MEDIUM)
-        // A rocket's middle 1 km up, climbing through Mach 1 in damp low air;
-        // its nose 8 m ahead of the middle, its body 1 m in radius.
+        // A rocket's middle 1 km up, climbing through Mach 1 in damp low air. Its nose is 8 m ahead
+        // of the middle, and its body is 1 m in radius.
         val up = Vec3(1.0, 0.0, 0.0)
         val centre = up.copy().mulInPlace(terra.radius + 1_000.0)
         val air = up.copy().mulInPlace(Effects.SPEED_OF_SOUND)
@@ -144,13 +144,13 @@ class EffectsTest {
             val profile = Effects.rocketPlume(vacuum).profile
             val atNozzle = profile.single { it[1] == 0.0 }[0]
             assertTrue("vacuum $vacuum: $atNozzle at the nozzle", kotlin.math.abs(atNozzle - 1.0) < 1e-9)
-            // Spreading only downstream: a tenth of the way along, barely wider.
+            // It only spreads downstream, so a tenth of the way along it's barely wider.
             val near = profile.filter { it[1] >= -0.1 }.maxOf { it[0] }
             assertTrue("vacuum $vacuum: $near near the nozzle", near <= 1.3)
         }
         // In thick air it stays a flame, hardly wider than the bell anywhere.
         assertTrue(Effects.rocketPlume(0.0).profile.maxOf { it[0] } <= 1.1)
-        // In vacuum it fans out well past it downstream.
+        // In vacuum it fans out well past the bell downstream.
         assertTrue(Effects.rocketPlume(1.0).profile.maxOf { it[0] } >= 2.5)
     }
 
@@ -158,7 +158,7 @@ class EffectsTest {
     fun `a thruster's puffs leave opposite its push, in vacuum too`() {
         val fx = Effects(QualityTier.HIGH)
         val at = Vec3(terra.radius + 200_000.0, 0.0, 0.0)
-        val out = Vec3(0.0, 0.0, 1.0) // the gas goes +z: the block pushes -z
+        val out = Vec3(0.0, 0.0, 1.0) // the gas goes +z, so the block pushes -z
         repeat(20) {
             fx.rcsPuff(at, out, Vec3(), 1.0, inAir = false, dt = 1.0 / 60.0, seed = it)
             fx.step(1.0 / 60.0, it / 60.0, terra, Quat.identity(), emptyList(), null, at, null)
@@ -166,12 +166,15 @@ class EffectsTest {
         assertTrue("some puffs: ${fx.particleCount}", fx.particleCount > 0)
         val moved = fx.centroid(Vec3()).subInPlace(at)
         assertTrue("out along +z: $moved", moved.z > 1.0 && kotlin.math.abs(moved.x) < moved.z * 0.3 && kotlin.math.abs(moved.y) < moved.z * 0.3)
-        // Stopped, they are gone within a second.
+        // Stopped, they're gone within a second.
         repeat(60) { fx.step(1.0 / 60.0, 1.0 + it / 60.0, terra, Quat.identity(), emptyList(), null, at, null) }
         assertEquals(0, fx.particleCount)
     }
 
-    /** A joint at its limit on a craft doing a kilometre a second: its sparks stay with it, not strewn behind. */
+    /**
+     * A joint at its limit on a craft doing a kilometre a second. Its sparks stay with it, not
+     * strewn out behind.
+     */
     @Test
     fun `sparks off a straining seam stay with a fast craft`() {
         val fx = Effects(QualityTier.HIGH)
@@ -179,16 +182,16 @@ class EffectsTest {
         val start = up.copy().mulInPlace(terra.radius + 18_000.0)
         val velocity = Vec3(0.0, 1_000.0, 0.0)
         val seam = start.copy()
-        // As the game does it, a frame at a time: the craft moved to this
-        // frame's place, sparks thrown from there, then the effects stepped.
+        // The way the game does it, a frame at a time: the craft moved to this frame's place,
+        // sparks thrown from there, then the effects stepped.
         repeat(30) { k ->
             if (k > 0) seam.addScaledInPlace(velocity, 1.0 / 60.0)
             fx.strain(seam, velocity, 0.6, 40.0, inAir = true, colour = null, dt = 1.0 / 60.0, seed = 7)
             fx.step(1.0 / 60.0, k / 60.0, terra, Quat.identity(), emptyList(), null, seam, null)
         }
         assertTrue("some sparks: ${fx.particleCount}", fx.particleCount > 5)
-        // Drawn with the craft where it is this frame: centred on the seam,
-        // not strewn behind it nor a frame ahead of it.
+        // Drawn with the craft where it is this frame: centred on the seam, not strewn out behind
+        // it or a frame ahead of it.
         val off = fx.centroid(Vec3()).distanceTo(seam)
         assertTrue("with the seam ($off m)", off < 3.0)
     }

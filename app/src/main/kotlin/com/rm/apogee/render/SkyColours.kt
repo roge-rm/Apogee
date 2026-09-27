@@ -3,9 +3,9 @@ package com.rm.apogee.render
 import com.rm.apogee.core.weather.Climate
 
 /**
- * The colours a world's air is drawn in: its day sky, the band round a
- * low sun, the haze over distance, and how much of a sky it makes at all.
- * Terra's are exactly the ones the shaders always had.
+ * The colours a world's air is drawn in: its day sky, the band around a low sun, the haze over
+ * distance, and how much of a sky it makes at all. Terra's are exactly the ones the shaders always
+ * had.
  */
 class SkyColours(
     val zenith: FloatArray,
@@ -16,9 +16,9 @@ class SkyColours(
     val rim: FloatArray,
     /** Tints clouds and fog. */
     val cloud: FloatArray,
-    /** 0..1: how much sky the air makes - a thin air's is black with a faint rim. */
+    /** 0..1, how much sky the air makes. A thin air's sky is black with a faint rim. */
     val depth: Float,
-    /** The sky a sea mirrors. */
+    /** The sky a sea reflects. */
     val seaSky: FloatArray,
 ) {
     companion object {
@@ -35,7 +35,7 @@ class SkyColours(
 
         private val made = HashMap<String, SkyColours>()
 
-        /** World [bodyId]'s sky: Terra's where it has no climate of its own. */
+        /** World [bodyId]'s sky. Terra's where it has no climate of its own. */
         fun of(bodyId: String): SkyColours = synchronized(made) {
             made.getOrPut(bodyId) {
                 val c = Climate.of(bodyId)

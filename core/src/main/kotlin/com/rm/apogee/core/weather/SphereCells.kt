@@ -7,11 +7,11 @@ import kotlin.math.ceil
 import kotlin.math.floor
 
 /**
- * The sphere cut into cells about [cellSize] across, for scattering weather
- * features: one thermal, one storm, one cloud per cell and time.
+ * The sphere cut into cells about [cellSize] across, for scattering weather features: one thermal,
+ * one storm or one cloud per cell and time.
  *
- * On the cube-sphere, the same mapping the terrain uses, so cells are near
- * enough square everywhere and the poles are not a pinch point.
+ * It's on the cube-sphere, the same mapping the terrain uses, so cells are nearly square everywhere
+ * and the poles aren't a pinch point.
  */
 class SphereCells(bodyRadius: Double, cellSize: Double) {
 
@@ -28,7 +28,7 @@ class SphereCells(bodyRadius: Double, cellSize: Double) {
         return (face.toLong() * perFace + i) * perFace + j
     }
 
-    /** Integer coordinates for hashing: unique per cell. */
+    /** Integer coordinates for hashing, unique for each cell. */
     fun hashX(key: Long): Int = (key / perFace).toInt()
     fun hashY(key: Long): Int = (key % perFace).toInt()
 
@@ -44,17 +44,15 @@ class SphereCells(bodyRadius: Double, cellSize: Double) {
     }
 
     /**
-     * The cells around [direction]: its own and those up to [reach] cells
-     * away, into [out].
+     * The cells around [direction]: its own and those up to [reach] cells away, into [out].
      *
-     * By index within its face - stepping a cell's width across the tangent
-     * plane skipped cells wherever the face grid runs at an angle to east
-     * and north, which away from the equator is nearly everywhere. Only
-     * near a face edge, where the neighbours are on another face, does it
-     * probe instead, at half-cell steps so none is missed; [east], [north]
-     * and [angularStep] (a cell's width in radians) are for that.
+     * It goes by index within the face. Stepping a cell's width across the tangent plane skipped
+     * cells wherever the face grid runs at an angle to east and north, which away from the equator
+     * is nearly everywhere. Only near a face edge, where the neighbours are on another face, does
+     * it probe instead, at half-cell steps so none get missed. [east], [north] and [angularStep] (a
+     * cell's width in radians) are for that.
      *
-     * @return how many distinct keys were written.
+     * @return how many different keys were written.
      */
     fun around(direction: Vec3, east: Vec3, north: Vec3, angularStep: Double, out: LongArray, reach: Int = 1): Int {
         val face = CubeSphere.locate(direction, located)

@@ -5,29 +5,28 @@ import com.rm.apogee.core.math.Quat
 import com.rm.apogee.core.math.Vec3
 
 /**
- * A single six-degree-of-freedom body.
+ * A single body with six degrees of freedom.
  *
- * One of these backs an entire vessel: every part of a craft is welded into one
- * rigid body rather than joined by springs. That is a considered trade: a
- * per-joint model makes long stacks flex and wobble, costs a solver iteration
- * per joint per tick, and on a phone is simply not affordable. Decoupling a
- * stage splits one body into two rather than releasing a joint, which gives the
- * same gameplay without the instability.
+ * One of these stands for a whole vessel. Every part of a craft is welded into one rigid body
+ * instead of joined by springs, and that's a considered trade. A model with a spring per joint
+ * makes long stacks flex and wobble, costs a solver pass per joint per tick, and on a phone just
+ * isn't affordable. Decoupling a stage splits one body into two instead of releasing a joint, which
+ * gives the same gameplay without the instability.
  *
- * All state is double precision and mutable in place - this is stepped 60 times
- * a second for every vessel in range, and must not allocate.
+ * All the state is double precision and changed in place, because this gets stepped 60 times a
+ * second for every vessel in range and mustn't allocate.
  */
 class RigidBody {
 
-    /** Position of the centre of mass, in the current frame's coordinates. */
+    /** The position of the centre of mass, in the current frame's coordinates. */
     val position = Vec3()
 
-    /** Orientation of the body's local axes. */
+    /** The orientation of the body's local axes. */
     val orientation = Quat.identity()
 
     val linearVelocity = Vec3()
 
-    /** Radians per second, world frame. */
+    /** Radians per second, in the world frame. */
     val angularVelocity = Vec3()
 
     var mass: Double = 1.0
@@ -40,11 +39,10 @@ class RigidBody {
         private set
 
     /**
-     * Immovable: an anchored base. Its mass and inertia are kept, but it
-     * answers every push as if infinitely heavy - no impulse moves it and
-     * no contact shares a correction with it - so everything that meets it
-     * works unchanged, against something that does not give. Whoever sets it
-     * poses the body themselves.
+     * Can't be moved, like an anchored base. Its mass and inertia are kept, but it answers every
+     * push as if it were infinitely heavy. No impulse moves it and no contact shares a correction
+     * with it, so everything that meets it works as normal, against something that doesn't give.
+     * Whoever sets this poses the body themselves.
      */
     var fixed: Boolean = false
         set(value) {
@@ -53,20 +51,20 @@ class RigidBody {
             if (value) inverseInertiaLocal.setZero() else inverseInertiaLocal.setTo(inertiaLocal.inverted())
         }
 
-    /** Inertia tensor about the centre of mass, in body-local axes. */
+    /** The inertia tensor around the centre of mass, in body-local axes. */
     val inertiaLocal: Mat3 = Mat3.identity()
 
-    /** Inverse of [inertiaLocal]. Recomputed by [setInertia]. */
+    /** The inverse of [inertiaLocal]. It's worked out again by [setInertia]. */
     val inverseInertiaLocal: Mat3 = Mat3.identity()
 
-    /** Scratch: [inverseInertiaLocal] expressed in world axes. */
+    /** Scratch: [inverseInertiaLocal] in world axes. */
     private val inverseInertiaWorld: Mat3 = Mat3.identity()
 
-    /** Accumulated over a tick, cleared by [clearAccumulators]. */
+    /** Added up over a tick, and cleared by [clearAccumulators]. */
     val force = Vec3()
     val torque = Vec3()
 
-    // Preallocated scratch for the integration step.
+    // Scratch space made up front for the integration step.
     private val scratchA = Vec3()
     private val scratchB = Vec3()
 
@@ -80,17 +78,16 @@ class RigidBody {
         torque.setZero()
     }
 
-    /** Adds a force through the centre of mass - no torque. */
+    /** Adds a force through the centre of mass, with no torque. */
     fun applyCentralForce(worldForce: Vec3) {
         force.addInPlace(worldForce)
     }
 
     /**
-     * Adds a force at [worldOffset] from the centre of mass, producing both
-     * linear acceleration and torque.
+     * Adds a force at [worldOffset] from the centre of mass, which makes both linear acceleration
+     * and torque.
      *
-     * This is how an off-axis engine turns a craft, and how a gimbal steers
-     * one.
+     * This is how an off-axis engine turns a craft, and how a gimbal steers one.
      */
     fun applyForceAtOffset(worldForce: Vec3, worldOffset: Vec3) {
         force.addInPlace(worldForce)
@@ -102,7 +99,7 @@ class RigidBody {
         torque.addInPlace(worldTorque)
     }
 
-    /** Applies an instantaneous change in momentum through the centre of mass. */
+    /** Applies an instant change in momentum through the centre of mass. */
     fun applyImpulse(worldImpulse: Vec3) {
         linearVelocity.addScaledInPlace(worldImpulse, inverseMass)
     }
@@ -113,13 +110,13 @@ class RigidBody {
         angularVelocityChangeFromAngularImpulse(scratchA)
     }
 
-    /** Applies an instantaneous change in angular momentum, world axes. */
+    /** Applies an instant change in angular momentum, in world axes. */
     fun applyAngularImpulse(worldAngularImpulse: Vec3) {
         scratchA.setTo(worldAngularImpulse)
         angularVelocityChangeFromAngularImpulse(scratchA)
     }
 
-    /** How easily the body turns about the unit [axis]: axis . (I^-1 axis), world axes. */
+    /** How easily the body turns around the unit [axis]: axis . (I^-1 axis), in world axes. */
     fun inverseInertiaAbout(axis: Vec3): Double {
         inverseInertiaWorld.setRotated(inverseInertiaLocal, orientation)
         inverseInertiaWorld.transform(axis, scratchB)
@@ -133,17 +130,16 @@ class RigidBody {
     }
 
     /**
-     * Advances one fixed step, semi-implicit Euler.
+     * Moves forward one fixed step, with semi-implicit Euler.
      *
-     * Velocity is updated before position - the "semi-implicit" part - which
-     * costs nothing and is dramatically more stable than the explicit ordering
-     * for oscillatory systems like a craft on its landing legs.
+     * Velocity is updated before position (that's the "semi-implicit" part), which costs nothing
+     * and is far more stable than the explicit order for things that oscillate, like a craft on its
+     * landing legs.
      *
-     * The gyroscopic term (`omega x (I omega)`) is deliberately omitted. It
-     * matters for a body tumbling freely about an intermediate axis, and
-     * omitting it costs a real effect - but including it with an explicit
-     * integrator at 60 Hz injects energy and makes long stacks diverge, which
-     * is a far worse failure. Revisit alongside a proper implicit solver.
+     * The gyroscopic term (`omega x (I omega)`) is left out on purpose. It matters for a body
+     * tumbling freely around its middle axis, and leaving it out does lose a real effect. But
+     * including it with an explicit integrator at 60 Hz adds energy and makes long stacks blow up,
+     * which is a much worse failure. Worth looking at again alongside a proper implicit solver.
      */
     fun integrate(dt: Double) {
         if (inverseMass > 0.0) {
@@ -158,13 +154,13 @@ class RigidBody {
         orientation.integrateAngularVelocity(angularVelocity, dt)
     }
 
-    /** Velocity of the point at [worldOffset] from the centre of mass. */
+    /** The velocity of the point at [worldOffset] from the centre of mass. */
     fun velocityAtOffset(worldOffset: Vec3, out: Vec3 = Vec3()): Vec3 {
         out.setTo(angularVelocity).crossInPlace(worldOffset)
         return out.addInPlace(linearVelocity)
     }
 
-    /** Kinetic energy, J. Used by tests to detect an integrator injecting energy. */
+    /** Kinetic energy, in J. Tests use it to catch an integrator adding energy. */
     val kineticEnergy: Double
         get() {
             val linear = 0.5 * mass * linearVelocity.lengthSq

@@ -33,9 +33,8 @@ class HeatTest {
     private class Return(val world: World, val pod: Vessel, val peak: DoubleArray, val events: List<WorldEvent>)
 
     /**
-     * Home from a 100 km orbit, dropped to a 35 km periapsis, held
-     * retrograde - shield first, if there is one - until it is down to a few
-     * kilometres or gone.
+     * Home from a 100 km orbit, dropped to a 35 km periapsis and held retrograde (shield first, if
+     * there is one) until it's down to a few kilometres or gone.
      */
     private fun comeHome(design: CraftDesign): Return {
         val world = World.default(catalog)
@@ -92,8 +91,8 @@ class HeatTest {
     }
 
     /**
-     * A lit engine heats itself, and the tank it is bolted to a little - and
-     * settles well inside what it is built for.
+     * A lit engine heats itself, and the tank it's bolted to a little, and settles well inside what
+     * it's built for.
      */
     @Test
     fun `a burning engine runs hot but not too hot`() {

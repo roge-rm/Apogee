@@ -5,24 +5,23 @@ import com.rm.apogee.core.math.Vec3
 import kotlin.math.abs
 
 /**
- * What damage and heat look like on a part: scorched darker the more it is
- * hurt, glowing dull red, then orange, then near white as it heats, and
- * squashed along the line it was struck.
+ * What damage and heat look like on a part. It's scorched darker the more it's hurt, glows dull
+ * red, then orange, then nearly white as it heats up, and gets squashed along the line it was hit.
  */
 object ConditionLook {
 
-    /** Where a part starts to glow, K: dull red, barely. */
+    /** Where a part starts to glow, in K. Dull red, barely. */
     const val GLOW_START = 750.0
 
-    /** Where it is as bright as it gets, K. */
+    /** Where it's as bright as it gets, in K. */
     const val GLOW_FULL = 2_200.0
 
-    /** How far a part fully dented along an axis is squashed along it. */
+    /** How far a part fully dented along an axis gets squashed along it. */
     const val DENT = 0.4
 
     private val char = floatArrayOf(0.10f, 0.09f, 0.08f)
 
-    /** [base] scorched by [health] and lit by [temperature]; a new array. */
+    /** [base] scorched by [health] and lit by [temperature], as a new array. */
     fun colour(base: FloatArray, health: Float, temperature: Float): FloatArray {
         val out = base.copyOf()
         val scorch = (1f - health).coerceIn(0f, 1f) * 0.8f
@@ -42,7 +41,7 @@ object ConditionLook {
         return base + (1.1f - base) * glow
     }
 
-    /** 0 below [GLOW_START], 1 at [GLOW_FULL], eased. */
+    /** 0 below [GLOW_START] and 1 at [GLOW_FULL], eased. */
     fun glow(temperature: Float): Float {
         val t = ((temperature - GLOW_START) / (GLOW_FULL - GLOW_START)).toFloat().coerceIn(0f, 1f)
         return t * t * (3f - 2f * t)
@@ -61,8 +60,8 @@ object ConditionLook {
     }
 
     /**
-     * The squash of a part dented by [crumple] (its three axes, from
-     * [offset] in the array), as a scale in its own axes - or null for none.
+     * The squash of a part dented by [crumple] (its three axes, from [offset] in the array), as a
+     * scale in its own axes, or null for none.
      */
     fun dent(crumple: FloatArray, offset: Int): Vec3? {
         val x = abs(crumple[offset]); val y = abs(crumple[offset + 1]); val z = abs(crumple[offset + 2])

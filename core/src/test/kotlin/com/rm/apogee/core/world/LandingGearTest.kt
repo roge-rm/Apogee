@@ -10,8 +10,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Landing legs take time to deploy, and the ground meets them where they
- * actually are while they do: folded against the hull, swinging down, out.
+ * Landing legs take time to deploy, and the ground meets them where they really are while they do:
+ * folded against the hull, swinging down, and out.
  */
 class LandingGearTest {
 
@@ -38,10 +38,9 @@ class LandingGearTest {
     }
 
     /**
-     * Standing on its legs, the lander is held up by them; with them stowed it
-     * sits on its engine bell, lower by about the length the legs reach below
-     * it. So the contact is where the drawn leg is, not a box that is always
-     * out.
+     * Standing on its legs, the lander is held up by them. With them stowed it sits on its engine
+     * bell, lower by about the length the legs reach below it. So the contact is where the drawn
+     * leg is, not a box that's always out.
      */
     @Test
     fun `a lander stands higher on deployed legs than on stowed ones`() {
@@ -61,8 +60,8 @@ class LandingGearTest {
     }
 
     /**
-     * Legs swinging down while the craft sits on the ground lift it onto them,
-     * rather than passing through the ground to spring out beneath it.
+     * Legs swinging down while the craft sits on the ground lift it onto them, instead of passing
+     * through the ground and springing out underneath it.
      */
     @Test
     fun `deploying on the ground stands the craft up on its legs`() {
@@ -76,8 +75,7 @@ class LandingGearTest {
                 attractor.surfaceRadiusInBodyFrame(attractor.toBodyFixed(up, attractor.rotationAt(world.time)))
         }
         val before = height()
-        // Through the command, as the game does it: staging a parked craft
-        // wakes it.
+        // Through the command, the way the game does it. Staging a parked craft wakes it.
         repeat(3) { world.apply(Command.Stage(lander.id.raw)) }
         repeat(300) { world.step(dt) }
         assertTrue("it should be standing on its legs now: ${height()} m against $before m", height() - before > 0.3)

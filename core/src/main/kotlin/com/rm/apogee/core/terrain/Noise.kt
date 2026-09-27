@@ -3,20 +3,19 @@ package com.rm.apogee.core.terrain
 /**
  * The noise every terrain layer is built from.
  *
- * Deterministic across machines, which is the whole constraint: the server
- * (a JVM) and every client (ART, on a phone) evaluate the same ground
- * independently, and a craft resting on a hill the server thinks is a
- * centimetre lower than the client does is a craft that jitters. So nothing
- * here uses anything but integer arithmetic and IEEE-754 `+ - * /`, which
- * every conforming platform must round identically - no tables, no library
- * transcendentals, no fused multiply-add the compiler might choose to emit.
+ * It has to give the same answer on every machine, and that's the whole constraint. The server (a
+ * JVM) and every client (ART, on a phone) work out the same ground on their own, and a craft
+ * resting on a hill that the server thinks is a centimetre lower than the client does is a craft
+ * that jitters. So nothing here uses anything except integer maths and IEEE-754 `+ - * /`, which
+ * every conforming platform has to round the same way. No tables, no library trig, and no fused
+ * multiply-add the compiler might decide to emit.
  */
 object Noise {
 
     /**
-     * Integer hash to a value in 0..1.
+     * An integer hash to a value in 0..1.
      *
-     * Wrapping on purpose, so the result depends on nothing but the inputs.
+     * It wraps around on purpose, so the result depends on nothing but the inputs.
      */
     fun hash(seed: Int, x: Int, y: Int, z: Int): Double = (hashInt(seed, x, y, z) ushr 8) / UNSIGNED_24_BIT
 
@@ -36,8 +35,8 @@ object Noise {
     /**
      * Value noise on an integer lattice, 0..1.
      *
-     * Kept exactly as it was for the continents, because changing it would
-     * move every coastline - the harbour included. New layers use [simplex].
+     * It's kept exactly as it was for the continents, because changing it would move every
+     * coastline, including the harbour. New layers use [simplex].
      */
     fun value(seed: Int, x: Double, y: Double, z: Double): Double {
         val xi = kotlin.math.floor(x).toInt()
@@ -59,10 +58,9 @@ object Noise {
     /**
      * 3D simplex noise, about -1..1.
      *
-     * Gradient rather than value noise for everything new: value noise shows
-     * its lattice as faint axis-aligned creases and makes soft, blobby
-     * ridges, and ridged mountains, canyons and dunes all depend on crisp
-     * ones. Gradients come from the integer hash, so there is still no
+     * Everything new uses gradient noise instead of value noise. Value noise shows its lattice as
+     * faint creases along the axes and makes soft, blobby ridges, and ridged mountains, canyons and
+     * dunes all need crisp ones. The gradients come from the integer hash, so there's still no
      * permutation table to ship or keep in step.
      */
     fun simplex(seed: Int, x: Double, y: Double, z: Double): Double {
@@ -92,7 +90,7 @@ object Noise {
         val x2 = x0 - i2 + 2.0 * G3; val y2 = y0 - j2 + 2.0 * G3; val z2 = z0 - k2 + 2.0 * G3
         val x3 = x0 - 1.0 + 3.0 * G3; val y3 = y0 - 1.0 + 3.0 * G3; val z3 = z0 - 1.0 + 3.0 * G3
 
-        // Scaled so the output spans about -1..1 with the 0.5 kernel.
+        // Scaled so the output covers about -1..1 with the 0.5 kernel.
         return 76.0 * (
             corner(seed, i, j, k, x0, y0, z0) +
                 corner(seed, i + i1, j + j1, k + k1, x1, y1, z1) +
@@ -102,11 +100,10 @@ object Noise {
     }
 
     private fun corner(seed: Int, i: Int, j: Int, k: Int, x: Double, y: Double, z: Double): Double {
-        // 0.5, not the 0.6 of the widely copied reference implementation. At
-        // 0.6 a corner's influence reaches past the edge of the simplex it
-        // belongs to and is cut off there, and the noise has small steps in
-        // it - invisible in a texture, and cliffs a few metres high across a
-        // landscape built from it.
+        // 0.5, not the 0.6 of the widely copied reference version. At 0.6 a corner's influence
+        // reaches past the edge of the simplex it belongs to and gets cut off there, so the noise
+        // has small steps in it. They're invisible in a texture, but they become cliffs a few
+        // metres high across a landscape built from it.
         var t = 0.5 - x * x - y * y - z * z
         if (t <= 0.0) return 0.0
         t *= t

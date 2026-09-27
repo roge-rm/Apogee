@@ -10,7 +10,7 @@ import com.rm.apogee.core.part.PartCatalog
 import com.rm.apogee.core.part.PartDef
 import com.rm.apogee.core.part.Wheel
 
-/** An attach node belonging to a specific placed part, resolved into design space. */
+/** An attach node belonging to a specific placed part, worked out in design space. */
 class OpenNode(
     /** Index into [CraftDesign.parts], or -1 when the craft is empty. */
     val partIndex: Int,
@@ -27,13 +27,12 @@ class OpenNode(
 }
 
 /**
- * Works out where a part goes when it is joined to another.
+ * Works out where a part goes when it's joined to another one.
  *
- * The rule is simply that two nodes meet: their positions coincide and their
- * outward directions oppose. Everything the builder needs - orientation,
- * position, whether a join is even legal - falls out of that, which is what
- * lets the player drop a part near a node and have it snap into a sensible
- * orientation rather than having to rotate it into place by hand on a
+ * The rule is simply that two nodes meet: their positions line up and their outward directions face
+ * each other. Everything the builder needs follows from that, including the orientation, the
+ * position, and whether a join is even allowed. That's what lets you drop a part near a node and
+ * have it snap into a sensible orientation, instead of having to rotate it into place by hand on a
  * touchscreen.
  */
 object Attachment {
@@ -41,8 +40,8 @@ object Attachment {
     /**
      * Every node on the craft that has nothing joined to it.
      *
-     * Occupancy is decided by what is actually attached rather than by a flag,
-     * so it cannot drift out of step with the part tree after an undo.
+     * Whether a node is taken is decided by what's actually attached, not by a flag, so it can't
+     * get out of step with the part tree after an undo.
      */
     fun openNodes(design: CraftDesign, catalog: PartCatalog): List<OpenNode> {
         val taken = HashSet<Pair<Int, String>>()
@@ -67,8 +66,8 @@ object Attachment {
             for (node in def.quarterNodes) {
                 if ((index to node.id) in taken) continue
                 val open = resolve(index, placed, node)
-                // Lower quarters only. A part turned over by the way it was
-                // mounted would otherwise offer them on its back.
+                // Lower quarters only. Otherwise a part turned over by the way it was mounted would
+                // offer them on its back.
                 if ((open.direction dot up) < -DOWNWARD) result.add(open)
             }
         }
@@ -76,12 +75,12 @@ object Attachment {
     }
 
     /**
-     * Whether [def] may go on [target] in a design built [orientation]-up.
+     * Whether [def] can go on [target] in a design built [orientation]-up.
      *
-     * The one rule so far: on a horizontal craft, things that touch the
-     * ground - wheels, legs - go underneath. On a standing craft every side
-     * is "down" in the same sense, which is why the rover used to have wheels
-     * sticking out in all four directions as readily as below it.
+     * There's only one rule so far: on a horizontal craft, things that touch the ground, like
+     * wheels and legs, go underneath. On a standing craft every side is "down" in the same way,
+     * which is why the rover used to happily take wheels sticking out in all four directions as
+     * well as below it.
      */
     fun accepts(def: PartDef, target: OpenNode, orientation: CraftOrientation): Boolean {
         if (orientation != CraftOrientation.HORIZONTAL) return true
@@ -89,7 +88,7 @@ object Attachment {
         return !touchesGround || (target.direction dot orientation.up) < -DOWNWARD
     }
 
-    /** Lifts a part-local node into craft-design space. */
+    /** Moves a part-local node into craft-design space. */
     fun resolve(partIndex: Int, placed: PlacedPart, node: AttachNode): OpenNode {
         val position = placed.rotation.rotate(node.position).addInPlace(placed.position)
         val direction = placed.rotation.rotate(node.direction).normalizeInPlace()
@@ -97,13 +96,12 @@ object Attachment {
     }
 
     /**
-     * Whether [candidateNode] may join [target].
+     * Whether [candidateNode] can join [target].
      *
-     * The two kinds do not mix. A stack join needs matching size classes, which
-     * is what stops a 0.6m probe core being bolted straight onto a 2.5m
-     * booster. A surface join ignores size - a fin does not care what it is
-     * stuck to - but must be surface on *both* sides, or a surface-mountable
-     * part could be hung off the end of a stack it has no business joining.
+     * The two kinds don't mix. A stack join needs matching size classes, which stops a 0.6m probe
+     * core being bolted straight onto a 2.5m booster. A surface join ignores size, since a fin
+     * doesn't care what it's stuck to, but it has to be a surface node on *both* sides. Otherwise a
+     * surface-mountable part could be hung off the end of a stack it has no business joining.
      */
     fun compatible(target: OpenNode, candidateNode: AttachNode): Boolean =
         if (target.kind == AttachNodeKind.SURFACE) {
@@ -113,11 +111,11 @@ object Attachment {
         }
 
     /**
-     * The node a new part should present when joining [target].
+     * The node a new part should offer when joining [target].
      *
-     * Prefers a compatible node facing the other way, which for a stack means
-     * the part's bottom mates with the node above it. Falls back to any
-     * compatible node so that an oddly-authored part is still placeable.
+     * It prefers a compatible node facing the other way, which for a stack means the part's bottom
+     * meets the node above it. If there isn't one it falls back to any compatible node, so an oddly
+     * made part can still be placed.
      */
     fun mountNodeFor(def: PartDef, target: OpenNode, exclude: Set<String> = emptySet()): AttachNode? {
         val compatible = def.allAttachNodes.filter { it.id !in exclude && compatible(target, it) }
@@ -132,12 +130,12 @@ object Attachment {
      * @return the rotation and position, in craft-design space.
      */
     fun solve(def: PartDef, mountNode: AttachNode, target: OpenNode, turn: Int = 0): Placement {
-        // The part must be turned so its node points back into the target's.
+        // The part has to be turned so its node points back into the target's.
         val opposed = target.direction.copy().negateInPlace()
         val rotation = turned(settleRoll(quatFromTo(mountNode.direction, opposed), opposed), opposed, turn)
 
-        // With the orientation fixed, the position is whatever puts the two
-        // nodes in the same place.
+        // With the orientation fixed, the position is whatever puts the two nodes in the same
+        // place.
         val mountOffset = rotation.rotate(mountNode.position)
         val position = target.position.copy().subInPlace(mountOffset)
 
@@ -145,20 +143,18 @@ object Attachment {
     }
 
     /**
-     * [turn], rolled about [axis] (unit) so the part's own +Y - a wing's
-     * chord, leading edge first; a fin's; a leg's length - runs as nearly as
-     * it can along the craft's nose, +Y.
+     * [turn], rolled around [axis] (unit) so the part's own +Y runs as close as it can to the
+     * craft's nose, +Y. For a wing that's its chord with the leading edge first, and for a fin or a
+     * leg it's the length.
      *
-     * Pointing one node back into another fixes everything but the roll
-     * about that line, and when the two nodes are exactly opposed - a wing
-     * on the craft's left side, its root facing -X into a node facing -X -
-     * the shortest turn is a half turn about any axis at right angles, and
-     * the one picked was arbitrary. About the vertical, it put the wing's
-     * leading edge at the back: swept back on one side, forward on the
-     * other. Every non-opposed join already came out this way; now every
-     * join does.
+     * Pointing one node back into another fixes everything except the roll around that line. When
+     * the two nodes are exactly opposite, like a wing on the craft's left side with its root facing
+     * -X into a node facing -X, the shortest turn is a half turn around any axis at right angles,
+     * and the one that got picked was arbitrary. Around the vertical, it put the wing's leading
+     * edge at the back, so wings were swept back on one side and forward on the other. Every other
+     * join already came out this way, and now every join does.
      */
-    /** [rotation] given [quarters] quarter turns about [axis] (unit), the join. */
+    /** [rotation] with [quarters] quarter turns around [axis] (unit), the join. */
     fun turned(rotation: Quat, axis: Vec3, quarters: Int): Quat {
         val q = Math.floorMod(quarters, 4)
         if (q == 0) return rotation
@@ -177,11 +173,10 @@ object Attachment {
     }
 
     /**
-     * [design] with any part that hangs off an exactly opposed node turned
-     * the way [solve] turns it now: parts placed before the roll was settled
-     * could be upside-down or back to front, and wings swept the wrong way.
-     * Only a roll about the join, so nothing moves - a part whose join does
-     * not line up with its nodes is left as it is.
+     * [design] with any part that hangs off an exactly opposite node turned the way [solve] turns
+     * it now. Parts placed before the roll was sorted out could be upside down or back to front,
+     * with wings swept the wrong way. It's only a roll around the join, so nothing moves, and a
+     * part whose join doesn't line up with its nodes is left alone.
      */
     fun settled(design: CraftDesign, catalog: PartCatalog): CraftDesign {
         var changed = false
@@ -197,15 +192,15 @@ object Attachment {
             val open = resolve(placed.parentIndex, parent, target)
             val opposed = open.direction.copy().negateInPlace()
             val mountDir = placed.rotation.rotate(own.direction)
-            if ((mountDir dot opposed) < 0.999) continue // not seated on its node: leave it
-            // Settled as if unturned, then turned again: along a straight
-            // stack there is no roll to settle, and turning what was already
-            // turned would add a quarter at every load.
+            if ((mountDir dot opposed) < 0.999) continue // not sitting on its node, so leave it
+            // Settle it as if it wasn't turned, then turn it again. Along a straight stack there's
+            // no roll to settle, and turning something that was already turned would add a quarter
+            // turn every time it loaded.
             val base = turned(placed.rotation, opposed, -placed.turn)
             val rotation = turned(settleRoll(base, opposed), opposed, placed.turn)
             if (rotation.approxEqualsRotation(placed.rotation)) continue
-            // The roll is about the join line through the node, so the part
-            // turns about its own mounting point.
+            // The roll is around the join line through the node, so the part turns around its own
+            // mounting point.
             val node = placed.rotation.rotate(own.position).addInPlace(placed.position)
             val position = node.copy().subInPlace(rotation.rotate(own.position))
             parts[i] = placed.copy(rotation = rotation, position = position)
@@ -215,12 +210,11 @@ object Attachment {
     }
 
     /**
-     * Copies of a placement mirrored around the craft's long axis.
+     * Copies of a placement arranged around the craft's long axis.
      *
-     * Radial symmetry is rotation about +Y, the stack axis - the same axis the
-     * meshes are built around - so a booster placed on one side appears evenly
-     * spaced around the craft. Returns [count] placements including the
-     * original.
+     * Radial symmetry is rotation around +Y, the stack axis, which is the same axis the meshes are
+     * built around. So a booster placed on one side appears evenly spaced around the craft. Returns
+     * [count] placements, including the original.
      */
     fun radialSymmetry(placement: Placement, count: Int): List<Placement> {
         if (count <= 1) return listOf(placement)
@@ -236,29 +230,27 @@ object Attachment {
     }
 
     /**
-     * A placement's reflection across the craft's centre plane, the one
-     * holding the nose (+Y) and the sky (+Z) of a horizontal design.
+     * A placement's reflection across the craft's centre plane, the one that holds the nose (+Y)
+     * and the sky (+Z) of a horizontal design.
      *
-     * Rotation about the nose is the wrong symmetry for something lying down:
-     * it puts the copy of a wheel on the craft's back. A reflection is not a
-     * rotation, so the copy is reflected in space and again in its own local
-     * Z, which cancels the handedness and leaves a proper rotation. Local Z is
-     * chosen because a surface part's mounting node lies on its local X axis,
-     * so that second reflection leaves the node exactly where it was and the
-     * copy still meets the hull.
+     * Rotating around the nose is the wrong symmetry for something lying down, because it puts the
+     * copy of a wheel on the craft's back. A reflection isn't a rotation, so the copy is reflected
+     * in space and then again in its own local Z. That cancels out the handedness and leaves a
+     * proper rotation. I picked local Z because a surface part's mounting node lies on its local X
+     * axis, so the second reflection leaves the node exactly where it was and the copy still meets
+     * the hull.
      */
     fun mirror(placement: Placement): Placement {
         val r = placement.rotation
-        // Reflect across x = 0: a rotation about a turns into one about
-        // -(Ma), which is (w, x, -y, -z). Then half a turn about local Y,
-        // which is local X reflected times local Z reflected.
+        // Reflect across x = 0: a rotation around a becomes one around -(Ma), which is (w, x, -y,
+        // -z). Then half a turn around local Y, which is local X reflected times local Z reflected.
         val reflected = Quat(r.x, -r.y, -r.z, r.w)
         val rotation = reflected * Quat.fromAxisAngle(Vec3.unitY(), Math.PI)
         val p = placement.position
         return Placement(Vec3(-p.x, p.y, p.z), rotation)
     }
 
-    /** Cosine of how far below level a node may face and still count as underneath. */
+    /** Cosine of how far below level a node can face and still count as underneath. */
     private const val DOWNWARD = 0.5
 
     class Placement(val position: Vec3, val rotation: Quat) {

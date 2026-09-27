@@ -24,7 +24,7 @@ parts = []
 
 parts.append(part(
     "base-foundation", "Foundation", "base", 900,
-    "Levelling feet for a base: set it down on ground no steeper than ten degrees, found the base, and its jacks reach down to hold it level. A founded base cannot be pushed or tipped - though what hits it can still break it.",
+    "Levelling feet for a base. Set it down on ground no steeper than ten degrees, found the base, and its jacks reach down to hold it level. A founded base can't be pushed or tipped, though whatever hits it can still break it.",
     box(4.2, 0.6, 4.2),
     compound(
         piece(box(4.0, 0.12, 4.0), at=(0, 0.24, 0), tint="metal"),
@@ -41,7 +41,7 @@ parts.append(part(
 
 parts.append(part(
     "base-core", "Base Core", "base", 3200,
-    "The heart of a base: control, a little power in reserve and a few panels on the roof, room for four. Set it down on a foundation, found it, and build out from its connectors.",
+    "The heart of a base: control, a little power in reserve, a few panels on the roof, and room for four. Set it down on a foundation, found it, and build out from its connectors.",
     box(W, H, W),
     shell([
         piece(cyl(0.05, 1.6), at=(1.4, HH + 0.8, 1.4), tint="metal"),
@@ -58,7 +58,7 @@ parts.append(part(
 
 parts.append(part(
     "base-habitat", "Habitat Module", "base", 2600,
-    "Living space for six: bunks, galley, a window on the world outside. Brought in on a flatbed and joined at a connector.",
+    "Living space for six: bunks, a galley, and a window on the world outside. It's brought in on a flatbed and joined at a connector.",
     box(W, H, W),
     shell([
         piece(box(3.0, 0.25, 0.9), at=(0, HH + 0.12, 0.8), tint="light"),
@@ -82,13 +82,13 @@ def depot(id, title, resource, capacity, mass, desc, spheres):
                       [{"type": "tank", "resource": resource, "capacity": float(capacity)}], crash=14.0, strength=900000.0))
 
 depot("base-depot", "Propellant Depot", "propellant", 2400, 1800,
-      "Twelve tonnes of propellant in store: what a base fills its craft from, and what a tanker tops up.", spheres=False)
+      "Twelve tonnes of propellant in store. It's what a base fills its craft from, and what a tanker tops up.", spheres=False)
 depot("base-mono-depot", "Monopropellant Depot", "monopropellant", 800, 1200,
       "Monopropellant for thrusters, kept in four spheres.", spheres=True)
 
 parts.append(part(
     "base-battery", "Power Module", "base", 2200,
-    "Batteries racked floor to ceiling: what keeps a base's lamps lit and pumps running through the night.",
+    "Batteries racked floor to ceiling. They keep a base's lamps lit and its pumps running through the night.",
     box(W, H, W),
     shell([
         *[piece(box(0.5, 1.8, 3.0), at=(x, -0.2, 0), tint="dark") for x in (-1.2, -0.4, 0.4, 1.2)],
@@ -101,7 +101,7 @@ parts.append(part(
 
 parts.append(part(
     "base-solar", "Solar Array", "base", 450,
-    "Two wings of solar cells on a mast, for the top of a module. Power by day, none by night: a base wants batteries too.",
+    "Two wings of solar cells on a mast, for the top of a module. You get power by day and none by night, so a base wants batteries too.",
     box(0.6, 3.2, 0.6),
     compound(
         piece(cyl(0.12, 3.2), tint="metal"),
@@ -146,7 +146,7 @@ parts.append(part(
 
 parts.append(part(
     "base-pad", "Pad Deck", "base", 24000,
-    "A twelve-metre slab to launch from and land on. Founded on its own or joined to a base, it is a launch site: craft set down on it fill up from the base's stores, and a craft standing on it can be refuelled.",
+    "A twelve-metre slab to launch from and land on. Founded on its own or joined to a base, it's a launch site. Craft set down on it fill up from the base's stores, and a craft standing on it can be refuelled.",
     box(12.0, 0.6, 12.0),
     compound(
         piece(box(12.0, 0.5, 12.0), at=(0, -0.05, 0), tint="metal"),
@@ -178,12 +178,12 @@ parts.append(part(
     crash=10.0, drag=1.0,
 ))
 
-# The flatbed is a part for craft built lying down: its +Y is the way it
-# drives, +Z the sky - as the rover chassis is.
+# The flatbed is a part for craft built lying down. Its +Y is the way it drives,
+# and +Z is the sky, the same as the rover chassis.
 FW, FL = 3.2, 7.0
 parts.append(part(
     "base-flatbed", "Flatbed", "base", 1400,
-    "A long low deck on eight wheel mounts, for carrying a module: a cab at the front, a release clamp in the middle to hold the load and set it down.",
+    "A long low deck on eight wheel mounts, for carrying a module, with a cab at the front and a release clamp in the middle to hold the load and set it down.",
     box(FW, FL, 0.4),
     compound(
         piece(box(FW - 0.4, FL, 0.3), at=(0, 0, -0.05), tint="dark"),

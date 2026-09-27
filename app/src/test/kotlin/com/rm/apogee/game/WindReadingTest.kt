@@ -13,16 +13,16 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 /**
- * The wind arrow is read against the screen, as the windsock in view is -
- * not against the craft's nose, which the camera may be looking anywhere
- * but along (Dan: the windsock and the reading did not match).
+ * The wind arrow is read against the screen, the same as the windsock in view, not against the
+ * craft's nose, which the camera might be looking anywhere but along. Before, the windsock and the
+ * reading didn't match, which I noticed.
  */
 class WindReadingTest {
 
     private val catalog = StockParts.catalog
     private val terra = World.default(catalog).system.body("terra")!!
 
-    /** A craft with +Y up, nose to +X; a wind from +Z blowing to -Z. */
+    /** A craft with +Y up and its nose to +X, and a wind from +Z blowing to -Z. */
     private fun from(view: Quat): Double {
         val at = Vec3(0.0, terra.radius + 10.0, 0.0)
         val vessel = ClientVessel(1, StockCraft.probe(catalog), "probe")

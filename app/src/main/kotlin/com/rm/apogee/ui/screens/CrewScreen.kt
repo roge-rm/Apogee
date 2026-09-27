@@ -36,8 +36,8 @@ class CrewSummary(
 )
 
 /**
- * The player's crew in the solo world: who is at home ready to fly, who is
- * out there and in what, and - below - those lost, and how.
+ * The player's crew in the solo world: who's at home ready to fly, who's out there and in what, and
+ * below that, the ones who were lost, and how.
  */
 @Composable
 fun CrewScreen(crew: List<CrewSummary>) {

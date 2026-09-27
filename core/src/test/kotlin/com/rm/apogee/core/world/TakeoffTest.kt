@@ -12,15 +12,14 @@ import org.junit.Test
 /**
  * An aeroplane leaving the ground under its own power.
  *
- * Flown the way a player would: nose level on the roll, full back stick from
- * sixty metres a second until the nose is at the climb attitude - which the
- * aircraft answers when it is fast enough to, about a hundred at this wing
- * loading - and then hands off, with SAS holding it there.
+ * It's flown the way a player would: nose level on the roll, full back stick from sixty metres a
+ * second until the nose is at the climb attitude (which the aircraft answers when it's fast enough
+ * to, about a hundred at this wing loading), and then hands off, with SAS holding it there.
  *
- * Height is measured above the terrain underneath, not above the pad. The
- * first version of this measured from the pad and passed: the aircraft had
- * rolled off the end of the level ground into rising country and been shoved
- * up the hillside by the contact solver with its wheels on the grass.
+ * Height is measured above the terrain underneath, not above the pad. The first version of this
+ * measured from the pad and passed. The aircraft had rolled off the end of the level ground into
+ * rising country and been shoved up the hillside by the contact solver with its wheels on the
+ * grass.
  */
 class TakeoffTest {
 
@@ -32,7 +31,7 @@ class TakeoffTest {
         return world to world.spawnOnSurface(StockCraft.aeroplane(catalog), World.launchSites.first())
     }
 
-    /** How far [point] (a world position) is above the terrain beneath it. */
+    /** How far [point] (a world position) is above the terrain under it. */
     private fun aboveGround(world: World, vessel: Vessel, point: Vec3): Double {
         val attractor = world.attractorFor(vessel)
         val rotation = Quat()
@@ -96,7 +95,7 @@ class TakeoffTest {
                 desired.setTo(east)
                 pilot.steer(plane, desired)
             } else if (!rotated) {
-                // Full back stick until the nose is up, as a player would...
+                // Full back stick until the nose is up, the way a player would...
                 plane.control.pitch = 1.0
                 plane.control.yaw = 0.0
                 plane.control.roll = 0.0

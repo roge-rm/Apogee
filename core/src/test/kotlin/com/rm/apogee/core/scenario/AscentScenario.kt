@@ -16,25 +16,23 @@ import kotlin.math.sqrt
 /**
  * Flies the stock rocket from the pad to orbit, headless.
  *
- * This is the project's fast iteration loop for physics. It runs in a plain
- * JVM test in well under a second, so a change to thrust, drag, staging or the
- * integrator is checked against a complete flight before anything is built,
- * installed or launched on a device.
+ * This is the project's fast loop for physics work. It runs in a plain JVM test in well under a
+ * second, so a change to thrust, drag, staging or the integrator gets checked against a complete
+ * flight before anything is built, installed or launched on a device.
  *
- * The autopilot drives [Vessel.control] only - the same throttle, gimbal and
- * reaction-wheel path a player's thumb drives - so a flight that works here is
- * a flight that is actually flyable.
+ * The autopilot only drives [Vessel.control], the same throttle, gimbal and reaction-wheel path a
+ * player's thumb drives, so a flight that works here is a flight that can really be flown.
  */
 class AscentScenario(
     private val targetApoapsisAltitude: Double = 100_000.0,
     private val turnEndAltitude: Double = 45_000.0,
-    /** The weather to fly through; null for still air. */
+    /** The weather to fly through. Null for still air. */
     private val weather: com.rm.apogee.core.weather.WeatherConfig? = null,
-    /** What flies: the stock rocket unless another is given. */
+    /** What flies: the stock rocket unless another one is given. */
     private val design: (com.rm.apogee.core.part.PartCatalog) -> com.rm.apogee.core.craft.CraftDesign = { StockCraft.starterRocket(it) },
-    /** Universe time to lift off at - a launch window - or null for the start. */
+    /** The universe time to lift off at (a launch window), or null for the start. */
     private val launchAt: Double? = null,
-    /** Called every tick before the autopilot steers: jettisoning a fairing, say. */
+    /** Called every tick before the autopilot steers, for jettisoning a fairing, say. */
     private val onTick: (World, Vessel) -> Unit = { _, _ -> },
 ) {
     enum class Phase { LIFTOFF, GRAVITY_TURN, COAST, CIRCULARISE, DONE, FAILED }
@@ -130,8 +128,8 @@ class AscentScenario(
                 }
 
                 Phase.GRAVITY_TURN -> {
-                    // Pitch over on a square-root profile: fast early where the
-                    // air is thick and the craft is heavy, tapering as it thins.
+                    // Pitch over on a square-root profile: fast early where the air is thick and
+                    // the craft is heavy, tapering as it thins.
                     val progress = ((altitude - 500.0) / (turnEndAltitude - 500.0))
                         .coerceIn(0.0, 1.0)
                     val pitchFromVertical = (PI / 2.0) * sqrt(progress)
@@ -147,10 +145,9 @@ class AscentScenario(
                     // Hold horizontal, waiting for apoapsis.
                     headingAt(PI / 2.0, up, east, desired)
 
-                    // Start the burn half a burn-length early, so it straddles
-                    // apoapsis. Firing at apoapsis instead of around it spends
-                    // the second half of the burn raising apoapsis rather than
-                    // periapsis, and leaves a noticeably elliptical orbit.
+                    // Start the burn half a burn length early, so it straddles apoapsis. Firing at
+                    // apoapsis instead of around it spends the second half of the burn raising
+                    // apoapsis instead of periapsis, and leaves a noticeably elliptical orbit.
                     val halfBurn = halfBurnSeconds(vessel, orbit, attractor)
                     if (orbit.timeToApoapsis <= halfBurn || orbit.apoapsis < targetApoapsis * 0.98) {
                         phase = Phase.CIRCULARISE
@@ -158,17 +155,17 @@ class AscentScenario(
                 }
 
                 Phase.CIRCULARISE -> {
-                    // Burn along the horizon, not along the velocity vector.
-                    // Prograde still has a vertical component here, and burning
-                    // into it pushes apoapsis up instead of pulling periapsis up.
+                    // Burn along the horizon, not along the velocity vector. Prograde still has a
+                    // vertical part here, and burning into it pushes apoapsis up instead of pulling
+                    // periapsis up.
                     horizontalProgrgarde(vessel, up, desired)
 
                     val circularSpeed = sqrt(attractor.gravitationalParameter /
                         vessel.body.position.length)
                     val shortfall = circularSpeed - vessel.body.linearVelocity.length
 
-                    // Taper, so the last few m/s do not overshoot into an
-                    // orbit that is eccentric the other way.
+                    // Taper, so the last few m/s don't overshoot into an orbit that's eccentric the
+                    // other way.
                     vessel.control.throttle = (shortfall / THROTTLE_TAPER_MARGIN)
                         .coerceIn(0.0, 1.0)
 
@@ -207,7 +204,7 @@ class AscentScenario(
                 peakStress = vessel.stress
                 peakStressPart = vessel.defs.getOrNull(vessel.worstJoint)?.id ?: ""
             }
-            // Its own parts only: the spent stage is meant to go into the sea in pieces.
+            // Its own parts only, because the spent stage is meant to go into the sea in pieces.
             partsLost += world.drainEvents().count {
                 (it is com.rm.apogee.core.world.WorldEvent.PartDetached && it.id == vessel.id) ||
                     (it is com.rm.apogee.core.world.WorldEvent.PartDestroyed && it.id == vessel.id)
@@ -244,8 +241,8 @@ class AscentScenario(
     }
 
     /**
-     * Half the time the circularisation burn will take, from the rocket
-     * equation and the craft's current thrust.
+     * Half the time the circularisation burn will take, from the rocket equation and the craft's
+     * current thrust.
      */
     private fun halfBurnSeconds(
         vessel: Vessel,
@@ -274,7 +271,7 @@ class AscentScenario(
         return (deltaV / acceleration / 2.0).coerceAtLeast(MIN_BURN_LEAD_SECONDS)
     }
 
-    /** Velocity with its vertical component removed, normalised. */
+    /** Velocity with its vertical part removed, normalised. */
     private fun horizontalProgrgarde(vessel: Vessel, up: Vec3, out: Vec3) {
         out.setTo(vessel.body.linearVelocity)
         val vertical = out dot up
@@ -286,12 +283,12 @@ class AscentScenario(
     /** Local up and the eastward direction at the vessel's position. */
     private fun basisAt(vessel: Vessel, up: Vec3, east: Vec3) {
         up.setTo(vessel.body.position).normalizeInPlace()
-        // North is the world +Y axis; east is north x up.
+        // North is the world +Y axis, and east is north x up.
         east.setTo(Vec3.unitY()).crossInPlace(up)
         if (east.lengthSq < 1e-12) east.setTo(Vec3.unitZ()) else east.normalizeInPlace()
     }
 
-    /** A heading [pitchFromVertical] radians away from straight up, toward east. */
+    /** A heading [pitchFromVertical] radians away from straight up, toward the east. */
     private fun headingAt(pitchFromVertical: Double, up: Vec3, east: Vec3, out: Vec3) {
         val c = kotlin.math.cos(pitchFromVertical)
         val s = kotlin.math.sin(pitchFromVertical)
@@ -327,18 +324,18 @@ class AscentScenario(
     companion object {
         const val DT = 1.0 / 60.0
 
-        /** Floor on the circularisation lead time, seconds. */
+        /** The floor on the circularisation lead time, in seconds. */
         const val MIN_BURN_LEAD_SECONDS = 2.0
 
-        /** Velocity shortfall, m/s, over which the throttle is wide open. */
+        /** The velocity shortfall, in m/s, over which the throttle is wide open. */
         const val THROTTLE_TAPER_MARGIN = 40.0
 
-        /** Eccentricity at or below which the orbit counts as circular. */
+        /** The eccentricity at or below which the orbit counts as circular. */
         const val CIRCULAR_ENOUGH = 0.005
     }
 }
 
-/** Runnable directly for physics iteration: prints the whole flight. */
+/** You can run this directly for physics work. It prints the whole flight. */
 fun main() {
     val result = AscentScenario().fly()
     result.log.forEach(::println)

@@ -6,19 +6,19 @@ import com.rm.apogee.core.part.AttachNodeKind
 import com.rm.apogee.core.part.PartCatalog
 
 /**
- * A piece of a craft in hand: a part and everything hanging from it, joined
- * to nothing - a part picked from the drawer, a booster lifted off to move
- * it, a copy of a wing to put on the other side.
+ * A piece of a craft you're holding: a part and everything hanging from it, not joined to anything.
+ * It could be a part picked from the drawer, a booster lifted off so you can move it, or a copy of
+ * a wing to put on the other side.
  *
- * [parts] are in the first part's own frame - it sits at the origin, and
- * the rest where they were relative to it - with parent indices into this
- * list. Putting it on a node is then one rigid move of the lot.
+ * [parts] are in the first part's own frame, so it sits at the origin and the rest sit where they
+ * were relative to it, with parent indices into this list. Putting it on a node is then one rigid
+ * move of the whole lot.
  */
 data class Assembly(
     val parts: List<PlacedPart>,
-    /** The node the first part hung by, to hang by again where it fits; null to choose. */
+    /** The node the first part hung from, to hang from again if it fits. Null to pick one. */
     val mountNodeId: String? = null,
-    /** The stage each part fired in, where it came from a hand-arranged sequence; -1 for none. */
+    /** The stage each part fired in, when it came from a sequence arranged by hand. -1 for none. */
     val stages: List<Int> = emptyList(),
 ) {
     val rootPartId: String get() = parts[0].partId
@@ -31,20 +31,23 @@ data class Assembly(
 }
 
 /**
- * Taking pieces off a design and putting them on. Pure: each returns a new
+ * Taking pieces off a design and putting them on. These are pure functions: each one returns a new
  * design, and the builder decides what becomes an undo step.
  */
 object Assemblies {
 
-    /** [design] with [index]'s piece lifted off: what is left, what is held, and how many were taken together. */
+    /**
+     * [design] with [index]'s piece lifted off: what's left, what's being held, and how many parts
+     * came off together.
+     */
     class Lift(val rest: CraftDesign, val assembly: Assembly, val copies: Int)
 
-    /** Where an assembly went: the design with it on, and the indices of every part added. */
+    /** Where an assembly went: the design with it attached, and the indices of every part added. */
     class Attached(val design: CraftDesign, val added: List<Int>)
 
     /**
-     * Part [index] and everything below it, as an assembly - the design is
-     * untouched. Null for a part not in the design.
+     * Part [index] and everything below it, as an assembly. The design itself isn't changed. Null
+     * for a part that isn't in the design.
      */
     fun extract(design: CraftDesign, index: Int): Assembly? {
         if (index !in design.parts.indices) return null
@@ -72,9 +75,9 @@ object Assemblies {
     }
 
     /**
-     * Part [index] lifted off with everything below it - and its symmetry
-     * partners with theirs, since parts placed together move together. Null
-     * for the root, which everything else hangs from.
+     * Part [index] lifted off with everything below it, along with its symmetry partners and
+     * theirs, because parts placed together move together. Null for the root, since everything else
+     * hangs from it.
      */
     fun lift(design: CraftDesign, index: Int): Lift? {
         if (index !in design.parts.indices || design.parts[index].parentIndex < 0) return null
@@ -88,9 +91,8 @@ object Assemblies {
     }
 
     /**
-     * [assembly] put on [target], and copied round by [symmetry] where the
-     * join is a surface one - exactly as a single part is. Null when it will
-     * not go there.
+     * [assembly] put on [target], and copied around by [symmetry] when the join is a surface one,
+     * exactly like a single part. Null when it won't go there.
      */
     fun attach(
         design: CraftDesign,
@@ -101,8 +103,8 @@ object Assemblies {
     ): Attached? {
         val def = catalog[assembly.rootPartId] ?: return null
         if (!Attachment.accepts(def, target, design.orientation)) return null
-        // Its own node if that still fits here; otherwise whichever does,
-        // leaving alone the nodes its own pieces hang from.
+        // Use its own node if that still fits here, otherwise whichever one does, leaving alone the
+        // nodes its own pieces hang from.
         val busy = assembly.parts.filter { it.parentIndex == 0 }.mapNotNull { it.parentNodeId }.toSet()
         val mountNode = assembly.mountNodeId
             ?.let { id -> def.allAttachNodes.firstOrNull { it.id == id && Attachment.compatible(target, it) } }
@@ -110,21 +112,19 @@ object Assemblies {
             ?: return null
         val placement = Attachment.solve(def, mountNode, target, assembly.parts[0].turn)
 
-        // Symmetry only makes sense radially, around the stack. Applying it to
-        // a stack join would pile several parts in the same place, so it is
-        // gated on either side of the join being a surface mount - a fin on a
-        // tank qualifies whichever side declares it.
+        // Symmetry only makes sense radially, around the stack. Applying it to a stack join would
+        // pile several parts in the same place, so it only happens when one side of the join is a
+        // surface mount. A fin on a tank qualifies whichever side declares it.
         val surfaceJoin = target.kind == AttachNodeKind.SURFACE || mountNode.kind == AttachNodeKind.SURFACE
         val count = if (surfaceJoin) symmetry.count else 1
-        // Which node each copy hangs from. Radial copies have only ever
-        // recorded the original's; a mirrored copy records its own, so the
-        // node it covers stops being offered as open.
+        // Which node each copy hangs from. Radial copies have only ever recorded the original's
+        // node. A mirrored copy records its own, so the node it covers stops showing as open.
         val targets = ArrayList<OpenNode>()
         val copies: List<(Attachment.Placement) -> Attachment.Placement> = when {
             count <= 1 -> listOf { it }
             design.orientation == CraftOrientation.HORIZONTAL -> {
                 val mirrored = Attachment.mirror(placement)
-                // On the centreline the reflection is the part itself.
+                // On the centreline, the reflection is the part itself.
                 if (mirrored.position.distanceTo(placement.position) < CENTRELINE) {
                     listOf { it }
                 } else {
@@ -155,8 +155,8 @@ object Assemblies {
         val parts = design.parts.toMutableList()
         val added = ArrayList<Int>(assembly.size * copies.size)
         var nextGroup = (design.parts.maxOfOrNull { it.symmetryGroup } ?: -1) + 1
-        // Copied round, a piece and its copies are one group; placed once,
-        // pieces placed together inside it stay together.
+        // Once copied around, a piece and its copies are one group. When it's placed once, pieces
+        // that were placed together inside it stay together.
         val groupOf = IntArray(assembly.size) { -1 }
         if (copies.size > 1) {
             for (k in groupOf.indices) groupOf[k] = nextGroup++
@@ -192,7 +192,7 @@ object Assemblies {
             }
         }
 
-        // A hand-arranged sequence keeps the pieces firing where they did.
+        // A sequence arranged by hand keeps the pieces firing where they did before.
         val stages = if (!design.manualStaging || assembly.stages.isEmpty()) design.stages else {
             val lists = design.stages.map { it.activatedParts.toMutableList() }
             copies.indices.forEach { c ->
@@ -207,9 +207,9 @@ object Assemblies {
     }
 
     /**
-     * [design] with part [index] - and its partners, turned the matching way -
-     * given [quarters] more quarter turns about its join, with everything
-     * hanging from it. Null for the root, which has no join to turn about.
+     * [design] with part [index] (and its partners, turned the matching way) given [quarters] more
+     * quarter turns around its join, along with everything hanging from it. Null for the root,
+     * which has no join to turn around.
      */
     fun turn(design: CraftDesign, index: Int, quarters: Int, catalog: PartCatalog): CraftDesign? {
         if (index !in design.parts.indices || design.parts[index].parentIndex < 0) return null
@@ -223,8 +223,8 @@ object Assemblies {
             val node = (parentDef.allAttachNodes + parentDef.quarterNodes).firstOrNull { it.id == placed.parentNodeId } ?: continue
             val open = Attachment.resolve(placed.parentIndex, parent, node)
             val axis = open.direction.copy().negateInPlace()
-            // A mirrored partner turns the other way: a reflection reverses
-            // the sense of a turn.
+            // A mirrored partner turns the other way, because a reflection reverses the direction
+            // of a turn.
             val sense = if (root != index && design.orientation == CraftOrientation.HORIZONTAL && roots.size == 2) -1 else 1
             val q = Math.floorMod(sense * quarters, 4)
             if (q == 0) continue
@@ -243,11 +243,11 @@ object Assemblies {
     private fun spun(spin: Quat): (Attachment.Placement) -> Attachment.Placement =
         { p -> Attachment.Placement(spin.rotate(p.position), spin * p.rotation) }
 
-    /** Metres within which a reflected part counts as landing on itself. */
+    /** How many metres away a reflected part can land and still count as landing on itself. */
     private const val CENTRELINE = 0.05
 }
 
-/** This design with only the parts [keep], in that order, parents and stages renumbered. */
+/** This design with only the parts in [keep], in that order, with parents and stages renumbered. */
 fun CraftDesign.keeping(keep: List<Int>): CraftDesign {
     val remap = HashMap<Int, Int>(keep.size)
     keep.forEachIndexed { newIndex, oldIndex -> remap[oldIndex] = newIndex }

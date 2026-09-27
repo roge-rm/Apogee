@@ -19,9 +19,8 @@ import org.junit.Test
 import kotlin.math.sqrt
 
 /**
- * The Moonshot: launched at a window for Luna, into orbit, on to Luna by a
- * planned burn, into orbit there, and down onto it - every burn flown by
- * the autopilot, the way a player could.
+ * The Moonshot: launched at a window for Luna, into orbit, on to Luna by a planned burn, into orbit
+ * there, and down onto it. The autopilot flies every burn, the way a player could.
  */
 class MoonshotTest {
     private val catalog = StockParts.catalog
@@ -39,7 +38,7 @@ class MoonshotTest {
     /** Flies [craft]'s next planned burn with the autopilot, to the end. */
     private fun autoBurn(world: World, craft: Vessel, name: String) {
         world.apply(Command.SetAutopilot(craft.id.raw, autoBurn = true, autoLand = false))
-        // However long until it starts, and ten minutes for the burn.
+        // However long until it starts, plus ten minutes for the burn.
         val limit = (craft.plannedBurns.first().time - world.time).coerceAtLeast(0.0) + 600.0
         var t = 0.0
         while (craft.plannedBurns.isNotEmpty() && t < limit) {
@@ -56,10 +55,10 @@ class MoonshotTest {
         val pad = SolarSystem.surfaceDirection(SolarSystem.PAD_LATITUDE, SolarSystem.PAD_LONGITUDE)
         val window = assertNotNull(LaunchWindows.next(terra, pad, luna, 0.0)).let { LaunchWindows.next(terra, pad, luna, 0.0)!! }
 
-        // Up, the Shroud thrown open once out of the air.
+        // Up, with the Shroud thrown open once it's out of the air.
         val ascent = AscentScenario(
-            // A stiffer climb than the Starter's: it leaves the pad at
-            // two and a half times its weight, and pitches over sooner.
+            // A stiffer climb than the Starter's. It leaves the pad at two and a half times its
+            // weight, and pitches over sooner.
             turnEndAltitude = 22_000.0,
             design = { StockCraft.moonshot(it) },
             launchAt = window,
@@ -74,12 +73,12 @@ class MoonshotTest {
         assertTrue("the Shroud never opened", craft.defs.indices.any { craft.defs[it].id == "fairing-base" && craft.activated[it] })
         assertFalse("the lander still rides inside a closed Shroud", craft.enclosed().any { it })
         assertTrue("the lander went with the ascent", craft.currentStage == 3)
-        // Hands off the stick, as a player's are when the autopilot flies.
+        // Hands off the stick, like a player's are when the autopilot flies.
         craft.control.pitch = 0.0; craft.control.yaw = 0.0; craft.control.roll = 0.0
 
-        // A transfer: the Hohmann speed, at whichever point of the orbit
-        // sends it past Luna at a height worth braking at - as a player
-        // drags the burn along the path until the map shows it.
+        // A transfer: the Hohmann speed, at whichever point of the orbit sends it past Luna at a
+        // height worth braking at, the way a player drags the burn along the path until the map
+        // shows it.
         val orbit = world.orbitOf(craft)
         val r1 = orbit.position.length
         val a = 0.5 * (r1 + luna.orbit!!.semiMajorAxis)
@@ -101,8 +100,8 @@ class MoonshotTest {
         world.apply(Command.PlanBurns(craft.id.raw, listOf(plan!!)))
         autoBurn(world, craft, "transfer")
 
-        // A burn flown is never quite the burn planned: a correction on the
-        // way, if the map shows it missing - the smallest that meets Luna.
+        // A burn that's flown is never quite the burn that was planned, so there's a correction on
+        // the way if the map shows it missing, the smallest one that meets Luna.
         fun meetsWell(o: com.rm.apogee.core.orbit.Orbit, at: Double): Boolean {
             val there = Trajectory.predict(system, "terra", o.position, o.velocity, at).about("luna") ?: return false
             return there.orbit.periapsis - luna.radius in 30_000.0..400_000.0
@@ -141,7 +140,7 @@ class MoonshotTest {
             autoBurn(world, craft, "capture")
             assertTrue("not caught by Luna", world.orbitOf(craft).isBound)
         }
-        // The upper stage let go, if the capture did not burn it dry already, and the lander lit.
+        // The upper stage let go, if the capture didn't burn it dry already, and the lander lit.
         if (craft.defs.any { it.id == "tank-broad4" }) world.stage(craft)
         assertTrue("the lander was not let go", craft.defs.none { it.id == "tank-broad4" })
 
@@ -150,14 +149,14 @@ class MoonshotTest {
             val o = world.orbitOf(craft)
             val r = o.position.length
             val speed = sqrt(luna.gravitationalParameter / r)
-            // Low point 20 km under the datum: an ellipse from here to there.
+            // The low point 20 km under the datum: an ellipse from here to there.
             val low = luna.radius - 20_000.0
             val want = sqrt(luna.gravitationalParameter * (2.0 / r - 2.0 / (r + low)))
             world.apply(Command.PlanBurns(craft.id.raw, listOf(PlannedBurn(world.time + 120.0, prograde = want - speed))))
             autoBurn(world, craft, "deorbit")
         }
-        // The fall on rails, as a player would warp it, down to where there
-        // is still room to brake from orbital speed; the rest flown.
+        // The fall on rails, the way a player would warp it, down to where there's still room to
+        // brake from orbital speed. The rest is flown.
         val lunaBody = world.attractorFor(craft)
         fun high(): Double = lunaBody.heightAboveTerrain(craft.body.position,
             lunaBody.toBodyFixed(craft.body.position, lunaBody.rotationAt(world.time)).normalizeInPlace())

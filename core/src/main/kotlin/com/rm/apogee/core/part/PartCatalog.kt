@@ -6,15 +6,14 @@ import java.security.MessageDigest
 /**
  * Every part the game knows about, plus a hash of the whole set.
  *
- * The hash is the important part. A client and a server that disagree about
- * what "tank-t200" weighs do not fail loudly - they drift, and the player sees
- * their craft slide around as the server corrects a trajectory computed from
- * different numbers. Comparing [contentHash] during the handshake turns that
- * into a clean, immediate refusal to connect.
+ * The hash is the important bit. A client and a server that disagree about what "tank-t200" weighs
+ * don't fail loudly. They drift apart, and the player sees their craft slide around as the server
+ * corrects a path worked out from different numbers. Comparing [contentHash] during the handshake
+ * turns that into a clean, immediate refusal to connect.
  *
- * :core cannot read Android assets or open files, deliberately - it has no
- * platform dependency at all. Callers supply the JSON text: the app reads it
- * from assets, the server from disk, tests from string literals.
+ * :core can't read Android assets or open files, on purpose, because it doesn't depend on any
+ * platform. Callers supply the JSON text: the app reads it from assets, the server from disk, and
+ * tests from string literals.
  */
 class PartCatalog private constructor(
     val parts: Map<String, PartDef>,
@@ -24,7 +23,7 @@ class PartCatalog private constructor(
 
     operator fun get(id: String): PartDef? = parts[id]
 
-    /** Throws if the id is unknown, with a message naming what was available. */
+    /** Throws if the id isn't known, with a message listing what was available. */
     fun require(id: String): PartDef = parts[id] ?: throw IllegalArgumentException(
         "Unknown part '$id'. Catalogue holds ${parts.size} parts: " +
             parts.keys.sorted().joinToString(", ").take(200)
@@ -40,7 +39,7 @@ class PartCatalog private constructor(
             classDiscriminator = "type"
         }
 
-        /** The JSON configuration part files are authored against. */
+        /** The JSON settings the part files are written for. */
         val format: Json = Json {
             ignoreUnknownKeys = false
             prettyPrint = true
@@ -49,12 +48,11 @@ class PartCatalog private constructor(
         }
 
         /**
-         * Builds a catalogue from one or more JSON documents, each an array of
-         * [PartDef].
+         * Builds a catalogue from one or more JSON documents, each an array of [PartDef].
          *
-         * Validation happens here rather than at first use, so a malformed
-         * catalogue fails at load with a message naming the part, instead of
-         * surfacing as a null dereference mid-flight.
+         * Checking happens here instead of on first use, so a broken catalogue fails when it loads
+         * with a message naming the part, instead of turning up as a null dereference in the middle
+         * of a flight.
          */
         fun fromJson(sources: List<String>): PartCatalog {
             val all = sources.flatMapIndexed { index, source ->
@@ -96,8 +94,8 @@ class PartCatalog private constructor(
                     require(engine.ispVacuum > 0.0 && engine.ispSeaLevel > 0.0) {
                         "Part '${def.id}' has an engine with non-positive Isp"
                     }
-                    // Some thrust somewhere. Not necessarily in vacuum: an
-                    // air-breather has none there by definition.
+                    // Some thrust somewhere. Not necessarily in vacuum, since an air-breather has
+                    // none there by definition.
                     require(
                         engine.thrustVacuum >= 0.0 && engine.thrustSeaLevel >= 0.0 &&
                             engine.thrustVacuum + engine.thrustSeaLevel > 0.0
@@ -116,10 +114,9 @@ class PartCatalog private constructor(
         /**
          * A stable hash of the catalogue's content.
          *
-         * Sorted by id and re-encoded through the compact format, so it depends
-         * on what the parts *are* and not on file ordering, whitespace or which
-         * file each one arrived in. Two machines that loaded the same parts
-         * differently arranged must still agree.
+         * It's sorted by id and re-encoded through the compact format, so it depends on what the
+         * parts *are* and not on file order, whitespace or which file each one came from. Two
+         * machines that loaded the same parts arranged differently still have to agree.
          */
         private fun hash(defs: List<PartDef>): String {
             val canonical = json.encodeToString(defs.sortedBy { it.id })

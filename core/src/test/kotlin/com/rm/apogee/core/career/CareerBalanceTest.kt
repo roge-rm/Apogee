@@ -10,15 +10,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * The career's numbers: that the stock craft can be launched once what they
- * are built from is unlocked, and that a player earning no better than bronze
- * can play it through - nothing out of reach, nothing needing what it unlocks.
+ * The career's numbers. The stock craft can be launched once what they're built from is unlocked,
+ * and a player earning no better than bronze can play it all the way through, with nothing out of
+ * reach and nothing needing what it unlocks.
  */
 class CareerBalanceTest {
     private val catalog = StockParts.catalog
     private val tree = TechTree.stock
 
-    /** The nodes [ids] need first, all the way back, with them. */
+    /** The nodes [ids] need first, all the way back, together with them. */
     private fun closure(ids: Collection<String>): Set<String> {
         val out = HashSet<String>()
         fun add(id: String) { if (out.add(id)) tree.node(id)!!.requires.forEach(::add) }
@@ -30,7 +30,7 @@ class CareerBalanceTest {
     private fun nodesFor(design: CraftDesign): Set<String> =
         closure(design.parts.map { it.partId }.distinct().mapNotNull { p -> tree.nodes.firstOrNull { p in it.parts }?.id })
 
-    /** Feats done in orbit or beyond it, and the rocketry any of them takes first. */
+    /** Feats done in orbit or beyond, and the rocketry any of them takes first. */
     private val BEYOND_ORBIT = setOf("orbit", "touchdown", "survey", "outpost", "rendezvous", "dock-orbit", "aerobrake", "gravity-assist")
 
     /** Feats under the sea, and what any of them takes first: a boat home through the harbour. */
@@ -52,9 +52,8 @@ class CareerBalanceTest {
     fun `every stock craft launches once its parts are unlocked, from a facility its feats have earned`() {
         for (design in stock) {
             val nodes = nodesFor(design)
-            // Feats a player has had to do to get those parts - and, for any
-            // done in orbit or beyond, the rocketry that got them there: the
-            // facilities those open are theirs too.
+            // Feats a player has had to do to get those parts, and for any done in orbit or beyond,
+            // the rocketry that got them there. The facilities those open are theirs too.
             val needed = nodes.mapNotNull { tree.node(it)!!.needs }.toSet()
             val feats = (if (needed.any { it in BEYOND_ORBIT }) needed + ROCKETRY else needed) +
                 (if (needed.any { it in UNDER_SEA }) setOf("seaworthy") else emptySet())
@@ -82,7 +81,7 @@ class CareerBalanceTest {
     private data class Buy(val node: String) : Step
     /** Reach the sea's named place [wonder]. */
     private data class Found(val wonder: String) : Step
-    /** Launch [design] from [site]: it has to be allowed by then. */
+    /** Launch [design] from [site]. It has to be allowed by then. */
     private data class Fly(val design: CraftDesign, val site: String) : Step
 
     private fun earn(vararg feats: Feat) = feats.map { Earn(it) }
@@ -91,12 +90,11 @@ class CareerBalanceTest {
     private fun go(vararg wonders: String) = wonders.map { Found(it.removePrefix("wonder:")) }
 
     /**
-     * A career as a player might go at it, every graded feat earned at
-     * bronze: the Sounder; into space and orbit; the aircraft, the rover and
-     * the boat alongside; to Luna and back; rendezvous and docking; probes,
-     * surveys and a base; then out to the planets - Rubra, its moon Timor,
-     * Caligo, and Aurantia's sea. Every unlock is affordable when
-     * it comes, and every craft flown is allowed.
+     * A career the way a player might go at it, with every graded feat earned at bronze: the
+     * Sounder, into space and orbit, the aircraft, the rover and the boat alongside, to Luna and
+     * back, rendezvous and docking, probes, surveys and a base, and then out to the planets (Rubra,
+     * its moon Timor, Caligo, and Aurantia's sea). Every unlock is affordable when it comes, and
+     * every craft flown is allowed.
      */
     private val path: List<Step> = buildList {
         add(Fly(StockCraft.sounder(catalog), "cape")); addAll(earn(Feat.HOP, Feat.STAGING))
@@ -135,15 +133,16 @@ class CareerBalanceTest {
         // What it takes to go further: a bigger pad, and bigger rockets.
         addAll(buy("pad-3", "broad", "fairings"))
         add(Fly(StockCraft.moonshot(catalog), "cape"))
-        // Out to the planets, and all that was put off on the way.
+        // Out to the planets, and everything that was put off on the way.
         addAll(go("rubra", Visit.ORBIT, Visit.LAND, Visit.RETURN))
         addAll(buy("flight-computer", "airframes", "haulers", "ships"))
         addAll(go("timor", Visit.ORBIT, Visit.LAND, Visit.RETURN))
-        // The Hotshell before Caligo: what it takes to land in that air.
+        // The Hotshell before Caligo, because that's what it takes to land in that air.
         addAll(buy("hot-worlds", "quarters", "industry", "spaceplanes"))
         addAll(go("caligo", Visit.ORBIT, Visit.LAND, Visit.RETURN))
         addAll(go("aurantia", Visit.ORBIT)); addAll(earn(Feat.ALIEN_SEA))
-        // Deeper: the Nautilus to the vents, the Abyss to the bottom of the Terra Deep, and under Aurantia's sea.
+        // Deeper: the Nautilus to the vents, the Abyss to the bottom of the Terra Deep, and under
+        // Aurantia's sea.
         addAll(buy("sonar", "deep-hulls"))
         add(Fly(StockCraft.nautilus(catalog), "harbour")); addAll(earn(Feat.VENTS)); addAll(go("wonder:canyon-wreck", "wonder:chimneys"))
         addAll(buy("abyssal-hulls"))

@@ -1,14 +1,14 @@
 package com.rm.apogee.core.terrain
 
 /**
- * The ground of every world beyond Terra and Luna, made once and shared by
- * every world object in the process - as Terra's and Luna's are: the
- * terrain is immutable and its tile cache thread-safe.
+ * The ground of every world beyond Terra and Luna, made once and shared by every world object in
+ * the process, the same as Terra's and Luna's. The terrain never changes, and its tile cache is
+ * thread-safe.
  */
 object Worlds {
     private val made = java.util.concurrent.ConcurrentHashMap<String, Terrain>()
 
-    /** World [id]'s ground, radius [radius], or null for one without any: a gas giant. */
+    /** World [id]'s ground with radius [radius], or null for one without any, like a gas giant. */
     fun terrain(id: String, radius: Double): Terrain? {
         made[id]?.let { return it }
         val seed = Noise.hashInt(SEED, id.hashCode(), 0, 0)

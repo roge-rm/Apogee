@@ -5,12 +5,11 @@ import com.rm.apogee.core.terrain.Landforms.distance
 import kotlin.math.abs
 
 /**
- * Fornax: squeezed and kneaded by Magna every orbit until it melts inside.
- * No crater survives here - lava resurfaces everything too fast. Sulfur
- * plains in yellows and oranges; **paterae**, volcanic pits with dark
- * floors, a few holding open **lava lakes**; and here and there a **lone
- * mountain** standing out of the plain on its own, sheer-sided, taller
- * than anything on Terra.
+ * Fornax: squeezed and kneaded by Magna on every orbit until it melts inside. No crater survives
+ * here, because lava resurfaces everything too fast. It has sulfur plains in yellows and oranges,
+ * **paterae** (volcanic pits with dark floors, a few of them holding open **lava lakes**), and here
+ * and there a **lone mountain** standing out of the plain by itself, sheer-sided and taller than
+ * anything on Terra.
  */
 internal class FornaxLand(seed: Int, private val radius: Double) : WorldLand {
     private val detail = Noise.hashInt(seed, 1, 0, 0)
@@ -42,24 +41,25 @@ internal class FornaxLand(seed: Int, private val radius: Double) : WorldLand {
     }
 
     companion object {
-        /** The open lakes: the brightest, and the first a lander must steer clear of. */
+        /**
+         * The open lakes: the brightest spots, and the first ones a lander has to steer clear of.
+         */
         val LAVA_LAKES = listOf(at(-12.0, 50.0), at(25.0, -140.0), at(-40.0, 170.0))
     }
 }
 
 /**
- * Crusta: a shell of ice over a hidden ocean. Almost perfectly smooth -
- * nothing on it stands more than a few hundred metres - and bright,
- * except where it is **cracked**: long reddish-brown lines criss-crossing
- * the whole world, each a double ridge with a trough down its middle; and
- * **chaos**, patches where the crust broke into blocks, drifted and froze
- * again. Hardly a crater: the surface is young.
+ * Crusta: a shell of ice over a hidden ocean. It's almost perfectly smooth, with nothing standing
+ * more than a few hundred metres high, and bright, except where it's **cracked**. Long
+ * reddish-brown lines criss-cross the whole world, each one a double ridge with a trough down the
+ * middle. There's also **chaos**, patches where the crust broke into blocks, drifted and froze
+ * again. There are hardly any craters, because the surface is young.
  */
 internal class CrustaLand(seed: Int, private val radius: Double) : WorldLand {
     private val detail = Noise.hashInt(seed, 1, 0, 0)
     private val cracks = Noise.hashInt(seed, 2, 0, 0)
     private val chaos = Noise.hashInt(seed, 3, 0, 0)
-    // Only small ones: nothing large has struck since the surface last renewed.
+    // Only small ones, because nothing large has hit since the surface last renewed.
     private val craters = Craters(Noise.hashInt(seed, 4, 0, 0), radius, Craters.scaledFrom(radius, 0.3).drop(2))
     private val near = ThreadLocal.withInitial { DoubleArray(1) }
 
@@ -87,16 +87,15 @@ internal class CrustaLand(seed: Int, private val radius: Double) : WorldLand {
 
     companion object {
         const val LINEAE = 18
-        /** Where two great cracks cross, near enough the middle of the lit face. */
+        /** Where two big cracks cross, near the middle of the lit face. */
         val CROSSING = at(5.0, 0.0)
     }
 }
 
 /**
- * Maxima: the biggest moon of all. Two kinds of ground: **dark terrain**,
- * old, rock-stained and densely cratered, in great polygons; and between
- * them **bright grooved terrain**, younger ice torn into parallel ridges
- * and troughs by the moon stretching. Frost caps at both poles.
+ * Maxima: the biggest moon of all. It has two kinds of ground: **dark terrain**, old, rock-stained
+ * and densely cratered, in big polygons, and between them **bright grooved terrain**, younger ice
+ * torn into parallel ridges and troughs as the moon stretched. There are frost caps at both poles.
  */
 internal class MaximaLand(seed: Int, private val radius: Double) : WorldLand {
     private val detail = Noise.hashInt(seed, 1, 0, 0)
@@ -111,7 +110,7 @@ internal class MaximaLand(seed: Int, private val radius: Double) : WorldLand {
         val px = nx * radius; val py = ny * radius; val pz = nz * radius
         val b = bright(px, py, pz)
         var h = Landforms.fbm(detail, px, py, pz, 1.0 / 40_000.0, 4) * 500.0 - b * 400.0
-        // Grooves run along each band - the axis turning slowly across the world.
+        // The grooves run along each band, with the axis turning slowly across the world.
         val axis = doubleArrayOf(
             Landforms.fbm(bands + 3, px, py, pz, 1.0 / 400_000.0, 1),
             Landforms.fbm(bands + 4, px, py, pz, 1.0 / 400_000.0, 1),
@@ -130,17 +129,16 @@ internal class MaximaLand(seed: Int, private val radius: Double) : WorldLand {
     }
 
     companion object {
-        /** A band of grooved ground crossing the dark: somewhere to set down between the two. */
+        /** A band of grooved ground crossing the dark, as somewhere to land between the two. */
         val GROOVED = at(10.0, 35.0)
     }
 }
 
 /**
- * Cicatrix: the most battered face in the system - dark, and cratered
- * shoulder to shoulder, nothing having happened here since but more
- * craters. Their fresh rims are bright ice. One blow outdid all the rest:
- * **the Great Scar**, a basin ringed by ridge after concentric ridge,
- * far out across a quarter of the world.
+ * Cicatrix: the most battered face in the system. It's dark and cratered shoulder to shoulder, and
+ * nothing has happened here since except more craters. Their fresh rims are bright ice. One blow
+ * outdid all the rest: **the Great Scar**, a basin ringed by ridge after ridge in circles, reaching
+ * across a quarter of the world.
  */
 internal class CicatrixLand(seed: Int, private val radius: Double) : WorldLand {
     private val detail = Noise.hashInt(seed, 1, 0, 0)
@@ -151,7 +149,7 @@ internal class CicatrixLand(seed: Int, private val radius: Double) : WorldLand {
         var h = Landforms.fbm(detail, px, py, pz, 1.0 / 30_000.0, 4) * 350.0
         val d = distance(nx, ny, nz, GREAT_SCAR, radius)
         h += Landforms.basin(d, 45_000.0, 1_200.0, rings = 7, ringHeight = 500.0)
-        // The scar's bright floor was smoothed: fewer craters in it.
+        // The scar's bright floor was smoothed, so there are fewer craters in it.
         h += craters.height(px, py, pz, 1.0 - 0.6 * Landforms.within(d, 45_000.0, 20_000.0))
         return h
     }

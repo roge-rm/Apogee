@@ -24,7 +24,7 @@ class IndustryTest {
     private fun run(world: World, seconds: Double) = repeat((seconds / dt).toInt()) { world.step(dt) }
     private fun ore(v: Vessel) = v.amountOf(ResourceType.ORE)
 
-    /** The Prospector standing on Luna's mare, its legs down, settled. */
+    /** The Prospector standing on Luna's mare, with its legs down, settled. */
     private fun landed(world: World): Vessel {
         val craft = world.spawnOnSurface(StockCraft.prospector(catalog), lunaSite, pad = 1)
         run(world, 3.0)
@@ -71,7 +71,7 @@ class IndustryTest {
     }
 
     @Test
-    fun `a converter makes propellant from water at its recipe rate, and stops dry or full`() {
+    fun `a converter makes propellant from water at its recipe rate, and stops when dry or full`() {
         val world = World.default(catalog)
         val luna = world.system.body("luna")
         val r = luna.radius + 20_000.0
@@ -87,10 +87,10 @@ class IndustryTest {
         assertEquals("water used", 40.0, craft.amountOf(ResourceType.WATER), 0.2)
         assertEquals("propellant made", prop + 8.0, craft.amountOf(ResourceType.PROPELLANT), 0.2)
         assertEquals("monopropellant made", mono + 1.0, craft.amountOf(ResourceType.MONOPROPELLANT), 0.05)
-        // Dry: it stops.
+        // Dry, so it stops.
         run(world, 60.0)
         assertEquals(0.0, craft.amountOf(ResourceType.WATER), 1e-6)
-        // Full: nothing more goes in, nothing more is used.
+        // Full, so nothing more goes in and nothing more gets used.
         craft.putInto(all, ResourceType.PROPELLANT, 1_000.0)
         craft.putInto(all, ResourceType.MONOPROPELLANT, 1_000.0)
         craft.putInto(all, ResourceType.ORE, 20.0)
@@ -99,7 +99,7 @@ class IndustryTest {
     }
 
     @Test
-    fun `parked, a drill keeps digging on the ledger as it would stepped`() {
+    fun `parked, a drill keeps digging on the ledger the same as it would stepped`() {
         val stepped = World.default(catalog)
         val a = landed(stepped)
         stepped.apply(Command.SetIndustry(a.id.raw, drilling = true, refining = false))
@@ -134,7 +134,7 @@ class IndustryTest {
         val base = siloPad(world)
         val craft = world.spawnOnSurface(StockCraft.prospector(catalog), World.launchSites.first { it.id == "cape" }, pad = 3)
         run(world, 1.0)
-        // Set down on the deck, as the base tests do.
+        // Set down on the deck, the way the base tests do it.
         val deck = base.defs.indexOfFirst { it.id == "base-pad" }
         val up = base.body.position.copy().normalizeInPlace()
         craft.wake()
@@ -153,7 +153,7 @@ class IndustryTest {
         assertFalse("still unloading", world.isUnloading(craft.id))
     }
 
-    /** A Prospector with a Broad Ore Bin docked on to it in flight, as one craft. */
+    /** A Prospector with a Broad Ore Bin docked onto it in flight, as one craft. */
     private fun dockedPair(): CraftDesign {
         val prospector = StockCraft.prospector(catalog)
         val parts = ArrayList(prospector.parts)
@@ -184,7 +184,7 @@ class IndustryTest {
         assertFalse("still unloading", world.isUnloading(pair.id))
     }
 
-    /** The Surveyor round Luna at [height], its orbit tipped [inclination] degrees. */
+    /** The Surveyor around Luna at [height], with its orbit tipped [inclination] degrees. */
     private fun surveyor(world: World, inclination: Double, height: Double = 40_000.0): Vessel {
         val luna = world.system.body("luna")
         val r = luna.radius + height
@@ -192,7 +192,7 @@ class IndustryTest {
         val tilt = Math.toRadians(inclination)
         val velocity = Vec3(0.0, kotlin.math.sin(tilt) * speed, kotlin.math.cos(tilt) * speed)
         val craft = world.spawnAt(StockCraft.surveyor(catalog), "luna", Vec3(r, 0.0, 0.0), velocity, Quat.identity())
-        // Its wings out, as they would be by now.
+        // Its wings out, the way they would be by now.
         craft.control.deployed = true
         for (i in craft.defs.indices) if (craft.defs[i].id == "wing-kite") craft.setLegDeploy(i, 1.0)
         return craft

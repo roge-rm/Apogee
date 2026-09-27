@@ -1,15 +1,15 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
-// Pure Kotlin/JVM. Deliberately has NO Android dependency: this module is the
-// whole simulation, and it has to run unchanged inside the app, inside the
-// dedicated server, and inside a plain JUnit test.
+// Pure Kotlin/JVM. It has NO Android dependency on purpose, because this module is the whole
+// simulation, and it has to run unchanged inside the app, inside the dedicated server, and inside a
+// plain JUnit test.
 plugins {
     alias(libs.plugins.kotlin.jvm)
     alias(libs.plugins.kotlin.serialization)
 }
 
 java {
-    // JVM 11 across every shared module so :app (compileOptions 11) can consume them.
+    // JVM 11 across every shared module so :app (compileOptions 11) can use them.
     sourceCompatibility = JavaVersion.VERSION_11
     targetCompatibility = JavaVersion.VERSION_11
 }
@@ -31,8 +31,8 @@ dependencies {
 /**
  * Runs the headless ascent scenario: `./gradlew :core:flyAscent`.
  *
- * The physics iteration loop. A full flight to orbit runs in well under a
- * second here, against minutes to rebuild, install and fly on a device.
+ * This is the physics loop. A full flight to orbit runs in well under a second here, compared with
+ * minutes to rebuild, install and fly on a device.
  */
 tasks.register<JavaExec>("flyAscent") {
     group = "verification"
@@ -58,9 +58,8 @@ tasks.register<JavaExec>("craftStats") {
 /**
  * Measures simulation cost against vessel count: `./gradlew :core:tickBenchmark`.
  *
- * Answers the server-sizing question directly - how many craft fit in a 60Hz
- * tick - which is the only honest way to argue about what the server should
- * be written in.
+ * It answers the server-sizing question directly (how many craft fit in a 60Hz tick), which is the
+ * only honest way to argue about what the server should be written in.
  */
 tasks.register<JavaExec>("tickBenchmark") {
     group = "verification"
@@ -76,9 +75,10 @@ tasks.register<JavaExec>("terrainSurvey") {
     mainClass.set("com.rm.apogee.core.scenario.TerrainSurveyKt")
 }
 
-/** Prints the test runtime classpath, so a scenario can be run without Gradle
- *  buffering its output - a long benchmark killed mid-run otherwise reports
- *  nothing at all. */
+/**
+ * Prints the test runtime classpath, so a scenario can be run without Gradle buffering its output.
+ * Otherwise a long benchmark killed mid-run reports nothing at all.
+ */
 tasks.register("printTestClasspath") {
     val cp = sourceSets["test"].runtimeClasspath
     doLast { println(cp.asPath) }
@@ -87,9 +87,9 @@ tasks.register("printTestClasspath") {
 /**
  * Draws the terrain as shaded maps: `./gradlew :core:terrainAtlas`.
  *
- * PNGs in build/terrain-atlas - material colour, hillshade and water, at
- * regional and local scales around the launch sites. For judging what the
- * generator makes without a device in the loop.
+ * PNGs in build/terrain-atlas, with material colour, hillshade and water, at regional and local
+ * scales around the launch sites. It's for judging what the generator makes without a device in the
+ * loop.
  */
 tasks.register<JavaExec>("terrainAtlas") {
     group = "verification"
@@ -100,8 +100,8 @@ tasks.register<JavaExec>("terrainAtlas") {
 }
 
 /**
- * Draws the Cape from above, with what stands where: `./gradlew :core:capeMap`.
- * PNGs in build/cape-map.
+ * Draws the Cape from above, with what stands where: `./gradlew :core:capeMap`. PNGs in
+ * build/cape-map.
  */
 tasks.register<JavaExec>("capeMap") {
     group = "verification"

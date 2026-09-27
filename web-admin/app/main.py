@@ -1,12 +1,12 @@
-"""Apogee dedicated server - web admin.
+"""Apogee dedicated server: the web admin.
 
-One of the two containers in docker-compose.yml. It owns no game state at
-all: every page is a rendering of what the server said over the control
-socket, and every button is one control command. If this container is not
-running, the game is entirely unaffected.
+This is one of the two containers in docker-compose.yml. It owns no game
+state at all. Every page is a rendering of what the server said over the
+control socket, and every button is one control command. If this container
+isn't running, the game isn't affected at all.
 
-What the page shows is deliberately small for now - status, players, log, and
-the three actions an operator actually needs at 2am. Settings, bans and craft
+What the page shows is small on purpose for now: status, players, the log, and
+the three actions an operator really needs at 2am. Settings, bans and craft
 management come later, and belong behind the same control channel.
 """
 
@@ -35,7 +35,7 @@ templates = Jinja2Templates(directory=os.path.join(HERE, "templates"))
 
 @app.on_event("startup")
 async def startup():
-    # Fails the container immediately rather than serving an open panel.
+    # Fails the container straight away instead of serving an open panel.
     auth._password()
     LOG.info("Admin ready; control socket %s", control.path)
 
@@ -61,8 +61,8 @@ async def login_page(request: Request, bad: int = 0):
 @app.post("/login")
 async def login(password: str = Form("")):
     if not auth.check(password):
-        # Deliberately slow, and deliberately vague. There is one password and
-        # one operator; a fast, specific "wrong password" is only useful to
+        # Slow on purpose, and vague on purpose. There's one password and one
+        # operator, and a fast, specific "wrong password" is only useful to
         # somebody guessing.
         await asyncio.sleep(1.0)
         return RedirectResponse("/login?bad=1", status_code=303)
@@ -103,9 +103,9 @@ async def dashboard(request: Request):
 async def state(request: Request):
     """Everything the dashboard shows, in one call.
 
-    One endpoint rather than three, because the page wants a consistent
-    picture: a status from one moment and a player list from another produces
-    a dashboard that contradicts itself while you read it.
+    It's one endpoint instead of three, because the page wants a consistent
+    picture. A status from one moment and a player list from another make a
+    dashboard that contradicts itself while you read it.
     """
     if not _authorised(request):
         return JSONResponse({"error": "unauthorised"}, status_code=401)
@@ -115,7 +115,7 @@ async def state(request: Request):
         players = await asyncio.to_thread(control.players)
         log_lines = await asyncio.to_thread(control.log, 150)
     except ServerDown as down:
-        # A state, not a failure: the server may be restarting.
+        # A state, not a failure, because the server might be restarting.
         return JSONResponse({"running": False, "reason": str(down)})
     except ControlError as refused:
         return JSONResponse({"running": False, "reason": str(refused)})
@@ -170,5 +170,5 @@ async def kick(request: Request, name: str = Form("")):
 @app.post("/api/stop")
 async def stop(request: Request):
     # The server saves on the way down, so this is safe to press. The
-    # container's restart policy is what decides whether it comes back.
+    # container's restart policy decides whether it comes back.
     return await _action(lambda: control.stop())(request)

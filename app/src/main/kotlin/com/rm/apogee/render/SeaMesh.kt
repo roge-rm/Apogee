@@ -4,7 +4,7 @@ import android.opengl.GLES30
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
-/** The sea's surface on the GPU: rebuilt whole each time a new one is built. */
+/** The sea's surface on the GPU, replaced whole each time a new one is built. */
 class SeaMesh {
 
     private val vao = IntArray(1)
@@ -14,7 +14,7 @@ class SeaMesh {
     private var layout = -1
     private var vertexBuffer: ByteBuffer? = null
 
-    /** The surface now on the GPU. */
+    /** The surface on the GPU now. */
     var surface: SeaSurface? = null
         private set
 
@@ -36,7 +36,7 @@ class SeaMesh {
         GLES30.glBindVertexArray(0)
     }
 
-    /** Takes [next] onto the GPU, if it is not the one already there. */
+    /** Takes [next] onto the GPU, if it isn't the one already there. */
     fun take(next: SeaSurface) {
         if (next === surface) return
         GLES30.glBindVertexArray(vao[0])

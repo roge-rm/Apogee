@@ -9,7 +9,7 @@ import org.junit.Test
 import kotlin.math.cos
 import kotlin.math.sin
 
-/** What the ground holds: ice in Luna's polar craters, ore by the rock it is. */
+/** What the ground holds: ice in Luna's polar craters, and ore depending on the rock. */
 class DepositsTest {
     private val system = SolarSystem.defaultSystem()
     private val luna = system.body("luna").terrain!!
@@ -34,7 +34,7 @@ class DepositsTest {
         assertTrue("no ice at the south pole", south.count { it == SurfaceMaterial.ICE } > 20)
         assertTrue("no ice at the north pole", north.count { it == SurfaceMaterial.ICE } > 20)
         assertTrue("ice in the tropics", tropics.none { it == SurfaceMaterial.ICE })
-        // Mostly still the old ground: only the floors.
+        // Mostly still the old ground, only the floors.
         assertTrue("the pole is all ice", south.count { it == SurfaceMaterial.ICE } < south.size / 2)
     }
 
@@ -61,13 +61,13 @@ class DepositsTest {
     }
 
     @Test
-    fun `the same ground is not everywhere equally rich`() {
+    fun `the same ground isn't equally rich everywhere`() {
         val tropics = band(-40.0, 40.0, 40).filter { !terra.isOcean(it) }
         val ores = tropics.map { Deposits.richness(terra, it, ResourceType.ORE) }
         assertTrue("no land sampled", ores.size > 100)
         assertTrue("all the same: ${ores.min()}..${ores.max()}", ores.max() - ores.min() > 0.3)
-        // The sea floor holds ore too, for a drill taken down to it: little
-        // in its ooze and sand, most round its vents and on its nodule fields.
+        // The sea floor holds ore too, for a drill taken down to it: a little in its ooze and sand,
+        // and the most around its vents and on its nodule fields.
         val floor = band(-40.0, 40.0, 40).filter { terra.isOcean(it) }.map { Deposits.richness(terra, it, ResourceType.ORE) }
         assertTrue("no sea floor sampled", floor.size > 100)
         assertTrue("the sea floor is barren", floor.all { it in 0.0..1.0 } && floor.average() in 0.01..0.3)

@@ -65,14 +65,14 @@ class CrewTest {
         assertEquals(rocket.id.raw, pilot.vessel)
         world.apply(Command.RemoveVessel(rocket.id.raw))
         assertEquals("not home", CrewStatus.AVAILABLE, world.crew.getValue(pilot.id).status)
-        // The next launch takes them again, rather than a new recruit.
+        // The next launch takes them again, instead of a new recruit.
         val again = world.spawnFor(Command.SpawnCraft(StockCraft.starterRocket(catalog), "cape"), owner = "alice")
         assertEquals(pilot.id, member(world, again).id)
         assertEquals(1, world.crewOf("alice").size)
     }
 
     @Test
-    fun `crew in a craft destroyed, or removed away from home, are lost for good`() {
+    fun `crew in a craft that's destroyed, or removed away from home, are lost for good`() {
         val world = World.default(catalog)
         val pod = podInOrbit(world)
         val pilot = member(world, pod)
@@ -89,7 +89,7 @@ class CrewTest {
     }
 
     @Test
-    fun `an empty pod cannot be flown - once its pilot is out - and a probe core can`() {
+    fun `an empty pod can't be flown once its pilot is out, and a probe core can`() {
         val world = World.default(catalog)
         val pod = podInOrbit(world)
         assertTrue(world.controllable(pod))
@@ -105,7 +105,7 @@ class CrewTest {
     }
 
     @Test
-    fun `out in orbit beside their pod, they can climb straight back in`() {
+    fun `out in orbit beside their pod they can climb straight back in`() {
         val world = World.default(catalog)
         val pod = podInOrbit(world)
         val pilot = member(world, pod)
@@ -135,7 +135,7 @@ class CrewTest {
     }
 
     @Test
-    fun `they walk on Terra at a walk, stand upright, and jump`() {
+    fun `they walk on Terra at walking pace, stand upright, and jump`() {
         val world = World.default(catalog)
         val suit = suitOn(world, cape)
         assertTrue("not on the ground", suit.touchingGround)
@@ -150,7 +150,7 @@ class CrewTest {
         assertTrue("stood still ${groundSpeed(world, suit)}", groundSpeed(world, suit) < 0.2)
         assertTrue("frozen mid-stride", kotlin.math.abs(suit.surfaceDeflection[0]) < 0.05)
         assertTrue("went nowhere", suit.body.position.distanceTo(start) > 4.0)
-        // Upright: their head up.
+        // Upright, with their head up.
         val head = suit.body.orientation.rotate(Vec3.unitY(), Vec3())
         assertTrue("fell over", (head dot suit.body.position.normalized()) > 0.95)
         val ground = world.attractorFor(suit).altitudeOf(suit.body.position)
@@ -161,7 +161,7 @@ class CrewTest {
     }
 
     @Test
-    fun `on Luna they lope, slower to get going`() {
+    fun `on Luna they lope, and are slower to get going`() {
         val world = World.default(catalog)
         val suit = suitOn(world, lunaSite)
         world.apply(Command.SetAttitude(suit.id.raw, 1.0, 0.0, 0.0))
@@ -212,7 +212,7 @@ class CrewTest {
     }
 
     @Test
-    fun `standing still, they plant a flag beside them, theirs`() {
+    fun `standing still, they plant a flag beside them, their own`() {
         val world = World.default(catalog)
         val suit = suitOn(world, lunaSite)
         suit.owner = "alice"
@@ -248,7 +248,7 @@ class CrewTest {
     }
 
     @Test
-    fun `the roster, the seats and a flag survive a save - and a save from before crew seats everyone`() {
+    fun `the roster, the seats and a flag survive a save, and a save from before crew seats everyone`() {
         val world = World.default(catalog)
         val pod = podInOrbit(world)
         val pilot = member(world, pod)
@@ -257,7 +257,7 @@ class CrewTest {
         assertEquals(pilot, again.crew.getValue(pilot.id))
         assertEquals(pilot.id, again.vessel(pod.id)!!.crew[0].single())
 
-        // As a build before crew wrote it: no roster, no seats.
+        // The way a build before crew wrote it, with no roster and no seats.
         val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
         val tree = json.encodeToJsonElement(WorldSave.serializer(), world.save()).jsonObject
         val oldVessels = kotlinx.serialization.json.JsonArray(

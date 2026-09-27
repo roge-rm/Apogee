@@ -4,7 +4,7 @@
     "title": "Foundation",
     "category": "base",
     "dryMass": 900.0,
-    "description": "Levelling feet for a base: set it down on ground no steeper than ten degrees, found the base, and its jacks reach down to hold it level. A founded base cannot be pushed or tipped - though what hits it can still break it.",
+    "description": "Levelling feet for a base. Set it down on ground no steeper than ten degrees, found the base, and its jacks reach down to hold it level. A founded base can't be pushed or tipped, though whatever hits it can still break it.",
     "crashTolerance": 22.0,
     "dragCoefficient": 1.0,
     "mesh": {
@@ -343,7 +343,7 @@
     "title": "Base Core",
     "category": "base",
     "dryMass": 3200.0,
-    "description": "The heart of a base: control, a little power in reserve and a few panels on the roof, room for four. Set it down on a foundation, found it, and build out from its connectors.",
+    "description": "The heart of a base: control, a little power in reserve, a few panels on the roof, and room for four. Set it down on a foundation, found it, and build out from its connectors.",
     "crashTolerance": 16.0,
     "dragCoefficient": 1.0,
     "mesh": {
@@ -677,7 +677,7 @@
     "title": "Habitat Module",
     "category": "base",
     "dryMass": 2600.0,
-    "description": "Living space for six: bunks, galley, a window on the world outside. Brought in on a flatbed and joined at a connector.",
+    "description": "Living space for six: bunks, a galley, and a window on the world outside. It's brought in on a flatbed and joined at a connector.",
     "crashTolerance": 16.0,
     "dragCoefficient": 1.0,
     "mesh": {
@@ -907,7 +907,7 @@
     "title": "Propellant Depot",
     "category": "base",
     "dryMass": 1800.0,
-    "description": "Twelve tonnes of propellant in store: what a base fills its craft from, and what a tanker tops up.",
+    "description": "Twelve tonnes of propellant in store. It's what a base fills its craft from, and what a tanker tops up.",
     "crashTolerance": 14.0,
     "dragCoefficient": 1.0,
     "mesh": {
@@ -1397,7 +1397,7 @@
     "title": "Refinery",
     "category": "base",
     "dryMass": 6000.0,
-    "description": "Refines the base's ore and water into propellant and monopropellant, eight times as fast as a craft's converter - for thirty units of charge a second while it runs. Switch it on from the base card.",
+    "description": "Refines the base's ore and water into propellant and monopropellant, eight times as fast as a craft's converter, for thirty units of charge a second while it runs. Switch it on from the base card.",
     "crashTolerance": 14.0,
     "dragCoefficient": 1.0,
     "mesh": {
@@ -1620,7 +1620,7 @@
     "title": "Ore Silo",
     "category": "base",
     "dryMass": 1600.0,
-    "description": "Three thousand units of ore in store - thirty tonnes - for the refinery, or for a tanker to take away.",
+    "description": "Three thousand units of ore in store (thirty tonnes), for the refinery, or for a tanker to take away.",
     "crashTolerance": 14.0,
     "dragCoefficient": 1.0,
     "mesh": {
@@ -1883,7 +1883,7 @@
     "title": "Power Module",
     "category": "base",
     "dryMass": 2200.0,
-    "description": "Batteries racked floor to ceiling: what keeps a base's lamps lit and pumps running through the night.",
+    "description": "Batteries racked floor to ceiling. They keep a base's lamps lit and its pumps running through the night.",
     "crashTolerance": 14.0,
     "dragCoefficient": 1.0,
     "mesh": {
@@ -2127,7 +2127,7 @@
     "title": "Solar Array",
     "category": "base",
     "dryMass": 450.0,
-    "description": "Two wings of solar cells on a mast, for the top of a module. Power by day, none by night: a base wants batteries too.",
+    "description": "Two wings of solar cells on a mast, for the top of a module. You get power by day and none by night, so a base wants batteries too.",
     "crashTolerance": 10.0,
     "dragCoefficient": 1.2,
     "mesh": {
@@ -2553,7 +2553,7 @@
     "title": "Pad Deck",
     "category": "base",
     "dryMass": 24000.0,
-    "description": "A twelve-metre slab to launch from and land on. Founded on its own or joined to a base, it is a launch site: craft set down on it fill up from the base's stores, and a craft standing on it can be refuelled.",
+    "description": "A twelve-metre slab to launch from and land on. Founded on its own or joined to a base, it's a launch site. Craft set down on it fill up from the base's stores, and a craft standing on it can be refuelled.",
     "crashTolerance": 25.0,
     "dragCoefficient": 1.0,
     "mesh": {
@@ -2974,7 +2974,7 @@
     "title": "Flatbed",
     "category": "base",
     "dryMass": 1400.0,
-    "description": "A long low deck on eight wheel mounts, for carrying a module: a cab at the front, a release clamp in the middle to hold the load and set it down.",
+    "description": "A long low deck on eight wheel mounts, for carrying a module, with a cab at the front and a release clamp in the middle to hold the load and set it down.",
     "crashTolerance": 16.0,
     "dragCoefficient": 1.0,
     "mesh": {

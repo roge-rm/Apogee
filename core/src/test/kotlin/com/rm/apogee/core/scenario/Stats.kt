@@ -7,10 +7,9 @@ import com.rm.apogee.core.part.StockParts
 /**
  * Prints the stock rocket's stage analysis: `./gradlew :core:craftStats`.
  *
- * The counterpart to the ascent scenario. That one flies the rocket; this one
- * says what the builder will *predict* about it. When the two disagree, one of
- * them is wrong, and having both printable side by side is how you find out
- * which.
+ * This is the other half of the ascent scenario. That one flies the rocket, and this one says what
+ * the builder will *predict* about it. When the two disagree, one of them is wrong, and having both
+ * printable side by side is how you find out which.
  */
 fun main() {
     val catalog = StockParts.catalog

@@ -1,6 +1,6 @@
-// Dashboard behaviour. Plain fetch and DOM, no framework and nothing
-// vendored: the page has one polled endpoint and four buttons, and a build
-// step for that would cost more than it saves.
+// How the dashboard behaves. It's plain fetch and DOM, with no framework and
+// nothing vendored. The page has one polled endpoint and four buttons, and a
+// build step for that would cost more than it saves.
 
 const POLL_MILLIS = 3000;
 
@@ -87,8 +87,8 @@ async function refresh() {
     }
     state = await response.json();
   } catch (error) {
-    // The admin container itself is unreachable; keep the last view and
-    // say so rather than blanking the page.
+    // The admin container itself can't be reached, so keep the last view and
+    // say so instead of blanking the page.
     el("offline-reason").textContent = "The admin page lost contact with itself.";
     el("offline").hidden = false;
     return;
@@ -116,8 +116,8 @@ async function refresh() {
 
   renderPlayers(state.players || []);
 
-  // Only scroll the log if the operator was already at the bottom - yanking
-  // it down while they are reading something further up is maddening.
+  // Only scroll the log if the operator was already at the bottom. Yanking it
+  // down while they're reading something further up is maddening.
   const log = el("log");
   const wasAtBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
   log.textContent = (state.log || []).join("\n");

@@ -3,24 +3,22 @@ package com.rm.apogee.game
 import kotlin.math.hypot
 
 /**
- * What fingers on the assembly building's 3D view mean, worked out from raw
- * touches - plain numbers in, so it can be tested without a device.
+ * What fingers on the assembly building's 3D view mean, worked out from raw touches. It takes plain
+ * numbers in, so it can be tested without a device.
  *
  * - One finger moving turns the view round the craft.
- * - A tap is a touch that neither travelled nor lingered; two close
- *   together are a double tap.
- * - A finger held still picks up the part under it, if there is one, and
- *   from then on carries it until lifted.
- * - Two fingers pan (moving together) and zoom (moving apart). After two,
- *   the rest of that touch is theirs: the finger left behind as the other
- *   lifts does not turn the view.
+ * - A tap is a touch that neither travelled nor lingered, and two close together are a double tap.
+ * - A finger held still picks up the part under it, if there is one, and carries it from then on
+ *   until it's lifted.
+ * - Two fingers pan (moving together) and zoom (moving apart). After two, the rest of that touch
+ *   belongs to them, so the finger left behind as the other lifts doesn't turn the view.
  */
 class BuilderGestures(private val listener: Listener) {
 
     interface Listener {
         fun tap(x: Float, y: Float)
         fun doubleTap(x: Float, y: Float)
-        /** Held still: true if that picked something up, and later moves carry it. */
+        /** Held still. True if that picked something up, and later moves carry it. */
         fun longPress(x: Float, y: Float): Boolean
         fun carry(x: Float, y: Float)
         fun drop(x: Float, y: Float)
@@ -38,7 +36,7 @@ class BuilderGestures(private val listener: Listener) {
     private var lastX = 0f
     private var lastY = 0f
     private var travelled = 0f
-    /** Held long enough once already this touch, and nothing was picked up. */
+    /** Held long enough once already in this touch, and nothing was picked up. */
     private var pressed = false
     private var lastSpread = 0f
     private var lastTapTime = Long.MIN_VALUE / 2
@@ -54,7 +52,7 @@ class BuilderGestures(private val listener: Listener) {
         pressed = false
     }
 
-    /** A second finger down: from here the touch is a pan and a pinch. */
+    /** A second finger down. From here the touch is a pan and a pinch. */
     fun secondDown(x0: Float, y0: Float, x1: Float, y1: Float) {
         if (mode == Mode.CARRYING) return
         mode = Mode.TWO
@@ -86,7 +84,7 @@ class BuilderGestures(private val listener: Listener) {
         lastX = cx; lastY = cy; lastSpread = spread
     }
 
-    /** One of two fingers lifted: the other one does nothing more this touch. */
+    /** One of two fingers lifted. The other one does nothing more in this touch. */
     fun secondUp() {
         if (mode == Mode.TWO) mode = Mode.SPENT
     }
@@ -112,25 +110,25 @@ class BuilderGestures(private val listener: Listener) {
         mode = Mode.IDLE
     }
 
-    /** The touch was taken away - by the system, or a panel. */
+    /** The touch was taken away, by the system or a panel. */
     fun cancel() {
         if (mode == Mode.CARRYING) listener.drop(Float.NaN, Float.NaN)
         mode = Mode.IDLE
     }
 
     /**
-     * The clock moved on: a finger held still long enough is a long press.
-     * Called by a timer set when the finger went down.
+     * The clock moved on, so a finger held still long enough is a long press. It's called by a
+     * timer set when the finger went down.
      */
     fun tick(time: Long) {
         if (mode != Mode.ONE || pressed || travelled >= TAP_SLOP || time - downTime < LONG_PRESS) return
         pressed = true
-        // Nothing there to pick up: the finger can still turn the view.
+        // Nothing there to pick up, so the finger can still turn the view.
         if (listener.longPress(lastX, lastY)) mode = Mode.CARRYING
     }
 
     companion object {
-        /** A finger placed to tap always moves a few pixels. */
+        /** A finger put down to tap always moves a few pixels. */
         const val TAP_SLOP = 28f
         const val TAP_TIMEOUT = 400L
         const val LONG_PRESS = 420L

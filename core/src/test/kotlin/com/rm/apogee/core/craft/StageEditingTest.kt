@@ -8,9 +8,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Staging arranged by hand in the builder: moved parts stay moved, symmetry
- * partners move together, and further building fits into the arrangement
- * rather than throwing it away.
+ * Staging arranged by hand in the builder. Moved parts stay moved, symmetry partners move together,
+ * and more building fits into the arrangement instead of throwing it away.
  */
 class StageEditingTest {
 
@@ -19,7 +18,7 @@ class StageEditingTest {
     private fun nodeOn(builder: CraftBuilder, partIndex: Int, nodeId: String): OpenNode =
         builder.openNodes().first { it.partIndex == partIndex && it.node.id == nodeId }
 
-    /** Pod, tank, engine below; four legs round the tank; a chute on top. */
+    /** Pod, tank and engine below, four legs round the tank, and a chute on top. */
     private fun lander(): CraftBuilder {
         val builder = CraftBuilder(catalog)
         builder.placeRoot("pod-halo")
@@ -61,11 +60,11 @@ class StageEditingTest {
     @Test
     fun `further building keeps the hand arrangement`() {
         val builder = lander()
-        // Chute first, engine second: not what automatic staging would do.
+        // Chute first, engine second, which isn't what automatic staging would do.
         builder.moveStage(1, 0)
         assertEquals(listOf("chute-canopy"), ids(builder, 0))
 
-        // A fin is not staged; adding it must not reshuffle anything.
+        // A fin isn't staged, so adding it mustn't reshuffle anything.
         val tank = indexOf(builder, "tank-cask4")
         val surface = builder.openNodes().first { it.partIndex == tank && it.kind == AttachNodeKind.SURFACE }
         builder.attach("fin-vane", surface)
@@ -97,8 +96,8 @@ class StageEditingTest {
         builder.symmetry = SymmetryMode.QUAD
         val surface = builder.openNodes().first { it.partIndex == tank && it.kind == AttachNodeKind.SURFACE }
         builder.attach("leg-stilt", surface)
-        // Automatically legs fire after everything; nothing of theirs has a
-        // stage, so they get one of their own, last.
+        // Automatically, legs fire after everything. Nothing of theirs has a stage, so they get one
+        // of their own, last.
         assertEquals(listOf("chute-canopy"), ids(builder, 0))
         assertEquals(listOf("engine-ember"), ids(builder, 1))
         assertEquals(List(4) { "leg-stilt" }, ids(builder, 2))

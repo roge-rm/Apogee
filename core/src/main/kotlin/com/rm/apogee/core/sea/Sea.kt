@@ -9,37 +9,39 @@ import kotlin.math.sqrt
 
 /** The sea at one place and time, as [Sea.sample] leaves it. */
 class SeaSample {
-    /** Surface height above the datum, m: tide and waves. */
+    /** The surface height above the datum, in metres, counting tide and waves. */
     var height = 0.0
-    /** The tide alone, m: where the surface sits with the waves averaged out. */
+    /** The tide on its own, in metres: where the surface sits with the waves averaged out. */
     var tide = 0.0
-    /** The surface's upward normal, body-fixed, unit. */
+    /** The surface's upward normal, body-fixed, unit length. */
     val normal = Vec3()
-    /** The water's velocity at the depth asked about, body-fixed, m/s: wave motion and wind drift. */
+    /**
+     * The water's velocity at the depth asked about, body-fixed, in m/s, from wave motion and wind
+     * drift.
+     */
     val velocity = Vec3()
-    /** How steep the surface is here: its slope, 0 flat. */
+    /** How steep the surface is here: its slope, with 0 meaning flat. */
     var steepness = 0.0
-    /** How much the sea is breaking here, 0..1: whitecaps, surf, storm crests. */
+    /** How much the sea is breaking here, 0..1: whitecaps, surf and storm crests. */
     var breaking = 0.0
-    /** How deep the water is, m, surface to bed; 0 or less ashore. */
+    /** How deep the water is in metres, surface to bed. 0 or less on land. */
     var depth = 0.0
-    /** How fast the surface is rising here, m/s. */
+    /** How fast the surface is rising here, in m/s. */
     var rise = 0.0
-    /** Significant wave height here, m. */
+    /** The significant wave height here, in metres. */
     var significantHeight = 0.0
-    /** The wind over the water, m/s, and a storm's own sea, m. */
+    /** The wind over the water in m/s, and a storm's own sea in metres. */
     var wind = 0.0
     var stormHeight = 0.0
 }
 
 /**
- * The waves over one craft, worked out once at its middle: which trains are
- * running there, how big, and where each is in its cycle. A wave's phase is
- * straight-line in position, so anywhere under the craft is a sum of cosines
- * of the phase there plus the train's wavenumber times the distance along
- * it - no sea state, bed or tide to work out again for each of the hundreds
- * of cells a hull is weighed in. Across a hull the sea state does not
- * change; what comes out is the surface to within a fraction of a millimetre.
+ * The waves over one craft, worked out once at its middle: which wave trains are running there, how
+ * big they are, and where each one is in its cycle. A wave's phase changes in a straight line with
+ * position, so anywhere under the craft is a sum of cosines of the phase there plus the train's
+ * wavenumber times the distance along it. There's no sea state, bed or tide to work out again for
+ * each of the hundreds of cells a hull gets weighed in. The sea state doesn't change across a hull,
+ * and what comes out matches the surface to within a fraction of a millimetre.
  */
 class WavePatch {
     internal var n = 0
@@ -55,21 +57,20 @@ class WavePatch {
     private val sc = DetMath.SinCos()
 
     /**
-     * How far above or below the tide the surface can possibly stand
-     * anywhere in the patch, m: every train at its crest at once. A point
-     * further from the tide than this is wet or dry without working out
-     * the waves.
+     * How far above or below the tide the surface can possibly be anywhere in the patch, in metres,
+     * with every train at its crest at once. A point further from the tide than this is wet or dry
+     * without working out the waves.
      */
     var reach = 0.0
         internal set
 
-    /** The sea at the middle, as [Sea.sample] gave it: tide, breaking, heights, depth. */
+    /** The sea at the middle, as [Sea.sample] gave it: tide, breaking, heights and depth. */
     val middle = SeaSample()
 
-    /** Whether there is sea under the craft at all. */
+    /** Whether there's any sea under the craft at all. */
     val afloat: Boolean get() = middle.depth > 0.0
 
-    /** Height of the surface above the datum at body-fixed [p] (any length), m. */
+    /** The height of the surface above the datum at body-fixed [p] (any length), in metres. */
     fun height(p: Vec3): Double {
         if (!afloat) return middle.tide
         val l = p.length
@@ -127,33 +128,29 @@ class WavePatch {
 /**
  * The sea of one body: its tide, and its waves, raised by its weather.
  *
- * The one definition of the water's surface. Buoyancy samples it at every
- * cell of every hull; the renderer samples it to build the sea it draws; so
- * a boat floats on exactly the water that is drawn. A pure function of
- * place, time and the weather's config and seed, worked out alike by the
- * server and every client.
+ * This is the one definition of the water's surface. Buoyancy samples it at every cell of every
+ * hull, and the renderer samples it to build the sea it draws, so a boat floats on exactly the
+ * water you see. It's a pure function of place, time and the weather's config and seed, and the
+ * server and every client work it out the same way.
  *
- * **Where waves are big** is the sea state ([SeaState]-like corners of a
- * [Lattice], a few kilometres apart, fixed per [STATE_EPOCH]):
- * - wind sea, grown over the fetch upwind - the stretch of open water the
- *   wind has blown across, marched upwind until the land, with the wind
- *   there when the waves passed it - up to the fully developed sea for the
- *   wind's strength: big seas downwind of open ocean, calm in the lee of
- *   land;
- * - swell from storms hundreds of kilometres off, arriving hours after they
- *   raised it;
- * - the storm sea under a storm: ten metres and more under the worst;
+ * **Where waves are big** comes from the sea state ([SeaState]-like corners of a [Lattice], a few
+ * kilometres apart, fixed per [STATE_EPOCH]):
+ * - wind sea, grown over the fetch upwind (the stretch of open water the wind has blown across,
+ *   followed upwind to the land, using the wind that was there when the waves passed), up to a
+ *   fully developed sea for the wind's strength. So there are big seas downwind of open ocean and
+ *   calm water in the lee of land;
+ * - swell from storms hundreds of kilometres away, arriving hours after they raised it;
+ * - the storm sea under a storm, ten metres and more under the worst;
  * - and a ripple everywhere, so still water is never a mirror.
  *
- * **The waves themselves** are a fixed set of [COMPONENTS] wave trains, each
- * with its own wavelength and a fixed direction in 3D: its phase is its
- * wavenumber times the distance along that direction, which on a sphere is
- * continuous everywhere, with no seams or tiles. The sea state sets each
- * train's height from the wave spectrum - most in the trains near the peak
- * period running with the wind. Second-order crests: peaked tops, flat
- * troughs. Over shallows they grow and steepen, and break where they are
- * too high for the depth; ashore they are gone. And, rarely, in a storm, a
- * rogue - twice the sea around it for a minute.
+ * **The waves themselves** are a fixed set of [COMPONENTS] wave trains, each with its own
+ * wavelength and a fixed direction in 3D. Its phase is its wavenumber times the distance along that
+ * direction, which on a sphere is continuous everywhere, with no seams or tiles. The sea state sets
+ * each train's height from the wave spectrum, with most of it in the trains near the peak period
+ * running with the wind. Crests are second order, so the tops are peaked and the troughs flat. Over
+ * shallows the waves grow and get steeper, and they break where they're too high for the depth. On
+ * land they're gone. And rarely, in a storm, there's a rogue wave, twice the size of the sea around
+ * it for a minute.
  */
 class Sea(
     val body: CelestialBody,
@@ -183,7 +180,7 @@ class Sea(
             val wavelength = SHORTEST * StrictMath.pow(LONGEST / SHORTEST, f)
             k[i] = 2.0 * Math.PI / wavelength
             omega[i] = sqrt(g * k[i])
-            // A direction anywhere on the sphere, evenly.
+            // A direction anywhere on the sphere, spread evenly.
             val z = 2.0 * Noise.hash(this.seed, i, 2, 0) - 1.0
             val a = 2.0 * Math.PI * Noise.hash(this.seed, i, 3, 0)
             val r = sqrt((1.0 - z * z).coerceAtLeast(0.0))
@@ -192,14 +189,17 @@ class Sea(
         }
     }
 
-    /** What makes this sea the sea it is, for sharing corners with others the same. */
+    /** What makes this sea the sea it is, so it can share corners with others that are the same. */
     private val identity = "${body.id}:$seed:${weather?.config?.hashCode() ?: 0}"
 
     private val depth = Lattice(radius, DEPTH_SPACING, 0.0, 1, DEPTH_CAPACITY, "bed:${body.id}:${terrain?.javaClass?.name}") { d, _, out ->
         out[0] = terrain?.elevation(d) ?: -DEFAULT_DEPTH
     }
 
-    /** The sea bed coarsely, for surface far off: the fine lattice would fill with corners nobody looks at closely. */
+    /**
+     * The sea bed roughly, for the surface far away. The fine lattice would fill up with corners
+     * nobody looks at closely.
+     */
     private val coarseDepth = Lattice(radius, COARSE_DEPTH_SPACING, 0.0, 1, DEPTH_CAPACITY / 4, "coarse-bed:${body.id}:${terrain?.javaClass?.name}") { d, _, out ->
         out[0] = terrain?.elevation(d) ?: -DEFAULT_DEPTH
     }
@@ -207,8 +207,8 @@ class Sea(
     private val state = Lattice(radius, STATE_SPACING, STATE_EPOCH, STATE_SIZE, STATE_CAPACITY, "state:$identity") { d, t, out -> seaState(d, t, out) }
 
     /**
-     * How open the sea is to waves from each way, finely near a craft and
-     * coarsely far off: see [shelterAt]. Fixed, like the bed.
+     * How open the sea is to waves from each direction, finely near a craft and roughly far away.
+     * See [shelterAt]. It's fixed, like the bed.
      */
     private val shelter = Lattice(radius, SHELTER_SPACING, 0.0, SHELTER_SIZE, DEPTH_CAPACITY / 4, "shelter:${body.id}:${terrain?.javaClass?.name}") { d, _, out ->
         shelterAt(d, out, fine = true)
@@ -224,15 +224,13 @@ class Sea(
     private val open = DoubleArray(SHELTER_RAYS)
 
     /**
-     * How open the water at unit [u] is to waves arriving from each way
-     * round, as the first harmonics of a compass rose: open means the sea
-     * runs [SHELTER_REACH] or more upwave before it meets land; land closer
-     * than that cuts waves from that way in proportion - a bay's far shore a
-     * few kilometres off lets in only what its own width of water raises. A
-     * bay with a bend in its mouth is calm; a lee shore is calm to the waves
-     * blowing off it and open to those rolling in. Into [out]: the mean, and
-     * the cos and sin parts of the first two harmonics, over [u]'s own east
-     * and north.
+     * How open the water at unit [u] is to waves arriving from each direction, as the first
+     * harmonics of a compass rose. Open means the sea runs [SHELTER_REACH] or more upwave before it
+     * meets land. Land closer than that cuts down waves from that direction in proportion, so a
+     * bay's far shore a few kilometres away only lets in what its own width of water can raise. A
+     * bay with a bend in its mouth is calm. A lee shore is calm to waves blowing off it and open to
+     * the ones rolling in. Into [out]: the mean, and the cos and sin parts of the first two
+     * harmonics, over [u]'s own east and north.
      */
     private fun shelterAt(u: Vec3, out: DoubleArray, fine: Boolean) {
         localFrame(u, rayEast, rayNorth)
@@ -263,7 +261,7 @@ class Sea(
         for (n in 1 until SHELTER_SIZE) out[n] *= 2.0 / SHELTER_RAYS
     }
 
-    /** East and north at unit [u], as the planet's spin has them. */
+    /** East and north at unit [u], as the planet's spin defines them. */
     private fun localFrame(u: Vec3, east: Vec3, north: Vec3) {
         east.setTo(u.z, 0.0, -u.x)
         if (east.lengthSq < 1e-12) east.setTo(1.0, 0.0, 0.0)
@@ -272,8 +270,8 @@ class Sea(
     }
 
     /**
-     * Works out ahead of time what the sea round unit [direction] will need
-     * at [time]: for a worker to do, so nobody else stops for it.
+     * Works out ahead of time what the sea around unit [direction] will need at [time]. It's for a
+     * worker to do, so nothing else has to stop and wait for it.
      */
     fun prefetch(direction: Vec3, time: Double) {
         u.setTo(direction).normalizeInPlace()
@@ -325,12 +323,12 @@ class Sea(
         }
 
         val windDirection = if (speed > 0.5) Vec3().setTo(wind).mulInPlace(1.0 / speed) else tangentOf(u)
-        // A world with no weather has a still sea: tides, and nothing else.
+        // A world with no weather has a still sea: tides and nothing else.
         set(systems[0], if (weather != null) FLOOR_HS else 0.0, FLOOR_PERIOD, windDirection, 1.0, 1.0)
         set(systems[1], hsWind, periodOf(hsWind), windDirection, 1.0, 3.3)
         set(systems[2], stormSea.swellHs, kotlin.math.max(stormSea.swellPeriod, 8.0), stormSea.swellDirection, 6.0, 5.0)
-        // A storm's sea is young and steep: a shorter period than a sea of
-        // its height grown over days.
+        // A storm's sea is young and steep, with a shorter period than a sea of the same height
+        // that grew over days.
         set(systems[3], stormSea.stormHs, 1.5 + 3.2 * sqrt(kotlin.math.max(stormSea.stormHs, 0.05)), stormSea.stormDirection, 0.5, 3.3)
 
         for (i in 0 until COMPONENTS) power[i] = 0.0
@@ -346,7 +344,7 @@ class Sea(
                 if (tl < MIN_TANGENT) { weight[i] = 0.0; continue }
                 val tx = (dx[i] - dot * u.x) / tl; val ty = (dy[i] - dot * u.y) / tl; val tz = (dz[i] - dot * u.z) / tl
                 val c = tx * s.direction.x + ty * s.direction.y + tz * s.direction.z
-                // Mostly with the wind; a confused storm sea some every way.
+                // Mostly running with the wind. A confused storm sea goes every which way.
                 val spread = if (c > 0.0) StrictMath.pow(c, 2.0 * s.spread) else 0.0
                 val d = if (s.spread < 1.0) 0.25 + 0.75 * spread else spread
                 if (d <= 0.0) { weight[i] = 0.0; continue }
@@ -360,8 +358,8 @@ class Sea(
                 sum += weight[i]
             }
             if (sum <= 0.0) continue
-            // Heights shared so the whole comes to the system's significant height:
-            // the sum of a²/2 is Hs²/16.
+            // Heights shared out so the total comes to the system's significant height: the sum of
+            // a²/2 is Hs²/16.
             for (i in 0 until COMPONENTS) power[i] += s.hs * s.hs / 8.0 * weight[i] / sum
         }
         for (i in 0 until COMPONENTS) {
@@ -378,7 +376,10 @@ class Sea(
         s.hs = hs; s.period = period; s.direction.setTo(direction); s.spread = spread; s.gamma = gamma
     }
 
-    /** The peak period of a sea this high, s: a metre sea about six seconds, a ten metre one fifteen. */
+    /**
+     * The peak period of a sea this high, in seconds. A one metre sea is about six seconds, and a
+     * ten metre one fifteen.
+     */
     private fun periodOf(hs: Double): Double = 1.5 + 4.2 * sqrt(kotlin.math.max(hs, 0.05))
 
     private fun tangentOf(u: Vec3): Vec3 {
@@ -396,14 +397,15 @@ class Sea(
     private val east = Vec3()
     private val north = Vec3()
 
-    /** Height of the surface above the datum at body-fixed [position] (any length), m. */
+    /**
+     * The height of the surface above the datum at body-fixed [position] (any length), in metres.
+     */
     fun height(position: Vec3, time: Double): Double = evaluate(position, time, null, 0.0, 0.0)
 
     /**
-     * Everything about the sea at body-fixed [position] (any length) and
-     * [time], into [out]: the water's velocity [below] metres under the
-     * surface. Wave trains too short to show at [spacing] metres between
-     * samples are left out - 0 for all of them, which is what the physics
+     * Everything about the sea at body-fixed [position] (any length) and [time], into [out], with
+     * the water's velocity [below] metres under the surface. Wave trains too short to show at
+     * [spacing] metres between samples are left out. 0 means none are, which is what the physics
      * asks for.
      */
     fun sample(position: Vec3, time: Double, out: SeaSample, below: Double = 0.0, spacing: Double = 0.0): SeaSample {
@@ -412,10 +414,9 @@ class Sea(
     }
 
     /**
-     * The surface alone at [position], for drawing: height, how fast it is
-     * rising, steepness, breaking, depth - not the water's motion. Trains
-     * shorter than twice [spacing] left out, and the bed read coarsely
-     * where the samples are far apart.
+     * The surface alone at [position], for drawing: height, how fast it's rising, steepness,
+     * breaking and depth, but not the water's motion. Trains shorter than twice [spacing] are left
+     * out, and the bed is read roughly where the samples are far apart.
      */
     fun surface(position: Vec3, time: Double, out: SeaSample, spacing: Double): SeaSample {
         motion = false
@@ -447,13 +448,11 @@ class Sea(
     private val sc = DetMath.SinCos()
 
     /**
-     * What the sea is like at a place, all but the waves' phases: the tide
-     * and depth there, and how big each wave train is once sheltered and
-     * shoaled. Changes over tens of metres and seconds, where the waves
-     * change over metres and fractions of one - so a caller drawing a great
-     * many points can work these out now and then and reuse them, and pay
-     * only for the waves each time. See [prepare] and the [surface] that
-     * takes one.
+     * What the sea is like at a place, apart from the waves' phases: the tide and depth there, and
+     * how big each wave train is once sheltered and shoaled. These change over tens of metres and
+     * seconds, while the waves change over metres and fractions of a second. So a caller drawing
+     * lots of points can work these out now and then and reuse them, and only pay for the waves
+     * each time. See [prepare] and the [surface] that takes one.
      */
     class Prepared {
         internal val amplitude = DoubleArray(COMPONENTS)
@@ -479,7 +478,7 @@ class Sea(
         return into
     }
 
-    /** As [surface], from a [Prepared] made nearby a little while ago. */
+    /** Same as [surface], from a [Prepared] made nearby a little while ago. */
     fun surface(position: Vec3, time: Double, prepared: Prepared, out: SeaSample, spacing: Double): SeaSample {
         motion = false
         try {
@@ -510,7 +509,7 @@ class Sea(
         var hs = stateOut[COMPONENTS]
         p.rogueSea = stateOut[COMPONENTS + 5] > ROGUE_SEA
 
-        // Shelter: each train cut by how soon land lies upwave of here.
+        // Shelter: each train cut down by how soon there's land upwave of here.
         if (terrain != null) {
             (if (spacing > COARSE_BED_SPACING) coarseShelter else shelter).sample(u, 0.0, shelterOut)
             if (shelterOut[0] < SHELTER_OPEN) {
@@ -519,7 +518,7 @@ class Sea(
                 for (i in 0 until COMPONENTS) {
                     val a = stateOut[i]
                     if (a <= 0.0) continue
-                    // Where this train comes from: against its run over the surface.
+                    // Where this train comes from, which is against its run over the surface.
                     val dot = dx[i] * u.x + dy[i] * u.y + dz[i] * u.z
                     val tx = dx[i] - dot * u.x; val ty = dy[i] - dot * u.y; val tz = dz[i] - dot * u.z
                     val tl = sqrt((tx * tx + ty * ty + tz * tz).coerceAtLeast(1e-12))
@@ -528,7 +527,7 @@ class Sea(
                     var e = shelterOut[0] + shelterOut[1] * fe + shelterOut[2] * fn +
                         shelterOut[3] * (fe * fe - fn * fn) + shelterOut[4] * (2.0 * fe * fn)
                     e = e.coerceIn(0.0, 1.0)
-                    // The shortest ripples the wind raises anew over any water at all.
+                    // The shortest ripples, which the wind raises fresh over any water at all.
                     if (k[i] > SHELTER_REGROW_K) e = kotlin.math.max(e, SHELTER_REGROW)
                     before += a * a
                     stateOut[i] = a * e
@@ -540,7 +539,7 @@ class Sea(
             }
         }
 
-        // Shallows: waves grow as they slow.
+        // Shallows: waves grow as they slow down.
         val shoal = water < SHOAL_DEPTH
         var power = 0.0
         var biggest = 0.0
@@ -569,7 +568,7 @@ class Sea(
         p.stormHeight = stateOut[COMPONENTS + 5]
     }
 
-    /** The waves at [u] and [time], from [p]: see [evaluate]. */
+    /** The waves at [u] and [time], from [p]. See [evaluate]. */
     private fun waves(p: Prepared, time: Double, out: SeaSample?, below: Double, spacing: Double): Double {
         val tide = p.tide
         if (out != null) {
@@ -585,7 +584,7 @@ class Sea(
         }
         val rogue = if (p.rogueSea) rogue(u, time) else 1.0
 
-        // Waves can stand no higher than the water is deep.
+        // Waves can't stand higher than the water is deep.
         var scale = rogue
         var breaking = 0.0
         val hs: Double
@@ -603,7 +602,7 @@ class Sea(
 
         val amplitude = p.amplitude
         val px = u.x * radius; val py = u.y * radius; val pz = u.z * radius
-        // Trains too small beside the biggest to matter are left out.
+        // Trains too small next to the biggest to matter are left out.
         val least = kotlin.math.max(MIN_AMPLITUDE, RELATIVE_AMPLITUDE * p.biggest * scale)
         var height = tide
         val patch = patching
@@ -635,9 +634,9 @@ class Sea(
             val c2 = 2.0 * c * c - 1.0
             height += a * c + 0.5 * ki * a * a * c2
             if (!wantSlope) continue
-            // How fast it rises here, for drawing it a moment on.
+            // How fast it's rising here, for drawing it a moment ahead.
             rise += omega[i] * (a * s + ki * a * a * 2.0 * s * c)
-            // Slope, along the train's own direction on the surface.
+            // The slope, along the train's own direction on the surface.
             val dot = dx[i] * u.x + dy[i] * u.y + dz[i] * u.z
             val tx = dx[i] - dot * u.x; val ty = dy[i] - dot * u.y; val tz = dz[i] - dot * u.z
             val slope = -a * ki * s - ki * ki * a * a * 2.0 * s * c
@@ -663,10 +662,10 @@ class Sea(
             out.significantHeight = hs
             out.wind = p.wind
             out.stormHeight = p.stormHeight
-            // Whitecaps where the sea is steep and the wind strong; surf where it breaks.
+            // Whitecaps where the sea is steep and the wind strong, and surf where it breaks.
             val whitecap = smooth(0.18, 0.4, out.steepness) * smooth(5.0, 14.0, out.wind + 1.5 * out.stormHeight)
-            // In a storm sea the high crests break: the tops of the waves
-            // tumbling down their faces, onto anything small beneath.
+            // In a storm sea the high crests break: the tops of the waves tumbling down their faces
+            // onto anything small underneath.
             val crest = if (hs > 0.1) (height - tide) / hs else 0.0
             val stormBreak = smooth(0.35, 0.8, crest) * smooth(2.0, 7.0, out.stormHeight)
             out.breaking = kotlin.math.max(breaking, kotlin.math.max(whitecap, stormBreak))
@@ -676,10 +675,9 @@ class Sea(
     }
 
     /**
-     * A rogue wave's reach here, as a factor on the sea: rare events, one
-     * to a patch of sea at most, each a couple of hundred metres across and
-     * a minute or so long, doubling the waves at its heart. Only in a storm
-     * sea, where they happen.
+     * A rogue wave's reach here, as a multiplier on the sea. They're rare, at most one to a patch
+     * of sea, each a couple of hundred metres across and about a minute long, doubling the waves at
+     * its centre. They only happen in a storm sea.
      */
     private fun rogue(u: Vec3, time: Double): Double {
         val cx = Math.floor(u.x * radius / ROGUE_CELL).toInt()
@@ -688,7 +686,7 @@ class Sea(
         val slot = Math.floor(time / ROGUE_SLOT).toInt()
         val h = Noise.hash(seed + 7, cx * 73_856_093 xor slot, cy, cz)
         if (h > ROGUE_CHANCE) return 1.0
-        // Where in the patch and when in the slot: kept clear of the edges.
+        // Where in the patch and when in the time slot, kept clear of the edges.
         val ox = (cx + 0.3 + 0.4 * Noise.hash(seed + 8, cx, cy, cz xor slot)) * ROGUE_CELL
         val oy = (cy + 0.3 + 0.4 * Noise.hash(seed + 9, cx, cy, cz xor slot)) * ROGUE_CELL
         val oz = (cz + 0.3 + 0.4 * Noise.hash(seed + 10, cx, cy, cz xor slot)) * ROGUE_CELL
@@ -705,7 +703,10 @@ class Sea(
     }
 
     companion object {
-        /** Wave trains: [BANDS] wavelengths from [SHORTEST] to [LONGEST] m, [DIRECTIONS] each. */
+        /**
+         * Wave trains: [BANDS] wavelengths from [SHORTEST] to [LONGEST] m, with [DIRECTIONS] of
+         * each.
+         */
         const val BANDS = 16
         const val DIRECTIONS = 4
         const val COMPONENTS = BANDS * DIRECTIONS
@@ -713,12 +714,11 @@ class Sea(
         const val LONGEST = 500.0
 
         /**
-         * Shelter: corners [SHELTER_SPACING] m apart near a craft and
-         * [COARSE_SHELTER_SPACING] far off; [SHELTER_RAYS] ways round, each
-         * looked along from [SHELTER_FIRST] m out, [SHELTER_STEP] times
-         * further each look, to [SHELTER_REACH] - the fine bed out to
-         * [SHELTER_FINE_REACH], the coarse beyond. Mean openness over
-         * [SHELTER_OPEN] is open sea, left alone.
+         * Shelter: corners [SHELTER_SPACING] m apart near a craft and [COARSE_SHELTER_SPACING] far
+         * away. It looks [SHELTER_RAYS] ways round, each starting [SHELTER_FIRST] m out and going
+         * [SHELTER_STEP] times further with each look, out to [SHELTER_REACH]. It uses the fine bed
+         * out to [SHELTER_FINE_REACH] and the coarse one beyond. Mean openness over [SHELTER_OPEN]
+         * counts as open sea and is left alone.
          */
         private const val SHELTER_SPACING = 400.0
         private const val COARSE_SHELTER_SPACING = 2_000.0
@@ -734,50 +734,65 @@ class Sea(
         private const val SHELTER_REGROW_K = 2.0 * Math.PI / 8.0
         private const val SHELTER_REGROW = 0.5
 
-        /** The sea state's corners, m apart, and how long each stands, s. */
+        /**
+         * How far apart the sea state's corners are in metres, and how long each one lasts in
+         * seconds.
+         */
         const val STATE_SPACING = 5_000.0
         const val STATE_EPOCH = 30.0
         internal const val STATE_SIZE = COMPONENTS + 6
         private const val STATE_CAPACITY = 20_000
 
-        /** The sea bed's corners, m apart. */
+        /** How far apart the sea bed's corners are, in metres. */
         const val DEPTH_SPACING = 200.0
 
-        /** The coarse bed's corners, m apart, and the sample spacing beyond which it is used. */
+        /**
+         * How far apart the coarse bed's corners are in metres, and the sample spacing beyond which
+         * it's used.
+         */
         const val COARSE_DEPTH_SPACING = 1_000.0
         const val COARSE_BED_SPACING = 150.0
         private const val DEPTH_CAPACITY = 60_000
         private const val DEFAULT_DEPTH = 1_000.0
 
-        /** Upwind, looking for the fetch: steps, m, and how fast waves carry what they grew, m/s. */
+        /**
+         * Looking upwind for the fetch: the steps in metres, and how fast waves carry what they
+         * grew, in m/s.
+         */
         private const val FETCH_STEPS = 12
         private const val FETCH_STEP = 20_000.0
         private const val FETCH_SPEED = 6.0
 
-        /** The ripple on even the stillest sea: its height, m, and period, s. */
+        /** The ripple on even the stillest sea: its height in metres and period in seconds. */
         private const val FLOOR_HS = 0.15
         private const val FLOOR_PERIOD = 2.5
 
-        /** Trains running this nearly straight up or down here are left out. */
+        /** Trains running almost straight up or down here are left out. */
         private const val MIN_TANGENT = 0.2
 
-        /** Steepest a train may be, as wavenumber times height. */
+        /** The steepest a train can be, as wavenumber times height. */
         private const val MAX_STEEPNESS = 0.3
 
         private const val MIN_AMPLITUDE = 0.002
 
-        /** Trains smaller than this share of the biggest here are left out. */
+        /** Trains smaller than this share of the biggest one here are left out. */
         private const val RELATIVE_AMPLITUDE = 0.04
 
-        /** Shallower than this, m, waves feel the bottom; they grow at most this much; and break at this share of the depth. */
+        /**
+         * Waves feel the bottom when it's shallower than this in metres. They grow at most this
+         * much, and break at this share of the depth.
+         */
         private const val SHOAL_DEPTH = 250.0
         private const val MAX_SHOALING = 2.0
         const val BREAKING = 0.6
 
-        /** The surface water's drift, as a share of the wind. */
+        /** The drift of the surface water, as a share of the wind. */
         private const val WIND_DRIFT = 0.015
 
-        /** Rogues: only in a storm sea at least this high, m; one patch, m, one slot, s; how rare; how big. */
+        /**
+         * Rogue waves: only in a storm sea at least this high in metres, one patch in metres, one
+         * time slot in seconds, how rare they are, and how big.
+         */
         private const val ROGUE_SEA = 5.0
         private const val ROGUE_CELL = 1_500.0
         private const val ROGUE_SLOT = 120.0

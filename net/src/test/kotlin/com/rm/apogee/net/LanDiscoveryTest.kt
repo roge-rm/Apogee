@@ -17,10 +17,9 @@ import java.util.concurrent.ConcurrentLinkedQueue
 /**
  * Announce and listen, in one process, over the machine's real interfaces.
  *
- * This genuinely opens a UDP socket on the discovery port, so it is skipped
- * rather than failed when the environment will not allow it - a build machine
- * with no usable interface, or another Apogee host already bound to the port,
- * is not a broken protocol.
+ * This really opens a UDP socket on the discovery port, so it's skipped instead of failed when the
+ * environment won't allow it. A build machine with no usable interface, or another Apogee host
+ * already bound to the port, isn't a broken protocol.
  */
 class LanDiscoveryTest {
 
@@ -65,7 +64,7 @@ class LanDiscoveryTest {
 
     @Test
     fun `a beacon round-trips through its wire form`() {
-        // The transport-independent half, which always runs.
+        // The half that doesn't depend on the transport, which always runs.
         val original = beacon("Round Trip")
         val json = kotlinx.serialization.json.Json.encodeToString(original)
         val decoded = kotlinx.serialization.json.Json.decodeFromString<ServerBeacon>(json)
@@ -83,9 +82,8 @@ class LanDiscoveryTest {
 
     @Test
     fun `a beacon from a future protocol version still parses`() {
-        // Forward compatibility: an older build must be able to read enough of a
-        // newer beacon to say "different game version" rather than crashing the
-        // browser on an unknown field.
+        // Forward compatibility. An older build has to be able to read enough of a newer beacon to
+        // say "different game version" instead of crashing the browser on an unknown field.
         val json = """
             {"serverName":"Newer","port":45678,"players":1,
              "protocolVersion":99,"catalogHash":"zzz","somethingNew":true}

@@ -9,14 +9,13 @@ import kotlinx.serialization.encoding.Encoder
 /**
  * Serialisation for the math types.
  *
- * [Vec3] and [Quat] are mutable classes - which is right for a simulation that
- * must not allocate per tick, but wrong for `@Serializable`, which wants an
- * immutable shape. These surrogates bridge the two: the wire and disk formats
- * are plain immutable records, and the conversion happens at the boundary.
+ * [Vec3] and [Quat] are mutable classes, which is right for a simulation that mustn't allocate
+ * every tick, but wrong for `@Serializable`, which wants something immutable. These stand-ins
+ * bridge the two. The network and disk formats are plain immutable records, and the conversion
+ * happens at the boundary.
  *
- * The same format serves part definitions (hand-edited JSON), craft designs
- * (save files) and network snapshots, so a field name chosen here is a field
- * name in all three.
+ * The same format covers part definitions (hand-edited JSON), craft designs (save files) and
+ * network snapshots, so a field name picked here is a field name in all three.
  */
 @Serializable
 private data class Vec3Surrogate(val x: Double, val y: Double, val z: Double)
@@ -50,13 +49,13 @@ object QuatSerializer : KSerializer<Quat> {
 
     override fun deserialize(decoder: Decoder): Quat {
         val s = decoder.decodeSerializableValue(QuatSurrogate.serializer())
-        // Anything arriving from disk or the network is untrusted: a
-        // non-normalised quaternion would quietly shear every mesh attached to
-        // it, so normalise on the way in rather than trusting the source.
+        // Anything coming from disk or the network can't be trusted. A quaternion that isn't
+        // normalised would quietly shear every mesh attached to it, so normalise it on the way in
+        // instead of trusting the source.
         return Quat(s.x, s.y, s.z, s.w).normalizeInPlace()
     }
 }
 
-/** Convenience aliases for `@Serializable` properties. */
+/** Shorthand aliases for `@Serializable` properties. */
 typealias SerialVec3 = @Serializable(with = Vec3Serializer::class) Vec3
 typealias SerialQuat = @Serializable(with = QuatSerializer::class) Quat

@@ -14,15 +14,14 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 /**
- * The sea to draw: sampled from the same [Sea] the physics floats boats on,
- * round the craft being flown, on a worker.
+ * The sea to draw, sampled from the same [Sea] the physics floats boats on, around the craft being
+ * flown, on a worker.
  *
- * Laid out as rings about the craft - vertices a few tens of centimetres
- * apart at its hull, growing outward in step with how far apart they are
- * round each ring, out to [reach]. Centred on the craft, so the water is
- * finest exactly where a hull meets it, and moves with it rather than
- * crawling past. Waves too short to show at a ring's spacing are left out
- * there - they would only alias.
+ * It's laid out as rings around the craft, with vertices a few tens of centimetres apart at its
+ * hull, growing outward in step with how far apart they are around each ring, out to [reach]. It's
+ * centred on the craft, so the water is finest exactly where a hull meets it, and moves with it
+ * instead of crawling past. Waves too short to show at a ring's spacing are left out there, because
+ * they'd only alias.
  */
 class SeaScene(
     val body: CelestialBody,
@@ -32,33 +31,35 @@ class SeaScene(
     private val scope: kotlinx.coroutines.CoroutineScope,
 ) {
     /**
-     * For building, off the frame thread: one each for the workers that
-     * share a build, since a sea keeps caches that are not for sharing.
+     * For building, off the frame thread: one for each of the workers that share a build, since a
+     * sea keeps caches that aren't for sharing.
      */
     private val builders = Array(WORKERS) { Builder(Sea(body, moon, config?.let { Weather(body, it) }, config?.seed ?: 0)) }
 
-    /** For the frame thread: the tide under the camera, and whether it is under the water. */
+    /** For the frame thread: the tide under the camera, and whether it's under the water. */
     private val frameSea = Sea(body, moon, config?.let { Weather(body, it) }, config?.seed ?: 0)
     private val frameSample = SeaSample()
 
-    /** A sea of something lighter than water: Aurantia's methane. */
+    /** A sea of something lighter than water, like Aurantia's methane. */
     private val methane = (body.ocean?.density ?: 1_025.0) < 800.0
 
-    /** How far round the camera the waves are drawn, m. */
+    /** How far around the camera the waves are drawn, in metres. */
     val reach: Double = when (tier) {
         QualityTier.LOW -> 6_000.0
         QualityTier.MEDIUM -> 12_000.0
         QualityTier.HIGH -> 20_000.0
     }
 
-    /** Vertices round each ring. */
+    /** Vertices around each ring. */
     private val segments = when (tier) {
         QualityTier.LOW -> 48
         QualityTier.MEDIUM -> 72
         QualityTier.HIGH -> 96
     }
 
-    /** Ring radii, m: from the innermost out past [reach], each a step bigger in proportion. */
+    /**
+     * Ring radii, in metres, from the innermost out past [reach], each a step bigger in proportion.
+     */
     private val radii: DoubleArray = run {
         val grow = 1.0 + 2.0 * Math.PI / segments
         val list = ArrayList<Double>()
@@ -74,7 +75,10 @@ class SeaScene(
     @Volatile var latest: SeaSurface? = null
         private set
 
-    /** Whether [latest] is a sea worked out, rather than the flat stand-in drawn until the first is. */
+    /**
+     * Whether [latest] is a sea that's been worked out, as opposed to the flat stand-in drawn until
+     * the first one is.
+     */
     @Volatile var built = false
         private set
     @Volatile private var building = false
@@ -83,40 +87,40 @@ class SeaScene(
     private var lastStartedNanos = 0L
 
     /**
-     * What the sea is like at each vertex - depth, tide, how big each wave
-     * train is there - kept from build to build: it changes over tens of
-     * metres and seconds, where the waves change every frame. Each vertex's
-     * is worked out again when it has moved a good part of its spacing, or
-     * has grown old. See [Sea.Prepared].
+     * What the sea is like at each vertex (depth, tide, how big each wave train is there), kept
+     * from build to build. It changes over tens of metres and seconds, whereas the waves change
+     * every frame. Each vertex's is worked out again when it has moved a good part of its spacing,
+     * or has got old. See [Sea.Prepared].
      */
     private val prepared = arrayOfNulls<Sea.Prepared>(1 + radii.size * segments)
     private val preparedAt = DoubleArray(3 * (1 + radii.size * segments))
     private val preparedTime = DoubleArray(1 + radii.size * segments) { Double.NaN }
 
-    /** How far a vertex may move before it is prepared again, m: see [REPREPARE_METRES]. For this build. */
+    /**
+     * How far a vertex can move before it's prepared again, in metres. See [REPREPARE_METRES]. For
+     * this build.
+     */
     @Volatile private var reprepareMetres = REPREPARE_METRES
 
     /**
-     * Asks for the sea round body-fixed [centre] at [time] - if one is not
-     * already being built. Built for a moment ahead, by as long as the last
-     * one took, so it is drawn nearly on time.
+     * Asks for the sea around body-fixed [centre] at [time], if one isn't already being built. It's
+     * built for a moment ahead, by as long as the last one took, so it's drawn nearly on time.
      */
     fun update(centre: Vec3, time: Double) {
         if (building) return
-        // Nothing to draw yet: flat water at once, while the first real sea
-        // is worked out - rather than a second or more of bare sea bed.
+        // Nothing to draw yet, so flat water straight away while the first real sea is worked out,
+        // instead of a second or more of bare seabed.
         if (latest == null) latest = placeholder(centre, time)
-        // Ten a second is plenty: the renderer carries each on a moment by
-        // how fast its water is rising, and building back to back kept two
-        // cores busy for nothing.
+        // Ten a second is plenty. The renderer carries each one on for a moment by how fast its
+        // water is rising, and building back to back kept two cores busy for nothing.
         val now = System.nanoTime()
         if (now - lastStartedNanos < MIN_BUILD_NANOS) return
         lastStartedNanos = now
         building = true
         val at = centre.copy()
-        // No more than [MAX_AHEAD] ahead: a slow build - the first, in a new
-        // place - would otherwise send the next one so far on that every
-        // vertex's prepared sea was stale by then, making it slow in turn.
+        // No more than [MAX_AHEAD] ahead. A slow build (the first, in a new place) would otherwise
+        // send the next one so far on that every vertex's prepared sea would be stale by then,
+        // which would make it slow in turn.
         val ahead = time + kotlin.math.min(lastBuildMillis / 1_000.0, MAX_AHEAD)
         scope.launch(BUILD) {
             val started = System.nanoTime()
@@ -124,8 +128,8 @@ class SeaScene(
                 latest = kotlinx.coroutines.coroutineScope { build(this, at, ahead) }
                 built = true
                 lastBuildMillis = (System.nanoTime() - started) / 1e6
-                // The sea state round the craft for the next while, worked out
-                // here rather than by the flight's own step when it gets there.
+                // The sea state around the craft for the next while, worked out here instead of by
+                // the flight's own step when it gets there.
                 builders[0].sea.prefetch(at, ahead)
             } finally {
                 building = false
@@ -133,25 +137,25 @@ class SeaScene(
         }
     }
 
-    /** The sea at body-fixed [position] into [out], for the frame thread: spray, wakes. */
+    /** The sea at body-fixed [position] into [out], for the frame thread: spray and wakes. */
     fun sampleInto(position: Vec3, time: Double, out: SeaSample) { frameSea.sample(position, time, out) }
 
     /** The sea at body-fixed [position] now, for the frame thread. */
     fun sampleAt(position: Vec3, time: Double): SeaSample = frameSea.sample(position, time, frameSample)
 
-    /** Whether body-fixed [position] is under the sea, [here] being the sea sampled there. */
+    /** Whether body-fixed [position] is under the sea, with [here] being the sea sampled there. */
     fun isUnder(position: Vec3, here: SeaSample): Boolean = here.depth > 0.0 && position.length < body.radius + here.height
 
 
-    /** One worker's share of a build: its own sea and scratch. */
+    /** One worker's share of a build: its own sea and scratch space. */
     private inner class Builder(val sea: Sea) {
         val sample = SeaSample()
         val direction = Vec3()
 
         /**
-         * Vertex [index] into [out]. Past [deadline] (ns), one that is not
-         * [near] is prepared no more: it keeps what it was last prepared
-         * with, if that was close by, or is drawn as flat water at [tide].
+         * Vertex [index] into [out]. Past [deadline] (ns), one that isn't [near] isn't prepared any
+         * more. It keeps what it was last prepared with, if that was close by, or it's drawn as
+         * flat water at [tide].
          */
         fun vertex(
             out: FloatArray, index: Int, origin: Vec3, e: Vec3, n: Vec3, x: Double, y: Double, spacing: Double, time: Double,
@@ -163,7 +167,7 @@ class SeaScene(
             val dx = direction.x - preparedAt[o3]; val dy = direction.y - preparedAt[o3 + 1]; val dz = direction.z - preparedAt[o3 + 2]
             val moved = kotlin.math.sqrt(dx * dx + dy * dy + dz * dz) * body.radius
             val age = time - preparedTime[index]
-            // Staggered, so the refreshes do not all fall in one build.
+            // Staggered, so the refreshes don't all fall in one build.
             val stale = REPREPARE_SECONDS * (1.0 + 0.5 * ((index * 0x9E3779B1L).toInt() ushr 24) / 255.0)
             if (!(age in 0.0..stale) || moved > kotlin.math.max(REPREPARE_SHARE * spacing, reprepareMetres)) {
                 if (near || System.nanoTime() < deadline) {
@@ -176,10 +180,10 @@ class SeaScene(
                 }
             }
             sea.surface(direction, time, p, sample, spacing)
-            // Over dry land, sunk under it: left at the tide's height, the
-            // coarse water far off and the coarse ground crossed each other
-            // facet by facet along every low coast, a speckle of sea and sand
-            // seen from high up (Dan). Sunk, the coast is where they cross.
+            // Over dry land, sunk under it. Left at the tide's height, the coarse water far off and
+            // the coarse ground crossed each other facet by facet along every low coast, which
+            // looked like a speckle of sea and sand from high up. I noticed it and didn't like it.
+            // Sunk, the coast is where they cross.
             val height = if (sample.depth <= 0.0) {
                 minOf(sample.height, sample.tide - sample.depth - kotlin.math.max(DRY_SINK, DRY_SINK_SHARE * spacing))
             } else sample.height
@@ -193,7 +197,7 @@ class SeaScene(
             out[o + 10] = sample.rise.toFloat()
         }
 
-        /** Vertex [index] at [direction] as open water, flat at [tide], until there is time to work it out. */
+        /** Vertex [index] at [direction] as open water, flat at [tide], until there's time to work it out. */
         private fun flat(out: FloatArray, index: Int, origin: Vec3, tide: Double) {
             val radius = body.radius + tide
             val o = index * SeaSurface.STRIDE
@@ -216,11 +220,10 @@ class SeaScene(
         val n = Vec3().setTo(up).crossInPlace(e).normalizeInPlace()
         val count = 1 + radii.size * segments
         val vertices = FloatArray(count * SeaSurface.STRIDE)
-        // Seen from well above, the finest rings round the middle are finer
-        // than anything that can be made out, and cost the most to keep up
-        // with a fast camera: inside a radius growing with the height, the
-        // rings collapse onto the middle, drawn as one fan out to the first
-        // ring kept.
+        // Seen from well above, the finest rings around the middle are finer than anything you can
+        // make out, and they cost the most to keep up with a fast camera. So inside a radius that
+        // grows with the height, the rings collapse onto the middle and get drawn as one fan out to
+        // the first ring kept.
         val height = kotlin.math.max(0.0, centre.length - body.radius)
         val collapse = height * COLLAPSE_SHARE
         var kept = 0
@@ -228,14 +231,13 @@ class SeaScene(
         reprepareMetres = kotlin.math.max(REPREPARE_METRES, height * REPREPARE_HEIGHT_SHARE)
         builders[0].vertex(vertices, 0, origin, e, n, 0.0, 0.0, 0.05, time)
         val tide = builders[0].sample.tide
-        // Somewhere new - the first build, or flying fast over fresh sea -
-        // the sea state out there takes seconds to work out while the
-        // terrain is being built too. The water near the craft is always
-        // worked out; further off, only for so long, the rest filled in by
-        // the builds that follow, and meanwhile drawn as flat water.
+        // Somewhere new (the first build, or flying fast over fresh sea), the sea state out there
+        // takes seconds to work out while the terrain is being built too. The water near the craft
+        // is always worked out. Further off, it's only worked out for so long, and the rest gets
+        // filled in by the builds that follow, drawn as flat water in the meantime.
         val deadline = System.nanoTime() + OUTER_BUDGET_NANOS
         val step = 2.0 * Math.PI / segments
-        // Rings dealt out in turn, so each worker has near and far alike.
+        // Rings are dealt out in turn, so each worker gets near and far alike.
         val jobs = builders.mapIndexed { w, builder ->
             scope.async(BUILD) {
                 var ring = w
@@ -247,8 +249,8 @@ class SeaScene(
                     }
                     val r = radii[ring]
                     val spacing = r * step
-                    // Every other ring turned half a step: the triangles come
-                    // out near equilateral rather than as slivers.
+                    // Every other ring is turned half a step, so the triangles come out nearly
+                    // equilateral instead of as slivers.
                     val turn = if (ring % 2 == 0) 0.0 else 0.5 * step
                     var v = 1 + ring * segments
                     for (k in 0 until segments) {
@@ -265,9 +267,9 @@ class SeaScene(
     }
 
     /**
-     * The rings laid flat at the datum in deep water's colour, round
-     * body-fixed [centre]: no sea worked out at all, so quick enough for the
-     * frame thread. Only until the first build lands.
+     * The rings laid flat at the datum in deep water's colour, around body-fixed [centre]. No sea
+     * is worked out at all, so it's quick enough for the frame thread. It's only used until the
+     * first build lands.
      */
     private fun placeholder(centre: Vec3, time: Double): SeaSurface {
         val up = centre.copy().normalizeInPlace()
@@ -300,10 +302,9 @@ class SeaScene(
     }
 
     /**
-     * The water's colour here, and how see-through: deep blue out at sea,
-     * turquoise over the shallows - clear enough there to see the bed -
-     * lighter on the crests, grey-green under a storm, and white where it
-     * breaks: whitecaps, storm crests, and surf along the shore.
+     * The water's colour here, and how see-through it is: deep blue out at sea, turquoise over the
+     * shallows (clear enough there to see the bottom), lighter on the crests, grey-green under a
+     * storm, and white where it breaks, with whitecaps, storm crests, and surf along the shore.
      */
     private fun colour(s: SeaSample, at: Vec3, out: FloatArray, o: Int, spacing: Double) {
         val depth = s.depth
@@ -313,29 +314,28 @@ class SeaScene(
         var g = DEEP_G + (MID_G - DEEP_G) * mid + (SHALLOW_G - MID_G) * shallow
         var b = DEEP_B + (MID_B - DEEP_B) * mid + (SHALLOW_B - MID_B) * shallow
         if (methane) {
-            // Liquid methane: dark and brown, glassy, amber over the shallows.
+            // Liquid methane: dark and brown, glassy, and amber over the shallows.
             r = 0.06 + 0.10 * shallow; g = 0.045 + 0.07 * shallow; b = 0.025 + 0.03 * shallow
         }
-        // Crests lighter and greener, where the light comes through them.
+        // Crests are lighter and greener, where the light comes through them.
         val crest = if (s.significantHeight > 0.05) smooth(0.1, 0.6, (s.height - s.tide) / s.significantHeight) else 0.0
         if (!methane) { r += 0.03 * crest; g += 0.09 * crest; b += 0.05 * crest }
         // A storm sea: grey and hard.
         val storm = smooth(1.0, 8.0, s.stormHeight)
         r += (STORM_R - r) * storm * 0.7; g += (STORM_G - g) * storm * 0.7; b += (STORM_B - b) * storm * 0.7
-        // Foam: patchy, not a wash - each facet foams or not by its own hash.
+        // Foam is patchy, not a wash. Each facet foams or doesn't by its own hash.
         val r0 = body.radius * FOAM_GRAIN
         val speckle = com.rm.apogee.core.terrain.Noise.hash(
             0xF0A, Math.floor(at.x * r0).toInt(), Math.floor(at.y * r0).toInt(), Math.floor(at.z * r0).toInt(),
         )
-        // Surf only where the rings are fine enough to draw it: out where
-        // they are tens of metres apart it was a scatter of white facets
-        // along every shore.
+        // Surf only where the rings are fine enough to draw it. Out where they're tens of metres
+        // apart it was a scatter of white facets along every shore.
         val surf = if (depth in 0.0..1.2 && s.significantHeight > 0.2 && spacing < SURF_SPACING) 1.0 - depth / 1.2 else 0.0
         val foam = kotlin.math.max(s.breaking, surf)
         val white = if (foam > 0.05 && speckle < foam * 1.2) 1.0 else 0.0
         r += (FOAM - r) * white; g += (FOAM - g) * white; b += (FOAM_B - b) * white
         out[o] = r.toFloat(); out[o + 1] = g.toFloat(); out[o + 2] = b.toFloat()
-        // See-through over the shallows; solid where deep, or foaming.
+        // See-through over the shallows, and solid where it's deep or foaming.
         val alpha = (0.35 + 0.57 * smooth(0.5, 20.0, depth)).coerceAtLeast(white)
         out[o + 3] = alpha.toFloat()
     }
@@ -375,30 +375,29 @@ class SeaScene(
         /** Workers sharing a build. */
         const val WORKERS = 2
 
-        /** The furthest ahead a build is made for, s. */
+        /** The furthest ahead a build is made for, in seconds. */
         const val MAX_AHEAD = 0.5
 
-        /** Out to here, m, the sea is worked out in full on every build. */
+        /** Out to here, in metres, the sea is worked out in full on every build. */
         const val NEAR_REACH = 2_000.0
 
-        /** How long a build may spend working out the sea beyond [NEAR_REACH] afresh, ns. */
+        /** How long a build can spend working out the sea beyond [NEAR_REACH] afresh, in ns. */
         const val OUTER_BUDGET_NANOS = 200_000_000L
 
         /**
-         * Past the budget, a vertex keeps what it was last prepared with
-         * unless it has moved more than this many of its spacings, or
-         * [KEEP_METRES], since.
+         * Past the budget, a vertex keeps what it was last prepared with unless it has moved more
+         * than this many of its spacings, or [KEEP_METRES], since then.
          */
         const val KEEP_SPACINGS = 2.0
         const val KEEP_METRES = 1_000.0
 
-        /** Builds no closer together than this, ns: ten a second. */
+        /** Builds no closer together than this, in ns: ten a second. */
         const val MIN_BUILD_NANOS = 100_000_000L
 
         /**
-         * A vertex's [Sea.Prepared] is worked out again once it has moved
-         * this share of its spacing or [REPREPARE_METRES], whichever is
-         * more, or is this many seconds old (half as long again, staggered).
+         * A vertex's [Sea.Prepared] is worked out again once it has moved this share of its spacing
+         * or [REPREPARE_METRES], whichever is more, or is this many seconds old (half as long
+         * again, staggered).
          */
         const val REPREPARE_SHARE = 0.25
         const val REPREPARE_METRES = 10.0
@@ -407,19 +406,18 @@ class SeaScene(
         /** Rings inside this share of the camera's height above the sea collapse onto the middle. */
         const val COLLAPSE_SHARE = 0.1
 
-        /** High up, a vertex is prepared again only once it has moved this share of the camera's height. */
+        /** High up, a vertex is only prepared again once it has moved this share of the camera's height. */
         const val REPREPARE_HEIGHT_SHARE = 0.1
 
         /**
-         * The sea's own threads, just below normal priority, rather than
-         * the shared pool: a build is long and never pauses, and with the
-         * terrain and scatter workers it could take every thread the shared
-         * pool has on a four-core phone - the game server's among them, and
+         * The sea's own threads, just below normal priority, instead of the shared pool. A build is
+         * long and never pauses, and together with the terrain and scatter workers it could take
+         * every thread the shared pool has on a four-core phone, including the game server's, and
          * the world would stop.
          */
         val BUILD = workerPool("sea-build", WORKERS)
 
-        /** The innermost ring, m from the centre. */
+        /** The innermost ring, in metres from the centre. */
         const val INNERMOST = 0.35
 
         // Deep ocean, the middle depths, and turquoise shallows.
@@ -430,11 +428,14 @@ class SeaScene(
         const val STORM_R = 0.20; const val STORM_G = 0.30; const val STORM_B = 0.33
         const val FOAM = 0.93; const val FOAM_B = 0.97
 
-        /** Water over dry land is drawn this far under it, m, or this share of the rings' spacing if more. */
+        /**
+         * Water over dry land is drawn this far under it, in metres, or this share of the rings'
+         * spacing if that's more.
+         */
         const val DRY_SINK = 2.0
         const val DRY_SINK_SHARE = 0.03
 
-        /** Surf is drawn only where the rings are closer than this, m. */
+        /** Surf is only drawn where the rings are closer together than this, in metres. */
         const val SURF_SPACING = 25.0
 
         /** Foam patches per metre, as the grain its speckle is hashed on. */

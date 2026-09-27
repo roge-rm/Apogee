@@ -52,9 +52,8 @@ import com.rm.apogee.ui.theme.TelemetryTextStyle
 import com.rm.apogee.ui.theme.alpha
 
 /**
- * The player's craft. Tap for the list of them all - fly any, or take one
- * out of the world; hold to retire the one being flown and go back to the
- * menu.
+ * The player's craft. Tap it for the list of them all, where you can fly any of them or take one
+ * out of the world. Hold it to retire the one you're flying and go back to the menu.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -83,7 +82,7 @@ fun CraftSwitcher(
                 ),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(Icons.Filled.SwapHoriz, contentDescription = "Your craft - hold to retire this one")
+                Icon(Icons.Filled.SwapHoriz, contentDescription = "Your craft. Hold to retire this one")
             }
         }
         if (listOpen) {
@@ -108,8 +107,8 @@ fun CraftSwitcher(
             title = { Text("Remove \"${doomed.name}\"?") },
             text = {
                 Text(
-                    if (doomed.id == current()) "It is taken out of the world for good, and you go back to the menu."
-                    else "It is taken out of the world for good. The design stays in Vehicle Assembly if you saved it.",
+                    if (doomed.id == current()) "It's taken out of the world for good, and you go back to the menu."
+                    else "It's taken out of the world for good. The design stays in Vehicle Assembly if you saved it.",
                 )
             },
             confirmButton = {
@@ -126,7 +125,7 @@ fun CraftSwitcher(
         AlertDialog(
             onDismissRequest = { retireAsked = false },
             title = { Text("Retire this craft?") },
-            text = { Text("It is taken out of the world for good, and you go back to the menu.") },
+            text = { Text("It's taken out of the world for good, and you go back to the menu.") },
             confirmButton = {
                 TextButton(onClick = { retireAsked = false; onRetire() }) { Text("Retire", color = ApogeeColors.Danger) }
             },

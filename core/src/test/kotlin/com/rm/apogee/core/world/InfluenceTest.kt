@@ -10,17 +10,16 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Passing from one body's pull into another's: into Luna's on the way out
- * from Terra, and back into Terra's on the way home - the same place and
- * motion either side, measured from a new centre.
+ * Passing from one body's pull into another's: into Luna's on the way out from Terra, and back into
+ * Terra's on the way home. It's the same place and motion either side, measured from a new centre.
  */
 class InfluenceTest {
     private val catalog = StockParts.catalog
     private val dt = 1.0 / 60.0
 
     /**
-     * A probe [outside] metres beyond Luna's sphere of influence, on the
-     * side toward Terra, closing on Luna at [closing] m/s: in Terra's pull.
+     * A probe [outside] metres beyond Luna's sphere of influence, on the side toward Terra, closing
+     * on Luna at [closing] m/s, in Terra's pull.
      */
     private fun approaching(world: World, outside: Double, closing: Double): Vessel {
         val system = world.system
@@ -47,8 +46,8 @@ class InfluenceTest {
             track.add(absolute(world, probe))
         }
         assertEquals("never entered Luna's pull", "luna", probe.referenceBodyId)
-        // Smooth through the handover: each tick's move differs from the last
-        // by what the pull changes it by, a few micrometres - not by a jump.
+        // Smooth through the handover. Each tick's move differs from the last by what the pull
+        // changes it by, a few micrometres, not by a jump.
         for (i in 1 until track.size - 1) {
             val bend = Vec3().setTo(track[i + 1]).subInPlace(track[i]).subInPlace(track[i]).addInPlace(track[i - 1]).length
             assertTrue("jumped ${bend} m at tick $i", bend < 1e-3)
@@ -58,7 +57,7 @@ class InfluenceTest {
     }
 
     @Test
-    fun `on rails too it changes body where it crosses, and ends where stepping would`() {
+    fun `on rails too it changes body where it crosses, and ends up where stepping would`() {
         val stepped = World.default(catalog)
         val a = approaching(stepped, outside = 1_000.0, closing = 500.0)
         repeat((20.0 / dt).toInt()) { stepped.step(dt) }
@@ -87,14 +86,14 @@ class InfluenceTest {
         val before = absolute(world, probe)
         repeat((1.0 / dt).toInt()) { world.step(dt) }
         assertEquals("terra", probe.referenceBodyId)
-        // It went about 400 m, in Luna's frame - wherever that took it in Terra's.
+        // It went about 400 m in Luna's frame, wherever that took it in Terra's.
         val lunaMoved = world.system.positionOf("luna", world.time).subInPlace(world.system.positionOf("luna", world.time - 1.0))
         val moved = absolute(world, probe).subInPlace(before).subInPlace(lunaMoved).length
         assertEquals(400.0, moved, 2.0)
     }
 
     @Test
-    fun `a craft in low orbit about Terra stays Terra's`() {
+    fun `a craft in low orbit around Terra stays Terra's`() {
         val world = World.default(catalog)
         val terra = world.system.body("terra")
         val r = terra.radius + 100_000.0

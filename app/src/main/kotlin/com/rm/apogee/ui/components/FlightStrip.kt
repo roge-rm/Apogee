@@ -38,16 +38,14 @@ import kotlin.math.roundToInt
 data class StripField(val label: String, val value: String, val colour: Color = ApogeeColors.Data)
 
 /**
- * The three or four numbers that matter for what the craft is doing now -
- * the rest of the panel is a tap away. Sitting on the ground: how fast it
- * rolls, which way it faces, and the moon's window when there is one.
- * Low, or in the air: how high (above the ground, under two kilometres),
- * climbing or sinking, how fast through the air, and a strong wind. Out
- * of the air: the orbit's high and low points, the time to the high one,
- * and the speed. A target, when there is one, takes the last place: how
- * far. A dangerous load of air always shows. Under the sea: how deep,
- * how far above its floor, climbing or sinking, and how fast - slow
- * enough there to want the tenths.
+ * The three or four numbers that matter for what the craft is doing right now. The rest of the
+ * panel is a tap away. Sitting on the ground, it's how fast it's rolling, which way it faces, and
+ * the moon's window when there is one. Low, or in the air, it's how high (above the ground, under
+ * two kilometres), climbing or sinking, how fast through the air, and a strong wind. Out of the
+ * air, it's the orbit's high and low points, the time to the high one, and the speed. A target,
+ * when there is one, takes the last place, showing how far. A dangerous load of air always shows.
+ * Under the sea, it's how deep, how far above the floor, climbing or sinking, and how fast, which
+ * is slow enough down there to want the tenths.
  */
 fun stripFields(t: FlightTelemetry): List<StripField> {
     if (t.destroyed != null) return emptyList()
@@ -105,8 +103,8 @@ fun stripFields(t: FlightTelemetry): List<StripField> {
 }
 
 /**
- * The flight strip: one slim line of [stripFields] along the top edge,
- * tapped to open the whole panel under it, and again to fold it away.
+ * The flight strip: one slim line of [stripFields] along the top edge. Tap it to open the whole
+ * panel under it, and again to fold it away.
  */
 @Composable
 fun FlightStrip(
@@ -116,7 +114,9 @@ fun FlightStrip(
     twoColumns: Boolean,
     power: com.rm.apogee.game.HudState.PowerReadout?,
     modifier: Modifier = Modifier,
-    /** Numbers to a line: two in portrait, beside the top-left buttons; all of them in landscape. */
+    /**
+     * Numbers per line: two in portrait, beside the top-left buttons, and all of them in landscape.
+     */
     perLine: Int = MAX_FIELDS + 1,
 ) {
     Column(modifier, horizontalAlignment = Alignment.End) {
@@ -149,7 +149,7 @@ fun FlightStrip(
     }
 }
 
-/** One number: its name small above it, so a line of them stays narrow. */
+/** One number, with its name small above it so a line of them stays narrow. */
 @Composable
 private fun Cell(field: StripField) {
     Column(horizontalAlignment = Alignment.End) {
@@ -162,23 +162,23 @@ private val LabelText = TelemetryTextStyle.copy(fontSize = 9.sp, lineHeight = 10
 
 private const val MAX_FIELDS = 4
 
-/** Under this height and speed the craft is on the ground, m and m/s. */
+/** Under this height and speed the craft is on the ground, in m and m/s. */
 private const val GROUND_HEIGHT = 50.0
 private const val GROUND_SPEED = 5.0
 
-/** Below this it is low flying, whatever the air, m. */
+/** Below this it's low flying, whatever the air, in metres. */
 private const val LOW_HEIGHT = 20_000.0
 
-/** Under this, height above the ground rather than above the datum, m. */
+/** Under this, it's height above the ground instead of above the datum, in metres. */
 private const val AGL_BELOW = 2_000.0
 
-/** Wind worth a place on the strip, m/s. */
+/** Wind worth a place on the strip, in m/s. */
 private const val STRONG_WIND = 15.0
 
-/** Deeper than this the craft is under the sea, not riding on it, m. */
+/** Deeper than this the craft is under the sea, not riding on it, in metres. */
 private const val UNDER_DEPTH = 1.5
 
-/** Closer than this to the sea's floor is worth a warning colour, m. */
+/** Closer than this to the sea floor is worth a warning colour, in metres. */
 private const val FLOOR_NEAR = 10.0
 
 internal val TARGET_COLOUR = Color(0xFFFF5FD2)
@@ -190,8 +190,8 @@ internal fun TelemetryPanel(
     twoColumns: Boolean = false,
     power: com.rm.apogee.game.HudState.PowerReadout? = null,
 ) {
-    // Two columns in landscape - near the ground, then the orbit and target -
-    // where one tall column ran down over the roll and SAS buttons.
+    // Two columns in landscape (near the ground, then the orbit and target), where one tall column
+    // used to run down over the roll and SAS buttons.
     val panel = modifier
         .clip(RoundedCornerShape(Dimens.CornerSmall))
         .background(Color.Black.alpha(ApogeeAlpha.SCRIM))
@@ -210,11 +210,11 @@ internal fun TelemetryPanel(
     }
 }
 
-/** Charge and what it holds, and whether it is filling or draining: only on a craft with a battery. */
+/** Charge, what it holds, and whether it's filling or draining. Only on a craft with a battery. */
 @Composable
 private fun PowerReadout(power: com.rm.apogee.game.HudState.PowerReadout?) {
     if (power == null) return
-    // What the ground below holds, by a scanner low enough.
+    // What the ground below holds, from a scanner that's low enough.
     if (power.ore >= 0f) {
         Spacer(Modifier.height(4.dp))
         Readout("GROUND", "ORE ${(power.ore * 100).roundToInt()}%  H2O ${(power.water * 100).roundToInt()}%")
@@ -249,9 +249,9 @@ private fun PowerReadout(power: com.rm.apogee.game.HudState.PowerReadout?) {
 @Composable
 private fun SurfaceReadouts(telemetry: FlightTelemetry) {
     Readout("ALT", formatDistance(telemetry.altitude))
-    // Above the ground, not above the datum. The launch complex sits most
-    // of a kilometre up, so the two disagree from the moment you spawn,
-    // and only one of them tells you whether you are about to land.
+    // Above the ground, not above the datum. The launch complex sits most of a kilometre up, so the
+    // two disagree from the moment you spawn, and only one of them tells you whether you're about
+    // to land.
     if (telemetry.heightAboveGround < 20_000.0) {
         Readout(
             "AGL",
@@ -268,15 +268,15 @@ private fun SurfaceReadouts(telemetry: FlightTelemetry) {
         colour = if (telemetry.verticalSpeed < -10.0 && telemetry.heightAboveGround < 500.0) ApogeeColors.Caution else ApogeeColors.Data,
     )
     Readout("HDG", "%03d\u00b0".format(telemetry.heading.roundToInt() % 360))
-    // Through the air, and the air itself - only where there is some.
+    // Through the air, and the air itself, only where there is some.
     if (telemetry.inAir) {
         Readout("AIR", "${telemetry.airspeed.roundToInt()} m/s")
         val windColour = if (telemetry.windSpeed > 15.0) ApogeeColors.Caution else ApogeeColors.Data
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("WIND", style = TelemetryTextStyle, color = Color.White.alpha(ApogeeAlpha.SUBTITLE))
             Spacer(Modifier.width(10.dp))
-            // The way it blows, as seen on screen: turned smoothly, not
-            // snapped to eight points, so it lines up with the windsock.
+            // The way it blows, as seen on screen. It turns smoothly instead of snapping to eight
+            // points, so it lines up with the windsock.
             if (telemetry.windSpeed >= 0.5) {
                 androidx.compose.material3.Icon(
                     androidx.compose.material.icons.Icons.Filled.ArrowUpward,
@@ -302,8 +302,8 @@ private fun OrbitReadouts(telemetry: FlightTelemetry) {
     )
     Readout(
         "PE",
-        // A periapsis underground is not a number, it is a warning: it
-        // means the current trajectory ends in the ground.
+        // A periapsis underground isn't a number, it's a warning. It means the current path ends in
+        // the ground.
         if (telemetry.periapsisAltitude < 0) "suborbital"
         else formatDistance(telemetry.periapsisAltitude),
         colour = if (telemetry.periapsisAltitude < 0) ApogeeColors.Caution
@@ -312,8 +312,8 @@ private fun OrbitReadouts(telemetry: FlightTelemetry) {
     if (telemetry.timeToApoapsis.isFinite() && telemetry.apoapsisAltitude > 1_000) {
         Readout("T-AP", formatDuration(telemetry.timeToApoapsis))
     }
-    // Waiting on the pad: when to go for the moon - a due-east launch then
-    // flies straight into its plane.
+    // Waiting on the pad: when to go for the moon, so a launch due east then flies straight into
+    // its plane.
     if (telemetry.lunaWindow.isFinite() && telemetry.heightAboveGround < 50.0 && telemetry.surfaceSpeed < 5.0) {
         Spacer(Modifier.height(4.dp))
         val open = telemetry.lunaWindow <= com.rm.apogee.game.GameSession.MOON_WINDOW_OPEN
@@ -357,7 +357,7 @@ private fun Readout(label: String, value: String, colour: Color = ApogeeColors.D
     }
 }
 
-/** Metres below a kilometre, kilometres above it. */
+/** Metres below a kilometre, and kilometres above it. */
 internal fun formatDistance(metres: Double): String {
     val magnitude = abs(metres)
     return when {
@@ -367,7 +367,7 @@ internal fun formatDistance(metres: Double): String {
     }
 }
 
-/** Seconds as m:ss, which is how a burn countdown is actually read. */
+/** Seconds as m:ss, which is how you actually read a burn countdown. */
 internal fun formatDuration(seconds: Double): String {
     if (!seconds.isFinite() || seconds < 0) return "--"
     val total = seconds.roundToInt()

@@ -40,7 +40,7 @@ class VesselConditionTest {
     }
 
     @Test
-    fun `a straining joint is sent, and a quiet one is not`() {
+    fun `a straining joint is sent, and a quiet one isn't`() {
         val world = World.default(catalog)
         val rocket = world.spawnOnSurface(StockCraft.starterRocket(catalog), World.launchSites.first())
         rocket.jointLoad[3] = 0.5f

@@ -5,16 +5,16 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
 /**
- * Built tiles, kept while they are in use.
+ * Built tiles, kept while they're being used.
  *
- * One per [Terrain], shared by everything that touches that ground: every
- * craft in a server's world, the client's prediction replica, the mesh
- * builder's workers. Thread-safe because those run on different threads;
- * tiles are immutable once built, so the worst a race does is build one twice.
+ * There's one per [Terrain], shared by everything that touches that ground: every craft in a
+ * server's world, the client's prediction replica, and the mesh builder's workers. It's thread-safe
+ * because those run on different threads. Tiles never change once built, so the worst a race can do
+ * is build one twice.
  *
- * Bounded, least-recently-used out. A tile is about twenty kilobytes, and a
- * craft touching the ground uses a handful; the cap is far above any real
- * working set and far below what a phone would notice.
+ * It has a size limit and throws out the least recently used first. A tile is about twenty
+ * kilobytes and a craft on the ground uses a handful, so the limit is far above any real working
+ * set and far below anything a phone would notice.
  */
 class TerrainTileCache(
     private val terrain: Terrain,
@@ -40,9 +40,9 @@ class TerrainTileCache(
     }
 
     /**
-     * The ground along a body-fixed [direction] (need not be unit length).
+     * The ground along a body-fixed [direction] (it doesn't need to be unit length).
      *
-     * @param scratch the caller's own, so concurrent callers never share one.
+     * @param scratch the caller's own, so callers running at the same time never share one.
      */
     fun ground(direction: Vec3, out: GroundPoint, scratch: Lookup) {
         val unit = scratch.unit.setTo(direction).normalizeInPlace()
@@ -66,15 +66,13 @@ class TerrainTileCache(
     private val queued: MutableSet<Long> = ConcurrentHashMap.newKeySet()
 
     /**
-     * One background thread per terrain, building tiles before anything
-     * stands on them.
+     * One background thread per terrain, building tiles before anything stands on them.
      *
-     * Without it a craft rolling onto unsampled ground pays for the whole tile
-     * in the tick it arrives - several milliseconds on a desktop, tens on a
-     * phone, and on the client that is a visible hitch in the predicted
-     * craft. Building ahead changes when the work is done and nothing about
-     * its result: a tile is the same whichever thread samples it, so the
-     * simulation stays deterministic.
+     * Without it, a craft rolling onto ground that hasn't been sampled pays for the whole tile in
+     * the tick it arrives. That's several milliseconds on a desktop and tens on a phone, and on the
+     * client it's a visible hitch in the predicted craft. Building ahead changes when the work gets
+     * done and nothing about the result. A tile is the same whichever thread samples it, so the
+     * simulation still gives the same answer everywhere.
      */
     private val builder by lazy {
         java.util.concurrent.Executors.newSingleThreadExecutor { runnable ->
@@ -86,12 +84,11 @@ class TerrainTileCache(
     }
 
     /**
-     * Queues every tile within [radiusMetres] of body-fixed [direction] that
-     * is not already built or queued. Cheap when there is nothing to do, so
-     * it can be asked every tick.
+     * Queues every tile within [radiusMetres] of body-fixed [direction] that isn't already built or
+     * queued. It's cheap when there's nothing to do, so it can be asked every tick.
      *
-     * Stays on the one cube face; the rare craft straddling a face edge
-     * builds the other face's tile itself, as it always could.
+     * It stays on one cube face. The rare craft sitting across a face edge builds the other face's
+     * tile itself, like it always could.
      */
     fun prefetch(direction: Vec3, radiusMetres: Double, scratch: Lookup) {
         val unit = scratch.unit.setTo(direction).normalizeInPlace()
@@ -118,7 +115,7 @@ class TerrainTileCache(
     }
 
     private fun evict() {
-        // Drop the oldest quarter in one go, rather than one tile per insert.
+        // Drop the oldest quarter in one go, instead of one tile per insert.
         synchronized(this) {
             if (tiles.size <= capacity) return
             val ordered = tiles.entries.sortedBy { it.value.lastUsed }
@@ -126,7 +123,7 @@ class TerrainTileCache(
         }
     }
 
-    /** Per-caller scratch for [ground]. */
+    /** Scratch space for each caller of [ground]. */
     class Lookup {
         val unit = Vec3()
         val faceCoords = Vec3()

@@ -1,11 +1,11 @@
-# Bridge networking instead of host networking, for Docker Desktop or for
-# anyone who wants the ports mapped explicitly.
+# Bridge networking instead of host networking, for Docker Desktop or for anyone
+# who wants the ports mapped explicitly.
 #
-#   docker compose -f docker-compose.yml -f docker-compose.bridge.yml up --build
+#     docker compose -f docker-compose.yml -f docker-compose.bridge.yml up --build
 #
-# The one thing this costs is LAN auto-discovery: the beacon is a UDP
-# broadcast, and broadcast does not cross a bridge, so phones will not see the
-# server in their Join Game list. Players enter the address by hand instead.
+# The one thing this costs is LAN auto-discovery. The beacon is a UDP broadcast,
+# and broadcast doesn't cross a bridge, so phones won't see the server in their
+# Join Game list. Players type the address in by hand instead.
 
 services:
   server:

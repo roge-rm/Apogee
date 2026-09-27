@@ -13,32 +13,30 @@ import kotlin.math.min
 import kotlin.math.sin
 
 /**
- * The air over one body: a pure function of the [config], the body's
- * terrain, the time and the place.
+ * The air over one body. It comes purely from the [config], the body's terrain, the time and the
+ * place.
  *
- * Nothing here is stepped or stored beyond caches of pure results, so the
- * server, each client's prediction replica and the renderer all compute the
- * same wind for the same place and moment - every craft in a close
- * formation is pushed by the same gust, and a saved world resumes under the
- * same sky. Each user holds its own instance: the caches are not shared
+ * Nothing here is stepped or stored apart from caches of results that never change, so the server,
+ * each client's prediction replica and the renderer all work out the same wind for the same place
+ * and moment. Every craft in a close formation gets pushed by the same gust, and a saved world
+ * comes back under the same sky. Each user keeps its own instance, because the caches aren't shared
  * between threads.
  *
- * Layers, from the top down:
- * - global circulation: trade winds, westerlies and polar easterlies by
- *   latitude, bent round drifting highs and lows, a jet stream near 10 km,
- *   and nothing above 30 km;
- * - the boundary layer, where the ground slows the wind by how rough it is,
- *   speeds it over crests, starves it in the lee and in hollows, lifts it up
- *   windward slopes and turns it down valleys ([TerrainWind]);
+ * The layers, from the top down:
+ * - global circulation: trade winds, westerlies and polar easterlies by latitude, bent around
+ *   drifting highs and lows, a jet stream near 10 km, and nothing above 30 km;
+ * - the boundary layer, where the ground slows the wind by how rough it is, speeds it up over
+ *   crests, starves it in the lee and in hollows, lifts it up windward slopes and turns it down
+ *   valleys ([TerrainWind]);
  * - thermals and their cumulus ([Convection]);
  * - storms: towers, gust fronts, rain and lightning ([Storms]);
- * - layer cloud: stratus, altostratus, cirrus;
+ * - layer cloud: stratus, altostratus and cirrus;
  * - turbulence, sampled part by part ([turbulence]).
  */
 class Weather(
     val body: CelestialBody,
     val config: WeatherConfig,
-    /** What kind of weather this world has: Terra's unless it has its own. */
+    /** What kind of weather this world has. Terra's, unless it has its own. */
     val climate: Climate = Climate.of(body.id) ?: Climate.TERRA,
 ) {
 
@@ -66,8 +64,7 @@ class Weather(
     // --- the whole sample ---------------------------------------------------------
 
     /**
-     * The air at [position] (body-fixed, metres from the centre) at [time],
-     * into [out].
+     * The air at [position] (body-fixed, metres from the centre) at [time], into [out].
      */
     fun sample(position: Vec3, time: Double, out: AirSample): AirSample {
         out.clear()
@@ -79,12 +76,12 @@ class Weather(
         frame(up, east, north)
         val still = climate.circulation == Climate.Circulation.STILL
 
-        // The ground: what it is, and how high the surface of it stands.
+        // The ground: what it is, and how high its surface stands.
         val described = terrainWind?.let { it.describe(up, descriptor); true } ?: false
         val ocean = described && descriptor[TerrainWind.OCEAN] > 0.5
         val ground = terrain?.elevation(up) ?: 0.0
         val groundTop = if (terrain?.hasOcean == true) max(ground, 0.0) else ground
-        // A giant has no ground: the whole depth of its air is free air.
+        // A giant has no ground, so the whole depth of its air is free air.
         val agl = if (climate.ground) max(altitude - groundTop, 0.5) else BOUNDARY_LAYER + 9_000.0
         val z0 = if (described) descriptor[TerrainWind.Z0] else 0.05
         val relief = if (described) descriptor[TerrainWind.RELIEF] else 0.0
@@ -94,22 +91,22 @@ class Weather(
         val freeSpeed = free.length
         if (freeSpeed > 1e-6) dir.setTo(free).mulInPlace(1.0 / freeSpeed) else dir.setTo(east)
 
-        // How far up the ground's influence reaches: more over rough ground.
+        // How far up the ground's influence reaches. It's more over rough ground.
         val terrainFade = 1.0 - smooth(0.0, 500.0 + 2.0 * relief, agl)
         var speedFactor = 1.0
         var vertical = 0.0
         var lee = 0.0
         if (described && terrainFade > 0.0) {
             val exposure = descriptor[TerrainWind.H0] - descriptor[TerrainWind.MEAN]
-            // Crests speed the wind up, hollows starve it.
+            // Crests speed the wind up, and hollows starve it.
             speedFactor = 1.0 + (exposure / 350.0).coerceIn(-0.6, 0.7)
             gradient.setTo(descriptor[TerrainWind.GRAD], descriptor[TerrainWind.GRAD + 1], descriptor[TerrainWind.GRAD + 2])
             val alongSlope = gradient dot dir
-            // Air meeting rising ground goes up it; ground falling away
-            // downwind is a lee slope, sheltered, sinking and rough.
+            // Air meeting rising ground goes up it. Ground falling away downwind is a lee slope,
+            // which is sheltered, sinking and rough.
             lee = (-alongSlope * 4.0).coerceIn(0.0, 1.0)
             speedFactor *= 1.0 - 0.55 * lee
-            // Valleys: turn the wind along them, and starve what crosses them.
+            // Valleys turn the wind along them, and starve what crosses them.
             val channel = descriptor[TerrainWind.CHANNEL]
             if (channel > 0.0) {
                 axis.setTo(descriptor[TerrainWind.AXIS], descriptor[TerrainWind.AXIS + 1], descriptor[TerrainWind.AXIS + 2])
@@ -123,7 +120,7 @@ class Weather(
             vertical = alongSlope * 0.9 * terrainFade - 0.25 * lee * terrainFade
         }
 
-        // Height: a log profile through the boundary layer, stronger aloft.
+        // Height: a log profile through the boundary layer, stronger higher up.
         val profile = if (agl < BOUNDARY_LAYER) {
             ln((agl + z0) / z0) / ln((BOUNDARY_LAYER + z0) / z0)
         } else {
@@ -135,17 +132,17 @@ class Weather(
         out.wind.addScaledInPlace(up, vertical * speed)
         out.lift = vertical * speed
 
-        // The jet stream: westerly, mid-latitudes, near ten kilometres.
+        // The jet stream: westerly, in the mid-latitudes, near ten kilometres.
         val latitude = asin(up.y.coerceIn(-1.0, 1.0))
         val jet = climate.jet * exp(-((altitude - climate.jetHeight) / 3_200.0).let { it * it }) *
             exp(-((abs(latitude) - 0.7) / 0.25).let { it * it }) * fade * intensity.wind
         out.wind.addScaledInPlace(east, jet)
-        // The upper air racing round the world, faster the higher.
+        // The upper air racing around the world, faster the higher it is.
         if (climate.superRotation != 0.0) {
             out.wind.addScaledInPlace(east, climate.superRotation * smooth(0.0, climate.superRotationHeight, altitude) * fade * intensity.wind)
         }
 
-        // Rough air: the ground, the lee, shear round the jet.
+        // Rough air from the ground, the lee, and shear around the jet.
         val mechanical = (speed / 15.0).coerceIn(0.0, 1.0) * (0.2 + 0.5 * (z0 / 1.0).coerceIn(0.0, 1.0)) *
             (1.0 - smooth(0.0, 400.0 + relief, agl))
         out.turbulence += mechanical + 0.7 * lee * terrainFade + (if (climate.jet > 0.0) 0.15 * (jet / climate.jet) else 0.0)
@@ -156,7 +153,7 @@ class Weather(
         if (climate.layers) layers(up, altitude, groundTop, time, out)
         if (climate.hasDeck) deckAt(altitude, out)
 
-        // Inside cloud there is more turbulence, by kind.
+        // Inside cloud there's more turbulence, depending on the kind.
         out.turbulence += out.cloudDensity * when (out.cloudType) {
             CloudType.CUMULONIMBUS -> 0.8
             CloudType.CUMULUS -> 0.35
@@ -166,7 +163,7 @@ class Weather(
         }
         out.turbulence = out.turbulence.coerceIn(0.0, 1.0)
 
-        // How far can be seen: rain, then cloud.
+        // How far you can see, from rain and then cloud.
         var visibility = climate.haze * (1.0 - 0.97 * out.precipitation)
         out.cloudType?.let { type ->
             if (out.cloudDensity > 0.0) visibility = min(visibility, type.visibility / max(out.cloudDensity, 0.02))
@@ -175,7 +172,7 @@ class Weather(
         return out
     }
 
-    /** The wind ten metres above the ground or sea at [direction]: what drives waves. */
+    /** The wind ten metres above the ground or sea at [direction], which is what drives waves. */
     fun surfaceWind(direction: Vec3, time: Double, out: Vec3): Vec3 {
         val ground = terrain?.elevation(direction) ?: 0.0
         val top = if (terrain?.hasOcean == true) max(ground, 0.0) else ground
@@ -188,13 +185,12 @@ class Weather(
     private val scratchSample = AirSample()
 
     /**
-     * A gust: the turbulent part of the wind at [position], for a craft whose
-     * mean wind is [meanWind] and whose air is [turbulence] rough.
+     * A gust: the turbulent part of the wind at [position], for a craft whose average wind is
+     * [meanWind] and whose air is [turbulence] rough.
      *
-     * Frozen eddies carried along by the mean wind, in three sizes - the
-     * biggest the strongest - with a slow drift of their own. Sampled per
-     * part, so a gust rolls a wing and yaws a tail rather than moving the
-     * whole craft as one.
+     * It's frozen eddies carried along by the average wind, in three sizes with the biggest the
+     * strongest, plus a slow drift of their own. It's sampled per part, so a gust rolls a wing and
+     * yaws a tail instead of moving the whole craft as one.
      */
     fun turbulence(position: Vec3, time: Double, meanWind: Vec3, turbulence: Double, out: Vec3): Vec3 {
         out.setZero()
@@ -216,8 +212,8 @@ class Weather(
     // --- circulation --------------------------------------------------------------
 
     /**
-     * The pressure pattern at unit [direction], about -1 (a deep low) to 1
-     * (a strong high). Drifts eastward as a whole and slowly reshapes itself.
+     * The pressure pattern at unit [direction], from about -1 (a deep low) to 1 (a strong high).
+     * The whole thing drifts east and slowly reshapes itself.
      */
     fun pressure(direction: Vec3, time: Double): Double {
         val angle = -PATTERN_DRIFT / radius * time
@@ -231,10 +227,9 @@ class Weather(
     }
 
     /**
-     * The free wind at unit [up] - bands by latitude, plus flow round the
-     * highs and lows - into [out], tangent to the surface. Returns the
-     * pressure there. [surfaceInflow], 0..1, tilts it in toward the lows as
-     * friction does near the ground.
+     * The free wind at unit [up] (bands by latitude, plus flow around the highs and lows), into
+     * [out], tangent to the surface. It returns the pressure there. [surfaceInflow], 0..1, tilts it
+     * in toward the lows the way friction does near the ground.
      */
     private fun circulation(up: Vec3, east: Vec3, north: Vec3, time: Double, out: Vec3, surfaceInflow: Double): Double {
         val latitude = asin(up.y.coerceIn(-1.0, 1.0))
@@ -246,8 +241,8 @@ class Weather(
         val zonal: Double
         val meridional: Double
         if (climate.circulation == Climate.Circulation.BANDED) {
-            // A giant's jets, alternating from the equator to the poles,
-            // weakening toward them.
+            // A giant's jets, alternating from the equator to the poles and getting weaker toward
+            // them.
             zonal = climate.bandSpeed * cos(climate.bands * a) * (0.35 + 0.65 * cos(a))
             meridional = 0.0
         } else {
@@ -270,18 +265,17 @@ class Weather(
             pressure(probe.setTo(up).addScaledInPlace(north, -delta).normalizeInPlace(), time)
         val scale = 350_000.0 / (2.0 * GRADIENT_STEP)
         val ge = pe * scale; val gn = pn * scale
-        // Round the highs and lows, the way the planet's turning bends it:
-        // highs on the right in the north, on the left in the south. As
-        // sin(lat) / (sin^2 + e^2): 1/sin(lat) away from the equator, and
-        // fading smoothly to nothing across it, where the turning that
-        // bends the wind is gone. Clamping the divisor to +/-0.35 instead
-        // flipped the whole flow round every time a craft crossed the line.
+        // Around the highs and lows, the way the planet's turning bends it: highs on the right in
+        // the north, on the left in the south. It goes as sin(lat) / (sin^2 + e^2), which is
+        // 1/sin(lat) away from the equator and fades smoothly to nothing across it, where the
+        // turning that bends the wind is gone. Clamping the divisor to +/-0.35 instead flipped the
+        // whole flow around every time a craft crossed the line.
         val s = sin(latitude)
         val turning = s / (s * s + EQUATORIAL * EQUATORIAL)
         val geostrophic = GEOSTROPHIC * climate.windScale
         val geoE = -geostrophic * gn * turning
         val geoN = geostrophic * ge * turning
-        // Friction near the ground: in toward the lows.
+        // Friction near the ground pulls it in toward the lows.
         val inflowE = -geostrophic * 0.35 * ge * surfaceInflow
         val inflowN = -geostrophic * 0.35 * gn * surfaceInflow
 
@@ -289,7 +283,7 @@ class Weather(
         return p0
     }
 
-    /** The low-level wind at unit [direction]: what carries a thermal along. */
+    /** The low-level wind at unit [direction], which is what carries a thermal along. */
     internal fun boundaryWind(direction: Vec3, time: Double, out: Vec3): Vec3 {
         val e = Vec3(); val n = Vec3()
         frame(direction, e, n)
@@ -307,7 +301,10 @@ class Weather(
 
     // --- the permanent deck -------------------------------------------------------
 
-    /** Inside the world-wide deck: thickest in its middle, thinning to its edges. */
+    /**
+     * Inside the deck that covers the whole world: thickest in the middle, thinning toward its
+     * edges.
+     */
     private fun deckAt(altitude: Double, out: AirSample) {
         val base = climate.deckBase; val top = climate.deckTop
         if (altitude < base || altitude > top) return
@@ -318,10 +315,9 @@ class Weather(
     // --- layer cloud --------------------------------------------------------------
 
     /**
-     * Stratus, altostratus and cirrus at [altitude] over unit [up]: inside
-     * one of the deck's drawn puffs, cloud; between them, clear air. As a
-     * continuous sheet it put fog round a craft climbing through gaps where
-     * nothing was drawn.
+     * Stratus, altostratus and cirrus at [altitude] over unit [up]. Inside one of the deck's drawn
+     * puffs there's cloud, and between them there's clear air. As a continuous sheet it put fog
+     * around a craft climbing through gaps where nothing was drawn.
      */
     private fun layers(up: Vec3, altitude: Double, groundTop: Double, time: Double, out: AirSample) {
         if (altitude > 10_000.0) return
@@ -347,9 +343,9 @@ class Weather(
     private val lobeRel = Vec3()
 
     /**
-     * How far inside [lobe] the point at unit [up] and [altitude] is: 1 at
-     * its heart, 0 at its edge or outside. The drawn puff's shape - an
-     * ellipsoid a little inside its lumps, cut flat underneath.
+     * How far inside [lobe] the point at unit [up] and [altitude] is: 1 at its heart, 0 at its edge
+     * or outside. It's the drawn puff's shape, an ellipsoid a little inside its lumps, cut flat
+     * underneath.
      */
     private fun inside(lobe: CloudLobe, up: Vec3, altitude: Double): Double {
         val c = lobe.centre
@@ -374,9 +370,8 @@ class Weather(
     }
 
     /**
-     * How thick the layer cloud is here, 0..1: low over most of the map, so
-     * the ground shows through a deck, rising to solid in the occasional
-     * pocket some tens of kilometres across.
+     * How thick the layer cloud is here, 0..1. It's low over most of the map, so the ground shows
+     * through a deck, rising to solid in the odd pocket some tens of kilometres across.
      */
     private fun thickness(up: Vec3, time: Double): Double {
         val pocket = 0.5 + 0.5 * noise(10, up, 45_000.0, time / 5_400.0)
@@ -385,9 +380,8 @@ class Weather(
     }
 
     /**
-     * A layer of [type] over unit [up], above ground or sea standing at
-     * [groundTop]: its cover (0..1), base and top (metres above datum) into
-     * [out]. False where there is none.
+     * A layer of [type] over unit [up], above ground or sea standing at [groundTop]: its cover
+     * (0..1), and base and top (metres above datum), into [out]. False where there's none.
      */
     private fun layer(type: CloudType, up: Vec3, groundTop: Double, humidity: Double, time: Double, out: DoubleArray): Boolean {
         when (type) {
@@ -396,8 +390,8 @@ class Weather(
                 out[3] = overcast
                 val cover = max(smooth(0.7, 0.9, humidity + 0.12 * noise(4, up, 15_000.0, time / 3_600.0)), overcast)
                 if (cover <= 0.0) return false
-                // A few hundred metres over whatever is under it. Pinned to
-                // sea level it buried the Cape - a kilometre up - in fog.
+                // A few hundred metres over whatever is under it. Pinned to sea level it buried the
+                // Cape, which is a kilometre up, in fog.
                 val base = groundTop + 450.0 + 250.0 * noise(5, up, 40_000.0, 0.0)
                 out[0] = cover; out[1] = base
                 out[2] = base + 250.0 + 250.0 * (0.5 + 0.5 * noise(6, up, 2_500.0, time / 1_800.0))
@@ -422,11 +416,9 @@ class Weather(
     }
 
     /**
-     * Overcast over unit [up], 0..1: a broad pattern, a hundred and more
-     * kilometres across and drifting over hours, closing a deck into a
-     * blanket over its high ground - how much of the map, by the cloud
-     * setting. A second, smaller pattern on it breaks the edges up and opens
-     * gaps inside.
+     * Overcast over unit [up], 0..1: a broad pattern a hundred kilometres and more across, drifting
+     * over hours, closing a deck into a blanket over its high ground. The cloud setting decides how
+     * much of the map. A second, smaller pattern on top breaks up the edges and opens gaps inside.
      */
     private fun blanket(up: Vec3, time: Double, salt: Int): Double {
         val from = config.clouds.blanketFrom
@@ -450,18 +442,20 @@ class Weather(
     }
 
     /**
-     * The clouds within [reach] metres of unit [direction] at [time], for
-     * drawing: each as lobes in the body's frame. The same shapes the air
-     * samples are made of, so a cloud looks as big as it is to fly into.
+     * The clouds within [reach] metres of unit [direction] at [time], for drawing, each as lobes in
+     * the body's frame. They're the same shapes the air samples are made of, so a cloud looks as
+     * big as it is to fly into.
      */
     fun clouds(
         direction: Vec3,
         reach: Double,
         time: Double,
         out: MutableList<CloudShape>,
-        /** How far off storms are drawn, m: further than the rest. */
+        /** How far away storms get drawn, in metres. Further than the rest. */
         stormReach: Double = reach,
-        /** How much detail in them, 0..1: fewer, bigger lobes for a device that can draw few. */
+        /**
+         * How much detail they have, 0..1. Fewer, bigger lobes for a device that can't draw many.
+         */
         stormDetail: Double = 1.0,
     ) {
         val e = Vec3(); val n = Vec3()
@@ -493,8 +487,8 @@ class Weather(
             }
             out.add(shape)
         }
-        // Storms: out to [stormReach], further than the rest - they are what
-        // a pilot most needs to see coming - in less detail the further off.
+        // Storms, out to [stormReach], further than the rest because they're what a pilot most
+        // needs to see coming, with less detail the further away they are.
         val found = ArrayList<Storms.Storm>()
         storms.around(direction, e, n, kotlin.math.ceil(stormReach / Storms.CELL).toInt() + 1, time, found)
         val here = Vec3().setTo(direction).mulInPlace(radius)
@@ -511,11 +505,10 @@ class Weather(
             }
             out.add(stormShapes.build(s, time, stormDetail * near) { terrain?.elevation(it) ?: 0.0 })
         }
-        // Layer cloud: the deck's puffs, cell by cell - the same puffs the
-        // air is sampled from, so what is drawn is what a craft flies into.
-        // Near, the puffs themselves; far off, where a puff is a speck and
-        // an overcast would need tens of thousands of them, coarse sheets
-        // over the same cover.
+        // Layer cloud: the deck's puffs, cell by cell. They're the same puffs the air is sampled
+        // from, so what's drawn is what a craft flies into. Close up it's the puffs themselves. Far
+        // away, where a puff is a speck and an overcast would need tens of thousands of them, it's
+        // rough sheets over the same cover.
         for (type in LAYER_TYPES) {
             if (!climate.layers) break
             val cells = layerCells[type.ordinal]
@@ -533,7 +526,7 @@ class Weather(
             val centre = Vec3()
             for (k in 0 until farCount) {
                 farCells[type.ordinal].centre(farKeys[k], centre)
-                // Leave the near ground to the fine puffs.
+                // Leave the nearby ground to the fine puffs.
                 if (kotlin.math.acos((centre dot direction).coerceIn(-1.0, 1.0)) * radius < NEAR_DECK - farSpacing * 0.5) continue
                 farDeck(type, farKeys[k], time)?.let { out.add(it) }
             }
@@ -545,7 +538,7 @@ class Weather(
         override fun hashCode() = ((type * 31 + cell.hashCode()) * 31 + epoch.hashCode())
     }
 
-    /** Deck cells worked out, so neither drawing nor sampling works them out twice. */
+    /** Deck cells already worked out, so neither drawing nor sampling works them out twice. */
     private val decks = object : LinkedHashMap<DeckKey, CloudShape?>(512, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<DeckKey, CloudShape?>?) = size > 6_000
     }
@@ -553,13 +546,12 @@ class Weather(
     /**
      * The puffs of [type]'s deck in cell [key] at [time], or null for none.
      *
-     * A clump of one to three, of mixed sizes, anywhere in the cell - and
-     * none at all in some cells where the cover is thin. Worked out once per
-     * [DECK_EPOCH] of time: a deck changes over hours, and a craft sampling
-     * the air sixty times a second must not rebuild its neighbours' clouds
-     * each time.
+     * It's a clump of one to three, of mixed sizes, anywhere in the cell, and none at all in some
+     * cells where the cover is thin. They get worked out once per [DECK_EPOCH] of time. A deck
+     * changes over hours, and a craft sampling the air sixty times a second mustn't rebuild its
+     * neighbours' clouds every time.
      */
-    /** [deck], coarsely, for far off: cached alike. */
+    /** [deck], roughly, for far away. Cached the same way. */
     private fun farDeck(type: CloudType, key: Long, time: Double): CloudShape? {
         val epoch = kotlin.math.floor(time / DECK_EPOCH).toLong()
         val cacheKey = DeckKey(type.ordinal + 100, key, epoch)
@@ -579,9 +571,8 @@ class Weather(
     }
 
     /**
-     * How much of the sky over unit [up] a deck above [altitude] closes
-     * off, 0..1: for how grey the day is under it. For drawing - the physics
-     * never needs it.
+     * How much of the sky over unit [up] a deck above [altitude] closes off, 0..1, for how grey the
+     * day is under it. This is for drawing. The physics never needs it.
      */
     fun overcastAbove(up: Vec3, altitude: Double, time: Double): Double {
         val elevation = terrain?.elevation(up) ?: 0.0
@@ -609,16 +600,16 @@ class Weather(
         val spacing = LAYER_SPACING[type.ordinal] * (if (far) FAR_DECK_FACTOR else 1.0)
         val cellCentre = cells.centre(key, Vec3())
         val cx = cells.hashX(key); val cy = cells.hashY(key)
-        // One sample of the ground: all a deck needs to know is how high it
-        // is and whether it is sea. (The wind's detailed description of the
-        // ground costs nine, and on a fresh flight none of them are cached.)
+        // One sample of the ground, because all a deck needs to know is how high it is and whether
+        // it's sea. (The wind's detailed description of the ground costs nine, and on a fresh
+        // flight none of them are cached.)
         val elevation = terrain?.elevation(cellCentre) ?: 0.0
         val ocean = terrain?.hasOcean == true && elevation < 0.0
         val ground = if (ocean) 0.0 else max(elevation, 0.0)
         val humidity = humidity(cellCentre, pressure(cellCentre, time), ocean, time)
         val scratch = DoubleArray(4)
         if (!layer(type, cellCentre, ground, humidity, time, scratch)) return null
-        // An overcast is thick wherever it is; elsewhere the pockets decide.
+        // An overcast is thick wherever it is. Everywhere else the pockets decide.
         val cover = max(scratch[0] * thickness(cellCentre, time), scratch[3])
         if (cover < 0.15) return null
         val base = scratch[1]; val top = scratch[2]
@@ -627,16 +618,15 @@ class Weather(
         val ce = Vec3(); val cn = Vec3()
         frame(cellCentre, ce, cn)
         val shape = CloudShape(type, cover)
-        // Thick cover closes up: more puffs, bigger, overlapping their
-        // neighbours' into one lumpy sheet - three small ones a cell never
-        // could, however cloudy the sky.
+        // Thick cover closes up: more puffs, bigger, overlapping their neighbours' into one lumpy
+        // sheet. Three small ones per cell never could, however cloudy the sky.
         val dense = smooth(0.55, 0.95, cover)
         val puffs = 1 + (Noise.hash(salt, cx, cy, 1) * 3.0 * cover).toInt().coerceAtMost(2) +
             (dense * (if (far) 1.0 else 4.0)).toInt()
         for (p in 0 until puffs) {
-            // No wider than reaches its neighbours' cells: the air is sampled
-            // from the cells round a point, and a puff spilling further would
-            // be drawn where the air said there was none.
+            // No wider than it takes to reach its neighbours' cells. The air is sampled from the
+            // cells around a point, and a puff spilling further would be drawn where the air said
+            // there was none.
             val size = (spacing * (0.25 + 0.55 * Noise.hash(salt, cx, cy, 10 + p)) * (0.6 + 0.4 * cover) * (1.0 + 0.55 * dense))
                 .coerceAtMost(spacing * (if (far) 1.0 else 0.6))
             val at = Vec3().setTo(cellCentre)
@@ -656,14 +646,13 @@ class Weather(
 
     private val layerCells = Array(CloudType.entries.size) { SphereCells(radius, LAYER_SPACING[it]) }
 
-    /** The same decks, coarsely, for drawing far off: a few big sheets instead of thousands of puffs. */
+    /** The same decks, roughly, for drawing far away: a few big sheets instead of thousands of puffs. */
     private val farCells = Array(CloudType.entries.size) { SphereCells(radius, LAYER_SPACING[it] * FAR_DECK_FACTOR) }
 
     /**
-     * The whole planet's cloud, coarsely, for the map: a sheet every
-     * [spacing] metres where the decks are, and every storm's anvil. The
-     * same fields the air is made of, at a scale where a single puff is
-     * tens of kilometres across.
+     * The whole planet's cloud, roughly, for the map: a sheet every [spacing] metres where the
+     * decks are, plus every storm's anvil. It's the same fields the air is made of, at a scale
+     * where a single puff is tens of kilometres across.
      */
     fun globalCover(spacing: Double, time: Double, out: MutableList<CloudShape>) {
         val cells = SphereCells(radius, spacing)
@@ -697,10 +686,9 @@ class Weather(
     }
 
     /**
-     * How much of the sky over body-fixed unit [direction] its decks cover
-     * at [time], 0..1 - stratus, altostratus and cirrus, not storms: the
-     * same fields as [globalCover], asked point by point, for a veil of
-     * cloud over the whole globe on the map.
+     * How much of the sky over body-fixed unit [direction] its decks cover at [time], 0..1. That's
+     * stratus, altostratus and cirrus, not storms. It's the same fields as [globalCover], asked
+     * point by point, for a veil of cloud over the whole globe on the map.
      */
     fun coverAt(direction: Vec3, time: Double, scratch: DoubleArray = DoubleArray(4)): Double {
         if (!climate.layers) return 0.0
@@ -716,7 +704,10 @@ class Weather(
         return most
     }
 
-    /** Every storm on the planet at [time]: its anvil and its base, as [globalCover] gives them. */
+    /**
+     * Every storm on the planet at [time], with its anvil and its base, the same as [globalCover]
+     * gives them.
+     */
     fun globalStorms(time: Double, out: MutableList<CloudShape>) {
         val stormCells = SphereCells(radius, Storms.CELL)
         val sn = stormCells.perFace
@@ -727,7 +718,7 @@ class Weather(
             val envelope = storms.envelope(s, time)
             if (envelope <= 0.05) continue
             val shape = CloudShape(climate.stormCloud, envelope)
-            // Its anvil, and its base - as wide as the storm spreads.
+            // Its anvil and its base, as wide as the storm spreads.
             storms.frameAt(s, time, c, steer, side)
             val main = s.mainCell
             shape.lobes.add(
@@ -757,28 +748,31 @@ class Weather(
     internal val stormModel: Storms get() = storms
 
     companion object {
-        /** Above this Terra's air is still: no weather reaches orbit. Each world's is its [Climate.ceiling]. */
+        /**
+         * Above this, Terra's air is still, so no weather reaches orbit. Each world's is its
+         * [Climate.ceiling].
+         */
         const val CEILING = 30_000.0
 
-        /** Height of the boundary layer, m. */
+        /** The height of the boundary layer, in metres. */
         const val BOUNDARY_LAYER = 1_000.0
 
-        /** Peak jet-stream speed, m/s. */
+        /** The peak jet stream speed, in m/s. */
         const val JET = 22.0
 
-        /** Wind speed for a typical pressure gradient, m/s. */
+        /** The wind speed for a typical pressure gradient, in m/s. */
         const val GEOSTROPHIC = 4.5
 
-        /** How fast the pressure pattern as a whole drifts east, m/s. */
+        /** How fast the whole pressure pattern drifts east, in m/s. */
         const val PATTERN_DRIFT = 3.0
 
-        /** How near the equator, as sin(latitude), the flow round highs and lows gives way. */
+        /** How close to the equator, as sin(latitude), the flow around highs and lows gives way. */
         const val EQUATORIAL = 0.35
 
-        /** Finite-difference step for the pressure gradient, m. */
+        /** The finite-difference step for the pressure gradient, in metres. */
         const val GRADIENT_STEP = 30_000.0
 
-        /** Out to here decks are drawn puff by puff, m; beyond, as coarse sheets. */
+        /** Out to here decks get drawn puff by puff, in metres. Beyond it they're rough sheets. */
         private const val NEAR_DECK = 12_000.0
 
         /** How much coarser the far sheets' cells are than the puffs'. */
@@ -786,16 +780,19 @@ class Weather(
 
         private val LAYER_TYPES = listOf(CloudType.STRATUS, CloudType.ALTOSTRATUS, CloudType.CIRRUS)
 
-        /** Peak density of each layer type, by ordinal. */
+        /** The peak density of each layer type, by ordinal. */
         private val LAYER_DENSITY = doubleArrayOf(0.0, 1.0, 0.8, 0.35, 0.0, 0.0, 0.0)
 
-        /** Spacing of the puffs a deck is drawn with, m, by ordinal. */
+        /** The spacing of the puffs a deck is drawn with, in metres, by ordinal. */
         private val LAYER_SPACING = doubleArrayOf(3_000.0, 2_500.0, 4_000.0, 8_000.0, 3_000.0, 3_000.0, 3_000.0)
 
-        /** Heights each deck can be at, by ordinal: stratus above its ground, the rest above datum. */
+        /**
+         * The heights each deck can be at, by ordinal. Stratus is above its ground, and the rest
+         * are above datum.
+         */
         private val LAYER_BANDS = arrayOf(0.0 to 0.0, 0.0 to 2_200.0, 3_500.0 to 5_600.0, 8_300.0 to 9_700.0, 0.0 to 0.0, 0.0 to 0.0, 0.0 to 0.0)
 
-        /** Seconds a deck's puffs are worked out for. */
+        /** How many seconds a deck's puffs are worked out for. */
         private const val DECK_EPOCH = 30.0
 
         private val TURBULENCE_SCALES = doubleArrayOf(40.0, 150.0, 500.0)

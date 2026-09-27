@@ -3,12 +3,12 @@ package com.rm.apogee.render
 /**
  * How much shadow to draw, for what the device can afford.
  *
- * - [nearSize]: the shadow map round the flown craft, texels a side.
- * - [kernel]: extra taps each way when sampling it: 0 is the hardware's own
- *   2x2, 1 is 3x3 of those - softer, dearer.
- * - [farSize] and [farEvery]: the mountains' map, and how often it is
- *   redrawn, s; 0 for none.
- * - [farReach]: how far the mountains' map reaches each way, m.
+ * - [nearSize]: the shadow map around the flown craft, in texels a side.
+ * - [kernel]: extra taps each way when sampling it. 0 is the hardware's own 2x2, and 1 is 3x3 of
+ *   those, which is softer but costs more.
+ * - [farSize] and [farEvery]: the mountains' map, and how often it gets redrawn, in seconds. 0 for
+ *   none.
+ * - [farReach]: how far the mountains' map reaches each way, in metres.
  */
 enum class ShadowQuality(
     val label: String,

@@ -3,14 +3,14 @@ package com.rm.apogee.render
 import android.opengl.GLES30
 
 /**
- * A depth texture drawn from the light's side, and the framebuffer that
- * draws it: whatever is nearest the light at each texel is what casts there.
+ * A depth texture drawn from the light's side, and the framebuffer that draws it. Whatever's
+ * nearest the light at each texel is what casts a shadow there.
  *
- * Set for comparison, so the shaders read it through `sampler2DShadow` and
- * the GPU does the test - and with linear filtering it blends the four
- * nearest results, which softens the edge by a texel for nothing.
+ * It's set up for comparison, so the shaders read it through `sampler2DShadow` and the GPU does the
+ * test. With linear filtering it blends the four nearest results, which softens the edge by a texel
+ * for free.
  *
- * GL thread only; dies with the context.
+ * GL thread only. It dies with the context.
  */
 class ShadowMap(val size: Int) {
     private val names = IntArray(1)
@@ -41,10 +41,10 @@ class ShadowMap(val size: Int) {
     }
 
     /**
-     * Starts drawing into it: cleared to far, the craft's thin single-sided
-     * fins and wings drawn both ways, and pushed back a touch so a surface
-     * does not shade itself - by [slope] times its steepness as the light
-     * sees it, plus [units] of the depth buffer's least step.
+     * Starts drawing into it. It's cleared to far, the craft's thin single-sided fins and wings are
+     * drawn both ways, and everything is pushed back a touch so a surface doesn't shade itself: by
+     * [slope] times its steepness as the light sees it, plus [units] of the depth buffer's smallest
+     * step.
      */
     fun begin(slope: Float = 2f, units: Float = 4f) {
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, fbo[0])

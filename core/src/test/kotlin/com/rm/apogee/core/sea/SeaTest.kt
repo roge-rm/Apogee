@@ -16,8 +16,7 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 /**
- * The sea: tides from Luna, waves from the weather, the same wherever they
- * are worked out.
+ * The sea: tides from Luna and waves from the weather, the same wherever they're worked out.
  */
 class SeaTest {
 
@@ -40,7 +39,7 @@ class SeaTest {
         return direction(lat, lon)
     }
 
-    /** A place where the sea bed is between [shallowest] and [deepest] m down. */
+    /** A place where the seabed is between [shallowest] and [deepest] m down. */
     private fun seaWhere(shallowest: Double, deepest: Double): Vec3 {
         for (i in 0 until 20_000) {
             val d = randomDirection(i)
@@ -71,7 +70,7 @@ class SeaTest {
         val b = sea(WeatherIntensity.WILD)
         val points = (0 until 60).map { randomDirection(it).mulInPlace(terra.radius) to 1_000.0 + 37.0 * it }
         val first = points.map { (p, t) -> a.height(p, t) }
-        // The other in reverse order, so its caches fill differently.
+        // The other in reverse order, so its caches fill up differently.
         val second = points.reversed().map { (p, t) -> b.height(p, t) }.reversed()
         assertEquals(first, second)
     }
@@ -85,7 +84,7 @@ class SeaTest {
     }
 
     @Test
-    fun `the tide is high under Luna and opposite, low between, twice a lunar day`() {
+    fun `the tide is high under Luna and opposite it, and low in between, twice a lunar day`() {
         val s = sea(null)
         val deep = seaWhere(1_500.0, 3_000.0)
         // Its height through two days, every two minutes.
@@ -99,7 +98,7 @@ class SeaTest {
         val range = heights.max() - heights.min()
         assertTrue("open ocean range $range m", range in 0.8..2.4)
 
-        // At one moment: highest nearly under Luna (it trails a little), low at right angles.
+        // At one moment: highest nearly under Luna (it trails a little), and low at right angles.
         val time = 50_000.0
         val under = lunaOver(time - 1_000.0)
         val side = Vec3(-under.z, 0.0, under.x).normalizeInPlace()
@@ -175,14 +174,14 @@ class SeaTest {
     }
 
     @Test
-    fun `a strong storm raises a sea of ten metres, and throws swell far off later`() {
+    fun `a strong storm raises a sea of ten metres, and throws swell far away later`() {
         val weather = Weather(terra, WeatherConfig(intensity = WeatherIntensity.WILD))
         val s = Sea(terra, luna, weather, WeatherConfig().seed)
         val (storm, t) = stormOverSea(weather)
         val centre = weather.stormModel.centreAt(storm, t, Vec3())
         val sample = s.sample(centre, t, SeaSample())
         assertTrue("storm sea ${sample.significantHeight} m under a ${storm.kind} of strength ${storm.strength}", sample.significantHeight in 7.0..16.0)
-        // Its storm sea is wider than one tower: halfway out to the base's edge too.
+        // Its storm sea is wider than one tower, so it's halfway out to the base's edge too.
         val track = Vec3(); val right = Vec3(); val c = Vec3()
         weather.stormModel.frameAt(storm, t, c, track, right)
         val out = weather.stormModel.place(c, track, right, storm.deckAlong, storm.halfAcross * 0.5, 1.0, Vec3())
@@ -190,7 +189,7 @@ class SeaTest {
             assertTrue("out under the base too", s.sample(out, t, sample).significantHeight > 4.0)
         }
 
-        // Swell: 150 km off across open water, arriving about 150 km / 9 m/s later.
+        // Swell 150 km away across open water, arriving about 150 km / 9 m/s later.
         val stormSea = Storms.StormSea()
         val land = { p: Vec3 -> terrain.elevation(p) > 0.0 }
         var found = false
@@ -200,7 +199,7 @@ class SeaTest {
             if (terrain.elevation(far) > -200.0) continue
             weather.stormModel.seaAt(far, t + 150_000.0 / Storms.SWELL_GROUP_SPEED, stormSea, land)
             if (stormSea.swellHs < 0.5) continue
-            // Coming from this storm's way - where no bigger one elsewhere drowns it out.
+            // Coming from this storm's direction, where no bigger one somewhere else drowns it out.
             val toward = c.copy().subInPlace(far)
             toward.addScaledInPlace(far, -(toward dot far)).normalizeInPlace()
             if ((stormSea.swellDirection dot toward) > -0.7) continue
@@ -235,7 +234,7 @@ class SeaTest {
     }
 
     @Test
-    fun `ashore there is no sea`() {
+    fun `ashore there's no sea`() {
         val s = sea(WeatherIntensity.WILD)
         val sample = SeaSample()
         for (i in 0 until 5_000) {
@@ -253,7 +252,7 @@ class SeaTest {
         val s = sea(WeatherIntensity.WILD)
         val d = seaWhere(500.0, 3_000.0)
         val p = d.copy().mulInPlace(terra.radius)
-        repeat(2_000) { s.height(p, 100.0 + it * 0.016) } // warm
+        repeat(2_000) { s.height(p, 100.0 + it * 0.016) } // warm up
         val start = System.nanoTime()
         val n = 20_000
         var sink = 0.0
@@ -276,7 +275,8 @@ class SeaTest {
                 val p = centre.copy().addScaledInPlace(east, i * 1.2).addScaledInPlace(north, j * 1.2).addScaledInPlace(d, 1.5)
                 worst = maxOf(worst, kotlin.math.abs(patch.height(p) - s.height(p, t)))
             }
-            // Within a few millimetres; a rogue's edge crossing the hull, a couple of centimetres.
+            // Within a few millimetres, and a couple of centimetres where a rogue wave's edge
+            // crosses the hull.
             assertTrue("patch off the surface by $worst m", worst < 0.03)
         }
     }

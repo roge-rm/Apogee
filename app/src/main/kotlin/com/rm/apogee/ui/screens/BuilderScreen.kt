@@ -97,10 +97,9 @@ import kotlin.math.roundToInt
 /**
  * The vehicle assembly building.
  *
- * Transparent, like the flight HUD - the craft itself is drawn by the GL
- * surface underneath, and every panel here carries its own scrim. The panels
- * slide away to the edges: the drawer by itself while a part is in hand, so
- * the craft is in view to put it on.
+ * It's transparent, like the flight HUD. The craft itself is drawn by the GL surface underneath,
+ * and every panel here has its own scrim. The panels slide away to the edges, and the drawer does
+ * it by itself while a part is in hand, so the craft is in view to put it on.
  */
 @Composable
 fun BuilderScreen(
@@ -111,15 +110,15 @@ fun BuilderScreen(
     onExit: () -> Unit,
     onLaunch: () -> Unit,
 ) {
-    // Reading `revision` is what subscribes this composable to the plain
-    // mutable builder model underneath.
+    // Reading `revision` is what subscribes this composable to the plain mutable builder model
+    // underneath.
     @Suppress("UNUSED_EXPRESSION") session.revision
 
     var showLoadDialog by remember { mutableStateOf(false) }
     var showSiteDialog by remember { mutableStateOf(false) }
     var showNameDialog by remember { mutableStateOf(false) }
     var confirmNew by remember { mutableStateOf(false) }
-    // Opened by its handle while something is in hand: stays out until the next pick.
+    // Opened by its handle while something is in hand, it stays out until the next pick.
     var peek by remember { mutableStateOf(false) }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -130,12 +129,12 @@ fun BuilderScreen(
         val holding = session.held != null
 
         // --- the drawer or the stages, left -------------------------------------
-        // The same place for both: editing the staging is not placing parts,
-        // and the craft stays clear down the middle either way.
-        // Pinned by its top, at one height whatever the tab holds: centred
-        // and sized to its parts, it jumped up and down from tab to tab
-        // (Dan). Below the toolbar and the stats line in portrait, clear of
-        // the launch button at the bottom.
+        //
+        // The same place for both. Editing the staging isn't placing parts, and the craft stays
+        // clear down the middle either way. It's pinned by its top, at one height whatever the tab
+        // holds. Centred and sized to its parts, it jumped up and down from tab to tab, which
+        // bothered me. In portrait it sits below the toolbar and the stats line, clear of the
+        // launch button at the bottom.
         val top = if (portrait) 112.dp else 8.dp
         val bottom = if (portrait) 150.dp else 8.dp
         val paletteHeight = (maxHeight - top - bottom).coerceIn(200.dp, 560.dp)
@@ -165,8 +164,8 @@ fun BuilderScreen(
             val tabName = if (horizontal) settings.builderTabHorizontal else settings.builderTabVertical
             val tab = PartTab.entries.firstOrNull { it.name == tabName } ?: PartTab.ALL
             SlidePanel(
-                // Tucked away while a part is in hand, carried or being worked
-                // on with the action bar, unless pulled out.
+                // Tucked away while a part is in hand, carried or being worked on with the action
+                // bar, unless it's pulled out.
                 shown = settings.builderPartsOpen && !carrying && ((!holding && session.selectedPartIndex == null) || peek),
                 onOpen = { settings.builderPartsOpen = true; peek = true },
                 handleLabel = "Show the parts",
@@ -203,8 +202,9 @@ fun BuilderScreen(
         }
 
         // --- stats, right ------------------------------------------------------
-        // One line until asked for more - the whole card is out by default
-        // only where there is room beside the craft.
+        //
+        // One line until you ask for more. The whole card is out by default only where there's room
+        // beside the craft.
         val statsOpen = if (portrait) settings.builderStatsOpenPortrait else settings.builderStatsOpenLandscape
         val setStats: (Boolean) -> Unit = { if (portrait) settings.builderStatsOpenPortrait = it else settings.builderStatsOpenLandscape = it }
         val statsModifier = Modifier
@@ -314,8 +314,8 @@ fun BuilderScreen(
                 Spacer(Modifier.height(8.dp))
             }
 
-            // Where it goes. Small and above the button rather than a step
-            // before it: nearly every launch wants the default.
+            // Where it goes. It's small and above the button instead of a step before it, because
+            // nearly every launch wants the default.
             val chosen = session.allSites().firstOrNull { it.id == session.launchSiteId }
             Surface(
                 shape = RoundedCornerShape(Dimens.CornerSmall),
@@ -332,7 +332,7 @@ fun BuilderScreen(
             }
             Spacer(Modifier.height(8.dp))
 
-            // In a career: what the facility takes, and why it will not launch if it will not.
+            // In a career: what the facility takes, and why it won't launch if it won't.
             session.careerLimits()?.let { (text, over) ->
                 Surface(shape = RoundedCornerShape(Dimens.CornerSmall), color = Color.Black.alpha(ApogeeAlpha.SCRIM)) {
                     Text(
@@ -467,14 +467,14 @@ private fun ToolButton(
 }
 
 /**
- * Vertical or horizontal. Drawn as a bar standing up or lying down rather
- * than an icon, because the bar *is* the craft and that is the whole choice.
+ * Vertical or horizontal. It's drawn as a bar standing up or lying down instead of an icon, because
+ * the bar *is* the craft, and that's the whole choice.
  */
 @Composable
 private fun OrientationButton(orientation: CraftOrientation, onToggle: () -> Unit) {
-    // Takes the value rather than the session: the session is not observable
-    // state, so a composable reading it through a stable parameter is skipped
-    // on recomposition and the bar never turned over.
+    // It takes the value instead of the session. The session isn't observable state, so a
+    // composable reading it through a stable parameter gets skipped on recomposition, and the bar
+    // never turned over.
     val horizontal = orientation == CraftOrientation.HORIZONTAL
     Surface(
         shape = RoundedCornerShape(Dimens.HudIconSize / 2),
@@ -526,17 +526,16 @@ private fun StagesButton(active: Boolean, onToggle: () -> Unit) {
 }
 
 /**
- * The staging sequence as cards, the stage that fires last at the top and
- * stage 0 at the bottom - the way the stack sits above the STAGE button in
- * flight. Tap a card to choose it, and its parts light up on the craft; tap
- * parts on the craft to move them into it. The chosen card carries its own
- * controls: fire earlier, fire later, remove.
+ * The staging sequence as cards, with the stage that fires last at the top and stage 0 at the
+ * bottom, the way the stack sits above the STAGE button in flight. Tap a card to choose it, and its
+ * parts light up on the craft. Tap parts on the craft to move them into it. The chosen card has its
+ * own controls: fire earlier, fire later, and remove.
  */
 @Composable
 private fun StagePanel(
     session: BuilderSession,
-    // Values, not read through the session: it is not observable state, and
-    // a composable given only it is skipped when the stages change.
+    // Values, not read through the session. It isn't observable state, and a composable given only
+    // that gets skipped when the stages change.
     entries: List<BuilderSession.StageEntry>,
     manual: Boolean,
     selected: Int?,
@@ -559,8 +558,8 @@ private fun StagePanel(
                 )
                 Text("STAGES", style = TelemetryTextStyle, color = Color.White.alpha(ApogeeAlpha.BODY))
                 Spacer(Modifier.weight(1f))
-                // Automatic until the player changes something; tapping it
-                // when manual hands the sequence back.
+                // Automatic until the player changes something. Tapping it when it's manual hands
+                // the sequence back.
                 Text(
                     if (manual) "MANUAL · AUTO?" else "AUTO",
                     style = TelemetryTextStyle,
@@ -642,7 +641,7 @@ private fun StageEntryCard(
         }
         if (entry.parts.isEmpty()) {
             Text(
-                if (selected) "Empty - tap parts on the craft" else "Empty",
+                if (selected) "Empty. Tap parts on the craft" else "Empty",
                 style = MaterialTheme.typography.labelSmall,
                 color = Color.White.alpha(ApogeeAlpha.SUBTITLE),
             )
@@ -670,8 +669,8 @@ private fun StageAction(symbol: String, description: String, enabled: Boolean, o
 
 @Composable
 private fun SymmetryButton(symmetry: SymmetryMode, onToggle: () -> Unit) {
-    // The value, not the session, for the same reason as the orientation
-    // button: the session is not observable state.
+    // The value, not the session, for the same reason as the orientation button: the session isn't
+    // observable state.
     val active = symmetry.count > 1
     Surface(
         shape = RoundedCornerShape(Dimens.HudIconSize / 2),
@@ -753,8 +752,8 @@ private fun StatsPanel(
                 Spacer(Modifier.height(8.dp))
                 HorizontalDivider(color = Color.White.alpha(ApogeeAlpha.DIVIDER))
                 Spacer(Modifier.height(6.dp))
-                // Blockers read as danger, advice reads as caution. Showing
-                // both in the same colour is what made a lander look broken.
+                // Blockers show as danger, and advice shows as caution. Showing both in the same
+                // colour is what made a lander look broken.
                 stats.problems.forEach { problem ->
                     Text(
                         problem,
@@ -808,13 +807,13 @@ private fun NameDialog(initial: String, onDismiss: () -> Unit, onConfirm: (Strin
 
 @Composable
 private fun LoadDialog(session: BuilderSession, onDismiss: () -> Unit) {
-    // Deleting is permanent - there is no undo for a file - so it asks first.
+    // Deleting is permanent (there's no undo for a file), so it asks first.
     var confirmDelete by remember { mutableStateOf<com.rm.apogee.core.craft.SavedCraft?>(null) }
     confirmDelete?.let { doomed ->
         AlertDialog(
             onDismissRequest = { confirmDelete = null },
             title = { Text("Delete \"${doomed.name}\"?") },
-            text = { Text("This removes the saved design for good. It cannot be undone.") },
+            text = { Text("This removes the saved design for good. It can't be undone.") },
             confirmButton = {
                 TextButton(onClick = {
                     session.delete(doomed)
@@ -852,7 +851,7 @@ private fun LoadDialog(session: BuilderSession, onDismiss: () -> Unit) {
                                     "${saved.partCount} parts",
                                     style = MaterialTheme.typography.labelSmall,
                                 )
-                                // In a career, what it is waiting on.
+                                // In a career, what it's waiting on.
                                 val waiting = session.lockedParts().filterKeys { it in saved.partIds }.values.toSet()
                                 if (waiting.isNotEmpty()) {
                                     Text(
@@ -877,7 +876,9 @@ private fun SiteDialog(
     selected: String?,
     automatic: String,
     bases: List<com.rm.apogee.core.world.LaunchSite>,
-    /** A career launches from the Cape and its own bases only: no test sites on other worlds. */
+    /**
+     * A career launches only from the Cape and its own bases, with no test sites on other worlds.
+     */
     career: Boolean = false,
     onPick: (String?) -> Unit,
     onDismiss: () -> Unit,
@@ -886,7 +887,7 @@ private fun SiteDialog(
         onDismissRequest = onDismiss,
         title = { Text("Launch from") },
         text = {
-            // A player with many bases has many pads: scrolled, with a bar to say so.
+            // A player with lots of bases has lots of pads, so it scrolls, with a bar to say so.
             val scroll = androidx.compose.foundation.rememberScrollState()
             Column(
                 Modifier
@@ -897,8 +898,8 @@ private fun SiteDialog(
                 val choices = listOf<Pair<String?, String>>(null to "Automatic") +
                     World.launchSites.filter { !career || it.id in com.rm.apogee.core.career.CareerRules.CAREER_SITES }.map { it.id to it.displayName } +
                     bases.map { it.id to it.displayName }
-                // Headed by world - Terra's pads, Luna's, then every other
-                // world's test site - and then the player's own bases.
+                // Headed by world (Terra's pads, Luna's, then every other world's test site), and
+                // then the player's own bases.
                 val headings = HashMap<String?, String>()
                 World.launchSites.groupBy { it.bodyId }.forEach { (body, sites) ->
                     headings[sites.first().id] = body.uppercase()
@@ -928,7 +929,7 @@ private fun SiteDialog(
                             )
                             if (id == null) {
                                 Text(
-                                    "Boats to the harbour, planes to the airfield, everything else to the pad - now $automatic",
+                                    "Boats to the harbour, planes to the airfield, everything else to the pad. Right now that's $automatic",
                                     style = MaterialTheme.typography.labelSmall,
                                 )
                             }

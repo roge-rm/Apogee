@@ -9,7 +9,7 @@ import kotlin.math.atan2
 /** What the navball's markers are measured against. */
 @Serializable
 enum class NavFrame(val label: String) {
-    /** Surface low down, orbit higher up. */
+    /** Surface when low down, orbit when higher up. */
     @SerialName("auto") AUTO("AUTO"),
     @SerialName("surface") SURFACE("SRF"),
     @SerialName("orbit") ORBIT("ORB"),
@@ -20,7 +20,7 @@ enum class NavFrame(val label: String) {
 /** What stability assist holds the nose on. */
 @Serializable
 enum class SasMode(val label: String) {
-    /** Wherever it was pointing when the stick was let go. */
+    /** Wherever it was pointing when you let go of the stick. */
     @SerialName("hold") HOLD("Hold"),
     @SerialName("prograde") PROGRADE("Prograde"),
     @SerialName("retrograde") RETROGRADE("Retrograde"),
@@ -30,36 +30,37 @@ enum class SasMode(val label: String) {
     @SerialName("radialIn") RADIAL_IN("Radial in"),
     @SerialName("target") TARGET("Target"),
     @SerialName("antiTarget") ANTI_TARGET("Anti-target"),
-    /** Along what is left of the next planned burn. */
+    /** Along whatever is left of the next planned burn. */
     @SerialName("burn") BURN("Burn"),
 }
 
 /**
- * The navball's directions, in the attractor's inertial frame: the same for
- * the HUD that draws them and the stability assist that holds the nose on
- * them, so a craft told to hold prograde points exactly at the prograde
- * marker.
+ * The navball's directions, in the attractor's inertial frame. They're the same for the HUD that
+ * draws them and the stability assist that holds the nose on them, so a craft told to hold prograde
+ * points exactly at the prograde marker.
  */
 class NavDirections {
-    /** The frame actually in use: [NavFrame.AUTO] resolved, TARGET only with a target. */
+    /**
+     * The frame actually in use: [NavFrame.AUTO] worked out, and TARGET only when there's a target.
+     */
     var frame = NavFrame.SURFACE
-    /** Velocity in that frame, m/s. */
+    /** Velocity in that frame, in m/s. */
     val velocity = Vec3()
     val prograde = Vec3()
     val normal = Vec3()
     val radialOut = Vec3()
-    /** Whether [prograde], [normal] and [radialOut] mean anything: moving at all. */
+    /** Whether [prograde], [normal] and [radialOut] mean anything, meaning it's moving at all. */
     var moving = false
     /** Toward the target, when there is one. */
     val toTarget = Vec3()
     var hasTarget = false
     /** Metres to the target. */
     var targetDistance = 0.0
-    /** Along what is left of the next planned burn, when there is one. */
+    /** Along whatever is left of the next planned burn, when there is one. */
     val burn = Vec3()
     var hasBurn = false
 
-    /** A unit direction for [mode], into [out]; false if there is none just now. */
+    /** A unit direction for [mode], into [out]. False if there's none right now. */
     fun forMode(mode: SasMode, out: Vec3): Boolean {
         when (mode) {
             SasMode.HOLD -> return false
@@ -82,16 +83,15 @@ object Navigation {
     /** Above this share of the atmosphere, AUTO reads the orbit. */
     const val ORBITAL_FRAME_FRACTION = 0.5
 
-    /** Over an airless body, the height AUTO switches at, m. */
+    /** Over an airless body, the height AUTO switches at, in metres. */
     const val AIRLESS_ORBITAL_ALTITUDE = 25_000.0
 
-    /** Below this, in whatever frame, there is no direction of travel to speak of. */
+    /** Below this, in any frame, there's no direction of travel worth mentioning. */
     const val STILL = 0.5
 
     /**
-     * The navball's directions for a craft at [position] moving at
-     * [velocity] (inertial, relative to [body]), in [frame]; the target's
-     * position and velocity, if there is one.
+     * The navball's directions for a craft at [position] moving at [velocity] (inertial, relative
+     * to [body]), in [frame], plus the target's position and velocity if there is one.
      */
     fun compute(
         position: Vec3,
@@ -129,7 +129,7 @@ object Navigation {
             out.prograde.setTo(out.velocity).mulInPlace(1.0 / speed)
             out.normal.setTo(position).crossInPlace(out.prograde)
             if (out.normal.lengthSq < 1e-12) {
-                // Straight up or down: any horizontal will do for "normal".
+                // Straight up or down, any horizontal direction will do for "normal".
                 out.normal.setTo(position.z, 0.0, -position.x)
                 if (out.normal.lengthSq < 1e-12) out.normal.setTo(1.0, 0.0, 0.0)
             }
@@ -145,9 +145,8 @@ object Navigation {
     }
 
     /**
-     * Compass heading of [direction] at [position], degrees clockwise from
-     * north, 0..360. North is toward the body's +Y pole, which it turns
-     * about.
+     * The compass heading of [direction] at [position], in degrees clockwise from north, 0..360.
+     * North is toward the body's +Y pole, which it turns around.
      */
     fun heading(position: Vec3, direction: Vec3): Double {
         val up = position.normalized()

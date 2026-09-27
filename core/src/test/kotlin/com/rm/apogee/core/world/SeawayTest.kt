@@ -16,7 +16,7 @@ import org.junit.Test
 import kotlin.math.asin
 import kotlin.math.atan2
 
-/** Boats at sea: heaving on the swell, swamped by a storm, riding the tide asleep. */
+/** Boats at sea: heaving on the swell, swamped by a storm, and riding the tide asleep. */
 class SeawayTest {
 
     private val catalog = StockParts.catalog
@@ -129,7 +129,7 @@ class SeawayTest {
         val cutter = launch(cutterWorld, StockCraft.cutter(catalog), where)
         var cutterSlept = false
         repeat((150.0 / dt).toInt()) { cutterWorld.step(dt); if (cutter.dormant) cutterSlept = true }
-        // Not riding it asleep, like a cork: a sea this big is the physics' to play out.
+        // Not riding it asleep like a cork, because a sea this big is for the physics to play out.
         assertTrue("the Cutter stayed awake in it", !cutterSlept)
         assertTrue("the Cutter is decked: ${cutter.flooded.sum()} kg shipped", cutter.flooded.sum() == 0.0)
         assertTrue("the Cutter is afloat: ${aboveWater(cutterWorld, cutter)} m", aboveWater(cutterWorld, cutter) > -3.0)

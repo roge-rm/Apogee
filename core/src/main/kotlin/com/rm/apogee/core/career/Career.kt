@@ -5,7 +5,7 @@ import com.rm.apogee.core.part.PartCatalog
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
-/** Which way of flying a feat or a node belongs to. */
+/** Which kind of flying a feat or a node belongs to. */
 enum class Branch(val title: String) {
     ROCKETRY("Rocketry"),
     TECHNIQUES("Techniques"),
@@ -17,12 +17,12 @@ enum class Branch(val title: String) {
     CREW("Crew"),
 }
 
-/** How well a feat was done: at all, or cleverly. */
+/** How well a feat was done, from just doing it to doing it cleverly. */
 enum class Grade(val title: String) { BRONZE("Bronze"), SILVER("Silver"), GOLD("Gold") }
 
 /**
- * What a graded feat is graded by, and which way is better: a lighter
- * rocket, a longer drive, a closer landing.
+ * What a graded feat is measured by, and which way is better, like a lighter rocket, a longer drive
+ * or a closer landing.
  */
 enum class Metric(val label: String, val unit: String, val lowerIsBetter: Boolean) {
     LAUNCH_MASS("launch mass", "t", true),
@@ -34,15 +34,15 @@ enum class Metric(val label: String, val unit: String, val lowerIsBetter: Boolea
 }
 
 /**
- * A technique the world can see a craft pull off. Never a task given: how
- * to do it is the player's. Graded ones pay more for doing it cleverly -
- * [silver] and [gold] are the [metric]'s thresholds, in its unit.
+ * Something a craft can be seen to pull off. It's never a task handed out, because how you do it is
+ * up to you. Graded feats pay more when you do them cleverly, and [silver] and [gold] are the
+ * thresholds for the [metric], in its unit.
  */
 enum class Feat(
     val id: String,
     val title: String,
     val branch: Branch,
-    /** What it takes, in a sentence. */
+    /** What it takes, in one sentence. */
     val what: String,
     val metric: Metric? = null,
     val silver: Double = 0.0,
@@ -53,10 +53,10 @@ enum class Feat(
     SPACE("space", "Space", Branch.ROCKETRY, "Climb out of Terra's air and bring the crew home.", Metric.LAUNCH_MASS, 12.0, 8.0),
     ORBIT("orbit", "Orbit", Branch.ROCKETRY, "Keep the low point of your orbit above Terra's air.", Metric.LAUNCH_MASS, 13.0, 10.0),
     HOME_AGAIN("home-again", "Home Again", Branch.ROCKETRY, "Come down from orbit and land the crew safely."),
-    AEROBRAKE("aerobrake", "Aerobrake", Branch.TECHNIQUES, "Lower an orbit by a third or more in the air alone - no engines.", Metric.SHARE, 60.0, 90.0),
+    AEROBRAKE("aerobrake", "Aerobrake", Branch.TECHNIQUES, "Lower an orbit by a third or more using only the air, with no engines.", Metric.SHARE, 60.0, 90.0),
     RENDEZVOUS("rendezvous", "Rendezvous", Branch.TECHNIQUES, "In orbit, come within 50 m of another craft, drifting under 1 m/s."),
     DOCK_ORBIT("dock-orbit", "Dock in Orbit", Branch.TECHNIQUES, "Join two craft together while both are in orbit."),
-    GRAVITY_ASSIST("gravity-assist", "Gravity Assist", Branch.TECHNIQUES, "Pass close by a world and come away with a tenth more or less energy - no engines.", Metric.SHARE, 25.0, 50.0),
+    GRAVITY_ASSIST("gravity-assist", "Gravity Assist", Branch.TECHNIQUES, "Pass close by a world and come away with a tenth more or less energy, with no engines.", Metric.SHARE, 25.0, 50.0),
     TOUCHDOWN("touchdown", "Touchdown", Branch.TECHNIQUES, "Land on another world, in one piece."),
     PRECISION_LANDING("precision-landing", "Precision Landing", Branch.TECHNIQUES, "Land on another world within 200 m of something already there.", Metric.MISS, 50.0, 15.0),
     GLIDE_HOME("glide-home", "Glide Home", Branch.TECHNIQUES, "Come back from space and land on a runway."),
@@ -83,7 +83,7 @@ enum class Feat(
 
     val graded: Boolean get() = metric != null
 
-    /** The grade [value] earns, in the metric's unit. */
+    /** The grade that [value] earns, in the metric's unit. */
     fun gradeFor(value: Double): Grade {
         val m = metric ?: return Grade.BRONZE
         return if (m.lowerIsBetter) {
@@ -106,7 +106,7 @@ enum class Feat(
     }
 }
 
-/** What each grade of a feat is worth altogether; a better grade later pays the difference. */
+/** What each grade of a feat is worth in total. Doing better later pays the difference. */
 object Insight {
     const val UNGRADED = 20
     fun worth(feat: Feat, grade: Grade): Int = if (!feat.graded) UNGRADED else when (grade) {
@@ -116,14 +116,20 @@ object Insight {
     }
 }
 
-/** Going somewhere new: into orbit round a world, onto it, and home from it with the crew. */
+/**
+ * Going somewhere new: into orbit around a world, down onto it, and back home from it with the
+ * crew.
+ */
 enum class Visit(val id: String, val title: String, val multiplier: Int) {
     ORBIT("orbit", "Orbit", 1),
     LAND("land", "Landing", 2),
     RETURN("return", "Return", 3),
 }
 
-/** One level of a facility: the most a craft launched from it may weigh (kg) and hold (parts); 0 for no limit. */
+/**
+ * One level of a facility: the most a craft launched from it can weigh (kg) and how many parts it
+ * can have. 0 means no limit.
+ */
 @Serializable
 data class FacilityLevel(val mass: Double = 0.0, val parts: Int = 0)
 
@@ -145,7 +151,7 @@ data class StartingKit(
     val crew: Int = 4,
 )
 
-/** One node of the tree: what it costs, what it needs first, and what it gives. */
+/** One node of the tree: what it costs, what it needs first, and what it gives you. */
 @Serializable
 data class TechNode(
     val id: String,
@@ -153,9 +159,9 @@ data class TechNode(
     val branch: String,
     val cost: Int,
     val blurb: String = "",
-    /** Nodes to have first. */
+    /** Nodes you need first. */
     val requires: List<String> = emptyList(),
-    /** A feat to have done first, by id. */
+    /** A feat you need to have done first, by id. */
     val needs: String? = null,
     val parts: List<String> = emptyList(),
     val pad: Int = 0,
@@ -165,12 +171,12 @@ data class TechNode(
     val abilities: List<String> = emptyList(),
 )
 
-/** The whole tree, as shipped in `career/tree.json`. */
+/** The whole tree, as it ships in `career/tree.json`. */
 @Serializable
 data class TechTree(
     val start: StartingKit = StartingKit(),
     val facilities: Facilities = Facilities(),
-    /** Each world's base worth for a [Visit], by id. */
+    /** How much each world is worth for a [Visit], by id. */
     val worlds: Map<String, Int> = emptyMap(),
     val nodes: List<TechNode> = emptyList(),
 ) {
@@ -195,8 +201,8 @@ data class TechTree(
 data class WorldFirst(val bodyId: String, val visit: String, val owner: String, val ownerName: String, val time: Double)
 
 /**
- * One player's career: insight to spend, what they have unlocked, the
- * feats they have done and how well, and where they have been.
+ * One player's career: the insight they can spend, what they've unlocked, the feats they've done
+ * and how well, and where they've been.
  */
 @Serializable
 data class CareerState(
@@ -205,14 +211,14 @@ data class CareerState(
     val nodes: List<String> = emptyList(),
     /** Feat id to the best [Grade] ordinal reached. */
     val feats: Map<String, Int> = emptyMap(),
-    /** Where they have been: "body:visit". */
+    /** Where they've been, as "body:visit". */
     val visits: List<String> = emptyList(),
 ) {
     fun has(node: String) = node in nodes
     fun grade(feat: Feat): Grade? = feats[feat.id]?.let { Grade.entries[it] }
     fun visited(bodyId: String, visit: Visit) = "$bodyId:${visit.id}" in visits
 
-    /** Every part they may build with. */
+    /** Every part they're allowed to build with. */
     fun parts(tree: TechTree): Set<String> = (tree.start.parts + nodes.mapNotNull { tree.node(it) }.flatMap { it.parts }).toSet()
 
     fun padLevel(tree: TechTree) = maxOf(tree.start.pad, nodes.mapNotNull { tree.node(it)?.pad }.maxOrNull() ?: 0)
@@ -221,7 +227,7 @@ data class CareerState(
     fun crewCap(tree: TechTree) = maxOf(tree.start.crew, nodes.mapNotNull { tree.node(it)?.crew }.maxOrNull() ?: 0)
     fun ability(tree: TechTree, ability: String) = nodes.any { tree.node(it)?.abilities?.contains(ability) == true }
 
-    /** Why [node] cannot be unlocked yet, or null if it can. */
+    /** Why [node] can't be unlocked yet, or null if it can. */
     fun blocker(tree: TechTree, node: TechNode): String? {
         if (has(node.id)) return "Already unlocked"
         val missing = node.requires.filter { !has(it) }.mapNotNull { tree.node(it)?.title }
@@ -232,12 +238,14 @@ data class CareerState(
     }
 }
 
-/** Where a craft goes from, and so which facility's limits it answers to. */
+/** Where a craft launches from, which decides whose limits it has to meet. */
 enum class Facility(val title: String) { PAD("Launch Pad"), HANGAR("Hangar"), HARBOUR("Harbour") }
 
-/** Whether a design may launch in a career, and if not, why. */
+/** Whether a design can launch in a career, and if not, why not. */
 object CareerRules {
-    /** Sites a career launches from: the Cape's three, and a player's own base pads. */
+    /**
+     * The sites a career can launch from: the Cape's three, plus the pads on a player's own bases.
+     */
     val CAREER_SITES = setOf("cape", "airfield", "harbour")
 
     fun facilityFor(siteId: String): Facility = when (siteId) {
@@ -246,7 +254,7 @@ object CareerRules {
         else -> Facility.PAD
     }
 
-    /** The limits [state] has at [facility]: null when it has none there at all. */
+    /** The limits [state] has at [facility], or null when it has none there at all. */
     fun limits(tree: TechTree, state: CareerState, facility: Facility): FacilityLevel? {
         val (level, table) = when (facility) {
             Facility.PAD -> state.padLevel(tree) to tree.facilities.pad
@@ -257,20 +265,20 @@ object CareerRules {
         return table.getOrNull(level - 1) ?: table.lastOrNull()
     }
 
-    /** The parts in [design] that [state] has not unlocked, by title. */
+    /** The parts in [design] that [state] hasn't unlocked, by title. */
     fun lockedParts(tree: TechTree, state: CareerState, design: CraftDesign, catalog: PartCatalog): List<String> {
         val have = state.parts(tree)
         return design.parts.map { it.partId }.distinct().filter { it !in have }.map { catalog[it]?.title ?: it }
     }
 
-    /** The mass of [design] fuelled, kg. */
+    /** The mass of [design] fully fuelled, in kg. */
     fun massOf(design: CraftDesign, catalog: PartCatalog): Double =
         design.parts.sumOf { placed -> catalog[placed.partId]?.wetMass ?: 0.0 }
 
     /**
-     * Why [design] may not launch from [siteId] in [state]'s career, or null
-     * if it may: parts not yet unlocked, a site a career cannot use, or more
-     * than the facility there can take.
+     * Why [design] can't launch from [siteId] in [state]'s career, or null if it can. It might use
+     * parts that aren't unlocked yet, a site a career can't use, or be more than the facility there
+     * can take.
      */
     fun refusal(tree: TechTree, state: CareerState, design: CraftDesign, siteId: String, catalog: PartCatalog): String? {
         val locked = lockedParts(tree, state, design, catalog)

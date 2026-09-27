@@ -19,7 +19,9 @@ class DeepTest {
 
     private fun run(world: World, seconds: Double, each: () -> Unit = {}) = repeat((seconds / dt).toInt()) { each(); world.step(dt) }
 
-    /** [design] afloat off the Cape, [east] and [north] metres from the pad, its crew aboard. */
+    /**
+     * [design] afloat off the Cape, [east] and [north] metres from the pad, with its crew aboard.
+     */
     private fun afloat(world: World, design: CraftDesign, east: Double = -8_000.0, north: Double = 12_000.0): Vessel {
         val d = SolarSystem.capeDirection(east, north)
         val sub = world.spawnOnSurface(design, LaunchSite("sea", "Sea", "terra", SolarSystem.latitudeOf(d), SolarSystem.longitudeOf(d)))
@@ -103,7 +105,7 @@ class DeepTest {
     // --- the sea's weight --------------------------------------------------------------
 
     @Test
-    fun `the Minnow is safe at three hundred metres, and crushed well below its rating - but not its solid parts`() {
+    fun `the Minnow is safe at three hundred metres and crushed well below its rating, but not its solid parts`() {
         val safe = World.default(catalog)
         val minnow = afloat(safe, StockCraft.minnow(catalog))
         downTo(safe, minnow, 300.0)
@@ -125,7 +127,7 @@ class DeepTest {
     // --- diving ---------------------------------------------------------------------------
 
     @Test
-    fun `flooded it sinks, held it stays, blown it comes back up`() {
+    fun `flooded it sinks, held it stays, and blown it comes back up`() {
         val world = World.default(catalog)
         val minnow = afloat(world, StockCraft.minnow(catalog))
         run(world, 10.0)
@@ -145,13 +147,13 @@ class DeepTest {
         assertTrue("its ballast not blown: ${world.ballastShare(minnow)}", world.ballastShare(minnow) < 0.05)
     }
 
-    /** How far [v]'s nose is above the horizontal, degrees; below it, negative. */
+    /** How far [v]'s nose is above the horizontal, in degrees. Negative below it. */
     private fun pitch(v: Vessel): Double = Math.toDegrees(kotlin.math.asin((v.forward() dot v.body.position.normalized()).coerceIn(-1.0, 1.0)))
 
     /**
-     * Level afloat; nose a little down diving, as a submarine goes down; and
-     * level again held at a depth - never stood on end, as the first ones
-     * were, with nothing low to hold them upright.
+     * Level afloat, nose a little down when diving the way a submarine goes down, and level again
+     * when held at a depth. Never stood on end, the way the first ones were, with nothing low down
+     * to hold them upright.
      */
     @Test
     fun `each submarine lies level afloat and held, and dives nose a little down`() {
@@ -172,7 +174,7 @@ class DeepTest {
     }
 
     @Test
-    fun `the Nautilus and the Abyss each go down near their rating, and come back up`() {
+    fun `the Nautilus and the Abyss each go down near their rating and come back up`() {
         for ((design, depth) in listOf(StockCraft.nautilus(catalog) to 1_300.0, StockCraft.abyss(catalog) to 2_200.0)) {
             val world = World.default(catalog)
             // Over the deep off the Cape.
@@ -187,7 +189,7 @@ class DeepTest {
     }
 
     @Test
-    fun `the Nautilus's sonar hears the floor below and points the way to what is not yet found`() {
+    fun `the Nautilus's sonar hears the floor below and points the way to what isn't found yet`() {
         val world = World.default(catalog)
         // Down near the Canyon Wreck, a few hundred metres short of it.
         val wreck = SeaWonders.byId("canyon-wreck")!!
@@ -205,7 +207,7 @@ class DeepTest {
         val here = a.toBodyFixed(sub.body.position, a.rotationAt(world.time)).normalizeInPlace()
         assertEquals(here.distanceTo(wreck.direction) * a.radius, heard.findRange.toDouble(), 5.0)
         assertTrue(heard.findBearing in -180f..180f)
-        // The Minnow has none.
+        // The Minnow doesn't have one.
         val minnow = afloat(world, StockCraft.minnow(catalog), 0.0, 5_000.0)
         assertTrue(world.systemsOf(minnow).findRange < 0f)
     }

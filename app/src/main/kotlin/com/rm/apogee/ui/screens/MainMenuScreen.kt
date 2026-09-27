@@ -57,10 +57,10 @@ fun PlayScreen(
     onNavigate: (AppScreen) -> Unit,
     launchTime: LaunchTime = LaunchTime.NOW,
     onLaunchTime: (LaunchTime) -> Unit = {},
-    /** On the career world rather than the sandbox. */
+    /** On the career world instead of the sandbox. */
     career: Boolean = false,
     onCareer: (Boolean) -> Unit = {},
-    /** The career's insight to spend, when on it. */
+    /** The career's insight to spend, when you're on it. */
     insight: Int? = null,
 ) {
     var chosen by remember { mutableStateOf(launchTime) }
@@ -83,8 +83,8 @@ fun PlayScreen(
             )
         }
 
-        // Not in a career: there is no stock craft to put on the pad - it
-        // starts from scratch, in the Vehicle Assembly.
+        // Not in a career, because there's no stock craft to put on the pad. It starts from
+        // scratch, in the Vehicle Assembly.
         if (!career) {
             ApogeeButton(
                 "Free Flight",
@@ -93,7 +93,7 @@ fun PlayScreen(
                 subtitle = "A fresh craft on the pad, in place of your last one",
             )
         }
-        // When in the day to go up - for Free Flight and the builder's launches.
+        // When in the day to go up, for Free Flight and the builder's launches.
         LaunchTimeRow(chosen, contentModifier) { chosen = it; onLaunchTime(it) }
         ApogeeButton(
             "Resume Flight",
@@ -105,7 +105,7 @@ fun PlayScreen(
             "Crew",
             { onNavigate(AppScreen.CREW) },
             contentModifier,
-            subtitle = "Who is at home, who is out there, and those lost",
+            subtitle = "Who's at home, who's out there, and who was lost",
         )
         ApogeeButton(
             "Vehicle Assembly",
@@ -130,7 +130,7 @@ fun PlayScreen(
     }
 }
 
-/** One of a few, as a row of pills: the chosen one lit. */
+/** One of a few, as a row of pills, with the chosen one lit. */
 @Composable
 internal fun <T> PillRow(options: List<Pair<String, T>>, selected: T, onSelect: (T) -> Unit) {
     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {

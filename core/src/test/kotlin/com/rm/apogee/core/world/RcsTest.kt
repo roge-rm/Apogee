@@ -9,11 +9,10 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Thrusters, and what they are for.
+ * Thrusters, and what they're for.
  *
- * A base is built by landing modules and pushing them together, and a main
- * engine cannot do the pushing - it points one way and delivers tonnes. These
- * are about the nudge.
+ * A base is built by landing modules and pushing them together, and a main engine can't do the
+ * pushing, because it points one way and delivers tonnes. These are about the nudge.
  */
 class RcsTest {
 
@@ -31,11 +30,10 @@ class RcsTest {
     }
 
     /**
-     * Where modules get walked into place: on Luna, whose sixth of a g lets
-     * four thrusters break a landed tug's grip. Lifting a little and pushing,
-     * it slides across - and stays on its feet. (On Terra they barely out-push
-     * its grip, and pushing at the centre of mass mostly rocks it; the
-     * thrusters see to it that it does not go over - see below.)
+     * Where modules get walked into place: on Luna, whose sixth of a g lets four thrusters break a
+     * landed tug's grip. Lifting a little and pushing, it slides across and stays on its feet. (On
+     * Terra they barely out-push its grip, and pushing at the centre of mass mostly rocks it. The
+     * thrusters make sure it doesn't go over. See below.)
      */
     @Test
     fun `a landed module can be walked sideways on Luna, lifting and pushing`() {
@@ -75,9 +73,8 @@ class RcsTest {
     }
 
     /**
-     * Thrusters fire at their own offsets, so a symmetric set has to cancel
-     * its own torque. If it does not, translating turns into tumbling and the
-     * whole point is lost.
+     * Thrusters fire at their own offsets, so a symmetric set has to cancel its own torque. If it
+     * doesn't, moving turns into tumbling and the whole point is lost.
      */
     @Test
     fun `a symmetric thruster set translates without spinning`() {
@@ -110,8 +107,8 @@ class RcsTest {
 
         val fuelBefore = lander.amountOf(ResourceType.MONOPROPELLANT)
         world.apply(Command.SetTranslation(lander.id.raw, 1.0, 0.0, 0.0))
-        // Long enough to settle again: the command itself wakes the craft,
-        // whether or not the thrusters are switched on.
+        // Long enough to settle again. The command itself wakes the craft, whether or not the
+        // thrusters are switched on.
         repeat(400) { world.step(dt) }
 
         assertEquals(
@@ -154,7 +151,10 @@ class RcsTest {
         return tug
     }
 
-    /** How fast it is turning after a second of full pitch, rad/s, with the thrusters [armed] or not. */
+    /**
+     * How fast it's turning after a second of full pitch, in rad/s, with the thrusters [armed] or
+     * not.
+     */
     private fun pitchRate(armed: Boolean): Pair<Double, Double> {
         val world = world()
         val tug = tugInOrbit(world)
@@ -166,7 +166,7 @@ class RcsTest {
     }
 
     @Test
-    fun `armed, the thrusters help turn it - and that costs propellant`() {
+    fun `armed, the thrusters help turn it, and that costs propellant`() {
         val (wheels, unarmedSpent) = pitchRate(armed = false)
         val (both, armedSpent) = pitchRate(armed = true)
         assertTrue("wheels alone turn it ($wheels rad/s)", wheels > 0.0)
@@ -176,7 +176,7 @@ class RcsTest {
     }
 
     @Test
-    fun `each block's push is recorded - all one way for a slide, round the axis for a turn`() {
+    fun `each block's push is recorded, all one way for a slide, and round the axis for a turn`() {
         val world = world()
         val tug = tugInOrbit(world)
         world.apply(Command.SetRcs(tug.id.raw, true))
@@ -191,8 +191,8 @@ class RcsTest {
             assertEquals(0.0, f[b * 3 + 2], 1e-9)
         }
 
-        // Rolling (about the craft's +y): each pushes across, round the axis -
-        // opposite blocks opposite ways - and with no slide, nothing along it.
+        // Rolling (about the craft's +y): each one pushes across, round the axis, with opposite
+        // blocks going opposite ways, and with no slide, nothing along it.
         world.apply(Command.SetTranslation(tug.id.raw, 0.0, 0.0, 0.0))
         world.apply(Command.SetAttitude(tug.id.raw, 0.0, 0.0, 1.0))
         world.step(dt)
@@ -242,7 +242,10 @@ class RcsTest {
         assertEquals(4, blocks)
     }
 
-    /** How far from upright a landed tug ends up, degrees, after a full slide for [seconds] with SAS [sas]. */
+    /**
+     * How far from upright a landed tug ends up, in degrees, after a full slide for [seconds] with
+     * SAS [sas].
+     */
     private fun tiltAfterFullSlide(sas: Boolean, seconds: Double = 4.0, amount: Double = 1.0): Double {
         val world = world()
         val tug = world.spawnOnSurface(StockCraft.moduleTug(catalog), site)
@@ -262,12 +265,12 @@ class RcsTest {
     }
 
     /**
-     * Pushed flat out along the ground, a landed tug rocks on its legs; the
-     * thrusters ease off as it does, and it stays on its feet - it went over
-     * at anything past a third of their thrust, SAS or not.
+     * Pushed flat out along the ground, a landed tug rocks on its legs. The thrusters ease off as
+     * it does, and it stays on its feet. It went over at anything past a third of their thrust, SAS
+     * or not.
      */
     @Test
-    fun `a flat-out slide along the ground does not tip it over`() {
+    fun `a flat-out slide along the ground doesn't tip it over`() {
         for (sas in listOf(false, true)) {
             val tilt = tiltAfterFullSlide(sas = sas)
             assertTrue("SAS $sas: stays on its feet, leaned $tilt deg", tilt < 20.0)
@@ -275,9 +278,9 @@ class RcsTest {
     }
 
     /**
-     * A tool, not a test: RCS_PROBE=1 prints how far a landed tug on Terra
-     * goes, and how far it leans, for a few pushes - for tuning the
-     * thrusters' ease-off (Forces.ROCK_ALLOWED / ROCK_SPAN).
+     * A tool, not a test. RCS_PROBE=1 prints how far a landed tug on Terra goes, and how far it
+     * leans, for a few pushes, for tuning the thrusters' ease-off (Forces.ROCK_ALLOWED /
+     * ROCK_SPAN).
      */
     @Test
     fun probeWalking() {

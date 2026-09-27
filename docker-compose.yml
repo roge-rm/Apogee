@@ -1,24 +1,25 @@
 # An Apogee dedicated server, in two containers:
 #
-#   server  - the game. The same simulation the phone runs, listening on
-#             45678, keeping its world on disk across restarts.
-#   web     - a browser admin page: status, players, log, save, announce.
+#     server  - the game. The same simulation the phone runs, listening on
+#               45678, keeping its world on disk across restarts.
+#     web     - a browser admin page: status, players, log, save, announce.
 #
 # Quick start:
-#   cp .env.example .env     # and set ADMIN_PASSWORD
-#   docker compose up --build
+#
+#     cp .env.example .env     # and set ADMIN_PASSWORD
+#     docker compose up --build
 #
 # Then open http://<this machine>:8080.
 #
-# Host networking is the default because that is what lets a phone find this
-# server by itself: discovery is a UDP broadcast, and broadcast does not cross
-# a bridge network. It also means the ports below are taken on the host
-# directly rather than published. On Docker Desktop, or if you want explicit
-# port mapping, use the bridge override instead:
+# Host networking is the default because that's what lets a phone find this
+# server by itself. Discovery is a UDP broadcast, and broadcast doesn't cross a
+# bridge network. It also means the ports below are taken on the host directly
+# instead of published. On Docker Desktop, or if you want explicit port mapping,
+# use the bridge override instead:
 #
-#   docker compose -f docker-compose.yml -f docker-compose.bridge.yml up --build
+#     docker compose -f docker-compose.yml -f docker-compose.bridge.yml up --build
 #
-# That costs auto-discovery and nothing else - players type the address.
+# That costs you auto-discovery and nothing else. Players just type the address.
 
 services:
   server:
@@ -35,11 +36,11 @@ services:
       APOGEE_AUTOSAVE_SECONDS: "${AUTOSAVE_SECONDS:-60}"
       APOGEE_LAN_DISCOVERY: "${LAN_DISCOVERY:-1}"
     volumes:
-      # The world: every craft, where it is, and how much fuel it has left.
-      # Back this up and you have the server; delete it and the next start
-      # begins a fresh universe.
+      # The world: every craft, where it is, and how much fuel it has left. Back
+      # this up and you have the server. Delete it and the next start begins a
+      # fresh universe.
       - state:/state
-      # The control socket the web admin talks to. Never on the network.
+      # The control socket the web admin talks to. It's never on the network.
       - control:/run/apogee
 
   web:
@@ -56,8 +57,8 @@ services:
       ADMIN_PASSWORD: "${ADMIN_PASSWORD:?ADMIN_PASSWORD must be set - see .env.example}"
       WEB_PORT: "${WEB_PORT:-8080}"
       WEB_BIND: "${WEB_BIND:-0.0.0.0}"
-      # Set to 1 only when something in front of this terminates TLS -
-      # otherwise the session cookie is marked Secure and never comes back.
+      # Set to 1 only when something in front of this terminates TLS. Otherwise
+      # the session cookie is marked Secure and never comes back.
       HTTPS: "${HTTPS:-0}"
     volumes:
       - control:/run/apogee

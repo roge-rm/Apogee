@@ -14,10 +14,9 @@ import com.rm.apogee.core.part.SolarPanel
 import com.rm.apogee.core.weather.Climate
 
 /**
- * A craft's power, tick by tick: what its panels, alternators and fuel
- * cells make, what its pods, reaction wheels, assists, lamps and antennas
- * use, and whether it has any left. With none it is dark: see
- * `World.step` for what that takes away.
+ * A craft's power, tick by tick: what its panels, alternators and fuel cells make, what its pods,
+ * reaction wheels, assists, lamps and antennas use, and whether it has any left. With none it goes
+ * dark. See `World.step` for what that takes away.
  */
 class Power(private val system: SolarSystem) {
 
@@ -28,15 +27,15 @@ class Power(private val system: SolarSystem) {
     private val scratchSunDir = Vec3()
 
     /**
-     * How much of the sun reaches [position] - relative to [attractor]'s
-     * centre - at [time]: 1 in it, 0 in the shadow of the body or of its
-     * parent or moons, a cylinder behind each along the sun's direction.
+     * How much of the sun reaches [position] (relative to [attractor]'s centre) at [time]. It's 1
+     * in the sun, and 0 in the shadow of the body or its parent or moons, which is a cylinder
+     * behind each one along the sun's direction.
      */
     fun sunlight(attractor: CelestialBody, position: Vec3, time: Double): Double {
         val sun = system.sunDirection(attractor.id, position, time, scratchSunDir)
         scratchHere.setTo(system.positionOf(attractor.id, time)).addInPlace(position)
         for (body in shadowers(attractor)) {
-            // The star casts no shadow of its own.
+            // The star doesn't cast a shadow of its own.
             if (body.parentId == null) continue
             scratchRel.setTo(system.positionOf(body.id, time)).negateInPlace().addInPlace(scratchHere)
             val along = scratchRel dot sun
@@ -48,9 +47,9 @@ class Power(private val system: SolarSystem) {
     }
 
     /**
-     * How much of the sunlight the air lets through to [vessel], 0..1: all
-     * of it on an airless world and in Terra's sky; a tenth under Caligo's
-     * deck or Aurantia's haze; little inside a dust storm.
+     * How much of the sunlight the air lets through to [vessel], 0..1. All of it on an airless
+     * world and in Terra's sky, a tenth under Caligo's deck or Aurantia's haze, and very little
+     * inside a dust storm.
      */
     fun skyShade(vessel: Vessel, attractor: CelestialBody): Double {
         if (attractor.atmosphere == null) return 1.0
@@ -63,7 +62,10 @@ class Power(private val system: SolarSystem) {
 
     private val shadowerLists = HashMap<String, List<CelestialBody>>()
 
-    /** The bodies whose shadow can fall on a craft in [attractor]'s pull: it, its planet, its moons. */
+    /**
+     * The bodies whose shadow can fall on a craft in [attractor]'s pull: it, its planet and its
+     * moons.
+     */
     private fun shadowers(attractor: CelestialBody): List<CelestialBody> = shadowerLists.getOrPut(attractor.id) {
         buildList {
             add(attractor)
@@ -73,14 +75,13 @@ class Power(private val system: SolarSystem) {
     }
 
     /**
-     * One step of [dt] for awake [vessel] about [attractor] at [time]: its
-     * charge made and used, its fuel cells switched, and [Vessel.powered]
-     * and [Vessel.powerNet] brought up to date. On [rails] nothing is
-     * steering, so only what runs by itself draws.
+     * One step of [dt] for awake [vessel] around [attractor] at [time]: the charge it made and
+     * used, its fuel cells switched on or off, and [Vessel.powered] and [Vessel.powerNet] brought
+     * up to date. On [rails] nothing is steering, so only what runs by itself draws power.
      */
     fun step(vessel: Vessel, attractor: CelestialBody, time: Double, dt: Double, rails: Boolean = false) {
         val capacity = vessel.capacityOf(ResourceType.ELECTRIC_CHARGE)
-        // As bright as the distance from the star leaves it: faint among the giants.
+        // As bright as the distance from the star leaves it, so faint out among the giants.
         val lit = sunlight(attractor, vessel.body.position, time) * system.sunStrength(attractor.id, vessel.body.position, time) *
             skyShade(vessel, attractor)
         val sun = system.sunDirection(attractor.id, vessel.body.position, time, scratchSunDir)
@@ -113,15 +114,16 @@ class Power(private val system: SolarSystem) {
         used += vessel.industryDraw
         if (!rails) {
             val control = vessel.control
-            // On the ground or the water the wheels and the assist are
-            // steering what the ground and the water mostly hold anyway.
+            // On the ground or the water, the wheels and the assist are steering against what the
+            // ground and the water mostly hold anyway.
             if (!vessel.touchingGround && !vessel.afloat) {
                 used += vessel.wheelWork * WHEEL_DRAW
                 if (control.sasEnabled && vessel.powered) used += SAS_DRAW
             }
             if (control.autoBurn || control.autoLand) used += AUTOPILOT_DRAW
         }
-        // Fuel cells: on when running low, off when well up again, and only while there is monopropellant.
+        // Fuel cells come on when running low and go off when it's well back up, and only while
+        // there's monopropellant.
         if (anyCell >= 0 && capacity > 0.0) {
             val share = vessel.amountOf(ResourceType.ELECTRIC_CHARGE) / capacity
             if (!vessel.fuelCellsOn && share < CELLS_ON) vessel.fuelCellsOn = true
@@ -140,7 +142,10 @@ class Power(private val system: SolarSystem) {
         vessel.powered = poweredNow(vessel, capacity, net)
     }
 
-    /** How squarely panel [i] meets the sun, 0..1: a fold-out one out and turned to it, a fixed one by its face. */
+    /**
+     * How squarely panel [i] faces the sun, 0..1. A fold-out one counts when it's out and turned
+     * toward it, and a fixed one by its face.
+     */
     private fun facing(vessel: Vessel, i: Int, panel: SolarPanel): Double {
         if (panel.deployable) return if (deployed(vessel, i)) 1.0 else 0.0
         val normal = panel.normal ?: return 1.0
@@ -149,21 +154,23 @@ class Power(private val system: SolarSystem) {
     }
 
     companion object {
-        /** Charge a second for each N·m of reaction-wheel torque worked: a pod's wheels flat out, 0.1 a second. */
+        /**
+         * Charge per second for each N·m of reaction wheel torque used. A pod's wheels flat out use
+         * 0.1 a second.
+         */
         const val WHEEL_DRAW = 2.0e-5
-        /** Stability assist holding, and an autopilot flying, units a second. */
+        /** Stability assist holding and an autopilot flying, in units a second. */
         const val SAS_DRAW = 0.01
         const val AUTOPILOT_DRAW = 0.05
-        /** Fuel cells cut in under this share of charge, and out over this. */
+        /** Fuel cells cut in under this share of charge, and out above this. */
         const val CELLS_ON = 0.25
         const val CELLS_OFF = 0.9
-        /** Under this share of charge the HUD warns. */
+        /** Under this share of charge the HUD warns you. */
         const val LOW = 0.2
 
         /**
-         * Charge left, or being made faster than used - or no battery at all:
-         * a craft with nothing to run flat, a buggy's open seat, runs straight
-         * off what it has.
+         * Charge left, or being made faster than it's used, or no battery at all. A craft with
+         * nothing to run flat, like a buggy's open seat, runs straight off what it has.
          */
         fun poweredNow(vessel: Vessel, capacity: Double, net: Double): Boolean =
             capacity <= 0.0 || net > 0.0 || vessel.amountOf(ResourceType.ELECTRIC_CHARGE) > 0.0

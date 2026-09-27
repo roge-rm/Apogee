@@ -1,10 +1,10 @@
-// Renders every sound the game makes to WAV files, off the device, through
-// the same synth the game uses - for tuning by ear and by the numbers.
+// Renders every sound the game makes to WAV files, off the device, through the same synth the game
+// uses, for tuning by ear and by the numbers.
 //
-//   ./gradlew :app:soundGallery    ->   app/build/sound-gallery/*.wav
+//     ./gradlew :app:soundGallery    ->   app/build/sound-gallery/*.wav
 //
-// Each file is a little scene: a held sound swept through its range, or a
-// one-shot at a few strengths. A line per file gives its peak and RMS.
+// Each file is a little scene: a held sound swept through its range, or a one-shot at a few
+// strengths. A line per file gives its peak and RMS.
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -20,7 +20,7 @@ using namespace apogee;
 namespace {
 
 constexpr float kRate = 48000.0f;
-constexpr int kBlock = 480;  // 10 ms: how often a scene is updated, as a frame would
+constexpr int kBlock = 480;  // 10 ms, how often a scene gets updated, like a frame would
 
 void writeWav(const std::string& path, const std::vector<float>& stereo) {
     FILE* f = std::fopen(path.c_str(), "wb");
@@ -38,7 +38,7 @@ void writeWav(const std::string& path, const std::vector<float>& stereo) {
     std::fclose(f);
 }
 
-/** A held sound over [seconds], its parameters set each block by [shape](t 0..1, params). */
+/** A held sound over [seconds], with its parameters set each block by [shape](t 0..1, params). */
 struct Held {
     int recipe;
     int flags = 0;
@@ -67,14 +67,13 @@ struct Biquad {
 };
 
 /**
- * How loud it sounds rather than how much power it has: ITU-R BS.1770
- * K-weighting (a lift above ~1.5 kHz, a cut below ~60 Hz) at 48 kHz,
- * in LUFS. Two sounds at the same RMS can be far apart by ear - a high
- * whine carries much more than a low rumble.
+ * How loud it sounds, not how much power it has: ITU-R BS.1770 K-weighting (a lift above about 1.5
+ * kHz, a cut below about 60 Hz) at 48 kHz, in LUFS. Two sounds at the same RMS can be far apart by
+ * ear, because a high whine carries much more than a low rumble.
  */
 double loudness(const std::vector<float>& stereo, bool phone = false) {
-    // A phone's own speaker gives little below ~350 Hz: measured through a
-    // fourth-order high pass there too, it is what Dan actually hears.
+    // A phone's own speaker gives little below about 350 Hz. Measured through a fourth-order high
+    // pass there too, it's what I actually hear.
     auto highPass = [](double freq) {
         double w = 2.0 * M_PI * freq / 48000.0, alpha = std::sin(w) / (2.0 * 0.7071), c = std::cos(w), a0 = 1 + alpha;
         return Biquad{(1 + c) / 2 / a0, -(1 + c) / a0, (1 + c) / 2 / a0, -2 * c / a0, (1 - alpha) / a0};
@@ -176,8 +175,8 @@ int main(int argc, char** argv) {
     render(dir, "outboard", 6, {{recipe::OUTBOARD, 0, [](float t, float* p) { p[0] = 0.8f; p[1] = ramp(t); }}});
     render(dir, "rcs", 6, {{recipe::RCS, 0, [](float t, float* p) { p[0] = ramp(t); }}});
 
-    // Each vehicle held steady as the game drives it (SoundScene's numbers),
-    // at full power and cruising, to set them against each other by ear.
+    // Each vehicle held steady the way the game drives it (SoundScene's numbers), at full power and
+    // cruising, to set them against each other by ear.
     render(dir, "level-rocket-full", 5, {{recipe::ROCKET, 0, [](float, float* p) { p[0] = 1; p[1] = 0.8f; p[2] = 1; p[3] = 0.62f; }}});
     render(dir, "level-rocket-booster", 5, {{recipe::ROCKET, 0, [](float, float* p) { p[0] = 1; p[1] = 0.55f; p[2] = 1; p[3] = 0.52f; p[4] = 0.22f; }}});
     render(dir, "level-rocket-vacuum", 5, {{recipe::ROCKET, 0, [](float, float* p) { p[0] = 1; p[1] = 0.15f; p[2] = 1; p[3] = 0.36f; p[4] = 0.75f; }}});
@@ -192,7 +191,7 @@ int main(int argc, char** argv) {
     render(dir, "level-complex-night", 30, {{recipe::COMPLEX, 0, [](float, float* p) { p[0] = 1.0f; p[1] = 1.0f; }}});
     render(dir, "level-port", 30, {{recipe::PORT, 0, [](float, float* p) { p[0] = 1.0f; }}});
     render(dir, "level-slap", 1, {{recipe::SLAP, 0, [](float, float* p) { p[0] = 1.0f; }}});
-    // A plane going by at 150 m/s: Doppler from high to low as it passes.
+    // A plane going by at 150 m/s, with Doppler from high to low as it passes.
     render(dir, "doppler-flyby", 8, {{recipe::JET, 0, [](float t, float* p) {
         float x = (t - 0.5f) * 8.0f * 150.0f, d = std::sqrt(x * x + 60.0f * 60.0f);
         p[0] = 1; p[1] = 0.8f; p[2] = 0.5f;

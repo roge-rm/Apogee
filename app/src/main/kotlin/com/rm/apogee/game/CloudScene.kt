@@ -16,20 +16,18 @@ import com.rm.apogee.render.RenderItem
 import kotlinx.coroutines.launch
 
 /**
- * The sky's weather, for drawing: the clouds around the camera, and the air
- * the camera is in.
+ * The sky's weather, for drawing: the clouds around the camera, and the air the camera is in.
  *
- * Its own [Weather] - the same function the server and the prediction
- * replica compute, from the same config, so the cloud a player sees is the
- * cloud their craft flies into. The cloud list is refreshed about once a
- * second (they change slowly) and turned with the planet every frame.
+ * It has its own [Weather], the same function the server and the prediction replica work out, from
+ * the same config, so the cloud a player sees is the cloud their craft flies into. The cloud list
+ * is refreshed about once a second (they change slowly) and turned with the planet every frame.
  */
 class CloudScene(
     val body: CelestialBody,
     val config: WeatherConfig,
     private val tier: QualityTier,
     private val scope: kotlinx.coroutines.CoroutineScope,
-    /** Toward the star at a time, inertial: what the clouds' shadows fall away from. */
+    /** Toward the star at a given time, inertial. It's what the clouds' shadows fall away from. */
     private val sunAt: (Double) -> Vec3 = { Vec3.unitY() },
 ) {
 
@@ -37,10 +35,9 @@ class CloudScene(
     val weather = Weather(body, config)
 
     /**
-     * For listing clouds, off the frame thread - a first listing over new
-     * ground warms caches for tens of milliseconds, a visible hitch if it
-     * ran in the frame. Its own instance: a weather's caches are not shared
-     * between threads.
+     * For listing clouds, off the frame thread. A first listing over new ground warms caches for
+     * tens of milliseconds, which would be a visible hitch if it ran in the frame. It's its own
+     * instance, because a weather's caches aren't shared between threads.
      */
     private val listingWeather = Weather(body, config)
     @Volatile private var listing = false
@@ -54,14 +51,14 @@ class CloudScene(
         private val tier: QualityTier,
         /** A rain curtain, not a puff. */
         val rain: Boolean = false,
-        /** Part of a storm: drawn before anything else. */
+        /** Part of a storm, so it's drawn before anything else. */
         val storm: Boolean = false,
     ) {
         /**
-         * Close puffs are the finest mesh, small facets that read as billows
-         * rather than slabs; further out each step a quarter the facets.
-         * One step finer at every distance than it was (Dan: some still
-         * looked solid) - the finest of all only where the device can take it.
+         * Close puffs get the finest mesh, with small facets that look like billows instead of
+         * slabs, and further out each step has a quarter of the facets. It's one step finer at
+         * every distance than it was, because some still looked solid to me. The finest of all is
+         * only used where the device can take it.
          */
         val detail: Int get() = when (tier) {
             QualityTier.HIGH -> when {
@@ -92,9 +89,8 @@ class CloudScene(
     }
 
     /**
-     * How far off storms are drawn, m: well past the rest. A storm tens of
-     * kilometres across is seen from a hundred away, and what a pilot most
-     * needs to see coming.
+     * How far away storms are drawn, in metres, well past the rest. A storm tens of kilometres
+     * across can be seen from a hundred away, and it's what a pilot most needs to see coming.
      */
     private val stormReach: Double get() = when (tier) {
         QualityTier.LOW -> 70_000.0
@@ -110,18 +106,21 @@ class CloudScene(
     }
 
     private val maxLobes: Int get() = when (tier) {
-        // Room on LOW for a storm or two - a big one near is two hundred
-        // lobes at LOW's detail, drawn first - and the cumulus round them.
+        // Room on LOW for a storm or two (a big one nearby is two hundred lobes at LOW's detail,
+        // drawn first), and the cumulus around them.
         QualityTier.LOW -> 320
         QualityTier.MEDIUM -> 900
         QualityTier.HIGH -> 1_800
     }
 
-    /** The wind near the ground under the camera, body-fixed: for trees to lean in. */
+    /** The wind near the ground under the camera, body-fixed, for trees to lean in. */
     val surfaceWind = Vec3()
     private var windAt = Double.NEGATIVE_INFINITY
 
-    /** Brings the air and, when due, the cloud list up to [time] for a camera at [camera] (body-fixed). */
+    /**
+     * Brings the air and, when it's due, the cloud list up to [time] for a camera at [camera]
+     * (body-fixed).
+     */
     fun update(camera: Vec3, time: Double) {
         weather.sample(camera, time, air)
         if (time - windAt > 0.25) {
@@ -141,11 +140,11 @@ class CloudScene(
         scope.launch(LIST) {
             val started = System.nanoTime()
             try {
-                // A fresh sky shows the nearest clouds first, then the rest:
-                // waiting for all of them left an empty sky for seconds.
+                // A fresh sky shows the nearest clouds first, then the rest. Waiting for all of
+                // them left an empty sky for seconds.
                 if (first) lobes = list(from, time, 0.0, nearReach, withShadow = true)
-                // The far sky changes slowly and is most of the work: listed
-                // now and then, the near sky - and its shadows - every second.
+                // The far sky changes slowly and is most of the work, so it's listed now and then,
+                // and the near sky (and its shadows) every second.
                 val far = if (farDue) list(from, time, nearReach * FAR_OVERLAP, reach, withShadow = false).also { farLobes = it } else farLobes!!
                 val near = list(from, time, 0.0, nearReach, withShadow = true)
                 lobes = merged(near, far, from)
@@ -156,22 +155,22 @@ class CloudScene(
         }
     }
 
-    /** How long the last listing of the sky took, ms, for the debug performance log. */
+    /** How long the last listing of the sky took, in ms, for the debug performance log. */
     @Volatile var lastListMillis = 0.0
         private set
 
-    /** The far sky, as last listed; null before the first. */
+    /** The far sky, as it was last listed. Null before the first. */
     @Volatile private var farLobes: List<Lobe>? = null
     private var farListedAt = Double.NEGATIVE_INFINITY
     private val farListedFrom = Vec3()
 
-    /** Out to here the sky is listed every second: at least as far as the clouds' shadows reach. */
+    /** Out to here the sky is listed every second, at least as far as the clouds' shadows reach. */
     private val nearReach: Double get() = kotlin.math.max(0.3 * reach, if (tier == QualityTier.HIGH) 30_000.0 else 20_000.0)
 
     /**
-     * The near sky and the far one together: the far without what is now
-     * inside the near - listed from where the camera was, it may overlap -
-     * storms first, then nearest first, to the budget; the rain besides.
+     * The near sky and the far one together. The far one leaves out what's now inside the near one
+     * (listed from where the camera was, it might overlap). Storms go first, then nearest first, up
+     * to the budget, and the rain as well.
      */
     private fun merged(near: List<Lobe>, far: List<Lobe>, camera: Vec3): List<Lobe> {
         val all = ArrayList<Lobe>(near.size + far.size)
@@ -207,25 +206,26 @@ class CloudScene(
             }
         }
         if (withShadow) buildShadow(camera, time)
-        // Storms first, whatever their distance - a few dozen lobes each, and
-        // what a pilot most needs to see coming: nearest-first alone, a busy
-        // day's cumulus filled the budget within twenty kilometres and a
-        // storm beyond them was never drawn. Then the rest, nearest first, as
-        // many as the device can draw; the rain besides.
+        // Storms first, whatever their distance. They're a few dozen lobes each, and what a pilot
+        // most needs to see coming. With nearest first alone, a busy day's cumulus filled the
+        // budget within twenty kilometres and a storm beyond them was never drawn. Then the rest,
+        // nearest first, as many as the device can draw, and the rain as well.
         list.sortWith(compareBy<Lobe>({ !it.storm }, { it.distance }))
         val kept = if (list.size > maxLobes) list.subList(0, maxLobes).toMutableList() else list
         kept.addAll(curtains)
         return kept
     }
 
-    /** The clouds' shadows on the ground round the camera, as last worked out; or null. */
+    /**
+     * The clouds' shadows on the ground around the camera, as they were last worked out, or null.
+     */
     @Volatile var shadowGrid: com.rm.apogee.render.CloudShadowGrid? = null
         private set
     private var shadowRevision = 0
 
     /**
-     * Casts the clouds just listed onto the ground round [camera] (body-fixed):
-     * by the sun, or by the moon at night, more faintly.
+     * Casts the clouds just listed onto the ground around [camera] (body-fixed), by the sun, or
+     * more faintly by the moon at night.
      */
     private fun buildShadow(camera: Vec3, time: Double) {
         val up = camera.copy().normalizeInPlace()
@@ -242,8 +242,8 @@ class CloudScene(
     /** A storm's rain seen from outside it: a grey curtain from its base to the ground. */
     private fun curtainFor(lobe: com.rm.apogee.core.weather.CloudLobe, distance: Double, reach: Double): Lobe {
         val up = Vec3().setTo(lobe.centre).normalizeInPlace()
-        // Dark and nearly solid: pale, it vanished against the sky behind -
-        // and at 55% it still did, beside the darker storms (Dan).
+        // Dark and nearly solid. Pale, it vanished against the sky behind it, and at 55% it still
+        // did beside the darker storms, which I didn't like.
         val alpha = 0.8 * lobe.shade * (1.0 - smooth(0.65 * reach, reach, distance))
         return Lobe(
             lobe.centre, quatFromTo(Vec3.unitY(), up), Vec3(lobe.horizontal, lobe.vertical, lobe.horizontal),
@@ -252,28 +252,28 @@ class CloudScene(
         )
     }
 
-    /** A drawable lobe: turned its own way, shaped by where it is, coloured and faded. */
+    /** A lobe that can be drawn: turned its own way, shaped by where it is, coloured and faded. */
     private fun lobeFor(
         type: CloudType,
         amount: Double,
         lobe: com.rm.apogee.core.weather.CloudLobe,
         distance: Double,
-        /** Faded out toward this distance, m. */
+        /** Faded out toward this distance, in metres. */
         fadeAt: Double = reach,
     ): Lobe {
         val up = Vec3().setTo(lobe.centre).normalizeInPlace()
-        // Each puff turned its own way about the vertical, and its shape
-        // picked from where it is: turned alike and handed out in order,
-        // neighbours were copies of each other.
+        // Each puff is turned its own way about the vertical, and its shape is picked from where it
+        // is. When they were all turned the same and handed out in order, neighbours were copies of
+        // each other.
         val hash = com.rm.apogee.core.terrain.Noise.hashInt(
             0xC10D, (lobe.centre.x * 0.01).toInt(), (lobe.centre.y * 0.01).toInt(), (lobe.centre.z * 0.01).toInt(),
         )
         val yaw = ((hash ushr 8) and 0xFFFF) / 65_536.0 * 2.0 * Math.PI
         val orient = quatFromTo(Vec3.unitY(), up) * Quat.fromAxisAngle(Vec3.unitY(), yaw)
         val colour = colourOf(type, lobe.shade)
-        // How solid, by kind and by how much of it there is - a thin deck or
-        // a young cumulus lets the sky through - and fading out toward the
-        // edge of the draw distance rather than appearing there.
+        // How solid, by kind and by how much of it there is (a thin deck or a young cumulus lets
+        // the sky through), fading out toward the edge of the draw distance instead of popping in
+        // there.
         colour[3] = (OPACITY[type.ordinal] * (0.55 + 0.45 * amount.coerceIn(0.0, 1.0)) *
             (1.0 - smooth(0.65 * fadeAt, fadeAt, distance))).toFloat()
         return Lobe(
@@ -325,10 +325,9 @@ class CloudScene(
     private var mapRevision = 0
 
     /**
-     * The whole planet's cloud for the map, as a veil over the globe: the
-     * decks' cover at each of its vertices, and every storm laid over it,
-     * greyer - refreshed every half minute of game time on a worker. Puffs
-     * tens of kilometres across were drawn here once, and from orbit they
+     * The whole planet's cloud for the map, as a veil over the globe: the decks' cover at each of
+     * its vertices, with every storm laid over it, greyer. It's refreshed every half minute of game
+     * time on a worker. Puffs tens of kilometres across used to be drawn here, and from orbit they
      * looked like plates laid on the planet, not like cloud.
      */
     fun mapShell(time: Double): com.rm.apogee.render.CloudShell? {
@@ -339,8 +338,8 @@ class CloudScene(
                 try {
                     val storms = ArrayList<CloudShape>()
                     mapWeather.globalStorms(time, storms)
-                    // Each storm's lobes as directions, reach (as a chord of the
-                    // unit sphere), how much and how dark.
+                    // Each storm's lobes as directions, reach (as a chord of the unit sphere), how
+                    // much, and how dark.
                     val lobes = storms.flatMap { shape ->
                         shape.lobes.map { lobe -> StormPatch(lobe.centre.normalized(), lobe.horizontal / body.radius, shape.amount, lobe.shade) }
                     }
@@ -352,9 +351,9 @@ class CloudScene(
                         val t = 1.0 - s.centre.distanceTo(direction) / s.reach
                         return s.amount * (t * (2.0 - t))
                     }
-                    // The decks averaged over a patch round each vertex: their
-                    // finer noise, sampled once a vertex tens of kilometres
-                    // apart, came out as blocks.
+                    // The decks averaged over a patch around each vertex. Their finer noise,
+                    // sampled once per vertex with vertices tens of kilometres apart, came out as
+                    // blocks.
                     val east = Vec3(); val north = Vec3(); val probe = Vec3()
                     val step = MAP_SHELL_BLUR / body.radius
                     fun decks(d: Vec3): Double {
@@ -383,7 +382,10 @@ class CloudScene(
         return mapShell
     }
 
-    /** A storm's cloud on the map's veil: where, how far across (a chord of the unit sphere), how much, how dark. */
+    /**
+     * A storm's cloud on the map's veil: where it is, how far across (a chord of the unit sphere),
+     * how much, and how dark.
+     */
     private class StormPatch(val centre: Vec3, val reach: Double, val amount: Double, val shade: Double)
 
     // --- the windsock ---------------------------------------------------------
@@ -394,15 +396,14 @@ class CloudScene(
     private var sockGround = Double.NaN
 
     /**
-     * A windsock beside the pads at [site], if the camera at [camera]
-     * (body-fixed) is near enough to see it: a striped sock on a pole,
-     * hanging limp in still air and standing out straight downwind in a
-     * gale - the wind at the Cape, read at a glance.
+     * A windsock beside the pads at [site], if the camera at [camera] (body-fixed) is near enough
+     * to see it. It's a striped sock on a pole, hanging limp in still air and standing out straight
+     * downwind in a gale, so you can read the wind at the Cape at a glance.
      */
     fun windsock(site: com.rm.apogee.core.world.LaunchSite, camera: Vec3, time: Double, bodyRotation: Quat, out: MutableList<RenderItem>) {
         if (site.bodyId != body.id) return
         if (sockGround.isNaN()) {
-            // Beside the row of pads, which runs east-west: a little north.
+            // Beside the row of pads, which runs east-west, a little north.
             val lat = site.latitude + SOCK_OFFSET / body.radius
             sockDirection.setTo(
                 kotlin.math.cos(lat) * kotlin.math.cos(site.longitude),
@@ -455,14 +456,14 @@ class CloudScene(
 
     private val sampleScratch = AirSample()
 
-    /** How far the camera can see through the weather, metres. */
+    /** How far the camera can see through the weather, in metres. */
     val fogDistance: Double
         get() {
-            // Visibility is where things are all but gone; the fog curve
-            // reaches that at about three of its distances.
+            // Visibility is where things are almost gone, and the fog curve gets there at about
+            // three of its distances.
             val v = air.visibility
-            // A murky world's clear air - Aurantia's orange haze - closes in
-            // at its own distance; cloud and rain closer still.
+            // A murky world's clear air (Aurantia's orange haze) closes in at its own distance, and
+            // cloud and rain closer still.
             val clear = weather.climate.haze
             return when {
                 v >= AirSample.CLEAR_VISIBILITY -> com.rm.apogee.render.WorldView.CLEAR_FOG
@@ -471,7 +472,7 @@ class CloudScene(
             }
         }
 
-    /** What the fog is made of: white in cumulus, grey in stratus and rain, dark in a storm. */
+    /** What the fog is made of: white in cumulus, grey in stratus and rain, and dark in a storm. */
     val fogColor: FloatArray
         get() {
             val light = lightScale
@@ -482,7 +483,7 @@ class CloudScene(
                 CloudType.CIRRUS -> floatArrayOf(0.80f, 0.84f, 0.90f)
                 CloudType.DUST -> floatArrayOf(0.62f, 0.42f, 0.26f)
                 CloudType.DECK -> floatArrayOf(0.80f, 0.70f, 0.46f)
-                // Clear air: a murky world's is its haze.
+                // Clear air. A murky world's is its haze.
                 null -> if (sky === com.rm.apogee.render.SkyColours.TERRA) floatArrayOf(0.55f, 0.58f, 0.62f) else sky.haze
             }
             val t = if (air.cloudType == null) WHITE else sky.cloud
@@ -496,7 +497,7 @@ class CloudScene(
     /** How much a deck overhead closes off the sky, 0..1. */
     @Volatile private var overcast = 0.0
 
-    /** Sunlight left: a storm, rain, or an overcast over the camera dims it. */
+    /** Sunlight left. A storm, rain, or an overcast sky over the camera dims it. */
     val lightScale: Float get() =
         (1.0 - 0.6 * air.storm - 0.25 * air.precipitation - 0.4 * overcast).coerceIn(0.25, 1.0).toFloat()
 
@@ -504,8 +505,8 @@ class CloudScene(
         val s = shade.toFloat()
         return when (type) {
             CloudType.CUMULUS -> floatArrayOf(0.97f * s, 0.98f * s, 1.0f * s, 1f)
-            // Darker than any other cloud, and a cold blue-grey: a storm
-            // should look like trouble from thirty kilometres off.
+            // Darker than any other cloud, and a cold blue-grey, because a storm should look like
+            // trouble from thirty kilometres away.
             CloudType.CUMULONIMBUS -> floatArrayOf(0.60f * s, 0.63f * s, 0.72f * s, 1f)
             CloudType.STRATUS -> floatArrayOf(0.80f * s, 0.82f * s, 0.86f * s, 1f)
             CloudType.ALTOSTRATUS -> floatArrayOf(0.86f * s, 0.88f * s, 0.92f * s, 1f)
@@ -516,7 +517,7 @@ class CloudScene(
         }.also { c -> val t = sky.cloud; c[0] *= t[0]; c[1] *= t[1]; c[2] *= t[2] }
     }
 
-    /** This world's air's colours: its clouds are tinted by them. */
+    /** The colours of this world's air, which tint its clouds. */
     private val sky = com.rm.apogee.render.SkyColours.of(body.id)
 
     private fun smooth(a: Double, b: Double, x: Double): Double {
@@ -525,7 +526,7 @@ class CloudScene(
     }
 
     private companion object {
-        /** Opacity of each kind at its thickest, by ordinal. */
+        /** The opacity of each kind at its thickest, by ordinal. */
         val OPACITY = doubleArrayOf(0.85, 0.55, 0.45, 0.25, 1.0, 0.95, 0.9)
 
         val WHITE = floatArrayOf(1f, 1f, 1f)
@@ -534,18 +535,21 @@ class CloudScene(
         const val NEAR_DETAIL = 6_000.0
 
         /**
-         * Rain seen from afar: a ragged column, a little wider at the ground
-         * where it spreads, open at both ends.
+         * Rain seen from far off: a ragged column, a little wider at the ground where it spreads,
+         * and open at both ends.
          */
         val RAIN_CURTAIN = com.rm.apogee.core.part.ModelSpec.Lathe(
             listOf(listOf(1.05, -1.0), listOf(0.98, -0.55), listOf(0.9, 0.0), listOf(0.94, 0.5), listOf(0.85, 1.0)),
             segments = 12,
         )
 
-        /** How high the map's veil of cloud floats, m - over the ground, and it is drawn no higher than a share of the world. */
+        /**
+         * How high the map's veil of cloud floats, in metres, over the ground. It's drawn no higher
+         * than a share of the world.
+         */
         const val MAP_SHELL_HEIGHT = 8_000.0
 
-        /** How far round each of its vertices the map's veil averages the cloud, m. */
+        /** How far around each of its vertices the map's veil averages the cloud, in metres. */
         const val MAP_SHELL_BLUR = 30_000.0
         const val MAP_RELIST_SECONDS = 30.0
 
@@ -557,7 +561,7 @@ class CloudScene(
 
         val SOCK_POLE = com.rm.apogee.core.part.MeshSpec.Cylinder(0.08, SOCK_HEIGHT)
 
-        /** Three bands of a tapering sock, each a third of its length: wide at the mouth. */
+        /** Three bands of a tapering sock, each a third of its length, wide at the mouth. */
         val SOCK_BANDS = (0 until 3).map { k ->
             val r0 = 0.45 - 0.08 * k
             val r1 = 0.45 - 0.08 * (k + 1)
@@ -567,7 +571,10 @@ class CloudScene(
         const val RELIST_SECONDS = 1.0
         const val RELIST_DISTANCE = 1_000.0
 
-        /** The far sky listed again this often, s, or when the camera has gone this far, m. */
+        /**
+         * The far sky gets listed again this often, in seconds, or when the camera has gone this
+         * far, in metres.
+         */
         const val FAR_RELIST_SECONDS = 5.0
         const val FAR_RELIST_DISTANCE = 4_000.0
 
@@ -575,9 +582,8 @@ class CloudScene(
         const val FAR_OVERLAP = 0.7
 
         /**
-         * The sky is listed on a thread of its own, just below normal: on
-         * HIGH a listing was most of a second of work, and on the shared
-         * pool it competed with the game server for the same threads.
+         * The sky is listed on its own thread, just below normal. On HIGH a listing was most of a
+         * second of work, and on the shared pool it fought the game server for the same threads.
          */
         val LIST = workerPool("cloud-list", 1)
     }

@@ -13,22 +13,22 @@ class ServerClockTest {
         val clock = ServerClock()
         assertNull(clock.now(0.0))
         val random = Random(4)
-        // The server 1000 s ahead of the local clock; 20 snapshots a second,
-        // each arriving 2 to 40 ms after it was sent.
+        // The server is 1000 s ahead of the local clock, with 20 snapshots a second, each arriving
+        // 2 to 40 ms after it was sent.
         var worst = 0.0
         for (k in 0 until 400) {
             val sent = 1000.0 + k * 0.05
             val arrived = sent - 1000.0 + 0.002 + 0.038 * random.nextDouble()
             clock.sample(sent, arrived)
             if (k > 20) {
-                // What it says the server's time is, a moment after: no more than
-                // the least delay behind the truth, and never jumping.
+                // What it says the server's time is, a moment later: no more than the smallest
+                // delay behind the truth, and never jumping.
                 val error = (arrived + 1000.0) - clock.now(arrived)!!
                 worst = maxOf(worst, kotlin.math.abs(error - 0.0))
             }
         }
         assertTrue("within a few ms of the least-delayed arrival: $worst", worst < 0.045)
-        // Steadiness: successive estimates of the same instant barely move.
+        // Steadiness: estimates of the same instant, one after another, barely move.
         val a = clock.now(50.0)!!
         clock.sample(1000.0 + 20.0, 20.0 + 0.04) // a late one
         assertEquals(a, clock.now(50.0)!!, 0.0025)
@@ -44,8 +44,8 @@ class ServerClockTest {
     }
 
     /**
-     * A quicker arrival steps the estimate at once, but the present drawn at
-     * it moves smoothly: at orbital speed a millisecond is a metre.
+     * A quicker arrival steps the estimate straight away, but the present drawn at it moves
+     * smoothly, because at orbital speed a millisecond is a metre.
      */
     @Test
     fun `a step in the estimate is spread out, not jumped`() {
@@ -53,7 +53,7 @@ class ServerClockTest {
         clock.sample(100.0, 0.05)
         var last = clock.now(0.05)!!
         var local = 0.05
-        // A snapshot 20 ms quicker than thought: the estimate moves 10 ms.
+        // A snapshot 20 ms quicker than expected, so the estimate moves 10 ms.
         clock.sample(100.05, 0.08)
         var worst = 0.0
         repeat(60) {

@@ -15,19 +15,18 @@ import org.junit.Test
 /**
  * Wings and control surfaces.
  *
- * These measure forces over a tick or two rather than flying a profile, and
- * deliberately so: a trimmed aeroplane that holds height hands-off is a
- * question about where the wings sit relative to the centre of mass, and this
- * craft is not trimmed. What is being claimed here is narrower and testable -
- * that a wing lifts, that more angle of attack lifts harder, and that a
- * control surface deflects with the stick and moves the aircraft.
+ * These measure forces over a tick or two instead of flying a profile, and that's on purpose. A
+ * trimmed aeroplane that holds height hands-off is a question about where the wings sit relative to
+ * the centre of mass, and this craft isn't trimmed. What's being claimed here is narrower and can
+ * be tested: a wing lifts, more angle of attack lifts harder, and a control surface deflects with
+ * the stick and moves the aircraft.
  */
 class AeroplaneTest {
 
     private val catalog = StockParts.catalog
     private val dt = 1.0 / 60.0
 
-    /** Puts [design] in the air at [speed], nose pitched above its track. */
+    /** Puts [design] in the air at [speed], with the nose pitched above its track. */
     private fun flying(
         design: CraftDesign,
         speed: Double = 185.0,
@@ -38,8 +37,8 @@ class AeroplaneTest {
 
         val up = Vec3(1.0, 0.0, 0.0)
         val east = Vec3(0.0, 0.0, 1.0)
-        // east x up, not up x east: the other way round pitches the nose
-        // *down*, which is a fine way to prove a wing does not work.
+        // east x up, not up x east. The other way round pitches the nose *down*, which is a fine
+        // way to prove a wing doesn't work.
         val north = Vec3().setTo(east).crossInPlace(up).normalizeInPlace()
 
         val position = Vec3().setTo(up).mulInPlace(body.radius + 2_000.0)
@@ -55,12 +54,11 @@ class AeroplaneTest {
     }
 
     /**
-     * Vertical speed gained in one tick, metres per second.
+     * Vertical speed gained in one tick, in metres per second.
      *
-     * One tick, because that is long enough for the forces to act and far too
-     * short for the craft to rotate out of the attitude being tested. Gravity
-     * is in here too, so free fall is negative and a wing's job is to make
-     * this less negative than that.
+     * One tick, because that's long enough for the forces to act and far too short for the craft to
+     * rotate out of the attitude being tested. Gravity is in here too, so free fall is negative,
+     * and a wing's job is to make this less negative than that.
      */
     private fun verticalGainOverOneTick(world: World, vessel: Vessel): Double {
         val up = Vec3().setTo(vessel.body.position).normalizeInPlace()
@@ -70,12 +68,11 @@ class AeroplaneTest {
     }
 
     /**
-     * Rate about the craft's own pitch axis, signed: positive is nose-up.
+     * The rate about the craft's own pitch axis, signed: positive is nose up.
      *
-     * The signed component, not the magnitude of the whole angular velocity.
-     * An untrimmed aircraft is already rotating as the tail weathervanes it,
-     * so total spin barely moves when the stick does - it was a difference of
-     * five per cent, and told you nothing about which way.
+     * It's the signed part, not the size of the whole angular velocity. An untrimmed aircraft is
+     * already rotating as the tail weathervanes it, so total spin barely moves when the stick does.
+     * It was a difference of five per cent, and told you nothing about which way.
      */
     private fun pitchRate(vessel: Vessel): Double {
         val axis = Vec3()
@@ -123,9 +120,8 @@ class AeroplaneTest {
     }
 
     /**
-     * The elevator. Without it an aircraft cannot hold an angle of attack at
-     * all: the tail weathervanes the nose into the airflow and the wing ends
-     * up at nothing.
+     * The elevator. Without it an aircraft can't hold an angle of attack at all, because the tail
+     * weathervanes the nose into the airflow and the wing ends up at nothing.
      */
     @Test
     fun `a control surface deflects and pitches the aircraft`() {
@@ -143,7 +139,7 @@ class AeroplaneTest {
     }
 
     @Test
-    fun `a stabiliser is not a control surface`() {
+    fun `a stabiliser isn't a control surface`() {
         assertFalse(
             "rocket fins must not deflect: it hands the ascent a second set " +
                 "of controls its guidance was never written for",

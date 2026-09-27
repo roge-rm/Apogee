@@ -14,7 +14,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** The Shroud: a closed shell round what rides on it, out of the air until it is thrown open. */
+/** The Shroud: a closed shell around what rides on it, out of the air until it's thrown open. */
 class FairingTest {
     private val catalog = StockParts.catalog
     private val dt = 1.0 / 60.0
@@ -33,7 +33,7 @@ class FairingTest {
     )
 
     @Test
-    fun `what rides on the Moonshot's Shroud is inside it, and the rest is not`() {
+    fun `what rides on the Moonshot's Shroud is inside it, and the rest isn't`() {
         val design = StockCraft.moonshot(catalog)
         val world = World.default(catalog)
         val craft = world.spawnOnSurface(design, World.launchSites.first())
@@ -55,7 +55,7 @@ class FairingTest {
         assertEquals(before - 700.0, craft.body.mass, 1.0)
         val halves = world.vessels.filter { it.name == "Shroud Half" }
         assertEquals(2, halves.size)
-        // Out sideways from the craft's axis, opposite ways.
+        // Out sideways from the craft's axis, in opposite directions.
         val a = halves[0].body.linearVelocity.copy().subInPlace(craft.body.linearVelocity)
         val b = halves[1].body.linearVelocity.copy().subInPlace(craft.body.linearVelocity)
         assertTrue("not thrown apart: $a, $b", (a dot b) < 0.0 && a.length > 1.0)
@@ -63,7 +63,9 @@ class FairingTest {
         assertTrue("the halves stayed on it", halves.all { it.body.position.distanceTo(craft.body.position) > 2.0 })
     }
 
-    /** The pod's temperature after [seconds] at 2 km/s in thin air, the Shroud [open] or not. */
+    /**
+     * The pod's temperature after [seconds] at 2 km/s in thin air, with the Shroud [open] or not.
+     */
     private fun heated(open: Boolean, seconds: Double): Pair<Double, Vessel> {
         val world = World.default(catalog)
         val terra = world.system.body("terra")
@@ -83,7 +85,7 @@ class FairingTest {
         val (closed, closedCraft) = heated(open = false, seconds = 4.0)
         val (open, openCraft) = heated(open = true, seconds = 4.0)
         assertTrue("shrouded pod heated to $closed K, bare one to $open K", open > closed + 20.0)
-        // And its drag: the bare pod's blunt face costs more than the shell round it.
+        // And its drag: the bare pod's blunt face costs more than the shell around it.
         val forces = Forces()
         assertTrue(
             "closed ${forces.dragArea(closedCraft)} m² vs open ${forces.dragArea(openCraft)} m²",

@@ -28,7 +28,7 @@ class ProbeTest {
         assertEquals(2, wings.size)
         assertTrue("not out: ${wings.map { probe.legDeploy[it] }}", wings.all { Power.deployed(probe, it) })
 
-        // Round an orbit, it ends up with more than it started with - or full.
+        // Once round an orbit, it ends up with more than it started with, or full.
         probe.drawCharge(probe.amountOf(ResourceType.ELECTRIC_CHARGE) / 2)
         val had = probe.amountOf(ResourceType.ELECTRIC_CHARGE)
         var t = 0.0

@@ -38,14 +38,12 @@ class DiscoveredServer(
 /**
  * Watches the network for games and keeps a live list.
  *
- * De-duplicates by address and port, and drops hosts that stop announcing - a
- * game that has ended should disappear from the list rather than sit there
- * waiting to fail when tapped.
+ * It removes duplicates by address and port, and drops hosts that stop announcing. A game that has
+ * ended should disappear from the list, not sit there waiting to fail when you tap it.
  *
- * Holds a [WifiManager.MulticastLock] while running. Android drops broadcast
- * and multicast frames that are not addressed to the device in order to save
- * power, so without the lock the listener is simply deaf, with no error to
- * explain it.
+ * It holds a [WifiManager.MulticastLock] while running. Android drops broadcast and multicast
+ * frames that aren't addressed to the device to save power, so without the lock the listener is
+ * simply deaf, with no error to explain it.
  */
 class ServerBrowser(
     private val context: Context,
@@ -120,8 +118,8 @@ class ServerBrowser(
         const val EXPIRY_CHECK_MILLIS = 1_000L
 
         /**
-         * Hosts announce once a second; three missed rounds is a host that has
-         * gone, not a dropped packet.
+         * Hosts announce once a second, so three missed rounds is a host that has gone, not a
+         * dropped packet.
          */
         const val STALE_AFTER_MILLIS = 4_000L
     }

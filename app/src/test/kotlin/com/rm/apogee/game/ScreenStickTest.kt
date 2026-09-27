@@ -6,10 +6,13 @@ import com.rm.apogee.core.math.quatLookAt
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** Whatever way a rocket is turned about its axis, the stick moves its nose the way the thumb goes on screen. */
+/**
+ * Whichever way a rocket is turned about its axis, the stick moves its nose the way your thumb goes
+ * on screen.
+ */
 class ScreenStickTest {
 
-    /** Where the nose goes on screen, camera-space, for a moment of the stick. */
+    /** Where the nose goes on screen, in camera space, for a moment of the stick. */
     private fun noseMoves(camera: Quat, craft: Quat, up: Double, right: Double): Vec3 {
         val (pitch, yaw) = ScreenStick.attitude(camera, craft, up, right)
         // Turned a little about the craft's own X by pitch and Z by yaw.
@@ -20,10 +23,10 @@ class ScreenStickTest {
         return camera.inverseRotate(after.subInPlace(before))
     }
 
-    private val side = quatLookAt(Vec3(0.0, 0.0, -1.0), Vec3.unitY()) // looking along -Z, +Y up the screen
+    private val side = quatLookAt(Vec3(0.0, 0.0, -1.0), Vec3.unitY()) // looking along -Z, with +Y up the screen
 
     @Test
-    fun `a rocket standing up, however it is turned about its axis, tips right for right`() {
+    fun `a rocket standing up tips right for right however it's turned about its axis`() {
         for (deg in listOf(0.0, 37.0, 90.0, 180.0, 271.0)) {
             val craft = Quat.fromAxisAngle(Vec3.unitY(), Math.toRadians(deg))
             val move = noseMoves(side, craft, 0.0, 1.0)

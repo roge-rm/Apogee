@@ -36,16 +36,15 @@ enum class PartTab(val label: String) {
 object PartTabs {
 
     /**
-     * The tab [def] belongs in, worked out from what it does rather than
-     * written into the parts file: a part added later sorts itself, and the
-     * catalogue's content hash - what a join between players checks - does
-     * not change for the sake of the drawer.
+     * The tab [def] belongs in, worked out from what it does instead of written into the parts
+     * file. That way a part added later sorts itself, and the catalogue's content hash (which a
+     * join between players checks) doesn't change for the sake of the drawer.
      */
     fun of(def: PartDef): PartTab {
         OVERRIDES[def.id]?.let { return it }
         val docking = def.module<DockingPort>()
-        // By what they are before what they do: a base's core is a command
-        // part and its depot a tank, but they belong with the base.
+        // By what they are before what they do. A base's core is a command part and its depot is a
+        // tank, but they belong with the base.
         if (def.category == PartCategory.BASE) return PartTab.BASE
         if (def.category == PartCategory.STRUCTURE) return PartTab.BUILDINGS
         return when {
@@ -66,7 +65,7 @@ object PartTabs {
 
     /** Parts on [tab], in drawer order: tabs in order, then the catalogue's own order within each. */
     fun parts(catalog: PartCatalog, tab: PartTab): List<PartDef> {
-        // Never a part that only comes off another: a fairing's half.
+        // Never a part that only comes off another one, like a fairing's half.
         val all = ORDER.flatMap { category -> catalog.byCategory(category) }.filter { !it.hidden }
         val sorted = all.sortedBy { of(it).ordinal }
         return if (tab == PartTab.ALL) sorted else sorted.filter { of(it) == tab }
@@ -78,11 +77,11 @@ object PartTabs {
         PartCategory.GROUND, PartCategory.BASE, PartCategory.STRUCTURE,
     )
 
-    /** The odd ones the rules do not place. */
+    /** The odd ones the rules don't place. */
     private val OVERRIDES = mapOf(
-        // Lamps, no module to say so.
+        // Lamps, with no module to say so.
         "light-bar" to PartTab.UTILITY,
-        // A submarine's float and keel: foam and lead, no module to say so.
+        // A submarine's float and keel, foam and lead, with no module to say so.
         "float-foam" to PartTab.WATER,
         "keel-lead" to PartTab.WATER,
     )

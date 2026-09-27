@@ -6,15 +6,14 @@ import com.rm.apogee.core.terrain.SurfaceMaterial
 /**
  * What each kind of ground looks like, decided on the CPU when a mesh is built.
  *
- * Colour used to be worked out per pixel in the terrain shader from height and
- * slope. It lives here now, keyed by [SurfaceMaterial], because the material is
- * what the collider grips by: ground that looks like ice has to *be* ice, and
- * the only way to guarantee that is one classification feeding both.
+ * Colour used to be worked out per pixel in the terrain shader from height and slope. It lives here
+ * now, keyed by [SurfaceMaterial], because the material is what the collider grips by. Ground that
+ * looks like ice has to *be* ice, and the only way to be sure of that is one classification feeding
+ * both.
  *
- * Deliberately few colours with hard edges between them - a low-poly look is
- * as much a small palette as it is big facets - plus a small hashed variation
- * per vertex, which is what stops a hillside of identical triangles reading as
- * a flat sheet of paint.
+ * There are only a few colours on purpose, with hard edges between them, because a low-poly look is
+ * as much a small palette as it is big facets. There's also a small hashed variation per vertex,
+ * which is what stops a hillside of identical triangles looking like a flat sheet of paint.
  */
 object TerrainPalette {
 
@@ -25,7 +24,7 @@ object TerrainPalette {
         jitterKey: Int,
         out: FloatArray,
         offset: Int,
-        /** Whose ground: each world's rock and ice has its own cast. */
+        /** Whose ground it is, because each world's rock and ice has its own tint. */
         world: String = "terra",
     ) {
         var r: Float; var g: Float; var b: Float
@@ -34,8 +33,7 @@ object TerrainPalette {
             r = own[0]; g = own[1]; b = own[2]
         } else when (material) {
             SurfaceMaterial.GRASS -> {
-                // Three shades by height, as the shader had: lowland grass,
-                // meadow, upland.
+                // Three shades by height, like the shader had: lowland grass, meadow, and upland.
                 when {
                     elevation < 220.0 -> { r = 0.22f; g = 0.42f; b = 0.18f }
                     elevation < 520.0 -> { r = 0.30f; g = 0.46f; b = 0.20f }
@@ -68,8 +66,8 @@ object TerrainPalette {
             SurfaceMaterial.NITROGEN_ICE -> { r = 0.93f; g = 0.90f; b = 0.86f }
             SurfaceMaterial.THOLIN -> { r = 0.40f; g = 0.20f; b = 0.12f }
             SurfaceMaterial.TESSERA -> { r = 0.46f; g = 0.38f; b = 0.28f }
-            // The deep sea's floor: pale ooze, the dark of metal nodules
-            // strewn over it, and a vent's crust, rust and black.
+            // The deep sea's floor: pale ooze, the dark of metal nodules scattered over it, and a
+            // vent's crust, rust and black.
             SurfaceMaterial.OOZE -> { r = 0.58f; g = 0.56f; b = 0.50f }
             SurfaceMaterial.NODULES -> { r = 0.30f; g = 0.28f; b = 0.26f }
             SurfaceMaterial.VENT_CRUST -> {
@@ -77,19 +75,19 @@ object TerrainPalette {
                 r = 0.45f - 0.28f * t; g = 0.24f - 0.14f * t; b = 0.14f - 0.07f * t
             }
         }
-        // +-6% brightness, fixed per vertex. Hashed rather than random so the
-        // same ground looks the same every time it is built.
+        // +-6% brightness, fixed per vertex. It's hashed instead of random so the same ground looks
+        // the same every time it's built.
         val jitter = 0.94f + 0.12f * Noise.hash(JITTER_SEED, jitterKey, 0, 0).toFloat()
         out[offset] = r * jitter
         out[offset + 1] = g * jitter
         out[offset + 2] = b * jitter
     }
 
-    /** Sea over ground [depth] metres down: lighter in the shallows. */
+    /** Sea over ground [depth] metres down, lighter in the shallows. */
     fun water(depth: Double, out: FloatArray, offset: Int, world: String = "terra") {
         val t = (depth / 900.0).coerceIn(0.0, 1.0).toFloat()
         if (world == "aurantia") {
-            // Liquid methane: dark, brown, glassy.
+            // Liquid methane: dark, brown and glassy.
             out[offset] = 0.16f + (0.07f - 0.16f) * t
             out[offset + 1] = 0.12f + (0.05f - 0.12f) * t
             out[offset + 2] = 0.07f + (0.03f - 0.07f) * t
@@ -105,9 +103,8 @@ object TerrainPalette {
     private fun rgb(r: Float, g: Float, b: Float) = floatArrayOf(r, g, b)
 
     /**
-     * Where a world's rock, dust or ice is not the colour Terra's and Luna's
-     * is: Rubra's rock rusty, Cicatrix's regolith near black, Crusta's ice
-     * cream, Aversa's nitrogen pink.
+     * Where a world's rock, dust or ice isn't the same colour as Terra's and Luna's: Rubra's rock
+     * is rusty, Cicatrix's regolith nearly black, Crusta's ice cream, and Aversa's nitrogen pink.
      */
     private val WORLD_COLOURS: Map<String, Map<SurfaceMaterial, FloatArray>> = mapOf(
         "celer" to mapOf(

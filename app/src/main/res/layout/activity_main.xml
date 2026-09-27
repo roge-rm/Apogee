@@ -3,12 +3,12 @@
   The whole app is two views.
 
   game_surface_host is an empty container that a GLSurfaceView is added to and
-  removed from in code, rather than a GLSurfaceView declared here: the surface
-  only exists while a screen actually needs the 3D world, so the menus do not
+  removed from in code, instead of a GLSurfaceView declared here. The surface
+  only exists while a screen really needs the 3D world, so the menus don't
   hold a GL context (and its memory) open for no reason.
 
   hud_compose_view sits above it and carries every pixel of interface in the
-  app - menus, settings and the in-flight overlay are all Compose inside this
+  app. Menus, settings and the in-flight overlay are all Compose inside this
   one ComposeView.
 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"

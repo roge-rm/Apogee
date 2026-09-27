@@ -4,30 +4,30 @@ import com.rm.apogee.core.math.Quat
 import com.rm.apogee.core.math.Vec3
 
 /**
- * Where a falling craft will come down: flown forward as a point, under its
- * body's gravity and - in air - the drag of its whole shape against air that
- * turns with the ground, until it meets the ground or the sea. Not the conic
- * a map draws for an orbit: a craft coming down through the air falls short
- * of where the conic says, and on a moon it meets the hills, not the datum.
+ * Where a falling craft will come down. It's flown forward as a point under its body's gravity and,
+ * in air, the drag of its whole shape against air that turns with the ground, until it meets the
+ * ground or the sea. This isn't the conic a map draws for an orbit. A craft coming down through the
+ * air falls short of where the conic says, and on a moon it hits the hills, not the datum.
  *
- * No engines, no lift, no wind: what it will do if nobody does anything.
+ * No engines, no lift, no wind. This is what it'll do if nobody does anything.
  */
 object Descent {
 
     /**
-     * Where it lands: at universe [time], at unit direction [direction] in
-     * the body's own turning frame, moving [speed] m/s over the ground.
+     * Where it lands: at universe [time], at unit direction [direction] in the body's own turning
+     * frame, moving at [speed] m/s over the ground.
      */
     class Impact(val time: Double, val direction: Vec3, val speed: Double)
 
-    /** Flown forward at most this long, s: past it, it is not coming down soon. */
+    /**
+     * The longest it gets flown forward, in seconds. Past that, it isn't coming down any time soon.
+     */
     const val LIMIT = 1_800.0
 
     /**
-     * Where a craft at [position] and [velocity] (relative to [body]'s
-     * centre, at universe [time]), of [mass] kg and drag area [dragArea]
-     * (Cd x A, m²), will meet the ground; null if not within [limit]
-     * seconds, or if its orbit never comes low enough.
+     * Where a craft at [position] and [velocity] (relative to [body]'s centre, at universe [time]),
+     * with a mass of [mass] kg and drag area [dragArea] (Cd x A, m²), will meet the ground. Null if
+     * it doesn't happen within [limit] seconds, or if its orbit never gets low enough.
      */
     fun predict(
         body: CelestialBody,
@@ -40,7 +40,7 @@ object Descent {
     ): Impact? {
         val highest = body.radius + (body.terrain?.maxElevation ?: 0.0)
         val orbit = Orbit(position, velocity, body.gravitationalParameter)
-        // Never low enough to touch the hills, nor to be dragged down by the air.
+        // It never gets low enough to touch the hills, or to be dragged down by the air.
         if (orbit.periapsis > highest + body.atmosphereHeight) return null
 
         val r = position.copy()
@@ -53,13 +53,13 @@ object Descent {
         if (lastHeight <= 0.0) return null
         val lastR = Vec3()
         val lastV = Vec3()
-        // Scratch for the four stages.
+        // Scratch space for the four stages.
         val k1r = Vec3(); val k1v = Vec3(); val k2r = Vec3(); val k2v = Vec3()
         val k3r = Vec3(); val k3v = Vec3(); val k4r = Vec3(); val k4v = Vec3()
         val tr = Vec3(); val tv = Vec3()
         while (t - time < limit) {
             val speed = v.length.coerceAtLeast(1.0)
-            // Fine near the ground and in thick air, long strides high up.
+            // Small steps near the ground and in thick air, long strides high up.
             val h = (lastHeight / (speed * 8.0)).coerceIn(0.02, 2.0)
             lastR.setTo(r); lastV.setTo(v)
             accel(body, r, v, k, k1v); k1r.setTo(v)
@@ -89,7 +89,7 @@ object Descent {
         return null
     }
 
-    /** Gravity and drag at [r] moving [v], into [out]; [k] is drag area over mass. */
+    /** Gravity and drag at [r] moving at [v], into [out]. [k] is drag area over mass. */
     private fun accel(body: CelestialBody, r: Vec3, v: Vec3, k: Double, out: Vec3) {
         body.gravityAt(r, out)
         val atmosphere = body.atmosphere ?: return
@@ -101,7 +101,7 @@ object Descent {
         out.addScaledInPlace(air, -0.5 * density * speed * k)
     }
 
-    /** Height of [r] above the ground or sea under it at [time]. */
+    /** The height of [r] above the ground or sea under it at [time]. */
     private fun heightAt(body: CelestialBody, r: Vec3, time: Double, rotation: Quat, direction: Vec3): Double {
         body.rotationAt(time, rotation)
         body.toBodyFixed(r, rotation, direction).normalizeInPlace()

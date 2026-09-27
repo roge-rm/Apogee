@@ -12,11 +12,10 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 /**
- * A test pilot for an aircraft at the Cape, flying as a player does: SAS on,
- * the nose put where it should be and held there. Where a player would nudge
- * the stick and let go, this sets the attitude SAS holds - a nose angle, a
- * heading and a bank - every tick; the craft is flown by its own wings and
- * the game's SAS. On the ground it uses the stick, as SAS does nothing there.
+ * A test pilot for an aircraft at the Cape, flying the way a player does: SAS on, the nose put
+ * where it should be and held there. Where a player would nudge the stick and let go, this sets the
+ * attitude SAS holds (a nose angle, a heading and a bank) every tick, so the craft is flown by its
+ * own wings and the game's SAS. On the ground it uses the stick, because SAS does nothing there.
  */
 internal class Pilot(private val world: World, private val craft: Vessel) {
     private val terra = world.system.body(SolarSystem.HOMEWORLD_ID)
@@ -40,7 +39,7 @@ internal class Pilot(private val world: World, private val craft: Vessel) {
 
     fun climb(): Double = groundVelocity() dot up()
 
-    /** Above the ground, or the sea where that is higher: over the bay, the terrain is its floor. */
+    /** Above the ground, or the sea where that's higher. Over the bay, the terrain is its floor. */
     fun height(): Double {
         val fixed = terra.toBodyFixed(craft.body.position, terra.rotationAt(world.time))
         return minOf(terra.heightAboveTerrain(craft.body.position, fixed), terra.altitudeOf(craft.body.position))
@@ -58,7 +57,7 @@ internal class Pilot(private val world: World, private val craft: Vessel) {
     /** Degrees north of east the track over the ground runs. */
     fun track(): Double = groundVelocity().let { Math.toDegrees(atan2(it dot north(), it dot east())) }
 
-    /** Where it is from the pad, metres: east along the runway, north across it. */
+    /** Where it is from the pad, in metres: east along the runway, and north across it. */
     fun cape(): Pair<Double, Double> {
         val d = terra.toBodyFixed(craft.body.position, terra.rotationAt(world.time)).normalizeInPlace().subInPlace(pad)
         return (d dot eastAxis) * terra.radius to (d dot northAxis) * terra.radius
@@ -81,7 +80,8 @@ internal class Pilot(private val world: World, private val craft: Vessel) {
         val t = Math.toRadians(nose)
         val h = Math.toRadians(heading)
         val f = east().mulInPlace(cos(h) * cos(t)).addScaledInPlace(north(), sin(h) * cos(t)).addScaledInPlace(u, sin(t))
-        // Wings level: the craft's up in the vertical plane through the nose; then banked about the nose.
+        // Wings level: the craft's up in the vertical plane through the nose, then banked about the
+        // nose.
         val level = u.copy().addScaledInPlace(f, -(u dot f)).normalizeInPlace()
         val wing = f.cross(level)
         val b = Math.toRadians(bank)
@@ -93,27 +93,28 @@ internal class Pilot(private val world: World, private val craft: Vessel) {
     }
 
     /**
-     * Flying [direction] degrees north of east at [targetHeight] above the
-     * ground: banking into the turn onto it, the nose held a few degrees
-     * above the way it is going to climb or sink toward that height.
+     * Flying [direction] degrees north of east at [targetHeight] above the ground. It banks into
+     * the turn onto it, with the nose held a few degrees above the way it's going to climb or sink
+     * toward that height.
      */
     fun fly(direction: Double, targetHeight: Double, maxBank: Double = 25.0) {
         var turn = direction - track()
         while (turn > 180.0) turn -= 360.0
         while (turn < -180.0) turn += 360.0
         val bank = (turn * 1.5).coerceIn(-maxBank, maxBank)
-        // High above where it is going, down at a good rate: at ten metres a second a glider from space overflies the Cape.
+        // High above where it's going, so down at a good rate. At ten metres a second a glider from
+        // space flies right over the Cape.
         val climbWanted = ((targetHeight - height()) / 10.0).coerceIn(if (height() > 2_000.0) -30.0 else -10.0, 12.0)
         val attack = (2.0 + (climbWanted - climb()) * 0.3).coerceIn(-3.0, MAX_ATTACK)
         attitude(path() + attack, track() + (turn * 0.3).coerceIn(-5.0, 5.0), bank)
     }
 
-    /** Degrees north of east to fly to come onto the runway's line, heading eastward (+1) or westward (-1). */
+    /** Degrees north of east to fly to come onto the runway's line, heading east (+1) or west (-1). */
     fun toRunway(sense: Double): Double {
         val (_, north) = cape()
         val offset = north - CENTRELINE
         val line = if (sense > 0.0) 0.0 else 180.0
-        // Closing on the line: turned across it more the further off it is.
+        // Closing on the line, turned across it more the further off it is.
         return line - sense * (offset / 20.0).coerceIn(-40.0, 40.0)
     }
 
@@ -122,19 +123,18 @@ internal class Pilot(private val world: World, private val craft: Vessel) {
     private var groundTicks = 0
 
     /**
-     * Onto the runway heading eastward (+1) or westward (-1), aiming to touch
-     * down at [aim] metres east of the pad: down a glide slope on the line,
-     * the throttle holding the approach speed, a flare over the tarmac; then,
-     * rolling, the throttle shut and the brakes on once the nose is down.
-     * Call every tick; true once it is on the ground.
+     * Onto the runway heading east (+1) or west (-1), aiming to touch down [aim] metres east of the
+     * pad. It goes down a glide slope on the line, with the throttle holding the approach speed and
+     * a flare over the tarmac. Then, rolling, the throttle is shut and the brakes go on once the
+     * nose is down. Call it every tick. True once it's on the ground.
      */
     fun land(sense: Double, aim: Double, approach: Double = APPROACH): Boolean {
-        // Down to stay: on its wheels a moment, not a touch and a bounce.
+        // Down to stay: on its wheels for a moment, not a touch and a bounce.
         if (craft.touchingGround) groundTicks++ else groundTicks = 0
         if (groundTicks > 30 && downAt < 0.0) downAt = world.time
         if (downAt >= 0.0) {
             throttle(0.0)
-            // The nose wheel held down: the wing flying it off again is how it bounces.
+            // The nose wheel held down, because the wing flying it off again is how it bounces.
             world.apply(Command.SetAttitude(craft.id.raw, -0.3, 0.0, 0.0))
             if (world.time - downAt > 1.0) brakes(true)
             return true
@@ -143,8 +143,8 @@ internal class Pilot(private val world: World, private val craft: Vessel) {
         val toGo = (aim - east) * sense
         val h = height()
         if (h < FLARE || flare != null) {
-            // Over the tarmac: power off, the nose eased up from where the
-            // approach had it until the sink is a touch.
+            // Over the tarmac: power off, and the nose eased up from where the approach had it
+            // until the sink is just a touch.
             throttle(0.0)
             val wanted = -((h - 2.0) * 0.25).coerceAtLeast(0.6)
             val attack = ((flare ?: (nose() - path())) + (wanted - climb()) * 1.2 / 60.0).coerceIn(0.0, MAX_ATTACK)
@@ -153,7 +153,8 @@ internal class Pilot(private val world: World, private val craft: Vessel) {
             attitude(path() + attack, track() + turn * 0.2, 0.0)
             return false
         }
-        // Slowed to the approach speed only once lined up with the runway; turning onto it, at cruise.
+        // Slowed to the approach speed only once it's lined up with the runway. Turning onto it,
+        // it's at cruise.
         val heading = toRunway(sense)
         val lined = kotlin.math.abs(((heading - track() + 540.0) % 360.0) - 180.0) < 15.0 && kotlin.math.abs(cape().second - CENTRELINE) < 150.0
         val slope = (toGo.coerceAtLeast(0.0) * kotlin.math.tan(Math.toRadians(GLIDE))).coerceAtMost(CRUISE)
@@ -163,14 +164,20 @@ internal class Pilot(private val world: World, private val craft: Vessel) {
     }
 
     companion object {
-        /** The runway's centreline, metres north of the pad; it runs east from [RUNWAY_WEST] to [RUNWAY_EAST]. */
+        /**
+         * The runway's centreline, in metres north of the pad. It runs east from [RUNWAY_WEST] to
+         * [RUNWAY_EAST].
+         */
         const val CENTRELINE = -400.0
         const val RUNWAY_WEST = 230.0
         const val RUNWAY_EAST = 2_770.0
 
         const val MAX_ATTACK = 8.0
 
-        /** Approach speed, m/s; the glide slope, degrees; the height the flare begins, m; circuit height, m. */
+        /**
+         * Approach speed in m/s, the glide slope in degrees, the height the flare starts in metres,
+         * and circuit height in metres.
+         */
         const val APPROACH = 110.0
         const val CRUISE_SPEED = 140.0
         const val GLIDE = 3.0

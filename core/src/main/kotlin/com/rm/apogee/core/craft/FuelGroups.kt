@@ -6,24 +6,22 @@ import com.rm.apogee.core.part.PartDef
 /**
  * Which parts share propellant.
  *
- * Parts are in the same group when they are connected without a decoupler in
- * between - the decoupler is the break in the plumbing. This is the rule that
- * makes staging mean anything: without it an engine draws from every tank on
- * the craft, so a first stage quietly burns the upper stage's propellant and
- * separating buys nothing but lost mass.
+ * Parts are in the same group when they're connected without a decoupler in between, because the
+ * decoupler is where the plumbing stops. This rule is what makes staging mean anything. Without it
+ * an engine draws from every tank on the craft, so a first stage quietly burns the upper stage's
+ * propellant and separating gets you nothing except lost mass.
  *
- * Shared by the live simulation ([Vessel]) and the builder's delta-v analysis
- * ([CraftStats]) on purpose. Two implementations of this rule would eventually
- * disagree, and the builder would confidently predict a flight the simulation
- * could not fly.
+ * Both the live simulation ([Vessel]) and the builder's delta-v analysis ([CraftStats]) use this on
+ * purpose. Two versions of the rule would eventually disagree, and the builder would confidently
+ * predict a flight the simulation couldn't fly.
  */
 object FuelGroups {
 
     /**
-     * @param members the part indices to consider; others are treated as absent.
-     *   Used by the builder to analyse a craft mid-way through its staging
-     *   sequence, with earlier stages already discarded.
-     * @return group id per part index, or -1 for parts not in [members].
+     * @param members the part indices to consider. Others are treated as not there. The builder
+     *     uses this to analyse a craft part way through its staging sequence, with earlier stages
+     *     already thrown away.
+     * @return the group id for each part index, or -1 for parts not in [members].
      */
     fun compute(
         design: CraftDesign,
@@ -54,7 +52,7 @@ object FuelGroups {
 
             while (queue.isNotEmpty()) {
                 val current = queue.removeFirst()
-                // A decoupler joins nothing: it is where the plumbing stops.
+                // A decoupler joins nothing. It's where the plumbing stops.
                 if (blocks(current)) continue
 
                 val neighbours = ArrayList<Int>(children[current].size + 1)

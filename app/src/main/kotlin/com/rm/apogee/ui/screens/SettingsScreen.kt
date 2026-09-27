@@ -50,13 +50,12 @@ import com.rm.apogee.ui.theme.alpha
 import kotlin.math.roundToInt
 
 /**
- * Settings, a tab per kind of thing a player comes here to change.
+ * Settings, with a tab for each kind of thing a player comes here to change.
  *
- * One page stopped working once it held more than a handful of rows: the
- * controls a player actually wants were several screens down. The layout
- * follows ScorchDroid's - a fixed title and tab row with only the settings
- * under them scrolling, tabs sharing the width evenly rather than bunching at
- * one edge, and each tab starting at its own top.
+ * One page stopped working once it held more than a handful of rows, because the controls a player
+ * really wants were several screens down. The layout follows ScorchDroid's: a fixed title and tab
+ * row with only the settings under them scrolling, tabs sharing the width evenly instead of
+ * bunching at one edge, and each tab starting at its own top.
  */
 private enum class SettingsTab(val label: String) {
     PLAYER("Player"),
@@ -67,8 +66,8 @@ private enum class SettingsTab(val label: String) {
 
 @Composable
 fun SettingsScreen(settings: GameSettings, detectedTier: QualityTier?) {
-    // Remembered across tab switches only, not across visits: coming back to
-    // Settings starts where the screen starts.
+    // Remembered across tab switches only, not across visits. Coming back to Settings starts where
+    // the screen starts.
     var tab by remember { mutableStateOf(SettingsTab.PLAYER) }
 
     Box(
@@ -101,9 +100,9 @@ fun SettingsScreen(settings: GameSettings, detectedTier: QualityTier?) {
                         onClick = { tab = candidate },
                         selectedContentColor = ApogeeColors.Accent,
                         unselectedContentColor = Color.White.alpha(ApogeeAlpha.SUBTITLE),
-                        // Its own padding, narrower than the stock tab's: a
-                        // quarter of a phone held upright is a hair too narrow
-                        // for "Controls" inside that, and it broke as "Control / s".
+                        // Its own padding, narrower than the stock tab's. A quarter of an upright
+                        // phone is a hair too narrow for "Controls" inside that, and it broke as
+                        // "Control / s".
                     ) {
                         Text(
                             candidate.label,
@@ -116,8 +115,8 @@ fun SettingsScreen(settings: GameSettings, detectedTier: QualityTier?) {
                 }
             }
 
-            // Keyed on the tab, so each one starts at its own top rather than
-            // inheriting how far the last was scrolled.
+            // Keyed on the tab, so each one starts at its own top instead of taking on how far the
+            // last one was scrolled.
             val scroll = remember(tab) { ScrollState(0) }
             Column(
                 modifier = Modifier
@@ -149,10 +148,9 @@ private fun PlayerTab(settings: GameSettings) {
     )
     Spacer(Modifier.height(4.dp))
     Text(
-        // Said plainly, because the obvious assumption is the opposite.
-        // What a craft belongs to is this install, not this name, so two
-        // people may share a name without sharing anything else - and
-        // changing it renames your craft rather than abandoning it.
+        // Said plainly, because people would assume the opposite. A craft belongs to this install,
+        // not this name, so two people can share a name without sharing anything else, and changing
+        // it renames your craft instead of abandoning it.
         "Shown to other players. Your craft are tied to this device, not " +
             "to the name, so you can change it freely.",
         style = MaterialTheme.typography.labelSmall,
@@ -240,9 +238,9 @@ private fun DisplayTab(settings: GameSettings, detectedTier: QualityTier?) {
     SectionHeading("Performance")
     Text(
         text = detectedTier?.let {
-            "Detected: ${it.name.lowercase()} — up to " +
+            "Detected: ${it.name.lowercase()}, up to " +
                 "${it.maxPartsPerVessel} parts per craft"
-        } ?: "Measured on first flight — detection needs a graphics context.",
+        } ?: "Measured on your first flight, because detection needs a graphics context.",
         style = MaterialTheme.typography.bodySmall,
         color = Color.White.alpha(ApogeeAlpha.SUBTITLE),
     )
@@ -261,7 +259,7 @@ private fun DisplayTab(settings: GameSettings, detectedTier: QualityTier?) {
     )
 
     SectionHeading("Shadows")
-    // Remembered as the Compose state, so choosing one redraws the list at once.
+    // Remembered as the Compose state, so choosing one redraws the list straight away.
     var shadows by remember { mutableStateOf(settings.shadowQualityOverride) }
     val byTier = com.rm.apogee.render.ShadowQuality.defaultFor(settings.effectiveTier ?: QualityTier.MEDIUM)
     ChoiceGroup(
@@ -273,7 +271,7 @@ private fun DisplayTab(settings: GameSettings, detectedTier: QualityTier?) {
             when (it) {
                 null -> "As suits this device's graphics quality"
                 com.rm.apogee.render.ShadowQuality.OFF -> "No shadows: the fastest"
-                com.rm.apogee.render.ShadowQuality.LOW -> "Craft, trees and clouds; no mountains"
+                com.rm.apogee.render.ShadowQuality.LOW -> "Craft, trees and clouds, but no mountains"
                 com.rm.apogee.render.ShadowQuality.MEDIUM -> "Adds mountains' shadows at dawn and dusk"
                 com.rm.apogee.render.ShadowQuality.HIGH -> "Softer edges and mountains further out"
             }
@@ -342,8 +340,8 @@ fun AboutScreen() {
         Spacer(Modifier.height(16.dp))
         Text(
             "Apogee is a sandbox for building vehicles and taking them wherever " +
-                "they will go — across the ground, through the air, over and " +
-                "under water, and into orbit.",
+                "they'll go: across the ground, through the air, over and " +
+                "under the water, and into orbit.",
             style = MaterialTheme.typography.bodyMedium,
             color = Color.White.alpha(ApogeeAlpha.BODY),
             modifier = contentModifier,
@@ -357,12 +355,10 @@ fun AboutScreen() {
             modifier = contentModifier,
         )
 
-        // Worth showing all of them. The version answers "which build is on
-        // this phone", which matters when the answer is usually "the one I
-        // side-loaded" - but it is the protocol number, the terrain generation
-        // and the catalogue hash that decide whether a server will have you,
-        // and until now there was no way to read any of them from the device
-        // that was being refused.
+        // It's worth showing all of them. The version answers "which build is on this phone", which
+        // matters when the answer is usually "the one I side-loaded". But it's the protocol number,
+        // the terrain generation and the catalogue hash that decide whether a server will let you
+        // in, and until now there was no way to read any of them from the device being refused.
         SectionHeading("Build", contentModifier)
         Text(
             "Apogee ${BuildConfig.VERSION_NAME}  (${BuildConfig.VERSION_CODE})\n" +

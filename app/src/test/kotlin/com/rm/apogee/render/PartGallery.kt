@@ -18,13 +18,12 @@ import kotlin.math.max
 import kotlin.math.min
 
 /**
- * Pictures of every part and stock craft, rendered off-device.
+ * Pictures of every part and stock craft, rendered off the device.
  *
- * `GALLERY=1 ./gradlew :app:testDebugUnitTest --tests '*PartGallery*'`
- * writes PNGs to app/build/part-gallery: each from three angles, flat-shaded
- * the way the game draws them, through the same [PartModels] and
- * [ModelShapes] code. For judging looks without a phone, a pinch and a
- * screenshot each time.
+ * `GALLERY=1 ./gradlew :app:testDebugUnitTest --tests '*PartGallery*'` writes PNGs to
+ * app/build/part-gallery, each from three angles, flat-shaded the way the game draws them, through
+ * the same [PartModels] and [ModelShapes] code. It's for judging looks without a phone, a pinch and
+ * a screenshot every time.
  */
 class PartGallery {
 
@@ -113,7 +112,7 @@ class PartGallery {
         )
         val size = 420
         val image = BufferedImage(size * views.size, size, BufferedImage.TYPE_INT_RGB)
-        // Frame everything the same way in every view: the bounding sphere.
+        // Frame everything the same way in every view, by the bounding sphere.
         val centre = Vec3.zero()
         for (t in tris) { centre.addInPlace(t.a) }
         centre.mulInPlace(1.0 / max(1, tris.size))
@@ -130,7 +129,7 @@ class PartGallery {
             }
             for (t in tris) {
                 val n = view.inverseRotate(t.n)
-                if (n.z <= 0.0) continue // facing away: culled, as on the GPU
+                if (n.z <= 0.0) continue // facing away, so culled, like on the GPU
                 val a = project(t.a); val b = project(t.b); val c = project(t.c)
                 val shade = (0.25 + 0.75 * max(0.0, t.n dot light)).toFloat()
                 val rgb = (((t.colour[0] * shade).coerceIn(0f, 1f) * 255).toInt() shl 16) or

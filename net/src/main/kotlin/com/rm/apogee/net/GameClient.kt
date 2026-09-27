@@ -13,7 +13,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
 
-/** A vessel as the client knows it: structure, plus the last two motion states. */
+/** A vessel as the client knows it: its structure, plus the last two motion states. */
 class ClientVessel(
     val id: Long,
     @Volatile var design: CraftDesign,
@@ -21,18 +21,18 @@ class ClientVessel(
     @Volatile var currentStage: Int = 0,
     @Volatile var activatedParts: List<Int> = emptyList(),
     /**
-     * Its tanks, as [ServerMessage.FuelLevels] last gave them; null until
-     * the server has said - only the craft this client flies gets them.
+     * Its tanks, as [ServerMessage.FuelLevels] last gave them. Null until the server has said, and
+     * only the craft this client flies gets them.
      */
     @Volatile var fuel: List<Float>? = null,
 
-    /** Blank for debris and other players' craft are their own name. */
+    /** Blank for debris, and other players' craft have their own name. */
     @Volatile var owner: String = "",
-    /** Founded: pinned to the ground, immovable. */
+    /** Founded: pinned to the ground and can't be moved. */
     @Volatile var anchored: Boolean = false,
     /** Burns planned for it, soonest first, as the server has them. */
     @Volatile var burns: List<com.rm.apogee.core.world.PlannedBurn> = emptyList(),
-    /** Who sits in each part, by crew id; empty with nobody aboard. */
+    /** Who sits in each part, by crew id. Empty with nobody aboard. */
     @Volatile var crew: List<List<Long>> = emptyList(),
 ) {
     /** The two most recent snapshots, kept so the renderer can interpolate. */
@@ -46,25 +46,23 @@ class ClientVessel(
     class Observation(val kinematics: VesselKinematics, val time: Double)
 
     /**
-     * The latest state paired with its own snapshot's time, in one reference
-     * so they cannot be read torn. The client's latest-snapshot time is set
-     * before each craft's state is, and a frame built in between paired the
-     * new time with the old state - 50 ms of error, nine metres of a parked
-     * craft carried along the equator, for a frame.
+     * The latest state paired with its own snapshot's time, in one reference, so they can't be read
+     * half updated. The client's latest-snapshot time is set before each craft's state is, and a
+     * frame built in between paired the new time with the old state. That's 50 ms of error, or nine
+     * metres for a parked craft carried along the equator, for a frame.
      */
     @Volatile var observed: Observation? = null
         private set
 
-    /** The observation before [observed]: the other end to draw between, under warp. */
+    /** The observation before [observed], the other end to draw between under warp. */
     @Volatile var previousObserved: Observation? = null
         private set
 
     /**
-     * The last few observations, oldest first, replaced whole so a frame reads
-     * one consistent list. Under warp the frame is drawn a snapshot and a
-     * half behind the newest - before the older of just two - and a
-     * snapshot landing mid-frame left one craft between one pair and the
-     * next craft between the next: a stage drawn 50 m off its neighbour.
+     * The last few observations, oldest first, replaced as a whole so a frame reads one consistent
+     * list. Under warp the frame is drawn a snapshot and a half behind the newest (before the older
+     * of just two), and a snapshot landing mid-frame left one craft between one pair and the next
+     * craft between the next pair. That drew a stage 50 m away from its neighbour.
      */
     @Volatile var recent: List<Observation> = emptyList()
         private set
@@ -80,9 +78,9 @@ class ClientVessel(
     }
 
     /**
-     * The two kept observations either side of [time], older first: the
-     * older is null when [time] is before everything kept, and the newer is
-     * the newest when [time] is past it. Null when nothing has been seen.
+     * The two kept observations either side of [time], older first. The older one is null when
+     * [time] is before everything kept, and the newer one is the newest when [time] is past it.
+     * Null when nothing has been seen.
      */
     fun around(time: Double): Pair<Observation?, Observation>? {
         val kept = recent
@@ -93,7 +91,7 @@ class ClientVessel(
     }
 
     private companion object {
-        /** Observations kept: enough to span the warp clock's lag and a late snapshot. */
+        /** Observations kept: enough to cover the warp clock's lag and a late snapshot. */
         const val RECENT = 5
     }
 }
@@ -101,24 +99,22 @@ class ClientVessel(
 /**
  * The client's view of a server's world.
  *
- * Holds structure and motion separately, matching how they arrive: a craft's
- * part list is pushed when it changes, its motion streams continuously. The two
- * most recent motion samples are retained because the server sends 20 per
- * second and the display wants 60 or more - without something to interpolate
- * between, a perfectly smooth simulation renders as a stutter.
+ * It holds structure and motion separately, matching how they arrive. A craft's part list gets
+ * pushed when it changes, and its motion streams all the time. The two most recent motion samples
+ * are kept because the server sends 20 a second and the display wants 60 or more. Without something
+ * to interpolate between, a perfectly smooth simulation looks like a stutter.
  *
- * Client-side prediction of the locally controlled craft is M4 work. For now
- * even the local player watches interpolated server state, which is honest
- * about the latency the networked build will have rather than hiding it behind
- * a code path that only exists in single-player.
+ * Client-side prediction of the craft you're flying is M4 work. For now even the local player
+ * watches interpolated server state, which is honest about the latency the networked build will
+ * have, instead of hiding it behind a code path that only exists in single player.
  */
 class GameClient(
     private val transport: Transport,
     val playerName: String,
     private val catalogHash: String,
     /**
-     * This install's identity. Opaque and never typed by the player; the
-     * server hangs craft ownership off it rather than off [playerName].
+     * This install's identity. It's opaque and the player never types it. The server hangs craft
+     * ownership off it instead of off [playerName].
      */
     val clientId: String,
     /** The ground this build simulates. Only a test would pass anything else. */
@@ -147,18 +143,18 @@ class GameClient(
     /**
      * When the newest snapshot arrived, by [System.nanoTime].
      *
-     * Prediction needs to know how stale the server's state is, not just what
-     * it said - a snapshot describes the world as of when it was sent.
+     * Prediction needs to know how old the server's state is, not just what it said, because a
+     * snapshot describes the world as it was when it was sent.
      */
     @Volatile var latestSnapshotNanos: Long = 0L
         private set
 
-    /** Chat lines, newest last. Bounded so a long session cannot grow forever. */
+    /** Chat lines, newest last. There's a limit so a long session can't grow forever. */
     private val chatLines = ArrayDeque<String>()
 
     val vessels: Collection<ClientVessel> get() = vesselsById.values
 
-    /** What the flown craft can do with a base just now, as the server last said. */
+    /** What the flown craft can do with a base right now, as the server last said. */
     @Volatile var service: ServerMessage.Service? = null
         private set
 
@@ -170,7 +166,7 @@ class GameClient(
     @Volatile var roster: List<com.rm.apogee.core.crew.CrewMember> = emptyList()
         private set
 
-    /** This player's career, and the world's firsts; null in a sandbox. */
+    /** This player's career, and the world's firsts. Null in a sandbox. */
     @Volatile var career: com.rm.apogee.core.career.CareerState? = null
         private set
     @Volatile var firsts: List<com.rm.apogee.core.career.WorldFirst> = emptyList()
@@ -188,11 +184,11 @@ class GameClient(
     val feats: java.util.concurrent.ConcurrentLinkedQueue<ServerMessage.Feat> = java.util.concurrent.ConcurrentLinkedQueue()
     val refusals: java.util.concurrent.ConcurrentLinkedQueue<String> = java.util.concurrent.ConcurrentLinkedQueue()
 
-    /** Bodies surveyed for ore and water: their richness is on the map. */
+    /** Bodies surveyed for ore and water, so their richness is on the map. */
     @Volatile var surveyed: Set<String> = emptySet()
         private set
 
-    /** The founded base nearest the flown craft, as the server last said; null once it stops saying. */
+    /** The founded base nearest the flown craft, as the server last said. Null once it stops saying. */
     val nearestBase: ServerMessage.BaseStatus?
         get() = nearBase?.takeIf { System.nanoTime() - nearBaseNanos < BASE_STALE_NANOS }
 
@@ -241,21 +237,21 @@ class GameClient(
     }
 
     /**
-     * Scatter the server says has been knocked down. Shared with the
-     * prediction replica, so the local craft does not collide with a tree
-     * that is already down, and read by the renderer to leave it out.
+     * Scatter the server says has been knocked down. It's shared with the prediction replica, so
+     * the local craft doesn't hit a tree that's already down, and the renderer reads it to leave it
+     * out.
      */
     val felledScatter: MutableSet<Long> = java.util.concurrent.ConcurrentHashMap.newKeySet()
 
-    /** Bumped whenever [felledScatter] grows, so a renderer can tell cheaply. */
+    /** Goes up whenever [felledScatter] grows, so a renderer can tell cheaply. */
     @Volatile var felledRevision: Int = 0
         private set
 
-    /** The world's weather, from the welcome; null until then, or for still air. */
+    /** The world's weather, from the welcome. Null until then, or for still air. */
     @Volatile var weather: com.rm.apogee.core.weather.WeatherConfig? = null
         private set
 
-    /** Blows, breakages and blasts, for the presentation to show and sound. */
+    /** Blows, breakages and blasts, for the presentation to show and play sounds for. */
     val partEvents: java.util.concurrent.ConcurrentLinkedQueue<ServerMessage.PartEvent> =
         java.util.concurrent.ConcurrentLinkedQueue()
 
@@ -264,8 +260,8 @@ class GameClient(
         java.util.concurrent.ConcurrentLinkedQueue()
 
     /**
-     * The craft being flown shared with another player: who they are, and
-     * who flies it (a client id, or empty for either). Null when it is not.
+     * The craft you're flying, shared with another player: who they are, and who flies it (a client
+     * id, or empty for either). Null when it isn't shared.
      */
     @Volatile var dockedWith: ServerMessage.DockedWith? = null
 
@@ -328,10 +324,9 @@ class GameClient(
                 latestSnapshot = snapshot
                 latestSnapshotNanos = System.nanoTime()
                 for (kinematics in snapshot.vessels) {
-                    // Motion can legitimately arrive before structure - the
-                    // snapshot for a craft that just spawned may overtake its
-                    // structure message. Dropping it is correct; the next
-                    // snapshot after the structure lands will carry it again.
+                    // Motion can really arrive before structure, because the snapshot for a craft
+                    // that just spawned can overtake its structure message. Dropping it is right,
+                    // since the next snapshot after the structure lands will carry it again.
                     vesselsById[kinematics.vessel]?.observe(kinematics, snapshot.time)
                 }
             }
@@ -342,8 +337,8 @@ class GameClient(
 
             is ServerMessage.PartEvent -> {
                 partEvents.add(message)
-                // Nobody draining it - a headless client, a test - must not
-                // make it grow without end.
+                // If nobody's draining it (a headless client, or a test), it mustn't grow without
+                // end.
                 while (partEvents.size > MAX_PART_EVENTS) partEvents.poll()
             }
 
@@ -387,7 +382,7 @@ class GameClient(
         const val MAX_CHAT_LINES = 100
         const val MAX_PART_EVENTS = 256
 
-        /** A base the server has not mentioned for this long is out of reach. */
+        /** A base the server hasn't mentioned for this long is out of reach. */
         const val BASE_STALE_NANOS = 3_000_000_000L
     }
 }

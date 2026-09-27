@@ -38,31 +38,28 @@ class ClientPredictionTest {
     }
 
     /**
-     * What the screen shows of a parked craft: where it sits on the planet,
-     * drawn at 90 Hz from 20 Hz snapshots on a world whose clock is hours in.
+     * What the screen shows of a parked craft: where it sits on the planet, drawn at 90 Hz from 20
+     * Hz snapshots on a world whose clock is hours in.
      *
-     * Three things used to disagree about the time. The replica started its
-     * clock at zero, so its planet was turned somewhere else; the craft was
-     * drawn at its last 60 Hz step; and the ground at the wall clock. At the
-     * equator the surface moves 175 m/s, so each disagreement was metres of
-     * craft sliding over ground - the shaking, and the plane hovering off its
+     * Three things used to disagree about the time. The replica started its clock at zero, so its
+     * planet was turned somewhere else, the craft was drawn at its last 60 Hz step, and the ground
+     * at the wall clock. At the equator the surface moves at 175 m/s, so each disagreement was
+     * metres of craft sliding over ground. That was the shaking, and the plane hovering off its
      * runway. Now the frame has one time and the craft stays put on it.
      */
     @Test
     fun `a parked craft stays put on its ground when drawn between snapshots`() {
-        // A millimetre: the server has it asleep, so the replica does too and
-        // it rides the ground exactly. Awake, it bounced centimetres on its
-        // legs between snapshots.
+        // A millimetre. The server has it asleep, so the replica does too and it rides the ground
+        // exactly. Awake, it bounced centimetres on its legs between snapshots.
         val worst = onScreenDrift(keepAwake = false)
         assertTrue("the parked craft moved $worst m over its ground on screen", worst < 0.001)
     }
 
     /**
-     * The same, with the craft awake - engine armed, say - and the server
-     * ticking unevenly, so each snapshot's age is off by up to ten
-     * milliseconds. The smoothing of corrections used to work inertially, and
-     * read every slip of the clock as 175 m/s times the slip of error: the
-     * craft held back metres while the ground moved on.
+     * The same, with the craft awake (engine armed, say) and the server ticking unevenly, so each
+     * snapshot's age is off by up to ten milliseconds. The smoothing of corrections used to work
+     * inertially, and read every slip of the clock as 175 m/s times the slip of error, so the craft
+     * was held back metres while the ground moved on.
      */
     @Test
     fun `an awake craft on its pad stays on its ground when the server ticks unevenly`() {
@@ -71,20 +68,19 @@ class ClientPredictionTest {
     }
 
     /**
-     * Worst distance, over three seconds at 90 Hz from 20 Hz snapshots, between
-     * where a craft on the pad is drawn and where the server has it - measured
-     * on the ground, which is what the eye compares it with. The server clock
-     * wobbles by up to ten milliseconds against the client's. (Kept awake by
-     * force, the server's craft never anchors and creeps a few centimetres a
-     * second on its brakes; that is the test's doing, so the comparison is
-     * with where it is, not where it was parked.)
+     * The worst distance, over three seconds at 90 Hz from 20 Hz snapshots, between where a craft
+     * on the pad is drawn and where the server has it, measured on the ground, because that's what
+     * the eye compares it with. The server clock wobbles by up to ten milliseconds against the
+     * client's. (Kept awake by force, the server's craft never anchors and creeps a few centimetres
+     * a second on its brakes. That's the test's doing, so the comparison is with where it is, not
+     * where it was parked.)
      */
     private fun onScreenDrift(keepAwake: Boolean): Double {
         val world = World.default(catalog)
         world.syncClock(10_000.0)
         val rover = world.spawnOnSurface(StockCraft.rover(catalog), World.launchSites.first())
         rover.control.brakes = true
-        // Long enough to settle and fall asleep, as a parked craft does.
+        // Long enough to settle and fall asleep, the way a parked craft does.
         repeat(600) { world.step(1.0 / 60.0) }
         assertTrue("the server's rover should be asleep by now", rover.dormant)
         val terra = world.system.body("terra")
@@ -118,10 +114,9 @@ class ClientPredictionTest {
     }
 
     /**
-     * Drawn between steps, the predicted craft is carried along its velocity:
-     * at the equator a parked craft moves 175 m/s with the ground, and drawn
-     * only at its 60 Hz steps it would jump 2.9 m at a time under a smoothly
-     * turning planet.
+     * Drawn between steps, the predicted craft is carried along its velocity. At the equator a
+     * parked craft moves at 175 m/s with the ground, and drawn only at its 60 Hz steps it would
+     * jump 2.9 m at a time under a smoothly turning planet.
      */
     @Test
     fun `between steps the craft is drawn where it is, not where it last stepped`() {
@@ -145,21 +140,19 @@ class ClientPredictionTest {
         val prediction = ClientPrediction(catalog)
         prediction.adopt(design, kinematicsOf(world, id))
 
-        // Same commands on both sides.
+        // The same commands on both sides.
         world.apply(Command.Stage(id.raw))
         world.apply(Command.SetThrottle(id.raw, 1.0))
         prediction.stage()
         prediction.applyControl(1.0, 0.0, 0.0, 0.0, sas = false)
 
-        // Ten seconds of flight, no corrections at all. Ten rather than five
-        // because a thrust-to-weight of 1.4 only nets about 50 m in the first
-        // five seconds, which is not enough altitude to tell flying from
-        // sitting still.
+        // Ten seconds of flight, with no corrections at all. It's ten instead of five because a
+        // thrust-to-weight of 1.4 only nets about 50 m in the first five seconds, which isn't
+        // enough altitude to tell flying from sitting still.
         //
-        // Advanced a frame at a time rather than in one 5-second jump:
-        // `advance` deliberately clamps how much real time a single call may
-        // make up, so a long pause cannot hand the integrator a backlog it
-        // spends longer catching up on than the backlog itself.
+        // It's moved on a frame at a time instead of in one 5-second jump. `advance` clamps how
+        // much real time a single call can make up, on purpose, so a long pause can't hand the
+        // integrator a backlog it spends longer catching up on than the backlog itself.
         repeat(600) { world.step(1.0 / 60.0) }
         repeat(600) { prediction.advance(1.0 / 60.0) }
 
@@ -167,8 +160,8 @@ class ClientPredictionTest {
         val predicted = prediction.renderPosition()!!
         val error = authoritative.distanceTo(predicted)
 
-        // They are running the same deterministic code from the same state, so
-        // any divergence here is a bug in the replica, not latency.
+        // They're running the same deterministic code from the same state, so any divergence here
+        // is a bug in the replica, not latency.
         assertTrue(
             "prediction drifted ${error}m from the server over 10s of identical input",
             error < 1.0,
@@ -180,13 +173,12 @@ class ClientPredictionTest {
     }
 
     /**
-     * Reconciliation restores agreement; it cannot paper over disagreement.
+     * Reconciling brings back agreement, but it can't paper over disagreement.
      *
-     * The replica is first starved of commands so it diverges badly, then
-     * corrected *and* given the same controls the server has. That second part
-     * is the realistic case and the important one: a snapshot alone cannot keep
-     * a replica in step if it is still flying different inputs, and a test that
-     * expected it to would be asserting something the design does not claim.
+     * The replica is first starved of commands so it drifts badly, then corrected *and* given the
+     * same controls the server has. That second part is the realistic case and the important one. A
+     * snapshot alone can't keep a replica in step if it's still flying different inputs, and a test
+     * that expected it to would be claiming something the design doesn't claim.
      */
     @Test
     fun `reconciling resynchronises a diverged replica`() {
@@ -200,7 +192,7 @@ class ClientPredictionTest {
         world.apply(Command.SetThrottle(id.raw, 1.0))
         repeat(600) { world.step(1.0 / 60.0) }
 
-        // The replica never got the commands, so it is still sitting on the pad.
+        // The replica never got the commands, so it's still sitting on the pad.
         repeat(600) { prediction.advance(1.0 / 60.0) }
         val before = prediction.renderPosition()!!.distanceTo(world.vessel(id)!!.body.position)
         assertTrue("the replica should have diverged badly first, was ${before}m", before > 100.0)
@@ -210,7 +202,7 @@ class ClientPredictionTest {
         prediction.stage()
         prediction.applyControl(1.0, 0.0, 0.0, 0.0, sas = false)
 
-        // Fly on together; the smoothed offset bleeds off as they do.
+        // Fly on together, and the smoothed offset bleeds off as they do.
         repeat(120) {
             world.step(1.0 / 60.0)
             prediction.advance(1.0 / 60.0)
@@ -225,7 +217,7 @@ class ClientPredictionTest {
     }
 
     @Test
-    fun `a stale snapshot is caught up rather than rubber-banded`() {
+    fun `a stale snapshot is caught up instead of rubber-banded`() {
         val (world, id) = server()
         val design = world.vessel(id)!!.design
 
@@ -237,7 +229,7 @@ class ClientPredictionTest {
         prediction.stage()
         prediction.applyControl(1.0, 0.0, 0.0, 0.0, sas = false)
 
-        // The server runs on; the client sees a snapshot from 100 ms ago.
+        // The server runs on, and the client sees a snapshot from 100 ms ago.
         repeat(600) { world.step(1.0 / 60.0) }
         val stale = kinematicsOf(world, id)
         repeat(6) { world.step(1.0 / 60.0) }
@@ -245,8 +237,8 @@ class ClientPredictionTest {
         repeat(606) { prediction.advance(1.0 / 60.0) }
         prediction.reconcile(stale, ageSeconds = 0.1)
 
-        // Applying a 100 ms old snapshot verbatim would put the craft behind
-        // where the server already has it; catching up should land close.
+        // Applying a 100 ms old snapshot as it is would put the craft behind where the server
+        // already has it. Catching up should land close.
         val error = prediction.renderPosition()!!.distanceTo(world.vessel(id)!!.body.position)
         assertTrue("caught-up state was ${error}m off", error < 5.0)
     }
@@ -268,9 +260,9 @@ class ClientPredictionTest {
     }
 
     /**
-     * A replica is rebuilt unstaged and full. Told the server's staging and
-     * tanks, it matches them - and a stage fired locally a moment before the
-     * server's word arrives is not undone by the older word.
+     * A replica is rebuilt unstaged and full. Told the server's staging and tanks, it matches them,
+     * and a stage fired locally a moment before the server's word arrives isn't undone by the older
+     * word.
      */
     @Test
     fun `the replica takes the server's staging and fuel`() {
@@ -299,9 +291,9 @@ class ClientPredictionTest {
     }
 
     /**
-     * Rebuilt after a pause or a change of warp, the replica used to start
-     * with its chute packed and fill it all over again, falling for a second
-     * with almost no drag while the server's craft hung under a full canopy.
+     * Rebuilt after a pause or a change of warp, the replica used to start with its chute packed
+     * and fill it all over again, falling for a second with almost no drag while the server's craft
+     * hung under a full canopy.
      */
     @Test
     fun `a replica built under an open chute has it open`() {
@@ -328,17 +320,16 @@ class ClientPredictionTest {
         prediction.sync(vessel.currentStage, vessel.design.parts.indices.filter { vessel.isActivated(it) }, null)
         val replica = prediction.replica!!
         assertEquals("open in the replica from the start", server, replica.legDeploy[chute], 0.01)
-        // And a drogue held high up stays held: stepped on, the replica must not
-        // take the wire's rounding for the main beginning to fill.
+        // And a drogue held high up stays held. Stepped on, the replica mustn't take the wire's
+        // rounding for the main starting to fill.
         repeat(60) { prediction.advance(1.0 / 60.0) }
         assertEquals("still the drogue", com.rm.apogee.core.part.Parachute.DROGUE_FULL, replica.legDeploy[chute], 1e-9)
     }
 
     /**
-     * Staged with the stage below still burning: the server has that stage
-     * shove the craft above along. A replica that knows the stage is there
-     * shoves it too; one that did not was dragged back to the server's
-     * answer on every snapshot, metres at a time.
+     * Staged with the stage below still burning, the server has that stage shove the craft above
+     * along. A replica that knows the stage is there shoves it too. One that didn't got dragged
+     * back to the server's answer on every snapshot, metres at a time.
      */
     @Test
     fun `a burning stage below pushes the replica as it pushes the server's craft`() {
@@ -362,14 +353,14 @@ class ClientPredictionTest {
             val prediction = ClientPrediction(catalog)
             prediction.adopt(rocket.design, kinematicsOf(world, rocket.id), world.time)
             prediction.sync(rocket.currentStage, rocket.activatedIndices(), rocket.flatResources())
-            // A second of snapshots at 20 Hz: the replica stepped between them,
-            // then set right - and how far it had gone wrong, each time.
+            // A second of snapshots at 20 Hz: the replica stepped between them, then set right, and
+            // how far it had gone wrong each time.
             var worst = 0.0
             repeat(20) {
                 prediction.reconcile(kinematicsOf(world, rocket.id), 0.0, world.time, neighbours())
                 prediction.advance(3.0 / 60.0)
                 repeat(3) { world.step(1.0 / 60.0) }
-                // Both a snapshot on: where the replica got to on its own.
+                // Both a snapshot on, so this is where the replica got to on its own.
                 val predicted = prediction.renderPosition(com.rm.apogee.core.math.Vec3())!!
                 worst = maxOf(worst, predicted.distanceTo(rocket.body.position))
             }

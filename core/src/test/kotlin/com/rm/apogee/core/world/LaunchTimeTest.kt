@@ -12,7 +12,7 @@ class LaunchTimeTest {
     private val catalog = StockParts.catalog
 
     @Test
-    fun `each time of day comes next at the site, lit as it should be`() {
+    fun `each time of day comes next at the site, lit the way it should be`() {
         val world = World.default(catalog)
         val terra = world.system.body("terra")
         val site = World.launchSiteFor(StockCraft.starterRocket(catalog), catalog)

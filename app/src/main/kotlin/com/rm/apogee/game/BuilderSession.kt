@@ -35,10 +35,9 @@ import kotlin.math.tan
 /**
  * The vehicle assembly building: editing state, its rendering, and picking.
  *
- * Unlike [GameSession] there is no server here. A design under construction is
- * not part of the world - nothing simulates it, nobody else can see it, and it
- * has no position. It becomes a world object only when it is launched, at which
- * point it travels as a spawn command like any other craft.
+ * Unlike [GameSession] there's no server here. A design being built isn't part of the world.
+ * Nothing simulates it, nobody else can see it, and it has no position. It only becomes a world
+ * object when it's launched, and then it travels as a spawn command like any other craft.
  */
 class BuilderSession(
     private val frameBus: FrameBus,
@@ -46,41 +45,42 @@ class BuilderSession(
     private val store: CraftStore,
 ) {
     val builder = CraftBuilder(catalog)
-    // FIXED, not RADIAL: there is no planet in the assembly building, and a
-    // design centred below the origin would otherwise render upside down.
+    // FIXED, not RADIAL. There's no planet in the assembly building, and a design centred below the
+    // origin would otherwise draw upside down.
     val camera = CameraController(UpReference.FIXED)
 
     /**
-     * What is in hand, waiting to be put on: a part picked from the drawer -
-     * kept in hand to put on again and again - or a copy of a piece of the
-     * craft, put on once.
+     * What's in hand, waiting to be put on: a part picked from the drawer (kept in hand to put on
+     * again and again), or a copy of a piece of the craft, put on once.
      */
     class Held(val assembly: Assembly, val partId: String?, val once: Boolean)
 
     var held: Held? by mutableStateOf(null)
         private set
 
-    /** The drawer part in hand, if what is held is one. */
+    /** The drawer part in hand, if what's being held is one. */
     val heldPartId: String? get() = held?.partId
 
-    /** An already-placed part the player has tapped: the action bar is for it. */
+    /** A part already placed that the player has tapped. The action bar is for it. */
     var selectedPartIndex: Int? by mutableStateOf(null)
         private set
 
-    /** Where the selected part is on screen, pixels, for the action bar to sit beside; null off screen. */
+    /**
+     * Where the selected part is on screen, in pixels, for the action bar to sit beside. Null when
+     * it's off screen.
+     */
     var selectionAnchor: Offset? by mutableStateOf(null)
         private set
 
     /**
-     * Something being carried under a finger: a part dragged out of the
-     * drawer, or a piece of the craft lifted off it - [rest] the craft
-     * without it, drawn and snapped to meanwhile.
+     * Something being carried under a finger: a part dragged out of the drawer, or a piece of the
+     * craft lifted off it. [rest] is the craft without it, drawn and snapped to in the meantime.
      */
     private class Carry(val assembly: Assembly, val lifted: Int?, val rest: CraftDesign, val symmetry: SymmetryMode)
 
     @Volatile private var carry: Carry? = null
 
-    /** Where the carrying finger is, pixels; null when nothing is carried. */
+    /** Where the carrying finger is, in pixels. Null when nothing is being carried. */
     var carryPoint: Offset? by mutableStateOf(null)
         private set
 
@@ -88,42 +88,41 @@ class BuilderSession(
     var carryPartId: String? by mutableStateOf(null)
         private set
 
-    /** Whether what is carried has a node to go on where the finger is. */
+    /** Whether what's being carried has a node to go on where the finger is. */
     var carrySnapped: Boolean by mutableStateOf(false)
         private set
 
     @Volatile private var carryTarget: OpenNode? = null
 
-    /** Moves the view's target off the craft's middle: two fingers slide it. */
+    /** Moves the view's target off the middle of the craft. Two fingers slide it. */
     private val pan = Vec3()
     @Volatile private var viewWidth = 1f
     @Volatile private var viewHeight = 1f
 
     /**
-     * Editing the staging sequence rather than the structure: the left panel
-     * lists stages, and a tap on the craft moves a part into the chosen one.
+     * Editing the staging sequence instead of the structure. The left panel lists stages, and
+     * tapping the craft moves a part into the chosen one.
      */
     var stagingMode: Boolean by mutableStateOf(false)
         private set
 
-    /** The stage parts are tapped into, and whose parts are lit up. */
+    /** The stage that tapped parts go into, and whose parts are lit up. */
     var selectedStage: Int? by mutableStateOf(null)
         private set
 
     /**
-     * Where LAUNCH puts the craft: a [com.rm.apogee.core.world.LaunchSite]
-     * id, or null to let the design decide (the sea for hulls, the pad for
-     * everything else).
+     * Where LAUNCH puts the craft: a [com.rm.apogee.core.world.LaunchSite] id, or null to let the
+     * design decide (the sea for hulls, the pad for everything else).
      */
     var launchSiteId: String? by mutableStateOf(null)
 
     /**
-     * The pads on the player's own founded bases, as launch sites: offered
-     * beside the Cape's. A craft launched from one fills from that base.
+     * The pads on the player's own founded bases, as launch sites, offered next to the Cape's. A
+     * craft launched from one fills up from that base.
      */
     var baseSites: List<com.rm.apogee.core.world.LaunchSite> by mutableStateOf(emptyList())
 
-    /** Every site that can be launched from: the Cape's, then the player's bases'. */
+    /** Every site you can launch from: the Cape's, then the player's bases'. */
     fun allSites(): List<com.rm.apogee.core.world.LaunchSite> = com.rm.apogee.core.world.World.launchSites + baseSites
 
     var stats: CraftStats by mutableStateOf(CraftStats.analyze(builder.design, catalog))
@@ -134,25 +133,33 @@ class BuilderSession(
 
     var statusMessage: String? by mutableStateOf(null)
 
-    /** The player's career, or null building for a sandbox: everything unlocked, nothing limited. */
+    /**
+     * The player's career, or null when building for a sandbox, where everything is unlocked and
+     * nothing is limited.
+     */
     var career: com.rm.apogee.core.career.CareerState? by mutableStateOf(null)
     val tree: com.rm.apogee.core.career.TechTree get() = com.rm.apogee.core.career.TechTree.stock
 
-    /** Parts the career has not unlocked yet, each to the title of the node that unlocks it. */
+    /**
+     * Parts the career hasn't unlocked yet, each mapped to the title of the node that unlocks it.
+     */
     fun lockedParts(): Map<String, String> {
         val c = career ?: return emptyMap()
         val have = c.parts(tree)
         return tree.nodes.flatMap { node -> node.parts.map { it to node.title } }.filter { it.first !in have }.toMap()
     }
 
-    /** Why the career will not let this launch where it is going, or null if it will (or this is a sandbox). */
+    /** Why the career won't let this launch where it's going, or null if it will (or this is a sandbox). */
     fun careerRefusal(): String? {
         val c = career ?: return null
         val design = designForLaunch() ?: return null
         return com.rm.apogee.core.career.CareerRules.refusal(tree, c, design, launchSiteId ?: automaticSite().id, catalog)
     }
 
-    /** What the facility it goes from takes, against what it is: "12.3 / 45 t · 22 / 40 parts"; null outside a career. */
+    /**
+     * What the facility it goes from can take, against what it is: "12.3 / 45 t · 22 / 40 parts".
+     * Null outside a career.
+     */
     fun careerLimits(): Pair<String, Boolean>? {
         val c = career ?: return null
         val site = launchSiteId ?: automaticSite().id
@@ -167,7 +174,7 @@ class BuilderSession(
         return "${facility.title.uppercase()} · $massText · $partText" to over
     }
 
-    /** Bumped on every edit so Compose recomposes off a plain mutable model. */
+    /** Goes up on every edit so Compose recomposes off a plain mutable model. */
     var revision: Int by mutableIntStateOf(0)
         private set
 
@@ -200,14 +207,14 @@ class BuilderSession(
 
     // --- editing -------------------------------------------------------------
 
-    /** A part from the drawer into the hand - or, [partId] null, the hand emptied. */
+    /** A part from the drawer into the hand, or with [partId] null, the hand emptied. */
     fun selectPart(partId: String?) {
         held = partId?.let { Held(Assembly.of(it), it, once = false) }
         selectedPartIndex = null
         revision++
     }
 
-    /** Puts down whatever is in hand. */
+    /** Puts down whatever's in hand. */
     fun dropHeld() = selectPart(null)
 
     fun setViewSize(width: Float, height: Float) {
@@ -215,15 +222,15 @@ class BuilderSession(
     }
 
     /**
-     * Pixels down the left covered by an open panel: the craft is drawn in
-     * the middle of what is left, not behind the drawer.
+     * Pixels down the left covered by an open panel. The craft is drawn in the middle of what's
+     * left, not behind the drawer.
      */
     @Volatile var leftInset = 0f
 
     /** Pixels up the right covered by the open stats card. */
     @Volatile var rightInset = 0f
 
-    /** The covered sides' difference as drawn: eased there, not jumped. */
+    /** The difference between the covered sides as drawn, eased there instead of jumping. */
     private var shownInset = 0f
 
     // --- the selected part's actions -------------------------------------------
@@ -252,13 +259,13 @@ class BuilderSession(
         revision++
     }
 
-    /** The selected part and everything below it, copied into the hand to put on elsewhere. */
+    /** The selected part and everything below it, copied into the hand to put on somewhere else. */
     fun duplicateSelected() {
         val index = selectedPartIndex ?: return
         val copy = builder.duplicate(index) ?: return
         held = Held(copy, null, once = true)
         selectedPartIndex = null
-        statusMessage = "Copy in hand - tap a green node, or drag it on"
+        statusMessage = "Copy in hand. Tap a green node, or drag it on"
         revision++
     }
 
@@ -278,7 +285,7 @@ class BuilderSession(
 
     // --- staging ---------------------------------------------------------------
 
-    /** One stage as the panel lists it: its parts by name, like parts together. */
+    /** One stage as the panel lists it: its parts by name, with the same parts grouped together. */
     class StageEntry(val index: Int, val parts: List<String>)
 
     val stageEntries: List<StageEntry>
@@ -310,12 +317,12 @@ class BuilderSession(
         revision++
     }
 
-    /** A new stage just after the selected one - or last - chosen, ready to fill. */
+    /** A new stage just after the selected one (or last), chosen and ready to fill. */
     fun addStage() {
         val at = (selectedStage ?: (builder.design.stages.size - 1)) + 1
         if (builder.addStage(at)) {
             selectedStage = at
-            statusMessage = "Stage $at added - tap parts to move them into it"
+            statusMessage = "Stage $at added. Tap parts to move them into it"
             onEdited()
         }
     }
@@ -325,7 +332,7 @@ class BuilderSession(
             selectedStage = selectedStage?.let { minOf(it, builder.design.stages.size - 1) }?.takeIf { it >= 0 }
             onEdited()
         } else {
-            statusMessage = "The only stage cannot be removed while it fires something"
+            statusMessage = "The only stage can't be removed while it fires something"
         }
     }
 
@@ -354,7 +361,7 @@ class BuilderSession(
         val current = builder.stageOf(index)
         val title = catalog[builder.design.parts[index].partId]?.title ?: "Part"
         if (target == null || target == current) {
-            // Nothing to move it to: show where it is instead.
+            // There's nothing to move it to, so show where it is instead.
             selectedStage = current.takeIf { it >= 0 }
             statusMessage = if (current >= 0) "$title fires in stage $current" else "$title is in no stage"
             revision++
@@ -376,9 +383,8 @@ class BuilderSession(
     val orientation: CraftOrientation get() = builder.orientation
 
     /**
-     * Stands the craft up or lays it down. Nothing moves in design space; the
-     * camera turns so the new "up" is up on screen, and the mounting rules
-     * follow.
+     * Stands the craft up or lays it down. Nothing moves in design space. The camera turns so the
+     * new "up" is up on screen, and the mounting rules follow.
      */
     fun toggleOrientation() {
         builder.orientation = builder.orientation.other()
@@ -392,12 +398,11 @@ class BuilderSession(
     /**
      * Acts on a tap in the 3D view.
      *
-     * With a part held, the tap goes to the nearest open attach node; with
-     * nothing held, it selects a placed part. Node picking works in *screen*
-     * space rather than by casting a ray at the node's sphere, because a
-     * generous radius in pixels is a constant-size target no matter how far the
-     * camera has zoomed out - a world-space radius is either unusable when
-     * zoomed out or covers the whole craft when zoomed in.
+     * With a part held, the tap goes to the nearest open attach node, and with nothing held, it
+     * selects a placed part. Node picking works in *screen* space instead of by casting a ray at
+     * the node's sphere, because a generous radius in pixels is a target that stays the same size
+     * however far the camera has zoomed out. A radius in world space is either unusable when zoomed
+     * out or covers the whole craft when zoomed in.
      */
     fun tap(x: Float, y: Float, width: Float, height: Float) {
         setViewSize(width, height)
@@ -420,7 +425,7 @@ class BuilderSession(
         }
 
         val node = pickNode(x, y, width, height, inHand.assembly.rootPartId, builder.design) ?: run {
-            // Off the craft altogether: put it down.
+            // Off the craft altogether, so put it down.
             if (pickPart(x, y, width, height) == null) {
                 held = null
                 statusMessage = null
@@ -432,7 +437,7 @@ class BuilderSession(
         }
         val added = builder.attachAssembly(inHand.assembly, node)
         if (added.isEmpty()) {
-            statusMessage = "That part will not fit here"
+            statusMessage = "That part won't fit here"
         } else {
             statusMessage = null
             if (inHand.once) held = null
@@ -447,7 +452,10 @@ class BuilderSession(
         camera.frameFor(designExtent(design, designCentre(design)))
     }
 
-    /** Two fingers moved the view by ([dx], [dy]) pixels: slide what is looked at along with them. */
+    /**
+     * Two fingers moved the view by ([dx], [dy]) pixels, so slide what's being looked at along with
+     * them.
+     */
     fun panBy(dx: Float, dy: Float) {
         val metresPerPixel = 2.0 * kotlin.math.tan(FOV_Y * 0.5) * camera.distance / viewHeight
         val right = cameraRotation.rotate(Vec3.unitX(), Vec3())
@@ -468,18 +476,18 @@ class BuilderSession(
     }
 
     /**
-     * Held still on a part: lift it - with its partners and all below - to
-     * carry somewhere else. False over nothing, or the first part.
+     * Held still on a part: lift it, with its partners and everything below it, to carry somewhere
+     * else. False over nothing, or over the first part.
      */
     fun liftAt(x: Float, y: Float, width: Float, height: Float): Boolean {
         setViewSize(width, height)
         if (stagingMode) return false
         val index = pickPart(x, y, width, height) ?: return false
         val lifted = builder.lift(index) ?: run {
-            statusMessage = "The first part holds everything else - it stays"
+            statusMessage = "The first part holds everything else, so it stays"
             return false
         }
-        // As many as were lifted go back on: four fins stay four.
+        // As many as were lifted go back on, so four fins stay four.
         val symmetry = when {
             lifted.copies <= 1 -> SymmetryMode.NONE
             builder.orientation == CraftOrientation.HORIZONTAL -> SymmetryMode.MIRROR
@@ -500,18 +508,18 @@ class BuilderSession(
         revision++
     }
 
-    /** The carrying finger is at ([x], [y]): snap to the best node near it. */
+    /** The carrying finger is at ([x], [y]), so snap to the best node near it. */
     fun carryTo(x: Float, y: Float) {
         val c = carry ?: return
         carryPoint = Offset(x, y)
-        // A thumb's width above the fingertip, so the node is not under it.
+        // A thumb's width above the fingertip, so the node isn't under it.
         val target = if (c.rest.parts.isEmpty()) null
             else pickNode(x, y - viewHeight * FINGER_LIFT, viewWidth, viewHeight, c.assembly.rootPartId, c.rest)
         carryTarget = target
         carrySnapped = target != null || c.rest.parts.isEmpty()
     }
 
-    /** Let go: on to the node it snapped to, or back where it came from. */
+    /** Let go: onto the node it snapped to, or back where it came from. */
     fun endCarry() {
         val c = carry ?: return
         val target = carryTarget
@@ -522,11 +530,11 @@ class BuilderSession(
             }
             target == null -> statusMessage = if (c.lifted != null) "Put back where it was" else null
             c.lifted != null -> {
-                if (builder.move(c.lifted, target, c.symmetry).isEmpty()) statusMessage = "That will not fit there" else onEdited()
+                if (builder.move(c.lifted, target, c.symmetry).isEmpty()) statusMessage = "That won't fit there" else onEdited()
             }
             else -> {
                 val saved = builder.symmetry
-                if (builder.attachAssembly(c.assembly, target).isEmpty()) statusMessage = "That part will not fit here" else onEdited()
+                if (builder.attachAssembly(c.assembly, target).isEmpty()) statusMessage = "That part won't fit here" else onEdited()
                 builder.symmetry = saved
             }
         }
@@ -549,7 +557,7 @@ class BuilderSession(
             selectionAnchor = null
             onEdited()
         } else {
-            statusMessage = "The root part cannot be removed"
+            statusMessage = "The root part can't be removed"
         }
     }
 
@@ -584,7 +592,7 @@ class BuilderSession(
                 statusMessage = "Saved \"${it.name}\""
                 refreshSavedList()
             }
-            .onFailure { statusMessage = "Could not save: ${it.message}" }
+            .onFailure { statusMessage = "Couldn't save: ${it.message}" }
     }
 
     fun load(saved: SavedCraft) {
@@ -596,7 +604,7 @@ class BuilderSession(
                 statusMessage = "Loaded \"${it.name}\""
                 onEdited()
             }
-            .onFailure { statusMessage = "Could not load: ${it.message}" }
+            .onFailure { statusMessage = "Couldn't load: ${it.message}" }
     }
 
     fun delete(saved: SavedCraft) {
@@ -630,14 +638,13 @@ class BuilderSession(
         val design = c?.rest ?: builder.design
         val items = ArrayList<RenderItem>(design.parts.size + 16)
 
-        // Frame the craft rather than the design origin, so a tall stack stays
-        // centred as it grows instead of drifting off the top of the screen.
+        // Frame the craft instead of the design origin, so a tall stack stays centred as it grows
+        // instead of drifting off the top of the screen.
         val centre = designCentre(design)
         camera.frameAtLeast(designExtent(design, centre))
-        // Half the difference between the covered strips, so the craft sits
-        // in the middle of the open space between the panels.
-        // Not while a finger carries something: the craft would slide out
-        // from under the node it is being taken to.
+        // Half the difference between the covered strips, so the craft sits in the middle of the
+        // open space between the panels. Not while a finger is carrying something, because the
+        // craft would slide out from under the node it's being taken to.
         if (c == null) shownInset += (leftInset - rightInset - shownInset) * INSET_EASE
         val metresPerPixel = 2.0 * tan(FOV_Y * 0.5) * camera.distance / viewHeight
         val aside = cameraRotation.rotate(Vec3.unitX(), Vec3()).mulInPlace(-shownInset * 0.5 * metresPerPixel)
@@ -645,8 +652,8 @@ class BuilderSession(
 
         camera.fixedUp.setTo(design.orientation.up)
         val caps = StackCaps.forDesign(design, catalog)
-        // In staging, the chosen stage's parts light up in the accent; the
-        // selected part lights up with its partners.
+        // In staging, the chosen stage's parts light up in the accent colour, and the selected part
+        // lights up with its partners.
         val staged = selectedStage?.takeIf { stagingMode }?.let { design.stages.getOrNull(it)?.activatedParts?.toSet() }.orEmpty()
         val selected = selectedPartIndex?.takeIf { c == null && it in design.parts.indices }
         val partners = selected?.let { index ->
@@ -662,10 +669,9 @@ class BuilderSession(
             addPart(items, design, placed, caps[index], centre, highlight)
         }
 
-        // Attach-node markers, shown only while a part is in hand - they are
-        // clutter the rest of the time - and only the ones it can go on, so
-        // a wheel held over a horizontal craft shows its underside and nothing
-        // else rather than inviting taps that will be refused.
+        // Attach-node markers, shown only while a part is in hand (the rest of the time they're
+        // clutter), and only the ones it can go on. That way a wheel held over a horizontal craft
+        // shows its underside and nothing else, instead of inviting taps that will be refused.
         val rootId = c?.assembly?.rootPartId ?: held?.assembly?.rootPartId
         val nodes = rootId?.let { usableNodes(design, it) }.orEmpty()
         visibleNodes = nodes
@@ -675,7 +681,7 @@ class BuilderSession(
             items.add(RenderItem(shape = NODE_MARKER, position = node.position.copy(), rotation = Quat.identity(), color = NODE_COLOR))
         }
 
-        // What is carried, where it would go: a see-through ghost, copies and all.
+        // What's being carried, where it would go: a see-through ghost, copies and all.
         if (c != null && target != null) {
             Assemblies.attach(design, c.assembly, target, c.symmetry, catalog)?.let { done ->
                 val ghostCaps = StackCaps.forDesign(done.design, catalog)
@@ -738,7 +744,7 @@ class BuilderSession(
         }
     }
 
-    /** Furthest part from [centre], so the camera can pull back to fit it. */
+    /** The furthest part from [centre], so the camera can pull back to fit it. */
     private fun designExtent(design: CraftDesign, centre: Vec3): Double {
         if (design.parts.isEmpty()) return 0.0
         return design.parts.maxOf { placed ->
@@ -757,12 +763,11 @@ class BuilderSession(
     // --- picking -------------------------------------------------------------
 
     /**
-     * Projects a design-space point to screen pixels, or null if it is behind
-     * the camera.
+     * Projects a design-space point to screen pixels, or null if it's behind the camera.
      *
-     * Done directly rather than through the render matrices: the camera pose is
-     * already here, and going via [com.rm.apogee.core.math.Mat4] would mean
-     * narrowing to float for a calculation that only needs to be pixel-accurate.
+     * It's done directly instead of through the render matrices. The camera pose is already here,
+     * and going through [com.rm.apogee.core.math.Mat4] would mean narrowing to float for a sum that
+     * only needs to be accurate to a pixel.
      */
     private fun project(world: Vec3, width: Float, height: Float): Pair<Float, Float>? {
         scratch.setTo(world).subInPlace(cameraPosition)
@@ -797,10 +802,9 @@ class BuilderSession(
     }
 
     /**
-     * The part under ([x], [y]): the nearest whose box the line of sight
-     * through that pixel passes through - a small part in front of a big
-     * one is the small one, and a big part is hit anywhere on it, not only
-     * near its middle. Failing that, the part whose middle is nearest the
+     * The part under ([x], [y]): the nearest one whose box the line of sight through that pixel
+     * passes through. A small part in front of a big one is the small one, and a big part is hit
+     * anywhere on it, not just near its middle. Failing that, the part whose middle is nearest the
      * finger, within reach.
      */
     private fun pickPart(x: Float, y: Float, width: Float, height: Float, stageableOnly: Boolean = false): Int? {
@@ -842,7 +846,9 @@ class BuilderSession(
     }
 
     companion object {
-        /** Of the screen's height: how far above the fingertip a carried part snaps from. */
+        /**
+         * A share of the screen's height: how far above the fingertip a carried part snaps from.
+         */
         const val FINGER_LIFT = 0.04f
 
         private const val PRESENT_INTERVAL_MILLIS = 16L
@@ -850,21 +856,21 @@ class BuilderSession(
         const val NEAR_PLANE = 0.2
 
         /**
-         * Snap radius in pixels. Deliberately generous - assembly on a
-         * touchscreen is the hardest interaction in this project, and a
-         * fingertip covers far more than a node marker does.
+         * The snap radius in pixels. It's generous on purpose, because building on a touchscreen is
+         * the hardest thing to get right in this project, and a fingertip covers far more than a
+         * node marker does.
          */
         const val TAP_RADIUS_PIXELS = 110f
         const val PART_TAP_RADIUS_PIXELS = 80f
 
 
-        /** Share of the way to a new panel inset covered each frame. */
+        /** The share of the way to a new panel inset covered each frame. */
         private const val INSET_EASE = 0.2f
 
-        /** Metres past the craft's reach the view can be slid. */
+        /** Metres past the craft's reach that the view can be slid. */
         const val PAN_MARGIN = 4.0
 
-        /** Metres added round each part's box when picking: thin parts are still hittable. */
+        /** Metres added around each part's box when picking, so thin parts can still be hit. */
         const val PICK_PADDING = 0.15
 
         val NODE_MARKER = MeshSpec.Sphere(0.22)

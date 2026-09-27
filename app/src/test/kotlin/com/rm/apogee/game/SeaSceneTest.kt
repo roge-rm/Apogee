@@ -16,13 +16,13 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * The sea drawn is the sea the boats float on: round the craft, where hull
- * meets water, every vertex is the physics' own surface.
+ * The sea that's drawn is the sea the boats float on. Around the craft, where hull meets water,
+ * every vertex is the physics' own surface.
  */
 class SeaSceneTest {
 
     @Test
-    fun `the drawn sea round a craft is the surface it floats on`() {
+    fun `the drawn sea around a craft is the surface it floats on`() {
         val system = SolarSystem.defaultSystem()
         val terra = system.body("terra")
         val config = WeatherConfig(intensity = WeatherIntensity.WILD)
@@ -38,7 +38,7 @@ class SeaSceneTest {
                 if (terra.terrain!!.elevation(at) < -500.0) break
             }
             val centre = at.copy().mulInPlace(terra.radius)
-            // Something to draw at once - flat water - while the sea is worked out.
+            // Something to draw straight away (flat water) while the sea is worked out.
             scene.update(centre, 5_000.0)
             assertTrue("nothing to draw on the first frame", scene.latest != null)
             val deadline = System.currentTimeMillis() + 30_000
@@ -56,7 +56,7 @@ class SeaSceneTest {
                 val p = Vec3(
                     built.origin.x + built.vertices[o], built.origin.y + built.vertices[o + 1], built.origin.z + built.vertices[o + 2],
                 )
-                // The hull's neighbourhood: every wave train is in these.
+                // The hull's neighbourhood. Every wave train is in these.
                 if (p.distanceTo(built.origin) > 8.0) continue
                 val drawn = p.length - terra.radius
                 worst = maxOf(worst, kotlin.math.abs(drawn - truth.height(p, built.time)))
@@ -70,7 +70,7 @@ class SeaSceneTest {
     }
 
     @Test
-    fun `a camera below the waves is underwater, above them or ashore it is not`() {
+    fun `a camera below the waves is underwater, and above them or ashore it isn't`() {
         val system = SolarSystem.defaultSystem()
         val terra = system.body("terra")
         val config = WeatherConfig(intensity = WeatherIntensity.WILD)

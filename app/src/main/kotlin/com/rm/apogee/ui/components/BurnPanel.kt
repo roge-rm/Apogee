@@ -48,11 +48,11 @@ import kotlin.math.roundToInt
 
 /** What the burn panel and chips can ask for. */
 class BurnActions(
-    /** The next burn changed by this much along prograde, normal and radial, m/s. */
+    /** The next burn changed by this much along prograde, normal and radial, in m/s. */
     val onNudge: (Double, Double, Double) -> Unit = { _, _, _ -> },
     /** The next burn moved this many seconds later (earlier if negative). */
     val onShift: (Double) -> Unit = {},
-    /** A slider or nudge let go: send the burn as it is now. */
+    /** A slider or nudge was let go, so send the burn as it is now. */
     val onEdited: () -> Unit = {},
     val onDelete: () -> Unit = {},
     val onWarpTo: () -> Unit = {},
@@ -61,13 +61,12 @@ class BurnActions(
 )
 
 /**
- * Planned burns and landings, on the HUD. On the map, the next burn's
- * editor - prograde, normal and radial by rate sliders and nudges, its time
- * by nudges (and by dragging its marker along the path on the map), what
- * it makes of the orbit, and delete, warp-to and the auto-burn - or, with
- * none planned, how to plan one. In flight, a chip counting down to it and
- * saying when to burn and when to cut; and coming down, one saying when it
- * hits and when to brake, with the auto-land.
+ * Planned burns and landings, on the HUD. On the map it's the next burn's editor: prograde, normal
+ * and radial by rate sliders and nudges, its time by nudges (and by dragging its marker along the
+ * path on the map), what it does to the orbit, and delete, warp-to and the auto-burn. With none
+ * planned, it says how to plan one. In flight it's a chip counting down to the burn and saying when
+ * to burn and when to cut, and coming down, one saying when it hits and when to brake, with the
+ * auto-land.
  */
 @Composable
 fun BurnPanel(
@@ -156,7 +155,9 @@ private fun BurnEditor(burn: GameSession.BurnReadout, actions: BurnActions) {
     }
 }
 
-/** One axis of the burn: a slider that springs back - further, faster - and a nudge each way. */
+/**
+ * One axis of the burn: a slider that springs back (further means faster), and a nudge each way.
+ */
 @Composable
 private fun Axis(label: String, colour: Color, value: Double, onChange: (Double) -> Unit, onDone: () -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -173,8 +174,8 @@ private fun Axis(label: String, colour: Color, value: Double, onChange: (Double)
 }
 
 /**
- * Held off the middle, it changes the burn - slowly near the middle, fast
- * at the ends - and springs back to the middle when let go.
+ * Held off the middle, it changes the burn, slowly near the middle and fast at the ends, and it
+ * springs back to the middle when you let go.
  */
 @Composable
 private fun RateSlider(colour: Color, onChange: (Double) -> Unit, onDone: () -> Unit) {
@@ -185,7 +186,7 @@ private fun RateSlider(colour: Color, onChange: (Double) -> Unit, onDone: () -> 
     LaunchedEffect(held) {
         while (held) {
             val share = (offset / (widthPx / 2f)).coerceIn(-1f, 1f)
-            // Squared: fine near the middle, a few hundred m/s a second at the ends.
+            // Squared, so it's fine near the middle and a few hundred m/s a second at the ends.
             val rate = share * abs(share) * MOST_RATE
             if (rate != 0f) change((rate * TICK_SECONDS).toDouble())
             delay((TICK_SECONDS * 1000).toLong())
@@ -282,7 +283,7 @@ private fun long(seconds: Double): String {
     return if (h >= 48) "${h / 24} d ${h % 24} h" else duration(seconds)
 }
 
-/** Within this of the window, s, it is open: a day either side is near enough. */
+/** Within this many seconds of the window, it's open. A day either side is near enough. */
 private const val WINDOW_OPEN = 86_400.0
 
 @Composable
@@ -293,7 +294,7 @@ private fun LandingChip(landing: GameSession.LandingReadout, actions: BurnAction
             Spacer(Modifier.width(8.dp))
             Text("${duration(landing.impactIn)} · ${landing.impactSpeed.roundToInt()} m/s", style = TelemetryTextStyle, color = Color.White, maxLines = 1)
         }
-        // When to brake: for a pilot flying it, while there is still speed to lose.
+        // When to brake, for a pilot flying it, while there's still speed to lose.
         if (!landing.auto && !landing.brakeIn.isNaN() && landing.impactSpeed > 5.0) {
             val now = landing.brakeIn <= 0.0
             Text(

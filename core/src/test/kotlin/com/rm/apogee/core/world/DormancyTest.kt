@@ -12,11 +12,10 @@ import org.junit.Test
 /**
  * Sleeping craft.
  *
- * A world people leave bases in is mostly made of things nobody is looking at,
- * and the whole point is that those cost nothing. The invariant that makes it
- * safe rather than merely cheap is that a dormant craft is still *there*: it
- * holds its place on the ground, it still collides, and anything that touches
- * it wakes it.
+ * A world people leave bases in is mostly made of things nobody is looking at, and the whole point
+ * is that those cost nothing. What makes it safe and not just cheap is that a dormant craft is
+ * still *there*. It holds its place on the ground, it still collides, and anything that touches it
+ * wakes it.
  */
 class DormancyTest {
 
@@ -30,7 +29,7 @@ class DormancyTest {
         repeat((seconds / dt).toInt()) { world.step(dt) }
     }
 
-    /** Where the craft is standing, in the frame that does not rotate away. */
+    /** Where the craft is standing, in the frame that doesn't rotate away. */
     private fun groundPosition(world: World, vessel: Vessel): Vec3 {
         val attractor = world.attractorFor(vessel)
         return attractor.toBodyFixed(
@@ -48,10 +47,9 @@ class DormancyTest {
     }
 
     /**
-     * The one that would catch freezing the inertial state instead of the
-     * ground-relative one. A craft parked on the equator is travelling at
-     * about 175 m/s inertially; holding *that* still leaves the planet to
-     * rotate out from under it, and the base sinks or floats away.
+     * The one that would catch freezing the inertial state instead of the ground-relative one. A
+     * craft parked on the equator is travelling at about 175 m/s inertially. Holding *that* still
+     * leaves the planet to rotate out from under it, and the base sinks or floats away.
      */
     @Test
     fun `a sleeping craft stays where it is standing, not where it was in space`() {
@@ -68,8 +66,8 @@ class DormancyTest {
         val drift = Vec3().setTo(after).subInPlace(before).length
         assertTrue("it drifted $drift m across the ground while asleep", drift < 0.01)
 
-        // And it really did keep moving through space, rather than being
-        // frozen - otherwise the test above would pass for the wrong reason.
+        // And it really did keep moving through space instead of being frozen, otherwise the test
+        // above would pass for the wrong reason.
         val inertialMoved = Vec3().setTo(vessel.body.position)
             .subInPlace(inertialBefore).length
         assertTrue(
@@ -122,9 +120,8 @@ class DormancyTest {
         world.attractorFor(arriving)
             .surfaceVelocityAt(arriving.body.position, arriving.body.linearVelocity)
 
-        // Woken at some point, not necessarily awake at the end: once the
-        // other craft has come to rest - or rolled off - the base is still
-        // again and may rightly go back to sleep.
+        // Woken at some point, not necessarily awake at the end. Once the other craft has come to
+        // rest (or rolled off) the base is still again and can rightly go back to sleep.
         var woke = false
         repeat(300) {
             world.step(dt)
@@ -147,18 +144,17 @@ class DormancyTest {
     }
 
     /**
-     * The thing that made dormancy hard to get right in the first place: a
-     * craft "at rest" was never actually at rest.
+     * The thing that made dormancy hard to get right in the first place: a craft "at rest" was
+     * never really at rest.
      */
     @Test
-    fun `a resting craft is held exactly still, not approximately`() {
+    fun `a resting craft is held exactly still, not roughly`() {
         val world = world()
         val vessel = world.spawnOnSurface(StockCraft.lander(catalog), site)
         val attractor = world.attractorFor(vessel)
         settle(world, 4.0)
 
-        // Sampled while awake, so this measures the contact resolver rather
-        // than dormancy freezing it.
+        // Sampled while awake, so this measures the contact resolver and not dormancy freezing it.
         var worstLinear = 0.0
         var worstAngular = 0.0
         val surface = Vec3()
@@ -178,18 +174,18 @@ class DormancyTest {
             )
         }
 
-        // Before anchoring these peaked at 0.065 m/s and 0.032 rad/s and never
-        // decayed. Friction should now remove them outright.
+        // Before anchoring these peaked at 0.065 m/s and 0.032 rad/s and never died away. Friction
+        // should now remove them completely.
         assertTrue("it still creeps at $worstLinear m/s", worstLinear < 1e-9)
         assertTrue("it still twitches at $worstAngular rad/s", worstAngular < 1e-9)
     }
 
     /**
-     * Anchoring must not become glue. A craft on ground steeper than friction
-     * can hold has to slide, which is the same rule seen from the other side.
+     * Anchoring mustn't turn into glue. A craft on ground steeper than friction can hold has to
+     * slide, which is the same rule seen from the other side.
      */
     @Test
-    fun `a craft is not held by friction when something stronger acts on it`() {
+    fun `a craft isn't held by friction when something stronger acts on it`() {
         val world = world()
         val vessel = world.spawnOnSurface(StockCraft.starterRocket(catalog), site)
         settle(world, 4.0)
@@ -209,12 +205,11 @@ class DormancyTest {
     /**
      * The case a base actually lands in.
      *
-     * A craft on sprung legs never passed the old velocity test: contacts
-     * resolve after gravity, so it finishes every tick holding the impulse
-     * that cancelled that tick's gravity - 0.163 m/s, against a budget of
-     * 0.098 - while its height above the ground does not move in five decimal
-     * places. Since bases land on gear, that meant nothing in a persistent
-     * world would ever have slept.
+     * A craft on sprung legs never passed the old velocity test. Contacts resolve after gravity, so
+     * it finishes every tick holding the impulse that cancelled that tick's gravity (0.163 m/s,
+     * against a budget of 0.098), while its height above the ground doesn't move in five decimal
+     * places. Since bases land on gear, that meant nothing in a persistent world would ever have
+     * slept.
      */
     @Test
     fun `a craft resting on deployed legs sleeps too`() {
@@ -230,7 +225,7 @@ class DormancyTest {
     }
 
     @Test
-    fun `a craft in flight does not sleep`() {
+    fun `a craft in flight doesn't sleep`() {
         val world = world()
         val vessel = world.spawnOnSurface(StockCraft.lander(catalog), site)
         val up = Vec3().setTo(vessel.body.position).normalizeInPlace()

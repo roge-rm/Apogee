@@ -9,18 +9,15 @@ import kotlin.math.sqrt
 /**
  * A unit quaternion describing an orientation, in double precision.
  *
- * Convention: **right-handed, Y-up**, matching OpenGL. A craft's local frame is
- * +Y "up" through the nose of a rocket, +Z aft, +X starboard. Composition reads
- * left-to-right in the usual sense - `parent * child` applies `child` first,
- * then `parent`.
+ * The convention is **right-handed, Y-up**, matching OpenGL. A craft's local frame has +Y "up"
+ * through the nose of a rocket, +Z aft and +X starboard. Combining them reads left to right in the
+ * usual way: `parent * child` applies `child` first, then `parent`.
  *
- * Orientation is a quaternion rather than Euler angles because the simulation
- * integrates angular velocity every tick and Euler angles gimbal-lock exactly
- * where a rocket spends its time (straight up). [integrateAngularVelocity] is
- * the reason this type exists.
+ * Orientation is a quaternion instead of Euler angles because the simulation integrates angular
+ * velocity every tick, and Euler angles gimbal-lock exactly where a rocket spends its time,
+ * pointing straight up. [integrateAngularVelocity] is the reason this type exists.
  *
- * Mutable with in-place operations, for the same no-allocation-in-step()
- * reason as [Vec3].
+ * It's mutable with in-place operations, for the same no-allocations-in-step() reason as [Vec3].
  */
 class Quat(
     @JvmField var x: Double = 0.0,
@@ -51,7 +48,7 @@ class Quat(
         w * other.w - x * other.x - y * other.y - z * other.z,
     )
 
-    /** In-place `this = this * other`, allocation-free. */
+    /** In place, `this = this * other`, without allocating. */
     fun mulInPlace(other: Quat): Quat = setTo(
         w * other.x + x * other.w + y * other.z - z * other.y,
         w * other.y - x * other.z + y * other.w + z * other.x,
@@ -62,12 +59,12 @@ class Quat(
     // ---- applying to vectors ----------------------------------------------
 
     /**
-     * Rotates [v] from local space into the space this quaternion describes,
-     * writing the result into [out] (which may alias [v]).
+     * Rotates [v] from local space into the space this quaternion describes, writing the result
+     * into [out] (which can be the same object as [v]).
      *
-     * Uses the standard `v + 2w(q x v) + 2(q x (q x v))` form rather than
-     * building a matrix - cheaper for a handful of vectors, and this runs once
-     * per part per tick for thrust directions.
+     * It uses the standard `v + 2w(q x v) + 2(q x (q x v))` form instead of building a matrix.
+     * That's cheaper for a handful of vectors, and this runs once per part per tick for thrust
+     * directions.
      */
     fun rotate(v: Vec3, out: Vec3 = Vec3()): Vec3 {
         // t = 2 * (q_vec x v)
@@ -96,13 +93,12 @@ class Quat(
     // ---- integration -------------------------------------------------------
 
     /**
-     * Advances this orientation by angular velocity [omega] (rad/s, world
-     * frame) over [dt] seconds, then renormalises.
+     * Moves this orientation on by angular velocity [omega] (rad/s, world frame) over [dt] seconds,
+     * then renormalises.
      *
-     * `dq/dt = 0.5 * omega_pure * q`, integrated with a single explicit Euler
-     * step. That is first-order accurate, which is why renormalising every tick
-     * is mandatory rather than an optimisation - without it the quaternion
-     * drifts off the unit sphere and the craft visibly skews.
+     * `dq/dt = 0.5 * omega_pure * q`, integrated with a single explicit Euler step. That's only
+     * first-order accurate, which is why renormalising every tick is required, not an optimisation.
+     * Without it the quaternion drifts off the unit sphere and the craft visibly skews.
      */
     fun integrateAngularVelocity(omega: Vec3, dt: Double): Quat {
         val half = 0.5 * dt
@@ -135,8 +131,8 @@ class Quat(
         get() = x.isFinite() && y.isFinite() && z.isFinite() && w.isFinite()
 
     /**
-     * True if both describe the same orientation. `q` and `-q` are the same
-     * rotation, so the sign is normalised away before comparing.
+     * True if both describe the same orientation. `q` and `-q` are the same rotation, so the sign
+     * is normalised away before comparing.
      */
     fun approxEqualsRotation(other: Quat, tolerance: Double = 1e-9): Boolean =
         abs(abs(this dot other) - 1.0) <= tolerance
@@ -144,11 +140,10 @@ class Quat(
     override fun toString(): String = "($x, $y, $z, w=$w)"
 
     /**
-     * Exact component equality, for tests, map keys and data-class comparison.
+     * Exact component equality, for tests, map keys and data class comparison.
      *
-     * Note this is *not* rotation equality - `q` and `-q` describe the same
-     * orientation but are not equal here. Use [approxEqualsRotation] when the
-     * question is "do these point the same way".
+     * This is *not* rotation equality. `q` and `-q` describe the same orientation but aren't equal
+     * here. Use [approxEqualsRotation] when the question is "do these point the same way".
      */
     override fun equals(other: Any?): Boolean =
         this === other ||
@@ -174,19 +169,19 @@ class Quat(
         }
 
         /**
-         * Shortest-arc interpolation, used to smooth remote vessels between the
-         * 20 Hz server snapshots that drive them.
+         * Shortest-arc interpolation, used to smooth other players' craft between the 20 Hz server
+         * snapshots that move them.
          */
         fun slerp(a: Quat, b: Quat, t: Double, out: Quat = Quat()): Quat {
             var cosom = a dot b
-            // Take the short way round: q and -q are the same orientation, but
-            // lerping toward the wrong one spins the craft the long way.
+            // Take the short way round. q and -q are the same orientation, but blending toward the
+            // wrong one spins the craft the long way.
             var bx = b.x; var by = b.y; var bz = b.z; var bw = b.w
             if (cosom < 0.0) {
                 cosom = -cosom; bx = -bx; by = -by; bz = -bz; bw = -bw
             }
-            // Near-parallel: slerp's sin(omega) denominator vanishes, so fall
-            // back to nlerp, which is indistinguishable at this angle.
+            // Nearly parallel: slerp's sin(omega) denominator goes to zero, so fall back to nlerp,
+            // which looks the same at this angle.
             if (cosom > 0.9995) {
                 return out.setTo(
                     a.x + (bx - a.x) * t,
@@ -210,11 +205,11 @@ class Quat(
 }
 
 /**
- * Shortest-arc rotation taking [from] to [to]. Both are normalised internally.
+ * The shortest-arc rotation taking [from] to [to]. Both get normalised inside.
  *
- * Handles the antiparallel case explicitly: when the vectors oppose, the
- * shortest arc is ambiguous (any axis perpendicular to both works) and the
- * naive cross-product construction collapses to a zero axis and produces NaN.
+ * It handles the opposite case explicitly. When the vectors point opposite ways, the shortest arc
+ * isn't unique (any axis at right angles to both works), and the naive cross-product version
+ * collapses to a zero axis and produces NaN.
  */
 fun quatFromTo(from: Vec3, to: Vec3, out: Quat = Quat()): Quat {
     val a = from.normalized()
@@ -224,7 +219,7 @@ fun quatFromTo(from: Vec3, to: Vec3, out: Quat = Quat()): Quat {
     if (dot >= 1.0 - 1e-12) return out.setIdentity()
 
     if (dot <= -1.0 + 1e-12) {
-        // Antiparallel: pick any perpendicular axis and turn a half circle.
+        // Opposite: pick any axis at right angles and turn half a circle.
         val axis = if (kotlin.math.abs(a.x) < 0.9) Vec3.unitX() else Vec3.unitY()
         val perpendicular = a.cross(axis).normalizeInPlace()
         return Quat.fromAxisAngle(perpendicular, kotlin.math.PI, out)
@@ -235,19 +230,17 @@ fun quatFromTo(from: Vec3, to: Vec3, out: Quat = Quat()): Quat {
 }
 
 /**
- * A rotation whose local -Z points along [direction], with [up] as the
- * reference for roll.
+ * A rotation whose local -Z points along [direction], with [up] as the reference for roll.
  *
- * -Z rather than +Z because that is where OpenGL's camera looks; this exists
- * to aim a camera, and matching the graphics convention here avoids a
- * conjugation at every call site.
+ * It's -Z rather than +Z because that's where OpenGL's camera looks. This is for aiming a camera,
+ * and matching the graphics convention here saves a conjugation at every call site.
  */
 fun quatLookAt(direction: Vec3, up: Vec3 = Vec3.unitY(), out: Quat = Quat()): Quat {
     val forward = direction.normalized()
     if (forward.lengthSq < 0.5) return out.setIdentity()
 
-    // If the requested up is parallel to the view direction there is no
-    // well-defined roll, so substitute an axis that is not.
+    // If the up you asked for is parallel to the view direction there's no clear roll, so use an
+    // axis that isn't.
     var reference = up.normalized()
     if (kotlin.math.abs(reference dot forward) > 0.999) {
         reference = if (kotlin.math.abs(forward.y) < 0.9) Vec3.unitY() else Vec3.unitX()
@@ -256,7 +249,7 @@ fun quatLookAt(direction: Vec3, up: Vec3 = Vec3.unitY(), out: Quat = Quat()): Qu
     val right = forward.cross(reference).normalizeInPlace()
     val trueUp = right.cross(forward)
 
-    // Camera basis as matrix columns: X = right, Y = up, Z = -forward.
+    // The camera basis as matrix columns: X = right, Y = up, Z = -forward.
     val m00 = right.x; val m01 = trueUp.x; val m02 = -forward.x
     val m10 = right.y; val m11 = trueUp.y; val m12 = -forward.y
     val m20 = right.z; val m21 = trueUp.z; val m22 = -forward.z

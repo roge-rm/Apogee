@@ -3,30 +3,29 @@ package com.rm.apogee.render
 import com.rm.apogee.core.math.Vec3
 
 /**
- * How much sun reaches a place, and what lights it when none does: the same
- * sums as `NIGHT_LIGHT` in [Shaders], for what is lit on the CPU - smoke,
- * dust and rain - so particles agree with the ground about how dark it is.
+ * How much sun reaches a place, and what lights it when none does. These are the same sums as
+ * `NIGHT_LIGHT` in [Shaders], for things lit on the CPU (smoke, dust and rain), so particles agree
+ * with the ground about how dark it is.
  */
 object NightLight {
 
-    /** A full moon's light, faint and blue: `MOON` in the shaders. */
+    /** A full moon's light, faint and blue. `MOON` in the shaders. */
     val MOON = floatArrayOf(0.21f, 0.25f, 0.37f)
 
-    /** Lightning's light: `FLASH` in the shaders. Change both together. */
+    /** Lightning's light. `FLASH` in the shaders. Change both together. */
     val FLASH = floatArrayOf(0.8f, 0.85f, 1.0f)
 
     /** Air and fog at night, as a share of their daylight brightness. */
     const val NIGHT_AIR = 0.08f
 
-    /** Twilight's glow from the sky, at its strongest: `duskGlow` in the shaders. */
+    /** Twilight's glow from the sky, at its strongest. `duskGlow` in the shaders. */
     private val DUSK = floatArrayOf(0.17f, 0.15f, 0.18f)
 
     /**
-     * How much sunlight reaches [position] - planet-centred, on a body of
-     * [radius] - with the sun along [sun]: 1 by day, 0 in the planet's
-     * shadow, eased across the terminator. High up the sun is seen past the
-     * planet's edge for longer - by the angle the horizon dips at that
-     * height - so a craft in orbit is lit well round onto the night side.
+     * How much sunlight reaches [position] (planet-centred, on a body of [radius]) with the sun
+     * along [sun]. It's 1 by day and 0 in the planet's shadow, eased across the terminator. High
+     * up, the sun is seen past the planet's edge for longer (by the angle the horizon dips at that
+     * height), so a craft in orbit is lit well round onto the night side.
      */
     fun daylight(position: Vec3, radius: Double, sun: Vec3): Float {
         val r = position.length
@@ -38,16 +37,16 @@ object NightLight {
         return (t * t * (3 - 2 * t)).toFloat()
     }
 
-    /** Moonlight left with [daylight] of the sun: all of it until the sun is well up. */
+    /** The moonlight left with [daylight] of the sun. All of it until the sun is well up. */
     fun moonLeft(daylight: Float): Float {
         val t = ((daylight - 0.5f) / 0.5f).coerceIn(0f, 1f)
         return 1f - t * t * (3 - 2 * t)
     }
 
     /**
-     * The light on something unlit by any face - a puff of smoke - per
-     * channel, into [out]: the sun's [daySun] share by day, the moon and
-     * twilight sky otherwise, dimmed under a storm by [lightScale].
+     * The light on something that isn't lit by any face (a puff of smoke), per channel, into [out].
+     * It's the sun's [daySun] share by day, and otherwise the moon and the twilight sky, dimmed
+     * under a storm by [lightScale].
      */
     fun flatLight(daylight: Float, daySun: Float, lightScale: Float, out: FloatArray): FloatArray {
         val moon = moonLeft(daylight) * (0.4f + 0.6f * lightScale)

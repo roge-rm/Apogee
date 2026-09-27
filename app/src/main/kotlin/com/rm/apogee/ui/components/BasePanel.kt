@@ -32,10 +32,9 @@ import com.rm.apogee.ui.theme.alpha
 import kotlin.math.roundToInt
 
 /**
- * A base, on the HUD: the one flown, or the nearest one founded - its power
- * and its stores - and what the flown craft can do with it: be filled from
- * it, empty its ore and water into it, be founded where it stands, or let
- * go; and its refinery, switched on or off.
+ * A base, on the HUD: the one being flown, or the nearest founded one, with its power and its
+ * stores. It also shows what the flown craft can do with it (be filled from it, empty its ore and
+ * water into it, be founded where it stands, or let go) and switches its refinery on or off.
  */
 @Composable
 fun BasePanel(
@@ -54,7 +53,7 @@ fun BasePanel(
     Column(modifier, horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         if (base != null) {
             BaseCard(base)
-            // The refinery runs while nobody is there: switched here, from nearby.
+            // The refinery runs while nobody's there, and it gets switched here, from nearby.
             if (base.hasRefinery) {
                 if (base.refining) Chip("REFINING", "STOP", ApogeeColors.Prograde) { onRefine(base, false) }
                 else Chip("REFINE", "ORE · WATER", ApogeeColors.Accent) { onRefine(base, true) }
@@ -83,7 +82,7 @@ private fun BaseCard(base: ServerMessage.BaseStatus) {
     Column(
         Modifier
             .clip(RoundedCornerShape(Dimens.CornerTight))
-            // Dark, as the telemetry is: read against sky and ground alike.
+            // Dark, like the telemetry, so it reads against both sky and ground.
             .background(Color.Black.alpha(ApogeeAlpha.SCRIM))
             .padding(horizontal = 10.dp, vertical = 6.dp),
         horizontalAlignment = Alignment.End,
@@ -115,7 +114,7 @@ private fun Line(label: String, value: String, colour: Color) {
     }
 }
 
-/** An action: solid, like JOIN, so it reads against a bright sky as well as the ground. */
+/** An action, solid like JOIN, so it reads against a bright sky as well as the ground. */
 @Composable
 private fun Chip(verb: String, note: String, colour: Color, onTap: () -> Unit) {
     val ink = Color(0xFF0C1824)
@@ -135,7 +134,7 @@ private fun Chip(verb: String, note: String, colour: Color, onTap: () -> Unit) {
     }
 }
 
-/** A chip that asks first: a second tap within three seconds does it. */
+/** A chip that asks first. A second tap within three seconds does it. */
 @Composable
 private fun ArmedChip(verb: String, note: String, onConfirm: () -> Unit) {
     var armed by remember { mutableStateOf(false) }

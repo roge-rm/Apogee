@@ -3,7 +3,7 @@
     <background android:drawable="@color/ic_launcher_background" />
     <foreground android:drawable="@mipmap/ic_launcher_foreground" />
     <!-- Themed icons tint by alpha, and the foreground is already the ring,
-         the planet and the marker on transparency, so it reads correctly
+         the planet and the marker on transparency, so it still looks right
          flattened to one colour. -->
     <monochrome android:drawable="@mipmap/ic_launcher_foreground" />
 </adaptive-icon>

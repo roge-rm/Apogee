@@ -11,7 +11,7 @@ import kotlin.math.sqrt
 
 class OrbitTest {
 
-    /** Homeworld-scale attractor, so the numbers are the ones the game uses. */
+    /** A homeworld-scale attractor, so the numbers are the ones the game uses. */
     private val mu = 3.5316e12
     private val bodyRadius = 600_000.0
 
@@ -45,7 +45,7 @@ class OrbitTest {
 
     @Test
     fun `propagating forward then back is the identity`() {
-        // A distinctly elliptical, inclined orbit - not a symmetric special case.
+        // A clearly elliptical, inclined orbit, not a symmetric special case.
         val orbit = Orbit(
             position = Vec3(800_000.0, 120_000.0, -50_000.0),
             velocity = Vec3(300.0, 180.0, 1900.0),
@@ -71,7 +71,7 @@ class OrbitTest {
         )
         val initial = Orbit(state.position, state.velocity, mu)
 
-        // Step repeatedly rather than in one jump, so any per-call drift accumulates.
+        // Step over and over instead of in one jump, so any drift per call adds up.
         repeat(200) {
             val orbit = Orbit(state.position, state.velocity, mu)
             state = orbit.propagate(60.0)
@@ -142,8 +142,8 @@ class OrbitTest {
 
     @Test
     fun `near-parabolic trajectories propagate without a discontinuity`() {
-        // Straddle escape velocity. The classical formulation needs a different
-        // equation either side of this line; this one must not notice.
+        // Straddle escape velocity. The classical formulation needs a different equation on each
+        // side of this line, and this one mustn't notice.
         val r = bodyRadius + 100_000.0
         val escapeSpeed = sqrt(2.0 * mu / r)
 
@@ -154,7 +154,7 @@ class OrbitTest {
         val b = justAbove.propagate(300.0).position
 
         assertTrue("both must be finite: $a / $b", a.isFinite && b.isFinite)
-        // A 0.02% velocity difference must not produce a large position jump.
+        // A 0.02% velocity difference mustn't give a big jump in position.
         assertTrue(
             "discontinuity across escape velocity: $a vs $b",
             a.distanceTo(b) < 1_000.0,

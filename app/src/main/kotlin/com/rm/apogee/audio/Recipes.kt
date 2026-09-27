@@ -1,8 +1,8 @@
 package com.rm.apogee.audio
 
 /**
- * The sounds the native engine can make, by number - the same list as
- * `cpp/synth/recipes.h`, which a test holds this to.
+ * The sounds the native engine can make, by number. It's the same list as `cpp/synth/recipes.h`,
+ * and a test holds the two to each other.
  */
 object Recipes {
     // Held, for as long as the scene asks for them.
@@ -40,7 +40,7 @@ object Recipes {
     const val SLAP = 62
 }
 
-/** What an impact is on, for how it rings: `material` in recipes.h. */
+/** What an impact is on, for how it rings. `material` in recipes.h. */
 object Materials {
     const val METAL = 0
     const val ROCK = 1
@@ -50,7 +50,7 @@ object Materials {
     const val WOOD = 5
 }
 
-/** Mix buses: `bus` in recipes.h. */
+/** Mix buses. `bus` in recipes.h. */
 object Buses {
     const val VEHICLE = 0
     const val ENVIRONMENT = 1
@@ -60,18 +60,18 @@ object Buses {
     const val COUNT = 5
 }
 
-/** Voice flags: `flag` in recipes.h. */
+/** Voice flags. `flag` in recipes.h. */
 object VoiceFlags {
     /** Heard through the craft's own structure. */
     const val HULL = 1
 }
 
-/** Parameters every voice shares after its recipe's own: `P_*` in synth.h. */
+/** Parameters every voice shares after its recipe's own. `P_*` in synth.h. */
 object SharedParams {
     const val COUNT = 9
     const val GAIN = 5
     const val PAN = 6
     const val LOWPASS = 7
-    /** Doppler: frequency factor, 0 for none. Engines and wheels. */
+    /** Doppler: the frequency factor, 0 for none. For engines and wheels. */
     const val PITCH = 8
 }

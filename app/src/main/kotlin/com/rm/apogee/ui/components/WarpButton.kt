@@ -42,10 +42,9 @@ import com.rm.apogee.ui.theme.TelemetryTextStyle
 import com.rm.apogee.ui.theme.alpha
 
 /**
- * Time: tap to pause, tap again to go on; hold for the
- * warp rates; and while warped, a tap brings it straight back to real time.
- * Shows what the world is actually running at - which the world may be
- * holding below what was asked, near a planet or under power.
+ * Time. Tap to pause, and tap again to carry on. Hold it for the warp rates, and while warped, a
+ * tap brings it straight back to real time. It shows what the world is really running at, which the
+ * world might be holding below what you asked for, near a planet or under power.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -77,12 +76,12 @@ fun WarpButton(
                 contentAlignment = Alignment.Center,
             ) {
                 when {
-                    paused -> Icon(Icons.Filled.Pause, contentDescription = "Paused - tap to go on", tint = ApogeeColors.Caution)
+                    paused -> Icon(Icons.Filled.Pause, contentDescription = "Paused. Tap to carry on", tint = ApogeeColors.Caution)
                     warped -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(Icons.Filled.FastForward, contentDescription = "Time warp - tap for real time", tint = ApogeeColors.Accent, modifier = Modifier.size(18.dp))
+                        Icon(Icons.Filled.FastForward, contentDescription = "Time warp. Tap for real time", tint = ApogeeColors.Accent, modifier = Modifier.size(18.dp))
                         Text(rate(warp), style = TelemetryTextStyle, color = ApogeeColors.Accent, maxLines = 1)
                     }
-                    else -> Icon(Icons.Filled.PlayArrow, contentDescription = "Real time - tap to pause, hold to warp")
+                    else -> Icon(Icons.Filled.PlayArrow, contentDescription = "Real time. Tap to pause, hold to warp")
                 }
             }
         }
@@ -105,7 +104,7 @@ private fun Rates(warp: Double, requested: Double, onPick: (Double) -> Unit) {
         Column(Modifier.padding(10.dp)) {
             Text("TIME", style = TelemetryTextStyle, color = Color.White.alpha(ApogeeAlpha.SUBTITLE))
             Spacer(Modifier.height(6.dp))
-            // Four to a row: the rates on rails run on to a million now.
+            // Four to a row, because the rates on rails now go up to a million.
             val rows = listOf(listOf(0.0, 1.0, 2.0, 4.0)) + World.WARP_RATES.filter { it > World.PHYSICS_WARP }.chunked(4)
             for (row in rows) {
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {

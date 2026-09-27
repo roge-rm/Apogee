@@ -13,7 +13,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** Each world's own weather - and Terra's exactly as it always was. */
+/** Each world's own weather, with Terra's exactly as it always was. */
 class ClimateTest {
     private val system = SolarSystem.defaultSystem()
     private val catalog = StockParts.catalog
@@ -32,7 +32,7 @@ class ClimateTest {
     private fun at(body: CelestialBody, d: Vec3, height: Double) =
         Vec3().setTo(d).mulInPlace(body.radius + groundTop(body, d) + height)
 
-    /** The storms on [body]'s whole face at [time]: where each one's base is. */
+    /** The storms on [body]'s whole face at [time], and where each one's base is. */
     private fun storms(weather: Weather, time: Double): List<Pair<CloudShape, Vec3>> {
         val all = ArrayList<CloudShape>()
         weather.globalCover(200_000.0, time, all)
@@ -62,9 +62,8 @@ class ClimateTest {
                 mix(weather.overcastAbove(d, 500.0, t))
             }
         }
-        // Worked out by the weather as it stood at 0.8.1, before climates -
-        // and pinned again at 0.8.3, when the sea floor was reshaped and the
-        // wind stopped feeling it through the water.
+        // Worked out by the weather as it stood at 0.8.1, before climates, and pinned again at
+        // 0.8.3, when the sea floor was reshaped and the wind stopped feeling it through the water.
         assertEquals("edb444d039f89ac", java.lang.Long.toHexString(h))
     }
 
@@ -94,7 +93,7 @@ class ClimateTest {
         }
         assertTrue("Caligo's surface wind reached $fastest m/s", fastest < 3.0)
         assertTrue("Caligo's wind at 30 km fell to $slowestHigh m/s", slowestHigh > 60.0)
-        // Inside the deck it is thick cloud; under it, murk, but no rain.
+        // Inside the deck it's thick cloud, and under it, murk, but no rain.
         weather.sample(Vec3().setTo(dir(10.0, 10.0)).mulInPlace(caligo.radius + 59_000.0), 0.0, out)
         assertEquals(CloudType.DECK, out.cloudType)
         assertTrue(out.visibility < 1_000.0)
@@ -118,7 +117,7 @@ class ClimateTest {
         assertTrue("visibility in the dust ${out.visibility}", out.visibility < 1_000.0)
         assertEquals(0.0, out.precipitation, 0.0)
 
-        // A lander in it gets a fraction of the light it would in clear air.
+        // A lander in one gets a fraction of the light it would get in clear air.
         val site = World.launchSites.first { it.id == "rubra-rift" }
         val lander = world.spawnOnSurface(StockCraft.lander(catalog), site)
         val power = Power(world.system)

@@ -11,12 +11,12 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Welding two craft into one, which is how a base gets built: land the
- * modules, push them together, tie them.
+ * Welding two craft into one, which is how a base gets built: land the modules, push them together,
+ * and tie them.
  *
- * The invariant that matters throughout is that nothing *moves* when it is
- * joined. A player has already positioned these things; a merge that shifts
- * them by even a metre would be worse than no merge at all.
+ * What matters throughout is that nothing *moves* when it's joined. A player has already put these
+ * things where they are, and a merge that shifts them by even a metre would be worse than no merge
+ * at all.
  */
 class JoinTest {
 
@@ -53,12 +53,12 @@ class JoinTest {
     }
 
     /**
-     * The one that would catch a bad transform. Merging re-expresses one
-     * craft's parts in the other's design space, and getting that wrong moves
-     * things without anyone noticing until a base looks scrambled.
+     * The one that would catch a bad transform. Merging expresses one craft's parts again in the
+     * other's design space, and getting that wrong moves things without anyone noticing until a
+     * base looks scrambled.
      */
     @Test
-    fun `welding does not move anything`() {
+    fun `welding doesn't move anything`() {
         val world = world()
         val base = world.spawnOnSurface(StockCraft.lander(catalog), site)
         val module = world.spawnOnSurface(StockCraft.lander(catalog), site, pad = 1)
@@ -89,10 +89,9 @@ class JoinTest {
         val merged = world.joinToNeighbour(base)!!
         val attractor = world.attractorFor(merged)
 
-        // Measured in the body-fixed frame. Inertially a craft parked on the
-        // pad covers a hundred and seventy-five metres a second, because the
-        // planet turns underneath it - comparing inertial positions would call
-        // a perfectly stationary base a runaway.
+        // Measured in the body-fixed frame. Inertially a craft parked on the pad covers a hundred
+        // and seventy-five metres a second, because the planet turns underneath it, so comparing
+        // inertial positions would call a perfectly still base a runaway.
         val start = attractor.toBodyFixed(
             merged.body.position, attractor.rotationAt(world.time), Vec3(),
         )
@@ -110,7 +109,7 @@ class JoinTest {
     }
 
     @Test
-    fun `nothing happens when there is nothing to join to`() {
+    fun `nothing happens when there's nothing to join to`() {
         val world = world()
         val solo = world.spawnOnSurface(StockCraft.lander(catalog), site)
         assertNull("a craft on its own has no neighbour", world.joinToNeighbour(solo))
@@ -118,11 +117,10 @@ class JoinTest {
     }
 
     /**
-     * Welding to something you are flying past would be a grappling hook, not
-     * an assembly mechanic.
+     * Welding to something you're flying past would be a grappling hook, not a way to build.
      */
     @Test
-    fun `a craft moving quickly past another does not weld to it`() {
+    fun `a craft moving quickly past another doesn't weld to it`() {
         val world = world()
         val base = world.spawnOnSurface(StockCraft.lander(catalog), site)
         val flyby = world.spawnOnSurface(StockCraft.lander(catalog), site, pad = 1)

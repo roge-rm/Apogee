@@ -20,21 +20,22 @@ class BurnTest {
     private val dt = 1.0 / 60.0
 
     @Test
-    fun `a prograde burn raises the far side of the orbit, and nothing else`() {
+    fun `a prograde burn raises the far side of the orbit and nothing else`() {
         val mu = 3.5316e12
         val r = 700_000.0
         val orbit = Orbit(Vec3(r, 0.0, 0.0), Vec3(0.0, 0.0, sqrt(mu / r)), mu, 0.0)
         val after = Burns.after(PlannedBurn(0.0, prograde = 200.0), orbit)
         assertEquals(r, after.periapsis, 1.0)
         assertTrue("apoapsis ${after.apoapsis}", after.apoapsis > r + 250_000.0)
-        // Normal tips the plane, radial swings the line of apsides: neither changes the speed much.
+        // Normal tips the plane and radial swings the line of apsides, and neither changes the
+        // speed much.
         val tipped = Burns.after(PlannedBurn(0.0, normal = 100.0), orbit)
         assertTrue("normal did not tip the plane", tipped.inclination - orbit.inclination > 0.01 || orbit.inclination - tipped.inclination > 0.01)
     }
 
     /**
-     * The Stilt Lander in a 100 km orbit about Terra, in Luna's plane, placed
-     * so that [lead] seconds on it is where a transfer to Luna should start.
+     * The Stilt Lander in a 100 km orbit around Terra, in Luna's plane, placed so that [lead]
+     * seconds on from it is where a transfer to Luna should start.
      */
     private fun parked(world: World, lead: Double, wide: Double): Pair<Vessel, Double> {
         val system = world.system
@@ -54,7 +55,7 @@ class BurnTest {
         val position = back.rotate(departure).mulInPlace(r1)
         val velocity = normal.cross(position).normalizeInPlace().mulInPlace(sqrt(mu / r1))
         val design = StockCraft.lander(catalog)
-        // Nose along the way it is going.
+        // Nose along the way it's going.
         val rotation = quatFromTo(design.orientation.forward, velocity.normalized())
         val craft = world.spawnAt(design, "terra", position, velocity, rotation)
         val departSpeed = sqrt(mu * (2.0 / r1 - 1.0 / a))
@@ -81,7 +82,7 @@ class BurnTest {
         world.apply(Command.SetAutopilot(id, autoBurn = true, autoLand = false))
         flyBurn(world, craft, 900.0)
 
-        // On its way: the map would show it meeting Luna.
+        // On its way, and the map would show it meeting Luna.
         val path = Trajectory.predict(world.system, "terra", craft.body.position, craft.body.linearVelocity, world.time)
         assertEquals(Trajectory.Ending.ENCOUNTER, path.segments.first().ending)
         val about = path.about("luna")!!
@@ -110,7 +111,7 @@ class BurnTest {
     }
 
     @Test
-    fun `a burn's time is foretold from the stages`() {
+    fun `a burn's time is predicted from the stages`() {
         val world = World.default(catalog)
         val (craft, _) = parked(world, lead = 120.0, wide = 0.0)
         world.stage(craft)
@@ -123,7 +124,7 @@ class BurnTest {
             world.step(dt); t += dt
             if (craft.control.throttle > 0.0) burning += dt * craft.control.throttle
         }
-        // Full-throttle seconds: the turn and the easing off at the end cost a little.
+        // Full-throttle seconds. The turn and the easing off at the end cost a little.
         assertEquals(duration, burning, duration * 0.05 + 0.5)
     }
 }

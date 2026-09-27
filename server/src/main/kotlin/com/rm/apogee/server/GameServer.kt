@@ -29,55 +29,49 @@ import java.util.concurrent.CopyOnWriteArrayList
 
 class ServerConfig(
     val name: String = "Apogee Server",
-    /** Simulation rate. Must match the client's prediction rate. */
+    /** The simulation rate. It has to match the client's prediction rate. */
     val tickHz: Int = 60,
     /**
      * How often vessel motion goes out.
      *
-     * Deliberately lower than the tick rate, and deliberately the same over
-     * loopback as over a socket. Running loopback at full tick rate would hide
-     * every interpolation and prediction problem until the first time two real
-     * devices tried to play.
+     * It's lower than the tick rate on purpose, and the same over loopback as over a socket on
+     * purpose. Running loopback at the full tick rate would hide every interpolation and prediction
+     * problem until the first time two real devices tried to play.
      */
     val snapshotHz: Int = 20,
-    /** Craft handed to a player who joins with nothing. */
+    /** The craft handed to a player who joins with nothing. */
     val starterCraft: (PartCatalog) -> CraftDesign = { StockCraft.starterRocket(it) },
     /**
-     * Whether a player who owns nothing is given [starterCraft] on joining.
+     * Whether a player who owns nothing gets [starterCraft] when they join.
      *
-     * False when the client is about to launch a craft of its own. Handing it
-     * a stock rocket first would leave one standing on the pad in a persistent
-     * world every time somebody launched something they had built - debris
-     * created by the act of starting properly.
+     * It's false when the client is about to launch a craft of its own. Handing it a stock rocket
+     * first would leave one standing on the pad in a persistent world every time somebody launched
+     * something they'd built, which is debris made just by starting properly.
      */
     val assignCraftOnJoin: Boolean = true,
     /**
-     * Start every joining player on a fresh [starterCraft], clearing away the
-     * craft they flew last time rather than handing it back. Free Flight in
-     * single player: a new flight, not a continuation - while the bases a
-     * player left elsewhere stay where they are.
+     * Start every joining player on a fresh [starterCraft], clearing away the craft they flew last
+     * time instead of handing it back. This is Free Flight in single player: a new flight, not a
+     * continuation, while the bases a player left elsewhere stay where they are.
      */
     val freshFlight: Boolean = false,
     /**
-     * Put a joining player straight into this craft of theirs - Resume Flight,
-     * with the craft chosen from a list. Ignored if it is gone or is not
-     * theirs.
+     * Put a joining player straight into this craft of theirs. That's Resume Flight, with the craft
+     * chosen from a list. It's ignored if the craft is gone or isn't theirs.
      */
     val resumeVessel: Long? = null,
-    /** Simultaneous players, or 0 for no limit. */
+    /** How many players at once, or 0 for no limit. */
     val maxPlayers: Int = 0,
     /**
-     * How lively the weather is, overriding what the world was saved with;
-     * null keeps the world's own. The world's seed stays: the same world,
-     * calmer or wilder.
+     * How lively the weather is, overriding what the world was saved with. Null keeps the world's
+     * own. The world's seed stays, so it's the same world, just calmer or wilder.
      */
     val weatherIntensity: com.rm.apogee.core.weather.WeatherIntensity? = null,
-    /** How cloudy, likewise overriding the world's own; null keeps it. */
+    /** How cloudy it is, also overriding the world's own. Null keeps it. */
     val cloudCover: com.rm.apogee.core.weather.CloudCover? = null,
     /**
-     * Whether a player may pause the world or run it faster - the phone's
-     * own game, never a dedicated server, and even then only while that
-     * player is the only one on it.
+     * Whether a player can pause the world or run it faster. That's only the phone's own game,
+     * never a dedicated server, and even then only while that player is the only one on it.
      */
     val allowWarp: Boolean = false,
 )
@@ -85,10 +79,10 @@ class ServerConfig(
 /**
  * One connected player.
  *
- * Holds only what the server needs to talk to them and decide what they may
- * do. Note [controlledVessel]: authority is per-vessel, so a command naming a
- * vessel the sender does not own is discarded rather than obeyed. Without that
- * check any client could fly every craft in a persistent world.
+ * It holds only what the server needs to talk to them and decide what they're allowed to do. Note
+ * [controlledVessel]: authority is per vessel, so a command naming a vessel the sender doesn't own
+ * gets thrown away instead of obeyed. Without that check any client could fly every craft in a
+ * persistent world.
  */
 class PlayerSession internal constructor(
     val id: Int,
@@ -100,10 +94,9 @@ class PlayerSession internal constructor(
     /**
      * Who this player is, as far as the world is concerned.
      *
-     * Opaque, generated by the client once per install, never typed. Craft
-     * ownership hangs off this rather than off [playerName], which is a label
-     * two people can share without noticing - and did, the first time two
-     * clients joined the same server as the default "Pilot" and found
+     * It's opaque, made by the client once per install, and never typed. Craft ownership hangs off
+     * this instead of off [playerName], which is a label two people can share without noticing.
+     * They did, the first time two clients joined the same server as the default "Pilot" and found
      * themselves flying one rocket.
      */
     @Volatile var clientId: String = ""
@@ -114,14 +107,17 @@ class PlayerSession internal constructor(
 
     @Volatile var controlledVessel: VesselId? = null
 
-    /** The world's crew revision this player's roster was last sent at; -1 for never. */
+    /** The world's crew revision this player's roster was last sent at, or -1 for never. */
     @Volatile var rosterRevision: Long = -1L
         internal set
 
-    /** The career's revision this player's career was last sent at; -1 for never. */
+    /** The career revision this player's career was last sent at, or -1 for never. */
     @Volatile var careerRevision: Long = -1L
 
-    /** The world's finds as last told to this player: see [com.rm.apogee.core.world.World.wondersRevision]. */
+    /**
+     * The world's finds as this player was last told them. See
+     * [com.rm.apogee.core.world.World.wondersRevision].
+     */
     @Volatile var wondersRevision: Int = -1
         internal set
 
@@ -135,13 +131,12 @@ class PlayerSession internal constructor(
 }
 
 /**
- * The authoritative simulation.
+ * The simulation that's in charge.
  *
- * The same class backs a phone hosting a game for friends and a headless
- * dedicated server; the only difference is which [Transport] the sessions
- * arrive on. Commands are queued as they arrive and applied at tick boundaries,
- * never mid-step, so the result never depends on where in the vessel iteration
- * a packet happened to land.
+ * The same class runs a phone hosting a game for friends and a headless dedicated server. The only
+ * difference is which [Transport] the sessions arrive on. Commands get queued as they arrive and
+ * applied between ticks, never mid-step, so the result never depends on where in the vessel loop a
+ * packet happened to land.
  */
 class GameServer(
     val world: World,
@@ -149,27 +144,30 @@ class GameServer(
 ) {
     private val sessions = CopyOnWriteArrayList<PlayerSession>()
 
-    /** Feats earned by players not connected at the time, by owner, to tell them when they are. */
+    /**
+     * Feats earned by players who weren't connected at the time, by owner, to tell them when they
+     * are.
+     */
     private val unsentFeats = java.util.concurrent.ConcurrentHashMap<String, ArrayDeque<ServerMessage.Feat>>()
 
     init {
-        // Every game has weather: set here, before anyone joins, so the
-        // welcome can tell each client what to compute.
+        // Every game has weather. It's set here, before anyone joins, so the welcome can tell each
+        // client what to work out.
         val base = world.weatherConfig ?: com.rm.apogee.core.weather.WeatherConfig()
         world.weatherConfig = base.copy(
             intensity = config.weatherIntensity ?: base.intensity,
             clouds = config.cloudCover ?: base.clouds,
         )
-        // The Cape's buildings, in a new world or one saved before them.
+        // The Cape's buildings, in a new world or one saved before they existed.
         world.ensureStructures()
         world.repairStructures(now = true)
     }
 
-    /** Names of everyone currently connected, for the admin view. */
+    /** Names of everyone connected right now, for the admin view. */
     val playerNames: List<String>
         get() = sessions.filter { it.connected && it.handshakeComplete }.map { it.playerName }
 
-    /** Ticks completed since this process started. */
+    /** Ticks done since this process started. */
     val tick: Long get() = world.tick
     private val inbox = ConcurrentLinkedQueue<Pair<PlayerSession, ClientMessage>>()
     private var nextSessionId = 1
@@ -177,7 +175,7 @@ class GameServer(
     val dt: Double = 1.0 / config.tickHz
     private val ticksPerSnapshot: Int = (config.tickHz / config.snapshotHz).coerceAtLeast(1)
 
-    /** Fuel goes to each pilot at a quarter of a second: a gauge, not motion. */
+    /** Fuel goes to each pilot every quarter of a second. It's a gauge, not motion. */
     private val ticksPerFuel: Int = (config.tickHz / FUEL_HZ).coerceAtLeast(1)
 
     val playerCount: Int get() = sessions.count { it.connected && it.handshakeComplete }
@@ -185,8 +183,8 @@ class GameServer(
     /**
      * Registers a transport and starts pumping its packets into the inbox.
      *
-     * Reading happens on the caller's scope rather than on the simulation loop,
-     * so a slow or hostile client can never stall the world.
+     * Reading happens on the caller's scope instead of on the simulation loop, so a slow or hostile
+     * client can never stall the world.
      */
     fun accept(transport: Transport, scope: CoroutineScope): PlayerSession {
         val session = PlayerSession(nextSessionId++, transport)
@@ -196,8 +194,8 @@ class GameServer(
             try {
                 transport.incoming.collect { packet ->
                     val message = runCatching { Codec.decodeClientMessage(packet.bytes) }.getOrNull()
-                    // A packet that will not decode is a protocol error, not a
-                    // reason to take the server down.
+                    // A packet that won't decode is a protocol error, not a reason to take the
+                    // server down.
                     if (message != null) inbox.add(session to message)
                 }
             } finally {
@@ -216,19 +214,17 @@ class GameServer(
     /**
      * Runs the simulation until the scope is cancelled.
      *
-     * Paced against an absolute schedule - each tick is due at a fixed offset
-     * from the last - rather than by accumulating elapsed time and sleeping
-     * the remainder. Two reasons.
+     * It's paced against a fixed schedule, with each tick due at a fixed offset from the last,
+     * instead of adding up elapsed time and sleeping for what's left. There are two reasons.
      *
-     * Accumulating drifts: every iteration rounds its sleep down to whole
-     * milliseconds, and the lost fractions are never paid back. Worse, when
-     * the remainder came to less than a millisecond the sleep truncated to
-     * zero and the loop spun flat out until the next tick was due. That cost
-     * about 6% of a core on a completely empty world, and the same loop runs
-     * on the phone when it hosts, where it is battery.
+     * Adding up drifts. Every loop rounds its sleep down to whole milliseconds, and the lost
+     * fractions never get paid back. Worse, when what was left came to less than a millisecond the
+     * sleep truncated to zero and the loop spun flat out until the next tick was due. That cost
+     * about 6% of a core on a completely empty world, and the same loop runs on the phone when it
+     * hosts, where it's battery.
      *
-     * With an absolute schedule there is exactly one wake-up per tick, no
-     * drift, and an idle server costs almost nothing.
+     * With a fixed schedule there's exactly one wake-up per tick, no drift, and an idle server
+     * costs almost nothing.
      */
     fun start(scope: CoroutineScope): Job = scope.launch(Dispatchers.Default) {
         val tickNanos = (dt * 1e9).toLong()
@@ -243,9 +239,8 @@ class GameServer(
                 delay(remainingMillis)
                 continue
             }
-            // Under a millisecond to go: take the tick now rather than spin
-            // for it. At 60Hz that is well under a frame of jitter, and the
-            // absolute schedule means it does not accumulate.
+            // Under a millisecond to go, so take the tick now instead of spinning for it. At 60Hz
+            // that's well under a frame of jitter, and the fixed schedule means it doesn't add up.
 
             drainInbox()
             runQueuedTasks()
@@ -258,9 +253,9 @@ class GameServer(
 
             nextTickAt += tickNanos
 
-            // Far enough behind that catching up would mean a burst of ticks
-            // each taking longer than real time - a stalled thread, a paused
-            // container, a laptop lid. Give up the backlog and resynchronise.
+            // Far enough behind that catching up would mean a burst of ticks each taking longer
+            // than real time: a stalled thread, a paused container, or a laptop lid. Give up the
+            // backlog and get back in step.
             if (System.nanoTime() - nextTickAt > MAX_CATCHUP_NANOS) {
                 nextTickAt = System.nanoTime() + tickNanos
             }
@@ -268,13 +263,12 @@ class GameServer(
     }
 
     /**
-     * One tick of the world at the rate asked for, as far as the world
-     * allows it: nothing while paused, extra steps up to physics warp,
-     * and past that the craft on rails - falling back to physics warp for
-     * whatever part of the tick the rails would not take.
+     * One tick of the world at the rate asked for, as far as the world allows: nothing while
+     * paused, extra steps up to physics warp, and past that the craft on rails. It falls back to
+     * physics warp for whatever part of the tick the rails won't take.
      */
     private fun advanceWorld() {
-        // Arrived where a warp was asked to stop: real time again.
+        // It got to where a warp was asked to stop, so back to real time.
         if (!world.warpUntil.isNaN() && world.time >= world.warpUntil - 1e-6) {
             world.warpUntil = Double.NaN
             requestedWarp = 1.0
@@ -291,7 +285,7 @@ class GameServer(
         }
     }
 
-    /** What the player asked for: 1 is real time, 0 paused. */
+    /** What the player asked for: 1 is real time, and 0 is paused. */
     @Volatile
     var requestedWarp: Double = 1.0
         private set
@@ -299,7 +293,7 @@ class GameServer(
     /** Warp is only for a server that allows it, with one player on it. */
     val warpAllowed: Boolean get() = config.allowWarp && playerCount <= 1
 
-    /** The rate the world actually runs at: what was asked, as far as the world allows. */
+    /** The rate the world actually runs at: what was asked for, as far as the world allows. */
     fun effectiveWarp(): Double {
         if (!warpAllowed) return 1.0
         if (requestedWarp <= 0.0) return 0.0
@@ -369,17 +363,16 @@ class GameServer(
                 } else if (command is Command.Unlock) {
                     world.unlock(session.clientId, command.node)?.let { session.send(ServerMessage.CareerRefused(it), Channel.CONTROL) }
                 } else if (command is Command.SpawnCraft) {
-                    // In a career, only what the player has unlocked, and no
-                    // more than the pad they launch from can take.
+                    // In a career, only what the player has unlocked, and no more than the pad they
+                    // launch from can take.
                     val refused = world.program?.refusal(session.clientId, command.design, command.siteId, world.catalog)
                     if (refused != null) {
                         session.send(ServerMessage.CareerRefused(refused), Channel.CONTROL)
                     } else {
-                        // Launching is how a player gets a *new* craft in a world
-                        // they already have one in. Without this the spawn would
-                        // land on the pad and they would still be flying whatever
-                        // they arrived in - which is what made building a base out
-                        // of several launches impossible.
+                        // Launching is how a player gets a *new* craft in a world they already have
+                        // one in. Without this the spawn would land on the pad and they'd still be
+                        // flying whatever they arrived in, which made building a base out of
+                        // several launches impossible.
                         val vessel = world.spawnFor(command, session.clientId)
                         vessel.ownerName = session.playerName
                         takeControl(session, vessel.id)
@@ -395,12 +388,11 @@ class GameServer(
     /**
      * Refuses a mismatched client before it can do any damage.
      *
-     * Both checks matter, and they fail differently. A protocol mismatch means
-     * the messages themselves will be misread; a catalogue mismatch means they
-     * will be read perfectly and mean something else - the client's "tank-cask2"
-     * weighs something the server disagrees with, and the two simulations drift
-     * apart with no error anywhere. The second is far harder to diagnose from
-     * the symptoms, which is exactly why it is checked here.
+     * Both checks matter, and they fail in different ways. A protocol mismatch means the messages
+     * themselves get misread. A catalogue mismatch means they get read perfectly and mean something
+     * else. The client's "tank-cask2" weighs something the server disagrees with, and the two
+     * simulations drift apart with no error anywhere. The second is far harder to work out from the
+     * symptoms, which is exactly why it gets checked here.
      */
     private suspend fun completeHandshake(session: PlayerSession, hello: ClientMessage.Hello) {
         if (hello.protocolVersion != Protocol.VERSION) {
@@ -415,8 +407,8 @@ class GameServer(
             return
         }
         if (config.maxPlayers > 0 && playerCount >= config.maxPlayers) {
-            // Refused with a reason rather than dropped: a player who cannot
-            // tell "server full" from "server broken" will keep retrying.
+            // Refused with a reason instead of dropped. A player who can't tell "server full" from
+            // "server broken" will keep retrying.
             session.send(
                 ServerMessage.Rejected(
                     "Server is full (${config.maxPlayers} players)"
@@ -465,10 +457,9 @@ class GameServer(
         session.playerName = hello.playerName.take(32).ifBlank { "Pilot" }
         session.clientId = hello.clientId.take(64)
         if (session.clientId.isBlank()) {
-            // Every build that speaks this protocol version sends one, so a
-            // blank id is a client that should not have got this far. Refused
-            // rather than given an anonymous craft, which would be shared by
-            // every other client in the same state.
+            // Every build that speaks this protocol version sends one, so a blank id is a client
+            // that shouldn't have got this far. It's refused instead of given an anonymous craft,
+            // which would be shared by every other client in the same state.
             session.send(
                 ServerMessage.Rejected("Client sent no identity"),
                 Channel.CONTROL,
@@ -478,9 +469,8 @@ class GameServer(
         }
         session.handshakeComplete = true
 
-        // A returning player gets their craft back, wherever they left it.
-        // This is what "persistent world" means from the seat: log off in
-        // orbit, come back, still be in orbit.
+        // A returning player gets their craft back, wherever they left it. That's what "persistent
+        // world" means from the seat: log off in orbit, come back, and still be in orbit.
         if (config.freshFlight) {
             world.lastFlown[session.clientId]?.let { last ->
                 val previous = world.vessel(VesselId(last))
@@ -489,20 +479,20 @@ class GameServer(
                 }
             }
         }
-        // Resuming one of theirs - or an unowned craft, which becomes theirs:
-        // a base from before craft were owned by install, left claimable.
+        // Resuming one of theirs, or an unowned craft, which becomes theirs. That's a base from
+        // before craft were owned by install, left there to be claimed.
         val chosen = config.resumeVessel?.let { world.vessel(VesselId(it)) }
             ?.takeIf { it.owner == session.clientId || it.owner.isBlank() }
             ?.also { if (it.owner.isBlank()) { world.claim(it, session.clientId); it.ownerName = session.playerName } }
         val existing = chosen ?: if (config.freshFlight) null else world.vesselOwnedBy(session.clientId)
-        // The label follows the player, so renaming yourself renames your
-        // craft's owner rather than orphaning it.
+        // The label follows the player, so renaming yourself renames your craft's owner instead of
+        // orphaning it.
         existing?.ownerName = session.playerName
-        // A career is given nothing: it starts from scratch, with what its
-        // player builds from the starting kit.
+        // A career gets nothing. It starts from scratch, with whatever its player builds from the
+        // starting kit.
         val vessel = existing ?: if (config.assignCraftOnJoin && world.program == null) {
-            // The nearest clear pad, so joining never drops a craft inside one
-            // already standing there - not even one left from before a restart.
+            // The nearest clear pad, so joining never drops a craft inside one already standing
+            // there, not even one left from before a restart.
             world.spawnAtSite(config.starterCraft(world.catalog), World.launchSites.first()).also {
                 world.assignOwner(it, session.clientId)
                 it.ownerName = session.playerName
@@ -525,7 +515,7 @@ class GameServer(
             Channel.CONTROL,
         )
 
-        // And what has been knocked down, so their forest matches everyone's.
+        // And what's been knocked down, so their forest matches everyone else's.
         if (world.felledScatter.isNotEmpty()) {
             session.send(ServerMessage.ScatterFelled(world.felledScatter.toList()), Channel.STRUCTURE)
             session.send(ServerMessage.Surveyed(world.surveyed.toList()), Channel.STRUCTURE)
@@ -533,9 +523,8 @@ class GameServer(
             session.send(ServerMessage.Roster(world.crewOf(session.clientId)), Channel.STRUCTURE)
         }
 
-        // A joining client needs the structure of everything already out there,
-        // not just its own craft, or every other player is invisible until
-        // something about them happens to change.
+        // A joining client needs the structure of everything already out there, not just its own
+        // craft, or every other player is invisible until something about them happens to change.
         for (existing in world.vessels) {
             session.send(
                 ServerMessage.StructureMessage(world.structureUpdateFor(existing)),
@@ -548,10 +537,9 @@ class GameServer(
     private val tasks = ConcurrentLinkedQueue<() -> Unit>()
 
     /**
-     * Runs [task] on the tick thread, between two steps - where the world is
-     * whole, rather than whenever the calling thread happens to catch it. A
-     * save taken from another thread mid-step could record half a tick, or
-     * trip over the vessel map changing under it.
+     * Runs [task] on the tick thread, between two steps, where the world is whole, instead of
+     * whenever the calling thread happens to catch it. A save taken from another thread mid-step
+     * could record half a tick, or trip over the vessel map changing under it.
      */
     fun runBetweenTicks(task: () -> Unit) {
         tasks.add(task)
@@ -572,13 +560,13 @@ class GameServer(
     }
 
     /**
-     * Whether [session] may work the controls of [vessel]: it is the craft
-     * they are in, and - two players' craft docked - it is theirs to fly by
-     * what the two of them chose (anyone, when nobody has said).
+     * Whether [session] can work the controls of [vessel]. It has to be the craft they're in, and
+     * if two players' craft are docked, it's theirs to fly by what the two of them chose (anyone,
+     * when nobody has said).
      */
     private fun flies(session: PlayerSession, vessel: Long): Boolean {
         if (session.controlledVessel?.raw != vessel) return false
-        // Aboard someone else's craft: a passenger, not its pilot.
+        // Aboard someone else's craft, they're a passenger, not its pilot.
         val craft = world.vessel(VesselId(vessel)) ?: return false
         if (session.clientId !in world.ownersOf(craft)) return false
         val pilot = dockPilots[vessel] ?: return true
@@ -595,7 +583,7 @@ class GameServer(
         is Command.SetBrakes -> flies(session, command.vessel)
         is Command.SetReverse -> flies(session, command.vessel)
         is Command.Deploy -> flies(session, command.vessel)
-        // Only for one's own crew, from the craft one is in.
+        // Only for your own crew, from the craft you're in.
         is Command.Eva -> session.controlledVessel?.raw == command.vessel && world.crew[command.crew]?.owner == session.clientId
         is Command.TransferCrew -> session.controlledVessel?.raw == command.vessel && world.crew[command.crew]?.owner == session.clientId
         is Command.Board -> flies(session, command.vessel)
@@ -610,19 +598,17 @@ class GameServer(
         is Command.SetRcs -> flies(session, command.vessel)
         is Command.Stage -> flies(session, command.vessel)
         is Command.Undock -> flies(session, command.vessel)
-        // Either of the two it is shared between may say who flies it.
+        // Either of the two it's shared between can say who flies it.
         is Command.SetDockPilot -> session.controlledVessel?.raw == command.vessel &&
             world.vessel(VesselId(command.vessel))?.let { session.clientId in world.ownersOf(it) } == true
-        // Welding consumes the *other* craft, which may belong to someone
-        // else. Only the craft being flown may initiate it, and the world
-        // still refuses unless the two are touching and at rest - but this is
-        // the line to revisit when bases get owners worth defending.
+        // Welding uses up the *other* craft, which might belong to someone else. Only the craft
+        // being flown can start it, and the world still refuses unless the two are touching and at
+        // rest. This is the line to look at again when bases get owners worth defending.
         is Command.Join -> session.controlledVessel?.raw == command.vessel
         is Command.Anchor -> world.vessel(VesselId(command.vessel))?.owner == session.clientId
         is Command.Refuel -> flies(session, command.vessel)
-        // Only your own craft. Anything else and a player could take the
-        // controls of somebody else's base on a shared server.
-        // Or one docked with yours: you have a seat in it.
+        // Only your own craft. Otherwise a player could take the controls of somebody else's base
+        // on a shared server. Or one docked with yours, because you have a seat in it.
         is Command.SwitchVessel ->
             world.vessel(VesselId(command.vessel))
                 ?.let { session.clientId in world.ownersOf(it) } == true
@@ -632,9 +618,9 @@ class GameServer(
         is Command.WarpTo -> warpAllowed
         is Command.PlanBurns -> flies(session, command.vessel)
         is Command.SetAutopilot -> flies(session, command.vessel)
-        // Only your own - never another player's base.
+        // Only your own, never another player's base.
         is Command.RemoveVessel -> world.vessel(VesselId(command.vessel))?.owner == session.clientId
-        // Their own career, whatever they are flying.
+        // Their own career, whatever they're flying.
         is Command.Unlock -> true
     }
 
@@ -665,10 +651,9 @@ class GameServer(
                         Channel.STRUCTURE,
                     )
 
-                // Staging changes which parts are live and which stage is
-                // next, and both live in the structure message. Without this
-                // the client's stage counter and engine-lit state go stale the
-                // moment anything is staged that does not also separate.
+                // Staging changes which parts are live and which stage is next, and both live in
+                // the structure message. Without this, the client's stage counter and engine-lit
+                // state go stale the moment anything gets staged that doesn't also separate.
                 is WorldEvent.Staged ->
                     world.vessel(event.id)?.let {
                         broadcast(
@@ -679,15 +664,15 @@ class GameServer(
 
                 is WorldEvent.Touchdown -> Unit
                 is WorldEvent.BodyChanged -> Unit
-                // Told as the roster changes: see sendFuel.
+                // Told as the roster changes. See sendFuel.
                 is WorldEvent.CrewLost -> Unit
                 // Told to the player whose career it is, wherever they are.
                 is WorldEvent.FeatEarned -> {
                     val feat = ServerMessage.Feat(event.title, event.grade, event.insight)
                     val present = sessions.filter { it.clientId == event.owner && it.connected }
                     for (s in present) s.send(feat, Channel.CONTROL)
-                    // Earned while they were away - a craft of theirs coming to
-                    // rest before they had finished joining - told when they are back.
+                    // Earned while they were away (a craft of theirs coming to rest before they'd
+                    // finished joining), and told when they're back.
                     if (present.isEmpty()) unsentFeats.getOrPut(event.owner) { ArrayDeque() }.let { waiting ->
                         if (waiting.size >= MAX_UNSENT_FEATS) waiting.removeFirst()
                         waiting.addLast(feat)
@@ -700,8 +685,8 @@ class GameServer(
                 is WorldEvent.ScatterFelled ->
                     broadcast(ServerMessage.ScatterFelled(listOf(event.scatterId)), Channel.STRUCTURE)
 
-                // A failed part changes what the craft can still do, and that
-                // lives in the structure message alongside staging.
+                // A failed part changes what the craft can still do, and that lives in the
+                // structure message next to staging.
                 is WorldEvent.PartFailed ->
                     world.vessel(event.id)?.let {
                         broadcast(
@@ -713,8 +698,8 @@ class GameServer(
                 is WorldEvent.LightningHit ->
                     broadcast(ServerMessage.Lightning(event.strikeId, event.id.raw, event.partIndex), Channel.STRUCTURE)
 
-                // A break-up reaches clients as the structure changes it
-                // brings; these are for the effects and the sound.
+                // A break-up reaches clients as the structure changes it brings. These are for the
+                // effects and the sound.
                 is WorldEvent.Impact -> partEvent(
                     ServerMessage.PartEvent(
                         PartEventKind.IMPACT, event.id.raw, event.partId, event.bodyId, event.position.copy(), event.speed,
@@ -728,7 +713,7 @@ class GameServer(
                     ServerMessage.PartEvent(PartEventKind.DETACHED, event.id.raw, event.partId, event.bodyId, event.position.copy(), cause = event.cause, time = world.time),
                 )
                 is WorldEvent.Docked -> {
-                    // Whoever was in the craft that docked on is in the whole now.
+                    // Whoever was in the craft that docked on is in the whole thing now.
                     for (session in sessions) {
                         if (session.controlledVessel == event.absorbed) takeControl(session, event.keeper)
                     }
@@ -767,9 +752,8 @@ class GameServer(
     /**
      * Sends a chat line from the server itself.
      *
-     * Public because the dedicated server's admin channel needs to talk to the
-     * people playing - an operator announcing a restart is the single most
-     * useful thing an admin panel does.
+     * It's public because the dedicated server's admin channel needs to talk to the people playing.
+     * An operator announcing a restart is the most useful thing an admin panel does.
      */
     suspend fun broadcastChat(from: String, text: String) =
         broadcast(ServerMessage.ChatMessage(from, text), Channel.CONTROL)
@@ -782,7 +766,7 @@ class GameServer(
 
     private suspend fun broadcastSnapshot() {
         if (sessions.isEmpty()) return
-        // A second player arriving ends any pause or warp: it is their world too.
+        // A second player arriving ends any pause or warp, because it's their world too.
         if (!warpAllowed) requestedWarp = 1.0
         val snapshot = world.snapshot().copy(
             warp = effectiveWarp(),
@@ -796,7 +780,8 @@ class GameServer(
     private suspend fun sendFuel() {
         for (session in sessions) {
             if (!session.connected || !session.handshakeComplete) continue
-            // Whether or not they still have a craft: one just lost is when it matters most.
+            // Whether or not they still have a craft, because one just lost is when it matters
+            // most.
             if (session.rosterRevision != world.crewRevision) {
                 session.rosterRevision = world.crewRevision
                 session.send(ServerMessage.Roster(world.crewOf(session.clientId)), Channel.STRUCTURE)
@@ -811,7 +796,7 @@ class GameServer(
                 session.wondersRevision = world.wondersRevision
                 session.send(ServerMessage.WondersFound(world.wondersFoundBy(session.clientId).sorted()), Channel.STRUCTURE)
             }
-            // Feats in a career, finds in free play too.
+            // Feats in a career, and finds in free play too.
             unsentFeats.remove(session.clientId)?.forEach { session.send(it, Channel.CONTROL) }
             val vessel = session.controlledVessel?.let { world.vessel(it) } ?: continue
             session.send(ServerMessage.FuelLevels(vessel.id.raw, vessel.flatResources()), Channel.KINEMATICS)
@@ -833,17 +818,20 @@ class GameServer(
         }
     }
 
-    /** Why each craft's refuelling last stopped, by id: told to its pilot. */
+    /** Why each craft's refuelling last stopped, by id, to tell its pilot. */
     private val refuelStops = java.util.concurrent.ConcurrentHashMap<Long, String>()
 
-    /** The founded base nearest [vessel], within [BASE_CARD_REACH] - itself, if it is one - and how far. */
+    /**
+     * The founded base nearest [vessel], within [BASE_CARD_REACH] (itself, if it is one), and how
+     * far away it is.
+     */
     private fun nearestBase(vessel: com.rm.apogee.core.craft.Vessel): Pair<com.rm.apogee.core.craft.Vessel, Double>? {
         if (vessel.anchored) return vessel to 0.0
         var best: com.rm.apogee.core.craft.Vessel? = null
         var bestDistance = BASE_CARD_REACH
         for (other in world.vessels) {
             if (!other.anchored || other.owner == World.WORLD_OWNER || other.referenceBodyId != vessel.referenceBodyId) continue
-            // A planted flag is founded, but it is not a base.
+            // A planted flag is founded, but it isn't a base.
             if (other.design.parts.singleOrNull()?.partId == World.FLAG_PART) continue
             val d = other.body.position.distanceTo(vessel.body.position) - other.contactRadius
             if (d < bestDistance) { bestDistance = d; best = other }
@@ -882,8 +870,8 @@ class GameServer(
     private suspend fun partEvent(event: ServerMessage.PartEvent) = broadcast(event, Channel.STRUCTURE)
 
     /**
-     * Two players' craft docked into one: who flies each, by vessel id - a
-     * client id, or empty for either of them. Absent: no question arises.
+     * Two players' craft docked into one: who flies each, by vessel id, as a client id, or empty
+     * for either of them. If it's missing, the question doesn't come up.
      */
     private val dockPilots = java.util.concurrent.ConcurrentHashMap<Long, String>()
 
@@ -909,10 +897,10 @@ class GameServer(
     }
 
     companion object {
-        /** The most feats kept for a player who is away: a few to tell, not a backlog. */
+        /** The most feats kept for a player who's away: a few to tell them, not a backlog. */
         const val MAX_UNSENT_FEATS = 5
 
-        /** How near a founded base must be for its card to show, m beyond its edge. */
+        /** How near a founded base has to be for its card to show, in metres beyond its edge. */
         const val BASE_CARD_REACH = 300.0
 
         private const val MAX_CATCHUP_NANOS = 250_000_000L

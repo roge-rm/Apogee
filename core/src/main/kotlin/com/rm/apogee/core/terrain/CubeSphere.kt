@@ -6,17 +6,15 @@ import kotlin.math.abs
 /**
  * A sphere addressed as the six faces of a cube.
  *
- * The grid terrain is sampled on. A latitude-longitude grid pinches to
- * nothing at the poles and wastes most of its samples there; six square faces
- * cover the sphere with cells that stay within a factor of about 1.4 of one
- * another in size, and each face is an ordinary square grid, which is what
- * tiles, chunks and quadtrees all want.
+ * This is the grid terrain is sampled on. A latitude-longitude grid squeezes to nothing at the
+ * poles and wastes most of its samples there. Six square faces cover the sphere with cells that
+ * stay within about 1.4 times of each other in size, and each face is an ordinary square grid,
+ * which is what tiles, chunks and quadtrees all want.
  *
- * Face coordinates run -1..1 and are warped through tan(s * pi/4) before
- * projection, which evens out the cell size - an unwarped cube projection
- * makes cells at a face's corners half the size of those at its centre.
- * StrictMath throughout, so the server and every client land on the same
- * sample positions to the last bit.
+ * Face coordinates run -1..1 and get warped through tan(s * pi/4) before projection, which evens
+ * out the cell size. An unwarped cube projection makes the cells at a face's corners half the size
+ * of the ones at its centre. It uses StrictMath throughout, so the server and every client land on
+ * the same sample positions to the last bit.
  */
 object CubeSphere {
 
@@ -44,9 +42,9 @@ object CubeSphere {
     fun unwarp(a: Double): Double = StrictMath.atan(a) / QUARTER_PI
 
     /**
-     * Unit direction for face [face] at warped plane coordinates [a], [b] -
-     * already passed through [warp]. Split out so a grid can warp each row
-     * and column once rather than every sample.
+     * The unit direction for face [face] at warped plane coordinates [a], [b], which have already
+     * been through [warp]. It's split out so a grid can warp each row and column once instead of
+     * every sample.
      */
     fun directionWarped(face: Int, a: Double, b: Double, out: Vec3): Vec3 {
         val n = normals[face]; val u = uAxes[face]; val v = vAxes[face]

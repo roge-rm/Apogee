@@ -13,8 +13,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Loading a world saved on older ground. Every save from before 0.3.0 has
- * its parked craft sitting on terrain that no longer exists.
+ * Loading a world saved on older ground. Every save from before 0.3.0 has its parked craft sitting
+ * on terrain that doesn't exist any more.
  */
 class TerrainMigrationTest {
 
@@ -77,8 +77,8 @@ class TerrainMigrationTest {
         repeat(120) { world.step(dt) }
         val orbitPosition = orbiting.body.position.copy()
 
-        // Old ground four metres higher under one rover and three lower under
-        // the other: as saved, one is buried and one hovers.
+        // The old ground was four metres higher under one rover and three lower under the other, so
+        // as saved, one is buried and one hovers.
         val save = oldSave(world, felled = listOf(42L, 43L)) { v ->
             val p = Vec3().setTo(v.position)
             val up = p.normalized()
@@ -103,7 +103,7 @@ class TerrainMigrationTest {
             restored.vessel(orbiting.id)!!.body.position.approxEquals(orbitPosition, 1e-6),
         )
 
-        // And they stay put: not flung out of the ground, not dropped onto it.
+        // And they stay put, not flung out of the ground or dropped onto it.
         repeat(180) { restored.step(dt) }
         for (id in listOf(buried.id, floating.id)) {
             val v = assertNotNull(restored.vessel(id)).let { restored.vessel(id)!! }

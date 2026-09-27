@@ -12,22 +12,21 @@ import kotlin.math.sin
  */
 enum class UpReference {
     /**
-     * Away from the origin of the current frame - the planet's centre. Correct
-     * in flight: a world-fixed camera looks fine on the launch pad and then
-     * slowly rolls onto its side as the craft travels around the planet,
-     * because "up" is a different direction ten degrees of longitude later.
+     * Away from the origin of the current frame, which is the planet's centre. This is right in
+     * flight. A world-fixed camera looks fine on the launch pad and then slowly rolls onto its side
+     * as the craft travels around the planet, because "up" is a different direction ten degrees of
+     * longitude later.
      */
     RADIAL,
 
     /**
-     * A fixed axis, [CameraController.fixedUp] - world +Y unless told
-     * otherwise. Correct in the builder, where there is no planet and the
-     * design sits near the origin, and where a horizontal design wants its
-     * own +Z shown as up.
+     * A fixed axis, [CameraController.fixedUp], which is world +Y unless told otherwise. This is
+     * right in the builder, where there's no planet and the design sits near the origin, and where
+     * a horizontal design wants its own +Z shown as up.
      *
-     * Using RADIAL here is actively wrong, not merely arbitrary: a craft whose
-     * parts hang below the origin has a centre at negative Y, so "away from the
-     * origin" points *down* and the whole craft renders upside down.
+     * Using RADIAL here is actually wrong, not just arbitrary. A craft whose parts hang below the
+     * origin has a centre at negative Y, so "away from the origin" points *down* and the whole
+     * craft draws upside down.
      */
     FIXED,
 }
@@ -44,10 +43,10 @@ class CameraController(
     /** Which way is up under [UpReference.FIXED]. */
     val fixedUp = Vec3.unitY()
 
-    /** Rotation around the craft, radians. */
+    /** Rotation around the craft, in radians. */
     var yaw: Double = 0.0
 
-    /** Elevation above the craft's horizon, radians. Clamped short of the poles. */
+    /** Elevation above the craft's horizon, in radians. Clamped short of the poles. */
     var pitch: Double = 0.25
         set(value) {
             field = value.coerceIn(-PI / 2.0 + 0.05, PI / 2.0 - 0.05)
@@ -65,7 +64,7 @@ class CameraController(
     private val north = Vec3()
     private val offset = Vec3()
 
-    /** Adjusts distance by a pinch factor. */
+    /** Changes the distance by a pinch factor. */
     fun zoomBy(factor: Double) {
         distance /= factor
     }
@@ -76,15 +75,15 @@ class CameraController(
     }
 
     /**
-     * Places the camera relative to [target], which is in the attractor's
-     * frame, and aims it back at the craft.
+     * Places the camera relative to [target], which is in the attractor's frame, and aims it back
+     * at the craft.
      *
      * @param outPosition receives the camera position.
      * @param outRotation receives the camera orientation.
      */
     fun solve(target: Vec3, outPosition: Vec3, outRotation: Quat) {
-        // Build a local frame at the craft: up, plus two tangent directions to
-        // swing the camera around in.
+        // Build a local frame at the craft: up, plus two tangent directions to swing the camera
+        // around in.
         when (upReference) {
             UpReference.RADIAL -> {
                 up.setTo(target).normalizeInPlace()
@@ -93,11 +92,10 @@ class CameraController(
             UpReference.FIXED -> up.setTo(fixedUp)
         }
 
-        // North carried on from last frame, straightened against the new up,
-        // rather than taken from the planet's axis afresh: near a pole that
-        // has to change to some other axis, and the swap turned the whole
-        // view in one frame - twice, going over (Dan's video at 4x, flying
-        // north across the polar cap).
+        // North carried on from the last frame and straightened against the new up, instead of
+        // taken from the planet's axis again. Near a pole that has to switch to some other axis,
+        // and the swap turned the whole view in one frame, twice on the way over. I caught it on
+        // video at 4x, flying north across the polar cap.
         if (carried) {
             north.setTo(carriedNorth).addScaledInPlace(up, -(carriedNorth dot up))
         }
@@ -126,11 +124,10 @@ class CameraController(
     }
 
     /**
-     * Frames a craft of the given size, but only widens - never zooms back in.
+     * Frames a craft of the given size, but only widens. It never zooms back in.
      *
-     * One-way so that a craft growing as it is assembled stays in view without
-     * yanking the camera back every time the player deliberately zooms in to
-     * place a small part.
+     * It only goes one way so that a craft growing as it's put together stays in view, without
+     * yanking the camera back every time the player zooms in on purpose to place a small part.
      */
     fun frameAtLeast(craftSize: Double) {
         val wanted = (craftSize * 1.8 + 6.0).coerceIn(minDistance, maxDistance)
@@ -138,16 +135,16 @@ class CameraController(
     }
 
     /**
-     * For a craft that has just become much smaller - a pod left from a
-     * crash: comes in to frame it if the camera is now far too far out for
-     * it, and otherwise leaves the player's zoom alone.
+     * For a craft that has just got much smaller, like a pod left over from a crash. It comes in to
+     * frame it if the camera is now far too far out for it, and otherwise leaves the player's zoom
+     * alone.
      */
     fun frameShrunk(craftSize: Double) {
         val wanted = (craftSize * 1.8 + 6.0).coerceIn(minDistance, maxDistance)
         if (distance > wanted * 2.0) distance = wanted
     }
 
-    /** Frames a craft of this size, closer or further: back to the whole of it. */
+    /** Frames a craft of this size, closer or further, so it's back to the whole of it. */
     fun frameFor(craftSize: Double) {
         distance = (craftSize * 1.8 + 6.0).coerceIn(minDistance, maxDistance)
     }

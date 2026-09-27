@@ -31,8 +31,8 @@ import com.rm.apogee.ui.theme.alpha
 import kotlin.math.roundToInt
 
 /**
- * The parts worth a look, worst first: each one's health, heat and load.
- * What the damage, heat and load chips open.
+ * The parts worth a look, worst first: each one's health, heat and load. This is what the damage,
+ * heat and load chips open.
  */
 @Composable
 internal fun PartList(telemetry: FlightTelemetry, width: Dp, height: Dp, onClose: () -> Unit) {
@@ -99,7 +99,7 @@ internal fun percent(share: Double): String = "${(share * 100).roundToInt()}%"
 
 internal fun severity(share: Double): Color = if (share >= 0.9) ApogeeColors.Danger else ApogeeColors.Caution
 
-/** Plain below caution, amber, then red; for health, [share] is what is missing. */
+/** Plain below caution, then amber, then red. For health, [share] is what's missing. */
 private fun colourFor(share: Double, healthy: Boolean = false): Color = when {
     share >= 0.9 -> ApogeeColors.Danger
     share >= FlightTelemetry.CAUTION || (healthy && share > 0.3) -> ApogeeColors.Caution

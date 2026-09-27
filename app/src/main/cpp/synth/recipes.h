@@ -1,5 +1,5 @@
-// The sounds the game can make, by number. The Kotlin side has the same list
-// in audio/Recipes.kt; the two must agree, and a test checks they do.
+// The sounds the game can make, by number. The Kotlin side has the same list in audio/Recipes.kt.
+// The two have to agree, and a test checks that they do.
 #pragma once
 
 namespace apogee {
@@ -51,7 +51,7 @@ constexpr int SNOW = 4;
 constexpr int WOOD = 5;
 }  // namespace material
 
-/** What mix bus a recipe plays through. */
+/** Which mix bus a recipe plays through. */
 namespace bus {
 constexpr int VEHICLE = 0;
 constexpr int ENVIRONMENT = 1;
@@ -77,7 +77,10 @@ inline int busOf(int r) {
 
 /** Voice flags. */
 namespace flag {
-/** Heard through the craft's own structure: low, close, muffled - how sound reaches you in vacuum. */
+/**
+ * Heard through the craft's own structure: low, close and muffled, which is how sound reaches you
+ * in vacuum.
+ */
 constexpr int HULL = 1;
 }  // namespace flag
 

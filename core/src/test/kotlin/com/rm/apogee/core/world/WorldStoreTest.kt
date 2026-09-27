@@ -78,12 +78,12 @@ class WorldStoreTest {
     }
 
     @Test
-    fun `an empty directory loads as nothing rather than failing`() {
+    fun `an empty directory loads as nothing instead of failing`() {
         assertNull("a first run has no world to load", store().loadWithFallback())
     }
 
     @Test
-    fun `a failed load does not throw`() {
+    fun `a failed load doesn't throw`() {
         val store = store()
         File(store.path).parentFile.mkdirs()
         File(store.path).writeText("nonsense")

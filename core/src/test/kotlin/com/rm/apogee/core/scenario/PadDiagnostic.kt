@@ -4,7 +4,7 @@ import com.rm.apogee.core.craft.StockCraft
 import com.rm.apogee.core.part.StockParts
 import com.rm.apogee.core.world.World
 
-/** Throwaway probe: what does an unpowered craft do sitting on the pad? */
+/** A throwaway probe: what does an unpowered craft do sitting on the pad? */
 fun main() {
     val catalog = StockParts.catalog
     val world = World.default(catalog)

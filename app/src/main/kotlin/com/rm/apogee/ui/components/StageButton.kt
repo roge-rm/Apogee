@@ -53,9 +53,9 @@ import com.rm.apogee.ui.theme.alpha
 import kotlin.math.roundToInt
 
 /**
- * The STAGE button: round, the next stage's number on it, and the fuel of
- * the stage burning now as a ring round its edge - red at the last few
- * percent. A thumb's target, not a bar across the view.
+ * The STAGE button: round, with the next stage's number on it and the fuel of the stage burning now
+ * as a ring round its edge, red for the last few percent. It's a target for your thumb, not a bar
+ * across the view.
  */
 @Composable
 fun RoundStageButton(
@@ -98,10 +98,9 @@ fun RoundStageButton(
 }
 
 /**
- * The stages still to fire, folded into one small tab beside the STAGE
- * button: the next one, what it does, and how many more after it. Tapped,
- * it opens every stage in full - fuels, delta-v and burn time - over the
- * view, and tapped again it folds away.
+ * The stages still to fire, folded into one small tab beside the STAGE button: the next one, what
+ * it does, and how many more come after it. Tap it and it opens every stage in full (fuels, delta-v
+ * and burn time) over the view, and tap it again to fold it away.
  */
 @Composable
 fun StageTab(
@@ -145,7 +144,7 @@ fun StageTab(
                 modifier = Modifier.size(14.dp),
             )
         }
-        // Over the view, not in the layout: opening it moves nothing else.
+        // Over the view, not in the layout, so opening it doesn't move anything else.
         if (expanded) {
             Popup(
                 alignment = Alignment.BottomCenter,
@@ -157,20 +156,20 @@ fun StageTab(
     }
 }
 
-/** Small print for the tab: glanced at, and every row costs view. */
+/** Small print for the tab. It only gets glanced at, and every row costs view. */
 private val ChipText = TelemetryTextStyle.copy(fontSize = 11.sp, lineHeight = 13.sp)
 
 /** The round STAGE button's size, and its fuel ring's width. */
 val STAGE_BUTTON = 64.dp
 private val RING = 5.dp
 
-/** Every stage in full, soonest at the bottom, scrolled there to start. */
+/** Every stage in full, soonest at the bottom, scrolled down there to start with. */
 @Composable
 private fun StageDetail(stages: List<StageCard>, onToggle: () -> Unit, width: Dp, modifier: Modifier = Modifier) {
     val scroll = rememberScrollState()
     LaunchedEffect(Unit) { scroll.scrollTo(scroll.maxValue) }
-    // Near opaque, unlike the chips: it lies over the navball and the
-    // stack, and through a scrim they read as clutter behind the numbers.
+    // Nearly opaque, unlike the chips. It lies over the navball and the stack, and through a scrim
+    // they read as clutter behind the numbers.
     Surface(
         shape = RoundedCornerShape(Dimens.CornerPanel),
         color = ApogeeColors.Surface.alpha(0.95f),
@@ -248,8 +247,8 @@ private fun StageRow(card: StageCard) {
 }
 
 /**
- * A fuel gauge: accent while there is plenty, caution under a fifth, danger
- * at the last few percent.
+ * A fuel gauge: accent while there's plenty, caution under a fifth, and danger for the last few
+ * percent.
  */
 @Composable
 fun FuelBar(fraction: Float, modifier: Modifier = Modifier, track: Color = Color.White.alpha(0.15f), fill: Color? = null) {

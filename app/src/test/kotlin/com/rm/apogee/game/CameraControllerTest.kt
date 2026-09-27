@@ -8,9 +8,9 @@ import org.junit.Test
 class CameraControllerTest {
 
     /**
-     * Flying over a pole, the view turns smoothly: it used to swap its idea
-     * of north for another axis inside the polar cap, and the whole view
-     * turned in a frame (Dan's video, at 4x, heading north at 415 km).
+     * Flying over a pole, the view turns smoothly. It used to swap its idea of north for another
+     * axis inside the polar cap, and the whole view turned in one frame. I caught it on video at
+     * 4x, heading north at 415 km.
      */
     @Test
     fun `passing over a pole the view never jumps`() {
@@ -19,7 +19,7 @@ class CameraControllerTest {
         val position = Vec3(); val rotation = Quat.identity()
         val lastRotation = Quat.identity()
         var worst = 0.0
-        // From 20 degrees short of the north pole to 20 past it, a small step a frame.
+        // From 20 degrees short of the north pole to 20 past it, a small step each frame.
         val steps = 4_000
         for (k in 0..steps) {
             val lat = Math.toRadians(70.0 + 40.0 * k / steps)

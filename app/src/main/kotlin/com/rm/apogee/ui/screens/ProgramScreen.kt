@@ -49,17 +49,17 @@ import com.rm.apogee.ui.theme.TelemetryTextStyle
 import com.rm.apogee.ui.theme.alpha
 
 /**
- * A career's program: what insight there is to spend and where - the tech
- * tree by branch - what the player has pulled off and how well, and where
- * they have been, beside who got there first.
+ * A career's program: what insight there is to spend and where to spend it (the tech tree by
+ * branch), what the player has pulled off and how well, and where they've been, beside who got
+ * there first.
  */
 @Composable
 fun ProgramScreen(
     state: CareerState,
     firsts: List<WorldFirst>,
-    /** This player's id, to tell their own firsts from others'. */
+    /** This player's id, to tell their own firsts from other people's. */
     me: String,
-    /** Unlocks a node: null if it worked, or why not. */
+    /** Unlocks a node. Null if it worked, or the reason it didn't. */
     onUnlock: (String) -> String?,
     tree: TechTree = TechTree.stock,
     /** Opened over a flight: the way back to it. */
@@ -166,7 +166,7 @@ private fun NodeCard(node: TechNode, state: CareerState, tree: TechTree, onUnloc
     }
 }
 
-/** What a node gives, in a line: its parts by name, a facility level, an ability. */
+/** What a node gives, in a line: its parts by name, a facility level, or an ability. */
 private fun gives(node: TechNode): String {
     val parts = node.parts.mapNotNull { StockParts.catalog[it]?.title }
     val extra = buildList {
@@ -240,13 +240,13 @@ private fun fmt(x: Double) = if (x == Math.floor(x)) "%.0f".format(x) else "%.1f
 @Composable
 private fun WorldsTab(state: CareerState, tree: TechTree, firsts: List<WorldFirst>, me: String) {
     val system = remember { SolarSystem.defaultSystem() }
-    Heading("Where you have been")
+    Heading("Where you've been")
     for ((id, base) in tree.worlds.entries.sortedBy { it.value }) {
         val name = system.bodies[id]?.displayName ?: id
         Card(highlight = false) {
             Text(name, style = MaterialTheme.typography.titleSmall, color = Color.White)
             Spacer(Modifier.height(4.dp))
-            // A giant has no ground, the star even less.
+            // A giant has no ground, and the star even less.
             val visits = if (system.bodies[id]?.terrain == null) listOf(Visit.ORBIT) else Visit.entries
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 for (visit in visits) {
@@ -276,9 +276,8 @@ private fun WorldsTab(state: CareerState, tree: TechTree, firsts: List<WorldFirs
 }
 
 /**
- * The sea's named places: each by name and world, how deep, and what
- * finding it pays - what it is only once it has been found - and who
- * found it first.
+ * The sea's named places: each by name and world, how deep it is, and what finding it pays (what it
+ * actually is only shows once it's been found), and who found it first.
  */
 @Composable
 private fun UnderTheSea(state: CareerState, firsts: List<WorldFirst>, me: String) {

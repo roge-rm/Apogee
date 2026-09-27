@@ -9,7 +9,10 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 import kotlin.math.sqrt
 
-/** What an engine is putting out is what the flame and the sound follow - nothing once it is dry. */
+/**
+ * What an engine is putting out is what the flame and the sound follow, and that's nothing once
+ * it's dry.
+ */
 class EngineOutputTest {
 
     @Test

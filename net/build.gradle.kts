@@ -1,6 +1,6 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
-// Pure Kotlin/JVM. Protocol, codec and transports. No Android APIs: the same
+// Pure Kotlin/JVM: the protocol, codec and transports. There are no Android APIs, so the same
 // TcpTransport drives a phone acting as host and the dedicated server.
 plugins {
     alias(libs.plugins.kotlin.jvm)

@@ -2,14 +2,13 @@ package com.rm.apogee.game
 
 import com.rm.apogee.core.math.Vec3
 
-/** Where a line of sight meets a box: for picking parts under a finger. */
+/** Where a line of sight meets a box, for picking parts under a finger. */
 object BoxRay {
 
     /**
-     * The distance along the ray from [origin] in [direction] (unit) to where
-     * it enters the box centred on the origin with [half] extents, grown by
-     * [padding] each way - both in the box's own frame. Null for a miss or a
-     * box behind the ray; 0 from inside it.
+     * The distance along the ray from [origin] in [direction] (unit) to where it enters the box
+     * centred on the origin with [half] extents, grown by [padding] each way, both in the box's own
+     * frame. Null for a miss or a box behind the ray, and 0 from inside it.
      */
     fun hit(origin: Vec3, direction: Vec3, half: Vec3, padding: Double = 0.0): Double? {
         var near = Double.NEGATIVE_INFINITY

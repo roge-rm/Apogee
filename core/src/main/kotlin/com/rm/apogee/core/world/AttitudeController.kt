@@ -5,18 +5,17 @@ import com.rm.apogee.core.math.Vec3
 import kotlin.math.atan2
 
 /**
- * Points a craft where it is told, using only the controls a player has.
+ * Points a craft where it's told to, using only the controls a player has.
  *
- * Deliberately drives [Vessel.control] rather than setting orientation
- * directly. An autopilot that writes the rotation would be able to do things no
- * player could - turn instantly, hold an attitude a craft has no authority to
- * hold - and would stop being a test of the control path at the moment it was
- * most useful as one. Everything here goes through the same gimbal and reaction
- * wheels a thumb does.
+ * It drives [Vessel.control] on purpose instead of setting the orientation directly. An autopilot
+ * that writes the rotation would be able to do things no player could, like turning instantly or
+ * holding an attitude a craft doesn't have the authority to hold, and it would stop being a test of
+ * the control path at exactly the moment it was most useful as one. Everything here goes through
+ * the same gimbal and reaction wheels your thumb does.
  *
- * A PD controller: proportional to angular error, damped by angular rate. The
- * damping term is what stops it oscillating past the target and back, which a
- * pure proportional controller on a low-drag body always will.
+ * It's a PD controller: proportional to the angle error, damped by the turn rate. The damping term
+ * is what stops it swinging past the target and back, which a purely proportional controller on a
+ * low-drag body always does.
  */
 class AttitudeController(
     private val proportionalGain: Double = 5.0,
@@ -31,8 +30,8 @@ class AttitudeController(
     fun steer(vessel: Vessel, desiredForward: Vec3) {
         vessel.forward(forward)
 
-        // Rotation taking the current heading to the desired one, as an
-        // axis-angle vector in world space.
+        // The rotation taking the current heading to the one we want, as an axis-angle vector in
+        // world space.
         errorAxis.setTo(forward).crossInPlace(desiredForward)
         val sine = errorAxis.length
         val cosine = forward dot desiredForward
@@ -41,16 +40,16 @@ class AttitudeController(
         if (sine > 1e-9) {
             errorAxis.mulInPlace(angle / sine)
         } else if (cosine < 0.0) {
-            // Pointing exactly backwards: the error axis is degenerate, so pick
-            // one. Any perpendicular will start the turn, and the next tick
-            // will have a well-defined axis to continue on.
+            // Pointing exactly backwards, the error axis doesn't have a clear direction, so pick
+            // one. Any axis at right angles will start the turn, and the next tick will have a
+            // clear axis to carry on with.
             errorAxis.setTo(0.0, 0.0, angle)
         } else {
             errorAxis.setZero()
         }
 
-        // Both error and rate are wanted in body axes, because that is what the
-        // controls act on: X pitches, Y rolls, Z yaws.
+        // Both the error and the rate are wanted in body axes, because that's what the controls act
+        // on: X pitches, Y rolls, Z yaws.
         vessel.body.orientation.inverseRotate(errorAxis, errorBody)
         vessel.body.orientation.inverseRotate(vessel.body.angularVelocity, rateBody)
 

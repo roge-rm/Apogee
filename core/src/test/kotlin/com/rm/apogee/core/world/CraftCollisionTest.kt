@@ -12,10 +12,9 @@ import org.junit.Test
 /**
  * Craft against craft.
  *
- * Every one of these passed trivially before the resolver existed, because
- * two vessels simply occupied the same space without noticing - which is why
- * they are written as "is it still above the other one" rather than as
- * assertions about impulses.
+ * Every one of these passed trivially before the resolver existed, because two vessels just sat in
+ * the same space without noticing. That's why they're written as "is it still above the other one"
+ * instead of as checks on impulses.
  */
 class CraftCollisionTest {
 
@@ -34,7 +33,7 @@ class CraftCollisionTest {
         vessel.body.angularVelocity.setTo(Vec3.zero())
     }
 
-    /** Height of [vessel]'s centre above [other]'s, metres. */
+    /** The height of [vessel]'s centre above [other]'s, in metres. */
     private fun separation(vessel: Vessel, other: Vessel) =
         vessel.body.position.length - other.body.position.length
 
@@ -44,7 +43,7 @@ class CraftCollisionTest {
         val lower = world.spawnOnSurface(StockCraft.lander(catalog), site)
         world.gearDown(lower)
         val upper = world.spawnOnSurface(StockCraft.lander(catalog), site, pad = 1)
-        // A short drop: enough to settle, well under the canopy's 8 m/s.
+        // A short drop, enough to settle, well under the canopy's 8 m/s.
         stackAbove(world, upper, lower, 6.0)
 
         repeat(900) { world.step(dt) }
@@ -54,18 +53,18 @@ class CraftCollisionTest {
         assertNotNull("the lower craft should have survived being landed on", settledLower)
         assertNotNull("the upper craft should have survived the landing", settledUpper)
 
-        // The landers are about 4.6m tall. Anything under a couple of metres
-        // means one has sunk into the other.
+        // The landers are about 4.6m tall. Anything under a couple of metres means one has sunk
+        // into the other.
         val gap = separation(settledUpper!!, settledLower!!)
         assertTrue("the upper craft ended up $gap m above the lower one", gap > 2.0)
     }
 
     /**
-     * The control. Without it the test above would also pass if the resolver
-     * simply froze everything in place.
+     * The control. Without it the test above would also pass if the resolver just froze everything
+     * in place.
      */
     @Test
-    fun `craft on separate pads do not touch`() {
+    fun `craft on separate pads don't touch`() {
         val world = world()
         val first = world.spawnOnSurface(StockCraft.lander(catalog), site, pad = 0)
         val second = world.spawnOnSurface(StockCraft.lander(catalog), site, pad = 1)
@@ -110,8 +109,8 @@ class CraftCollisionTest {
     }
 
     /**
-     * A collision has two sides. If only the moving craft responds, a base is
-     * a wall rather than an object, and nothing built in orbit would work.
+     * A collision has two sides. If only the moving craft responds, a base is a wall instead of an
+     * object, and nothing built in orbit would work.
      */
     @Test
     fun `both craft feel the impact, the lighter one more`() {
@@ -119,7 +118,7 @@ class CraftCollisionTest {
         val heavy = world.spawnOnSurface(StockCraft.starterRocket(catalog), site)
         val light = world.spawnOnSurface(StockCraft.probe(catalog), site, pad = 1)
 
-        // Put the probe just above the rocket's nose and shove it downward.
+        // Put the probe just above the rocket's nose and shove it down.
         stackAbove(world, light, heavy, 11.0)
         val up = Vec3().setTo(light.body.position).normalizeInPlace()
         light.body.linearVelocity.addScaledInPlace(up, -3.0)
@@ -145,7 +144,7 @@ class CraftCollisionTest {
     }
 
     @Test
-    fun `a craft alone in the world is unaffected by the new pass`() {
+    fun `a craft alone in the world isn't affected by the new pass`() {
         val world = world()
         val solo = world.spawnOnSurface(StockCraft.lander(catalog), site)
         world.gearDown(solo)

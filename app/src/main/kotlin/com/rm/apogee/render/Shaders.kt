@@ -1,40 +1,38 @@
 package com.rm.apogee.render
 
 /**
- * GLSL sources, kept as string constants rather than assets so a shader compile
- * error is a build-adjacent problem rather than a runtime surprise on one
- * device.
+ * GLSL sources, kept as string constants instead of assets, so a shader compile error shows up
+ * close to the build instead of as a surprise at runtime on one device.
  *
- * `#version 300 es` throughout, and deliberately conservative beyond that: no
- * compute, no storage buffers, no `gl_FragDepth`. minSdk 27 puts Adreno 5xx and
- * Mali-T8xx drivers in the test matrix, and those are exactly the drivers that
- * quietly mis-compile anything clever.
+ * It's `#version 300 es` throughout, and careful on purpose beyond that: no compute, no storage
+ * buffers, and no `gl_FragDepth`. minSdk 27 puts Adreno 5xx and Mali-T8xx drivers in the test
+ * matrix, and those are exactly the drivers that quietly miscompile anything clever.
  */
 object Shaders {
 
     /**
-     * Light after dark, shared by everything lit: a full moon's worth, faint
-     * and blue, and the air's own glow at night as a share of its daytime
-     * brightness - so ground, craft, trees and haze all agree on how dark it is.
+     * Light after dark, shared by everything lit: a full moon's worth, faint and blue, and the
+     * air's own glow at night as a share of its daytime brightness. That way ground, craft, trees
+     * and haze all agree on how dark it is.
      */
     private const val NIGHT_LIGHT = """
         const vec3 MOON = vec3(0.21, 0.25, 0.37);
         uniform vec3 uHaze;              // the air's colour over distance
         const float NIGHT_AIR = 0.08;
-        // Lightning: a cold white light of its own, day or night - it does
-        // not come from the sun, so it is not dimmed with the sun at night.
+        // Lightning: a cold white light of its own, day or night. It doesn't come from the sun, so
+        // it isn't dimmed with the sun at night.
         const vec3 FLASH = vec3(0.8, 0.85, 1.0);
         uniform float uFlash;
-        // How much of the moonlight is left with [daylight] of the sun: all
-        // of it until the sun is well up, so dusk is never darker than night.
+        // How much of the moonlight is left with [daylight] of the sun. All of it until the sun is
+        // well up, so dusk is never darker than night.
         float moonLeft(float daylight) { return 1.0 - smoothstep(0.5, 1.0, daylight); }
-        // Twilight: with the sun about the horizon the sky itself glows and
-        // lights everything from above, a little warm.
+        // Twilight: with the sun around the horizon, the sky itself glows and lights everything
+        // from above, a little warm.
         vec3 duskGlow(float daylight) { return vec3(0.17, 0.15, 0.18) * 4.0 * daylight * (1.0 - daylight); }
-        // Lamps lit after dark: a floodlight's pool on the concrete, a
-        // hangar's light on its floor. Camera-relative position and reach,
-        // the nearest few; warm, fading to nothing at the reach, and on
-        // what faces them - the outside of a roof over one stays dark.
+        // Lamps lit after dark: a floodlight's pool on the concrete, or a hangar's light on its
+        // floor. Camera-relative position and reach, for the nearest few. They're warm, fade to
+        // nothing at the reach, and only light what faces them, so the outside of a roof over one
+        // stays dark.
         const int LAMPS = 8;
         const vec3 LAMP = vec3(1.0, 0.9, 0.62) * 2.2;
         uniform vec4 uLamps[LAMPS];
@@ -50,11 +48,10 @@ object Shaders {
             }
             return LAMP * sum;
         }
-        // Under the sea the day's light fades with depth, red first: blue-
-        // green in the shallows, deep blue lower down, and below a few
-        // hundred metres dark but for lamps. uSea is the body's centre,
-        // camera-relative, and the sea's surface radius, 0 for no sea;
-        // uWater how far each of red, green and blue gets, m per e-fold.
+        // Under the sea the daylight fades with depth, red first. It's blue-green in the shallows,
+        // deep blue lower down, and below a few hundred metres it's dark except for lamps. uSea is
+        // the body's centre, camera-relative, and the sea's surface radius, 0 for no sea. uWater is
+        // how far each of red, green and blue gets, in metres per e-fold.
         uniform vec4 uSea;
         uniform vec3 uWater;
         vec3 underSea(vec3 p) {
@@ -65,12 +62,12 @@ object Shaders {
     """
 
     /**
-     * How much of the sun's (or at night the moon's) direct light reaches a
-     * point: blocked by something near the craft (the near map), by a hill
-     * (the mountains' map), or under a cloud (the cloud grid). 1 is all of
-     * it. Only direct light: ambient, dusk glow and lightning are untouched,
-     * so a shadow is never black. Samplers on units 1, 2 and 3, always - two
-     * sampler types sharing a unit is an error at draw time, even unread.
+     * How much of the sun's (or at night the moon's) direct light reaches a point. It can be
+     * blocked by something near the craft (the near map), by a hill (the mountains' map), or by a
+     * cloud (the cloud grid). 1 is all of it. This is only direct light. Ambient, dusk glow and
+     * lightning aren't touched, so a shadow is never black. Samplers are always on units 1, 2 and
+     * 3, because two sampler types sharing a unit is an error at draw time, even if it's never
+     * read.
      */
     const val SHADOW = """
         uniform highp sampler2DShadow uNearShadow;
@@ -98,7 +95,7 @@ object Shaders {
             return sum / 9.0;
         }
 
-        // 1 lit, 0 shaded, fading to lit at the map's edge; -1 off the map.
+        // 1 lit, 0 shaded, fading to lit at the map's edge. -1 off the map.
         float fromMap(highp sampler2DShadow map, mat4 m, vec3 p, float texel, float kernel) {
             vec4 c = m * vec4(p, 1.0);
             vec2 d = abs(c.xy - 0.5) * 2.0;
@@ -117,14 +114,14 @@ object Shaders {
                 float v = fromMap(uFarShadow, uFarShadowMatrix, p + n * uFarOffset, uFarTexel, 0.0);
                 if (v >= 0.0) lit = min(lit, v);
             }
-            // Never all of it: the open sky still lights a shadow, bluish and
-            // dim - a third or so of the sun - so it reads as shade, not a hole.
+            // Never all of it. The open sky still lights a shadow, bluish and dim (a third or so of
+            // the sun), so it looks like shade, not a hole.
             lit = mix(1.0, lit, uShadowStrength * 0.65);
             if (uCloudOn > 0.0) {
                 vec4 c = uCloudMatrix * vec4(p, 1.0);
                 if (c.x > 0.0 && c.x < 1.0 && c.y > 0.0 && c.y < 1.0) {
                     vec2 cloud = texture(uCloudShadow, c.xy).rg;
-                    // Only under the cloud: flying above it, it shades nothing.
+                    // Only under the cloud. Flying above it, it shades nothing.
                     float below = 1.0 - smoothstep(cloud.g - 0.004, cloud.g + 0.004, c.z);
                     lit *= 1.0 - cloud.r * uCloudOn * below;
                 }
@@ -142,25 +139,23 @@ object Shaders {
 
         uniform mat4 uModel;
         uniform mat4 uViewProjection;
-        // 1/scale^2 per axis: (1,1,1) for a part, the lobe's shape for a cloud.
+        // 1/scale^2 per axis: (1,1,1) for a part, or the lobe's shape for a cloud.
         uniform vec3 uInvScaleSq;
 
-        // `flat`: the provoking vertex's normal is used across the whole
-        // triangle instead of being interpolated. That one qualifier is the
-        // entire faceted look, and it costs nothing - a smooth-normalled
-        // cylinder comes out as flat strips.
+        // `flat`: the provoking vertex's normal is used across the whole triangle instead of being
+        // interpolated. That one qualifier is the entire faceted look, and it costs nothing. A
+        // cylinder with smooth normals comes out as flat strips.
         flat out vec3 vNormal;
         out float vDistance;
         out vec3 vToCamera;
 
         void main() {
-            // The model matrix is already camera-relative (floating origin), so
-            // there is no separate world-space stage here.
+            // The model matrix is already camera-relative (floating origin), so there's no separate
+            // world-space stage here.
             vec4 worldPos = uModel * vec4(aPosition, 1.0);
             vToCamera = -worldPos.xyz;
-            // The model matrix is R*S; R*S^-1*n is the normal, and that is
-            // R*S times n/S^2 - exact for a stretched cloud lobe, and for a
-            // part (unit scale) just the rotation.
+            // The model matrix is R*S. R*S^-1*n is the normal, and that's R*S times n/S^2, which is
+            // exact for a stretched cloud lobe, and for a part (unit scale) just the rotation.
             vNormal = mat3(uModel) * (aNormal * uInvScaleSq);
             vDistance = length(worldPos.xyz);
             gl_Position = uViewProjection * worldPos;
@@ -168,10 +163,9 @@ object Shaders {
     """.trimIndent()
 
     /**
-     * [VESSEL_VERTEX] for many cloud lobes in one draw: each lobe's model
-     * matrix, shape and colour come from its instance's attributes rather
-     * than uniforms. A HIGH sky was nearly two thousand draw calls a frame,
-     * one lobe each, and that alone took most of the frame.
+     * [VESSEL_VERTEX] for many cloud lobes in one draw. Each lobe's model matrix, shape and colour
+     * come from its instance's attributes instead of uniforms. A HIGH sky was nearly two thousand
+     * draw calls a frame, one lobe each, and that alone took most of the frame.
      */
     val CLOUD_INSTANCED_VERTEX = """
         #version 300 es
@@ -201,7 +195,9 @@ object Shaders {
         }
     """.trimIndent()
 
-    /** [VESSEL_FRAGMENT], its colour and ambient per instance: see [CLOUD_INSTANCED_VERTEX]. */
+    /**
+     * [VESSEL_FRAGMENT], with its colour and ambient per instance. See [CLOUD_INSTANCED_VERTEX].
+     */
     val CLOUD_INSTANCED_FRAGMENT: String by lazy {
         VESSEL_FRAGMENT
             .replace("uniform vec4 uColor;", "flat in vec4 vColor;")
@@ -212,8 +208,8 @@ object Shaders {
 
     val VESSEL_FRAGMENT = """
         #version 300 es
-        // highp: distances run to tens of kilometres now that clouds are
-        // drawn here, past what mediump holds on many phone GPUs (65 km).
+        // highp, because distances run to tens of kilometres now that clouds are drawn here, past
+        // what mediump holds on many phone GPUs (65 km).
         precision highp float;
 
         flat in vec3 vNormal;
@@ -222,24 +218,23 @@ object Shaders {
 
         uniform vec4 uColor;
         uniform vec3 uLightDirection;
-        // A flat ambient floor stands in for bounce light; without it the
-        // unlit side of a craft reads as a hole cut in the sky. Clouds, lit
-        // through themselves, take a much higher one.
+        // A flat ambient floor stands in for bounce light. Without it the unlit side of a craft
+        // looks like a hole cut in the sky. Clouds, lit through themselves, take a much higher one.
         uniform float uAmbient;
         // Sunlight left under a storm, 0..1.
         uniform float uLightScale;
         // Weather fog: metres to fade over, and what it fades to.
         uniform float uFogDistance;
         uniform vec3 uFogColor;
-        // 1 for cloud: light wraps round it, so a facet in shade still reads
-        // by its angle instead of every underside being one flat grey.
+        // 1 for cloud. Light wraps round it, so a facet in shade still shows by its angle instead
+        // of every underside being one flat grey.
         uniform float uWrap;
         // How much sun reaches here: 1 by day, 0 in the planet's shadow.
         uniform float uDaylight;
-        // Aerial perspective, as the ground has it: far things fade into the air.
+        // Aerial perspective, like the ground has, so far things fade into the air.
         uniform float uHazeDistance;
         uniform float uAtmosphereFactor;
-        // 1 for a part, which is shaded by what is between it and the sun; 0 for cloud.
+        // 1 for a part, which gets shaded by what's between it and the sun. 0 for cloud.
         uniform float uReceivesShadow;
         // 1 for another world, seen across space: no haze, no fog, no moon.
         uniform float uSkyBody;
@@ -254,22 +249,22 @@ object Shaders {
             float direct = uReceivesShadow > 0.5 ? directLight(-vToCamera, n) : 1.0;
             float facing = dot(n, -uLightDirection);
             float wrapped = facing * 0.5 + 0.5;
-            // Cloud: light wraps well round, and the shade is soft - facets
-            // side by side differ a little, not from white to grey.
+            // Cloud: light wraps well round, and the shade is soft, so facets side by side differ a
+            // little, not from white to grey.
             float diffuse = mix(max(facing, 0.0), 0.35 + 0.65 * wrapped, uWrap);
-            // At night the sun no longer reaches through the planet: a full
-            // moon, opposite it, lights things faint and blue instead.
+            // At night the sun doesn't reach through the planet any more, so a full moon opposite
+            // it lights things faint and blue instead.
             float moonFacing = mix(max(-facing, 0.0), 1.0 - wrapped, uWrap);
             vec3 moon = MOON * (0.55 + 0.45 * moonFacing * direct) * (0.4 + 0.6 * uLightScale);
             vec3 sea = underSea(-vToCamera);
             vec3 lit = uColor.rgb * ((uAmbient + diffuse * 0.8 * uLightScale * direct) * uDaylight + moon * moonLeft(uDaylight) + duskGlow(uDaylight)) * sea;
             lit += uColor.rgb * FLASH * uFlash * sea;
             if (uLampCount > 0) lit += uColor.rgb * lampLight(-vToCamera, n);
-            // Ambient of one or more means it glows - a flame - at its own colour.
+            // An ambient of one or more means it glows at its own colour, like a flame.
             if (uAmbient >= 1.0) lit = uColor.rgb;
             if (uSkyBody > 0.5) {
-                // Lit by the sun alone, its night side nearly black; through
-                // a day sky, washed a little toward it, as the moon is.
+                // Lit by the sun alone, with its night side nearly black. Through a day sky it's
+                // washed a little toward the sky, the way the moon is.
                 vec3 world = uColor.rgb * (0.03 + 1.1 * max(facing, 0.0));
                 fragColor = vec4(mix(world, uHaze, 0.35 * uAtmosphereFactor * uDaylight), 1.0);
                 return;
@@ -277,8 +272,8 @@ object Shaders {
             float haze = (1.0 - exp(-vDistance / max(uHazeDistance, 1.0))) * uAtmosphereFactor;
             lit = mix(lit, uHaze * (NIGHT_AIR + (1.0 - NIGHT_AIR) * uDaylight), clamp(haze, 0.0, 1.0));
             float fog = 1.0 - exp(-vDistance / max(uFogDistance, 1.0));
-            // A cloud thins toward its outline: facets seen edge-on let the
-            // sky through, so it ends softly instead of in a hard cut-out.
+            // A cloud thins toward its outline. Facets seen edge-on let the sky through, so it ends
+            // softly instead of in a hard cut-out.
             float alpha = uColor.a;
             if (uWrap > 0.5) {
                 float faceOn = abs(dot(n, normalize(vToCamera)));
@@ -297,7 +292,7 @@ object Shaders {
 
     // ---- particles ----------------------------------------------------------
 
-    /** Smoke, dust, spray, rain and bolts: flat-coloured, camera-relative, built on the CPU. */
+    /** Smoke, dust, spray, rain and bolts: flat-coloured, camera-relative, and built on the CPU. */
     val PARTICLE_VERTEX = """
         #version 300 es
         layout(location = 0) in vec3 aPosition;
@@ -338,8 +333,8 @@ object Shaders {
     /**
      * A single oversized triangle covering the screen.
      *
-     * Cheaper than a quad and avoids the diagonal seam where two triangles
-     * meet, which shows up in gradients exactly like the ones a sky is made of.
+     * It's cheaper than a quad and avoids the diagonal seam where two triangles meet, which shows
+     * up in gradients exactly like the ones a sky is made of.
      */
     val SKY_VERTEX = """
         #version 300 es
@@ -360,9 +355,8 @@ object Shaders {
     /**
      * Stars, and an atmosphere that thins with altitude.
      *
-     * The view ray is rebuilt from the camera basis rather than by inverting a
-     * matrix - the basis is already to hand, and a matrix inverse per frame in
-     * a fragment shader is a needless cost.
+     * The view ray is rebuilt from the camera basis instead of by inverting a matrix. The basis is
+     * already to hand, and a matrix inverse per frame in a fragment shader is a cost for nothing.
      */
     val SKY_FRAGMENT = """
         #version 300 es
@@ -380,7 +374,7 @@ object Shaders {
         uniform vec3 uSunDirection;
         uniform float uAtmosphereFactor; // 1 at sea level, 0 in vacuum
         uniform float uLightScale;       // sunlight left under a storm
-        uniform float uSkyFog;           // 1 inside cloud: the sky is gone
+        uniform float uSkyFog;           // 1 inside cloud, where the sky is gone
         uniform vec3 uFogColor;
         uniform float uDaylight;         // 1 by day, 0 in the planet's shadow
         // This world's sky.
@@ -388,7 +382,7 @@ object Shaders {
         uniform vec3 uHorizon;
         uniform vec3 uSunset;
         uniform vec3 uRim;
-        // The star: cos of its angular radius, and its glow, 0..1.
+        // The star: the cos of its angular radius, and its glow, 0..1.
         uniform float uSunCos;
         uniform float uSunGlow;
 
@@ -396,8 +390,8 @@ object Shaders {
 
         $NIGHT_LIGHT
 
-        // Cheap 3D hash. Good enough for stars, which only need to be
-        // stationary and unevenly spaced.
+        // A cheap 3D hash. Good enough for stars, which only need to stay still and be unevenly
+        // spaced.
         float hash13(vec3 p) {
             p = fract(p * 0.3183099 + vec3(0.71, 0.113, 0.419));
             p *= 17.0;
@@ -409,7 +403,7 @@ object Shaders {
             vec3 cell = floor(dir * 220.0);
             float h = hash13(cell);
             float star = smoothstep(0.9975, 1.0, h);
-            // Vary brightness so the field does not look like a regular grid.
+            // Vary the brightness so the field doesn't look like a regular grid.
             float brightness = 0.35 + 0.65 * hash13(cell + 7.3);
             // A faint colour cast, warm to cool.
             vec3 tint = mix(vec3(1.0, 0.86, 0.72), vec3(0.78, 0.86, 1.0), hash13(cell + 3.1));
@@ -425,8 +419,8 @@ object Shaders {
 
             vec3 space = starField(dir);
 
-            // Height of this ray above the local horizon, -1 straight down to
-            // +1 straight up.
+            // The height of this ray above the local horizon, from -1 straight down to +1 straight
+            // up.
             float height = dot(dir, uUpDirection);
             float sunAmount = max(dot(dir, uSunDirection), 0.0);
 
@@ -434,28 +428,28 @@ object Shaders {
             vec3 day = mix(uHorizon, uZenith, clamp(height, 0.0, 1.0));
             // A wash of light around the sun's direction.
             day += vec3(0.9, 0.75, 0.55) * pow(sunAmount, 12.0) * 0.5;
-            // Night: a deep blue-black, a little lighter low down, with the
-            // stars through it - dimmed by the air, and gone near the horizon.
+            // Night: a deep blue-black, a little lighter low down, with the stars through it,
+            // dimmed by the air and gone near the horizon.
             vec3 night = mix(vec3(0.035, 0.05, 0.09), vec3(0.008, 0.014, 0.035), clamp(height * 2.0, 0.0, 1.0));
             night += space * 0.8 * smoothstep(0.0, 0.25, height);
             vec3 sky = mix(night, day, uDaylight);
-            // Twilight: a warm band low on the sun's side of the sky while
-            // the sun is just below the horizon or just above it.
+            // Twilight: a warm band low on the sun's side of the sky while the sun is just below
+            // the horizon or just above it.
             vec3 level = normalize(dir - uUpDirection * height + uUpDirection * 1e-4);
             vec3 sunFlat = normalize(uSunDirection - uUpDirection * dot(uSunDirection, uUpDirection) + uUpDirection * 1e-4);
             float dusk = 4.0 * uDaylight * (1.0 - uDaylight);
             float sunSide = pow(max(dot(level, sunFlat), 0.0), 2.0);
             sky += uSunset * dusk * sunSide * exp(-max(height, 0.0) * 7.0) * 0.55;
 
-            // The atmosphere fades out with altitude, taking the stars from
-            // invisible at sea level to fully visible in vacuum.
+            // The atmosphere fades out with altitude, taking the stars from invisible at sea level
+            // to fully visible in vacuum.
             vec3 color = mix(space, sky, clamp(uAtmosphereFactor, 0.0, 1.0));
 
-            // The star itself: a white disc, softened a pixel's worth at its
-            // edge, in a glow that shrinks as it fades into the distance.
+            // The star itself: a white disc, softened by a pixel's worth at its edge, in a glow
+            // that shrinks as it fades into the distance.
             float toSun = dot(dir, uSunDirection);
             if (uSunCos <= 1.0) {
-                // (Past the giants the disc is less than a float can tell from a point.)
+                // (Past the giants the disc is smaller than a float can tell apart from a point.)
                 float disc = uSunCos < 1.0 ? smoothstep(uSunCos - 0.00003, uSunCos + 0.00001, toSun) : 0.0;
                 float glow = pow(max(toSun, 0.0), mix(20000.0, 900.0, uSunGlow)) * (0.35 + 0.65 * uSunGlow);
                 color += vec3(1.0, 0.95, 0.85) * (disc * 3.0 + glow * 0.9);
@@ -465,12 +459,11 @@ object Shaders {
             float rim = exp(-abs(height) * 14.0) * uAtmosphereFactor * (0.1 + 0.9 * uDaylight);
             color += uRim * rim * 0.5;
 
-            // A storm overhead greys and darkens it; inside cloud there is
-            // only the cloud.
+            // A storm overhead greys and darkens it, and inside cloud there's only the cloud.
             vec3 overcast = vec3(0.42, 0.45, 0.50) * (0.4 + 0.6 * uLightScale) * (NIGHT_AIR + (1.0 - NIGHT_AIR) * uDaylight);
             color = mix(color, overcast, (1.0 - uLightScale) * uAtmosphereFactor);
             color = mix(color, uFogColor, clamp(uSkyFog, 0.0, 1.0));
-            // A strike lights the whole sky it is in.
+            // A strike lights the whole sky it's in.
             color += vec3(0.5, 0.55, 0.7) * uFlash * uAtmosphereFactor;
 
             fragColor = vec4(color, 1.0);
@@ -482,9 +475,9 @@ object Shaders {
     // ---- scatter -------------------------------------------------------------
 
     /**
-     * Rocks and trees, instanced. Each instance is turned about its block's
-     * local vertical and scaled, then placed like a terrain chunk: relative to
-     * the block's centre, so float only ever sees a few hundred metres.
+     * Rocks and trees, instanced. Each instance is turned about its block's local vertical and
+     * scaled, then placed like a terrain chunk, relative to the block's centre, so float only ever
+     * sees a few hundred metres.
      */
     val SCATTER_VERTEX = """
         #version 300 es
@@ -496,9 +489,9 @@ object Shaders {
 
         uniform mat4 uModel;
         uniform mat4 uViewProjection;
-        // East, up, north at the block, as columns.
+        // East, up and north at the block, as columns.
         uniform mat3 uBasis;
-        // The wind at the block, in the same east, up, north axes, m/s.
+        // The wind at the block, in the same east, up and north axes, in m/s.
         uniform vec3 uWind;
         uniform float uTime;
 
@@ -512,9 +505,9 @@ object Shaders {
             float s = sin(aYaw);
             vec3 p = aPosition * aInstance.w;
             vec3 turned = vec3(c * p.x - s * p.z, p.y, s * p.x + c * p.z);
-            // Leaning downwind and swaying with the gusts, more the taller -
-            // a tree bends, a boulder does not. Each on its own phase, from
-            // where it stands, so a forest does not move in step.
+            // Leaning downwind and swaying with the gusts, more the taller it is. A tree bends, and
+            // a boulder doesn't. Each one has its own phase, from where it stands, so a forest
+            // doesn't move in step.
             float speed = length(uWind.xz);
             if (speed > 0.1 && turned.y > 0.0) {
                 float phase = aInstance.x * 0.37 + aInstance.z * 0.51;
@@ -532,7 +525,9 @@ object Shaders {
         }
     """.trimIndent()
 
-    /** Lit as the ground is, so a forest sits in its landscape rather than on it. */
+    /**
+     * Lit the same way as the ground, so a forest sits in its landscape instead of on top of it.
+     */
     val SCATTER_FRAGMENT = """
         #version 300 es
         precision highp float;
@@ -556,7 +551,7 @@ object Shaders {
         $SHADOW
 
         void main() {
-            // Two-sided: the meshes are drawn without culling.
+            // Two-sided, because the meshes are drawn without culling.
             vec3 n = normalize(vNormal);
             if (!gl_FrontFacing) n = -n;
             float direct = directLight(vPosition, n);
@@ -583,23 +578,23 @@ object Shaders {
 
         uniform mat4 uModel;
         uniform mat4 uViewProjection;
-        // The sea: drawn as waves out to uSeaReach metres (0 for none), and
-        // beyond that the sea bed is lifted to the water - uTide above the
-        // datum - and coloured as water, as the terrain always used to draw it.
+        // The sea: drawn as waves out to uSeaReach metres (0 for none). Beyond that the seabed is
+        // lifted to the water (uTide above the datum) and coloured as water, the way the terrain
+        // always used to draw it.
         uniform float uSeaReach;
         uniform float uTide;
         uniform vec3 uBodyCentre;
 
-        // Flat, for the facets: each triangle takes one vertex's colour whole,
-        // which is the low-poly look. Its normal is worked out per triangle in
-        // the fragment shader, from the position.
+        // Flat, for the facets. Each triangle takes one vertex's colour whole, which is the
+        // low-poly look. Its normal is worked out per triangle in the fragment shader, from the
+        // position.
         flat out vec3 vColour;
         flat out float vWet;
         out vec3 vViewDir;
         out float vDistance;
         out vec3 vPosition;
-        // Skirts: nonzero anywhere inside a skirt triangle, zero on the
-        // ground, and the ground normal the skirt was given to light it by.
+        // Skirts: nonzero anywhere inside a skirt triangle and zero on the ground, plus the ground
+        // normal the skirt was given to light it by.
         out float vSkirt;
         out vec3 vGroundNormal;
 
@@ -619,8 +614,8 @@ object Shaders {
             }
             vPosition = worldPos.xyz;
             vGroundNormal = mat3(uModel) * aNormal;
-            // The camera sits at the scene origin, so the vector to it is the
-            // negated camera-relative position.
+            // The camera sits at the scene origin, so the vector to it is the negated
+            // camera-relative position.
             vDistance = length(worldPos.xyz);
             vViewDir = -worldPos.xyz / max(vDistance, 1.0);
             gl_Position = uViewProjection * worldPos;
@@ -630,10 +625,9 @@ object Shaders {
     /**
      * Lights the surface. Its colour arrives already decided.
      *
-     * Colour used to be worked out here from height and slope. It is decided
-     * on the CPU now, from the same material the collider grips by, so ground
-     * that looks like ice is ice. What is left is light, a glint off water,
-     * and air.
+     * Colour used to be worked out here from height and slope. It's decided on the CPU now, from
+     * the same material the collider grips by, so ground that looks like ice is ice. What's left
+     * here is light, a glint off water, and air.
      */
     val TERRAIN_FRAGMENT = """
         #version 300 es
@@ -665,17 +659,16 @@ object Shaders {
 
         void main() {
             if (vDistance < uDiscardNearer) discard;
-            // The triangle's own face, from how its position changes across
-            // the screen. It used to be lit by one of its corners' normals -
-            // averaged from the ground around that corner - and on rough
-            // ground that points well away from the face, so neighbouring
-            // triangles came out light and dark in a pattern unrelated to
-            // their slope, crawling as the detail changed under a moving
-            // camera: the shimmer. This is the facet exactly, and steady.
+            // The triangle's own face, from how its position changes across the screen. It used to
+            // be lit by one of its corners' normals, averaged from the ground around that corner,
+            // and on rough ground that points well away from the face. So neighbouring triangles
+            // came out light and dark in a pattern that had nothing to do with their slope,
+            // crawling as the detail changed under a moving camera. That was the shimmer. This is
+            // exactly the facet, and steady.
             vec3 n = normalize(cross(dFdx(vPosition), dFdy(vPosition)));
             if (dot(n, vViewDir) < 0.0) n = -n;
-            // A skirt is a vertical strip hiding a crack, not ground: lit as
-            // the ground above it, so it does not show as a line.
+            // A skirt is a vertical strip hiding a crack, not ground, so it's lit like the ground
+            // above it and doesn't show as a line.
             if (vSkirt > 0.001) n = normalize(vGroundNormal);
             vec3 surface = vColour;
             float wet = vWet;
@@ -683,36 +676,35 @@ object Shaders {
             float direct = directLight(vPosition, n);
             float lambert = max(dot(n, uSunDirection), 0.0) * direct;
             float daylight = smoothstep(-0.08, 0.35, dot(n, uSunDirection));
-            // Night is not black: a full moon opposite the sun, faint and
-            // blue, so the land keeps its shape after dark.
+            // Night isn't black. A full moon opposite the sun, faint and blue, keeps the shape of
+            // the land after dark.
             vec3 night = MOON * (0.55 + 0.45 * max(-dot(n, uSunDirection), 0.0) * direct) * (0.4 + 0.6 * uLightScale);
             vec3 sea = underSea(vPosition);
             vec3 lit = surface * (night * moonLeft(uDaylight) + duskGlow(uDaylight) + (0.06 + lambert * 1.10 * uLightScale) * daylight) * sea;
             lit += surface * FLASH * uFlash * sea;
             if (uLampCount > 0) lit += surface * lampLight(vPosition, n);
 
-            // A glint off the water, which is most of what reads as sea
-            // rather than as a blue-painted plain.
+            // A glint off the water, which is most of what makes it look like sea instead of a
+            // plain painted blue.
             vec3 halfway = normalize(uSunDirection + vViewDir);
             float glint = pow(max(dot(n, halfway), 0.0), 90.0);
             lit += vec3(1.0, 0.96, 0.88) * glint * daylight * wet * 0.8 * direct;
 
-            // Aerial perspective: from inside the atmosphere, distant ground is
-            // washed out by the air between, which is what makes a horizon read
-            // as distant rather than as a painted edge.
+            // Aerial perspective. From inside the atmosphere, distant ground is washed out by the
+            // air in between, which is what makes a horizon look far away instead of like a painted
+            // edge.
             float haze = (1.0 - exp(-vDistance / max(uHazeDistance, 1.0))) * uAtmosphereFactor;
             vec3 hazeColor = uHaze * (NIGHT_AIR + (1.0 - NIGHT_AIR) * daylight);
             lit = mix(lit, hazeColor, clamp(haze, 0.0, 1.0));
 
-            // Seen from outside, a planet's edge glows because the line of
-            // sight grazes a long column of air. Faded out as the camera
-            // descends, or the whole surface turns to haze when standing on it.
-            // None at all on an airless world: there is no air to glow, and
-            // standing on one, every grazing facet would turn blue.
-            // Against the planet's curve - straight up from its centre - not
-            // the facet, nor the ground's slope: it is the limb of the world that glows. Taken per facet,
-            // every mountain face turned edge-on to the camera lit up blue,
-            // and as the camera moved they flickered on and off in streaks.
+            // Seen from outside, a planet's edge glows because the line of sight skims a long
+            // column of air. It fades out as the camera comes down, or the whole surface would turn
+            // to haze when you stood on it. There's none at all on an airless world, because
+            // there's no air to glow, and standing on one, every skimming facet would turn blue.
+            // It's worked out against the planet's curve (straight up from its centre), not the
+            // facet or the ground's slope, because it's the edge of the world that glows. Taken per
+            // facet, every mountain face turned edge-on to the camera lit up blue, and as the
+            // camera moved they flickered on and off in streaks.
             vec3 up = normalize(vPosition - uBodyCentre);
             float fresnel = pow(1.0 - max(dot(up, vViewDir), 0.0), 3.0);
             lit += vec3(0.25, 0.45, 0.78) * fresnel * daylight * 0.9 *
@@ -728,10 +720,9 @@ object Shaders {
     // ---- the sea ------------------------------------------------------------
 
     /**
-     * The sea's surface, built on the CPU from the wave function the physics
-     * uses. The only arithmetic here is carrying each vertex on by its rate
-     * of rise for the few hundredths of a second since the surface was
-     * built - the waves themselves are never worked out on the GPU.
+     * The sea's surface, built on the CPU from the wave function the physics uses. The only sums
+     * here carry each vertex on by its rate of rise for the few hundredths of a second since the
+     * surface was built. The waves themselves are never worked out on the GPU.
      */
     val SEA_VERTEX = """
         #version 300 es
@@ -761,10 +752,10 @@ object Shaders {
     """.trimIndent()
 
     /**
-     * Flat facets, as the land: each lit as a plane, catching the sun in a
-     * sparkle or the sky in a sheen as it tilts. Colour, clarity and foam
-     * arrive from the CPU per facet. Not drawn past [uSeaReach], where the
-     * terrain draws flat water; and from beneath, a bright rippled ceiling.
+     * Flat facets, like the land. Each is lit as a plane, catching the sun in a sparkle or the sky
+     * in a sheen as it tilts. Colour, clarity and foam come from the CPU per facet. It isn't drawn
+     * past [uSeaReach], where the terrain draws flat water, and from beneath it's a bright rippled
+     * ceiling.
      */
     val SEA_FRAGMENT = """
         #version 300 es
@@ -785,7 +776,7 @@ object Shaders {
         uniform vec3 uFogColor;
         uniform float uSeaReach;
         uniform float uUnderwater;
-        uniform vec3 uSeaSky;            // the sky a sea mirrors
+        uniform vec3 uSeaSky;            // the sky a sea reflects
 
         out vec4 fragColor;
 
@@ -801,8 +792,8 @@ object Shaders {
             float daylight = smoothstep(-0.08, 0.35, dot(up, uSunDirection));
 
             if (below) {
-                // From under the water: the surface a bright, rippling
-                // ceiling, lit by the sky above it.
+                // From under the water, the surface is a bright, rippling ceiling, lit by the sky
+                // above it.
                 float through = 0.35 + 0.65 * max(dot(-n, -up), 0.0);
                 vec3 lit = vec3(0.30, 0.68, 0.72) * through * (0.15 + 0.85 * daylight * uLightScale);
                 float fog = 1.0 - exp(-vDistance / max(uFogDistance, 1.0));
@@ -814,16 +805,16 @@ object Shaders {
             float direct = directLight(vPosition, n);
             float lambert = max(dot(n, uSunDirection), 0.0) * direct;
             vec3 night = MOON * (0.55 + 0.45 * max(-dot(n, uSunDirection), 0.0) * direct) * (0.4 + 0.6 * uLightScale);
-            // Facets turned to the sun bright, turned away dark: the flat
-            // look, on water as on land - harder than on land, for the sea's
-            // slopes are gentler.
+            // Facets turned to the sun are bright, and turned away are dark. It's the flat look, on
+            // water the same as on land, only harder than on land, because the sea's slopes are
+            // gentler.
             float shade = 0.22 + 1.25 * pow(lambert, 0.8) * uLightScale;
             vec3 lit = surface * (night * moonLeft(uDaylight) + duskGlow(uDaylight) + shade * daylight);
             lit += surface * FLASH * uFlash;
             if (uLampCount > 0) lit += surface * lampLight(vPosition, n);
 
-            // The sky in it, most at a glancing angle - what makes water
-            // read as water - and the sun's sparkle off facets turned to it.
+            // The sky in it, most at a glancing angle, which is what makes water look like water,
+            // and the sun's sparkle off facets turned to it.
             float facing = max(dot(n, vViewDir), 0.0);
             float fresnel = 0.03 + 0.97 * pow(1.0 - facing, 5.0);
             vec3 sky = mix(uHaze, uSeaSky, 0.5) * (NIGHT_AIR + (1.0 - NIGHT_AIR) * daylight) * (0.5 + 0.5 * uLightScale);
@@ -863,7 +854,7 @@ object Shaders {
         }
     """.trimIndent()
 
-    /** Lit by the sun as the ground under it is: bright by day, a faint grey at night. */
+    /** Lit by the sun the same as the ground under it: bright by day, and a faint grey at night. */
     val CLOUD_SHELL_FRAGMENT = """
         #version 300 es
         precision highp float;

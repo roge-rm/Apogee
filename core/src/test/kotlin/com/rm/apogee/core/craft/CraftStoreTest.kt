@@ -29,7 +29,7 @@ class CraftStoreTest {
     }
 
     @Test
-    fun `saving twice overwrites rather than duplicating`() {
+    fun `saving twice overwrites instead of duplicating`() {
         val store = store()
         val design = StockCraft.starterRocket(catalog)
         store.save(design).getOrThrow()
@@ -39,7 +39,7 @@ class CraftStoreTest {
     }
 
     @Test
-    fun `the list reports what is on disk`() {
+    fun `the list reports what's on disk`() {
         val store = store()
         store.save(StockCraft.starterRocket(catalog).copy(name = "Alpha")).getOrThrow()
         store.save(StockCraft.probe(catalog).copy(name = "Beta")).getOrThrow()
@@ -50,9 +50,9 @@ class CraftStoreTest {
     }
 
     @Test
-    fun `craft names that are not safe filenames still save`() {
+    fun `craft names that aren't safe filenames still save`() {
         val store = store()
-        // Free text will eventually contain a slash, and did.
+        // Free text will contain a slash sooner or later, and it did.
         val design = StockCraft.probe(catalog).copy(name = "Apollo / 11: \"Eagle\"")
 
         val saved = store.save(design).getOrThrow()
@@ -62,7 +62,7 @@ class CraftStoreTest {
     }
 
     @Test
-    fun `a corrupt file does not hide the others`() {
+    fun `a corrupt file doesn't hide the others`() {
         val store = store()
         store.save(StockCraft.probe(catalog).copy(name = "Good")).getOrThrow()
         folder.root.walkTopDown().first { it.isDirectory && it.name == "craft" }
@@ -117,8 +117,8 @@ class CraftStoreTest {
     }
 
     /**
-     * A store seeded by the old empty-store rule: it has had the first three,
-     * the player has since deleted one, and the plane and rover are new.
+     * A store seeded by the old empty-store rule. It has had the first three, the player has
+     * deleted one since, and the plane and rover are new.
      */
     @Test
     fun `an old store gets the new designs and not the deleted old one`() {

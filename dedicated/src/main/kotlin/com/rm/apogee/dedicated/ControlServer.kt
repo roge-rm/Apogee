@@ -19,25 +19,24 @@ import java.nio.channels.SocketChannel
 import java.nio.file.Files
 
 /**
- * The admin control channel: a Unix domain socket speaking one line in, one
- * line of JSON out.
+ * The admin control channel: a Unix domain socket that takes one line in and gives one line of JSON
+ * out.
  *
- * A Unix socket rather than an HTTP port, deliberately. The admin channel can
- * stop the server, kick players and rewrite the world; putting it on the
- * network would mean authenticating it, and the only thing standing between an
- * open port and a stranger would be a password someone left at the default.
- * A socket in a directory has filesystem permissions instead, and the web
- * admin reaches it by sharing a volume rather than by being trusted.
+ * I chose a Unix socket instead of an HTTP port on purpose. The admin channel can stop the server,
+ * kick players and rewrite the world. Putting it on the network would mean it needs logging in, and
+ * the only thing between an open port and a stranger would be a password someone left at the
+ * default. A socket in a directory has filesystem permissions instead, and the web admin reaches it
+ * by sharing a volume instead of by being trusted.
  *
- * Requests are tab-separated so a human can drive it with `socat` while
- * debugging; replies are JSON because the consumer is a program.
+ * Requests are tab-separated so a person can drive it with `socat` while debugging. Replies are
+ * JSON because a program reads them.
  */
 class ControlServer(
     private val socketFile: java.io.File,
     private val handler: ControlHandler,
     private val log: LogRing,
 ) {
-    /** What the control channel is allowed to ask of the server. */
+    /** What the control channel is allowed to ask the server to do. */
     interface ControlHandler {
         fun status(): Map<String, JsonElement>
         fun players(): List<Map<String, JsonElement>>
@@ -51,8 +50,8 @@ class ControlServer(
     private var channel: ServerSocketChannel? = null
 
     fun start(scope: CoroutineScope): Job {
-        // A socket file left behind by a crash would make bind fail; nothing
-        // else can legitimately own this path.
+        // A socket file left behind by a crash would make bind fail, and nothing else can properly
+        // own this path.
         Files.deleteIfExists(socketFile.toPath())
         socketFile.parentFile?.mkdirs()
 
@@ -66,9 +65,8 @@ class ControlServer(
             try {
                 while (isActive) {
                     val client = server.accept()
-                    // Serve inline. Requests are a single short line and the
-                    // admin page makes them one at a time; a thread per
-                    // connection would be machinery for no traffic.
+                    // Serve inline. Requests are a single short line and the admin page makes them
+                    // one at a time, so a thread per connection would be machinery for no traffic.
                     runCatching { serve(client) }
                     runCatching { client.close() }
                 }
@@ -90,8 +88,8 @@ class ControlServer(
 
         val line = reader.readLine() ?: return
         val reply = runCatching { dispatch(line) }.getOrElse { failure ->
-            // A bad request must not take the channel down; the admin page
-            // will show the message and carry on.
+            // A bad request mustn't take the channel down. The admin page will show the message and
+            // carry on.
             error(failure.message ?: failure::class.simpleName ?: "unknown error")
         }
         writer.write(reply)
@@ -181,7 +179,7 @@ class ControlServer(
         },
     )
 
-    /** Undoes the escaping the client applies so arguments can contain tabs. */
+    /** Undoes the escaping the client applies, so arguments can contain tabs. */
     private fun unescape(value: String): String = buildString(value.length) {
         var index = 0
         while (index < value.length) {

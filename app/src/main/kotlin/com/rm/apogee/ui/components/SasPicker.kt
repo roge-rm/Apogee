@@ -44,9 +44,9 @@ import com.rm.apogee.ui.theme.alpha
 import kotlin.math.roundToInt
 
 /**
- * Stability assist: tap to turn it on and off; press and hold for what it
- * holds - the attitude at release, or any navball marker - and for a target
- * to steer by. The button shows the marker it is holding.
+ * Stability assist. Tap to turn it on and off. Press and hold to choose what it holds (the attitude
+ * when you let go, or any navball marker) and a target to steer by. The button shows the marker
+ * it's holding.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable

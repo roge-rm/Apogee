@@ -7,20 +7,19 @@ import android.os.Build
 import android.util.Log
 
 /**
- * How much the renderer is allowed to attempt on this device.
+ * How much the renderer is allowed to try on this device.
  *
- * This exists because minSdk is 27. Holding the floor that low is a deliberate
- * reach decision, but it admits 2017-era hardware that cannot run a continuous
- * 6-DOF physics sandbox at full detail, so the low end is a real, tested
- * configuration rather than a hope. [detect] picks a starting tier; the player
- * can override it in Settings, and M3's acceptance pass includes forcing [LOW].
+ * This exists because minSdk is 27. Keeping the floor that low is a deliberate choice about reach,
+ * but it lets in 2017-era hardware that can't run a continuous 6-DOF physics sandbox at full
+ * detail, so the low end is a real, tested setup and not just a hope. [detect] picks a starting
+ * tier. The player can override it in Settings, and M3's acceptance pass includes forcing [LOW].
  */
 enum class QualityTier {
     LOW,
     MEDIUM,
     HIGH;
 
-    /** Hard cap on parts per vessel before the builder refuses more. */
+    /** A hard cap on parts per vessel before the builder refuses any more. */
     val maxPartsPerVessel: Int
         get() = when (this) {
             LOW -> 60
@@ -29,11 +28,10 @@ enum class QualityTier {
         }
 
     /**
-     * Terrain chunks kept on the GPU. Each is about fifteen kilobytes of
-     * vertices; the working set on the ground is one to three hundred, and
-     * the rest of the budget is ground recently driven over, kept so turning
-     * round does not rebuild it. How fine the ground is drawn is the terrain
-     * builder's business, per tier.
+     * Terrain chunks kept on the GPU. Each one is about fifteen kilobytes of vertices. The working
+     * set on the ground is one to three hundred, and the rest of the budget is ground you've
+     * recently driven over, kept so turning round doesn't rebuild it. How fine the ground is drawn
+     * is up to the terrain builder, per tier.
      */
     val terrainChunkBudget: Int
         get() = when (this) {
@@ -42,7 +40,7 @@ enum class QualityTier {
             HIGH -> 450
         }
 
-    /** Simultaneous particles across all effects. */
+    /** Particles at once, across all effects. */
     val particleBudget: Int
         get() = when (this) {
             LOW -> 256
@@ -58,8 +56,8 @@ enum class QualityTier {
         /**
          * Chooses a tier from RAM, core count and the GL renderer string.
          *
-         * Must be called on the GL thread - [GLES30.glGetString] needs a
-         * current context.
+         * It has to be called on the GL thread, because [GLES30.glGetString] needs a current
+         * context.
          */
         fun detect(context: Context): QualityTier {
             val activityManager =

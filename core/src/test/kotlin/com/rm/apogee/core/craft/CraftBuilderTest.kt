@@ -36,9 +36,8 @@ class CraftBuilderTest {
         val added = builder.attach("tank-cask2", bottom)
         assertEquals(1, added.size)
 
-        // The tank's top node should now coincide with where the pod's bottom
-        // node was. That coincidence *is* attachment; everything else about
-        // placement follows from it.
+        // The tank's top node should now be in the same place as where the pod's bottom node was.
+        // That *is* attachment, and everything else about placement follows from it.
         val tank = builder.design.parts[added.first()]
         val tankDef = catalog.require("tank-cask2")
         val tankTop = tankDef.attachNodes.first { it.id == "top" }
@@ -62,8 +61,8 @@ class CraftBuilderTest {
         val mountDirection = tank.rotation.rotate(
             tankDef.attachNodes.first { it.id == "top" }.direction
         )
-        // Opposed to the target's outward direction, which is what makes the
-        // orientation automatic rather than something the player sets by hand.
+        // Opposite to the target's outward direction, which is what makes the orientation automatic
+        // instead of something the player sets by hand.
         assertEquals(-1.0, mountDirection dot bottom.direction, 1e-9)
     }
 
@@ -89,11 +88,11 @@ class CraftBuilderTest {
     }
 
     @Test
-    fun `stack nodes of different sizes will not mate`() {
+    fun `stack nodes of different sizes won't mate`() {
         val builder = builder()
         builder.placeRoot("pod-halo")
-        // The pod's top node is size 0 stack; the tank's stack nodes are size 1,
-        // and its generated surface nodes cannot mate with a stack node at all.
+        // The pod's top node is size 0 stack. The tank's stack nodes are size 1, and its generated
+        // surface nodes can't mate with a stack node at all.
         val top = nodeOn(builder, 0, "top")
         val added = builder.attach("tank-cask4", top)
         assertTrue("a size mismatch should be refused", added.isEmpty())
@@ -117,7 +116,7 @@ class CraftBuilderTest {
         assertTrue("symmetry parts should share a group", group >= 0)
         assertTrue(added.all { builder.design.parts[it].symmetryGroup == group })
 
-        // Four distinct places, all the same distance from the stack axis.
+        // Four different places, all the same distance from the stack axis.
         val radii = added.map { index ->
             val p = builder.design.parts[index].position
             kotlin.math.hypot(p.x, p.z)
@@ -170,7 +169,7 @@ class CraftBuilderTest {
     }
 
     @Test
-    fun `the root cannot be removed`() {
+    fun `the root can't be removed`() {
         val builder = builder()
         builder.placeRoot("pod-halo")
         assertFalse(builder.remove(0))
@@ -314,7 +313,7 @@ class CraftBuilderTest {
         assertEquals(SymmetryMode.NONE, builder.symmetry.next(builder.orientation))
         assertEquals(SymmetryMode.MIRROR, SymmetryMode.NONE.next(builder.orientation))
 
-        // And it is an edit like any other.
+        // And it's an edit like any other.
         builder.undo()
         assertEquals(CraftOrientation.VERTICAL, builder.orientation)
         assertEquals(SymmetryMode.QUAD, builder.symmetry)

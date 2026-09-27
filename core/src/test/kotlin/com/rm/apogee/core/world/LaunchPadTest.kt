@@ -39,7 +39,7 @@ class LaunchPadTest {
         // Close, too: four craft, none further than a few pads out.
         val spread = craft.maxOf { it.body.position.distanceTo(craft[0].body.position) }
         assertTrue("spread over ${spread.toInt()} m", spread < 200.0)
-        // And they stay put rather than being flung apart by the contact solver.
+        // And they stay put instead of being flung apart by the contact solver.
         repeat(120) { world.step(1.0 / 60.0) }
         assertTrue("every craft survives", craft.all { world.vessel(it.id) != null })
     }
@@ -50,7 +50,7 @@ class LaunchPadTest {
         val world = World.default(catalog)
         val rover = launch(world, StockCraft.rover(catalog))
         rover.name = "Trundler Two"
-        // Somewhere far off and upside down.
+        // Somewhere far away and upside down.
         rover.body.position.addScaledInPlace(com.rm.apogee.core.math.Vec3(0.0, 0.0, 1.0), 800.0)
         rover.body.orientation.setTo(com.rm.apogee.core.math.Quat.fromAxisAngle(com.rm.apogee.core.math.Vec3(1.0, 0.0, 0.0), Math.PI))
         val fresh = world.resetToSite(rover.id)!!

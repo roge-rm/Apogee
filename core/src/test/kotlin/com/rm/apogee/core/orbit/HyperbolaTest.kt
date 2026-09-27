@@ -6,10 +6,10 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlin.math.sqrt
 
-/** A fast fly-by from far out: where the analytic first guess gives out. */
+/** A fast fly-by from far out, where the analytic first guess gives up. */
 class HyperbolaTest {
     @Test
-    fun `a craft falling in from the edge of Rubra's reach is carried along its hyperbola, not flung away`() {
+    fun `a craft falling in from the edge of Rubra's reach is carried along its hyperbola and not flung away`() {
         val mu = 3.77e11
         // At the edge of its reach, heading in to pass 200 km up.
         val r0 = 5.2e7
@@ -23,7 +23,7 @@ class HyperbolaTest {
         val orbit = Orbit(Vec3(r0, 0.0, 0.0), Vec3(radial, 0.0, tangential), mu)
         for (dt in listOf(1.0, 500.0, 5_000.0, 20_000.0, orbit.timeToPeriapsis, -500.0)) {
             val s = orbit.propagate(dt)
-            // Energy is kept: the same speed at infinity everywhere along it.
+            // Energy is kept, so it's the same speed at infinity everywhere along it.
             val energy = s.velocity.lengthSq / 2 - mu / s.position.length
             assertEquals("energy after $dt s", vInf * vInf / 2, energy, 5.0)
             assertTrue("flung to ${s.position.length} m after $dt s", s.position.length < r0 * 2)

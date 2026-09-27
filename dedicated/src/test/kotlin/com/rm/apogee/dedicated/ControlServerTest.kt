@@ -28,9 +28,9 @@ import java.nio.channels.SocketChannel
 /**
  * Drives the control channel over a real Unix domain socket.
  *
- * The protocol is the contract between the server and the web admin - two
- * programs in two containers written in two languages - so it is worth
- * exercising over the actual transport rather than by calling the handler.
+ * The protocol is the contract between the server and the web admin (two programs in two containers
+ * written in two languages), so it's worth trying over the real transport instead of by calling the
+ * handler.
  */
 class ControlServerTest {
 
@@ -86,8 +86,8 @@ class ControlServerTest {
         socketFile = java.io.File(folder.newFolder("run"), "control.sock")
         control = ControlServer(socketFile, handler, LogRing(capacity = 10))
         control.start(scope)
-        // The socket exists as soon as bind returns, which start() does before
-        // it launches the accept loop.
+        // The socket exists as soon as bind returns, which start() does before it launches the
+        // accept loop.
     }
 
     @After
@@ -151,8 +151,8 @@ class ControlServerTest {
 
     @Test
     fun `an argument may contain a tab`() {
-        // Tabs separate arguments, so the client escapes them. A chat line with
-        // a tab in it must not turn into two arguments.
+        // Tabs separate arguments, so the client escapes them. A chat line with a tab in it mustn't
+        // turn into two arguments.
         call("chat", "before\\tafter")
         assertEquals(listOf("before\tafter"), broadcasts)
     }
@@ -170,7 +170,7 @@ class ControlServerTest {
     }
 
     @Test
-    fun `stop is requested rather than performed by the channel`() {
+    fun `stop is requested, not performed, by the channel`() {
         assertFalse(stopRequested)
         val reply = call("stop")
         assertTrue(reply["ok"]!!.jsonPrimitive.boolean)
@@ -183,8 +183,8 @@ class ControlServerTest {
         assertFalse(refused["ok"]!!.jsonPrimitive.boolean)
         assertTrue(refused["error"]!!.jsonPrimitive.content.contains("unknown command"))
 
-        // And the channel still works afterwards - one bad request from an
-        // admin page must not take the whole control socket down.
+        // And the channel still works afterwards. One bad request from an admin page mustn't take
+        // the whole control socket down.
         assertTrue(call("status")["ok"]!!.jsonPrimitive.boolean)
     }
 

@@ -3,30 +3,28 @@ package com.rm.apogee.core.world
 import com.rm.apogee.core.craft.Vessel
 
 /**
- * The state of a craft's parts - how hurt, how hot, how dented, how hard
- * their joints are working - packed for the wire, so everyone sees the
- * scorch and the glow, the crumpled nose and the sparks off a straining
- * seam, not only the pilot.
+ * The state of a craft's parts (how hurt, how hot, how dented, and how hard their joints are
+ * working) packed for sending, so everyone sees the scorch and the glow, the crumpled nose and the
+ * sparks off a straining seam, not only the pilot.
  *
- * Seven bytes a part: health, temperature, the dent's three axes, the
- * load on its joint, and how full of water it is. Empty for a craft that is whole, cool and unstrained,
- * which is nearly every craft nearly all the time, so the snapshot of a
- * fleet parked on the pad costs nothing.
+ * It's seven bytes a part: health, temperature, the dent's three axes, the load on its joint, and
+ * how full of water it is. It's empty for a craft that's whole, cool and unstrained, which is
+ * nearly every craft nearly all the time, so a snapshot of a fleet parked on the pad costs nothing.
  */
 object VesselCondition {
 
     const val BYTES_PER_PART = 7
 
-    /** Joint load, as a share of strength, below which nothing shows and nothing is sent. */
+    /** Joint load, as a share of strength, below which nothing shows and nothing gets sent. */
     const val LOAD_VISIBLE = 0.6
 
-    /** The most load a byte can say: past [Stress.SNAP] a joint has gone. */
+    /** The most load a byte can say. Past [Stress.SNAP] a joint has gone. */
     const val MOST_LOAD = Stress.SNAP
 
-    /** Below this nothing glows, and a craft this cool and whole sends nothing, K. */
+    /** Below this nothing glows, and a craft this cool and whole sends nothing, in K. */
     const val WARM = 400.0
 
-    /** The coolest and hottest a byte can say, K. */
+    /** The coolest and hottest a byte can say, in K. */
     const val COOLEST = 250.0
     const val HOTTEST = 4_000.0
 
@@ -58,7 +56,7 @@ object VesselCondition {
         return out
     }
 
-    /** A craft's parts as the wire last described them. */
+    /** A craft's parts as the network last described them. */
     class Values {
         var health = FloatArray(0); private set
         var temperature = FloatArray(0); private set
@@ -94,9 +92,9 @@ object VesselCondition {
     }
 
     /**
-     * Unpacks [bytes] for a craft of [parts] parts into [into]. An empty
-     * block, or one for a different number of parts - the structure changed
-     * and the snapshot has not caught up - reads as whole and cool.
+     * Unpacks [bytes] for a craft of [parts] parts into [into]. An empty block, or one for a
+     * different number of parts (the structure changed and the snapshot hasn't caught up), reads as
+     * whole and cool.
      */
     fun decode(parts: Int, bytes: ByteArray, into: Values): Values {
         into.fit(parts)

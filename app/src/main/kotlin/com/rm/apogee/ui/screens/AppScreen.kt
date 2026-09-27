@@ -3,10 +3,10 @@ package com.rm.apogee.ui.screens
 /**
  * Every screen in the app.
  *
- * An enum plus a `when` plus a [androidx.activity.compose.BackHandler], rather
- * than a navigation library. A game has a shallow, hand-authored screen graph
- * and needs the back button to do something specific in flight (nothing); a
- * route-and-back-stack abstraction is weight without payoff here.
+ * It's an enum plus a `when` plus a [androidx.activity.compose.BackHandler], instead of a
+ * navigation library. A game has a shallow, hand-made screen graph and needs the back button to do
+ * something specific in flight (nothing). A route and back-stack library would be weight with no
+ * payoff here.
  */
 enum class AppScreen {
     MENU,
@@ -22,7 +22,7 @@ enum class AppScreen {
     /** The player's craft in the solo world: fly one, reset it, or remove it. */
     RESUME_FLIGHT,
 
-    /** The player's crew in the solo world, and those lost. */
+    /** The player's crew in the solo world, and the ones who were lost. */
     CREW,
 
     /** A career's program: the tech tree, the feats, and the worlds. */
@@ -38,8 +38,8 @@ enum class AppScreen {
             PLAY, SETTINGS, ABOUT -> MENU
             HOST_GAME, JOIN_GAME -> PLAY
             BUILDER, RESUME_FLIGHT, CREW, PROGRAM -> PLAY
-            // Flight handles its own exit through a confirmation, so that a
-            // stray back gesture cannot discard a flight in progress.
+            // Flight handles its own exit through a confirmation, so a stray back gesture can't
+            // throw away a flight in progress.
             FLIGHT -> null
         }
 

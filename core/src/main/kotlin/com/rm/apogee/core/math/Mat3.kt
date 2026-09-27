@@ -3,9 +3,8 @@ package com.rm.apogee.core.math
 /**
  * A 3x3 matrix in double precision, row-major.
  *
- * Exists almost entirely for inertia tensors. Unlike [Mat4] - which is a float
- * buffer shaped for OpenGL - this one stays in the simulation's precision and
- * is never handed to the GPU.
+ * It's here almost entirely for inertia tensors. Unlike [Mat4], which is a float buffer shaped for
+ * OpenGL, this one stays at the simulation's precision and never goes to the GPU.
  *
  * Indexing is `m[row * 3 + col]`.
  */
@@ -39,7 +38,7 @@ class Mat3(
 
     fun copy() = Mat3(m.copyOf())
 
-    /** `out = this * v`. [out] may alias [v]. */
+    /** `out = this * v`. [out] can be the same object as [v]. */
     fun transform(v: Vec3, out: Vec3 = Vec3()): Vec3 {
         val x = m[0] * v.x + m[1] * v.y + m[2] * v.z
         val y = m[3] * v.x + m[4] * v.y + m[5] * v.z
@@ -57,7 +56,7 @@ class Mat3(
         return this
     }
 
-    /** `this = a * b`. Neither argument may alias `this`. */
+    /** `this = a * b`. Neither argument can be the same object as `this`. */
     fun setMultiplied(a: Mat3, b: Mat3): Mat3 {
         for (row in 0..2) {
             for (col in 0..2) {
@@ -76,15 +75,14 @@ class Mat3(
     }
 
     /**
-     * General 3x3 inverse by cofactors.
+     * A general 3x3 inverse by cofactors.
      *
-     * An inertia tensor is symmetric positive-definite so it is always
-     * invertible in principle, but a craft that is a single point mass (or a
-     * degenerate one-part stack with no extent on an axis) can produce a
-     * singular tensor. Rather than emit infinities that propagate silently
-     * through the whole simulation, that case returns a zero matrix - which
-     * reads downstream as "infinite inertia about that axis", i.e. it simply
-     * will not rotate. Wrong, but inert and visible, instead of NaN.
+     * An inertia tensor is symmetric positive-definite, so in principle it can always be inverted.
+     * But a craft that's a single point mass (or a one-part stack with no size along an axis) can
+     * give a singular tensor. Instead of producing infinities that spread quietly through the whole
+     * simulation, that case returns a zero matrix, which reads downstream as "infinite inertia
+     * around that axis". In other words it just won't rotate. That's wrong, but it's harmless and
+     * you can see it, which beats NaN.
      */
     fun inverted(): Mat3 {
         val a = m[0]; val b = m[1]; val c = m[2]
@@ -109,11 +107,11 @@ class Mat3(
     }
 
     /**
-     * Rebuilds this as `R * I * R^T` - the local-frame inertia tensor [local]
-     * expressed in world space for a body oriented by [rotation].
+     * Rebuilds this as `R * I * R^T`, the local-frame inertia tensor [local] expressed in world
+     * space for a body oriented by [rotation].
      *
-     * Needed every tick: angular acceleration is `I⁻¹ * torque` with both in
-     * the same frame, and torque accumulates in world space.
+     * This is needed every tick. Angular acceleration is `I⁻¹ * torque` with both in the same
+     * frame, and torque adds up in world space.
      */
     fun setRotated(local: Mat3, rotation: Quat): Mat3 {
         val r = fromQuat(rotation)
@@ -155,13 +153,11 @@ class Mat3(
         }
 
         /**
-         * The parallel-axis (Huygens-Steiner) term for shifting a body of mass
-         * [mass] whose tensor is about its own centre of mass to an axis
-         * [offset] away: `m * ((r·r)E - r⊗r)`.
+         * The parallel-axis (Huygens-Steiner) term for moving the tensor of a body of mass [mass],
+         * taken around its own centre of mass, to an axis [offset] away: `m * ((r·r)E - r⊗r)`.
          *
-         * This is what lets a craft's inertia be assembled by summing its
-         * parts, which is the entire reason the builder can show a real
-         * handling characteristic before anything is launched.
+         * This is what lets a craft's inertia be built up by adding up its parts, which is the
+         * whole reason the builder can show real handling before anything launches.
          */
         fun parallelAxisTerm(mass: Double, offset: Vec3): Mat3 {
             val rr = offset.lengthSq

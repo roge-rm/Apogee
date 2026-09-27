@@ -15,7 +15,7 @@ class SasModeTest {
     private val catalog = StockParts.catalog
     private val dt = 1.0 / 60.0
 
-    /** A probe in a circular orbit 150 km up, nose along +X of the world. */
+    /** A probe in a circular orbit 150 km up, with its nose along the world's +X. */
     private fun inOrbit(world: World): Vessel {
         val terra = world.system.body("terra")
         val r = terra.radius + 150_000.0
@@ -41,7 +41,7 @@ class SasModeTest {
     }
 
     @Test
-    fun `holding normal and radial point where the navball shows them`() {
+    fun `holding normal and radial points where the navball shows them`() {
         for (mode in listOf(SasMode.NORMAL, SasMode.RADIAL_OUT)) {
             val world = World.default(catalog)
             val probe = inOrbit(world)

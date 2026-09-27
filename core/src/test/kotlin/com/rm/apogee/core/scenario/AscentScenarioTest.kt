@@ -8,11 +8,10 @@ import org.junit.Test
 /**
  * The vertical slice, as a test.
  *
- * If this fails, something in thrust, drag, mass, staging, crossfeed, attitude
- * control or the integrator has regressed - and the telemetry it prints on
- * failure usually says which. It is deliberately an end-to-end assertion rather
- * than a tight numeric one: exact numbers will move as the model improves, but
- * "the stock rocket makes a stable orbit" must not.
+ * If this fails, something in thrust, drag, mass, staging, crossfeed, attitude control or the
+ * integrator has gone backwards, and the telemetry it prints on failure usually says which. It's an
+ * end-to-end check on purpose, not a tight number one. Exact numbers will move as the model gets
+ * better, but "the stock rocket makes a stable orbit" mustn't.
  */
 class AscentScenarioTest {
 
@@ -21,8 +20,8 @@ class AscentScenarioTest {
         val result = AscentScenario().fly()
 
         if (!result.reachedOrbit) {
-            // Surfacing the flight log here is the point - a bare assertion
-            // failure would say nothing about where the ascent went wrong.
+            // Showing the flight log here is the point, because a bare assertion failure would say
+            // nothing about where the ascent went wrong.
             println(result.log.joinToString("\n"))
         }
 
@@ -54,7 +53,7 @@ class AscentScenarioTest {
         )
     }
 
-    /** Weather is part of the world now: the stock rocket makes orbit through it. */
+    /** Weather is part of the world now, and the stock rocket makes orbit through it. */
     @Test
     fun `the stock rocket reaches orbit through the weather`() {
         for (intensity in listOf(com.rm.apogee.core.weather.WeatherIntensity.NORMAL, com.rm.apogee.core.weather.WeatherIntensity.WILD)) {
@@ -70,9 +69,9 @@ class AscentScenarioTest {
 
     @Test
     fun `ascent is reproducible`() {
-        // Same inputs, same flight. Not because we rely on cross-device
-        // determinism - we do not - but because a simulation whose own results
-        // wander cannot be tested or replayed at all.
+        // The same inputs give the same flight. Not because we rely on cross-device determinism (we
+        // don't), but because a simulation whose own results wander can't be tested or replayed at
+        // all.
         val first = AscentScenario().fly()
         val second = AscentScenario().fly()
 

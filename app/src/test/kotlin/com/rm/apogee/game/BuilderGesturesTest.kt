@@ -22,18 +22,18 @@ class BuilderGesturesTest {
     }
 
     @Test
-    fun `a quick touch is a tap, two close together a double tap`() {
+    fun `a quick touch is a tap, and two close together are a double tap`() {
         val log = Log(); val g = BuilderGestures(log)
         g.down(100f, 100f, 0); g.up(103f, 101f, 90)
         g.down(110f, 104f, 200); g.up(110f, 104f, 280)
         assertEquals(listOf("tap", "double"), log.events)
-        // A third is a tap again, not another double.
+        // A third one is a tap again, not another double.
         g.down(110f, 104f, 400); g.up(110f, 104f, 450)
         assertEquals("tap", log.events.last())
     }
 
     @Test
-    fun `a drag turns the view and is not a tap`() {
+    fun `a drag turns the view and isn't a tap`() {
         val log = Log(); val g = BuilderGestures(log)
         g.down(100f, 100f, 0); g.move(160f, 100f); g.up(160f, 100f, 150)
         assertTrue(log.orbited > 50f)

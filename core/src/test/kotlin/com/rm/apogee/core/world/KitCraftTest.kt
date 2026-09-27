@@ -12,10 +12,9 @@ import kotlin.math.abs
 import kotlin.math.acos
 
 /**
- * The craft built from the vehicle kits do what their kind does: the jet
- * flies, the rovers drive and steer, the boats float, go and turn without
- * rolling over. Each is only parts - no craft-specific code - so these are
- * really tests that the kit parts are sized and placed sensibly.
+ * The craft built from the vehicle kits do what their kind does: the jet flies, the rovers drive
+ * and steer, and the boats float, go and turn without rolling over. Each one is only parts, with no
+ * craft-specific code, so these are really tests that the kit parts are sized and placed sensibly.
  */
 class KitCraftTest {
 
@@ -43,7 +42,7 @@ class KitCraftTest {
         return attractor.heightAboveTerrain(vessel.body.position, bodyFixed)
     }
 
-    /** How far the craft's own up is from the local vertical, degrees. */
+    /** How far the craft's own up is from the local vertical, in degrees. */
     private fun tilt(vessel: Vessel): Double {
         val craftUp = vessel.body.orientation.rotate(vessel.design.orientation.up)
         return Math.toDegrees(acos((craftUp dot up(vessel)).coerceIn(-1.0, 1.0)))
@@ -65,11 +64,10 @@ class KitCraftTest {
     }
 
     /**
-     * Flown as a pilot would: full throttle, SAS on, the stick back from
-     * 50 m/s to hold the nose 12 degrees up until it is ten metres off
-     * the ground, then let go. It leaves the
-     * ground at a light jet's speed and, trimmed with the tail neutral, SAS
-     * holds the climb - it neither drops its nose into the ground nor loops.
+     * Flown the way a pilot would: full throttle, SAS on, and the stick back from 50 m/s to hold
+     * the nose 12 degrees up until it's ten metres off the ground, then let go. It leaves the
+     * ground at a light jet's speed and, trimmed with the tail neutral, SAS holds the climb. It
+     * neither drops its nose into the ground nor loops.
      */
     @Test
     fun `the Sparrow rotates, lifts off and holds its climb`() {
@@ -143,8 +141,8 @@ class KitCraftTest {
         val speed = groundVelocity(world, boat).length
         assertTrue("${design.name} only makes $speed m/s", speed > minSpeed)
 
-        // Heading summed tick by tick: a quick boat comes all the way round
-        // in the time, and the angle between start and end would wrap.
+        // Heading added up tick by tick, because a quick boat comes all the way round in the time,
+        // and the angle between start and end would wrap.
         world.apply(Command.SetAttitude(boat.id.raw, 0.0, 0.6, 0.0))
         var worstTilt = 0.0
         var heading = 0.0
@@ -163,8 +161,8 @@ class KitCraftTest {
     fun `the Cutter goes and turns without capsizing`() = goesAndTurns(StockCraft.cutter(catalog), minSpeed = 1.0)
 
     /**
-     * The keel is a plate across the water's path sideways: shove a cutter
-     * beam-on and it stops sliding within seconds instead of skating on.
+     * The keel is a plate across the water's path sideways. Shove a cutter beam-on and it stops
+     * sliding within seconds instead of skating on.
      */
     @Test
     fun `a keel stops a boat sliding sideways`() {
@@ -179,9 +177,8 @@ class KitCraftTest {
     }
 
     /**
-     * Out of the water, a water propeller and a rudder are just weight: an
-     * outboard at full throttle in the air pushes nothing, and a keel does
-     * nothing to a craft falling through air.
+     * Out of the water, a water propeller and a rudder are just weight. An outboard at full
+     * throttle in the air pushes nothing, and a keel does nothing to a craft falling through air.
      */
     @Test
     fun `an outboard pushes nothing out of the water`() {
@@ -198,10 +195,9 @@ class KitCraftTest {
     }
 
     /**
-     * One stick, one way round: the same yaw turns every craft that steers
-     * - the rovers on their wheels, a boat on its rudder, a jet on its tail -
-     * toward the same side of itself. The Trundler, once a pod standing on
-     * wheels, turned the other way to every other rover.
+     * One stick, one way round. The same yaw turns every craft that steers (the rovers on their
+     * wheels, a boat on its rudder, a jet on its tail) toward the same side of itself. The
+     * Trundler, when it was a pod standing on wheels, turned the opposite way to every other rover.
      */
     @Test
     fun `the same yaw turns every rover, boat and plane the same way`() {

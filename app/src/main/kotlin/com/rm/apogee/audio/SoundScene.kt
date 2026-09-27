@@ -6,18 +6,16 @@ import kotlin.math.exp
 import kotlin.math.sqrt
 
 /**
- * What can be heard this frame, worked out from the game's state and handed
- * to the [AudioEngine]: which sounds are held, how loud, where, and the
- * one-shots and when they arrive.
+ * What can be heard this frame, worked out from the game's state and handed to the [AudioEngine]:
+ * which sounds are held, how loud they are, where they are, and the one-shots and when they arrive.
  *
- * Pure: nothing here touches the native engine, so it is tested as it is.
+ * It's pure. Nothing here touches the native engine, so it gets tested as it is.
  *
- * Out in the air sound falls off with distance, loses its top end the
- * further it has come, arrives late at the speed of sound and pans with the
- * direction it comes from. In vacuum none of that happens, because nothing
- * reaches you at all - except through the hull of your own craft: its
- * engines as a rumble in the structure, the knocks and bangs it takes, the
- * cabin's hum. Another craft's engine, however close, is silent.
+ * Out in the air, sound falls off with distance, loses its top end the further it has come, arrives
+ * late at the speed of sound, and pans with the direction it comes from. In vacuum none of that
+ * happens, because nothing reaches you at all, except through the hull of your own craft: its
+ * engines as a rumble in the structure, the knocks and bangs it takes, and the cabin's hum. Another
+ * craft's engine, however close, is silent.
  */
 class SoundScene(private val budget: Int) {
 
@@ -29,22 +27,22 @@ class SoundScene(private val budget: Int) {
         /** Where it is, and the air's pressure there as a share of sea level's. */
         val position: Vec3,
         val pressure: Double,
-        /** Its velocity through the air, m/s, in the same frame as [position]: for Doppler. */
+        /** Its velocity through the air, in m/s, in the same frame as [position], for Doppler. */
         val velocity: Vec3 = Vec3(),
     ) {
-        /** Per exhaust kind: output weighted by thrust (0..1), and the thrust it is out of, N. */
+        /** Per exhaust kind: output weighted by thrust (0..1), and the thrust it's out of, in N. */
         val output = DoubleArray(Exhaust.entries.size)
         val thrust = DoubleArray(Exhaust.entries.size)
         /**
-         * Per exhaust kind, thrust-weighted: how much its engines are built
-         * for vacuum, 0 a sea-level booster to 1 a vacuum engine - how they
-         * sound (see [vacuumBuilt]).
+         * Per exhaust kind, weighted by thrust: how much its engines are built for vacuum, from 0
+         * for a sea-level booster to 1 for a vacuum engine. That's how they sound (see
+         * [vacuumBuilt]).
          */
         val character = DoubleArray(Exhaust.entries.size)
-        /** Parts of it on fire. */
+        /** Parts of it that are on fire. */
         var burning = 0
 
-        /** How hard its thrusters are firing, 0..1: the hardest-working block. */
+        /** How hard its thrusters are firing, 0..1, from the hardest-working block. */
         var rcs = 0.0
             private set
 
@@ -62,27 +60,27 @@ class SoundScene(private val budget: Int) {
         }
     }
 
-    /** The craft being flown's own air and strain. */
+    /** The flown craft's own air and strain. */
     class Own(
         val airspeed: Double,
         val dynamicPressure: Double,
         val mach: Double,
-        /** Re-entry heating, 0 none to 1 fully alight. */
+        /** Re-entry heating, from 0 for none to 1 for fully alight. */
         val heat: Double,
-        /** Hardest-loaded joint, as a share of its strength. */
+        /** The hardest-loaded joint, as a share of its strength. */
         val stress: Double,
         val crewed: Boolean,
         /**
-         * On wheels: how fast over the ground, how hard driven, the ground's
-         * grit (how much it crunches) and softness (0 rock to 1 sand or snow).
+         * On wheels: how fast it's going over the ground, how hard it's driven, the ground's grit
+         * (how much it crunches) and softness (0 rock to 1 sand or snow).
          */
         val wheelSpeed: Double = 0.0,
         val wheelLoad: Double = 0.0,
         val grit: Double = 0.0,
         val softness: Double = 0.0,
-        /** How much the hull is still settling to a change of outside pressure, 0..1 - see [HullSettling]. */
+        /** How much the hull is still settling to a change of outside pressure, 0..1. See [HullSettling]. */
         val settling: Double = 0.0,
-        /** Being filled from a base: its pump hums through the hull. */
+        /** Being filled from a base, so its pump hums through the hull. */
         val pumping: Boolean = false,
     )
 
@@ -91,24 +89,32 @@ class SoundScene(private val budget: Int) {
         val position: Vec3,
         /** The camera's right, for panning. */
         val right: Vec3,
-        /** Air density there, kg/m³: none, and only the hull carries sound. */
+        /** Air density there, in kg/m³. With none, only the hull carries sound. */
         val density: Double,
-        /** Wind there, m/s, and how gusty (0..1); rain (0..1). */
+        /** Wind there, in m/s, and how gusty it is (0..1), and rain (0..1). */
         val wind: Double = 0.0,
         val turbulence: Double = 0.0,
         val rain: Double = 0.0,
-        /** How the ears are moving through the air, m/s, in the frame of [position]: for Doppler. */
+        /**
+         * How the ears are moving through the air, in m/s, in the frame of [position], for Doppler.
+         */
         val velocity: Vec3 = Vec3(),
-        /** Waves breaking on a shore nearby, 0 none to 1 right on the beach. */
+        /** Waves breaking on a shore nearby, from 0 for none to 1 right on the beach. */
         val shore: Double = 0.0,
-        /** The open sea round the listener: how near and loud (0..1), how rough (0..1), how stormy (0..1). */
+        /**
+         * The open sea around the listener: how near and loud (0..1), how rough (0..1), and how
+         * stormy (0..1).
+         */
         val sea: Double = 0.0,
         val seaRough: Double = 0.0,
         val seaStorm: Double = 0.0,
-        /** The launch complex round the listener, 0 away to 1 among its pads; and whether its lamps are lit. */
+        /**
+         * The launch complex around the listener, from 0 away to 1 among its pads, and whether its
+         * lamps are lit.
+         */
         val complex: Double = 0.0,
         val lampsLit: Boolean = false,
-        /** The harbour round the listener, 0 away to 1 on its jetty. */
+        /** The harbour around the listener, from 0 away to 1 on its jetty. */
         val port: Double = 0.0,
     ) {
         val inAir: Boolean get() = density > AIRLESS
@@ -117,7 +123,7 @@ class SoundScene(private val budget: Int) {
     /** A one-shot, ready for [AudioEngine.event]. */
     class Shot(val recipe: Int, val flags: Int, val delay: Float, val params: FloatArray)
 
-    // The scene as last built: parallel arrays, as the native side wants it.
+    // The scene as it was last built, in parallel arrays, the way the native side wants it.
     var count = 0
         private set
     val keys = IntArray(budget)
@@ -189,7 +195,7 @@ class SoundScene(private val budget: Int) {
 
         if (own != null) {
             if (air) {
-                // The air it is tearing through, heard as if riding along.
+                // The air it's tearing through, heard as if you were riding along.
                 val loud = sqrt(own.dynamicPressure / 30_000.0).coerceIn(0.0, 1.2)
                 if (loud > 0.02) {
                     val v = FloatArray(SharedParams.COUNT)
@@ -205,10 +211,10 @@ class SoundScene(private val budget: Int) {
                     add(KEY_REENTRY, Recipes.REENTRY, 0, v, 1f, 0f, 0f, weight = own.heat.toFloat() * 1.5f)
                 }
             }
-            // The cabin: its hum only out in vacuum, where nothing drowns it;
-            // the hull's ticks wherever it is still settling to the pressure.
-            // Being filled from a base, the pump's hum comes through the hull
-            // too - the cabin's own, already measured, rather than a new noise.
+            // The cabin: its hum only out in vacuum, where nothing drowns it out, and the hull's
+            // ticks wherever it's still settling to the pressure. Being filled from a base, the
+            // pump's hum comes through the hull too, using the cabin's own sound, already measured,
+            // instead of a new noise.
             if (own.pumping || (own.crewed && (!air || own.settling > 0.02))) {
                 val v = FloatArray(SharedParams.COUNT)
                 v[0] = 0.6f
@@ -224,8 +230,8 @@ class SoundScene(private val budget: Int) {
         }
 
         if (air) {
-            // Wind and rain where the camera is, thinning with the air.
-            // Calm is quiet: nothing below a breeze, then rising with it.
+            // Wind and rain where the camera is, thinning with the air. Calm is quiet: nothing
+            // below a breeze, then rising with it.
             val thin = sqrt((listener.density / SEA_LEVEL_DENSITY).coerceIn(0.0, 1.0))
             val breeze = ((listener.wind - CALM) / (GALE - CALM)).coerceIn(0.0, 1.0)
             val wind = Math.pow(breeze, 1.3) * thin
@@ -279,9 +285,9 @@ class SoundScene(private val budget: Int) {
     }
 
     /**
-     * A one-shot at [position]: an impact at [amount] m/s on [material]
-     * (into water if [water]), a part destroyed or torn off, or an explosion
-     * of [amount] kg. Null if it cannot be heard from here.
+     * A one-shot at [position]: an impact at [amount] m/s on [material] (into water if [water]), a
+     * part destroyed or torn off, or an explosion of [amount] kg. Null if it can't be heard from
+     * here.
      */
     fun shot(listener: Listener, kind: Kind, position: Vec3, amount: Double, own: Boolean, material: Int = Materials.EARTH, water: Boolean = false): Shot? {
         val air = listener.inAir
@@ -310,7 +316,7 @@ class SoundScene(private val budget: Int) {
         val (gain, pan, lowpass) = place(listener, position, reach)
         if (gain < AUDIBLE) return null
         v[SharedParams.GAIN] = gain; v[SharedParams.PAN] = pan; v[SharedParams.LOWPASS] = lowpass
-        // Sound takes its time: the flash first, the bang after.
+        // Sound takes its time, so the flash comes first and the bang after.
         val delay = (position.distanceTo(listener.position) / SPEED_OF_SOUND).coerceAtMost(MAX_DELAY)
         return Shot(recipe, 0, delay.toFloat(), v)
     }
@@ -318,9 +324,8 @@ class SoundScene(private val budget: Int) {
     enum class Kind { IMPACT, DESTROYED, DETACHED, EXPLOSION, LATCH, RELEASE, SLAP }
 
     /**
-     * How a sound at [position] reaches the listener: its loudness by
-     * distance, relative to one that carries [reach] times as far as usual;
-     * its pan; and the low pass the air puts on it.
+     * How a sound at [position] reaches the listener: its loudness by distance, relative to one
+     * that carries [reach] times as far as usual, its pan, and the low pass the air puts on it.
      */
     fun place(listener: Listener, position: Vec3, reach: Double): Triple<Float, Float, Float> {
         scratch.setTo(position).subInPlace(listener.position)
@@ -334,11 +339,11 @@ class SoundScene(private val budget: Int) {
     }
 
     /**
-     * How much higher [craft] sounds than it is, as heard by [listener]:
-     * above 1 coming closer, below going away - (c + v_listener) / (c + v_source)
-     * along the line between them. The craft you ride with moves with you
-     * and sounds as it is. Kept within an octave either way: past the speed
-     * of sound the formula runs away, and the shock is another sound.
+     * How much higher [craft] sounds than it really is, as heard by [listener]. Above 1 it's coming
+     * closer, and below 1 it's going away: (c + v_listener) / (c + v_source) along the line between
+     * them. The craft you're riding moves with you and sounds as it is. It's kept within an octave
+     * either way, because past the speed of sound the formula runs away, and the shock is a
+     * different sound.
      */
     fun doppler(listener: Listener, craft: Craft): Double {
         scratch.setTo(craft.position).subInPlace(listener.position)
@@ -360,31 +365,30 @@ class SoundScene(private val budget: Int) {
     }
 
     companion object {
-        /** Air thinner than this, kg/m³, carries nothing. */
+        /** Air thinner than this, in kg/m³, carries nothing. */
         const val AIRLESS = 1e-5
         const val SEA_LEVEL_DENSITY = 1.225
         const val SPEED_OF_SOUND = 343.0
 
-        /** Wind below this makes no sound, m/s; at [GALE] it is as loud as it gets. */
+        /** Wind below this makes no sound, in m/s. At [GALE] it's as loud as it gets. */
         const val CALM = 1.5
         const val GALE = 20.0
         const val MAX_DELAY = 8.0
 
-        /** Where a source of ordinary reach is at half loudness, m. */
+        /** Where a source of ordinary reach is at half loudness, in metres. */
         const val REFERENCE_DISTANCE = 40.0
 
-        /** Thrust at which an engine sounds as big as it gets, N. */
+        /** The thrust at which an engine sounds as big as it gets, in N. */
         const val FULL_SIZE_THRUST = 400_000.0
 
         /**
-         * Joint load, as a share of strength, where the structure starts to
-         * creak: where the seam starts to spark (StrainLook.SPARKS_FROM), so
-         * it is heard when it is seen. At 0.55 it creaked through most of an
-         * ascent once fins counted (Dan: too prevalent).
+         * The joint load, as a share of strength, where the structure starts to creak. It's where
+         * the seam starts to spark (StrainLook.SPARKS_FROM), so you hear it when you see it. At
+         * 0.55 it creaked through most of an ascent once fins counted, which was far too much.
          */
         const val STRESS_AUDIBLE = 0.75
 
-        /** Quieter than this, a sound is not worth a voice. */
+        /** Quieter than this, a sound isn't worth a voice. */
         const val AUDIBLE = 0.01f
 
         const val CRAFT_SLOTS = 8
@@ -405,9 +409,8 @@ class SoundScene(private val budget: Int) {
         const val KEY_PORT = -10
 
         /**
-         * How much an engine is built for vacuum, 0..1, from how much of its
-         * thrust it keeps at sea level: a booster keeps most, a vacuum
-         * engine's big bell keeps little.
+         * How much an engine is built for vacuum, 0..1, from how much of its thrust it keeps at sea
+         * level. A booster keeps most, and a vacuum engine's big bell keeps little.
          */
         fun vacuumBuilt(thrustSeaLevel: Double, thrustVacuum: Double): Double =
             if (thrustVacuum <= 0.0) 0.0 else (1.0 - thrustSeaLevel / thrustVacuum).coerceIn(0.0, 1.0)

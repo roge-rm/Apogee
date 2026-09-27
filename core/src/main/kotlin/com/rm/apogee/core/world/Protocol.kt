@@ -9,10 +9,9 @@ import kotlinx.serialization.Serializable
 /**
  * Something a player asks the world to do.
  *
- * Commands travel client -> server and are applied at a tick boundary, never
- * mid-step. Applying them mid-step would make the result depend on where in the
- * vessel iteration the command landed, which is exactly the kind of ordering
- * dependence that makes a replay stop matching.
+ * Commands go from client to server and get applied at a tick boundary, never in the middle of a
+ * step. Applying them mid-step would make the result depend on where in the vessel loop the command
+ * landed, which is exactly the kind of ordering problem that makes a replay stop matching.
  */
 @Serializable
 sealed interface Command {
@@ -47,7 +46,7 @@ sealed interface Command {
     @SerialName("setSas")
     data class SetSas(val vessel: Long, val enabled: Boolean) : Command
 
-    /** What stability assist holds: a navball marker, or the attitude at release. */
+    /** What stability assist holds: a navball marker, or the attitude when you let go. */
     @Serializable
     @SerialName("setSasMode")
     data class SetSasMode(val vessel: Long, val mode: SasMode) : Command
@@ -62,7 +61,7 @@ sealed interface Command {
     @SerialName("setTarget")
     data class SetTarget(val vessel: Long, val target: Long, val body: String = "") : Command
 
-    /** Replaces [vessel]'s planned burns with [burns]: see [PlannedBurn]. Empty clears them. */
+    /** Replaces [vessel]'s planned burns with [burns]. See [PlannedBurn]. Empty clears them. */
     @Serializable
     @SerialName("planBurns")
     data class PlanBurns(val vessel: Long, val burns: List<PlannedBurn>) : Command
@@ -76,7 +75,7 @@ sealed interface Command {
     @SerialName("setBrakes")
     data class SetBrakes(val vessel: Long, val engaged: Boolean) : Command
 
-    /** Folds out (or away) [vessel]'s sun wings and dishes. */
+    /** Folds [vessel]'s sun wings and dishes out, or away. */
     @Serializable
     @SerialName("deploy")
     data class Deploy(val vessel: Long, val deployed: Boolean) : Command
@@ -86,7 +85,10 @@ sealed interface Command {
     @SerialName("eva")
     data class Eva(val vessel: Long, val crew: Long) : Command
 
-    /** Someone on EVA in suit [vessel] climbs into a free seat of [target] - or, -1, the nearest in reach. */
+    /**
+     * Someone on EVA in suit [vessel] climbs into a free seat of [target], or with -1, the nearest
+     * one in reach.
+     */
     @Serializable
     @SerialName("board")
     data class Board(val vessel: Long, val target: Long = -1L) : Command
@@ -101,7 +103,7 @@ sealed interface Command {
     @SerialName("jump")
     data class Jump(val vessel: Long) : Command
 
-    /** Someone on EVA takes hold of the nearest ladder, or lets go. */
+    /** Someone on EVA grabs the nearest ladder, or lets go. */
     @Serializable
     @SerialName("grab")
     data class Grab(val vessel: Long, val on: Boolean) : Command
@@ -111,22 +113,25 @@ sealed interface Command {
     @SerialName("plantFlag")
     data class PlantFlag(val vessel: Long) : Command
 
-    /** Floods [vessel]'s ballast tanks (1), blows them (-1), or stops them (0) - and lets go of any depth held. */
+    /**
+     * Floods [vessel]'s ballast tanks (1), blows them (-1), or stops them (0), and lets go of any
+     * depth being held.
+     */
     @Serializable
     @SerialName("setBallast")
     data class SetBallast(val vessel: Long, val mode: Int) : Command
 
-    /** Holds [vessel] at the depth it is at by its ballast, or stops. */
+    /** Holds [vessel] at its current depth using its ballast, or stops. */
     @Serializable
     @SerialName("holdDepth")
     data class HoldDepth(val vessel: Long, val on: Boolean) : Command
 
-    /** Switches [vessel]'s drills and its converters - a base's refinery - on or off. */
+    /** Switches [vessel]'s drills and its converters (a base's refinery) on or off. */
     @Serializable
     @SerialName("setIndustry")
     data class SetIndustry(val vessel: Long, val drilling: Boolean, val refining: Boolean) : Command
 
-    /** Starts or stops [vessel] emptying its ore and water into the base, or craft, it is docked to or stands on. */
+    /** Starts or stops [vessel] emptying its ore and water into the base or craft it's docked to or standing on. */
     @Serializable
     @SerialName("unload")
     data class Unload(val vessel: Long, val active: Boolean) : Command
@@ -145,43 +150,42 @@ sealed interface Command {
     data class SpawnCraft(val design: CraftDesign, val siteId: String) : Command
 
     /**
-     * Welds this craft to whatever it is resting against.
+     * Welds this craft to whatever it's resting against.
      *
-     * No target: the world picks the nearest craft actually in contact. A
-     * player pushing one module up against another should not also have to
-     * identify it, and on a touch screen there is nothing sensible to tap.
+     * With no target, the world picks the nearest craft that's actually touching. A player pushing
+     * one module up against another shouldn't also have to point out which one, and on a touch
+     * screen there's nothing sensible to tap.
      */
     @Serializable
     @SerialName("join")
     data class Join(val vessel: Long) : Command
 
     /**
-     * Pins this craft to the ground where it rests - a base founded - or,
-     * [anchored] false, lets it go again. Only a craft with a working
-     * foundation, at rest; the world checks.
+     * Pins this craft to the ground where it rests, founding a base, or with [anchored] false, lets
+     * it go again. Only a craft with a working foundation, at rest. The world checks.
      */
     @Serializable
     @SerialName("anchor")
     data class Anchor(val vessel: Long, val anchored: Boolean) : Command
 
     /**
-     * Fill this craft from the base it stands on the pad of, or is docked to
-     * - propellant, monopropellant and charge, as far as the base has them
-     * and has the power to pump - or, [active] false, stop.
+     * Fill this craft from the base whose pad it stands on, or that it's docked to: propellant,
+     * monopropellant and charge, as far as the base has them and has the power to pump. Or with
+     * [active] false, stop.
      */
     @Serializable
     @SerialName("refuel")
     data class Refuel(val vessel: Long, val active: Boolean) : Command
 
     /**
-     * Two players' craft docked: who flies the combined craft [vessel] -
-     * [pilot] is a player's client id, or empty for either of them.
+     * Two players' craft are docked, and this says who flies the combined craft [vessel]. [pilot]
+     * is a player's client id, or empty for either of them.
      */
     @Serializable
     @SerialName("setDockPilot")
     data class SetDockPilot(val vessel: Long, val pilot: String) : Command
 
-    /** Let go at docking part [part] of [vessel]: undock a ring or clamp, uncouple a hitch. */
+    /** Let go at docking part [part] of [vessel]: undock a ring or clamp, or uncouple a hitch. */
     @Serializable
     @SerialName("undock")
     data class Undock(val vessel: Long, val part: Int) : Command
@@ -189,9 +193,9 @@ sealed interface Command {
     /**
      * Fly a different craft.
      *
-     * The counterpart to launching: a world you leave things in is one where
-     * the craft you want is usually not the one you are in. Only craft the
-     * player owns are switchable, which the server checks.
+     * This is the partner to launching. In a world you leave things in, the craft you want is
+     * usually not the one you're in. Only craft the player owns can be switched to, and the server
+     * checks that.
      */
     @Serializable
     @SerialName("switchVessel")
@@ -202,25 +206,25 @@ sealed interface Command {
     data class Chat(val text: String) : Command
 
     /**
-     * How fast the world runs: a multiple of real time, 0 to pause. Only
-     * honoured by a server that allows it, with nobody else on it - one
-     * player cannot stop or speed up everyone else's world.
+     * How fast the world runs, as a multiple of real time, with 0 to pause. It's only honoured by a
+     * server that allows it, with nobody else on it, because one player can't stop or speed up
+     * everyone else's world.
      */
     @Serializable
     @SerialName("setWarp")
     data class SetWarp(val rate: Double) : Command
 
     /**
-     * As fast as the world allows until universe [time], then back to real
-     * time: to a planned burn, say. Honoured where [SetWarp] is.
+     * As fast as the world allows until universe [time], then back to real time, for example to
+     * reach a planned burn. Honoured wherever [SetWarp] is.
      */
     @Serializable
     @SerialName("warpTo")
     data class WarpTo(val time: Double) : Command
 
     /**
-     * Takes one of the player's own craft out of the world for good - from
-     * the craft list, or retiring the one being flown.
+     * Takes one of the player's own craft out of the world for good, either from the craft list or
+     * by retiring the one being flown.
      */
     @Serializable
     @SerialName("removeVessel")
@@ -235,11 +239,10 @@ sealed interface Command {
 /**
  * One vessel's motion at a tick.
  *
- * Small and sent constantly - 20 Hz per vessel in range - which is why it
- * carries only what changes continuously. Structure travels separately as
- * [StructureUpdate], because a craft's part list changes a handful of times per
- * flight and repeating it 20 times a second would dominate the bandwidth for no
- * reason.
+ * It's small and sent constantly (20 Hz for each vessel in range), which is why it only carries
+ * what changes all the time. Structure travels separately as [StructureUpdate], because a craft's
+ * part list changes a handful of times per flight, and repeating it 20 times a second would eat the
+ * bandwidth for no reason.
  */
 @Serializable
 data class VesselKinematics(
@@ -249,15 +252,18 @@ data class VesselKinematics(
     val rotation: SerialQuat,
     val velocity: SerialVec3,
     val angularVelocity: SerialVec3,
-    /** Fraction, for the plume. */
+    /** A fraction, for the plume. */
     val throttle: Double = 0.0,
     /** The craft's moving parts, packed by [VesselPose]. */
     val pose: ByteArray = ByteArray(0),
-    /** How hurt, hot and dented its parts are, packed by [VesselCondition]; empty when whole and cool. */
+    /**
+     * How hurt, hot and dented its parts are, packed by [VesselCondition]. Empty when it's whole
+     * and cool.
+     */
     val condition: ByteArray = ByteArray(0),
 ) {
-    // By content: an array compares by identity, and two snapshots of the
-    // same craft are equal whether or not they share one.
+    // Compared by content, because an array compares by identity, and two snapshots of the same
+    // craft are equal whether or not they share one.
     override fun equals(other: Any?): Boolean =
         other is VesselKinematics && vessel == other.vessel && referenceBodyId == other.referenceBodyId &&
             position == other.position && rotation == other.rotation && velocity == other.velocity &&
@@ -273,11 +279,11 @@ data class Snapshot(
     val tick: Long,
     val time: Double,
     val vessels: List<VesselKinematics>,
-    /** How fast the world is running, times real time; 0 while paused. */
+    /** How fast the world is running, times real time. 0 while paused. */
     val warp: Double = 1.0,
-    /** What the player asked for, which the world may be holding below. */
+    /** What the player asked for, which the world might be holding below. */
     val warpRequested: Double = 1.0,
-    /** Whether this player may pause or warp: a solo world with nobody else on it. */
+    /** Whether this player can pause or warp: a solo world with nobody else on it. */
     val warpAllowed: Boolean = false,
     /** Tow hitches coupled up. */
     val hitches: List<SavedLink> = emptyList(),
@@ -286,44 +292,42 @@ data class Snapshot(
 /**
  * A vessel's structure appearing, changing or going away.
  *
- * Sent on spawn, on decouple, and on destruction. [design] is null when the
- * vessel is simply gone.
+ * Sent on spawn, on decouple, and on destruction. [design] is null when the vessel is just gone.
  */
 @Serializable
 data class StructureUpdate(
     val vessel: Long,
     val design: CraftDesign? = null,
     val name: String = "",
-    /** Which stage the craft is on, so a joining client sees the right state. */
+    /** Which stage the craft is on, so a client joining sees the right state. */
     val currentStage: Int = 0,
     val activatedParts: List<Int> = emptyList(),
     /**
      * Who this craft belongs to, or blank for debris.
      *
-     * Sent so the client can tell which craft are the player's own, and offer
-     * to switch between them without asking the server first.
+     * It's sent so the client can tell which craft are the player's own, and offer to switch
+     * between them without asking the server first.
      */
     val owner: String = "",
     /** The owner's display name, for labels and chat. Never matched on. */
     val ownerName: String = "",
     /**
-     * Parts that have failed: a collapsed leg, a torn chute.
+     * Parts that have failed, like a collapsed leg or a torn chute.
      *
-     * Carried alongside [activatedParts] rather than by removing them from
-     * it, because the two are genuinely different states - a torn parachute
-     * is staged *and* useless, and must not look un-staged or the client
-     * would show it as still available to deploy.
+     * It's carried alongside [activatedParts] instead of removing them from it, because they really
+     * are different states. A torn parachute is staged *and* useless, and mustn't look un-staged,
+     * or the client would show it as still available to deploy.
      */
     val brokenParts: List<Int> = emptyList(),
-    /** Founded: pinned to the ground, immovable. See [World.anchor]. */
+    /** Founded: pinned to the ground and immovable. See [World.anchor]. */
     val anchored: Boolean = false,
     /** Burns planned for it, soonest first. */
     val burns: List<PlannedBurn> = emptyList(),
-    /** Who sits in each part, by crew id, in part order; empty with nobody aboard. */
+    /** Who sits in each part, by crew id, in part order. Empty with nobody aboard. */
     val crew: List<List<Long>> = emptyList(),
 )
 
-/** Server -> client. */
+/** Server to client. */
 @Serializable
 sealed interface ServerMessage {
     @Serializable
@@ -332,12 +336,11 @@ sealed interface ServerMessage {
         val protocolVersion: Int,
         val catalogHash: String,
         val serverName: String,
-        /** The vessel this client controls, or -1 if none yet. */
+        /** The vessel this client controls, or -1 if there isn't one yet. */
         val controlledVessel: Long = -1,
         /**
-         * What the world's weather is made from - all the client needs to
-         * compute the same wind for its replica and the same sky to draw.
-         * Null for still air.
+         * What the world's weather is made from. That's all the client needs to work out the same
+         * wind for its replica and the same sky to draw. Null for still air.
          */
         val weather: com.rm.apogee.core.weather.WeatherConfig? = null,
         /** [WorldSave.MODE_CAREER] or [WorldSave.MODE_SANDBOX]. */
@@ -353,9 +356,9 @@ sealed interface ServerMessage {
     data class SnapshotMessage(val snapshot: Snapshot) : ServerMessage
 
     /**
-     * Your craft docked with another player's, and [vessel] is both now:
-     * [other] is their name, [pilot] who flies it - a client id, or empty for
-     * either of you. Sent again whenever that changes.
+     * Your craft docked with another player's, and [vessel] is both of them now. [other] is their
+     * name, and [pilot] is who flies it, a client id, or empty for either of you. Sent again
+     * whenever that changes.
      */
     @Serializable
     @SerialName("dockedWith")
@@ -366,12 +369,12 @@ sealed interface ServerMessage {
     data class StructureMessage(val update: StructureUpdate) : ServerMessage
 
     /**
-     * The craft this client is now flying.
+     * The craft this client is flying now.
      *
-     * Control is settled once at the handshake in [Welcome], but it moves
-     * afterwards - launching a new craft, or switching to one already parked.
-     * Without this the client would go on sending commands naming a craft the
-     * server no longer associates with it, and every one would be refused.
+     * Control gets settled once at the handshake in [Welcome], but it moves afterwards, when you
+     * launch a new craft or switch to one that's already parked. Without this the client would keep
+     * sending commands naming a craft the server no longer links to it, and every one would be
+     * refused.
      */
     @Serializable
     @SerialName("controlChanged")
@@ -382,31 +385,31 @@ sealed interface ServerMessage {
     data class ChatMessage(val from: String, val text: String) : ServerMessage
 
     /**
-     * Scatter knocked down. Sent as it happens, and in full to anyone joining,
-     * so every player's forest has the same gaps in it.
+     * Scatter that got knocked down. It's sent as it happens, and in full to anyone joining, so
+     * every player's forest has the same gaps in it.
      */
     @Serializable
     @SerialName("scatterFelled")
     data class ScatterFelled(val ids: List<Long>) : ServerMessage
 
     /**
-     * What is left in the tanks of the craft this client flies: for each
-     * part in order, one amount per [com.rm.apogee.core.part.ResourceType].
+     * What's left in the tanks of the craft this client flies: for each part in order, one amount
+     * per [com.rm.apogee.core.part.ResourceType].
      *
-     * Sent a few times a second, and only to the pilot - nobody else's HUD
-     * shows another craft's fuel. Without it the client's replica started
-     * every rebuild with full tanks, so a craft resumed half empty read full
-     * and predicted thrust the server's craft no longer had.
+     * It's sent a few times a second, and only to the pilot, because nobody else's HUD shows
+     * another craft's fuel. Without it the client's replica started every rebuild with full tanks,
+     * so a craft resumed half empty read full and predicted thrust the server's craft didn't have
+     * any more.
      */
     @Serializable
     @SerialName("fuel")
     data class FuelLevels(val vessel: Long, val amounts: List<Float>) : ServerMessage
 
     /**
-     * The pilot's craft's power and link home, sent with its tanks: charge
-     * and what it holds, units; the net rate, units a second; whether it has
-     * power; its [signal] and the relays that carries it through, nearest
-     * first; whether it can be flown at all; and its fold-outs told out.
+     * The pilot's craft's power and link home, sent with its tanks: its charge and how much it
+     * holds, in units; the net rate, in units a second; whether it has power; its [signal] and the
+     * relays carrying it, nearest first; whether it can be flown at all; and whether its fold-outs
+     * have been told to come out.
      */
     @Serializable
     @SerialName("systems")
@@ -419,43 +422,61 @@ sealed interface ServerMessage {
         val signal: Signal,
         val relays: List<Long>,
         val controllable: Boolean,
-        /** Why it cannot be flown - "NO CREW", "NO POWER", "NO SIGNAL" - or blank. */
+        /** Why it can't be flown ("NO CREW", "NO POWER", "NO SIGNAL"), or blank. */
         val blocked: String = "",
         val needsSignal: Boolean,
         val deployed: Boolean,
-        /** Someone on EVA: the craft with a free seat in reach (blank for none), a ladder in reach, and holding one. */
+        /**
+         * Someone on EVA: the craft with a free seat in reach (blank for none), whether a ladder is
+         * in reach, and whether they're holding one.
+         */
         val boardable: String = "",
         val canGrab: Boolean = false,
         val onLadder: Boolean = false,
-        /** Aboard another player's craft: along for the ride, not flying it. */
+        /** Aboard another player's craft, along for the ride and not flying it. */
         val passenger: Boolean = false,
-        /** Its drills and converters switched on, and what its drills are doing. */
+        /** Whether its drills and converters are switched on, and what its drills are doing. */
         val drilling: Boolean = false,
         val refining: Boolean = false,
         val drillState: DrillState = DrillState.OFF,
         /** Its survey of the body it orbits, 0..1, or -1 with no scanner aboard. */
         val survey: Float = -1f,
-        /** What the ground right below holds, 0..1, read by a scanner low enough; -1 when there is no reading. */
+        /**
+         * What the ground right below holds, 0..1, read by a scanner that's low enough. -1 when
+         * there's no reading.
+         */
         val ore: Float = -1f,
         val water: Float = -1f,
-        /** Its ballast, 0..1 full, or -1 with no tanks; what they are doing; and a depth held, m, or -1. */
+        /**
+         * Its ballast, 0..1 full, or -1 with no tanks, what the tanks are doing, and the depth
+         * being held in metres, or -1.
+         */
         val ballast: Float = -1f,
         val ballastMode: Int = 0,
         val holdingDepth: Float = -1f,
-        /** How near the sea is to crushing its weakest hollow part: 1 is its limit. */
+        /** How close the sea is to crushing its weakest hollow part. 1 is its limit. */
         val crush: Float = 0f,
-        /** Its sonar's reading: the sea floor below, m, or -1; and the nearest place not yet found, as a bearing (degrees) and range (m), range -1 for none. */
+        /**
+         * Its sonar's reading: the sea floor below in metres, or -1, and the nearest place that
+         * hasn't been found yet, as a bearing (degrees) and range (metres), with range -1 for none.
+         */
         val seabed: Float = -1f,
         val findBearing: Float = 0f,
         val findRange: Float = -1f,
     ) : ServerMessage
 
-    /** A player's crew - at home, aboard, and on the memorial - sent to them on joining and whenever it changes. */
+    /**
+     * A player's crew (at home, aboard, and on the memorial), sent to them when they join and
+     * whenever it changes.
+     */
     @Serializable
     @SerialName("roster")
     data class Roster(val members: List<com.rm.apogee.core.crew.CrewMember>) : ServerMessage
 
-    /** A player's career, sent to them on joining and whenever it changes; and the world firsts, which are everyone's. */
+    /**
+     * A player's career, sent to them when they join and whenever it changes, plus the world
+     * firsts, which belong to everyone.
+     */
     @Serializable
     @SerialName("career")
     data class Career(
@@ -463,31 +484,33 @@ sealed interface ServerMessage {
         val firsts: List<com.rm.apogee.core.career.WorldFirst> = emptyList(),
     ) : ServerMessage
 
-    /** The sea's named places this player has found, by id: the rest stay hidden. */
+    /** The named places under the sea this player has found, by id. The rest stay hidden. */
     @Serializable
     @SerialName("wonders-found")
     data class WondersFound(val ids: List<String>) : ServerMessage
 
-    /** A feat or a visit just credited to this player: [grade] blank for an ungraded one. */
+    /** A feat or a visit just credited to this player. [grade] is blank for an ungraded one. */
     @Serializable
     @SerialName("feat")
     data class Feat(val title: String, val grade: String, val insight: Int) : ServerMessage
 
-    /** A launch or an unlock the career would not allow, and why. */
+    /** A launch or an unlock the career wouldn't allow, and why. */
     @Serializable
     @SerialName("careerRefused")
     data class CareerRefused(val reason: String) : ServerMessage
 
-    /** The bodies surveyed for ore and water: all of them, whenever the list grows, and on joining. */
+    /**
+     * The bodies surveyed for ore and water: all of them, whenever the list grows, and when
+     * joining.
+     */
     @Serializable
     @SerialName("surveyed")
     data class Surveyed(val bodies: List<String>) : ServerMessage
 
     /**
-     * What the pilot's craft can do with a base just now, sent with its
-     * tanks: be founded where it rests, or let go if it is; be filled from
-     * the base it stands on or is docked to - and whether it is, or why it
-     * last stopped.
+     * What the pilot's craft can do with a base right now, sent with its tanks: be founded where it
+     * rests, or let go if it already is, and be filled from the base it stands on or is docked to,
+     * plus whether it is being filled, or why it last stopped.
      */
     @Serializable
     @SerialName("service")
@@ -498,12 +521,15 @@ sealed interface ServerMessage {
         val canRefuel: Boolean,
         val refuelling: Boolean,
         val stopped: String = "",
-        /** Whether it has ore or water to empty into what it is docked to or stands on, and is doing so. */
+        /**
+         * Whether it has ore or water to empty into whatever it's docked to or standing on, and
+         * whether it's doing so.
+         */
         val canUnload: Boolean = false,
         val unloading: Boolean = false,
     ) : ServerMessage
 
-    /** A founded base near the pilot - or the one they are flying - as its card shows it. */
+    /** A founded base near the pilot, or the one they're flying, as its card shows it. */
     @Serializable
     @SerialName("base")
     data class BaseStatus(
@@ -512,42 +538,39 @@ sealed interface ServerMessage {
         val powered: Boolean,
         val charge: Float,
         val chargeCapacity: Float,
-        /** Charge coming in less going out, a second. */
+        /** Charge coming in minus going out, per second. */
         val net: Float,
         val propellant: Float,
         val propellantCapacity: Float,
         val monopropellant: Float,
         val monopropellantCapacity: Float,
-        /** Launch pads it has. */
+        /** The launch pads it has. */
         val pads: Int,
-        /** How far off it is, m. */
+        /** How far away it is, in metres. */
         val distance: Float,
         val ore: Float = 0f,
         val oreCapacity: Float = 0f,
         val water: Float = 0f,
         val waterCapacity: Float = 0f,
-        /** Whether it has a refinery, and whether that is switched on; and its drills, if it has any. */
+        /** Whether it has a refinery and whether that's switched on, and its drills, if it has any. */
         val hasRefinery: Boolean = false,
         val refining: Boolean = false,
         val drilling: Boolean = false,
     ) : ServerMessage
 
     /**
-     * Lightning struck [vessel], knocking out [partIndex] (or nothing, -1).
-     * Strikes that hit nothing are not sent: every client works those out
-     * from the weather itself.
+     * Lightning struck [vessel], knocking out [partIndex] (or nothing, -1). Strikes that hit
+     * nothing aren't sent, because every client works those out from the weather itself.
      */
     @Serializable
     @SerialName("lightning")
     data class Lightning(val strikeId: Long, val vessel: Long, val partIndex: Int) : ServerMessage
 
     /**
-     * Something happened to a part that is worth seeing and hearing: a blow,
-     * a part destroyed or torn off, a tank going up. By part id and
-     * position rather than index alone, because by the time it arrives the
-     * craft it happened to may already be a different shape. [amount] is the
-     * impact speed, m/s, for an impact, and the propellant, kg, for an
-     * explosion.
+     * Something happened to a part that's worth seeing and hearing: a blow, a part destroyed or
+     * torn off, or a tank going up. It goes by part id and position instead of just the index,
+     * because by the time it arrives the craft it happened to might already be a different shape.
+     * [amount] is the impact speed in m/s for an impact, and the propellant in kg for an explosion.
      */
     @Serializable
     @SerialName("partEvent")
@@ -559,7 +582,7 @@ sealed interface ServerMessage {
         val position: SerialVec3,
         val amount: Double = 0.0,
         val cause: String = "",
-        /** Universe time it happened: which way the planet was turned. */
+        /** The universe time it happened, which says which way the planet was turned. */
         val time: Double = 0.0,
     ) : ServerMessage
 }
@@ -570,14 +593,14 @@ enum class PartEventKind {
     @SerialName("destroyed") DESTROYED,
     @SerialName("detached") DETACHED,
     @SerialName("explosion") EXPLOSION,
-    /** Two craft latched ring to ring or clamped; [ServerMessage.PartEvent.vessel] is what they became. */
+    /** Two craft latched ring to ring or clamped. [ServerMessage.PartEvent.vessel] is what they became. */
     @SerialName("docked") DOCKED,
     @SerialName("undocked") UNDOCKED,
     @SerialName("hitched") HITCHED,
     @SerialName("unhitched") UNHITCHED,
 }
 
-/** Client -> server. */
+/** Client to server. */
 @Serializable
 sealed interface ClientMessage {
     @Serializable
@@ -585,24 +608,22 @@ sealed interface ClientMessage {
     data class Hello(
         val protocolVersion: Int,
         val catalogHash: String,
-        /** Cosmetic: what to show beside this player's craft and in chat. */
+        /** Cosmetic: what to show next to this player's craft and in chat. */
         val playerName: String,
         /**
-         * Stable, opaque, generated once per install and never typed by
-         * anyone. This is what decides which craft are whose; [playerName]
-         * decides nothing.
+         * Stable and opaque, generated once per install and never typed by anyone. This is what
+         * decides which craft belong to whom. [playerName] decides nothing.
          */
         val clientId: String,
         /**
-         * [com.rm.apogee.core.terrain.TerrainField.GENERATION]. Two builds
-         * with different ground cannot share a world: each would collide
-         * craft with its own idea of the surface.
+         * [com.rm.apogee.core.terrain.TerrainField.GENERATION]. Two builds with different ground
+         * can't share a world, because each would collide craft against its own idea of the
+         * surface.
          */
         val terrainGeneration: Int = 0,
         /**
-         * [com.rm.apogee.core.orbit.SolarSystem.contentHash]: the worlds,
-         * their orbits, air and weather. Two builds with different worlds
-         * cannot share a game.
+         * [com.rm.apogee.core.orbit.SolarSystem.contentHash]: the worlds, their orbits, air and
+         * weather. Two builds with different worlds can't share a game.
          */
         val systemHash: String = "",
     ) : ClientMessage
@@ -614,10 +635,10 @@ sealed interface ClientMessage {
 
 object Protocol {
     /**
-     * Bumped whenever the wire format changes incompatibly. Checked alongside
-     * the part-catalogue hash during the handshake, because the two can drift
-     * independently - a matching protocol with a mismatched catalogue is just
-     * as broken, and much harder to diagnose from the symptoms.
+     * Goes up whenever the network format changes in a way older builds can't read. It's checked
+     * alongside the part catalogue hash during the handshake, because the two can drift apart
+     * separately. A matching protocol with a mismatched catalogue is just as broken, and much
+     * harder to track down from the symptoms.
      */
     // 3: CraftDesign.orientation, Command.SetBrakes.
     // 4: ServerMessage.ScatterFelled, Hello.terrainGeneration.

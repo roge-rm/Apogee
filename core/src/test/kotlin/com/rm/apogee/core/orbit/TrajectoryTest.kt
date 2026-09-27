@@ -17,10 +17,9 @@ class TrajectoryTest {
     private val luna = system.body("luna")
 
     /**
-     * A craft in a 100 km orbit about Terra, in Luna's plane, just given a
-     * Hohmann transfer's worth of speed toward where Luna will be when it
-     * gets there - its high point [wide] metres further out than Luna's
-     * orbit - and how long the transfer takes.
+     * A craft in a 100 km orbit around Terra, in Luna's plane, just given a Hohmann transfer's
+     * worth of speed toward where Luna will be when it gets there, with its high point [wide]
+     * metres further out than Luna's orbit, and how long the transfer takes.
      */
     private fun transfer(t0: Double, wide: Double = 0.0): Triple<Vec3, Vec3, Double> {
         val r1 = terra.radius + 100_000.0
@@ -37,15 +36,15 @@ class TrajectoryTest {
     }
 
     @Test
-    fun `a Hohmann transfer to Luna meets it, and goes on about it`() {
+    fun `a Hohmann transfer to Luna meets it and carries on around it`() {
         val t0 = 1_000.0
         val (p, v, flight) = transfer(t0)
         val path = Trajectory.predict(system, "terra", p, v, t0)
         val first = path.segments.first()
         assertEquals(Trajectory.Ending.ENCOUNTER, first.ending)
         assertEquals("luna", first.nextBodyId)
-        // Into its reach well before arriving at its orbit: the reach is a
-        // fifth of the orbit's size, and near the top the craft is slow.
+        // Into its reach well before it arrives at its orbit. The reach is a fifth of the orbit's
+        // size, and near the top the craft is slow.
         assertTrue("met at ${first.end - t0} s of $flight", first.end - t0 in (0.6 * flight)..flight)
         val second = path.segments[1]
         assertEquals("luna", second.bodyId)
@@ -53,7 +52,7 @@ class TrajectoryTest {
     }
 
     @Test
-    fun `aimed a little wide of Luna, it passes it at a height`() {
+    fun `aimed a little wide of Luna it passes it at a height`() {
         val t0 = 1_000.0
         val (p, v, _) = transfer(t0, wide = 600_000.0)
         val path = Trajectory.predict(system, "terra", p, v, t0)
@@ -64,7 +63,7 @@ class TrajectoryTest {
     }
 
     @Test
-    fun `an escape from Luna is foretold when the world flies it`() {
+    fun `an escape from Luna is predicted when the world flies it`() {
         val world = World.default(StockParts.catalog)
         val r = luna.radius + 50_000.0
         val out = Vec3(0.3, 0.1, 1.0).normalizeInPlace()
@@ -83,7 +82,7 @@ class TrajectoryTest {
     }
 
     @Test
-    fun `a low orbit about Terra goes round, and nothing ends it`() {
+    fun `a low orbit around Terra goes round and nothing ends it`() {
         val r = terra.radius + 100_000.0
         val path = Trajectory.predict(system, "terra", Vec3(r, 0.0, 0.0), Vec3(0.0, 0.0, terra.circularVelocityAt(r)), 0.0)
         assertEquals(1, path.segments.size)
@@ -125,7 +124,7 @@ class TrajectoryTest {
         val t = orbit.timeToPeriapsis
         assertTrue("no time to periapsis", t.isFinite() && t > 0.0)
         assertEquals(orbit.periapsis, orbit.propagate(t).position.length, 5.0)
-        // And once past it, there is no more.
+        // And once it's past it, there's no more.
         assertTrue(Orbit(orbit.propagate(t + 100.0).position, orbit.propagate(t + 100.0).velocity, mu).timeToPeriapsis.isInfinite())
     }
 }

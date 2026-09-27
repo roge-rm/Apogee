@@ -8,17 +8,16 @@ import kotlin.math.abs
 import kotlin.math.sqrt
 
 /**
- * Every model shape is a closed solid wound outward. Checked the way that
- * cannot be fooled by how a generator happens to list its corners: summed
- * over a closed surface, area-weighted normals cancel, and the divergence
- * theorem gives a positive volume only when every face points out.
+ * Every model shape is a closed solid wound outward. It's checked in a way that can't be fooled by
+ * how a generator happens to list its corners. Summed over a closed surface, area-weighted normals
+ * cancel, and the divergence theorem gives a positive volume only when every face points out.
  */
 class ModelShapesTest {
 
     private val shapes: Map<String, ModelSpec> = mapOf(
         "lathe" to ModelSpec.Lathe(listOf(listOf(0.5, -1.0), listOf(0.6, 0.0), listOf(0.3, 0.8), listOf(0.0, 1.0))),
         "nose cone" to ModelSpec.NoseCone(0.625, 1.6),
-        // An engine bell: in at the throat, out round the rim, up the outside.
+        // An engine bell: in at the throat, out round the rim, and up the outside.
         "bell" to ModelSpec.Lathe(listOf(listOf(0.0, -0.3), listOf(0.2, -0.35), listOf(0.5, -0.7), listOf(0.55, -0.7), listOf(0.62, 0.4), listOf(0.62, 0.7))),
         "tank" to ModelSpec.Tank(0.625, 2.0, bands = 2),
         "fin" to ModelSpec.Fin(0.8, 0.3, 0.7, sweep = 0.3),

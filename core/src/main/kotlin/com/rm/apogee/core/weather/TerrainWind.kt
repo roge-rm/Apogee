@@ -12,46 +12,45 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 
 /**
- * What the ground's shape and surface do to the wind, described at km scale.
+ * What the ground's shape and surface do to the wind, described at kilometre scale.
  *
- * Each lattice point looks at the ground around it on a ring 1.2 km out and
- * boils it down to a few numbers the wind can use whichever way it blows:
- * - whether it is a crest or a hollow (the centre against the ring's mean);
- * - the slope (the ring's first harmonic), so wind meeting rising ground
- *   lifts and wind leaving it sinks;
- * - whether it is a valley, and along which axis (the second harmonic: a
- *   valley is a ring low on two opposite sides and high on the other two);
+ * Each lattice point looks at the ground around it on a ring 1.2 km out and boils it down to a few
+ * numbers the wind can use whichever way it blows:
+ * - whether it's a crest or a hollow (the centre against the ring's average);
+ * - the slope (the ring's first harmonic), so wind meeting rising ground lifts and wind leaving it
+ *   sinks;
+ * - whether it's a valley, and along which axis (the second harmonic, because a valley is a ring
+ *   that's low on two opposite sides and high on the other two);
  * - how rough the surface is, and how much it heats up for thermals.
  *
- * Points sit on a 3D lattice [SPACING] apart, projected to the ground, and
- * a sample blends the eight around it - so the wind never steps as a craft
- * crosses from one to the next. Every point is a pure function of the
- * terrain, cached because each costs nine elevation samples.
+ * Points sit on a 3D lattice [SPACING] apart, projected onto the ground, and a sample blends the
+ * eight around it, so the wind never jumps as a craft crosses from one to the next. Every point
+ * comes purely from the terrain, and they're cached because each one costs nine elevation samples.
  */
 class TerrainWind(private val terrain: Terrain, private val bodyRadius: Double) {
 
-    /** Descriptor layout, one FloatArray of [SIZE] per point. */
+    /** The descriptor layout, one FloatArray of [SIZE] per point. */
     companion object {
         const val H0 = 0          // elevation, m
-        const val MEAN = 1        // ring mean, m
+        const val MEAN = 1        // ring average, m
         const val GRAD = 2        // gradient, body-fixed, dh per metre (3)
         const val AXIS = 5        // valley axis, body-fixed unit (3)
-        const val CHANNEL = 8     // how strongly the ground channels the wind, 0..1
+        const val CHANNEL = 8     // how strongly the ground funnels the wind, 0..1
         const val Z0 = 9          // roughness length, m
         const val HEAT = 10       // thermal potential, 0..1
         const val OCEAN = 11      // 1 over open sea
         const val RELIEF = 12     // spread of the ring, m
         const val SIZE = 13
 
-        /** Lattice spacing, metres. */
+        /** The lattice spacing, in metres. */
         const val SPACING = 600.0
 
-        /** Radius of the ring each point looks at, metres. */
+        /** The radius of the ring each point looks at, in metres. */
         const val RING = 1_200.0
 
         private const val MAX_CACHED = 24_000
 
-        /** Aerodynamic roughness length, metres, by what the ground is. */
+        /** Aerodynamic roughness length in metres, by what the ground is. */
         fun roughness(material: SurfaceMaterial): Double = when (material) {
             SurfaceMaterial.FOREST -> 1.0
             SurfaceMaterial.SCREE -> 0.1
@@ -65,7 +64,7 @@ class TerrainWind(private val terrain: Terrain, private val bodyRadius: Double) 
             else -> 0.05
         }
 
-        /** How readily the ground heats and sets off thermals, 0..1. */
+        /** How readily the ground heats up and sets off thermals, 0..1. */
         fun heat(material: SurfaceMaterial): Double = when (material) {
             SurfaceMaterial.SAND -> 1.0
             SurfaceMaterial.ROCK, SurfaceMaterial.BASALT -> 0.9
@@ -98,8 +97,8 @@ class TerrainWind(private val terrain: Terrain, private val bodyRadius: Double) 
     private val ringDir = Vec3()
 
     /**
-     * The description at [direction] (a unit vector, body-fixed), blended
-     * from the eight lattice points around it, into [out] (size [SIZE]).
+     * The description at [direction] (a unit vector, body-fixed), blended from the eight lattice
+     * points around it, into [out] (size [SIZE]).
      */
     fun describe(direction: Vec3, out: DoubleArray) {
         val px = direction.x * bodyRadius / SPACING
@@ -115,7 +114,7 @@ class TerrainWind(private val terrain: Terrain, private val bodyRadius: Double) 
             val d = point(ix + dx, iy + dy, iz + dz)
             for (k in 0 until SIZE) out[k] += w * d[k]
         }
-        // The blended axis is a blend of unit vectors; keep it one.
+        // The blended axis is a blend of unit vectors, so keep it unit length.
         val ax = out[AXIS]; val ay = out[AXIS + 1]; val az = out[AXIS + 2]
         val len = sqrt(ax * ax + ay * ay + az * az)
         if (len > 1e-9) { out[AXIS] /= len; out[AXIS + 1] /= len; out[AXIS + 2] /= len }
@@ -133,8 +132,8 @@ class TerrainWind(private val terrain: Terrain, private val bodyRadius: Double) 
 
     private fun compute(d: Vec3): FloatArray {
         frame(d, east, north)
-        // The air feels the sea's surface, not the floor under it: a canyon
-        // or a seamount down there steers no wind.
+        // The air feels the sea's surface, not the floor under it. A canyon or a seamount down
+        // there doesn't steer any wind.
         val sea = terrain.hasOcean
         val ground = terrain.elevation(d)
         val h0 = if (sea) max(ground, 0.0) else ground
@@ -190,7 +189,7 @@ class TerrainWind(private val terrain: Terrain, private val bodyRadius: Double) 
     }
 }
 
-/** Local east and north at unit [up] on a body turning about +Y. */
+/** Local east and north at unit [up] on a body turning around +Y. */
 internal fun frame(up: Vec3, east: Vec3, north: Vec3) {
     east.setTo(up.z, 0.0, -up.x)
     if (east.lengthSq < 1e-12) east.setTo(1.0, 0.0, 0.0) else east.normalizeInPlace()

@@ -81,15 +81,13 @@ import kotlin.math.roundToInt
 /**
  * The overlay drawn on top of the rendered world.
  *
- * Transparent by construction - this sits in a ComposeView above the
- * GLSurfaceView - so every panel carries its own scrim to stay readable against
- * whatever the camera happens to be pointing at.
+ * It's transparent by nature (it sits in a ComposeView above the GLSurfaceView), so every panel has
+ * its own scrim to stay readable against whatever the camera happens to be pointing at.
  *
- * Layout is anchored to the four corners and the two side edges, with nothing
- * in the middle: the craft is what the player is looking at, and a control that
- * drifts into the centre of the screen is a control in the way. Throttle and
- * attitude sit on opposite edges so the two thumbs never cross, and swap sides
- * together when left-hand mode is on.
+ * The layout is anchored to the four corners and the two side edges, with nothing in the middle.
+ * The craft is what the player is looking at, and a control that drifts into the middle of the
+ * screen is a control in the way. Throttle and attitude sit on opposite edges so the two thumbs
+ * never cross, and they swap sides together when left-hand mode is on.
  */
 @Composable
 fun FlightScreen(
@@ -97,7 +95,7 @@ fun FlightScreen(
     controlOpacity: Float,
     showDebugOverlay: Boolean,
     leftHandMode: Boolean,
-    /** Let the controls fade back when untouched for a few seconds. */
+    /** Let the controls fade back when they haven't been touched for a few seconds. */
     fadeWhenIdle: Boolean = true,
     onThrottleChange: (Float) -> Unit,
     onAttitude: (pitch: Float, yaw: Float) -> Unit,
@@ -127,22 +125,22 @@ fun FlightScreen(
     onDive: () -> Unit = {},
     onRise: () -> Unit = {},
     onHoldDepth: () -> Unit = {},
-    /** Empty the craft's ore and water into a base or docked craft; switch a base's refinery. */
+    /** Empty the craft's ore and water into a base or docked craft, or switch a base's refinery. */
     onUnload: (Boolean) -> Unit = {},
     onRefine: (com.rm.apogee.core.world.ServerMessage.BaseStatus, Boolean) -> Unit = { _, _ -> },
-    /** With the thrusters armed: the stick slides the craft (true) or turns it. */
+    /** With the thrusters armed, the stick slides the craft (true) or turns it. */
     onStickMode: (Boolean) -> Unit = {},
     /** Let go at a docking part. */
     onUndock: (Int) -> Unit = {},
     onFound: (Boolean) -> Unit = {},
     onRefuel: (Boolean) -> Unit = {},
-    /** Shared with another player: who flies - "me", "them" or "both". */
+    /** Shared with another player: who flies it ("me", "them" or "both"). */
     onDockPilot: (String) -> Unit = {},
     onToggleMap: () -> Unit,
     onJoin: () -> Unit,
     onSwitchCraft: () -> Unit,
     onExit: () -> Unit,
-    /** Run the world at this many times real time; 0 pauses it. */
+    /** Run the world at this many times real time. 0 pauses it. */
     onWarp: (Double) -> Unit = {},
     /** The player's craft, asked for when the list opens. */
     craftChoices: () -> List<CraftSummary> = { emptyList() },
@@ -155,14 +153,16 @@ fun FlightScreen(
     /** Planning burns, and the autopilots. */
     burnActions: com.rm.apogee.ui.components.BurnActions = com.rm.apogee.ui.components.BurnActions(),
     crewActions: com.rm.apogee.ui.components.CrewActions = com.rm.apogee.ui.components.CrewActions(),
-    /** This player's id, for the program's firsts; and spending insight there: null if asked for, or why not. */
+    /**
+     * This player's id, for the program's firsts, and spending insight there: null if it went
+     * through, or the reason it didn't.
+     */
     me: String = "",
     onUnlock: (String) -> String? = { null },
 ) {
-    // BoxWithConstraints rather than the configuration's orientation: this is
-    // a question about the space actually available, and the answer has to be
-    // right in a resized window and in multi-window as well as after a
-    // rotation. Asking the layout is asking the thing that decides.
+    // BoxWithConstraints instead of the configuration's orientation. This is a question about the
+    // space that's really available, and the answer has to be right in a resized window and in
+    // multi-window as well as after a rotation. Asking the layout is asking the thing that decides.
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val portrait = maxWidth < maxHeight
         val sas = SasActions(onToggleSas, onSasMode, targetChoices, onTarget, onStickMode)
@@ -178,8 +178,8 @@ fun FlightScreen(
             ConnectionProblem(hud.connectionError!!, onExit)
             return@BoxWithConstraints
         }
-        // The program, over the flight: in a world someone else hosts, the
-        // only place a player's career there can be seen and spent.
+        // The program, over the flight. In a world someone else hosts, it's the only place a
+        // player's career there can be seen and spent.
         val career = hud.career
         if (hud.programOpen && career != null) {
             androidx.activity.compose.BackHandler { hud.programOpen = false }
@@ -187,12 +187,10 @@ fun FlightScreen(
             return@BoxWithConstraints
         }
         if (hud.connecting || !hud.surfaceReady) {
-            // Opaque, and nothing drawn over it. The GL surface behind this is
-            // live, and until the terrain patch lands it is showing a craft
-            // suspended over a globe too coarse to have the ground under it -
-            // which reads as a broken world rather than as one still loading.
-            // A spinner floating over that picture does not help; covering it
-            // does.
+            // Opaque, with nothing drawn over it. The GL surface behind this is live, and until the
+            // terrain patch lands it shows a craft hanging over a globe too coarse to have the
+            // ground under it, which looks like a broken world instead of one still loading. A
+            // spinner floating over that picture doesn't help. Covering it does.
             Box(
                 Modifier
                     .fillMaxSize()
@@ -213,9 +211,9 @@ fun FlightScreen(
         }
 
         // --- fading when idle -----------------------------------------------
-        // A few seconds with nothing touched and the controls fade back to let
-        // the view through; any touch, a new warning or prompt, or the engines
-        // running bring them straight back.
+        //
+        // A few seconds with nothing touched and the controls fade back to let the view through.
+        // Any touch, a new warning or prompt, or the engines running brings them straight back.
         var idle by remember { mutableStateOf(false) }
         val statusKey = statusKey(hud)
         val promptKey = promptKey(hud)
@@ -237,13 +235,12 @@ fun FlightScreen(
         if (hud.mapMode) MapNames(mapLabels)
 
         // --- top left: exit, map, craft, warp, and the craft's name ----------
-        // Only the *horizontal* cutout inset, so these sit up against the top
-        // edge. Padding for the full cutout pushes them a notch's height down
-        // the screen to clear something that is not above them: a punch-hole
-        // or a notch is in the middle of the top edge, and both of these
-        // corners are beside it, not under it. The horizontal inset still
-        // applies, which is what matters in landscape where the cutout is
-        // down one side and genuinely is in the way.
+        //
+        // Only the *horizontal* cutout inset, so these sit right up against the top edge. Padding
+        // for the full cutout pushes them a notch's height down the screen to clear something that
+        // isn't above them. A punch-hole or a notch is in the middle of the top edge, and both of
+        // these corners are beside it, not under it. The horizontal inset still applies, which is
+        // what matters in landscape, where the cutout is down one side and really is in the way.
         Column(
             modifier = Modifier
                 .align(Alignment.TopStart)
@@ -286,7 +283,7 @@ fun FlightScreen(
                         size = Dimens.HudIconSize,
                     )
                 }
-                // Pause and time warp: only in a world nobody else is in.
+                // Pause and time warp, only in a world nobody else is in.
                 if (hud.warpAllowed) {
                     WarpButton(
                         warp = hud.warp,
@@ -297,7 +294,7 @@ fun FlightScreen(
                         size = Dimens.HudIconSize,
                     )
                 }
-                // The career's program: what to spend the insight just earned on.
+                // The career's program: what to spend the insight you just earned on.
                 if (career != null) {
                     FilledTonalIconButton(
                         onClick = { hud.programOpen = true },
@@ -306,9 +303,9 @@ fun FlightScreen(
                         Icon(Icons.Filled.AccountTree, contentDescription = "Program")
                     }
                 }
-                // The craft name is the first thing to go when the screen is
-                // narrow: the flight strip opposite is not optional and the
-                // two meet in the middle on a portrait phone.
+                // The craft name is the first thing to go when the screen is narrow. The flight
+                // strip opposite isn't optional, and the two meet in the middle on a portrait
+                // phone.
                 if (!portrait && hud.telemetry.craftName.isNotEmpty()) {
                     Text(
                         hud.telemetry.craftName,
@@ -326,7 +323,7 @@ fun FlightScreen(
             }
         }
 
-        // Gone: no controls to fly it with, only what happened to it.
+        // Gone, so there are no controls to fly it with, only what happened to it.
         hud.telemetry.destroyed?.let { report ->
             CrashCard(
                 name = hud.telemetry.craftName,
@@ -335,7 +332,7 @@ fun FlightScreen(
                 crewLost = hud.crewLost,
                 onLeave = onExit,
                 onSwitchCraft = if (hud.ownedCraft > 0) onSwitchCraft else null,
-                // Low, where the controls were: the wreck is in the middle of the view.
+                // Low, where the controls were, because the wreck is in the middle of the view.
                 modifier = Modifier.align(Alignment.BottomCenter)
                     .windowInsetsPadding(WindowInsets.navigationBars)
                     .padding(bottom = 16.dp),
@@ -344,11 +341,11 @@ fun FlightScreen(
         }
 
         // --- top right: the flight strip, and the status chips under it ------
-        // Along the edge, out of the view: a few numbers, tapped open for the
-        // rest; then the craft's state in small chips, each tapped open for
-        // what lies behind it. In portrait a row below the buttons, not
-        // beside them: beside them there is no room, and a wide number -
-        // "suborbital" - pushed the strip over the warp button.
+        //
+        // Along the edge, out of the view: a few numbers, tapped open for the rest, then the
+        // craft's state in small chips, each tapped open for what's behind it. In portrait it's a
+        // row below the buttons, not beside them, because there's no room beside them, and a wide
+        // number ("suborbital") pushed the strip over the warp button.
         Column(
             modifier = Modifier
                 .align(Alignment.TopEnd)
@@ -381,10 +378,11 @@ fun FlightScreen(
         )
 
         // --- the bottom corners: throttle and switches, stick, navball, stage -
-        // Throttle and attitude on opposite edges so the two thumbs never
-        // cross, swapping sides together in left-hand mode; the switches on
-        // the throttle's inner side; the navball and the STAGE button low in
-        // the middle between them. Nothing higher than it has to be.
+        //
+        // Throttle and attitude on opposite edges so the two thumbs never cross, swapping sides
+        // together in left-hand mode. The switches go on the throttle's inner side, and the navball
+        // and the STAGE button sit low in the middle between them. Nothing is higher than it has to
+        // be.
         val throttleGroup: @Composable () -> Unit = {
             Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 val rail: @Composable () -> Unit = {
@@ -441,8 +439,8 @@ fun FlightScreen(
                 verticalAlignment = Alignment.Bottom,
             ) {
                 if (leftHandMode) attitude() else throttleGroup()
-                // The ball above the button: side by side they are wider than
-                // a portrait phone has between the thumbs.
+                // The ball above the button, because side by side they're wider than a portrait
+                // phone has between the thumbs.
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     navball()
                     Spacer(Modifier.height(8.dp))
@@ -481,7 +479,7 @@ fun FlightScreen(
     }
 }
 
-/** What is showing in the status row, as a key: when it changes, the controls wake. */
+/** What's showing in the status row, as a key. When it changes, the controls wake up. */
 private fun statusKey(hud: HudState): String = buildString {
     val t = hud.telemetry
     if (t.overheating) append("heat")
@@ -493,7 +491,7 @@ private fun statusKey(hud: HudState): String = buildString {
     if (hud.nearBase != null) append("base")
 }
 
-/** The throttle, with its readout and label: the craft's switches ride beside it, on the [ActionRail]. */
+/** The throttle, with its readout and label. The craft's switches ride beside it, on the [ActionRail]. */
 @Composable
 private fun ThrottleControl(
     hud: HudState,
@@ -501,7 +499,7 @@ private fun ThrottleControl(
     height: Dp,
 ) {
     val throttle = hud.throttle
-    // Out of touch, it moves nothing: shown faded.
+    // Out of touch, it doesn't move anything, so it's shown faded.
     Column(
         Modifier.alpha(if (hud.power?.outOfTouch != null) OUT_OF_TOUCH_ALPHA else 1f),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -537,7 +535,7 @@ class SasActions(
     val onMode: (com.rm.apogee.core.world.SasMode) -> Unit,
     val targetChoices: () -> List<com.rm.apogee.game.GameSession.TargetChoice>,
     val onTarget: (Long) -> Unit,
-    /** With the thrusters armed: the stick slides (true) or turns. */
+    /** With the thrusters armed, the stick slides (true) or turns. */
     val onStickMode: (Boolean) -> Unit = {},
 )
 
@@ -551,7 +549,7 @@ private fun AttitudeCluster(
     stickSize: Dp,
     modifier: Modifier = Modifier,
 ) {
-    // Sliding on the thrusters, the roll buttons are down and up instead.
+    // Sliding on the thrusters, the roll buttons become down and up instead.
     val sliding = hud.rcsArmed && hud.rcsSlide
     val deaf = hud.power?.outOfTouch
     Column(modifier.alpha(if (deaf != null) OUT_OF_TOUCH_ALPHA else 1f), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -560,8 +558,8 @@ private fun AttitudeCluster(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             HoldButton(if (sliding) "▼" else "↺", { held -> onRoll(if (held) -1f else 0f) }, size = 40.dp)
-            // Stability assist lives with the attitude controls, not with
-            // staging: it is the thing that holds an attitude for you.
+            // Stability assist lives with the attitude controls, not with staging, because it's the
+            // thing that holds an attitude for you.
             com.rm.apogee.ui.components.SasButton(
                 enabled = hud.sasEnabled,
                 mode = hud.telemetry.sasMode,
@@ -578,20 +576,23 @@ private fun AttitudeCluster(
         Spacer(Modifier.height(8.dp))
         Box(contentAlignment = Alignment.Center) {
             AttitudeStick(onChange = onAttitude, size = stickSize)
-            // Why it does nothing, across it.
+            // Why it does nothing, written across it.
             if (deaf != null) {
                 Text(deaf, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = ApogeeColors.Danger)
             }
         }
-        // What the stick does, right under it, while the thrusters are armed -
-        // and its room kept when they are not, so the stick sits at the same
-        // height, a little up from the corner, on every craft.
+        // What the stick does, right under it, while the thrusters are armed. Its room is kept when
+        // they aren't, so the stick sits at the same height, a little up from the corner, on every
+        // craft.
         Spacer(Modifier.height(8.dp))
         StickModeChip(sliding, sas.onStickMode, shown = hud.rcsArmed)
     }
 }
 
-/** TURN | SLIDE: what the stick does while the thrusters are armed; unless [shown], only the room it takes. */
+/**
+ * TURN | SLIDE: what the stick does while the thrusters are armed. Unless [shown], it only takes up
+ * the room.
+ */
 @Composable
 private fun StickModeChip(sliding: Boolean, onStickMode: (Boolean) -> Unit, shown: Boolean = true) {
     Row(
@@ -671,51 +672,56 @@ private const val THROTTLE_STEP = 0.01f
 /** At or below this the throttle is off: the bottom of the track, and a little above it. */
 private const val THROTTLE_SNAP = 0.07f
 
-/** How faded the throttle and stick are while nothing sent to the craft is heard. */
+/** How faded the throttle and stick are while nothing sent to the craft is getting heard. */
 private const val OUT_OF_TOUCH_ALPHA = 0.35f
 private val STICK_SIZE = 132.dp
 
 /**
- * How far the stick is kept in from its corner, beyond the screen's own
- * margin: tucked right into it, the thumb had to bend back to reach it
- * (Dan: too close to the corner to control easily).
+ * How far the stick is kept in from its corner, beyond the screen's own margin. Tucked right into
+ * the corner, it was too close to control easily, and my thumb had to bend back to reach it.
  */
 private val STICK_INSET = 40.dp
 
-/** How tall a status chip's detail may grow in landscape before it scrolls: clear of the stage button. */
+/** How tall a status chip's detail can grow in landscape before it scrolls, clear of the stage button. */
 private val LANDSCAPE_DETAIL_HEIGHT = 150.dp
 
-/** Numbers to a line on the flight strip. */
+/** Numbers per line on the flight strip. */
 private const val PORTRAIT_STRIP_PER_LINE = 5
 private const val LANDSCAPE_STRIP_PER_LINE = 5
 
-/** Where the prompts start down from the top: under the buttons, the strip and the chips in portrait; the top row in landscape. */
+/**
+ * Where the prompts start down from the top: under the buttons, the strip and the chips in
+ * portrait, and the top row in landscape.
+ */
 private val PORTRAIT_PROMPT_TOP = 150.dp
 private val LANDSCAPE_PROMPT_TOP = 58.dp
 
-/** Switches to a column of the rail, before a second: portrait has the height, landscape does not. */
+/**
+ * Switches per column of the rail, before a second one. Portrait has the height, and landscape
+ * doesn't.
+ */
 private const val PORTRAIT_RAIL_PER_COLUMN = 6
 private const val LANDSCAPE_RAIL_PER_COLUMN = 4
 
-/** How often the idle fade is looked at, ms, and how fast the controls come back, ms. */
+/** How often the idle fade is checked, in ms, and how fast the controls come back, in ms. */
 private const val FADE_POLL_MS = 200L
 private const val FADE_BACK_MS = 150
 
 private val PORTRAIT_STICK_INSET = 14.dp
 
-/** Keeps the stick [inset] in from the screen edge it sits against - the left in left-hand mode - and up from the bottom. */
+/** Keeps the stick [inset] in from the screen edge it sits against (the left in left-hand mode) and up from the bottom. */
 private fun Modifier.cornerInset(leftHand: Boolean, inset: Dp): Modifier =
     padding(start = if (leftHand) inset else 0.dp, end = if (leftHand) 0.dp else inset, bottom = inset * 0.5f)
 private val NAVBALL_SIZE = 112.dp
 
-// Portrait is short of width and generous with height, so the throttle takes
-// the height: a longer throttle is a finer throttle, over the same 0-100%.
+// Portrait is short of width and generous with height, so the throttle takes the height. A longer
+// throttle is a finer throttle, over the same 0-100%.
 private val PORTRAIT_THROTTLE_HEIGHT = 150.dp
 private val PORTRAIT_STICK_SIZE = 122.dp
 private val PORTRAIT_NAVBALL_SIZE = 100.dp
 
 
-/** What became of a craft that is gone, and where to go from here. */
+/** What happened to a craft that's gone, and where to go from here. */
 @Composable
 private fun CrashCard(
     name: String,
@@ -748,7 +754,7 @@ private fun CrashCard(
                     color = Color.White.alpha(ApogeeAlpha.SECONDARY),
                 )
             }
-            // Who went with it: on the memorial now.
+            // Who went with it, and who's on the memorial now.
             if (crewLost.isNotEmpty()) {
                 Spacer(Modifier.height(8.dp))
                 Text(
@@ -767,7 +773,7 @@ private fun CrashCard(
     }
 }
 
-/** The worlds' names beside their marks on the map, placed afresh ten times a second. */
+/** The worlds' names next to their marks on the map, placed afresh ten times a second. */
 @Composable
 private fun MapNames(labels: (Float, Float) -> List<com.rm.apogee.game.GameSession.MapLabel>) {
     var size by remember { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
@@ -781,7 +787,8 @@ private fun MapNames(labels: (Float, Float) -> List<com.rm.apogee.game.GameSessi
     Box(Modifier.fillMaxSize().onSizeChanged { size = it }) {
         for (label in shown) {
             if (label.place) {
-                // A found place: a small dot on the world, no more - its name is in the Program.
+                // A found place is a small dot on the world, nothing more. Its name is in the
+                // Program.
                 Box(
                     Modifier
                         .offset { androidx.compose.ui.unit.IntOffset(label.x.toInt(), label.y.toInt()) }

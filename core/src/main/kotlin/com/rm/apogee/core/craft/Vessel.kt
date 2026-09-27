@@ -30,9 +30,9 @@ class ControlState {
     /**
      * Translation, -1..1 on each craft-local axis: right, up, forward.
      *
-     * Separate from [pitch]/[yaw]/[roll] rather than a mode flag, because the
-     * simulation has no business knowing which one the player's thumb is
-     * currently driving. The UI decides that; both sets arrive here.
+     * This is kept separate from [pitch]/[yaw]/[roll] instead of using a mode flag, because the
+     * simulation has no business knowing which of them your thumb is driving right now. The UI
+     * decides that, and both sets arrive here.
      */
     var translateX: Double = 0.0
         set(value) { field = value.coerceIn(-1.0, 1.0) }
@@ -41,70 +41,75 @@ class ControlState {
     var translateZ: Double = 0.0
         set(value) { field = value.coerceIn(-1.0, 1.0) }
 
-    /** Whether the thrusters are enabled at all. */
+    /** Whether the thrusters are switched on at all. */
     var rcsEnabled: Boolean = false
 
     /**
-     * Stability assist. In the air with the stick centred it holds the
-     * attitude the stick was released at; on the ground, or with nothing to
-     * hold, it damps rotation. See [com.rm.apogee.core.world.StabilityAssist].
+     * Stability assist. In the air with the stick centred, it holds the attitude you let go of the
+     * stick at. On the ground, or with nothing to hold, it damps rotation. See
+     * [com.rm.apogee.core.world.StabilityAssist].
      */
     var sasEnabled: Boolean = false
 
-    /** What stability assist holds the nose on, when it is on. */
+    /** What stability assist holds the nose on, when it's on. */
     var sasMode: com.rm.apogee.core.world.SasMode = com.rm.apogee.core.world.SasMode.HOLD
 
-    /** What the navball's markers - and so the held directions - are measured against. */
+    /** What the navball's markers, and so the held directions, are measured against. */
     var navFrame: com.rm.apogee.core.world.NavFrame = com.rm.apogee.core.world.NavFrame.AUTO
 
     /** Another craft to steer by, or -1 for none. */
     var target: Long = -1L
 
-    /** A body to steer by - a moon, a planet - by id, or blank for none. A craft target wins. */
+    /**
+     * A body to steer by, like a moon or a planet, by id, or blank for none. A craft target wins.
+     */
     var targetBody: String = ""
 
-    /** Flying the next planned burn by itself: turning, throttling, cutting. See `World.autoBurn`. */
+    /**
+     * Flying the next planned burn by itself: turning, throttling and cutting. See
+     * `World.autoBurn`.
+     */
     var autoBurn: Boolean = false
 
-    /** Setting itself down by itself: braking, and down gently onto its legs. See `World.autoLand`. */
+    /** Landing by itself: braking, and settling gently onto its legs. See `World.autoLand`. */
     var autoLand: Boolean = false
 
-    /** Why the autopilot last gave up, blank for no reason to tell. */
+    /** Why the autopilot last gave up, or blank if there's no reason to show. */
     var autopilotNote: String = ""
 
     /**
-     * Wheel brakes. A mode rather than a held button, like the parking brake
-     * it mostly is: a rover left on a slope has to stay there with nobody
-     * holding anything, and rolling resistance alone lets it creep off any
-     * slope steeper than about three degrees.
+     * Wheel brakes. It's a mode rather than a held button, like the parking brake it mostly is. A
+     * rover left on a slope has to stay put with nobody holding anything, and rolling resistance
+     * alone lets it creep off any slope steeper than about three degrees.
      */
     var brakes: Boolean = false
 
-    /** Wheels driven backwards: the throttle runs them in reverse. */
+    /** Wheels driven backwards, so the throttle runs them in reverse. */
     var reverse: Boolean = false
 
-    /** Fold-out sun wings and dishes: out, or folded away. */
+    /** Fold-out sun wings and dishes, out or folded away. */
     var deployed: Boolean = false
 
-    /** Its drills switched on: see `World`'s industry. */
+    /** Whether its drills are switched on. See `World`'s industry. */
     var drilling: Boolean = false
 
-    /** Its converters - a craft's, a base's refinery - switched on. */
+    /** Whether its converters (a craft's, or a base's refinery) are switched on. */
     var refining: Boolean = false
 
     /** Its ballast tanks: flooding (1), blowing (-1), or neither (0). */
     var ballast: Int = 0
 
-    /** Holding a depth by the ballast, and which, m below the surface. */
+    /**
+     * Whether it's holding a depth with the ballast, and which depth, in metres below the surface.
+     */
     var holdDepth: Boolean = false
     var holdDepthAt: Double = 0.0
 
     /**
-     * What stability assist is asking for, -1..1 on each axis, written each
-     * tick by [com.rm.apogee.core.world.StabilityAssist] and never by a
-     * player. Kept apart from [pitch]/[yaw]/[roll] so that "is the stick
-     * centred" stays answerable - which is the question that decides whether
-     * the assist may act at all.
+     * What stability assist is asking for, -1..1 on each axis.
+     * [com.rm.apogee.core.world.StabilityAssist] writes this every tick, and a player never does.
+     * It's kept apart from [pitch]/[yaw]/[roll] so we can still tell whether the stick is centred,
+     * which is what decides whether the assist is allowed to act at all.
      */
     var assistPitch: Double = 0.0
     var assistYaw: Double = 0.0
@@ -114,19 +119,17 @@ class ControlState {
     val hasAttitudeInput: Boolean get() = pitch != 0.0 || yaw != 0.0 || roll != 0.0
 
     /**
-     * The attitude command the craft acts on: the player's while they are
-     * steering, otherwise the assist's. Every control surface, gimbal and
-     * reaction wheel reads these, so a hold uses the same authority a thumb
-     * does rather than a second, invisible set of controls.
+     * The attitude command the craft acts on: the player's while they're steering, otherwise the
+     * assist's. Every control surface, gimbal and reaction wheel reads these, so a hold uses the
+     * same authority your thumb does instead of a second, hidden set of controls.
      */
     val commandPitch: Double get() = if (hasAttitudeInput) pitch else assistPitch
     val commandYaw: Double get() = if (hasAttitudeInput) yaw else assistYaw
     val commandRoll: Double get() = if (hasAttitudeInput && !(assistLevelling && roll == 0.0)) roll else assistRoll
 
     /**
-     * Stability assist keeping a boat level while it is steered: the roll
-     * stays the assist's while the player turns, unless they roll it
-     * themselves. Written each tick by the assist.
+     * Stability assist keeping a boat level while you steer it. The roll stays with the assist
+     * while you turn, unless you roll it yourself. The assist writes this every tick.
      */
     var assistLevelling: Boolean = false
 
@@ -138,29 +141,27 @@ class ControlState {
 }
 
 /**
- * A craft as it exists in the world: the blueprint, plus everything about it
- * that changes.
+ * A craft as it exists in the world: the blueprint, plus everything about it that changes.
  *
- * Resources are tracked **per part** rather than as one vessel-wide pool. That
- * costs a little bookkeeping and buys the thing that actually matters: as a
- * lower stage drains, the craft's centre of mass climbs, and the handling
- * changes with it. A single pooled number would drain "from everywhere at
- * once" and the craft would fly like its mass never moved.
+ * Resources are tracked **per part** instead of as one pool for the whole craft. That costs a
+ * little bookkeeping and gets the thing that actually matters: as a lower stage drains, the craft's
+ * centre of mass climbs and the handling changes with it. A single pooled number would drain "from
+ * everywhere at once" and the craft would fly like its mass never moved.
  */
 class Vessel(
     val id: VesselId,
     design: CraftDesign,
     defs: List<PartDef>,
-    /** Which celestial body this vessel's position is expressed relative to. */
+    /** Which celestial body this vessel's position is measured from. */
     var referenceBodyId: String,
 ) {
     var design: CraftDesign = design
         private set
 
     /**
-     * Stability assist's memory: the attitude being held, whether there is
-     * one, and the integral of the error. Not saved - a reloaded craft simply
-     * takes its hold from wherever it is on the first tick.
+     * Stability assist's memory: the attitude being held, whether there is one, and the integral of
+     * the error. It isn't saved. A reloaded craft just takes its hold from wherever it is on the
+     * first tick.
      */
     val assistHeld = com.rm.apogee.core.math.Quat.identity()
     var assistHolding: Boolean = false
@@ -168,55 +169,52 @@ class Vessel(
 
     // --- moving parts ---------------------------------------------------------
     //
-    // Per part, parallel to [defs]: how each moving part is posed. Worked out
-    // every tick by the world and sent to every client, so a player flying
-    // alongside sees the same elevon, the same steered wheel and the same leg
-    // half out that the pilot does.
+    // For each part, alongside [defs]: how each moving part is posed. The world works it out every
+    // tick and sends it to every client, so a player flying alongside sees the same elevon, the
+    // same steered wheel and the same leg half out that the pilot does.
 
     /** Control surfaces: deflection, -1..1 of their travel. */
     var surfaceDeflection = DoubleArray(design.parts.size)
         private set
 
-    /** Steerable wheels: steering angle, radians. */
+    /** Steerable wheels: steering angle, in radians. */
     var wheelSteer = DoubleArray(design.parts.size)
         private set
 
-    /** Wheels: how far the suspension is compressed, metres. */
+    /** Wheels: how far the suspension is compressed, in metres. */
     var wheelCompression = DoubleArray(design.parts.size)
         private set
 
     /**
-     * How far each part has sunk into soft ground, metres - kept from tick
-     * to tick, since ground gives over time rather than all at once. See
-     * GroundContact.
+     * How far each part has sunk into soft ground, in metres. It's kept from tick to tick, because
+     * ground gives way over time rather than all at once. See GroundContact.
      */
     var sunk = DoubleArray(design.parts.size)
         private set
 
-    /** Landing legs: deploy progress, 0 stowed to 1 deployed. */
+    /** Landing legs: deploy progress, from 0 stowed to 1 deployed. */
     var legDeploy = DoubleArray(design.parts.size)
         private set
 
-    /** Gimballed engines: how far the nozzle is swung, -1..1 of its range, about pitch and yaw. */
+    /** Gimballed engines: how far the nozzle is swung, -1..1 of its range, in pitch and yaw. */
     var gimbalPitch = DoubleArray(design.parts.size)
         private set
     var gimbalYaw = DoubleArray(design.parts.size)
         private set
 
     /**
-     * Engines: what each is actually putting out this tick, 0..1 of its full
-     * thrust - throttle times whatever propellant reached it. Zero for one
-     * that has run dry, however far the throttle is open: what the flame and
-     * the sound follow.
+     * Engines: what each one is actually putting out this tick, 0..1 of its full thrust. That's the
+     * throttle times whatever propellant reached it. It's zero for one that has run dry however far
+     * the throttle is open, and it's what the flame and the sound follow.
      */
     var engineOutput = DoubleArray(design.parts.size)
         private set
 
     /**
-     * Thruster blocks: which way each is pushing the craft this tick, and
-     * how hard - three values per part, in the craft's own axes, the length
-     * 0..1 of its thrust. Sliding and turning together; zero for a block at
-     * rest and for every other part. What the puffs and the sound follow.
+     * Thruster blocks: which way each one is pushing the craft this tick, and how hard. There are
+     * three values per part, in the craft's own axes, with a length of 0..1 of its thrust. It
+     * covers sliding and turning together, and it's zero for a block at rest and for every other
+     * part. The puffs and the sound follow this.
      */
     var rcsFiring = DoubleArray(design.parts.size * 3)
         private set
@@ -235,8 +233,8 @@ class Vessel(
     }
 
     /**
-     * Sets a leg's deploy progress, or a chute's (below 0 for cut away):
-     * restoring a save, mirroring the server, or the chute filling.
+     * Sets a leg's deploy progress, or a chute's (below 0 for cut away). Used when restoring a
+     * save, mirroring the server, or when the chute fills.
      */
     fun setLegDeploy(index: Int, progress: Double) {
         if (index in legDeploy.indices) legDeploy[index] = progress.coerceIn(-1.0, 1.0)
@@ -254,26 +252,26 @@ class Vessel(
         gimbalYaw = DoubleArray(n)
         engineOutput = DoubleArray(n)
         rcsFiring = DoubleArray(n * 3)
-        // Staged legs start down; a staged chute starts packed, and opens
-        // itself when it is safe to.
+        // Staged legs start down. A staged chute starts packed, and opens by itself when it's safe
+        // to.
         legDeploy = DoubleArray(n) {
             if (it < activated.size && isWorking(it) && defs[it].module<com.rm.apogee.core.part.Parachute>() == null) 1.0 else 0.0
         }
     }
 
-    /** Whether anything of this craft touched the ground last tick. */
+    /** Whether any part of this craft touched the ground last tick. */
     var touchingGround: Boolean = false
 
     /**
-     * How long it has been down, s: counting while it touches, and let go
-     * only once it has been off the ground half a second - a craft dragged
-     * or bouncing along is still down. What cuts a chute away on landing.
+     * How long it has been down, in seconds. It counts while it touches, and only resets once it
+     * has been off the ground for half a second, so a craft being dragged or bouncing along still
+     * counts as down. This is what cuts a chute away on landing.
      */
     var groundedSeconds: Double = 0.0
         private set
     private var liftedSeconds = 0.0
 
-    /** Counts [groundedSeconds] on by [dt], from whether it touched this tick. */
+    /** Moves [groundedSeconds] on by [dt], depending on whether it touched this tick. */
     fun countGrounded(touching: Boolean, dt: Double) {
         if (touching) {
             groundedSeconds += dt
@@ -285,13 +283,12 @@ class Vessel(
     }
 
     /**
-     * How many contact points it had on the ground last tick. Sharing the
-     * craft's weight among them gives the load under each, which is what
-     * decides how far a foot or a wheel sinks into soft ground.
+     * How many contact points it had on the ground last tick. Sharing the craft's weight between
+     * them gives the load under each, which decides how far a foot or wheel sinks into soft ground.
      */
     var groundContacts: Int = 0
 
-    /** Resolved definitions, parallel to `design.parts`. */
+    /** Looked-up part definitions, alongside `design.parts`. */
     var defs: List<PartDef> = defs
         private set
 
@@ -303,25 +300,24 @@ class Vessel(
     /**
      * Who this craft belongs to, or blank for debris and abandoned craft.
      *
-     * An opaque per-install id, not a session and not a display name. Not a
-     * session because sessions end every time someone closes the app, and the
-     * whole point of a persistent world is that the craft is still there when
-     * they come back. Not a display name because names are neither unique nor
-     * stable: two devices that never set one both arrive as the default and
-     * end up sharing a craft, which is exactly what happened the first time
-     * two clients met on a server.
+     * It's an id that stays the same for each install, not a session and not a display name. Not a
+     * session, because sessions end every time someone closes the app, and the whole point of a
+     * persistent world is that the craft is still there when they come back. Not a display name,
+     * because names aren't unique or stable. Two devices that never set one both show up as the
+     * default and end up sharing a craft, which is exactly what happened the first time two clients
+     * met on a server.
      */
     var owner: String = ""
 
     /**
-     * What to call the owner on screen. Cosmetic, and never used to decide
-     * what belongs to whom - see [owner].
+     * What to call the owner on screen. It's cosmetic, and never used to decide what belongs to
+     * whom. See [owner].
      */
     var ownerName: String = ""
 
     /**
-     * Per-part resource amounts, indexed `[partIndex][ResourceType.ordinal]`.
-     * A flat array rather than a map: this is read for every engine every tick.
+     * Resource amounts for each part, indexed `[partIndex][ResourceType.ordinal]`. It's a flat
+     * array instead of a map because this gets read for every engine every tick.
      */
     private var resources: Array<DoubleArray> =
         Array(design.parts.size) { DoubleArray(RESOURCE_COUNT) }
@@ -331,62 +327,62 @@ class Vessel(
         private set
 
     /**
-     * How whole each part is, 0..1. Damage from impacts, heat and strain
-     * wears it down; at zero the part is destroyed and whatever hung from it
-     * comes away (see `World.failParts`).
+     * How whole each part is, 0..1. Damage from impacts, heat and strain wears it down. At zero the
+     * part is destroyed and whatever hung from it comes away (see `World.failParts`).
      */
     var health: DoubleArray = DoubleArray(design.parts.size) { 1.0 }
         private set
 
     /**
-     * How each part is dented, in its own axes: the direction it was struck
-     * from, scaled by how badly - three floats a part. For drawing.
+     * How each part is dented, in its own axes: the direction it was hit from, scaled by how badly.
+     * Three floats per part, for drawing.
      */
     var crumple: FloatArray = FloatArray(design.parts.size * 3)
         private set
 
     /**
-     * Each part's temperature, K. Starts at a mild day's; the air, the sun,
-     * engines and re-entry move it from there - see
-     * [com.rm.apogee.core.world.Heat].
+     * Each part's temperature, in K. It starts at a mild day's temperature, and the air, the sun,
+     * engines and re-entry move it from there. See [com.rm.apogee.core.world.Heat].
      */
     var temperature: DoubleArray = DoubleArray(design.parts.size) { AMBIENT_TEMPERATURE }
         private set
 
     /**
-     * Who sits in each part, by crew id: a pod's crew, a habitat's
-     * residents, an astronaut in their suit. Carried with the parts through
-     * every change of structure, as their fuel and damage are; see
-     * `World`'s crew for who they are.
+     * Who sits in each part, by crew id: a pod's crew, a habitat's residents, or an astronaut in
+     * their suit. They get carried with the parts through every change of structure, just like fuel
+     * and damage. See `World`'s crew for who they are.
      */
     var crew: Array<LongArray> = Array(design.parts.size) { NO_CREW }
 
     /** How many are aboard. */
     val crewAboard: Int get() = crew.sumOf { it.size }
 
-    /** Someone on foot: the grip their feet found this tick, N·s, for the walk to spend; see `World`'s walking. */
+    /** Someone on foot: the grip their feet found this tick, in N·s, for walking to use. See `World`'s walking. */
     var walkGrip: Double = 0.0
 
-    /** Where in their stride someone walking is, radians: what swings their legs. */
+    /** Where someone walking is in their stride, in radians. This is what swings their legs. */
     var walkPhase: Double = 0.0
 
-    /** Which side of its body's ring plane it was last on, NaN for not yet looked: see `World`'s rings. */
+    /**
+     * Which side of its body's ring plane it was on last time, or NaN if it hasn't been checked
+     * yet. See `World`'s rings.
+     */
     var ringSide: Double = Double.NaN
 
-    /** Walking or jumping this tick: not to be held still as a parked craft is. */
+    /** Walking or jumping this tick, so it shouldn't be held still like a parked craft. */
     var walking: Boolean = false
 
-    /** On foot, or on a ladder: the stick walks or climbs rather than turning them head over heels. */
+    /** On foot or on a ladder. The stick walks or climbs instead of turning them head over heels. */
     var onFeet: Boolean = false
 
-    /** The ladder held - its craft's id and the part - or -1 for none. */
+    /** The ladder being held (its craft's id and the part), or -1 for none. */
     var ladderVessel: Long = -1L
     var ladderPart: Int = -1
 
     /** Whether anyone is aboard a working part. */
     fun hasCrew(): Boolean = crew.indices.any { crew[it].isNotEmpty() && !broken[it] }
 
-    /** Takes up to [units] of [type] from part [index] alone; returns what it got. */
+    /** Takes up to [units] of [type] from part [index] only, and returns what it got. */
     fun takeFromPart(index: Int, type: ResourceType, units: Double): Double {
         val row = resources[index]
         val taken = minOf(units, row[type.ordinal]).coerceAtLeast(0.0)
@@ -395,9 +391,9 @@ class Vessel(
     }
 
     /**
-     * This tick's thrust and air forces on each part, world axes, N - three
-     * a part. What [com.rm.apogee.core.world.Stress] works the joints out
-     * from; cleared at the start of every tick.
+     * This tick's thrust and air forces on each part, in world axes, in N, with three values per
+     * part. [com.rm.apogee.core.world.Stress] works out the joints from this. It's cleared at the
+     * start of every tick.
      */
     var partForce: DoubleArray = DoubleArray(design.parts.size * 3)
         private set
@@ -411,50 +407,54 @@ class Vessel(
     fun clearForces() = partForce.fill(0.0)
 
     /**
-     * How near its limit the joint above each part is, as load over
-     * strength: 1 is the limit. For the HUD, the sound and the camera.
+     * How close the joint above each part is to its limit, as load over strength, where 1 is the
+     * limit. For the HUD, the sound and the camera.
      */
     var jointLoad: FloatArray = FloatArray(design.parts.size)
         private set
 
     /**
-     * Each wing and fin's air load this tick as a share of what it is built
-     * for, from the drag pass - handed on to [jointLoad] by the stress pass,
-     * which does not judge them itself.
+     * Each wing and fin's air load this tick as a share of what it's built for, from the drag pass.
+     * The stress pass hands this on to [jointLoad] without judging it itself.
      */
     var surfaceLoad: FloatArray = FloatArray(design.parts.size)
         private set
 
     /**
-     * Which parts had their centres under water last tick, for telling a
-     * part hitting the sea from one already in it; null until first looked.
+     * Which parts had their centres under water last tick, to tell a part hitting the sea apart
+     * from one that's already in it. Null until it's first checked.
      */
     var wet: BooleanArray? = null
 
-    /** Whether any of it was held up by the water last tick: afloat, or at least partly in the sea. */
+    /**
+     * Whether any of it was held up by the water last tick, either afloat or at least partly in the
+     * sea.
+     */
     var buoyed: Boolean = false
 
-    /** Whether all of it, near enough, was under the water last tick: diving, not riding the sea. */
+    /**
+     * Whether all of it, or near enough, was under the water last tick, meaning it's diving rather
+     * than riding on the sea.
+     */
     var submerged: Boolean = false
 
     /**
-     * How near the sea is to crushing it: the worst of its hollow parts'
-     * water pressure over what that part is built for, last tick. Over 1 and
-     * it is giving way. 0 out of the water.
+     * How close the sea is to crushing it: the worst of its hollow parts' water pressure compared
+     * to what that part is built for, as of last tick. Over 1 and it's giving way. 0 out of the
+     * water.
      */
     var crushShare: Double = 0.0
 
     /**
-     * Which faces of each part's volume cells meet the water, and for which
-     * shape - worked out by Hydrostatics, again whenever [design] changes.
+     * Which faces of each part's volume cells meet the water, and for which shape. Hydrostatics
+     * works it out, and again whenever [design] changes.
      */
     var faceExposure: Array<ByteArray>? = null
     var faceExposureFor: CraftDesign? = null
 
     /**
-     * Water shipped into each part, kg: an open hull that a wave has come
-     * over, or a holed one. Carried as weight - a boat full of water sits
-     * lower, and past a point sinks.
+     * Water that has got into each part, in kg, like an open hull a wave has come over, or a holed
+     * one. It's carried as weight, so a boat full of water sits lower and past a point sinks.
      */
     var flooded: DoubleArray = DoubleArray(design.parts.size)
 
@@ -462,13 +462,13 @@ class Vessel(
     var stress: Double = 0.0
     var worstJoint: Int = -1
 
-    /** The hottest part, as a share of what it can stand, and which (-1 for none). */
+    /** The hottest part, as a share of what it can stand, and which one it is (-1 for none). */
     var hottest: Double = 0.0
     var hottestPart: Int = -1
 
     /**
-     * Takes [amount] of health from [index]; a dent toward [from] (body
-     * axes, any length) if given. Returns true if that finished it.
+     * Takes [amount] of health from [index], with a dent toward [from] (body axes, any length) if
+     * given. Returns true if that destroyed it.
      */
     fun damage(index: Int, amount: Double, from: Vec3? = null): Boolean {
         if (index !in health.indices || amount <= 0.0 || health[index] <= 0.0) return false
@@ -485,10 +485,10 @@ class Vessel(
     }
 
     /**
-     * Takes on the state of [source]'s parts [indices] - fuel, what has
-     * fired, what has failed, how damaged, how deployed - as this craft's
-     * parts in the same order. For a piece that has just come off another:
-     * built fresh, it would otherwise start with full tanks and no damage.
+     * Takes on the state of [source]'s parts [indices] (fuel, what has fired, what has failed, how
+     * damaged, how deployed) as this craft's parts in the same order. This is for a piece that has
+     * just come off another craft. Built fresh, it would otherwise start with full tanks and no
+     * damage.
      */
     fun inheritParts(source: Vessel, indices: List<Int>) {
         fitPose()
@@ -505,7 +505,7 @@ class Vessel(
         recomputeMass(shiftBodyPosition = false)
     }
 
-    /** Restores condition from a save. */
+    /** Restores the condition from a save. */
     fun restoreCondition(savedHealth: List<Double>, savedCrumple: List<Float>, savedTemperature: List<Double> = emptyList()) {
         for (i in health.indices) health[i] = savedHealth.getOrElse(i) { 1.0 }.coerceIn(0.0, 1.0)
         for (i in crumple.indices) crumple[i] = savedCrumple.getOrElse(i) { 0f }
@@ -515,44 +515,49 @@ class Vessel(
     /**
      * Parts that have failed but are still attached.
      *
-     * A collapsed landing leg and a torn parachute are both this: the geometry
-     * is still there and still has mass, but the module stops working. Kept
-     * separate from [activated] because a broken part must not simply look
-     * un-staged - a torn chute cannot be redeployed by staging again.
+     * A collapsed landing leg and a torn parachute are both like this. The geometry is still there
+     * and still has mass, but the module stops working. It's kept separate from [activated] because
+     * a broken part mustn't just look un-staged. A torn chute can't be redeployed by staging it
+     * again.
      */
     var broken: BooleanArray = BooleanArray(design.parts.size)
         private set
 
-    /** Next stage to fire. Equals `design.stages.size` when staging is spent. */
+    /** The next stage to fire. It equals `design.stages.size` when staging is used up. */
     /**
-     * The air it is in this tick: wind, cloud, rain, how rough. Sampled by
-     * the world before forces are applied; not saved, since the weather is a
-     * function of where and when.
+     * The air it's in this tick: wind, cloud, rain and how rough. The world samples it before
+     * applying forces. It isn't saved, because the weather depends only on where and when.
      */
     val air = com.rm.apogee.core.weather.AirSample()
 
-    /** Burns planned for this craft, soonest first: see [com.rm.apogee.core.world.PlannedBurn]. */
+    /** Burns planned for this craft, soonest first. See [com.rm.apogee.core.world.PlannedBurn]. */
     val plannedBurns = ArrayList<com.rm.apogee.core.world.PlannedBurn>()
 
     /**
-     * The next burn, in the world's axes, fixed from when its window opens
-     * (see `Burns.WINDOW`); NaN until then.
+     * The next burn, in world axes, fixed from when its window opens (see `Burns.WINDOW`). NaN
+     * until then.
      */
     val burnVector = Vec3(Double.NaN, 0.0, 0.0)
 
-    /** What has been given toward it since - by the engines, or anything but gravity - m/s, world axes. */
+    /**
+     * What has been given toward it since then, by the engines or anything except gravity, in m/s,
+     * world axes.
+     */
     val burnApplied = Vec3()
 
-    /** The auto-land has begun braking: see `World.autoLand`. */
+    /** The auto-land has started braking. See `World.autoLand`. */
     var landBraking: Boolean = false
 
-    /** How long the next burn takes at full throttle, s, as last worked out; 0 with none. */
+    /**
+     * How long the next burn takes at full throttle, in seconds, as last worked out. 0 if there's
+     * none.
+     */
     var burnDuration: Double = 0.0
 
     /**
-     * Which parts ride inside a closed fairing, out of the air: see
-     * [com.rm.apogee.core.craft.Fairings]. Worked out again when the
-     * structure changes or a fairing opens.
+     * Which parts ride inside a closed fairing, out of the air. See
+     * [com.rm.apogee.core.craft.Fairings]. It gets worked out again when the structure changes or a
+     * fairing opens.
      */
     fun enclosed(): BooleanArray {
         var open = 0L
@@ -569,7 +574,7 @@ class Vessel(
     private var enclosedDesign: CraftDesign? = null
     private var enclosedOpen = -1L
 
-    /** Forgets any burn in progress: a new plan, or the last one done. */
+    /** Forgets any burn in progress, either because there's a new plan or the last one is done. */
     fun resetBurn() {
         burnVector.setTo(Double.NaN, 0.0, 0.0)
         burnApplied.setZero()
@@ -579,21 +584,21 @@ class Vessel(
         private set
 
     /**
-     * Which fuel group each part belongs to. Parts share a group when they are
-     * connected without a decoupler in between.
+     * Which fuel group each part belongs to. Parts share a group when they're connected without a
+     * decoupler in between.
      *
-     * This is the crossfeed rule, and it is what makes staging mean anything.
-     * Without it an engine draws from every tank on the craft, so a first stage
-     * quietly burns the upper stage's propellant and separating buys nothing
-     * but lost mass - which is exactly what the first headless ascent did.
+     * This is the crossfeed rule, and it's what makes staging mean anything. Without it an engine
+     * draws from every tank on the craft, so a first stage quietly burns the upper stage's
+     * propellant and separating gets you nothing except lost mass, which is exactly what the first
+     * headless ascent did.
      *
-     * Declared above `init` deliberately: Kotlin runs property initialisers and
-     * init blocks in declaration order, so a field declared further down would
-     * have its `IntArray(0)` initialiser overwrite whatever init computed.
+     * It's declared above `init` on purpose. Kotlin runs property initialisers and init blocks in
+     * the order they're declared, so a field declared further down would have its `IntArray(0)`
+     * initialiser overwrite whatever init worked out.
      */
     private var fuelGroups: IntArray = IntArray(0)
 
-    /** Centre of mass in design-space, kept so [body]'s position can track it. */
+    /** Centre of mass in design space, kept so [body]'s position can follow it. */
     private val centerOfMassLocal = Vec3()
 
     private val scratch = Vec3()
@@ -615,7 +620,7 @@ class Vessel(
         for (i in defs.indices) {
             for (module in defs[i].modules) {
                 if (module is Tank && module.resource.startsFull) resources[i][module.resource.ordinal] = module.capacity
-                // A battery holds charge as a tank holds propellant.
+                // A battery holds charge the same way a tank holds propellant.
                 if (module is com.rm.apogee.core.part.Battery) resources[i][ResourceType.ELECTRIC_CHARGE.ordinal] = module.capacity
             }
         }
@@ -633,7 +638,7 @@ class Vessel(
         return total
     }
 
-    /** What part [index] can hold of [type]: its tanks, and its batteries for charge. */
+    /** What part [index] can hold of [type]: its tanks, plus its batteries for charge. */
     fun capacityInPart(index: Int, type: ResourceType): Double {
         var total = 0.0
         for (module in defs[index].modules) {
@@ -645,55 +650,70 @@ class Vessel(
 
     // --- a base's power -------------------------------------------------------
 
-    /** When its power was last worked out to, universe seconds; NaN before it ever has been. See `World.settlePower`. */
+    /**
+     * When its power was last worked out up to, in universe seconds. NaN before it ever has been.
+     * See `World.settlePower`.
+     */
     var powerSettledAt: Double = Double.NaN
 
-    /** Whether it has charge to run on: a base with none is dark - no lamps, no pumping, no launching. */
+    /** Whether it has charge to run on. A base with none is dark: no lamps, no pumping, no launching. */
     var powered: Boolean = true
 
-    /** Charge coming in less going out, units a second, as last worked out: what a base's card shows. */
+    /**
+     * Charge coming in minus going out, in units a second, as last worked out. This is what a
+     * base's card shows.
+     */
     var powerNet: Double = 0.0
 
-    /** Its fuel cells running: see [com.rm.apogee.core.part.FuelCell]. */
+    /** Whether its fuel cells are running. See [com.rm.apogee.core.part.FuelCell]. */
     var fuelCellsOn: Boolean = false
 
-    /** Reaction-wheel torque used last tick, N·m all axes together: what the wheels drew for. */
+    /**
+     * Reaction wheel torque used last tick, in N·m for all axes together, which is what the wheels
+     * drew power for.
+     */
     var wheelWork: Double = 0.0
 
-    /** Its link home, as last worked out: see [com.rm.apogee.core.world.Comms]. */
+    /** Its link home, as last worked out. See [com.rm.apogee.core.world.Comms]. */
     var signal: com.rm.apogee.core.world.Signal = com.rm.apogee.core.world.Signal.NONE
 
-    /** The craft its signal passes through on the way home, by id, nearest first; empty when direct or none. */
+    /**
+     * The craft its signal passes through on the way home, by id, nearest first. Empty when it's
+     * direct or there's none.
+     */
     var signalPath: List<Long> = emptyList()
 
-    /** What it has done since it last left the ground, for a career's feats; null outside a career. */
+    /** What it has done since it last left the ground, for a career's feats. Null outside a career. */
     var log: com.rm.apogee.core.career.FlightLog? = null
 
-    /** World time [signal] was last worked out, NaN for never. */
+    /** World time when [signal] was last worked out, or NaN for never. */
     var signalAt: Double = Double.NaN
 
     /** What its drills are doing, as last worked out. */
     var drillState: com.rm.apogee.core.world.DrillState = com.rm.apogee.core.world.DrillState.OFF
 
-    /** Charge its drills and converters used last, units a second: part of what [powerNet] counts. */
+    /**
+     * The charge its drills and converters used last, in units a second. It's part of what
+     * [powerNet] counts.
+     */
     var industryDraw: Double = 0.0
 
     /** Its drills or converters have moved mass since its mass was last worked out. */
     var industryMoved: Boolean = false
 
     /**
-     * Where its drill last bit, body-fixed, and how rich the ground there
-     * was in ore and in water: worked out again once it has moved.
+     * Where its drill last bit, body-fixed, and how rich the ground there was in ore and in water.
+     * This is worked out again once it has moved.
      */
     val drillSite = Vec3(Double.NaN, 0.0, 0.0)
     var drillOre: Double = 0.0
     var drillWater: Double = 0.0
 
-    /** Seconds spent so far surveying [surveyBody] from a qualifying orbit. */
+    /** Seconds spent so far surveying [surveyBody] from a suitable orbit. */
     var surveyProgress: Double = 0.0
     var surveyBody: String = ""
 
-    /** How much of [type] more the parts sharing part [partIndex]'s plumbing have room for. */
+    /** How much more of [type] the parts sharing part [partIndex]'s plumbing have room for. */
     fun roomInGroupOf(partIndex: Int, type: ResourceType): Double {
         val group = fuelGroups[partIndex]
         var total = 0.0
@@ -701,7 +721,10 @@ class Vessel(
         return total
     }
 
-    /** Puts up to [amount] of [type] into the parts sharing part [partIndex]'s plumbing; how much went in. */
+    /**
+     * Puts up to [amount] of [type] into the parts sharing part [partIndex]'s plumbing, and returns
+     * how much went in.
+     */
     fun putIntoGroupOf(partIndex: Int, type: ResourceType, amount: Double): Double {
         val group = fuelGroups[partIndex]
         return putInto(resources.indices.filter { fuelGroups[it] == group }, type, amount)
@@ -714,7 +737,9 @@ class Vessel(
     fun roomIn(parts: Collection<Int>, type: ResourceType): Double =
         parts.sumOf { (capacityInPart(it, type) - resources[it][type.ordinal]).coerceAtLeast(0.0) }
 
-    /** Takes up to [amount] of [type] out of [parts], in their order; how much came out. */
+    /**
+     * Takes up to [amount] of [type] out of [parts], in their order, and returns how much came out.
+     */
     fun takeFrom(parts: Collection<Int>, type: ResourceType, amount: Double): Double {
         var left = amount
         for (i in parts) {
@@ -726,7 +751,10 @@ class Vessel(
         return amount - left
     }
 
-    /** Puts up to [amount] of [type] into [parts], as far as they hold; how much went in. */
+    /**
+     * Puts up to [amount] of [type] into [parts] as far as they'll hold, and returns how much went
+     * in.
+     */
     fun putInto(parts: Collection<Int>, type: ResourceType, amount: Double): Double {
         var left = amount
         for (i in parts) {
@@ -740,7 +768,10 @@ class Vessel(
         return amount - left
     }
 
-    /** Takes [amount] of charge from wherever it is held; false, and nothing taken, if there is not that much. */
+    /**
+     * Takes [amount] of charge from wherever it's held. Returns false, and takes nothing, if there
+     * isn't that much.
+     */
     fun drawCharge(amount: Double): Boolean {
         val slot = ResourceType.ELECTRIC_CHARGE.ordinal
         if (amountOf(ResourceType.ELECTRIC_CHARGE) < amount) return false
@@ -754,7 +785,10 @@ class Vessel(
         return true
     }
 
-    /** Puts [amount] of charge into its batteries, as far as they hold; how much went in. */
+    /**
+     * Puts [amount] of charge into its batteries as far as they'll hold, and returns how much went
+     * in.
+     */
     fun storeCharge(amount: Double): Double {
         val slot = ResourceType.ELECTRIC_CHARGE.ordinal
         var left = amount
@@ -772,7 +806,7 @@ class Vessel(
     fun amountInPart(partIndex: Int, type: ResourceType): Double =
         resources[partIndex][type.ordinal]
 
-    /** Total of [type] reachable from [partIndex] through crossfeed. */
+    /** The total of [type] that [partIndex] can reach through crossfeed. */
     fun amountInGroupOf(partIndex: Int, type: ResourceType): Double {
         val group = fuelGroups[partIndex]
         var total = 0.0
@@ -783,12 +817,12 @@ class Vessel(
     }
 
     /**
-     * Draws up to [amount] units of [type] from the tanks [partIndex] can
-     * reach, proportionally across them. Returns how much was available.
+     * Draws up to [amount] units of [type] from the tanks [partIndex] can reach, spread across them
+     * in proportion. Returns how much was available.
      *
-     * Proportional draw within a group is still a simplification - a real craft
-     * has a draw order - but it keeps the centre of mass sliding smoothly
-     * rather than lurching as individual tanks empty one at a time.
+     * Drawing proportionally within a group is still a simplification, since a real craft has a
+     * draw order. But it keeps the centre of mass sliding smoothly instead of lurching as tanks
+     * empty one at a time.
      */
     fun drainFromGroupOf(partIndex: Int, type: ResourceType, amount: Double): Double {
         if (amount <= 0.0) return 0.0
@@ -805,7 +839,7 @@ class Vessel(
         return taken
     }
 
-    /** Propellant reachable by any engine that is currently lit. */
+    /** Propellant that any engine that's lit right now can reach. */
     fun propellantAvailableToActiveEngines(type: ResourceType): Double {
         val counted = HashSet<Int>()
         var total = 0.0
@@ -820,12 +854,12 @@ class Vessel(
     /**
      * Rebuilds the crossfeed groups.
      *
-     * Delegates to [FuelGroups] so the builder's delta-v analysis and the live
-     * simulation apply literally the same rule - two copies of it would drift,
-     * and the builder would start predicting flights the simulation cannot fly.
+     * It hands off to [FuelGroups] so the builder's delta-v analysis and the live simulation use
+     * literally the same rule. Two copies of it would drift apart, and the builder would start
+     * predicting flights the simulation can't fly.
      *
-     * Rare enough to be free: only a spawn or a separation changes structure,
-     * so this never lands in the per-tick path.
+     * It happens rarely enough to be free, since only a spawn or a separation changes structure, so
+     * this never ends up in the per-tick path.
      */
     private fun computeFuelGroups() {
         fuelGroups = FuelGroups.compute(design, defs)
@@ -834,20 +868,26 @@ class Vessel(
     /**
      * Current resource levels, part by part, for saving.
      *
-     * Copied rather than exposed: the live arrays are written every tick by the
-     * engine loop, and handing them out would let a save in progress observe a
-     * half-drained state.
+     * They're copied rather than handed out directly, because the engine loop writes the live
+     * arrays every tick, and handing them out would let a save in progress see a half-drained
+     * state.
      */
     fun resourceSnapshot(): List<DoubleArray> = resources.map { it.copyOf() }
 
-    /** Every part's levels in one flat list, part by part, for the wire. See [restoreFlatResources]. */
+    /**
+     * Every part's levels in one flat list, part by part, for sending over the network. See
+     * [restoreFlatResources].
+     */
     fun flatResources(): List<Float> {
         val out = ArrayList<Float>(resources.size * RESOURCE_COUNT)
         for (row in resources) for (value in row) out.add(value.toFloat())
         return out
     }
 
-    /** Restores levels from [flatResources]; false, and nothing changed, if they do not fit this craft. */
+    /**
+     * Restores levels from [flatResources]. Returns false, and changes nothing, if they don't fit
+     * this craft.
+     */
     fun restoreFlatResources(flat: List<Float>): Boolean {
         if (flat.size != resources.size * RESOURCE_COUNT) return false
         var k = 0
@@ -866,9 +906,9 @@ class Vessel(
     }
 
     /**
-     * The same parts, re-described: for changes that move nothing and add or
-     * take away nothing - a docking ring's hold on its partner let go, a
-     * craft given back its own name.
+     * The same parts, described again. This is for changes that don't move anything or add or
+     * remove anything, like a docking ring letting go of its partner, or a craft getting its own
+     * name back.
      */
     fun redesign(newDesign: CraftDesign) {
         require(newDesign.parts.size == design.parts.size) { "redesign keeps the same parts" }
@@ -890,9 +930,9 @@ class Vessel(
         for (index in activatedParts) {
             if (index in activated.indices) activated[index] = true
         }
-        // Damage survives a reload. Without this a craft that limped down on
-        // a collapsed leg stands back up repaired the next time the server
-        // starts, which is the sort of thing a persistent world must not do.
+        // Damage survives a reload. Without this, a craft that limped down on a collapsed leg would
+        // stand back up repaired the next time the server started, which is the kind of thing a
+        // persistent world mustn't do.
         broken.fill(false)
         for (index in brokenParts) {
             if (index in broken.indices) broken[index] = true
@@ -901,10 +941,10 @@ class Vessel(
 
     // --- mass ---------------------------------------------------------------
 
-    /** Current mass of one part, including whatever it is carrying. */
+    /** The current mass of one part, including whatever it's carrying. */
     fun massOfPart(index: Int): Double {
         var mass = defs[index].dryMass + flooded.getOrElse(index) { 0.0 }
-        // A fairing's shell, while it is still on.
+        // A fairing's shell, while it's still on.
         defs[index].module<com.rm.apogee.core.part.Fairing>()?.let { if (!activated[index]) mass += 2.0 * it.shellMass }
         val amounts = resources[index]
         for (type in ResourceType.entries) {
@@ -914,11 +954,11 @@ class Vessel(
     }
 
     /**
-     * Rebuilds mass, centre of mass and inertia from current resource levels.
+     * Rebuilds mass, centre of mass and inertia from the current resource levels.
      *
-     * When the centre of mass moves in design space, [body]'s world position is
-     * shifted to compensate, so the *parts* stay where they were rather than
-     * the craft appearing to jump as its tanks drain.
+     * When the centre of mass moves in design space, [body]'s world position gets shifted to make
+     * up for it, so the *parts* stay where they were instead of the craft seeming to jump as its
+     * tanks drain.
      */
     fun recomputeMass(shiftBodyPosition: Boolean = true) {
         val masses = DoubleArray(partCount) { massOfPart(it) }
@@ -929,10 +969,9 @@ class Vessel(
             if (scratch.lengthSq > 0.0) {
                 body.orientation.rotate(scratch, scratchB)
                 body.position.addInPlace(scratchB)
-                // Asleep, or a founded base, it is posed from where its
-                // centre of mass sleeps: that moves with it, or the next
-                // tick puts the old centre back where it was and the whole
-                // craft jumps by the shift.
+                // Asleep, or as a founded base, it's posed from where its centre of mass sleeps.
+                // That has to move with it, or the next tick puts the old centre back where it was
+                // and the whole craft jumps by the shift.
                 if (dormant) {
                     sleepOrientation.rotate(scratch, scratchB)
                     sleepPosition.addInPlace(scratchB)
@@ -946,7 +985,7 @@ class Vessel(
         body.setInertia(properties.inertia)
     }
 
-    /** Part [index]'s mass as it stands, dry plus what is in it, kg. */
+    /** Part [index]'s mass as it is now, dry plus what's in it, in kg. */
     fun partMass(index: Int): Double = massOfPart(index)
 
     /** Centre of mass in design space. */
@@ -955,8 +994,8 @@ class Vessel(
     // --- geometry -----------------------------------------------------------
 
     /**
-     * Offset from the centre of mass, in world axes, of a point given in part
-     * [index]'s own local space.
+     * The offset from the centre of mass, in world axes, of a point given in part [index]'s own
+     * local space.
      */
     fun partPointOffsetWorld(index: Int, local: Vec3, out: Vec3 = Vec3()): Vec3 {
         val placed = design.parts[index]
@@ -965,24 +1004,23 @@ class Vessel(
         return body.orientation.rotate(out, out)
     }
 
-    /** Offset of part [index] from the centre of mass, in world axes. */
+    /** The offset of part [index] from the centre of mass, in world axes. */
     fun partOffsetWorld(index: Int, out: Vec3 = Vec3()): Vec3 {
         out.setTo(design.parts[index].position).subInPlace(centerOfMassLocal)
         return body.orientation.rotate(out, out)
     }
 
     /**
-     * World position of one of part [index]'s hull contact points.
+     * The world position of one of part [index]'s hull contact points.
      *
      * @param pointIndex index into the part definition's `contactPoints`.
      */
     /**
-     * Distance from the centre of mass to the furthest contact point, metres.
+     * The distance from the centre of mass to the furthest contact point, in metres.
      *
-     * Only used to bound how fast the craft's extremities sweep when it is
-     * rotating, so the contact solver knows how finely to subdivide a tick.
-     * Cached because it changes only when the structure or the centre of mass
-     * does, and is wanted every tick.
+     * It's only used to limit how fast the ends of the craft sweep when it's rotating, so the
+     * contact solver knows how finely to split up a tick. It's cached because it only changes when
+     * the structure or the centre of mass does, and it's wanted every tick.
      */
     var contactRadius: Double = 0.0
         private set
@@ -1002,10 +1040,9 @@ class Vessel(
     }
 
     /**
-     * Contact point [pointIndex] of part [index] in its own part space, as
-     * posed now: a landing leg's feet move with its deploy, and the ground
-     * meets them wherever they are - folded against the hull, swinging down,
-     * or out on their springs.
+     * Contact point [pointIndex] of part [index] in its own part space, as it's posed now. A
+     * landing leg's feet move as it deploys, and the ground meets them wherever they are: folded
+     * against the hull, swinging down, or out on their springs.
      */
     fun posedContactPoint(index: Int, pointIndex: Int, out: Vec3): Vec3 {
         out.setTo(defs[index].contactPoints[pointIndex])
@@ -1026,15 +1063,15 @@ class Vessel(
     fun contactPointWorld(index: Int, pointIndex: Int, out: Vec3 = Vec3()): Vec3 {
         val local = posedContactPoint(index, pointIndex, posePoint)
         val placed = design.parts[index]
-        // Part-local -> design space (the part may be rotated on the craft).
+        // Part-local to design space (the part may be rotated on the craft).
         placed.rotation.rotate(local, out)
         out.addInPlace(placed.position).subInPlace(centerOfMassLocal)
-        // Design space -> world.
+        // Design space to world.
         body.orientation.rotate(out, out)
         return out.addInPlace(body.position)
     }
 
-    /** Offset of a contact point from the centre of mass, in world axes. */
+    /** The offset of a contact point from the centre of mass, in world axes. */
     fun contactOffsetWorld(index: Int, pointIndex: Int, out: Vec3 = Vec3()): Vec3 {
         val local = posedContactPoint(index, pointIndex, posePoint)
         val placed = design.parts[index]
@@ -1044,13 +1081,12 @@ class Vessel(
     }
 
     /**
-     * The inverse of [contactPointWorld]: a world point in part [index]'s own
-     * local frame, written into [out].
+     * The reverse of [contactPointWorld]: a world point in part [index]'s own local frame, written
+     * into [out].
      *
-     * Here rather than in the caller because it needs the centre of mass,
-     * which is this class's business - a collider asking for it directly would
-     * be reaching through the vessel to reassemble a transform the vessel
-     * already knows how to undo.
+     * It lives here instead of in the caller because it needs the centre of mass, which is this
+     * class's business. A collider asking for it directly would be reaching through the vessel to
+     * rebuild a transform the vessel already knows how to undo.
      */
     fun worldToPartLocal(index: Int, worldPoint: Vec3, out: Vec3 = Vec3()): Vec3 {
         val placed = design.parts[index]
@@ -1061,11 +1097,11 @@ class Vessel(
     }
 
     /**
-     * A world point expressed in this craft's *design* space.
+     * A world point in this craft's *design* space.
      *
-     * Distinct from [worldToPartLocal], which goes one step further into a
-     * single part's own frame. This is the frame `CraftDesign` positions are
-     * written in, which is what merging two craft needs.
+     * It's different from [worldToPartLocal], which goes one step further into a single part's own
+     * frame. This is the frame `CraftDesign` positions are written in, which is what merging two
+     * craft needs.
      */
     fun worldToDesign(worldPoint: Vec3, out: Vec3 = Vec3()): Vec3 {
         out.setTo(worldPoint).subInPlace(body.position)
@@ -1073,18 +1109,18 @@ class Vessel(
         return out.addInPlace(centerOfMassLocal)
     }
 
-    /** World position of part [index], in the reference body's frame. */
+    /** The world position of part [index], in the reference body's frame. */
     fun partPositionWorld(index: Int, out: Vec3 = Vec3()): Vec3 =
         partOffsetWorld(index, out).addInPlace(body.position)
 
-    /** The craft's nose direction ( +Y in design space ) in world axes. */
+    /** The craft's nose direction (+Y in design space) in world axes. */
     fun forward(out: Vec3 = Vec3()): Vec3 = body.orientation.rotate(Vec3.unitY(), out)
 
     // --- staging ------------------------------------------------------------
 
     fun isActivated(index: Int): Boolean = activated[index]
 
-    /** Whether part [index] is working: staged, and not since failed. */
+    /** Whether part [index] is working, meaning it's staged and hasn't failed since. */
     fun isWorking(index: Int): Boolean = activated[index] && !broken[index]
 
     fun isBroken(index: Int): Boolean = broken[index]
@@ -1097,11 +1133,11 @@ class Vessel(
     }
 
     /**
-     * Fires the next stage, marking its parts active.
+     * Fires the next stage and marks its parts active.
      *
-     * Returns the indices activated, so the caller can act on the ones with
-     * side effects beyond this vessel - a decoupler has to split the craft, and
-     * only [com.rm.apogee.core.world.World] can create the second vessel.
+     * It returns the indices it activated, so the caller can deal with the ones that do more than
+     * change this vessel. A decoupler has to split the craft, and only
+     * [com.rm.apogee.core.world.World] can create the second vessel.
      */
     fun activateNextStage(): List<Int> {
         if (currentStage >= design.stages.size) return emptyList()
@@ -1124,10 +1160,10 @@ class Vessel(
     }
 
     /**
-     * Replaces this vessel's structure, keeping its motion.
+     * Replaces this vessel's structure and keeps its motion.
      *
-     * Used by decoupling: the vessel that remains keeps flying, with fewer
-     * parts. Resource levels are carried over for the parts that survive.
+     * Decoupling uses this: the vessel that's left keeps flying with fewer parts. Resource levels
+     * carry over for the parts that survive.
      */
     fun replaceStructure(
         newDesign: CraftDesign,
@@ -1177,14 +1213,13 @@ class Vessel(
     /**
      * Whether this craft has been put on rails against the ground.
      *
-     * A world that people leave things in is mostly made of things nobody is
-     * looking at, and a base resting on a pad costs exactly as much to
-     * simulate as one being flown. Dormant craft are not stepped at all: no
-     * forces, no integration, no terrain sampling.
+     * A world that people leave things in is mostly made of things nobody is looking at, and a base
+     * resting on a pad costs exactly as much to simulate as one being flown. Dormant craft aren't
+     * stepped at all: no forces, no integration, no terrain sampling.
      *
-     * Dormant is never *absent*. The craft keeps its position, keeps taking
-     * part in collision, and wakes the moment anything touches it - otherwise
-     * a returning player would fly straight through their own base.
+     * Dormant never means *gone*. The craft keeps its position, still takes part in collisions, and
+     * wakes up the moment anything touches it. Otherwise a returning player would fly straight
+     * through their own base.
      */
     var dormant: Boolean = false
         private set
@@ -1192,38 +1227,35 @@ class Vessel(
     /**
      * Where it sleeps, in the body's own rotating frame.
      *
-     * Freezing the inertial state would be wrong: a craft at rest on the
-     * ground is travelling at a hundred and seventy-five metres a second in
-     * the inertial frame, and holding *that* still would leave the planet to
-     * rotate out from under it. What is actually constant is its position on
-     * the ground, so that is what is stored, and the inertial state is
-     * rebuilt from the body's rotation each tick.
+     * Freezing the inertial state would be wrong. A craft at rest on the ground is travelling at a
+     * hundred and seventy-five metres a second in the inertial frame, and holding *that* still
+     * would leave the planet to rotate out from under it. What actually stays the same is its
+     * position on the ground, so that's what gets stored, and the inertial state is rebuilt from
+     * the body's rotation each tick.
      */
     private val sleepPosition = Vec3()
     private val sleepOrientation = Quat.identity()
 
-    /** Ticks spent within the stillness thresholds, for hysteresis. */
+    /** Ticks spent within the stillness thresholds, so it doesn't flicker. */
     private var settledTicks: Int = 0
 
-    /** The pose this craft held last tick, in the body's rotating frame. */
+    /** The pose this craft had last tick, in the body's rotating frame. */
     private val lastRestPosition = Vec3()
     private val lastRestOrientation = Quat.identity()
     private var hasRestPose = false
     private val restScratch = Vec3()
 
     /**
-     * How far this craft has actually moved across the ground since the last
-     * call, metres, counting rotation at the rim.
+     * How far this craft has actually moved across the ground since the last call, in metres,
+     * counting rotation at the rim.
      *
-     * Displacement rather than velocity, and that distinction is the whole
-     * point. A craft in equilibrium on sprung legs finishes every tick holding
-     * the impulse that cancelled that tick's gravity - 0.163 m/s - because
-     * contacts resolve after gravity and before the next one. Ask it whether
-     * it is *moving* and it says yes, for ever. Ask whether it has *moved* and
-     * it says no, to five decimal places, which is the truth.
+     * This measures distance moved rather than speed, and that difference is the whole point. A
+     * craft balanced on sprung legs finishes every tick holding the impulse that cancelled that
+     * tick's gravity, 0.163 m/s, because contacts get resolved after gravity and before the next
+     * one. Ask it whether it's *moving* and it says yes, forever. Ask whether it has *moved* and it
+     * says no to five decimal places, which is the truth.
      *
-     * Returns a large number the first time, so nothing anchors on its first
-     * tick of contact.
+     * It returns a large number the first time, so nothing anchors on its first tick of contact.
      */
     fun groundMovementSince(position: Vec3, orientation: Quat): Double {
         if (!hasRestPose) {
@@ -1250,8 +1282,8 @@ class Vessel(
     }
 
     /**
-     * Puts the craft to sleep at its current pose, expressed in the rotating
-     * frame described by [bodyRotation].
+     * Puts the craft to sleep at its current pose, in the rotating frame described by
+     * [bodyRotation].
      */
     fun sleep(bodyRotation: Quat) {
         if (dormant) return
@@ -1262,10 +1294,10 @@ class Vessel(
     }
 
     /**
-     * Pinned to the ground: a founded base. Asleep for good - it rides the
-     * planet round as any sleeping craft does - but touching it never wakes
-     * it, and its body is [com.rm.apogee.core.physics.RigidBody.fixed], so
-     * nothing that strikes it moves it. Its parts still take the blow.
+     * Pinned to the ground, as a founded base. It's asleep for good and rides the planet round like
+     * any sleeping craft, but touching it never wakes it, and its body is
+     * [com.rm.apogee.core.physics.RigidBody.fixed], so nothing that hits it moves it. Its parts
+     * still take the blow.
      */
     var anchored: Boolean = false
         private set
@@ -1283,9 +1315,8 @@ class Vessel(
     }
 
     /**
-     * Its pose taken afresh where it now is, still anchored: after its
-     * structure changed - a module joined, a part broken off - and its
-     * centre of mass with it.
+     * Takes its pose again where it is now, still anchored. This is for after its structure
+     * changed, like a module joining or a part breaking off, and its centre of mass moved with it.
      */
     fun reanchor(bodyRotation: Quat) {
         if (!anchored) return
@@ -1295,7 +1326,7 @@ class Vessel(
         anchor(bodyRotation)
     }
 
-    /** Lets go of the ground: an ordinary craft again, awake. */
+    /** Lets go of the ground, so it's an ordinary craft again, awake. */
     fun unanchor() {
         if (!anchored) return
         anchored = false
@@ -1303,7 +1334,7 @@ class Vessel(
         wake()
     }
 
-    /** Returns true if this call is what woke it. Never wakes one [anchored]. */
+    /** Returns true if this call is what woke it. It never wakes one that's [anchored]. */
     fun wake(): Boolean {
         if (anchored) return false
         if (!dormant) {
@@ -1318,37 +1349,36 @@ class Vessel(
     }
 
     /**
-     * Rebuilds the inertial pose of a sleeping craft from the body's current
-     * rotation. Four rotations, against a full force-and-contact pass.
+     * Rebuilds the inertial pose of a sleeping craft from the body's current rotation. That's four
+     * rotations, compared with a full force and contact pass.
      */
     fun followRotation(bodyRotation: Quat, surfaceVelocity: Vec3, spin: Vec3) {
         bodyRotation.rotate(sleepPosition, body.position)
-        // setTo then mulInPlace, not `a * b`: the operator allocates, and this
-        // runs for every sleeping craft every tick. A world full of parked
-        // bases is exactly where an allocation per object per tick is least
-        // affordable, which is the whole reason dormancy exists.
+        // setTo then mulInPlace, not `a * b`, because the operator allocates and this runs for
+        // every sleeping craft every tick. A world full of parked bases is exactly where an
+        // allocation per object per tick hurts the most, and that's the whole reason dormancy
+        // exists.
         body.orientation.setTo(bodyRotation).mulInPlace(sleepOrientation)
         body.linearVelocity.setTo(surfaceVelocity)
         body.angularVelocity.setTo(spin)
     }
 
     /**
-     * Asleep afloat: riding the sea rather than pinned to the ground. The
-     * water under a moored boat rises and falls with the tide and the waves,
-     * and it goes with it - [draft] metres from the surface to its centre,
-     * tilted as the water was ([sleepNormal], body-fixed) when it settled.
+     * Asleep afloat: riding the sea instead of pinned to the ground. The water under a moored boat
+     * rises and falls with the tide and the waves, and the boat goes with it. It sits [draft]
+     * metres from the surface to its centre, tilted the way the water was ([sleepNormal],
+     * body-fixed) when it settled.
      */
     var afloat = false
     var draft = 0.0
     val sleepNormal = Vec3()
 
-    /** Where it went to sleep, body-fixed, unit. */
+    /** Where it went to sleep, body-fixed, unit length. */
     fun sleepDirection(out: Vec3): Vec3 = out.setTo(sleepPosition).normalizeInPlace()
 
     /**
-     * The pose of a craft asleep afloat: straight out along where it went to
-     * sleep, [radius] from the centre, tipped by [tilt] (body-fixed) from how
-     * it lay - all turned by [bodyRotation].
+     * The pose of a craft asleep afloat: straight out along where it went to sleep, [radius] from
+     * the centre, tipped by [tilt] (body-fixed) from how it lay, and all turned by [bodyRotation].
      */
     fun followSea(bodyRotation: Quat, radius: Double, tilt: Quat, velocity: Vec3, spin: Vec3) {
         seaScratch.setTo(sleepPosition).normalizeInPlace().mulInPlace(radius)
@@ -1361,9 +1391,8 @@ class Vessel(
     private val seaScratch = Vec3()
 
     /**
-     * Counts consecutive still ticks and reports when it has been still long
-     * enough to sleep. Hysteresis, so a craft rocking gently on its gear does
-     * not flicker in and out of dormancy.
+     * Counts still ticks in a row and reports when it has been still long enough to sleep. This
+     * stops a craft rocking gently on its gear from flickering in and out of dormancy.
      */
     fun noteStillness(still: Boolean, requiredTicks: Int): Boolean {
         if (!still) {
@@ -1377,15 +1406,14 @@ class Vessel(
     /**
      * Takes on [other]'s parts as well as its own, becoming [newDesign].
      *
-     * The counterpart to [replaceStructure], which can only ever express a
-     * *subset* of one craft: its index map says where each surviving part came
-     * from, and there is nowhere in it to say "from the other vessel". Merging
-     * needs both sources, so it gets its own path rather than a more clever
+     * This is the partner to [replaceStructure], which can only ever describe *part* of one craft.
+     * Its index map says where each surviving part came from, and there's no way in it to say "from
+     * the other vessel". Merging needs both sources, so it gets its own path instead of a cleverer
      * index map.
      *
-     * [newDesign] must be this craft's parts in their existing order followed
-     * by [other]'s in theirs, which is what [com.rm.apogee.core.world.World]'s
-     * merge builds - the per-part state is carried across positionally.
+     * [newDesign] has to be this craft's parts in their existing order followed by [other]'s in
+     * theirs, which is what [com.rm.apogee.core.world.World]'s merge builds. The per-part state is
+     * carried across by position.
      */
     fun absorb(newDesign: CraftDesign, newDefs: List<PartDef>, other: Vessel) {
         val own = design.parts.size
@@ -1457,7 +1485,7 @@ class Vessel(
         /** A part nobody is in. */
         val NO_CREW = LongArray(0)
 
-        /** Where every part's temperature starts, K. */
+        /** Where every part's temperature starts, in K. */
         const val AMBIENT_TEMPERATURE = 288.0
     }
 }

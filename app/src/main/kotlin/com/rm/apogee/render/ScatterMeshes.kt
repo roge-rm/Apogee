@@ -9,11 +9,10 @@ import kotlin.math.sqrt
 /**
  * Low-poly shapes for scatter, one per [ScatterKind].
  *
- * Twenty to fifty triangles each, faceted - every triangle has its own three
- * vertices and its own normal, the same flat look as the ground - and coloured
- * per vertex so a tree is a brown trunk under a green crown without a texture.
- * Built at unit size in a local frame with +Y up: the renderer scales each
- * instance by its kind's nominal size and its own variation, and turns it
+ * Each is twenty to fifty triangles, faceted (every triangle has its own three vertices and its own
+ * normal, the same flat look as the ground), and coloured per vertex, so a tree is a brown trunk
+ * under a green crown without a texture. They're built at unit size in a local frame with +Y up.
+ * The renderer scales each instance by its kind's usual size and its own variation, and turns it
  * about the vertical.
  */
 object ScatterMeshes {
@@ -36,7 +35,7 @@ object ScatterMeshes {
             }
         }
 
-        /** A ring-based solid: a list of rings (y, radius), closed at both ends. */
+        /** A solid made of rings: a list of rings (y, radius), closed at both ends. */
         fun lathe(rings: List<Pair<Float, Float>>, sides: Int, r: Float, g: Float, b: Float, twist: Float = 0f) {
             fun at(ring: Int, k: Int): FloatArray {
                 val (y, rad) = rings[ring]
@@ -49,7 +48,7 @@ object ScatterMeshes {
                 triangle(a, c, bb, r, g, b)
                 triangle(bb, c, d, r, g, b)
             }
-            // Bottom cap.
+            // The bottom cap.
             val bottom = rings.first()
             if (bottom.second > 1e-4f) {
                 val centre = floatArrayOf(0f, bottom.first, 0f)
@@ -63,7 +62,7 @@ object ScatterMeshes {
             }
         }
 
-        /** An icosahedron, jittered by [seed], squashed vertically by [squash]. */
+        /** An icosahedron, jittered by [seed] and squashed vertically by [squash]. */
         fun rock(seed: Int, cy: Float, radius: Float, squash: Float, r: Float, g: Float, b: Float) {
             val t = ((1.0 + sqrt(5.0)) / 2.0).toFloat()
             val base = arrayOf(
@@ -83,7 +82,7 @@ object ScatterMeshes {
                 intArrayOf(4, 9, 5), intArrayOf(2, 4, 11), intArrayOf(6, 2, 10), intArrayOf(8, 6, 7), intArrayOf(9, 8, 1),
             )
             faces.forEachIndexed { k, f ->
-                // Each face a shade off, which is what reads as rock.
+                // Each face is a shade off, which is what makes it look like rock.
                 val shade = (0.9 + 0.2 * Noise.hash(seed + 1, k, 0, 0)).toFloat()
                 triangle(points[f[0]], points[f[1]], points[f[2]], r * shade, g * shade, b * shade)
             }
@@ -97,14 +96,14 @@ object ScatterMeshes {
     }
 
     /**
-     * A kind's mesh, at size 1 in metres: a boulder of its nominal radius, a
-     * tree of its nominal height.
+     * A kind's mesh, at size 1 in metres: a boulder of its usual radius, or a tree of its usual
+     * height.
      */
     fun build(kind: ScatterKind): Data {
         val b = Builder()
         when (kind) {
             ScatterKind.BOULDER_SMALL, ScatterKind.BOULDER_LARGE -> {
-                // Centred as the collider is: sitting a little buried.
+                // Centred the same way the collider is, sitting a little buried.
                 val r = kind.radius.toFloat()
                 b.rock(kind.ordinal * 31 + 7, r * 0.55f, r, 0.8f, 0.46f, 0.44f, 0.41f)
             }
@@ -131,8 +130,8 @@ object ScatterMeshes {
                 b.lathe(listOf(0f to 0.3f, h to 0.25f, h + 0.1f to 0f), 6, 0.30f, 0.48f, 0.26f)
             }
             ScatterKind.PINNACLE -> {
-                // A spire of rock, broad at its foot and leaning to a point,
-                // in two pieces turned against each other.
+                // A spire of rock, broad at its foot and leaning to a point, in two pieces turned
+                // against each other.
                 val h = kind.height.toFloat()
                 val r = kind.radius.toFloat()
                 b.lathe(listOf(-1f to r * 1.3f, h * 0.35f to r * 0.9f, h * 0.6f to r * 0.55f), 5, 0.40f, 0.37f, 0.33f)

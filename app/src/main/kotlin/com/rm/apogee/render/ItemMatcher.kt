@@ -1,16 +1,16 @@
 package com.rm.apogee.render
 
 /**
- * Pairs each item of a frame with itself in the frame before, for easing
- * between them: by [RenderItem.key] where it has one, else by its place
- * among the unkeyed items. Reused frame to frame; GL thread.
+ * Pairs each item of a frame with itself in the frame before, for easing between them. It matches
+ * by [RenderItem.key] where there is one, and otherwise by its place among the items with no key.
+ * It's reused frame to frame, on the GL thread.
  */
 class ItemMatcher {
     private val _partners = ArrayList<RenderItem?>()
     private val previousByKey = HashMap<Long, RenderItem>()
     private val previousUnkeyed = ArrayList<RenderItem>()
 
-    /** From the last [match]: each item's self last frame, or null. */
+    /** From the last [match]: each item's self in the last frame, or null. */
     val partners: List<RenderItem?> get() = _partners
 
     fun match(items: List<RenderItem>, previousItems: List<RenderItem>?) {

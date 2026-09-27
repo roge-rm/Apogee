@@ -12,25 +12,24 @@ import kotlin.math.asin
 /**
  * Letting go of the stick.
  *
- * An aircraft here weathervanes to zero angle of attack and so to zero lift,
- * whatever its layout: the nose drops the moment nothing holds it up. SAS
- * holds it. Measured against the same flight with SAS off, so the test shows
- * the difference and not merely a number that happens to pass.
+ * An aircraft here weathervanes to zero angle of attack and so to zero lift, whatever its layout,
+ * so the nose drops the moment nothing holds it up. SAS holds it. It's measured against the same
+ * flight with SAS off, so the test shows the difference and not just a number that happens to pass.
  */
 class StabilityAssistTest {
 
     private val catalog = StockParts.catalog
     private val dt = 1.0 / 60.0
 
-    /** Nose angle above the local horizon, degrees. */
+    /** The nose angle above the local horizon, in degrees. */
     private fun noseAngle(vessel: Vessel): Double {
         val up = vessel.body.position.copy().normalizeInPlace()
         return Math.toDegrees(asin((vessel.forward() dot up).coerceIn(-1.0, 1.0)))
     }
 
     /**
-     * Takes off and climbs out on the test pilot, then lets go at altitude.
-     * Returns the nose angle at release and after [handsOff] seconds.
+     * Takes off and climbs out with the test pilot, then lets go at altitude. Returns the nose
+     * angle at release and after [handsOff] seconds.
      */
     private fun releaseAndWatch(sas: Boolean, handsOff: Double = 30.0): Pair<Double, Double> {
         val world = World.default(catalog)
@@ -43,12 +42,11 @@ class StabilityAssistTest {
         val up = Vec3()
         val east = Vec3()
         val surface = Vec3()
-        // Off the runway the way a player does it - the same technique as
-        // TakeoffTest: level on the roll, full back stick from sixty metres a
-        // second to a ten-degree climb, then SAS holds it there. A
-        // proportional test pilot asking for six degrees only ever commanded
-        // half elevator, and on the day the pad moved up sixty metres into
-        // thinner air, that stopped being enough to rotate.
+        // Off the runway the way a player does it, the same way as TakeoffTest: level on the roll,
+        // full back stick from sixty metres a second to a ten-degree climb, then SAS holds it
+        // there. A proportional test pilot asking for six degrees only ever gave half elevator, and
+        // on the day the pad moved up sixty metres into thinner air, that stopped being enough to
+        // rotate.
         plane.control.sasEnabled = true
         var rotated = false
         while (world.time < 45.0) {

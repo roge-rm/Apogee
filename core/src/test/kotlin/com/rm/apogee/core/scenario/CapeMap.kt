@@ -15,16 +15,16 @@ import javax.imageio.ImageIO
 /**
  * Draws the Cape from above: `./gradlew :core:capeMap`.
  *
- * The ground in metres east and north of the pad - water by depth, land by
- * what it is, the works paved - with the launch sites marked, and [marks]
- * drawn over it: what is planned to stand where. For laying out the
- * spaceport, the airfield and the harbour without a device in the loop.
+ * The ground in metres east and north of the pad (water by depth, land by what it is, the works
+ * paved), with the launch sites marked and [marks] drawn over it, showing what's planned to stand
+ * where. It's for laying out the spaceport, the airfield and the harbour without a device in the
+ * loop.
  */
 fun main(args: Array<String>) {
     val out = File(args.firstOrNull() ?: "build/cape-map").apply { mkdirs() }
     val terra = SolarSystem.defaultSystem().body("terra").terrain!!
     val pad = SolarSystem.surfaceDirection(SolarSystem.PAD_LATITUDE, SolarSystem.PAD_LONGITUDE)
-    // What is planned to stand where: the Cape's buildings, from their own designs.
+    // What's planned to stand where: the Cape's buildings, from their own designs.
     val catalog = com.rm.apogee.core.part.StockParts.catalog
     marks = com.rm.apogee.core.craft.StockStructures.complexes.flatMap { complex ->
         complex.placements.map { p ->
@@ -49,7 +49,10 @@ fun main(args: Array<String>) {
     println("maps written to ${out.absolutePath}")
 }
 
-/** Something to draw over the map: a box [width] by [depth] m round ([east], [north]), turned [bearing] degrees from east. */
+/**
+ * Something to draw over the map: a box [width] by [depth] m around ([east], [north]), turned
+ * [bearing] degrees from east.
+ */
 class Mark(val label: String, val east: Double, val north: Double, val width: Double, val depth: Double, val bearing: Double = 0.0)
 
 var marks: List<Mark> = emptyList()

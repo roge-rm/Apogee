@@ -76,7 +76,7 @@ class SceneSaves {
             plane.control.sasEnabled = true
             WorldStore(File(dir, "overbay.json")).save(w.save()).getOrThrow()
         }
-        // A plane on the airfield, at the runway's end.
+        // A plane on the airfield, at the end of the runway.
         run {
             val w = world(WeatherConfig(clouds = com.rm.apogee.core.weather.CloudCover.LIGHT))
             w.spawnOnSurface(StockCraft.sparrow(c), World.launchSites.first { it.id == "airfield" }).name = "Sparrow"
@@ -106,7 +106,7 @@ class SceneSaves {
             w.spawnOnSurface(StockCraft.baseCoreHauler(c), World.launchSites.first { it.id == "cape" }, pad = 4)
             WorldStore(File(dir, "hauler.json")).save(w.save()).getOrThrow()
         }
-        // The airfield at night: half a day on from the others.
+        // The airfield at night, half a day on from the others.
         run {
             val w = World.default(c).also {
                 it.restore(WorldSave(catalogHash = c.contentHash, universeTime = t + 10_775.0, nextVesselId = 1L,
@@ -115,7 +115,7 @@ class SceneSaves {
             w.spawnOnSurface(StockCraft.sparrow(c), World.launchSites.first { it.id == "airfield" }).name = "Sparrow"
             WorldStore(File(dir, "night.json")).save(w.save()).getOrThrow()
         }
-        // The pads at night, a rocket on pad 0 under the floodlights.
+        // The pads at night, with a rocket on pad 0 under the floodlights.
         run {
             val w = World.default(c).also {
                 it.restore(WorldSave(catalogHash = c.contentHash, universeTime = t + 10_775.0, nextVesselId = 1L,
@@ -124,7 +124,8 @@ class SceneSaves {
             w.spawnOnSurface(StockCraft.starterRocket(c), World.launchSites.first { it.id == "cape" }).name = "Starter I"
             WorldStore(File(dir, "padnight.json")).save(w.save()).getOrThrow()
         }
-        // In a 100 km orbit about Terra, in Luna's plane, a transfer to Luna planned five minutes on.
+        // In a 100 km orbit around Terra, in Luna's plane, with a transfer to Luna planned five
+        // minutes on.
         run {
             val w = world()
             val system = w.system
@@ -149,7 +150,7 @@ class SceneSaves {
             w.apply(Command.SetTarget(craft.id.raw, -1L, "luna"))
             WorldStore(File(dir, "transfer.json")).save(w.save()).getOrThrow()
         }
-        // In a 30 km orbit about Luna, over the mare, engine lit: to come down on it.
+        // In a 30 km orbit around Luna, over the mare, with the engine lit, to come down on it.
         run {
             val w = world()
             val luna = w.system.body("luna")
@@ -157,7 +158,7 @@ class SceneSaves {
             val over = luna.rotationAt(w.time).rotate(SolarSystem.surfaceDirection(mare.latitude, mare.longitude))
             val r = luna.radius + 30_000.0
             val position = over.copy().mulInPlace(r)
-            // Eastward, so it passes over the mare: along the turn of the ground.
+            // Heading east, so it passes over the mare, along the turn of the ground.
             val east = Vec3(0.0, 1.0, 0.0).crossInPlace(over).normalizeInPlace()
             val velocity = east.mulInPlace(luna.circularVelocityAt(r))
             val design = StockCraft.lander(c)
@@ -166,7 +167,8 @@ class SceneSaves {
             w.stage(craft)
             WorldStore(File(dir, "lunaorbit.json")).save(w.save()).getOrThrow()
         }
-        // Three kilometres over the mare, falling and drifting, the engine lit and the legs next.
+        // Three kilometres over the mare, falling and drifting, with the engine lit and the legs
+        // next.
         run {
             val w = world()
             val craft = w.spawnOnSurface(StockCraft.lander(c), World.launchSites.first { it.id == "luna-mare" }, pad = 3)
@@ -180,7 +182,7 @@ class SceneSaves {
             luna.surfaceVelocityAt(craft.body.position, craft.body.linearVelocity).addScaledInPlace(up, -40.0).addScaledInPlace(east, 60.0)
             WorldStore(File(dir, "lunafall.json")).save(w.save()).getOrThrow()
         }
-        // A pod on a Shroud in a 100 km orbit: stage it and watch the shell fall open.
+        // A pod on a Shroud in a 100 km orbit. Stage it and watch the shell fall open.
         run {
             val w = world()
             val design = CraftDesign(

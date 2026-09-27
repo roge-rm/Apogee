@@ -10,10 +10,9 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 /**
- * The weather as a pure function, and whether the shapes in it are the
- * ones a pilot would expect: faster aloft, faster on crests than in
- * hollows, lift under cumulus, no thermals at sea, storms only when the
- * world allows them, and all of it the same wherever it is computed.
+ * The weather as a pure function, and whether the shapes in it are the ones a pilot would expect:
+ * faster up high, faster on crests than in hollows, lift under cumulus, no thermals at sea, storms
+ * only when the world allows them, and all of it the same wherever it's worked out.
  */
 class WeatherTest {
 
@@ -41,7 +40,7 @@ class WeatherTest {
     }
 
     @Test
-    fun `the same place and time give the same air, wherever it is computed`() {
+    fun `the same place and time give the same air wherever it's worked out`() {
         val a = weather(WeatherIntensity.WILD)
         val b = weather(WeatherIntensity.WILD)
         val sa = AirSample(); val sb = AirSample()
@@ -61,10 +60,10 @@ class WeatherTest {
     }
 
     @Test
-    fun `wind picks up with height, and there is none in space`() {
+    fun `wind picks up with height, and there's none in space`() {
         val w = weather()
         val s = AirSample()
-        // Averaged over many places: any one can be a hollow or a thermal.
+        // Averaged over lots of places, because any one of them can be a hollow or a thermal.
         fun meanSpeed(agl: Double): Double {
             var total = 0.0
             for (i in 0 until 150) {
@@ -85,8 +84,8 @@ class WeatherTest {
     }
 
     /**
-     * The terrain's hand in it: over many places, crests are windier than
-     * hollows at the same height above them.
+     * The terrain's hand in it. Over lots of places, crests are windier than hollows at the same
+     * height above them.
      */
     @Test
     fun `crests are windier than hollows`() {
@@ -172,7 +171,7 @@ class WeatherTest {
         val moved = here.distanceTo(later) * radius
         assertEquals("it moves with its steering wind", storm.steer.length * 600.0, moved, 50.0)
 
-        // Rain under its biggest tower's shaft, a cumulonimbus in the tower.
+        // Rain under its biggest tower's shaft, and a cumulonimbus in the tower.
         val s = AirSample()
         val model = w.stormModel
         val centre = Vec3(); val track = Vec3(); val side = Vec3()
@@ -188,8 +187,8 @@ class WeatherTest {
         assertEquals(CloudType.CUMULONIMBUS, s.cloudType)
         assertTrue("an updraught in the tower: ${s.lift}", s.lift > 3.0)
 
-        // And the gust front: low down, somewhere round it, a wind to knock
-        // things over, whatever the wind was before.
+        // And the gust front: low down, somewhere around it, a wind to knock things over, whatever
+        // the wind was before.
         var strongest = 0.0
         val reach = storm.reach
         for (i in -12..12) for (j in -12..12) {
@@ -222,7 +221,7 @@ class WeatherTest {
         assertEquals(0.0, a.length, 0.0)
     }
 
-    /** Cheap enough to sample once per craft per tick, after warming its caches. */
+    /** Cheap enough to sample once per craft per tick, after warming up its caches. */
     @Test
     fun `a sample is cheap`() {
         val w = weather()
@@ -230,7 +229,7 @@ class WeatherTest {
         val start = above(randomDirection(9), 400.0)
         val east = Vec3(); val north = Vec3()
         frame(start.copy().normalizeInPlace(), east, north)
-        // A craft flying along at 100 m/s: warm up, then time.
+        // A craft flying along at 100 m/s: warm up, then time it.
         fun fly(steps: Int, t0: Double) {
             val p = start.copy()
             for (i in 0 until steps) {
@@ -247,8 +246,8 @@ class WeatherTest {
     }
 
     /**
-     * A deck is cloudy where its puffs are drawn and clear between them:
-     * climbing through a gap in the drawn deck, there is no fog.
+     * A deck is cloudy where its puffs are drawn and clear between them, so climbing through a gap
+     * in the drawn deck, there's no fog.
      */
     @Test
     fun `deck air is cloudy only inside the drawn puffs`() {
@@ -263,14 +262,14 @@ class WeatherTest {
             val decks = shapes.filter { it.type == CloudType.STRATUS || it.type == CloudType.ALTOSTRATUS }
             if (decks.isEmpty()) continue
             for (shape in decks) for (lobe in shape.lobes) {
-                // Only puffs well inside what was listed: beside one at the
-                // edge, a "gap" can be under a puff of a cell never listed.
+                // Only puffs well inside what was listed. Beside one at the edge, a "gap" can be
+                // under a puff of a cell that was never listed.
                 if (lobe.centre.copy().normalizeInPlace().distanceTo(dir) * w.body.radius > 2_500.0) continue
                 // Its heart is cloud of its own kind.
                 w.sample(lobe.centre, 3_000.0, s)
                 assertTrue("no cloud at the heart of a drawn ${shape.type} puff", s.cloudDensity > 0.0)
                 inside++
-                // Well beyond its edge, at its height, between puffs: this deck is not there.
+                // Well beyond its edge, at its height, between puffs, this deck isn't there.
                 val out = lobe.centre.copy()
                 val e = Vec3(); val n = Vec3()
                 frame(out.copy().normalizeInPlace(), e, n)
@@ -287,7 +286,7 @@ class WeatherTest {
         assertTrue("tested $inside puffs, $gaps gaps", inside > 5 && gaps > 3)
     }
 
-    /** A fresh sky lists quickly: nothing slow on a cold start. */
+    /** A fresh sky lists quickly, with nothing slow on a cold start. */
     @Test
     fun `a fresh sky lists quickly`() {
         val w = weather()
@@ -302,7 +301,7 @@ class WeatherTest {
     fun `a storm is a billowing tower with a flat anvil and a rain curtain under it`() {
         val terra = com.rm.apogee.core.orbit.SolarSystem.defaultSystem().body(com.rm.apogee.core.orbit.SolarSystem.HOMEWORLD_ID)
         val weather = Weather(terra, WeatherConfig(intensity = WeatherIntensity.WILD))
-        // Find a storm anywhere, then look at it close to.
+        // Find a storm anywhere, then look at it up close.
         var storm: CloudShape? = null
         for (t in listOf(1_200.0, 5_000.0, 9_000.0, 14_000.0)) {
             val all = ArrayList<CloudShape>()
@@ -338,7 +337,7 @@ class WeatherTest {
                 w.stormModel.around(dir, e, n, 1, t, list)
                 for (st in list) {
                     val key = st.cx.toLong() * 1_000_003L + st.cy * 97L + st.cycle
-                    // At its best: a third of the way through its life and more.
+                    // At its best means a third of the way through its life and more.
                     found.getOrPut(key) { st to (st.start + 0.45 * Storms.CYCLE) }
                 }
             }
@@ -366,7 +365,7 @@ class WeatherTest {
     }
 
     @Test
-    fun `under a storm's base the sky is covered right across it, not on one spot`() {
+    fun `under a storm's base the sky is covered right across it, not just in one spot`() {
         val w = weather(WeatherIntensity.WILD)
         val big = manyStorms(w).first { (st, _) -> st.kind == StormKind.SQUALL || st.kind == StormKind.SUPERCELL }
         val (st, t) = big

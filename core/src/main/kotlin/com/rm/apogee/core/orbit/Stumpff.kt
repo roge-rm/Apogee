@@ -7,22 +7,20 @@ import kotlin.math.sinh
 import kotlin.math.sqrt
 
 /**
- * Stumpff functions c2 and c3, the machinery that lets one Kepler solver cover
- * every conic section.
+ * Stumpff functions c2 and c3, the machinery that lets one Kepler solver handle every conic
+ * section.
  *
- * The classical approach needs a different equation for ellipses
- * (`M = E - e sin E`), parabolas (Barker's) and hyperbolas
- * (`M = e sinh H - H`), and picking between them means a branch exactly where
- * orbits actually live - a craft raising its apoapsis passes through
- * near-parabolic on the way to escape. These functions are continuous across
- * that boundary, so the solver is not.
+ * The classical approach needs a different equation for ellipses (`M = E - e sin E`), parabolas
+ * (Barker's) and hyperbolas (`M = e sinh H - H`). Picking between them means a branch exactly where
+ * orbits actually live, because a craft raising its apoapsis passes close to parabolic on the way
+ * to escape. These functions are smooth across that boundary, so the solver is too.
  */
 internal object Stumpff {
 
     /**
-     * Below this the closed forms lose precision catastrophically: both are
-     * `0/0` at psi = 0 and the subtraction in the numerator cancels almost
-     * completely just either side of it. The Taylor series is used instead.
+     * Below this the exact forms lose precision badly. Both are `0/0` at psi = 0, and the
+     * subtraction in the numerator cancels almost completely just either side of it, so the Taylor
+     * series is used instead.
      */
     private const val SERIES_THRESHOLD = 1e-6
 

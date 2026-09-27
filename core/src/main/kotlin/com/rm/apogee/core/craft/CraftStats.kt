@@ -11,29 +11,29 @@ import kotlin.math.roundToInt
 /** What one stage of the staging sequence will do. */
 class StageStats(
     val index: Int,
-    /** Mass at ignition, kg. */
+    /** Mass at ignition, in kg. */
     val startMass: Double,
-    /** Mass at burnout, kg. */
+    /** Mass at burnout, in kg. */
     val endMass: Double,
-    /** Vacuum thrust of the engines lit in this stage, N. */
+    /** Vacuum thrust of the engines lit in this stage, in N. */
     val thrustVacuum: Double,
-    /** Sea-level thrust, N. */
+    /** Sea-level thrust, in N. */
     val thrustSeaLevel: Double,
     val deltaVVacuum: Double,
     val deltaVSeaLevel: Double,
-    /** Burn time at full throttle in vacuum, seconds. */
+    /** Burn time at full throttle in vacuum, in seconds. */
     val burnTime: Double,
     /** Thrust-to-weight at ignition, against the homeworld's surface gravity. */
     val twrSeaLevel: Double,
     val engineCount: Int,
-    /** What this stage burns: each fuel its engines draw on, as it stands. */
+    /** What this stage burns: each fuel its engines draw on, as it is now. */
     val fuel: List<FuelLevel> = emptyList(),
 ) {
     val propellantMass: Double get() = startMass - endMass
 
     /**
-     * The figure worth quoting: vacuum for a rocket, sea level for a stage
-     * of air-breathers, which make nothing in vacuum and would read zero.
+     * The number worth showing: vacuum for a rocket, and sea level for a stage of air-breathers,
+     * which make nothing in vacuum and would read zero.
      */
     val deltaV: Double get() = if (thrustVacuum > 0.0) deltaVVacuum else deltaVSeaLevel
 
@@ -44,64 +44,63 @@ class StageStats(
             return if (capacity > 0.0) fuel.sumOf { it.amount } / capacity else 0.0
         }
 
-    /** An engine is lit during this stage - which may just be a leftover. */
+    /** An engine is lit during this stage, even if it's only a leftover. */
     val hasEngines: Boolean get() = engineCount > 0
 
     /**
      * This stage actually burns something.
      *
-     * Distinct from [hasEngines] on purpose: a final parachute stage still has
-     * the upper-stage engine lit behind it, with nothing left to feed it. The
-     * UI should quote delta-v for burns, not for stages that merely happen to
-     * have an engine attached.
+     * It's different from [hasEngines] on purpose. A final parachute stage still has the upper
+     * stage engine lit behind it, with nothing left to feed it. The UI should show delta-v for
+     * burns, not for stages that just happen to have an engine attached.
      */
     val isBurn: Boolean get() = engineCount > 0 && propellantMass > 0.0
 }
 
-/** One fuel a stage's engines can reach: how much is left of how much there was room for. */
+/** One fuel a stage's engines can reach: how much is left out of how much room there was. */
 class FuelLevel(val type: ResourceType, val amount: Double, val capacity: Double) {
     val fraction: Double get() = if (capacity > 0.0) (amount / capacity).coerceIn(0.0, 1.0) else 0.0
 }
 
 /**
- * What a design will actually do, computed without flying it.
+ * What a design will actually do, worked out without flying it.
  *
- * This is the builder's whole reason to exist beyond looking pretty: a player
- * needs to know a rocket is short on delta-v *before* watching it run dry at
- * 40 km. The numbers come from stepping the staging sequence forward exactly as
- * the simulation would - discarding what each decoupler drops, lighting what
- * each stage ignites, and draining only the tanks the lit engines can actually
- * reach.
+ * This is the builder's whole reason to exist beyond looking nice. You need to know a rocket is
+ * short on delta-v *before* you watch it run dry at 40 km. The numbers come from stepping through
+ * the staging sequence exactly like the simulation would: throwing away what each decoupler drops,
+ * lighting what each stage ignites, and draining only the tanks the lit engines can actually reach.
  */
 class CraftStats(
     val totalMass: Double,
     val dryMass: Double,
     val partCount: Int,
     val stages: List<StageStats>,
-    /** Reasons the craft cannot be placed at all. */
+    /** Reasons the craft can't be placed at all. */
     val problems: List<String>,
     /**
-     * Things worth knowing that are not reasons to refuse.
+     * Things worth knowing that aren't reasons to refuse it.
      *
-     * Kept apart from [problems] because they are a different kind of
-     * statement. A craft with no command pod cannot be flown by anyone; a
-     * craft with a thrust-to-weight below one simply will not climb off the
-     * pad under its own power - which is an accurate description of every
-     * lander ever built, and not a fault.
+     * These are kept apart from [problems] because they're a different kind of statement. A craft
+     * with no command pod can't be flown by anyone. A craft with a thrust-to-weight below one just
+     * won't climb off the pad under its own power, which describes every lander ever built, and
+     * isn't a fault.
      */
     val warnings: List<String> = emptyList(),
-    /** Charge it can hold, units. */
+    /** How much charge it can hold, in units. */
     val powerCapacity: Double = 0.0,
-    /** What its panels make in full sun, wings out, units a second. */
+    /** What its panels make in full sun with the wings out, in units a second. */
     val powerSunlit: Double = 0.0,
-    /** What it uses just being on - pods, cores, antennas - units a second. */
+    /** What it uses just by being switched on (pods, cores, antennas), in units a second. */
     val powerIdle: Double = 0.0,
-    /** What its drills dig at best, units a second, and its converters take in; whether it can survey. */
+    /**
+     * What its drills dig at best in units a second, what its converters take in, and whether it
+     * can survey.
+     */
     val drillRate: Double = 0.0,
     val refineRate: Double = 0.0,
     val canSurvey: Boolean = false,
 ) {
-    /** Sum over stages. Vacuum, which is the figure worth quoting for orbit. */
+    /** The total over all stages, in vacuum, which is the number worth showing for orbit. */
     val totalDeltaV: Double get() = stages.sumOf { it.deltaVVacuum }
 
     /** Thrust-to-weight of the first stage that actually burns. */
@@ -113,10 +112,10 @@ class CraftStats(
     val isFlyable: Boolean get() = problems.isEmpty()
 
     companion object {
-        /** Standard gravity, for converting specific impulse to mass flow. */
+        /** Standard gravity, for turning specific impulse into mass flow. */
         private const val G0 = 9.80665
 
-        /** Homeworld surface gravity, the reference for quoted TWR. */
+        /** The homeworld's surface gravity, which the quoted TWR is measured against. */
         private const val REFERENCE_GRAVITY = 9.81
 
         fun analyze(design: CraftDesign, catalog: PartCatalog): CraftStats {
@@ -169,9 +168,9 @@ class CraftStats(
                 else -> Unit
             }
             val warnings = advise(stageStats).toMutableList()
-            // Nobody aboard to fly it by hand once it is flat.
+            // There's nobody aboard to fly it by hand once it runs flat.
             if (probe && !crewed && !charges && idle > 0.0) {
-                warnings.add("Nothing to charge it: flat in about ${(capacity / idle / 60.0).roundToInt()} min, and then it cannot be flown")
+                warnings.add("Nothing to charge it. It goes flat in about ${(capacity / idle / 60.0).roundToInt()} min, and then it can't be flown")
             }
             return CraftStats(
                 totalMass = totalMass,
@@ -190,12 +189,12 @@ class CraftStats(
         }
 
         /**
-         * The same analysis for a craft in flight: from the stage it is on,
-         * with the engines already lit and the fuel actually left.
+         * The same analysis for a craft in flight, starting from the stage it's on, with the
+         * engines already lit and the fuel that's actually left.
          *
-         * The first entry is what is burning now - the engines lit by the
-         * stages already fired, on the fuel they can still reach - indexed
-         * by the stage that lit them; the rest are the stages still to fire.
+         * The first entry is what's burning now: the engines lit by stages already fired, on the
+         * fuel they can still reach, indexed by the stage that lit them. The rest are the stages
+         * still to fire.
          */
         fun analyzeLive(vessel: Vessel): List<StageStats> {
             val design = vessel.design
@@ -214,12 +213,11 @@ class CraftStats(
         }
 
         /**
-         * Steps the staging sequence from [startStage] exactly as the
-         * simulation would - discarding what each decoupler drops, lighting
-         * what each stage ignites, and draining only the tanks the lit
-         * engines can reach, of the fuels those engines burn. With [current],
-         * an entry for what is burning before the next stage fires comes
-         * first. [amounts] is drained in place.
+         * Steps through the staging sequence from [startStage] exactly like the simulation would:
+         * throwing away what each decoupler drops, lighting what each stage ignites, and draining
+         * only the tanks the lit engines can reach, of the fuels those engines burn. With
+         * [current], an entry for what's burning before the next stage fires comes first. [amounts]
+         * is drained in place.
          */
         private fun simulate(
             design: CraftDesign,
@@ -269,10 +267,9 @@ class CraftStats(
                     val engine = defs[index].module<Engine>()!!
                     thrustVacuum += engine.thrustVacuum
                     thrustSeaLevel += engine.thrustSeaLevel
-                    // Effective Isp for several engines sharing a tank is total
-                    // thrust over total mass flow, not an average of the Isps -
-                    // a thirsty engine drags the combined figure down harder
-                    // than its thrust share suggests.
+                    // The effective Isp for several engines sharing a tank is total thrust over
+                    // total mass flow, not an average of the Isps. A thirsty engine drags the
+                    // combined number down harder than its share of the thrust suggests.
                     if (engine.ispVacuum > 0.0) flowVacuum += engine.thrustVacuum / (engine.ispVacuum * G0)
                     if (engine.ispSeaLevel > 0.0) flowSeaLevel += engine.thrustSeaLevel / (engine.ispSeaLevel * G0)
                 }
@@ -294,8 +291,8 @@ class CraftStats(
                         thrustSeaLevel = thrustSeaLevel,
                         deltaVVacuum = deltaVVacuum,
                         deltaVSeaLevel = deltaVSeaLevel,
-                        // Air-breathers have no vacuum flow; they burn at
-                        // their sea-level rate or not at all.
+                        // Air-breathers have no vacuum flow. They burn at their sea-level rate or
+                        // not at all.
                         burnTime = when {
                             flowVacuum > 0 -> fuelMass / flowVacuum
                             flowSeaLevel > 0 -> fuelMass / flowSeaLevel
@@ -314,8 +311,8 @@ class CraftStats(
             if (current) burn(startStage - 1)
             for (stageIndex in startStage until design.stages.size) {
                 val stage = design.stages[stageIndex]
-                // Decouplers in this stage discard what they hold, before the
-                // stage's own engines light.
+                // Decouplers in this stage let go of what they hold before the stage's own engines
+                // light.
                 for (part in stage.activatedParts) {
                     if (part in live && defs[part].module<com.rm.apogee.core.part.Decoupler>() != null) {
                         design.subtreeOf(part).forEach { live.remove(it) }
@@ -335,10 +332,10 @@ class CraftStats(
         )
 
         /**
-         * Problems worth telling the player about before they launch.
+         * Problems worth telling you about before you launch.
          *
-         * Phrased as what is wrong with the craft, not as validation errors -
-         * the point is to save someone a flight, not to refuse to save a file.
+         * They're worded as what's wrong with the craft, not as validation errors. The point is to
+         * save someone a wasted flight, not to refuse to save a file.
          */
         private fun diagnose(
             design: CraftDesign,
@@ -348,18 +345,18 @@ class CraftStats(
             val problems = ArrayList<String>()
 
             if (defs.none { it.module<com.rm.apogee.core.part.Command>() != null }) {
-                problems.add("No command pod - nothing to fly it from")
+                problems.add("No command pod, so there's nothing to fly it from")
             }
-            // Something has to move it. An engine does, and so does a driven
-            // wheel - a rover has no engine at all, and this check refusing it
-            // meant the stock rover could be built but never launched.
+            // Something has to move it. An engine does, and so does a driven wheel. A rover has no
+            // engine at all, and when this check refused it, the stock rover could be built but
+            // never launched.
             val driven = defs.any { (it.module<com.rm.apogee.core.part.Wheel>()?.motorForce ?: 0.0) > 0.0 }
             if (!driven && defs.none { it.module<Engine>() != null }) {
                 problems.add("No engines or driven wheels")
             }
 
-            // An electric one - a submarine's screw - runs off any battery
-            // aboard: charge is the whole craft's, not a fuel line's.
+            // An electric one, like a submarine's screw, runs off any battery aboard, because
+            // charge belongs to the whole craft, not to a fuel line.
             val charged = defs.any { it.hasModule<com.rm.apogee.core.part.Battery>() }
             val enginesWithoutFuel = design.parts.indices.filter { index ->
                 val engine = defs[index].module<Engine>() ?: return@filter false
@@ -379,13 +376,16 @@ class CraftStats(
             return problems
         }
 
-        /** Non-blocking observations about a craft that is otherwise fine. */
+        /**
+         * Things worth pointing out about a craft that's otherwise fine. They don't stop it
+         * launching.
+         */
         private fun advise(stages: List<StageStats>): List<String> {
             val warnings = ArrayList<String>()
             val first = stages.firstOrNull { it.hasEngines }
             if (first != null && first.twrSeaLevel < 1.0) {
                 warnings.add(
-                    "Thrust-to-weight is %.2f - it will not climb off the pad"
+                    "Thrust-to-weight is %.2f, so it won't climb off the pad"
                         .format(first.twrSeaLevel)
                 )
             }

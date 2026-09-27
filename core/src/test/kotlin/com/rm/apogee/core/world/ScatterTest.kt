@@ -72,20 +72,20 @@ class ScatterTest {
     }
 
     /**
-     * A rover sent at [target] from twenty metres off at [speed], rolling
-     * along the ground. The world is fresh each time.
+     * A rover sent at [target] from twenty metres away at [speed], rolling along the ground. The
+     * world is fresh each time.
      */
     private fun charge(target: Vec3, speed: Double): Pair<World, Vessel> {
         val world = World.default(catalog)
         val body = world.system.body("terra")!!
         val up = target.normalized()
-        // Twenty metres off, to the west, heading east at it.
+        // Twenty metres away, to the west, heading east at it.
         val east = Vec3(0.0, 1.0, 0.0).crossInPlace(up).normalizeInPlace()
         val start = up.copy().addScaledInPlace(east, -20.0 / body.radius).normalizeInPlace()
         val ground = body.surfaceRadiusInBodyFrame(start)
         val position = start.copy().mulInPlace(ground + 1.3)
         val rotation = quatFromTo(Vec3(0.0, 1.0, 0.0), start)
-        // The rover's forward is +Z: turn it about the vertical to face east.
+        // The rover's forward is +Z, so turn it about the vertical to face east.
         val forward = rotation.rotate(Vec3(0.0, 0.0, 1.0))
         rotation.setTo(quatFromTo(forward, east) * rotation)
         val velocity = body.surfaceVelocityAt(position, Vec3()).addScaledInPlace(east, speed)
@@ -94,10 +94,9 @@ class ScatterTest {
     }
 
     /**
-     * Solid: nothing drives through a boulder. A rover at speed meets a big
-     * one's buried lower slope and rides up it to a stop rather than taking a
-     * head-on blow - which is what a wheeled vehicle does to a rounded rock -
-     * but it never ends up inside it or past it.
+     * Solid, so nothing drives through a boulder. A rover at speed meets a big one's buried lower
+     * slope and rides up it to a stop instead of taking a head-on blow, which is what a wheeled
+     * vehicle does to a rounded rock. But it never ends up inside it or past it.
      */
     @Test
     fun `a boulder stops a rover`() {
@@ -120,8 +119,8 @@ class ScatterTest {
     @Test
     fun `a tree hit hard falls, and stays fallen after a restart`() {
         val (tree, id) = nearest(ScatterKind.BROADLEAF)
-        // Hard: a glancing blow from one wheel at twenty metres a second may
-        // not be enough for a big tree, which is the point of trees.
+        // Hard, because a glancing blow from one wheel at twenty metres a second might not be
+        // enough for a big tree, which is the point of trees.
         val (world, _) = charge(tree, 30.0)
         repeat((4.0 / dt).toInt()) { world.step(dt) }
         assertTrue("the tree is still standing", id in world.felledScatter)

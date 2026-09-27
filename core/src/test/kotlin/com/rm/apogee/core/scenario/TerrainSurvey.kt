@@ -8,13 +8,13 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 /**
- * Prints what the terrain function actually produces.
+ * Prints what the terrain function really produces.
  *
  * `./gradlew :core:terrainSurvey`
  *
- * Parameters like sea fraction and sharpness are only meaningful as the world
- * they generate, and a histogram answers "is this a planet or a bath" faster
- * than any amount of staring at the constants.
+ * Settings like sea fraction and sharpness only mean something as the world they make, and a
+ * histogram answers "is this a planet or a bath" faster than any amount of staring at the
+ * constants.
  */
 fun main() {
     val field = TerrainField(bodyRadius = 600_000.0, homeDirection = Vec3(1.0, 0.0, 0.0))
@@ -22,9 +22,9 @@ fun main() {
     surveyHomeRelief(field, radius, Vec3(1.0, 0.0, 0.0))
     surveyMeshError(field, radius, Vec3(1.0, 0.0, 0.0))
 
-    // Fibonacci sphere: an even spread without clustering at the poles, which
-    // a naive latitude/longitude grid gives and which would skew every number
-    // below toward whatever the poles happen to look like.
+    // Fibonacci sphere: an even spread without bunching at the poles. A naive latitude/longitude
+    // grid bunches there, and that would skew every number below toward whatever the poles happen
+    // to look like.
     val samples = 40_000
     val golden = PI * (3.0 - kotlin.math.sqrt(5.0))
     val elevations = DoubleArray(samples)
@@ -70,7 +70,7 @@ fun main() {
     val ring = 40
     for (i in 0 until ring) {
         val angle = 2.0 * PI * i / ring
-        // 5 km out, the scale a launch site occupies.
+        // 5 km out, the scale a launch site takes up.
         val offset = 5_000.0 / radius
         val probe = Vec3(1.0, sin(angle) * offset, cos(angle) * offset)
         if (!field.isOcean(probe)) dryWithin++
@@ -90,16 +90,15 @@ fun main() {
 }
 
 /**
- * What one sample of the height field costs, because every plan to make the
- * terrain richer is a plan to make this number bigger, and the collider and
- * the mesh builder both pay it.
+ * What one sample of the height field costs, because every plan to make the terrain richer is a
+ * plan to make this number bigger, and the collider and the mesh builder both pay it.
  */
 fun surveyCost(field: TerrainField) {
     val directions = Array(20_000) { i ->
         Vec3(cos(i * 0.37), sin(i * 0.11), cos(i * 0.73)).normalizeInPlace()
     }
     var sink = 0.0
-    // Warm the JIT before timing anything.
+    // Warm up the JIT before timing anything.
     repeat(3) { directions.forEach { sink += field.elevation(it) } }
     val rounds = 5
     val start = System.nanoTime()
@@ -111,7 +110,7 @@ fun surveyCost(field: TerrainField) {
     println("  per 65x65 tile         %.2f ms  (on this machine; a phone is several times slower)"
         .format(nanos * 65 * 65 / 1e6))
 
-    // Real tiles, built and discarded, including the material pass.
+    // Real tiles, built and thrown away, including the material pass.
     val tiles = field.tiles.tilesPerFace
     repeat(3) { com.rm.apogee.core.terrain.TerrainTile.build(field, 0, tiles / 2 + it, tiles / 2, tiles) }
     val tileStart = System.nanoTime()
@@ -125,9 +124,8 @@ fun surveyCost(field: TerrainField) {
 }
 
 /**
- * Relief near the launch complex, which is what the eye actually judges
- * altitude and drift against. A planet can have six-kilometre peaks and still
- * present a flat green sheet from the pad.
+ * Relief near the launch complex, which is what the eye really judges altitude and drift against. A
+ * planet can have six-kilometre peaks and still look like a flat green sheet from the pad.
  */
 fun surveyHomeRelief(field: TerrainField, radius: Double, pad: Vec3) {
     val east = (if (kotlin.math.abs(pad.y) < 0.9) Vec3.unitY() else Vec3.unitX())
@@ -165,12 +163,11 @@ fun surveyHomeRelief(field: TerrainField, radius: Double, pad: Vec3) {
 /**
  * How far the *drawn* ground sits from the ground the collider uses.
  *
- * The renderer samples the height field on a grid and draws flat triangles
- * between the samples; the collider evaluates the field exactly. Wherever the
- * grid is too coarse to resolve a feature, those two disagree - and a craft
- * rests on the collider's surface while the player looks at the renderer's, so
- * the disagreement is visible as a craft floating above, or sunk into, the
- * ground it is standing on.
+ * The renderer samples the height field on a grid and draws flat triangles between the samples, and
+ * the collider works the field out exactly. Wherever the grid is too coarse for a feature, those
+ * two disagree, and a craft rests on the collider's surface while the player looks at the
+ * renderer's. So the disagreement shows up as a craft floating above, or sunk into, the ground it's
+ * standing on.
  */
 fun surveyMeshError(field: TerrainField, radius: Double, pad: Vec3) {
     val up = pad.normalized()
@@ -196,7 +193,7 @@ fun surveyMeshError(field: TerrainField, radius: Double, pad: Vec3) {
     )) {
         val cell = 2.0 * extent / (resolution - 1)
 
-        // Bilinear interpolation of the grid, exactly as the mesh draws it.
+        // Bilinear interpolation of the grid, exactly the way the mesh draws it.
         fun drawnHeight(e: Double, n: Double): Double {
             val gx = (e + extent) / cell
             val gy = (n + extent) / cell

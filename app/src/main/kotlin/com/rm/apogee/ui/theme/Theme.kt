@@ -11,14 +11,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 
 /**
- * Apogee is a dark-only game UI, so there is one scheme and
- * [isSystemInDarkTheme] is deliberately ignored - a light-mode phone should not
- * produce a white flight HUD over a night sky.
+ * Apogee is a dark-only game UI, so there's one scheme and [isSystemInDarkTheme] is ignored on
+ * purpose. A phone in light mode shouldn't give you a white flight HUD over a night sky.
  *
- * Installing a real scheme at all is the point. The app this look is borrowed
- * from never wraps anything in `MaterialTheme`, so every
- * `MaterialTheme.colorScheme.*` reference in it silently resolves to Material's
- * *baseline light* palette - which is why its dialogs are pale lavender cards
+ * Setting up a real scheme at all is the point. The app this look is borrowed from never wraps
+ * anything in `MaterialTheme`, so every `MaterialTheme.colorScheme.*` reference in it quietly
+ * resolves to Material's *baseline light* palette. That's why its dialogs are pale lavender cards
  * over dark menus. That was an accident. Here the values are chosen.
  */
 private val ApogeeColorScheme = darkColorScheme(
@@ -53,8 +51,8 @@ private val ApogeeColorScheme = darkColorScheme(
 )
 
 /**
- * Baseline Roboto throughout - no custom font files. Only the display sizes are
- * overridden, because those are the ones a game screen actually sets by hand.
+ * Plain Roboto throughout, with no custom font files. Only the display sizes are overridden,
+ * because those are the ones a game screen actually sets by hand.
  */
 private val ApogeeTypography = Typography().let { base ->
     base.copy(
@@ -67,7 +65,7 @@ private val ApogeeTypography = Typography().let { base ->
     )
 }
 
-/** Monospace-ish styling for telemetry, so digits stop jittering as they change. */
+/** Monospace-style text for telemetry, so digits stop jittering as they change. */
 val TelemetryTextStyle = TextStyle(
     fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
     fontSize = 14.sp,

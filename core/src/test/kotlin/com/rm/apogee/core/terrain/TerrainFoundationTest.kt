@@ -9,8 +9,8 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 /**
- * The ground's plumbing: deterministic noise, the cube-sphere grid, and tiles
- * that reproduce the field they were sampled from.
+ * The ground's plumbing: deterministic noise, the cube-sphere grid, and tiles that reproduce the
+ * field they were sampled from.
  */
 class TerrainFoundationTest {
 
@@ -19,10 +19,10 @@ class TerrainFoundationTest {
     private fun probe(i: Int) = Vec3(cos(i * 0.9), sin(i * 0.4), cos(i * 1.7))
 
     /**
-     * Exact bit patterns, pinned. The server is a JVM and the client is ART,
-     * and they must agree on the ground to the last bit or a resting craft
-     * jitters between their two opinions of it. These change only when the
-     * terrain is meant to change - which bumps [TerrainField.GENERATION].
+     * Exact bit patterns, pinned down. The server is a JVM and the client is ART, and they have to
+     * agree on the ground to the last bit, or a resting craft jitters between their two opinions of
+     * it. These only change when the terrain is meant to change, which bumps
+     * [TerrainField.GENERATION].
      */
     @Test
     fun `terrain is bit-for-bit what it was`() {
@@ -66,13 +66,13 @@ class TerrainFoundationTest {
     }
 
     @Test
-    fun `tiles are about the size they are meant to be`() {
+    fun `tiles are about the size they're meant to be`() {
         val tiles = TerrainTile.tilesPerFace(600_000.0)
         val metres = 600_000.0 * Math.PI / 2.0 / tiles
         assertTrue("tiles are $metres m", metres in 64.0..TerrainTile.TARGET_TILE_METRES)
     }
 
-    /** At every sample, a tile is exactly the field; between them, a triangle. */
+    /** At every sample a tile is exactly the field, and between them it's a triangle. */
     @Test
     fun `a tile reproduces the field at its samples`() {
         val cache = terra.tiles
@@ -89,13 +89,13 @@ class TerrainFoundationTest {
         for (q in 0..TerrainTile.CELLS step 7) for (p in 0..TerrainTile.CELLS step 7) {
             tile.position(p, q, terra.bodyRadius, direction)
             val expected = terra.solidRadius(direction)
-            // Nudged a hair into the tile so the sample is unambiguously this tile's.
+            // Nudged a hair into the tile so the sample is clearly this tile's.
             cache.ground(direction, point, lookup)
             assertEquals("sample $p,$q", expected, point.radius, 1e-3)
         }
     }
 
-    /** No step where two tiles - or two cube faces - meet. */
+    /** No step where two tiles (or two cube faces) meet. */
     @Test
     fun `the surface is continuous across tile and face seams`() {
         val cache = terra.tiles
@@ -125,7 +125,7 @@ class TerrainFoundationTest {
     }
 
     @Test
-    fun `the ground knows what it is made of`() {
+    fun `the ground knows what it's made of`() {
         val point = GroundPoint()
         val lookup = TerrainTileCache.Lookup()
         // The pad is poured concrete.
@@ -134,11 +134,10 @@ class TerrainFoundationTest {
     }
 
     /**
-     * No steps in the ground. A step is a wall a wheel cannot climb and the
-     * collider cannot resolve sensibly - and every one found while building
-     * the landforms came from a single cause: something switched on or off
-     * at a threshold rather than fading. Scanned at half-metre spacing across
-     * the country around the launch complex.
+     * No steps in the ground. A step is a wall a wheel can't climb and the collider can't sort out
+     * sensibly, and every one found while building the landforms came from a single cause:
+     * something switched on or off at a threshold instead of fading. It's scanned at half-metre
+     * spacing across the country around the launch complex.
      */
     @Test
     fun `the terrain has no steps`() {

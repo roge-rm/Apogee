@@ -8,24 +8,22 @@ import com.rm.apogee.core.part.Wheel
 import kotlin.math.roundToInt
 
 /**
- * A craft's moving parts, packed for the wire: one byte per value, in part
- * order - a control surface's deflection; an engine's output, and if it
- * gimbals its pitch and yaw; a wheel's steering and then its suspension; a
- * leg's, chute's, sun wing's or dish's deploy; a thruster block's push,
- * three values in the craft's axes.
+ * A craft's moving parts, packed for sending, one byte per value, in part order: a control
+ * surface's deflection, an engine's output (and its gimbal pitch and yaw if it has one), a wheel's
+ * steering and then its suspension, the deploy of a leg, chute, sun wing or dish, and a thruster
+ * block's push as three values in the craft's axes.
  *
- * Every client draws another player's craft from these, so the elevon, the
- * steered wheel and the half-deployed leg they see are the ones the pilot
- * sees. Close-range play - two craft docking, a rover parking beside a
- * lander - is where a difference would show, and where it matters most.
+ * Every client draws other players' craft from these, so the elevon, the steered wheel and the
+ * half-deployed leg they see are the ones the pilot sees. Close-range play, like two craft docking
+ * or a rover parking next to a lander, is where a difference would show, and where it matters most.
  *
- * Values, not the stick command they came from: deriving them again on each
- * client would need each client's idea of the craft's centre of mass, and a
- * surface near it could be judged on the wrong side and deflect backwards.
+ * These are values, not the stick command they came from. Working them out again on each client
+ * would need each client's idea of the craft's centre of mass, and a surface close to it could be
+ * judged to be on the wrong side and move backwards.
  */
 object VesselPose {
 
-    /** Whatever swings by a deflection: a control surface, or a walker's legs and arms. */
+    /** Anything that swings by a deflection: a control surface, or a walker's legs and arms. */
     private fun controlSurface(def: PartDef): Boolean =
         def.module<AeroSurface>()?.controllable == true ||
             def.module<com.rm.apogee.core.part.HydroSurface>()?.controllable == true ||
@@ -35,11 +33,13 @@ object VesselPose {
 
     private fun engine(def: PartDef): Boolean = def.module<com.rm.apogee.core.part.Engine>() != null
 
-    /** A leg swinging down, or a chute filling (below 0: cut away). */
+    /** A leg swinging down, or a chute filling (below 0 means cut away). */
     private fun deploys(def: PartDef): Boolean =
         def.module<LandingLeg>() != null || def.module<com.rm.apogee.core.part.Parachute>() != null || foldsOut(def)
 
-    /** A sun wing, dish or drill: out and back on its own, its progress kept where a leg's is. */
+    /**
+     * A sun wing, dish or drill: out and back by itself, with its progress kept where a leg's is.
+     */
     fun foldsOut(def: PartDef): Boolean =
         def.module<com.rm.apogee.core.part.SolarPanel>()?.deployable == true ||
             def.module<com.rm.apogee.core.part.Antenna>()?.deployable == true ||
@@ -91,7 +91,7 @@ object VesselPose {
         return out
     }
 
-    /** Unpacks [bytes] for a craft of [defs] into [into]; false if they do not fit this structure. */
+    /** Unpacks [bytes] for a craft of [defs] into [into]. False if they don't fit this structure. */
     fun decode(defs: List<PartDef>, bytes: ByteArray, into: Values): Boolean {
         into.fit(defs.size)
         if (bytes.size != defs.sumOf { slots(it) }) return false
@@ -131,7 +131,10 @@ object VesselPose {
         var gimbalYaw = DoubleArray(0); private set
         /** Engines: output, 0..1 of full thrust. */
         var output = DoubleArray(0); private set
-        /** Thruster blocks: push, three per part in the craft's axes, length 0..1 of thrust. */
+        /**
+         * Thruster blocks: push, three per part in the craft's axes, with a length of 0..1 of
+         * thrust.
+         */
         var rcs = DoubleArray(0); private set
 
         fun fit(n: Int) {
@@ -148,6 +151,6 @@ object VesselPose {
 
     private fun unsigned(value: Byte): Double = value / 127.0
 
-    /** The largest error quantisation introduces, as a fraction of full travel. */
+    /** The biggest error the rounding to bytes adds, as a fraction of full travel. */
     const val RESOLUTION = 0.5 / 127.0
 }

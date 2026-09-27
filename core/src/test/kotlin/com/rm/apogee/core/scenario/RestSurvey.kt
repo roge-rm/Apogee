@@ -7,11 +7,11 @@ import com.rm.apogee.core.part.StockParts
 import com.rm.apogee.core.world.World
 
 /**
- * How still a craft actually gets once it has settled.
+ * How still a craft really gets once it has settled.
  *
- * The anchoring rule can only hold a craft whose residual motion is under one
- * tick's worth of friction, so this prints what each reference craft actually
- * leaves behind. `./gradlew :core:restSurvey`
+ * The anchoring rule can only hold a craft whose leftover motion is under one tick's worth of
+ * friction, so this prints what each reference craft really leaves behind. `./gradlew
+ * :core:restSurvey`
  */
 fun main() {
     val catalog = StockParts.catalog
@@ -29,9 +29,8 @@ fun main() {
     )) {
         val world = World.default(catalog)
         val vessel = world.spawnOnSurface(design, World.launchSites.first())
-        // Gear down for the craft that have it. Not for the starter: its
-        // second stage is a decoupler, and firing that on the pad is a
-        // separation, not a landing.
+        // Gear down for the craft that have it. Not for the starter, because its second stage is a
+        // decoupler, and firing that on the pad is a separation, not a landing.
         if (gearStages > 0) repeat(gearStages) { world.stage(vessel) }
 
         val surface = Vec3()
@@ -55,9 +54,9 @@ fun main() {
                 }
             }
         }
-        // Height is the honest measure: a craft in equilibrium reads one tick
-        // of gravity as "velocity" whatever it is really doing, so what
-        // matters is whether it is actually going anywhere.
+        // Height is the honest measure. A craft in equilibrium reads one tick of gravity as
+        // "velocity" whatever it's really doing, so what matters is whether it's actually going
+        // anywhere.
         println(
             "%-12s %10.4f %12.5f  %s".format(
                 name, worst, settledAgl - startAgl,

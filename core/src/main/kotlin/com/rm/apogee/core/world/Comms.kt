@@ -11,7 +11,7 @@ import com.rm.apogee.core.part.Command
 /** A craft's link home. */
 @kotlinx.serialization.Serializable
 enum class Signal {
-    /** None: an uncrewed craft cannot be flown. */
+    /** None, so an uncrewed craft can't be flown. */
     NONE,
     /** Straight to a ground station. */
     DIRECT,
@@ -20,10 +20,9 @@ enum class Signal {
 }
 
 /**
- * Who can hear whom: a craft's antennas, the ground stations, and the
- * relays between. Two ends hear each other when both are within the
- * shorter of their two ranges and the line between them clears every body.
- * No delay: a craft in hearing is flown as if from its own seat.
+ * Who can hear whom: a craft's antennas, the ground stations, and the relays in between. Two ends
+ * hear each other when both are within the shorter of their two ranges and the line between them
+ * clears every body. There's no delay. A craft that can be heard is flown as if from its own seat.
  */
 class Comms(private val system: SolarSystem) {
 
@@ -33,8 +32,8 @@ class Comms(private val system: SolarSystem) {
     private val rotation = Quat.identity()
 
     /**
-     * [vessel]'s link home at [time] among [others] - its signal and the
-     * relays it goes through, nearest first - written into it.
+     * [vessel]'s link home at [time] among [others], meaning its signal and the relays it goes
+     * through, nearest first, written into it.
      */
     fun update(vessel: Vessel, others: Collection<Vessel>, time: Double, isDebris: (Vessel) -> Boolean) {
         val own = reach(vessel)
@@ -47,7 +46,7 @@ class Comms(private val system: SolarSystem) {
             val r = reach(other) ?: continue
             if (r.second) relays += Node(other, place(other, time), r.first, true)
         }
-        // Breadth first, so the path found is the one through fewest relays.
+        // Breadth first, so the path found is the one through the fewest relays.
         val from = HashMap<Node, Node>()
         val queue = ArrayDeque<Node>()
         queue.add(start)
@@ -95,7 +94,7 @@ class Comms(private val system: SolarSystem) {
             scratchC.setTo(centre).subInPlace(a)
             val t = if (lengthSq <= 0.0) 0.0 else ((scratchC dot scratchD) / lengthSq).coerceIn(0.0, 1.0)
             scratchC.addScaledInPlace(scratchD, -t)
-            // A little inside the sphere: ground stations and landed craft sit on it.
+            // A little inside the sphere, because ground stations and landed craft sit right on it.
             if (scratchC.length < body.radius * GRAZE) return false
         }
         return true
@@ -135,21 +134,21 @@ class Comms(private val system: SolarSystem) {
     fun stationPositions(time: Double): List<Vec3> = stationNodes(time).map { it.position }
 
     /**
-     * The nearest ground station with a clear line to [at], in the system's
-     * frame, at [time] - or null for none: where a link drawn home ends.
+     * The nearest ground station with a clear line to [at], in the system's frame, at [time], or
+     * null for none. It's where a link drawn home ends.
      */
     fun stationInSight(at: Vec3, time: Double): Vec3? =
         stationNodes(time).filter { clear(at, it.position) }.minByOrNull { it.position.distanceTo(at) }?.position
 
     companion object {
-        /** A ground station's dish above the body's datum, m. */
+        /** A ground station's dish, in metres above the body's datum. */
         const val STATION_HEIGHT = 100.0
-        /** The share of a body's radius a line may pass inside and still count clear. */
+        /** The share of a body's radius a line can pass inside and still count as clear. */
         const val GRAZE = 0.998
 
         /**
-         * [vessel]'s longest reach, and whether it relays: over its working
-         * antennas, a fold-out one only when out. Null with none.
+         * [vessel]'s longest reach, and whether it relays, over its working antennas. A fold-out
+         * one only counts when it's out. Null if there are none.
          */
         fun reach(vessel: Vessel): Pair<Double, Boolean>? {
             var range = 0.0
@@ -167,12 +166,18 @@ class Comms(private val system: SolarSystem) {
         /** Whether anyone is aboard [vessel] to fly it by hand. */
         fun crewed(vessel: Vessel): Boolean = vessel.hasCrew()
 
-        /** Whether [vessel] has a working probe core: a command part with no seat, flown from home. */
+        /**
+         * Whether [vessel] has a working probe core, which is a command part with no seat that's
+         * flown from home.
+         */
         fun hasProbeCore(vessel: Vessel): Boolean = vessel.defs.indices.any {
             !vessel.isBroken(it) && vessel.defs[it].module<Command>()?.let { c -> c.crewCapacity == 0 } == true
         }
 
-        /** Whether [vessel] needs a signal to be flown: a working command part, and nobody aboard. */
+        /**
+         * Whether [vessel] needs a signal to be flown: it has a working command part, and nobody
+         * aboard.
+         */
         fun needsSignal(vessel: Vessel): Boolean =
             !crewed(vessel) && vessel.defs.indices.any { !vessel.isBroken(it) && vessel.defs[it].module<Command>() != null }
     }

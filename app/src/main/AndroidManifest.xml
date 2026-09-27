@@ -2,16 +2,16 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <!-- Multiplayer. INTERNET covers both joining a dedicated server and the
-         in-app host's listening socket. -->
+         listening socket when you host a game in the app. -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
-    <!-- LAN discovery broadcasts. Android drops multicast/broadcast frames to
-         save power unless a MulticastLock is held, which needs this. -->
+    <!-- LAN discovery broadcasts. Android drops multicast and broadcast frames
+         to save power unless a MulticastLock is held, and that needs this. -->
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
 
-    <!-- GLES 3.0 is the floor. 3.1/3.2 are a driver capability rather than an
-         API-level one, so they are queried at runtime and never required. -->
+    <!-- GLES 3.0 is the floor. 3.1 and 3.2 depend on the driver, not the API
+         level, so they're checked at runtime and never required. -->
     <uses-feature
         android:glEsVersion="0x00030000"
         android:required="true" />
@@ -26,10 +26,10 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.Apogee">
 
-        <!-- screenOrientation is fullUser: both orientations, honouring the
+        <!-- screenOrientation is fullUser: both orientations, respecting the
              user's rotation lock. The activity handles the configuration
-             change itself (configChanges below), so rotating mid-flight
-             relays out the HUD without recreating the activity, tearing down
+             change itself (configChanges below), so rotating mid-flight lays
+             out the HUD again without recreating the activity, tearing down
              the GL context or interrupting the simulation.
 
              windowSoftInputMode is adjustResize so the keyboard's inset

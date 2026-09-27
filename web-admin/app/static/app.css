@@ -1,5 +1,5 @@
-/* Apogee's own palette, so the admin page and the game read as one thing:
-   navy into plum, one lavender accent, and white at a fixed alpha ladder. */
+/* Apogee's own palette, so the admin page and the game look like one thing:
+   navy into plum, one lavender accent, and white on a fixed alpha ladder. */
 :root {
   --backdrop-top: #101830;
   --backdrop-bottom: #241735;

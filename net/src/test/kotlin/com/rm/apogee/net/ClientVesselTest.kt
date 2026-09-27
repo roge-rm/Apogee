@@ -20,8 +20,8 @@ class ClientVesselTest {
     private fun vessel() = ClientVessel(1, StockCraft.probe(StockParts.catalog), "probe")
 
     /**
-     * Under warp the frame is drawn a snapshot and a half behind the newest:
-     * between the two before it, not held at the older of the last two.
+     * Under warp the frame is drawn a snapshot and a half behind the newest, so between the two
+     * before it, not held at the older of the last two.
      */
     @Test
     fun `a time behind the newest two finds the pair around it`() {
@@ -33,7 +33,7 @@ class ClientVesselTest {
     }
 
     @Test
-    fun `past the newest it is the newest, before the oldest kept there is no older`() {
+    fun `past the newest it's the newest, and before the oldest kept there's no older`() {
         val v = vessel()
         for (i in 0..9) v.observe(seen(i.toDouble()), time = i * 0.2)
         assertEquals(1.8, v.around(5.0)!!.second.time, 1e-9)

@@ -1,9 +1,9 @@
 """Password gate for the admin page.
 
-One shared password, held in the environment, checked in constant time. There
-are no accounts because there is one operator: the person who wrote the
-compose file. Anything more would be a user database to back up and no more
-secure for it.
+One shared password, held in the environment and checked in constant time.
+There are no accounts, because there's one operator: the person who wrote the
+compose file. Anything more would be a user database to back up, and it
+wouldn't be any more secure for it.
 """
 
 import hmac
@@ -17,8 +17,8 @@ _TOKENS = set()
 def _password():
     """The configured password, or refuse to start without one.
 
-    Called at startup as well as at login, so a misconfigured deployment fails
-    immediately rather than serving an open admin panel.
+    It's called at startup as well as at login, so a misconfigured deployment
+    fails straight away instead of serving an open admin panel.
     """
     password = os.environ.get("ADMIN_PASSWORD", "")
     if not password:
@@ -30,8 +30,8 @@ def _password():
 
 
 def check(candidate):
-    # compare_digest rather than == so a wrong password does not leak how much
-    # of it was right through timing.
+    # compare_digest instead of ==, so a wrong password doesn't leak through
+    # timing how much of it was right.
     return hmac.compare_digest(candidate or "", _password())
 
 

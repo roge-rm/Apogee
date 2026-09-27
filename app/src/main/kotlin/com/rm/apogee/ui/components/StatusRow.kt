@@ -60,7 +60,7 @@ class StatusActions(
     val onDockPilot: (String) -> Unit = {},
 )
 
-/** One chip: its picture, what it reads, its colour, whether it is an alarm, and what it opens. */
+/** One chip: its picture, what it reads, its colour, whether it's an alarm, and what it opens. */
 private class StatusChip(
     val key: String,
     val icon: ImageVector,
@@ -71,23 +71,22 @@ private class StatusChip(
 )
 
 /**
- * The craft's state in a line of small chips under the flight strip, each
- * there only while it means something: power low or gone, out of touch, the
- * chute, parts running hot or strained or hurt, who is aboard, what it is
- * docked to, the base it is at, and who flies a shared craft. Tapped, each
- * opens what lies behind it - the parts, the crew, the joints, the base -
- * over the view, until tapped away.
+ * The craft's state in a line of small chips under the flight strip, each there only while it means
+ * something: power low or gone, out of touch, the chute, parts running hot or strained or hurt,
+ * who's aboard, what it's docked to, the base it's at, and who flies a shared craft. Tap one and it
+ * opens what's behind it (the parts, the crew, the joints, the base) over the view, until you tap
+ * it away.
  *
- * The chips fade with the rest of the controls, all but the alarms.
+ * The chips fade with the rest of the controls, except for the alarms.
  */
 @Composable
 fun StatusRow(
     hud: HudState,
     chute: String?,
     actions: StatusActions,
-    /** The controls' opacity just now: faded or not. */
+    /** The controls' opacity right now, faded or not. */
     fadedAlpha: Float,
-    /** How tall a detail may grow before it scrolls. */
+    /** How tall a detail can grow before it scrolls. */
     detailHeight: Dp,
     modifier: Modifier = Modifier,
 ) {
@@ -160,7 +159,7 @@ fun StatusRow(
         val open = hud.statusOpen
         if (open != null && chips.any { it.opens == open }) {
             val close = { hud.statusOpen = null }
-            // Over everything, controls included, until tapped away.
+            // Over everything, controls included, until it's tapped away.
             Popup(
                 alignment = Alignment.TopEnd,
                 offset = IntOffset(0, with(LocalDensity.current) { CHIP_HEIGHT.roundToPx() + 4.dp.roundToPx() }),
@@ -200,7 +199,7 @@ private fun Chip(chip: StatusChip, alpha: Float, onTap: () -> Unit) {
     }
 }
 
-/** A detail opened from a chip: on a near-solid panel, read over whatever is behind. */
+/** A detail opened from a chip, on a nearly solid panel so it reads over whatever's behind it. */
 @Composable
 private fun Detail(content: @Composable () -> Unit) {
     Surface(
@@ -214,5 +213,5 @@ private fun Detail(content: @Composable () -> Unit) {
 private val CHIP_HEIGHT = 26.dp
 private val PART_LIST_WIDTH = 260.dp
 
-/** A base's name is cut to this on its chip. */
+/** A base's name gets cut to this length on its chip. */
 private const val BASE_NAME = 12

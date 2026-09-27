@@ -9,9 +9,9 @@ import org.junit.Test
 /**
  * Rovers: the claim that a vehicle class is a bag of modules, not a system.
  *
- * Nothing here adds a code path to the step loop. A wheel is a landing leg
- * whose friction is split along its rolling axis and which can be driven, and
- * driving is the throttle already in [com.rm.apogee.core.craft.ControlState].
+ * Nothing here adds a code path to the step loop. A wheel is a landing leg whose friction is split
+ * along its rolling axis and which can be driven, and driving is the throttle already in
+ * [com.rm.apogee.core.craft.ControlState].
  */
 class RoverTest {
 
@@ -53,8 +53,8 @@ class RoverTest {
 
         val speed = groundSpeed(world, rover)
         assertTrue("the rover never got moving (${speed} m/s)", speed > 8.0)
-        // The motor fades out near its top speed, so a rover has one. Without
-        // that it just keeps accelerating, which is a sled, not a vehicle.
+        // The motor fades out near its top speed, so a rover has one. Without that it just keeps
+        // speeding up, which is a sled, not a vehicle.
         assertTrue(
             "a rover doing ${speed} m/s has no top speed",
             speed < 25.0,
@@ -62,8 +62,8 @@ class RoverTest {
     }
 
     /**
-     * The point of the friction split. The same craft on landing legs cannot
-     * be driven at all: ordinary ground friction pins it.
+     * The point of the friction split. The same craft on landing legs can't be driven at all,
+     * because ordinary ground friction pins it.
      */
     @Test
     fun `wheels are what make it drivable`() {
@@ -101,10 +101,9 @@ class RoverTest {
         rover.control.throttle = 1.0
         repeat(240) { world.step(dt) }
 
-        // Ground-relative, not inertial. The surface moves at 175 m/s at the
-        // equator, so an inertial heading is almost entirely the planet's
-        // rotation and a rover turning hard barely registers in it - which is
-        // exactly how this test first claimed steering did nothing.
+        // Ground-relative, not inertial. The surface moves at 175 m/s at the equator, so an
+        // inertial heading is almost all the planet's rotation, and a rover turning hard barely
+        // shows up in it. That's exactly how this test first claimed steering did nothing.
         val before = groundVelocity(world, rover, com.rm.apogee.core.math.Vec3())
         rover.control.yaw = 1.0
         repeat(360) { world.step(dt) }
@@ -129,7 +128,7 @@ class RoverTest {
         )
     }
 
-    /** And stays on its wheels doing it: full-friction brakes flipped it. */
+    /** And it stays on its wheels doing it. Full-friction brakes flipped it. */
     @Test
     fun `brakes stop it`() {
         val (world, rover) = worldWithRover()
@@ -139,9 +138,8 @@ class RoverTest {
 
         rover.control.throttle = 0.0
         rover.control.brakes = true
-        // Brake friction of 0.35 is about three and a half metres a second
-        // every second: six seconds from top speed, so eight is a stop with
-        // room to spare.
+        // Brake friction of 0.35 is about three and a half metres a second every second, so six
+        // seconds from top speed, and eight is a stop with room to spare.
         repeat(480) { world.step(dt) }
         assertTrue(
             "from $cruising m/s, still doing ${groundSpeed(world, rover)} after eight seconds of brakes",
@@ -152,7 +150,7 @@ class RoverTest {
         assertTrue("it went over braking", (mast dot up) > 0.9)
     }
 
-    /** Coasting, by contrast, goes a long way - that is what a wheel is for. */
+    /** Coasting, on the other hand, goes a long way, which is what a wheel is for. */
     @Test
     fun `without brakes it coasts`() {
         val (world, rover) = worldWithRover()
@@ -173,10 +171,10 @@ class RoverTest {
     }
 
     /**
-     * Out into the real country, flat out, for a minute: about a kilometre,
-     * off the levelled pad and over the basin's hills. It has to still be on
-     * its wheels at the end. Ground rough enough to throw a rover over at
-     * speed is not fun to drive, and the first cut of this terrain was.
+     * Out into the real country, flat out, for a minute: about a kilometre, off the levelled pad
+     * and over the basin's hills. It has to still be on its wheels at the end. Ground rough enough
+     * to throw a rover over at speed isn't fun to drive, and the first cut of this terrain was like
+     * that.
      */
     @Test
     fun `a rover can cross the country around the Cape`() {
@@ -192,9 +190,8 @@ class RoverTest {
     }
 
     /**
-     * Flat out along the runway and hard over: its steering gives less lock
-     * the faster it goes, and it stays on its wheels. At full lock at eleven
-     * metres a second, the Trundler once rolled.
+     * Flat out along the runway and hard over. Its steering gives less lock the faster it goes, and
+     * it stays on its wheels. At full lock at eleven metres a second, the Trundler once rolled.
      */
     @Test
     fun `hard over at top speed, it turns and stays on its wheels`() {

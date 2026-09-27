@@ -8,83 +8,79 @@ import kotlin.math.sqrt
 /**
  * A planet, moon or star.
  *
- * Bodies are identified by [id] and linked by [parentId] into a tree; the root
- * is the star. A body's position at a given time comes from propagating its own
- * orbit about its parent, so the whole system is derived from time rather than
- * simulated - stars and planets are on rails permanently, and only craft are
- * ever integrated.
+ * Bodies are identified by [id] and linked by [parentId] into a tree, with the star at the root. A
+ * body's position at a given time comes from following its own orbit around its parent, so the
+ * whole system is worked out from time instead of simulated. Stars and planets are always on rails,
+ * and only craft ever get integrated.
  */
 class CelestialBody(
     val id: String,
     val displayName: String,
-    /** Standard gravitational parameter GM, m³/s². */
+    /** Standard gravitational parameter GM, in m³/s². */
     val gravitationalParameter: Double,
-    /** Radius of the datum ("sea level") surface, metres. */
+    /** Radius of the datum ("sea level") surface, in metres. */
     val radius: Double,
-    /** Sidereal rotation period, seconds. Zero means it does not rotate. */
+    /** Sidereal rotation period, in seconds. Zero means it doesn't rotate. */
     val rotationPeriod: Double = 0.0,
     val atmosphere: Atmosphere? = null,
     /**
      * The shape of the surface, or null for a perfectly smooth body.
      *
-     * The renderer builds its mesh by sampling this, and the collider resolves
-     * against it, so there is one definition of where the ground is.
+     * The renderer builds its mesh by sampling this and the collider works against it, so there's
+     * only one definition of where the ground is.
      */
     val terrain: com.rm.apogee.core.terrain.Terrain? = null,
-    /** The sea over whatever of [terrain] lies below the datum, or null for a dry body. */
+    /** The sea over any part of [terrain] below the datum, or null for a dry body. */
     val ocean: com.rm.apogee.core.terrain.Ocean? = null,
     val parentId: String? = null,
-    /** This body's orbit about its parent. Null for the root. */
+    /** This body's orbit around its parent. Null for the root. */
     val orbit: Orbit? = null,
     /**
-     * Sphere-of-influence radius, metres. Inside it, this body is treated as
-     * the only source of gravity.
+     * Sphere of influence radius, in metres. Inside it, this body is treated as the only source of
+     * gravity.
      *
-     * A patched-conic device rather than physics: real gravity has no edge, but
-     * committing to one dominant attractor at a time is what makes orbits
-     * predictable enough to plan against, and what lets distant craft be
-     * propagated analytically instead of integrated.
+     * This is a patched-conic shortcut, not physics. Real gravity has no edge, but committing to
+     * one main attractor at a time is what makes orbits predictable enough to plan with, and it's
+     * what lets distant craft be propagated with formulas instead of integrated.
      */
     val sphereOfInfluence: Double = Double.POSITIVE_INFINITY,
     /**
-     * Which way the body spins about, inertial and unit: its north pole.
-     * World +Y for Terra and Luna, whose ground frames everything was built
-     * in; tipped over for the rest - Obliqua lies on its side, Caligo turns
-     * backwards.
+     * The axis the body spins around, inertial and unit length: its north pole. It's world +Y for
+     * Terra and Luna, because everything was built in their ground frames, and tipped over for the
+     * rest. Obliqua lies on its side and Caligo spins backwards.
      */
     spinAxis: Vec3 = Vec3.unitY(),
-    /** Its rings, if it has any: inner and outer radius, m, in its equatorial plane. */
+    /** Its rings, if it has any: inner and outer radius in metres, in its equatorial plane. */
     val rings: Rings? = null,
 ) {
-    /** Its north pole, inertial, unit. */
+    /** Its north pole, inertial, unit length. */
     val spinAxis: Vec3 = spinAxis.normalized()
 
-    /** Tips body-fixed +Y onto [spinAxis]; identity for an upright body. */
+    /** Tips body-fixed +Y onto [spinAxis]. Identity for an upright body. */
     private val tilt: Quat = com.rm.apogee.core.math.quatFromTo(Vec3.unitY(), this.spinAxis)
     private val upright: Boolean = this.spinAxis.y > 1.0 - 1e-12
 
-    /** Surface gravity at the datum, m/s². */
+    /** Surface gravity at the datum, in m/s². */
     val surfaceGravity: Double get() = gravitationalParameter / (radius * radius)
 
-    /** Speed of a circular orbit at [radiusFromCentre], m/s. */
+    /** The speed of a circular orbit at [radiusFromCentre], in m/s. */
     fun circularVelocityAt(radiusFromCentre: Double): Double =
         sqrt(gravitationalParameter / radiusFromCentre)
 
-    /** Escape speed at [radiusFromCentre], m/s. */
+    /** Escape speed at [radiusFromCentre], in m/s. */
     fun escapeVelocityAt(radiusFromCentre: Double): Double =
         sqrt(2.0 * gravitationalParameter / radiusFromCentre)
 
     val hasAtmosphere: Boolean get() = atmosphere != null
 
-    /** Altitude where the atmosphere ends, or 0 if there is none. */
+    /** The height where the atmosphere ends, or 0 if there isn't one. */
     val atmosphereHeight: Double get() = atmosphere?.height ?: 0.0
 
     /**
-     * Height above the datum - "sea level" - in metres.
+     * Height above the datum ("sea level"), in metres.
      *
-     * This is the altitude orbital mechanics cares about, and the one the
-     * atmosphere model is defined against. It is *not* the height above the
-     * ground beneath you; see [heightAboveTerrain].
+     * This is the height orbital mechanics cares about, and the one the atmosphere model is defined
+     * against. It's *not* your height above the ground below you. See [heightAboveTerrain].
      */
     fun altitudeOf(positionRelativeToCentre: Vec3): Double =
         positionRelativeToCentre.length - radius
@@ -92,11 +88,11 @@ class CelestialBody(
     /**
      * Height above the ground directly below, in metres.
      *
-     * The number a pilot wants when landing, and quite different from
-     * [altitudeOf] over a mountain range.
+     * This is the number a pilot wants when landing, and it's very different from [altitudeOf] over
+     * a mountain range.
      *
-     * @param bodyFixedDirection the position, rotated into the body's own
-     *   turning frame. See [surfaceRadiusInBodyFrame] for why that matters.
+     * @param bodyFixedDirection the position, rotated into the body's own turning frame. See
+     *     [surfaceRadiusInBodyFrame] for why that matters.
      */
     fun heightAboveTerrain(positionRelativeToCentre: Vec3, bodyFixedDirection: Vec3): Double {
         val field = terrain ?: return altitudeOf(positionRelativeToCentre)
@@ -104,35 +100,33 @@ class CelestialBody(
     }
 
     /**
-     * Distance from the centre to the ground below a **body-fixed** direction.
+     * The distance from the centre to the ground below a **body-fixed** direction.
      *
-     * Body-fixed, not inertial, and the distinction is not pedantry. Terrain
-     * is carved into a planet that turns: at the equator the surface moves at
-     * 175 m/s, so a height field sampled in the inertial frame scrolls past a
-     * parked craft at that speed. The first version did exactly that and the
-     * stock rocket climbed steadily off its pad, riding a hillside that was
-     * sliding underneath it.
+     * Body-fixed, not inertial, and the difference isn't nitpicking. Terrain is carved into a
+     * planet that turns. At the equator the surface moves at 175 m/s, so a height field sampled in
+     * the inertial frame scrolls past a parked craft at that speed. The first version did exactly
+     * that, and the stock rocket climbed steadily off its pad, riding a hillside that was sliding
+     * along underneath it.
      *
-     * Callers convert with [toBodyFixed], usually once per tick rather than
-     * once per contact point.
+     * Callers convert with [toBodyFixed], usually once per tick rather than once per contact point.
      */
     fun surfaceRadiusInBodyFrame(bodyFixedDirection: Vec3): Double =
         terrain?.surfaceRadius(bodyFixedDirection) ?: radius
 
     /**
-     * Distance from the centre to the solid ground below a body-fixed
-     * direction - the sea floor, at sea. What contacts resolve against.
+     * The distance from the centre to the solid ground below a body-fixed direction, which is the
+     * sea floor at sea. This is what contacts get resolved against.
      */
     fun solidRadiusInBodyFrame(bodyFixedDirection: Vec3): Double =
         terrain?.solidRadius(bodyFixedDirection) ?: radius
 
     /**
-     * The ground along a body-fixed direction, as the collider needs it:
-     * where it is, which way it faces, what it is made of.
+     * The ground along a body-fixed direction, the way the collider needs it: where it is, which
+     * way it faces, and what it's made of.
      *
-     * Read from the terrain's tiles rather than the height function, so it
-     * is exactly the drawn surface - flat facets and their real normals - and
-     * costs a lookup rather than a full evaluation of the field.
+     * It's read from the terrain's tiles instead of the height function, so it's exactly the drawn
+     * surface, with flat facets and their real normals, and it costs a lookup instead of a full
+     * evaluation of the field.
      */
     fun groundInBodyFrame(
         bodyFixedDirection: Vec3,
@@ -152,15 +146,15 @@ class CelestialBody(
     /**
      * Rotates an inertial direction into the body's turning frame at [time].
      *
-     * Takes the rotation as an argument rather than computing it, so a caller
-     * touching many points in one tick computes it once.
+     * It takes the rotation as an argument instead of working it out, so a caller touching lots of
+     * points in one tick only works it out once.
      */
     fun toBodyFixed(direction: Vec3, rotation: Quat, out: Vec3 = Vec3()): Vec3 =
         if (rotationPeriod == 0.0 && upright) out.setTo(direction) else rotation.inverseRotate(direction, out)
 
     /**
-     * Gravitational acceleration at [positionRelativeToCentre], written into
-     * [out]. Allocation-free; called for every vessel every tick.
+     * Gravitational acceleration at [positionRelativeToCentre], written into [out]. It doesn't
+     * allocate, and it's called for every vessel every tick.
      */
     fun gravityAt(positionRelativeToCentre: Vec3, out: Vec3 = Vec3()): Vec3 {
         val distanceSq = positionRelativeToCentre.lengthSq
@@ -172,8 +166,8 @@ class CelestialBody(
     }
 
     /**
-     * Rotation of the body's surface frame at [time]: turned about its own
-     * +Y by the time of day, then tipped onto [spinAxis].
+     * Rotation of the body's surface frame at [time]: turned around its own +Y by the time of day,
+     * then tipped onto [spinAxis].
      */
     fun rotationAt(time: Double, out: Quat = Quat()): Quat {
         if (rotationPeriod == 0.0) return out.setTo(tilt)
@@ -184,17 +178,17 @@ class CelestialBody(
     }
 
     /**
-     * The body's own rotation rate as a vector, rad/s, written into [out].
+     * The body's own rotation rate as a vector, in rad/s, written into [out].
      *
-     * What a craft resting on the surface is turning at: a base on a pad is
-     * not stationary, it is going round once a day with the ground.
+     * This is what a craft resting on the surface is turning at. A base on a pad isn't stationary.
+     * It's going round once a day with the ground.
      */
     fun angularVelocity(out: Vec3 = Vec3()): Vec3 {
         if (rotationPeriod == 0.0) return out.setZero()
         return out.setTo(spinAxis).mulInPlace(2.0 * PI / rotationPeriod)
     }
 
-    /** Surface velocity due to rotation at [positionRelativeToCentre], m/s. */
+    /** Surface velocity due to rotation at [positionRelativeToCentre], in m/s. */
     fun surfaceVelocityAt(positionRelativeToCentre: Vec3, out: Vec3 = Vec3()): Vec3 {
         if (rotationPeriod == 0.0) return out.setZero()
         val omega = 2.0 * PI / rotationPeriod
@@ -211,5 +205,5 @@ class CelestialBody(
     override fun toString(): String = "CelestialBody($id)"
 }
 
-/** A body's rings: from [inner] to [outer], m from its centre, in its equatorial plane. */
+/** A body's rings: from [inner] to [outer], in metres from its centre, in its equatorial plane. */
 data class Rings(val inner: Double, val outer: Double)

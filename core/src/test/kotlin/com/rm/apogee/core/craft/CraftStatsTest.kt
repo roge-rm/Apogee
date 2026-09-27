@@ -18,8 +18,8 @@ class CraftStatsTest {
         assertEquals(15, stats.partCount)
         assertEquals("two engine stages, the pod's release and the chute", 4, stats.stages.size)
 
-        // The stages after the second still have the upper engine lit
-        // behind them, with nothing left to feed it - only two burn.
+        // The stages after the second still have the upper engine lit behind them, with nothing
+        // left to feed it, so only two burn.
         val burning = stats.burns
         assertEquals(2, burning.size)
         assertTrue("first stage should out-thrust the second",
@@ -39,10 +39,9 @@ class CraftStatsTest {
     /**
      * The number the builder quotes has to be the number the craft delivers.
      *
-     * A delta-v readout that disagrees with the simulation is worse than none
-     * at all - it teaches the player to distrust the builder. This compares the
-     * prediction against the real flight, allowing for the gravity and drag
-     * losses that an ideal rocket equation cannot know about.
+     * A delta-v readout that disagrees with the simulation is worse than none at all, because it
+     * teaches the player not to trust the builder. This compares the prediction against the real
+     * flight, allowing for the gravity and drag losses an ideal rocket equation can't know about.
      */
     @Test
     fun `predicted delta-v is consistent with what the rocket actually achieves`() {
@@ -111,8 +110,8 @@ class CraftStatsTest {
     }
 
     @Test
-    fun `an underpowered craft is flagged before it wastes a launch`() {
-        // A vacuum engine under a heavy stack: plenty of delta-v, no lift.
+    fun `an underpowered craft gets flagged before it wastes a launch`() {
+        // A vacuum engine under a heavy stack: plenty of delta-v, but no lift.
         val builder = CraftBuilder(catalog)
         builder.placeRoot("pod-halo")
         var node = builder.openNodes().first { it.partIndex == 0 && it.node.id == "bottom" }
@@ -127,8 +126,8 @@ class CraftStatsTest {
             "should warn about thrust-to-weight: ${stats.warnings}",
             stats.warnings.any { it.contains("Thrust-to-weight") },
         )
-        // A warning, not a refusal. Landers have a thrust-to-weight below one
-        // by design and still have to be placeable.
+        // A warning, not a refusal. Landers have a thrust-to-weight below one by design and still
+        // have to be placeable.
         assertTrue("and it should still be placeable", stats.isFlyable)
     }
 
@@ -139,7 +138,7 @@ class CraftStatsTest {
         assertFalse(stats.isFlyable)
     }
 
-    /** A submarine's screw runs on charge, not propellant: its batteries are its fuel. */
+    /** A submarine's screw runs on charge, not propellant, so its batteries are its fuel. */
     @Test
     fun `the submarines can be launched`() {
         for (design in listOf(StockCraft.minnow(catalog), StockCraft.nautilus(catalog), StockCraft.abyss(catalog))) {
@@ -148,7 +147,7 @@ class CraftStatsTest {
         }
     }
 
-    /** A rover has no engine; its wheels are what move it. */
+    /** A rover has no engine. Its wheels are what move it. */
     @Test
     fun `a rover can be launched`() {
         val stats = CraftStats.analyze(StockCraft.rover(catalog), catalog)

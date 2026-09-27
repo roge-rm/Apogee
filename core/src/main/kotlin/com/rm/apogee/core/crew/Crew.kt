@@ -10,10 +10,9 @@ import kotlinx.serialization.Serializable
 enum class CrewStatus { AVAILABLE, ABOARD, LOST }
 
 /**
- * One of a player's crew: a person, not a part property. Belongs to
- * [owner] (a client id); aboard [vessel] while [status] is ABOARD; and once
- * LOST, remembered with [lostAt] (universe seconds), [lostWhere] and
- * [lostHow] on the memorial.
+ * One of a player's crew. This is a person, not a property of a part. They belong to [owner] (a
+ * client id) and are aboard [vessel] while [status] is ABOARD. Once they're LOST, the memorial
+ * remembers them with [lostAt] (universe seconds), [lostWhere] and [lostHow].
  */
 @Serializable
 data class CrewMember(
@@ -25,17 +24,20 @@ data class CrewMember(
     val lostAt: Double = 0.0,
     val lostWhere: String = "",
     val lostHow: String = "",
-    /** The craft they were lost with, by id; -1 for none known. */
+    /** The craft they were lost with, by id, or -1 if it isn't known. */
     val lastVessel: Long = -1L,
 )
 
 object Crew {
 
-    /** How many people part [def] seats: a pod's or cockpit's crew, a habitat's residents. */
+    /** How many people part [def] seats: a pod's or cockpit's crew, or a habitat's residents. */
     fun seatsIn(def: PartDef): Int =
         (def.module<Command>()?.crewCapacity ?: 0) + (def.module<Habitat>()?.capacity ?: 0)
 
-    /** A name for recruit [n]: the same every time for the same number, so worlds are reproducible. */
+    /**
+     * A name for recruit [n]. It's the same every time for the same number, so worlds come out the
+     * same.
+     */
     fun nameFor(n: Long): String {
         val h = (n * 0x9E3779B97F4A7C15uL.toLong()) xor (n ushr 17)
         val given = GIVEN[((h ushr 8) and 0x7FFFFFFF).toInt() % GIVEN.size]

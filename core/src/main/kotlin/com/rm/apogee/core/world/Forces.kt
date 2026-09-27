@@ -16,13 +16,13 @@ import kotlin.math.sqrt
 /**
  * Everything that pushes on a vessel.
  *
- * Kept as one stateless object with preallocated scratch rather than a force
- * hierarchy: this runs for every vessel every tick, and the indirection of
- * polymorphic force objects would cost more than the whole rest of the step.
+ * It's one stateless object with scratch space made up front, instead of a family of force classes,
+ * because this runs for every vessel every tick, and the overhead of polymorphic force objects
+ * would cost more than the whole rest of the step.
  */
 class Forces {
 
-    /** Standard gravity, used only to convert specific impulse into mass flow. */
+    /** Standard gravity, only used to turn specific impulse into mass flow. */
     private val g0 = 9.80665
 
     private val scratchDirection = Vec3()
@@ -50,16 +50,19 @@ class Forces {
         private set
 
     /**
-     * Parts of parachutes torn off by over-speed deployment this call.
+     * Parachute parts torn off by opening too fast this call.
      *
-     * Indices rather than events, because [Forces] applies forces and should
-     * not know what a world event is; the world turns these into events. A
-     * fixed array for the same reason [com.rm.apogee.core.physics.ContactReport]
-     * uses one - this runs for every vessel every tick and must not allocate.
+     * These are indices instead of events, because [Forces] applies forces and shouldn't know what
+     * a world event is. The world turns these into events. It's a fixed array for the same reason
+     * [com.rm.apogee.core.physics.ContactReport] uses one: this runs for every vessel every tick
+     * and mustn't allocate.
      */
     val tornParachutes = IntArray(MAX_TORN)
 
-    /** Wings and control surfaces that failed under load last drag pass, [overstressedCount] of them. */
+    /**
+     * Wings and control surfaces that failed under load in the last drag pass, [overstressedCount]
+     * of them.
+     */
     val overstressed = IntArray(MAX_TORN)
     var overstressedCount = 0
         private set
@@ -73,12 +76,12 @@ class Forces {
     }
 
     /**
-     * Fires every lit engine, consuming propellant and applying thrust at each
-     * engine's own position - so an asymmetric burn really does yaw the craft.
+     * Fires every lit engine, using up propellant and applying thrust at each engine's own
+     * position, so an uneven burn really does yaw the craft.
      *
-     * Thrust and Isp are interpolated against ambient pressure. That is the
-     * mechanic that makes staging matter: a sea-level-optimised lifter loses
-     * efficiency in vacuum, and a vacuum engine is nearly useless on the pad.
+     * Thrust and Isp are blended against ambient pressure. That's the mechanic that makes staging
+     * matter. A lifter tuned for sea level loses efficiency in vacuum, and a vacuum engine is
+     * nearly useless on the pad.
      */
     fun applyThrust(vessel: Vessel, attractor: CelestialBody, dt: Double, time: Double = 0.0) {
         lastMassFlow = 0.0
@@ -93,7 +96,7 @@ class Forces {
         for (partIndex in vessel.activeEngines()) {
             val engine = vessel.defs[partIndex].module<Engine>() ?: continue
 
-            // A water propeller pushes only for as much of it as is under.
+            // A water propeller only pushes for as much of it as is under water.
             val immersion = engine.waterProp?.let { immersion(vessel, partIndex, it, attractor, time) } ?: 1.0
             if (immersion <= 0.0) continue
 
@@ -111,9 +114,9 @@ class Forces {
             val unitsNeeded: Double
             val unitsDrawn: Double
             if (electric) {
-                // A motor on the batteries: charge weighs nothing, so its "isp"
-                // is only how many newton-seconds a unit of charge buys, and
-                // it runs on what the whole craft holds or not at all.
+                // A motor running on batteries. Charge weighs nothing, so its "isp" is just how
+                // many newton-seconds a unit of charge buys, and it runs on what the whole craft
+                // holds or not at all.
                 unitsNeeded = massFlow * dt
                 unitsDrawn = if (vessel.drawCharge(unitsNeeded)) unitsNeeded else 0.0
                 massFlow = 0.0
@@ -123,9 +126,9 @@ class Forces {
             }
             if (unitsDrawn <= 0.0) continue
 
-            // A partially-fed engine produces proportionally less thrust rather
-            // than cutting out, so the last fraction of a second of a tank is a
-            // taper instead of a cliff.
+            // An engine that isn't getting enough feed makes proportionally less thrust instead of
+            // cutting out, so the last fraction of a second of a tank tapers off instead of
+            // dropping off a cliff.
             val feedFraction = if (unitsNeeded > 0.0) unitsDrawn / unitsNeeded else 0.0
             val actualThrust = thrustMagnitude * feedFraction
             lastMassFlow += massFlow * feedFraction
@@ -142,56 +145,52 @@ class Forces {
     }
 
     /**
-     * Fires the thruster blocks: to slide the craft, and - armed - to help
-     * turn it whenever it is being steered, by the stick or by SAS.
+     * Fires the thruster blocks: to slide the craft, and when armed, to help turn it whenever it's
+     * being steered, by the stick or by SAS.
      *
-     * Sliding goes through the centre of mass, so it does not also rotate.
-     * Applying each block's thrust at its own offset was tried first, on the
-     * theory that placement should matter. It does not survive contact with
-     * the geometry: four blocks ringing a craft *below* its centre of mass all
-     * push sideways with the same lever arm, so their torques add rather than
-     * cancel, and a perfectly symmetric set tumbled at 0.045 rad/s. Real
-     * thruster blocks carry nozzles facing several ways and a control law
-     * picks the combination that translates cleanly; this models the outcome
-     * of that law rather than the plumbing underneath it.
+     * Sliding goes through the centre of mass, so it doesn't rotate the craft too. Applying each
+     * block's thrust at its own position was tried first, on the idea that placement should matter.
+     * It doesn't survive the geometry. Four blocks ringing a craft *below* its centre of mass all
+     * push sideways with the same lever arm, so their torques add up instead of cancelling, and a
+     * perfectly symmetric set tumbled at 0.045 rad/s. Real thruster blocks have nozzles facing
+     * several ways and a control law picks the combination that moves the craft cleanly. This
+     * models what that control law achieves instead of the plumbing underneath it.
      *
-     * Turning is modelled the same way: each block pushes across the turn at
-     * its own place, and the craft gets the torque that makes - thrust times
-     * how far the block sits from the axis - as a pure turn. Placement does
-     * matter here: blocks far from the middle turn it harder.
+     * Turning works the same way. Each block pushes across the turn where it sits, and the craft
+     * gets the torque that makes (thrust times how far the block is from the axis) as a pure turn.
+     * Placement does matter here: blocks far from the middle turn it harder.
      *
-     * Each block's push, slide and turn together, is at most its thrust.
-     * Draws monopropellant from the block's own fuel group, and tapers with
-     * what it actually gets rather than cutting out, so running dry is a fade.
+     * Each block's push, sliding and turning together, is at most its thrust. It draws
+     * monopropellant from the block's own fuel group, and tapers with what it actually gets instead
+     * of cutting out, so running dry is a fade.
      */
     fun applyRcs(vessel: Vessel, dt: Double) {
         vessel.fitPose()
         val firing = vessel.rcsFiring
         firing.fill(0.0)
         val control = vessel.control
-        // A jetpack is for flying: on their feet, it is off.
+        // A jetpack is for flying. On their feet, it's off.
         if (!control.rcsEnabled || vessel.onFeet) return
 
-        // The slide asked for, in the craft's own axes: never more than one
-        // block's worth however the axes combine; a diagonal is a direction.
+        // The slide asked for, in the craft's own axes. It's never more than one block's worth
+        // however the axes combine, because a diagonal is just a direction.
         scratchDirection.setTo(control.translateX, control.translateY, control.translateZ)
         val demand = scratchDirection.length
         var slide = demand.coerceAtMost(1.0)
         if (demand > 1e-6) scratchDirection.mulInPlace(1.0 / demand)
-        // Standing on the ground, a slide pushes at the centre of mass while
-        // the feet grip: a tall craft rocks, and past a point goes over - a
-        // landed tug tipped at anything over a third of its thrust, SAS or
-        // not. So the control law watches it rock and eases off the slide,
-        // as a pilot would, and walks it along instead of pushing it over.
-        // Only the push along the ground is eased: lifting takes weight off
-        // the legs, which is how a module is walked, and is left alone.
+        // Standing on the ground, a slide pushes at the centre of mass while the feet grip, so a
+        // tall craft rocks and past a point goes over. A landed tug tipped over at anything above a
+        // third of its thrust, SAS or not. So the control law watches it rock and eases off the
+        // slide the way a pilot would, walking it along instead of pushing it over. Only the push
+        // along the ground is eased. Lifting takes weight off the legs, which is how you walk a
+        // module, so that's left alone.
         if (slide > 0.0 && vessel.touchingGround) {
             scratchNormal.setTo(vessel.body.position).normalizeInPlace()
             scratchAxis.setTo(vessel.body.angularVelocity)
             scratchAxis.addScaledInPlace(scratchNormal, -(scratchAxis dot scratchNormal))
             val rocking = ((scratchAxis.length - ROCK_ALLOWED) / ROCK_SPAN).coerceIn(0.0, 1.0)
             if (rocking > 0.0) {
-                // Up, in the craft's own axes; the push split into up and along.
+                // Up, in the craft's own axes, with the push split into up and along.
                 vessel.body.orientation.inverseRotate(scratchNormal, scratchNormal)
                 val lift = scratchDirection dot scratchNormal
                 scratchDirection.addScaledInPlace(scratchNormal, -lift).mulInPlace(1.0 - rocking)
@@ -204,9 +203,9 @@ class Forces {
             }
         }
 
-        // The turn asked for, about the craft's own axes (x pitch, y roll,
-        // z yaw): the stick's or SAS's command, or with SAS on and nothing
-        // to hold, against the spin, as the reaction wheels damp it.
+        // The turn asked for, around the craft's own axes (x pitch, y roll, z yaw): the stick's or
+        // SAS's command, or with SAS on and nothing to hold, against the spin, the same way the
+        // reaction wheels damp it.
         if (control.sasEnabled && !control.hasAttitudeInput && !vessel.assistHolding) {
             vessel.body.orientation.inverseRotate(vessel.body.angularVelocity, scratchCommand)
             val spin = scratchCommand.length
@@ -223,20 +222,18 @@ class Forces {
         scratchTorque.setZero()
         vessel.centerOfMass(scratchRadial)
         for (partIndex in vessel.defs.indices) {
-            // Not gated on staging, unlike an engine. A thruster block is
-            // plumbing rather than a step in a sequence - it works from the
-            // moment it is bolted on, the way reaction wheels do, and having
-            // to remember to stage it before nudging a module into place
-            // would be a puzzle with no answer worth finding.
+            // Not gated on staging, unlike an engine. A thruster block is plumbing, not a step in a
+            // sequence. It works from the moment it's bolted on, like reaction wheels do, and
+            // having to remember to stage it before nudging a module into place would be a puzzle
+            // with no answer worth finding.
             if (vessel.isBroken(partIndex)) continue
             val rcs = vessel.defs[partIndex].module<Rcs>() ?: continue
 
-            // This block's push: across the turn where it sits (turn axis x
-            // its place from the middle) - a block on the axis itself cannot
-            // help turn - and the slide with whatever of its thrust is left.
-            // The turn comes first, as a real control law puts attitude
-            // first: at full slide on the ground the thrusters used to have
-            // nothing left to keep the craft upright, and over it went.
+            // This block's push: across the turn where it sits (turn axis x its position from the
+            // middle), since a block on the axis itself can't help turn, then the slide with
+            // whatever thrust is left. The turn comes first, like a real control law puts attitude
+            // first. At full slide on the ground the thrusters used to have nothing left to keep
+            // the craft upright, and over it went.
             scratchOffset.setTo(vessel.design.parts[partIndex].position).subInPlace(scratchRadial)
             scratchForce.setZero()
             var lever = 0.0
@@ -245,8 +242,8 @@ class Forces {
                 lever = scratchAxis.length
                 if (lever > 1e-3) scratchForce.addScaledInPlace(scratchAxis, turn / lever)
             }
-            // The most slide that fits beside the turn: |a d + t| = 1, d the
-            // slide's direction (unit) and t the turn's push (at most 1).
+            // The most slide that fits alongside the turn: |a d + t| = 1, where d is the slide's
+            // direction (unit) and t is the turn's push (at most 1).
             val dt2 = scratchDirection dot scratchForce
             val room = (dt2 * dt2 - scratchForce.lengthSq + 1.0).coerceAtLeast(0.0)
             val slideHere = if (slide < 1e-6) 0.0 else minOf(slide, (-dt2 + kotlin.math.sqrt(room)).coerceAtLeast(0.0))
@@ -282,14 +279,14 @@ class Forces {
     }
 
     /**
-     * Deflects an engine's thrust axis by the control input, within its gimbal
-     * range. This is what steers a rocket while it is still going fast enough
-     * for fins to be irrelevant but too fast for reaction wheels to matter.
+     * Swings an engine's thrust axis by the control input, within its gimbal range. This is what
+     * steers a rocket while it's still going fast enough that fins don't matter, but too fast for
+     * reaction wheels to matter.
      */
     /**
-     * How far under the water part-local [point] of part [partIndex] is,
-     * 0 in air to 1 at a propeller's depth - [PROP_IMMERSION_DEPTH] - or more.
-     * No sea, or ground above the water here, is 0.
+     * How far under the water part-local [point] of part [partIndex] is: 0 in air, up to 1 at a
+     * propeller's depth ([PROP_IMMERSION_DEPTH]) or more. No sea, or ground above the water here,
+     * gives 0.
      */
     private fun immersion(vessel: Vessel, partIndex: Int, point: Vec3, attractor: CelestialBody, time: Double): Double {
         val ocean = attractor.ocean ?: return 0.0
@@ -311,12 +308,11 @@ class Forces {
         if (engine.gimbalRange <= 0.0) return out.setTo(engine.thrustDirection)
 
         val range = Math.toRadians(engine.gimbalRange)
-        // Negated, and that sign is load-bearing. An engine sits *below* the
-        // centre of mass, so deflecting its thrust toward +Z produces a torque
-        // about -X - the opposite of what a reaction wheel does for the same
-        // positive pitch command. Without the negation the two authorities
-        // fight each other, and a craft with both is *less* controllable than
-        // one with either. Pinned by ForcesTest.
+        // Negated, and that sign matters a lot. An engine sits *below* the centre of mass, so
+        // swinging its thrust toward +Z makes a torque around -X, which is the opposite of what a
+        // reaction wheel does for the same positive pitch command. Without the negation the two
+        // fight each other, and a craft with both is *less* controllable than one with either.
+        // ForcesTest pins this.
         Quat.fromAxisAngle(Vec3.unitX(), -vessel.control.commandPitch * range, gimbalPitch)
         Quat.fromAxisAngle(Vec3.unitZ(), -vessel.control.commandYaw * range, gimbalYaw)
         gimbalRotation.setTo(gimbalPitch).mulInPlace(gimbalYaw)
@@ -324,10 +320,10 @@ class Forces {
     }
 
     /**
-     * Reaction-wheel authority: torque without reaction mass.
+     * Reaction wheel authority: torque without reaction mass.
      *
-     * Convention, matching the mesh axes: +Y is the nose, so roll is about Y,
-     * pitch about X and yaw about Z.
+     * The convention matches the mesh axes. +Y is the nose, so roll is around Y, pitch around X and
+     * yaw around Z.
      */
     fun applyReactionWheels(vessel: Vessel) {
         vessel.wheelWork = 0.0
@@ -343,8 +339,8 @@ class Forces {
         if (authority <= 0.0) return
 
         val control = vessel.control
-        // SAS with nothing to hold - on the ground, or before a hold has been
-        // taken - falls back to bleeding off rotation.
+        // SAS with nothing to hold (on the ground, or before a hold has been taken) falls back to
+        // bleeding off rotation.
         if (control.sasEnabled && !control.hasAttitudeInput && !vessel.assistHolding) {
             dampRotation(vessel, authority)
             vessel.wheelWork = authority * DAMPING_WORK
@@ -352,8 +348,8 @@ class Forces {
         }
         vessel.wheelWork = authority * (kotlin.math.abs(control.commandPitch) + kotlin.math.abs(control.commandRoll) + kotlin.math.abs(control.commandYaw)).coerceAtMost(1.0)
 
-        // On foot, the stick walks: only turning about their own height -
-        // their roll - is left to the wheels.
+        // On foot, the stick walks, so only turning around their own height (their roll) is left to
+        // the wheels.
         val tip = if (vessel.onFeet) 0.0 else 1.0
         scratchTorque.setTo(
             control.commandPitch * authority * tip,
@@ -367,16 +363,16 @@ class Forces {
     /**
      * Stability assist with no input: bleed off rotation.
      *
-     * Torque opposes angular velocity and is capped at the craft's authority,
-     * so SAS settles a tumble rather than instantly freezing it - and cannot
-     * overshoot into an oscillation by applying more torque than it has.
+     * The torque opposes the angular velocity and is capped at the craft's authority, so SAS
+     * settles a tumble instead of freezing it instantly, and it can't overshoot into an oscillation
+     * by applying more torque than it has.
      */
     private fun dampRotation(vessel: Vessel, authority: Double) {
         val omega = vessel.body.angularVelocity
         val magnitude = omega.length
         if (magnitude < 1e-6) return
 
-        // Scale in as rotation grows, saturating at full authority.
+        // Scale in as the rotation grows, maxing out at full authority.
         val strength = (magnitude / SAS_SATURATION_RATE).coerceAtMost(1.0)
         scratchTorque.setTo(omega)
             .mulInPlace(-authority * strength / magnitude)
@@ -386,33 +382,30 @@ class Forces {
     /**
      * Atmospheric drag, applied part by part.
      *
-     * Each part gets its own effective drag area and its force is applied at
-     * its own offset, rather than one force through the centre of mass. That
-     * difference is what makes fins work: a central force produces no torque
-     * wherever the fins are, so a finned rocket flew exactly like a finless one
-     * and the fins were pure mass.
+     * Each part gets its own drag area and its force is applied at its own position, instead of one
+     * force through the centre of mass. That difference is what makes fins work. A force at the
+     * centre makes no torque wherever the fins are, so a finned rocket flew exactly like one
+     * without fins and the fins were just dead weight.
      *
-     * Three kinds of area, because they behave differently:
+     * There are three kinds of area, because they behave differently:
      *
-     *  - **Bodies** are occlusion-corrected. Summing every tank's frontal area
-     *    would count a ten-tank stack as ten tanks of frontal area when nine sit
-     *    in the first one's wake, so the stack's total is taken from its largest
-     *    cross-section and shared out among them.
-     *  - **Aerodynamic surfaces** use their declared planform area, not their
-     *    frontal cross-section. A fin is millimetres thick edge-on; judged by
-     *    its bounding box it contributes almost nothing, which is exactly the
-     *    wrong answer for the part whose entire job is aerodynamic authority.
-     *    They are not occluded either - they stick out into clean air.
-     *  - **Parachutes** use their own, and dominate everything when open.
+     * - **Bodies** are corrected for shielding. Adding up every tank's frontal area would count a
+     *   ten-tank stack as ten tanks of frontal area when nine of them sit in the first one's wake,
+     *   so the stack's total is taken from its largest cross-section and shared out between them.
+     * - **Aerodynamic surfaces** use their declared planform area, not their frontal cross-section.
+     *   A fin is millimetres thick edge-on, and judged by its bounding box it would add almost
+     *   nothing, which is exactly the wrong answer for the part whose whole job is aerodynamic
+     *   control. They aren't shielded either, because they stick out into clean air.
+     * - **Parachutes** use their own, and dominate everything when open.
      *
-     * Each part's local velocity includes the craft's rotation, so aerodynamic
-     * damping falls out of the same loop.
+     * Each part's local velocity includes the craft's rotation, so aerodynamic damping comes out of
+     * the same loop.
      */
     /**
-     * The craft's whole drag area, Cd x A in m², as [applyDrag] would find it
-     * head-on: the stack's body drag, its fins edge-on, and any canopy as far
-     * open as it is. What a descent is foretold with (see
-     * [com.rm.apogee.core.orbit.Descent]); lift and wind are left out.
+     * The craft's whole drag area, Cd x A in m², the way [applyDrag] would find it head-on: the
+     * stack's body drag, its fins edge-on, and any canopy as far open as it is. This is what a
+     * descent gets predicted with (see [com.rm.apogee.core.orbit.Descent]). Lift and wind are left
+     * out.
      */
     fun dragArea(vessel: Vessel): Double {
         var maxRadius = 0.0
@@ -444,19 +437,19 @@ class Forces {
         return total + PI * maxRadius * maxRadius * (AVERAGE_BODY_CD + (BLUNT_BODY_CD - AVERAGE_BODY_CD) * blunt)
     }
 
-    /** Part [index]'s fairing, if it has one still closed. */
+    /** Part [index]'s fairing, if it has one that's still closed. */
     private fun closedShell(vessel: Vessel, index: Int): com.rm.apogee.core.part.Fairing? =
         vessel.defs[index].module<com.rm.apogee.core.part.Fairing>()?.takeIf { !vessel.activated[index] }
 
     fun applyDrag(
         vessel: Vessel,
         attractor: CelestialBody,
-        /** The air's weather, when it has any; [Vessel.air] holds this tick's sample of it. */
+        /** The air's weather, when it has any. [Vessel.air] holds this tick's sample of it. */
         weather: Weather? = null,
-        /** The body's rotation now: weather is in its turning frame. */
+        /** The body's rotation now, because weather is in its turning frame. */
         bodyRotation: Quat? = null,
         time: Double = 0.0,
-        /** The tick, s: a chute fills over time. */
+        /** The tick, in seconds, because a chute fills over time. */
         dt: Double = 1.0 / 60.0,
     ) {
         tornCount = 0
@@ -468,8 +461,8 @@ class Forces {
         val density = atmosphere.densityAt(altitude) * air.loading
         if (density <= 0.0) return
 
-        // The wind, in the world's frame: the air moves with the ground, and
-        // on top of that with the weather.
+        // The wind, in the world's frame. The air moves with the ground, and on top of that with
+        // the weather.
         val windy = weather != null && bodyRotation != null
         if (windy) bodyRotation!!.rotate(air.wind, scratchWind) else scratchWind.setZero()
         val gusty = windy && air.turbulence > 0.0
@@ -477,8 +470,8 @@ class Forces {
         attractor.surfaceVelocityAt(vessel.body.position, scratchSurface)
         scratchSurface.addInPlace(scratchWind)
         scratchVelocity.setTo(vessel.body.linearVelocity).subInPlace(scratchSurface)
-        // Still air and a still craft: nothing to do. A craft standing in a
-        // gale is not still relative to the air, and is not skipped.
+        // Still air and a still craft, so there's nothing to do. A craft standing in a gale isn't
+        // still relative to the air, so it doesn't get skipped.
         if (scratchVelocity.lengthSq < 1e-6 && !gusty) return
 
         // Rain: a load straight down, on everything it falls on.
@@ -492,13 +485,13 @@ class Forces {
             vessel.body.applyCentralForce(scratchForce)
         }
 
-        // Flying through rain costs: every drop struck has to be pushed out
-        // of the way, and a wet skin is a rough one. Drag only - it adds no lift.
+        // Flying through rain costs something. Every drop you hit has to be pushed out of the way,
+        // and a wet skin is a rough one. It's drag only and adds no lift.
         val rainDrag = 1.0 + air.precipitation * RAIN_DRAG
 
-        // Pass one: the stack's occlusion-corrected body drag. What rides
-        // inside a closed fairing is out of the air; the fairing's shell
-        // counts instead, as wide and as tall as it stands.
+        // Pass one: the stack's body drag, corrected for shielding. Whatever rides inside a closed
+        // fairing is out of the air, and the fairing's shell counts instead, as wide and as tall as
+        // it stands.
         val enclosed = vessel.enclosed()
         var maxRadius = 0.0
         var bodySum = 0.0
@@ -518,17 +511,17 @@ class Forces {
                 high = maxOf(high, y + extents.y + fairing.height)
             }
         }
-        // Stubby is draggy: a capsule falling on its shield pushes a wall of
-        // air ahead of it, a slender rocket slips through. Without this a
-        // pod on its own fell at 400 m/s a kilometre up, and its chute - which
-        // waits for a safe speed - never got to open before it hit.
+        // Stubby is draggy. A capsule falling on its shield pushes a wall of air ahead of it, while
+        // a slender rocket slips through. Without this, a pod on its own fell at 400 m/s a
+        // kilometre up, and its chute, which waits for a safe speed, never got to open before it
+        // hit.
         val fineness = if (maxRadius > 0.0) (high - low) / (2.0 * maxRadius) else 3.0
         val blunt = ((BLUNT_UNTIL - fineness) / (BLUNT_UNTIL - 1.0)).coerceIn(0.0, 1.0)
         val bodyCd = AVERAGE_BODY_CD + (BLUNT_BODY_CD - AVERAGE_BODY_CD) * blunt
         val bodyCdA = PI * maxRadius * maxRadius * bodyCd
         val bodyScale = if (bodySum > 0.0) bodyCdA / bodySum else 0.0
 
-        // The stack axis, for splitting airflow into along-body and cross-body.
+        // The stack axis, for splitting the airflow into along the body and across it.
         vessel.body.orientation.rotate(Vec3.unitY(), scratchAxis)
 
         // Pass two: each part's own force, at its own place on the craft.
@@ -539,7 +532,7 @@ class Forces {
             vessel.partOffsetWorld(i, scratchOffset)
             vessel.body.velocityAtOffset(scratchOffset, scratchLocalVelocity)
             scratchLocalVelocity.subInPlace(scratchSurface)
-            // Gusts, part by part: a wing tip and a tail each meet their own.
+            // Gusts, part by part, so a wing tip and a tail each meet their own.
             if (gusty) {
                 scratchGustPoint.setTo(vessel.body.position).addInPlace(scratchOffset)
                 bodyRotation!!.inverseRotate(scratchGustPoint, scratchGustPoint)
@@ -550,24 +543,22 @@ class Forces {
             val localSpeed = scratchLocalVelocity.length
             if (localSpeed < 1e-6) continue
 
-            // A surface that has failed makes no lift: it hangs there as drag.
+            // A surface that has failed makes no lift. It just hangs there as drag.
             val surface = def.module<AeroSurface>()?.takeIf { !vessel.isBroken(i) }
 
             // Drag along the airflow.
             var cdA = if (surface != null) {
-                // A fin edge-on to the airflow is nearly drag-free. Charging it
-                // its planform area times a *lift* coefficient - which is what
-                // the first version of this did - made four fins cost five times
-                // the drag of the entire rocket body, and the stock craft stopped
-                // reaching orbit.
+                // A fin edge-on to the airflow has almost no drag. Charging it its planform area
+                // times a *lift* coefficient, which is what the first version of this did, made
+                // four fins cost five times the drag of the whole rocket body, and the stock craft
+                // stopped reaching orbit.
                 surface.area * FIN_PARASITIC_CD
             } else {
                 def.referenceArea * def.dragCoefficient * bodyScale
             }
             def.module<Parachute>()?.let { parachute ->
-                // Staged, it is armed; it opens itself when it is safe to.
-                // Here because this is the only place a part's airspeed is
-                // already known.
+                // Once staged it's armed, and it opens by itself when it's safe. This happens here
+                // because this is the only place a part's airspeed is already known.
                 val state = vessel.legDeploy.getOrElse(i) { 0.0 }
                 if (vessel.isWorking(i)) when {
                     state < 0.0 -> Unit // Cut away after landing.
@@ -577,34 +568,32 @@ class Forces {
                         ) vessel.setLegDeploy(i, dt / Parachute.INFLATE_SECONDS)
                     }
                     localSpeed > parachute.maxDeploymentSpeed -> {
-                        // Open, and too fast for it: torn away.
+                        // Open, and going too fast for it, so it gets torn away.
                         if (vessel.breakPart(i) && tornCount < MAX_TORN) {
                             tornParachutes[tornCount++] = i
                         }
                     }
-                    // Down, and either slow or down a moment: cut away. Only
-                    // slow, a pod landed in a breeze was dragged along the
-                    // ground by its full canopy for half a minute.
+                    // Down, and either slow or down for a moment, so it gets cut away. With only
+                    // the slow check, a pod landed in a breeze got dragged along the ground by its
+                    // full canopy for half a minute.
                     vessel.touchingGround && (localSpeed < Parachute.CUT_SPEED || vessel.groundedSeconds > Parachute.CUT_AFTER) ->
                         vessel.setLegDeploy(i, -1.0)
-                    // Down in the sea: let go at once. Kept, the canopy towed a
-                    // capsule on its side across the waves in a wind (Dan).
+                    // Down in the sea, so let go straight away. If it stayed on, the canopy towed a
+                    // capsule on its side across the waves in a wind.
                     vessel.buoyed && !vessel.touchingGround ->
                         vessel.setLegDeploy(i, -1.0)
                     else -> {
-                        // Two stages: the drogue fills and holds - a fast,
-                        // steady fall - until the ground is near, then the
-                        // main fills and lets it down gently for the last
+                        // Two stages. The drogue fills and holds for a fast, steady fall until the
+                        // ground is close, then the main fills and lets it down gently for the last
                         // few hundred metres.
                         val main = state >= Parachute.DROGUE_FULL && heightAboveSurface(vessel, attractor, time) < Parachute.MAIN_HEIGHT
                         val open = if (state < Parachute.DROGUE_FULL) minOf(Parachute.DROGUE_FULL, state + 0.5 * dt / Parachute.INFLATE_SECONDS)
                             else if (main || state > Parachute.DROGUE_FULL + 0.02) minOf(1.0, state + 0.5 * dt / Parachute.INFLATE_SECONDS)
                             else state
                         vessel.setLegDeploy(i, open)
-                        // Reefed: however fast it opens, it pulls no harder
-                        // than a few g - a canopy big enough to land on,
-                        // opened at 250 m/s, would otherwise stop the craft
-                        // dead in a fraction of a second.
+                        // Reefed. However fast it opens, it pulls no harder than a few g. A canopy
+                        // big enough to land under, opened at 250 m/s, would otherwise stop the
+                        // craft dead in a fraction of a second.
                         val full = parachute.deployedDragCoefficient * def.referenceArea * Parachute.dragShare(open)
                         val pull = 0.5 * density * localSpeed * localSpeed * full
                         val most = Parachute.MOST_PULL_G * STANDARD_GRAVITY * vessel.body.mass
@@ -623,12 +612,11 @@ class Forces {
 
             // Cross-flow force on aerodynamic surfaces.
             //
-            // This is where a fin earns its mass. Only the component of airflow
-            // *across* the stack acts on it, so a craft flying straight feels
-            // nothing and one at an angle of attack feels a force pushing the
-            // fin back into line. Applied at the fin's offset - behind the
-            // centre of mass - it becomes the restoring torque that keeps the
-            // pointy end forward.
+            // This is where a fin earns its mass. Only the part of the airflow *across* the stack
+            // acts on it, so a craft flying straight feels nothing, and one at an angle of attack
+            // feels a force pushing the fin back into line. Applied at the fin's position, behind
+            // the centre of mass, that becomes the restoring torque that keeps the pointy end
+            // forward.
             if (surface != null) {
                 val along = scratchLocalVelocity dot scratchAxis
                 scratchCrossFlow.setTo(scratchLocalVelocity)
@@ -636,17 +624,15 @@ class Forces {
                 val crossSpeed = scratchCrossFlow.length
                 // Cross-flow times along-flow, not cross-flow squared.
                 //
-                // This is the flat-plate normal force, proportional to
-                // sin(a)cos(a) rather than sin(a)^2, and the difference is
-                // not a refinement: at the two or three degrees a wing
-                // actually cruises at, squaring the cross-flow gives
-                // roughly a thirtieth of the real force. Fins got away
-                // with it because a rocket only needs them when it is
-                // already badly out of line. A wing has to hold an
-                // aircraft up at small angles, and could not.
+                // This is the flat-plate normal force, proportional to sin(a)cos(a) instead of
+                // sin(a)^2, and the difference isn't a refinement. At the two or three degrees a
+                // wing actually cruises at, squaring the cross-flow gives roughly a thirtieth of
+                // the real force. Fins got away with it because a rocket only needs them when it's
+                // already badly out of line. A wing has to hold an aircraft up at small angles, and
+                // couldn't.
                 //
-                // It also stalls for free: the product peaks near 45
-                // degrees and falls away past it.
+                // It also stalls for free, because the product peaks near 45 degrees and falls away
+                // past it.
                 val normalForce = if (crossSpeed > 1e-6) {
                     0.5 * density * crossSpeed * abs(along) * surface.area * surface.liftCoefficient
                 } else 0.0
@@ -661,11 +647,11 @@ class Forces {
                     deflect(vessel, i, surface, density, localSpeed)
                 } else 0.0
 
-                // How hard it is working, for the stress pass to report.
+                // How hard it's working, for the stress pass to report.
                 val airLoad = abs(normalForce) + abs(controlForce)
                 if (i < vessel.surfaceLoad.size) vessel.surfaceLoad[i] = (airLoad / surface.loadLimit).toFloat()
-                // Past what it was built for - a gust at speed, a hard pull
-                // in rough air - it snaps off; the world tears it away.
+                // Past what it was built for, like a gust at speed or a hard pull in rough air, it
+                // snaps off, and the world tears it away.
                 if (airLoad > surface.loadLimit &&
                     overstressedCount < MAX_TORN
                 ) {
@@ -676,24 +662,21 @@ class Forces {
     }
 
     /**
-     * A control surface deflecting with the stick.
+     * A control surface moving with the stick.
      *
-     * Without this an aircraft cannot fly at all, and not for want of lift: a
-     * tail fin weathervanes the nose into the airflow, which drives angle of
-     * attack to nothing, and a wing at no angle of attack makes no lift. The
-     * plane mushes down at forty degrees nose-low with the fin doing exactly
-     * what it was built to do. Holding an angle of attack is the elevator's
-     * job, and nothing was doing it - [AeroSurface.controllable] and
-     * [AeroSurface.controlAuthority] were carried in the schema and read by
-     * nobody.
+     * Without this an aircraft can't fly at all, and not for lack of lift. A tail fin weathervanes
+     * the nose into the airflow, which drives the angle of attack to nothing, and a wing at no
+     * angle of attack makes no lift. The plane mushes down at forty degrees nose-low, with the fin
+     * doing exactly what it was built to do. Holding an angle of attack is the elevator's job, and
+     * nothing was doing it. [AeroSurface.controllable] and [AeroSurface.controlAuthority] were
+     * carried in the schema and read by nobody.
      *
-     * Which way a surface deflects follows from where it is bolted, rather
-     * than from a flag saying "elevator". The force it can make is
-     * perpendicular to both the fuselage and its own mounting radius; the
-     * torque that produces is r x F; and the deflection is the pilot's
-     * command projected onto that torque. So a surface behind the centre of
-     * mass pitches, one out on a wing rolls, and one that can do neither sits
-     * still - all of it falling out of the geometry, the way the thrusters do.
+     * Which way a surface moves comes from where it's bolted, not from a flag saying "elevator".
+     * The force it can make is at right angles to both the fuselage and its own mounting radius,
+     * the torque that makes is r x F, and the deflection is the pilot's command projected onto that
+     * torque. So a surface behind the centre of mass pitches, one out on a wing rolls, and one that
+     * can do neither sits still. All of it comes out of the geometry, the same way the thrusters
+     * do.
      */
     private fun deflect(
         vessel: Vessel,
@@ -702,8 +685,8 @@ class Forces {
         density: Double,
         airspeed: Double,
     ): Double {
-        // How far: worked out once per tick by [controlDeflection], so the
-        // force and the surface the players see move by the same amount.
+        // How far: worked out once per tick by [controlDeflection], so the force and the surface
+        // the players see move by the same amount.
         val deflection = vessel.surfaceDeflection.getOrElse(partIndex) { 0.0 }
         if (abs(deflection) < 1e-6) return 0.0
 
@@ -720,9 +703,9 @@ class Forces {
         if (normalLength < 1e-6) return 0.0
         scratchNormal.mulInPlace(1.0 / normalLength)
 
-        // sin(d)cos(d) of the actual deflection, the same flat-plate form the
-        // lift uses. Charging the surface's full broadside force made four
-        // rocket fins worth tens of kilonewtons at max q.
+        // sin(d)cos(d) of the actual deflection, the same flat-plate form the lift uses. Charging
+        // the surface's full broadside force made four rocket fins worth tens of kilonewtons at max
+        // q.
         val angle = Math.toRadians(surface.maxDeflection) * deflection
         val force = 0.5 * density * airspeed * airspeed *
             surface.area * surface.liftCoefficient * surface.controlAuthority *
@@ -734,19 +717,17 @@ class Forces {
     }
 
     /**
-     * How far control surface [partIndex] deflects for the craft's command
-     * this tick, -1..1 of its travel; 0 for anything that is not a control
-     * surface.
+     * How far control surface [partIndex] moves for the craft's command this tick, -1..1 of its
+     * travel, and 0 for anything that isn't a control surface.
      *
-     * Which way follows from where it is bolted, as [deflect] explains: the
-     * push it can make is across both the fuselage and its own mounting
-     * radius, the torque that push makes is r x F, and the deflection is the
-     * command projected onto that torque. Worked in the craft's own axes, so
-     * it needs no airflow and no orientation - it is what the stick asks of
-     * this surface, on the runway as much as in flight.
+     * Which way comes from where it's bolted, like [deflect] explains. The push it can make is
+     * across both the fuselage and its own mounting radius, the torque that push makes is r x F,
+     * and the deflection is the command projected onto that torque. It's worked in the craft's own
+     * axes, so it needs no airflow and no orientation. It's what the stick asks of this surface, on
+     * the runway as much as in flight.
      *
-     * Not normalised: a hair of stick is a hair of deflection, which is what
-     * gentle corrections, by a thumb or by stability assist, are made of.
+     * It isn't normalised. A hair of stick is a hair of deflection, which is what gentle
+     * corrections, by a thumb or by stability assist, are made of.
      */
     fun controlDeflection(vessel: Vessel, partIndex: Int): Double {
         val def = vessel.defs[partIndex]
@@ -775,7 +756,7 @@ class Forces {
         val torqueLength = poseTorque.length
         if (torqueLength < 1e-6) return 0.0
         poseTorque.mulInPlace(1.0 / torqueLength)
-        // Pitch about X, roll about Y, yaw about Z, as the reaction wheels.
+        // Pitch around X, roll around Y, yaw around Z, the same as the reaction wheels.
         return (pitch * poseTorque.x + roll * poseTorque.y + yaw * poseTorque.z).coerceIn(-1.0, 1.0)
     }
 
@@ -785,9 +766,9 @@ class Forces {
     private val poseTorque = Vec3()
 
     /**
-     * Dynamic pressure, Pa. The number that decides whether a craft survives
-     * ascent - against the air as it moves, [Vessel.air]'s wind, turned into
-     * the world's frame by [bodyRotation].
+     * Dynamic pressure, in Pa. This is the number that decides whether a craft survives the ascent.
+     * It's against the air as it moves, [Vessel.air]'s wind, turned into the world's frame by
+     * [bodyRotation].
      */
     fun dynamicPressure(vessel: Vessel, attractor: CelestialBody, bodyRotation: Quat? = null): Double {
         val atmosphere = attractor.atmosphere ?: return 0.0
@@ -804,7 +785,7 @@ class Forces {
 
     private val scratchSurfaceUp = Vec3()
 
-    /** How high [vessel] is over the ground or sea under it, m. */
+    /** How high [vessel] is over the ground or sea under it, in metres. */
     private fun heightAboveSurface(vessel: Vessel, attractor: CelestialBody, time: Double): Double {
         val altitude = attractor.altitudeOf(vessel.body.position)
         val terrain = attractor.terrain ?: return altitude
@@ -813,34 +794,34 @@ class Forces {
     }
 
     private companion object {
-        /** Share of the wheels' strength counted as worked while only damping rotation. */
+        /** The share of the wheels' strength counted as used while only damping rotation. */
         const val DAMPING_WORK = 0.1
 
-        /** Metres under water at which a propeller has its full bite. */
+        /** Metres under water at which a propeller gets its full bite. */
         const val PROP_IMMERSION_DEPTH = 0.3
 
         /** More chutes than any sane craft carries. */
         const val MAX_TORN = 8
 
-        /** Pascals on a horizontal surface in the heaviest rain. */
+        /** Pascals on a flat surface in the heaviest rain. */
         const val RAIN_PRESSURE = 30.0
 
-        /** Angular rate, rad/s, at which SAS applies full authority. */
+        /** The turn rate, in rad/s, at which SAS applies full authority. */
         const val SAS_SATURATION_RATE = 0.35
 
         /**
-         * Rocking over, rad/s, that a slide along the ground is allowed
-         * before the thrusters ease off it, and how much more stops it.
+         * How fast it can rock over, in rad/s, while sliding along the ground before the thrusters
+         * ease off, and how much more stops it.
          */
         const val ROCK_ALLOWED = 0.02
         const val ROCK_SPAN = 0.06
 
         /**
-         * Drag coefficient for a stack of hull parts.
+         * The drag coefficient for a stack of hull parts.
          *
-         * One figure rather than a per-part average: the stack's drag is
-         * dominated by its nose and its base, and averaging the coefficients of
-         * the tanks in between describes nothing physical.
+         * It's one number instead of an average over the parts. The stack's drag is mostly its nose
+         * and its base, and averaging the coefficients of the tanks in between describes nothing
+         * physical.
          */
         const val AVERAGE_BODY_CD = 0.3
 
@@ -850,16 +831,18 @@ class Forces {
         /** Extra drag in the heaviest rain, as a share: a quarter more. */
         const val RAIN_DRAG = 0.25
 
-        /** A blunt body's, a capsule on its shield: about four times a slender one's. */
+        /** A blunt body's, like a capsule on its shield: about four times a slender one's. */
         const val BLUNT_BODY_CD = 1.1
 
-        /** Length over diameter from which a stack counts as slender; at 1 or less, fully blunt. */
+        /**
+         * Length over diameter from which a stack counts as slender. At 1 or less it's fully blunt.
+         */
         const val BLUNT_UNTIL = 3.0
 
-        /** Drag coefficient of a fin edge-on to the airflow. Small, on purpose. */
+        /** The drag coefficient of a fin edge-on to the airflow. Small, on purpose. */
         const val FIN_PARASITIC_CD = 0.03
     }
 }
 
-/** Speed of a circular orbit at the given radius. Shared by spawn and telemetry. */
+/** The speed of a circular orbit at the given radius. Shared by spawn and telemetry. */
 fun circularSpeed(mu: Double, radius: Double): Double = sqrt(mu / radius)

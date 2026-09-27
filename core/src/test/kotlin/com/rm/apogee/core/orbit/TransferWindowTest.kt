@@ -27,7 +27,7 @@ class TransferWindowTest {
     }
 
     @Test
-    fun `going inward to Caligo, the target has to be behind`() {
+    fun `going inward to Caligo the target has to be behind`() {
         val w = TransferWindow.between(system, "terra", "caligo", 0.0, terra.radius + 100_000.0)!!
         assertTrue("phase needed ${degrees(w.phaseNeeded)}", degrees(w.phaseNeeded) > 180.0)
         assertTrue(w.waitFor in 0.0..w.synodic)
@@ -45,7 +45,7 @@ class TransferWindowTest {
 
     @Test
     fun `a path leaving Terra for good is followed out among the planets`() {
-        // Hyperbolic out of a low orbit: past the old horizon of a few days.
+        // Hyperbolic out of a low orbit, past the old limit of a few days.
         val r = terra.radius + 200_000.0
         val speed = kotlin.math.sqrt(2.0 * terra.gravitationalParameter / r) + 1_200.0
         val path = Trajectory.predict(system, "terra", com.rm.apogee.core.math.Vec3(r, 0.0, 0.0), com.rm.apogee.core.math.Vec3(0.0, 0.0, speed), 0.0)

@@ -11,9 +11,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Bringing an aeroplane back down: on approach over the runway, power off,
- * SAS holding a gentle nose-up attitude so it settles rather than dives - then
- * brakes once the wheels are on.
+ * Bringing an aeroplane back down: on approach over the runway, power off, and SAS holding a gentle
+ * nose-up attitude so it settles instead of diving, then brakes once the wheels are on.
  */
 class LandingAPlaneTest {
 
@@ -42,8 +41,8 @@ class LandingAPlaneTest {
         world.weatherConfig = weather?.let { com.rm.apogee.core.weather.WeatherConfig(intensity = it) }
         val terra = world.system.body("terra")!!
 
-        // Over the west end of the runway, which runs east from the airfield
-        // four hundred metres south of the pads.
+        // Over the west end of the runway, which runs east from the airfield four hundred metres
+        // south of the pads.
         val pad = com.rm.apogee.core.orbit.SolarSystem.capeDirection(260.0, -400.0)
         val up = pad.copy()
         val position = Vec3().setTo(up).mulInPlace(terra.surfaceRadiusInBodyFrame(up) + height)
@@ -51,7 +50,7 @@ class LandingAPlaneTest {
         val east = surface.copy().normalizeInPlace()
         val right = east.copy().crossInPlace(up).normalizeInPlace()
 
-        // Sky-side up, nose east, then pitched up about the wing.
+        // Sky side up, nose east, then pitched up about the wing.
         val rotation = quatFromTo(Vec3(0.0, 0.0, 1.0), up)
         val nose = rotation.rotate(Vec3(0.0, 1.0, 0.0))
         rotation.setTo(quatFromTo(nose, east) * rotation)
@@ -64,13 +63,12 @@ class LandingAPlaneTest {
 
         var touchdownSpeed = -1.0
         var touchdownTime = -1.0
-        // Along the ground, integrated: positions are inertial, and the
-        // runway itself moves 175 m/s, so a straight-line difference between
-        // two of them measures the planet's spin.
+        // Along the ground, integrated. Positions are inertial, and the runway itself moves at 175
+        // m/s, so a straight-line difference between two of them measures the planet's spin.
         var rollout = 0.0
-        // Where it was five seconds before the end: whether it has stopped is
-        // how far it has gone since, not its speed at the last instant - at
-        // rest in a wind, an aircraft rocks on its gear.
+        // Where it was five seconds before the end. Whether it has stopped is how far it has gone
+        // since then, not its speed at the last instant, because at rest in a wind an aircraft
+        // rocks on its gear.
         var settling: Vec3? = null
         var hopTicks = 0
         var t = 0.0
@@ -82,17 +80,16 @@ class LandingAPlaneTest {
                 touchdownSpeed = groundSpeed(world, plane)
                 touchdownTime = t
             }
-            // Brakes once the wheels are all down, as a pilot would. Braking
-            // on first contact - one main wheel, briefly, before the rest -
-            // yanked the nose seventeen degrees round and the aircraft
-            // ground-looped off the runway.
+            // Brakes once all the wheels are down, the way a pilot would do it. Braking on first
+            // contact (one main wheel, briefly, before the rest) yanked the nose seventeen degrees
+            // round and the aircraft ground-looped off the runway.
             if (touchdownTime >= 0.0 && t > touchdownTime + 2.0) plane.control.brakes = true
             if (touchdownSpeed >= 0.0) rollout += groundSpeed(world, plane) * dt
             if (t > 70.0 && !plane.touchingGround) hopTicks++
         }
         val upNow = plane.body.position.copy().normalizeInPlace()
-        // How far off the runway's centreline it came to rest: across the
-        // line running east from its west end.
+        // How far off the runway's centreline it came to rest, across the line running east from
+        // its west end.
         val restAt = world.attractorFor(plane).toBodyFixed(
             plane.body.position, world.attractorFor(plane).rotationAt(world.time),
         ).normalizeInPlace()
@@ -136,9 +133,9 @@ class LandingAPlaneTest {
     }
 
     /**
-     * The same approach through the Cape's weather: whatever wind and gusts
-     * are there, it touches down on its gear, stays whole and stops on the
-     * runway - blown a little way off the centreline, perhaps.
+     * The same approach through the Cape's weather. Whatever wind and gusts are there, it touches
+     * down on its gear, stays whole and stops on the runway, maybe blown a little way off the
+     * centreline.
      */
     @Test
     fun `it lands in the weather`() {
@@ -149,12 +146,12 @@ class LandingAPlaneTest {
             assertTrue("$intensity: never touched down", o.touchdownSpeed >= 0.0)
             assertTrue("$intensity: ${o.broken} parts broke", o.broken == 0)
             assertTrue("$intensity: still rolling at ${o.finalSpeed} m/s", o.finalSpeed < 0.5)
-            // Parked on the grass beside the runway, in the wind: it sits. It
-            // once hopped clear of soft ground every second or so.
+            // Parked on the grass beside the runway, in the wind, it just sits. It once hopped
+            // clear of soft ground every second or so.
             assertEquals("$intensity: parked, it left the ground", 0, o.hopTicks)
             assertTrue("$intensity: tipped ${o.tilt} degrees", o.tilt < 10.0)
-            // Nobody correcting for the crosswind, which on the coast comes
-            // in off the sea: it drifts, and may come down beside the tarmac.
+            // Nobody is correcting for the crosswind, which comes in off the sea on the coast, so
+            // it drifts and might come down beside the tarmac.
             assertTrue("$intensity: %.0f m off the centreline".format(o.offCentre), o.offCentre < 120.0)
         }
     }

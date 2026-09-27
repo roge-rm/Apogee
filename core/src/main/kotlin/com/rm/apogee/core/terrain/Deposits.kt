@@ -4,14 +4,13 @@ import com.rm.apogee.core.math.Vec3
 import com.rm.apogee.core.part.ResourceType
 
 /**
- * How much ore or water the ground holds, 0..1: what a drill there brings up
- * for each unit of its rate.
+ * How much ore or water the ground holds, 0..1, which is what a drill there brings up for each unit
+ * of its rate.
  *
- * Read off the ground itself - the same material the renderer colours and
- * the wheels grip - with a slow patchiness over it, so two stretches of the
- * same rock are not equally good and a survey is worth having. Deterministic
- * from the terrain, so client and server agree without saying anything.
- * Deposits never run out: a spot is only as good as its ground.
+ * It's read off the ground itself (the same material the renderer colours and the wheels grip),
+ * with a slow patchiness laid over it, so two stretches of the same rock aren't equally good and a
+ * survey is worth having. It comes straight from the terrain, so client and server agree without
+ * having to tell each other anything. Deposits never run out. A spot is only as good as its ground.
  */
 object Deposits {
 
@@ -24,7 +23,9 @@ object Deposits {
         return richnessOf(material, resource, patch(terrain, d, resource))
     }
 
-    /** [richness] for ground of [material] at patchiness [patch], 0..1: the table itself. */
+    /**
+     * [richness] for ground of [material] at patchiness [patch], 0..1. This is the table itself.
+     */
     fun richnessOf(material: SurfaceMaterial, resource: ResourceType, patch: Double): Double {
         val range = when (resource) {
             ResourceType.ORE -> ORE[material.ordinal]
@@ -43,7 +44,7 @@ object Deposits {
         return Noise.smoothstep((0.5 + 0.5 * n).coerceIn(0.0, 1.0))
     }
 
-    /** Slope as the terrain's materials take it, from two samples a few metres off. */
+    /** The slope the way the terrain's materials see it, from two samples a few metres apart. */
     private fun slopeAt(terrain: Terrain, d: Vec3, h: Double): Double {
         val step = SLOPE_STEP / terrain.bodyRadius
         val axis = if (kotlin.math.abs(d.y) < 0.9) Vec3.unitY() else Vec3.unitX()
@@ -81,14 +82,15 @@ object Deposits {
             SurfaceMaterial.THOLIN -> 0.2 to 0.4
             SurfaceMaterial.ORGANIC_SAND -> 0.1 to 0.2
             SurfaceMaterial.NITROGEN_ICE, SurfaceMaterial.LAVA -> 0.0 to 0.0
-            // The sea floor's: the vents' crust richest of anything, the nodules rich, the ooze poor.
+            // The sea floor's: vent crust is the richest of anything, nodules are rich, and ooze is
+            // poor.
             SurfaceMaterial.VENT_CRUST -> 0.75 to 1.0
             SurfaceMaterial.NODULES -> 0.55 to 0.85
             SurfaceMaterial.OOZE -> 0.02 to 0.08
         }
     }
 
-    /** Water, low to high, by ground: only where there is ice. */
+    /** Water, low to high, by ground. Only where there's ice. */
     private val WATER: Array<Pair<Double, Double>> = Array(SurfaceMaterial.entries.size) { i ->
         when (SurfaceMaterial.entries[i]) {
             SurfaceMaterial.ICE -> 0.8 to 1.0

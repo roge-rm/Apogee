@@ -7,9 +7,8 @@ import java.nio.ByteOrder
 /**
  * An index buffer uploaded once and bound by many meshes.
  *
- * Every terrain chunk has the same topology - only its vertices differ - so
- * there is one copy of the triangle list on the GPU rather than several
- * hundred identical ones.
+ * Every terrain chunk has the same topology (only its vertices are different), so there's one copy
+ * of the triangle list on the GPU instead of several hundred identical ones.
  */
 class SharedIndexBuffer(indices: ShortArray) {
     val id: Int
@@ -33,11 +32,11 @@ class SharedIndexBuffer(indices: ShortArray) {
 /**
  * A terrain mesh on the GPU: position, normal, colour and wetness.
  *
- * Colour arrives already decided, from [TerrainPalette] on the CPU, so the
- * shader only lights it. Wetness marks water, which the shader gives a glint.
+ * The colour arrives already decided, from [TerrainPalette] on the CPU, so the shader only lights
+ * it. Wetness marks water, which the shader gives a glint.
  *
- * @param shared the index buffer to draw with. Null for a mesh with its own
- *   triangle list - the globe.
+ * @param shared the index buffer to draw with. Null for a mesh with its own triangle list, which is
+ *     the globe.
  */
 class TerrainMesh(private val shared: SharedIndexBuffer? = null) {
 
@@ -109,16 +108,16 @@ class TerrainMesh(private val shared: SharedIndexBuffer? = null) {
     fun draw() {
         if (!isReady) return
         GLES30.glBindVertexArray(vao[0])
-        // A mesh with its own indices is the globe, numbered in 32 bits;
-        // chunks share a 16-bit list.
+        // A mesh with its own indices is the globe, numbered in 32 bits. Chunks share a 16-bit
+        // list.
         val type = if (shared == null) GLES30.GL_UNSIGNED_INT else GLES30.GL_UNSIGNED_SHORT
         GLES30.glDrawElements(GLES30.GL_TRIANGLES, indexCount, type, 0)
         GLES30.glBindVertexArray(0)
     }
 
     /**
-     * Draws only the quarters in [mask] of a chunk drawn with the shared,
-     * quarter-by-quarter index buffer - see [TerrainChunk.indices].
+     * Draws only the quarters in [mask] of a chunk drawn with the shared, quarter-by-quarter index
+     * buffer. See [TerrainChunk.indices].
      */
     fun drawQuadrants(mask: Int) {
         if (mask == DrawEntry.ALL_QUADRANTS) return draw()
@@ -127,7 +126,7 @@ class TerrainMesh(private val shared: SharedIndexBuffer? = null) {
         GLES30.glBindVertexArray(vao[0])
         for (quarter in 0 until 4) {
             if (mask and (1 shl quarter) == 0) continue
-            // Offset in bytes: two per unsigned short.
+            // The offset in bytes, two per unsigned short.
             GLES30.glDrawElements(GLES30.GL_TRIANGLES, perQuarter, GLES30.GL_UNSIGNED_SHORT, quarter * perQuarter * 2)
         }
         GLES30.glBindVertexArray(0)
@@ -140,9 +139,9 @@ class TerrainMesh(private val shared: SharedIndexBuffer? = null) {
 
     private companion object {
         /**
-         * One buffer to stage every upload through, grown as needed - GL
-         * thread only. A fresh direct buffer for each chunk was native
-         * memory the collector had to finalise, a dozen a frame in flight.
+         * One buffer to stage every upload through, grown as needed. GL thread only. A fresh direct
+         * buffer for each chunk was native memory the collector had to finalise, a dozen a frame in
+         * flight.
          */
         private var stagingBuffer: ByteBuffer? = null
 

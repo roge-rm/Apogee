@@ -13,13 +13,13 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 /**
- * How the giants look: banded by latitude, torn along the bands' edges,
- * each with its own mark - Magna's great red storm, Aurea's hexagon round
- * its north pole, Caerula's dark spot - and their rings.
+ * How the giants look: banded by latitude, torn along the bands' edges, each with its own mark
+ * (Magna's great red storm, Aurea's hexagon round its north pole, Caerula's dark spot), and their
+ * rings.
  *
- * Two ways of drawing the same thing: [colour], per vertex of the globe
- * when a giant is the world a craft is at; and [items], a stack of banded
- * rings of facets for seeing one across space from its moons.
+ * There are two ways of drawing the same thing. [colour] is per vertex of the globe, when a giant
+ * is the world a craft is at. [items] is a stack of banded rings of facets, for seeing one across
+ * space from its moons.
  */
 object GiantLook {
 
@@ -31,7 +31,10 @@ object GiantLook {
         val bands: Int,
         /** How torn the bands' edges are, 0..1. */
         val turbulence: Double,
-        /** The storm: latitude, longitude (degrees), half-width and half-height (rad), colour; or null. */
+        /**
+         * The storm: latitude, longitude (degrees), half-width and half-height (rad), and colour,
+         * or null.
+         */
         val spot: Spot?,
         val hexagon: Boolean = false,
         /** The rings' colours from the inside out, and how many gaps. */
@@ -67,7 +70,7 @@ object GiantLook {
         ),
     )
 
-    /** Whether [bodyId] is a giant, drawn in bands rather than as ground. */
+    /** Whether [bodyId] is a giant, drawn in bands instead of as ground. */
     fun isGiant(bodyId: String) = bodyId in LOOKS
 
     /** The colour at body-fixed unit [d] on giant [bodyId], into [out] at [o]. */
@@ -91,7 +94,7 @@ object GiantLook {
             }
         }
         if (look.hexagon && lat > Math.toRadians(70.0)) {
-            // A six-sided jet round the pole, the pole inside it darker.
+            // A six-sided jet round the pole, with the pole inside it darker.
             val hex = cos(PI / 6) / cos(((lon % (PI / 3)) + PI / 3) % (PI / 3) - PI / 6)
             val edge = Math.toRadians(90.0 - 12.0 * hex)
             if (lat > edge) { r = look.pole[0]; g = look.pole[1]; b = look.pole[2] }
@@ -107,13 +110,13 @@ object GiantLook {
     }
 
     /**
-     * Giant [body] seen from afar, at [position] (camera-relative) turned
-     * by [rotation]: its bands as rings of facets, its storm, its rings.
+     * Giant [body] seen from far off, at [position] (camera-relative) turned by [rotation]: its
+     * bands as rings of facets, its storm, and its rings.
      */
     fun items(body: CelestialBody, position: Vec3, rotation: Quat, key: (Int) -> Long, out: MutableList<RenderItem>) {
         val look = LOOKS[body.id] ?: return
         val r = body.radius
-        // The bands, pole to pole: each a zone of the sphere.
+        // The bands, pole to pole, each one a zone of the sphere.
         val zones = look.bands + 2
         for (z in 0 until zones) {
             val from = -PI / 2 + PI * z / zones
@@ -134,7 +137,7 @@ object GiantLook {
         body.rings?.let { rings(look, it.inner, it.outer, position, rotation, key, out) }
     }
 
-    /** Rings: flat, thin, in the equator, with a gap where the giant has one. */
+    /** Rings: flat and thin, in the equator, with a gap where the giant has one. */
     fun rings(body: CelestialBody, position: Vec3, rotation: Quat, key: (Int) -> Long, out: MutableList<RenderItem>) {
         val look = LOOKS[body.id] ?: return
         body.rings?.let { rings(look, it.inner, it.outer, position, rotation, key, out) }

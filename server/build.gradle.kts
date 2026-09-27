@@ -1,10 +1,10 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
-// The authoritative game server, as a library.
+// The game server that's in charge, as a library.
 //
-// A library and nothing else: :app embeds it to host a game in-process, and
-// :dedicated wraps it in a standalone process. Neither is privileged, and
-// there is exactly one implementation of the simulation between them.
+// It's a library and nothing else. :app embeds it to host a game in-process, and :dedicated wraps
+// it in a standalone process. Neither one is special, and there's exactly one version of the
+// simulation between them.
 plugins {
     alias(libs.plugins.kotlin.jvm)
     alias(libs.plugins.kotlin.serialization)
@@ -32,8 +32,8 @@ dependencies {
 /**
  * Connects to a running host as a real client: `./gradlew :server:netProbe`.
  *
- * Closes the loop no unit test can - a game hosted from a real device, joined
- * from a real second process, over a real socket.
+ * It closes the loop no unit test can: a game hosted from a real device, joined from a real second
+ * process, over a real socket.
  */
 tasks.register<JavaExec>("netProbe") {
     group = "verification"

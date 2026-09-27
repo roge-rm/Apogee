@@ -9,25 +9,22 @@ import kotlin.math.sqrt
 /**
  * What each joint of a craft is carrying, and what gives.
  *
- * A craft is pushed at its parts - thrust at the engines, drag and lift
- * where the air meets it - but moves as one. Every part has to be dragged
- * along at the craft's acceleration (and swung round with its spin), and
- * whatever force that takes goes through the joints between. So the load on
- * the joint above a part is everything pushing on the parts hanging from it,
- * less what those parts' own mass takes to keep up: an engine at full thrust
- * shoves the whole stack, and the joint above it carries all of that but its
- * own share; a fin at an angle of attack bends the tank it is bolted to.
+ * A craft gets pushed at its parts (thrust at the engines, drag and lift where the air meets it)
+ * but moves as one. Every part has to be dragged along at the craft's acceleration (and swung round
+ * with its spin), and whatever force that takes goes through the joints in between. So the load on
+ * the joint above a part is everything pushing on the parts hanging from it, minus what those
+ * parts' own mass takes to keep up. An engine at full thrust shoves the whole stack, and the joint
+ * above it carries all of that except its own share. A fin at an angle of attack bends the tank
+ * it's bolted to.
  *
- * Gravity pulls every part alike and so loads nothing; nor do the ground and
- * other craft, which are [World.impact]'s business. What a joint carries is
- * weighed against its strength - force, plus the bending moment over its
- * width - and past [FATIGUE_START] of it the joint fatigues, faster and
- * faster, until it lets go; past [SNAP] it lets go at once. A wing or fin is
- * judged by its own [AeroSurface.loadLimit] in the drag pass - its share of
- * that is reported here as its joint's load, but not fatigued - and a chute
- * tears by its own rule.
+ * Gravity pulls every part the same and so loads nothing. Neither do the ground and other craft,
+ * which are [World.impact]'s job. What a joint carries is weighed against its strength (force, plus
+ * the bending moment over its width). Past [FATIGUE_START] of it the joint fatigues, faster and
+ * faster, until it lets go, and past [SNAP] it lets go straight away. A wing or fin is judged by
+ * its own [AeroSurface.loadLimit] in the drag pass. Its share of that is reported here as its
+ * joint's load, but it doesn't fatigue. A chute tears by its own rule.
  *
- * Reused scratch, like [Forces]: this runs for every craft every tick.
+ * It reuses scratch space, like [Forces], because this runs for every craft every tick.
  */
 class Stress {
 
@@ -67,7 +64,7 @@ class Stress {
         val ax = fx * inverseMass; val ay = fy * inverseMass; val az = fz * inverseMass
         val w = body.angularVelocity
 
-        // Each part's own share: what pushes it, less what it takes to keep up.
+        // Each part's own share: what pushes it, minus what it takes to keep up.
         val offset = scratch
         for (i in 0 until n) {
             vessel.partOffsetWorld(i, offset)
@@ -86,13 +83,13 @@ class Stress {
             moments[i * 3] = 0.0; moments[i * 3 + 1] = 0.0; moments[i * 3 + 2] = 0.0
         }
 
-        // Leaves first: each part hands what it carries to its parent.
+        // Leaves first, so each part hands what it carries on to its parent.
         val order = orderOf(vessel.design)
         for (k in 0 until n) {
             val i = order[k]
             val q = parts[i].parentIndex
             if (q < 0) { vessel.jointLoad[i] = 0f; continue }
-            // The joint sits between the two: the moment about it.
+            // The joint sits between the two, so this is the moment around it.
             val jx = 0.5 * (positions[i * 3] - positions[q * 3])
             val jy = 0.5 * (positions[i * 3 + 1] - positions[q * 3 + 1])
             val jz = 0.5 * (positions[i * 3 + 2] - positions[q * 3 + 2])
@@ -116,13 +113,13 @@ class Stress {
                 } else if (ratio > FATIGUE_START) {
                     val over = (ratio - FATIGUE_START) / (1.0 - FATIGUE_START)
                     val wear = FATIGUE_RATE * over * over * over * dt
-                    // A joint worn through lets go; it does not vanish.
+                    // A joint worn through lets go. It doesn't just vanish.
                     if (wear >= vessel.health[i]) snap(i) else vessel.damage(i, wear)
                 }
             } else if (child.module<AeroSurface>() != null) {
-                // A wing or fin: judged by its own limit in the drag pass,
-                // but how near it is still shows and still warns. Read once:
-                // a tick with no air leaves it at nothing.
+                // A wing or fin gets judged by its own limit in the drag pass, but how close it is
+                // still shows and still warns. It's read once, so a tick with no air leaves it at
+                // nothing.
                 val ratio = vessel.surfaceLoad[i]
                 vessel.surfaceLoad[i] = 0f
                 vessel.jointLoad[i] = ratio
@@ -170,8 +167,8 @@ class Stress {
         }
         val out = IntArray(n)
         var k = n
-        // Breadth first from the roots, filled from the back: parents land
-        // after all their descendants.
+        // Breadth first from the roots, filled from the back, so parents end up after all their
+        // descendants.
         val queue = ArrayDeque(roots)
         while (queue.isNotEmpty()) {
             val p = queue.removeFirst()
@@ -184,15 +181,15 @@ class Stress {
     }
 
     companion object {
-        /** Load over strength where a joint begins to fatigue. */
+        /** Load over strength where a joint starts to fatigue. */
         const val FATIGUE_START = 0.7
 
-        /** Where it lets go at once. */
+        /** Where it lets go straight away. */
         const val SNAP = 1.5
 
         /**
-         * Health a second worn from a joint at its limit: five seconds there
-         * breaks it; at 0.9 of it about twenty; at 1.3 under a second.
+         * Health worn from a joint per second at its limit. Five seconds there breaks it, at 0.9 of
+         * it about twenty, and at 1.3 under a second.
          */
         const val FATIGUE_RATE = 0.2
     }

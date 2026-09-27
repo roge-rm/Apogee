@@ -16,13 +16,12 @@ import java.util.concurrent.ConcurrentHashMap
 /**
  * Connects to a running host as a real client and reports what it sees.
  *
- * `./gradlew :server:netProbe --args="<host> <port>"`, or with no arguments it
- * browses the network first.
+ * `./gradlew :server:netProbe --args="<host> <port>"`, or with no arguments it browses the network
+ * first.
  *
- * Exists to close the loop that no unit test can: a game hosted from an actual
- * phone, joined from an actual second process, over an actual socket. The
- * integration tests prove the protocol and the framing; this proves the thing
- * the player will do.
+ * It's here to close the loop no unit test can: a game hosted from a real phone, joined from a real
+ * second process, over a real socket. The integration tests prove the protocol and the framing, and
+ * this proves the thing the player will do.
  */
 fun main(args: Array<String>) = runBlocking {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -102,7 +101,7 @@ fun main(args: Array<String>) = runBlocking {
     }
 }
 
-/** Browses for a few seconds and returns the first game found. */
+/** Browses for a few seconds and returns the first game it finds. */
 private suspend fun browse(scope: CoroutineScope): Pair<String, Int>? {
     println("Browsing for games...")
     val found = ConcurrentHashMap<String, Pair<String, Int>>()

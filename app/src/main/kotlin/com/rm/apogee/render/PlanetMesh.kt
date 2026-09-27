@@ -10,19 +10,19 @@ import kotlin.math.sin
 /**
  * The whole planet at orbital resolution, built by sampling its [Terrain].
  *
- * The renderer does not generate terrain; it *asks* for it. Reimplementing the
- * noise in GLSL would mean two definitions of one surface, and the first time
- * either was touched a craft would start colliding with ground that was no
- * longer where it was drawn.
+ * The renderer doesn't make terrain, it *asks* for it. Writing the noise again in GLSL would mean
+ * two definitions of one surface, and the first time either one was touched a craft would start
+ * hitting ground that wasn't where it was drawn any more.
  *
- * Only the far view. Near the ground the surface is [TerrainChunk]s at
- * whatever level of detail each distance deserves; this is what is seen past
- * them and from orbit. Vertices are in units of body radii, so the scaled
- * model matrix applies.
+ * This is only the far view. Near the ground the surface is [TerrainChunk]s at whatever level of
+ * detail each distance deserves, and this is what you see past them and from orbit. Vertices are in
+ * units of body radii, so the scaled model matrix applies.
  */
 object PlanetMesh {
 
-    /** Indices are 32-bit: at 256 rings the globe has more vertices than a short can number. */
+    /**
+     * Indices are 32-bit, because at 256 rings the globe has more vertices than a short can count.
+     */
     class Data(val vertices: FloatArray, val indices: IntArray)
 
     /** @param rings latitude divisions. Longitude gets twice as many. */
@@ -44,10 +44,9 @@ object PlanetMesh {
                 val theta = 2.0 * PI * segment / segments
                 direction.setTo(ringRadius * cos(theta), y, ringRadius * sin(theta))
 
-                // The sea bed at its depth - no deeper than the shader can
-                // lift - which the terrain shader raises to the water and
-                // colours as sea: one mesh for the planet, not a separate sea
-                // sphere that would intersect it along every coastline.
+                // The seabed at its depth (no deeper than the shader can lift), which the terrain
+                // shader raises to the water and colours as sea. That's one mesh for the planet,
+                // not a separate sea sphere that would cut through it along every coastline.
                 val elevation = field?.elevation(direction) ?: 0.0
                 val sea = field?.hasOcean ?: false
                 val drawn = if (sea) max(elevation, -TerrainChunk.MAX_DEPTH_CODE) else elevation
@@ -56,13 +55,13 @@ object PlanetMesh {
                 vertices[v] = (direction.x * displaced).toFloat()
                 vertices[v + 1] = (direction.y * displaced).toFloat()
                 vertices[v + 2] = (direction.z * displaced).toFloat()
-                // Radial normals: at fourteen kilometres between vertices the
-                // relief is three orders of magnitude below the body.
+                // Radial normals. At fourteen kilometres between vertices the relief is three
+                // orders of magnitude below the body.
                 vertices[v + 3] = direction.x.toFloat()
                 vertices[v + 4] = direction.y.toFloat()
                 vertices[v + 5] = direction.z.toFloat()
                 if (field == null && GiantLook.isGiant(world)) {
-                    // A giant: no ground, its bands of cloud.
+                    // A giant has no ground, just its bands of cloud.
                     GiantLook.colour(world, direction, vertices, v + 6)
                     vertices[v + 9] = 0f
                 } else if ((sea && elevation < 0.0) || field == null) {
@@ -83,12 +82,11 @@ object PlanetMesh {
             for (segment in 0 until segments) {
                 val a = ring * rowStride + segment
                 val b = a + rowStride
-                // Counter-clockwise seen from outside. Wound the other way, as
-                // it was, every triangle faced into the planet: culling took
-                // the near half away and left the inside of the far half on
-                // show, dark in the middle where it faced away from the sun and
-                // lit only round the edge - a bright ring round a black hole,
-                // from anywhere above the height the chunks cover.
+                // Anticlockwise seen from outside. Wound the other way, as it was, every triangle
+                // faced into the planet. Culling took the near half away and left the inside of the
+                // far half showing, dark in the middle where it faced away from the sun and only
+                // lit round the edge. It looked like a bright ring round a black hole, from
+                // anywhere above the height the chunks cover.
                 indices[i++] = a; indices[i++] = a + 1; indices[i++] = b
                 indices[i++] = a + 1; indices[i++] = b + 1; indices[i++] = b
             }

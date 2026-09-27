@@ -7,7 +7,7 @@ import com.rm.apogee.core.part.MeshSpec
 import kotlin.math.abs
 import kotlin.math.sqrt
 
-/** One craft striking another, for the caller to turn into consequences. */
+/** One craft hitting another, for the caller to turn into consequences. */
 class CraftImpactReport {
     val vessels = LongArray(MAX_IMPACTS)
     val parts = IntArray(MAX_IMPACTS)
@@ -47,32 +47,30 @@ class CraftImpactReport {
 /**
  * Craft against craft.
  *
- * Until this existed two vessels in the same world passed straight through
- * each other, which is survivable while everything is a rocket flying its own
- * trajectory and not survivable at all once anything is meant to be *solid* -
- * a base that can be landed on, docked with, or flown into.
+ * Until this existed, two vessels in the same world passed straight through each other. That's fine
+ * while everything is a rocket flying its own path, and not fine at all once anything is meant to
+ * be *solid*, like a base you can land on, dock with or fly into.
  *
- * The shape of it follows [GroundContact] deliberately. That resolver tests
- * each part's hull points against the terrain; this one tests each part's hull
- * points against the *other craft's part volumes*, and answers with the same
- * sequential impulses. Parts are already primitives - cylinder, cone, box,
- * sphere - so a point-in-volume test is a handful of arithmetic per point and
- * needs none of the machinery a general convex solver would.
+ * It's shaped like [GroundContact] on purpose. That resolver tests each part's hull points against
+ * the terrain, and this one tests each part's hull points against the *other craft's part volumes*,
+ * and answers with the same sequential impulses. Parts are already primitives (cylinder, cone, box,
+ * sphere), so a point-in-volume test is a handful of arithmetic per point and doesn't need any of
+ * the machinery a general convex solver would.
  *
- * Both directions are tested, A's points against B's volumes and B's against
- * A's, because a point-based test is asymmetric: a small part can sit entirely
- * inside a large one with none of the large one's corners inside the small.
+ * Both directions are tested, A's points against B's volumes and B's against A's, because a
+ * point-based test is one-sided. A small part can sit entirely inside a large one without any of
+ * the large one's corners being inside the small one.
  */
 class CraftContact {
 
     val report = CraftImpactReport()
 
     /**
-     * Craft involved in any contact this tick, damaging or not.
+     * Craft involved in any contact this tick, whether it did damage or not.
      *
-     * Separate from [report], which only lists what broke. Dormancy needs the
-     * wider set: something resting against a sleeping base has to wake it
-     * whether or not it did any harm, or the base behaves like scenery.
+     * This is separate from [report], which only lists what broke. Dormancy needs the wider set.
+     * Something resting against a sleeping base has to wake it whether it did any harm or not, or
+     * the base acts like scenery.
      */
     val touched = LongArray(MAX_TOUCHED)
     var touchedCount: Int = 0
@@ -91,13 +89,11 @@ class CraftContact {
     private val normal = Vec3()
 
     /**
-     * The contact, in world coordinates, and the same point in the part's own
-     * frame. Two vectors rather than one reused in place: the first version
-     * passed a single scratch through both roles, so the world point was
-     * overwritten by its own local form before the contact was solved. The
-     * offsets that came out were the size of a planet and the impulses to
-     * match - a six-metre-a-second nudge reported as six hundred and
-     * ninety-five.
+     * The contact point in world coordinates, and the same point in the part's own frame. They're
+     * two vectors instead of one reused in place. The first version used a single scratch vector
+     * for both, so the world point got overwritten by its own local form before the contact was
+     * solved. The offsets that came out were the size of a planet, and the impulses matched: a
+     * six-metre-a-second nudge got reported as six hundred and ninety-five.
      */
     private val contactWorld = Vec3()
     private val localPoint = Vec3()
@@ -113,33 +109,34 @@ class CraftContact {
     private val inverseInertiaB = Mat3()
 
     /**
-     * Resolves every overlapping pair among [vessels].
+     * Resolves every overlapping pair in [vessels].
      *
-     * Pairs are found by comparing bounding spheres, which is quadratic in the
-     * number of vessels. That is deliberate for now: the cost is a squared
-     * distance and a comparison, tens of vessels make it unmeasurable, and the
-     * structure that replaces it - a spatial hash, or simply not considering
-     * dormant craft - depends on decisions not yet made. `:core:tickBenchmark`
-     * measures it; when that column starts to matter, this is the line to
+     * Pairs are found by comparing bounding spheres, which grows with the square of the number of
+     * vessels. That's deliberate for now. The cost is a squared distance and a comparison, tens of
+     * vessels make it too small to measure, and whatever replaces it (a spatial hash, or just
+     * skipping dormant craft) depends on decisions that haven't been made yet.
+     * `:core:tickBenchmark` measures it. When that column starts to matter, this is the line to
      * change and nothing else needs to.
      */
     /**
-     * Pairs to leave alone this tick: two halves of a craft that has just
-     * staged, still overlapping as they part. Asked with the two ids in
-     * either order.
+     * Pairs to leave alone this tick: two halves of a craft that has just staged, still overlapping
+     * as they separate. Asked with the two ids in either order.
      */
     var ignorePair: (Long, Long) -> Boolean = { _, _ -> false }
 
     /**
-     * Pairs that touch gently this tick: two halves of a craft that has just
-     * staged. Still solid to each other - a stage let go of with its engine
-     * burning pushes the one above instead of flying through it - but the
-     * overlap they start with is eased apart slowly and nothing is hurt by it.
+     * Pairs that touch gently this tick: two halves of a craft that has just staged. They're still
+     * solid to each other, so a stage let go with its engine still burning pushes the one above
+     * instead of flying through it. But the overlap they start with gets eased apart slowly and
+     * nothing gets hurt by it.
      */
     var gentlePair: (Long, Long) -> Boolean = { _, _ -> false }
     private var gentle = false
 
-    /** Told of each gentle pair still touching this tick, so its grace can last as long as the push. */
+    /**
+     * Told about each gentle pair still touching this tick, so its grace period lasts as long as
+     * the push does.
+     */
     var gentleTouching: (Long, Long) -> Unit = { _, _ -> }
     private var gentleTouched = false
 
@@ -150,11 +147,11 @@ class CraftContact {
             val a = vessels[i]
             for (j in i + 1 until vessels.size) {
                 val b = vessels[j]
-                // Two immovable things - two founded bases - cannot push
-                // each other anywhere. One is a wall to the other.
+                // Two things that can't move, like two founded bases, can't push each other
+                // anywhere. One is just a wall to the other.
                 if (a.body.inverseMass <= 0.0 && b.body.inverseMass <= 0.0) continue
-                // Positions are relative to each craft's own attractor, so
-                // comparing them across bodies would be nonsense.
+                // Positions are relative to each craft's own attractor, so comparing them across
+                // different bodies would be nonsense.
                 if (a.referenceBodyId != b.referenceBodyId) continue
                 if (ignorePair(a.id.raw, b.id.raw)) continue
                 gentle = gentlePair(a.id.raw, b.id.raw)
@@ -180,8 +177,8 @@ class CraftContact {
             if (!defA.solid) continue
             a.partPositionWorld(partA, positionA)
             val radiusA = defA.boundsHalfExtents.length
-            // Nowhere near the other craft at all: none of its parts to try.
-            // A spaceport of hundreds of parts beside a rover is mostly this.
+            // Nowhere near the other craft at all, so none of its parts need testing. A spaceport
+            // with hundreds of parts next to a rover is mostly this.
             scratch.setTo(positionA).subInPlace(b.body.position)
             val reachB = radiusA + b.contactRadius
             if (scratch.lengthSq > reachB * reachB) continue
@@ -205,8 +202,8 @@ class CraftContact {
                 for (point in defB.contactPoints.indices) {
                     b.contactPointWorld(partB, point, contactWorld)
                     if (penetrationOf(contactWorld, a, partA)) {
-                        // The normal came out pointing away from A; the
-                        // contact routine wants it pointing away from B.
+                        // The normal came out pointing away from A, and the contact routine wants
+                        // it pointing away from B.
                         normal.mulInPlace(-1.0)
                         applyContact(a, b, contactWorld, partA, partB, dt)
                     }
@@ -216,8 +213,8 @@ class CraftContact {
     }
 
     /**
-     * Whether [worldPoint] is inside part [partIndex] of [vessel], leaving the
-     * outward normal in [normal] and returning the depth through [penetration].
+     * Whether [worldPoint] is inside part [partIndex] of [vessel]. It leaves the outward normal in
+     * [normal] and returns the depth through [penetration].
      */
     private var penetration: Double = 0.0
 
@@ -238,18 +235,18 @@ class CraftContact {
             if (!inside) return false
         }
 
-        // Part local -> world, for the normal.
+        // Part local to world, for the normal.
         vessel.design.parts[partIndex].rotation.rotate(localNormal, normal)
         vessel.body.orientation.rotate(normal, normal)
         return true
     }
 
     /**
-     * Point-in-primitive, with the shallowest way out as the normal.
+     * Point in primitive, with the shallowest way out as the normal.
      *
-     * Shallowest rather than nearest-surface because that is the direction the
-     * contact should push: a corner barely inside a tank's end cap should be
-     * ejected through the cap, not sideways through two metres of tank.
+     * It's the shallowest way out rather than the nearest surface because that's the direction the
+     * contact should push. A corner barely inside a tank's end cap should be pushed out through the
+     * cap, not sideways through two metres of tank.
      */
     private fun insidePrimitive(mesh: MeshSpec): Boolean {
         val p = localPoint
@@ -285,9 +282,9 @@ class CraftContact {
 
             is MeshSpec.Cylinder -> return insideTube(mesh.radius, mesh.radius, mesh.height)
 
-            // A cone is treated as a tube whose radius varies with height. The
-            // parts that use it are engine bells and nose cones, where the
-            // taper is gentle and the difference is millimetres.
+            // A cone is treated as a tube whose radius changes with height. The parts that use it
+            // are engine bells and nose cones, where the taper is gentle and the difference is
+            // millimetres.
             is MeshSpec.Cone ->
                 return insideTube(mesh.bottomRadius, mesh.topRadius, mesh.height)
         }
@@ -319,7 +316,7 @@ class CraftContact {
         return true
     }
 
-    /** One contact: separate the pair, cancel the approach, record the hit. */
+    /** One contact: separate the pair, cancel the approach, and record the hit. */
     private fun applyContact(
         a: Vessel,
         b: Vessel,
@@ -335,10 +332,9 @@ class CraftContact {
         noteTouched(b.id.raw)
 
         if (gentle) {
-            // Two halves of one stack pushing apart: through the centres, as
-            // the stack's own thrust was. Taken at the touching points, the
-            // ring of them round a decoupler never balances, and a stage
-            // still burning below spun the one above into a tumble.
+            // Two halves of one stack pushing apart, through the centres, the same way the stack's
+            // own thrust went. Taken at the touching points, the ring of points around a decoupler
+            // never balances, and a stage still burning below spun the one above into a tumble.
             gentleTouched = true
             offsetA.setZero()
             offsetB.setZero()
@@ -352,13 +348,13 @@ class CraftContact {
         relativeVelocity.setTo(velocityA).subInPlace(velocityB)
         val approach = relativeVelocity dot normal
 
-        // Split the separation by inverse mass, so a probe bounces off a
-        // station rather than shoving it.
+        // Split the separation by inverse mass, so a probe bounces off a station instead of shoving
+        // it.
         val totalInverseMass = bodyA.inverseMass + bodyB.inverseMass
         if (totalInverseMass <= 0.0) return
-        // Gentle only while the overlap is standing still or opening: the
-        // leftover of the split. Driven in - a stage below still burning - it
-        // is as solid as anything else, or the one flew through the other.
+        // Only gentle while the overlap is standing still or opening, which is what's left over
+        // from the split. When it's being driven in, like a stage below that's still burning, it's
+        // as solid as anything else. Otherwise one flew right through the other.
         val correction = penetration * (if (gentle && approach >= 0.0) GENTLE_CORRECTION else POSITION_CORRECTION) / totalInverseMass
         scratch.setTo(normal).mulInPlace(correction * bodyA.inverseMass)
         bodyA.position.addInPlace(scratch)
@@ -368,7 +364,7 @@ class CraftContact {
         if (approach >= 0.0) return
 
         val impactSpeed = -approach
-        // The normal points from B to A: A is struck along it, B against.
+        // The normal points from B to A. A is hit along it and B against it.
         if (!gentle && impactSpeed > a.defs[partA].crashTolerance) {
             report.record(a.id.raw, partA, impactSpeed, normal.x, normal.y, normal.z)
         }
@@ -388,9 +384,8 @@ class CraftContact {
     /**
      * `j = -(1+e) v_n / (1/mA + 1/mB + angular terms)`.
      *
-     * The two-body form of [GroundContact]'s solver: the ground is immovable
-     * and contributes nothing, another craft contributes its own inverse mass
-     * and its own rotational response.
+     * This is the two-body form of [GroundContact]'s solver. The ground can't move and adds
+     * nothing, while another craft adds its own inverse mass and its own rotational response.
      */
     private fun solveImpulse(
         bodyA: RigidBody,
@@ -442,7 +437,10 @@ class CraftContact {
 
         const val POSITION_CORRECTION = 0.35
 
-        /** Share of a gentle pair's overlap closed a tick: parting halves ease apart over a second or so. */
+        /**
+         * The share of a gentle pair's overlap closed each tick, so parting halves ease apart over
+         * a second or so.
+         */
         const val GENTLE_CORRECTION = 0.03
         const val RESTITUTION = 0.05
         const val FRICTION = 0.5

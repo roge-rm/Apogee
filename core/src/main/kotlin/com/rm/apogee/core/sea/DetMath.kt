@@ -3,12 +3,11 @@ package com.rm.apogee.core.sea
 /**
  * Sine, cosine and exp that give the same bits on every machine.
  *
- * The sea is evaluated independently by the server and every client, as
- * terrain and weather are, and a boat floats on what its own machine works
- * out - so the wave sums must agree to the last bit. [Math.sin] may not, and
- * [StrictMath.sin] is far too slow for the tens of thousands of terms a
- * frame needs. These are range reduction and a fixed polynomial: nothing
- * but IEEE add and multiply, which every platform does alike.
+ * The server and every client each work out the sea for themselves, the same as terrain and
+ * weather, and a boat floats on what its own machine works out. So the wave sums have to agree to
+ * the last bit. [Math.sin] might not, and [StrictMath.sin] is far too slow for the tens of
+ * thousands of terms a frame needs. These are range reduction and a fixed polynomial, nothing but
+ * IEEE add and multiply, which every platform does the same way.
  */
 internal object DetMath {
 
@@ -32,11 +31,14 @@ internal object DetMath {
 
     fun cos(x: Double): Double = sin(x + HALF_PI)
 
-    /** Sine and cosine of [x] together, into [sinOut] and [cosOut] ([SinCos]): one reduction for both. */
+    /**
+     * The sine and cosine of [x] together, into [sinOut] and [cosOut] ([SinCos]), with one
+     * reduction for both.
+     */
     fun sinCos(x: Double, out: SinCos) {
         val k = Math.floor(x * INV_TWO_PI + 0.5)
         val r = (x - k * TWO_PI_HI) - k * TWO_PI_LO   // -pi..pi
-        // Fold into -pi/2..pi/2 for the sine; the cosine changes sign with it.
+        // Fold into -pi/2..pi/2 for the sine. The cosine changes sign along with it.
         var a = r
         var sign = 1.0
         if (a > HALF_PI) { a = PI - a; sign = -1.0 } else if (a < -HALF_PI) { a = -PI - a; sign = -1.0 }

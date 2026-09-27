@@ -12,10 +12,9 @@ import kotlin.math.abs
 import kotlin.math.asin
 
 /**
- * A boat: a hull that floats, rights itself, goes where it is pointed and
- * turns when asked - none of it from a boat-specific system. Buoyancy and
- * water drag are forces on cells of each part's volume, and everything below
- * falls out of where those cells are.
+ * A boat: a hull that floats, rights itself, goes where it's pointed and turns when asked, with
+ * none of it from a boat-specific system. Buoyancy and water drag are forces on cells of each
+ * part's volume, and everything below comes out of where those cells are.
  */
 class BoatTest {
 
@@ -34,14 +33,17 @@ class BoatTest {
 
     private fun up(vessel: Vessel) = vessel.body.position.copy().normalizeInPlace()
 
-    /** How high the craft's centre is above the water where it is, m: the tide comes and goes under it. */
+    /**
+     * How high the craft's centre is above the water where it is, in metres. The tide comes and
+     * goes under it.
+     */
     private fun aboveWater(world: World, vessel: Vessel): Double {
         val attractor = world.attractorFor(vessel)
         val bodyFixed = attractor.toBodyFixed(vessel.body.position, attractor.rotationAt(world.time))
         return attractor.altitudeOf(vessel.body.position) - attractor.ocean!!.surfaceHeight(bodyFixed, world.time)
     }
 
-    /** How far the deck (+Z) is from vertical, degrees. */
+    /** How far the deck (+Z) is from vertical, in degrees. */
     private fun tilt(vessel: Vessel): Double {
         val deck = vessel.body.orientation.rotate(Vec3(0.0, 0.0, 1.0))
         return Math.toDegrees(kotlin.math.acos((deck dot up(vessel)).coerceIn(-1.0, 1.0)))
@@ -87,9 +89,8 @@ class BoatTest {
     }
 
     /**
-     * Through commands, as the game does it. A settled boat is asleep, and a
-     * command is what wakes a craft; setting its controls directly would be
-     * talking to one that is not listening.
+     * Through commands, the way the game does it. A settled boat is asleep, and a command is what
+     * wakes a craft. Setting its controls directly would be talking to one that isn't listening.
      */
     private fun underWay(world: World, boat: Vessel) {
         world.apply(Command.Stage(boat.id.raw))
@@ -111,9 +112,9 @@ class BoatTest {
     }
 
     /**
-     * The keel test. A hull that skated sideways as easily as forwards would
-     * spin on the spot and keep going the way it was; one that grips the
-     * water sideways turns its track with its heading.
+     * The keel test. A hull that skated sideways as easily as forwards would spin on the spot and
+     * keep going the way it was. One that grips the water sideways turns its track with its
+     * heading.
      */
     @Test
     fun `it turns its track, not just its nose`() {
@@ -135,13 +136,13 @@ class BoatTest {
     }
 
     /**
-     * A boat left alone at sea costs nothing, the same as one parked on a
-     * pad - and comes back to life when someone takes the controls.
+     * A boat left alone at sea costs nothing, the same as one parked on a pad, and comes back to
+     * life when someone takes the controls.
      */
     @Test
     fun `moored, it goes to sleep, and wakes to the throttle`() {
-        // Launched level, it rocks into its trim - its motor's weight is at
-        // the stern - and is still within the minute.
+        // Launched level, it rocks into its trim (its motor's weight is at the stern) and is still
+        // within the minute.
         val (world, boat) = afloat(settle = 45.0)
         assertTrue("a still boat never went to sleep", boat.dormant)
 
@@ -152,10 +153,9 @@ class BoatTest {
     }
 
     /**
-     * SAS at sea is a helmsman: it keeps the deck level through a turn,
-     * rather than letting the boat heel as far as the turn throws it, and
-     * when the wheel is let go it holds the heading with the deck level -
-     * not the heel it had then (Dan).
+     * SAS at sea is a helmsman. It keeps the deck level through a turn, instead of letting the boat
+     * heel as far as the turn throws it, and when the wheel is let go it holds the heading with the
+     * deck level, not with the heel it had then. That's what I wanted from it.
      */
     @Test
     fun `SAS afloat keeps the deck level through a turn and holds the heading after`() {
@@ -187,9 +187,8 @@ class BoatTest {
     }
 
     /**
-     * Boats make way. A hull's drag is its bow's, once - not once for every
-     * slice of it along its length, which held the Trawler to a knot and a
-     * half at full throttle.
+     * Boats make way. A hull's drag is its bow's, once, not once for every slice of it along its
+     * length, which held the Trawler to a knot and a half at full throttle.
      */
     @Test
     fun `the stock boats make way at full throttle`() {

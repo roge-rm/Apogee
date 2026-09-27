@@ -59,7 +59,7 @@ class WorldSaveTest {
         assertEquals(before.currentStage, after.currentStage)
     }
 
-    /** Damage is not undone by a restart: the dents, the scorch and the heat all come back. */
+    /** Damage isn't undone by a restart. The dents, the scorch and the heat all come back. */
     @Test
     fun `damage, dents and heat survive a save`() {
         val original = flownWorld()
@@ -67,7 +67,7 @@ class WorldSaveTest {
         craft.damage(3, 0.4, Vec3(0.0, -1.0, 0.0))
         val engine = craft.defs.indexOfFirst { it.id == "engine-ember" }
         val hot = craft.temperature[engine]
-        // Ten seconds at full power, in the thick air at sea level: warm, clearly.
+        // Ten seconds at full power, in the thick air at sea level, so clearly warm.
         assertTrue("a ten-second burn should have warmed the Ember: $hot", hot > Vessel.AMBIENT_TEMPERATURE + 30.0)
 
         val restored = World.default(catalog)
@@ -116,7 +116,7 @@ class WorldSaveTest {
         val restored = World.default(catalog)
         restored.restore(original.save())
 
-        // Same inputs from the same state must give the same result.
+        // The same inputs from the same state have to give the same result.
         repeat(300) { original.step(dt); restored.step(dt) }
 
         assertTrue(
@@ -129,7 +129,7 @@ class WorldSaveTest {
     }
 
     @Test
-    fun `a throttle setting survives but a held stick does not`() {
+    fun `a throttle setting survives but a held stick doesn't`() {
         val world = World.default(catalog)
         val vessel = world.spawnOnSurface(
             StockCraft.starterRocket(catalog),
@@ -149,8 +149,8 @@ class WorldSaveTest {
         assertEquals(0.75, after.throttle, 1e-9)
         assertTrue("stability assist is a mode too", after.sasEnabled)
 
-        // A stick is being held. Resuming it would have the craft rotating on
-        // its own with nobody touching the controls.
+        // A stick is being held. Resuming it would have the craft rotating on its own with nobody
+        // touching the controls.
         assertEquals("pitch", 0.0, after.pitch, 0.0)
         assertEquals("yaw", 0.0, after.yaw, 0.0)
         assertEquals("roll", 0.0, after.roll, 0.0)
@@ -169,7 +169,7 @@ class WorldSaveTest {
     }
 
     @Test
-    fun `a save from a future format is refused rather than half-loaded`() {
+    fun `a save from a future format is refused instead of half loaded`() {
         val save = flownWorld().save()
         val future = WorldSave(
             formatVersion = WorldSave.FORMAT_VERSION + 1,
@@ -223,7 +223,7 @@ class WorldSaveTest {
     }
 
     @Test
-    fun `ids handed out after a load do not collide with loaded ones`() {
+    fun `ids handed out after a load don't collide with loaded ones`() {
         val original = flownWorld()
         val world = World.default(catalog)
         world.restore(original.save())
@@ -252,8 +252,8 @@ class WorldSaveTest {
             "Alice",
             world.vesselOwnedBy("install-alice")?.ownerName,
         )
-        // Exact: an id is not a name, and folding case on one could only ever
-        // hand a craft to the wrong install.
+        // Exact, because an id isn't a name, and folding case on one could only ever hand a craft
+        // to the wrong install.
         assertNull(world.vesselOwnedBy("INSTALL-ALICE"))
         assertNull("a name is not an identity", world.vesselOwnedBy("Alice"))
         assertNull(world.vesselOwnedBy("install-bob"))
@@ -261,8 +261,8 @@ class WorldSaveTest {
     }
 
     /**
-     * Format 1 wrote a display name where the id now goes. Keeping it as an id
-     * would mean the first person to type "Alice" inherits Alice's base.
+     * Format 1 wrote a display name where the id now goes. Keeping it as an id would mean the first
+     * person to type "Alice" inherits Alice's base.
      */
     @Test
     fun `a format 1 save keeps the label but drops the claim`() {
@@ -303,9 +303,8 @@ class WorldSaveTest {
 
     @Test
     fun `resource slots are stored positionally in a pinned order`() {
-        // The save format writes resource levels by position. Reordering the
-        // enum would silently reinterpret every saved craft's fuel as
-        // something else, so the order is part of the format.
+        // The save format writes resource levels by position. Reordering the enum would quietly
+        // turn every saved craft's fuel into something else, so the order is part of the format.
         assertEquals(
             listOf("PROPELLANT", "MONOPROPELLANT", "ELECTRIC_CHARGE", "ABLATOR", "ORE", "WATER"),
             ResourceType.entries.map { it.name },
@@ -313,7 +312,7 @@ class WorldSaveTest {
         assertEquals(ResourceType.entries.size, WorldSave.RESOURCE_SLOTS)
     }
 
-    /** The sky is part of the world: a wild one stays wild across a restart. */
+    /** The sky is part of the world, so a wild one stays wild across a restart. */
     @Test
     fun `the weather survives a save`() {
         val world = World.default(catalog)

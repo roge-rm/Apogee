@@ -63,7 +63,7 @@ class PartTabsTest {
     }
 
     @Test
-    fun `All holds every part, pods first`() {
+    fun `All holds every part, with pods first`() {
         val all = PartTabs.parts(catalog, PartTab.ALL)
         assertEquals(catalog.parts.values.count { !it.hidden }, all.size)
         assertEquals(PartTab.PODS, PartTabs.of(all.first()))

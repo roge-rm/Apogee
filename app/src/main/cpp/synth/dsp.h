@@ -1,7 +1,6 @@
-// The building blocks every sound in the game is made from: noise, filters,
-// oscillators, envelopes, resonators and a little room. Header-only, no
-// allocation, no platform: the same code runs in the game's audio callback
-// and in the desktop tool that renders the sound gallery.
+// The building blocks every sound in the game is made from: noise, filters, oscillators, envelopes,
+// resonators and a little room. It's header-only, with no allocation and no platform, so the same
+// code runs in the game's audio callback and in the desktop tool that renders the sound gallery.
 #pragma once
 
 #include <cmath>
@@ -17,7 +16,7 @@ inline float clampf(float x, float lo, float hi) { return std::min(hi, std::max(
 inline float lerpf(float a, float b, float t) { return a + (b - a) * t; }
 inline float dbToGain(float db) { return std::pow(10.0f, db / 20.0f); }
 
-/** Deterministic noise: a voice seeded the same sounds the same, every render. */
+/** Deterministic noise, so a voice seeded the same sounds the same on every render. */
 struct Rng {
     uint32_t state = 0x9E3779B9u;
     void seed(uint32_t s) { state = s ? s : 0x9E3779B9u; }
@@ -32,7 +31,7 @@ struct Rng {
     float uniform() { return (next() >> 8) * (1.0f / 16777216.0f); }
 };
 
-/** Pink noise, Paul Kellet's economy filter: equal energy per octave - rumble and rush. */
+/** Pink noise, Paul Kellet's economy filter: equal energy per octave, for rumble and rush. */
 struct Pink {
     float b0 = 0, b1 = 0, b2 = 0;
     float next(float white) {
@@ -44,9 +43,9 @@ struct Pink {
 };
 
 /**
- * Brown noise: integrated white with a leak - the deep roll under an engine.
- * The leak sets its corner near 75 Hz: any lower and its energy sits where
- * no phone speaker can play it, and drifts toward DC.
+ * Brown noise: integrated white with a leak, the deep roll under an engine. The leak sets its
+ * corner near 75 Hz. Any lower and its energy sits where no phone speaker can play it, and drifts
+ * toward DC.
  */
 struct Brown {
     float y = 0;
@@ -56,7 +55,7 @@ struct Brown {
     }
 };
 
-/** Takes out DC and what is below hearing: nothing a speaker can play is lost. */
+/** Takes out DC and anything below hearing, so nothing a speaker can play is lost. */
 struct DcBlock {
     float x1 = 0, y1 = 0;
     float next(float x) {
@@ -66,7 +65,7 @@ struct DcBlock {
     }
 };
 
-/** A value eased toward where it is told to be, so nothing clicks. */
+/** A value eased toward where it's told to be, so nothing clicks. */
 struct Smooth {
     float value = 0;
     float coeff = 0.001f;
@@ -76,7 +75,7 @@ struct Smooth {
     float next(float target) { value += (target - value) * coeff; return value; }
 };
 
-/** A state-variable filter (Simper's): low, band and high pass together, stable when swept. */
+/** A state-variable filter (Simper's): low, band and high pass together, and stable when swept. */
 struct Svf {
     float ic1 = 0, ic2 = 0;
     float g = 0, k = 1, a1 = 0, a2 = 0, a3 = 0;
@@ -99,14 +98,14 @@ struct Svf {
     }
 };
 
-/** A one-pole low pass: cheap distance and air absorption. */
+/** A one-pole low pass, for cheap distance and air absorption. */
 struct OnePole {
     float y = 0, a = 1;
     void set(float freq, float sampleRate) { a = 1.0f - std::exp(-kTwoPi * clampf(freq, 5.0f, sampleRate * 0.49f) / sampleRate); }
     float next(float x) { y += (x - y) * a; return y; }
 };
 
-/** PolyBLEP: rounds a saw's or square's step so it does not alias into a whistle. */
+/** PolyBLEP: rounds off a saw's or square's step so it doesn't alias into a whistle. */
 inline float polyBlep(float t, float dt) {
     if (t < dt) { t /= dt; return t + t - t * t - 1.0f; }
     if (t > 1.0f - dt) { t = (t - 1.0f) / dt; return t * t + t + t + 1.0f; }
@@ -158,8 +157,8 @@ struct Decay {
 };
 
 /**
- * A few tuned ringing band passes: what gives a blow its material - the
- * clang of a tank, the thunk of rock, the dull thud of earth.
+ * A few tuned ringing band passes. They're what give a blow its material: the clang of a tank, the
+ * thunk of rock, the dull thud of earth.
  */
 struct Resonators {
     static constexpr int kMax = 6;
@@ -178,8 +177,8 @@ struct Resonators {
 };
 
 /**
- * Crackle: sparse random clicks, each a tiny burst - fire, plasma, the
- * rasp of a solid motor. [rate] is clicks a second.
+ * Crackle: sparse random clicks, each a tiny burst, for fire, plasma and the rasp of a solid motor.
+ * [rate] is clicks per second.
  */
 struct Crackle {
     float env = 0;

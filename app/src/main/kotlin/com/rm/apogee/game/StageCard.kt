@@ -7,17 +7,17 @@ import com.rm.apogee.core.part.Engine
 import com.rm.apogee.core.part.LandingLeg
 import com.rm.apogee.core.part.Parachute
 
-/** One fuel on a stage card: its name and how full, 0..1. */
+/** One fuel on a stage card: its name and how full it is, 0..1. */
 class FuelGauge(val name: String, val fraction: Float)
 
 /**
- * One stage as the flight HUD shows it: what it fires, and - for a stage
- * that burns - how much fuel it has left and what that is worth.
+ * One stage as the flight HUD shows it: what it fires, and for a stage that burns, how much fuel it
+ * has left and what that's worth.
  */
 class StageCard(
-    /** The stage's number, as the STAGE button counts: 0 fires first. */
+    /** The stage's number, the way the STAGE button counts. 0 fires first. */
     val index: Int,
-    /** The stage burning now, rather than one still to fire. */
+    /** The stage burning now, as opposed to one still to fire. */
     val current: Boolean,
     /** What it fires, in a few words: "2 engines · separation", "chute". */
     val contents: String,
@@ -25,14 +25,14 @@ class StageCard(
     /** All its fuel together, or null for a stage that burns nothing. */
     val fuelFraction: Float?,
     val deltaV: Double?,
-    /** Seconds of burn left - at the current throttle for the stage burning now. */
+    /** Seconds of burn left. For the stage burning now, that's at the current throttle. */
     val burnTime: Double?,
 ) {
     companion object {
         /**
-         * Cards for [vessel]'s stages from [stats] - [com.rm.apogee.core.craft.CraftStats.analyzeLive]
-         * of the same craft: the one burning now, if anything is, then each
-         * still to fire, soonest first.
+         * Cards for [vessel]'s stages from [stats], which is
+         * [com.rm.apogee.core.craft.CraftStats.analyzeLive] of the same craft. The one burning now
+         * comes first, if there is one, then each one still to fire, soonest first.
          */
         fun from(vessel: Vessel, stats: List<StageStats>, throttle: Double): List<StageCard> {
             val cards = ArrayList<StageCard>(stats.size)
@@ -40,8 +40,8 @@ class StageCard(
                 val current = stat.index < vessel.currentStage
                 val fired = vessel.design.stages.getOrNull(stat.index)?.activatedParts.orEmpty()
                 val lightsEngine = fired.any { vessel.defs.getOrNull(it)?.module<Engine>() != null }
-                // A stage burns if it lights something, or is the one burning;
-                // a chute stage behind a spent engine is only a chute.
+                // A stage burns if it lights something, or is the one burning. A chute stage behind
+                // a spent engine is only a chute.
                 val burns = stat.isBurn && (current || lightsEngine)
                 if (current && !burns) continue
                 val contents = if (current) "burning" else describe(vessel, fired)

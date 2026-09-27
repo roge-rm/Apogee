@@ -7,41 +7,34 @@ import kotlin.math.atan2
 import kotlin.math.sqrt
 
 /**
- * SAS as attitude hold: let go of the stick and the craft stays pointing
- * where it was.
+ * SAS as attitude hold: let go of the stick and the craft stays pointing where it was.
  *
- * Damping rotation - which is all SAS used to do - is not enough for anything
- * with wings. The aerodynamic model acts on airflow *across* the fuselage, so
- * at zero angle of attack every surface is silent, and a stable aircraft
- * weathervanes back to exactly that: no angle of attack, no lift, and the
- * nose drops the moment the stick is released. No placement of wings or
- * centre of mass changes it. What does is the pilot holding the nose where
- * they want it, and that is what this does for them - through the same
- * elevons, gimbals and reaction wheels a thumb uses, written as
+ * Damping rotation, which is all SAS used to do, isn't enough for anything with wings. The
+ * aerodynamic model acts on airflow *across* the fuselage, so at zero angle of attack every surface
+ * is silent, and a stable aircraft weathervanes back to exactly that: no angle of attack, no lift,
+ * and the nose drops the moment you let go of the stick. No placement of wings or centre of mass
+ * changes that. What does is the pilot holding the nose where they want it, and that's what this
+ * does for you, through the same elevons, gimbals and reaction wheels your thumb uses, written as
  * [com.rm.apogee.core.craft.ControlState.assistPitch] and its siblings.
  *
- * Airborne only. On the ground the ground decides a craft's attitude, and a
- * rover whose SAS held its orientation would fight every bump it drove over.
+ * It only works in the air. On the ground the ground decides a craft's attitude, and a rover whose
+ * SAS held its orientation would fight every bump it drove over.
  *
- * The hold is in inertial axes. Over a flight of minutes the local horizon
- * turns by a degree or so under an aircraft; over an orbit, inertial is what
- * a spacecraft wants held anyway.
+ * The hold is in inertial axes. Over a flight of minutes the local horizon turns by a degree or so
+ * under an aircraft, and in orbit, inertial is what a spacecraft wants held anyway.
  *
- * PID rather than the [AttitudeController]'s PD: an aircraft needs a steady
- * elevator to hold a steady angle of attack, and a controller with no
- * integral term only produces one by settling short of the target - the test
- * pilot held seven and a half degrees when asked for ten.
+ * It's PID instead of the [AttitudeController]'s PD. An aircraft needs a steady elevator to hold a
+ * steady angle of attack, and a controller with no integral term only gets one by settling short of
+ * the target. The test pilot held seven and a half degrees when asked for ten.
  *
- * Its commands move no faster than [SLEW] a second, as a real actuator's
- * do. Slammed from stop to stop in a tick, a craft with a lot of control -
- * full-span elevons at speed - overshot within the tick, was slammed back
- * the next, and chattered at the tick rate: its wings flung sixty times a
- * second between a hundred kilonewtons up and down, until the fuselage
- * tore off.
+ * Its commands move no faster than [SLEW] a second, the same as a real actuator. Slammed from one
+ * end to the other in a tick, a craft with a lot of control (full-span elevons at speed) overshot
+ * within the tick, got slammed back the next, and chattered at the tick rate. Its wings flipped
+ * sixty times a second between a hundred kilonewtons up and down, until the fuselage tore off.
  *
- * Afloat it is a helmsman instead: the heading held, the hull brought back
- * level after a turn rather than kept at whatever heel it had when the
- * wheel was let go, and the pitch left to the sea (Dan).
+ * Afloat it acts as a helmsman instead. It holds the heading, and brings the hull back level after
+ * a turn instead of keeping whatever heel it had when you let go of the wheel, and it leaves the
+ * pitch to the sea.
  */
 class StabilityAssist(
     private val proportionalGain: Double = 5.0,
@@ -58,22 +51,23 @@ class StabilityAssist(
     private val heading = Vec3()
 
     /**
-     * @param direction when holding a navball marker, where the nose should
-     *   point, inertial; null to hold the attitude at release.
+     * @param direction when holding a navball marker, where the nose should point, inertial. Null
+     *     to hold the attitude at release.
      */
     fun update(vessel: Vessel, dt: Double, direction: Vec3? = null) {
         val control = vessel.control
         val body = vessel.body
-        // Afloat: a helmsman, keeping the deck level - even while the wheel
-        // is being turned - and the heading once it is let go.
-        // Under the water it is a pilot again, holding pitch as well: a
-        // submarine left to pitch as the sea takes it goes down nose first.
+        // Afloat, it's a helmsman, keeping the deck level even while the wheel is being turned, and
+        // holding the heading once it's let go.
+        //
+        // Under the water it's a pilot again, and holds pitch too. A submarine left to pitch
+        // however the sea takes it goes down nose first.
         val afloat = control.sasEnabled && vessel.buoyed && !vessel.submerged && !vessel.touchingGround && direction == null
         control.assistLevelling = afloat
         if (afloat && control.hasAttitudeInput) {
             vessel.assistHeld.setTo(body.orientation)
             levelled(vessel)
-            // Taken afresh when the wheel is let go: the heading then.
+            // Taken again when the wheel is let go, meaning the heading at that moment.
             vessel.assistHolding = false
             vessel.assistIntegral.setZero()
             errorOf(vessel)
@@ -94,10 +88,9 @@ class StabilityAssist(
         }
         if (afloat) levelled(vessel)
         if (direction != null) {
-            // A marker moves as the craft does: the attitude to hold is the
-            // one that turns the nose onto it by the shortest way, keeping
-            // whatever roll the craft has - so it swings onto prograde
-            // without spinning about it.
+            // A marker moves as the craft does. The attitude to hold is the one that turns the nose
+            // onto it by the shortest way while keeping whatever roll the craft has, so it swings
+            // onto prograde without spinning around it.
             vessel.forward(nose)
             com.rm.apogee.core.math.quatFromTo(nose, direction, turn)
             vessel.assistHeld.setTo(turn).mulInPlace(body.orientation)
@@ -105,9 +98,8 @@ class StabilityAssist(
 
         errorOf(vessel)
 
-        // Integral clamped, so a craft held against something it cannot
-        // overcome does not wind up a command it then spends seconds
-        // unwinding once it can.
+        // The integral is clamped, so a craft held against something it can't overcome doesn't wind
+        // up a command it then spends seconds unwinding once it can.
         val integral = vessel.assistIntegral
         integral.addScaledInPlace(errorBody, integralGain * dt)
         integral.setTo(
@@ -116,7 +108,7 @@ class StabilityAssist(
             integral.z.coerceIn(-INTEGRAL_LIMIT, INTEGRAL_LIMIT),
         )
 
-        // X pitches, Y rolls, Z yaws - the reaction wheels' convention.
+        // X pitches, Y rolls, Z yaws, the reaction wheels' convention.
         val step = SLEW * dt
         control.assistPitch = if (afloat) 0.0 else slew(control.assistPitch, command(errorBody.x, rateBody.x, integral.x), step)
         control.assistRoll = slew(control.assistRoll, command(errorBody.y, rateBody.y, integral.y), step)
@@ -124,11 +116,14 @@ class StabilityAssist(
         if (afloat) integral.x = 0.0
     }
 
-    /** The turn from where [vessel] points to where it should, in its own axes, into [errorBody]; its spin into [rateBody]. */
+    /**
+     * The turn from where [vessel] points to where it should point, in its own axes, into
+     * [errorBody], and its spin into [rateBody].
+     */
     private fun errorOf(vessel: Vessel) {
         val body = vessel.body
-        // The turn from where the craft points to where it should, in its own
-        // axes: conj(current) * held. Shortest way round.
+        // The turn from where the craft points to where it should, in its own axes: conj(current) *
+        // held. The shortest way round.
         error.setTo(body.orientation).conjugateInPlace().mulInPlace(vessel.assistHeld)
         if (error.w < 0.0) error.setTo(-error.x, -error.y, -error.z, -error.w)
         val sine = sqrt(error.x * error.x + error.y * error.y + error.z * error.z)
@@ -144,10 +139,9 @@ class StabilityAssist(
     private fun slew(from: Double, to: Double, step: Double): Double = from + (to - from).coerceIn(-step, step)
 
     /**
-     * The attitude a boat's helmsman holds: nose on the heading it had when
-     * the wheel was let go, deck level with the horizon here - worked out
-     * afresh each tick, since the horizon turns as the boat moves over the
-     * planet and the planet under it.
+     * The attitude a boat's helmsman holds: nose on the heading it had when the wheel was let go,
+     * and deck level with the horizon here. It's worked out again every tick, because the horizon
+     * turns as the boat moves over the planet and the planet turns under it.
      */
     private fun levelled(vessel: Vessel) {
         val body = vessel.body
@@ -164,7 +158,7 @@ class StabilityAssist(
         vessel.assistHeld.setTo(swing).mulInPlace(level)
     }
 
-    /** Holds nothing and commands nothing: with no power to hold with. */
+    /** Holds nothing and commands nothing, because there's no power to hold with. */
     fun idle(vessel: Vessel) = release(vessel)
 
     private fun release(vessel: Vessel) {
@@ -181,7 +175,10 @@ class StabilityAssist(
     private companion object {
         const val INTEGRAL_LIMIT = 0.6
 
-        /** How fast a command may move, of full travel a second: stop to stop in a fifth of a second. */
+        /**
+         * How fast a command can move, as a share of full travel per second. End to end in a fifth
+         * of a second.
+         */
         const val SLEW = 10.0
     }
 }

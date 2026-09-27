@@ -34,10 +34,9 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /**
- * Docking, on the HUD: lining up - how far, how fast, how far off square,
- * green once the magnets would take it - and a way to let go of each thing
- * the craft is joined to, tapped twice so a thumb brushing it does not
- * undock a station.
+ * Docking, on the HUD. It shows the line-up (how far, how fast, how far off square, and green once
+ * the magnets would take it), and a way to let go of each thing the craft is joined to. That needs
+ * two taps, so a thumb brushing it doesn't undock a station.
  */
 @Composable
 fun DockingPanel(
@@ -49,7 +48,7 @@ fun DockingPanel(
     if (readout == null && joints.isEmpty()) return
     Column(modifier, horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         if (readout != null) {
-            // Green when the magnets would take it; orange coming in too fast.
+            // Green when the magnets would take it, and orange when it's coming in too fast.
             val colour = when {
                 readout.ready -> ApogeeColors.Prograde
                 readout.tooFast -> ApogeeColors.Caution
@@ -81,7 +80,7 @@ fun DockingPanel(
 @Composable
 private fun UndockChip(joint: GameSession.Joint, onUndock: (Int) -> Unit) {
     var armed by remember(joint.part) { mutableStateOf(false) }
-    // A first tap asks; a second within three seconds does it.
+    // The first tap asks, and a second one within three seconds does it.
     LaunchedEffect(armed) {
         if (armed) {
             kotlinx.coroutines.delay(3_000)
@@ -109,9 +108,8 @@ private fun UndockChip(joint: GameSession.Joint, onUndock: (Int) -> Unit) {
 }
 
 /**
- * Two players' craft docked into one: who flies it - you, them, or either -
- * chosen by either of you, and changeable any time from here. What the
- * shared chip opens.
+ * Two players' craft docked into one: who flies it (you, them, or either), chosen by either of you
+ * and changeable any time from here. This is what the shared chip opens.
  */
 @Composable
 internal fun SharedChooser(other: String, pilot: String, onChoose: (String) -> Unit, modifier: Modifier = Modifier) {
@@ -137,7 +135,7 @@ internal fun SharedChooser(other: String, pilot: String, onChoose: (String) -> U
     }
 }
 
-/** Who flies a shared craft, in a couple of words: what the shared chip says. */
+/** Who flies a shared craft, in a couple of words. It's what the shared chip says. */
 internal fun pilotLabel(other: String, pilot: String): String =
     when (pilot) { "me" -> "YOU FLY"; "them" -> "${other.uppercase()} FLIES"; else -> "BOTH FLY" }
 

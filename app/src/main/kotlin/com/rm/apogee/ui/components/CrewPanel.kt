@@ -29,9 +29,9 @@ import com.rm.apogee.ui.theme.alpha
 
 /** What the crew card and the EVA controls do. */
 class CrewActions(
-    /** Crew member (by id) out on EVA. */
+    /** A crew member (by id) goes out on EVA. */
     val onEva: (Long) -> Unit = {},
-    /** Crew member (by id) to the next free seat in the craft. */
+    /** A crew member (by id) moves to the next free seat in the craft. */
     val onMove: (Long) -> Unit = {},
     val onBoard: () -> Unit = {},
     val onJump: () -> Unit = {},
@@ -41,8 +41,8 @@ class CrewActions(
 )
 
 /**
- * Who is aboard, each by name and seat, with MOVE and EVA for the
- * player's own: what the crew chip opens.
+ * Who's aboard, each by name and seat, with MOVE and EVA for the player's own crew. This is what
+ * the crew chip opens.
  */
 @Composable
 internal fun CrewList(hud: HudState, actions: CrewActions, modifier: Modifier = Modifier) {

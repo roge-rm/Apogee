@@ -1,9 +1,9 @@
 import sys
 from common import *
 
-# Buildings stand +Y up, with the ground at their bottom: every part's
-# origin is its centre, and a structure design stacks them on "ground"
-# nodes. Doors and open fronts face +Z.
+# Buildings stand +Y up, with the ground at their bottom. Every part's origin is
+# its centre, and a structure design stacks them on "ground" nodes. Doors and
+# open fronts face +Z.
 
 parts = []
 
@@ -33,7 +33,7 @@ for k in range(8):
 arms = [piece(box(1.4, 1.0, 9.0), at=(0, y, 7.2), tint="metal") for y in (4.0, 12.0)]
 arms += [piece(box(1.8, 2.2, 1.8), at=(0, y + 1.6, 11.2), tint="dark") for y in (4.0, 12.0)]
 building("struct-launch-tower", "Launch Tower", 180000,
-         "A forty-metre service tower beside the pad, its arms swung out toward the rocket.",
+         "A forty-metre service tower beside the pad, with its arms swung out toward the rocket.",
          box(6.0, H, 6.0),
          compound(*legs, *braces, *arms,
                   piece(box(6.2, 0.4, 6.2), at=(0, H / 2 - 0.2, 0), tint="dark"),
@@ -51,7 +51,7 @@ building("struct-lightning-mast", "Lightning Mast", 12000,
                   piece(sphere(0.2), at=(0, 25.2, 0), tint="light")),
          modules=[{"type": "lamp", "draw": 0.0}])
 
-# The assembly building: a great hall, doors on its south face.
+# The assembly building: a great hall, with doors on its south face.
 building("struct-assembly", "Assembly Building", 2.0e6,
          "Where rockets are stacked: a hall fifty metres high, with doors to match.",
          box(60.0, 50.0, 70.0),
@@ -63,9 +63,9 @@ building("struct-assembly", "Assembly Building", 2.0e6,
                   *[piece(box(0.3, 48.0, 0.4), at=(x, 0, 35.15), tint="metal") for x in (-28.0, 8.0, 28.0)]),
          hull=[hullbox(60.0, 50.0, 70.0)])
 
-# The control centre: low, windowed, dishes on the roof.
+# The control centre: low and windowed, with dishes on the roof.
 building("struct-control-centre", "Control Centre", 400000,
-         "Where launches are watched from: a long low building, windows all along its front, dishes on the roof.",
+         "Where launches are watched from: a long low building with windows all along its front and dishes on the roof.",
          box(34.0, 8.0, 18.0),
          compound(piece(box(34.0, 8.0, 18.0), tint="body"),
                   piece(box(32.0, 2.2, 0.3), at=(0, 1.2, 9.05), tint="glass"),
@@ -76,7 +76,7 @@ building("struct-control-centre", "Control Centre", 400000,
                   piece(lathe([(0.0, 0.0), (1.2, 0.35), (1.3, 0.5), (0.0, 0.2)]), at=(-8.0, 6.2, -4.0), rot=(-40, 30, 0), tint="light")),
          hull=[hullbox(34.0, 8.0, 18.0)])
 
-# The propellant farm: three spheres on legs, a pipe rack between them.
+# The propellant farm: three spheres on legs, with a pipe rack between them.
 spheres = []
 for k, x in enumerate((-12.0, 0.0, 12.0)):
     spheres.append(piece(sphere(5.0), at=(x, 1.5, 0), tint="light"))
@@ -104,7 +104,7 @@ building("struct-floodlight", "Floodlight Tower", 8000,
 # A hangar, open to the south: walls and a roof to taxi under.
 HW, HH, HD = 40.0, 14.0, 30.0
 building("struct-hangar", "Hangar", 500000,
-         "Room for a few aeroplanes out of the weather: walls on three sides, open to the apron.",
+         "Room for a few aeroplanes out of the weather, with walls on three sides and open to the apron.",
          box(HW, HH, HD),
          compound(piece(box(HW, 0.8, HD), at=(0, HH / 2 - 0.4, 0), tint="metal"),
                   piece(box(HW, 2.4, HD * 0.9), at=(0, HH / 2 + 0.8, -HD * 0.05), rot=(0, 0, 0), tint="body"),
@@ -120,7 +120,7 @@ building("struct-hangar", "Hangar", 500000,
 
 # The control tower: a shaft with a glass cab on top.
 building("struct-control-tower", "Control Tower", 250000,
-         "Twenty-four metres up, a cab with windows all round looks down the runway.",
+         "A cab twenty-four metres up, with windows all round, looking down the runway.",
          box(8.0, 24.0, 8.0),
          compound(piece(box(4.0, 18.0, 4.0), at=(0, -3.0, 0), tint="body"),
                   piece(box(8.0, 4.0, 8.0), at=(0, 8.0, 0), tint="glass"),
@@ -131,7 +131,7 @@ building("struct-control-tower", "Control Tower", 250000,
          hull=[hullbox(4.0, 18.0, 4.0, at=(0, -3.0, 0)), hullbox(8.0, 6.0, 8.0, at=(0, 9.0, 0))],
          modules=[{"type": "lamp", "draw": 0.0}])
 
-# A windsock: turned and filled by the wind, when it is drawn.
+# A windsock, turned and filled by the wind when it's drawn.
 building("struct-windsock", "Windsock", 200,
          "Which way the wind blows, and how hard.",
          box(0.3, 7.0, 0.3),
@@ -139,7 +139,7 @@ building("struct-windsock", "Windsock", 200,
                   piece(cone(0.45, 0.2, 3.0), at=(0, 3.2, 1.6), rot=(90, 0, 0), tint="accent")),
          solid=False)
 
-# Runway lamps and paint: seen, not struck.
+# Runway lamps and paint, to be seen, not hit.
 building("struct-runway-lamp", "Runway Lamp", 20,
          "An edge lamp.",
          box(0.3, 0.4, 0.3),
@@ -152,14 +152,14 @@ building("struct-paint-bar", "Runway Paint", 1,
          compound(piece(box(1.8, 0.04, 22.0), tint="light")),
          solid=False)
 building("struct-paint-dash", "Centreline Paint", 1,
-         "A dash of paint down the runway's middle.",
+         "A dash of paint down the middle of the runway.",
          box(0.9, 0.04, 12.0),
          compound(piece(box(0.9, 0.04, 12.0), tint="light")),
          solid=False)
 
 # --- the harbour ---------------------------------------------------------------
 
-# A section of jetty: a deck on piles, bollards along one edge.
+# A section of jetty: a deck on piles, with bollards along one edge.
 JL, JW = 10.0, 5.0
 building("struct-jetty", "Jetty Section", 60000,
          "Ten metres of jetty: a deck on piles, with bollards to tie up to.",
@@ -174,7 +174,7 @@ building("struct-jetty", "Jetty Section", 60000,
 
 # The boathouse: a shed with a big door to the water.
 building("struct-boathouse", "Boathouse", 120000,
-         "A shed for boats, its big door facing the water.",
+         "A shed for boats, with its big door facing the water.",
          box(14.0, 7.0, 18.0),
          compound(piece(box(14.0, 5.0, 18.0), at=(0, -1.0, 0), tint="body"),
                   piece(box(14.6, 0.4, 18.6), at=(-3.6, 2.6, 0), rot=(0, 0, 18), tint="accent"),
@@ -186,7 +186,7 @@ building("struct-boathouse", "Boathouse", 120000,
 
 # A quayside crane.
 building("struct-crane", "Harbour Crane", 90000,
-         "A crane at the head of the jetty, its jib out over the berth.",
+         "A crane at the head of the jetty, with its jib out over the berth.",
          box(4.0, 22.0, 4.0),
          compound(piece(box(3.0, 2.0, 3.0), at=(0, -10.0, 0), tint="dark"),
                   piece(box(1.2, 18.0, 1.2), at=(0, 0.0, 0), tint="accent"),

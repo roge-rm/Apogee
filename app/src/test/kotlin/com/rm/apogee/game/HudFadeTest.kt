@@ -4,7 +4,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** The controls fade after a few seconds untouched, and come back at once. */
+/** The controls fade after a few seconds without being touched, and come back straight away. */
 class HudFadeTest {
     @Test
     fun `idle only once four seconds have passed without a wake`() {
@@ -16,7 +16,7 @@ class HudFadeTest {
     }
 
     @Test
-    fun `a touch brings it straight back, and starts the wait again`() {
+    fun `a touch brings it straight back and starts the wait again`() {
         val fade = HudFade()
         val start = 1_000_000_000_000L
         fade.wake(start)

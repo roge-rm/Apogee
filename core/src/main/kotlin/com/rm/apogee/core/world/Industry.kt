@@ -12,12 +12,12 @@ import com.rm.apogee.core.terrain.Deposits
 /** What a craft's drills are doing, for its pilot. */
 @kotlinx.serialization.Serializable
 enum class DrillState {
-    /** Switched off, or none. */
+    /** Switched off, or there are none. */
     OFF,
     DIGGING,
-    /** Its bit still swinging down. */
+    /** Its bit is still swinging down. */
     EXTENDING,
-    /** No drill head near enough the ground. */
+    /** No drill head close enough to the ground. */
     NO_GROUND,
     /** Not still enough to dig. */
     MOVING,
@@ -29,10 +29,9 @@ enum class DrillState {
 }
 
 /**
- * Drills and converters, a step at a time: what a craft digs and refines in
- * [step]'s time, and the charge that takes. Shared by the tick, for craft
- * being flown, and by the power ledger, for parked craft and bases nobody is
- * near - so a base mines and refines whether anyone is watching or not.
+ * Drills and converters, a step at a time: what a craft digs and refines in [step]'s time, and the
+ * charge it takes. Both the tick (for craft being flown) and the power ledger (for parked craft and
+ * bases nobody is near) share this, so a base mines and refines whether anyone is watching or not.
  */
 class Industry {
 
@@ -42,9 +41,9 @@ class Industry {
     private val fixed = Vec3()
 
     /**
-     * One step of [dt] for [vessel] about [attractor] at [time]: digs if it
-     * is [still] and has [charge], refines if it has charge, and puts the
-     * charge that took, a second, in [Vessel.industryDraw] - and returns it.
+     * One step of [dt] for [vessel] around [attractor] at [time]. It digs if it's [still] and has
+     * [charge], refines if it has charge, puts the charge that took per second in
+     * [Vessel.industryDraw], and returns it.
      */
     fun step(vessel: Vessel, attractor: CelestialBody, time: Double, dt: Double, still: Boolean, charge: Boolean): Double {
         var draw = 0.0
@@ -55,7 +54,7 @@ class Industry {
                 if (vessel.isBroken(i)) continue
                 val here = dig(vessel, i, drill, attractor, time, dt, still, charge)
                 if (here == DrillState.DIGGING) draw += drill.draw
-                // The best of what its drills are doing is what the pilot hears.
+                // The best of what its drills are doing is what the pilot hears about.
                 if (state == DrillState.OFF || here.ordinal < state.ordinal) state = here
             }
         }
@@ -84,7 +83,7 @@ class Industry {
         val gap = fixed.length - attractor.surfaceRadiusInBodyFrame(fixed.normalized())
         if (gap > drill.reach) return DrillState.NO_GROUND
         if (!charge) return DrillState.NO_POWER
-        // What is down there, worked out again only once it has moved.
+        // What's down there, only worked out again once it has moved.
         val site = vessel.drillSite
         if (site.x.isNaN() || site.distanceTo(fixed) > SITE_MOVE) {
             site.setTo(fixed)
@@ -99,7 +98,10 @@ class Industry {
         return DrillState.DIGGING
     }
 
-    /** One step of converter [i]: each recipe as far as input and room allow. Whether it ran. */
+    /**
+     * One step of converter [i]: each recipe as far as input and room allow. Returns whether it
+     * ran.
+     */
     private fun convert(vessel: Vessel, i: Int, converter: Converter, dt: Double): Boolean {
         var ran = false
         for (recipe in converter.recipes) {
@@ -118,9 +120,9 @@ class Industry {
     }
 
     companion object {
-        /** How far a drill head may move, m, before the ground under it is read again. */
+        /** How far a drill head can move, in metres, before the ground under it gets read again. */
         const val SITE_MOVE = 2.0
-        /** Speed over the ground, m/s, under which a landed craft is still enough to dig. */
+        /** The speed over the ground, in m/s, under which a landed craft is still enough to dig. */
         const val STILL = 0.3
     }
 }

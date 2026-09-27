@@ -7,15 +7,15 @@ import java.util.concurrent.atomic.AtomicReference
 /**
  * One block of scatter, ready to draw: instances grouped by kind.
  *
- * Instances are [INSTANCE_FLOATS] each - position relative to [centre],
- * body-fixed; size; yaw - and [offsets]/[counts] say where each kind's run
- * starts, so a block is one buffer drawn once per kind present.
+ * Instances are [INSTANCE_FLOATS] each: position relative to [centre] (body-fixed), size, and yaw.
+ * [offsets] and [counts] say where each kind's run starts, so a block is one buffer drawn once for
+ * each kind in it.
  */
 class ScatterDraw(
     val key: Long,
     val revision: Int,
     val centre: Vec3,
-    /** East, up, north at the block, body-fixed: the frame instances turn in. */
+    /** East, up and north at the block, body-fixed: the frame the instances turn in. */
     val basis: FloatArray,
     val boundingRadius: Double,
     @Volatile var instances: FloatArray?,
@@ -28,7 +28,7 @@ class ScatterDraw(
     }
 }
 
-/** Hand-off from the scatter streamer to the GL thread. */
+/** The hand-off from the scatter streamer to the GL thread. */
 class ScatterSource {
     private val drawListRef = AtomicReference<List<ScatterDraw>>(emptyList())
     fun publish(list: List<ScatterDraw>) = drawListRef.set(list)

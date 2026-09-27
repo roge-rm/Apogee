@@ -6,9 +6,9 @@ import org.junit.Test
 import java.io.File
 
 /**
- * A tool, not a test: PROBE_SAVE=<save file> replays it, stages the first
- * craft four times (down to the pod on its chute) and prints how it lands -
- * height of its centre of mass above the ground, speed, contacts.
+ * A tool, not a test. PROBE_SAVE=<save file> replays it, stages the first craft four times (down to
+ * the pod on its chute) and prints how it lands: the height of its centre of mass above the ground,
+ * its speed, and its contacts.
  */
 class LandingProbeTest {
     @Test fun probe() {

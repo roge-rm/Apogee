@@ -54,17 +54,16 @@ class RailActions(
     val onHold: () -> Unit = {},
 )
 
-/** One switch on the rail: its picture, its word, and how it stands. */
+/** One switch on the rail: its picture, its word, and how it's set. */
 private class RailSwitch(val icon: ImageVector, val caption: String, val tint: Color, val on: Boolean, val onTap: () -> Unit)
 
 /**
- * The craft's switches, beside the throttle: brakes and reverse on
- * something with wheels, the thrusters, sun wings and dishes, drills and
- * converters, ballast to dive, rise and hold a depth - and on EVA,
- * jumping and planting a flag. Only those the
- * craft has. Each a small picture with its word under it, lit while on:
- * green working, amber on but not getting anywhere (and why, in place of
- * the word), grey off. Past [perColumn] they go two abreast.
+ * The craft's switches, beside the throttle: brakes and reverse on something with wheels, the
+ * thrusters, sun wings and dishes, drills and converters, ballast to dive, rise and hold a depth,
+ * and on EVA, jumping and planting a flag. Only the ones the craft has are shown. Each is a small
+ * picture with its word under it, lit while on. It's green when working, amber when on but not
+ * getting anywhere (with the reason in place of the word), and grey when off. Past [perColumn] they
+ * go two across.
  */
 @Composable
 fun ActionRail(
@@ -163,7 +162,7 @@ private fun RailButton(s: RailSwitch) {
     }
 }
 
-/** Why a drill switched on is not digging, in a word. */
+/** Why a drill that's switched on isn't digging, in a word. */
 private fun drillNote(state: DrillState?): String = when (state) {
     DrillState.EXTENDING -> "BIT DOWN"
     DrillState.NO_GROUND -> "NO GROUND"
@@ -174,6 +173,6 @@ private fun drillNote(state: DrillState?): String = when (state) {
     else -> "DRILL"
 }
 
-/** One switch, square: a thumb's width. */
+/** One switch, square, a thumb's width. */
 val RAIL_BUTTON = 44.dp
 private val RAIL_GAP = 6.dp

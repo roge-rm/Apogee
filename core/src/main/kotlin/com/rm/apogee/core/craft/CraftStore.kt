@@ -9,21 +9,20 @@ class SavedCraft(
     val fileName: String,
     val partCount: Int,
     val lastModified: Long,
-    /** Which parts it is made of: for a career to say what it still needs. */
+    /** Which parts it's made of, so a career can say what it still needs. */
     val partIds: Set<String> = emptySet(),
 )
 
 /**
- * Craft designs on disk, as JSON.
+ * Craft designs on disk, stored as JSON.
  *
- * JSON rather than the protobuf the network uses, from the same
- * `@Serializable` definition. A save file is something a person might open,
- * diff, hand-edit or paste into a bug report; a network packet is not. One
- * schema, two encodings, no second format to keep in step.
+ * It's JSON rather than the protobuf the network uses, from the same `@Serializable` definition. A
+ * save file is something a person might open, compare, edit by hand or paste into a bug report, and
+ * a network packet isn't. One schema, two encodings, and no second format to keep in step.
  *
- * Takes a directory rather than reaching for one, because :core has no platform
- * dependency - the app passes its files directory, the dedicated server passes
- * a path from its config, and tests pass a temporary folder.
+ * It takes a directory instead of finding one itself, because :core doesn't depend on any platform.
+ * The app passes its files directory, the dedicated server passes a path from its config, and tests
+ * pass a temporary folder.
  */
 class CraftStore(private val directory: File) {
 
@@ -41,8 +40,8 @@ class CraftStore(private val directory: File) {
     fun list(): List<SavedCraft> =
         directory.listFiles { file -> file.isFile && file.extension == EXTENSION }
             ?.mapNotNull { file ->
-                // A corrupt or half-written file must not take the whole list
-                // down with it - the player should still see their other craft.
+                // A broken or half-written file mustn't take the whole list down with it. You
+                // should still see your other craft.
                 runCatching {
                     val design = format.decodeFromString<CraftDesign>(file.readText())
                     SavedCraft(design.name, file.name, design.parts.size, file.lastModified(), design.parts.map { it.partId }.toSet())
@@ -53,8 +52,8 @@ class CraftStore(private val directory: File) {
 
     fun save(design: CraftDesign): Result<SavedCraft> = runCatching {
         val file = File(directory, fileNameFor(design.name))
-        // Write to a temporary file and rename, so a crash mid-write leaves the
-        // previous version intact rather than a truncated one.
+        // Write to a temporary file and then rename it, so a crash in the middle of writing leaves
+        // the previous version intact instead of a cut-off one.
         val temporary = File(directory, "${file.name}.tmp")
         temporary.writeText(format.encodeToString(design))
         if (!temporary.renameTo(file)) {
@@ -73,23 +72,21 @@ class CraftStore(private val directory: File) {
     fun exists(name: String): Boolean = File(directory, fileNameFor(name)).exists()
 
     /**
-     * Writes into the store any reference craft it has not been given before.
+     * Writes any reference craft into the store that it hasn't been given before.
      *
-     * Each stock design is offered once, ever, and remembered in a small
-     * ledger beside the saves: a player who has deleted one meant to delete
-     * it, and having it reappear on every launch is the kind of small betrayal
-     * that makes a tool feel untrustworthy. But a stock design added in a
-     * later version still arrives - the old rule, "only into an empty store",
-     * meant nobody who had ever opened the game would see a new one.
+     * Each stock design is only offered once, ever, and remembered in a small ledger next to the
+     * saves. If you deleted one you meant to, and having it come back on every launch is the kind
+     * of small betrayal that makes a tool feel untrustworthy. A stock design added in a later
+     * version still arrives, though. The old rule, "only into an empty store", meant nobody who had
+     * ever opened the game would see a new one.
      */
     fun seedStockDesigns(catalog: com.rm.apogee.core.part.PartCatalog) {
         val ledger = File(directory, SEEDED_LEDGER)
         val offered = if (ledger.exists()) {
             ledger.readLines().map { it.trim() }.filter { it.isNotEmpty() }.toMutableSet()
         } else if (list().isNotEmpty()) {
-            // Seeded before the ledger existed, under the empty-store rule,
-            // which offered exactly these. Whatever of them is missing now
-            // was deleted on purpose.
+            // Seeded before the ledger existed, under the empty-store rule, which offered exactly
+            // these. Any of them that are missing now were deleted on purpose.
             LEGACY_STOCK.toMutableSet()
         } else {
             mutableSetOf()
@@ -97,7 +94,7 @@ class CraftStore(private val directory: File) {
 
         val stock = listOf(
             StockCraft.starterRocket(catalog),
-            // A career's first rocket: nothing but the starting kit.
+            // The first rocket you'd build in a career: nothing but the starting kit.
             StockCraft.sounder(catalog),
             StockCraft.moteProbe(catalog),
             StockCraft.lander(catalog),
@@ -124,14 +121,14 @@ class CraftStore(private val directory: File) {
             StockCraft.moonshot(catalog),
             StockCraft.prospector(catalog),
             StockCraft.surveyor(catalog),
-            // Under the sea, a hull tier each.
+            // Under the sea, one for each hull tier.
             StockCraft.minnow(catalog),
             StockCraft.nautilus(catalog),
             StockCraft.abyss(catalog),
         )
         for (design in stock) {
             if (design.name in offered) continue
-            // Never over a player's own craft that happens to share the name.
+            // Never over one of your own craft that happens to have the same name.
             if (!exists(design.name)) save(design)
             offered.add(design.name)
         }
@@ -139,8 +136,8 @@ class CraftStore(private val directory: File) {
     }
 
     private fun fileNameFor(name: String): String {
-        // Anything that is not obviously safe becomes an underscore: a craft
-        // name is free text and will eventually contain a slash.
+        // Anything that isn't obviously safe becomes an underscore. A craft name is free text and
+        // sooner or later it will have a slash in it.
         val sanitised = name.trim()
             .map { if (it.isLetterOrDigit() || it == '-' || it == ' ') it else '_' }
             .joinToString("")
@@ -154,7 +151,7 @@ class CraftStore(private val directory: File) {
         const val EXTENSION = "craft"
         const val SEEDED_LEDGER = "stock-offered.txt"
 
-        /** What the empty-store rule seeded, before the ledger. */
+        /** What the empty-store rule seeded, before the ledger existed. */
         val LEGACY_STOCK = setOf("Starter I", "Stilt Lander", "Stilt Tug")
     }
 }

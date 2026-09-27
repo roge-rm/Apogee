@@ -13,7 +13,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlin.math.abs
 
-/** Every world's ground: its own shape, its landmarks where they are, somewhere to land on each. */
+/**
+ * Every world's ground: its own shape, its landmarks where they are, and somewhere to land on each.
+ */
 class WorldsTest {
     private val system = SolarSystem.defaultSystem()
     private val catalog = StockParts.catalog
@@ -37,7 +39,7 @@ class WorldsTest {
     }
 
     @Test
-    fun `each world's ground is the same every time, and not the same as any other's`() {
+    fun `each world's ground is the same every time, and different from every other's`() {
         val samples = (0 until 12).map { k -> dir(-60.0 + 10.0 * k, 17.0 * k) }
         val shapes = landable.associateWith { id ->
             val t = system.body(id).terrain!!
@@ -60,7 +62,7 @@ class WorldsTest {
     }
 
     @Test
-    fun `landmarks are where they are said to be, made of what they are said to be`() {
+    fun `landmarks are where they're said to be, and made of what they're said to be`() {
         assertEquals(SurfaceMaterial.NITROGEN_ICE, ground("ultima", 15.0, 177.0))
         assertEquals(SurfaceMaterial.LAVA, ground("fornax", -12.0, 50.0))
         assertEquals(SurfaceMaterial.LAVA, ground("caligo", 24.0, -110.0))
@@ -68,14 +70,14 @@ class WorldsTest {
         assertEquals(SurfaceMaterial.ORGANIC_SAND, ground("aurantia", 4.1, -39.55))
         assertEquals(SurfaceMaterial.ICE, ground("rubra", 88.0, 0.0))
         assertEquals(SurfaceMaterial.RED_DUST, ground("rubra", -30.0, 60.0).let { if (it == SurfaceMaterial.SCREE || it == SurfaceMaterial.ROCK) SurfaceMaterial.RED_DUST else it })
-        // The Great Mount stands far above the plains; the Rift is kilometres below its rim.
+        // The Great Mount stands far above the plains, and the Rift is kilometres below its rim.
         val rubra = system.body("rubra").terrain!!
         assertTrue("the Great Mount is ${rubra.elevation(dir(18.0, -134.0))} m", rubra.elevation(dir(18.0, -134.0)) > 12_000.0)
         assertTrue("the Rift ${rubra.elevation(dir(-9.0, -74.55))}, its rim ${rubra.elevation(dir(-2.0, -74.55))}", rubra.elevation(dir(-9.0, -74.55)) < rubra.elevation(dir(-2.0, -74.55)) - 2_500.0)
         // The Heart lies low.
         val ultima = system.body("ultima").terrain!!
         assertTrue("the Heart ${ultima.elevation(dir(15.0, 177.0))} vs ${ultima.elevation(dir(-40.0, 0.0))}", ultima.elevation(dir(15.0, 177.0)) < ultima.elevation(dir(-40.0, 0.0)) - 800.0)
-        // Aurantia has seas in the north, and they are liquid.
+        // Aurantia has seas in the north, and they're liquid.
         val aurantia = system.body("aurantia").terrain!!
         val sea = (0 until 72).map { dir(82.0, it * 5.0) }.count { aurantia.isOcean(it) }
         assertTrue("no northern sea on Aurantia", sea > 10)
@@ -87,7 +89,7 @@ class WorldsTest {
     }
 
     @Test
-    fun `every world's test site stands on sound, dry, level-enough ground`() {
+    fun `every world's test site stands on sound, dry, level enough ground`() {
         for (site in World.launchSites.filter { it.bodyId != "terra" && it.bodyId != "luna" }) {
             val t = system.body(site.bodyId).terrain!!
             val d = SolarSystem.surfaceDirection(site.latitude, site.longitude)
@@ -99,7 +101,7 @@ class WorldsTest {
     }
 
     @Test
-    fun `a lander set down on each world stays there, and on Timor too`() {
+    fun `a lander set down on each world stays there, on Timor too`() {
         for (site in World.launchSites.filter { it.id in listOf("timor", "rubra-rift", "ultima-heart", "crusta-lineae", "celer-basin") }) {
             val world = World.default(catalog)
             val lander = world.spawnOnSurface(StockCraft.lander(catalog), site)

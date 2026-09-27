@@ -6,37 +6,35 @@ import com.rm.apogee.core.terrain.SurfaceMaterial
 import com.rm.apogee.core.terrain.TerrainField
 
 /**
- * One paved work's surface as a mesh: see [Paving]. Compared by identity -
- * each is built once and kept.
+ * One paved work's surface as a mesh. See [Paving]. They're compared by identity, because each one
+ * is built once and kept.
  */
 class PavingShape(val order: Int, val vertices: FloatArray, val indices: IntArray) : Shape
 
 /**
- * The Cape's paving - pads, runway, apron, taxiways, roads, quay - drawn as
- * meshes of their own laid a few centimetres over the levelled ground,
- * rather than as the colour of the terrain's triangles. The terrain's
- * triangles run on the planet's grid, not along the runway, so paving
- * painted onto them had edges like a saw; these have the works' own
- * straight edges and round ends. The ground under them is drawn as the land
- * round it (`Terrain.groundMaterial`), so where a triangle reaches past the
- * paving's edge it is grass, not a tooth of asphalt. Still flat triangles,
- * flat-shaded; only their edges are the works' now.
+ * The Cape's paving (pads, runway, apron, taxiways, roads and quay), drawn as meshes of their own
+ * laid a few centimetres over the levelled ground, instead of as the colour of the terrain's
+ * triangles. The terrain's triangles run on the planet's grid, not along the runway, so paving
+ * painted onto them had edges like a saw. These have the works' own straight edges and round ends.
+ * The ground under them is drawn as the land around it (`Terrain.groundMaterial`), so where a
+ * triangle reaches past the paving's edge it's grass, not a tooth of asphalt. They're still flat
+ * triangles, flat-shaded. Only their edges are the works' own now.
  */
 object Paving {
 
     /** One work's mesh, where it is, and what colour. */
     class Piece(val shape: PavingShape, val colour: FloatArray)
 
-    /** Every piece, their vertices relative to [origin] - body-fixed, on the pad. */
+    /** Every piece, with their vertices relative to [origin], body-fixed, on the pad. */
     class Built(val origin: Vec3, val pieces: List<Piece>)
 
-    /** Laid this far over the ground, m: over it, and still under a tyre's eye. */
+    /** Laid this far over the ground, in metres: over it, and still below a tyre's notice. */
     private const val LIFT = 0.04
 
-    /** Grid spacing the surface follows the ground by, m. */
+    /** The grid spacing the surface follows the ground by, in metres. */
     private const val STEP = 20.0
 
-    /** Rounded ends and discs, in this many pieces a half turn. */
+    /** Rounded ends and discs, in this many pieces per half turn. */
     private const val HALF_TURN = 24
 
     fun build(field: TerrainField): Built? {
@@ -74,7 +72,7 @@ object Paving {
         return Built(origin, pieces)
     }
 
-    /** [work]'s surface as triangles, each three (east, north) corners, into [out]. */
+    /** [work]'s surface as triangles, each with three (east, north) corners, into [out]. */
     private fun outline(work: TerrainField.PavedWork, out: MutableList<DoubleArray>) {
         val w = work.halfWidth
         val dx = work.toEast - work.fromEast
@@ -106,7 +104,9 @@ object Paving {
         fan(work.toEast, work.toNorth, w, heading - Math.PI / 2, heading + Math.PI / 2, out)
     }
 
-    /** A disc of [radius] about [east], [north] from angle [from] to [to], in rings, into [out]. */
+    /**
+     * A disc of [radius] around [east], [north] from angle [from] to [to], in rings, into [out].
+     */
     private fun fan(east: Double, north: Double, radius: Double, from: Double, to: Double, out: MutableList<DoubleArray>) {
         val span = to - from
         val segments = kotlin.math.max(4, kotlin.math.ceil(HALF_TURN * span / Math.PI).toInt())
@@ -128,7 +128,7 @@ object Paving {
         }
     }
 
-    /** A paved surface's colour: as the terrain drew it. */
+    /** A paved surface's colour, the way the terrain drew it. */
     private fun colourOf(material: SurfaceMaterial): FloatArray = when (material) {
         SurfaceMaterial.CONCRETE -> floatArrayOf(0.66f, 0.65f, 0.62f, 1f)
         else -> floatArrayOf(0.17f, 0.17f, 0.18f, 1f)

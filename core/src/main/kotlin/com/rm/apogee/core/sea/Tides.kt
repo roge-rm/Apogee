@@ -5,16 +5,15 @@ import com.rm.apogee.core.math.Vec3
 import com.rm.apogee.core.orbit.CelestialBody
 
 /**
- * The tide: the sea heaped up under [moon] and on the far side of [body],
- * as its pull stretches the ocean along the line between them.
+ * The tide: the sea heaped up under [moon] and on the far side of [body], as the moon's pull
+ * stretches the ocean along the line between them.
  *
- * The equilibrium tide, from the two bodies as they are: a bulge of
- * `(μm/μ)(R/d)³R` - about 1.4 m for Luna on Terra - varying as the second
- * Legendre polynomial of the angle from the moon. Two highs a day as the
- * planet turns under it, the bulge trailing the moon by [LAG_DEGREES] as a
- * real ocean's does. And bigger along the coasts: over a shelf and up a
- * gentle shore the tide piles up, [SHELF_BOOST] times the open ocean's -
- * about 2 m of range at sea, 4-6 m in the shallows.
+ * It's the equilibrium tide, from the two bodies as they are: a bulge of `(μm/μ)(R/d)³R`, about 1.4
+ * m for Luna on Terra, varying as the second Legendre polynomial of the angle from the moon. That
+ * gives two highs a day as the planet turns under it, with the bulge trailing the moon by
+ * [LAG_DEGREES] like a real ocean's does. It's also bigger along the coasts. Over a shelf and up a
+ * gentle shore the tide piles up to [SHELF_BOOST] times the open ocean's, so about 2 m of range at
+ * sea and 4-6 m in the shallows.
  */
 internal class Tides(private val body: CelestialBody, private val moon: CelestialBody?) {
 
@@ -23,9 +22,9 @@ internal class Tides(private val body: CelestialBody, private val moon: Celestia
     private val moonDirection = Vec3()
     private var amplitude = 0.0
 
-    // The moon's direction at whole seconds either side of the time asked
-    // about, blended: a pure function of the time, however it is called,
-    // and one orbit worked out a second rather than one a sample.
+    // The moon's direction at whole seconds either side of the time asked about, blended. That
+    // keeps it a pure function of the time, however it gets called, and works out one orbit a
+    // second instead of one per sample.
     private var second = Long.MIN_VALUE
     private val before = Vec3()
     private val after = Vec3()
@@ -33,7 +32,10 @@ internal class Tides(private val body: CelestialBody, private val moon: Celestia
     private var amplitudeAfter = 0.0
     private var at = Double.NaN
 
-    /** How far the moon's pull raises the sea here, m, over a bed [bed] m above the datum (negative under the sea). */
+    /**
+     * How far the moon's pull raises the sea here, in metres, over a bed at [bed] m above the datum
+     * (negative under the sea).
+     */
     fun height(direction: Vec3, time: Double, bed: Double): Double {
         if (moon?.orbit == null) return 0.0
         if (time != at) blend(time)
@@ -59,18 +61,21 @@ internal class Tides(private val body: CelestialBody, private val moon: Celestia
         amplitude = amplitudeBefore + (amplitudeAfter - amplitudeBefore) * f
     }
 
-    /** How many times the open ocean's tide the sea over a bed at [bed] m sees. */
+    /** How many times the open ocean's tide the sea over a bed at [bed] m gets. */
     fun boost(bed: Double): Double {
         val depth = -bed
         return 1.0 + (SHELF_BOOST - 1.0) * (1.0 - smoothstep(SHALLOW, SHELF, depth))
     }
 
-    /** The moon's direction in [body]'s own turning frame at [time], a little behind where it is. */
+    /**
+     * The moon's direction in [body]'s own turning frame at [time], a little behind where it really
+     * is.
+     */
     private fun aim(time: Double) {
         val m = moon ?: return
         val orbit = m.orbit ?: return
-        // The tide trails the moon: the bulge is where the moon was, as seen
-        // from the ground, a little while ago.
+        // The tide trails the moon. The bulge is where the moon was, seen from the ground, a little
+        // while ago.
         val synodic = synodicSeconds(orbit.period)
         val lag = LAG_DEGREES / 360.0 * synodic
         val state = orbit.stateAt(time - lag)
@@ -101,7 +106,9 @@ internal class Tides(private val body: CelestialBody, private val moon: Celestia
         /** How many times the open ocean's tide piles up over the shallows. */
         const val SHELF_BOOST = 3.0
 
-        /** Depths, m, between which the tide grows from the ocean's to the shallows'. */
+        /**
+         * The depths, in metres, between which the tide grows from the ocean's to the shallows'.
+         */
         const val SHELF = 200.0
         const val SHALLOW = 20.0
     }

@@ -4,7 +4,7 @@
     "title": "Launch Tower",
     "category": "structure",
     "dryMass": 180000.0,
-    "description": "A forty-metre service tower beside the pad, its arms swung out toward the rocket.",
+    "description": "A forty-metre service tower beside the pad, with its arms swung out toward the rocket.",
     "crashTolerance": 40.0,
     "dragCoefficient": 1.0,
     "mesh": {
@@ -1421,7 +1421,7 @@
     "title": "Control Centre",
     "category": "structure",
     "dryMass": 400000.0,
-    "description": "Where launches are watched from: a long low building, windows all along its front, dishes on the roof.",
+    "description": "Where launches are watched from: a long low building with windows all along its front and dishes on the roof.",
     "crashTolerance": 40.0,
     "dragCoefficient": 1.0,
     "mesh": {
@@ -2138,7 +2138,7 @@
     "title": "Hangar",
     "category": "structure",
     "dryMass": 500000.0,
-    "description": "Room for a few aeroplanes out of the weather: walls on three sides, open to the apron.",
+    "description": "Room for a few aeroplanes out of the weather, with walls on three sides and open to the apron.",
     "crashTolerance": 40.0,
     "dragCoefficient": 1.0,
     "mesh": {
@@ -2394,7 +2394,7 @@
     "title": "Control Tower",
     "category": "structure",
     "dryMass": 250000.0,
-    "description": "Twenty-four metres up, a cab with windows all round looks down the runway.",
+    "description": "A cab twenty-four metres up, with windows all round, looking down the runway.",
     "crashTolerance": 40.0,
     "dragCoefficient": 1.0,
     "mesh": {
@@ -2772,7 +2772,7 @@
     "title": "Centreline Paint",
     "category": "structure",
     "dryMass": 1.0,
-    "description": "A dash of paint down the runway's middle.",
+    "description": "A dash of paint down the middle of the runway.",
     "crashTolerance": 40.0,
     "dragCoefficient": 1.0,
     "mesh": {
@@ -3063,7 +3063,7 @@
     "title": "Boathouse",
     "category": "structure",
     "dryMass": 120000.0,
-    "description": "A shed for boats, its big door facing the water.",
+    "description": "A shed for boats, with its big door facing the water.",
     "crashTolerance": 40.0,
     "dragCoefficient": 1.0,
     "mesh": {
@@ -3217,7 +3217,7 @@
     "title": "Harbour Crane",
     "category": "structure",
     "dryMass": 90000.0,
-    "description": "A crane at the head of the jetty, its jib out over the berth.",
+    "description": "A crane at the head of the jetty, with its jib out over the berth.",
     "crashTolerance": 40.0,
     "dragCoefficient": 1.0,
     "mesh": {

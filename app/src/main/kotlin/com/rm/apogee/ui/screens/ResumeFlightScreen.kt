@@ -42,23 +42,26 @@ import com.rm.apogee.ui.theme.alpha
 class CraftSummary(
     val id: Long,
     val name: String,
-    /** "Landed on Terra", "In orbit of Luna" - where it is, in words. */
+    /** Where it is, in words: "Landed on Terra", "In orbit of Luna". */
     val situation: String,
     /** Height above the ground, or altitude, formatted. */
     val height: String,
-    /** What removing it does to whoever is aboard, in words; blank with nobody aboard. */
+    /** What removing it does to whoever's aboard, in words. Blank with nobody aboard. */
     val crewNote: String = "",
-    /** Whether it can be put back on its launch site - not someone on EVA, nor a flag - and flown at all. */
+    /**
+     * Whether it can be put back on its launch site and flown at all. Not someone on EVA, and not a
+     * flag.
+     */
     val canReset: Boolean = true,
     val canFly: Boolean = true,
 )
 
 /**
- * Every craft the player has out in the solo world: fly any of them, put one
- * back on its launch site, or take one away for good.
+ * Every craft the player has out in the solo world. You can fly any of them, put one back on its
+ * launch site, or take one away for good.
  *
- * The counterpart to Free Flight, which always starts fresh. A world people
- * leave bases in needs a way back to each of them - and a way to tidy up.
+ * This is the other half of Free Flight, which always starts fresh. A world people leave bases in
+ * needs a way back to each of them, and a way to tidy up.
  */
 @Composable
 fun ResumeFlightScreen(
@@ -102,7 +105,7 @@ fun ResumeFlightScreen(
             title = { Text("Remove \"${doomed.name}\"?") },
             text = {
                 Text(
-                    "It is taken out of the world for good. The design stays in Vehicle Assembly if you saved it." +
+                    "It's taken out of the world for good. The design stays in Vehicle Assembly if you saved it." +
                         if (doomed.crewNote.isNotEmpty()) "\n\n${doomed.crewNote}" else "",
                 )
             },

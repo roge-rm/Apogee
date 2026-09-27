@@ -9,8 +9,8 @@ import org.junit.Test
 import kotlin.math.abs
 
 /**
- * Luna: maria, highlands, craters. Airless, so no sea - which the surface
- * radius, the scatter and the renderer all have to respect.
+ * Luna: maria, highlands and craters. It's airless, so there's no sea, and the surface radius, the
+ * scatter and the renderer all have to respect that.
  */
 class LunaTerrainTest {
 
@@ -43,9 +43,9 @@ class LunaTerrainTest {
     }
 
     /**
-     * A big complex crater a few tens of kilometres from the prime meridian:
-     * a floor well below its rim, a central peak standing up off the floor,
-     * and a rim that stands above the plain outside it.
+     * A big complex crater a few tens of kilometres from the prime meridian: a floor well below its
+     * rim, a central peak standing up off the floor, and a rim that stands above the plain outside
+     * it.
      */
     @Test
     fun `a large crater has a floor, a central peak and a raised rim`() {
@@ -58,9 +58,9 @@ class LunaTerrainTest {
     }
 
     /**
-     * Small craters, the ones a rover actually meets, are everywhere. Counted
-     * as bowls on a 3 km square: points lower than everything within 16 m, and
-     * at least a metre and a half below the ring around them.
+     * Small craters, the ones a rover actually meets, are everywhere. They're counted as bowls on a
+     * 3 km square: points lower than everything within 16 m, and at least a metre and a half below
+     * the ring around them.
      */
     @Test
     fun `small craters pock the ground`() {

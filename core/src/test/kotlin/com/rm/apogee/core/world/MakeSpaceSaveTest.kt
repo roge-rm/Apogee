@@ -6,21 +6,18 @@ import com.rm.apogee.core.part.StockParts
 import org.junit.Test
 import java.io.File
 /**
- * Not a test: a tool. Writes a solo-world save with a Starter I coasting up
- * through 240 km at a kilometre a second - somewhere a tap-driven emulator
- * cannot fly to - for checking staging, warp and the like in space.
+ * Not a test: a tool. It writes a solo-world save with a Starter I coasting up through 240 km at a
+ * kilometre a second (somewhere a tap-driven emulator can't fly to), for checking staging, warp and
+ * so on in space.
  *
- *   SPACE_SAVE=/tmp/solo.json ./gradlew :core:test --tests '*MakeSpaceSaveTest*' --rerun-tasks
+ *     SPACE_SAVE=/tmp/solo.json ./gradlew :core:test --tests '*MakeSpaceSaveTest*' --rerun-tasks
  *
- * then copy it over the app's files/world/solo.json and Resume Flight.
- * With NIGHT set as well, the rocket stands on the pad instead, with the
- * clock moved on until the launch site is at local midnight, for checking
- * how things look after dark - or, given a number of seconds, to that time
- * instead: NIGHT=2400 is just before sunset.
- * With CRASH=<metres> instead, the rocket starts that high over the pad,
- * tipped over and falling at 60 m/s (or CRASH_SPEED), for watching a crash
- * and what follows.
- * Does nothing without SPACE_SAVE set.
+ * Then copy it over the app's files/world/solo.json and use Resume Flight. With NIGHT set as well,
+ * the rocket stands on the pad instead, with the clock moved on until the launch site is at local
+ * midnight, for checking how things look after dark. Given a number of seconds, it goes to that
+ * time instead: NIGHT=2400 is just before sunset. With CRASH=<metres> instead, the rocket starts
+ * that high over the pad, tipped over and falling at 60 m/s (or CRASH_SPEED), for watching a crash
+ * and what follows. It does nothing without SPACE_SAVE set.
  */
 class MakeSpaceSaveTest {
     @Test fun make() {
@@ -30,8 +27,8 @@ class MakeSpaceSaveTest {
         val terra = world.system.body("terra")
         val night = System.getenv("NIGHT")
         if (night != null) {
-            // The site turns with Terra from +X; the sun sits a little north of
-            // the equator at x 0.62, z 0.64. Midnight is when the site faces away.
+            // The site turns with Terra from +X, and the sun sits a little north of the equator at
+            // x 0.62, z 0.64. Midnight is when the site faces away.
             val away = kotlin.math.atan2(0.64, -0.62)
             val midnight = night.toDoubleOrNull()?.takeIf { it > 1.0 }
                 ?: ((away + 2 * kotlin.math.PI) % (2 * kotlin.math.PI)) / (2 * kotlin.math.PI) * terra.rotationPeriod
@@ -42,9 +39,9 @@ class MakeSpaceSaveTest {
             println("saved to $out at t=$midnight")
             return
         }
-        // SEA=wind|storm|surf: boats afloat somewhere the sea is like that,
-        // in daylight - an open-ocean wind sea of a few metres; a storm's
-        // sea, with a Cutter, a Skiff and a Trawler side by side; or surf over a beach.
+        // SEA=wind|storm|surf: boats afloat somewhere the sea is like that, in daylight. That's an
+        // open-ocean wind sea of a few metres, a storm's sea with a Cutter, a Skiff and a Trawler
+        // side by side, or surf over a beach.
         System.getenv("SEA")?.let { kind ->
             world.weatherConfig = com.rm.apogee.core.weather.WeatherConfig()
             val sun = Vec3(0.62, 0.0, 0.64).normalizeInPlace()
@@ -88,9 +85,8 @@ class MakeSpaceSaveTest {
             println("saved to $out: $kind sea, Hs ${"%.1f".format(ocean.sample(where, time, sample).significantHeight)} m, t=$time")
             return
         }
-        // DOCK=space|luna|land|water: two craft ready to dock - tugs ring to
-        // ring in orbit or on Luna, a buggy with a cart behind it, two
-        // skiffs side by side - a few metres apart.
+        // DOCK=space|luna|land|water: two craft ready to dock, a few metres apart. That's tugs ring
+        // to ring in orbit or on Luna, a buggy with a cart behind it, or two skiffs side by side.
         System.getenv("DOCK")?.let { where ->
             fun ref(v: com.rm.apogee.core.craft.Vessel, part: Int) =
                 com.rm.apogee.core.physics.PortRef(v, part, v.defs[part].module<com.rm.apogee.core.part.DockingPort>()!!).update()
@@ -141,22 +137,21 @@ class MakeSpaceSaveTest {
             return
         }
         val crash = System.getenv("CRASH")?.toDoubleOrNull()
-        // AT=DAWN (or NOON, DUSK, MIDNIGHT): the next such time at the pad, for
-        // looking at the light - with CRASH, up in the air at that time;
-        // AT_PLUS=<seconds> moves it on from there.
+        // AT=DAWN (or NOON, DUSK, MIDNIGHT): the next such time at the pad, for looking at the
+        // light. With CRASH, it's up in the air at that time. AT_PLUS=<seconds> moves it on from
+        // there.
         System.getenv("AT")?.let { at ->
             val design = StockCraft.starterRocket(catalog)
             val probe = world.spawnAtSite(design, World.launchSiteFor(design, catalog))
             val pad = terra.toBodyFixed(probe.body.position, terra.rotationAt(world.time), Vec3()).normalizeInPlace()
-            // AT_PLUS=<seconds> on from it: an hour after dawn, say.
+            // AT_PLUS=<seconds> on from it, an hour after dawn, say.
             val t = LaunchTime.valueOf(at).nextAt(world.system, terra, pad, 1_000.0) +
                 (System.getenv("AT_PLUS")?.toDoubleOrNull() ?: 0.0)
             world.restore(WorldSave(catalogHash = catalog.contentHash, universeTime = t, nextVesselId = 1L))
             println("at $at: t=$t")
         }
-        // STORM=day or night: a time when a grown storm stands near the pad
-        // in daylight or in darkness, for looking at storms; with CRASH the
-        // rocket is then up in the air at that time.
+        // STORM=day or night: a time when a grown storm stands near the pad in daylight or in
+        // darkness, for looking at storms. With CRASH the rocket is up in the air at that time.
         var underRain: Vec3? = null
         System.getenv("STORM")?.let { want ->
             val design = StockCraft.starterRocket(catalog)
@@ -174,7 +169,8 @@ class MakeSpaceSaveTest {
                     val shapes = ArrayList<com.rm.apogee.core.weather.CloudShape>()
                     weather.clouds(pad, 35_000.0, t, shapes)
                     val here = pad.copy().mulInPlace(terra.radius)
-                    // STORM_KIND=single|multicell|supercell|squall: that kind, grown, 15-45 km off.
+                    // STORM_KIND=single|multicell|supercell|squall: that kind, grown, 15-45 km
+                    // away.
                     val kind = System.getenv("STORM_KIND")?.let { com.rm.apogee.core.weather.StormKind.valueOf(it.uppercase()) }
                     val storm = if (kind != null) {
                         val e = Vec3(); val n = Vec3()
@@ -192,7 +188,7 @@ class MakeSpaceSaveTest {
                     }
                     if (storm != null) {
                         found = t
-                        // STORM=rain: then under its rain, not at the pad.
+                        // STORM=rain: under its rain instead, not at the pad.
                         if (want == "rain") underRain = storm.rain.first().centre.copy().normalizeInPlace()
                     }
                 }
@@ -207,11 +203,11 @@ class MakeSpaceSaveTest {
             val rocket = world.spawnAtSite(design, World.launchSiteFor(design, catalog))
             rocket.name = "Starter I"
             val body = rocket.body
-            // ROUGH=1: not over the pad but over the roughest ground within
-            // 20 km of it - where coarse drawn ground strays furthest from
-            // the collider's - for checking what is drawn under a craft.
+            // ROUGH=1: not over the pad but over the roughest ground within 20 km of it, where
+            // coarse drawn ground strays furthest from the collider's, for checking what's drawn
+            // under a craft.
             underRain?.let { spot ->
-                // In the rain, a little off the shaft's middle.
+                // In the rain, a little off the middle of the shaft.
                 val rotation = terra.rotationAt(world.time)
                 val radius = terra.radius + maxOf(terra.terrain!!.elevation(spot), 0.0) + 2.0
                 rotation.rotate(spot, body.position).mulInPlace(radius)
@@ -233,7 +229,7 @@ class MakeSpaceSaveTest {
                     if (middle < (System.getenv("ROUGH_ABOVE")?.toDoubleOrNull() ?: 0.0)) continue
                     val corners = (terrain.elevation(at(x - cell / 2, y - cell / 2)) + terrain.elevation(at(x + cell / 2, y - cell / 2)) +
                         terrain.elevation(at(x - cell / 2, y + cell / 2)) + terrain.elevation(at(x + cell / 2, y + cell / 2))) / 4
-                    // A dip under the coarse mesh: drawn above the ground a craft rests on.
+                    // A dip under the coarse mesh, drawn above the ground a craft rests on.
                     if (corners - middle > worst) { worst = corners - middle; best = at(x, y) }
                 }
                 println("roughest dip: ${"%.2f".format(worst)} m below the coarse mesh at elevation ${terrain.elevation(best).toInt()} m")

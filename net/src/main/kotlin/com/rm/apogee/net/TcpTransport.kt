@@ -20,21 +20,20 @@ import java.net.Socket
 /**
  * A [Transport] over a TCP socket.
  *
- * Framing is one byte of channel, four bytes of big-endian length, then the
- * payload. TCP is a stream and has no notion of where one message ends - a
- * protocol that forgets that works perfectly on localhost, where writes tend to
- * arrive whole, and then fragments the moment it meets a real network.
+ * Each frame is one byte of channel, four bytes of big-endian length, then the payload. TCP is a
+ * stream and has no idea where one message ends. A protocol that forgets that works perfectly on
+ * localhost, where writes tend to arrive whole, and then falls apart the moment it meets a real
+ * network.
  *
- * Blocking IO on [Dispatchers.IO] rather than NIO selectors. A game hosted from
- * a phone has a handful of players and a dedicated server has tens; at that
- * scale a thread per connection is simpler, easier to reason about, and behaves
- * identically on Android and on a server JVM. Selectors become worth their
- * complexity in the hundreds.
+ * It uses blocking IO on [Dispatchers.IO] instead of NIO selectors. A game hosted from a phone has
+ * a handful of players and a dedicated server has tens, and at that size a thread per connection is
+ * simpler, easier to think about, and behaves the same on Android and on a server JVM. Selectors
+ * are only worth the trouble in the hundreds.
  *
- * TCP, not UDP, for now. Head-of-line blocking means a lost packet delays the
- * positions behind it, which is exactly the wrong trade for a 20 Hz state
- * stream - but it is the right trade for getting two devices flying together,
- * and the [Channel] split already marks where an unreliable path will go.
+ * It's TCP, not UDP, for now. Head-of-line blocking means a lost packet holds up the positions
+ * behind it, which is exactly the wrong trade for a 20 Hz state stream. But it's the right trade
+ * for getting two devices flying together, and the [Channel] split already marks where an
+ * unreliable path will go.
  */
 class TcpTransport private constructor(
     private val socket: Socket,
@@ -47,7 +46,7 @@ class TcpTransport private constructor(
     @Volatile
     private var closed = false
 
-    /** Remote address, for logging and the player list. */
+    /** The remote address, for logging and the player list. */
     val remoteAddress: String get() = socket.inetAddress?.hostAddress ?: "?"
 
     override val incoming: Flow<Packet> = flow {
@@ -56,9 +55,8 @@ class TcpTransport private constructor(
                 val channelOrdinal = input.readByte().toInt()
                 val length = input.readInt()
                 if (length < 0 || length > MAX_FRAME_BYTES) {
-                    // A bad length is either corruption or something hostile.
-                    // Either way the stream can no longer be trusted, because
-                    // we no longer know where the next frame starts.
+                    // A bad length is either corruption or something hostile. Either way the stream
+                    // can't be trusted any more, because we don't know where the next frame starts.
                     throw IOException("Frame length $length out of range")
                 }
                 val channel = CHANNELS.getOrNull(channelOrdinal)
@@ -69,10 +67,9 @@ class TcpTransport private constructor(
                 emit(Packet(channel, bytes))
             }
         } catch (_: EOFException) {
-            // The peer hung up. An ordinary disconnect, not an error.
+            // The other end hung up. That's an ordinary disconnect, not an error.
         } catch (_: IOException) {
-            // Reset, timeout, or a malformed frame. Also just a disconnect from
-            // the game's point of view.
+            // A reset, a timeout, or a malformed frame. To the game that's just a disconnect too.
         } finally {
             close()
         }
@@ -80,15 +77,13 @@ class TcpTransport private constructor(
 
     override suspend fun send(packet: Packet) {
         if (closed) return
-        // On the IO dispatcher rather than the caller's, because these are
-        // blocking socket writes and the client sends control commands
-        // straight from the UI's own scope. On Android that scope is the main
-        // thread, and a blocking write there is a fatal
-        // NetworkOnMainThreadException - which single player never hits,
-        // because its transport is an in-memory queue with no socket to
-        // block on. So the crash could only ever appear once joined to a real
-        // server, which is exactly where it did. The read side already
-        // declares its dispatcher; the write side has to as well.
+        // This goes on the IO dispatcher instead of the caller's, because these are blocking socket
+        // writes and the client sends control commands straight from the UI's own scope. On Android
+        // that scope is the main thread, and a blocking write there is a fatal
+        // NetworkOnMainThreadException. Single player never hits it, because its transport is an
+        // in-memory queue with no socket to block on. So the crash could only ever show up once you
+        // joined a real server, which is exactly where it did. The read side already says which
+        // dispatcher it uses, and the write side has to as well.
         withContext(Dispatchers.IO) {
             writeLock.withLock {
                 try {
@@ -111,19 +106,19 @@ class TcpTransport private constructor(
 
     companion object {
         /**
-         * Frames larger than this are refused.
+         * Frames larger than this get refused.
          *
-         * A craft design is a few kilobytes; a megabyte is already implausible.
-         * The cap exists so a corrupt or hostile length cannot make the server
-         * allocate an arbitrary buffer on demand.
+         * A craft design is a few kilobytes, and a megabyte is already hard to believe. The cap is
+         * there so a corrupt or hostile length can't make the server allocate any buffer it's asked
+         * for.
          */
         const val MAX_FRAME_BYTES = 1 shl 20
 
         private val CHANNELS = Channel.entries.toTypedArray()
 
         fun wrap(socket: Socket): TcpTransport {
-            // Disable Nagle: the whole point of a 20 Hz state stream is that
-            // each update goes out now, not when the buffer happens to fill.
+            // Nagle is off. The whole point of a 20 Hz state stream is that each update goes out
+            // now, not when the buffer happens to fill up.
             runCatching { socket.tcpNoDelay = true }
             return TcpTransport(
                 socket,
@@ -150,8 +145,8 @@ class TcpTransport private constructor(
 /**
  * Accepts TCP connections and hands each one to [onConnected] as a [Transport].
  *
- * Knows nothing about the game: it is the seam between sockets and sessions, so
- * that [com.rm.apogee.server.GameServer] never has to.
+ * It knows nothing about the game. It's the seam between sockets and sessions, so that
+ * [com.rm.apogee.server.GameServer] never has to know about sockets.
  */
 class TcpListener(
     private val port: Int,
@@ -159,7 +154,7 @@ class TcpListener(
 ) {
     private var serverSocket: java.net.ServerSocket? = null
 
-    /** The port actually bound, which may differ if 0 was requested. */
+    /** The port actually bound, which may be different if 0 was asked for. */
     val boundPort: Int get() = serverSocket?.localPort ?: port
 
     @Volatile
@@ -177,7 +172,7 @@ class TcpListener(
                     onConnected(TcpTransport.wrap(client))
                 }
             } catch (_: IOException) {
-                // Closed while blocked in accept(); that is how stop() works.
+                // Closed while blocked in accept(). That's how stop() works.
             }
         }
     }

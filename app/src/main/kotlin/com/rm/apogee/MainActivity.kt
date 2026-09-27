@@ -55,12 +55,12 @@ import kotlinx.coroutines.launch
 import java.io.File
 
 /**
- * Host for the whole app: one FrameLayout holding the 3D surface and, above it,
- * one ComposeView holding every screen.
+ * The host for the whole app: one FrameLayout holding the 3D surface and, above it, one ComposeView
+ * holding every screen.
  *
- * Kept deliberately thin. The simulation lives in :core, the session wiring in
- * [GameSession], the render path in [GlRenderer], and observable UI state in
- * [HudState]; this class only connects them and decides which screen is up.
+ * It's kept thin on purpose. The simulation lives in :core, the session wiring in [GameSession],
+ * the render path in [GlRenderer], and observable UI state in [HudState]. This class only connects
+ * them and decides which screen is up.
  */
 class MainActivity : ComponentActivity() {
 
@@ -69,11 +69,11 @@ class MainActivity : ComponentActivity() {
     private lateinit var hudState: HudState
     private lateinit var frameBus: FrameBus
 
-    /** The designs saved in free play, and in a career: a career starts from scratch, with none of the stock ones. */
+    /** The designs saved in free play, and in a career. A career starts from scratch, with none of the stock ones. */
     private lateinit var sandboxCraft: CraftStore
     private lateinit var careerCraft: CraftStore
     private val craftStore: CraftStore get() = if (careerMode) careerCraft else sandboxCraft
-    /** The two worlds on this device: the sandbox, everything unlocked, and the career. */
+    /** The two worlds on this device: the sandbox, with everything unlocked, and the career. */
     private lateinit var sandboxStore: WorldStore
     private lateinit var careerStore: WorldStore
     private val soloWorldStore: WorldStore get() = if (careerMode) careerStore else sandboxStore
@@ -81,16 +81,16 @@ class MainActivity : ComponentActivity() {
     /** Whether the Play screen is on the career world, as the player last chose. */
     private var careerMode by mutableStateOf(false)
 
-    /** The player's career in it, for the Play and Program screens; null in the sandbox. */
+    /** The player's career in it, for the Play and Program screens. Null in the sandbox. */
     private var careerState by mutableStateOf<com.rm.apogee.core.career.CareerState?>(null)
     private var worldFirsts by mutableStateOf(emptyList<com.rm.apogee.core.career.WorldFirst>())
 
     /**
      * The single-player world, held across flights.
      *
-     * Null until something needs it. Loaded from disk once and written back
-     * when the player leaves, so landing a module and coming back with the
-     * next one is the same world rather than a new one.
+     * It's null until something needs it. It's loaded from disk once and written back when the
+     * player leaves, so landing a module and coming back with the next one is the same world, not a
+     * new one.
      */
     private var soloWorld: World? = null
 
@@ -102,7 +102,7 @@ class MainActivity : ComponentActivity() {
     /** The drawer's part pictures, drawn by the renderer once and kept. */
     private val partThumbnails by lazy { com.rm.apogee.render.PartThumbnails(cacheDir) }
 
-    /** Set by the builder's Launch button; consumed when flight starts. */
+    /** Set by the builder's Launch button, and used up when flight starts. */
     private var pendingLaunchDesign: CraftDesign? = null
     private var pendingLaunchSite: String? = null
     private var pendingResume: Long? = null
@@ -132,8 +132,8 @@ class MainActivity : ComponentActivity() {
     private var perfHints: PerfHints? = null
     private var rendererTerrainSource: com.rm.apogee.render.TerrainSource? = null
 
-    // Held between updates because pitch/yaw and roll arrive from different
-    // controls but are sent as one command.
+    // Held between updates, because pitch/yaw and roll come from different controls but get sent as
+    // one command.
     private var commandedPitch = 0f
     private var commandedYaw = 0f
     private var commandedRoll = 0f
@@ -146,8 +146,8 @@ class MainActivity : ComponentActivity() {
     private var connectingTo by mutableStateOf<String?>(null)
 
     /**
-     * What is typed in the join screen's address box. Seeded from the last
-     * address that worked, so returning to a server is one tap.
+     * What's typed in the join screen's address box. It starts with the last address that worked,
+     * so going back to a server is one tap.
      */
     private var manualAddress by mutableStateOf("")
     private var serverName by mutableStateOf("")
@@ -156,8 +156,8 @@ class MainActivity : ComponentActivity() {
     private var detectedTier by mutableStateOf<QualityTier?>(null)
 
     /**
-     * Every touch, wherever it lands - the view, a control, a dialog - wakes
-     * the flight controls from their idle fade. Only watched, never taken.
+     * Every touch, wherever it lands (the view, a control, a dialog), wakes the flight controls
+     * from their idle fade. It's only watched, never taken.
      */
     override fun dispatchTouchEvent(ev: android.view.MotionEvent): Boolean {
         if (ev.actionMasked == android.view.MotionEvent.ACTION_DOWN && ::hudState.isInitialized) hudState.touched()
@@ -172,12 +172,12 @@ class MainActivity : ComponentActivity() {
         frameBus = FrameBus()
         sandboxCraft = CraftStore(File(filesDir, "craft"))
         careerCraft = CraftStore(File(filesDir, "craft-career"))
-        // One world, kept on disk, rather than a fresh universe per launch.
+        // One world, kept on disk, instead of a fresh universe per launch.
         sandboxStore = WorldStore(File(filesDir, "world/solo.json"))
         careerStore = WorldStore(File(filesDir, "world/career.json"))
         careerMode = settings.careerMode
-        // So there is something to fly, and something to land, before the
-        // player has built anything - in free play. A career's are all its own.
+        // So there's something to fly, and something to land, before the player has built anything,
+        // in free play. A career's designs are all its own.
         sandboxCraft.seedStockDesigns(StockParts.catalog)
         serverBrowser = ServerBrowser(this, StockParts.catalog.contentHash)
         serverName = "${settings.playerName}'s Game"
@@ -198,8 +198,8 @@ class MainActivity : ComponentActivity() {
 
         findViewById<ComposeView>(R.id.hud_compose_view).setContent {
             ApogeeTheme {
-                // Back is hand-wired from AppScreen.parent. Flight deliberately
-                // swallows it so a stray gesture cannot discard a flight.
+                // Back is wired by hand from AppScreen.parent. Flight swallows it on purpose, so a
+                // stray gesture can't throw away a flight.
                 BackHandler(enabled = appScreen.parent != null) {
                     navigateTo(appScreen.parent ?: AppScreen.MENU)
                 }
@@ -302,7 +302,8 @@ class MainActivity : ComponentActivity() {
                         onWarp = { rate -> session?.let { s -> lifecycleScope.launch { s.setWarp(rate) } } },
                         me = settings.clientId,
                         onUnlock = { id ->
-                            // Checked here, so the answer is immediate; asked of the server, whose career it is.
+                            // Checked here, so the answer is instant, and asked of the server,
+                            // whose career it is.
                             val state = hudState.career
                             val node = com.rm.apogee.core.career.TechTree.stock.node(id)
                             val why = when {
@@ -381,8 +382,8 @@ class MainActivity : ComponentActivity() {
         if (target == AppScreen.CREW) refreshCrew()
         if (target == AppScreen.PLAY || target == AppScreen.PROGRAM) refreshProgram()
 
-        // Discovery holds a multicast lock and a socket; it runs only while the
-        // browser is actually on screen.
+        // Discovery holds a multicast lock and a socket, so it only runs while the browser is
+        // actually on screen.
         if (target == AppScreen.JOIN_GAME) {
             joinError = null
             if (manualAddress.isEmpty()) manualAddress = settings.lastServerAddress
@@ -392,9 +393,9 @@ class MainActivity : ComponentActivity() {
         }
 
         when {
-            // Builder and flight both want the surface but different sessions,
-            // so moving between them tears down and rebuilds rather than
-            // trying to hand one session's state to the other.
+            // Builder and flight both want the surface but different sessions, so moving between
+            // them tears one down and builds the other, instead of trying to hand one session's
+            // state to the other.
             target.needsWorldSurface && wasInWorld -> {
                 leaveWorld()
                 enterWorld(target)
@@ -412,11 +413,11 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Connects to a discovered host, then enters flight.
+     * Connects to a discovered host, then goes into flight.
      *
-     * The connection is made *before* navigating, so a host that has gone away
-     * produces an error on the list where the player can pick another, rather
-     * than dropping them into an empty world to work it out themselves.
+     * The connection is made *before* navigating, so a host that has gone away shows an error on
+     * the list where the player can pick another one, instead of dropping them into an empty world
+     * to work it out for themselves.
      */
     private fun joinServer(server: DiscoveredServer) =
         connectTo(server.beacon.serverName, server.beacon.address, server.beacon.port)
@@ -424,9 +425,9 @@ class MainActivity : ComponentActivity() {
     /**
      * Connects to an address the player typed.
      *
-     * Remembered only once the connection succeeds: an address that failed is
-     * as likely to be a typo as a server that is down, and offering it back as
-     * the default next time would keep the typo alive.
+     * It's only remembered once the connection works. An address that failed is as likely to be a
+     * typo as a server that's down, and offering it back as the default next time would keep the
+     * typo alive.
      */
     private fun joinAddress(address: ServerAddress) {
         connectTo(address.label(GameSession.DEFAULT_PORT), address.host, address.port) {
@@ -461,7 +462,7 @@ class MainActivity : ComponentActivity() {
                     navigateTo(AppScreen.FLIGHT)
                 }
                 .onFailure {
-                    joinError = "Could not reach $label: ${it.message ?: "host unreachable"}"
+                    joinError = "Couldn't reach $label: ${it.message ?: "host unreachable"}"
                 }
         }
     }
@@ -477,15 +478,14 @@ class MainActivity : ComponentActivity() {
     /**
      * Attitude input.
      *
-     * Pitch and yaw come from the stick and roll from its buttons, but they
-     * travel as one command - the server takes all three axes together, and
-     * splitting them would let a stick update arrive between a roll press and
-     * its release and silently cancel it.
+     * Pitch and yaw come from the stick and roll from its buttons, but they travel as one command.
+     * The server takes all three axes together, and splitting them would let a stick update arrive
+     * between a roll press and its release and quietly cancel it.
      */
     private fun onAttitude(pitch: Float, yaw: Float) {
         if (sliding()) {
-            // Thrusters armed and the stick set to slide: up is away from
-            // the camera, right is its right.
+            // Thrusters armed and the stick set to slide: up is away from the camera, and right is
+            // its right.
             slideRight = yaw; slideAway = pitch
             sendSlide()
             return
@@ -497,9 +497,8 @@ class MainActivity : ComponentActivity() {
 
     private fun onRoll(roll: Float) {
         if (sliding()) {
-            // The roll buttons become down (left) and up (right) - gently:
-            // a button has no half-way, and full thrust was metres a second
-            // in the time it took to tap it.
+            // The roll buttons become down (left) and up (right), gently. A button has no halfway,
+            // and full thrust was metres a second in the time it took to tap it.
             slideLift = roll * LIFT_BUTTON
             sendSlide()
             return
@@ -544,14 +543,13 @@ class MainActivity : ComponentActivity() {
 
     private fun sendAttitude() {
         val current = session ?: return
-        // Read per command rather than cached, so switching to another craft
-        // or changing the setting mid-flight takes effect on the next nudge.
+        // Read per command instead of cached, so switching to another craft or changing the setting
+        // mid-flight takes effect on the next nudge.
         val reversed = settings.pitchStyle.reverses(current.controlledOrientation)
         val pitch = commandedPitch.toDouble() * if (reversed) -1.0 else 1.0
-        // Positive yaw is about the design's +Z, which on a craft built lying
-        // down is the sky: it turns anticlockwise seen from above - left -
-        // while the stick gives positive to the right. Flipped, so stick left
-        // turns a plane, boat or rover left.
+        // Positive yaw is about the design's +Z, which on a craft built lying down is the sky. It
+        // turns anticlockwise seen from above, which is left, while the stick gives positive to the
+        // right. It's flipped so stick left turns a plane, boat or rover left.
         val flat = current.controlledOrientation == com.rm.apogee.core.craft.CraftOrientation.HORIZONTAL
         val yaw = commandedYaw.toDouble() * if (flat) -1.0 else 1.0
         val roll = commandedRoll.toDouble()
@@ -576,9 +574,8 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Takes the craft being flown out of the world and goes back to the
-     * menu - once the server has done it, or the world saved on the way out
-     * would still have it.
+     * Takes the craft being flown out of the world and goes back to the menu, once the server has
+     * done it, or the world saved on the way out would still have it.
      */
     private fun onRetire() {
         val current = session ?: return
@@ -607,7 +604,7 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch { current.setIndustry(power.drilling, !power.refining) }
     }
 
-    /** Floods the tanks ([mode] 1) or blows them (-1) - or, tapped again, stops. */
+    /** Floods the tanks ([mode] 1) or blows them (-1), or stops if it's tapped again. */
     private fun onBallast(mode: Int) {
         val power = hudState.power ?: return
         val next = if (power.ballastMode == mode) 0 else mode
@@ -662,9 +659,8 @@ class MainActivity : ComponentActivity() {
 
         val host = findViewById<FrameLayout>(R.id.game_surface_host)
         val glRenderer = GlRenderer(this, frameBus) { tier ->
-            // Arrives on the GL thread. The terrain builder needs the tier to
-            // know how finely to sample, so it is created here rather than
-            // guessed at earlier.
+            // This arrives on the GL thread. The terrain builder needs the tier to know how finely
+            // to sample, so it's created here instead of guessed at earlier.
             settings.lastDetectedTier = tier
             detectedTier = tier
             session?.attachTerrain(rendererTerrainSource!!, settings.qualityOverride ?: tier)
@@ -673,8 +669,8 @@ class MainActivity : ComponentActivity() {
         glRenderer.thumbnails = partThumbnails
         val view = createSurfaceView(glRenderer)
         host.addView(view)
-        // The builder picks and pans in pixels: it needs the view's size
-        // from the start, not only once a finger has touched it.
+        // The builder picks and pans in pixels, so it needs the view's size from the start, not
+        // only once a finger has touched it.
         view.addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
             builderSession?.setViewSize(v.width.toFloat(), v.height.toFloat())
         }
@@ -692,7 +688,7 @@ class MainActivity : ComponentActivity() {
             val builder = BuilderSession(frameBus, StockParts.catalog, craftStore)
             // Somewhere of the player's own to launch from, as well as the Cape.
             builder.baseSites = runCatching { openSoloWorld().baseSites(settings.clientId) }.getOrDefault(emptyList())
-            // In a career, only what the player has unlocked, and no more than their pad takes.
+            // In a career, only what the player has unlocked, and no more than their pad can take.
             builder.career = openSoloWorld().program?.careerOf(settings.clientId)
             partThumbnails.request(StockParts.catalog)
             view.takeIf { it.width > 0 }?.let { builder.setViewSize(it.width.toFloat(), it.height.toFloat()) }
@@ -709,10 +705,9 @@ class MainActivity : ComponentActivity() {
                     scope = lifecycleScope,
                     world = openSoloWorld(),
                     siteId = pendingLaunchSite,
-                    // Free Flight from the menu is a new flight: the craft
-                    // flown last time is cleared away and a fresh one put on
-                    // the pad. A launch from the builder brings its own, and
-                    // Resume Flight names the one to fly.
+                    // Free Flight from the menu is a new flight. The craft flown last time gets
+                    // cleared away and a fresh one put on the pad. A launch from the builder brings
+                    // its own, and Resume Flight names the one to fly.
                     freshFlight = pendingLaunchDesign == null && pendingResume == null,
                     resumeVessel = pendingResume,
                     weather = settings.weatherIntensity,
@@ -730,12 +725,12 @@ class MainActivity : ComponentActivity() {
                     scope = lifecycleScope,
                     weather = settings.weatherIntensity,
                     clouds = settings.cloudCover,
-                    // The world chosen, as solo play uses it: the others join it.
+                    // The chosen world, as solo play uses it. The others join it.
                     world = openSoloWorld(),
                 )
 
-                // Already connected: joining happens before navigation so a
-                // failure can be shown on the browser instead of in an empty world.
+                // Already connected. Joining happens before navigating so a failure can be shown on
+                // the browser instead of in an empty world.
                 is SessionMode.Joined -> mode.session
             }
             pendingLaunchDesign = null
@@ -757,22 +752,20 @@ class MainActivity : ComponentActivity() {
     private fun createSurfaceView(glRenderer: GlRenderer): GLSurfaceView {
         val view = GLSurfaceView(this).apply {
             setEGLContextClientVersion(3)
-            // Keeping the context across pauses avoids rebuilding every mesh
-            // and shader each time the player checks a notification.
+            // Keeping the context across pauses saves rebuilding every mesh and shader each time
+            // the player checks a notification.
             preserveEGLContextOnPause = true
-            // 4x multisampling where the device has it. Without it every facet
-            // edge is a hard pixel staircase, and as the camera moves the
-            // staircases crawl - on faceted ground, that is a shimmer across
-            // the whole landscape. Tile-based mobile GPUs resolve MSAA on chip,
-            // so it costs little; a device without it falls back to none.
+            // 4x multisampling where the device has it. Without it every facet edge is a hard pixel
+            // staircase, and as the camera moves the staircases crawl, which on faceted ground is a
+            // shimmer across the whole landscape. Tile-based mobile GPUs resolve MSAA on chip, so
+            // it costs little, and a device without it falls back to none.
             setEGLConfigChooser(MultisampleConfigChooser)
             setRenderer(glRenderer)
             renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
         }
 
-        // Camera gestures are handled on the surface itself rather than in
-        // Compose, so a drag over the 3D world does not have to travel through
-        // the overlay's hit testing to get here.
+        // Camera gestures are handled on the surface itself instead of in Compose, so a drag over
+        // the 3D world doesn't have to travel through the overlay's hit testing to get here.
         val pinch = ScaleGestureDetector(this, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
             override fun onScale(detector: ScaleGestureDetector): Boolean {
                 session?.camera?.zoomBy(detector.scaleFactor.toDouble())
@@ -785,18 +778,17 @@ class MainActivity : ComponentActivity() {
         var downX = 0f
         var downY = 0f
         var downTime = 0L
-        // Set when a second finger lands, cleared when the next gesture
-        // starts. A pinch ends with one finger lifting before the other, and
-        // the one left behind used to carry on as a drag measured from where
-        // the *first* finger had been before the pinch - one enormous move,
-        // and the camera whipped round. After a pinch, the rest of that
-        // gesture is the pinch's.
+        // Set when a second finger lands, and cleared when the next gesture starts. A pinch ends
+        // with one finger lifting before the other, and the one left behind used to carry on as a
+        // drag measured from where the *first* finger had been before the pinch. That was one
+        // enormous move, and the camera whipped round. After a pinch, the rest of that gesture
+        // belongs to the pinch.
         var multiTouch = false
         // A finger holding the planned burn on the map, dragging it along the path.
         var holdingBurn = false
 
-        // The assembly building's own gestures: taps, holds that lift a part,
-        // two-finger pan and pinch - worked out in one place, and testable.
+        // The assembly building's own gestures (taps, holds that lift a part, two-finger pan and
+        // pinch), worked out in one place, and testable.
         val building = BuilderGestures(object : BuilderGestures.Listener {
             override fun tap(x: Float, y: Float) { builderSession?.tap(x, y, view.width.toFloat(), view.height.toFloat()) }
             override fun doubleTap(x: Float, y: Float) { builderSession?.recentre() }
@@ -861,10 +853,9 @@ class MainActivity : ComponentActivity() {
                 }
 
                 MotionEvent.ACTION_UP -> {
-                    // A tap is a touch that neither travelled nor lingered. The
-                    // slop has to be generous: on a phone, a finger placed to
-                    // tap always moves a few pixels, and treating that as a drag
-                    // makes placing a part feel broken.
+                    // A tap is a touch that neither travelled nor lingered. The slop has to be
+                    // generous. On a phone, a finger put down to tap always moves a few pixels, and
+                    // treating that as a drag makes placing a part feel broken.
                     val travelled = kotlin.math.hypot(event.x - downX, event.y - downY)
                     val duration = event.eventTime - downTime
                     if (holdingBurn) {
@@ -892,13 +883,12 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * The single-player world, restored from disk the first time it is asked
-     * for and kept in memory after that.
+     * The single-player world, restored from disk the first time it's asked for and kept in memory
+     * after that.
      *
-     * A save written against a different part catalogue is reported rather
-     * than discarded: the craft that still resolve are loaded, and the ones
-     * that do not are named. Losing a base to a parts update would be far
-     * worse than losing one craft out of it.
+     * A save written against a different part catalogue gets reported instead of thrown away. The
+     * craft that still work are loaded, and the ones that don't are named. Losing a base to a parts
+     * update would be far worse than losing one craft out of it.
      */
     private fun openSoloWorld(): World {
         soloWorld?.let { return it }
@@ -908,10 +898,9 @@ class MainActivity : ComponentActivity() {
             if (warning != null) Log.w(TAG, "World save: $warning")
             for (problem in problems) Log.w(TAG, "World save: $problem")
         }
-        // A career world new to this device begins its program here.
+        // A career world that's new to this device starts its program here.
         if (careerMode && world.program == null) world.program = com.rm.apogee.core.career.Program()
-        // The Cape's buildings and Luna's test base, before anything asks
-        // where it can launch from.
+        // The Cape's buildings and Luna's test base, before anything asks where it can launch from.
         world.ensureStructures()
         soloWorld = world
         return world
@@ -921,20 +910,19 @@ class MainActivity : ComponentActivity() {
     private fun refreshResumeCraft() {
         val world = openSoloWorld()
         val me = settings.clientId
-        // The solo world is only ever played from this install - a hosted
-        // game starts a world of its own - so every crewed craft in it is
-        // the player's, whatever an older save recorded as its owner. Not
-        // debris: spent stages have no one aboard.
+        // The solo world is only ever played from this install (a hosted game starts a world of its
+        // own), so every crewed craft in it is the player's, whatever an older save recorded as its
+        // owner. Not debris, because spent stages have no one aboard.
         resumeCraft = world.vessels.filter { vessel ->
             vessel.owner != com.rm.apogee.core.world.World.WORLD_OWNER &&
                 (vessel.owner == me || vessel.defs.any { it.hasModule<com.rm.apogee.core.part.Command>() }) ||
-                // Flags stay, whoever's; listed so they can be taken down.
+                // Flags stay, whoever's they are. They're listed so they can be taken down.
                 vessel.design.parts.singleOrNull()?.partId == com.rm.apogee.core.world.World.FLAG_PART
         }.sortedWith(compareBy({ !it.anchored }, { it.name })).map { vessel ->
             val body = world.attractorFor(vessel)
             val bodyFixed = body.toBodyFixed(vessel.body.position, body.rotationAt(world.time))
-            // From its lowest reach, not its centre: a rocket on the pad has
-            // its centre eight metres up.
+            // From its lowest reach, not its centre, because a rocket on the pad has its centre
+            // eight metres up.
             val above = (body.heightAboveTerrain(vessel.body.position, bodyFixed) - vessel.contactRadius)
                 .coerceAtLeast(0.0)
             val orbit = com.rm.apogee.core.orbit.Orbit(
@@ -949,7 +937,7 @@ class MainActivity : ComponentActivity() {
             val situation = when {
                 suit -> "On EVA on ${body.displayName}"
                 flag -> "Planted on ${body.displayName}"
-                // A base: where, and how it is keeping - its power and stores.
+                // A base: where it is, and how it's keeping, with its power and stores.
                 vessel.anchored -> {
                     world.settlePower(vessel)
                     val pads = vessel.defs.count { it.hasModule<com.rm.apogee.core.part.LaunchPad>() }
@@ -979,9 +967,9 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Career or sandbox: the world on the Play and Host screens. The one open is
-     * saved and put away first - never mid-flight - and the other opened
-     * the next time something asks for it.
+     * Career or sandbox: the world on the Play and Host screens. The one that's open gets saved and
+     * put away first (never mid-flight), and the other one is opened the next time something asks
+     * for it.
      */
     private fun switchMode(career: Boolean) {
         if (career == careerMode || session != null) return
@@ -1008,7 +996,7 @@ class MainActivity : ComponentActivity() {
     private fun leaveWorld() {
         frameClockJob?.cancel(); frameClockJob = null
 
-        // Before tearing the session down, while the world is still coherent.
+        // Before tearing the session down, while the world still hangs together.
         if (session != null) saveSoloWorld()
 
         session?.stop(); session = null
@@ -1026,19 +1014,18 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * A display-rate loop for overlay values that must not lag the world.
+     * A display-rate loop for overlay values that mustn't lag behind the world.
      *
-     * Uses [AndroidUiDispatcher.CurrentThread] specifically because that
-     * dispatcher carries the MonotonicFrameClock that [withFrameNanos] needs -
-     * a plain main-thread scope throws. Anything screen-space (projected
-     * labels, attach-node markers, the map cursor) has to be refreshed here
-     * rather than on the simulation's slower cadence, or it visibly trails the
-     * camera whenever the view moves.
+     * It uses [AndroidUiDispatcher.CurrentThread] specifically, because that dispatcher carries the
+     * MonotonicFrameClock that [withFrameNanos] needs, and a plain main-thread scope throws.
+     * Anything in screen space (projected labels, attach-node markers, the map cursor) has to be
+     * refreshed here instead of at the simulation's slower pace, or it visibly trails the camera
+     * whenever the view moves.
      */
     /**
-     * Debug switches, as files in the app's own storage so adb can flip them
-     * mid-flight: `debug-no-sea` builds and draws no sea; `debug-perf` logs
-     * frame rate and build times every five seconds under "ApogeePerf".
+     * Debug switches, as files in the app's own storage so adb can flip them mid-flight.
+     * `debug-no-sea` builds and draws no sea, and `debug-perf` logs frame rate and build times
+     * every five seconds under "ApogeePerf".
      */
     private fun debugPerformance(glRenderer: com.rm.apogee.render.GlRenderer, current: GameSession) {
         val now = System.nanoTime()
@@ -1091,22 +1078,24 @@ class MainActivity : ComponentActivity() {
                     debugPerformance(glRenderer, current)
                     hudState.frameBuildMillis = current.lastFrameBuildNanos.get() / 1_000_000f
                     hudState.telemetry = current.telemetry
-                    // Only when it changes: a new list every frame would
-                    // recompose the stack sixty times a second for nothing.
+                    // Only when it changes. A new list every frame would recompose the stack sixty
+                    // times a second for nothing.
                     if (hudState.stages !== current.stageCards) hudState.stages = current.stageCards
                     hudState.connecting = !current.connected && current.rejectionReason == null
                     hudState.surfaceReady = current.surfaceReady
                     hudState.connectionError = current.rejectionReason
                     hudState.canJoin = current.joinable
-                    // Only when changed: new messages arrive each second, not each frame.
+                    // Only when it's changed, because new messages arrive each second, not each
+                    // frame.
                     current.baseService.let { if (it != hudState.baseService) hudState.baseService = it }
                     current.nearestBase.let { if (it != hudState.nearBase) hudState.nearBase = it }
                     hudState.chute = current.chuteState
                     hudState.burn = current.burnReadout
-                    // Flying itself, the autopilot has the throttle: show where it has it.
+                    // When it's flying itself, the autopilot has the throttle, so show where it has
+                    // it.
                     if (current.localAutoBurn || current.localAutoLand) hudState.throttle = current.telemetry.throttle.toFloat()
                     hudState.landing = current.landingReadout
-                    // The career's news: one at a time, each for a few seconds.
+                    // The career's news, one at a time, each for a few seconds.
                     if (hudState.banner == null) {
                         current.nextFeat()?.let { feat ->
                             val detail = listOf(feat.grade.uppercase(), if (feat.insight > 0) "+${feat.insight} insight" else "").filter { it.isNotEmpty() }.joinToString(" · ")
@@ -1123,7 +1112,7 @@ class MainActivity : ComponentActivity() {
                     if (shared == null) {
                         hudState.sharedWith = null
                     } else {
-                        // Newly shared: open the card, so the two of them choose.
+                        // Newly shared, so open the card and the two of them can choose.
                         if (hudState.sharedWith == null) hudState.statusOpen = HudState.STATUS_SHARED
                         hudState.sharedWith = shared.other
                         hudState.sharedPilot = when (shared.pilot) {
@@ -1151,12 +1140,12 @@ class MainActivity : ComponentActivity() {
                     }
                     hudState.hasConverter = current.controlledHasConverter
                     hudState.power = current.powerReadout
-                    // The session decides - switching craft stands the thrusters down.
+                    // The session decides, because switching craft stands the thrusters down.
                     hudState.rcsArmed = current.rcsArmed
                     if (!hudState.rcsArmed) hudState.rcsSlide = false
                     hudState.rcsLeft = if (hudState.hasRcs) current.rcsLeft else null
                     if (settings.showDebugOverlay) hudState.voices = com.rm.apogee.audio.AudioEngine.activeVoices
-                    // The mix follows the settings as they are moved.
+                    // The mix follows the settings as they're moved.
                     val gains = settings.busGains()
                     if (!gains.contentEquals(lastBusGains)) {
                         lastBusGains = gains
@@ -1185,18 +1174,17 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Saves the solo world whenever the app goes to the background, not
-     * only on leaving a flight through the menu: Android may end a
-     * backgrounded app without another word, and everything flown since the
-     * last save would go with it. Taken on the server's tick thread, between
+     * Saves the solo world whenever the app goes to the background, not only when leaving a flight
+     * through the menu. Android can end a backgrounded app without another word, and everything
+     * flown since the last save would go with it. It's taken on the server's tick thread, between
      * steps, since the world is still running.
      */
     override fun onStop() {
         super.onStop()
         val world = soloWorld ?: return
         val running = session
-        // In a flight the server is still stepping it; otherwise it is idle.
-        // Joined to someone else's game, there is no solo world running.
+        // In a flight the server is still stepping it, and otherwise it's idle. Joined to someone
+        // else's game, there's no solo world running.
         if (running == null) saveSoloWorld()
         else running.betweenTicks { soloWorldStore.save(world.save()) }
     }
@@ -1221,13 +1209,11 @@ class MainActivity : ComponentActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         // Let the window into the display cutout as well.
         //
-        // Hiding the bars is not enough on its own: by default the window is
-        // laid out clear of the cutout, so the scene stopped 136px short of
-        // the edge and the gap was drawn black - down the side in landscape,
-        // across the top in portrait. Every HUD control already applies
-        // WindowInsets.displayCutout itself, so nothing ends up under the
-        // notch; only the 3D view extends into it, which is where a fullscreen
-        // game wants it.
+        // Hiding the bars isn't enough on its own. By default the window is laid out clear of the
+        // cutout, so the scene stopped 136px short of the edge and the gap was drawn black, down
+        // the side in landscape and across the top in portrait. Every HUD control already applies
+        // WindowInsets.displayCutout itself, so nothing ends up under the notch. Only the 3D view
+        // reaches into it, which is where a fullscreen game wants it.
         setCutoutMode(fillCutout = true)
         WindowInsetsControllerCompat(window, window.decorView).apply {
             hide(WindowInsetsCompat.Type.systemBars())
@@ -1237,14 +1223,14 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun showSystemBars() {
-        // Back to the default: menus are ordinary layouts and should sit
-        // clear of the notch rather than have a title disappear behind it.
+        // Back to the default. Menus are ordinary layouts and should sit clear of the notch instead
+        // of having a title disappear behind it.
         setCutoutMode(fillCutout = false)
         WindowInsetsControllerCompat(window, window.decorView)
             .show(WindowInsetsCompat.Type.systemBars())
     }
 
-    /** API 28+; on 27 the window simply has no cutout to negotiate. */
+    /** API 28+. On 27 the window just has no cutout to deal with. */
     private fun setCutoutMode(fillCutout: Boolean) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return
         window.attributes = window.attributes.apply {
@@ -1264,25 +1250,28 @@ class MainActivity : ComponentActivity() {
     }
 
     private companion object {
-        /** The up and down buttons' slide, before the stick's cubed response: about a third of a metre a second squared on a tug. */
+        /**
+         * The slide from the up and down buttons, before the stick's cubed response: about a third
+         * of a metre a second squared on a tug.
+         */
         const val LIFT_BUTTON = 0.35f
 
         const val TAG = "Apogee"
 
-        /** 60 fps budget, for the ADPF hint. */
+        /** The 60 fps budget, for the ADPF hint. */
         const val TARGET_FRAME_NANOS = 16_666_667L
 
         const val ORBIT_RADIANS_PER_PIXEL = 0.005
 
-        /** How far a touch may travel and still count as a tap. */
+        /** How far a touch can travel and still count as a tap. */
         const val TAP_SLOP_PIXELS = 28f
         const val TAP_TIMEOUT_MILLIS = 400L
     }
 }
 
 /**
- * Picks an RGBA8888, 24-bit depth config with 4x multisampling if the device
- * offers one, and without it otherwise.
+ * Picks an RGBA8888 config with 24-bit depth and 4x multisampling if the device offers one, and
+ * without multisampling otherwise.
  */
 private object MultisampleConfigChooser : GLSurfaceView.EGLConfigChooser {
     override fun chooseConfig(

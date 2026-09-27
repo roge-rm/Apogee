@@ -1,5 +1,5 @@
-// AGP 9 supplies Kotlin support itself, so there is no kotlin-android plugin
-// here - only the separate Compose compiler plugin.
+// AGP 9 supplies Kotlin support itself, so there's no kotlin-android plugin here, only the separate
+// Compose compiler plugin.
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -13,17 +13,16 @@ android {
 
     defaultConfig {
         applicationId = "com.rm.apogee"
-        // Held at 27 deliberately. API level gates none of the rendering
-        // capability we need (GLES 3.1/3.2 are a driver capability, queried at
-        // runtime), and the modern performance APIs are all reachable behind
-        // SDK_INT checks - see platform/PerfHints.kt. The price is that we own
-        // a genuine low-end quality tier; see render/QualityTier.kt.
+        // Held at 27 on purpose. The API level gates none of the rendering we need (GLES 3.1/3.2
+        // are a driver capability, queried at runtime), and the modern performance APIs can all be
+        // reached behind SDK_INT checks (see platform/PerfHints.kt). The price is that we have to
+        // keep a real low-end quality tier. See render/QualityTier.kt.
         minSdk = 27
         targetSdk = 37
-        // Bumped when a build is worth keeping and telling apart from the
-        // last one, not on every change. Note that this is not what decides
-        // whether a client may join a server: Protocol.VERSION and the part
-        // catalogue's content hash do that, and they move independently.
+        // Bumped when a build is worth keeping and telling apart from the last one, not on every
+        // change. Note that this isn't what decides whether a client can join a server.
+        // Protocol.VERSION and the part catalogue's content hash do that, and they move on their
+        // own.
         versionCode = 28
         versionName = "0.8.3"
 
@@ -67,7 +66,7 @@ android {
         compose = true
         // For BuildConfig.DEBUG, which gates the on-screen frame/sim timing overlay.
         buildConfig = true
-        // Oboe arrives as a prefab package.
+        // Oboe comes as a prefab package.
         prefab = true
     }
 }
@@ -97,12 +96,11 @@ dependencies {
 }
 
 /**
- * Drops the debug APK where Dan collects builds to install:
- * `./gradlew :app:dropDebugApk`.
+ * Drops the debug APK where I collect builds to install: `./gradlew :app:dropDebugApk`.
  *
- * That directory holds debug builds from several apps side by side, so this
- * writes exactly one file under a stable, app-identifying name and clears any
- * older Apogee APK rather than accumulating versions.
+ * That directory holds debug builds from several apps side by side, so this writes exactly one file
+ * under a stable name that says it's Apogee, and clears out any older Apogee APK instead of piling
+ * up versions.
  */
 tasks.register("dropDebugApk") {
     group = "build"
@@ -132,10 +130,9 @@ tasks.register("dropDebugApk") {
 }
 
 /**
- * Renders every sound in the game to WAV, on this machine, through the same
- * synth the phone runs: `./gradlew :app:soundGallery` ->
- * a WAV per sound in app/build/sound-gallery, each one's peak and loudness printed.
- * `-Praw` measures with the limiter off, for setting levels.
+ * Renders every sound in the game to WAV, on this machine, through the same synth the phone runs:
+ * `./gradlew :app:soundGallery` -> a WAV per sound in app/build/sound-gallery, with each one's peak
+ * and loudness printed. `-Praw` measures with the limiter off, for setting levels.
  */
 tasks.register<Exec>("soundGallery") {
     group = "verification"

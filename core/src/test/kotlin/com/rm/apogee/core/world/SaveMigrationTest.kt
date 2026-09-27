@@ -14,14 +14,13 @@ import org.junit.Test
 /**
  * Old saves, read by a newer game.
  *
- * People leave bases and come back months later. By then the catalogue has
- * moved, and the failure mode without any of this is quiet: a renamed part
- * means the design references something that no longer exists, the craft fails
- * to validate, and it is dropped with a line in a log nobody reads.
+ * People leave bases and come back months later. By then the catalogue has moved on, and without
+ * any of this the failure is quiet. A renamed part means the design refers to something that
+ * doesn't exist any more, the craft fails to validate, and it gets dropped with a line in a log
+ * nobody reads.
  *
- * The tables these exercise are empty today. That is the point of testing them
- * now - waiting for the first rename to discover whether the mechanism works
- * would be discovering it at the worst possible moment.
+ * The tables these use are empty today. That's the point of testing them now. Waiting for the first
+ * rename to find out whether the mechanism works would be finding out at the worst possible moment.
  */
 class SaveMigrationTest {
 
@@ -29,7 +28,7 @@ class SaveMigrationTest {
     private val site = World.launchSites.first()
 
     @Test
-    fun `a renamed part is carried forward rather than losing the craft`() {
+    fun `a renamed part is carried forward instead of losing the craft`() {
         val old = CraftDesign(
             name = "Old Faithful",
             parts = listOf(PlacedPart("pod-halo-legacy", Vec3.zero())),
@@ -88,12 +87,11 @@ class SaveMigrationTest {
     }
 
     /**
-     * The whole point: one bad craft must not cost the world. A base that
-     * cannot be assembled is a bad afternoon; a world that will not load is
-     * everything.
+     * The whole point: one bad craft mustn't cost the world. A base that can't be put together is a
+     * bad afternoon, and a world that won't load is everything.
      */
     @Test
-    fun `one unloadable craft does not take the rest of the world with it`() {
+    fun `one craft that can't load doesn't take the rest of the world with it`() {
         val world = World.default(catalog)
         world.spawnOnSurface(StockCraft.lander(catalog), site).owner = "Pilot"
         world.spawnOnSurface(StockCraft.starterRocket(catalog), site, pad = 1)
@@ -133,7 +131,7 @@ class SaveMigrationTest {
     }
 
     @Test
-    fun `a save from a newer build is refused rather than half-read`() {
+    fun `a save from a newer build is refused instead of half read`() {
         val world = World.default(catalog)
         world.spawnOnSurface(StockCraft.lander(catalog), site)
         val save = world.save()

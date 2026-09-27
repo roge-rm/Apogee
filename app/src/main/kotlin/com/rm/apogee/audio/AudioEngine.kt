@@ -3,10 +3,9 @@ package com.rm.apogee.audio
 import android.util.Log
 
 /**
- * The native sound engine: a synth on its own low-latency audio thread,
- * driven from here. Nothing in the game waits on it - the scene is handed
- * over once a frame and one-shots queued - and if the library cannot load,
- * the game simply plays silent.
+ * The native sound engine: a synth on its own low-latency audio thread, driven from here. Nothing
+ * in the game waits on it. The scene is handed over once a frame and one-shots are queued, and if
+ * the library can't load, the game just plays silent.
  */
 object AudioEngine {
 
@@ -32,15 +31,14 @@ object AudioEngine {
         running = false
     }
 
-    /** With the app in the background: the stream stops, and picks up where it was. */
+    /** With the app in the background, the stream stops, and picks up where it was. */
     fun pause(paused: Boolean) {
         if (running) nativePause(paused)
     }
 
     /**
-     * The held sounds this frame: [count] of them, each a key that stays the
-     * same while the sound does, its recipe, flags, and [SharedParams.COUNT]
-     * parameters in [params].
+     * The held sounds this frame: [count] of them, each with a key that stays the same while the
+     * sound does, its recipe, flags, and [SharedParams.COUNT] parameters in [params].
      */
     fun scene(count: Int, keys: IntArray, recipes: IntArray, flags: IntArray, params: FloatArray) {
         if (running) nativeScene(count, keys, recipes, flags, params)

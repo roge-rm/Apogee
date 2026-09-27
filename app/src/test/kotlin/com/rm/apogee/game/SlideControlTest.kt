@@ -8,13 +8,13 @@ import org.junit.Test
 
 class SlideControlTest {
 
-    // Standing on the planet's +X, spinning about +Y: up is +X, north +Y,
-    // and east - the way the ground turns, Y x X - is -Z.
+    // Standing on the planet's +X, spinning about +Y: up is +X, north is +Y, and east (the way the
+    // ground turns, Y x X) is -Z.
     private val up = Vec3(1.0, 0.0, 0.0)
     private val north = Vec3(0.0, 1.0, 0.0)
     private val east = Vec3(0.0, 0.0, -1.0)
 
-    /** A camera looking north and a little down, the planet's up as its up. */
+    /** A camera looking north and a little down, with the planet's up as its up. */
     private val lookingNorth = quatLookAt(Vec3().setTo(north).addScaledInPlace(up, -0.3), up)
 
     private fun assertNear(expected: Vec3, actual: Vec3) {
@@ -22,7 +22,7 @@ class SlideControlTest {
     }
 
     @Test
-    fun `stick up slides away from the camera along the ground, right to its right`() {
+    fun `stick up slides away from the camera along the ground, and right to its right`() {
         val identity = Quat.identity()
         assertNear(north, SlideControl.command(lookingNorth, identity, up, 0.0, 1.0, 0.0, Vec3()))
         assertNear(east, SlideControl.command(lookingNorth, identity, up, 1.0, 0.0, 0.0, Vec3()))
@@ -31,7 +31,7 @@ class SlideControlTest {
 
     @Test
     fun `the answer is in the craft's own axes`() {
-        // A craft turned a quarter about the planet's up: its own +Z now points north.
+        // A craft turned a quarter about the planet's up, so its own +Z now points north.
         val turned = Quat.fromAxisAngle(up, -Math.PI / 2, Quat())
         val local = SlideControl.command(lookingNorth, turned, up, 0.0, 1.0, 0.0, Vec3())
         assertNear(north, turned.rotate(local, Vec3()))

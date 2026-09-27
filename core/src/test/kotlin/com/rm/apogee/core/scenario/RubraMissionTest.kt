@@ -24,18 +24,18 @@ import kotlin.math.abs
 import kotlin.math.sqrt
 
 /**
- * To Rubra: from a parking orbit round Terra, out at the window the map
- * gives, a correction on the way, and caught into orbit at Rubra - every
- * burn flown by the autopilot. Then, at the canyon, the last of a landing.
+ * To Rubra: from a parking orbit around Terra, out at the window the map gives, a correction on the
+ * way, and caught into orbit at Rubra, with the autopilot flying every burn. Then, at the canyon,
+ * the last of a landing.
  */
 class RubraMissionTest {
     private val catalog = StockParts.catalog
     private val dt = 1.0 / 60.0
 
     /**
-     * The Moonshot above its first stage: its upper stage and the lander on
-     * top, as a player would send it on from orbit. (A bigger upper tank
-     * was more than its wheels and its engine's swivel could hold steady.)
+     * The Moonshot above its first stage: its upper stage with the lander on top, the way a player
+     * would send it on from orbit. (A bigger upper tank was more than its wheels and its engine's
+     * swivel could hold steady.)
      */
     private fun cruiser(): CraftDesign {
         val m = StockCraft.moonshot(catalog)
@@ -64,7 +64,10 @@ class RubraMissionTest {
         )
     }
 
-    /** How well a path from [orbit] (about [bodyId]) at [time] meets Rubra: 0 is perfect; lower is better. */
+    /**
+     * How well a path from [orbit] (around [bodyId]) at [time] meets Rubra. 0 is perfect, and lower
+     * is better.
+     */
     private fun miss(world: World, bodyId: String, orbit: Orbit, time: Double): Double {
         val rubra = world.system.body("rubra")
         val path = Trajectory.predict(world.system, bodyId, orbit.position, orbit.velocity, time)
@@ -79,9 +82,9 @@ class RubraMissionTest {
     private fun meetsWell(world: World, bodyId: String, orbit: Orbit, time: Double) = miss(world, bodyId, orbit, time) < 150.0
 
     /**
-     * The smallest burn at [at] that brings the path from [orbit] to
-     * Rubra's low orbit: a step each way along each axis, halving the step
-     * whenever none helps - as a player nudges the burn until the map meets.
+     * The smallest burn at [at] that brings the path from [orbit] to Rubra's low orbit. It takes a
+     * step each way along each axis, halving the step whenever none helps, the way a player nudges
+     * the burn until the map meets.
      */
     private fun correction(world: World, bodyId: String, orbit: Orbit, at: Double, start: PlannedBurn = PlannedBurn(at)): PlannedBurn {
         var best = start
@@ -122,9 +125,8 @@ class RubraMissionTest {
         val along = north.cross(out).normalizeInPlace()
         val craft = world.spawnAt(cruiser(), "terra", out * r, along * sqrt(terra.gravitationalParameter / r), Quat.identity())
         craft.control.pitch = 0.0; craft.control.yaw = 0.0; craft.control.roll = 0.0
-        // The upper stage's engine lit, as it is when the first stage falls
-        // away, and the Shroud thrown open: its panels to the sun for the
-        // weeks of waiting and crossing.
+        // The upper stage's engine lit, as it is when the first stage falls away, and the Shroud
+        // thrown open, with its panels to the sun for the weeks of waiting and crossing.
         world.stage(craft)
         world.stage(craft)
         assertFalse("the lander still rides inside a closed Shroud", craft.enclosed().any { it })
@@ -139,8 +141,8 @@ class RubraMissionTest {
             assertTrue("rails stopped at ${world.time}", moved > 0.0)
         }
 
-        // The departure: the window's speed, at whichever point round the
-        // parking orbit sends it nearest Rubra - then nudged until it meets.
+        // The departure: the window's speed, at whichever point around the parking orbit sends it
+        // nearest Rubra, then nudged until it meets.
         val parking = world.orbitOf(craft)
         var departure: PlannedBurn? = null
         var bestScore = Double.MAX_VALUE
@@ -181,7 +183,7 @@ class RubraMissionTest {
         }
         assertEquals("never reached Rubra", "rubra", craft.referenceBodyId)
 
-        // Caught at the low point: slowed to a circle there.
+        // Caught at the low point, slowed to a circle there.
         val o = world.orbitOf(craft)
         assertTrue("passing Rubra ${o.periapsis - rubra.radius} m up", o.periapsis - rubra.radius > 20_000.0)
         while (world.orbitOf(craft).timeToPeriapsis > 400.0) {
@@ -220,7 +222,7 @@ class RubraMissionTest {
     }
 
     private companion object {
-        /** The low point to aim for at Rubra, m above its datum. */
+        /** The low point to aim for at Rubra, in metres above its datum. */
         const val GOAL = 200_000.0
     }
 }

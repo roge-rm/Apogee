@@ -84,7 +84,7 @@ import com.rm.apogee.ui.theme.alpha
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
-/** Called as a part is dragged out of the drawer: where the finger is, in window pixels. */
+/** Called as a part is dragged out of the drawer, with where the finger is in window pixels. */
 class PaletteCarry(
     val start: (String) -> Unit,
     val move: (Offset) -> Unit,
@@ -92,10 +92,9 @@ class PaletteCarry(
 )
 
 /**
- * The drawer: a rail of tabs down its edge - parts by the job they do - and
- * beside it a grid of pictures. Tap one to hold it and tap a green node to
- * put it on; or drag it sideways out of the drawer and let go over the node.
- * A drag up or down scrolls instead.
+ * The drawer: a rail of tabs down its edge (parts by the job they do) and a grid of pictures beside
+ * it. Tap one to hold it and tap a green node to put it on, or drag it sideways out of the drawer
+ * and let go over the node. Dragging up or down scrolls instead.
  */
 @Composable
 fun PartPalette(
@@ -110,9 +109,12 @@ fun PartPalette(
     carry: PaletteCarry,
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
-    /** In a career, the parts not unlocked yet, each to the tech node that unlocks it: shown, faded and locked. */
+    /**
+     * In a career, the parts that aren't unlocked yet, each mapped to the tech node that unlocks
+     * it. They're shown faded and locked.
+     */
     locked: Map<String, String> = emptyMap(),
-    /** A locked part tapped: say what unlocks it. */
+    /** A locked part was tapped, so say what unlocks it. */
     onLocked: (String) -> Unit = {},
 ) {
     val parts = remember(catalog, tab) { PartTabs.parts(catalog, tab) }
@@ -124,8 +126,8 @@ fun PartPalette(
         Row(Modifier.fillMaxHeight()) {
             TabRail(tab, onTab)
             Column(Modifier.fillMaxHeight().width(tileSize * columns + 14.dp).padding(end = 6.dp, top = 6.dp, bottom = 6.dp)) {
-                // The heading: which tab, and a way to put the drawer away -
-                // tap the chevron, or swipe it off to the left.
+                // The heading: which tab it is, and a way to put the drawer away. Tap the chevron,
+                // or swipe it off to the left.
                 var swipe by remember { mutableFloatStateOf(0f) }
                 Row(
                     Modifier
@@ -222,8 +224,8 @@ private fun PartTile(
             .then(if (held) Modifier.border(1.5.dp, ApogeeColors.Accent, RoundedCornerShape(Dimens.CornerTight)) else Modifier)
             .onGloballyPositioned { where = it }
             .pointerInput(def.id) {
-                // Sideways out of the drawer carries the part; up or down is
-                // left to the grid to scroll.
+                // Sideways out of the drawer carries the part. Up or down is left to the grid to
+                // scroll.
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
                     var carrying = false
@@ -281,7 +283,7 @@ private fun PartTile(
     }
 }
 
-/** A part the career has not unlocked yet: to see what is coming, not to build with. */
+/** A part the career hasn't unlocked yet. It's there to see what's coming, not to build with. */
 @Composable
 private fun LockedTile(def: PartDef, picture: ImageBitmap?, size: Dp, onLocked: (String) -> Unit) {
     Column(
@@ -310,10 +312,13 @@ private fun LockedTile(def: PartDef, picture: ImageBitmap?, size: Dp, onLocked: 
     }
 }
 
-/** The one number that says most about a part: thrust for an engine, fuel for a tank, else its mass. */
+/**
+ * The one number that says most about a part: thrust for an engine, fuel for a tank, and otherwise
+ * its mass.
+ */
 fun keyFigure(def: PartDef): String {
     val engine = def.module<Engine>()
-    // The better of the two: an air-breather or a propeller has none in vacuum.
+    // The better of the two, because an air-breather or a propeller has none in vacuum.
     if (engine != null) return "${(maxOf(engine.thrustVacuum, engine.thrustSeaLevel) / 1_000.0).roundToInt()} kN"
     val tank = def.module<Tank>()
     if (tank != null && !def.hasModule<Command>()) {

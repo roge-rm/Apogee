@@ -11,39 +11,37 @@ import com.rm.apogee.render.QualityTier
 /**
  * Per-device, per-player preferences.
  *
- * Note the split this establishes: anything that is a *rule of the game world*
- * (difficulty, part availability, whether re-entry heating is on) belongs to
- * the server and arrives over the wire. Only things about this device and this
- * person live here. Getting that boundary wrong is how settings screens end up
- * silently disagreeing with the server a player has joined.
+ * Note the split this sets up. Anything that's a *rule of the game world* (difficulty, which parts
+ * you have, whether re-entry heating is on) belongs to the server and arrives over the wire. Only
+ * things about this device and this person live here. Getting that line wrong is how settings
+ * screens end up quietly disagreeing with the server a player has joined.
  *
- * SharedPreferences rather than DataStore, deliberately: these values are read
- * while building the first frame, and DataStore's reads are asynchronous.
- * Trading a synchronous read on a tiny preference file for a suspending one
- * buys nothing here and complicates every call site.
+ * I use SharedPreferences instead of DataStore on purpose. These values are read while building the
+ * first frame, and DataStore's reads are asynchronous. Swapping a synchronous read on a tiny
+ * preference file for a suspending one gains nothing here and makes every call site more
+ * complicated.
  *
- * Each property is Compose state with a write-through setter, so there is no
- * save button and no way for the UI and the stored value to disagree.
+ * Each property is Compose state with a setter that writes straight through, so there's no save
+ * button and no way for the UI and the stored value to disagree.
  */
 class GameSettings(context: Context) {
 
     private val prefs: SharedPreferences =
         context.getSharedPreferences("apogee.settings", Context.MODE_PRIVATE)
 
-    /** What other players see. Cosmetic - see [clientId]. */
+    /** What other players see. It's only cosmetic. See [clientId]. */
     var playerName: String by stringPref(KEY_PLAYER_NAME, "Pilot")
 
     /**
-     * This install's identity, generated once and never shown as something to
-     * edit.
+     * This install's identity, made once and never shown as something to edit.
      *
-     * Ownership of craft and bases hangs off this. It deliberately is not the
-     * player's name: names are neither unique nor stable, and two devices that
-     * never set one both arrive as "Pilot" and end up sharing a craft - which
-     * is precisely what happened the first time two clients met on a server.
+     * Ownership of craft and bases hangs off this. It's deliberately not the player's name, because
+     * names aren't unique or stable, and two devices that never set one both arrive as "Pilot" and
+     * end up sharing a craft. That's exactly what happened the first time two clients met on a
+     * server.
      *
-     * Generated lazily on first read rather than in the constructor, so a
-     * fresh install does not write to disk before anyone has played.
+     * It's made the first time it's read instead of in the constructor, so a fresh install doesn't
+     * write to disk before anyone has played.
      */
     val clientId: String
         get() = prefs.getString(KEY_CLIENT_ID, null) ?: java.util.UUID.randomUUID().toString()
@@ -52,29 +50,28 @@ class GameSettings(context: Context) {
     /**
      * The last address typed into the join screen.
      *
-     * Remembered because the case that needs it is the case where discovery
-     * cannot help - a VPN, a different subnet, a server on the internet - and
-     * that is not a one-off. Retyping an address every session is the kind of
-     * friction that makes people stop joining.
+     * It's remembered because the case that needs it is the case where discovery can't help (a VPN,
+     * a different subnet, a server on the internet), and that doesn't just happen once. Typing an
+     * address again every session is the kind of hassle that makes people stop joining.
      */
     var lastServerAddress: String by stringPref(KEY_LAST_SERVER, "")
 
     /**
-     * Opacity of the flight control overlay. Floored well above zero - a
-     * fully transparent HUD is indistinguishable from a broken one.
+     * Opacity of the flight control overlay. The floor is well above zero, because a fully
+     * transparent HUD looks exactly like a broken one.
      */
     var controlOpacity: Float by floatPref(KEY_CONTROL_OPACITY, 1.0f, 0.3f..1.0f)
 
     /** Mirrors the flight controls for left-handed play. */
     var leftHandMode: Boolean by booleanPref(KEY_LEFT_HAND, false)
 
-    /** Whether the Play screen is on the career world rather than the sandbox. */
+    /** Whether the Play screen is on the career world instead of the sandbox. */
     var careerMode: Boolean by booleanPref(KEY_CAREER_MODE, false)
 
     /** Lets the flight controls fade back when nothing has touched them for a few seconds. */
     var fadeWhenIdle: Boolean by booleanPref(KEY_FADE_IDLE, true)
 
-    /** Which craft pull back to climb. See [PitchStyle]. */
+    /** Which craft you pull back on to climb. See [PitchStyle]. */
     var pitchStyle: PitchStyle by enumPref(KEY_PITCH_STYLE, PitchStyle.AIRCRAFT)
 
     /** How lively the weather is in the worlds this device hosts. */
@@ -94,18 +91,23 @@ class GameSettings(context: Context) {
 
     var uiSoundEnabled: Boolean by booleanPref(KEY_UI_SOUND, true)
 
-    /** Craft's own sounds: engines, wheels, the air rushing past, the hull. Crashes stay. */
+    /**
+     * The craft's own sounds: engines, wheels, the air rushing past, and the hull. Crashes stay.
+     */
     var vehicleSoundEnabled: Boolean by booleanPref(KEY_VEHICLE_SOUND, true)
 
-    /** The world's: wind, rain, thunder, surf, fires. */
+    /** The world's sounds: wind, rain, thunder, surf and fires. */
     var ambientSoundEnabled: Boolean by booleanPref(KEY_AMBIENT_SOUND, true)
 
-    /** Everything, then each part of the mix: craft and crashes, the world around, the interface. */
+    /**
+     * Everything, then each part of the mix: craft and crashes, the world around, and the
+     * interface.
+     */
     var masterVolume: Float by floatPref(KEY_MASTER_VOLUME, 0.8f, 0f..1f)
     var effectsVolume: Float by floatPref(KEY_EFFECTS_VOLUME, 1.0f, 0f..1f)
     var ambienceVolume: Float by floatPref(KEY_AMBIENCE_VOLUME, 0.8f, 0f..1f)
     var interfaceVolume: Float by floatPref(KEY_INTERFACE_VOLUME, 0.6f, 0f..1f)
-    /** For when there is music. */
+    /** For when there's music. */
     var musicVolume: Float by floatPref(KEY_MUSIC_VOLUME, 0.6f, 0f..1f)
 
     /** The mix, per [com.rm.apogee.audio.Buses] entry. */
@@ -122,7 +124,9 @@ class GameSettings(context: Context) {
     /** The assembly building's panels as the player last left them. */
     var builderPartsOpen: Boolean by booleanPref(KEY_BUILDER_PARTS, true)
     var builderStagesOpen: Boolean by booleanPref(KEY_BUILDER_STAGES, true)
-    /** The full stats card, or just the one-line chip: out by default only where there is room. */
+    /**
+     * The full stats card, or just the one-line chip. It's out by default only where there's room.
+     */
     var builderStatsOpenPortrait: Boolean by booleanPref(KEY_BUILDER_STATS_PORTRAIT, false)
     var builderStatsOpenLandscape: Boolean by booleanPref(KEY_BUILDER_STATS_LANDSCAPE, true)
     /** The drawer tab last used, for a craft standing up and one lying down. */
@@ -132,31 +136,30 @@ class GameSettings(context: Context) {
     var showDebugOverlay: Boolean by booleanPref(KEY_DEBUG_OVERLAY, false)
 
     /**
-     * Null means "use whatever [QualityTier.detect] decided". An explicit value
-     * overrides detection - needed both for players whose device is misjudged
-     * and for the low-tier acceptance pass.
+     * Null means "use whatever [QualityTier.detect] decided". A value set here overrides detection.
+     * That's needed both for players whose device gets misjudged and for the low-tier acceptance
+     * pass.
      */
     var qualityOverride: QualityTier? by nullableEnumPref<QualityTier>(KEY_QUALITY)
 
     /**
-     * What detection last concluded, remembered across runs.
+     * What detection decided last time, remembered across runs.
      *
-     * Detection needs a current GL context, so it cannot run until the player
-     * has entered the world at least once. Without persisting it the Settings
-     * screen reports a placeholder on first launch - which is worse than
-     * useless, because it is the screen where someone goes to find out what
-     * their device was judged to be.
+     * Detection needs a current GL context, so it can't run until the player has gone into the
+     * world at least once. Without saving it, the Settings screen shows a placeholder on first
+     * launch, which is worse than useless, because that's the screen someone goes to to find out
+     * what their device was judged to be.
      */
     var lastDetectedTier: QualityTier? by nullableEnumPref<QualityTier>(KEY_DETECTED_QUALITY)
 
-    /** The tier actually in force: an explicit override, else detection. */
+    /** The tier actually in use: an override if there is one, otherwise detection. */
     val effectiveTier: QualityTier?
         get() = qualityOverride ?: lastDetectedTier
 
-    /** Shadows as chosen; null to go by the tier in force. */
+    /** Shadows as chosen. Null goes by the tier in use. */
     var shadowQualityOverride: com.rm.apogee.render.ShadowQuality? by nullableEnumPref<com.rm.apogee.render.ShadowQuality>(KEY_SHADOWS)
 
-    /** The shadows actually drawn: the choice, else what the tier in force gets. */
+    /** The shadows actually drawn: the choice, otherwise what the tier in use gets. */
     val shadowQuality: com.rm.apogee.render.ShadowQuality
         get() = shadowQualityOverride
             ?: com.rm.apogee.render.ShadowQuality.defaultFor(effectiveTier ?: QualityTier.MEDIUM)
@@ -196,8 +199,8 @@ class GameSettings(context: Context) {
 
     private inline fun <reified T : Enum<T>> enumPref(key: String, default: T) =
         object : kotlin.properties.ReadWriteProperty<Any?, T> {
-            // An unknown stored name - a value from a later version, or one
-            // since removed - falls back to the default rather than failing.
+            // An unknown stored name (a value from a later version, or one that's been removed
+            // since) falls back to the default instead of failing.
             private var state by mutableStateOf(
                 prefs.getString(key, null)?.let { stored ->
                     enumValues<T>().firstOrNull { it.name == stored }

@@ -7,10 +7,10 @@ import java.time.format.DateTimeFormatter
 /**
  * The last few hundred log lines, kept in memory for the admin page.
  *
- * Bounded on purpose. A server that runs for weeks would otherwise hand the
- * web UI an unbounded buffer, and nobody scrolls back three weeks - the
- * interesting lines are always the recent ones. Anything worth keeping longer
- * belongs in the container's own log, which this also writes to.
+ * It's limited on purpose. A server that runs for weeks would otherwise hand the web UI an endless
+ * buffer, and nobody scrolls back three weeks, because the interesting lines are always the recent
+ * ones. Anything worth keeping longer belongs in the container's own log, which this writes to as
+ * well.
  */
 class LogRing(private val capacity: Int = 400) {
 

@@ -12,7 +12,10 @@ class LaunchWindowsTest {
     private val luna = system.body("luna")
     private val cape = SolarSystem.surfaceDirection(SolarSystem.PAD_LATITUDE, SolarSystem.PAD_LONGITUDE)
 
-    /** Degrees between Luna's orbital plane and that of a due-east launch from the Cape at [time]. */
+    /**
+     * Degrees between Luna's orbital plane and the plane of a launch due east from the Cape at
+     * [time].
+     */
     private fun planeError(time: Double): Double {
         val p = terra.rotationAt(time).rotate(cape, Vec3())
         val east = Vec3(0.0, 1.0, 0.0).crossInPlace(p).normalizeInPlace()
@@ -27,7 +30,7 @@ class LaunchWindowsTest {
     }
 
     @Test
-    fun `a due-east launch in the window goes into Luna's plane, and out of it does not`() {
+    fun `a launch due east in the window goes into Luna's plane, and out of it doesn't`() {
         for (from in listOf(0.0, 5_000.0, 123_456.0)) {
             val window = LaunchWindows.next(terra, cape, luna, from)
             assertNotNull(window)

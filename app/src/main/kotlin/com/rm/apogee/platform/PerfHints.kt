@@ -6,34 +6,32 @@ import android.os.PerformanceHintManager
 import android.util.Log
 
 /**
- * Every "make the scheduler treat us like a game" API, behind one facade.
+ * Every "make the scheduler treat us like a game" API, behind one front.
  *
- * minSdk is 27, so none of these can be assumed. Isolating the version checks
- * here means the simulation and render paths stay free of `SDK_INT` branches -
- * they call [reportActualWorkDuration] unconditionally and it is a no-op on old
- * devices.
+ * minSdk is 27, so none of these can be taken for granted. Keeping the version checks here means
+ * the simulation and render paths stay free of `SDK_INT` branches. They call
+ * [reportActualWorkDuration] every time, and it does nothing on old devices.
  *
- * The one that matters is [PerformanceHintManager] (API 31+): telling the
- * kernel how long a frame of simulation work is *supposed* to take keeps the
- * physics thread on a big core instead of being migrated onto a little one
- * mid-frame, which is the single largest source of frame-time jitter on mobile.
+ * The one that matters is [PerformanceHintManager] (API 31+). Telling the kernel how long a frame
+ * of simulation work is *supposed* to take keeps the physics thread on a big core instead of being
+ * moved onto a little one mid-frame, which is the biggest single cause of frame-time jitter on
+ * mobile.
  */
 class PerfHints private constructor(
     private var session: PerformanceHintManager.Session?,
 ) {
 
     /**
-     * Held for every call on [session]. The frame loop reports from a worker
-     * thread while leaving a flight closes the session from the main one, and
-     * a report reaching the native session after it is closed is a segfault -
-     * not an exception [runCatching] could catch. It took the game down on
-     * leaving a flight.
+     * Held for every call on [session]. The frame loop reports from a worker thread while leaving a
+     * flight closes the session from the main one, and a report reaching the native session after
+     * it's closed is a segfault, not an exception [runCatching] could catch. It crashed the game
+     * when leaving a flight.
      */
     private val lock = Any()
 
     /**
-     * Reports how long the last simulation step actually took, so the scheduler
-     * can adjust. Safe to call every tick; a no-op where unsupported.
+     * Reports how long the last simulation step really took, so the scheduler can adjust. It's safe
+     * to call every tick, and does nothing where it isn't supported.
      */
     fun reportActualWorkDuration(nanos: Long) {
         if (nanos <= 0) return
@@ -42,7 +40,9 @@ class PerfHints private constructor(
         }
     }
 
-    /** Call when the simulation's per-tick budget changes (e.g. display rate change). */
+    /**
+     * Call this when the simulation's per-tick budget changes (a display rate change, for example).
+     */
     fun updateTargetWorkDuration(nanos: Long) {
         if (nanos <= 0) return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -50,7 +50,7 @@ class PerfHints private constructor(
         }
     }
 
-    /** Closes the session; anything reported after is ignored. */
+    /** Closes the session. Anything reported after that is ignored. */
     fun close() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             synchronized(lock) {
@@ -64,8 +64,8 @@ class PerfHints private constructor(
         private const val TAG = "ApogeePerfHints"
 
         /**
-         * @param threadIds the threads doing the per-frame work - the simulation
-         *   thread and the GL thread. Must be real OS tids, not Java thread ids.
+         * @param threadIds the threads doing the per-frame work: the simulation thread and the GL
+         *     thread. They have to be real OS tids, not Java thread ids.
          */
         fun create(context: Context, threadIds: IntArray, targetWorkNanos: Long): PerfHints {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
@@ -78,7 +78,7 @@ class PerfHints private constructor(
             }.getOrNull()
 
             if (session == null) {
-                // Documented behaviour: the device may simply not implement it.
+                // This is documented: the device might just not implement it.
                 Log.i(TAG, "ADPF hint session unavailable on this device; running unhinted")
             }
             return PerfHints(session)

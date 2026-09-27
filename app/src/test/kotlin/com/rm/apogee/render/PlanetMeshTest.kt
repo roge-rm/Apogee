@@ -6,9 +6,9 @@ import org.junit.Test
 class PlanetMeshTest {
 
     /**
-     * Every triangle of the globe faces out of the planet. Culling keeps only
-     * the faces pointed at the camera; wound inward, the whole near side
-     * vanished and orbit showed the inside of the far one.
+     * Every triangle of the globe faces out of the planet. Culling only keeps the faces pointed at
+     * the camera. Wound inward, the whole near side vanished and from orbit you saw the inside of
+     * the far one.
      */
     @Test
     fun `the globe faces outward`() {
@@ -32,9 +32,9 @@ class PlanetMeshTest {
     }
 
     /**
-     * HIGH's globe has more vertices than a 16-bit index can number. Its
-     * indices are 32-bit and every one of them lands on a vertex - wrapped at
-     * 65536, the southern half would be stitched to the northern.
+     * HIGH's globe has more vertices than a 16-bit index can count. Its indices are 32-bit and
+     * every one of them lands on a vertex. Wrapped at 65536, the southern half would be stitched to
+     * the northern.
      */
     @Test
     fun `the finest globe indexes past sixteen bits`() {

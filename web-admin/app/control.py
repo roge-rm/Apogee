@@ -1,12 +1,12 @@
 """The client half of the dedicated server's control channel.
 
-Requests are one tab-separated line, replies one line of JSON - see
+Requests are one tab-separated line, and replies are one line of JSON. See
 dedicated/src/main/kotlin/com/rm/apogee/dedicated/ControlServer.kt, which is
-the other end and the only document of record for the command list.
+the other end and the one place the command list is kept up to date.
 
-A new connection per call. The server accepts as many as it is asked for and
-serves them inline, and a short-lived connection means a page that hangs
-cannot wedge the socket the next page needs.
+There's a new connection per call. The server accepts as many as it's asked
+for and serves them inline, and a short-lived connection means a page that
+hangs can't wedge the socket the next page needs.
 """
 
 import json
@@ -19,11 +19,11 @@ DEFAULT_TIMEOUT = float(os.environ.get("CONTROL_TIMEOUT", "10"))
 
 
 class ServerDown(Exception):
-    """The server is not listening.
+    """The server isn't listening.
 
-    Not an error in itself: the container restarts, and a stop from the admin
-    page deliberately takes the socket away. Every page renders this as a
-    state rather than a failure.
+    That isn't an error in itself. The container restarts, and a stop from the
+    admin page takes the socket away on purpose. Every page shows this as a
+    state, not a failure.
     """
 
 
@@ -32,7 +32,7 @@ class ControlError(Exception):
 
 
 def _escape(value):
-    """Tabs separate arguments, so an argument containing one must escape it."""
+    """Tabs separate arguments, so an argument with one in it has to escape it."""
     return str(value).replace("\\", "\\\\").replace("\t", "\\t").replace("\n", "\\n")
 
 
@@ -40,10 +40,10 @@ class Control:
     def __init__(self, path=DEFAULT_SOCKET, timeout=DEFAULT_TIMEOUT):
         self.path = path
         self.timeout = timeout
-        # Serialised because the server handles requests on its own loop.
-        # Several browser tabs polling at once would queue in the kernel
-        # anyway; this keeps the failure mode a clean timeout rather than a
-        # pile of half-open sockets.
+        # Serialised, because the server handles requests on its own loop.
+        # Several browser tabs polling at once would queue up in the kernel
+        # anyway, and this keeps the failure a clean timeout instead of a pile
+        # of half-open sockets.
         self._lock = threading.Lock()
 
     def call(self, *args):
@@ -54,8 +54,8 @@ class Control:
                 connection.settimeout(self.timeout)
                 connection.connect(self.path)
             except FileNotFoundError as error:
-                # The socket exists only while the server is up, so this is
-                # what a restart, a crash and "never started" all look like.
+                # The socket only exists while the server is up, so this is what
+                # a restart, a crash and "never started" all look like.
                 raise ServerDown("It is not running, or is still starting up.") from error
             except (ConnectionRefusedError, PermissionError) as error:
                 raise ServerDown(f"Its control socket is there but not usable: {error}") from error

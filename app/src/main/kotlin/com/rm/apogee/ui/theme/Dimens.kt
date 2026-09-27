@@ -3,11 +3,12 @@ package com.rm.apogee.ui.theme
 import androidx.compose.ui.unit.dp
 
 /**
- * Layout constants, with the dependent ones *derived* rather than restated.
+ * Layout constants, with the dependent ones *worked out* from the others instead of written out
+ * again.
  *
- * The pattern is worth keeping strictly: when a control's size changes, every
- * measurement that should follow it changes with it, instead of drifting apart
- * until someone notices the HUD no longer lines up.
+ * This pattern is worth keeping strictly. When a control's size changes, every measurement that
+ * should follow it changes with it, instead of drifting apart until someone notices the HUD doesn't
+ * line up any more.
  */
 object Dimens {
     // --- screen scaffolding -------------------------------------------------
@@ -15,8 +16,8 @@ object Dimens {
     val ScreenPaddingV = 24.dp
 
     /**
-     * Content is capped rather than stretched. A landscape phone is ~2340 px
-     * wide, and a full-width button at that size is simply a bar of colour.
+     * Content is capped instead of stretched. A landscape phone is about 2340 px wide, and a
+     * full-width button at that size is just a bar of colour.
      */
     val MenuContentMaxWidth = 340.dp
     val PanelContentMaxWidth = 560.dp
@@ -27,7 +28,7 @@ object Dimens {
     val HudGroupGap = 10.dp
     const val HUD_ICONS_PER_ROW = 5
 
-    /** Derived: the primary action bar spans exactly the icon row beneath it. */
+    /** Worked out: the main action bar spans exactly the icon row under it. */
     val HudActionBarWidth =
         (HudIconSize + HudIconSidePadding * 2) * HUD_ICONS_PER_ROW + HudGroupGap * 2
 

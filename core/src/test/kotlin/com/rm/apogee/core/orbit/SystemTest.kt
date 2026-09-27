@@ -17,7 +17,7 @@ import kotlin.math.abs
 import kotlin.math.acos
 import kotlin.math.sqrt
 
-/** The whole system: every world where it should be, spinning as it should, lit as it should. */
+/** The whole system: every world where it should be, spinning and lit the way it should be. */
 class SystemTest {
     private val system = SolarSystem.defaultSystem()
     private val catalog = StockParts.catalog
@@ -30,14 +30,14 @@ class SystemTest {
     )
 
     @Test
-    fun `every world is there, round its own parent`() {
+    fun `every world is there, around its own parent`() {
         for (id in planets) assertEquals(id, "sol", system.body(id).parentId)
         for ((moon, planet) in moons) assertEquals(moon, planet, system.body(moon).parentId)
         assertEquals(1 + planets.size + moons.size, system.bodies.size)
     }
 
     @Test
-    fun `each orbit stays inside its parent's reach, clear of the parent, and no two reaches overlap`() {
+    fun `each orbit stays inside its parent's reach and clear of the parent, and no two reaches overlap`() {
         for (body in system.bodies.values) {
             val orbit = body.orbit ?: continue
             val parent = system.body(body.parentId!!)
@@ -49,7 +49,8 @@ class SystemTest {
         for (parent in system.bodies.values) {
             val kids = system.childrenOf(parent.id).sortedBy { it.orbit!!.semiMajorAxis }
             for ((a, b) in kids.zipWithNext()) {
-                // Ultima crosses inside Caerula's orbit, as the real pair do - kept apart by resonance, not distance.
+                // Ultima crosses inside Caerula's orbit, like the real pair do, kept apart by
+                // resonance, not distance.
                 if (a.id == "caerula" && b.id == "ultima") continue
                 assertTrue("${a.id} and ${b.id} overlap", a.orbit!!.apoapsis + a.sphereOfInfluence < b.orbit!!.periapsis - b.sphereOfInfluence)
             }
@@ -57,7 +58,7 @@ class SystemTest {
     }
 
     @Test
-    fun `surface gravity and the planets' years are as the scale says`() {
+    fun `surface gravity and the planets' years match the scale`() {
         val g = mapOf("celer" to 3.70, "rubra" to 3.72, "magna" to 24.79, "ultima" to 0.62, "aurantia" to 1.352)
         for ((id, want) in g) assertEquals(id, want, system.body(id).surfaceGravity, 1e-6)
         // Kepler: years go as the distance to the three-halves.
@@ -69,7 +70,7 @@ class SystemTest {
     }
 
     @Test
-    fun `Terra and Luna are where they always were, spinning as they always did`() {
+    fun `Terra and Luna are where they always were, spinning the way they always did`() {
         val terra = system.body("terra")
         val luna = system.body("luna")
         assertEquals(Vec3.unitY().distanceTo(terra.spinAxis), 0.0, 1e-12)
@@ -95,13 +96,13 @@ class SystemTest {
     }
 
     @Test
-    fun `worlds are tipped as they are - Obliqua on its side, Caligo upside down`() {
+    fun `worlds are tipped the way they are, with Obliqua on its side and Caligo upside down`() {
         fun tilt(id: String) = Math.toDegrees(acos((system.body(id).spinAxis dot SystemData.ECLIPTIC_NORTH).coerceIn(-1.0, 1.0)))
         assertEquals(97.8, tilt("obliqua"), 0.01)
         assertEquals(177.4, tilt("caligo"), 0.01)
         assertEquals(25.2, tilt("rubra"), 0.01)
         assertEquals(23.4, tilt("terra"), 0.01)
-        // A world's ground turns about its own axis: a point on its pole stays put.
+        // A world's ground turns about its own axis, so a point on its pole stays put.
         val obliqua = system.body("obliqua")
         val pole = obliqua.rotationAt(1_000.0).rotate(Vec3.unitY())
         assertTrue(pole.distanceTo(obliqua.spinAxis) < 1e-9)
@@ -145,7 +146,7 @@ class SystemTest {
     }
 
     @Test
-    fun `the fastest warps come only far out between the worlds`() {
+    fun `the fastest warps only come far out between the worlds`() {
         assertTrue(1_000_000.0 in World.WARP_RATES.toList())
         val world = World.default(catalog)
         val terra = world.system.body("terra")
@@ -159,18 +160,18 @@ class SystemTest {
     }
 
     @Test
-    fun `a craft falling into Magna is crushed in the deep`() {
+    fun `a craft falling into Magna gets crushed in the deep`() {
         val world = World.default(catalog)
         val magna = world.system.body("magna")
         val depth = magna.atmosphere!!.scaleHeight * 4.0
         val pod = world.spawnAt(StockCraft.probe(catalog), "magna", Vec3(magna.radius - depth, 0.0, 0.0), magna.surfaceVelocityAt(Vec3(magna.radius - depth, 0.0, 0.0), Vec3()), Quat.identity())
-        // Sinking through ever-thicker air: a few minutes.
+        // Sinking through ever thicker air, for a few minutes.
         repeat(60 * 400) { world.step(1.0 / 60.0) }
         assertNull("survived Magna's depths", world.vessel(pod.id))
     }
 
     @Test
-    fun `a craft that crosses Aurea's rings against the gravel is torn apart`() {
+    fun `a craft that crosses Aurea's rings against the gravel gets torn apart`() {
         val world = World.default(catalog)
         val aurea = world.system.body("aurea")
         val rings = aurea.rings!!
@@ -186,7 +187,7 @@ class SystemTest {
     }
 
     @Test
-    fun `a lander on Caligo's floor is crushed in minutes, and one inside a Hotshell is not`() {
+    fun `a lander on Caligo's floor is crushed in minutes, and one inside a Hotshell isn't`() {
         fun survives(shelled: Boolean): Boolean {
             val world = World.default(catalog)
             val caligo = world.system.body("caligo")
@@ -212,7 +213,7 @@ class SystemTest {
         assertEquals(16, hash.length)
         assertEquals(hash, SolarSystem.defaultSystem().contentHash)
         assertEquals(hash, SolarSystem.DEFAULT_HASH)
-        // A lone test planet is another system altogether.
+        // A lone test planet is a different system altogether.
         val lone = SolarSystem(listOf(system.body("terra").let {
             CelestialBody(it.id, it.displayName, it.gravitationalParameter, it.radius, it.rotationPeriod)
         }), "terra")
@@ -220,7 +221,7 @@ class SystemTest {
     }
 
     @Test
-    fun `panels among the giants make a sliver of what they do at home`() {
+    fun `panels among the giants make a sliver of what they make at home`() {
         val world = World.default(catalog)
         val magna = world.system.body("magna")
         val r = magna.radius * 40.0

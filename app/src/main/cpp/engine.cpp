@@ -1,5 +1,5 @@
-// The device end of the sound engine: an Oboe output stream feeding the
-// synth, and the JNI the Kotlin side drives it through.
+// The device end of the sound engine: an Oboe output stream feeding the synth, and the JNI the
+// Kotlin side drives it through.
 #include <jni.h>
 #include <android/log.h>
 #include <oboe/Oboe.h>
@@ -43,7 +43,7 @@ public:
         return oboe::DataCallbackResult::Continue;
     }
 
-    // Headphones in or out, a Bluetooth device gone: open a new stream.
+    // Headphones in or out, or a Bluetooth device gone, so open a new stream.
     void onErrorAfterClose(oboe::AudioStream*, oboe::Result error) override {
         __android_log_print(ANDROID_LOG_INFO, kTag, "stream closed (%s), reopening", oboe::convertToText(error));
         std::lock_guard<std::mutex> lock(mutex_);
@@ -68,12 +68,11 @@ private:
             __android_log_print(ANDROID_LOG_WARN, kTag, "could not open a stream: %s", oboe::convertToText(result));
             return false;
         }
-        // Made once, at the first stream's rate, and kept: the game thread
-        // holds on to it across device changes.
+        // Made once, at the first stream's rate, and kept, because the game thread holds on to it
+        // across device changes.
         if (!synth_) synth_ = std::make_unique<apogee::Synth>(static_cast<float>(stream_->getSampleRate()), budget_);
-        // Four bursts of slack: a game's frames can stall the phone for a
-        // moment, and running dry is heard as crackle - a few milliseconds
-        // more latency is not heard at all.
+        // Four bursts of slack. A game's frames can stall the phone for a moment, and running dry
+        // sounds like crackle. A few milliseconds more latency isn't heard at all.
         stream_->setBufferSizeInFrames(stream_->getFramesPerBurst() * 4);
         result = stream_->requestStart();
         __android_log_print(ANDROID_LOG_INFO, kTag, "stream %d Hz, burst %d, %s", stream_->getSampleRate(),

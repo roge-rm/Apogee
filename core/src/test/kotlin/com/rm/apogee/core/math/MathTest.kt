@@ -24,7 +24,7 @@ class Vec3Test {
     }
 
     @Test
-    fun `normalize leaves a degenerate vector alone rather than producing NaN`() {
+    fun `normalize leaves a degenerate vector alone instead of producing NaN`() {
         val degenerate = Vec3.zero().normalizeInPlace()
         assertTrue("normalising zero must not produce NaN, was $degenerate", degenerate.isFinite)
     }
@@ -54,20 +54,19 @@ class QuatTest {
 
     @Test
     fun `integrating angular velocity tracks the analytic rotation and stays normalised`() {
-        // 1 rad/s about Y, stepped at the simulation's fixed 60 Hz for a little
-        // over a full revolution.
+        // 1 rad/s about Y, stepped at the simulation's fixed 60 Hz for a little over a full turn.
         val q = Quat.identity()
         val omega = Vec3(0.0, 1.0, 0.0)
         val dt = 1.0 / 60.0
         val steps = 400
         repeat(steps) { q.integrateAngularVelocity(omega, dt) }
 
-        // Staying on the unit sphere is the non-negotiable part: drift off it
-        // shears the craft rather than merely mis-aiming it.
+        // Staying on the unit sphere is the part that can't give. Drifting off it shears the craft
+        // instead of just aiming it wrong.
         assertEquals("quaternion must stay normalised", 1.0, q.length, 1e-12)
 
-        // Explicit Euler plus renormalisation slightly under-rotates each step,
-        // so compare against the analytic result rather than against identity.
+        // Explicit Euler plus renormalisation under-rotates a little each step, so compare against
+        // the analytic result instead of against identity.
         val expected = Quat.fromAxisAngle(Vec3.unitY(), steps * dt)
         val error = angleBetween(q, expected)
         assertTrue("integrator drifted $error rad over $steps steps", error < 1e-3)
@@ -94,8 +93,8 @@ class QuatTest {
     @Test
     fun `slerp takes the short way round when the inputs are in opposite hemispheres`() {
         val a = Quat.fromAxisAngle(Vec3.unitY(), 0.1)
-        // Same orientation as a small positive rotation, but negated - the
-        // naive path would spin almost all the way around.
+        // The same orientation as a small positive rotation, but negated. The naive path would spin
+        // almost all the way round.
         val b = Quat.fromAxisAngle(Vec3.unitY(), 0.2).let { Quat(-it.x, -it.y, -it.z, -it.w) }
 
         val mid = Quat.slerp(a, b, 0.5)
@@ -118,11 +117,10 @@ class QuatTest {
 class Mat4Test {
 
     /**
-     * The floating-origin guarantee, stated as a test. A part 1 cm from the
-     * camera but 6400 km from the world origin must still land 1 cm from the
-     * scene origin. Narrowing world coordinates to float before subtracting the
-     * camera would quantise this to zero, which is the bug this whole
-     * double-precision-core design exists to prevent.
+     * The floating-origin guarantee, as a test. A part 1 cm from the camera but 6400 km from the
+     * world origin still has to land 1 cm from the scene origin. Narrowing world coordinates to
+     * float before subtracting the camera would quantise this to zero, which is the bug this whole
+     * double-precision core exists to prevent.
      */
     @Test
     fun `setFromTrs preserves centimetre offsets at planetary distance`() {
@@ -143,8 +141,7 @@ class Mat4Test {
         val rot = Quat.fromAxisAngle(Vec3.unitZ(), PI / 2.0)
         val model = Mat4().setFromTrs(Vec3.zero(), rot, Vec3.zero())
 
-        // Column 0 is the local +X axis in world space; a quarter turn about Z
-        // sends it to +Y.
+        // Column 0 is the local +X axis in world space, and a quarter turn about Z sends it to +Y.
         assertEquals(0.0f, model.m[0], 1e-6f)
         assertEquals(1.0f, model.m[1], 1e-6f)
         assertEquals(0.0f, model.m[2], 1e-6f)

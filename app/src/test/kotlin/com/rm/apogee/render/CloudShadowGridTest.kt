@@ -28,20 +28,20 @@ class CloudShadowGridTest {
     }
 
     @Test
-    fun `sun overhead, a cloud shades the ground right under it`() {
+    fun `with the sun overhead a cloud shades the ground right under it`() {
         val grid = CloudShadowGrid.build(listOf(cumulusAt(0.0, 1_500.0)), up, radius, 0.0, up, 0.6f, size, extent, 1)!!
         val (i, j) = cellOf(grid, 0.0)
         assertTrue("shaded under it: ${grid.shade(i, j)}", grid.shade(i, j) > 0.4)
         val (fi, fj) = cellOf(grid, 5_000.0)
         assertEquals("clear well away", 0.0, grid.shade(fi, fj), 0.01)
-        // Its base: 1,500 m less 0.4 of its 400 m half-height.
+        // Its base: 1,500 m minus 0.4 of its 400 m half-height.
         assertEquals(1_340.0, grid.base(i, j), CloudShadowGrid.HEIGHT_SCALE / 255.0 * 1.5)
     }
 
     @Test
     fun `a low sun casts the shadow away from it, by height over the tangent of its elevation`() {
         val east = Vec3.unitY().crossInPlace(up).normalizeInPlace()
-        // Thirty degrees up, in the west: the shadow falls east of the cloud.
+        // Thirty degrees up, in the west, so the shadow falls east of the cloud.
         val elevation = Math.toRadians(30.0)
         val light = up.copy().mulInPlace(kotlin.math.sin(elevation)).addScaledInPlace(east, -kotlin.math.cos(elevation))
         val grid = CloudShadowGrid.build(listOf(cumulusAt(0.0, 1_500.0)), up, radius, 0.0, light, 0.6f, size, extent, 1)!!
@@ -67,11 +67,11 @@ class CloudShadowGridTest {
     }
 
     @Test
-    fun `the shader's matrix finds a point on the ground in its cell, however the planet has turned`() {
+    fun `the shader's matrix finds a point on the ground in its cell however the planet has turned`() {
         val east = Vec3.unitY().crossInPlace(up).normalizeInPlace()
         val grid = CloudShadowGrid.build(listOf(cumulusAt(0.0, 1_500.0)), up, radius, 0.0, up, 0.6f, size, extent, 1)!!
         val turn = Quat.fromAxisAngle(Vec3.unitY(), 0.7)
-        // A point on the ground 3 km east of the middle, body-fixed; in the world, turned.
+        // A point on the ground 3 km east of the middle, body-fixed, and turned in the world.
         val groundFixed = up.copy().mulInPlace(radius).addScaledInPlace(east, 3_000.0)
         val world = turn.rotate(groundFixed, Vec3())
         val camera = world.copy().addScaledInPlace(turn.rotate(up, Vec3()), 50.0)

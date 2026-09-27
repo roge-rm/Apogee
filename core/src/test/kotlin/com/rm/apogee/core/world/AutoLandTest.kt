@@ -16,9 +16,8 @@ class AutoLandTest {
     private val dt = 1.0 / 60.0
 
     /**
-     * [design] [height] m over pad [pad] of [siteId], falling at [falling]
-     * m/s and drifting east at [drifting] m/s, its first stage (the engine)
-     * lit.
+     * [design] [height] m over pad [pad] of [siteId], falling at [falling] m/s and drifting east at
+     * [drifting] m/s, with its first stage (the engine) lit.
      */
     private fun overSite(world: World, design: CraftDesign, siteId: String, pad: Int, height: Double, falling: Double, drifting: Double): Vessel {
         val site = World.launchSites.first { it.id == siteId }
@@ -34,10 +33,10 @@ class AutoLandTest {
         return craft
     }
 
-    /** The fastest the last [land] climbed on the way down, m/s. */
+    /** The fastest the last [land] climbed on the way down, in m/s. */
     private var climbed = 0.0
 
-    /** Flies it down with the auto-land; the hardest it touched down, m/s. */
+    /** Flies it down with the auto-land, and returns the hardest it touched down, in m/s. */
     private fun land(world: World, craft: Vessel, limit: Double = 400.0): Double {
         world.apply(Command.SetAutopilot(craft.id.raw, autoBurn = false, autoLand = true))
         var hardest = 0.0
@@ -45,7 +44,7 @@ class AutoLandTest {
         val body = world.attractorFor(craft)
         while (craft.control.autoLand && t < limit) {
             world.step(dt); t += dt
-            // Down all the way: never climbing on the way.
+            // Down all the way, never climbing on the way.
             val up = craft.body.position.copy().normalizeInPlace()
             val climb = craft.body.linearVelocity.copy().subInPlace(body.surfaceVelocityAt(craft.body.position, Vec3())) dot up
             climbed = maxOf(climbed, climb)
@@ -61,7 +60,7 @@ class AutoLandTest {
     fun `the Stilt Lander sets itself down on the mare from a fast fall`() {
         val world = World.default(catalog)
         val craft = overSite(world, StockCraft.lander(catalog), "luna-mare", 2, 3_000.0, 50.0, 60.0)
-        // The chute is the next stage, useless here: the legs come after it.
+        // The chute is the next stage, and it's useless here. The legs come after it.
         world.stage(craft)
         val hardest = land(world, craft)
         assertEquals("did not finish: ${craft.control.autopilotNote}", "Landed", craft.control.autopilotNote)
@@ -84,7 +83,7 @@ class AutoLandTest {
     }
 
     @Test
-    fun `it will not try to land on Terra with a vacuum engine too weak to hold it up`() {
+    fun `it won't try to land on Terra with a vacuum engine too weak to hold it up`() {
         val world = World.default(catalog)
         val craft = overSite(world, StockCraft.lander(catalog), "cape", 3, 2_000.0, 0.0, 0.0)
         world.apply(Command.SetAutopilot(craft.id.raw, autoBurn = false, autoLand = true))

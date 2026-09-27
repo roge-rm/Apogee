@@ -9,7 +9,9 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** Lifting pieces off a craft, putting them back on elsewhere, copying and turning them. */
+/**
+ * Lifting pieces off a craft, putting them back on somewhere else, copying them and turning them.
+ */
 class AssemblyTest {
 
     private val catalog = StockParts.catalog
@@ -17,7 +19,7 @@ class AssemblyTest {
     private fun nodeOn(design: CraftDesign, partIndex: Int, nodeId: String): OpenNode =
         Attachment.openNodes(design, catalog).first { it.partIndex == partIndex && it.node.id == nodeId }
 
-    /** Pod, tank, decoupler, tank, engine - and a tank-and-engine booster on the side of the upper tank. */
+    /** Pod, tank, decoupler, tank, engine, and a tank-and-engine booster on the side of the upper tank. */
     private fun rocket(): CraftBuilder {
         val b = CraftBuilder(catalog)
         b.placeRoot("pod-halo")
@@ -28,19 +30,19 @@ class AssemblyTest {
         return b
     }
 
-    /** Where [of] sits and faces in [frame]'s own frame: what a rigid move keeps. */
+    /** Where [of] sits and faces in [frame]'s own frame, which is what a rigid move keeps. */
     private fun relative(frame: PlacedPart, of: PlacedPart): Pair<Vec3, com.rm.apogee.core.math.Quat> {
         val undo = frame.rotation.conjugate()
         return undo.rotate(Vec3().setTo(of.position).subInPlace(frame.position)) to (undo * of.rotation)
     }
 
     @Test
-    fun `the root cannot be lifted`() {
+    fun `the root can't be lifted`() {
         assertNull(rocket().lift(0))
     }
 
     @Test
-    fun `lifting only looks - the design is untouched until the move`() {
+    fun `lifting only looks, and the design is untouched until the move`() {
         val b = rocket()
         val before = b.design
         val lifted = b.lift(3)!!
@@ -50,14 +52,14 @@ class AssemblyTest {
     }
 
     @Test
-    fun `a lower stage moved on to the side keeps its engine where it was on it`() {
+    fun `a lower stage moved onto the side keeps its engine where it was on it`() {
         val b = rocket()
         val tank = b.design.parts[3]
         val engine = b.design.parts[4]
         val before = relative(tank, engine)
         val lifted = b.lift(3)!!
-        // On to the side of the pod's tank, a booster now: hung by one of its
-        // own side nodes, the bottom one being the engine's.
+        // Onto the side of the pod's tank, as a booster now, hung by one of its own side nodes,
+        // because the bottom one is the engine's.
         val side = nodeOn(lifted.rest, 1, "surface-0")
         val added = b.move(3, side)
         assertEquals(2, added.size)
@@ -89,7 +91,7 @@ class AssemblyTest {
         val lifted = b.lift(fins[0])!!
         assertEquals(4, lifted.copies)
         assertEquals("all four came off", 5, lifted.rest.parts.size)
-        // On to the pod's tank instead.
+        // Onto the pod's tank instead.
         val added = b.move(fins[0], nodeOn(lifted.rest, 1, "surface-0"))
         assertEquals(4, added.size)
         assertEquals(9, b.design.parts.size)
@@ -98,11 +100,11 @@ class AssemblyTest {
     }
 
     @Test
-    fun `a duplicated booster is the same shape as the one it copied`() {
+    fun `a copied booster is the same shape as the one it copied`() {
         val b = rocket()
         val copy = b.duplicate(3)!!
-        // A second tank-and-engine under the engine is silly but legal:
-        // the copy goes on where it fits and keeps its own shape.
+        // A second tank-and-engine under the engine is silly but allowed. The copy goes on where it
+        // fits and keeps its own shape.
         val added = b.attachAssembly(copy, nodeOn(b.design, 4, "bottom"))
         assertEquals(2, added.size)
         val a = relative(b.design.parts[3], b.design.parts[4])
@@ -142,7 +144,7 @@ class AssemblyTest {
     }
 
     @Test
-    fun `a mirrored wing pair turns as a pair and stays so on loading`() {
+    fun `a mirrored wing pair turns as a pair and stays that way on loading`() {
         val b = CraftBuilder(catalog)
         b.orientation = CraftOrientation.HORIZONTAL
         b.placeRoot("fuselage-short")
@@ -161,7 +163,7 @@ class AssemblyTest {
     }
 
     @Test
-    fun `a design saved before turns loads with none`() {
+    fun `a design saved before turns existed loads with none`() {
         val json = Json { ignoreUnknownKeys = true }
         val old = """{"name":"Old","parts":[{"partId":"pod-halo","position":{"x":0.0,"y":0.0,"z":0.0}}]}"""
         val design = json.decodeFromString(CraftDesign.serializer(), old)

@@ -26,12 +26,10 @@ class GameServerTest {
     /**
      * Steps the server until [condition] holds.
      *
-     * Counting `yield()`s is not a synchronisation primitive, and an earlier
-     * version of these tests did exactly that: a fixed number of yields that
-     * passed happily until unrelated work changed how many coroutines were in
-     * flight, at which point two of them began failing for no reason connected
-     * to what they were testing. Waiting on the actual condition is both faster
-     * and stable.
+     * Counting `yield()`s isn't a way to synchronise, and an earlier version of these tests did
+     * exactly that. A fixed number of yields passed happily until unrelated work changed how many
+     * coroutines were in flight, and then two of them started failing for reasons that had nothing
+     * to do with what they were testing. Waiting on the real condition is both faster and stable.
      */
     private suspend fun pumpUntil(
         server: GameServer,
@@ -48,19 +46,19 @@ class GameServerTest {
     }
 
     /**
-     * Connects a client and waits for the handshake to resolve either way.
+     * Connects a client and waits for the handshake to finish either way.
      *
-     * Clients are launched into runTest's `backgroundScope`, which it cancels
-     * on completion - a client collecting from a transport never finishes on
-     * its own, so launching into the test scope itself would hang every test.
+     * Clients are launched into runTest's `backgroundScope`, which it cancels when it's done. A
+     * client collecting from a transport never finishes on its own, so launching into the test
+     * scope itself would hang every test.
      */
     private suspend fun joinClient(
         server: GameServer,
         scope: CoroutineScope,
         name: String,
         catalogHash: String = catalog.contentHash,
-        // Defaults to one identity per name, which is what most tests want.
-        // Tests about identity pass it explicitly.
+        // Defaults to one identity per name, which is what most tests want. Tests about identity
+        // pass it in themselves.
         clientId: String = "install-$name",
         terrainGeneration: Int = com.rm.apogee.core.terrain.TerrainField.GENERATION,
         systemHash: String = com.rm.apogee.core.orbit.SolarSystem.DEFAULT_HASH,
@@ -76,15 +74,14 @@ class GameServerTest {
     }
 
     /**
-     * The bug this whole mechanism exists for. Two devices that have never had
-     * a name set both arrive as the default "Pilot"; matching on the name
-     * handed the second one the first one's rocket, and the two flew it
-     * together without either realising.
+     * The bug this whole mechanism is here for. Two devices that have never had a name set both
+     * arrive as the default "Pilot". Matching on the name handed the second one the first one's
+     * rocket, and the two flew it together without either of them realising.
      */
     /**
-     * A crash that strips parts off: the client ends up seeing what the
-     * world has - the craft it flies, smaller, and the pieces that came off
-     * as craft of their own, with none left over that are gone.
+     * A crash that strips parts off. The client ends up seeing what the world has: the craft it
+     * flies, smaller, and the pieces that came off as craft of their own, with none left over that
+     * are gone.
      */
     @Test
     fun `a crash that breaks the craft up reaches the client`() = runTest {
@@ -103,7 +100,7 @@ class GameServerTest {
             server.stepOnce()
             repeat(SETTLE_YIELDS) { yield() }
         }
-        // The last pieces may come off in the last ticks: let the client hear.
+        // The last pieces might come off in the last ticks, so let the client hear.
         pumpUntil(server, "the client to catch up") {
             client.vessel(id)?.design?.parts?.size == world.vessel(VesselId(id))?.design?.parts?.size &&
                 world.vessels.map { it.id.raw }.toSet() == client.vessels.map { it.id }.toSet()
@@ -125,7 +122,9 @@ class GameServerTest {
         )
     }
 
-    /** Pause and warp are the solo player's; the moment anyone else is on, time is everyone's. */
+    /**
+     * Pause and warp belong to the solo player. The moment anyone else is on, time is everyone's.
+     */
     @Test
     fun `pause and warp only while alone`() = runTest {
         val world = World.default(catalog)
@@ -195,7 +194,7 @@ class GameServerTest {
         )
     }
 
-    /** And the converse: the same install coming back gets its craft again. */
+    /** And the other way round: the same install coming back gets its craft again. */
     @Test
     fun `the same install is given its craft back`() = runTest {
         val server = GameServer(World.default(catalog), ServerConfig())
@@ -203,7 +202,7 @@ class GameServerTest {
         pumpUntil(server, "the first craft") { first.controlledVessel != null }
         val original = first.controlledVessel
 
-        // Same device, different name this time: the label is cosmetic.
+        // Same device, different name this time, because the label is only cosmetic.
         val again = joinClient(server, backgroundScope, "Commander", clientId = "install-one")
         pumpUntil(server, "the craft to come back") { again.controlledVessel != null }
 
@@ -236,8 +235,8 @@ class GameServerTest {
     }
 
     /**
-     * Same parts, different ground: an older build joining a 0.3.0 server
-     * would drive over hills the server says are not there.
+     * Same parts, different ground. An older build joining a 0.3.0 server would drive over hills
+     * the server says aren't there.
      */
     @Test
     fun `a client on different terrain is refused`() = runTest {
@@ -256,19 +255,18 @@ class GameServerTest {
     }
 
     /**
-     * A career world: each player gets their own career on joining, is
-     * given no craft - a career starts from scratch - and cannot launch
-     * what they have not unlocked.
+     * A career world: each player gets their own career when they join, is given no craft (a career
+     * starts from scratch), and can't launch what they haven't unlocked.
      */
     @Test
-    fun `a career refuses what a player has not unlocked, and each player has their own`() = runTest {
+    fun `a career refuses what a player hasn't unlocked, and each player has their own`() = runTest {
         val server = GameServer.default(catalog)
         server.world.program = com.rm.apogee.core.career.Program()
         val alice = joinClient(server, backgroundScope, "Alice")
         pumpUntil(server, "Alice's career to arrive") { alice.career != null }
         assertEquals(com.rm.apogee.core.world.WorldSave.MODE_CAREER, alice.mode)
         assertTrue("handed a craft", alice.vessels.none { it.owner == "install-Alice" })
-        // The stock rocket needs a vacuum engine she has not got.
+        // The stock rocket needs a vacuum engine she hasn't got.
         alice.send(Command.SpawnCraft(com.rm.apogee.core.craft.StockCraft.starterRocket(catalog), "cape"))
         pumpUntil(server, "the launch to be refused") { alice.refusals.isNotEmpty() }
         assertTrue(alice.refusals.peek()!!.contains("Not unlocked"))
@@ -283,7 +281,7 @@ class GameServerTest {
         assertFalse(bob.career!!.has("tanks"))
     }
 
-    /** A feat reaches the player who pulled it off - as a banner and in their career - and nobody else. */
+    /** A feat reaches the player who pulled it off, as a banner and in their career, and nobody else. */
     @Test
     fun `a feat is told to its owner alone`() = runTest {
         val server = GameServer.default(catalog)
@@ -303,7 +301,7 @@ class GameServerTest {
             )
             world.assignOwner(craft, "install-Alice")
         }
-        // Orbit first - they are in one - and the rendezvous with it.
+        // Orbit first (they're in one), and the rendezvous with it.
         pumpUntil(server, "Alice's rendezvous to arrive") { alice.feats.any { it.title == "Rendezvous" } }
         pumpUntil(server, "Alice's career to show it") { alice.career?.feats?.containsKey("rendezvous") == true }
         repeat(20) { server.stepOnce(); yield() }
@@ -311,7 +309,7 @@ class GameServerTest {
         assertFalse(bob.career!!.feats.containsKey("rendezvous"))
     }
 
-    /** A feat earned before its owner has joined - a craft of theirs coming to rest as they connect - is told once they have. */
+    /** A feat earned before its owner has joined (a craft of theirs coming to rest as they connect) is told once they have. */
     @Test
     fun `a feat earned while its owner is away is told when they join`() = runTest {
         val server = GameServer.default(catalog)
@@ -327,14 +325,14 @@ class GameServerTest {
             )
             world.assignOwner(craft, "install-Carol")
         }
-        // Nobody here: the feats are earned all the same.
+        // Nobody's here, but the feats are earned all the same.
         repeat(30) { server.stepOnce(); yield() }
         assertTrue(world.program!!.careerOf("install-Carol").feats.containsKey("rendezvous"))
         val carol = joinClient(server, backgroundScope, "Carol")
         pumpUntil(server, "Carol's rendezvous to be told") { carol.feats.any { it.title == "Rendezvous" } }
     }
 
-    /** Same parts and ground, different worlds: the planets would not be where the server has them. */
+    /** Same parts and ground, different worlds. The planets wouldn't be where the server has them. */
     @Test
     fun `a client with a different solar system is refused`() = runTest {
         val server = GameServer.default(catalog)
@@ -349,8 +347,8 @@ class GameServerTest {
     }
 
     /**
-     * A tree felled by one player is gone for everyone: for a player already
-     * there, and for one who joins afterwards.
+     * A tree felled by one player is gone for everyone, for a player already there and for one who
+     * joins afterwards.
      */
     @Test
     fun `a felled tree is gone for every player`() = runTest {
@@ -365,9 +363,8 @@ class GameServerTest {
     }
 
     /**
-     * Moving parts are replicated: a player watching another's aircraft sees
-     * its control surfaces where the server has them - the pilot's elevons,
-     * not a guess at them.
+     * Moving parts are copied across. A player watching someone else's aircraft sees its control
+     * surfaces where the server has them: the pilot's elevons, not a guess at them.
      */
     @Test
     fun `another player sees the same control surface deflection`() = runTest {
@@ -400,9 +397,8 @@ class GameServerTest {
     }
 
     /**
-     * Free Flight: joining a fresh flight clears away the craft flown last
-     * time and starts on a new one - and leaves alone anything else the
-     * player owns, which is a base left on purpose.
+     * Free Flight: joining a fresh flight clears away the craft flown last time and starts on a new
+     * one, and leaves alone anything else the player owns, which is a base left there on purpose.
      */
     @Test
     fun `a fresh flight replaces the craft flown last time, and only that one`() = runTest {
@@ -411,7 +407,7 @@ class GameServerTest {
         val client = joinClient(first, backgroundScope, "Pilot")
         pumpUntil(first, "the first flight's craft") { client.controlledVessel != null }
         val flown = client.controlledVessel!!
-        // A base the player also owns, parked elsewhere.
+        // A base the player also owns, parked somewhere else.
         val base = world.spawnOnSurface(
             com.rm.apogee.core.craft.StockCraft.rover(catalog),
             com.rm.apogee.core.world.World.launchSites.first(), pad = 3,
@@ -474,14 +470,14 @@ class GameServerTest {
             endAltitude > startAltitude + 5.0,
         )
 
-        // Bob receives it without ever having asked.
+        // Bob gets it without ever having asked.
         assertNotNull(
             "Bob should have motion for Alice's craft",
             bob.vessel(aliceVessel)?.latest,
         )
     }
 
-    /** Out on EVA into another player's empty seat: aboard, and along for the ride. */
+    /** Out on EVA into another player's empty seat, so aboard and along for the ride. */
     @Test
     fun `a player who boards another's craft rides as a passenger`() = runTest {
         val world = World.default(catalog)
@@ -511,7 +507,7 @@ class GameServerTest {
     }
 
     @Test
-    fun `a client cannot fly a craft it does not own`() = runTest {
+    fun `a client can't fly a craft it doesn't own`() = runTest {
         val server = GameServer.default(catalog)
         val alice = joinClient(server, backgroundScope, "Alice")
         val bob = joinClient(server, backgroundScope, "Bob")
@@ -521,8 +517,8 @@ class GameServerTest {
 
         val alicesVessel = VesselId(alice.controlledVessel!!)
 
-        // Bob tries to throttle up Alice's rocket. In a persistent shared world
-        // this is the difference between a sandbox and a free-for-all.
+        // Bob tries to throttle up Alice's rocket. In a persistent shared world this is the
+        // difference between a sandbox and a free-for-all.
         bob.send(Command.SetThrottle(alicesVessel.raw, 1.0))
         repeat(20) { server.stepOnce(); repeat(SETTLE_YIELDS) { yield() } }
 
@@ -535,8 +531,8 @@ class GameServerTest {
     }
 
     /**
-     * The pilot's HUD shows what is left in the tanks, and its replica burns
-     * from it - so the server says, rather than the client assuming full.
+     * The pilot's HUD shows what's left in the tanks, and its replica burns from it, so the server
+     * says instead of the client assuming full.
      */
     @Test
     fun `the pilot is told what is left in the tanks`() = runTest {
@@ -560,7 +556,10 @@ class GameServerTest {
         )
     }
 
-    /** The weather is computed on every device alike: all it needs is the config, sent in the welcome. */
+    /**
+     * The weather is worked out the same on every device. All it needs is the config, sent in the
+     * welcome.
+     */
     @Test
     fun `a client is told what the weather is made of`() = runTest {
         val wild = com.rm.apogee.core.weather.WeatherConfig(intensity = com.rm.apogee.core.weather.WeatherIntensity.WILD)
@@ -574,11 +573,10 @@ class GameServerTest {
     fun `staging is reflected back to the client`() = runTest {
         val server = GameServer.default(catalog)
         val client = joinClient(server, backgroundScope, "Pilot")
-        // Waiting on controlledVessel alone is not enough: that arrives in the
-        // welcome, while the craft's *structure* is a separate message on a
-        // separate channel. Dereferencing the vessel before it lands is a
-        // one-in-many-runs null, which is exactly the kind of flake that gets
-        // blamed on the test rather than on the assumption.
+        // Waiting on controlledVessel alone isn't enough. That arrives in the welcome, while the
+        // craft's *structure* is a separate message on a separate channel. Dereferencing the vessel
+        // before it lands is a one-in-many-runs null, which is exactly the kind of flake that gets
+        // blamed on the test instead of on the assumption.
         pumpUntil(server, "the client to know its craft's structure") {
             client.controlledVessel?.let { client.vessel(it) != null } == true
         }
@@ -587,8 +585,8 @@ class GameServerTest {
         assertEquals(0, client.vessel(vesselId)!!.currentStage)
 
         client.send(Command.Stage(vesselId))
-        // Igniting an engine changes no part list, so this only arrives if the
-        // server broadcasts structure on a plain stage as well as on a split.
+        // Lighting an engine changes no part list, so this only arrives if the server broadcasts
+        // structure on a plain stage as well as on a split.
         pumpUntil(server, "the stage change to reach the client") {
             client.vessel(vesselId)!!.currentStage == 1
         }
@@ -612,9 +610,8 @@ class GameServerTest {
         val two = server.world.vessel(VesselId(bob.controlledVessel!!))!!
         val separation = one.body.position.distanceTo(two.body.position)
 
-        // Spawning both at the same point drops one craft inside the other and
-        // the contact solver flings them apart, which is a memorable but
-        // unhelpful way to begin a game.
+        // Spawning both at the same point drops one craft inside the other and the contact solver
+        // flings them apart, which is a memorable but unhelpful way to start a game.
         assertTrue(
             "craft should spawn clear of each other, were ${separation}m apart",
             separation > 20.0,
@@ -626,9 +623,8 @@ class GameServerTest {
     }
 
     /**
-     * A craft left on the pad from before a restart still has the pad. A new
-     * player's starter used to go on pad 0 by a counter that restarted with
-     * the server, straight into it.
+     * A craft left on the pad from before a restart still has the pad. A new player's starter used
+     * to go on pad 0 by a counter that restarted with the server, straight into it.
      */
     @Test
     fun `a new player's craft goes beside one left on the pad, not into it`() = runTest {
@@ -647,8 +643,8 @@ class GameServerTest {
     }
 
     /**
-     * The point of a persistent world, from the seat: log off in orbit, come
-     * back, still be in orbit.
+     * The point of a persistent world, from the seat: log off in orbit, come back, and still be in
+     * orbit.
      */
     @Test
     fun `a returning player gets their own craft back`() = runTest {
@@ -657,7 +653,7 @@ class GameServerTest {
         pumpUntil(server, "Alice to be flying something") { alice.controlledVessel != null }
 
         val hers = VesselId(alice.controlledVessel!!)
-        // Fly it somewhere distinctive, then leave.
+        // Fly it somewhere you'd recognise, then leave.
         server.world.apply(Command.Stage(hers.raw))
         server.world.apply(Command.SetThrottle(hers.raw, 1.0))
         repeat(600) { server.stepOnce() }
@@ -673,9 +669,9 @@ class GameServerTest {
             hers.raw,
             backAgain.controlledVessel,
         )
-        // Near where she left it, not exactly: the world does not pause because
-        // nobody is watching, so a craft under power keeps climbing while its
-        // pilot reconnects. What must not happen is finding it back on the pad.
+        // Near where she left it, not exactly. The world doesn't pause because nobody is watching,
+        // so a craft under power keeps climbing while its pilot reconnects. What mustn't happen is
+        // finding it back on the pad.
         val now = server.world.vessel(hers)!!.body.position.length
         assertEquals("she should rejoin near where she left off", altitude, now, 100.0)
         assertTrue(
@@ -742,9 +738,8 @@ class GameServerTest {
     }
 
     /**
-     * Two players' craft docked: both are in the one craft, both are asked
-     * who flies it, and what they choose is what the server lets through.
-     * Undocked, each is back in their own.
+     * Two players' craft docked: both are in the one craft, both are asked who flies it, and what
+     * they choose is what the server lets through. Undocked, each is back in their own.
      */
     @Test
     fun `two players dock, choose who flies, and undock back into their own craft`() = runTest {
@@ -772,7 +767,7 @@ class GameServerTest {
         assertEquals("Bob", alice.dockedWith!!.other)
         assertEquals("either, until they say", "", alice.dockedWith!!.pilot)
 
-        // Bob hands it to Alice: his throttle is refused, hers goes through.
+        // Bob hands it to Alice, so his throttle is refused and hers goes through.
         bob.send(Command.SetDockPilot(whole.id.raw, alice.clientId))
         pumpUntil(server, "the choice to reach Alice") { alice.dockedWith?.pilot == alice.clientId }
         bob.send(Command.SetThrottle(whole.id.raw, 0.9))
@@ -781,7 +776,7 @@ class GameServerTest {
         alice.send(Command.SetThrottle(whole.id.raw, 0.4))
         pumpUntil(server, "Alice's throttle") { whole.control.throttle == 0.4 }
 
-        // Apart again: each back in their own.
+        // Apart again, each back in their own.
         val joint = whole.defs.indices.first { whole.design.parts[it].dockedFrom != null }
         alice.send(Command.Undock(whole.id.raw, joint))
         pumpUntil(server, "each back in their own craft") {

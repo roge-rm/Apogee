@@ -4,17 +4,16 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicReference
 
 /**
- * The hand-off for terrain geometry, game side to GL thread.
+ * The hand-off for terrain geometry, from the game side to the GL thread.
  *
- * Building a mesh means sampling the height field thousands of times, far too
- * slow for the GL thread. Builders publish finished work here; the renderer
- * picks it up on its next frame. Lock-free, like the frame bus.
+ * Building a mesh means sampling the height field thousands of times, which is far too slow for the
+ * GL thread. Builders publish finished work here, and the renderer picks it up on its next frame.
+ * It's lock-free, like the frame bus.
  *
- * Two things cross: the globe, built once, and chunks. A chunk crosses twice -
- * once as data waiting to be uploaded, and then as part of the *draw list*,
- * which the game side republishes whenever what should be on screen changes.
- * The draw list only ever names chunks that have been built, so there is never
- * a hole where one is still being worked on: its coarser parent stands in.
+ * Two things cross: the globe, built once, and chunks. A chunk crosses twice. First as data waiting
+ * to be uploaded, and then as part of the *draw list*, which the game side publishes again whenever
+ * what should be on screen changes. The draw list only ever names chunks that have been built, so
+ * there's never a hole where one is still being worked on. Its coarser parent stands in.
  */
 class TerrainSource {
 
@@ -25,20 +24,20 @@ class TerrainSource {
 
     private val globeRef = AtomicReference<PendingGlobe?>(null)
 
-    /** Built, not yet uploaded. The GL thread drains it. */
+    /** Built, not uploaded yet. The GL thread drains it. */
     private val pendingChunks = ConcurrentHashMap<ChunkKey, ChunkData>()
 
     /**
-     * Chunks built and not since discarded by the GL thread: the ones the
-     * builder may put in a draw list. Holds the data until the GPU has it.
+     * Chunks built and not thrown away since by the GL thread, which are the ones the builder can
+     * put in a draw list. It holds the data until the GPU has it.
      */
     private val available: MutableSet<ChunkKey> = ConcurrentHashMap.newKeySet()
 
     /**
-     * Chunks the GPU actually has. The builder draws only these, so a chunk
-     * is never listed before it can be drawn - listed at once, as it used to
-     * be, a freshly split square showed sky for the frames its children
-     * waited for upload, and coarse neighbours stood around it as slabs.
+     * Chunks the GPU actually has. The builder only draws these, so a chunk is never listed before
+     * it can be drawn. When chunks were listed straight away, as they used to be, a freshly split
+     * square showed sky for the frames its children waited for upload, and coarse neighbours stood
+     * around it like slabs.
      */
     private val uploaded: MutableSet<ChunkKey> = ConcurrentHashMap.newKeySet()
 
@@ -64,14 +63,14 @@ class TerrainSource {
 
     fun isUploaded(key: ChunkKey): Boolean = key in uploaded
 
-    /** Built but not yet on the GPU. */
+    /** Built but not on the GPU yet. */
     fun isWaitingForUpload(key: ChunkKey): Boolean = key in available && key !in uploaded
 
     /** The next built chunk to upload, oldest first, or null. GL thread. */
     fun nextToUpload(): ChunkData? {
         while (true) {
             val key = uploadOrder.poll() ?: return null
-            // Gone if it was discarded meanwhile.
+            // Gone if it was thrown away in the meantime.
             pendingChunks.remove(key)?.let { return it }
         }
     }
@@ -80,12 +79,11 @@ class TerrainSource {
     private val releaseQueue = java.util.concurrent.ConcurrentLinkedQueue<ChunkKey>()
 
     /**
-     * The builder is done with [key]: it will not list it again unless it
-     * builds it afresh. The only way a chunk leaves the GPU short of the
-     * context going - the renderer used to evict by its own lights, against
-     * whichever draw list it happened to hold, and now and then freed a chunk
-     * in the very frame the builder listed it again: the detailed ground
-     * gone for a few frames, every few seconds, while climbing.
+     * The builder is done with [key], and won't list it again unless it builds it afresh. This is
+     * the only way a chunk leaves the GPU, short of losing the context. The renderer used to evict
+     * on its own judgement, against whichever draw list it happened to hold, and now and then freed
+     * a chunk in the very frame the builder listed it again. The detailed ground vanished for a few
+     * frames, every few seconds, while climbing.
      */
     fun release(key: ChunkKey) {
         available -= key
@@ -95,9 +93,8 @@ class TerrainSource {
     }
 
     /**
-     * Lets go of every chunk, for a new builder starting over with this
-     * source: anything the old one left here the new one knows nothing of,
-     * and would wait on without ever building it.
+     * Lets go of every chunk, for a new builder starting over with this source. The new one knows
+     * nothing about anything the old one left here, and would wait on it without ever building it.
      */
     fun releaseAllChunks() {
         for (key in available.toList() + uploaded.toList()) release(key)
@@ -105,7 +102,7 @@ class TerrainSource {
         drawListRef.set(emptyList())
     }
 
-    /** The next chunk to free, or null. GL thread; drained before uploads. */
+    /** The next chunk to free, or null. GL thread. Drained before uploads. */
     fun nextReleased(): ChunkKey? = releaseQueue.poll()
 
     /** The GL thread has [key] on the GPU. */
@@ -113,7 +110,7 @@ class TerrainSource {
         uploaded += key
     }
 
-    /** The GL thread dropped [key] from the GPU; it must be built again to be drawn. */
+    /** The GL thread dropped [key] from the GPU, so it has to be built again to be drawn. */
     fun discarded(key: ChunkKey) {
         available -= key
         uploaded -= key
@@ -121,8 +118,8 @@ class TerrainSource {
     }
 
     /**
-     * What to draw, as [ChunkData] (the centre and bounds are what the draw
-     * needs; the vertex arrays in it may already be gone to the GPU).
+     * What to draw, as [ChunkData]. The centre and bounds are what the draw needs, and the vertex
+     * arrays in it might already have gone to the GPU.
      */
     fun publishDrawList(list: List<DrawEntry>) = drawListRef.set(list)
 

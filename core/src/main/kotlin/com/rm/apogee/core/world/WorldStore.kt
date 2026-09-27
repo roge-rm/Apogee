@@ -6,15 +6,13 @@ import java.io.File
 /**
  * A persistent world on disk.
  *
- * Writes to a temporary file and renames, so a crash or a power cut during a
- * save leaves the previous world intact rather than a truncated one. The
- * previous save is also kept as a single backup: an autosave that captures a
- * corrupted state is rarer than one that captures an unwanted one, and having
- * exactly one step back has saved more worlds than a full history would.
+ * It writes to a temporary file and renames it, so a crash or a power cut during a save leaves the
+ * previous world intact instead of a cut-off one. The previous save is also kept as a single
+ * backup. An autosave that captures a broken state is rarer than one that captures a state you
+ * didn't want, and having exactly one step back has saved more worlds than a full history would.
  *
- * Takes a [File] rather than reaching for a location, because :core has no
- * platform dependency - the dedicated server passes a path from its config and
- * tests pass a temporary folder.
+ * It takes a [File] instead of finding a location itself, because :core doesn't depend on any
+ * platform. The dedicated server passes a path from its config and tests pass a temporary folder.
  */
 class WorldStore(private val file: File) {
 
@@ -22,8 +20,7 @@ class WorldStore(private val file: File) {
         prettyPrint = true
         prettyPrintIndent = "  "
         classDiscriminator = "type"
-        // An operator may hand-edit a save, and a stray field should not cost
-        // them the world.
+        // An operator might edit a save by hand, and a stray field shouldn't cost them the world.
         ignoreUnknownKeys = true
     }
 
@@ -33,7 +30,7 @@ class WorldStore(private val file: File) {
 
     val path: String get() = file.absolutePath
 
-    /** Bytes on disk, or 0 when there is no save yet. */
+    /** Bytes on disk, or 0 when there's no save yet. */
     val sizeBytes: Long get() = if (file.exists()) file.length() else 0L
 
     val lastSavedEpochMillis: Long get() = if (file.exists()) file.lastModified() else 0L
@@ -44,7 +41,7 @@ class WorldStore(private val file: File) {
         val temporary = File(file.parentFile, "${file.name}.tmp")
         temporary.writeText(format.encodeToString(world))
 
-        // Keep one step back before replacing what is there.
+        // Keep one step back before replacing what's there.
         if (file.exists()) {
             runCatching { file.copyTo(backupFile, overwrite = true) }
         }
@@ -59,10 +56,9 @@ class WorldStore(private val file: File) {
     }
 
     /**
-     * Loads the world, falling back to the backup if the main file will not
-     * parse.
+     * Loads the world, falling back to the backup if the main file won't parse.
      *
-     * @return the save and any warning, or null when there is nothing to load.
+     * @return the save and any warning, or null when there's nothing to load.
      */
     fun loadWithFallback(): Pair<WorldSave, String?>? {
         if (file.exists()) {
@@ -71,7 +67,7 @@ class WorldStore(private val file: File) {
         if (backupFile.exists()) {
             runCatching { format.decodeFromString<WorldSave>(backupFile.readText()) }
                 .onSuccess {
-                    return it to "Main save would not parse; loaded the previous one instead"
+                    return it to "The main save couldn't be read, so the previous one was loaded instead"
                 }
         }
         return null

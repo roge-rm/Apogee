@@ -4,13 +4,12 @@ import android.opengl.GLES30
 import android.util.Log
 
 /**
- * A compiled and linked GLES program, with uniform locations cached on first
- * lookup.
+ * A compiled and linked GLES program, with uniform locations cached the first time they're looked
+ * up.
  *
- * Deliberately conservative GLSL: `#version 300 es` only, no compute, no
- * storage buffers, no `gl_FragDepth` tricks. minSdk 27 means Adreno 5xx and
- * Mali-T8xx drivers are in the test matrix, and those are exactly the drivers
- * that quietly mis-compile anything clever.
+ * The GLSL is careful on purpose: `#version 300 es` only, no compute, no storage buffers, and no
+ * `gl_FragDepth` tricks. minSdk 27 means Adreno 5xx and Mali-T8xx drivers are in the test matrix,
+ * and those are exactly the drivers that quietly miscompile anything clever.
  */
 class ShaderProgram(vertexSource: String, fragmentSource: String, private val name: String) {
 
@@ -33,7 +32,7 @@ class ShaderProgram(vertexSource: String, fragmentSource: String, private val na
             error("Failed to link program '$name': $log")
         }
 
-        // Shaders are reference-counted by the program; drop our references.
+        // Shaders are reference-counted by the program, so drop our references.
         GLES30.glDeleteShader(vs)
         GLES30.glDeleteShader(fs)
     }
@@ -43,7 +42,7 @@ class ShaderProgram(vertexSource: String, fragmentSource: String, private val na
     fun uniform(uniformName: String): Int = uniformLocations.getOrPut(uniformName) {
         val location = GLES30.glGetUniformLocation(handle, uniformName)
         if (location < 0) {
-            // Not fatal: a uniform the compiler proved unused is legitimately absent.
+            // Not fatal. A uniform the compiler proved unused is quite rightly missing.
             Log.w(TAG, "uniform '$uniformName' not found in program '$name' (optimised out?)")
         }
         location

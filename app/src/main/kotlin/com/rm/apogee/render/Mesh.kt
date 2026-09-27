@@ -7,15 +7,14 @@ import java.nio.ByteOrder
 /**
  * An indexed triangle mesh living in GPU memory.
  *
- * Vertex layout is interleaved position(3) + normal(3), both float, matching
- * the attribute locations declared in [Shaders.VESSEL_VERTEX].
+ * The vertex layout is position(3) + normal(3) interleaved, both float, matching the attribute
+ * locations declared in [Shaders.VESSEL_VERTEX].
  *
- * Part meshes are procedural for now - a part definition names a shape and
- * dimensions rather than a model file - so every mesh in the game is built by
- * [MeshBuilder] at load time. That keeps the whole asset pipeline out of the
- * early milestones without painting us into a corner: the part schema's mesh
- * field is a tagged spec, so a `gltf:` variant can be added later without
- * touching any existing part.
+ * Part meshes are procedural for now. A part definition names a shape and dimensions instead of a
+ * model file, so every mesh in the game is built by [MeshBuilder] at load time. That keeps the
+ * whole asset pipeline out of the early milestones without painting us into a corner. The part
+ * schema's mesh field is a tagged spec, so a `gltf:` variant can be added later without touching
+ * any existing part.
  */
 class Mesh(vertices: FloatArray, indices: IntArray) {
 
@@ -73,19 +72,18 @@ class Mesh(vertices: FloatArray, indices: IntArray) {
     }
 
     /**
-     * [count] copies in one call, each placed by its instance in [instances]
-     * (a buffer of [INSTANCE_FLOATS] floats an instance, starting at instance
-     * [first]): model matrix, 1/scale^2, colour, ambient - see
-     * [Shaders.CLOUD_INSTANCED_VERTEX]. The instance attributes are taken off
-     * again afterwards, so the mesh draws as before for everything else.
+     * [count] copies in one call, each placed by its instance in [instances] (a buffer of
+     * [INSTANCE_FLOATS] floats per instance, starting at instance [first]): model matrix,
+     * 1/scale^2, colour, and ambient. See [Shaders.CLOUD_INSTANCED_VERTEX]. The instance attributes
+     * get taken off again afterwards, so the mesh draws the same as before for everything else.
      */
     fun drawInstanced(instances: Int, first: Int, count: Int) {
         GLES30.glBindVertexArray(vao[0])
         GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, instances)
         val stride = INSTANCE_FLOATS * Float.SIZE_BYTES
         val base = first * stride
-        // A divisor belongs to the attribute, and is ignored while it is
-        // off: set once, it saves a call each way every draw.
+        // A divisor belongs to the attribute, and is ignored while it's off. Setting it once saves
+        // a call each way on every draw.
         if (!divisorsSet) {
             for (location in ATTR_MODEL until ATTR_MODEL + INSTANCE_ATTRIBUTES) GLES30.glVertexAttribDivisor(location, 1)
             divisorsSet = true
@@ -112,8 +110,8 @@ class Mesh(vertices: FloatArray, indices: IntArray) {
         const val STRIDE_FLOATS = 6
 
         /**
-         * Instance attributes, six vec4s from [ATTR_MODEL]: a model matrix
-         * (four columns), 1/scale^2 with the ambient as its fourth, colour.
+         * Instance attributes, six vec4s from [ATTR_MODEL]: a model matrix (four columns),
+         * 1/scale^2 with the ambient as its fourth, and colour.
          */
         const val ATTR_MODEL = 2
         const val INSTANCE_ATTRIBUTES = 6
@@ -124,8 +122,8 @@ class Mesh(vertices: FloatArray, indices: IntArray) {
 /**
  * Uploads the procedural primitives to the GPU.
  *
- * The geometry itself is built by [MeshShapes], which needs no GL context and
- * can therefore be tested; this is only the upload step.
+ * The geometry itself is built by [MeshShapes], which doesn't need a GL context and so can be
+ * tested. This is only the upload step.
  */
 object MeshBuilder {
 

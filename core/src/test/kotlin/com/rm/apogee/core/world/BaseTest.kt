@@ -15,15 +15,18 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
 /**
- * Bases: founded where they stand, immovable from then on, and built out by
- * bringing modules up to their connectors.
+ * Bases: founded where they stand, impossible to move from then on, and built out by bringing
+ * modules up to their connectors.
  */
 class BaseTest {
     private val catalog = StockParts.catalog
     private val dt = 1.0 / 60.0
     private val cape = World.launchSites.first { it.id == "cape" }
 
-    /** Where [vessel]'s centre is on the ground, body-fixed: what a founded base must keep. */
+    /**
+     * Where [vessel]'s centre is on the ground, body-fixed, which is what a founded base has to
+     * keep.
+     */
     private fun groundPosition(world: World, vessel: Vessel): Vec3 {
         val body = world.attractorFor(vessel)
         return body.toBodyFixed(vessel.body.position, body.rotationAt(world.time))
@@ -39,13 +42,13 @@ class BaseTest {
     }
 
     @Test
-    fun `a founded base is not moved by a rover driven into it, though it is hurt`() {
+    fun `a founded base isn't moved by a rover driven into it, though it gets hurt`() {
         val world = World.default(catalog)
         val base = foundedBase(world)
         val before = groundPosition(world, base)
         val body = world.attractorFor(base)
 
-        // A rover twenty metres off, coming at it at twenty metres a second.
+        // A rover twenty metres away, coming at it at twenty metres a second.
         val rover = world.spawnOnSurface(StockCraft.rover(catalog), cape, pad = 1)
         settle(world, 1.0)
         val toward = Vec3().setTo(base.body.position).subInPlace(rover.body.position)
@@ -73,14 +76,14 @@ class BaseTest {
 
         val base = world.spawnOnSurface(StockCraft.baseCore(catalog), cape, pad = 1)
         settle(world)
-        // Pushed along: moving, it cannot be founded.
+        // Pushed along, so it's moving and can't be founded.
         base.wake()
         val surface = world.attractorFor(base).surfaceVelocityAt(base.body.position, Vec3())
         base.body.linearVelocity.setTo(surface).addScaledInPlace(Vec3(0.0, 1.0, 0.0).crossInPlace(base.body.position).normalizeInPlace(), 2.0)
         assertFalse("founded while sliding at two metres a second", world.anchor(base))
         settle(world, 4.0)
         assertTrue("founded once still", world.anchor(base))
-        // And let go again: an ordinary craft.
+        // And let go again, so it's an ordinary craft.
         assertTrue(world.unanchor(base))
         assertFalse(base.anchored)
         assertFalse(base.dormant)
@@ -96,7 +99,7 @@ class BaseTest {
         world.attractorFor(vessel).surfaceVelocityAt(vessel.body.position, Vec3()).subInPlace(vessel.body.linearVelocity).length
 
     @Test
-    fun `a module hauler drives, and staged sets its load down on its own feet`() {
+    fun `a module hauler drives, and staged it sets its load down on its own feet`() {
         val world = World.default(catalog)
         val truck = world.spawnOnSurface(StockCraft.moduleHauler(catalog), cape)
         truck.owner = "p1"
@@ -135,8 +138,8 @@ class BaseTest {
         truck.owner = "p1"
         settle(world, 2.0)
 
-        // Parked with the base to its right: the truck's right-hand side
-        // toward the base's +x connector, a few metres out.
+        // Parked with the base to its right: the truck's right-hand side toward the base's +x
+        // connector, a few metres out.
         val baseConnector = base.defs.indices.first { base.defs[it].id == "base-connector" && base.design.parts[it].position.x > 0.5 }
         val baseRef = PortRef(base, baseConnector, base.defs[baseConnector].module<DockingPort>()!!).update()
         val up = truck.body.position.copy().normalizeInPlace()
@@ -168,7 +171,9 @@ class BaseTest {
 
     private fun charge(v: Vessel) = v.amountOf(com.rm.apogee.core.part.ResourceType.ELECTRIC_CHARGE)
 
-    /** A time when the sun stands [height] (sine of elevation) over [base], rising if [rising]. */
+    /**
+     * A time when the sun stands [height] (the sine of elevation) over [base], rising if [rising].
+     */
     private fun whenSun(world: World, base: Vessel, height: Double, rising: Boolean): Double {
         val site = base.sleepDirection(Vec3())
         val body = world.attractorFor(base)
@@ -187,7 +192,7 @@ class BaseTest {
         fun run(stepsOf: Double): Double {
             val world = World.default(catalog)
             val base = foundedBase(world)
-            // Empty to start: full, both would sit at the top all along.
+            // Empty to start with, because full, both would sit at the top all along.
             base.drawCharge(charge(base))
             val start = world.time
             // To a midnight three days on, part of the way through the night's drain.
@@ -242,7 +247,7 @@ class BaseTest {
 
     private fun propellant(v: Vessel) = v.amountOf(com.rm.apogee.core.part.ResourceType.PROPELLANT)
 
-    /** A founded pad base, and a lander set down on the middle of its deck, half empty. */
+    /** A founded pad base, and a lander set down in the middle of its deck, half empty. */
     private fun landerOnPad(world: World): Pair<Vessel, Vessel> {
         val pad = world.spawnOnSurface(StockCraft.padBase(catalog), cape)
         settle(world)
@@ -278,11 +283,11 @@ class BaseTest {
     }
 
     @Test
-    fun `a dark base does not pump`() {
+    fun `a dark base doesn't pump`() {
         val world = World.default(catalog)
         val (pad, lander) = landerOnPad(world)
         pad.drawCharge(charge(pad))
-        // Midnight: no sun to run on either.
+        // Midnight, so there's no sun to run on either.
         world.settlePower(pad, whenSun(world, pad, -0.5, rising = false))
         pad.drawCharge(charge(pad))
         pad.powered = false
@@ -294,7 +299,7 @@ class BaseTest {
     }
 
     @Test
-    fun `a craft launched from a base's pad fills from its stores, and from an empty one goes empty`() {
+    fun `a craft launched from a base's pad fills from its stores, and from an empty one it goes empty`() {
         val world = World.default(catalog)
         val pad = world.spawnOnSurface(StockCraft.padBase(catalog), cape)
         pad.owner = "p1"
@@ -320,7 +325,7 @@ class BaseTest {
     }
 
     @Test
-    fun `the Cape's buildings stand founded, and are rebuilt once nobody is near`() {
+    fun `the Cape's buildings stand founded, and get rebuilt once nobody is near`() {
         val world = World.default(catalog)
         world.ensureStructures()
         val complexes = com.rm.apogee.core.craft.StockStructures.complexes
@@ -332,12 +337,12 @@ class BaseTest {
         val first = tower.id
         tower.health[0] = 0.4
 
-        // Someone awake nearby: left as it is.
+        // Someone awake nearby, so it's left as it is.
         val rover = world.spawnOnSurface(StockCraft.rover(catalog), cape, pad = 2)
         repeat((10.0 / dt).toInt()) { world.step(dt); rover.wake() }
         assertEquals("rebuilt with someone watching", first, world.structureOf(complexes.first())!!.id)
 
-        // Nobody: a minute on, it stands whole again.
+        // Nobody, so a minute later it stands whole again.
         world.destroy(rover.id, "gone")
         repeat(((World.REPAIR_QUIET + 3.0) / dt).toInt()) { world.step(dt) }
         val rebuilt = world.structureOf(complexes.first())!!
@@ -351,7 +356,7 @@ class BaseTest {
         val world = World.default(catalog)
         world.ensureStructures()
         val complex = com.rm.apogee.core.craft.StockStructures.launchComplex
-        // As 0.6.0 had it: the tower turned round, its arms away from the pads.
+        // As 0.6.0 had it: the tower turned round, with its arms away from the pads.
         val file = java.io.File.createTempFile("old-cape", ".json").also { it.deleteOnExit() }
         WorldStore(file).save(world.save()).getOrThrow()
         val json = kotlinx.serialization.json.Json.parseToJsonElement(file.readText()).jsonObject
@@ -386,7 +391,7 @@ class BaseTest {
         val design = com.rm.apogee.core.craft.StockStructures.design(com.rm.apogee.core.craft.StockStructures.launchComplex, catalog)
         for (part in design.parts) {
             if (part.partId != "struct-launch-tower" && part.partId != "struct-floodlight") continue
-            // Design axes: +X east, +Z south; the pads at the origin.
+            // Design axes: +X east, +Z south, and the pads at the origin.
             val front = part.rotation.rotate(Vec3(0.0, 0.0, 1.0))
             val toPads = Vec3(-part.position.x, 0.0, -part.position.z).normalizeInPlace()
             assertTrue("${part.partId} at ${part.position} faces away from the pads", (front dot toPads) > 0.95)
@@ -394,7 +399,7 @@ class BaseTest {
     }
 
     @Test
-    fun `a world without the Cape's buildings does not grow them`() {
+    fun `a world without the Cape's buildings doesn't grow them`() {
         val world = World.default(catalog)
         repeat(((World.REPAIR_QUIET + 3.0) / dt).toInt()) { world.step(dt) }
         assertTrue(world.vessels.isEmpty())
@@ -407,8 +412,8 @@ class BaseTest {
         val base = world.spawnOnSurface(StockCraft.baseCore(catalog), mare)
         settle(world, 4.0)
         assertTrue("could not found on the mare", world.anchor(base))
-        // Luna's nights are long - a core alone goes dark in one - but its
-        // panels charge it again once the sun is well up.
+        // Luna's nights are long (a core alone goes dark in one), but its panels charge it again
+        // once the sun is well up.
         world.settlePower(base, whenSun(world, base, 0.5, rising = true))
         assertTrue("no power on Luna with the sun up", charge(base) > 0.0 && base.powerNet > 0.0 && base.powered)
     }
@@ -436,8 +441,8 @@ class BaseTest {
             luna.toBodyFixed(lander.body.position, luna.rotationAt(world.time), direction).normalizeInPlace()
             return lander.body.position.length - luna.surfaceRadiusInBodyFrame(direction)
         }
-        // Down the way a pilot would: slowing as the ground comes up, a
-        // metre a second at the end, the engines cut once the legs are down.
+        // Down the way a pilot would: slowing as the ground comes up, a metre a second at the end,
+        // with the engines cut once the legs are down.
         var t = 0.0
         while (t < 120.0 && !lander.touchingGround) {
             val g = luna.gravitationalParameter / lander.body.position.lengthSq
@@ -457,7 +462,7 @@ class BaseTest {
         val tanks = lander.defs.indices.filter { lander.defs[it].id == "tank-cask4" }
         val left = lander.amountIn(tanks, com.rm.apogee.core.part.ResourceType.PROPELLANT)
         assertTrue("could not found where it landed", world.anchor(lander))
-        // What the descent did not burn is the base's store.
+        // Whatever the descent didn't burn is the base's store.
         assertTrue("nothing left in the tanks", left > 100.0)
         assertTrue("the base cannot see its store", lander.amountOf(com.rm.apogee.core.part.ResourceType.PROPELLANT) >= left - 1e-6)
     }
@@ -483,7 +488,7 @@ class BaseTest {
     }
 
     @Test
-    fun `free play has a base on every world that can hold one, each standing level and whole, and launched from`() {
+    fun `free play has a base on every world that can hold one, each standing level and whole, and can launch from them`() {
         val world = World.default(catalog)
         world.ensureStructures()
         settle(world, 60.0)
@@ -495,7 +500,7 @@ class BaseTest {
             val deck = base.body.orientation.rotate(base.design.orientation.up)
             assertTrue("${spec.name} leans ${Math.toDegrees(kotlin.math.acos((deck dot up).coerceIn(-1.0, 1.0)))} degrees", (deck dot up) > 0.99)
         }
-        // None on Caligo: its air would crush one.
+        // None on Caligo, because its air would crush one.
         assertTrue(world.worldBase("caligo") == null)
         // A craft put on each base's pad stands on it.
         for (site in world.baseSites("anyone")) {
@@ -507,17 +512,17 @@ class BaseTest {
     }
 
     @Test
-    fun `a career has none of the world's bases, and cannot launch from them`() {
+    fun `a career has none of the world's bases, and can't launch from them`() {
         val world = World.default(catalog)
         world.program = com.rm.apogee.core.career.Program()
         world.ensureStructures()
         assertTrue("world bases in a career: ${world.worldBases().map { it.name }}", world.worldBases().isEmpty())
         assertTrue(world.baseSites("anyone").isEmpty())
-        // One from a world played in free play before: gone once it is a career.
+        // One from a world played in free play before is gone once it's a career.
         val sandbox = World.default(catalog).also { it.ensureStructures() }
         val career = World(sandbox.system, catalog).also { it.restore(sandbox.save()); it.program = com.rm.apogee.core.career.Program(); it.ensureStructures() }
         assertTrue(career.worldBases().isEmpty())
-        // The Cape stays: it is home.
+        // The Cape stays, because it's home.
         assertTrue(career.vessels.any { it.owner == World.WORLD_OWNER && it.anchored && it.referenceBodyId == "terra" })
     }
 
@@ -531,7 +536,7 @@ class BaseTest {
         assertEquals("Riccioli Base", restored.lunaBase()?.name)
     }
 
-    /** Ground rising northward at [degrees], round a site at +X. */
+    /** Ground rising to the north at [degrees], around a site at +X. */
     private class Slope(degrees: Double) : com.rm.apogee.core.terrain.Terrain {
         private val grade = kotlin.math.tan(Math.toRadians(degrees))
         override val bodyRadius = 600_000.0
@@ -560,7 +565,7 @@ class BaseTest {
         val craftUp = base.body.orientation.rotate(base.design.orientation.up, Vec3())
         val lean = Math.toDegrees(kotlin.math.acos((craftUp dot up).coerceIn(-1.0, 1.0)))
         assertTrue("leaning $lean degrees", lean < 0.2)
-        // One foot on the ground, none in it, none further off than the jacks reach.
+        // One foot on the ground, none in it, and none further off than the jacks reach.
         val body = world.attractorFor(base)
         val foundation = base.defs.indexOfFirst { it.id == "base-foundation" }
         val def = base.defs[foundation]
@@ -575,7 +580,7 @@ class BaseTest {
     }
 
     @Test
-    fun `too steep, a base will not found`() {
+    fun `too steep, a base won't found`() {
         val (world, site) = worldOnSlope(14.0)
         val base = world.spawnOnSurface(StockCraft.baseCore(catalog), site)
         settle(world)
@@ -604,12 +609,12 @@ class BaseTest {
         val corePart = base.defs.indexOfFirst { it.id == "base-core" }
         val coreBefore = world.attractorFor(base).let { it.toBodyFixed(base.partPositionWorld(corePart), it.rotationAt(world.time)) }
 
-        // The connector on the core's +x side, and the habitat's on its -x.
+        // The connector on the core's +x side, and the habitat's on its -x side.
         val baseConnector = base.defs.indices.first { base.defs[it].id == "base-connector" && base.design.parts[it].position.x > 0.5 }
         val module = world.spawnOnSurface(StockCraft.habitatModule(catalog), cape, pad = 2)
         settle(world, 2.0)
-        // Now, not before: positions are inertial, and the ground - base and
-        // all - has been carried hundreds of metres round since.
+        // Now, not before, because positions are inertial, and the ground (base and all) has been
+        // carried hundreds of metres round since then.
         val baseRef = PortRef(base, baseConnector, base.defs[baseConnector].module<DockingPort>()!!).update()
         val moduleConnector = module.defs.indexOfFirst { it.id == "base-connector" }
         val moduleRef = PortRef(module, moduleConnector, module.defs[moduleConnector].module<DockingPort>()!!).update()

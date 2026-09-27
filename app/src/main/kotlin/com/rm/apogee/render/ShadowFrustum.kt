@@ -3,16 +3,15 @@ package com.rm.apogee.render
 import com.rm.apogee.core.math.Vec3
 
 /**
- * Where a shadow map looks from: a box along the light, [radius] each way
- * across it and [depth] each way along it, centred on a point.
+ * Where a shadow map looks from: a box along the light, [radius] each way across it and [depth]
+ * each way along it, centred on a point.
  *
- * Built camera-relative, like everything drawn - a position handed to the
- * shader is metres from the camera - but its centre is snapped to whole
- * texels in the light's own axes, measured from the world's origin, so a
- * moving camera or craft slides the map a texel at a time and every shadow
+ * It's built camera-relative, like everything drawn (a position handed to the shader is metres from
+ * the camera), but its centre is snapped to whole texels in the light's own axes, measured from the
+ * world's origin. So a moving camera or craft slides the map a texel at a time, and every shadow
  * edge stays put on the ground instead of crawling.
  *
- * Pure: no GL here, so it is tested on its own.
+ * It's pure, with no GL here, so it gets tested on its own.
  */
 class ShadowFrustum {
     /** Camera-relative world to clip space, for drawing the map. Column-major. */
@@ -21,7 +20,7 @@ class ShadowFrustum {
     /** Camera-relative world to the map's texture, [0,1] each way. Column-major. */
     val texture = FloatArray(16)
 
-    /** How big one texel is on the ground, m. */
+    /** How big one texel is on the ground, in metres. */
     var texelSize = 1.0
         private set
 
@@ -30,8 +29,8 @@ class ShadowFrustum {
     private var radius = 1.0; private var depth = 1.0
 
     /**
-     * Aims it along [toLight] (unit, towards the light) at [centre], for a
-     * camera at [camera] - both absolute - with [texels] a side.
+     * Aims it along [toLight] (unit, towards the light) at [centre], for a camera at [camera], both
+     * absolute, with [texels] a side.
      */
     fun update(toLight: Vec3, centre: Vec3, camera: Vec3, radius: Double, depth: Double, texels: Int) {
         aim(toLight, centre, radius, depth, texels)
@@ -39,9 +38,9 @@ class ShadowFrustum {
     }
 
     /**
-     * Sets where it looks: along [toLight] at [centre], in whatever frame
-     * those are given - the world's, or a planet's own turning one for a map
-     * that is drawn now and read for a while after as the planet turns.
+     * Sets where it looks: along [toLight] at [centre], in whatever frame those are given in.
+     * That's either the world's, or a planet's own turning one for a map that gets drawn now and
+     * read for a while after as the planet turns.
      */
     fun aim(toLight: Vec3, centre: Vec3, radius: Double, depth: Double, texels: Int) {
         along.setTo(toLight).mulInPlace(-1.0).normalizeInPlace() // the way the light travels
@@ -61,14 +60,13 @@ class ShadowFrustum {
     private val wr = Vec3(); private val wu = Vec3(); private val wa = Vec3()
 
     /**
-     * Builds the matrices for a camera at [camera], given in the frame it was
-     * aimed in; [turn] takes that frame to the world's (the planet's rotation
-     * now), or null if it already is the world's.
+     * Builds the matrices for a camera at [camera], given in the frame it was aimed in. [turn]
+     * takes that frame to the world's (the planet's rotation now), or is null if it's already the
+     * world's.
      */
     fun place(camera: Vec3, turn: com.rm.apogee.core.math.Quat?) {
-        // Rows: x = (p + camera)·right - sx over radius, and so on. The camera
-        // part and the snapped centre cancel to a few metres in double here,
-        // before anything is narrowed.
+        // Rows: x = (p + camera)·right - sx over radius, and so on. The camera part and the snapped
+        // centre cancel to a few metres in double here, before anything is narrowed.
         val tx = ((camera dot right) - sx) / radius
         val ty = ((camera dot up) - sy) / radius
         val tz = ((camera dot along) - sz) / depth

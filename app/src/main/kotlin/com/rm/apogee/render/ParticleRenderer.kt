@@ -6,12 +6,11 @@ import java.nio.ByteOrder
 import java.nio.FloatBuffer
 
 /**
- * Draws the frame's particles: shapes of six camera-relative vertices each,
- * position and colour, fanned into four triangles, blended over everything
- * and writing no depth.
+ * Draws the frame's particles. Each is a shape of six camera-relative vertices (position and
+ * colour) fanned into four triangles, blended over everything and writing no depth.
  *
- * One streamed buffer, rewritten each frame. The index pattern never
- * changes, so it is built once, as long as the most shapes yet seen.
+ * There's one streamed buffer, rewritten each frame. The index pattern never changes, so it's built
+ * once, as long as the most shapes seen so far.
  */
 class ParticleRenderer {
 
@@ -79,7 +78,7 @@ class ParticleRenderer {
         GLES30.glEnable(GLES30.GL_BLEND)
         GLES30.glBlendFunc(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA)
         GLES30.glDepthMask(false)
-        // Both faces: a billboard's winding depends on which way it was built.
+        // Both faces, because a billboard's winding depends on which way it was built.
         GLES30.glDisable(GLES30.GL_CULL_FACE)
         GLES30.glDrawElements(GLES30.GL_TRIANGLES, shapes * 12, GLES30.GL_UNSIGNED_INT, 0)
         GLES30.glEnable(GLES30.GL_CULL_FACE)

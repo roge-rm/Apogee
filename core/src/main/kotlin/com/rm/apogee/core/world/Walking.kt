@@ -9,12 +9,11 @@ import com.rm.apogee.core.part.Walker
 /**
  * Someone out of their craft, on their feet or on a ladder.
  *
- * On the ground the stick walks them - forward and back along the way they
- * face, turning on the reaction wheels - as fast as their feet grip, which
- * is what the ground's friction gives them this tick: brisk on rock, a slow
- * lope on Luna, a shuffle on ice. They are held upright. On a ladder they go
- * where it goes, and the stick climbs. Off the ground and off a ladder none
- * of this does anything: the jetpack is the thrusters.
+ * On the ground the stick walks them, forward and back along the way they're facing and turning on
+ * the reaction wheels, as fast as their feet can grip. That's what the ground's friction gives them
+ * this tick: brisk on rock, a slow lope on Luna, and a shuffle on ice. They're held upright. On a
+ * ladder they go where it goes, and the stick climbs. Off the ground and off a ladder none of this
+ * does anything, because the jetpack is the thrusters.
  */
 class Walking {
 
@@ -28,19 +27,21 @@ class Walking {
     private val target = Vec3()
     private val out = Vec3()
 
-    /** The walking part of [vessel], if it is someone on foot. */
+    /** The walking part of [vessel], if it's someone on foot. */
     fun walkerOf(vessel: Vessel): Walker? {
         if (vessel.defs.size != 1) return null
         return vessel.defs[0].module<Walker>()
     }
 
-    /** Which way they walk: the stick pushed up is forward. Turning is their roll - about their own height. */
+    /**
+     * Which way they walk. Pushing the stick up is forward. Turning is their roll, around their own
+     * height.
+     */
     fun input(vessel: Vessel): Double = vessel.control.pitch.coerceIn(-1.0, 1.0)
 
     /**
-     * Before the forces: whether they are on their feet this tick, and the
-     * torque that keeps them upright - against the local vertical, or along
-     * the ladder they hold.
+     * Before the forces: whether they're on their feet this tick, and the torque that keeps them
+     * upright, either against the local vertical or along the ladder they're holding.
      */
     fun stand(vessel: Vessel, walker: Walker, attractor: CelestialBody, ladder: LadderHold?) {
         val body = vessel.body
@@ -49,7 +50,7 @@ class Walking {
         if (!vessel.onFeet) return
         if (ladder != null) up.setTo(ladder.axis) else up.setTo(body.position).normalizeInPlace()
         body.orientation.rotate(Vec3.unitY(), axis)
-        // Tipped by sin(angle) about axis x up: back upright, damped.
+        // Tipped by sin(angle) around axis x up, so it's brought back upright, damped.
         scratch.setTo(axis).crossInPlace(up).mulInPlace(walker.stand)
         relative.setTo(body.angularVelocity).addScaledInPlace(up, -(body.angularVelocity dot up))
         scratch.addScaledInPlace(relative, -STAND_DAMPING)
@@ -57,8 +58,8 @@ class Walking {
     }
 
     /**
-     * After the contacts: the walk spends the grip the feet found, or the
-     * ladder carries them. Returns whether they are on a ladder still.
+     * After the contacts, the walk uses up the grip the feet found, or the ladder carries them.
+     * Returns whether they're still on a ladder.
      */
     fun move(vessel: Vessel, walker: Walker, attractor: CelestialBody, ladder: LadderHold?, dt: Double) {
         val grip = vessel.walkGrip
@@ -84,7 +85,7 @@ class Walking {
         body.linearVelocity.addScaledInPlace(want, minOf(1.0, grip / needed))
     }
 
-    /** Held to [ladder]'s line, moving with its craft, the stick climbing. */
+    /** Held to [ladder]'s line, moving with its craft, with the stick climbing. */
     private fun climb(vessel: Vessel, ladder: LadderHold) {
         val body = vessel.body
         val half = ladder.length / 2
@@ -98,10 +99,10 @@ class Walking {
     }
 
     /**
-     * Their legs and arms, swinging as they go: [Vessel.surfaceDeflection],
-     * -1..1, by how far along their stride they are and how fast they are
-     * going - walking, or climbing a ladder; still, it settles back to
-     * nothing. Only what is drawn; the walk itself is [move].
+     * Their legs and arms, swinging as they go: [Vessel.surfaceDeflection], -1..1, depending on how
+     * far along their stride they are and how fast they're going, walking or climbing a ladder.
+     * When they're still it settles back to nothing. This is only for drawing, and the walk itself
+     * is [move].
      */
     fun swing(vessel: Vessel, walker: Walker, attractor: CelestialBody, ladder: LadderHold?, dt: Double) {
         val body = vessel.body
@@ -118,7 +119,7 @@ class Walking {
         val amount = (pace / walker.speed).coerceIn(0.0, 1.0)
         vessel.fitPose()
         if (amount < 0.05) {
-            // Feet together again, not frozen mid-stride.
+            // Feet back together, not frozen in the middle of a stride.
             vessel.surfaceDeflection[0] *= (1.0 - (dt * SETTLE).coerceAtMost(1.0))
             return
         }
@@ -126,10 +127,13 @@ class Walking {
         vessel.surfaceDeflection[0] = kotlin.math.sin(vessel.walkPhase) * amount
     }
 
-    /** A ladder held: its craft, its middle, its axis and its outward face, all in the reference body's frame. */
+    /**
+     * A ladder being held: its craft, its middle, its axis and its outward face, all in the
+     * reference body's frame.
+     */
     class LadderHold(val craft: Vessel, val centre: Vec3, val axis: Vec3, val out: Vec3, val length: Double)
 
-    /** Ladder [part] of [craft] as held, or null if it is not a working ladder. */
+    /** Ladder [part] of [craft] as held, or null if it isn't a working ladder. */
     fun ladderOf(craft: Vessel, part: Int): LadderHold? {
         if (part !in craft.defs.indices || craft.isBroken(part)) return null
         val ladder = craft.defs[part].module<Ladder>() ?: return null
@@ -139,7 +143,7 @@ class Walking {
         return LadderHold(craft, craft.partPositionWorld(part, Vec3()), axis, out, ladder.length)
     }
 
-    /** How far [position] is from [hold]'s rungs, m. */
+    /** How far [position] is from [hold]'s rungs, in metres. */
     fun distanceTo(hold: LadderHold, position: Vec3): Double {
         val half = hold.length / 2
         val along = (scratch.setTo(position).subInPlace(hold.centre) dot hold.axis).coerceIn(-half, half)
@@ -148,19 +152,22 @@ class Walking {
     }
 
     companion object {
-        /** A suit's face: the way it walks. */
+        /** A suit's face, which is the way it walks. */
         val FACING: Vec3 = Vec3(0.0, 0.0, 1.0)
-        /** Rotation damping holding them upright, N·m per rad/s. */
+        /** Rotation damping holding them upright, in N·m per rad/s. */
         const val STAND_DAMPING = 300.0
-        /** Climbing speed, m/s; how far out from the rungs they hang; how hard they are pulled to them, per second. */
+        /**
+         * Climbing speed in m/s, how far out from the rungs they hang, and how hard they're pulled
+         * to them per second.
+         */
         const val CLIMB_SPEED = 0.8
         const val HOLD_OFF = 0.45
         const val PULL = 6.0
-        /** How far past either end of a ladder they can hang on, m. */
+        /** How far past either end of a ladder they can hang on, in metres. */
         const val END_REACH = 0.4
-        /** How near a ladder, m, they can take hold of it. */
+        /** How close to a ladder, in metres, they need to be to grab it. */
         const val GRAB_REACH = 1.0
-        /** How fast legs come back together once stopped, per second. */
+        /** How fast legs come back together once they stop, per second. */
         const val SETTLE = 6.0
     }
 }

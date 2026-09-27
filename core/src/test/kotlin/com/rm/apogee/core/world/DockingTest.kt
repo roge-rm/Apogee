@@ -16,9 +16,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Docking, flown: craft brought together with the same controls a player
- * has - thrusters sliding them - and the rings, clamps and hitches doing the
- * rest. In orbit, on the ground and on the water.
+ * Docking, flown: craft brought together with the same controls a player has (thrusters sliding
+ * them), and the rings, clamps and hitches doing the rest. In orbit, on the ground and on the
+ * water.
  */
 class DockingTest {
 
@@ -34,8 +34,8 @@ class DockingTest {
     private fun ref(v: Vessel, part: Int) = PortRef(v, part, v.defs[part].module<DockingPort>()!!).update()
 
     /**
-     * Places [design] so its docking part [part] faces [target]'s part
-     * [targetPart] squarely, [gap] metres off, moving as the target is.
+     * Places [design] so its docking part [part] faces [target]'s part [targetPart] squarely, [gap]
+     * metres away, moving the way the target is.
      */
     private fun placeFacing(world: World, design: CraftDesign, part: Int, target: Vessel, targetPart: Int, gap: Double, turnAbout: Vec3 = Vec3.unitY()): Vessel {
         val t = ref(target, targetPart)
@@ -43,7 +43,7 @@ class DockingTest {
         // Turn it so its part faces back along the target's.
         val own = ref(v, part)
         val turn = com.rm.apogee.core.math.quatFromTo(own.axis, Vec3().setTo(t.axis).mulInPlace(-1.0))
-        // Exactly opposite (a half turn) has no single answer: turn about the given axis.
+        // Exactly opposite (a half turn) has no single answer, so turn about the given axis.
         val q = if ((own.axis dot t.axis) > 0.999) Quat.fromAxisAngle(target.body.orientation.rotate(turnAbout, Vec3()), Math.PI, Quat()) else turn
         v.body.orientation.setTo(q * v.body.orientation).normalizeInPlace()
         val placed = ref(v, part)
@@ -52,9 +52,9 @@ class DockingTest {
     }
 
     /**
-     * The docking pilot: slides [mover]'s part [part] toward [target]'s part
-     * [targetPart] on its thrusters, slowing as it closes - what a player does
-     * with RCS in SLIDE. True once the two have become one craft.
+     * The docking pilot: slides [mover]'s part [part] toward [target]'s part [targetPart] on its
+     * thrusters, slowing as it closes, which is what a player does with RCS in SLIDE. True once the
+     * two have become one craft.
      */
     private fun approach(world: World, mover: Vessel, part: Int, target: Vessel, targetPart: Int, seconds: Double, speed: Double = 0.3): Boolean {
         world.apply(Command.SetRcs(mover.id.raw, true))
@@ -114,7 +114,7 @@ class DockingTest {
         assertEquals("latched to each other", rings[1], station.design.parts[rings[0]].dockedTo)
         assertEquals(rings[0], station.design.parts[rings[1]].dockedTo)
         assertNotNull("the one that came knows what it was", rings.firstNotNullOfOrNull { station.design.parts[it].dockedFrom })
-        // And it holds together as one under thrust: it is one body now.
+        // And it holds together as one under thrust, because it's one body now.
         world.apply(Command.SetThrottle(station.id.raw, 1.0))
         world.stage(station)
         repeat(120) { world.step(dt) }
@@ -140,7 +140,7 @@ class DockingTest {
         val apart = ref(station, portOf(station, com.rm.apogee.core.part.DockKind.PORT, 1)).face
             .distanceTo(ref(other, portOf(other, com.rm.apogee.core.part.DockKind.PORT, 1)).face)
         assertTrue("pushed apart and drifting ($apart m)", apart > 1.0)
-        // Past the grace, fly it back in.
+        // Past the grace period, fly it back in.
         repeat((World.UNDOCK_GRACE / dt).toInt()) { world.step(dt) }
         moverParts = other.design.parts.size; targetParts = station.design.parts.size
         val p2 = portOf(other, com.rm.apogee.core.part.DockKind.PORT, 1)
@@ -149,7 +149,9 @@ class DockingTest {
         assertEquals(1, world.vessels.size)
     }
 
-    /** A station put together from three craft, and taken apart again, each given back itself. */
+    /**
+     * A station put together from three craft and taken apart again, each one given back as itself.
+     */
     @Test
     fun `a station of three, assembled and taken apart`() {
         val (world, a, b) = dockInOrbit()
@@ -179,7 +181,7 @@ class DockingTest {
     }
 
     @Test
-    fun `come in too fast and it does not latch`() {
+    fun `come in too fast and it doesn't latch`() {
         val (world, a, b) = dockInOrbit()
         val port = a.defs.indices.first { a.defs[it].id == "dock-port" }
         val t = ref(a, port)
@@ -190,7 +192,7 @@ class DockingTest {
     }
 
     @Test
-    fun `ports that are not lined up do not capture`() {
+    fun `ports that aren't lined up don't capture`() {
         val (world, a, b) = dockInOrbit()
         val port = a.defs.indices.first { a.defs[it].id == "dock-port" }
         // Turned 40 degrees off, half a metre away.
@@ -205,7 +207,7 @@ class DockingTest {
     }
 
     @Test
-    fun `a small ring will not take a large one`() {
+    fun `a small ring won't take a large one`() {
         val small = DockingPort(size = 0)
         val large = DockingPort(size = 1)
         val ball = DockingPort(kind = com.rm.apogee.core.part.DockKind.HITCH_BALL)
@@ -271,7 +273,7 @@ class DockingTest {
         assertTrue("and stands, upright ($tilt deg)", tilt < 10.0)
     }
 
-    /** A rover backs up to a cart; the hitch couples and the cart is towed, swinging behind. */
+    /** A rover backs up to a cart, the hitch couples, and the cart is towed, swinging behind. */
     @Test
     fun `a buggy hitches up a cart and tows it`() {
         val world = World.default(catalog)
@@ -307,8 +309,8 @@ class DockingTest {
         assertTrue("held at the hitch ($joint m)", joint < 0.15)
         assertTrue("on its wheels ($tilt deg)", tilt < 25.0)
 
-        // Round a bend: steering hard one way, then the other. The cart swings
-        // behind about the ball, stays coupled and stays on its wheels.
+        // Round a bend: steering hard one way, then the other. The cart swings behind about the
+        // ball, stays coupled and stays on its wheels.
         var worstTilt = 0.0
         for (yaw in listOf(1.0, -1.0)) {
             world.apply(Command.SetAttitude(buggy.id.raw, 0.0, yaw, 0.0))
@@ -332,7 +334,9 @@ class DockingTest {
 
     // --- on the water ---------------------------------------------------------
 
-    /** Two skiffs drift alongside, clamp together and raft up; under power the raft goes as one. */
+    /**
+     * Two skiffs drift alongside, clamp together and raft up, and under power the raft goes as one.
+     */
     @Test
     fun `two skiffs come alongside and raft up`() {
         val world = World.default(catalog)
@@ -343,7 +347,7 @@ class DockingTest {
         val right = a.defs.indices.first { a.defs[it].id == "mooring-clamp" && a.design.parts[it].position.x > 0 }
         val left = skiff.parts.indices.first { skiff.parts[it].partId == "mooring-clamp" && skiff.parts[it].position.x < 0 }
         val b = placeFacing(world, skiff, left, a, right, gap = 1.2)
-        // B turned side-on the same way as A: its left clamp to A's right.
+        // B turned side-on the same way as A, with its left clamp to A's right.
         val parts = a.design.parts.size + b.design.parts.size
         repeat(60 * 30) {
             if (it % 60 == 0) {
@@ -381,7 +385,7 @@ class DockingTest {
         assertEquals(2, world.vessels.size)
     }
 
-    /** Two rings that met a little askew and came to rest face on face: the guides take them in. */
+    /** Two rings that met a little askew and came to rest face on face. The guides take them in. */
     @Test
     fun `rings resting together twenty degrees askew still draw in and latch`() {
         val (world, a, b) = dockInOrbit()

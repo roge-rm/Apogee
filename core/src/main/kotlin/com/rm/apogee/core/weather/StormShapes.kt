@@ -10,18 +10,17 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 
 /**
- * What a storm looks like, as lobes: the same storm the air is sampled from.
+ * What a storm looks like, as lobes. It's the same storm the air gets sampled from.
  *
- * Spread wide, as storms are: a broad dark base over the whole footprint -
- * from underneath, a ceiling across the sky - with towers of heaped billows
- * rising out of it and an anvil blown out ahead. Built as one tower on a
- * spot, every storm read as a chimney (Dan: very vertical, concentrated to
- * one small spot on the base). And by kind: a supercell's base layered like
- * a stack of plates with a wall cloud under it; a squall line's shelf cloud
- * running its whole length in front, rain in a wall behind.
+ * Storms are spread wide. There's a broad dark base over the whole footprint (from underneath, a
+ * ceiling across the sky), with towers of heaped billows rising out of it and an anvil blown out
+ * ahead. When it was built as one tower on one spot, every storm looked like a chimney, far too
+ * vertical and squeezed onto one small spot on the base. They also differ by kind. A supercell's
+ * base is layered like a stack of plates with a wall cloud under it, and a squall line has a shelf
+ * cloud running its whole length in front, with rain in a wall behind.
  *
- * [detail], 0..1, scales how many lobes: a storm far off, or on a device
- * that can draw few, is fewer and bigger ones in the same places.
+ * [detail], 0..1, scales how many lobes there are. A storm far away, or on a device that can't draw
+ * many, gets fewer and bigger ones in the same places.
  */
 internal class StormShapes(
     private val storms: Storms,
@@ -55,8 +54,8 @@ internal class StormShapes(
     }
 
     /**
-     * The base: billows tiled across the footprint, ragged at the edge, with
-     * darker bulges hanging under the towers and tatters of scud below.
+     * The base: billows tiled across the footprint, ragged at the edge, with darker bulges hanging
+     * under the towers and tatters of scud below.
      */
     private fun deck(
         s: Storms.Storm, envelope: Double, detail: Double, shape: CloudShape,
@@ -76,7 +75,7 @@ internal class StormShapes(
                 val ja = a + (h(1_000 + k) - 0.5) * spacing * 0.6
                 val jc = cr + (h(2_000 + k) - 0.5) * spacing * 0.6
                 val q = sqrt((ja / halfA).let { it * it } + (jc / halfC).let { it * it })
-                // Ragged at the edge: some of the outermost left out.
+                // Ragged at the edge, with some of the outermost left out.
                 if (q > 1.0 || (q > 0.75 && h(3_000 + k) < 0.35)) { cr += spacing; continue }
                 shape.lobes.add(
                     CloudLobe(
@@ -90,7 +89,7 @@ internal class StormShapes(
             }
             a += spacing
         }
-        // Lower and darker under each tower: where the updraught feeds it.
+        // Lower and darker under each tower, where the updraught feeds it.
         for (i in 0 until s.cellCount) {
             val r = s.cellRadius[i]
             shape.lobes.add(CloudLobe(at(s.cellAlong[i], s.cellAcross[i], s.base - 120.0), r * 0.75, 380.0, shade = 0.11))
@@ -110,11 +109,10 @@ internal class StormShapes(
     }
 
     /**
-     * The towers: level on level of heaped billows, overlapping so no seam
-     * shows, bulging out and in as they climb; near black low down, grey
-     * through the middle, lit only where they tower into the sun. Lobes
-     * shared out by size, so a line of fourteen is no heavier to draw than
-     * one great tower.
+     * The towers: level after level of heaped billows, overlapping so no seam shows, bulging in and
+     * out as they climb. They're nearly black low down, grey through the middle, and only lit where
+     * they tower up into the sun. Lobes are shared out by size, so a line of fourteen is no heavier
+     * to draw than one big tower.
      */
     private fun towers(
         s: Storms.Storm, time: Double, detail: Double, shape: CloudShape,
@@ -135,7 +133,7 @@ internal class StormShapes(
             val step = (top - s.base) / levels
             if (step <= 0.0) continue
             val salt = 10_000 + i * 700
-            // Fewer, bigger billows at less detail, filling the same tower.
+            // Fewer, bigger billows at lower detail, filling the same tower.
             val fill = sqrt(7.0 / heap)
             for (k in 0 until levels) {
                 val rise = (k + 0.5) / levels
@@ -178,9 +176,8 @@ internal class StormShapes(
     }
 
     /**
-     * A supercell's base: layer on layer of it stepping in as it climbs, like
-     * a stack of plates, turning; and under the updraught a wall cloud
-     * hanging lower than the rest.
+     * A supercell's base: layer after layer of it stepping in as it climbs, like a stack of plates,
+     * turning, and under the updraught a wall cloud hanging lower than the rest.
      */
     private fun mothership(
         s: Storms.Storm, detail: Double, shape: CloudShape,
@@ -203,7 +200,7 @@ internal class StormShapes(
                 )
             }
         }
-        // The wall cloud, a little behind the updraught's middle.
+        // The wall cloud, a little behind the middle of the updraught.
         shape.lobes.add(CloudLobe(at(a0 - 0.25 * r, c0, s.base - 380.0), r * 0.32, 450.0, shade = 0.1))
         for (j in 0 until 4) {
             val an = h(900 + j) * 2.0 * Math.PI
@@ -214,8 +211,8 @@ internal class StormShapes(
     }
 
     /**
-     * A squall line's shelf cloud: a long low wedge along its whole front,
-     * darkest at its leading edge, stepping up behind.
+     * A squall line's shelf cloud: a long low wedge along its whole front, darkest at the leading
+     * edge and stepping up behind.
      */
     private fun shelf(
         s: Storms.Storm, detail: Double, shape: CloudShape,
@@ -239,10 +236,9 @@ internal class StormShapes(
     }
 
     /**
-     * The anvil: a broad flat sheet at the top, blown far downwind of the
-     * tallest tower - tens of kilometres for a supercell, the whole length of
-     * a squall line - and under its downwind half, dark pouches hanging:
-     * mammatus. A weak storm tops out before it spreads.
+     * The anvil: a broad flat sheet at the top, blown far downwind of the tallest tower. That's
+     * tens of kilometres for a supercell, and the whole length of a squall line. Under its downwind
+     * half hang dark pouches, called mammatus. A weak storm tops out before it spreads.
      */
     private fun anvil(
         s: Storms.Storm, time: Double, envelope: Double, detail: Double, shape: CloudShape,
@@ -279,8 +275,8 @@ internal class StormShapes(
     }
 
     /**
-     * Its rain: a dark curtain under each grown tower, where its rain shaft
-     * is, and paler ones over the back of the base where lighter rain falls.
+     * Its rain: a dark curtain under each fully grown tower, where its rain shaft is, and paler
+     * ones over the back of the base where lighter rain falls.
      */
     private fun rain(
         s: Storms.Storm, time: Double, envelope: Double, detail: Double, shape: CloudShape,

@@ -1,10 +1,9 @@
 // The whole sound engine short of the device: voices, mixer and room.
 //
-// Two threads meet here and never lock. The game thread, once a frame,
-// publishes the scene - every held sound, with its parameters - through a
-// triple buffer, and pushes one-shots into a single-producer ring. The audio
-// thread takes the newest scene when it next renders, eases each voice toward
-// it, starts the one-shots, and mixes. Nothing on the audio thread allocates.
+// Two threads meet here and never lock. The game thread, once a frame, publishes the scene (every
+// held sound, with its parameters) through a triple buffer, and pushes one-shots into a
+// single-producer ring. The audio thread takes the newest scene when it next renders, eases each
+// voice toward it, starts the one-shots, and mixes. Nothing on the audio thread allocates.
 #pragma once
 
 #include <atomic>
@@ -22,14 +21,16 @@ constexpr int kMaxSceneEntries = 64;
 constexpr int kEventSlots = 128;
 
 /**
- * Parameters every voice shares after its recipe's own: loudness (distance,
- * the mix; 0 means 1), pan, the distance filter's cutoff (0 for none), and
- * the Doppler pitch.
+ * Parameters every voice shares after its recipe's own: loudness (distance and the mix, where 0
+ * means 1), pan, the distance filter's cutoff (0 for none), and the Doppler pitch.
  */
 constexpr int P_GAIN = 5;
 constexpr int P_PAN = 6;
 constexpr int P_LOWPASS = 7;
-/** Doppler: frequency factor for a source moving relative to the listener (0 means 1). Engines and wheels only. */
+/**
+ * Doppler: the frequency factor for a source moving relative to the listener (0 means 1). Engines
+ * and wheels only.
+ */
 constexpr int P_PITCH = 8;
 
 /** One held sound, as the game describes it. */
@@ -45,7 +46,7 @@ struct Scene {
     SceneEntry entries[kMaxSceneEntries];
 };
 
-/** A one-shot, as the game describes it; [delay] seconds before it starts. */
+/** A one-shot, as the game describes it, [delay] seconds before it starts. */
 struct Event {
     int32_t recipe = 0;
     int32_t flags = 0;
@@ -66,7 +67,7 @@ struct Voice {
     Smooth fade;             // in when started, out when dropped
     int delaySamples = 0;
     float age = 0;           // seconds since it started sounding
-    float loudness = 0;      // recent level, for choosing whom to steal
+    float loudness = 0;      // recent level, for choosing which one to steal
 
     Rng rng;
     Pink pink, pink2;
@@ -89,13 +90,13 @@ public:
     /** Game thread: the held sounds this frame. */
     void publishScene(const Scene& scene);
 
-    /** Game thread: a one-shot. False if the queue is full (it is dropped). */
+    /** Game thread: a one-shot. False if the queue is full (it gets dropped). */
     bool pushEvent(const Event& event);
 
     /** Game thread: loudness per bus, 0..1 each. */
     void setBusGains(const float* gains);
 
-    /** Game thread: how much room - more inside a hull, a little outdoors. */
+    /** Game thread: how much room there is, more inside a hull and a little outdoors. */
     void setRoom(float amount) { roomTarget_.store(amount); }
 
     /** Audio thread: [frames] stereo frames, interleaved, into [out]. */
@@ -103,7 +104,7 @@ public:
 
     float sampleRate() const { return sampleRate_; }
 
-    /** Off only to measure recipes' raw levels in the gallery. */
+    /** Only off to measure recipes' raw levels in the gallery. */
     bool limiting = true;
     int activeVoices() const;
 
@@ -119,10 +120,9 @@ private:
     int voiceBudget_;
     Voice voices_[kMaxVoices];
 
-    // Triple buffer: the writer fills one and publishes it by swapping it
-    // into [ready_] with the fresh bit (4) set; the reader, seeing the bit,
-    // swaps its own old one in. Index and bit in one atomic, so neither side
-    // can see a half-made swap.
+    // Triple buffer. The writer fills one and publishes it by swapping it into [ready_] with the
+    // fresh bit (4) set, and the reader, seeing the bit, swaps its own old one in. The index and
+    // bit are in one atomic, so neither side can see a half-made swap.
     Scene buffers_[3];
     int writing_ = 0;
     int reading_ = 1;

@@ -24,20 +24,19 @@ dependencyResolutionManagement {
 
 rootProject.name = "Apogee"
 
-// :app -> :server -> :net -> :core, and nothing points back up.
-// :core and :net are pure Kotlin/JVM with no Android dependencies so the
-// identical simulation runs on a phone and on a headless dedicated server,
-// and so physics is unit-testable in milliseconds instead of via installDebug.
+// :app -> :server -> :net -> :core, and nothing points back up. :core and :net are pure Kotlin/JVM
+// with no Android dependencies, so the same simulation runs on a phone and on a headless dedicated
+// server, and physics can be unit-tested in milliseconds instead of through installDebug.
 include(":core")
 include(":net")
 include(":server")
-// The standalone server. Not consumed by :app - see its build file.
+// The standalone server. :app doesn't use it. See its build file.
 include(":dedicated")
 
-// :app needs the Android SDK, and a server build has neither one nor a use
-// for it. The Docker image that builds :dedicated is a plain JDK container;
-// including :app there fails at *configuration* time, before any task runs,
-// because the Android plugin looks for an SDK it will never find.
+// :app needs the Android SDK, and a server build has neither the SDK nor any use for it. The Docker
+// image that builds :dedicated is a plain JDK container, and including :app there fails at
+// *configuration* time, before any task runs, because the Android plugin looks for an SDK it will
+// never find.
 val hasAndroidSdk = file("local.properties").exists() ||
     System.getenv("ANDROID_HOME") != null ||
     System.getenv("ANDROID_SDK_ROOT") != null

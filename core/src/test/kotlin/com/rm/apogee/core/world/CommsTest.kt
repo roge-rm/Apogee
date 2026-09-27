@@ -29,7 +29,7 @@ class CommsTest {
         catalogHash = catalog.contentHash,
     )
 
-    /** Terra to Luna, unit, now; and a direction square to it. */
+    /** Terra to Luna, as a unit vector, now, and a direction square to it. */
     private fun lunaward(world: World): Pair<Vec3, Vec3> {
         val toward = world.system.positionOf("luna", world.time).subInPlace(world.system.positionOf("terra", world.time)).normalizeInPlace()
         val across = toward.cross(Vec3.unitY()).normalizeInPlace()
@@ -52,7 +52,7 @@ class CommsTest {
     }
 
     @Test
-    fun `a probe over the Cape hears it directly, and flies`() {
+    fun `a probe over the Cape hears it directly and flies`() {
         val world = World.default(catalog)
         val terra = world.system.body("terra")
         val up = terra.rotationAt(world.time).rotate(SolarSystem.surfaceDirection(SolarSystem.PAD_LATITUDE, SolarSystem.PAD_LONGITUDE), Vec3())
@@ -65,7 +65,7 @@ class CommsTest {
     }
 
     @Test
-    fun `behind Luna a probe hears nothing and cannot be flown - unless a relay sees both`() {
+    fun `behind Luna a probe hears nothing and can't be flown, unless a relay sees both`() {
         val world = World.default(catalog)
         val luna = world.system.body("luna")
         val (toward, across) = lunaward(world)
@@ -79,7 +79,8 @@ class CommsTest {
             world, craft("probe-mote", "dish-beacon"),
             toward.copy().mulInPlace(1_000_000.0).addScaledInPlace(across, 2_000_000.0),
         )
-        // Out here with its dish folded it cannot hear being told: as if unfolded near home.
+        // Out here with its dish folded it can't hear being told, so it's as if it were unfolded
+        // near home.
         world.apply(Command.Deploy(relay.id.raw, true))
         assertFalse(relay.control.deployed)
         relay.control.deployed = true
@@ -108,7 +109,7 @@ class CommsTest {
     }
 
     @Test
-    fun `a flat probe cannot be flown even in sight of home`() {
+    fun `a flat probe can't be flown even in sight of home`() {
         val world = World.default(catalog)
         val terra = world.system.body("terra")
         val up = terra.rotationAt(world.time).rotate(SolarSystem.surfaceDirection(SolarSystem.PAD_LATITUDE, SolarSystem.PAD_LONGITUDE), Vec3())

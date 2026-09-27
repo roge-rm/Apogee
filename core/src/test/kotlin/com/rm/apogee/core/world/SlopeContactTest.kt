@@ -14,11 +14,10 @@ import org.junit.Test
 /**
  * A craft at rest on a slope rests on it, not in it.
  *
- * The ground turns with the planet - 175 m/s at Terra's equator - and
- * contacts were once solved against where it stood at the start of the tick
- * the craft had just moved through: 2.9 m back along the turn. On flat ground
- * that changes nothing. On a slope facing along the turn it is metres up or
- * down, and a pod landed on a mountainside came to rest two metres inside it.
+ * The ground turns with the planet (175 m/s at Terra's equator), and contacts were once solved
+ * against where it stood at the start of the tick the craft had just moved through, 2.9 m back
+ * along the turn. On flat ground that changes nothing. On a slope facing along the turn it's metres
+ * up or down, and a pod landed on a mountainside came to rest two metres inside it.
  */
 class SlopeContactTest {
 
@@ -31,12 +30,12 @@ class SlopeContactTest {
         val terra = world.system.body("terra")
         val terrain = terra.terrain!!
         val rotation = terra.rotationAt(world.time)
-        // On the equator, where the ground moves fastest, among the hills
-        // where the launch complex first stood.
+        // On the equator, where the ground moves fastest, among the hills where the launch complex
+        // first stood.
         val pad = Vec3(1.0, 0.0, 0.0)
 
-        // The steepest east-west slope near there that a pod can still sit
-        // on (under the 31 degrees its grip holds), where the lag told most.
+        // The steepest east-west slope near there that a pod can still sit on (under the 31 degrees
+        // its grip holds), where the lag showed most.
         val east = Vec3(0.0, 1.0, 0.0).crossInPlace(pad).normalizeInPlace().mulInPlace(-1.0)
         val north = Vec3().setTo(pad).crossInPlace(east).normalizeInPlace()
         fun at(x: Double, y: Double) = Vec3().setTo(pad).addScaledInPlace(east, x / terra.radius).addScaledInPlace(north, y / terra.radius).normalizeInPlace()
@@ -61,7 +60,7 @@ class SlopeContactTest {
         val craft = world.spawnAt(pod, "terra", position, terra.surfaceVelocityAt(position, Vec3()), quatFromTo(Vec3.unitY(), up))
         repeat(60 * 6) { world.step(dt) }
 
-        // Deepest of its contact points under the collider's ground now.
+        // The deepest of its contact points under the collider's ground now.
         val ground = GroundPoint()
         val lookup = TerrainTileCache.Lookup()
         val point = Vec3()

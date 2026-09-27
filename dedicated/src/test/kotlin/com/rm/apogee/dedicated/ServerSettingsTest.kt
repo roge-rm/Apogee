@@ -64,7 +64,7 @@ class ServerSettingsTest {
     }
 
     @Test
-    fun `a blank value falls back rather than producing an empty name`() {
+    fun `a blank value falls back instead of giving an empty name`() {
         val settings = ServerSettings.fromEnvironment(
             mapOf("APOGEE_SERVER_NAME" to "   ", "APOGEE_CONTROL_SOCKET" to "")
         )
@@ -74,7 +74,7 @@ class ServerSettingsTest {
 
     @Test
     fun `a nonsense number falls back instead of crashing at startup`() {
-        // An operator's typo in a compose file should not be a stack trace.
+        // An operator's typo in a compose file shouldn't be a stack trace.
         val settings = ServerSettings.fromEnvironment(mapOf("APOGEE_PORT" to "not-a-port"))
         assertEquals(ServerSettings.DEFAULT_PORT, settings.port)
     }

@@ -5,12 +5,11 @@ import com.rm.apogee.core.terrain.Landforms.distance
 import kotlin.math.abs
 
 /**
- * Aurantia: the only moon with real air, thick and orange, and the only
- * other world with seas - of liquid methane, dark and glassy. The seas lie
- * in the north, in lowlands below the datum, and lakes stud the land round
- * them. Rivers wind down to them from rugged icy highlands. Round the
- * equator lie belts of **dunes**, long parallel crests of dark organic
- * sand, all aligned with the wind. Few craters: the weather wears them away.
+ * Aurantia: the only moon with real air, thick and orange, and the only other world with seas.
+ * They're liquid methane, dark and glassy. The seas are in the north, in lowlands below the datum,
+ * with lakes dotted over the land around them. Rivers wind down to them from rugged icy highlands.
+ * Around the equator lie belts of **dunes**, long parallel crests of dark organic sand, all lined
+ * up with the wind. There are few craters, because the weather wears them away.
  */
 internal class AurantiaLand(seed: Int, private val radius: Double) : WorldLand {
     private val detail = Noise.hashInt(seed, 1, 0, 0)
@@ -19,7 +18,7 @@ internal class AurantiaLand(seed: Int, private val radius: Double) : WorldLand {
     private val duneSeed = Noise.hashInt(seed, 4, 0, 0)
     private val craters = Craters(Noise.hashInt(seed, 5, 0, 0), radius, Craters.scaledFrom(radius, 0.15))
 
-    /** How deep the northern basins are: negative in the seas. */
+    /** How deep the northern basins are. Negative in the seas. */
     private fun basins(ny: Double, px: Double, py: Double, pz: Double): Double {
         val north = Landforms.smooth((ny - 0.72) / 0.18)
         val lakes = Landforms.fbm(seas, px, py, pz, 1.0 / 30_000.0, 4)
@@ -55,10 +54,9 @@ internal class AurantiaLand(seed: Int, private val radius: Double) : WorldLand {
 }
 
 /**
- * Fons: small, and the brightest thing in the system - fresh ice falling
- * back as snow from its own geysers. The north is old and cratered; the
- * south smooth and young, and at its pole four long parallel fractures,
- * **the Stripes**, venting ice into space.
+ * Fons: small, and the brightest thing in the system, from fresh ice falling back as snow from its
+ * own geysers. The north is old and cratered, and the south is smooth and young. At the south pole
+ * there are four long parallel cracks, **the Stripes**, venting ice into space.
  */
 internal class FonsLand(seed: Int, private val radius: Double) : WorldLand {
     private val detail = Noise.hashInt(seed, 1, 0, 0)
@@ -92,11 +90,10 @@ internal class FonsLand(seed: Int, private val radius: Double) : WorldLand {
 }
 
 /**
- * Aversa: a captured wanderer, going round its planet backwards. Its
- * western half is **melon-skin**: shallow round pits packed edge to edge,
- * ridged between. The south is capped in pinkish **nitrogen ice**, streaked
- * dark where geysers blew soot out across it. Hardly a crater: it too is
- * young.
+ * Aversa: a captured wanderer that goes around its planet backwards. Its western half is **melon
+ * skin**, shallow round pits packed edge to edge with ridges between them. The south is capped in
+ * pinkish **nitrogen ice**, streaked dark where geysers blew soot out across it. There are hardly
+ * any craters, because it's young too.
  */
 internal class AversaLand(seed: Int, private val radius: Double) : WorldLand {
     private val detail = Noise.hashInt(seed, 1, 0, 0)
@@ -116,7 +113,7 @@ internal class AversaLand(seed: Int, private val radius: Double) : WorldLand {
     override fun material(nx: Double, ny: Double, nz: Double, elevation: Double, slope: Double): SurfaceMaterial {
         if (ny < -0.45) {
             val px = nx * radius; val py = ny * radius; val pz = nz * radius
-            // Dark plumes' fallout, streaked downwind.
+            // The fallout from dark plumes, streaked downwind.
             val streak = abs(Landforms.fbm(streaks, px * 0.3, py, pz * 3.0, 1.0 / 20_000.0, 2))
             return if (streak < 0.05) SurfaceMaterial.THOLIN else SurfaceMaterial.NITROGEN_ICE
         }
@@ -129,13 +126,12 @@ internal class AversaLand(seed: Int, private val radius: Double) : WorldLand {
 }
 
 /**
- * Ultima, the last of the worlds: small, and far stranger than it has any
- * right to be. Its face is marked by **the Heart**, a vast plain of frozen
- * nitrogen lying low and smooth, slowly churning in great cells; along its
- * western edge rise **mountains of water ice**, blocks kilometres high
- * floating in it like icebergs. A **dark belt** of reddened ground wraps
- * the equator; the east is **bladed**, ridged like knife-edges; frost
- * whitens the north. Elsewhere, old craters.
+ * Ultima, the last of the worlds: small, and much stranger than it has any right to be. Its face is
+ * marked by **the Heart**, a huge plain of frozen nitrogen lying low and smooth, slowly churning in
+ * big cells. Along its western edge rise **mountains of water ice**, blocks kilometres high
+ * floating in it like icebergs. A **dark belt** of reddened ground wraps around the equator, the
+ * east is **bladed** with ridges like knife edges, and frost whitens the north. Everywhere else has
+ * old craters.
  */
 internal class UltimaLand(seed: Int, private val radius: Double) : WorldLand {
     private val detail = Noise.hashInt(seed, 1, 0, 0)
@@ -144,7 +140,7 @@ internal class UltimaLand(seed: Int, private val radius: Double) : WorldLand {
     private val peaks = Noise.hashInt(seed, 4, 0, 0)
     private val craters = Craters(Noise.hashInt(seed, 5, 0, 0), radius, Craters.scaledFrom(radius, 0.7))
 
-    /** 1 inside the Heart, 0 outside: two round lobes meeting in a point below. */
+    /** 1 inside the Heart, 0 outside: two round lobes meeting in a point at the bottom. */
     fun heart(nx: Double, ny: Double, nz: Double): Double {
         val a = distance(nx, ny, nz, LOBE_WEST, radius)
         val b = distance(nx, ny, nz, LOBE_EAST, radius)
@@ -159,7 +155,7 @@ internal class UltimaLand(seed: Int, private val radius: Double) : WorldLand {
         val inHeart = heart(nx, ny, nz)
         var h = Landforms.fbm(detail, px, py, pz, 1.0 / 12_000.0, 4) * 600.0 * (1.0 - inHeart)
         h += craters.height(px, py, pz, 1.0 - inHeart)
-        // The Heart: low, flat, and its cells.
+        // The Heart: low, flat, with its cells.
         h -= inHeart * (1_800.0 - Landforms.cells(cellSeed, px, py, pz, 8_000.0) * 60.0)
         // Ice mountains along its west edge.
         val west = distance(nx, ny, nz, LOBE_WEST, radius)
@@ -193,10 +189,9 @@ internal class UltimaLand(seed: Int, private val radius: Double) : WorldLand {
 }
 
 /**
- * Portitor, Ultima's companion, half its size: grey, cratered, and girdled
- * by **the Belt**, a band of canyons and fractures running the whole way
- * round near its equator, where it once split as its insides froze. Its
- * north pole is stained **dark red**.
+ * Portitor, Ultima's companion, half its size. It's grey and cratered, with **the Belt** wrapped
+ * around it, a band of canyons and cracks running all the way round near its equator, where it
+ * split long ago as its insides froze. Its north pole is stained **dark red**.
  */
 internal class PortitorLand(seed: Int, private val radius: Double) : WorldLand {
     private val detail = Noise.hashInt(seed, 1, 0, 0)
@@ -205,13 +200,13 @@ internal class PortitorLand(seed: Int, private val radius: Double) : WorldLand {
     override fun height(nx: Double, ny: Double, nz: Double): Double {
         val px = nx * radius; val py = ny * radius; val pz = nz * radius
         var h = Landforms.fbm(detail, px, py, pz, 1.0 / 8_000.0, 4) * 400.0
-        // The Belt: three parallel canyons wandering round the world.
+        // The Belt: three parallel canyons wandering around the world.
         val wander = Landforms.fbm(detail + 9, px, py, pz, 1.0 / 40_000.0, 2) * 0.05
         for (k in -1..1) {
             val d = abs(ny - 0.05 * k - wander) * radius
             h += Landforms.canyon(d, 2_500.0, 1_500.0 - 300.0 * abs(k))
         }
-        // The south is smooth plains: fewer craters.
+        // The south is smooth plains, so there are fewer craters.
         h += craters.height(px, py, pz, if (ny < -0.1) 0.35 else 1.0)
         return h
     }

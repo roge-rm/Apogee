@@ -10,15 +10,14 @@ import kotlin.math.sin
 /**
  * Thermals, and the cumulus that caps each one.
  *
- * One chance of a thermal per cell of [CELL] and per [CYCLE], each cell on
- * its own phase so they do not all pop at once. Whether one forms depends on
- * the ground: rock, sand and dry dirt heat and send air up; water, snow and
- * forest hardly do. A thermal stays over the ground that feeds it and leans
- * downwind as it rises, swells, peaks and fades, with a ring of sinking air
- * round it - and its cloud grows on top once it has been going a while, so
- * a pilot can find the lift by the cumulus above it, the way glider pilots
- * do. (Letting it drift over its whole life carried it three cells from its
- * own, out of reach of any search cheap enough to run every tick.)
+ * There's one chance of a thermal per cell of [CELL] and per [CYCLE], with each cell on its own
+ * phase so they don't all pop up at once. Whether one forms depends on the ground. Rock, sand and
+ * dry dirt heat up and send air up, while water, snow and forest hardly do. A thermal stays over
+ * the ground that feeds it and leans downwind as it rises, swells, peaks and fades, with a ring of
+ * sinking air around it. Its cloud grows on top once it has been going for a while, so a pilot can
+ * find the lift by the cumulus above it, the way glider pilots do. (Letting it drift over its whole
+ * life carried it three cells from its own, out of reach of any search cheap enough to run every
+ * tick.)
  */
 internal class Convection(
     private val weather: Weather,
@@ -29,20 +28,20 @@ internal class Convection(
 ) {
     private val climate = weather.climate
 
-    /** One thermal: fixed for its cell and cycle. */
+    /** One thermal, fixed for its cell and cycle. */
     class Thermal {
         var exists = false
         val origin = Vec3()      // unit, body-fixed, at its start
         val drift = Vec3()       // tangent, m/s: the wind it leans with
         val east = Vec3(); val north = Vec3()
-        var start = 0.0          // time its cycle began
+        var start = 0.0          // the time its cycle started
         var ground = 0.0         // elevation under it, m
         var strength = 0.0       // peak updraught, m/s
         var radius = 0.0         // core, m
         var base = 0.0           // cloud base above its ground, m
         var depth = 0.0          // cloud depth at its fullest, m
         var consistency = 0.0    // how solid its cloud is, 0..1
-        val lobes = DoubleArray(LOBES * 5) // east, north, up offsets; horizontal and vertical radii
+        val lobes = DoubleArray(LOBES * 5) // east, north and up offsets, and horizontal and vertical radii
         var lobeCount = 0
     }
 
@@ -67,23 +66,21 @@ internal class Convection(
         val c = cycle.toInt()
         cells.centre(key, th.origin)
         frame(th.origin, th.east, th.north)
-        // Jitter within the cell so they do not sit on a grid.
+        // Jitter within the cell so they don't sit on a grid.
         th.origin.addScaledInPlace(th.east, (Noise.hash(seed + 12, cx, cy, c) - 0.5) * 0.7 * CELL / bodyRadius)
             .addScaledInPlace(th.north, (Noise.hash(seed + 13, cx, cy, c) - 0.5) * 0.7 * CELL / bodyRadius)
             .normalizeInPlace()
         frame(th.origin, th.east, th.north)
-        // One sample of the ground, not the wind's nine-sample description:
-        // on a fresh flight none of those are cached, and listing the sky's
-        // thermals took ten seconds.
+        // One sample of the ground, not the wind's nine-sample description. On a fresh flight none
+        // of those are cached, and listing the sky's thermals took ten seconds.
         val terrain = weather.body.terrain
         val elevation = terrain?.elevation(th.origin) ?: 0.0
         val heat = if (terrain == null || terrain.hasOcean && elevation < 0.0) 0.0
             else TerrainWind.heat(terrain.material(th.origin, elevation, 0.0))
-        // Cumulus gather: fields of them where the air is ripe for it, clear
-        // sky between - not one here and there across the whole map, which is
-        // what an even chance per cell gave (Dan: very well spread out). The
-        // field is tens of kilometres across and drifts over hours; the
-        // cloud-cover setting makes it busier or quieter.
+        // Cumulus gather into fields of them where the air is ripe for it, with clear sky between,
+        // instead of one here and there across the whole map, which is what an even chance per cell
+        // gave. They were far too spread out. The field is tens of kilometres across and drifts
+        // over hours, and the cloud cover setting makes it busier or quieter.
         val field = fieldAt(th.origin, time)
         val chance = (heat * intensity.thermals * climate.thermals * (0.06 + 1.15 * field) * weather.config.clouds.pockets).coerceAtMost(0.95)
         th.exists = heat > 0.0 && Noise.hash(seed + 14, cx, cy, c) < chance
@@ -97,10 +94,10 @@ internal class Convection(
             th.consistency = 0.6 + 0.4 * Noise.hash(seed + 18, cx, cy, c)
             weather.boundaryWind(th.origin, th.start, th.drift)
             th.drift.mulInPlace(0.8)
-            // A heap of rounded lobes, the widest at the base.
+            // A heap of rounded lobes, widest at the base.
             val width = th.radius * 2.5 + 200.0 + th.depth * 0.3
-            // Many smaller lobes round a broad core, heaped higher towards
-            // the middle: a few big ones read as solid lumps floating alone.
+            // Lots of smaller lobes around a broad core, heaped higher toward the middle. A few big
+            // ones look like solid lumps floating on their own.
             th.lobeCount = 4 + (Noise.hash(seed + 19, cx, cy, c) * (LOBES - 3)).toInt().coerceAtMost(LOBES - 4)
             for (l in 0 until th.lobeCount) {
                 val a = Noise.hash(seed + 20 + l, cx, cy, c) * 2.0 * Math.PI
@@ -121,8 +118,8 @@ internal class Convection(
     }
 
     /**
-     * How ripe the air is for cumulus around unit [at], 0..1: a slow,
-     * broad pattern, most of the map a little and some of it a lot.
+     * How ripe the air is for cumulus around unit [at], 0..1: a slow, broad pattern, with most of
+     * the map getting a little and some of it a lot.
      */
     private fun fieldAt(at: Vec3, time: Double): Double {
         val k = bodyRadius / FIELD_SCALE
@@ -133,9 +130,9 @@ internal class Convection(
     }
 
     /**
-     * Where [th]'s column stands [height] metres above its ground, as a unit
-     * direction into [out]: over its source at the bottom, leaning downwind
-     * by as far as the wind carries the air while it climbs there.
+     * Where [th]'s column stands [height] metres above its ground, as a unit direction into [out].
+     * It's over its source at the bottom, leaning downwind by as far as the wind carries the air
+     * while it climbs to there.
      */
     fun columnAt(th: Thermal, height: Double, out: Vec3): Vec3 {
         val speed = th.drift.length
@@ -147,21 +144,21 @@ internal class Convection(
         return out.normalizeInPlace()
     }
 
-    /** Its strength envelope at [time]: swells, peaks, fades. */
+    /** Its strength envelope at [time]: it swells, peaks and fades. */
     fun envelope(th: Thermal, time: Double): Double {
         val u = ((time - th.start) / CYCLE).coerceIn(0.0, 1.0)
         return Math.pow(sin(Math.PI * u), 0.7)
     }
 
-    /** How much of its cloud there is at [time], 0..1: none until it has been going a while. */
+    /** How much of its cloud there is at [time], 0..1. None until it has been going a while. */
     fun cloudAmount(th: Thermal, time: Double): Double {
         val u = ((time - th.start) / CYCLE).coerceIn(0.0, 1.0)
         return smooth(0.12, 0.35, u) * (1.0 - smooth(0.75, 0.98, u))
     }
 
     /**
-     * Adds the thermals around [up] (unit) at [altitude] to [out]'s lift, and
-     * their cumulus to its cloud; [position] is the point in metres.
+     * Adds the thermals around [up] (unit) at [altitude] to [out]'s lift, and their cumulus to its
+     * cloud. [position] is the point in metres.
      */
     fun apply(up: Vec3, east: Vec3, north: Vec3, position: Vec3, altitude: Double, time: Double, out: AirSample) {
         if (terrainWind == null || intensity.thermals <= 0.0 || climate.thermals <= 0.0) return
@@ -202,7 +199,7 @@ internal class Convection(
                     val he = (relE - th.lobes[o]) / (th.lobes[o + 3] * (0.4 + 0.6 * cloud))
                     val hn = (relN - th.lobes[o + 1]) / (th.lobes[o + 3] * (0.4 + 0.6 * cloud))
                     val v = (dy - th.lobes[o + 2] * cloud) / max(th.lobes[o + 4] * cloud, 40.0)
-                    // A flat base: nothing below the condensation level.
+                    // A flat base, with nothing below the condensation level.
                     if (altitude < th.ground + th.base) continue
                     density = max(density, 1.0 - (he * he + hn * hn + v * v))
                 }
@@ -223,26 +220,29 @@ internal class Convection(
     }
 
     companion object {
-        /** Spacing of thermal cells, m. */
+        /** The spacing of thermal cells, in metres. */
         const val CELL = 2_500.0
 
-        /** One thermal's life, s. */
+        /** One thermal's lifetime, in seconds. */
         const val CYCLE = 900.0
 
         const val LOBES = 10
 
-        /** How far across a field of cumulus is, near enough, m. */
+        /** Roughly how far across a field of cumulus is, in metres. */
         const val FIELD_SCALE = 24_000.0
 
-        /** How long the fields take to drift their own width, near enough, s. */
+        /** Roughly how long the fields take to drift their own width, in seconds. */
         const val FIELD_DRIFT_SECONDS = 4.0 * 3_600.0
 
-        /** Furthest a column leans from its source, m: within reach of a 5x5 search. */
+        /**
+         * The furthest a column leans from its source, in metres, which keeps it within reach of a
+         * 5x5 search.
+         */
         const val MAX_LEAN = 2_000.0
     }
 }
 
-/** Cloud of [type] at [density]: the densest cloud here decides what it is. */
+/** Cloud of [type] at [density]. The densest cloud here decides what it is. */
 internal fun addCloud(out: AirSample, density: Double, type: CloudType) {
     if (density > out.cloudDensity) {
         out.cloudDensity = density

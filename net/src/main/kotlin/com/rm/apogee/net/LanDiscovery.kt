@@ -24,7 +24,7 @@ data class ServerBeacon(
     val protocolVersion: Int,
     val catalogHash: String,
 ) {
-    /** Filled in by the listener from the packet's source. */
+    /** Filled in by the listener from where the packet came from. */
     @kotlinx.serialization.Transient
     var address: String = ""
 }
@@ -32,20 +32,19 @@ data class ServerBeacon(
 /**
  * Finding games on the local network, without a lobby server.
  *
- * A host broadcasts a small JSON beacon once a second; clients listen. Chosen
- * over mDNS/NSD because it behaves identically on Android and on a desktop JVM
- * - the dedicated server can announce itself with exactly this code - and
- * because the payload can carry the protocol version and catalogue hash, so a
- * client can grey out an incompatible game in the list instead of discovering
- * the mismatch only after trying to join.
+ * A host broadcasts a small JSON beacon once a second, and clients listen. I chose this over
+ * mDNS/NSD because it behaves the same on Android and on a desktop JVM (the dedicated server can
+ * announce itself with exactly this code), and because the payload can carry the protocol version
+ * and catalogue hash. That way a client can grey out a game it can't join in the list, instead of
+ * finding out only after trying to join.
  *
- * JSON rather than the protobuf the game uses: a beacon is a handful of fields
- * sent once a second, and being able to read one with tcpdump while debugging
- * why two devices cannot see each other is worth more than the bytes.
+ * It's JSON instead of the protobuf the game uses. A beacon is a handful of fields sent once a
+ * second, and being able to read one with tcpdump while working out why two devices can't see each
+ * other is worth more than the bytes.
  */
 object LanDiscovery {
 
-    /** Fixed so hosts and clients agree without configuration. */
+    /** Fixed, so hosts and clients agree without any setup. */
     const val PORT = 45_677
 
     private val format = Json { ignoreUnknownKeys = true }
@@ -55,9 +54,8 @@ object LanDiscovery {
     /**
      * Broadcasts [beacon] until the scope is cancelled.
      *
-     * Sends to every broadcast address the device has, not just
-     * 255.255.255.255: on Android that global address is frequently dropped,
-     * while the per-interface broadcast address gets through.
+     * It sends to every broadcast address the device has, not just 255.255.255.255. On Android that
+     * global address often gets dropped, while the per-interface broadcast address gets through.
      */
     fun announce(beacon: ServerBeacon, scope: CoroutineScope): Job =
         scope.launch(Dispatchers.IO) {
@@ -80,11 +78,10 @@ object LanDiscovery {
         }
 
     /**
-     * Listens for beacons, calling [onFound] for each.
+     * Listens for beacons, calling [onFound] for each one.
      *
-     * The caller is responsible for de-duplicating: a host announces once a
-     * second forever, and on a device with several interfaces the same beacon
-     * can arrive more than once per round.
+     * The caller has to remove the duplicates. A host announces once a second forever, and on a
+     * device with several interfaces the same beacon can arrive more than once per round.
      */
     fun listen(scope: CoroutineScope, onFound: (ServerBeacon) -> Unit): Job =
         scope.launch(Dispatchers.IO) {
@@ -105,8 +102,8 @@ object LanDiscovery {
                     val text = String(packet.data, packet.offset, packet.length)
                     if (!text.startsWith(MAGIC)) continue
 
-                    // A malformed beacon is not worth taking the browser down
-                    // for - an older build on the network will send one.
+                    // A malformed beacon isn't worth taking the browser down for. An older build on
+                    // the network will send one.
                     val beacon = runCatching {
                         format.decodeFromString<ServerBeacon>(text.removePrefix(MAGIC))
                     }.getOrNull() ?: continue

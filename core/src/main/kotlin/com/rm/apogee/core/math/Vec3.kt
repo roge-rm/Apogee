@@ -6,20 +6,18 @@ import kotlin.math.sqrt
 /**
  * A 3-vector in double precision.
  *
- * Everything in the simulation is `Double`, not `Float`, and that is not
- * negotiable: a homeworld is ~600 km across and craft routinely sit millions of
- * metres from the system barycentre. float32 carries ~7 significant digits, so
- * by a few hundred kilometres out it can no longer resolve centimetres and a
- * landed rocket visibly jitters. Floats appear exactly once, at the very end of
- * the pipeline, after the floating-origin subtraction in [Mat4.setFromTrs].
+ * Everything in the simulation is `Double`, not `Float`, and that's not up for negotiation. A
+ * homeworld is ~600 km across and craft regularly sit millions of metres from the system
+ * barycentre. float32 carries about 7 significant digits, so a few hundred kilometres out it can't
+ * resolve centimetres any more and a landed rocket visibly jitters. Floats appear exactly once, at
+ * the very end of the pipeline, after the floating-origin subtraction in [Mat4.setFromTrs].
  *
- * The class is **mutable**, with in-place operations that return `this` for
- * chaining. `World.step()` runs 60 times a second over every vessel; allocating
- * a fresh vector per force term would hand the GC tens of thousands of objects
- * a second and show up directly as frame-time jitter. Hot paths use
- * [addInPlace]/[mulInPlace]/[setTo] against preallocated scratch vectors; the
- * allocating `operator` forms exist for readable setup and test code, where the
- * cost does not matter.
+ * The class is **mutable**, with in-place operations that return `this` so they can be chained.
+ * `World.step()` runs 60 times a second over every vessel, and allocating a new vector for every
+ * force term would hand the GC tens of thousands of objects a second, which shows up directly as
+ * frame-time jitter. Hot paths use [addInPlace]/[mulInPlace]/[setTo] against scratch vectors made
+ * up front. The allocating `operator` forms are there for readable setup and test code, where the
+ * cost doesn't matter.
  */
 class Vec3(
     @JvmField var x: Double = 0.0,
@@ -41,7 +39,7 @@ class Vec3(
 
     fun addInPlace(other: Vec3): Vec3 = setTo(x + other.x, y + other.y, z + other.z)
 
-    /** `this += other * scale`. The single most common force-accumulation step. */
+    /** `this += other * scale`. The most common step when adding up forces. */
     fun addScaledInPlace(other: Vec3, scale: Double): Vec3 =
         setTo(x + other.x * scale, y + other.y * scale, z + other.z * scale)
 
@@ -57,7 +55,7 @@ class Vec3(
         x * other.y - y * other.x,
     )
 
-    /** Scales to unit length, or leaves the vector untouched if it is degenerate. */
+    /** Scales to unit length, or leaves the vector alone if it has no length. */
     fun normalizeInPlace(): Vec3 {
         val len = length
         return if (len > EPSILON) mulInPlace(1.0 / len) else this
@@ -109,9 +107,8 @@ class Vec3(
     override fun toString(): String = "($x, $y, $z)"
 
     /**
-     * Value equality, provided for tests and for map keys. Note this is exact
-     * float comparison - use [approxEquals] for anything that has been through
-     * the integrator.
+     * Value equality, for tests and map keys. This is an exact float comparison, so use
+     * [approxEquals] for anything that has been through the integrator.
      */
     override fun equals(other: Any?): Boolean =
         this === other || (other is Vec3 && x == other.x && y == other.y && z == other.z)

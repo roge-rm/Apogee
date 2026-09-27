@@ -7,14 +7,13 @@ import com.rm.apogee.core.part.PartDef
 /** What a closed fairing holds. */
 object Fairings {
 
-    /** Leeway round the shell, m: a part just touching it is inside. */
+    /** Leeway around the shell, in metres, so a part just touching it counts as inside. */
     private const val LEEWAY = 0.15
 
     /**
-     * Per part, whether it rides inside a fairing that is still closed
-     * ([open] says which have been thrown open): wholly within the shell
-     * standing on the fairing's base - above its top face, inside its
-     * radius, below its height.
+     * For each part, whether it rides inside a fairing that's still closed ([open] says which ones
+     * have been opened). That means wholly within the shell standing on the fairing's base: above
+     * its top face, inside its radius, and below its height.
      */
     fun enclosed(design: CraftDesign, defs: List<PartDef>, open: (Int) -> Boolean): BooleanArray {
         val out = BooleanArray(design.parts.size)

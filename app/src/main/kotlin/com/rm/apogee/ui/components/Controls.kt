@@ -29,8 +29,8 @@ import com.rm.apogee.ui.theme.ApogeeColors
 import com.rm.apogee.ui.theme.alpha
 
 /**
- * The signature menu control: a full-pill button carrying a translucent accent
- * wash rather than a solid fill, with an optional second line.
+ * The signature menu control: a full-pill button with a see-through accent wash instead of a solid
+ * fill, and an optional second line.
  */
 @Composable
 fun ApogeeButton(
@@ -90,7 +90,7 @@ fun ScreenTitle(
     }
 }
 
-/** An accent section heading with a hairline rule under it. */
+/** An accent section heading with a thin rule under it. */
 @Composable
 fun SectionHeading(text: String, modifier: Modifier = Modifier) {
     Column(modifier = modifier.padding(top = 20.dp, bottom = 8.dp)) {
@@ -180,9 +180,9 @@ fun SliderRow(
 /**
  * One of several, each with a line saying what it does.
  *
- * Radio buttons rather than a dropdown: the options are few, and the
- * description under each is the point - "Aircraft" alone does not say which
- * way the stick will go.
+ * These are radio buttons instead of a dropdown, because there are only a few options and the
+ * description under each one is the point. "Aircraft" on its own doesn't tell you which way the
+ * stick will go.
  */
 @Composable
 fun <T> ChoiceGroup(

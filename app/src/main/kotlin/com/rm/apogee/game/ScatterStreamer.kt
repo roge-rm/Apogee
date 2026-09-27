@@ -19,10 +19,9 @@ import kotlinx.coroutines.launch
 /**
  * Chooses which blocks of scatter to draw and builds them, off the render thread.
  *
- * Draw distance is the quality tier's call and nothing else is: every object
- * exists and collides on every device, because they are solid, and a phone
- * that simply did not have the tree a server's craft hit would disagree with
- * it about the world. A low tier only draws fewer of them.
+ * Draw distance is up to the quality tier and nothing else. Every object exists and collides on
+ * every device, because they're solid, and a phone that just didn't have the tree a server's craft
+ * hit would disagree with it about the world. A low tier only draws fewer of them.
  */
 class ScatterStreamer(
     private val source: ScatterSource,
@@ -45,8 +44,8 @@ class ScatterStreamer(
     private val scratch = Vec3()
 
     /**
-     * Re-selects blocks around [bodyFixedPosition]. Cheap: it only works out
-     * which blocks are wanted; building happens on the worker.
+     * Picks blocks again around [bodyFixedPosition]. It's cheap, because it only works out which
+     * blocks are wanted. The building happens on the worker.
      */
     fun follow(body: CelestialBody, bodyFixedPosition: Vec3, altitude: Double, felledIds: Set<Long>, revision: Int, scope: CoroutineScope) {
         val scatter = body.terrain?.scatter
@@ -59,7 +58,7 @@ class ScatterStreamer(
             if (revision != felledRevision) {
                 felled = felledIds.toSet()
                 felledRevision = revision
-                // Something was knocked down: rebuild what is on screen so it goes.
+                // Something got knocked down, so rebuild what's on screen and it goes.
                 built.clear()
             }
         }
@@ -115,7 +114,7 @@ class ScatterStreamer(
 
     /** A block's instances, grouped by kind, leaving out anything felled. */
     private fun build(block: ScatterBlock, felled: Set<Long>, revision: Int): ScatterDraw {
-        // Centre: the mean base position, so instance coordinates are small.
+        // The centre is the average base position, so instance coordinates stay small.
         var cx = 0.0; var cy = 0.0; var cz = 0.0
         val count = block.count.coerceAtLeast(1)
         for (k in 0 until block.count) { cx += block.x[k]; cy += block.y[k]; cz += block.z[k] }

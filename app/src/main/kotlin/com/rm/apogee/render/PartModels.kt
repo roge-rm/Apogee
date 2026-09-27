@@ -13,53 +13,51 @@ import kotlin.math.hypot
 import kotlin.math.max
 
 /**
- * How a part's moving pieces are posed this frame. All zero is a part at rest:
- * surfaces neutral, wheels straight and still, legs deployed, springs slack.
+ * How a part's moving pieces are posed this frame. All zero is a part at rest: surfaces neutral,
+ * wheels straight and still, legs deployed, and springs slack.
  */
 class PartAnim(
     /** Control deflection, -1..1 of the surface's travel. */
     var deflection: Double = 0.0,
-    /** Steering angle, radians. */
+    /** Steering angle, in radians. */
     var steer: Double = 0.0,
-    /** Accumulated spin, radians - a wheel's roll, a propeller's turn. */
+    /** Spin built up so far, in radians: a wheel's roll, or a propeller's turn. */
     var spin: Double = 0.0,
-    /** Landing-gear deploy progress, 0 stowed to 1 deployed. */
+    /** Landing gear deploy progress, from 0 stowed to 1 deployed. */
     var deploy: Double = 1.0,
-    /** Suspension compression, metres. */
+    /** Suspension compression, in metres. */
     var compression: Double = 0.0,
-    /** Staged, where that throws something off it: a fairing's shell, gone. */
+    /** Staged, where that throws something off it, like a fairing's shell. */
     var jettisoned: Boolean = false,
     /** Engine gimbal, -1..1 of its range, about pitch (X) and yaw (Z). */
     var gimbalPitch: Double = 0.0,
     var gimbalYaw: Double = 0.0,
     /**
-     * For a wheel: turns its tyre from the authored axle, X, to the craft's
-     * real one - across the craft's forward, level with its up - whatever the
-     * wheel is mounted on. A gear leg under a fuselage and a wheel on a
-     * rover's flank are the same part rotated differently, and both must
-     * roll the way the craft drives. Null for anything that is not a wheel.
+     * For a wheel: turns its tyre from the axle it was made with, X, to the craft's real one
+     * (across the craft's forward, level with its up), whatever the wheel is mounted on. A gear leg
+     * under a fuselage and a wheel on a rover's side are the same part rotated differently, and
+     * both have to roll the way the craft drives. Null for anything that isn't a wheel.
      */
     var wheelAlign: Quat? = null,
     /** For a wheel: the craft's up in part space, the axis it steers about. */
     var steerAxis: Vec3? = null,
     /**
-     * For a control surface: which way round its hinge a positive deflection
-     * turns it, as mounted. See [PartModels.alignSurface].
+     * For a control surface: which way round its hinge a positive deflection turns it, as mounted.
+     * See [PartModels.alignSurface].
      */
     var hingeSign: Double = 1.0,
 )
 
 /**
- * Turns a part into what to draw: its [ModelSpec] - or, without one, its
- * physics [MeshSpec] - as leaf shapes placed in part space, tinted, and posed
- * by a [PartAnim].
+ * Turns a part into what to draw: its [ModelSpec] (or, without one, its physics [MeshSpec]) as leaf
+ * shapes placed in part space, tinted, and posed by a [PartAnim].
  */
 object PartModels {
 
     /** The landing leg of the part being expanded, if it is one. Render thread only. */
     private var leg: com.rm.apogee.core.part.LandingLeg? = null
 
-    /** The gimbal range of the part being expanded, radians. */
+    /** The gimbal range of the part being expanded, in radians. */
     private var gimbalRange = 0.0
 
     class Leaf(
@@ -102,11 +100,10 @@ object PartModels {
                 val offset = piece.offset.copy()
                 // ...then what moves it, about its pivot.
                 val motion = motion(piece, anim, maxDeflection)
-                // A leg folds about its module's hinge - the one the physics
-                // folds its feet about - so the two cannot disagree.
-                // And a propeller spins where it is, on its own shaft: about
-                // the part's origin, the outboard's swung round in a circle
-                // nearly a metre across, in and out of the water (Dan).
+                // A leg folds about its module's hinge, the same one the physics folds its feet
+                // about, so the two can't disagree. A propeller spins where it is, on its own
+                // shaft. Spun about the part's origin, the outboard's propeller swung round in a
+                // circle nearly a metre across, in and out of the water, which I spotted.
                 val pivot = when (piece.role) {
                     PieceRole.DEPLOY -> leg?.hinge ?: piece.pivot
                     PieceRole.SPIN -> piece.offset
@@ -134,7 +131,7 @@ object PartModels {
         val axis = piece.axis.normalized()
         return when (piece.role) {
             PieceRole.FIXED, PieceRole.SUSPENSION, PieceRole.JETTISON -> Quat.identity()
-            // As Forces.gimballedDirection turns the thrust.
+            // The same way Forces.gimballedDirection turns the thrust.
             PieceRole.GIMBAL ->
                 Quat.fromAxisAngle(Vec3(1.0, 0.0, 0.0), anim.gimbalPitch * gimbalRange) *
                     Quat.fromAxisAngle(Vec3(0.0, 0.0, 1.0), anim.gimbalYaw * gimbalRange)
@@ -145,8 +142,8 @@ object PartModels {
                 val steerAxis = anim.steerAxis ?: axis
                 Quat.fromAxisAngle(steerAxis, anim.steer) * (anim.wheelAlign ?: Quat.identity())
             }
-            // Steered about the craft's up; aligned to its real axle; rolling
-            // about the authored axle, X.
+            // Steered about the craft's up, lined up with its real axle, and rolling about the axle
+            // it was made with, X.
             PieceRole.STEER_SPIN -> {
                 val steerAxis = anim.steerAxis ?: axis
                 Quat.fromAxisAngle(steerAxis, anim.steer) * (anim.wheelAlign ?: Quat.identity()) *
@@ -161,8 +158,8 @@ object PartModels {
     }
 
     /**
-     * Fills in [anim]'s wheel alignment for a wheel part mounted at
-     * [partRotation] (design space) on a craft facing [forward] with [up].
+     * Fills in [anim]'s wheel alignment for a wheel part mounted at [partRotation] (design space)
+     * on a craft facing [forward] with [up].
      */
     fun alignWheel(def: PartDef, partRotation: Quat, forward: Vec3, up: Vec3, anim: PartAnim) {
         if (def.module<com.rm.apogee.core.part.Wheel>() == null) {
@@ -173,21 +170,20 @@ object PartModels {
         val f = partRotation.inverseRotate(forward)
         val u = partRotation.inverseRotate(up)
         val axle = u.cross(f).normalizeInPlace()
-        // Either way along the axle is the same tyre; take the one nearer the
-        // authored axle so a wheel mounted normally is not flipped round.
+        // Either way along the axle is the same tyre, so take the one nearer the made axle, and a
+        // wheel mounted normally doesn't get flipped round.
         if (axle.x < 0.0) axle.mulInPlace(-1.0)
         anim.wheelAlign = com.rm.apogee.core.math.quatFromTo(Vec3(1.0, 0.0, 0.0), axle)
         anim.steerAxis = u.normalizeInPlace()
     }
 
     /**
-     * Sets [anim]'s hinge direction for a control surface mounted at
-     * [partRotation], [offset] from the craft's centre (both design space),
-     * so its trailing edge is drawn moving against the push the physics
-     * applies. That push is across the fuselage and the mounting radius -
-     * see Forces.controlDeflection - so a wing on the left and one on the
-     * right, mounted mirror-fashion, turn opposite ways round their own
-     * hinges for the same deflection. See ControlSurfaceLookTest.
+     * Sets [anim]'s hinge direction for a control surface mounted at [partRotation], [offset] from
+     * the craft's centre (both design space), so its trailing edge is drawn moving against the push
+     * the physics applies. That push is across the fuselage and the mounting radius (see
+     * Forces.controlDeflection), so a wing on the left and one on the right, mounted as mirror
+     * images, turn opposite ways round their own hinges for the same deflection. See
+     * ControlSurfaceLookTest.
      */
     fun alignSurface(def: PartDef, partRotation: Quat, offset: Vec3, anim: PartAnim) {
         val controllable = def.module<AeroSurface>()?.controllable == true ||
@@ -198,8 +194,8 @@ object PartModels {
         radial.normalizeInPlace()
         // The push for a positive deflection, in part space.
         val push = partRotation.inverseRotate(Vec3(0.0, 1.0, 0.0).cross(radial))
-        // Which way a positive turn about the hinge moves the trailing edge,
-        // which is at -Y in every authored surface.
+        // Which way a positive turn about the hinge moves the trailing edge, which is at -Y in
+        // every surface as it's made.
         val hinge = (def.model as? ModelSpec.Compound)?.pieces?.firstOrNull { it.role == PieceRole.HINGED } ?: return
         val trailingMoves = hinge.axis.normalized().cross(Vec3(0.0, -1.0, 0.0))
         anim.hingeSign = if ((trailingMoves dot push) > 0.0) -1.0 else 1.0
@@ -214,7 +210,7 @@ object PartModels {
         return qz * qy * qx
     }
 
-    /** Radius of a sphere round a leaf's origin containing all of it. */
+    /** The radius of a sphere around a leaf's origin that holds all of it. */
     fun boundingRadius(shape: Shape): Double = when (shape) {
         is MeshSpec.Cylinder -> hypot(shape.radius, shape.height * 0.5)
         is MeshSpec.Cone -> hypot(max(shape.bottomRadius, shape.topRadius), shape.height * 0.5)
@@ -236,8 +232,8 @@ object PartModels {
     }
 
     /**
-     * A part's own colour, by family. Kit parts of one vehicle class share a
-     * scheme, so a craft reads as one machine rather than a parts bin.
+     * A part's own colour, by family. Kit parts of one vehicle class share a scheme, so a craft
+     * looks like one machine instead of a parts bin.
      */
     fun bodyColour(partId: String): FloatArray = when {
         partId.startsWith("engine") -> floatArrayOf(0.45f, 0.45f, 0.50f, 1f)
@@ -246,7 +242,7 @@ object PartModels {
         partId.startsWith("decoupler") -> floatArrayOf(0.90f, 0.70f, 0.35f, 1f)
         partId.startsWith("fin") -> floatArrayOf(0.60f, 0.20f, 0.20f, 1f)
         partId.startsWith("chute") -> floatArrayOf(0.55f, 0.55f, 0.60f, 1f)
-        // Aircraft: white airframe, the cockpit a warm accent.
+        // Aircraft: a white airframe, with the cockpit a warm accent.
         partId.startsWith("cockpit") -> floatArrayOf(0.92f, 0.92f, 0.94f, 1f)
         partId.startsWith("fuselage") -> floatArrayOf(0.90f, 0.90f, 0.92f, 1f)
         partId.startsWith("wing") || partId.startsWith("tail") -> floatArrayOf(0.84f, 0.85f, 0.88f, 1f)
@@ -258,7 +254,7 @@ object PartModels {
         else -> floatArrayOf(0.75f, 0.75f, 0.78f, 1f)
     }
 
-    /** The small palette pieces are tinted from; [Tint.BODY] takes the part's colour. */
+    /** The small palette pieces are tinted from. [Tint.BODY] takes the part's colour. */
     fun colour(tint: Tint, body: FloatArray): FloatArray = when (tint) {
         Tint.BODY -> body
         Tint.DARK -> floatArrayOf(0.20f, 0.20f, 0.23f, 1f)

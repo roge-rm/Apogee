@@ -14,20 +14,19 @@ import java.util.concurrent.Executors
 /**
  * Where a send actually runs.
  *
- * Writing to a socket blocks, and the client sends control commands from the
- * UI's own coroutine scope - which on Android is the main thread, where a
- * blocking write is a fatal NetworkOnMainThreadException. Single player never
- * exercises this: its transport is [LoopbackTransport], an in-memory queue
- * with no socket to block on. So nothing caught it until a real device joined
- * a real server and touched the throttle.
+ * Writing to a socket blocks, and the client sends control commands from the UI's own coroutine
+ * scope, which on Android is the main thread, where a blocking write is a fatal
+ * NetworkOnMainThreadException. Single player never hits this, because its transport is
+ * [LoopbackTransport], an in-memory queue with no socket to block on. So nothing caught it until a
+ * real device joined a real server and touched the throttle.
  *
- * The contract is therefore the transport's, not the caller's: send must get
- * itself off whatever thread it was called on.
+ * So the contract belongs to the transport, not the caller: send has to get itself off whatever
+ * thread it was called on.
  */
 class TcpTransportDispatcherTest {
 
     @Test
-    fun `send does not write on the calling thread`() {
+    fun `send doesn't write on the calling thread`() {
         val recorder = RecordingSocket()
         val transport = TcpTransport.wrap(recorder)
 
@@ -37,11 +36,10 @@ class TcpTransportDispatcherTest {
         val callingThread: Thread
         try {
             callingThread = runBlocking(caller.asCoroutineDispatcher()) {
-                // The thread itself, not its name: kotlinx decorates thread
-                // names with " @coroutine#n" while debugging is on, so a name
-                // comparison quietly never matches and the test passes whether
-                // or not the dispatcher is right. This one failed that way
-                // first time out.
+                // The thread itself, not its name. kotlinx decorates thread names with "
+                // @coroutine#n" while debugging is on, so a name comparison quietly never matches
+                // and the test passes whether or not the dispatcher is right. This one failed that
+                // way the first time.
                 val here = Thread.currentThread()
                 transport.send(Packet(Channel.CONTROL, byteArrayOf(1, 2, 3)))
                 here
@@ -63,8 +61,8 @@ class TcpTransportDispatcherTest {
         val stream = RecordingStream()
         override fun getOutputStream(): OutputStream = stream
 
-        // The transport starts a reader over this; an empty stream reads as an
-        // immediate disconnect, which is all this test needs from it.
+        // The transport starts a reader over this. An empty stream reads as an immediate
+        // disconnect, which is all this test needs from it.
         override fun getInputStream(): InputStream = ByteArrayInputStream(ByteArray(0))
         override fun close() = Unit
     }

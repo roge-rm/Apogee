@@ -11,12 +11,11 @@ import kotlin.math.sqrt
 /**
  * Meshes for the leaves of a part's [ModelSpec].
  *
- * Everything is flat-shaded - each triangle carries its own face normal - to
- * match the low-poly look of the ground. And every triangle is turned to face
- * away from a point known to be inside the solid, rather than trusting the
- * order its corners were listed in: with a dozen hand-built generators, one
- * wound the wrong way is invisible from outside until it is culled, which is
- * the mistake the planet itself shipped with once.
+ * Everything is flat-shaded (each triangle has its own face normal) to match the low-poly look of
+ * the ground. And every triangle is turned to face away from a point known to be inside the solid,
+ * instead of trusting the order its corners were listed in. With a dozen hand-built generators, one
+ * wound the wrong way is invisible from outside until it gets culled, which is a mistake the planet
+ * itself once shipped with.
  */
 object ModelShapes {
 
@@ -35,18 +34,17 @@ object ModelShapes {
     // --- surfaces of revolution --------------------------------------------
 
     /**
-     * [profile] is (radius, y), walked from the bottom with the solid on the
-     * left - up the outside of a tank, or in and back out of an engine bell.
-     * Each face points to the walker's right, which is what lets a profile
-     * turn back on itself: a bell's inside faces the axis, its outside away.
-     * Ends with a radius are capped where [caps] asks; ends at the axis need
-     * nothing.
+     * [profile] is (radius, y), walked from the bottom with the solid on the left: up the outside
+     * of a tank, or in and back out of an engine bell. Each face points to the walker's right,
+     * which is what lets a profile turn back on itself, so a bell's inside faces the axis and its
+     * outside faces away. Ends with a radius get capped where [caps] asks for it, and ends at the
+     * axis need nothing.
      */
     fun lathe(
         profile: List<Pair<Double, Double>>,
         segments: Int,
         caps: Int = StackCaps.BOTH,
-        /** Degrees round, from [from]: see [ModelSpec.Lathe.sweep]. */
+        /** Degrees round, from [from]. See [ModelSpec.Lathe.sweep]. */
         sweep: Double = 360.0,
         from: Double = 0.0,
     ): MeshData {
@@ -89,10 +87,10 @@ object ModelShapes {
         val steps = 10
         val profile = ArrayList<Pair<Double, Double>>()
         for (s in 0..steps) {
-            // Denser towards the tip, where the curve turns fastest.
+            // Closer together towards the tip, where the curve turns fastest.
             val t = 1.0 - (1.0 - s.toDouble() / steps).let { it * it }
             val y = t * length
-            // y from the base: the full radius there, a point at the tip.
+            // y from the base: the full radius there, and a point at the tip.
             val r = sqrt(max(0.0, rho * rho - y * y)) + radius - rho
             if (r <= tip) {
                 profile.add(tip to y - length * 0.5)
@@ -130,8 +128,8 @@ object ModelShapes {
     // --- flying surfaces ----------------------------------------------------
 
     /**
-     * A trapezoid with a diamond section, rooted at -span/2 and reaching to
-     * +span/2 along X, chord along Y with the leading edge at +Y.
+     * A trapezoid with a diamond section, rooted at -span/2 and reaching to +span/2 along X, with
+     * the chord along Y and the leading edge at +Y.
      */
     fun fin(spec: ModelSpec.Fin): MeshData {
         val soup = Soup()
@@ -204,7 +202,7 @@ object ModelShapes {
         for (i in 0 until around) {
             val a = 2 * PI * i / around
             val c = cos(a); val sn = sin(a)
-            // Superellipse: round 1 gives an ellipse, round 0 a rectangle.
+            // Superellipse: round 1 gives an ellipse, and round 0 a rectangle.
             val e = 2.0 / (1.0 + (1.0 - s.round.coerceIn(0.0, 1.0)) * 6.0)
             var x = hx * Math.signum(c) * Math.pow(abs(c), e)
             var z = hz * Math.signum(sn) * Math.pow(abs(sn), e)
@@ -221,10 +219,9 @@ object ModelShapes {
     // --- wheels and propellers ----------------------------------------------
 
     /**
-     * A tyre about the X axis: a smooth rounded ring, with tread blocks set on
-     * the crown as solids of their own - a closed shape either way, where
-     * raising alternate strips of one surface would leave a crack down every
-     * step between them.
+     * A tyre about the X axis: a smooth rounded ring, with tread blocks set on the crown as solids
+     * of their own. That's a closed shape either way, where raising alternate strips of one surface
+     * would leave a crack down every step between them.
      */
     fun tyre(spec: ModelSpec.Tyre): MeshData {
         val r = spec.radius
@@ -266,7 +263,7 @@ object ModelShapes {
         return soup.data().turnedYToX()
     }
 
-    /** Blades about +Y: thin slabs from the hub out, each pitched. */
+    /** Blades about +Y: thin slabs from the hub out, each one pitched. */
     fun prop(spec: ModelSpec.Prop): MeshData {
         val soup = Soup()
         val hub = spec.radius * 0.12
@@ -277,7 +274,7 @@ object ModelShapes {
             val a = 2 * PI * b / spec.blades
             val out = doubleArrayOf(cos(a), 0.0, sin(a))
             val along = doubleArrayOf(-sin(a), 0.0, cos(a))
-            // Chord direction pitched out of the disc; thickness across it.
+            // Chord direction pitched out of the disc, and thickness across it.
             val chord = doubleArrayOf(along[0] * cos(pitch), sin(pitch), along[2] * cos(pitch))
             val thick = doubleArrayOf(-along[0] * sin(pitch), cos(pitch), -along[2] * sin(pitch))
             val corners = ArrayList<DoubleArray>(8)
@@ -310,8 +307,7 @@ object ModelShapes {
     }
 
     /**
-     * A hexahedron from eight corners ordered (inner, outer) x (chord -, +) x
-     * (thickness -, +).
+     * A hexahedron from eight corners ordered (inner, outer) x (chord -, +) x (thickness -, +).
      */
     private fun box(soup: Soup, c: List<DoubleArray>, inside: DoubleArray) {
         fun q(a: Int, b: Int, d: Int, e: Int) = soup.quad(c[a], c[b], c[d], c[e], inside)
@@ -323,7 +319,9 @@ object ModelShapes {
         q(1, 3, 7, 5) // thickness +
     }
 
-    /** Swaps the axis of revolution from Y to X - a proper rotation, so faces keep their facing. */
+    /**
+     * Swaps the axis of revolution from Y to X. It's a proper rotation, so faces keep their facing.
+     */
     private fun MeshData.turnedYToX(): MeshData {
         val v = vertices.copyOf()
         var i = 0
@@ -338,8 +336,8 @@ object ModelShapes {
     }
 
     /**
-     * Flat-shaded triangles, each with its own three vertices and face normal,
-     * each turned to face away from the point given as inside.
+     * Flat-shaded triangles, each with its own three vertices and face normal, each turned to face
+     * away from the point given as inside.
      */
     class Soup {
         private val vertices = ArrayList<Float>()
@@ -351,7 +349,7 @@ object ModelShapes {
             var ny = uz * vx - ux * vz
             var nz = ux * vy - uy * vx
             val length = sqrt(nx * nx + ny * ny + nz * nz)
-            if (length < 1e-12) return // degenerate: nothing to draw
+            if (length < 1e-12) return // degenerate, nothing to draw
             nx /= length; ny /= length; nz /= length
             val mx = (a[0] + b[0] + c[0]) / 3 - inside[0]
             val my = (a[1] + b[1] + c[1]) / 3 - inside[1]
@@ -363,7 +361,7 @@ object ModelShapes {
             }
         }
 
-        /** As [tri], but facing along [outward] rather than away from a point. */
+        /** Like [tri], but facing along [outward] instead of away from a point. */
         fun triFacing(a: DoubleArray, b: DoubleArray, c: DoubleArray, outward: DoubleArray) {
             val m = doubleArrayOf((a[0] + b[0] + c[0]) / 3, (a[1] + b[1] + c[1]) / 3, (a[2] + b[2] + c[2]) / 3)
             tri(a, b, c, doubleArrayOf(m[0] - outward[0], m[1] - outward[1], m[2] - outward[2]))

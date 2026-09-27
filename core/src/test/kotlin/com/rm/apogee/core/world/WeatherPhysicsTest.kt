@@ -21,7 +21,7 @@ import org.junit.Test
 import kotlin.math.cos
 import kotlin.math.sin
 
-/** What the weather does to craft: carries them, loads them, breaks them. */
+/** What the weather does to craft: carries them, loads them, and breaks them. */
 class WeatherPhysicsTest {
 
     private val catalog = StockParts.catalog
@@ -35,7 +35,7 @@ class WeatherPhysicsTest {
     private fun groundVelocity(world: World, vessel: Vessel): Vec3 =
         vessel.body.linearVelocity.copy().subInPlace(world.attractorFor(vessel).surfaceVelocityAt(vessel.body.position, Vec3()))
 
-    /** A pod under a chute, hung [height] above the Cape at rest over the ground. */
+    /** A pod under a chute, hung [height] above the Cape, at rest over the ground. */
     private fun podUnderChute(world: World, height: Double): Vessel {
         val design = CraftDesign(
             "Drifter",
@@ -49,7 +49,7 @@ class WeatherPhysicsTest {
         return world.spawnAt(design, "terra", position, terra.surfaceVelocityAt(position, Vec3()), quatFromTo(Vec3.unitY(), up))
     }
 
-    /** A chute goes where the wind goes: its drift over the ground is the wind's. */
+    /** A chute goes where the wind goes, so its drift over the ground is the wind's. */
     @Test
     fun `a parachute drifts with the wind`() {
         val world = world()
@@ -121,7 +121,7 @@ class WeatherPhysicsTest {
         assertTrue("it broke: ${jet.defs.indices.filter { jet.isBroken(it) }}", jet.defs.indices.none { jet.isBroken(it) })
     }
 
-    /** A storm doesn't care whether anyone is flying: a parked craft under a strike takes it. */
+    /** A storm doesn't care whether anyone is flying. A parked craft under a strike takes it. */
     @Test
     fun `lightning strikes a craft parked under a storm`() {
         val world = world(WeatherIntensity.WILD)
@@ -140,11 +140,10 @@ class WeatherPhysicsTest {
         }
         val target = strike ?: throw AssertionError("no strike over land found in a wild sky")
 
-        // Parked there before its storm has formed - a storm's whole life is
-        // shorter than this - until it is asleep: under a storm's gusts it
-        // would never settle.
+        // Parked there before its storm has formed (a storm's whole life is shorter than this),
+        // until it's asleep, because under a storm's gusts it would never settle.
         world.syncClock(target.time - 2_600.0)
-        // The strike's place is on the turning ground; where that is now.
+        // The strike's place is on the turning ground, so this is where that is now.
         val turn = terra.rotationAt(target.time - 2_600.0)
         val ground = turn.rotate(target.direction.copy().mulInPlace(terra.radius + terra.terrain!!.elevation(target.direction) + 1.5))
         val pod = world.spawnAt(
@@ -165,7 +164,7 @@ class WeatherPhysicsTest {
         assertTrue("and woken it", !pod.dormant || hits.isNotEmpty())
     }
 
-    /** A boat left alone in a wind drops anchor rather than drift off for ever. */
+    /** A boat left alone in a wind drops anchor instead of drifting off forever. */
     @Test
     fun `a boat left alone in the wind drops anchor`() {
         val world = world()
@@ -176,7 +175,7 @@ class WeatherPhysicsTest {
         assertTrue("it never settled", boat.dormant)
     }
 
-    /** Cloud water thickens the air: a storm tower is heavy going. */
+    /** Cloud water thickens the air, so a storm tower is heavy going. */
     @Test
     fun `cloud loads the air`() {
         val world = world()

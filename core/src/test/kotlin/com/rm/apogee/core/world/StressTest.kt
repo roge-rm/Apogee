@@ -26,8 +26,8 @@ class StressTest {
     }
 
     /**
-     * The joint above a burning engine passes its thrust on to the rest of
-     * the stack - all of it but what it takes to push the engine itself.
+     * The joint above a burning engine passes its thrust on to the rest of the stack, all of it
+     * except what it takes to push the engine itself.
      */
     @Test
     fun `the joint above an engine carries its thrust less its own share`() {
@@ -56,9 +56,8 @@ class StressTest {
     }
 
     /**
-     * Spun end over end, every part has to be swung round: a slow tumble is
-     * nothing, and one fast enough flies the craft apart - pieces, not a
-     * vanished craft.
+     * Spun end over end, every part has to be swung round. A slow tumble is nothing, and one fast
+     * enough flies the craft apart, into pieces, not a vanished craft.
      */
     @Test
     fun `a craft spun too fast flies apart`() {

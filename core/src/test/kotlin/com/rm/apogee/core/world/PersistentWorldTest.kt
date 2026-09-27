@@ -11,10 +11,9 @@ import org.junit.Test
 /**
  * One world that people come back to.
  *
- * The mechanics of building a base - landing modules, welding them - were
- * reachable long before the *game* was, because every launch built a fresh
- * universe and discarded the last one. These are about the world outliving the
- * flight.
+ * The mechanics of building a base (landing modules, welding them) could be reached long before the
+ * *game* could, because every launch built a fresh universe and threw the last one away. These are
+ * about the world outliving the flight.
  */
 class PersistentWorldTest {
 
@@ -46,8 +45,8 @@ class PersistentWorldTest {
     }
 
     /**
-     * Launching into a world you already have a craft in. This is the whole
-     * base-building loop: land a module, launch the next, weld them.
+     * Launching into a world you already have a craft in. This is the whole base-building loop:
+     * land a module, launch the next, and weld them.
      */
     @Test
     fun `launching a second craft leaves the first where it was`() {
@@ -68,9 +67,8 @@ class PersistentWorldTest {
     }
 
     /**
-     * A new craft must not be dropped into one that is already standing
-     * there. Now that craft are solid, that is an explosion rather than a
-     * curiosity.
+     * A new craft mustn't be dropped into one that's already standing there. Now that craft are
+     * solid, that's an explosion instead of a curiosity.
      */
     @Test
     fun `craft launched one after another get their own pads`() {

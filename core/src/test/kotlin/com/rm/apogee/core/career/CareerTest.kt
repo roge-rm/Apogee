@@ -56,14 +56,14 @@ class CareerTest {
     }
 
     @Test
-    fun `the tree hangs together - known nodes and feats, no loops, and more insight on offer than it costs`() {
+    fun `the tree hangs together with known nodes and feats, no loops, and more insight on offer than it costs`() {
         val ids = tree.nodes.map { it.id }
         assertEquals("duplicate node ids", ids.size, ids.toSet().size)
         for (node in tree.nodes) {
             for (r in node.requires) assertTrue("${node.id} requires unknown $r", r in ids)
             node.needs?.let { assertNotNull("${node.id} needs unknown feat $it", Feat.byId(it)) }
         }
-        // No loops: every node reachable by unlocking in some order.
+        // No loops, so every node can be reached by unlocking in some order.
         val done = HashSet<String>()
         var progress = true
         while (progress) {
@@ -82,7 +82,7 @@ class CareerTest {
     }
 
     @Test
-    fun `the Sounder is all a new career needs, and the stock rocket is not allowed yet`() {
+    fun `the Sounder is all a new career needs, and the stock rocket isn't allowed yet`() {
         val state = CareerState("p1", insight = tree.start.insight)
         val sounder = StockCraft.sounder(catalog)
         assertTrue(sounder.validate(catalog).toString(), sounder.validate(catalog).isEmpty())
@@ -110,7 +110,7 @@ class CareerTest {
         val program = Program()
         val start = program.careerOf("p1").insight
         assertNull(program.unlock("p1", "tanks"))
-        // Through the world too: done is null, not a complaint.
+        // Through the world too, where done is null, not a complaint.
         val world = careerWorld()
         assertNull(world.unlock("p1", "tanks"))
         assertEquals("Not a career", World.default(catalog).unlock("p1", "tanks"))
@@ -127,7 +127,7 @@ class CareerTest {
     // --- feats, flown ---------------------------------------------------------------
 
     @Test
-    fun `the Sounder up, its stage dropped, down under the chute - Hop and Staging`() {
+    fun `the Sounder up, its stage dropped, and down under the chute is Hop and Staging`() {
         val world = careerWorld()
         val craft = spawn(world, StockCraft.sounder(catalog))
         world.stage(craft)
@@ -146,7 +146,7 @@ class CareerTest {
         val feats = earned(world)
         assertTrue("no Hop: $feats, peak ${craft.log?.peak}, t $t, grounded ${craft.touchingGround}/${craft.afloat}, resting ${craft.log?.resting}, crew ${craft.crewAboard}, alive ${world.vessel(craft.id) != null}", Feat.HOP.id in feats)
         assertTrue("no Staging: $feats, dropped ${craft.log?.stagesDropped}", Feat.STAGING.id in feats)
-        // Graded by how high it went: one engine's worth, thirty-odd kilometres, is bronze.
+        // Graded by how high it went. One engine's worth, thirty-odd kilometres, is bronze.
         assertEquals("peak ${craft.log?.peak}", Grade.BRONZE.ordinal, feats[Feat.STAGING.id])
         assertTrue(world.program!!.careerOf("p1").insight > tree.start.insight)
     }
@@ -174,7 +174,7 @@ class CareerTest {
         }
         assertTrue("never reached the sea", wet >= 0.0)
         assertTrue("no Hop from a splashdown: ${earned(world)}, ${t - wet} s in the water", Feat.HOP.id in earned(world))
-        // And its chute let go in the water, not left to tow it along.
+        // And its chute let go in the water, instead of being left to tow it along.
         val chute = craft.defs.indexOfFirst { it.id == "chute-canopy" }
         assertTrue("the chute is still out: ${craft.legDeploy.getOrNull(chute)}", chute < 0 || craft.legDeploy[chute] < 0.0)
     }
@@ -228,10 +228,11 @@ class CareerTest {
     }
 
     @Test
-    fun `an aerobraking pass lowers the orbit, and counts only with the engines off`() {
+    fun `an aerobraking pass lowers the orbit, and only counts with the engines off`() {
         val world = careerWorld()
         val terra = world.system.body("terra")
-        // Coming down from a high point 250 km up, the low point 52 km up: a skim through the air.
+        // Coming down from a high point 250 km up, with the low point 52 km up: a skim through the
+        // air.
         val rp = terra.radius + 52_000.0
         val ra = terra.radius + 250_000.0
         val a = (rp + ra) / 2.0
@@ -243,7 +244,7 @@ class CareerTest {
         val entry = before.propagate(-240.0)
         craft.body.position.setTo(entry.position)
         craft.body.linearVelocity.setTo(entry.velocity)
-        // Nose to retrograde, held there: the shield, underneath, meets the air.
+        // Nose to retrograde, held there, so the shield underneath meets the air.
         craft.body.orientation.setTo(com.rm.apogee.core.math.quatFromTo(Vec3.unitY(), entry.velocity.normalized().mulInPlace(-1.0)))
         world.apply(Command.SetSas(craft.id.raw, true))
         world.apply(Command.SetSasMode(craft.id.raw, com.rm.apogee.core.world.SasMode.RETROGRADE))

@@ -2,11 +2,11 @@ package com.rm.apogee.core.terrain
 
 import com.rm.apogee.core.math.Vec3
 
-/** The ground at one point, as the collider needs it. Mutable, reused. */
+/** The ground at one point, the way the collider needs it. Mutable and reused. */
 class GroundPoint {
-    /** Distance from the body's centre to the surface along the query direction. */
+    /** The distance from the body's centre to the surface along the query direction. */
     var radius: Double = 0.0
-    /** Outward surface normal, body-fixed. The face's, not the radial direction. */
+    /** The outward surface normal, body-fixed. It's the face's normal, not the radial direction. */
     val normal = Vec3()
     var material: SurfaceMaterial = SurfaceMaterial.GRASS
 }
@@ -14,27 +14,26 @@ class GroundPoint {
 /**
  * A square of sampled ground: heights and materials on a grid, built once.
  *
- * The collider reads these instead of evaluating the height field under every
- * contact point every tick. That is what makes a richer field affordable - a
- * tile costs a few thousand samples once and is then consulted for as long as
- * anything is on it - and it makes the surface a craft touches exactly the
- * one drawn: flat triangles between the same samples the finest mesh uses,
- * rather than the smooth function the mesh only approximates.
+ * The collider reads these instead of evaluating the height field under every contact point every
+ * tick. That's what makes a richer field affordable, because a tile costs a few thousand samples
+ * once and then gets used for as long as anything is on it. It also makes the surface a craft
+ * touches exactly the one that's drawn: flat triangles between the same samples the finest mesh
+ * uses, instead of the smooth function the mesh only approximates.
  *
- * Addressed on the [CubeSphere]: [face], and [i], [j] among [tilesPerFace]
- * tiles along each side. Samples run 0..[CELLS] inclusive on each axis, so
- * neighbouring tiles share their edge samples and the surface is seamless.
+ * Tiles are addressed on the [CubeSphere] by [face], and by [i], [j] out of [tilesPerFace] tiles
+ * along each side. Samples run 0..[CELLS] inclusive on each axis, so neighbouring tiles share their
+ * edge samples and the surface has no seams.
  */
 class TerrainTile(
     val face: Int,
     val i: Int,
     val j: Int,
     val tilesPerFace: Int,
-    /** Elevation above the datum, metres, row-major, (CELLS + 1)². */
+    /** Elevation above the datum in metres, row-major, (CELLS + 1)². */
     val elevations: FloatArray,
-    /** [SurfaceMaterial] ordinals, laid out as [elevations]. */
+    /** [SurfaceMaterial] ordinals, laid out like [elevations]. */
     val materials: ByteArray,
-    /** tan-warped face coordinate of each sample column, (CELLS + 1). */
+    /** The tan-warped face coordinate of each sample column, (CELLS + 1). */
     private val warpedS: DoubleArray,
     /** ...and of each sample row. */
     private val warpedT: DoubleArray,
@@ -47,20 +46,19 @@ class TerrainTile(
 
     fun material(p: Int, q: Int): SurfaceMaterial = SurfaceMaterial.of(materials[q * STRIDE + p].toInt())
 
-    /** Surface position of sample (p, q), body-fixed, metres from the centre. */
+    /** The surface position of sample (p, q), body-fixed, in metres from the centre. */
     fun position(p: Int, q: Int, bodyRadius: Double, out: Vec3): Vec3 {
         CubeSphere.directionWarped(face, warpedS[p], warpedT[q], out)
         return out.mulInPlace(bodyRadius + elevation(p, q))
     }
 
     /**
-     * The ground along [direction], which must lie on this tile.
+     * The ground along [direction], which has to lie on this tile.
      *
-     * Found by intersecting the ray from the centre with the flat triangle the
-     * point falls in - the same triangle a mesh built from these samples
-     * draws - so the height is the drawn height and the normal is the face's.
-     * The normal is what lets a cliff push a craft back rather than up: a
-     * radial normal treats a wall as a floor that happens to be very high.
+     * It's found by intersecting the ray from the centre with the flat triangle the point falls in,
+     * the same triangle a mesh built from these samples draws. So the height is the drawn height
+     * and the normal is the face's. The normal is what lets a cliff push a craft back instead of
+     * up. A radial normal treats a wall as a floor that happens to be very high.
      *
      * @param fx, fy position within the tile in cells, 0..CELLS.
      */
@@ -72,7 +70,7 @@ class TerrainTile(
 
         // Each cell split along the same diagonal the mesh uses.
         val a = scratch.a; val b = scratch.b; val c = scratch.c
-        // The sample with the largest barycentric weight decides the material.
+        // The sample with the biggest barycentric weight decides the material.
         val nearest: Int
         if (u + v <= 1.0) {
             position(cx, cy, bodyRadius, a)
@@ -98,7 +96,7 @@ class TerrainTile(
             }
         }
 
-        // Normal of the triangle, outward.
+        // The triangle's normal, pointing out.
         val e1 = scratch.e1.setTo(b).subInPlace(a)
         val e2 = scratch.e2.setTo(c).subInPlace(a)
         val n = out.normal.setTo(e1).crossInPlace(e2)
@@ -111,7 +109,7 @@ class TerrainTile(
         out.material = SurfaceMaterial.of(materials[nearest].toInt())
     }
 
-    /** Per-caller scratch vectors, so lookups allocate nothing. */
+    /** Scratch vectors for each caller, so lookups allocate nothing. */
     class Scratch {
         val a = Vec3(); val b = Vec3(); val c = Vec3()
         val e1 = Vec3(); val e2 = Vec3()
@@ -122,15 +120,18 @@ class TerrainTile(
         const val CELLS = 64
         const val STRIDE = CELLS + 1
 
-        /** Target tile width, metres; the actual is the nearest that tiles a face in a power of two. */
+        /**
+         * The target tile width, in metres. The actual width is the closest one that tiles a face
+         * in a power of two.
+         */
         const val TARGET_TILE_METRES = 128.0
 
         /**
          * Samples [terrain] into the tile at ([face], [i], [j]).
          *
-         * Samples a one-cell border beyond the tile as well, only to measure
-         * the slope at its edge samples the same way the neighbouring tile
-         * does - otherwise a material boundary could jump at every tile seam.
+         * It samples a one-cell border beyond the tile as well, only to measure the slope at its
+         * edge samples the same way the neighbouring tile does. Otherwise a material boundary could
+         * jump at every tile seam.
          */
         fun build(terrain: Terrain, face: Int, i: Int, j: Int, tilesPerFace: Int): TerrainTile {
             val bordered = CELLS + 3
@@ -143,10 +144,10 @@ class TerrainTile(
             }
 
             val radius = terrain.bodyRadius
-            // Flat arrays, not a Vec3 per sample. A tile is four and a half
-            // thousand samples, built on a background thread while the game
-            // runs, and per-sample objects became garbage collections long
-            // enough to stall the simulation tick they were meant to spare.
+            // Flat arrays, not a Vec3 per sample. A tile is four and a half thousand samples, built
+            // on a background thread while the game runs, and objects per sample turned into
+            // garbage collections long enough to stall the very simulation tick they were meant to
+            // spare.
             val count = bordered * bordered
             val dx = DoubleArray(count); val dy = DoubleArray(count); val dz = DoubleArray(count)
             val heights = DoubleArray(count)
@@ -164,7 +165,7 @@ class TerrainTile(
                 val index = (q + 1) * bordered + (p + 1)
                 val r = index + 1; val l = index - 1
                 val u = index + bordered; val d = index - bordered
-                // Central differences of the surface positions either side.
+                // Central differences of the surface positions on either side.
                 val ex = dx[r] * (radius + heights[r]) - dx[l] * (radius + heights[l])
                 val ey = dy[r] * (radius + heights[r]) - dy[l] * (radius + heights[l])
                 val ez = dz[r] * (radius + heights[r]) - dz[l] * (radius + heights[l])
@@ -176,7 +177,7 @@ class TerrainTile(
                 val cz = ex * ny0 - ey * nx0
                 val length = kotlin.math.sqrt(cx * cx + cy * cy + cz * cz)
                 val cosine = if (length > 0.0) (cx * dx[index] + cy * dy[index] + cz * dz[index]) / length else 1.0
-                // 0 on the flat, 1 on a wall - the same measure the renderer uses.
+                // 0 on flat ground, 1 on a wall. The same measure the renderer uses.
                 val slope = (1.0 - kotlin.math.abs(cosine)).coerceIn(0.0, 1.0)
                 val height = heights[index]
                 direction.setTo(dx[index], dy[index], dz[index])
@@ -190,7 +191,10 @@ class TerrainTile(
             )
         }
 
-        /** Tiles along a face's side for a body of [radius], so tiles come out near [TARGET_TILE_METRES]. */
+        /**
+         * Tiles along a face's side for a body of [radius], so tiles come out close to
+         * [TARGET_TILE_METRES].
+         */
         fun tilesPerFace(radius: Double): Int {
             val faceArc = radius * Math.PI / 2.0
             var tiles = 1

@@ -31,13 +31,12 @@ import kotlin.math.roundToInt
 /**
  * A self-centring two-axis stick for pitch and yaw.
  *
- * Springs back to neutral on release, because a rocket left with a held
- * deflection will happily rotate until it is pointing at the ground and the
- * player has no reason to expect a thumb lift to mean "keep turning".
+ * It springs back to neutral when you let go, because a rocket left with a held deflection will
+ * happily keep rotating until it's pointing at the ground, and a player has no reason to expect
+ * lifting a thumb to mean "keep turning".
  *
- * The touch target is the whole box rather than the knob: chasing a small knob
- * with a thumb is precisely the interaction that makes touch flight controls
- * feel broken.
+ * The touch target is the whole box, not the knob. Chasing a small knob with a thumb is exactly
+ * what makes touch flight controls feel broken.
  */
 @Composable
 fun AttitudeStick(
@@ -60,8 +59,8 @@ fun AttitudeStick(
             dy /= magnitude
         }
         knob = Offset(dx, dy)
-        // Screen +Y is down, and pulling the stick back should pitch the nose
-        // up - so the vertical axis is inverted here, as on an aircraft stick.
+        // Screen +Y is down, and pulling the stick back should pitch the nose up, so the vertical
+        // axis is flipped here, like on an aircraft stick.
         onChange(-dy, dx)
     }
 
@@ -87,7 +86,7 @@ fun AttitudeStick(
                 }
             },
     ) {
-        // Neutral marker, so the centre is visible when the stick is released.
+        // A neutral marker, so you can see the centre when the stick is let go.
         Box(
             Modifier
                 .align(androidx.compose.ui.Alignment.Center)
@@ -112,11 +111,10 @@ fun AttitudeStick(
 }
 
 /**
- * A momentary button that reports held/released, for roll.
+ * A momentary button that reports held and released, for roll.
  *
- * Roll gets buttons rather than a third stick axis: a twist gesture competes
- * with the camera drag, and roll is used in discrete corrections rather than
- * continuously.
+ * Roll gets buttons instead of a third stick axis. A twist gesture would fight with the camera
+ * drag, and roll is used in separate small corrections, not all the time.
  */
 @Composable
 fun HoldButton(
@@ -139,9 +137,8 @@ fun HoldButton(
                     awaitFirstDown()
                     held = true
                     onHold(true)
-                    // Wait for every pointer to lift. A drag that wanders off
-                    // the button still has to release it, or roll sticks on
-                    // with no visible cause.
+                    // Wait for every pointer to lift. A drag that wanders off the button still has
+                    // to release it, or roll sticks on with nothing to show why.
                     do {
                         val event = awaitPointerEvent()
                     } while (event.changes.any { it.pressed })

@@ -8,50 +8,49 @@ import kotlin.math.ln
 import kotlin.math.sign
 import kotlin.math.sqrt
 
-/** Position and velocity at an instant, relative to the attractor's centre. */
+/** Position and velocity at one moment, relative to the attractor's centre. */
 class StateVector(val position: Vec3, val velocity: Vec3) {
     override fun toString(): String = "StateVector(r=$position, v=$velocity)"
 }
 
 /**
- * A two-body trajectory about a single attractor.
+ * A two-body trajectory around a single attractor.
  *
- * Represented by a state vector rather than classical elements, and propagated
- * with the universal-variable formulation. That choice is the load-bearing one
- * here.
+ * It's stored as a state vector instead of classical elements, and moved forward with the
+ * universal-variable formulation. That choice is the one that holds everything else up.
  *
- * Classical elements are singular exactly where gameplay lives: argument of
- * periapsis is undefined for a circular orbit, longitude of the ascending node
- * is undefined for an equatorial one, and *both* describe a craft in a standard
- * 100 km parking orbit. Universal variables have no such special cases - one
- * solver covers circles, ellipses, parabolas and hyperbolas continuously, so a
- * craft burning from orbit to escape never crosses a branch.
+ * Classical elements break down exactly where the gameplay happens. The argument of periapsis is
+ * undefined for a circular orbit, and the longitude of the ascending node is undefined for an
+ * equatorial one, and *both* describe a craft in a standard 100 km parking orbit. Universal
+ * variables have no special cases like that. One solver covers circles, ellipses, parabolas and
+ * hyperbolas without a break, so a craft burning from orbit to escape never crosses from one branch
+ * to another.
  *
- * Classical elements are still computed, but only for *display*
- * (see [apoapsis], [inclination]); nothing propagates from them.
+ * Classical elements are still worked out, but only for *display* (see [apoapsis], [inclination]).
+ * Nothing is propagated from them.
  *
  * Convention: +Y is the reference ("north") axis, matching the world.
  */
 class Orbit(
     val position: Vec3,
     val velocity: Vec3,
-    /** Attractor's GM, m³/s². */
+    /** The attractor's GM, in m³/s². */
     val mu: Double,
-    /** Universe time this state was sampled at, seconds. */
+    /** The universe time this state was sampled at, in seconds. */
     val epoch: Double = 0.0,
 ) {
     private val r: Double = position.length
     private val v: Double = velocity.length
 
-    /** Specific orbital energy, J/kg. Negative means bound. */
+    /** Specific orbital energy, in J/kg. Negative means bound. */
     val specificEnergy: Double = v * v / 2.0 - mu / r
 
-    /** Specific angular momentum vector. Constant along the trajectory. */
+    /** Specific angular momentum vector. It stays constant along the trajectory. */
     val angularMomentum: Vec3 = position.cross(velocity)
 
     /**
-     * Semi-major axis, metres. Negative for hyperbolic trajectories, and
-     * infinite for the parabolic knife-edge.
+     * Semi-major axis, in metres. Negative for hyperbolic trajectories, and infinite right on the
+     * parabolic edge.
      */
     val semiMajorAxis: Double =
         if (abs(specificEnergy) < 1e-12) Double.POSITIVE_INFINITY else -mu / (2.0 * specificEnergy)
@@ -71,39 +70,37 @@ class Orbit(
 
     val isBound: Boolean get() = specificEnergy < 0.0 && eccentricity < 1.0
 
-    /** Periapsis distance from the attractor's centre, metres. */
+    /** Periapsis distance from the attractor's centre, in metres. */
     val periapsis: Double = run {
         val h = angularMomentum.length
-        // p = h^2/mu; rp = p / (1 + e). Works for every conic, including the
-        // parabolic case where semiMajorAxis has blown up to infinity.
+        // p = h^2/mu; rp = p / (1 + e). This works for every conic, including the parabolic case
+        // where semiMajorAxis has gone to infinity.
         val p = h * h / mu
         p / (1.0 + eccentricity)
     }
 
     /**
-     * Apoapsis distance from the attractor's centre, metres.
-     * Infinite on an escape trajectory.
+     * Apoapsis distance from the attractor's centre, in metres. Infinite on an escape trajectory.
      */
     val apoapsis: Double =
         if (!isBound) Double.POSITIVE_INFINITY else semiMajorAxis * (1.0 + eccentricity)
 
-    /** Orbital period, seconds. Infinite on an escape trajectory. */
+    /** Orbital period, in seconds. Infinite on an escape trajectory. */
     val period: Double =
         if (!isBound) Double.POSITIVE_INFINITY
         else 2.0 * PI * sqrt(semiMajorAxis * semiMajorAxis * semiMajorAxis / mu)
 
-    /** Inclination against the reference (XZ) plane, radians. */
+    /** Inclination against the reference (XZ) plane, in radians. */
     val inclination: Double = run {
         val h = angularMomentum.length
         if (h < 1e-9) 0.0 else acos((angularMomentum.y / h).coerceIn(-1.0, 1.0))
     }
 
     /**
-     * Angle from periapsis to the craft's current position, radians.
+     * The angle from periapsis to the craft's current position, in radians.
      *
-     * Undefined on a perfectly circular orbit - there is no periapsis to
-     * measure from - so that case returns 0 rather than a NaN that would
-     * propagate into every time estimate downstream.
+     * It's undefined on a perfectly circular orbit, because there's no periapsis to measure from.
+     * That case returns 0 instead of a NaN that would spread into every time estimate further down.
      */
     val trueAnomaly: Double = run {
         if (eccentricity < 1e-9) {
@@ -116,7 +113,7 @@ class Orbit(
         }
     }
 
-    /** Eccentric anomaly, radians. Elliptical orbits only. */
+    /** Eccentric anomaly, in radians. Elliptical orbits only. */
     private val eccentricAnomaly: Double = run {
         if (!isBound) 0.0
         else {
@@ -125,7 +122,7 @@ class Orbit(
         }
     }
 
-    /** Mean anomaly, radians, wrapped to [0, 2pi). */
+    /** Mean anomaly, in radians, wrapped to [0, 2pi). */
     val meanAnomaly: Double = run {
         if (!isBound) 0.0
         else {
@@ -138,9 +135,9 @@ class Orbit(
     /**
      * Seconds until the craft reaches apoapsis.
      *
-     * Infinite on an escape trajectory, which never gets there. This is what an
-     * ascent autopilot waits on before its circularisation burn, and what the
-     * map view puts next to the apoapsis marker.
+     * Infinite on an escape trajectory, which never gets there. This is what an ascent autopilot
+     * waits for before its circularisation burn, and what the map view shows next to the apoapsis
+     * marker.
      */
     val timeToApoapsis: Double = run {
         if (!isBound) Double.POSITIVE_INFINITY
@@ -154,16 +151,15 @@ class Orbit(
     }
 
     /**
-     * Seconds until the craft reaches periapsis. On an escape trajectory,
-     * the one pass - arriving at a moon, the low point to brake at - or
-     * infinite once it is behind it.
+     * Seconds until the craft reaches periapsis. On an escape trajectory that's the one pass
+     * (arriving at a moon, the low point to brake at), or infinite once it's behind it.
      */
     val timeToPeriapsis: Double = run {
         if (!isBound) {
             if (eccentricity <= 1.0 + 1e-9 || (position dot velocity) >= 0.0) Double.POSITIVE_INFINITY
             else {
-                // Hyperbolic anomaly from the true anomaly, then Kepler's
-                // equation for the hyperbola: how long until it is zero.
+                // The hyperbolic anomaly from the true anomaly, then Kepler's equation for the
+                // hyperbola, to get how long until it's zero.
                 val cosNu = ((eccentricityVector dot position) / (eccentricity * r)).coerceIn(-1.0, 1.0)
                 val coshF = (eccentricity + cosNu) / (1.0 + eccentricity * cosNu)
                 val f = ln(coshF + sqrt((coshF * coshF - 1.0).coerceAtLeast(0.0)))
@@ -179,17 +175,17 @@ class Orbit(
     }
 
     /**
-     * Advances the trajectory by [dt] seconds.
+     * Moves the trajectory forward by [dt] seconds.
      *
-     * Newton iteration on the universal anomaly. Converges in a handful of
-     * iterations for anything a craft will actually be on; the iteration cap
-     * exists so a pathological input cannot hang the simulation thread.
+     * This is Newton iteration on the universal anomaly. It converges in a handful of iterations
+     * for anything a craft will actually be on. The iteration cap is there so a bad input can't
+     * hang the simulation thread.
      */
     fun propagate(dt: Double): StateVector {
         if (dt == 0.0 || !dt.isFinite()) return StateVector(position.copy(), velocity.copy())
 
         val sqrtMu = sqrt(mu)
-        // alpha = 1/a. Positive elliptic, zero parabolic, negative hyperbolic.
+        // alpha = 1/a. Positive for elliptic, zero for parabolic, negative for hyperbolic.
         val alpha = 2.0 / r - v * v / mu
         val rDotV = position dot velocity
 
@@ -224,18 +220,18 @@ class Orbit(
             iterations++
         }
         if (converged && chi.isFinite()) {
-            // A huge wrong start "converges" too: its steps shrink as r grows
-            // with it. Checked by the time equation itself, off by no more
-            // than a hair of the time asked for.
+            // A huge wrong starting guess "converges" too, because its steps shrink as r grows
+            // along with it. So it gets checked against the time equation itself, and has to be off
+            // by no more than a tiny fraction of the time asked for.
             val p = chi * chi * alpha
             val residual = (rDotV / sqrtMu) * chi * chi * Stumpff.c2(p) +
                 (1.0 - alpha * r) * chi * chi * chi * Stumpff.c3(p) + r * chi - sqrtMu * dt
             if (!(abs(residual) <= 1e-6 * sqrtMu * abs(dt) + 1e-3)) converged = false
         }
         if (!converged || !chi.isFinite()) {
-            // Newton lost from a poor start: coming in from far out on a
-            // fast hyperbola the analytic guess's two terms all but cancel.
-            // Solved again, slower, kept inside a bracket round the root.
+            // Newton got lost from a poor start. Coming in from far out on a fast hyperbola, the
+            // two terms of the analytic guess nearly cancel out. So it gets solved again, more
+            // slowly, kept inside a bracket around the root.
             chi = bracketed(dt, alpha, sqrtMu, rDotV)
             psi = chi * chi * alpha
             c2 = Stumpff.c2(psi)
@@ -262,16 +258,14 @@ class Orbit(
         return StateVector(newPosition, newVelocity)
     }
 
-    /** State at absolute universe time [time]. */
+    /** The state at absolute universe time [time]. */
     fun stateAt(time: Double): StateVector = propagate(time - epoch)
 
     /**
-     * Samples [count] points around the trajectory, for drawing the conic in
-     * map view.
+     * Samples [count] points around the trajectory, for drawing the conic in the map view.
      *
-     * A bound orbit is sampled over exactly one period so the path closes; an
-     * escape trajectory is sampled over a window either side of now, since
-     * there is no period to close.
+     * A bound orbit is sampled over exactly one period so the path closes. An escape trajectory is
+     * sampled over a window on either side of now, since there's no period to close.
      */
     fun sample(count: Int = 128): List<Vec3> {
         require(count >= 2) { "need at least two samples" }
@@ -284,10 +278,9 @@ class Orbit(
     }
 
     /**
-     * The universal anomaly for [dt] by Newton kept inside a bracket: the
-     * time equation rises with the anomaly, so the root is always between
-     * a point below it and one above, and a step that leaves them halves
-     * them instead.
+     * The universal anomaly for [dt], by Newton kept inside a bracket. The time equation rises with
+     * the anomaly, so the root is always between a point below it and one above, and a step that
+     * goes outside them halves them instead.
      */
     private fun bracketed(dt: Double, alpha: Double, sqrtMu: Double, rDotV: Double): Double {
         fun f(chi: Double, out: DoubleArray) {
@@ -324,11 +317,11 @@ class Orbit(
 
     private fun initialGuess(dt: Double, alpha: Double, sqrtMu: Double, rDotV: Double): Double =
         when {
-            // Elliptic: the linear estimate is close enough to converge fast.
+            // Elliptic: the linear estimate is close enough to converge quickly.
             alpha > 1e-9 -> sqrtMu * dt * alpha
 
-            // Hyperbolic: the analytic inversion, which the linear guess is far
-            // too poor for once the trajectory is steeply hyperbolic.
+            // Hyperbolic: the analytic inversion, because the linear guess is far too poor once the
+            // trajectory is steeply hyperbolic.
             alpha < -1e-9 -> {
                 val a = 1.0 / alpha
                 val numerator = -2.0 * mu * alpha * dt
@@ -363,21 +356,19 @@ class Orbit(
         private const val ESCAPE_SAMPLE_WINDOW_SECONDS = 6.0 * 3600.0
 
         /**
-         * A circular orbit at [radiusFromCentre], in the XZ plane.
-         * Convenience for spawning and for tests.
+         * A circular orbit at [radiusFromCentre], in the XZ plane. Handy for spawning and for
+         * tests.
          */
         /**
-         * A circular orbit starting at +X, prograde about +Y, tilted by
-         * [inclination] radians about the X axis - so it rises through the
-         * equator there.
+         * A circular orbit starting at +X, prograde around +Y, tilted by [inclination] radians
+         * around the X axis, so it rises through the equator there.
          */
         /**
-         * An orbit from its elements: semi-major axis [a], eccentricity [e],
-         * inclination [i], longitude of the ascending node [node], argument
-         * of periapsis [argument] and true anomaly [anomaly] at [epoch] - the
-         * angles in radians, measured in a reference plane whose north is
-         * [frame] applied to +Y. Prograde is anticlockwise seen from that
-         * north, as [circular]'s is from +Y.
+         * An orbit from its elements: semi-major axis [a], eccentricity [e], inclination [i],
+         * longitude of the ascending node [node], argument of periapsis [argument] and true anomaly
+         * [anomaly] at [epoch]. The angles are in radians, measured in a reference plane whose
+         * north is [frame] applied to +Y. Prograde is anticlockwise seen from that north, the same
+         * way [circular]'s is from +Y.
          */
         fun fromElements(
             a: Double, e: Double, i: Double, node: Double, argument: Double, anomaly: Double,
@@ -399,7 +390,8 @@ class Orbit(
                 val x1 = cw * x - sw * y; val y1 = sw * x + cw * y
                 val x2 = x1; val y2 = ci * y1; val z2 = si * y1
                 val x3 = cO * x2 - sO * y2; val y3 = sO * x2 + cO * y2; val z3 = z2
-                // ...then into this world's axes, where north is +Y: z up to Y, y to -Z.
+                // ...then into this world's axes, where north is +Y: z up goes to Y, and y goes to
+                // -Z.
                 return frame.rotate(Vec3(x3, z3, -y3), Vec3())
             }
             return Orbit(position = toFrame(px, py), velocity = toFrame(vx, vy), mu = mu, epoch = epoch)

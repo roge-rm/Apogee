@@ -3,11 +3,10 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 /**
  * The standalone dedicated server.
  *
- * A module of its own rather than a `main()` inside :server, because this is
- * the only part of the project Android never loads - and that freedom is load
- * bearing. Unix domain sockets, used for the admin control channel, arrived in
- * JDK 16 and do not exist on Android at all. Keeping them here means :server
- * can stay on the JVM 11 target that :app consumes, while this targets 21.
+ * It's a module of its own instead of a `main()` inside :server, because this is the only part of
+ * the project Android never loads, and a lot rests on that. Unix domain sockets, used for the admin
+ * control channel, arrived in JDK 16 and don't exist on Android at all. Keeping them here means
+ * :server can stay on the JVM 11 target that :app uses, while this one targets 21.
  */
 plugins {
     alias(libs.plugins.kotlin.jvm)

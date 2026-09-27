@@ -8,21 +8,20 @@ import kotlin.math.sqrt
 /**
  * The sea floor: what lies under a world's sea, below the datum.
  *
- * Everywhere, low abyssal hills over the deep plains, a mid-ocean ridge with
- * a rift down its crest, and drowned volcanoes rising from the plains here
- * and there. Off the Cape, shaped by hand so the first of it is in reach of
- * a slow submarine: the shelf, broken by a canyon cut down from the harbour;
- * the slope below it; a terrace strewn with nodules; the trench beyond,
- * deepest of all Terra; and Farrow Seamount standing up out of the slope,
- * with vents on its flank.
+ * Everywhere there are low abyssal hills over the deep plains, a mid-ocean ridge with a rift down
+ * its crest, and drowned volcanoes rising from the plains here and there. Off the Cape it's shaped
+ * by hand, so the first of it is within reach of a slow submarine. There's the shelf, broken by a
+ * canyon cut down from the harbour, then the slope below it, a terrace scattered with nodules, and
+ * the trench beyond, the deepest place on Terra. Farrow Seamount stands up out of the slope, with
+ * vents on its side.
  *
- * Only ever called for ground already under the sea: the land is not
- * touched. Deterministic from position alone, as all ground is.
+ * This only ever gets called for ground that's already under the sea, so the land isn't touched.
+ * Like all ground, it comes from position alone.
  */
 class Seabed(
     private val seed: Int,
     private val bodyRadius: Double,
-    /** The Cape: the pad's direction, unit, body-fixed - null for a world with no Cape. */
+    /** The Cape: the pad's direction, unit length, body-fixed. Null for a world with no Cape. */
     pad: Vec3? = null,
 ) {
     private val padUnit: Vec3? = pad?.normalized()
@@ -35,8 +34,8 @@ class Seabed(
     ).normalizeInPlace()
 
     /**
-     * The open ocean's floor at unit direction ([nx], [ny], [nz]), [base]
-     * being the plain the world's own shaping gives - at or below the datum.
+     * The open ocean's floor at unit direction ([nx], [ny], [nz]), where [base] is the plain the
+     * world's own shaping gives, at or below the datum.
      */
     fun global(nx: Double, ny: Double, nz: Double, base: Double): Double {
         if (base > 0.0) return base
@@ -76,7 +75,7 @@ class Seabed(
             val r = sqrt(ex * ex + ey * ey + ez * ez) * bodyRadius
             val base = SEAMOUNT_BASE * (0.6 + 0.6 * Noise.hash(seed + 9, cx, cy, cz))
             if (r > base) continue
-            // Some reach nearly to the surface, flat-topped; most stop far short.
+            // Some reach almost to the surface and are flat-topped, and most stop well short.
             val top = -60.0 - 1_800.0 * Noise.hash(seed + 10, cx, cy, cz)
             val rise = top - (top - ground) * Noise.smoothstep((r / base).coerceIn(0.0, 1.0))
             best = maxOf(best, rise)
@@ -86,7 +85,10 @@ class Seabed(
 
     // --- off the Cape ----------------------------------------------------------------
 
-    /** Metres east and north of the pad, for unit direction ([nx], [ny], [nz]); null far off or with no Cape. */
+    /**
+     * Metres east and north of the pad, for unit direction ([nx], [ny], [nz]). Null when it's far
+     * away or there's no Cape.
+     */
     private fun capeOffset(nx: Double, ny: Double, nz: Double, out: DoubleArray): Boolean {
         val pad = padUnit ?: return false
         val e = east!!; val n = north!!
@@ -100,9 +102,8 @@ class Seabed(
     private val offset = ThreadLocal.withInitial { DoubleArray(2) }
 
     /**
-     * The Cape's sea floor, over [ground]: only where [ground] is already
-     * under the sea, and only ever lowering it - but for Farrow Seamount,
-     * which rises out of the slope.
+     * The Cape's sea floor, over [ground]. It only applies where [ground] is already under the sea,
+     * and it only ever lowers it, except for Farrow Seamount, which rises out of the slope.
      */
     fun cape(nx: Double, ny: Double, nz: Double, ground: Double): Double {
         if (ground >= 0.0) return ground
@@ -110,16 +111,16 @@ class Seabed(
         if (!capeOffset(nx, ny, nz, at)) return ground
         val x = at[0]; val y = at[1]
         var shaped = ground
-        // The slope, the terrace and the trench, round the pad's seaward side.
+        // The slope, the terrace and the trench, around the seaward side of the pad.
         val r = sqrt(x * x + y * y)
-        // Round to seaward; and back up to the open sea's own floor far out,
-        // so the Cape's deep ends in a rise rather than a cliff.
+        // Round to seaward, and back up to the open sea's own floor far out, so the Cape's deep
+        // water ends in a rise instead of a cliff.
         val w = seaward(x, y) * (1.0 - Noise.smoothstep(((r - OUTER_RISE) / OUTER_RISE_WIDTH).coerceIn(0.0, 1.0)))
         if (w > 0.0 && r > SHELF_EDGE) {
             val target = offshore(r)
             if (target < shaped) shaped += w * (target - shaped)
         }
-        // The canyon, cut down from the harbour's mouth.
+        // The canyon, cut down from the harbour mouth.
         val (along, off) = canyon(x, y)
         if (along >= 0.0) {
             val floor = canyonFloor(along)
@@ -136,9 +137,9 @@ class Seabed(
         return minOf(shaped, -1.0)
     }
 
-    /** How far round to the sea side a point [x], [y] from the pad is, 0..1: the slope and trench lie only there. */
+    /** How far round to the sea side a point [x], [y] from the pad is, 0..1. The slope and trench only lie there. */
     private fun seaward(x: Double, y: Double): Double {
-        // Bearing from north, clockwise: the sea is to the north-west.
+        // The bearing from north, clockwise. The sea is to the north-west.
         val bearing = Math.toDegrees(kotlin.math.atan2(x, y))
         var off = bearing - SEAWARD_BEARING
         while (off > 180.0) off -= 360.0
@@ -146,7 +147,10 @@ class Seabed(
         return 1.0 - Noise.smoothstep(((abs(off) - SEAWARD_HALF) / SEAWARD_FADE).coerceIn(0.0, 1.0))
     }
 
-    /** The floor off the shelf by distance from the pad, m: slope, terrace, trench, and back out to the ocean's plain. */
+    /**
+     * The floor off the shelf by distance from the pad, in metres: slope, terrace, trench, and back
+     * out to the ocean's plain.
+     */
     private fun offshore(r: Double): Double {
         val slope = -150.0 + (-TERRACE + 150.0) * Noise.smoothstep(((r - SHELF_EDGE) / (TERRACE_FROM - SHELF_EDGE)).coerceIn(0.0, 1.0))
         val trench = (TRENCH_BOTTOM + TERRACE) * exp(-((r - TRENCH_R) / TRENCH_WIDTH) * ((r - TRENCH_R) / TRENCH_WIDTH))
@@ -155,7 +159,10 @@ class Seabed(
         return slope + trench - beyond * 500.0
     }
 
-    /** How far along the canyon a point is, m, and how far off its axis; along -1 when it is nowhere near. */
+    /**
+     * How far along the canyon a point is, in metres, and how far off its axis. Along is -1 when
+     * it's nowhere near.
+     */
     private fun canyon(x: Double, y: Double): Pair<Double, Double> {
         var bestOff = Double.MAX_VALUE
         var bestAlong = -1.0
@@ -173,7 +180,10 @@ class Seabed(
         return if (bestOff < CANYON_REACH) bestAlong to bestOff else -1.0 to bestOff
     }
 
-    /** The canyon's floor along it, m: from its head down to where it opens onto the slope. */
+    /**
+     * The canyon's floor along its length, in metres, from its head down to where it opens onto the
+     * slope.
+     */
     private fun canyonFloor(along: Double): Double =
         CANYON_HEAD - (CANYON_HEAD - CANYON_MOUTH) * Noise.smoothstep((along / canyonLength).coerceIn(0.0, 1.0))
 
@@ -185,8 +195,8 @@ class Seabed(
     // --- what the floor is --------------------------------------------------------------
 
     /**
-     * How much of a vent field there is at unit direction ([nx], [ny], [nz]),
-     * 0..1: the Chimneys, on Farrow's flank, and patches along the ridge's rift.
+     * How much vent field there is at unit direction ([nx], [ny], [nz]), 0..1: the Chimneys on
+     * Farrow's side, and patches along the ridge's rift.
      */
     fun ventField(nx: Double, ny: Double, nz: Double): Double {
         val at = offset.get()
@@ -244,12 +254,15 @@ class Seabed(
         const val NODULES_BELOW = 1_800.0
         const val STEEP = 0.4
         const val SHELF_SAND = 250.0
-        /** Metres under the datum where another world's shore gives way to its sea floor. */
+        /** How many metres under the datum another world's shore gives way to its sea floor. */
         const val SEA_EDGE = 3.0
 
         // Off the Cape: metres from the pad, and depths as heights (negative).
         const val CAPE_REACH = 40_000.0
-        /** Bearing of the open sea from the pad, degrees clockwise from north, and how far either side the deep lies. */
+        /**
+         * The bearing of the open sea from the pad, in degrees clockwise from north, and how far
+         * either side the deep water lies.
+         */
         const val SEAWARD_BEARING = -45.0
         const val SEAWARD_HALF = 55.0
         const val SEAWARD_FADE = 20.0
@@ -260,11 +273,11 @@ class Seabed(
         const val TRENCH_R = 22_000.0
         const val TRENCH_WIDTH = 1_300.0
         const val TRENCH_BOTTOM = -7_000.0
-        /** Beyond the trench, from here out, the deep comes back up to the open sea's floor. */
+        /** Beyond the trench, from here on out, the deep comes back up to the open sea's floor. */
         const val OUTER_RISE = 29_000.0
         const val OUTER_RISE_WIDTH = 9_000.0
 
-        /** The canyon's axis, east and north of the pad, from its head off the harbour's mouth out to the slope. */
+        /** The canyon's axis, east and north of the pad, from its head off the harbour mouth out to the slope. */
         val CANYON = doubleArrayOf(
             1_500.0, 6_000.0,
             -500.0, 9_000.0,
@@ -285,7 +298,7 @@ class Seabed(
         const val FARROW_FLANK = 0.62
         const val FARROW_BASE = 5_000.0
 
-        /** The Chimneys: on Farrow's north-east flank, where it is about nine hundred metres down. */
+        /** The Chimneys: on Farrow's north-east side, where it's about nine hundred metres down. */
         const val CHIMNEYS_EAST = FARROW_EAST + 1_340.0
         const val CHIMNEYS_NORTH = FARROW_NORTH + 1_340.0
         const val CHIMNEYS_RADIUS = 260.0
