@@ -51,6 +51,7 @@ fun HostGameScreen(
     /** Hosting the career world instead of the sandbox. */
     career: Boolean = false,
     onCareer: (Boolean) -> Unit = {},
+    onBack: () -> Unit = {},
 ) {
     Backdrop(maxContentWidth = Dimens.PanelContentMaxWidth) { contentModifier ->
         Text("Host a Game", style = MaterialTheme.typography.titleLarge, color = Color.White)
@@ -91,6 +92,8 @@ fun HostGameScreen(
             contentModifier,
             subtitle = "You'll play while others join",
         )
+        Spacer(Modifier.height(12.dp))
+        com.rm.apogee.ui.components.BackButton(onBack)
     }
 }
 
@@ -104,10 +107,9 @@ fun JoinGameScreen(
     defaultPort: Int,
     onJoin: (DiscoveredServer) -> Unit,
     onJoinAddress: (ServerAddress) -> Unit,
+    onBack: () -> Unit = {},
 ) {
-    Backdrop(maxContentWidth = Dimens.PanelContentMaxWidth) { contentModifier ->
-        Text("Join a Game", style = MaterialTheme.typography.titleLarge, color = Color.White)
-        Spacer(Modifier.height(8.dp))
+    Backdrop(maxContentWidth = Dimens.PanelContentMaxWidth, title = "Join a Game", onBack = onBack) { contentModifier ->
 
         if (connectingTo != null) {
             CircularProgressIndicator(color = ApogeeColors.Accent)

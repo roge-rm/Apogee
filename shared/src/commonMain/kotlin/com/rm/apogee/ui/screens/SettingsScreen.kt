@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
@@ -65,7 +67,7 @@ private enum class SettingsTab(val label: String) {
 }
 
 @Composable
-fun SettingsScreen(settings: GameSettings, detectedTier: QualityTier?) {
+fun SettingsScreen(settings: GameSettings, detectedTier: QualityTier?, onBack: () -> Unit = {}) {
     // Remembered across tab switches only, not across visits. Coming back to Settings starts where
     // the screen starts.
     var tab by remember { mutableStateOf(SettingsTab.PLAYER) }
@@ -76,6 +78,8 @@ fun SettingsScreen(settings: GameSettings, detectedTier: QualityTier?) {
             .background(
                 Brush.verticalGradient(listOf(ApogeeColors.BackdropTop, ApogeeColors.BackdropBottom))
             )
+            // Clear of the notch, now that the menus are full screen too.
+            .windowInsetsPadding(androidx.compose.foundation.layout.WindowInsets.displayCutout)
             .imePadding(),
     ) {
         Column(
@@ -85,7 +89,8 @@ fun SettingsScreen(settings: GameSettings, detectedTier: QualityTier?) {
                 .align(Alignment.TopCenter)
                 .padding(horizontal = Dimens.ScreenPaddingH, vertical = Dimens.ScreenPaddingV),
         ) {
-            Text("Settings", style = MaterialTheme.typography.titleLarge, color = Color.White)
+            // Back on the title row, which stays put with the tabs while only the settings scroll.
+            com.rm.apogee.ui.components.TitleRow("Settings", onBack)
             Spacer(Modifier.height(8.dp))
 
             TabRow(
@@ -365,10 +370,8 @@ private fun VolumeRow(title: String, value: Float, onChange: (Float) -> Unit) {
 }
 
 @Composable
-fun AboutScreen() {
-    Backdrop(maxContentWidth = Dimens.PanelContentMaxWidth) { contentModifier ->
-        Text("About", style = MaterialTheme.typography.titleLarge, color = Color.White)
-        Spacer(Modifier.height(16.dp))
+fun AboutScreen(onBack: () -> Unit = {}) {
+    Backdrop(maxContentWidth = Dimens.PanelContentMaxWidth, title = "About", onBack = onBack) { contentModifier ->
         Text(
             "Apogee is a sandbox for building vehicles and taking them wherever " +
                 "they'll go: across the ground, through the air, over and " +

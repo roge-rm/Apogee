@@ -71,13 +71,12 @@ fun ResumeFlightScreen(
     onFly: (Long) -> Unit,
     onReset: (Long) -> Unit,
     onRemove: (Long) -> Unit,
+    onBack: () -> Unit = {},
 ) {
     var confirmRemove by remember { mutableStateOf<CraftSummary?>(null) }
     var confirmReset by remember { mutableStateOf<CraftSummary?>(null) }
 
-    Backdrop(maxContentWidth = Dimens.PanelContentMaxWidth) { contentModifier ->
-        Text("Out There", style = MaterialTheme.typography.titleLarge, color = Color.White)
-        Spacer(Modifier.height(8.dp))
+    Backdrop(maxContentWidth = Dimens.PanelContentMaxWidth, title = "Out There", onBack = onBack) { contentModifier ->
         if (craft.isEmpty()) {
             Text(
                 "Nothing out there yet. Quick Launch or a launch from Vehicle Assembly puts a craft on the pad.",

@@ -199,6 +199,7 @@ class ApogeeApp(private val host: AppHost) {
     /** Every screen, one at a time, over the world's surface when there is one. */
     @Composable
     fun Content() {
+            LaunchedEffect(Unit) { if (host.fullscreenMenus) host.fullscreen(true) }
             ApogeeTheme {
                 // Back is wired by hand from AppScreen.parent. Flight swallows it on purpose, so a
                 // stray gesture can't throw away a flight.
@@ -225,6 +226,7 @@ class ApogeeApp(private val host: AppHost) {
                         onCareer = ::switchMode,
                         insight = careerState?.insight,
                         networked = host.networked,
+                        onBack = ::goBack,
                     )
                     AppScreen.PROGRAM -> careerState?.let { state ->
                         com.rm.apogee.ui.screens.ProgramScreen(
@@ -237,6 +239,7 @@ class ApogeeApp(private val host: AppHost) {
                                 refreshProgram()
                                 refused
                             },
+                            onClose = ::goBack,
                         )
                     }
                     AppScreen.RESUME_FLIGHT -> com.rm.apogee.ui.screens.ResumeFlightScreen(
@@ -262,6 +265,7 @@ class ApogeeApp(private val host: AppHost) {
                             saveSoloWorld()
                             refreshResumeCraft()
                         },
+                        onBack = ::goBack,
                     )
                     AppScreen.QUICK_LAUNCH -> com.rm.apogee.ui.screens.QuickLaunchScreen(
                         entries = quickEntries,
@@ -274,14 +278,19 @@ class ApogeeApp(private val host: AppHost) {
                         bases = runCatching { openSoloWorld().baseSites(settings.clientId) }.getOrDefault(emptyList()),
                         onSite = { quickSite = it; settings.quickSite = it ?: "" },
                         onLaunch = ::quickLaunch,
+                        onBack = ::goBack,
                     )
-                    AppScreen.CREW -> com.rm.apogee.ui.screens.CrewScreen(crewList) { id, visor ->
-                        openSoloWorld().setVisor(id, visor)
-                        saveSoloWorld()
-                        refreshCrew()
-                    }
-                    AppScreen.SETTINGS -> SettingsScreen(settings, detectedTier)
-                    AppScreen.ABOUT -> AboutScreen()
+                    AppScreen.CREW -> com.rm.apogee.ui.screens.CrewScreen(
+                        crewList,
+                        onVisor = { id, visor ->
+                            openSoloWorld().setVisor(id, visor)
+                            saveSoloWorld()
+                            refreshCrew()
+                        },
+                        onBack = ::goBack,
+                    )
+                    AppScreen.SETTINGS -> SettingsScreen(settings, detectedTier, onBack = ::goBack)
+                    AppScreen.ABOUT -> AboutScreen(onBack = ::goBack)
                     AppScreen.FLIGHT -> FlightScreen(
                         hud = hudState,
                         controlOpacity = settings.controlOpacity,
@@ -401,6 +410,7 @@ class ApogeeApp(private val host: AppHost) {
                             pendingMode = SessionMode.Host(serverName.ifBlank { "Apogee Game" })
                             navigateTo(AppScreen.FLIGHT)
                         },
+                        onBack = ::goBack,
                     )
 
                     AppScreen.JOIN_GAME -> JoinGameScreen(
@@ -412,11 +422,15 @@ class ApogeeApp(private val host: AppHost) {
                         defaultPort = GameSession.DEFAULT_PORT,
                         onJoin = ::joinServer,
                         onJoinAddress = ::joinAddress,
+                        onBack = ::goBack,
                     )
                 }
                 }
             }
     }
+
+    /** Back a screen, from a Back button or the system's back. */
+    private fun goBack() = navigateTo(appScreen.parent ?: AppScreen.MENU)
 
     fun navigateTo(target: AppScreen) {
         if (target == appScreen) return
@@ -1189,7 +1203,7 @@ class ApogeeApp(private val host: AppHost) {
 
         frameBus.clear()
         hudState.reset()
-        host.fullscreen(false)
+        if (!host.fullscreenMenus) host.fullscreen(false)
     }
 
     /**
@@ -1389,7 +1403,9 @@ class ApogeeApp(private val host: AppHost) {
     /** Back from the background. */
     fun resume() {
         com.rm.apogee.audio.AudioEngine.pause(false)
-        if (appScreen.needsWorldSurface) host.fullscreen(true)
+        // On a phone, full screen everywhere, menus too, as ScorchDroid is. The system bars come
+        // back with a swipe and go again by themselves.
+        if (host.fullscreenMenus || appScreen.needsWorldSurface) host.fullscreen(true)
     }
 
     fun destroy() {

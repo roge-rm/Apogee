@@ -44,10 +44,8 @@ class CrewSummary(
  * pick.
  */
 @Composable
-fun CrewScreen(crew: List<CrewSummary>, onVisor: (Long, Int) -> Unit) {
-    Backdrop(maxContentWidth = Dimens.PanelContentMaxWidth) { contentModifier ->
-        Text("Crew", style = MaterialTheme.typography.titleLarge, color = Color.White)
-        Spacer(Modifier.height(8.dp))
+fun CrewScreen(crew: List<CrewSummary>, onVisor: (Long, Int) -> Unit, onBack: () -> Unit = {}) {
+    Backdrop(maxContentWidth = Dimens.PanelContentMaxWidth, title = "Crew", onBack = onBack) { contentModifier ->
         if (crew.isEmpty()) {
             Text(
                 "Nobody yet. Launch a crewed craft and its seats fill with new recruits.",

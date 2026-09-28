@@ -3,11 +3,8 @@ package com.rm.apogee.ui.screens
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -51,7 +48,6 @@ import com.rm.apogee.ui.theme.alpha
  * you flew last, so the world doesn't fill up with half-flown ones. It used to put the stock rocket
  * on the Cape's pad every time, and anything else meant a trip through the Vehicle Assembly.
  */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun QuickLaunchScreen(
     /** The saved craft, or empty while they're read. */
@@ -67,11 +63,10 @@ fun QuickLaunchScreen(
     bases: List<LaunchSite>,
     onSite: (String?) -> Unit,
     onLaunch: () -> Unit,
+    onBack: () -> Unit = {},
 ) {
     var pickingSite by remember { mutableStateOf(false) }
-    Backdrop { contentModifier ->
-        Text("Quick Launch", style = MaterialTheme.typography.titleLarge, color = Color.White)
-        Spacer(Modifier.height(16.dp))
+    Backdrop(title = "Quick Launch", onBack = onBack) { contentModifier ->
         Column(contentModifier.fillMaxWidth()) {
             if (entries.isEmpty()) {
                 Text("Reading your craft…", color = Color.White.alpha(ApogeeAlpha.SUBTITLE))
@@ -79,14 +74,12 @@ fun QuickLaunchScreen(
                 val kinds = CraftKind.entries.filter { k -> entries.any { it.kind == k } }
                 var shownKind by rememberSaveable { mutableStateOf<String?>(null) }
                 val kind = kinds.firstOrNull { it.name == shownKind }
-                FlowRow(
-                    Modifier.padding(bottom = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    KindTab("All", kind == null) { shownKind = null }
-                    for (k in kinds) KindTab(k.label, k == kind) { shownKind = k.name }
-                }
+                com.rm.apogee.ui.components.KindPicker(
+                    kinds, kind,
+                    count = { k -> if (k == null) entries.size else entries.count { it.kind == k } },
+                    onSelect = { shownKind = it?.name },
+                    modifier = Modifier.padding(bottom = 10.dp),
+                )
                 val shown = if (kind == null) entries else entries.filter { it.kind == kind }
                 val list = rememberLazyListState()
                 // Opened on the craft chosen last time, wherever it is in the list.

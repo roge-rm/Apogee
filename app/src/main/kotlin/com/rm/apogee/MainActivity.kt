@@ -238,6 +238,8 @@ class MainActivity : ComponentActivity(), AppHost {
 
     override fun fullscreen(on: Boolean) = if (on) hideSystemBars() else showSystemBars()
 
+    override val fullscreenMenus: Boolean get() = true
+
     private fun hideSystemBars() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         // Let the window into the display cutout as well.

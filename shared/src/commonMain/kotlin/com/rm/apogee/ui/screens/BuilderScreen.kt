@@ -879,16 +879,12 @@ private fun LoadDialog(session: BuilderSession, pictures: Map<String, ImageBitma
                 var chosen by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
                 val kind = kinds.firstOrNull { it.name == chosen }
                 Column {
-                    // Wrapping onto a second line when they don't fit, so none are hidden off the edge.
-                    @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
-                    androidx.compose.foundation.layout.FlowRow(
-                        Modifier.padding(bottom = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        KindTab("All", kind == null) { chosen = null }
-                        for (k in kinds) KindTab(k.label, k == kind) { chosen = k.name }
-                    }
+                    com.rm.apogee.ui.components.KindPicker(
+                        kinds, kind,
+                        count = { k -> if (k == null) entries.size else entries.count { it.kind == k } },
+                        onSelect = { chosen = it?.name },
+                        modifier = Modifier.padding(bottom = 10.dp),
+                    )
                     val shown = if (kind == null) entries else entries.filter { it.kind == kind }
                     val list = rememberLazyListState()
                     LazyColumn(Modifier.heightIn(max = 460.dp).verticalScrollbar(list), state = list) {
@@ -936,22 +932,6 @@ private fun LoadDialog(session: BuilderSession, pictures: Map<String, ImageBitma
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
-    )
-}
-
-/** One kind of craft to show in the load list, lit when it's the one showing. */
-@Composable
-internal fun KindTab(label: String, selected: Boolean, onClick: () -> Unit) {
-    Text(
-        label,
-        style = MaterialTheme.typography.labelLarge,
-        color = if (selected) ApogeeColors.Accent else Color.White.alpha(ApogeeAlpha.SECONDARY),
-        maxLines = 1,
-        modifier = Modifier
-            .clip(RoundedCornerShape(Dimens.CornerActionBar))
-            .background(if (selected) ApogeeColors.Accent.alpha(0.22f) else Color.White.alpha(ApogeeAlpha.FILL_FAINT))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 6.dp),
     )
 }
 

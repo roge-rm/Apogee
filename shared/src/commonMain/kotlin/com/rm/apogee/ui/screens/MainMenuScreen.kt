@@ -64,6 +64,7 @@ fun PlayScreen(
     insight: Int? = null,
     /** Whether games can be hosted and joined here. A web page can't open the sockets they need. */
     networked: Boolean = true,
+    onBack: () -> Unit = {},
 ) {
     var chosen by remember { mutableStateOf(launchTime) }
     Backdrop { contentModifier ->
@@ -129,6 +130,8 @@ fun PlayScreen(
                 subtitle = "Find one nearby, or type an address",
             )
         }
+        Spacer(Modifier.height(12.dp))
+        com.rm.apogee.ui.components.BackButton(onBack)
     }
 }
 

@@ -64,20 +64,14 @@ fun ProgramScreen(
     /** Unlocks a node. Null if it worked, or the reason it didn't. */
     onUnlock: (String) -> String?,
     tree: TechTree = TechTree.stock,
-    /** Opened over a flight: the way back to it. */
+    /** Back: to the Play screen, or opened over a flight, back to it. */
     onClose: (() -> Unit)? = null,
 ) {
     var tab by remember { mutableStateOf(0) }
     var note by remember { mutableStateOf<String?>(null) }
-    Backdrop(maxContentWidth = Dimens.PanelContentMaxWidth) { content ->
+    Backdrop(maxContentWidth = Dimens.PanelContentMaxWidth, title = "Program", onBack = onClose) { content ->
         Column(content, horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("Program", style = MaterialTheme.typography.titleLarge, color = Color.White)
-            Spacer(Modifier.height(6.dp))
             Text("${state.insight} insight to spend", style = TelemetryTextStyle, color = ApogeeColors.Accent)
-            onClose?.let {
-                Spacer(Modifier.height(10.dp))
-                com.rm.apogee.ui.components.ApogeeButton("Back", it)
-            }
             Spacer(Modifier.height(14.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 for ((k, label) in listOf("Tree", "Feats", "Worlds").withIndex()) {

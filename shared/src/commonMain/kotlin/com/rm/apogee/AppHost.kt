@@ -47,6 +47,12 @@ interface AppHost {
     /** Fullscreen for the world, or back to the ordinary window for the menus. */
     fun fullscreen(on: Boolean)
 
+    /**
+     * Whether the menus are full screen too, as on a phone. A web page is only full screen in the
+     * world, and goes back to an ordinary page for the menus.
+     */
+    val fullscreenMenus: Boolean get() = false
+
     /** Sends a craft file somewhere: the share sheet, or a download. */
     fun shareCraft(name: String, text: String)
 
