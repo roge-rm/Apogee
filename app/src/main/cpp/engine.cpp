@@ -93,23 +93,23 @@ Engine* engine = nullptr;
 extern "C" {
 
 JNIEXPORT jboolean JNICALL
-Java_com_rm_apogee_audio_AudioEngine_nativeStart(JNIEnv*, jobject, jint voiceBudget) {
+Java_com_rm_apogee_audio_Synth_nativeStart(JNIEnv*, jobject, jint voiceBudget) {
     if (!engine) engine = new Engine();
     return engine->start(voiceBudget) ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT void JNICALL
-Java_com_rm_apogee_audio_AudioEngine_nativeStop(JNIEnv*, jobject) {
+Java_com_rm_apogee_audio_Synth_nativeStop(JNIEnv*, jobject) {
     if (engine) engine->stop();
 }
 
 JNIEXPORT void JNICALL
-Java_com_rm_apogee_audio_AudioEngine_nativePause(JNIEnv*, jobject, jboolean paused) {
+Java_com_rm_apogee_audio_Synth_nativePause(JNIEnv*, jobject, jboolean paused) {
     if (engine) engine->pause(paused == JNI_TRUE);
 }
 
 JNIEXPORT void JNICALL
-Java_com_rm_apogee_audio_AudioEngine_nativeScene(JNIEnv* env, jobject, jint count, jintArray keys, jintArray recipes,
+Java_com_rm_apogee_audio_Synth_nativeScene(JNIEnv* env, jobject, jint count, jintArray keys, jintArray recipes,
                                                  jintArray flags, jfloatArray params) {
     if (!engine || !engine->synth()) return;
     apogee::Scene scene;
@@ -132,7 +132,7 @@ Java_com_rm_apogee_audio_AudioEngine_nativeScene(JNIEnv* env, jobject, jint coun
 }
 
 JNIEXPORT void JNICALL
-Java_com_rm_apogee_audio_AudioEngine_nativeEvent(JNIEnv* env, jobject, jint recipe, jint flags, jint seed, jfloat delay,
+Java_com_rm_apogee_audio_Synth_nativeEvent(JNIEnv* env, jobject, jint recipe, jint flags, jint seed, jfloat delay,
                                                  jfloatArray params) {
     if (!engine || !engine->synth()) return;
     apogee::Event event;
@@ -147,7 +147,7 @@ Java_com_rm_apogee_audio_AudioEngine_nativeEvent(JNIEnv* env, jobject, jint reci
 }
 
 JNIEXPORT void JNICALL
-Java_com_rm_apogee_audio_AudioEngine_nativeBusGains(JNIEnv* env, jobject, jfloatArray gains) {
+Java_com_rm_apogee_audio_Synth_nativeBusGains(JNIEnv* env, jobject, jfloatArray gains) {
     if (!engine || !engine->synth()) return;
     jfloat* g = env->GetFloatArrayElements(gains, nullptr);
     float copy[apogee::bus::COUNT];
@@ -157,12 +157,12 @@ Java_com_rm_apogee_audio_AudioEngine_nativeBusGains(JNIEnv* env, jobject, jfloat
 }
 
 JNIEXPORT jint JNICALL
-Java_com_rm_apogee_audio_AudioEngine_nativeActiveVoices(JNIEnv*, jobject) {
+Java_com_rm_apogee_audio_Synth_nativeActiveVoices(JNIEnv*, jobject) {
     return engine && engine->synth() ? engine->synth()->activeVoices() : 0;
 }
 
 JNIEXPORT void JNICALL
-Java_com_rm_apogee_audio_AudioEngine_nativeRoom(JNIEnv*, jobject, jfloat amount) {
+Java_com_rm_apogee_audio_Synth_nativeRoom(JNIEnv*, jobject, jfloat amount) {
     if (engine && engine->synth()) engine->synth()->setRoom(amount);
 }
 

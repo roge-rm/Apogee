@@ -55,11 +55,18 @@ struct Brown {
     }
 };
 
+/**
+ * Zero for a value too small to matter. A feedback path dying away ends in denormals, which some
+ * CPUs work through very slowly: a page's WebAssembly on a PC can't switch them off, and silence
+ * after a bang cost eight times what a sound did.
+ */
+inline float flush(float x) { return (x > -1e-15f && x < 1e-15f) ? 0.0f : x; }
+
 /** Takes out DC and anything below hearing, so nothing a speaker can play is lost. */
 struct DcBlock {
     float x1 = 0, y1 = 0;
     float next(float x) {
-        float y = x - x1 + 0.997f * y1;
+        float y = flush(x - x1 + 0.997f * y1);
         x1 = x; y1 = y;
         return y;
     }

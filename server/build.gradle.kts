@@ -1,32 +1,38 @@
+import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
-// The game server that's in charge, as a library.
-//
-// It's a library and nothing else. :app embeds it to host a game in-process, and :dedicated wraps
-// it in a standalone process. Neither one is special, and there's exactly one version of the
-// simulation between them.
+// The game server, the same one whether a phone hosts, a dedicated server runs it, or a browser
+// plays alone against its own copy. It's all common code: the sockets it's reached through are
+// :net's.
 plugins {
-    alias(libs.plugins.kotlin.jvm)
+    alias(libs.plugins.kotlin.multiplatform)
     alias(libs.plugins.kotlin.serialization)
 }
 
-java {
-    sourceCompatibility = JavaVersion.VERSION_11
-    targetCompatibility = JavaVersion.VERSION_11
-}
-
 kotlin {
-    compilerOptions {
-        jvmTarget = JvmTarget.JVM_11
+    jvm {
+        compilerOptions { jvmTarget = JvmTarget.JVM_11 }
+    }
+
+    @OptIn(ExperimentalWasmDsl::class)
+    wasmJs {
+        browser()
+    }
+
+    sourceSets {
+        commonMain.dependencies {
+            api(project(":net"))
+            implementation(libs.kotlinx.coroutines.core)
+        }
+        jvmTest.dependencies {
+            implementation(libs.junit)
+            implementation(libs.kotlinx.coroutines.test)
+        }
     }
 }
 
-dependencies {
-    api(project(":net"))
-    implementation(libs.kotlinx.coroutines.core)
-
-    testImplementation(libs.junit)
-    testImplementation(libs.kotlinx.coroutines.test)
+plugins.withType<org.jetbrains.kotlin.gradle.targets.wasm.binaryen.BinaryenPlugin> {
+    the<org.jetbrains.kotlin.gradle.targets.wasm.binaryen.BinaryenEnvSpec>().downloadBaseUrl.set(null as String?)
 }
 
 /**
@@ -38,6 +44,17 @@ dependencies {
 tasks.register<JavaExec>("netProbe") {
     group = "verification"
     description = "Joins a running Apogee host and reports what it sees."
-    classpath = sourceSets["test"].runtimeClasspath
+    classpath = files(
+        kotlin.jvm().compilations.getByName("test").output.allOutputs,
+        kotlin.jvm().compilations.getByName("test").runtimeDependencyFiles,
+    )
     mainClass.set("com.rm.apogee.server.NetProbeKt")
+}
+
+// The tests run on the JVM, as jvmTest; `test` is kept as the name for them, as before it was
+// multiplatform.
+tasks.register("test") {
+    group = "verification"
+    description = "Runs the tests (on the JVM)."
+    dependsOn("jvmTest")
 }

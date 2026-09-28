@@ -961,8 +961,8 @@ float Synth::reverb(float in, int c) {
         std::vector<float>& buf = comb_[c][i];
         int& idx = combIndex_[c][i];
         float y = buf[idx];
-        combFilter_[c][i] = y * 0.8f + combFilter_[c][i] * 0.2f;  // damping
-        buf[idx] = in + combFilter_[c][i] * 0.78f;               // room size
+        combFilter_[c][i] = flush(y * 0.8f + combFilter_[c][i] * 0.2f);  // damping
+        buf[idx] = flush(in + combFilter_[c][i] * 0.78f);                // room size
         idx = (idx + 1) % static_cast<int>(buf.size());
         out += y;
     }
@@ -970,7 +970,7 @@ float Synth::reverb(float in, int c) {
         std::vector<float>& buf = allpass_[c][i];
         int& idx = allpassIndex_[c][i];
         float b = buf[idx];
-        buf[idx] = out + b * 0.5f;
+        buf[idx] = flush(out + b * 0.5f);
         out = b - out;
         idx = (idx + 1) % static_cast<int>(buf.size());
     }

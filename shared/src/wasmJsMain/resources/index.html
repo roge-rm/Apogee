@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#0b0d1a">
+  <title>Apogee</title>
+  <link rel="icon" href="icon.png">
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0d1a; color: #e8e6f5;
+      font-family: system-ui, sans-serif; touch-action: none; -webkit-user-select: none; user-select: none; }
+    #world { position: fixed; inset: 0; width: 100%; height: 100%; display: none; }
+    #screens { position: fixed; inset: 0; }
+    #loading, #nogl { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center;
+      justify-content: center; gap: 12px; text-align: center; padding: 24px; }
+    #nogl { display: none; }
+    #loading img { width: 96px; height: 96px; border-radius: 22px; }
+    #toast { position: fixed; left: 50%; bottom: 32px; transform: translateX(-50%); padding: 10px 16px;
+      border-radius: 12px; background: rgba(20, 22, 40, 0.92); opacity: 0; transition: opacity 0.3s;
+      pointer-events: none; max-width: 80vw; text-align: center; }
+  </style>
+</head>
+<body>
+  <canvas id="world"></canvas>
+  <div id="screens"></div>
+  <div id="loading"><img src="icon.png" alt=""><div>Loading Apogee…</div></div>
+  <div id="nogl"><div>Apogee needs WebGL 2, and this browser doesn't have it.</div>
+    <div>Try a recent Chrome, Edge, Firefox or Safari.</div></div>
+  <div id="toast"></div>
+  <script>
+    // The game is WebAssembly with garbage collection. This is a module with one GC struct type in
+    // it, which only a browser that has it can read. Without it the page would say "Loading" for ever.
+    if (typeof WebAssembly === 'object' && WebAssembly.validate(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0, 1, 5, 1, 95, 1, 120, 0]))) {
+      const script = document.createElement('script');
+      script.src = 'apogee.js';
+      document.body.appendChild(script);
+    } else {
+      document.getElementById('loading').remove();
+      const nogl = document.getElementById('nogl');
+      nogl.firstElementChild.textContent = "Apogee needs a newer browser than this one.";
+      nogl.style.display = 'flex';
+    }
+  </script>
+</body>
+</html>

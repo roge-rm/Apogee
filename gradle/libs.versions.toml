@@ -11,6 +11,11 @@ composeBom = "2026.08.00"
 activityCompose = "1.11.0"
 lifecycleRuntimeCompose = "2.9.2"
 oboe = "1.9.3"
+# The browser build: Compose Multiplatform, as Acidulous and BlokHead use.
+composeMultiplatform = "1.12.1"
+composeMultiplatformMaterial3 = "1.9.0"
+composeMultiplatformIcons = "1.7.3"
+kotlinxBrowser = "0.5.0"
 
 [libraries]
 # --- shared, pure-JVM (:core, :net, :server) -------------------------------
@@ -19,6 +24,14 @@ kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-cor
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "serialization" }
 kotlinx-serialization-protobuf = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-protobuf", version.ref = "serialization" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
+
+# --- the shared app (:shared), for Android and the browser ------------------
+jb-compose-runtime = { group = "org.jetbrains.compose.runtime", name = "runtime", version.ref = "composeMultiplatform" }
+jb-compose-foundation = { group = "org.jetbrains.compose.foundation", name = "foundation", version.ref = "composeMultiplatform" }
+jb-compose-ui = { group = "org.jetbrains.compose.ui", name = "ui", version.ref = "composeMultiplatform" }
+jb-compose-material3 = { group = "org.jetbrains.compose.material3", name = "material3", version.ref = "composeMultiplatformMaterial3" }
+jb-compose-icons-extended = { group = "org.jetbrains.compose.material", name = "material-icons-extended", version.ref = "composeMultiplatformIcons" }
+kotlinx-browser = { group = "org.jetbrains.kotlinx", name = "kotlinx-browser", version.ref = "kotlinxBrowser" }
 
 # --- Android (:app) --------------------------------------------------------
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
@@ -39,5 +52,8 @@ androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-co
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
+kotlin-multiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
+compose-multiplatform = { id = "org.jetbrains.compose", version.ref = "composeMultiplatform" }
+android-kotlin-multiplatform-library = { id = "com.android.kotlin.multiplatform.library", version.ref = "agp" }

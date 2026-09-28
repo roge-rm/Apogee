@@ -1,6 +1,6 @@
 # Apogee
 
-Apogee is a physics sim for Android 8.1+.
+Apogee is a physics sim for Android 8.1+, and you can play it in a browser too.
 
 Build vehicles out of a variety of parts and take them wherever you want - on land, in the air, in space, in (and under) the sea.
 Make rovers, planes, rockets, drones, balloons and airships, ships and submarines. Build bases on land, in the air, and on the water.
@@ -62,21 +62,46 @@ Then search for Apogee in F-Droid. When a new version comes out, F-Droid will of
 
 You can also download the APK from the [Releases](https://github.com/roge-rm/Apogee/releases) page and sideload it.
 
+## Playing in a browser
+
+You can play it in a browser too, at [roge-rm.gitlab.io/play/apogee](https://roge-rm.gitlab.io/play/apogee/). It's the same game, solo, in a career or the sandbox, and your worlds and craft are kept in the browser. It can't host or join a game, because a web page can't open the connections that needs. It wants a recent browser with WebGL 2 and WebAssembly GC (Chrome or Edge 119, Firefox 120, or Safari 18.2, or anything newer).
+
+With a mouse, drag to look around, use the wheel to zoom, and drag with the right button to pan in the Vehicle Assembly. With a keyboard:
+
+| | |
+|---|---|
+| W S, or up and down | pitch |
+| A D, or left and right | yaw, and steering |
+| Q E | roll |
+| Shift, Ctrl | throttle up and down |
+| Z, X | full throttle, and off |
+| Space | stage |
+| M | the map |
+| T | stability assist |
+| R | thrusters |
+| B | brakes |
+| G | gear and legs |
+| F | flaps |
+| Esc | back |
+
 ## Building it
 
 You need a JDK (17 or newer, which Gradle needs to run) and, for the app, the Android SDK.
 
 ```sh
-./gradlew :app:assembleDebug     # the debug APK, in app/build/outputs/apk/debug/
-./gradlew :app:assembleRelease   # the release APK, in app/build/outputs/apk/release/
+./gradlew :app:assembleDebug                   # the debug APK, in app/build/outputs/apk/debug/
+./gradlew :app:assembleRelease                 # the release APK, in app/build/outputs/apk/release/
+./gradlew :shared:wasmJsBrowserDistribution    # the web page, in shared/build/dist/wasmJs/productionExecutable/
 ```
+
+The web page's sound is the same synth the app uses, built as WebAssembly with [Emscripten](https://emscripten.org). The build looks for it in `~/.local/share/emsdk` (or wherever `EMSDK` says), and without it the page comes out silent.
 
 The release build is signed with my key, which lives outside the repository, so anywhere else it comes out unsigned.
 
 The tests:
 
 ```sh
-./gradlew --continue :core:test :net:test :server:test :dedicated:test :app:testDebugUnitTest
+./gradlew --continue :core:test :net:test :server:test :dedicated:test :shared:testAndroidHostTest
 ```
 
 The app is left out of the build when there's no Android SDK, so a checkout for the server alone needs nothing but a JDK.
@@ -94,7 +119,9 @@ A dedicated server is a persistent world that players join from the game's **Joi
 | `server` | The game server, the same one whether a phone hosts or a dedicated server runs it. |
 | `dedicated` | The standalone server, with its admin channel. |
 | `web-admin` | The dedicated server's admin page. |
-| `app` | The Android app: the renderer, the sound, the flight and builder screens. |
+| `shared` | The game itself, for the app and the web page alike: the renderer, the sound, and the flight and builder screens. |
+| `app` | The Android app around it. |
+| `web` | The synth's build for the web page. |
 | `art` | The icon and the tools for the parts' pictures. |
 
 The server is in charge of every world. The app runs its own copy of the craft you're flying to hide the lag, and the server's word always wins.

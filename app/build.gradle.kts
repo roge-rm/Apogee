@@ -33,8 +33,8 @@ android {
         // change. Note that this isn't what decides whether a client can join a server.
         // Protocol.VERSION and the part catalogue's content hash do that, and they move on their
         // own.
-        versionCode = 31
-        versionName = "0.8.6"
+        versionCode = 32
+        versionName = "0.8.7"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -96,9 +96,7 @@ android {
 }
 
 dependencies {
-    implementation(project(":core"))
-    implementation(project(":net"))
-    implementation(project(":server"))
+    implementation(project(":shared"))
 
     implementation(libs.oboe)
     implementation(libs.androidx.core.ktx)
