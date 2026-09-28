@@ -10,20 +10,20 @@ class PartTabsTest {
 
     /** Every stock part, where a player would look for it. */
     private val expected = mapOf(
-        PartTab.PODS to setOf("cockpit-bubble", "basket-wicker", "core-keeper", "pod-halo", "probe-mote", "cockpit-sparrow", "cockpit-kestrel", "cab-rover", "cab-open", "cabin-wheelhouse",
+        PartTab.PODS to setOf("cockpit-bubble", "basket-wicker", "core-keeper", "pod-halo", "pod-trio", "probe-mote", "cockpit-sparrow", "cockpit-kestrel", "cab-rover", "cab-open", "cabin-wheelhouse",
             "pod-pearl", "pod-abyss", "hull-nautilus",
         ),
         PartTab.TANKS to setOf(
-            "tank-cask2", "tank-cask4", "tank-broad4", "tank-broad8", "bin-ore", "bin-ore-broad", "tank-water",
+            "tank-cask2", "tank-cask4", "tank-broad4", "tank-broad8", "tank-grand4", "tank-grand8", "bin-ore", "bin-ore-broad", "tank-water",
             "fuselage-short", "fuselage-long",
         ),
-        PartTab.ENGINES to setOf("engine-ember", "engine-vesper", "engine-zephyr", "engine-prop", "engine-forge"),
+        PartTab.ENGINES to setOf("engine-ember", "engine-vesper", "engine-zephyr", "engine-prop", "engine-forge", "engine-lantern", "engine-anvil"),
         PartTab.STRUCTURE to setOf(
             "boom-tail", "skids", "frame-drone",
-            "shield-halo", "decoupler-ring", "decoupler-broad", "adapter-taper", "fairing-base", "fairing-hot", "fuselage-tailcone", "chassis-small", "chassis-large", "rack-cargo",
+            "shield-halo", "shield-broad", "decoupler-ring", "decoupler-broad", "decoupler-grand", "decoupler-side", "decoupler-feed", "adapter-taper", "adapter-grand", "girder-short", "girder-long", "beam-i", "plate-deck", "hub-cube", "strut-brace", "fairing-base", "fairing-hot", "fuselage-tailcone", "chassis-small", "chassis-large", "rack-cargo",
         ),
         PartTab.WINGS to setOf(
-            "fin-vane", "wing-plank", "tail-elevon", "nosecone-spire", "wing-small", "wing-swept", "wing-delta",
+            "fin-vane", "wing-plank", "tail-elevon", "nosecone-spire", "nosecone-broad", "nosecone-grand", "wing-small", "wing-swept", "wing-delta",
             "tail-rudder", "tail-stabilator",
         ),
         PartTab.GROUND to setOf(
@@ -36,7 +36,7 @@ class PartTabsTest {
             "sail-sloop", "sail-cutter", "pontoon",
         ),
         PartTab.UTILITY to setOf(
-            "chute-canopy", "rcs-nudge", "light-bar", "dock-port", "dock-port-small", "mooring-clamp",
+            "chute-canopy", "chute-side", "chute-side-heavy", "rcs-nudge", "light-bar", "dock-port", "dock-port-small", "mooring-clamp",
             "panel-glint", "wing-kite", "battery-hoard", "cell-spark", "antenna-reed", "dish-beacon", "dish-great", "generator-glow",
             "drill-auger", "converter-small", "scanner-survey", "ladder-rung",
             "battery-deep", "battery-abyss", "lamp-deep", "sonar-array",

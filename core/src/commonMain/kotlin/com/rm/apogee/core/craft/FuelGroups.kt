@@ -41,7 +41,7 @@ object FuelGroups {
             }
         }
 
-        fun blocks(index: Int) = defs[index].module<Decoupler>() != null
+        fun blocks(index: Int) = defs[index].module<Decoupler>()?.let { !it.feeds } ?: false
 
         for (start in 0 until count) {
             if (start !in members || groups[start] != -1) continue
@@ -70,5 +70,26 @@ object FuelGroups {
             }
         }
         return groups
+    }
+
+    /**
+     * Which tanks are drunk first: each part's feed tier, the number of feeding decouplers between
+     * it and the root it hangs from. A side booster on a feed clamp is 1, one on a booster is 2,
+     * and the core is 0. The highest tier with anything in it is drawn from first, so the boosters
+     * run dry in order, outside in, and the core stays full until they've gone.
+     */
+    fun tiers(design: CraftDesign, defs: List<PartDef>): IntArray {
+        val count = design.parts.size
+        val out = IntArray(count) { -1 }
+        fun tier(i: Int): Int {
+            if (out[i] >= 0) return out[i]
+            val parent = design.parts[i].parentIndex
+            val above = if (parent in 0 until count && parent != i) tier(parent) else 0
+            val here = if (defs[i].module<Decoupler>()?.feeds == true) 1 else 0
+            out[i] = above + here
+            return out[i]
+        }
+        for (i in 0 until count) tier(i)
+        return out
     }
 }

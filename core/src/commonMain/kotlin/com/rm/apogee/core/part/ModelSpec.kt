@@ -196,6 +196,8 @@ enum class Tint {
     @SerialName("glass") GLASS,
     @SerialName("accent") ACCENT,
     @SerialName("light") LIGHT,
+    /** The colour of a rocket's stack, whatever part it's on. An engine's shroud is. */
+    @SerialName("stack") STACK,
 }
 
 /** What moves a [ModelSpec.Piece]. */

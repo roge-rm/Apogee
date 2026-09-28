@@ -280,4 +280,28 @@ class SeaTest {
             assertTrue("patch off the surface by $worst m", worst < 0.03)
         }
     }
+
+    @Test
+    fun `the ocean swell reaches the Cape's open beach and breaks there, and the harbour stays calmer`() {
+        val s = sea()
+        val sample = SeaSample()
+        val beach = SolarSystem.capeDirection(-3_000.0, 0.0).mulInPlace(terra.radius)
+        val harbour = SolarSystem.surfaceDirection(SolarSystem.HARBOUR_LATITUDE, SolarSystem.HARBOUR_LONGITUDE).mulInPlace(terra.radius)
+        for (time in listOf(36_000.0, 90_000.0, 150_000.0)) {
+            s.sample(beach, time, sample)
+            val atBeach = sample.significantHeight
+            // Somewhere along the run in to the beach: where it breaks moves with the tide.
+            var breaking = 0.0
+            for (east in listOf(-2_300.0, -2_600.0, -3_000.0, -3_500.0)) {
+                val at = SolarSystem.capeDirection(east, 0.0).mulInPlace(terra.radius)
+                for (k in 0 until 60) breaking = maxOf(breaking, s.sample(at, time + k * 0.5, sample).breaking)
+            }
+            s.sample(harbour, time, sample)
+            val inHarbour = sample.significantHeight
+            // It used to be thirty centimetres there, and the sea at the Cape looked flat.
+            assertTrue("the beach at $time: $atBeach m", atBeach > 1.0)
+            assertTrue("surf on the beach at $time", breaking > 0.3)
+            assertTrue("the harbour at $time: $inHarbour m, the beach $atBeach m", inHarbour < atBeach)
+        }
+    }
 }

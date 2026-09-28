@@ -820,6 +820,9 @@ class BuilderSession(
         com.rm.apogee.render.PartModels.alignWheel(def, placed.rotation, design.orientation.forward, design.orientation.up, anim)
         com.rm.apogee.render.PartModels.alignSurface(def, placed.rotation, Vec3().setTo(placed.position).subInPlace(centre), anim)
         com.rm.apogee.render.PartModels.expand(def, caps, anim, leaves)
+        com.rm.apogee.render.ShroudLook.forDesign(design, catalog).getOrNull(design.parts.indexOf(placed))?.let { shroud ->
+            com.rm.apogee.render.ShroudLook.leaf(def, placed, shroud)?.let(leaves::add)
+        }
         for (leaf in leaves) {
             items.add(
                 RenderItem(

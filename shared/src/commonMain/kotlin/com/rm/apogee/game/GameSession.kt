@@ -1681,6 +1681,7 @@ class GameSession private constructor(
                 val alive = client.vessels.mapTo(HashSet()) { it.id }
                 drawn.keys.retainAll(alive)
             }
+            if (!mapMode) appendPanels(items, attractor)
             appendPaving(items, attractor, renderTime, cameraPosition)
             appendLines(items, attractor)
             appendApproachLights(items, attractor, renderTime, cameraPosition)
@@ -2563,6 +2564,103 @@ class GameSession private constructor(
                     sky = true,
                 )
             )
+        }
+    }
+
+    /**
+     * A piece of an engine's shell falling away after its stage dropped: turning over outward
+     * about its foot as it goes, and falling, for a few seconds. Where [pivot] is, [foot] is in
+     * the piece's own space, in the frame of the world [bodyId].
+     */
+    private class ShroudPanel(
+        val shape: com.rm.apogee.core.part.ModelSpec.Lathe,
+        val bodyId: String,
+        val pivot: Vec3,
+        val velocity: Vec3,
+        val start: Quat,
+        val axis: Vec3,
+        val rate: Double,
+        val foot: Vec3,
+        val key: Long,
+        var age: Double = 0.0,
+    )
+
+    private val panels = ArrayList<ShroudPanel>()
+
+    /** Parts whose shed shell has already split, by craft and part, so it only happens once. */
+    private val shedShells = HashSet<Long>()
+
+    /**
+     * When this session started drawing, in ns. A stage dropped before then, lying where it fell
+     * in a saved world, is already in pieces, so its shell doesn't split again every time it's
+     * loaded.
+     */
+    private val shellsSince = System.nanoTime()
+
+    /**
+     * Splits the shell [shroud] that part [index] of craft [vesselId] shed into [SHROUD_PIECES]
+     * curved panels, where it stood on the part at [position] turned [rotation], thrown outward
+     * from the stage's own [velocity].
+     */
+    private fun shedShroud(
+        vesselId: Long, index: Int, def: com.rm.apogee.core.part.PartDef, shroud: com.rm.apogee.core.craft.Shroud,
+        position: Vec3, rotation: Quat, velocity: Vec3, attractor: CelestialBody,
+    ) {
+        if (!shedShells.add(vesselId * 4_096L + index)) return
+        if (System.nanoTime() - shellsSince < SHELLS_SETTLE_NANOS) return
+        val node = def.attachNodes.firstOrNull { it.id == shroud.node } ?: def.attachNodes.firstOrNull { it.direction.y > 0.5 } ?: return
+        if (node.size <= 0) return
+        val bottom = com.rm.apogee.core.craft.Shrouds.nodeRadius(node.size) + 0.012
+        val top = shroud.radius
+        // A shell with some thickness, so it shows from inside too as it turns over.
+        val profile = listOf(
+            listOf(bottom, 0.0), listOf(top, shroud.height), listOf(top - SHROUD_THICKNESS, shroud.height),
+            listOf(bottom - SHROUD_THICKNESS, 0.0), listOf(bottom, 0.0),
+        )
+        val frame = rotation * com.rm.apogee.core.math.quatFromTo(Vec3.unitY(), node.direction)
+        val origin = rotation.rotate(node.position.copy()).addInPlace(position)
+        val up = frame.rotate(Vec3.unitY())
+        val sweep = 360.0 / SHROUD_PIECES
+        for (k in 0 until SHROUD_PIECES) {
+            val from = k * sweep
+            val middle = Math.toRadians(from + sweep / 2)
+            val outLocal = Vec3(kotlin.math.cos(middle), 0.0, kotlin.math.sin(middle))
+            val out = frame.rotate(outLocal)
+            val jitter = com.rm.apogee.core.terrain.Noise.hash(vesselId.toInt(), index, k, 0)
+            val foot = Vec3().setTo(outLocal).mulInPlace(bottom)
+            panels.add(
+                ShroudPanel(
+                    shape = com.rm.apogee.core.part.ModelSpec.Lathe(profile, segments = 6, sweep = sweep, from = from),
+                    bodyId = attractor.id,
+                    pivot = frame.rotate(foot.copy()).addInPlace(origin),
+                    velocity = Vec3().setTo(velocity).addScaledInPlace(out, SHROUD_THROW * (0.7 + 0.6 * jitter)).addScaledInPlace(up, 1.0),
+                    start = frame.copy(),
+                    // Toppling outward: about the tangent at its foot.
+                    axis = frame.rotate(Vec3(-kotlin.math.sin(middle), 0.0, kotlin.math.cos(middle))),
+                    rate = SHROUD_TUMBLE * (0.6 + 0.8 * jitter),
+                    foot = foot,
+                    key = RenderItem.effectKey(-5_000L - vesselId * 64L - index, k),
+                ),
+            )
+        }
+    }
+
+    /** The falling shell pieces, moved on a frame and drawn, until they've gone. */
+    private fun appendPanels(items: MutableList<RenderItem>, attractor: CelestialBody) {
+        if (panels.isEmpty()) return
+        val dt = animationDt
+        val colour = com.rm.apogee.render.PartModels.colour(com.rm.apogee.core.part.Tint.STACK, floatArrayOf(1f, 1f, 1f, 1f))
+        val iterator = panels.iterator()
+        while (iterator.hasNext()) {
+            val panel = iterator.next()
+            panel.age += dt
+            if (panel.age > SHROUD_FALL_SECONDS || panel.bodyId != attractor.id) { iterator.remove(); continue }
+            val down = panel.pivot.normalized().negateInPlace()
+            panel.velocity.addScaledInPlace(down, attractor.surfaceGravity * dt)
+            panel.pivot.addScaledInPlace(panel.velocity, dt)
+            val turned = Quat.fromAxisAngle(panel.axis, panel.rate * panel.age) * panel.start
+            val at = Vec3().setTo(panel.pivot).subInPlace(turned.rotate(panel.foot.copy()))
+            items.add(RenderItem(shape = panel.shape, position = at, rotation = turned, color = colour, caps = 0, key = panel.key))
         }
     }
 
@@ -3947,6 +4045,17 @@ class GameSession private constructor(
             val body = com.rm.apogee.render.PartModels.bodyColour(placed.partId)
             leaves.clear()
             PartModels.expand(def, caps[index], anim, leaves)
+            val shroud = com.rm.apogee.render.ShroudLook.forDesign(design, catalog).getOrNull(index)
+            shroud?.let { com.rm.apogee.render.ShroudLook.leaf(def, placed, it)?.let(leaves::add) }
+            // A shell shed as this part's stage dropped: it splits and falls away, once. A stage
+            // dropped here and drawn before the server hears of it keeps the shell whole for that
+            // moment, since where that copy's drawn is only a guess, and pieces thrown from there
+            // were metres out.
+            val shed = placed.shroud
+            if (shroud == null && shed != null && !mapMode) {
+                if (vessel.id < 0) com.rm.apogee.render.ShroudLook.leaf(def, placed, shed)?.let(leaves::add)
+                else shedShroud(vessel.id, index, def, shed, scratch, rotation * placedRotation, state.velocity, attractor)
+            }
             val health = if (condition.any) condition.health[index] else 1f
             val heat = if (condition.any) condition.temperature[index] else 0f
             val dent = if (condition.any) ConditionLook.dent(condition.crumple, index * 3) else null
@@ -4519,6 +4628,20 @@ class GameSession private constructor(
 
         /** The one thread other worlds' globes are built on, one after another. */
         private val FAR_GLOBES = workerPool("far-globes", 1)
+
+        /**
+         * A shed shell: how many pieces it splits into, how thick they are in metres, how fast
+         * they're thrown out in m/s, how fast they turn over in rad/s, and how long they're
+         * drawn falling, in seconds.
+         */
+        private const val SHROUD_PIECES = 4
+        private const val SHROUD_THICKNESS = 0.04
+        private const val SHROUD_THROW = 5.0
+        private const val SHROUD_TUMBLE = 2.0
+        private const val SHROUD_FALL_SECONDS = 6.0
+
+        /** How long after a session starts a shed shell counts as already in pieces, in ns. */
+        private const val SHELLS_SETTLE_NANOS = 5_000_000_000L
 
         /** How far above its part's middle the cockpit camera sits, in metres. */
         private const val SEAT_RISE = 0.35

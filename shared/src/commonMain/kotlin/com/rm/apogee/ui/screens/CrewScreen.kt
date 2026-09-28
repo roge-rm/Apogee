@@ -45,7 +45,7 @@ class CrewSummary(
  */
 @Composable
 fun CrewScreen(crew: List<CrewSummary>, onVisor: (Long, Int) -> Unit, onBack: () -> Unit = {}) {
-    Backdrop(maxContentWidth = Dimens.PanelContentMaxWidth, title = "Crew", onBack = onBack) { contentModifier ->
+    Backdrop(maxContentWidth = Dimens.PanelContentMaxWidth, title = "Crew", onBack = onBack, fillHeight = true) { contentModifier ->
         if (crew.isEmpty()) {
             Text(
                 "Nobody yet. Launch a crewed craft and its seats fill with new recruits.",
@@ -61,7 +61,7 @@ fun CrewScreen(crew: List<CrewSummary>, onVisor: (Long, Int) -> Unit, onBack: ()
         val lost = crew.filter { it.lost }
         LazyColumn(
             state = list,
-            modifier = contentModifier.heightIn(max = 520.dp).verticalScrollbar(list),
+            modifier = contentModifier.weight(1f).verticalScrollbar(list),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             items(living, key = { it.id }) { Row(it, onVisor) }

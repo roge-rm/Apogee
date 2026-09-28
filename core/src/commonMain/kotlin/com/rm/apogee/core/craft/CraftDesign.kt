@@ -55,6 +55,11 @@ data class PlacedPart(
      * owner and staging when it undocks.
      */
     val dockedFrom: DockedOrigin? = null,
+    /**
+     * The shell round the engine this was attached under, recorded as its stage dropped, so
+     * everyone watching sees it split and fall away in pieces from where it was. See [Shrouds].
+     */
+    val shroud: Shroud? = null,
 )
 
 /** What a craft was before it docked onto another one, given back when it undocks. */

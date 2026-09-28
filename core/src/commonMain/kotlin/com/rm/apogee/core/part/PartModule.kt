@@ -124,6 +124,11 @@ data class Decoupler(
      * like a fairing's shell falling open.
      */
     val radial: Boolean = false,
+    /**
+     * Passes propellant through while it's joined: what it holds (a side booster) feeds the craft
+     * it's mounted to, and is drunk first, so it's empty when it's time to let it go.
+     */
+    val feeds: Boolean = false,
 ) : PartModule
 
 /** A wing, fin or control surface. */

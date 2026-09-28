@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -47,7 +48,13 @@ fun Backdrop(
     title: String? = null,
     /** Back, on the title row, for a page with a [title]. */
     onBack: (() -> Unit)? = null,
-    content: @Composable (Modifier) -> Unit,
+    /**
+     * A page whose list fills the height under the title row and scrolls itself, instead of the
+     * page scrolling. The list takes `Modifier.weight(1f)`. With the list capped at a fixed height
+     * inside a scrolling page, the crew list stopped halfway down a phone.
+     */
+    fillHeight: Boolean = false,
+    content: @Composable ColumnScope.(Modifier) -> Unit,
 ) {
     val scroll = rememberScrollState()
     Box(
@@ -67,7 +74,8 @@ fun Backdrop(
             .imePadding()
             // On the full-screen box, not the content column, so the bar sits at the screen's right
             // edge, where you'd look for a scroll bar.
-            .verticalScrollbar(scroll),
+            // (Not on a page whose list scrolls itself: the list has its own.)
+            .let { if (fillHeight) it else it.verticalScrollbar(scroll) },
         contentAlignment = if (title == null) Alignment.Center else Alignment.TopCenter,
     ) {
         if (title == null) {
@@ -93,7 +101,7 @@ fun Backdrop(
                 TitleRow(title, onBack)
                 Spacer(Modifier.height(8.dp))
                 Column(
-                    Modifier.weight(1f).verticalScroll(scroll),
+                    Modifier.weight(1f).let { if (fillHeight) it else it.verticalScroll(scroll) },
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     content(Modifier.fillMaxWidth())

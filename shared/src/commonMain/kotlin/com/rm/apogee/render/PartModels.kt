@@ -308,5 +308,6 @@ object PartModels {
         Tint.GLASS -> floatArrayOf(0.30f, 0.48f, 0.66f, 1f)
         Tint.ACCENT -> floatArrayOf(0.88f, 0.56f, 0.16f, 1f)
         Tint.LIGHT -> floatArrayOf(0.92f, 0.92f, 0.90f, 1f)
+        Tint.STACK -> bodyColour("tank")
     }
 }

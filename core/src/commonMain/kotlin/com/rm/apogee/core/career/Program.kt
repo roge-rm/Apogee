@@ -280,6 +280,7 @@ class Program(val tree: TechTree = TechTree.stock) {
             if (home) {
                 if (!log.orbitedHome) award(world, vessel, Feat.ORBIT, log.launchMass / 1000.0)
                 log.orbitedHome = true
+                if (vessel.body.mass >= HEAVY_LIFT_KG) award(world, vessel, Feat.HEAVY_LIFT)
             } else {
                 visit(world, vessel, attractor.id, Visit.ORBIT)
             }
@@ -568,6 +569,9 @@ class Program(val tree: TechTree = TechTree.stock) {
          */
         const val SOUND = 343.0
         const val HIGH = 15_000.0
+
+        /** In orbit round Terra at once for [Feat.HEAVY_LIFT], in kg. */
+        const val HEAVY_LIFT_KG = 20_000.0
 
         /**
          * High for a jet, in metres. The stock Sparrow flown well is near the top of its climb

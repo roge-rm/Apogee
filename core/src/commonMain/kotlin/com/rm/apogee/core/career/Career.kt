@@ -55,6 +55,7 @@ enum class Feat(
     SPACE("space", "Space", Branch.ROCKETRY, "Climb out of Terra's air and bring the crew home.", Metric.LAUNCH_MASS, 12.0, 8.0),
     ORBIT("orbit", "Orbit", Branch.ROCKETRY, "Keep the low point of your orbit above Terra's air.", Metric.LAUNCH_MASS, 13.0, 10.0),
     HOME_AGAIN("home-again", "Home Again", Branch.ROCKETRY, "Come down from orbit and land the crew safely."),
+    HEAVY_LIFT("heavy-lift", "Heavy Lift", Branch.ROCKETRY, "Put twenty tonnes into orbit round Terra in one launch."),
     AEROBRAKE("aerobrake", "Aerobrake", Branch.TECHNIQUES, "Lower an orbit by a third or more using only the air, with no engines.", Metric.SHARE, 60.0, 90.0),
     RENDEZVOUS("rendezvous", "Rendezvous", Branch.TECHNIQUES, "In orbit, come within 50 m of another craft, drifting under 1 m/s."),
     DOCK_ORBIT("dock-orbit", "Dock in Orbit", Branch.TECHNIQUES, "Join two craft together while both are in orbit."),

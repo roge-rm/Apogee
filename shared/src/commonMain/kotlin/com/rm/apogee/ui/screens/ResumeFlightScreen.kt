@@ -76,7 +76,7 @@ fun ResumeFlightScreen(
     var confirmRemove by remember { mutableStateOf<CraftSummary?>(null) }
     var confirmReset by remember { mutableStateOf<CraftSummary?>(null) }
 
-    Backdrop(maxContentWidth = Dimens.PanelContentMaxWidth, title = "Out There", onBack = onBack) { contentModifier ->
+    Backdrop(maxContentWidth = Dimens.PanelContentMaxWidth, title = "Out There", onBack = onBack, fillHeight = true) { contentModifier ->
         if (craft.isEmpty()) {
             Text(
                 "Nothing out there yet. Quick Launch or a launch from Vehicle Assembly puts a craft on the pad.",
@@ -87,7 +87,7 @@ fun ResumeFlightScreen(
             )
         } else {
             val list = rememberLazyListState()
-            LazyColumn(contentModifier.heightIn(max = 420.dp).verticalScrollbar(list), state = list) {
+            LazyColumn(contentModifier.weight(1f).verticalScrollbar(list), state = list) {
                 items(craft, key = { it.id }) { summary ->
                     CraftRow(
                         summary,

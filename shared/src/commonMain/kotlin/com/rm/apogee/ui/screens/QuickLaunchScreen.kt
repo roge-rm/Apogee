@@ -66,8 +66,9 @@ fun QuickLaunchScreen(
     onBack: () -> Unit = {},
 ) {
     var pickingSite by remember { mutableStateOf(false) }
-    Backdrop(title = "Quick Launch", onBack = onBack) { contentModifier ->
-        Column(contentModifier.fillMaxWidth()) {
+    Backdrop(title = "Quick Launch", onBack = onBack, fillHeight = true) { contentModifier ->
+        // The list takes whatever height the picker and the buttons leave.
+        Column(contentModifier.fillMaxWidth().weight(1f)) {
             if (entries.isEmpty()) {
                 Text("Reading your craft…", color = Color.White.alpha(ApogeeAlpha.SUBTITLE))
             } else {
@@ -87,7 +88,7 @@ fun QuickLaunchScreen(
                     val at = shown.indexOfFirst { it.saved.fileName == chosen }
                     if (at > 0) list.scrollToItem(at)
                 }
-                LazyColumn(Modifier.heightIn(max = 340.dp).verticalScrollbar(list), state = list) {
+                LazyColumn(Modifier.weight(1f).verticalScrollbar(list), state = list) {
                     items(shown, key = { it.saved.fileName }) { entry ->
                         CraftRow(entry, pictures[entry.picture], entry.saved.fileName == chosen) { onChoose(entry.saved.fileName) }
                     }

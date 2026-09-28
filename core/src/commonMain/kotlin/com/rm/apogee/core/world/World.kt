@@ -2832,7 +2832,9 @@ class World(
         val orientation = vessel.body.orientation.copy()
         val angularVelocity = vessel.body.angularVelocity.copy()
 
-        val discarded = buildSubDesign(vessel.design, separating.sorted())
+        // The part hanging under an engine keeps the shell round it as its stage drops away.
+        val shrouds = com.rm.apogee.core.craft.Shrouds.of(vessel.design, catalog)
+        val discarded = buildSubDesign(vessel.design, separating.sorted(), keepShrouds = shrouds)
         val kept = buildSubDesign(vessel.design, remaining, firedStages = vessel.currentStage)
 
         // Look up BOTH halves' definitions before either design is replaced. replaceStructure swaps
@@ -2971,7 +2973,10 @@ class World(
      * away, and the craft's place in its own sequence had to be moved back to match, or it skipped
      * a stage.
      */
-    private fun buildSubDesign(source: CraftDesign, keep: List<Int>, firedStages: Int = 0): SubDesign {
+    private fun buildSubDesign(
+        source: CraftDesign, keep: List<Int>, firedStages: Int = 0,
+        keepShrouds: Array<com.rm.apogee.core.craft.Shroud?>? = null,
+    ): SubDesign {
         val remap = HashMap<Int, Int>(keep.size)
         keep.forEachIndexed { newIndex, oldIndex -> remap[oldIndex] = newIndex }
 
@@ -2988,6 +2993,7 @@ class World(
                 symmetryGroup = part.symmetryGroup,
                 dockedTo = if (part.dockedTo >= 0) remap[part.dockedTo] ?: -1 else -1,
                 dockedFrom = part.dockedFrom.takeIf { part.dockedTo >= 0 && remap.containsKey(part.dockedTo) },
+                shroud = keepShrouds?.getOrNull(oldIndex) ?: part.shroud,
             )
         }
 

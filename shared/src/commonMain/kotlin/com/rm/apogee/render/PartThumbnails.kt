@@ -113,6 +113,7 @@ class PartThumbnails(private val store: PictureStore) {
             PartModels.alignSurface(def, placed.rotation, Vec3().setTo(placed.position).subInPlace(centre), anim)
             leaves.clear()
             PartModels.expand(def, caps[index], anim, leaves)
+            ShroudLook.forDesign(design, catalog).getOrNull(index)?.let { shroud -> ShroudLook.leaf(def, placed, shroud)?.let(leaves::add) }
             val body = PartModels.bodyColour(placed.partId)
             for (leaf in leaves) {
                 val at = turn.rotate(placed.rotation.rotate(leaf.position).addInPlace(placed.position).subInPlace(centre))

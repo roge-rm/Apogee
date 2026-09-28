@@ -690,6 +690,9 @@ class Vessel(
      */
     private var fuelGroups: IntArray = IntArray(0)
 
+    /** Each part's feed tier: see [FuelGroups.tiers]. Higher is drunk first. */
+    private var fuelTiers: IntArray = IntArray(0)
+
     /** Centre of mass in design space, kept so [body]'s position can follow it. */
     private val centerOfMassLocal = Vec3()
 
@@ -925,11 +928,27 @@ class Vessel(
         if (available <= 0.0) return 0.0
 
         val taken = minOf(amount, available)
-        val fraction = taken / available
         val slot = type.ordinal
         val group = fuelGroups[partIndex]
-        for (i in resources.indices) {
-            if (fuelGroups[i] == group) resources[i][slot] -= resources[i][slot] * fraction
+        // Outermost first: a feeder's tanks are emptied before the next tier in is touched, and
+        // within a tier they're drawn down evenly.
+        var left = taken
+        var tier = Int.MAX_VALUE
+        while (left > 1e-12) {
+            var top = -1
+            for (i in resources.indices) {
+                if (fuelGroups[i] == group && fuelTiers[i] < tier && resources[i][slot] > 0.0) top = maxOf(top, fuelTiers[i])
+            }
+            if (top < 0) break
+            var inTier = 0.0
+            for (i in resources.indices) if (fuelGroups[i] == group && fuelTiers[i] == top) inTier += resources[i][slot]
+            val fromTier = minOf(left, inTier)
+            val fraction = fromTier / inTier
+            for (i in resources.indices) {
+                if (fuelGroups[i] == group && fuelTiers[i] == top) resources[i][slot] -= resources[i][slot] * fraction
+            }
+            left -= fromTier
+            tier = top
         }
         return taken
     }
@@ -958,6 +977,7 @@ class Vessel(
      */
     private fun computeFuelGroups() {
         fuelGroups = FuelGroups.compute(design, defs)
+        fuelTiers = FuelGroups.tiers(design, defs)
     }
 
     /**

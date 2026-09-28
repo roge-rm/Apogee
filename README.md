@@ -77,6 +77,8 @@ With a mouse, drag to look around, use the wheel to zoom, and drag with the righ
 | Z, X | full throttle, and off |
 | Space | stage |
 | M | the map |
+| C | the camera: free, chase, cockpit or locked |
+| V | steer by the screen or by the craft's nose |
 | T | stability assist |
 | R | thrusters |
 | B | brakes |

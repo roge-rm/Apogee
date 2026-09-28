@@ -17235,5 +17235,3135 @@
         "displacedVolume": 26.9
       }
     ]
+  },
+  {
+    "id": "chute-side",
+    "title": "Side Recovery Pack",
+    "category": "utility",
+    "dryMass": 70.0,
+    "description": "A canopy for the side of a stack, for whatever has a port or a cone on top. Two or three round a stage bring it down whole.",
+    "crashTolerance": 8.0,
+    "dragCoefficient": 0.3,
+    "mesh": {
+      "type": "cylinder",
+      "radius": 0.2,
+      "height": 0.6
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                0.2,
+                -0.3
+              ],
+              [
+                0.2,
+                0.24
+              ],
+              [
+                0.16000000000000003,
+                0.282
+              ],
+              [
+                0.0,
+                0.3
+              ]
+            ],
+            "segments": 16
+          }
+        },
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                0.20500000000000002,
+                -0.03
+              ],
+              [
+                0.20500000000000002,
+                0.03
+              ]
+            ],
+            "segments": 16
+          },
+          "tint": "accent"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.04,
+              "height": 0.42,
+              "depth": 0.24
+            }
+          },
+          "offset": {
+            "x": -0.2,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "metal"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "root",
+        "position": {
+          "x": -0.2,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": -1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "parachute",
+        "deployedDragCoefficient": 1600.0,
+        "maxDeploymentSpeed": 300.0
+      }
+    ]
+  },
+  {
+    "id": "chute-side-heavy",
+    "title": "Heavy Recovery Pack",
+    "category": "utility",
+    "dryMass": 220.0,
+    "description": "The big one, for the side of a broad stack. It's more than twice a nose canopy's drag, so a spent first stage can come down to be flown again.",
+    "crashTolerance": 8.0,
+    "dragCoefficient": 0.3,
+    "mesh": {
+      "type": "cylinder",
+      "radius": 0.3,
+      "height": 0.9
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                0.3,
+                -0.45
+              ],
+              [
+                0.3,
+                0.36
+              ],
+              [
+                0.24,
+                0.423
+              ],
+              [
+                0.0,
+                0.45
+              ]
+            ],
+            "segments": 16
+          }
+        },
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                0.305,
+                -0.03
+              ],
+              [
+                0.305,
+                0.03
+              ]
+            ],
+            "segments": 16
+          },
+          "tint": "accent"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.04,
+              "height": 0.63,
+              "depth": 0.36
+            }
+          },
+          "offset": {
+            "x": -0.3,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "metal"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "root",
+        "position": {
+          "x": -0.3,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": -1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "parachute",
+        "deployedDragCoefficient": 2800.0,
+        "maxDeploymentSpeed": 250.0
+      }
+    ]
+  },
+  {
+    "id": "decoupler-side",
+    "title": "Side Clamp",
+    "category": "structural",
+    "dryMass": 60.0,
+    "description": "Holds a booster on the side of a stack, and lets it go outward, once. Put the clamp on the core, then the booster on the clamp.",
+    "crashTolerance": 10.0,
+    "dragCoefficient": 0.3,
+    "mesh": {
+      "type": "box",
+      "width": 0.3,
+      "height": 0.8,
+      "depth": 0.3
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.3,
+              "height": 0.8,
+              "depth": 0.3
+            }
+          },
+          "tint": "body"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.32,
+              "height": 0.06,
+              "depth": 0.32
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.25,
+            "z": 0.0
+          },
+          "tint": "accent"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.32,
+              "height": 0.06,
+              "depth": 0.32
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": -0.25,
+            "z": 0.0
+          },
+          "tint": "accent"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "root",
+        "position": {
+          "x": -0.15,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": -1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "mount",
+        "position": {
+          "x": 0.15,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "decoupler",
+        "ejectionImpulse": 2500.0,
+        "radial": true
+      }
+    ],
+    "strength": 4000000.0
+  },
+  {
+    "id": "decoupler-feed",
+    "title": "Feed Clamp",
+    "category": "structural",
+    "dryMass": 90.0,
+    "description": "A Side Clamp with a fuel line through it. The booster it holds feeds the core's engines too, and is drunk first, so it's empty when you let it go.",
+    "crashTolerance": 10.0,
+    "dragCoefficient": 0.3,
+    "mesh": {
+      "type": "box",
+      "width": 0.3,
+      "height": 0.8,
+      "depth": 0.3
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.3,
+              "height": 0.8,
+              "depth": 0.3
+            }
+          },
+          "tint": "body"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.32,
+              "height": 0.06,
+              "depth": 0.32
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.25,
+            "z": 0.0
+          },
+          "tint": "accent"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.32,
+              "height": 0.06,
+              "depth": 0.32
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": -0.25,
+            "z": 0.0
+          },
+          "tint": "accent"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.05,
+              "height": 0.34
+            }
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 90.0
+          },
+          "tint": "metal"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "root",
+        "position": {
+          "x": -0.15,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": -1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "mount",
+        "position": {
+          "x": 0.15,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "decoupler",
+        "ejectionImpulse": 2500.0,
+        "radial": true,
+        "feeds": true
+      }
+    ],
+    "strength": 4000000.0
+  },
+  {
+    "id": "engine-lantern",
+    "title": "Lantern Vacuum Engine",
+    "category": "propulsion",
+    "dryMass": 2200.0,
+    "description": "A vacuum engine for the broad stacks. It lifts a broad upper stage the way a Vesper lifts a narrow one, and it's just as poor in air.",
+    "crashTolerance": 7.0,
+    "dragCoefficient": 0.35,
+    "mesh": {
+      "type": "cone",
+      "bottomRadius": 1.0,
+      "topRadius": 1.25,
+      "height": 1.6
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                0.0,
+                0.224
+              ],
+              [
+                0.4,
+                0.32
+              ],
+              [
+                1.0,
+                0.48
+              ],
+              [
+                1.25,
+                0.576
+              ],
+              [
+                1.25,
+                0.8
+              ]
+            ],
+            "segments": 20
+          },
+          "tint": "metal",
+          "stackEnds": true
+        },
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                0.0,
+                -0.32
+              ],
+              [
+                0.24,
+                -0.384
+              ],
+              [
+                0.88,
+                -0.736
+              ],
+              [
+                0.94,
+                -0.8
+              ],
+              [
+                1.0,
+                -0.8
+              ],
+              [
+                0.92,
+                -0.56
+              ],
+              [
+                0.72,
+                -0.24
+              ],
+              [
+                0.44,
+                0.08
+              ],
+              [
+                0.3,
+                0.24
+              ],
+              [
+                0.0,
+                0.32
+              ]
+            ],
+            "segments": 20
+          },
+          "tint": "metal",
+          "role": "gimbal",
+          "pivot": {
+            "x": 0.0,
+            "y": 0.272,
+            "z": 0.0
+          }
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "top",
+        "position": {
+          "x": 0.0,
+          "y": 0.8,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "size": 2
+      },
+      {
+        "id": "bottom",
+        "position": {
+          "x": 0.0,
+          "y": -0.8,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 2
+      }
+    ],
+    "modules": [
+      {
+        "type": "engine",
+        "thrustVacuum": 400000.0,
+        "thrustSeaLevel": 90000.0,
+        "ispVacuum": 350.0,
+        "ispSeaLevel": 110.0,
+        "gimbalRange": 4.0,
+        "propellant": "propellant",
+        "thrustDirection": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "minThrottle": 0.0
+      }
+    ],
+    "strength": 8000000.0
+  },
+  {
+    "id": "nosecone-broad",
+    "title": "Broad Nose Cone",
+    "category": "aero",
+    "dryMass": 120.0,
+    "description": "A Spire for the broad stacks. It closes off the top of a broad booster or a stage with nothing on it.",
+    "crashTolerance": 9.0,
+    "dragCoefficient": 0.05,
+    "mesh": {
+      "type": "cone",
+      "bottomRadius": 1.25,
+      "topRadius": 0.05,
+      "height": 2.2
+    },
+    "model": {
+      "type": "noseCone",
+      "radius": 1.25,
+      "length": 2.2,
+      "bluntness": 0.06
+    },
+    "attachNodes": [
+      {
+        "id": "bottom",
+        "position": {
+          "x": 0.0,
+          "y": -1.1,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 2
+      }
+    ],
+    "modules": []
+  },
+  {
+    "id": "pod-trio",
+    "title": "Trio Crew Capsule",
+    "category": "command",
+    "dryMass": 3600.0,
+    "description": "A broad capsule for three, with room to move and a window each. It sits on a broad stack, and wants a Broad Heat Shield under it to come home.",
+    "crashTolerance": 14.0,
+    "dragCoefficient": 0.2,
+    "displaces": 6.0,
+    "mesh": {
+      "type": "cone",
+      "bottomRadius": 1.25,
+      "topRadius": 0.6,
+      "height": 2.2
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                1.25,
+                -1.1
+              ],
+              [
+                1.244,
+                -0.9166
+              ],
+              [
+                1.16,
+                -0.3667
+              ],
+              [
+                1.0,
+                0.22
+              ],
+              [
+                0.8,
+                0.7333
+              ],
+              [
+                0.66,
+                1.0083
+              ],
+              [
+                0.6,
+                1.1
+              ]
+            ],
+            "segments": 20
+          },
+          "stackEnds": true
+        },
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                1.2,
+                -1.1366
+              ],
+              [
+                1.27,
+                -1.0633
+              ],
+              [
+                1.27,
+                -0.9533
+              ],
+              [
+                1.2,
+                -0.9166
+              ]
+            ],
+            "segments": 20
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.36,
+              "height": 0.288,
+              "depth": 0.108
+            }
+          },
+          "offset": {
+            "x": 0.98,
+            "y": 0.219996,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": -78.0
+          },
+          "tint": "glass"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.36,
+              "height": 0.288,
+              "depth": 0.108
+            }
+          },
+          "offset": {
+            "x": -0.98,
+            "y": 0.219996,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 78.0
+          },
+          "tint": "glass"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.108,
+              "height": 0.288,
+              "depth": 0.36
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.219996,
+            "z": 0.98
+          },
+          "rotation": {
+            "x": 78.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "glass"
+        },
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                0.52,
+                0.9533
+              ],
+              [
+                0.56,
+                1.0266
+              ],
+              [
+                0.56,
+                1.1
+              ],
+              [
+                0.52,
+                1.1
+              ]
+            ],
+            "segments": 20
+          },
+          "tint": "metal"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "top",
+        "position": {
+          "x": 0.0,
+          "y": 1.1,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "size": 0
+      },
+      {
+        "id": "bottom",
+        "position": {
+          "x": 0.0,
+          "y": -1.1,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 2
+      }
+    ],
+    "modules": [
+      {
+        "type": "command",
+        "crewCapacity": 3,
+        "reactionTorque": 20000.0,
+        "providesControl": true
+      },
+      {
+        "type": "tank",
+        "resource": "monopropellant",
+        "capacity": 40.0
+      },
+      {
+        "type": "battery",
+        "capacity": 200.0
+      }
+    ]
+  },
+  {
+    "id": "shield-broad",
+    "title": "Broad Heat Shield",
+    "category": "structural",
+    "dryMass": 350.0,
+    "description": "Goes under the Trio, faces the fire, and chars away so the capsule doesn't. Once.",
+    "crashTolerance": 12.0,
+    "dragCoefficient": 0.3,
+    "mesh": {
+      "type": "cylinder",
+      "radius": 1.3,
+      "height": 0.3
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                0.0,
+                -0.21
+              ],
+              [
+                0.6,
+                -0.195
+              ],
+              [
+                1.1,
+                -0.15
+              ],
+              [
+                1.3,
+                -0.09
+              ],
+              [
+                1.32,
+                0.0
+              ],
+              [
+                1.28,
+                0.09
+              ],
+              [
+                1.25,
+                0.15
+              ]
+            ],
+            "segments": 20
+          },
+          "tint": "dark"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "top",
+        "position": {
+          "x": 0.0,
+          "y": 0.15,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "size": 2
+      },
+      {
+        "id": "bottom",
+        "position": {
+          "x": 0.0,
+          "y": -0.15,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 2
+      }
+    ],
+    "modules": [
+      {
+        "type": "tank",
+        "resource": "ablator",
+        "capacity": 600.0
+      },
+      {
+        "type": "heatShield"
+      }
+    ]
+  },
+  {
+    "id": "tank-grand4",
+    "title": "Grand Cask-4 Propellant Tank",
+    "category": "fuel",
+    "dryMass": 4500.0,
+    "description": "Three Casks across. A base module stands on it the same as on its foundation, so it can lift one.",
+    "crashTolerance": 6.0,
+    "dragCoefficient": 0.3,
+    "mesh": {
+      "type": "cylinder",
+      "radius": 1.875,
+      "height": 4.0
+    },
+    "model": {
+      "type": "tank",
+      "radius": 1.875,
+      "height": 4.0,
+      "chamfer": 0.06,
+      "bands": 2
+    },
+    "attachNodes": [
+      {
+        "id": "top",
+        "position": {
+          "x": 0.0,
+          "y": 2.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "size": 3
+      },
+      {
+        "id": "bottom",
+        "position": {
+          "x": 0.0,
+          "y": -2.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 3
+      }
+    ],
+    "modules": [
+      {
+        "type": "tank",
+        "resource": "propellant",
+        "capacity": 3600.0
+      }
+    ],
+    "strength": 12000000.0
+  },
+  {
+    "id": "tank-grand8",
+    "title": "Grand Cask-8 Propellant Tank",
+    "category": "fuel",
+    "dryMass": 9000.0,
+    "description": "Eight metres of the grand kind, for a first stage that lifts whole bases.",
+    "crashTolerance": 6.0,
+    "dragCoefficient": 0.3,
+    "mesh": {
+      "type": "cylinder",
+      "radius": 1.875,
+      "height": 8.0
+    },
+    "model": {
+      "type": "tank",
+      "radius": 1.875,
+      "height": 8.0,
+      "chamfer": 0.06,
+      "bands": 4
+    },
+    "attachNodes": [
+      {
+        "id": "top",
+        "position": {
+          "x": 0.0,
+          "y": 4.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "size": 3
+      },
+      {
+        "id": "bottom",
+        "position": {
+          "x": 0.0,
+          "y": -4.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 3
+      }
+    ],
+    "modules": [
+      {
+        "type": "tank",
+        "resource": "propellant",
+        "capacity": 7200.0
+      }
+    ],
+    "strength": 12000000.0
+  },
+  {
+    "id": "engine-anvil",
+    "title": "Anvil Lifter Engine",
+    "category": "propulsion",
+    "dryMass": 13000.0,
+    "description": "The grand lifter. It's what you put under a base module or a crewed moon lander, and the pad shakes a long way off.",
+    "crashTolerance": 7.0,
+    "dragCoefficient": 0.35,
+    "mesh": {
+      "type": "cone",
+      "bottomRadius": 1.65,
+      "topRadius": 1.875,
+      "height": 3.0
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                0.0,
+                0.2571
+              ],
+              [
+                0.66,
+                0.3429
+              ],
+              [
+                1.38,
+                0.75
+              ],
+              [
+                1.875,
+                1.0286
+              ],
+              [
+                1.875,
+                1.5
+              ]
+            ],
+            "segments": 20
+          },
+          "tint": "metal",
+          "stackEnds": true
+        },
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                0.0,
+                -0.6
+              ],
+              [
+                0.48,
+                -0.6856
+              ],
+              [
+                1.32,
+                -1.3286
+              ],
+              [
+                1.53,
+                -1.5
+              ],
+              [
+                1.65,
+                -1.5
+              ],
+              [
+                1.56,
+                -1.0715
+              ],
+              [
+                1.26,
+                -0.5356
+              ],
+              [
+                0.81,
+                0.0
+              ],
+              [
+                0.6,
+                0.3215
+              ],
+              [
+                0.0,
+                0.4285
+              ]
+            ],
+            "segments": 20
+          },
+          "tint": "metal",
+          "role": "gimbal",
+          "pivot": {
+            "x": 0.0,
+            "y": 0.38565,
+            "z": 0.0
+          }
+        },
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                1.89,
+                1.0715
+              ],
+              [
+                1.905,
+                1.1143
+              ],
+              [
+                1.905,
+                1.4143
+              ],
+              [
+                1.89,
+                1.4571
+              ]
+            ],
+            "segments": 20
+          }
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "top",
+        "position": {
+          "x": 0.0,
+          "y": 1.5,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "size": 3
+      },
+      {
+        "id": "bottom",
+        "position": {
+          "x": 0.0,
+          "y": -1.5,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 3
+      }
+    ],
+    "modules": [
+      {
+        "type": "engine",
+        "thrustVacuum": 4200000.0,
+        "thrustSeaLevel": 3700000.0,
+        "ispVacuum": 312.0,
+        "ispSeaLevel": 272.0,
+        "gimbalRange": 2.5,
+        "propellant": "propellant",
+        "thrustDirection": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "minThrottle": 0.0
+      }
+    ],
+    "strength": 12000000.0
+  },
+  {
+    "id": "decoupler-grand",
+    "title": "Grand Parting Ring",
+    "category": "structural",
+    "dryMass": 450.0,
+    "description": "A Parting Ring for the grand stacks, with the push to match.",
+    "crashTolerance": 10.0,
+    "dragCoefficient": 0.3,
+    "mesh": {
+      "type": "cylinder",
+      "radius": 1.875,
+      "height": 0.35
+    },
+    "model": {
+      "type": "lathe",
+      "profile": [
+        [
+          1.875,
+          -0.175
+        ],
+        [
+          1.935,
+          -0.14
+        ],
+        [
+          1.935,
+          -0.0438
+        ],
+        [
+          1.8,
+          -0.021
+        ],
+        [
+          1.8,
+          0.021
+        ],
+        [
+          1.935,
+          0.0438
+        ],
+        [
+          1.935,
+          0.14
+        ],
+        [
+          1.875,
+          0.175
+        ]
+      ],
+      "segments": 28
+    },
+    "attachNodes": [
+      {
+        "id": "top",
+        "position": {
+          "x": 0.0,
+          "y": 0.175,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "size": 3
+      },
+      {
+        "id": "bottom",
+        "position": {
+          "x": 0.0,
+          "y": -0.175,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 3
+      }
+    ],
+    "modules": [
+      {
+        "type": "decoupler",
+        "ejectionImpulse": 14000.0
+      }
+    ],
+    "strength": 12000000.0
+  },
+  {
+    "id": "adapter-grand",
+    "title": "Grand Taper",
+    "category": "structural",
+    "dryMass": 400.0,
+    "description": "From the grand stacks down to the broad, so a broad stage can sit on a grand one.",
+    "crashTolerance": 8.0,
+    "dragCoefficient": 0.3,
+    "mesh": {
+      "type": "cone",
+      "bottomRadius": 1.875,
+      "topRadius": 1.25,
+      "height": 1.5
+    },
+    "model": {
+      "type": "lathe",
+      "profile": [
+        [
+          1.875,
+          -0.75
+        ],
+        [
+          1.875,
+          -0.66
+        ],
+        [
+          1.25,
+          0.66
+        ],
+        [
+          1.25,
+          0.75
+        ]
+      ],
+      "segments": 32
+    },
+    "attachNodes": [
+      {
+        "id": "top",
+        "position": {
+          "x": 0.0,
+          "y": 0.75,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "size": 2
+      },
+      {
+        "id": "bottom",
+        "position": {
+          "x": 0.0,
+          "y": -0.75,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 3
+      }
+    ],
+    "modules": [],
+    "strength": 8000000.0
+  },
+  {
+    "id": "nosecone-grand",
+    "title": "Grand Nose Cone",
+    "category": "aero",
+    "dryMass": 260.0,
+    "description": "A nose cone for the grand stacks.",
+    "crashTolerance": 9.0,
+    "dragCoefficient": 0.05,
+    "mesh": {
+      "type": "cone",
+      "bottomRadius": 1.875,
+      "topRadius": 0.05,
+      "height": 3.2
+    },
+    "model": {
+      "type": "noseCone",
+      "radius": 1.875,
+      "length": 3.2,
+      "bluntness": 0.06
+    },
+    "attachNodes": [
+      {
+        "id": "bottom",
+        "position": {
+          "x": 0.0,
+          "y": -1.6,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 3
+      }
+    ],
+    "modules": []
+  },
+  {
+    "id": "girder-short",
+    "title": "Girder",
+    "category": "structural",
+    "dryMass": 110.0,
+    "description": "Two metres of lattice. Stack them end to end, or hang them off anything's side, to build a tower, a gantry or a frame.",
+    "crashTolerance": 14.0,
+    "dragCoefficient": 0.4,
+    "mesh": {
+      "type": "box",
+      "width": 0.5,
+      "height": 2.0,
+      "depth": 0.5
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.06,
+              "height": 2.0,
+              "depth": 0.06
+            }
+          },
+          "offset": {
+            "x": -0.22,
+            "y": 0.0,
+            "z": -0.22
+          },
+          "tint": "body"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.06,
+              "height": 2.0,
+              "depth": 0.06
+            }
+          },
+          "offset": {
+            "x": -0.22,
+            "y": 0.0,
+            "z": 0.22
+          },
+          "tint": "body"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.06,
+              "height": 2.0,
+              "depth": 0.06
+            }
+          },
+          "offset": {
+            "x": 0.22,
+            "y": 0.0,
+            "z": -0.22
+          },
+          "tint": "body"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.06,
+              "height": 2.0,
+              "depth": 0.06
+            }
+          },
+          "offset": {
+            "x": 0.22,
+            "y": 0.0,
+            "z": 0.22
+          },
+          "tint": "body"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.04,
+              "height": 1.092520022699813,
+              "depth": 0.04
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": -0.5,
+            "z": 0.22
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 23.749494492866763
+          },
+          "tint": "body"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.04,
+              "height": 1.092520022699813,
+              "depth": 0.04
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": -0.5,
+            "z": -0.22
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": -23.749494492866763
+          },
+          "tint": "body"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.04,
+              "height": 1.092520022699813,
+              "depth": 0.04
+            }
+          },
+          "offset": {
+            "x": 0.22,
+            "y": -0.5,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": 23.749494492866763,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "body"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.04,
+              "height": 1.092520022699813,
+              "depth": 0.04
+            }
+          },
+          "offset": {
+            "x": -0.22,
+            "y": -0.5,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": -23.749494492866763,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "body"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.04,
+              "height": 1.092520022699813,
+              "depth": 0.04
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.5,
+            "z": 0.22
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": -23.749494492866763
+          },
+          "tint": "body"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.04,
+              "height": 1.092520022699813,
+              "depth": 0.04
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.5,
+            "z": -0.22
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 23.749494492866763
+          },
+          "tint": "body"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.04,
+              "height": 1.092520022699813,
+              "depth": 0.04
+            }
+          },
+          "offset": {
+            "x": 0.22,
+            "y": 0.5,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": -23.749494492866763,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "body"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.04,
+              "height": 1.092520022699813,
+              "depth": 0.04
+            }
+          },
+          "offset": {
+            "x": -0.22,
+            "y": 0.5,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": 23.749494492866763,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "body"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.5,
+              "height": 0.04,
+              "depth": 0.5
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": -0.98,
+            "z": 0.0
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.5,
+              "height": 0.04,
+              "depth": 0.5
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.98,
+            "z": 0.0
+          },
+          "tint": "metal"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "top",
+        "position": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "size": 1
+      },
+      {
+        "id": "bottom",
+        "position": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 1
+      },
+      {
+        "id": "side-1",
+        "position": {
+          "x": 0.25,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "side-2",
+        "position": {
+          "x": -0.25,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": -1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "side-3",
+        "position": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.25
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "side-4",
+        "position": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -0.25
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [],
+    "strength": 6000000.0
+  },
+  {
+    "id": "girder-long",
+    "title": "Long Girder",
+    "category": "structural",
+    "dryMass": 300.0,
+    "description": "Six metres of lattice, for the tall parts of a tower or the long span of a bridge.",
+    "crashTolerance": 14.0,
+    "dragCoefficient": 0.4,
+    "mesh": {
+      "type": "box",
+      "width": 0.5,
+      "height": 6.0,
+      "depth": 0.5
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.06,
+              "height": 6.0,
+              "depth": 0.06
+            }
+          },
+          "offset": {
+            "x": -0.22,
+            "y": 0.0,
+            "z": -0.22
+          },
+          "tint": "body"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.06,
+              "height": 6.0,
+              "depth": 0.06
+            }
+          },
+          "offset": {
+            "x": -0.22,
+            "y": 0.0,
+            "z": 0.22
+          },
+          "tint": "body"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.06,
+              "height": 6.0,
+              "depth": 0.06
+            }
+          },
+          "offset": {
+            "x": 0.22,
+            "y": 0.0,
+            "z": -0.22
+          },
+          "tint": "body"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.06,
+              "height": 6.0,
+              "depth": 0.06
+            }
+          },
+          "offset": {
+            "x": 0.22,
+            "y": 0.0,
+            "z": 0.22
+          },
+          "tint": "body"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.04,
+              "height": 1.092520022699813,
+              "depth": 0.04
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": -2.5,
+            "z": 0.22
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 23.749494492866763
+          },
+          "tint": "body"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.04,
+              "height": 1.092520022699813,
+              "depth": 0.04
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": -2.5,
+            "z": -0.22
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": -23.749494492866763
+          },
+          "tint": "body"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.04,
+              "height": 1.092520022699813,
+              "depth": 0.04
+            }
+          },
+          "offset": {
+            "x": 0.22,
+            "y": -2.5,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": 23.749494492866763,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "body"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.04,
+              "height": 1.092520022699813,
+              "depth": 0.04
+            }
+          },
+          "offset": {
+            "x": -0.22,
+            "y": -2.5,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": -23.749494492866763,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "body"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.04,
+              "height": 1.092520022699813,
+              "depth": 0.04
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": -1.5,
+            "z": 0.22
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": -23.749494492866763
+          },
+          "tint": "body"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.04,
+              "height": 1.092520022699813,
+              "depth": 0.04
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": -1.5,
+            "z": -0.22
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 23.749494492866763
+          },
+          "tint": "body"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.04,
+              "height": 1.092520022699813,
+              "depth": 0.04
+            }
+          },
+          "offset": {
+            "x": 0.22,
+            "y": -1.5,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": -23.749494492866763,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "body"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.04,
+              "height": 1.092520022699813,
+              "depth": 0.04
+            }
+          },
+          "offset": {
+            "x": -0.22,
+            "y": -1.5,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": 23.749494492866763,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "body"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.04,
+              "height": 1.092520022699813,
+              "depth": 0.04
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": -0.5,
+            "z": 0.22
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 23.749494492866763
+          },
+          "tint": "body"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.04,
+              "height": 1.092520022699813,
+              "depth": 0.04
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": -0.5,
+            "z": -0.22
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": -23.749494492866763
+          },
+          "tint": "body"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.04,
+              "height": 1.092520022699813,
+              "depth": 0.04
+            }
+          },
+          "offset": {
+            "x": 0.22,
+            "y": -0.5,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": 23.749494492866763,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "body"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.04,
+              "height": 1.092520022699813,
+              "depth": 0.04
+            }
+          },
+          "offset": {
+            "x": -0.22,
+            "y": -0.5,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": -23.749494492866763,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "body"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.04,
+              "height": 1.092520022699813,
+              "depth": 0.04
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.5,
+            "z": 0.22
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": -23.749494492866763
+          },
+          "tint": "body"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.04,
+              "height": 1.092520022699813,
+              "depth": 0.04
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.5,
+            "z": -0.22
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 23.749494492866763
+          },
+          "tint": "body"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.04,
+              "height": 1.092520022699813,
+              "depth": 0.04
+            }
+          },
+          "offset": {
+            "x": 0.22,
+            "y": 0.5,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": -23.749494492866763,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "body"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.04,
+              "height": 1.092520022699813,
+              "depth": 0.04
+            }
+          },
+          "offset": {
+            "x": -0.22,
+            "y": 0.5,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": 23.749494492866763,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "body"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.04,
+              "height": 1.092520022699813,
+              "depth": 0.04
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 1.5,
+            "z": 0.22
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 23.749494492866763
+          },
+          "tint": "body"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.04,
+              "height": 1.092520022699813,
+              "depth": 0.04
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 1.5,
+            "z": -0.22
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": -23.749494492866763
+          },
+          "tint": "body"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.04,
+              "height": 1.092520022699813,
+              "depth": 0.04
+            }
+          },
+          "offset": {
+            "x": 0.22,
+            "y": 1.5,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": 23.749494492866763,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "body"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.04,
+              "height": 1.092520022699813,
+              "depth": 0.04
+            }
+          },
+          "offset": {
+            "x": -0.22,
+            "y": 1.5,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": -23.749494492866763,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "body"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.04,
+              "height": 1.092520022699813,
+              "depth": 0.04
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 2.5,
+            "z": 0.22
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": -23.749494492866763
+          },
+          "tint": "body"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.04,
+              "height": 1.092520022699813,
+              "depth": 0.04
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 2.5,
+            "z": -0.22
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 23.749494492866763
+          },
+          "tint": "body"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.04,
+              "height": 1.092520022699813,
+              "depth": 0.04
+            }
+          },
+          "offset": {
+            "x": 0.22,
+            "y": 2.5,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": -23.749494492866763,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "body"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.04,
+              "height": 1.092520022699813,
+              "depth": 0.04
+            }
+          },
+          "offset": {
+            "x": -0.22,
+            "y": 2.5,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": 23.749494492866763,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "body"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.5,
+              "height": 0.04,
+              "depth": 0.5
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": -2.98,
+            "z": 0.0
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.5,
+              "height": 0.04,
+              "depth": 0.5
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 2.98,
+            "z": 0.0
+          },
+          "tint": "metal"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "top",
+        "position": {
+          "x": 0.0,
+          "y": 3.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "size": 1
+      },
+      {
+        "id": "bottom",
+        "position": {
+          "x": 0.0,
+          "y": -3.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 1
+      },
+      {
+        "id": "side-1",
+        "position": {
+          "x": 0.25,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "side-2",
+        "position": {
+          "x": -0.25,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": -1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "side-3",
+        "position": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.25
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "side-4",
+        "position": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -0.25
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [],
+    "strength": 6000000.0
+  },
+  {
+    "id": "beam-i",
+    "title": "Beam",
+    "category": "structural",
+    "dryMass": 420.0,
+    "description": "Four metres of solid steel beam. It's heavier than a girder and stiffer, for the bits that take the load.",
+    "crashTolerance": 16.0,
+    "dragCoefficient": 0.4,
+    "mesh": {
+      "type": "box",
+      "width": 0.4,
+      "height": 4.0,
+      "depth": 0.4
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.4,
+              "height": 4.0,
+              "depth": 0.05
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.175
+          },
+          "tint": "body"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.4,
+              "height": 4.0,
+              "depth": 0.05
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": -0.175
+          },
+          "tint": "body"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.06,
+              "height": 4.0,
+              "depth": 0.3
+            }
+          },
+          "tint": "body"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "top",
+        "position": {
+          "x": 0.0,
+          "y": 2.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "size": 1
+      },
+      {
+        "id": "bottom",
+        "position": {
+          "x": 0.0,
+          "y": -2.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 1
+      },
+      {
+        "id": "side-1",
+        "position": {
+          "x": 0.2,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "side-2",
+        "position": {
+          "x": -0.2,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": -1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "side-3",
+        "position": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.2
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "side-4",
+        "position": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -0.2
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [],
+    "strength": 10000000.0
+  },
+  {
+    "id": "plate-deck",
+    "title": "Deck Plate",
+    "category": "structural",
+    "dryMass": 480.0,
+    "description": "A three-metre square of deck, to walk on, land on, or build on. Join them edge to edge for a bigger floor.",
+    "crashTolerance": 14.0,
+    "dragCoefficient": 0.5,
+    "mesh": {
+      "type": "box",
+      "width": 3.0,
+      "height": 0.15,
+      "depth": 3.0
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 3.0,
+              "height": 0.15,
+              "depth": 3.0
+            }
+          },
+          "tint": "body"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 2.9,
+              "height": 0.02,
+              "depth": 0.08
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.08,
+            "z": 0.7
+          },
+          "tint": "accent"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 2.9,
+              "height": 0.02,
+              "depth": 0.08
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.08,
+            "z": -0.7
+          },
+          "tint": "accent"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "top",
+        "position": {
+          "x": 0.0,
+          "y": 0.075,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "size": 1
+      },
+      {
+        "id": "bottom",
+        "position": {
+          "x": 0.0,
+          "y": -0.075,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 1
+      },
+      {
+        "id": "edge-1",
+        "position": {
+          "x": 1.5,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "edge-2",
+        "position": {
+          "x": -1.5,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": -1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "edge-3",
+        "position": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 1.5
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "edge-4",
+        "position": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -1.5
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [],
+    "strength": 6000000.0
+  },
+  {
+    "id": "hub-cube",
+    "title": "Junction",
+    "category": "structural",
+    "dryMass": 70.0,
+    "description": "A half-metre block with a join on every face, where girders and beams meet and turn corners.",
+    "crashTolerance": 16.0,
+    "dragCoefficient": 0.4,
+    "mesh": {
+      "type": "box",
+      "width": 0.5,
+      "height": 0.5,
+      "depth": 0.5
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.5,
+              "height": 0.5,
+              "depth": 0.5
+            }
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.52,
+              "height": 0.08,
+              "depth": 0.52
+            }
+          },
+          "tint": "dark"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "top",
+        "position": {
+          "x": 0.0,
+          "y": 0.25,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "size": 1
+      },
+      {
+        "id": "bottom",
+        "position": {
+          "x": 0.0,
+          "y": -0.25,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 1
+      },
+      {
+        "id": "side-1",
+        "position": {
+          "x": 0.25,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "side-2",
+        "position": {
+          "x": -0.25,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": -1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "side-3",
+        "position": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.25
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "side-4",
+        "position": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -0.25
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [],
+    "strength": 8000000.0
+  },
+  {
+    "id": "strut-brace",
+    "title": "Brace",
+    "category": "structural",
+    "dryMass": 40.0,
+    "description": "A light steel strut for the side of anything: a leg for a deck, a prop under a gantry arm, or a stiffener between two stacks.",
+    "crashTolerance": 12.0,
+    "dragCoefficient": 0.3,
+    "mesh": {
+      "type": "cylinder",
+      "radius": 0.06,
+      "height": 2.0
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.05,
+              "height": 2.0
+            }
+          },
+          "offset": {
+            "x": 0.06,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.12,
+              "height": 0.2,
+              "depth": 0.2
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.9,
+            "z": 0.0
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.12,
+              "height": 0.2,
+              "depth": 0.2
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": -0.9,
+            "z": 0.0
+          },
+          "tint": "dark"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "root",
+        "position": {
+          "x": -0.06,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": -1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "top",
+        "position": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "size": 1
+      },
+      {
+        "id": "bottom",
+        "position": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 1
+      }
+    ],
+    "modules": [],
+    "strength": 3000000.0
   }
 ]

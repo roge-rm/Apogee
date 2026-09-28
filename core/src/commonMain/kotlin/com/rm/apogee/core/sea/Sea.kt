@@ -341,7 +341,7 @@ class Sea(
     private val stormSea = Storms.StormSea()
 
     private class System(var hs: Double, var period: Double, val direction: Vec3, var spread: Double, var gamma: Double)
-    private val systems = Array(4) { System(0.0, 1.0, Vec3(), 1.0, 1.0) }
+    private val systems = Array(5) { System(0.0, 1.0, Vec3(), 1.0, 1.0) }
     private val power = DoubleArray(COMPONENTS)
     private val weight = DoubleArray(COMPONENTS)
 
@@ -385,6 +385,17 @@ class Sea(
         // A storm's sea is young and steep, with a shorter period than a sea of the same height
         // that grew over days.
         set(systems[3], stormSea.stormHs, 1.5 + 3.2 * sqrt(kotlin.math.max(stormSea.stormHs, 0.05)), stormSea.stormDirection, 0.5, 3.3)
+        // The ocean's own swell, from weather far away over the open sea, always running in toward
+        // the shore. Without it a coast only had its own wind's waves, and on the Cape's ocean
+        // beach, with land upwind, that was thirty centimetres, so the sea there looked flat.
+        // Shelter still stops most of it, so the bay and the harbour stay calm.
+        if (weather != null) {
+            val k = radius / OCEAN_SWELL_SCALE
+            val swell = OCEAN_SWELL_HS * (1.0 + OCEAN_SWELL_VARY * Noise.simplex(seed + 7, u.x * k + time / OCEAN_SWELL_TIME, u.y * k, u.z * k))
+            set(systems[4], swell, OCEAN_SWELL_PERIOD, shoreward(u, time), 6.0, 3.0)
+        } else {
+            set(systems[4], 0.0, OCEAN_SWELL_PERIOD, windDirection, 6.0, 3.0)
+        }
 
         for (i in 0 until COMPONENTS) power[i] = 0.0
         var total = 0.0
@@ -436,6 +447,33 @@ class Sea(
      * ten metre one fifteen.
      */
     private fun periodOf(hs: Double): Double = 1.5 + 4.2 * sqrt(kotlin.math.max(hs, 0.05))
+
+    private val swellEast = Vec3()
+    private val swellNorth = Vec3()
+
+    /**
+     * Which way the ocean swell runs at unit [u]: toward the shore, the way swell turns to meet a
+     * coast as the water shoals, found from which way the ground rises. Out in the open ocean, where
+     * it's all deep, it runs a way that wanders slowly across the world.
+     */
+    private fun shoreward(u: Vec3, time: Double): Vec3 {
+        localFrame(u, swellEast, swellNorth)
+        val out = Vec3()
+        val t = terrain
+        if (t != null) {
+            fun at(e: Double, n: Double): Double {
+                probe.setTo(u).mulInPlace(radius).addScaledInPlace(swellEast, e).addScaledInPlace(swellNorth, n).normalizeInPlace()
+                return t.elevation(probe).coerceAtMost(0.0)
+            }
+            val ge = at(SHORE_PROBE, 0.0) - at(-SHORE_PROBE, 0.0)
+            val gn = at(0.0, SHORE_PROBE) - at(0.0, -SHORE_PROBE)
+            if (kotlin.math.hypot(ge, gn) > SHORE_RISE) {
+                return out.setTo(swellEast).mulInPlace(ge).addScaledInPlace(swellNorth, gn).normalizeInPlace()
+            }
+        }
+        val angle = Math.PI * 2.0 * Noise.simplex(seed + 8, u.x * 3.0, u.y * 3.0, u.z * 3.0 + time / OCEAN_SWELL_TIME)
+        return out.setTo(swellEast).mulInPlace(kotlin.math.cos(angle)).addScaledInPlace(swellNorth, kotlin.math.sin(angle))
+    }
 
     private fun tangentOf(u: Vec3): Vec3 {
         val t = Vec3(0.0, 1.0, 0.0).addScaledInPlace(u, -u.y)
@@ -584,6 +622,10 @@ class Sea(
                     e = e.coerceIn(0.0, 1.0)
                     // The shortest ripples, which the wind raises fresh over any water at all.
                     if (k[i] > SHELTER_REGROW_K) e = kotlin.math.max(e, SHELTER_REGROW)
+                    // And long swell, which bends round a headland and into a bay, so a coast in
+                    // the lee of land still gets some of it. Only as much as the water here is open
+                    // all round, so it doesn't find its way into an enclosed harbour.
+                    if (k[i] < SHELTER_WRAP_K) e = kotlin.math.max(e, SHELTER_WRAP * shelterOut[0].coerceIn(0.0, 1.0))
                     before += a * a
                     stateOut[i] = a * e
                     after += stateOut[i] * stateOut[i]
@@ -814,6 +856,10 @@ class Sea(
         private const val SHELTER_REGROW_K = 2.0 * Math.PI / 8.0
         private const val SHELTER_REGROW = 0.5
 
+        /** Trains longer than a hundred metres (swell) keep at least this much in any shelter. */
+        private const val SHELTER_WRAP_K = 2.0 * Math.PI / 100.0
+        private const val SHELTER_WRAP = 0.45
+
         /**
          * How far apart the sea state's corners are in metres, and how long each one lasts in
          * seconds.
@@ -845,6 +891,20 @@ class Sea(
 
         /** The ripple on even the stillest sea: its height in metres and period in seconds. */
         private const val FLOOR_HS = 0.15
+
+        /**
+         * The ocean swell: its significant height in metres, how far it varies either way as a
+         * share, over how many metres and seconds it changes, and its period. How far either way a
+         * coast is felt for, in metres, and the least rise of the sea bed across that, in metres,
+         * that counts as one.
+         */
+        private const val OCEAN_SWELL_HS = 1.0
+        private const val OCEAN_SWELL_VARY = 0.35
+        private const val OCEAN_SWELL_SCALE = 400_000.0
+        private const val OCEAN_SWELL_TIME = 20_000.0
+        private const val OCEAN_SWELL_PERIOD = 11.0
+        private const val SHORE_PROBE = 12_000.0
+        private const val SHORE_RISE = 40.0
         private const val FLOOR_PERIOD = 2.5
 
         /** Trains running almost straight up or down here are left out. */

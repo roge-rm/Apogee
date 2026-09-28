@@ -746,5 +746,6 @@ object Protocol {
     //     CraftSystems.
     // 21: suit colours - Hello.stripe, StructureUpdate.stripe and visor.
     // 22: rotor speeds in the pose.
-    const val VERSION = 22
+    // 23: PlacedPart.shroud; new parts (side chutes and decouplers, 3.75 m, the structural kit).
+    const val VERSION = 23
 }

@@ -289,7 +289,14 @@ class CraftStats(
                 val startMass = liveMass()
                 val groups = FuelGroups.compute(design, defs, live)
                 val reachable = engines.map { groups[it] }.toSet()
-                val fuelParts = live.filter { groups[it] in reachable }
+                // Fed stages drink their outermost tanks first, and those are what the next
+                // staging drops, so a stage burns its feeders' propellant and no more. The same
+                // rule as the flight's (see [FuelGroups.tiers]).
+                val tiers = FuelGroups.tiers(design, defs)
+                val types0 = engines.map { defs[it].module<Engine>()!!.propellant }.distinct()
+                val reach = live.filter { groups[it] in reachable }
+                val outer = reach.filter { part -> types0.any { amounts[part][it.ordinal] > 0.0 } }.maxOfOrNull { tiers[it] } ?: 0
+                val fuelParts = reach.filter { tiers[it] == outer || outer == 0 }
                 val types = engines.map { defs[it].module<Engine>()!!.propellant }.distinct()
                 val fuel = types.map { type ->
                     FuelLevel(

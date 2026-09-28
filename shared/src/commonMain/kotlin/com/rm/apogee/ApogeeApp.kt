@@ -429,6 +429,27 @@ class ApogeeApp(private val host: AppHost) {
             }
     }
 
+    /**
+     * A renderer with nothing to show, under Quick Launch's list, there only to draw the craft
+     * pictures. They're drawn by GL, which the menus don't otherwise run, so a craft that hadn't
+     * been drawn in the Vehicle Assembly or in flight had an empty square. The menu covers it.
+     */
+    private var pictureRenderer: GlRenderer? = null
+
+    private fun showPictureSurface() {
+        if (pictureRenderer != null || renderer != null) return
+        val drawer = GlRenderer({ host.detectTier() }, FrameBus()) { tier -> settings.lastDetectedTier = tier }
+        drawer.thumbnails = partThumbnails
+        pictureRenderer = drawer
+        host.showSurface(drawer, gestures)
+    }
+
+    private fun hidePictureSurface() {
+        if (pictureRenderer == null) return
+        host.hideSurface()
+        pictureRenderer = null
+    }
+
     /** Back a screen, from a Back button or the system's back. */
     private fun goBack() = navigateTo(appScreen.parent ?: AppScreen.MENU)
 
@@ -437,6 +458,7 @@ class ApogeeApp(private val host: AppHost) {
         val wasInWorld = appScreen.needsWorldSurface
         val wasBrowsing = appScreen == AppScreen.JOIN_GAME
         appScreen = target
+        if (target == AppScreen.QUICK_LAUNCH) showPictureSurface() else hidePictureSurface()
         if (target == AppScreen.RESUME_FLIGHT) refreshResumeCraft()
         if (target == AppScreen.CREW) refreshCrew()
         if (target == AppScreen.QUICK_LAUNCH) refreshQuickLaunch()

@@ -167,6 +167,9 @@ class CareerBalanceTest {
         addAll(buy("sky-platforms"))
         add(Fly(StockCraft.skyPlatform(catalog), "cape"))
         addAll(earn(Feat.ALIEN_SKIES, Feat.CLOUD_CITY))
+        // Twenty tonnes to orbit on the Moonshot's stack, and the grand size it opens.
+        addAll(earn(Feat.HEAVY_LIFT))
+        addAll(buy("grand"))
     }
 
     @Test
