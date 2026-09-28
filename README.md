@@ -84,7 +84,30 @@ With a mouse, drag to look around, use the wheel to zoom, and drag with the righ
 | B | brakes |
 | G | gear and legs |
 | F | flaps |
-| Esc | back |
+| Esc | back, or the flight menu |
+
+## Playing with a controller
+
+A controller works on Android and in a browser, and so do the controls built in to a handheld. I laid it out for the Retroid Pocket Mini, but any controller Android or the browser sees as a gamepad will do. Here's how it starts:
+
+| | |
+|---|---|
+| Left stick | steer (and walk, on foot) |
+| Right stick | look around |
+| R2, L2 | throttle up and down, faster the harder you press |
+| L1, R1 | roll |
+| A | stage (hold it a moment) |
+| B | brakes |
+| X | stability assist |
+| Y | the map |
+| D-pad up and down | zoom |
+| D-pad left and right | time warp |
+| L3 | thrusters |
+| R3 | the camera |
+| Select | gear and legs |
+| Start | the flight menu |
+
+On foot, A jumps, B grabs a ladder, X boards and Select plants a flag. You can change any of it in Settings, under Controls, then Controller buttons. Press a button there to find its row. In the menus, the D-pad or left stick moves, A picks and B goes back. The touch stick steps aside while the controller's flying, and comes back when you touch the screen. A browser only lets a page see a controller once you've pressed one of its buttons with the page in front, so press one first.
 
 ## Building it
 

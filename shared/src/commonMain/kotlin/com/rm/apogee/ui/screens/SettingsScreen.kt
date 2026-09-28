@@ -42,6 +42,7 @@ import com.rm.apogee.ui.components.ApogeeButton
 import com.rm.apogee.ui.components.Backdrop
 import com.rm.apogee.ui.components.ChoiceGroup
 import com.rm.apogee.ui.components.SectionHeading
+import com.rm.apogee.ui.components.padFocus
 import com.rm.apogee.ui.components.SliderRow
 import com.rm.apogee.ui.components.SwitchRow
 import com.rm.apogee.ui.theme.ApogeeAlpha
@@ -67,7 +68,14 @@ private enum class SettingsTab(val label: String) {
 }
 
 @Composable
-fun SettingsScreen(settings: GameSettings, detectedTier: QualityTier?, onBack: () -> Unit = {}) {
+fun SettingsScreen(
+    settings: GameSettings,
+    detectedTier: QualityTier?,
+    onBack: () -> Unit = {},
+    /** The controller connected, if there is one, and opening its buttons page. */
+    controllerName: String? = null,
+    onController: () -> Unit = {},
+) {
     // Remembered across tab switches only, not across visits. Coming back to Settings starts where
     // the screen starts.
     var tab by remember { mutableStateOf(SettingsTab.PLAYER) }
@@ -103,6 +111,7 @@ fun SettingsScreen(settings: GameSettings, detectedTier: QualityTier?, onBack: (
                     Tab(
                         selected = candidate == tab,
                         onClick = { tab = candidate },
+                        modifier = Modifier.padFocus(),
                         selectedContentColor = ApogeeColors.Accent,
                         unselectedContentColor = Color.White.alpha(ApogeeAlpha.SUBTITLE),
                         // Its own padding, narrower than the stock tab's. A quarter of an upright
@@ -132,7 +141,7 @@ fun SettingsScreen(settings: GameSettings, detectedTier: QualityTier?, onBack: (
             ) {
                 when (tab) {
                     SettingsTab.PLAYER -> PlayerTab(settings)
-                    SettingsTab.CONTROLS -> ControlsTab(settings)
+                    SettingsTab.CONTROLS -> ControlsTab(settings, controllerName, onController)
                     SettingsTab.DISPLAY -> DisplayTab(settings, detectedTier)
                     SettingsTab.AUDIO -> AudioTab(settings)
                 }
@@ -217,7 +226,7 @@ private fun PlayerTab(settings: GameSettings) {
 }
 
 @Composable
-private fun ControlsTab(settings: GameSettings) {
+private fun ControlsTab(settings: GameSettings, controllerName: String?, onController: () -> Unit) {
     SectionHeading("Stick")
     ChoiceGroup(
         title = "Pull back to climb",
@@ -266,6 +275,30 @@ private fun ControlsTab(settings: GameSettings) {
         title = "Haptics",
         checked = settings.hapticsEnabled,
         onCheckedChange = { settings.hapticsEnabled = it },
+    )
+
+    SectionHeading("Controller")
+    Text(
+        controllerName?.let { "Connected: $it" } ?: "No controller found. Connect one, or use the ones built in to a handheld.",
+        style = MaterialTheme.typography.bodySmall,
+        color = Color.White.alpha(ApogeeAlpha.SUBTITLE),
+    )
+    com.rm.apogee.ui.components.ApogeeButton(
+        "Controller buttons",
+        onController,
+        subtitle = "Which button does what, flying and on foot",
+    )
+    SwitchRow(
+        title = "Hide the touch stick",
+        subtitle = "While a controller's flying, until the screen's touched",
+        checked = settings.padHideTouch,
+        onCheckedChange = { settings.padHideTouch = it },
+    )
+    SwitchRow(
+        title = "Hold A to stage",
+        subtitle = "So a brushed button can't drop a stage on the pad",
+        checked = settings.padHoldToStage,
+        onCheckedChange = { settings.padHoldToStage = it },
     )
 }
 

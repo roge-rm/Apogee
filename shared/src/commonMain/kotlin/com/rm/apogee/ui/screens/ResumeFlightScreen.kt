@@ -1,5 +1,6 @@
 package com.rm.apogee.ui.screens
 
+import com.rm.apogee.ui.components.padFocus
 import androidx.compose.foundation.lazy.rememberLazyListState
 import com.rm.apogee.ui.components.verticalScrollbar
 import androidx.compose.foundation.background
@@ -171,6 +172,7 @@ private fun RowAction(label: String, colour: Color, onClick: () -> Unit) {
         color = colour,
         modifier = Modifier
             .clip(RoundedCornerShape(Dimens.CornerSmall))
+            .padFocus(RoundedCornerShape(Dimens.CornerSmall))
             .clickable(onClick = onClick)
             .padding(horizontal = 10.dp, vertical = 10.dp),
     )

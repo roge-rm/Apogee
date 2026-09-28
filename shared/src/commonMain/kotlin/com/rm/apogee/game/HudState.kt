@@ -318,6 +318,34 @@ class HudState {
     /** Whether the warp rates are showing. */
     var warpPickerOpen: Boolean by mutableStateOf(false)
 
+    /** Whether the flight menu (save points, and leaving) is up. */
+    var exitMenuOpen: Boolean by mutableStateOf(false)
+
+    /**
+     * Whether a controller's flying the craft, so the touch stick can step aside, until a touch
+     * says otherwise. And how far a held A has got toward staging, for the STAGE button's fill.
+     */
+    var padActive: Boolean by mutableStateOf(false)
+    var stageHold: Float by mutableFloatStateOf(0f)
+
+    /** Whether something is open over the flight that a controller should work instead of the craft. */
+    val panelOpen: Boolean
+        get() = exitMenuOpen || programOpen || craftListOpen || sasPickerOpen || warpPickerOpen || statusOpen != null
+
+    /** Closes the top thing open over the flight, if there is one. True if something closed. */
+    fun closePanel(): Boolean {
+        when {
+            exitMenuOpen -> exitMenuOpen = false
+            programOpen -> programOpen = false
+            craftListOpen -> craftListOpen = false
+            sasPickerOpen -> sasPickerOpen = false
+            warpPickerOpen -> warpPickerOpen = false
+            statusOpen != null -> statusOpen = null
+            else -> return false
+        }
+        return true
+    }
+
     /** Clears passing state when leaving the world, so a new flight starts clean. */
     fun reset() {
         frameTimeMillis = 0f
@@ -373,6 +401,8 @@ class HudState {
         warpRequested = 1.0
         warpAllowed = false
         warpPickerOpen = false
+        exitMenuOpen = false
+        stageHold = 0f
     }
 
     companion object {

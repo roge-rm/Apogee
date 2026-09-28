@@ -1,5 +1,6 @@
 package com.rm.apogee.ui.screens
 
+import com.rm.apogee.ui.components.padFocus
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -130,6 +131,7 @@ private fun CraftRow(entry: CraftShelf.Entry, picture: ImageBitmap?, chosen: Boo
             .fillMaxWidth()
             .clip(RoundedCornerShape(Dimens.CornerTight))
             .background(if (chosen) ApogeeColors.Accent.alpha(0.22f) else Color.Transparent)
+            .padFocus()
             .clickable(onClick = onClick)
             .padding(6.dp),
         verticalAlignment = Alignment.CenterVertically,

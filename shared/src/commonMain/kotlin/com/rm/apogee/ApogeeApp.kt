@@ -175,7 +175,115 @@ class ApogeeApp(private val host: AppHost) {
     private var detectedTier by mutableStateOf<QualityTier?>(null)
 
     /** Every touch, wherever it lands (the view, a control, a dialog), wakes the flight controls. */
-    fun touched() = hudState.touched()
+    fun touched() {
+        hudState.touched()
+        // A touch brings the touch stick back.
+        hudState.padActive = false
+    }
+
+    // --- a controller ----------------------------------------------------------
+
+    /** The controller's name, from the host, for the settings. Null with none connected. */
+    var controllerName: String? by mutableStateOf(null)
+
+    private var padConfigText: String? = null
+    private var padConfig = com.rm.apogee.input.PadConfig()
+
+    /** The controller, fed by the host and run each frame. See [com.rm.apogee.input.PadInput]. */
+    val pad = com.rm.apogee.input.PadInput {
+        val text = settings.padBindings
+        if (text != padConfigText) {
+            padConfigText = text
+            padConfig = padConfig.copy(bindings = com.rm.apogee.input.PadBindings.parse(text))
+        }
+        padConfig.copy(
+            deadZone = settings.padDeadZone,
+            lookSpeed = settings.padLookSpeed,
+            invertLook = settings.padInvertLook,
+            holdToStage = settings.padHoldToStage,
+        )
+    }
+
+    /**
+     * Where the controller goes now: the craft, the Vehicle Assembly's camera, or the menus. A
+     * panel open over the flight has it too, so the D-pad and A work the panel.
+     */
+    fun padMode(): com.rm.apogee.input.PadMode = when {
+        appScreen == AppScreen.FLIGHT && session != null && !hudState.panelOpen && hudState.surfaceReady ->
+            com.rm.apogee.input.PadMode.FLIGHT
+        appScreen == AppScreen.BUILDER && builderSession != null -> com.rm.apogee.input.PadMode.BUILDER
+        else -> com.rm.apogee.input.PadMode.MENU
+    }
+
+    private val padTarget = object : com.rm.apogee.input.PadTarget {
+        override fun steer(pitch: Float, yaw: Float) = onAttitude(pitch, yaw)
+        override fun roll(roll: Float) = onRoll(roll)
+        override fun look(yaw: Double, pitch: Double) {
+            val camera = if (appScreen == AppScreen.BUILDER) builderSession?.camera else activeCamera()
+            camera?.orbitBy(deltaYaw = yaw, deltaPitch = pitch)
+        }
+        override fun zoom(factor: Float) = gestures.zoom(factor)
+        override val throttle: Float get() = hudState.throttle
+        override fun setThrottle(value: Float) = onThrottleChange(value)
+        override fun act(action: com.rm.apogee.input.PadAction) = padAction(action)
+        override fun stageHold(fraction: Float) { hudState.stageHold = fraction }
+        override fun used() { hudState.padActive = true }
+    }
+
+    /** What a controller button does once, as it goes down. */
+    private fun padAction(action: com.rm.apogee.input.PadAction) {
+        val current = session ?: return
+        val power = hudState.power
+        when (action) {
+            com.rm.apogee.input.PadAction.STAGE -> if (!hudState.isSuit) onStage()
+            com.rm.apogee.input.PadAction.THROTTLE_FULL -> onThrottleChange(1f)
+            com.rm.apogee.input.PadAction.THROTTLE_CUT -> onThrottleChange(0f)
+            com.rm.apogee.input.PadAction.SAS -> onToggleSas()
+            com.rm.apogee.input.PadAction.RCS -> onToggleRcs()
+            com.rm.apogee.input.PadAction.STICK_MODE -> if (hudState.rcsArmed) onStickMode(!hudState.rcsSlide)
+            com.rm.apogee.input.PadAction.STEERING -> onSteering(!hudState.steerByScreen)
+            com.rm.apogee.input.PadAction.CRUISE -> if (hudState.canCruise) onCruise(power?.cruising != true)
+            com.rm.apogee.input.PadAction.KEEPER -> if (power != null) onStationKeep()
+            com.rm.apogee.input.PadAction.BRAKES -> onToggleBrakes()
+            com.rm.apogee.input.PadAction.DEPLOY -> onToggleDeploy()
+            com.rm.apogee.input.PadAction.FLAPS -> if (hudState.hasFlaps) onToggleFlaps()
+            com.rm.apogee.input.PadAction.REVERSE -> onToggleReverse()
+            com.rm.apogee.input.PadAction.GROUP_1 -> scope.launch { current.toggleGroup(1) }
+            com.rm.apogee.input.PadAction.GROUP_2 -> scope.launch { current.toggleGroup(2) }
+            com.rm.apogee.input.PadAction.GROUP_3 -> scope.launch { current.toggleGroup(3) }
+            com.rm.apogee.input.PadAction.HOOK -> when {
+                power == null || !power.hasWinch -> Unit
+                power.hooked -> scope.launch { current.releaseLine() }
+                power.canHook.isNotEmpty() -> scope.launch { current.hook() }
+            }
+            com.rm.apogee.input.PadAction.WINCH -> if (power?.hooked == true) onWinch()
+            com.rm.apogee.input.PadAction.DOCK -> if (hudState.canJoin) onJoin()
+            com.rm.apogee.input.PadAction.MAP -> onToggleMap()
+            com.rm.apogee.input.PadAction.CAMERA_MODE -> if (!hudState.mapMode) onCameraMode()
+            com.rm.apogee.input.PadAction.WARP_FASTER, com.rm.apogee.input.PadAction.WARP_SLOWER -> {
+                if (!hudState.warpAllowed) return
+                val next = com.rm.apogee.input.PadInput.warpStep(
+                    hudState.warpRequested, action == com.rm.apogee.input.PadAction.WARP_FASTER, WARP_STEPS,
+                ) ?: return
+                scope.launch { current.setWarp(next) }
+            }
+            com.rm.apogee.input.PadAction.FLIGHT_MENU -> hudState.exitMenuOpen = true
+            com.rm.apogee.input.PadAction.JUMP -> if (hudState.isSuit) scope.launch { current.jump() }
+            com.rm.apogee.input.PadAction.GRAB -> when {
+                !hudState.isSuit || power == null -> Unit
+                power.onLadder -> scope.launch { current.grab(false) }
+                power.canGrab -> scope.launch { current.grab(true) }
+            }
+            com.rm.apogee.input.PadAction.BOARD -> if (hudState.isSuit && power?.boardable?.isNotEmpty() == true) scope.launch { current.board() }
+            com.rm.apogee.input.PadAction.FLAG -> if (hudState.isSuit) scope.launch { current.plantFlag() }
+            else -> Unit
+        }
+    }
+
+    /** Back in flight closes what's open over it, or brings up the flight menu. */
+    private fun flightBack() {
+        if (!hudState.closePanel()) hudState.exitMenuOpen = true
+    }
 
     init {
         careerMode = settings.careerMode
@@ -206,6 +314,9 @@ class ApogeeApp(private val host: AppHost) {
                 BackHandler(enabled = appScreen.parent != null) {
                     navigateTo(appScreen.parent ?: AppScreen.MENU)
                 }
+                // In flight, Back (the device's, or B on a controller over a panel) closes what's
+                // open, or brings up the flight menu, which has Leave in it.
+                BackHandler(enabled = appScreen == AppScreen.FLIGHT) { if (session != null) flightBack() }
                 // The HUD's values, each frame the display shows, while there's a world.
                 if (appScreen.needsWorldSurface) {
                     LaunchedEffect(Unit) {
@@ -289,7 +400,14 @@ class ApogeeApp(private val host: AppHost) {
                         },
                         onBack = ::goBack,
                     )
-                    AppScreen.SETTINGS -> SettingsScreen(settings, detectedTier, onBack = ::goBack)
+                    AppScreen.SETTINGS -> SettingsScreen(
+                        settings, detectedTier, onBack = ::goBack,
+                        controllerName = controllerName,
+                        onController = { navigateTo(AppScreen.CONTROLLER) },
+                    )
+                    AppScreen.CONTROLLER -> com.rm.apogee.ui.screens.ControllerScreen(
+                        settings, pad, controllerName, onBack = ::goBack,
+                    )
                     AppScreen.ABOUT -> AboutScreen(onBack = ::goBack)
                     AppScreen.FLIGHT -> FlightScreen(
                         hud = hudState,
@@ -297,6 +415,7 @@ class ApogeeApp(private val host: AppHost) {
                         showDebugOverlay = settings.showDebugOverlay,
                         leftHandMode = settings.leftHandMode,
                         fadeWhenIdle = settings.fadeWhenIdle,
+                        hideTouchStick = settings.padHideTouch && hudState.padActive,
                         onThrottleChange = ::onThrottleChange,
                         onAttitude = ::onAttitude,
                         onRoll = ::onRoll,
@@ -1290,6 +1409,11 @@ class ApogeeApp(private val host: AppHost) {
                 hudState.frameTimeMillis = glRenderer.lastFrameTimeNanos.get() / 1_000_000f
 
                 if (keysDown.isNotEmpty()) throttleKeys(System.nanoTime())
+                pad.tick(
+                    System.nanoTime(), padMode(),
+                    if (hudState.isSuit) com.rm.apogee.input.PadLayer.ON_FOOT else com.rm.apogee.input.PadLayer.FLYING,
+                    padTarget,
+                )
                 session?.let { current ->
                     current.steeringStyle = settings.steeringStyle
                     hudState.steerByScreen = current.steerByScreen
@@ -1452,6 +1576,9 @@ class ApogeeApp(private val host: AppHost) {
 
         /** How long Shift or Ctrl takes to move the throttle from off to full, in seconds. */
         const val THROTTLE_KEY_SECONDS = 1.5f
+
+        /** The time warps a controller steps through, the same as the warp picker's. */
+        val WARP_STEPS: List<Double> = listOf(0.0, 1.0, 2.0, 4.0) + World.WARP_RATES.filter { it > World.PHYSICS_WARP }
 
         const val TAG = "Apogee"
     }

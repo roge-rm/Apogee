@@ -6,6 +6,8 @@ import android.net.Uri
 import android.opengl.GLSurfaceView
 import android.os.Build
 import android.os.Bundle
+import android.hardware.input.InputManager
+import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import android.view.WindowManager
@@ -25,6 +27,7 @@ import com.rm.apogee.core.Folder
 import com.rm.apogee.core.part.StockParts
 import com.rm.apogee.game.AndroidServerBrowser
 import com.rm.apogee.game.ServerBrowser
+import com.rm.apogee.input.PadMode
 import com.rm.apogee.platform.AndroidPerfHints
 import com.rm.apogee.platform.PerfHints
 import com.rm.apogee.render.GlRenderer
@@ -63,6 +66,68 @@ class MainActivity : ComponentActivity(), AppHost {
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
         if (ev.actionMasked == MotionEvent.ACTION_DOWN && ::app.isInitialized) app.touched()
         return super.dispatchTouchEvent(ev)
+    }
+
+    // --- a controller ----------------------------------------------------------
+
+    private val gamepad = GamepadReader()
+
+    /**
+     * A controller's buttons. In flight they fly the craft, and nothing else sees them. In the
+     * menus (and over a panel in flight) they go on to the screens: the D-pad moves between
+     * things, A presses the one it's on, and B goes back. Android does that last part itself on
+     * most controllers, sending A on as the D-pad's centre and B as Back when nothing takes them.
+     * It's done here as well for the few that don't.
+     */
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (!::app.isInitialized || !gamepad.key(event)) return super.dispatchKeyEvent(event)
+        app.pad.update(gamepad.state)
+        event.device?.takeIf { !it.isVirtual }?.let { app.controllerName = it.name }
+        if (app.padMode() == PadMode.FLIGHT) return true
+        // Only the D-pad, A and B work the menus. The rest are kept from them, or Android's own
+        // stand-ins would fire (Y as Back, the stick clicks as presses), which on the controller
+        // page is exactly when you press one to find it.
+        val navigates = event.keyCode == KeyEvent.KEYCODE_BUTTON_A || event.keyCode == KeyEvent.KEYCODE_BUTTON_B ||
+            event.keyCode in KeyEvent.KEYCODE_DPAD_UP..KeyEvent.KEYCODE_DPAD_RIGHT
+        if (!navigates) return true
+        if (super.dispatchKeyEvent(event)) return true
+        return when (event.keyCode) {
+            KeyEvent.KEYCODE_BUTTON_A -> super.dispatchKeyEvent(
+                KeyEvent(
+                    event.downTime, event.eventTime, event.action, KeyEvent.KEYCODE_DPAD_CENTER,
+                    event.repeatCount, event.metaState, event.deviceId, event.scanCode, event.flags, event.source,
+                ),
+            )
+            KeyEvent.KEYCODE_BUTTON_B -> {
+                if (event.action == KeyEvent.ACTION_UP) onBackPressedDispatcher.onBackPressed()
+                true
+            }
+            else -> false
+        }
+    }
+
+    /** A controller's sticks and triggers. In the menus, Android turns the left stick into the D-pad. */
+    override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
+        if (::app.isInitialized && gamepad.motion(event)) {
+            app.pad.update(gamepad.state)
+            if (app.padMode() == PadMode.FLIGHT) return true
+        }
+        return super.dispatchGenericMotionEvent(event)
+    }
+
+    /** Controllers coming and going, for the settings, and so a pulled one doesn't stay held. */
+    private val controllers = object : InputManager.InputDeviceListener {
+        override fun onInputDeviceAdded(deviceId: Int) = refreshController()
+        override fun onInputDeviceChanged(deviceId: Int) = refreshController()
+        override fun onInputDeviceRemoved(deviceId: Int) {
+            gamepad.clear()
+            app.pad.update(gamepad.state)
+            refreshController()
+        }
+    }
+
+    private fun refreshController() {
+        app.controllerName = GamepadReader.connectedName()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -214,6 +279,7 @@ class MainActivity : ComponentActivity(), AppHost {
 
     override fun onPause() {
         super.onPause()
+        getSystemService(InputManager::class.java)?.unregisterInputDeviceListener(controllers)
         surfaceView?.onPause()
         app.pause()
     }
@@ -225,6 +291,8 @@ class MainActivity : ComponentActivity(), AppHost {
 
     override fun onResume() {
         super.onResume()
+        getSystemService(InputManager::class.java)?.registerInputDeviceListener(controllers, null)
+        refreshController()
         surfaceView?.onResume()
         app.resume()
     }

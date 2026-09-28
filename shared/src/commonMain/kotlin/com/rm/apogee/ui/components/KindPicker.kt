@@ -81,6 +81,7 @@ private fun KindIcon(icon: ImageVector, label: String, chosen: Boolean, modifier
                 .aspectRatio(1f)
                 .clip(CircleShape)
                 .background(if (chosen) ApogeeColors.Accent.alpha(0.3f) else Color.White.alpha(ApogeeAlpha.FILL_FAINT))
+                .padFocus(CircleShape)
                 .clickable(onClick = onClick)
                 .padding(8.dp),
             contentAlignment = Alignment.Center,

@@ -134,6 +134,19 @@ class GameSettings(private val prefs: Preferences) {
 
     var hapticsEnabled: Boolean by booleanPref(KEY_HAPTICS, true)
 
+    /**
+     * A controller: which button does what (see [com.rm.apogee.input.PadBindings], saved as its
+     * line of text, blank for the default), the sticks' dead zone, how fast the look stick turns
+     * the camera, whether it's upside down, whether the touch stick gets out of the way while a
+     * controller's in use, and whether staging needs A held for a moment.
+     */
+    var padBindings: String by stringPref(KEY_PAD_BINDINGS, "")
+    var padDeadZone: Float by floatPref(KEY_PAD_DEAD_ZONE, 0.15f, 0.05f..0.4f)
+    var padLookSpeed: Float by floatPref(KEY_PAD_LOOK_SPEED, 1.0f, 0.3f..2.5f)
+    var padInvertLook: Boolean by booleanPref(KEY_PAD_INVERT_LOOK, false)
+    var padHideTouch: Boolean by booleanPref(KEY_PAD_HIDE_TOUCH, true)
+    var padHoldToStage: Boolean by booleanPref(KEY_PAD_HOLD_STAGE, true)
+
     /** The assembly building's panels as the player last left them. */
     var builderPartsOpen: Boolean by booleanPref(KEY_BUILDER_PARTS, true)
     var builderStagesOpen: Boolean by booleanPref(KEY_BUILDER_STAGES, true)
@@ -257,6 +270,12 @@ class GameSettings(private val prefs: Preferences) {
 
     private companion object {
         const val KEY_PLAYER_NAME = "player_name"
+        const val KEY_PAD_BINDINGS = "pad_bindings"
+        const val KEY_PAD_DEAD_ZONE = "pad_dead_zone"
+        const val KEY_PAD_LOOK_SPEED = "pad_look_speed"
+        const val KEY_PAD_INVERT_LOOK = "pad_invert_look"
+        const val KEY_PAD_HIDE_TOUCH = "pad_hide_touch"
+        const val KEY_PAD_HOLD_STAGE = "pad_hold_stage"
         const val KEY_SUIT_STRIPE = "suit_stripe"
         const val KEY_CLIENT_ID = "client_id"
         const val KEY_LAST_SERVER = "last_server_address"

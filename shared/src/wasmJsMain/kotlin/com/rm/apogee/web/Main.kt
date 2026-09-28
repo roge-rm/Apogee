@@ -45,6 +45,7 @@ fun main() {
         { code, down -> app.key(code, down) },
         { app.releaseKeys() },
     )
+    host.startGamepad()
     document.getElementById("loading")?.remove()
     window.addEventListener("pagehide") { app.hidden() }
     document.addEventListener("visibilitychange") {
@@ -62,7 +63,8 @@ private fun context(canvas: HTMLCanvasElement): JsAny? =
 private fun onKeys(onKey: (String, Boolean) -> Boolean, onLost: () -> Unit): Unit = js("""{
     const typing = () => { const a = document.activeElement; return a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.isContentEditable); };
     const handle = (e, down) => {
-        if (e.metaKey || e.altKey || typing()) return;
+        // Keys the controller sends to work the menus aren't the keyboard flying.
+        if (!e.isTrusted || e.metaKey || e.altKey || typing()) return;
         if (e.ctrlKey && !e.code.startsWith('Control')) return;
         if (onKey(e.code, down)) e.preventDefault();
     };
@@ -122,6 +124,41 @@ private fun cores(): Int = js("navigator.hardwareConcurrency || 4")
 private fun memoryGb(): Double = js("navigator.deviceMemory || 4")
 
 private fun touchScreen(): Boolean = js("matchMedia('(pointer: coarse)').matches")
+
+/**
+ * The first gamepad connected, as one line: its buttons (how far each is pressed), then its
+ * axes, then its name, split by |. Empty with none. A line a frame is cheaper than going back
+ * and forth for every button.
+ */
+private fun gamepadLine(): String = js("""{
+    const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+    for (const p of pads) {
+        if (!p || !p.connected) continue;
+        return p.buttons.map(b => b.value.toFixed(3)).join(',') + '|' +
+            p.axes.map(a => a.toFixed(3)).join(',') + '|' + p.id;
+    }
+    return '';
+}""")
+
+/**
+ * A key sent to the screens, as if typed: to whatever in them has the page's focus, or their canvas.
+ * True if they used it. That's how the controller works the menus, which answer Tab, Enter and Esc
+ * as a keyboard's, and the arrows where something takes them (a slider).
+ */
+private fun screensKey(key: String, shift: Boolean): Boolean = js("""{
+    let canvas = null;
+    for (const d of document.querySelectorAll('#screens div')) {
+        if (d.shadowRoot) { canvas = d.shadowRoot.querySelector('canvas'); if (canvas) break; }
+    }
+    if (!canvas) return false;
+    let target = canvas.getRootNode().activeElement;
+    if (!target) { canvas.focus(); target = canvas; }
+    const o = { key: key, code: key, shiftKey: shift, bubbles: true, cancelable: true, composed: true };
+    const down = new KeyboardEvent('keydown', o);
+    target.dispatchEvent(down);
+    target.dispatchEvent(new KeyboardEvent('keyup', o));
+    return down.defaultPrevented;
+}""")
 
 /** What the page gives the app: storage, the canvas, downloads and the file picker. */
 private class WebHost(private val canvas: HTMLCanvasElement) : AppHost {
@@ -216,7 +253,110 @@ private class WebHost(private val canvas: HTMLCanvasElement) : AppHost {
 
     override fun runOnMain(block: () -> Unit) = block()
 
+    private val gamepad = com.rm.apogee.input.PadState()
+    private var hadGamepad = false
+
+    /**
+     * The browser's gamepad, asked for every frame on every screen (a page isn't told when a stick
+     * moves), in the standard layout: A, B, X, Y, L1, R1, L2, R2, Select, Start, L3, R3, then the
+     * D-pad, and the two sticks' axes. In flight the app flies with it. Anywhere else it works the
+     * screens the way a keyboard would, as Android's own handling does on a phone.
+     */
+    fun startGamepad() {
+        requestFrame(::gamepadFrame)
+    }
+
+    private fun gamepadFrame(time: Double) {
+        requestFrame(::gamepadFrame)
+        val line = gamepadLine()
+        if (line.isEmpty()) {
+            if (hadGamepad) {
+                hadGamepad = false
+                app.pad.clear()
+                app.controllerName = null
+            }
+            return
+        }
+        val parts = line.split('|', limit = 3)
+        val buttons = parts[0].split(',').map { it.toFloatOrNull() ?: 0f }
+        val axes = parts.getOrNull(1)?.split(',')?.map { it.toFloatOrNull() ?: 0f } ?: emptyList()
+        for ((i, button) in STANDARD_BUTTONS.withIndex()) gamepad[button] = buttons.getOrElse(i) { 0f }
+        gamepad.leftX = axes.getOrElse(0) { 0f }
+        gamepad.leftY = axes.getOrElse(1) { 0f }
+        gamepad.rightX = axes.getOrElse(2) { 0f }
+        gamepad.rightY = axes.getOrElse(3) { 0f }
+        app.pad.update(gamepad)
+        if (!hadGamepad) {
+            hadGamepad = true
+            app.controllerName = parts.getOrNull(2)
+        }
+        if (app.padMode() != com.rm.apogee.input.PadMode.FLIGHT) workScreens(time) else heading = null
+        wasA = gamepad[com.rm.apogee.input.PadButton.A] > 0.5f
+        wasB = gamepad[com.rm.apogee.input.PadButton.B] > 0.5f
+    }
+
+    // The way the D-pad or stick is held in the menus, and when it next moves again on its own.
+    private var heading: com.rm.apogee.input.PadButton? = null
+    private var nextStep = 0.0
+    private var wasA = false
+    private var wasB = false
+
+    /** The D-pad or left stick moves between things, A presses the one it's on, and B goes back. */
+    private fun workScreens(time: Double) {
+        val way = when {
+            gamepad[com.rm.apogee.input.PadButton.UP] > 0.5f || gamepad.leftY < -STICK_STEP -> com.rm.apogee.input.PadButton.UP
+            gamepad[com.rm.apogee.input.PadButton.DOWN] > 0.5f || gamepad.leftY > STICK_STEP -> com.rm.apogee.input.PadButton.DOWN
+            gamepad[com.rm.apogee.input.PadButton.LEFT] > 0.5f || gamepad.leftX < -STICK_STEP -> com.rm.apogee.input.PadButton.LEFT
+            gamepad[com.rm.apogee.input.PadButton.RIGHT] > 0.5f || gamepad.leftX > STICK_STEP -> com.rm.apogee.input.PadButton.RIGHT
+            else -> null
+        }
+        if (way == null) {
+            heading = null
+        } else if (way != heading) {
+            heading = way
+            nextStep = time + FIRST_REPEAT_MS
+            step(way)
+        } else if (time >= nextStep) {
+            nextStep = time + REPEAT_MS
+            step(way)
+        }
+        if (gamepad[com.rm.apogee.input.PadButton.A] > 0.5f && !wasA) screensKey("Enter", false)
+        if (gamepad[com.rm.apogee.input.PadButton.B] > 0.5f && !wasB) screensKey("Escape", false)
+    }
+
+    /**
+     * One step [way]. The screens on a page don't move between things by the arrows, so up and down
+     * are Shift-Tab and Tab. (Sent as arrows, a scrolling page took them to scroll by, and nothing
+     * moved.) Left and right go as arrows first, for whatever takes them (a slider), and as Tab or
+     * Shift-Tab when nothing does.
+     */
+    private fun step(way: com.rm.apogee.input.PadButton) {
+        when (way) {
+            com.rm.apogee.input.PadButton.UP -> screensKey("Tab", true)
+            com.rm.apogee.input.PadButton.DOWN -> screensKey("Tab", false)
+            com.rm.apogee.input.PadButton.LEFT -> if (!screensKey("ArrowLeft", false)) screensKey("Tab", true)
+            else -> if (!screensKey("ArrowRight", false)) screensKey("Tab", false)
+        }
+    }
+
     private companion object {
         const val BACKGROUND_MILLIS = 6.0
+
+        /** How far the stick goes to move in a menu, and how soon a held one moves again, in ms. */
+        const val STICK_STEP = 0.6f
+        const val FIRST_REPEAT_MS = 400.0
+        const val REPEAT_MS = 150.0
+
+        /** The standard gamepad's buttons, by their place in its list. */
+        val STANDARD_BUTTONS = listOf(
+            com.rm.apogee.input.PadButton.A, com.rm.apogee.input.PadButton.B,
+            com.rm.apogee.input.PadButton.X, com.rm.apogee.input.PadButton.Y,
+            com.rm.apogee.input.PadButton.L1, com.rm.apogee.input.PadButton.R1,
+            com.rm.apogee.input.PadButton.L2, com.rm.apogee.input.PadButton.R2,
+            com.rm.apogee.input.PadButton.SELECT, com.rm.apogee.input.PadButton.START,
+            com.rm.apogee.input.PadButton.L3, com.rm.apogee.input.PadButton.R3,
+            com.rm.apogee.input.PadButton.UP, com.rm.apogee.input.PadButton.DOWN,
+            com.rm.apogee.input.PadButton.LEFT, com.rm.apogee.input.PadButton.RIGHT,
+        )
     }
 }

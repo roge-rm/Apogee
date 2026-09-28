@@ -31,6 +31,9 @@ enum class AppScreen {
     /** A career's program: the tech tree, the feats, and the worlds. */
     PROGRAM,
 
+    /** Which controller button does what. */
+    CONTROLLER,
+
     /** The 3D world view. */
     FLIGHT;
 
@@ -41,6 +44,7 @@ enum class AppScreen {
             PLAY, SETTINGS, ABOUT -> MENU
             HOST_GAME, JOIN_GAME -> PLAY
             BUILDER, QUICK_LAUNCH, RESUME_FLIGHT, CREW, PROGRAM -> PLAY
+            CONTROLLER -> SETTINGS
             // Flight handles its own exit through a confirmation, so a stray back gesture can't
             // throw away a flight in progress.
             FLIGHT -> null

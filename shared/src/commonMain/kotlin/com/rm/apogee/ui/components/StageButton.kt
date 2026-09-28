@@ -1,5 +1,6 @@
 package com.rm.apogee.ui.components
 
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -66,6 +67,8 @@ fun RoundStageButton(
     /** The stage burning now, whose fuel the ring shows. */
     current: StageCard? = null,
     size: Dp = STAGE_BUTTON,
+    /** How far a controller's A has been held toward staging, 0 to 1, filled in from the bottom. */
+    hold: Float = 0f,
 ) {
     val ink = Color(0xFF1A1030)
     val fraction = current?.fuelFraction
@@ -78,6 +81,10 @@ fun RoundStageButton(
     ) {
         Canvas(Modifier.fillMaxSize()) {
             drawCircle(ApogeeColors.Accent.alpha(0.88f))
+            if (hold > 0f) {
+                val top = this.size.height * (1f - hold.coerceIn(0f, 1f))
+                clipRect(top = top) { drawCircle(Color.White.alpha(0.55f)) }
+            }
             if (fraction != null) {
                 val stroke = RING.toPx()
                 val inset = stroke / 2f + 2.dp.toPx()

@@ -1,5 +1,6 @@
 package com.rm.apogee.ui.screens
 
+import com.rm.apogee.ui.components.padFocus
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -145,6 +146,7 @@ internal fun <T> PillRow(options: List<Pair<String, T>>, selected: T, onSelect: 
                 Modifier
                     .clip(RoundedCornerShape(50))
                     .background(if (on) ApogeeColors.Accent else ApogeeColors.SurfaceRaised)
+                    .padFocus(RoundedCornerShape(50), if (on) Color.White else ApogeeColors.Accent)
                     .clickable { onSelect(value) }
                     .padding(horizontal = 20.dp, vertical = 8.dp),
             ) {
@@ -175,6 +177,7 @@ private fun LaunchTimeRow(selected: LaunchTime, modifier: Modifier, onSelect: (L
                     Modifier
                         .clip(RoundedCornerShape(50))
                         .background(if (on) ApogeeColors.Accent else ApogeeColors.SurfaceRaised)
+                        .padFocus(RoundedCornerShape(50), if (on) Color.White else ApogeeColors.Accent)
                         .clickable { onSelect(option) }
                         .padding(horizontal = 12.dp, vertical = 7.dp),
                 ) {

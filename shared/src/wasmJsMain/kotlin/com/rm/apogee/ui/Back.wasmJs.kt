@@ -43,7 +43,9 @@ private fun goBack(): Boolean {
 /**
  * Hooks Esc and the browser's back button up to the handlers. The page keeps an extra entry in the
  * browser's history, so the back button comes here first. When there's nothing left to go back from
- * (the main menu), it goes on back out of the page, as it would anywhere else.
+ * (the main menu), it goes on back out of the page, as it would anywhere else. Esc is caught on its
+ * way in, before the screens have it. If a dialog saw it first and closed itself, back would find
+ * nothing open, and in flight it would open the flight menu again straight away.
  */
 fun installBack() {
     pushEntry()
@@ -60,4 +62,4 @@ private fun historyBack(): Unit = js("history.back()")
 private fun onPopState(block: () -> Unit): Unit = js("window.addEventListener('popstate', () => block())")
 
 private fun onEscape(block: () -> Unit): Unit =
-    js("window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !e.repeat) block(); })")
+    js("window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !e.repeat) block(); }, true)")

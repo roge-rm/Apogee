@@ -73,6 +73,7 @@ import com.rm.apogee.ui.components.StatusRow
 import com.rm.apogee.ui.components.VerticalAxisSlider
 import com.rm.apogee.ui.components.WarpButton
 import com.rm.apogee.ui.components.promptKey
+import com.rm.apogee.ui.components.padFocus
 import com.rm.apogee.ui.theme.ApogeeAlpha
 import com.rm.apogee.ui.theme.ApogeeColors
 import com.rm.apogee.ui.theme.Dimens
@@ -101,6 +102,8 @@ fun FlightScreen(
     leftHandMode: Boolean,
     /** Let the controls fade back when they haven't been touched for a few seconds. */
     fadeWhenIdle: Boolean = true,
+    /** A controller's flying, so the touch stick and roll buttons step aside. */
+    hideTouchStick: Boolean = false,
     onThrottleChange: (Float) -> Unit,
     onAttitude: (pitch: Float, yaw: Float) -> Unit,
     onRoll: (Float) -> Unit,
@@ -231,8 +234,7 @@ fun FlightScreen(
             return@BoxWithConstraints
         }
 
-        var exitMenu by remember { mutableStateOf(false) }
-        if (exitMenu) ExitMenu(hud, rewind, onExit, onClose = { exitMenu = false })
+        if (hud.exitMenuOpen) ExitMenu(hud, rewind, onExit, onClose = { hud.exitMenuOpen = false })
 
         // --- fading when idle -----------------------------------------------
         //
@@ -279,7 +281,7 @@ fun FlightScreen(
                 FilledTonalIconButton(
                     // Alone in your own world, it's a menu, with the save points in it. Otherwise
                     // it just leaves.
-                    onClick = { if (hud.canRewind) exitMenu = true else onExit() },
+                    onClick = { if (hud.canRewind) hud.exitMenuOpen = true else onExit() },
                     modifier = Modifier.size(Dimens.HudIconSize),
                 ) {
                     Icon(Icons.Filled.Close, contentDescription = "Leave")
@@ -432,6 +434,7 @@ fun FlightScreen(
                 hud, onAttitude, onRoll, sas,
                 if (portrait) PORTRAIT_STICK_SIZE else STICK_SIZE,
                 Modifier.cornerInset(leftHandMode, if (portrait) PORTRAIT_STICK_INSET else STICK_INSET),
+                touchStick = !hideTouchStick,
             )
         }
         val navball: @Composable () -> Unit = {
@@ -456,7 +459,7 @@ fun FlightScreen(
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     StageTab(hud.stages, hud.stagesExpanded, { hud.stagesExpanded = !hud.stagesExpanded })
                     if (hud.stages.isNotEmpty()) Spacer(Modifier.height(6.dp))
-                    RoundStageButton(hud.telemetry.stage, onStage, current = hud.stages.firstOrNull { it.current })
+                    RoundStageButton(hud.telemetry.stage, onStage, current = hud.stages.firstOrNull { it.current }, hold = hud.stageHold)
                 }
             }
         }
@@ -605,13 +608,15 @@ private fun ExitMenu(hud: HudState, rewind: RewindActions, onExit: () -> Unit, o
         title = { Text(hud.telemetry.craftName.ifBlank { "Paused" }) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                MenuRow("Save point", hud.savePoint?.let { "Last taken at $it" } ?: "Take one now, to come back to") {
+                // Save points are only for a world of your own. Anywhere else, Start and Back still
+                // bring this up, with only Leave in it.
+                if (hud.canRewind) MenuRow("Save point", hud.savePoint?.let { "Last taken at $it" } ?: "Take one now, to come back to") {
                     rewind.onSavePoint(); onClose()
                 }
-                MenuRow("Load save point", hud.savePoint?.let { "Back to $it" } ?: "None taken yet", enabled = hud.savePoint != null) {
+                if (hud.canRewind) MenuRow("Load save point", hud.savePoint?.let { "Back to $it" } ?: "None taken yet", enabled = hud.savePoint != null) {
                     confirm = "load"
                 }
-                MenuRow("Revert to launch", if (hud.canRevert) "Start again from the launch" else "Not launched this time", enabled = hud.canRevert) {
+                if (hud.canRewind) MenuRow("Revert to launch", if (hud.canRevert) "Start again from the launch" else "Not launched this time", enabled = hud.canRevert) {
                     confirm = "revert"
                 }
                 MenuRow("Leave", "Back to the menu") { onClose(); onExit() }
@@ -627,6 +632,7 @@ private fun MenuRow(title: String, detail: String, enabled: Boolean = true, onCl
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(Dimens.CornerTight))
+            .padFocus()
             .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 8.dp, vertical = 10.dp),
     ) {
@@ -658,6 +664,8 @@ private fun AttitudeCluster(
     sas: SasActions,
     stickSize: Dp,
     modifier: Modifier = Modifier,
+    /** The stick and roll buttons, or only SAS and what the stick does, with a controller flying. */
+    touchStick: Boolean = true,
 ) {
     // Sliding on the thrusters, the roll buttons become down and up instead.
     val sliding = hud.rcsArmed && hud.rcsSlide
@@ -667,7 +675,7 @@ private fun AttitudeCluster(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            HoldButton(if (sliding) "▼" else "↺", { held -> onRoll(if (held) -1f else 0f) }, size = 40.dp)
+            if (touchStick) HoldButton(if (sliding) "▼" else "↺", { held -> onRoll(if (held) -1f else 0f) }, size = 40.dp)
             // Stability assist lives with the attitude controls, not with staging, because it's the
             // thing that holds an attitude for you.
             com.rm.apogee.ui.components.SasButton(
@@ -685,15 +693,19 @@ private fun AttitudeCluster(
                 onCruise = sas.onCruise,
                 keeping = hud.power?.keeping == true,
             )
-            HoldButton(if (sliding) "▲" else "↻", { held -> onRoll(if (held) 1f else 0f) }, size = 40.dp)
+            if (touchStick) HoldButton(if (sliding) "▲" else "↻", { held -> onRoll(if (held) 1f else 0f) }, size = 40.dp)
         }
         Spacer(Modifier.height(8.dp))
-        Box(contentAlignment = Alignment.Center) {
-            AttitudeStick(onChange = onAttitude, size = stickSize)
-            // Why it does nothing, written across it.
-            if (deaf != null) {
-                Text(deaf, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = ApogeeColors.Danger)
+        if (touchStick) {
+            Box(contentAlignment = Alignment.Center) {
+                AttitudeStick(onChange = onAttitude, size = stickSize)
+                // Why it does nothing, written across it.
+                if (deaf != null) {
+                    Text(deaf, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = ApogeeColors.Danger)
+                }
             }
+        } else if (deaf != null) {
+            Text(deaf, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = ApogeeColors.Danger)
         }
         // What the stick does, right under it: read by the craft's nose or by the screen, or
         // sliding while the thrusters are armed.

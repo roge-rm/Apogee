@@ -123,7 +123,7 @@ fun TitleRow(title: String, onBack: (() -> Unit)?) {
 /** Back: under a short menu's buttons, or at the end of a page's title row. */
 @Composable
 fun BackButton(onBack: () -> Unit, modifier: Modifier = Modifier) {
-    TextButton(onClick = onBack, modifier = modifier) {
+    TextButton(onClick = onBack, modifier = modifier.padFocus(androidx.compose.foundation.shape.RoundedCornerShape(50))) {
         Text("Back", style = MaterialTheme.typography.labelLarge, color = ApogeeColors.Accent)
     }
 }

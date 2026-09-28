@@ -21,6 +21,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -45,7 +50,8 @@ fun ApogeeButton(
         enabled = enabled,
         modifier = modifier
             .fillMaxWidth()
-            .padding(vertical = 6.dp),
+            .padding(vertical = 6.dp)
+            .padFocus(androidx.compose.foundation.shape.RoundedCornerShape(50)),
         colors = ButtonDefaults.buttonColors(
             containerColor = ApogeeColors.Accent.alpha(ApogeeAlpha.CONTROL_FILL),
             contentColor = Color.White,
@@ -117,6 +123,7 @@ fun SwitchRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
+            .padFocus()
             .padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -154,7 +161,7 @@ fun SliderRow(
     range: ClosedFloatingPointRange<Float> = 0f..1f,
     steps: Int = 0,
 ) {
-    Column(modifier = modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+    Column(modifier = modifier.fillMaxWidth().padFocus().padding(vertical = 8.dp)) {
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -163,11 +170,23 @@ fun SliderRow(
             Text(title, style = MaterialTheme.typography.bodyLarge, color = Color.White)
             Text(valueLabel, style = MaterialTheme.typography.bodyMedium, color = ApogeeColors.Accent)
         }
+        val focus = androidx.compose.ui.platform.LocalFocusManager.current
         Slider(
             value = value,
             onValueChange = onValueChange,
             valueRange = range,
             steps = steps,
+            // Left and right move it. Up and down move on to the next thing, or a controller's
+            // D-pad got stuck on the slider, turning it down a step at a time.
+            modifier = Modifier.onPreviewKeyEvent { event ->
+                val direction = when (event.key) {
+                    Key.DirectionUp -> androidx.compose.ui.focus.FocusDirection.Up
+                    Key.DirectionDown -> androidx.compose.ui.focus.FocusDirection.Down
+                    else -> return@onPreviewKeyEvent false
+                }
+                if (event.type == KeyEventType.KeyDown) focus.moveFocus(direction)
+                true
+            },
             colors = SliderDefaults.colors(
                 thumbColor = ApogeeColors.Accent,
                 activeTrackColor = ApogeeColors.Accent.alpha(0.7f),
@@ -200,13 +219,15 @@ fun <T> ChoiceGroup(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .padFocus()
                     .clickable { onSelect(option) }
                     .padding(vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                // The row's the one thing to press, so a controller stops on each option once.
                 RadioButton(
                     selected = option == selected,
-                    onClick = { onSelect(option) },
+                    onClick = null,
                     colors = RadioButtonDefaults.colors(
                         selectedColor = ApogeeColors.Accent,
                         unselectedColor = Color.White.alpha(ApogeeAlpha.SECONDARY),
