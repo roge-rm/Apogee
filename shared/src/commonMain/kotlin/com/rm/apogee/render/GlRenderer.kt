@@ -365,6 +365,7 @@ class GlRenderer(
             drawGlobe(world, cameraPos, atmosphereFactor)
             mark(4)
             drawItems(latest.farItems, null, latest, 0.0, cameraPos, farViewProjection.m)
+            drawFarGlobes(latest.farGlobes, world, cameraPos, atmosphereFactor)
             drawCloudShell(world, cameraPos)
             mark(5)
             // Paths go through the far projection, since an orbit is hundreds of kilometres across
@@ -527,6 +528,38 @@ class GlRenderer(
         GLES30.glEnable(GLES30.GL_CULL_FACE)
         GLES30.glDepthMask(true)
         GLES30.glDisable(GLES30.GL_BLEND)
+    }
+
+    /** Other worlds' globe meshes, by body id, uploaded once each. */
+    private val farGlobeMeshes = HashMap<String, TerrainMesh>()
+    private val farGlobeCentre = Vec3()
+
+    /**
+     * The other worlds big enough in the sky, each as itself: its own globe, lit by the sun, where
+     * it really is. Its sea is the flat water the globe already carries, and our own air's haze
+     * isn't laid over it, only the day sky's wash.
+     */
+    private fun drawFarGlobes(globes: List<FarGlobe>, world: WorldView, cameraPos: Vec3, atmosphereFactor: Float) {
+        if (globes.isEmpty()) return
+        val shader = terrainProgram ?: return
+        shader.use()
+        for (far in globes) {
+            val mesh = farGlobeMeshes.getOrPut(far.id) { TerrainMesh().also { it.upload(far.globe.vertices, far.globe.indices) } }
+            if (!mesh.isReady) continue
+            modelMatrix.setFromTrs(far.position, far.rotation, cameraPos, far.radius)
+            applySurfaceUniforms(shader, world, atmosphereFactor, cameraPos)
+            farGlobeCentre.setTo(far.position).subInPlace(cameraPos)
+            shader.setVec3("uBodyCentre", farGlobeCentre.x.toFloat(), farGlobeCentre.y.toFloat(), farGlobeCentre.z.toFloat())
+            shader.setFloat("uSeaReach", 0f)
+            shader.setFloat("uTide", 0f)
+            shader.setFloat("uHasAtmosphere", if (far.hasAir) 1f else 0f)
+            shader.setFloat("uDiscardNearer", 0f)
+            shader.setFloat("uSkyBody", 1f)
+            shader.setVec3("uFarRim", far.rim[0], far.rim[1], far.rim[2])
+            applyShadowUniforms(shader, false)
+            mesh.draw()
+        }
+        shader.setFloat("uSkyBody", 0f)
     }
 
     /** The whole body, for the view from any distance. */
@@ -1411,6 +1444,8 @@ class GlRenderer(
         cloudShellProgram?.release(); cloudShellProgram = null
         cloudShellMesh?.release(); cloudShellMesh = null
         globeMesh?.release(); globeMesh = null
+        for (mesh in farGlobeMeshes.values) mesh.release()
+        farGlobeMeshes.clear()
         uploadedGlobe = 0
         // Every chunk on the GPU is gone with the context. Say so, so they get built again instead
         // of drawn from names that don't exist any more.

@@ -95,6 +95,14 @@ class ApogeeApp(private val host: AppHost) {
     /** Set by the builder's Launch button, and used up when flight starts. */
     private var pendingLaunchDesign: CraftDesign? = null
     private var pendingLaunchSite: String? = null
+
+    /** A launch that clears away the craft flown last time, as Quick Launch's do. */
+    private var pendingFresh = false
+
+    /** The saved craft for Quick Launch, read when it opens. Empty until then. */
+    private var quickEntries: List<com.rm.apogee.game.CraftShelf.Entry> by mutableStateOf(emptyList())
+    private var quickCraft: String? by mutableStateOf(null)
+    private var quickSite: String? by mutableStateOf(null)
     private var pendingResume: Long? = null
 
     /**
@@ -255,6 +263,18 @@ class ApogeeApp(private val host: AppHost) {
                             refreshResumeCraft()
                         },
                     )
+                    AppScreen.QUICK_LAUNCH -> com.rm.apogee.ui.screens.QuickLaunchScreen(
+                        entries = quickEntries,
+                        pictures = partThumbnails.pictures,
+                        chosen = quickCraft,
+                        onChoose = { quickCraft = it; settings.quickCraft = it },
+                        site = quickSite,
+                        automatic = quickEntries.firstOrNull { it.saved.fileName == quickCraft }
+                            ?.let { World.launchSiteFor(it.design, StockParts.catalog).displayName } ?: "the pad",
+                        bases = runCatching { openSoloWorld().baseSites(settings.clientId) }.getOrDefault(emptyList()),
+                        onSite = { quickSite = it; settings.quickSite = it ?: "" },
+                        onLaunch = ::quickLaunch,
+                    )
                     AppScreen.CREW -> com.rm.apogee.ui.screens.CrewScreen(crewList) { id, visor ->
                         openSoloWorld().setVisor(id, visor)
                         saveSoloWorld()
@@ -405,6 +425,7 @@ class ApogeeApp(private val host: AppHost) {
         appScreen = target
         if (target == AppScreen.RESUME_FLIGHT) refreshResumeCraft()
         if (target == AppScreen.CREW) refreshCrew()
+        if (target == AppScreen.QUICK_LAUNCH) refreshQuickLaunch()
         if (target == AppScreen.PLAY || target == AppScreen.PROGRAM) refreshProgram()
 
         // Discovery holds a multicast lock and a socket, so it only runs while the browser is
@@ -468,6 +489,30 @@ class ApogeeApp(private val host: AppHost) {
                 navigateTo(AppScreen.BUILDER)
             }
         }
+    }
+
+    /** Reads the saved craft for Quick Launch, off the main thread, choosing the last one again. */
+    private fun refreshQuickLaunch() {
+        quickSite = settings.quickSite.ifBlank { null }
+        val store = craftStore
+        scope.launch {
+            val entries = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                com.rm.apogee.game.CraftShelf.read(store.list(), store, StockParts.catalog, partThumbnails)
+            }
+            quickEntries = entries
+            quickCraft = settings.quickCraft.takeIf { name -> entries.any { it.saved.fileName == name } }
+                ?: entries.firstOrNull { it.saved.name == "Starter I" }?.saved?.fileName
+                ?: entries.firstOrNull()?.saved?.fileName
+        }
+    }
+
+    /** The chosen craft onto the chosen site, in place of the one flown last. */
+    private fun quickLaunch() {
+        val entry = quickEntries.firstOrNull { it.saved.fileName == quickCraft } ?: return
+        pendingLaunchDesign = entry.design.withoutEmptyStages()
+        pendingLaunchSite = quickSite
+        pendingFresh = true
+        navigateTo(AppScreen.FLIGHT)
     }
 
     private fun launchFromBuilder() {
@@ -893,10 +938,10 @@ class ApogeeApp(private val host: AppHost) {
                     scope = scope,
                     world = openSoloWorld(),
                     siteId = pendingLaunchSite,
-                    // Free Flight from the menu is a new flight. The craft flown last time gets
-                    // cleared away and a fresh one put on the pad. A launch from the builder brings
-                    // its own, and Resume Flight names the one to fly.
-                    freshFlight = pendingLaunchDesign == null && pendingResume == null,
+                    // Quick Launch is a new flight: the craft flown last time gets cleared away
+                    // and the chosen one put on its site. A launch from the builder adds its craft
+                    // to the world, and Out There names the one to fly.
+                    freshFlight = (pendingLaunchDesign == null || pendingFresh) && pendingResume == null,
                     resumeVessel = pendingResume,
                     weather = settings.weatherIntensity,
                     clouds = settings.cloudCover,
@@ -924,6 +969,7 @@ class ApogeeApp(private val host: AppHost) {
             }
             pendingLaunchDesign = null
             pendingLaunchSite = null
+            pendingFresh = false
             pendingResume = null
             pendingMode = SessionMode.Solo
             rendererTerrainSource?.let { source ->

@@ -241,12 +241,25 @@ internal class Storms(
                     s.core = 1_800.0 + 1_500.0 * h(76)
                     s.top = 8_000.0 + 5_000.0 * s.strength * (0.8 + 0.4 * h(79))
                     s.lean = 0.2 + 0.4 * h(87)
-                    val n = (2.0 * half / 7_000.0).toInt().coerceIn(6, MAX_CELLS)
+                    // Towers shoulder to shoulder, one dark wall, not a row of chimneys with sky
+                    // between them. When they stood evenly seven kilometres apart, a line on the
+                    // horizon looked like a picket fence, and I didn't like it. They're spaced
+                    // unevenly, so they bunch, and each is wide enough to overlap its neighbours.
+                    val n = (2.0 * half / (1.8 * s.core)).toInt().coerceIn(6, MAX_CELLS)
+                    val steps = DoubleArray(n) { 0.6 + 0.8 * h(120 + it) }
+                    val total = steps.sum()
+                    var at = -half
                     for (i in 0 until n) {
-                        val across = -half + (i + 0.5) * (2.0 * half / n) + (h(120 + i) - 0.5) * 2_000.0
+                        val gap = 2.0 * half * steps[i] / total
+                        val across = at + gap * 0.5
+                        at += gap
                         // Bowed forward in the middle, like a line pushed along by its own outflow.
                         val bow = 0.08 * half * (1.0 - (across / half).let { it * it })
-                        addCell(s, bow + (h(100 + i) - 0.5) * 3_000.0, across, s.core * (0.8 + 0.4 * h(180 + i)), 0.55 + 0.45 * h(160 + i), (h(140 + i) - 0.5) * 0.16)
+                        val radius = max(s.core * (0.8 + 0.4 * h(180 + i)), 0.75 * 2.0 * half / n)
+                        // Most of them up at the ceiling, where they flatten into the anvil, and a
+                        // few young ones still climbing, so the top is level with a few steps in it.
+                        val height = if (h(160 + i) < 0.25) 0.55 + 0.25 * h(165 + i) else 0.9 + 0.1 * h(165 + i)
+                        addCell(s, bow + (h(100 + i) - 0.5) * 2_000.0, across, radius, height, (h(140 + i) - 0.5) * 0.16)
                     }
                     s.halfAcross = half + 3_000.0
                     s.halfAlong = 7_000.0 + 8_000.0 * h(91)
@@ -454,7 +467,7 @@ internal class Storms(
             val main = s.mainCell
             val anvilHeight = cellTop(s, main, time) - 800.0
             val anvilAlong = s.cellAlong[main] + 0.8 * s.core + s.lean * s.core
-            val ah = kotlin.math.hypot((along - anvilAlong) / anvilHalfAlong(s), (across - s.cellAcross[main]) / anvilHalfAcross(s))
+            val ah = kotlin.math.hypot((along - anvilAlong) / anvilHalfAlong(s), (across - anvilAcross(s)) / anvilHalfAcross(s))
             val av = (altitude - anvilHeight) / 900.0
             density = max(density, 1.0 - ah * ah - av * av)
             if (density > 0.0) addCloud(out, (density * 2.0).coerceAtMost(1.0) * envelope, climate.stormCloud)
@@ -600,6 +613,9 @@ internal class Storms(
 
     /** Half the anvil's length downwind, in metres. Tens of kilometres for a supercell's. */
     fun anvilHalfAlong(s: Storm): Double = max(2.4 * s.core, s.halfAlong * 0.8) * s.anvilSpread
+
+    /** Where the anvil is across the track, in metres: over the tallest tower, or a squall line's middle. */
+    fun anvilAcross(s: Storm): Double = if (s.kind == StormKind.SQUALL) 0.0 else s.cellAcross[s.mainCell]
 
     /** Half the anvil's width, in metres. A squall line's runs its whole length. */
     fun anvilHalfAcross(s: Storm): Double =

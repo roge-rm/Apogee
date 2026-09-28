@@ -410,4 +410,28 @@ class WeatherTest {
         }
         assertTrue("wider than tall: $wide of $total", total > 10 && wide >= total * 0.7)
     }
+
+    @Test
+    fun `a squall line is one wall of towers under a flat anvil, not a row of chimneys`() {
+        val w = weather(WeatherIntensity.WILD)
+        val lines = manyStorms(w).filter { it.first.kind == StormKind.SQUALL }.take(8)
+        assertTrue("no squall lines found", lines.isNotEmpty())
+        for ((st, t) in lines) {
+            // Each tower reaches its neighbour along the line. A drawn tower is 0.95 of its radius.
+            val order = (0 until st.cellCount).sortedBy { st.cellAcross[it] }
+            for ((a, b) in order.zipWithNext()) {
+                val apart = kotlin.math.hypot(st.cellAcross[b] - st.cellAcross[a], st.cellAlong[b] - st.cellAlong[a])
+                val reach = 0.95 * (st.cellRadius[a] + st.cellRadius[b])
+                assertTrue("towers $a and $b are $apart m apart and reach $reach m", apart <= reach + 300.0)
+            }
+            // At its best, an anvil sheet spreads over it, high up.
+            val shapes = ArrayList<CloudShape>()
+            val centre = w.stormModel.centreAt(st, t, Vec3())
+            w.clouds(centre, 10_000.0, t, shapes, stormReach = 150_000.0)
+            val line = shapes.filter { it.type == CloudType.CUMULONIMBUS }.maxByOrNull { it.lobes.size } ?: continue
+            val high = st.base + 0.6 * (st.top - st.base)
+            val anvil = line.lobes.count { it.flat && it.centre.length - radius > high }
+            assertTrue("an anvil over the line: $anvil flat lobes up high", anvil >= 6)
+        }
+    }
 }

@@ -19,6 +19,9 @@ enum class AppScreen {
     /** The builder (VAB). M2. */
     BUILDER,
 
+    /** Pick a craft and a site, and launch it in place of the last one. */
+    QUICK_LAUNCH,
+
     /** The player's craft in the solo world: fly one, reset it, or remove it. */
     RESUME_FLIGHT,
 
@@ -37,7 +40,7 @@ enum class AppScreen {
             MENU -> null
             PLAY, SETTINGS, ABOUT -> MENU
             HOST_GAME, JOIN_GAME -> PLAY
-            BUILDER, RESUME_FLIGHT, CREW, PROGRAM -> PLAY
+            BUILDER, QUICK_LAUNCH, RESUME_FLIGHT, CREW, PROGRAM -> PLAY
             // Flight handles its own exit through a confirmation, so a stray back gesture can't
             // throw away a flight in progress.
             FLIGHT -> null

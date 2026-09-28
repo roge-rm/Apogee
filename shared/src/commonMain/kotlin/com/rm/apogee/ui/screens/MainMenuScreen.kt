@@ -90,9 +90,9 @@ fun PlayScreen(
         if (!career) {
             ApogeeButton(
                 "Quick Launch",
-                { onNavigate(AppScreen.FLIGHT) },
+                { onNavigate(AppScreen.QUICK_LAUNCH) },
                 contentModifier,
-                subtitle = "A fresh craft on the pad, in place of your last one",
+                subtitle = "Pick a craft and a site, and go",
             )
         }
         // When in the day to go up, for Free Flight and the builder's launches.

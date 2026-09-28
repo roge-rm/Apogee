@@ -80,6 +80,10 @@ class GameSettings(private val prefs: Preferences) {
     /** Which craft read the stick by the screen and which by their nose. See [SteeringStyle]. */
     var steeringStyle: SteeringStyle by enumPref(KEY_STEERING_STYLE, SteeringStyle.ROTORCRAFT_AND_ROCKETS)
 
+    /** Quick Launch's last craft, by file name, and its site (blank for Automatic). */
+    var quickCraft: String by stringPref(KEY_QUICK_CRAFT, "")
+    var quickSite: String by stringPref(KEY_QUICK_SITE, "")
+
     /** How the flight camera follows the craft. See [com.rm.apogee.game.CameraMode]. */
     var cameraMode: com.rm.apogee.game.CameraMode by enumPref(KEY_CAMERA_MODE, com.rm.apogee.game.CameraMode.FREE)
 
@@ -263,6 +267,8 @@ class GameSettings(private val prefs: Preferences) {
         const val KEY_PITCH_STYLE = "pitch_style"
         const val KEY_STEERING_STYLE = "steering_style"
         const val KEY_CAMERA_MODE = "camera_mode"
+        const val KEY_QUICK_CRAFT = "quick_craft"
+        const val KEY_QUICK_SITE = "quick_site"
         const val KEY_WEATHER = "weather_intensity"
         const val KEY_CLOUDS = "cloud_cover"
         const val KEY_LAUNCH_TIME = "launch_time"

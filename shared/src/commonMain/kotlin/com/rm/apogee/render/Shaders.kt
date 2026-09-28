@@ -661,6 +661,8 @@ object Shaders {
         uniform float uHazeDistance;
         uniform float uHasAtmosphere; // 1 for a body with air, 0 for one without
         uniform float uDiscardNearer; // the globe leaves the chunks' ground alone
+        uniform float uSkyBody;       // 1 for another world seen across space
+        uniform vec3 uFarRim;         // and the colour of its air round its edge
         uniform vec3 uBodyCentre;     // the planet's centre, camera-relative
         uniform float uDaylight;      // how much sun reaches the camera
         uniform float uLightScale;    // sunlight left under a storm
@@ -687,6 +689,21 @@ object Shaders {
             if (vSkirt > 0.001) n = normalize(vGroundNormal);
             vec3 surface = vColour;
             float wet = vWet;
+
+            if (uSkyBody > 0.5) {
+                // Another world across space, lit the way every body in the sky is: by the sun
+                // alone, with its night side nearly black, a glint off its seas, and the glow of
+                // its air round its edge. Through a day sky it's washed a little toward the sky.
+                vec3 rimUp = normalize(vPosition - uBodyCentre);
+                float facing = dot(n, uSunDirection);
+                vec3 world = surface * (0.03 + 1.1 * max(facing, 0.0));
+                vec3 half0 = normalize(uSunDirection + vViewDir);
+                world += vec3(1.0, 0.96, 0.88) * pow(max(dot(n, half0), 0.0), 60.0) * wet * 0.6 * step(0.0, facing);
+                float rim = pow(1.0 - max(dot(rimUp, vViewDir), 0.0), 3.0);
+                world += uFarRim * rim * smoothstep(-0.1, 0.3, dot(rimUp, uSunDirection)) * 0.9 * uHasAtmosphere;
+                fragColor = vec4(mix(world, uHaze, 0.35 * uAtmosphereFactor * uDaylight), 1.0);
+                return;
+            }
 
             float direct = directLight(vPosition, n);
             float lambert = max(dot(n, uSunDirection), 0.0) * direct;
@@ -825,6 +842,11 @@ object Shaders {
             // water the same as on land, only harder than on land, because the sea's slopes are
             // gentler.
             float shade = 0.22 + 1.25 * pow(lambert, 0.8) * uLightScale;
+            // Foam is lit as foam: white on every facet, whichever way it's turned. Lit like the
+            // water round it, a breaking crest turned from the sun was dull grey. Nothing but foam
+            // is this white.
+            float foam = smoothstep(0.86, 0.9, min(min(surface.r, surface.g), surface.b));
+            shade = mix(shade, (0.85 + 0.3 * lambert) * uLightScale, foam);
             vec3 lit = surface * (night * moonLeft(uDaylight) + duskGlow(uDaylight) + shade * daylight);
             lit += surface * FLASH * uFlash;
             if (uLampCount > 0) lit += surface * lampLight(vPosition, n);
@@ -834,10 +856,10 @@ object Shaders {
             float facing = max(dot(n, vViewDir), 0.0);
             float fresnel = 0.03 + 0.97 * pow(1.0 - facing, 5.0);
             vec3 sky = mix(uHaze, uSeaSky, 0.5) * (NIGHT_AIR + (1.0 - NIGHT_AIR) * daylight) * (0.5 + 0.5 * uLightScale);
-            lit = mix(lit, sky, fresnel * 0.5);
+            lit = mix(lit, sky, fresnel * 0.5 * (1.0 - foam));
             vec3 halfway = normalize(uSunDirection + vViewDir);
             float glint = pow(max(dot(n, halfway), 0.0), 140.0);
-            lit += vec3(1.0, 0.96, 0.88) * glint * daylight * direct * 1.6 * uLightScale;
+            lit += vec3(1.0, 0.96, 0.88) * glint * daylight * direct * 1.6 * uLightScale * (1.0 - foam);
 
             float haze = (1.0 - exp(-vDistance / max(uHazeDistance, 1.0))) * uAtmosphereFactor;
             lit = mix(lit, uHaze * (NIGHT_AIR + (1.0 - NIGHT_AIR) * daylight), clamp(haze, 0.0, 1.0));

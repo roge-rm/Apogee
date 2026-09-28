@@ -18,9 +18,8 @@ import com.rm.apogee.core.math.Math
  * (Magna's great red storm, Aurea's hexagon round its north pole, Caerula's dark spot), and their
  * rings.
  *
- * There are two ways of drawing the same thing. [colour] is per vertex of the globe, when a giant
- * is the world a craft is at. [items] is a stack of banded rings of facets, for seeing one across
- * space from its moons.
+ * [colour] is per vertex of the giant's globe, both when it's the world a craft is at and when it's
+ * seen across space from its moons.
  */
 object GiantLook {
 
@@ -108,34 +107,6 @@ object GiantLook {
         if (a > Math.toRadians(72.0)) return look.pole
         val k = ((lat + PI / 2) / PI * look.bands).toInt()
         return if (k % 2 == 0) look.light else look.dark
-    }
-
-    /**
-     * Giant [body] seen from far off, at [position] (camera-relative) turned by [rotation]: its
-     * bands as rings of facets, its storm, and its rings.
-     */
-    fun items(body: CelestialBody, position: Vec3, rotation: Quat, key: (Int) -> Long, out: MutableList<RenderItem>) {
-        val look = LOOKS[body.id] ?: return
-        val r = body.radius
-        // The bands, pole to pole, each one a zone of the sphere.
-        val zones = look.bands + 2
-        for (z in 0 until zones) {
-            val from = -PI / 2 + PI * z / zones
-            val to = -PI / 2 + PI * (z + 1) / zones
-            val profile = (0..3).map { s ->
-                val lat = from + (to - from) * s / 3.0
-                listOf(r * cos(lat), r * sin(lat))
-            }
-            out.add(
-                RenderItem(
-                    shape = ModelSpec.Lathe(profile, segments = 32),
-                    position = position.copy(), rotation = rotation.copy(),
-                    color = band(look, (from + to) / 2).let { floatArrayOf(it[0], it[1], it[2], 1f) },
-                    caps = 0, key = key(z), sky = true,
-                )
-            )
-        }
-        body.rings?.let { rings(look, it.inner, it.outer, position, rotation, key, out) }
     }
 
     /** Rings: flat and thin, in the equator, with a gap where the giant has one. */

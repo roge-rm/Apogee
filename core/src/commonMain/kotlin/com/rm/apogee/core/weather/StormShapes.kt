@@ -112,8 +112,9 @@ internal class StormShapes(
     /**
      * The towers: level after level of heaped billows, overlapping so no seam shows, bulging in and
      * out as they climb. They're nearly black low down, grey through the middle, and only lit where
-     * they tower up into the sun. Lobes are shared out by size, so a line of fourteen is no heavier
-     * to draw than one big tower.
+     * they tower up into the sun. One that has reached the ceiling spreads out into its anvil at the
+     * top instead of ending in a round head: tapering, a line of them looked like chimneys. Lobes are
+     * shared out by size, so a line of fourteen is no heavier to draw than one big tower.
      */
     private fun towers(
         s: Storms.Storm, time: Double, detail: Double, shape: CloudShape,
@@ -130,6 +131,8 @@ internal class StormShapes(
             val levels = sqrt(share / 2.5).roundToInt().coerceIn(2, 10)
             val heap = ((share / levels).roundToInt() - 1).coerceIn(2, 7)
             val top = storms.cellTop(s, i, time)
+            // How far it has got to the ceiling, where it flattens out.
+            val capped = smooth(0.8, 0.95, (top - s.base) / (s.top - s.base).coerceAtLeast(1.0))
             val width = 1.9 * s.cellRadius[i] * (0.5 + 0.5 * life)
             val step = (top - s.base) / levels
             if (step <= 0.0) continue
@@ -139,12 +142,13 @@ internal class StormShapes(
             for (k in 0 until levels) {
                 val rise = (k + 0.5) / levels
                 val height = s.base + step * (k + 0.5)
-                val w = width * (1.0 - 0.25 * rise) * (0.85 + 0.3 * h(salt + k * 32))
+                val flare = capped * smooth(0.6, 1.0, rise)
+                val w = width * (1.0 - 0.25 * rise * (1.0 - capped) + 0.6 * flare) * (0.85 + 0.3 * h(salt + k * 32))
                 val shade = 0.22 + 0.55 * rise * rise
                 val drift = s.lean * s.core * rise
                 val a0 = s.cellAlong[i] + drift
                 val c0 = s.cellAcross[i]
-                shape.lobes.add(CloudLobe(at(a0, c0, height), w * 0.5, step * 0.9, shade = shade))
+                shape.lobes.add(CloudLobe(at(a0, c0, height), w * 0.5, step * (0.9 - 0.4 * flare), shade = shade, flat = flare > 0.5))
                 for (j in 0 until heap) {
                     val q = salt + k * 32 + j + 1
                     val an = (j + h(q)) * 2.0 * Math.PI / heap
@@ -239,31 +243,55 @@ internal class StormShapes(
     /**
      * The anvil: a broad flat sheet at the top, blown far downwind of the tallest tower. That's
      * tens of kilometres for a supercell, and the whole length of a squall line. Under its downwind
-     * half hang dark pouches, called mammatus. A weak storm tops out before it spreads.
+     * half hang dark pouches, called mammatus. It spreads once the tallest tower reaches the
+     * ceiling, whatever the storm's strength, because the air has it then. It used to be left off a
+     * weak storm, and a line of them was a row of pillars with nothing on top.
      */
     private fun anvil(
         s: Storms.Storm, time: Double, envelope: Double, detail: Double, shape: CloudShape,
         h: (Int) -> Double, at: (Double, Double, Double) -> Vec3,
     ) {
-        val spread = smooth(0.3, 0.6, s.strength) * envelope
-        if (spread <= 0.05) return
         val main = s.mainCell
-        val height = storms.cellTop(s, main, time) - 800.0
+        val top = storms.cellTop(s, main, time)
+        val spread = smooth(0.6, 0.9, (top - s.base) / (s.top - s.base).coerceAtLeast(1.0)) * (0.5 + 0.5 * envelope)
+        if (spread <= 0.05) return
+        val height = top - 800.0
         val a0 = s.cellAlong[main] + 0.8 * s.core + s.lean * s.core
-        val c0 = if (s.kind == StormKind.SQUALL) 0.0 else s.cellAcross[main]
+        val c0 = storms.anvilAcross(s)
         val halfA = storms.anvilHalfAlong(s) * spread
         val halfC = storms.anvilHalfAcross(s) * spread
         val count = (8 + 16 * detail).roundToInt()
-        val size = sqrt(halfA * halfC / count) * 1.7
-        for (j in 0 until count) {
-            val an = h(200 + j) * 2.0 * Math.PI
-            val out = sqrt(h(210 + j))
-            shape.lobes.add(
-                CloudLobe(
-                    at(a0 + cos(an) * out * halfA * 0.85, c0 + sin(an) * out * halfC * 0.85, height + (h(215 + j) - 0.5) * 300.0),
-                    size * (0.8 + 0.4 * h(220 + j)), 500.0, shade = 0.72 + 0.15 * h(230 + j), flat = true,
-                ),
-            )
+        if (s.kind == StormKind.SQUALL) {
+            // One sheet the length of the line, in overlapping rows, so there's no gap in it from
+            // afar: a leading edge overhanging the towers, and the rest trailing behind.
+            val perRow = (count / 2).coerceAtLeast(4)
+            val size = 2.0 * halfC / perRow
+            for (row in 0 until 2) {
+                for (j in 0 until perRow) {
+                    val q = 200 + row * 40 + j
+                    val across = c0 - halfC + (j + 0.5) * size + (h(q) - 0.5) * size * 0.3
+                    val along = a0 + (if (row == 0) 0.45 else -0.35) * halfA + (h(q + 100) - 0.5) * size * 0.3
+                    shape.lobes.add(
+                        CloudLobe(
+                            at(along, across, height + (h(q + 200) - 0.5) * 300.0),
+                            max(size * (0.75 + 0.2 * h(q + 300)), halfA * 0.55), 500.0,
+                            shade = 0.72 + 0.15 * h(q + 400), flat = true,
+                        ),
+                    )
+                }
+            }
+        } else {
+            val size = sqrt(halfA * halfC / count) * 1.7
+            for (j in 0 until count) {
+                val an = h(200 + j) * 2.0 * Math.PI
+                val out = sqrt(h(210 + j))
+                shape.lobes.add(
+                    CloudLobe(
+                        at(a0 + cos(an) * out * halfA * 0.85, c0 + sin(an) * out * halfC * 0.85, height + (h(215 + j) - 0.5) * 300.0),
+                        size * (0.8 + 0.4 * h(220 + j)), 500.0, shade = 0.72 + 0.15 * h(230 + j), flat = true,
+                    ),
+                )
+            }
         }
         if (envelope > 0.4 && s.strength > 0.6 && spread > 0.3) {
             val pouches = (4 + 8 * detail).roundToInt()

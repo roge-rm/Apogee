@@ -484,8 +484,9 @@ class SeaScene(
         // A storm sea: grey and hard.
         val storm = smooth(1.0, 8.0, s.stormHeight)
         r += (STORM_R - r) * storm * 0.7; g += (STORM_G - g) * storm * 0.7; b += (STORM_B - b) * storm * 0.7
-        // Foam is patchy, not a wash. Each facet foams or doesn't by its own hash.
-        val r0 = body.radius * FOAM_GRAIN
+        // Foam's ragged edge: each facet foams or doesn't by its own hash, against how much foam
+        // there is. The grain is never finer than the grid, so far off it isn't noise.
+        val r0 = body.radius / kotlin.math.max(1.0 / FOAM_GRAIN, spacing)
         val speckle = com.rm.apogee.core.terrain.Noise.hash(
             0xF0A, Math.floor(at.x * r0).toInt(), Math.floor(at.y * r0).toInt(), Math.floor(at.z * r0).toInt(),
         )
@@ -496,8 +497,7 @@ class SeaScene(
         val fine = 1.0 - smooth(SURF_SPACING, SURF_SPACING * 2.5, spacing)
         val surf = if (depth in 0.0..1.2 && s.significantHeight > 0.2) 1.0 - depth / 1.2 else 0.0
         val breaking = kotlin.math.max(s.breaking, surf)
-        val foam = breaking * fine
-        // Never a solid sheet: even where it's breaking hardest, some facets stay water.
+        val foam = SurfFoam.amount(s.breaking, (s.height - s.tide) / kotlin.math.max(s.significantHeight, 0.05), s.rise, surf) * fine
         val white = if (foam > 0.05 && speckle < foam * FOAM_COVER) 1.0 else 0.0
         val tint = breaking * (1.0 - fine) * FAR_SURF_TINT
         val lift = kotlin.math.max(white, tint)
@@ -576,13 +576,43 @@ class SeaScene(
          */
         const val SURF_SPACING = 25.0
 
-        /** The most of the facets foam covers where it's breaking hardest. */
-        const val FOAM_COVER = 0.75
+        /**
+         * How far over the foam amount a facet's speckle can be and still be white. Over 1, so the
+         * middle of a breaking crest is solid white and only its edges are ragged.
+         */
+        const val FOAM_COVER = 1.15
 
         /** How much paler surf too far off to draw makes the water. */
         const val FAR_SURF_TINT = 0.18
 
         /** Foam patches per metre, as the grain its speckle is hashed on. */
         const val FOAM_GRAIN = 0.35
+    }
+}
+
+/**
+ * How much foam there is on the sea, 0..1, where it's breaking. It rides the waves: solid along
+ * each breaking crest, thinning to lace behind it as the water falls away, and none in the trough
+ * ahead of the next. Across the whole surf zone at once, and fixed to the ground, it was a
+ * checkerboard of grey and green triangles that never moved, and I didn't think it looked like
+ * surf.
+ */
+internal object SurfFoam {
+    /**
+     * [breaking] from the sea, where on the wave this is as [crest] (its height over the tide in
+     * significant heights: about 0.5 on a crest and -0.5 in a trough), how fast the water is rising
+     * there, [rise], and the swash at the waterline, [swash], which is white all the way.
+     */
+    fun amount(breaking: Double, crest: Double, rise: Double, swash: Double): Double {
+        if (breaking <= 0.0) return swash
+        val onCrest = smooth(0.05, 0.35, crest)
+        // Behind a crest the water is falling, and the foam it left is thinning out.
+        val trail = if (rise < 0.0) 0.5 * smooth(-0.35, 0.05, crest) else 0.0
+        return maxOf(swash, breaking * maxOf(onCrest, trail))
+    }
+
+    private fun smooth(a: Double, b: Double, x: Double): Double {
+        val t = ((x - a) / (b - a)).coerceIn(0.0, 1.0)
+        return t * t * (3.0 - 2.0 * t)
     }
 }

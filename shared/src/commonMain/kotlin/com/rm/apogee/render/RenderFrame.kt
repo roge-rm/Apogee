@@ -113,6 +113,8 @@ class RenderFrame(
      * interpolated.
      */
     val farItems: List<RenderItem> = emptyList(),
+    /** The other worlds big enough in the sky to be drawn as themselves. See [FarGlobe]. */
+    val farGlobes: List<FarGlobe> = emptyList(),
     /**
      * Where the craft being flown is, absolute, and how far around it things cast shadows onto each
      * other and the ground, in metres. Null for no shadows (the map, the assembly building).
@@ -276,3 +278,19 @@ class FrameBus {
         frames.set(null)
     }
 }
+
+/**
+ * Another world, drawn as itself in the far pass: its own ground and seas, or its bands if it's a
+ * giant, flat per triangle, lit by the sun. [position] is from the world the craft is at, turned
+ * [rotation], [radius] metres across its middle, and [globe] is its mesh, the same for every frame.
+ */
+class FarGlobe(
+    val id: String,
+    val position: Vec3,
+    val rotation: com.rm.apogee.core.math.Quat,
+    val radius: Double,
+    val hasAir: Boolean,
+    val globe: PlanetMesh.Data,
+    /** The glow of its air round its edge, rgb. */
+    val rim: FloatArray = floatArrayOf(0.25f, 0.45f, 0.78f),
+)

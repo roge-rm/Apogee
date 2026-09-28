@@ -1986,6 +1986,7 @@ class GameSession private constructor(
                 particles = particles,
                 particleShapes = particleShapes,
                 farItems = farItems,
+                farGlobes = farGlobes.toList(),
                 // On the map, as far as the view reaches: the whole system, if that's what it
                 // shows.
                 farReach = if (mapMode) maxOf(com.rm.apogee.render.RenderFrame.FAR_REACH, mapCamera.distance * 4.0) else com.rm.apogee.render.RenderFrame.FAR_REACH,
@@ -2535,14 +2536,22 @@ class GameSession private constructor(
                 )
             }
         }
+        farGlobes.clear()
         for ((k, body) in system.bodies.values.withIndex()) {
             if (body.id == attractor.id || body.parentId == null) continue
-            if (com.rm.apogee.render.GiantLook.isGiant(body.id)) {
-                com.rm.apogee.render.GiantLook.items(
-                    body, system.positionOf(body.id, time).subInPlace(here), body.rotationAt(time),
-                    { RenderItem.partKey(BODY_KEY, k, 1 + it) }, farItems,
-                )
-                continue
+            val at = system.positionOf(body.id, time).subInPlace(here)
+            com.rm.apogee.render.GiantLook.rings(body, at, body.rotationAt(time), { RenderItem.partKey(BODY_KEY, k, 1 + it) }, farItems)
+            // Big enough in the sky to be more than a dot: drawn as itself, once its globe is built.
+            if (body.radius / at.distanceTo(camera).coerceAtLeast(1.0) > FAR_GLOBE_FROM) {
+                globeOf(body)?.let { globe ->
+                    farGlobes.add(
+                        com.rm.apogee.render.FarGlobe(
+                            body.id, at, body.rotationAt(time), body.radius, body.atmosphere != null, globe,
+                            rim = com.rm.apogee.render.SkyColours.of(body.id).rim,
+                        ),
+                    )
+                    continue
+                }
             }
             farItems.add(
                 RenderItem(
@@ -2555,6 +2564,32 @@ class GameSession private constructor(
                 )
             )
         }
+    }
+
+    /**
+     * The other worlds' globes, for seeing them across space, built once each in the background
+     * the first time one is big enough in the sky, and kept. They used to be plain balls of one
+     * colour, so Terra from Luna had no land or sea, and a giant was a checkerboard of two colours
+     * with none of its storms. A world under a cloud veil has none, since the veil is all you'd see.
+     */
+    private val farGlobeCache = HashMap<String, com.rm.apogee.render.PlanetMesh.Data>()
+    private val farGlobesBuilding = HashSet<String>()
+    private val farGlobes = ArrayList<com.rm.apogee.render.FarGlobe>()
+
+    private fun globeOf(body: CelestialBody): com.rm.apogee.render.PlanetMesh.Data? {
+        if ((com.rm.apogee.core.weather.Climate.of(body.id)?.veil ?: 0.0) > 0.0) return null
+        synchronized(farGlobeCache) {
+            farGlobeCache[body.id]?.let { return it }
+            if (!farGlobesBuilding.add(body.id)) return null
+        }
+        terrainScope.launch(FAR_GLOBES) {
+            val globe = com.rm.apogee.render.PlanetMesh.buildGlobe(body.terrain, body.radius, FAR_GLOBE_RINGS, body.id)
+            synchronized(farGlobeCache) {
+                farGlobeCache[body.id] = globe
+                farGlobesBuilding.remove(body.id)
+            }
+        }
+        return null
     }
 
     /**
@@ -4476,6 +4511,15 @@ class GameSession private constructor(
         private const val WHEEL_SPIN_HEIGHT = 1.5
 
         /** A propeller's turn at full throttle, in radians per second. */
+        /** Another world gets its own globe once it's this big in the sky, in radians: a fifth of a degree. */
+        private const val FAR_GLOBE_FROM = 0.0035
+
+        /** How finely other worlds' globes are built: rings pole to pole, and twice as many round. */
+        private const val FAR_GLOBE_RINGS = 48
+
+        /** The one thread other worlds' globes are built on, one after another. */
+        private val FAR_GLOBES = workerPool("far-globes", 1)
+
         /** How far above its part's middle the cockpit camera sits, in metres. */
         private const val SEAT_RISE = 0.35
 
@@ -4728,7 +4772,7 @@ class GameSession private constructor(
                     // A design of their own is coming, so don't hand them a stock rocket as well to
                     // leave standing on the pad.
                     assignCraftOnJoin = design == null,
-                    freshFlight = freshFlight && design == null && resumeVessel == null,
+                    freshFlight = freshFlight && resumeVessel == null,
                     resumeVessel = resumeVessel,
                     weatherIntensity = weather,
                     cloudCover = clouds,

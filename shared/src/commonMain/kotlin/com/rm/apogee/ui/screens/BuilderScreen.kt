@@ -941,7 +941,7 @@ private fun LoadDialog(session: BuilderSession, pictures: Map<String, ImageBitma
 
 /** One kind of craft to show in the load list, lit when it's the one showing. */
 @Composable
-private fun KindTab(label: String, selected: Boolean, onClick: () -> Unit) {
+internal fun KindTab(label: String, selected: Boolean, onClick: () -> Unit) {
     Text(
         label,
         style = MaterialTheme.typography.labelLarge,
@@ -956,7 +956,7 @@ private fun KindTab(label: String, selected: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-private fun SiteDialog(
+internal fun SiteDialog(
     selected: String?,
     automatic: String,
     bases: List<com.rm.apogee.core.world.LaunchSite>,

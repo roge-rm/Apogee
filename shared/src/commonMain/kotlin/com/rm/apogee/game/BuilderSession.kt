@@ -694,14 +694,8 @@ class BuilderSession(
     /** For the craft pictures in the load list. The app sets it. */
     var thumbnails: com.rm.apogee.render.PartThumbnails? = null
 
-    /**
-     * A saved craft as the load list shows it: its kind, a line saying what it's like, and the name
-     * its picture goes by.
-     */
-    class LoadEntry(val saved: SavedCraft, val kind: com.rm.apogee.core.craft.CraftKind, val summary: String, val picture: String)
-
     /** Every saved craft, newest first, once worked out. Empty until then. */
-    var loadEntries: List<LoadEntry> by mutableStateOf(emptyList())
+    var loadEntries: List<CraftShelf.Entry> by mutableStateOf(emptyList())
         private set
 
     private var loadJob: Job? = null
@@ -714,42 +708,10 @@ class BuilderSession(
         val list = savedCraft
         loadJob?.cancel()
         loadJob = CoroutineScope(Dispatchers.Default).launch {
-            val entries = list.mapNotNull { saved ->
-                val design = store.load(saved.fileName).getOrNull() ?: return@mapNotNull null
-                val kind = com.rm.apogee.core.craft.CraftKind.of(design, catalog)
-                val stats = runCatching { CraftStats.analyze(design, catalog) }.getOrNull()
-                val pictures = thumbnails
-                pictures?.requestCraft(design, catalog)
-                LoadEntry(saved, kind, summaryOf(kind, stats, saved.partCount), pictures?.craftKey(design) ?: "")
-            }
+            val entries = CraftShelf.read(list, store, catalog, thumbnails)
             loadEntries = entries
         }
     }
-
-    /**
-     * The one or two figures that say most about a craft of [kind] on one line, and its mass and
-     * parts on the next.
-     */
-    private fun summaryOf(kind: com.rm.apogee.core.craft.CraftKind, stats: CraftStats?, parts: Int): String {
-        val key = ArrayList<String>()
-        if (stats != null) {
-            when (kind) {
-                com.rm.apogee.core.craft.CraftKind.ROCKET, com.rm.apogee.core.craft.CraftKind.BASE -> {
-                    if (stats.totalDeltaV > 1.0) key += "\u0394v ${"%,d".format(stats.totalDeltaV.toInt())} m/s"
-                    if (stats.liftoffTwr > 0.0) key += "TWR ${"%.1f".format(stats.liftoffTwr)}"
-                }
-                com.rm.apogee.core.craft.CraftKind.PLANE -> {
-                    val thrust = stats.stages.firstOrNull { it.isBurn }?.thrustSeaLevel ?: 0.0
-                    if (thrust > 0.0 && stats.totalMass > 0.0) key += "thrust ${"%.2f".format(thrust / (stats.totalMass * 9.81))} of weight"
-                }
-                else -> {}
-            }
-        }
-        val size = listOfNotNull(stats?.let { mass(it.totalMass) }, if (parts == 1) "1 part" else "$parts parts").joinToString(" \u00b7 ")
-        return if (key.isEmpty()) size else key.joinToString(" \u00b7 ") + "\n" + size
-    }
-
-    private fun mass(kg: Double): String = if (kg >= 1_000.0) "${"%.1f".format(kg / 1_000.0)} t" else "${kg.toInt()} kg"
 
     private fun onEdited() {
         selectedStage = selectedStage?.takeIf { it in builder.design.stages.indices }
