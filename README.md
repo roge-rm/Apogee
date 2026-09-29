@@ -20,9 +20,9 @@ Disclaimer: I am not a great programmer and this was made using Claude Opus 5.0/
 Enjoy!
 Dan
 
-<img src="docs/shot-launch.png" alt="A rocket climbing away from the Cape on a long flame, its smoke over the grass, with the beach and the sea beyond and the throttle, navball and staging controls round the edges" width="180" /> <img src="docs/shot-zeppelin.png" alt="The Zeppelin climbing over the Cape's coast, with sandy beaches and bright shallows below it and fair weather clouds on the horizon" width="180" /> <img src="docs/shot-sloop.png" alt="The Sloop on the harbour's clear water in the sun, its shadow on the water, with the boathouse, the beach and green hills behind it" width="180" />
+<img src="docs/shot-terra-orbit.png" alt="The Prospector in orbit high over Terra, the whole planet below it with its green and sandy continents, snowy uplands and blue sea" width="280" /> <img src="docs/shot-aurea-rings.png" alt="The Moonshot in orbit round Aurea, a banded gold giant with a broad ring sweeping round behind it" width="280" /> <img src="docs/shot-luna.png" alt="An astronaut beside the flag they've planted on Luna, their lander standing on its legs behind them and Terra hanging in the black sky" width="280" />
 
-<img src="docs/shot-undersea.png" alt="The Minnow submarine under the harbour, over the sandy bottom, with its reflection on the surface above and the pier's pilings off to the right" width="180" /> <img src="docs/shot-luna.png" alt="An astronaut in a white suit with teal stripes beside the flag they've just planted on Luna, their lander standing on its legs behind them under a black sky" width="180" /> <img src="docs/shot-aurantia.png" alt="Two base landers on Aurantia at dusk under a thick orange sky and low clouds, one of them ready to found a base" width="180" />
+<img src="docs/shot-rubra.png" alt="The Buggy driving across the red plain of Rubra's rift under a hazy orange sky, a long ridge beside it and the sun low over it" width="280" /> <img src="docs/shot-jetboat.png" alt="The Jet Boat running flat out across the Roaring Sea, throwing spray behind it, with whitecaps round it and a big swell under it" width="280" /> <img src="docs/shot-storm.png" alt="The Zeppelin hanging in the air beside a squall line, the storm's dark shelf over it and rain shafts coming down behind" width="280" />
 
 ---
 
