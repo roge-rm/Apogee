@@ -20,9 +20,9 @@ Disclaimer: I am not a great programmer and this was made using Claude Opus 5.0/
 Enjoy!
 Dan
 
-<img src="docs/shot-terra-orbit.png" alt="The Prospector in orbit high over Terra, the whole planet below it with its green and sandy continents, snowy uplands and blue sea" width="280" /> <img src="docs/shot-aurea-rings.png" alt="The Moonshot in orbit round Aurea, a banded gold giant with a broad ring sweeping round behind it" width="280" /> <img src="docs/shot-luna.png" alt="An astronaut beside the flag they've planted on Luna, their lander standing on its legs behind them and Terra hanging in the black sky" width="280" />
+<img src="docs/shot-terra-orbit.png" alt="The Prospector in orbit over Terra, the planet's blue curve and bright sea below it, with the orbit readout along the top and the throttle, navball and staging round the edges" width="180" /> <img src="docs/shot-aurea-rings.png" alt="The Moonshot in orbit round Aurea, a banded gold giant filling the lower half of the screen with its ring arcing round behind" width="180" /> <img src="docs/shot-luna.png" alt="An astronaut beside the Stilt Lander on Luna, standing on its legs on the grey ground, with Terra hanging in the black sky" width="180" />
 
-<img src="docs/shot-rubra.png" alt="The Buggy driving across the red plain of Rubra's rift under a hazy orange sky, a long ridge beside it and the sun low over it" width="280" /> <img src="docs/shot-jetboat.png" alt="The Jet Boat running flat out across the Roaring Sea, throwing spray behind it, with whitecaps round it and a big swell under it" width="280" /> <img src="docs/shot-storm.png" alt="The Zeppelin hanging in the air beside a squall line, the storm's dark shelf over it and rain shafts coming down behind" width="280" />
+<img src="docs/shot-rubra.png" alt="The Buggy driving across Rubra's red plain under a hazy orange sky, a long dark ridge behind it and the sun low over it" width="180" /> <img src="docs/shot-jetboat.png" alt="The Jet Boat running flat out across the Roaring Sea, spray thrown out behind it, with its speed, the wind and its heading along the top" width="180" /> <img src="docs/shot-storm.png" alt="The Zeppelin seen from below, hanging under a storm's dark ragged shelf, with fair weather cumulus and blue sky beyond" width="180" />
 
 ---
 
