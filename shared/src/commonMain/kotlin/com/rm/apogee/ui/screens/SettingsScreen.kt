@@ -72,6 +72,8 @@ fun SettingsScreen(
     settings: GameSettings,
     detectedTier: QualityTier?,
     onBack: () -> Unit = {},
+    /** Whether the 3D view can be drawn at less than full resolution here, for the Resolution choice. */
+    canScaleRender: Boolean = false,
     /** The controller connected, if there is one, and opening its buttons page. */
     controllerName: String? = null,
     onController: () -> Unit = {},
@@ -142,7 +144,7 @@ fun SettingsScreen(
                 when (tab) {
                     SettingsTab.PLAYER -> PlayerTab(settings)
                     SettingsTab.CONTROLS -> ControlsTab(settings, controllerName, onController)
-                    SettingsTab.DISPLAY -> DisplayTab(settings, detectedTier)
+                    SettingsTab.DISPLAY -> DisplayTab(settings, detectedTier, canScaleRender)
                     SettingsTab.AUDIO -> AudioTab(settings)
                 }
             }
@@ -303,7 +305,7 @@ private fun ControlsTab(settings: GameSettings, controllerName: String?, onContr
 }
 
 @Composable
-private fun DisplayTab(settings: GameSettings, detectedTier: QualityTier?) {
+private fun DisplayTab(settings: GameSettings, detectedTier: QualityTier?, canScaleRender: Boolean) {
     SectionHeading("Performance")
     Text(
         text = detectedTier?.let {
@@ -326,6 +328,27 @@ private fun DisplayTab(settings: GameSettings, detectedTier: QualityTier?) {
         style = MaterialTheme.typography.bodySmall,
         color = Color.White.alpha(ApogeeAlpha.SUBTITLE),
     )
+
+    if (canScaleRender) {
+        SectionHeading("Resolution")
+        var resolution by remember { mutableStateOf(settings.resolution) }
+        ChoiceGroup(
+            title = "3D view resolution",
+            options = com.rm.apogee.render.Resolution.entries,
+            selected = resolution,
+            label = { it.label },
+            description = {
+                when (it) {
+                    com.rm.apogee.render.Resolution.AUTO -> "Full, or less when that keeps it smooth"
+                    com.rm.apogee.render.Resolution.FULL -> "Every pixel the screen has: the sharpest, and the slowest"
+                    com.rm.apogee.render.Resolution.EIGHTY -> "A little softer, and a good deal faster"
+                    com.rm.apogee.render.Resolution.TWO_THIRDS -> "Softer, and faster again"
+                    com.rm.apogee.render.Resolution.HALF -> "The fastest. The HUD stays sharp at any of these"
+                }
+            },
+            onSelect = { resolution = it; settings.resolution = it },
+        )
+    }
 
     SectionHeading("Shadows")
     // Remembered as the Compose state, so choosing one redraws the list straight away.

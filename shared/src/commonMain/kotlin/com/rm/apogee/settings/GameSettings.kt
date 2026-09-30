@@ -182,6 +182,9 @@ class GameSettings(private val prefs: Preferences) {
     val effectiveTier: QualityTier?
         get() = qualityOverride ?: lastDetectedTier
 
+    /** What resolution the 3D view is drawn at. Automatic follows the frame rate. */
+    var resolution: com.rm.apogee.render.Resolution by enumPref(KEY_RESOLUTION, com.rm.apogee.render.Resolution.AUTO)
+
     /** Shadows as chosen. Null goes by the tier in use. */
     var shadowQualityOverride: com.rm.apogee.render.ShadowQuality? by nullableEnumPref<com.rm.apogee.render.ShadowQuality>(KEY_SHADOWS)
 
@@ -292,6 +295,7 @@ class GameSettings(private val prefs: Preferences) {
         const val KEY_CLOUDS = "cloud_cover"
         const val KEY_LAUNCH_TIME = "launch_time"
         const val KEY_SHADOWS = "shadow_quality"
+        const val KEY_RESOLUTION = "resolution"
         const val KEY_UI_SOUND = "ui_sound"
         const val KEY_VEHICLE_SOUND = "vehicle_sound"
         const val KEY_AMBIENT_SOUND = "ambient_sound"

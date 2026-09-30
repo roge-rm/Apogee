@@ -78,6 +78,22 @@ android {
             if (releaseStoreFile != null) {
                 signingConfig = signingConfigs.getByName("release")
             }
+            buildConfigField("boolean", "PERF", "false")
+        }
+        debug {
+            buildConfigField("boolean", "PERF", "false")
+        }
+        // For timing a phone I can't reach with adb: the release build under its own name, so it
+        // sits beside the real one without touching its saves, and signed with the debug key. On
+        // its first start it puts the scene in src/perf/assets in place and logs its frame times
+        // to a file in Download (see PerfKit).
+        create("perf") {
+            initWith(getByName("release"))
+            applicationIdSuffix = ".perf"
+            versionNameSuffix = "-perf"
+            signingConfig = signingConfigs.getByName("debug")
+            buildConfigField("boolean", "PERF", "true")
+            matchingFallbacks += listOf("release")
         }
     }
 

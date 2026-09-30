@@ -132,6 +132,7 @@ class MainActivity : ComponentActivity(), AppHost {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (BuildConfig.PERF) PerfKit.start(this)
         settings = GameSettings(this)
         serverBrowser = AndroidServerBrowser(this, StockParts.catalog.contentHash)
         app = ApogeeApp(this)
@@ -150,10 +151,30 @@ class MainActivity : ComponentActivity(), AppHost {
         findViewById<FrameLayout>(R.id.game_surface_host).addView(view)
         // The builder picks and pans in pixels, so it needs the view's size from the start, not
         // only once a finger has touched it.
-        view.addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
+        view.addOnLayoutChangeListener { v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
             gestures.size(v.width.toFloat(), v.height.toFloat())
+            // A new view, or turned, draws at the resolution it's been asked for.
+            if (right - left != oldRight - oldLeft || bottom - top != oldBottom - oldTop) fitSurface(view)
         }
         surfaceView = view
+    }
+
+    override val canScaleRender: Boolean get() = true
+
+    private var renderScale = 1.0
+
+    /**
+     * The 3D view drawn at [scale] of the screen's resolution and stretched to fill it by the
+     * display's own scaler, which costs nothing. The HUD over it is its own view, so it stays sharp.
+     */
+    override fun renderAt(scale: Double) {
+        renderScale = scale
+        surfaceView?.let { fitSurface(it) }
+    }
+
+    private fun fitSurface(view: GLSurfaceView) {
+        if (renderScale >= 1.0 || view.width == 0) view.holder.setSizeFromLayout()
+        else view.holder.setFixedSize((view.width * renderScale).toInt().coerceAtLeast(1), (view.height * renderScale).toInt().coerceAtLeast(1))
     }
 
     override fun hideSurface() {

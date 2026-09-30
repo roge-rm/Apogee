@@ -199,7 +199,8 @@ private class WebHost(private val canvas: HTMLCanvasElement) : AppHost {
         draw = {
             val r = this.renderer
             if (r != null) {
-                val scale = devicePixelRatio()
+                // Its buffer at the resolution asked for, which the page stretches to fill it.
+                val scale = devicePixelRatio() * renderScale
                 val w = (canvas.clientWidth * scale).toInt().coerceAtLeast(1)
                 val h = (canvas.clientHeight * scale).toInt().coerceAtLeast(1)
                 if (w != width || h != height) {
@@ -248,6 +249,13 @@ private class WebHost(private val canvas: HTMLCanvasElement) : AppHost {
     override fun toast(message: String) = showToast(message)
 
     override fun debugSwitch(name: String): Boolean = window.location.search.contains(name)
+
+    override val canScaleRender: Boolean get() = true
+
+    /** What [renderAt] last asked for, read as each frame sizes the canvas. */
+    var renderScale = 1.0
+
+    override fun renderAt(scale: Double) { renderScale = scale }
 
     override fun timeNow(): String = shortTime()
 

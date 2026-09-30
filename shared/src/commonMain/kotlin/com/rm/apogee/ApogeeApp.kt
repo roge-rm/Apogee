@@ -414,6 +414,7 @@ class ApogeeApp(private val host: AppHost) {
                     )
                     AppScreen.SETTINGS -> SettingsScreen(
                         settings, detectedTier, onBack = ::goBack,
+                        canScaleRender = host.canScaleRender,
                         controllerName = controllerName,
                         onController = { navigateTo(AppScreen.CONTROLLER) },
                     )
@@ -1409,9 +1410,9 @@ class ApogeeApp(private val host: AppHost) {
             val seconds = (now - perfSince) / 1e9
             Log.i(
                 "ApogeePerf",
-                "fps %.1f draw %.1f ms build %.1f ms sea-build %.1f ms clouds-list %.0f ms sea %s".format(
+                "fps %.1f draw %.1f ms build %.1f ms sea-build %.1f ms clouds-list %.0f ms sea %s tier %s scale %.2f".format(
                     frames / seconds, 1000.0 * seconds / frames.coerceAtLeast(1), perfBuild / perfSamples,
-                    perfSea / perfSamples, current.cloudListMillis, if (current.debugHideSea) "off" else "on",
+                    perfSea / perfSamples, current.cloudListMillis, if (current.debugHideSea) "off" else "on", glRenderer.qualityTier, renderScale,
                 ),
             )
             glRenderer.takePassReport()?.let { Log.i("ApogeePerf", "passes $it") }
@@ -1427,10 +1428,37 @@ class ApogeeApp(private val host: AppHost) {
     private var perfSea = 0.0
     private var perfSamples = 0
 
+    private val autoResolution = com.rm.apogee.render.AutoResolution()
+    private var renderScale = 1.0
+    private var resolutionFor: GameSession? = null
+
+    /**
+     * The 3D view drawn at the resolution chosen in Settings, or, on Automatic, at what keeps a
+     * flight's frame rate up. Out of a flight, Automatic is full resolution.
+     */
+    private fun applyResolution(glRenderer: com.rm.apogee.render.GlRenderer, current: GameSession?) {
+        if (!host.canScaleRender) return
+        val now = System.nanoTime()
+        if (resolutionFor !== current) { resolutionFor = current; autoResolution.reset(now) }
+        val choice = settings.resolution
+        val wanted = when {
+            choice != com.rm.apogee.render.Resolution.AUTO -> choice.scale
+            current == null -> 1.0
+            else -> {
+                if (current.surfaceReady) autoResolution.update(now, glRenderer.framesDrawn.get())
+                autoResolution.scale
+            }
+        }
+        if (wanted == renderScale) return
+        renderScale = wanted
+        host.runOnMain { host.renderAt(wanted) }
+    }
+
     /** The HUD's values brought up to date, once each frame the display shows. */
     private fun frameTick() {
                 val glRenderer = renderer ?: return
                 glRenderer.shadowChoice = settings.shadowQuality
+                applyResolution(glRenderer, session)
                 hudState.frameTimeMillis = glRenderer.lastFrameTimeNanos.get() / 1_000_000f
 
                 if (keysDown.isNotEmpty()) throttleKeys(System.nanoTime())

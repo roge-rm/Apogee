@@ -62,6 +62,12 @@ interface AppHost {
     /** A short note on screen. */
     fun toast(message: String)
 
+    /** Whether this host can draw the 3D view at less than the screen's resolution ([renderAt]). */
+    val canScaleRender: Boolean get() = false
+
+    /** Draws the 3D view at [scale] of the screen's resolution, stretched to fill it. */
+    fun renderAt(scale: Double) {}
+
     /** Whether the debug switch [name] is on ("debug-perf", "debug-sound", ...). */
     fun debugSwitch(name: String): Boolean
 
