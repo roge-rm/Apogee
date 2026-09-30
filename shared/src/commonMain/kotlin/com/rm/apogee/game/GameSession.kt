@@ -2894,13 +2894,27 @@ class GameSession private constructor(
         val rotation = attractor.rotationAt(time)
         attractor.toBodyFixed(cameraPosition, rotation, scratchCameraClear)
         // The solid ground, sea floor and all, not the sea's surface over it.
-        val above = cameraPosition.length - terrain.solidRadius(scratchCameraClear.normalizeInPlace())
-        if (above >= CAMERA_CLEARANCE) return
+        var above = cameraPosition.length - terrain.solidRadius(scratchCameraClear.normalizeInPlace())
+        var clearance = CAMERA_CLEARANCE
+        // And out of the sea too, while what's being flown is at its surface: a boat, or someone
+        // treading water. Framed close on a swimmer, the camera went under the next crest and half
+        // the screen went black. Under water it goes where the craft goes.
+        attractor.ocean?.let { ocean ->
+            attractor.toBodyFixed(focus, rotation, scratchFocusClear)
+            val focusDepth = attractor.radius + ocean.surfaceHeight(scratchFocusClear, time) - focus.length
+            if (focusDepth < CAMERA_SEA_FOCUS) {
+                val overSea = cameraPosition.length - attractor.radius - ocean.surfaceHeight(scratchCameraClear, time)
+                if (overSea - CAMERA_SEA_CLEARANCE < above - clearance) { above = overSea; clearance = CAMERA_SEA_CLEARANCE }
+            }
+        }
+        if (above >= clearance) return
         val r = cameraPosition.length
-        cameraPosition.mulInPlace((r + CAMERA_CLEARANCE - above) / r)
+        cameraPosition.mulInPlace((r + clearance - above) / r)
         scratchCameraClear.setTo(focus).subInPlace(cameraPosition)
         com.rm.apogee.core.math.quatLookAt(scratchCameraClear, cameraPosition.normalized(), cameraRotation)
     }
+
+    private val scratchFocusClear = Vec3()
 
     private val scratchCameraClear = Vec3()
 
@@ -4697,6 +4711,13 @@ class GameSession private constructor(
 
         /** How far above the ground the camera is kept, in metres. */
         private const val CAMERA_CLEARANCE = 2.0
+
+        /**
+         * How far above the waves the camera is kept, in metres, while what's being flown is at
+         * the surface: less deep than this, in metres.
+         */
+        private const val CAMERA_SEA_CLEARANCE = 2.0
+        private const val CAMERA_SEA_FOCUS = 2.0
 
         /** How long a craft still counts as afloat after the water last held it up, in ms. */
         private const val AFLOAT_HOLD_MS = 2_000L

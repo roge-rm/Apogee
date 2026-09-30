@@ -232,10 +232,34 @@ class World(
     var weatherConfig: WeatherConfig? = null
         set(value) {
             if (field == value) return
+            val changed = field != null
             field = value
             weathers.clear()
             bindSeas()
+            if (changed) resettleAfloat()
         }
+
+    /**
+     * The sea has just been made again for a different weather, so everything floating free is set
+     * down at its balance on the new one, asleep, and rides it from there until something wakes it.
+     * The game's weather is set as it starts, and a world saved in a calm sea and opened in a normal
+     * one had every boat still lying as the calm left it, in waves two thirds bigger. A jet ski was
+     * rolled over in its first second.
+     */
+    private fun resettleAfloat() {
+        for (vessel in vesselsById.values) {
+            if (vessel.anchored || walking.walkerOf(vessel) != null || isDebris(vessel)) continue
+            val attractor = attractorFor(vessel)
+            if (!floatsOnSea(vessel, attractor)) continue
+            // With sea under it and clear of the bottom, not drawn up on a beach.
+            attractor.rotationAt(tickEnd, scratchRotation)
+            attractor.toBodyFixed(vessel.body.position, scratchRotation, scratchSea).normalizeInPlace()
+            if (attractor.terrain?.isOcean(scratchSea) != true) continue
+            if (vessel.body.position.length - vessel.contactRadius < attractor.solidRadiusInBodyFrame(scratchSea)) continue
+            if (!vessel.dormant) vessel.sleep(scratchRotation)
+            settleAfloat(vessel, attractor)
+        }
+    }
 
     /**
      * A steady wind over the ground everywhere there's air, in place of the weather: x is the part
@@ -584,10 +608,22 @@ class World(
             vessel.landSpeed = 0.0
             vessel.landDownFor = 0.0
             vessel.landSink = 0.0
+            vessel.landSpotChosen = false
+            vessel.landSpotMoved = false
+            vessel.landStripSet = false
+            vessel.landHeading = Double.NaN
+            vessel.landOutbound = false
+            vessel.landCrab = 0.0
+            vessel.landTurn = 0.0
             attractor.toBodyFixed(vessel.body.position, attractor.rotationAt(time), control.keepPoint)
             control.keepTrim = control.throttle
             control.cruise = false
             control.keeping = false
+            // Anything flying on the air picks its spot now. A rocket does when it starts braking,
+            // because from orbit it doesn't know yet where it'll be.
+            if (flownOnAir(vessel, attractor)) chooseSpot(vessel, attractor, HOVER_SPOT_REACH)
+            // A plane picks a runway, or a clear strip of ground, to line up on.
+            if (attractor.atmosphere != null && com.rm.apogee.core.craft.CraftKind.of(vessel.design, catalog) == com.rm.apogee.core.craft.CraftKind.PLANE) chooseStrip(vessel, attractor)
         }
         // Anything that flies on the air lands the way it flies, not on its engines.
         airLanding(vessel, attractor, dt)?.let { outcome ->
@@ -636,6 +672,7 @@ class World(
             }
             vessel.landBraking = true
         }
+        if (!vessel.landSpotChosen) chooseSpot(vessel, attractor, ROCKET_SPOT_REACH)
         // Still going fast over the ground, coming down from orbit: full thrust against the way
         // it's going, with the nose never under the horizon, until the sideways speed is nearly
         // gone.
@@ -654,7 +691,9 @@ class World(
         val want = -maxOf(LAND_TOUCHDOWN, minOf(canStop, LAND_TOUCHDOWN + height * LAND_PACE))
         val lift = (g + LAND_GAIN * (want - vertical)).coerceAtLeast(0.0)
         landDirection.setTo(landUp).mulInPlace(lift)
-        landScratch.setTo(landSide).mulInPlace(-LAND_SIDE_GAIN)
+        // Its drift taken off, less a gentle drift toward the clear spot it picked.
+        towardSpot(vessel, attractor, landScratch)
+        landScratch.subInPlace(landSide).mulInPlace(LAND_SIDE_GAIN)
         val sideways = landScratch.length
         if (sideways > LAND_SIDE_SHARE * most) landScratch.mulInPlace(LAND_SIDE_SHARE * most / sideways)
         landDirection.addInPlace(landScratch)
@@ -676,6 +715,171 @@ class World(
         return landDirection
     }
 
+    /** Whether [vessel] lands on the air, as a plane, a rotorcraft or an airship, and not on its engines. */
+    private fun flownOnAir(vessel: Vessel, attractor: CelestialBody): Boolean {
+        if (attractor.atmosphere == null) return false
+        return when (com.rm.apogee.core.craft.CraftKind.of(vessel.design, catalog)) {
+            com.rm.apogee.core.craft.CraftKind.ROTORCRAFT, com.rm.apogee.core.craft.CraftKind.AIRSHIP ->
+                keeper.means(vessel, attractor, false)?.let { it != StationKeeping.Means.WATER } == true
+            else -> false
+        }
+    }
+
+    /**
+     * Picks where [vessel] comes down: the nearest clear spot within [reach] metres of the ground
+     * under it, into its keep point, body-fixed at its height now. Over another craft's deck it
+     * comes down on the deck, which is what the player put it over. With nowhere clear in reach, it
+     * comes down where it is, and says so.
+     */
+    private fun chooseSpot(vessel: Vessel, attractor: CelestialBody, reach: Double) {
+        vessel.landSpotChosen = true
+        val control = vessel.control
+        attractor.rotationAt(time, scratchRotation)
+        attractor.toBodyFixed(vessel.body.position, scratchRotation, landSpotFrom)
+        if (craftBelow(vessel) != null) return
+        val floats = vessel.defs.any { it.hasModule<com.rm.apogee.core.part.Buoyancy>() }
+        clearGround.gather(attractor, landSpotFrom, reach, felledScatter, vesselsById.values, vessel, scratchRotation)
+        val found = clearGround.find(attractor, landSpotFrom, vessel.contactRadius + LAND_SPOT_MARGIN, reach, floats, landSpotAt)
+        if (found == null) {
+            control.autopilotNote = "Nowhere clear near: landing here"
+            return
+        }
+        // Where it is is fine, so it comes down the way it always did, only taking off its drift.
+        val height = landSpotFrom.length
+        if (found.distanceTo(landSpotFrom.normalizeInPlace()) * attractor.radius <= LAND_SPOT_MOVED) return
+        control.keepPoint.setTo(found).mulInPlace(height)
+        vessel.landSpotMoved = true
+        control.autopilotNote = "Landing somewhere clear"
+    }
+
+    private val clearGround = ClearGround()
+
+    /**
+     * Picks where plane [vessel] lands: the Cape's runway if it's near enough and clear, landing
+     * toward the end it's on the far side of, or else the nearest straight strip of clear ground
+     * ahead long enough to stop on. With neither, it comes down straight ahead, as it always did,
+     * and says so.
+     */
+    private fun chooseStrip(vessel: Vessel, attractor: CelestialBody) {
+        val control = vessel.control
+        // First, because it works in the same scratch the velocity goes into.
+        val height = airClearance(vessel, attractor).coerceAtLeast(0.0)
+        val rotation = attractor.rotationAt(time, scratchRotation)
+        attractor.toBodyFixed(vessel.body.position, rotation, landSpotFrom)
+        attractor.surfaceVelocityAt(vessel.body.position, landScratch).negateInPlace().addInPlace(vessel.body.linearVelocity)
+        rotation.inverseRotate(landScratch, landScratch)
+        val floats = vessel.defs.any { it.hasModule<com.rm.apogee.core.part.Buoyancy>() }
+        val halfWidth = vessel.contactRadius + STRIP_MARGIN
+        val stall = landing.stallSpeed(vessel, attractor)
+        val length = STRIP_FLOAT + (Landing.APPROACH_MARGIN * stall).let { it * it } / (2.0 * STRIP_STOPPING)
+        // The runway, near enough and nothing on it.
+        if (attractor.id == SolarSystem.HOMEWORLD_ID && attractor.terrain is com.rm.apogee.core.terrain.TerrainField) {
+            val pad = SolarSystem.capeDirection(0.0, 0.0)
+            val eastward = Vec3(0.0, 1.0, 0.0).crossInPlace(pad).normalizeInPlace()
+            val northward = pad.copy().crossInPlace(eastward).normalizeInPlace()
+            val from = landSpotFrom.copy().normalizeInPlace().subInPlace(pad)
+            val east = (from dot eastward) * attractor.radius
+            val north = (from dot northward) * attractor.radius
+            val middle = 0.5 * (com.rm.apogee.core.terrain.TerrainField.RUNWAY_WEST + com.rm.apogee.core.terrain.TerrainField.RUNWAY_EAST)
+            if (kotlin.math.hypot(east - middle, north - com.rm.apogee.core.terrain.TerrainField.RUNWAY_NORTH) < RUNWAY_REACH) {
+                // From the side it's on, or over it, the way it's going.
+                val sense = when {
+                    east > com.rm.apogee.core.terrain.TerrainField.RUNWAY_EAST -> -1.0
+                    east < com.rm.apogee.core.terrain.TerrainField.RUNWAY_WEST -> 1.0
+                    else -> if ((landScratch dot eastward) >= 0.0) 1.0 else -1.0
+                }
+                val threshold = if (sense > 0.0) com.rm.apogee.core.terrain.TerrainField.RUNWAY_WEST else com.rm.apogee.core.terrain.TerrainField.RUNWAY_EAST
+                val start = SolarSystem.capeDirection(threshold, com.rm.apogee.core.terrain.TerrainField.RUNWAY_NORTH)
+                val along = eastward.copy().mulInPlace(sense)
+                val runwayLength = com.rm.apogee.core.terrain.TerrainField.RUNWAY_EAST - com.rm.apogee.core.terrain.TerrainField.RUNWAY_WEST
+                clearGround.gather(attractor, SolarSystem.capeDirection(middle, com.rm.apogee.core.terrain.TerrainField.RUNWAY_NORTH), runwayLength / 2.0 + halfWidth, felledScatter, vesselsById.values, vessel, rotation)
+                if (clearGround.stripClear(attractor, start, along, runwayLength, halfWidth, floats)) {
+                    setStrip(vessel, attractor, SolarSystem.capeDirection(threshold + sense * Approach.AIM, com.rm.apogee.core.terrain.TerrainField.RUNWAY_NORTH), along, RUNWAY_FINAL)
+                    control.autopilotNote = "Landing on the runway"
+                    return
+                }
+            }
+        }
+        // A clear strip ahead: the nearest first, turning as little as it can.
+        val farthest = (height * STRIP_GLIDE).coerceIn(STRIP_NEAREST, STRIP_FARTHEST)
+        val up = landSpotFrom.copy().normalizeInPlace()
+        val track = landScratch.addScaledInPlace(up, -(landScratch dot up))
+        if (track.length < 1.0) vessel.body.orientation.rotate(vessel.design.orientation.forward, track).let { rotation.inverseRotate(it, it); it.addScaledInPlace(up, -(it dot up)) }
+        track.normalizeInPlace()
+        val side = up.copy().crossInPlace(track)
+        val heading = Vec3()
+        val start = Vec3()
+        var ahead = STRIP_NEAREST
+        while (ahead <= farthest) {
+            start.setTo(up).mulInPlace(attractor.radius).addScaledInPlace(track, ahead).normalizeInPlace()
+            clearGround.gather(attractor, start, length + halfWidth, felledScatter, vesselsById.values, vessel, rotation)
+            for (turn in STRIP_TURNS) {
+                val a = Math.toRadians(turn)
+                heading.setTo(track).mulInPlace(kotlin.math.cos(a)).addScaledInPlace(side, kotlin.math.sin(a))
+                if (clearGround.stripClear(attractor, start, heading, length, halfWidth, floats)) {
+                    val touchdown = start.copy().mulInPlace(attractor.radius).addScaledInPlace(heading, STRIP_TOUCHDOWN).normalizeInPlace()
+                    setStrip(vessel, attractor, touchdown, heading, STRIP_FINAL)
+                    control.autopilotNote = "Landing on clear ground"
+                    return
+                }
+            }
+            ahead += STRIP_STEP_AHEAD
+        }
+        control.autopilotNote = "Nowhere clear in reach: landing ahead"
+    }
+
+    /** Sets plane [vessel] to land at body-fixed [touchdown] (a direction) along level [along], joining its line [final] metres out. */
+    private fun setStrip(vessel: Vessel, attractor: CelestialBody, touchdown: Vec3, along: Vec3, final: Double) {
+        val ground = attractor.terrain?.let { t -> maxOf(t.elevation(touchdown), if (t.hasOcean) 0.0 else Double.NEGATIVE_INFINITY) } ?: 0.0
+        vessel.landStripAt.setTo(touchdown).normalizeInPlace().mulInPlace(attractor.radius + ground)
+        val up = touchdown.copy().normalizeInPlace()
+        vessel.landStripAlong.setTo(along).addScaledInPlace(up, -(along dot up)).normalizeInPlace()
+        vessel.landFinal = final
+        vessel.landStripSet = true
+    }
+    private val landSpotFrom = Vec3()
+    private val landSpotAt = Vec3()
+
+    /**
+     * The level velocity toward [vessel]'s landing spot it should drift at, into [out]: faster the
+     * further off it is, up to a few metres a second. Nothing if it hasn't picked one.
+     */
+    private fun towardSpot(vessel: Vessel, attractor: CelestialBody, out: Vec3): Vec3 {
+        out.setZero()
+        if (!vessel.landSpotMoved) return out
+        attractor.rotationAt(time, scratchRotation).rotate(vessel.control.keepPoint, out)
+        out.subInPlace(vessel.body.position)
+        landUp.setTo(vessel.body.position).normalizeInPlace()
+        out.addScaledInPlace(landUp, -(out dot landUp)).mulInPlace(LAND_SPOT_GAIN)
+        if (out.length > LAND_SPOT_DRIFT) out.mulInPlace(LAND_SPOT_DRIFT / out.length)
+        // None of it at the ground, where it has to come down straight or tip over on its legs.
+        out.mulInPlace(((clearance(vessel, attractor) - LAND_SPOT_STRAIGHT) / LAND_SPOT_STRAIGHT).coerceIn(0.0, 1.0))
+        return out
+    }
+
+    /**
+     * Another craft straight under [vessel], within a couple of hundred metres, whose deck it would
+     * come down on, or null.
+     */
+    private fun craftBelow(vessel: Vessel): Vessel? {
+        scratchDeckUp.setTo(vessel.body.position).normalizeInPlace()
+        for (other in vesselsById.values) {
+            if (other === vessel || other.referenceBodyId != vessel.referenceBodyId || walking.walkerOf(other) != null) continue
+            scratchDeckPoint.setTo(other.body.position).subInPlace(vessel.body.position)
+            val down = -(scratchDeckPoint dot scratchDeckUp)
+            if (down < -other.contactRadius || down > CRAFT_BELOW_REACH) continue
+            scratchDeckPoint.addScaledInPlace(scratchDeckUp, down)
+            if (scratchDeckPoint.length > other.contactRadius) continue
+            var d = 0.0
+            while (d <= down + other.contactRadius) {
+                scratchDeckPoint.setTo(vessel.body.position).addScaledInPlace(scratchDeckUp, -d)
+                for (i in other.defs.indices) if (!other.isBroken(i) && deckProbe.inside(scratchDeckPoint, other, i)) return other
+                d += DECK_PROBE_STEP * 2.0
+            }
+        }
+        return null
+    }
+
     /**
      * One tick of landing [vessel] the way a plane, a rotorcraft or an airship comes down, if it's
      * one of those and there's air to do it in. Null for anything else, which lands on its engines.
@@ -685,7 +889,7 @@ class World(
         val kind = com.rm.apogee.core.craft.CraftKind.of(vessel.design, catalog)
         return when (kind) {
             com.rm.apogee.core.craft.CraftKind.PLANE ->
-                landing.plane(vessel, attractor, airClearance(vessel, attractor), dt) { lowerLegs(vessel) }
+                landing.plane(vessel, attractor, attractor.rotationAt(time, scratchKeeperRotation), airClearance(vessel, attractor), dt) { lowerLegs(vessel) }
             com.rm.apogee.core.craft.CraftKind.ROTORCRAFT, com.rm.apogee.core.craft.CraftKind.AIRSHIP -> {
                 val means = keeper.means(vessel, attractor, false)?.takeIf { it != StationKeeping.Means.WATER } ?: return null
                 landing.hover(vessel, attractor, attractor.rotationAt(time, scratchKeeperRotation), means, airClearance(vessel, attractor), dt) { lowerLegs(vessel) }
@@ -5736,9 +5940,19 @@ class World(
         if (depth < -SUIT_HALF_HEIGHT * 0.5) return null
         val g = attractor.gravityAt(vessel.body.position, scratchCrew).length
         val air = attractor.atmosphere?.pressureAt(0.0) ?: 0.0
-        val deepest = (vessel.defs[0].maxPressure * DIVE_SHARE - air) / (ocean.density * g)
-        return Walking.Water(depth, r - SUIT_HALF_HEIGHT - floor, deepest, ocean.density)
+        val water = swimWater
+        water.depth = depth
+        water.aboveFloor = r - SUIT_HALF_HEIGHT - floor
+        water.deepest = (vessel.defs[0].maxPressure * DIVE_SHARE - air) / (ocean.density * g)
+        water.density = ocean.density
+        // The waves' own motion where they are, turned into world axes.
+        ocean.sample(scratchSea, time, swimSample, below = maxOf(0.0, depth))
+        scratchRotation.rotate(swimSample.velocity, water.flow)
+        return water
     }
+
+    private val swimWater = Walking.Water()
+    private val swimSample = com.rm.apogee.core.sea.SeaSample()
 
     /**
      * Someone in the sea getting colder, or out of it warming up again. How long they can last
@@ -5812,10 +6026,18 @@ class World(
         while (h >= low) {
             scratchClimbPoint.setTo(direction).mulInPlace(h)
             var solid = false
+            var upward = false
             for (i in craft.defs.indices) {
-                if (!craft.isBroken(i) && deckProbe.inside(scratchClimbPoint, craft, i)) { solid = true; break }
+                if (!craft.isBroken(i) && deckProbe.inside(scratchClimbPoint, craft, i)) {
+                    solid = true
+                    // Somewhere to stand faces up. Rolled a little in a swell, a ship's side leans
+                    // out over the water, and going down it from the air met her side halfway, which
+                    // is a wall.
+                    upward = (deckProbe.normal dot direction) > CLIMB_FACING
+                    break
+                }
             }
-            if (solid) return if (first) Double.NaN else h
+            if (solid) return if (first || !upward) Double.NaN else h
             first = false
             h -= CLIMB_STEP * 0.4
         }
@@ -5840,6 +6062,9 @@ class World(
         suit.control.holdDepthAt = 0.0
         suit.swimming = false
         craft.wake()
+        // Onto something as small as a jet ski, there's its seat right there, so they sit in it.
+        // Stood up on one, the next wave rolled them off it again.
+        if (seatInReach(suit, craft.id.raw) != null) boardCraft(suit.id.raw, craft.id.raw)
         return true
     }
 
@@ -5861,6 +6086,7 @@ class World(
         val ladder = ladderInReach(vessel) ?: return
         vessel.ladderVessel = ladder.first.id.raw
         vessel.ladderPart = ladder.second
+        vessel.ladderAlong = Double.NaN
     }
 
     /** The nearest ladder within reach of someone in [suit], as a craft and part. */
@@ -6141,6 +6367,9 @@ class World(
         const val CLIMB_REACH = 1.5
         const val CLIMB_HEIGHT = 0.8
 
+        /** How nearly straight up, as a cosine, a surface has to face to be climbed out onto. */
+        const val CLIMB_FACING = 0.8
+
         /** The spacing of the spots looked at for somewhere to climb out onto, in metres. */
         const val CLIMB_STEP = 0.25
 
@@ -6185,6 +6414,59 @@ class World(
 
         /** How far apart, in metres, the points looked at under a craft for a deck are. */
         const val DECK_PROBE_STEP = 0.25
+
+        /**
+         * How far a craft landing itself looks for a clear spot, in metres: a rotorcraft or an
+         * airship, and a rocket braking on its engines, which can't go far out of its way.
+         */
+        const val HOVER_SPOT_REACH = 300.0
+        const val ROCKET_SPOT_REACH = 120.0
+
+        /** Room kept round a craft's own reach on the spot it picks, in metres. */
+        const val LAND_SPOT_MARGIN = 2.0
+
+        /** Further than this from where it was, in metres, it says it's moved to land somewhere clear. */
+        const val LAND_SPOT_MOVED = 5.0
+
+        /** Lower than this over the ground, in metres, a rocket comes straight down, easing off the drift to its spot from twice as high. */
+        const val LAND_SPOT_STRAIGHT = 30.0
+
+        /** How fast a craft drifts toward its landing spot, m/s per metre off it, and the most. */
+        const val LAND_SPOT_GAIN = 0.25
+        const val LAND_SPOT_DRIFT = 6.0
+
+        /** A plane lands on the runway from no further off than this, in metres from its middle. */
+        const val RUNWAY_REACH = 15_000.0
+
+        /** How far out, in metres, a plane joins a runway's line, or a clear strip's. */
+        const val RUNWAY_FINAL = 3_000.0
+        const val STRIP_FINAL = 2_500.0
+
+        /**
+         * A clear strip for a plane: room either side of its reach, in metres, how far it floats
+         * before its wheels touch, and how hard it stops on them, in m/s².
+         */
+        const val STRIP_MARGIN = 3.0
+        const val STRIP_FLOAT = 200.0
+        const val STRIP_STOPPING = 2.0
+
+        /** Where the wheels are aimed at on a clear strip, in metres in from its start. */
+        const val STRIP_TOUCHDOWN = 60.0
+
+        /**
+         * Where a plane looks for a strip: from this far ahead, out to how far it can glide, a
+         * metre down for every this many ahead, but no further than this, in steps of this.
+         */
+        const val STRIP_NEAREST = 1_000.0
+        const val STRIP_GLIDE = 8.0
+        const val STRIP_FARTHEST = 6_000.0
+        const val STRIP_STEP_AHEAD = 250.0
+
+        /** The turns off its track a plane tries for a strip, least first, in degrees. */
+        val STRIP_TURNS = doubleArrayOf(0.0, 20.0, -20.0, 40.0, -40.0, 60.0, -60.0, 90.0, -90.0)
+
+        /** How far under a craft, in metres, another craft's deck counts as what it's coming down on. */
+        const val CRAFT_BELOW_REACH = 300.0
         const val RIDE_SPIN = 0.1
         const val FLAG_STILL = 0.5
         /**

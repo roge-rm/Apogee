@@ -459,6 +459,9 @@ class Vessel(
     var ladderVessel: Long = -1L
     var ladderPart: Int = -1
 
+    /** How far along the ladder they're holding they are, in metres from its middle, or NaN before the first tick on it. */
+    var ladderAlong: Double = Double.NaN
+
     /** Whether anyone is aboard a working part. */
     fun hasCrew(): Boolean = crew.indices.any { crew[it].isNotEmpty() && !broken[it] }
 
@@ -708,6 +711,38 @@ class Vessel(
 
     /** How long, in seconds, a craft landing itself has been standing on the ground. */
     var landDownFor: Double = 0.0
+
+    /**
+     * Whether a craft landing itself has picked where it's coming down, into its keep point. A
+     * rocket picks when it starts braking, and anything flying on the air as it starts.
+     */
+    var landSpotChosen: Boolean = false
+
+    /** Whether that spot is somewhere other than where it was, so it has to get over it first. */
+    var landSpotMoved: Boolean = false
+
+    /**
+     * Where a plane landing itself touches down, body-fixed, at the ground, and the level way it
+     * lands along from there, body-fixed and unit length, when it has a runway or a clear strip
+     * to land on ([landStripSet]). [landFinal] is how far out, in metres, it joins the strip's line.
+     */
+    val landStripAt = com.rm.apogee.core.math.Vec3()
+    val landStripAlong = com.rm.apogee.core.math.Vec3()
+    var landStripSet: Boolean = false
+    var landFinal: Double = 0.0
+
+    /** The heading a plane landing itself is turning to, degrees north of east, or NaN before it has one. */
+    var landHeading: Double = Double.NaN
+
+    /** A plane landing itself going round again, out alongside its strip's line, on its right (1) or left (-1). */
+    var landOutbound: Boolean = false
+    var landOutSide: Double = 1.0
+
+    /** The angle, in degrees, a plane landing itself has learned the wind blows it off its nose by. */
+    var landCrab: Double = 0.0
+
+    /** Which way a plane landing itself is turning, once it has a long way round to go: 1 left, -1 right, 0 neither. */
+    var landTurn: Double = 0.0
 
     /**
      * How long the next burn takes at full throttle, in seconds, as last worked out. 0 if there's

@@ -71,8 +71,13 @@ class SwimmingTest {
         return Math.toDegrees(kotlin.math.acos((axis dot v.body.position.normalized()).coerceIn(-1.0, 1.0)))
     }
 
+    /** Speed across the water, which drifts with the tide and the waves. */
     private fun flatSpeed(world: World, v: Vessel): Double {
-        val rel = v.body.linearVelocity.copy().subInPlace(world.attractorFor(v).surfaceVelocityAt(v.body.position, Vec3()))
+        val terra = world.attractorFor(v)
+        val rotation = terra.rotationAt(world.time)
+        val fixed = terra.toBodyFixed(v.body.position, rotation, Vec3()).normalizeInPlace()
+        val sample = terra.ocean!!.sample(fixed, world.time, com.rm.apogee.core.sea.SeaSample(), below = maxOf(0.0, world.depthOf(v)))
+        val rel = v.body.linearVelocity.copy().subInPlace(terra.surfaceVelocityAt(v.body.position, Vec3())).subInPlace(rotation.rotate(sample.velocity, Vec3()))
         val up = v.body.position.normalized()
         return rel.addScaledInPlace(up, -(rel dot up)).length
     }
@@ -209,17 +214,59 @@ class SwimmingTest {
     }
 
     @Test
-    fun `they climb out onto a jet ski, which sits low in the water`() {
+    fun `in a swell, a ship's side still can't be climbed without her ladder`() {
+        // Rolled a little by the swell, her side leans out over the water, and going down it from
+        // the air the climb found her side halfway and called it somewhere to stand.
+        val world = World.default(catalog).also { it.weatherConfig = WeatherConfig(intensity = WeatherIntensity.NORMAL) }
+        val (_, suit) = overboard(world, off = 2.9)
+        var spin = 0.0
+        repeat(60) {
+            run(world, 0.5)
+            assertNull("offered a climb up her side at ${it * 0.5} s", world.climbSpot(suit))
+            spin = maxOf(spin, abs(suit.body.angularVelocity dot suit.body.position.normalized()))
+        }
+        // Left alone in it, they don't spin round and round either.
+        assertTrue("turning at $spin rad/s", spin < 0.2)
+    }
+
+    @Test
+    fun `stopped halfway up a ladder, they hang there instead of sliding back down it`() {
         val world = world()
-        val ski = launch(world, StockCraft.jetSki(catalog))
-        val (_, suit) = overboard(world, ski, 1.6)
-        val spot = world.climbSpot(suit)
-        assertNotNull("nowhere to climb out", spot)
-        world.apply(Command.ClimbOut(suit.id.raw))
+        val (ship, suit) = overboard(world)
+        val ladder = ship.defs.indices.first { ship.defs[it].id == "ladder-boat" }
+        val at = ship.partPositionWorld(ladder, Vec3())
+        val out = ship.body.orientation.rotate(ship.design.parts[ladder].rotation.rotate(Vec3.unitX(), Vec3()), Vec3())
+        suit.body.position.setTo(at).addScaledInPlace(out, 0.6).addScaledInPlace(at.normalized(), -1.2)
+        suit.body.linearVelocity.setTo(ship.body.linearVelocity)
+        run(world, 1.0)
+        world.apply(Command.Grab(suit.id.raw, true))
+        world.apply(Command.SetAttitude(suit.id.raw, 1.0, 0.0, 0.0))
+        run(world, 2.0)
+        world.apply(Command.SetAttitude(suit.id.raw, 0.0, 0.0, 0.0))
         run(world, 0.5)
-        assertSame("not on the jet ski", ski, suit.standingOn)
-        // And straight into its saddle. Stood up on it for long, the little thing rolls them off.
-        assertSame("can't get back in its saddle", ski, world.boardCraft(suit.id.raw))
+        fun height() = ship.body.orientation.inverseRotate(suit.body.position.copy().subInPlace(ship.body.position), Vec3()).z
+        val stopped = height()
+        run(world, 5.0)
+        assertTrue("let go of the ladder", world.onLadder(suit))
+        assertEquals("slid ${stopped - height()} m down it", stopped, height(), 0.1)
+    }
+
+    @Test
+    fun `they climb out onto a jet ski, which sits low in the water, and straight into its saddle`() {
+        for (weather in listOf(WeatherIntensity.CALM, WeatherIntensity.NORMAL)) {
+            val world = world().also { it.weatherConfig = WeatherConfig(intensity = weather) }
+            val ski = launch(world, StockCraft.jetSki(catalog))
+            val (_, suit) = overboard(world, ski, 1.6)
+            val member = suit.crew[0].first()
+            var spot = world.climbSpot(suit)
+            var waited = 0
+            while (spot == null && waited++ < 20) { run(world, 0.25); spot = world.climbSpot(suit) }
+            assertNotNull("$weather: nowhere to climb out", spot)
+            world.apply(Command.ClimbOut(suit.id.raw))
+            run(world, 0.5)
+            // Stood up on it, the little thing rolls them off, so they sit straight in its saddle.
+            assertTrue("$weather: not aboard it", ski.crew.any { member in it })
+        }
     }
 
     @Test

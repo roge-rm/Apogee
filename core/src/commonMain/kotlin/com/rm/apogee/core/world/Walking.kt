@@ -64,6 +64,9 @@ class Walking {
         scratch.setTo(axis).crossInPlace(up).mulInPlace(walker.stand)
         relative.setTo(body.angularVelocity).addScaledInPlace(up, -(body.angularVelocity dot up))
         scratch.addScaledInPlace(relative, -STAND_DAMPING)
+        // In the water nothing underfoot stops them turning, so it's their arms and legs. Left
+        // free, someone treading water spun round and round.
+        if (vessel.swimming) scratch.addScaledInPlace(up, -SWIM_TURN_DAMPING * (body.angularVelocity dot up))
         body.applyTorque(scratch)
     }
 
@@ -103,9 +106,16 @@ class Walking {
     /**
      * Where someone in the sea is: [depth] metres of their middle under the surface, [aboveFloor]
      * metres of their feet over the bottom, [deepest] they'll swim down to before their suit gets
-     * near what it can take, and the sea's [density].
+     * near what it can take, the sea's [density], and [flow], the water's own motion around them
+     * with the waves, in world axes and over the ground's. One is kept and filled in each tick.
      */
-    class Water(val depth: Double, val aboveFloor: Double, val deepest: Double, val density: Double)
+    class Water {
+        var depth = 0.0
+        var aboveFloor = 0.0
+        var deepest = 0.0
+        var density = 0.0
+        val flow = Vec3()
+    }
 
     /**
      * Before the forces: someone in the water swims. The stick along the way they face, DIVE and
@@ -116,7 +126,9 @@ class Walking {
     private fun swim(vessel: Vessel, attractor: CelestialBody, water: Water) {
         val body = vessel.body
         up.setTo(body.position).normalizeInPlace()
-        attractor.surfaceVelocityAt(body.position, surface)
+        // Through the water, which the waves carry up and down and to and fro. Held against the
+        // ground instead, they were left behind by every crest and ended up metres under it.
+        attractor.surfaceVelocityAt(body.position, surface).addInPlace(water.flow)
         relative.setTo(body.linearVelocity).subInPlace(surface)
         body.orientation.rotate(FACING, forward)
         forward.addScaledInPlace(up, -(forward dot up))
@@ -165,13 +177,19 @@ class Walking {
         val body = vessel.body
         val half = ladder.length / 2
         val lead = ladder.lead - dt
-        ladder.craft.body.velocityAtOffset(scratch.setTo(ladder.centre).subInPlace(ladder.craft.body.position), out)
-        val along = (scratch.setTo(body.position).addScaledInPlace(out, lead).subInPlace(ladder.centre) dot ladder.axis).coerceIn(-half - END_REACH, half + END_REACH)
-        target.setTo(ladder.centre).addScaledInPlace(ladder.axis, along).addScaledInPlace(ladder.out, HOLD_OFF)
+        // How far up it they are is kept, and moved only by climbing. Worked out afresh from where
+        // they were each tick, gravity took a little of it every tick, and stopped halfway up a
+        // ship's ladder they slid back down into the sea.
+        if (vessel.ladderAlong.isNaN()) {
+            ladder.craft.body.velocityAtOffset(scratch.setTo(ladder.centre).subInPlace(ladder.craft.body.position), out)
+            vessel.ladderAlong = scratch.setTo(body.position).addScaledInPlace(out, lead).subInPlace(ladder.centre) dot ladder.axis
+        }
+        val rate = if ((vessel.ladderAlong >= half + END_REACH && input(vessel) > 0.0) || (vessel.ladderAlong <= -half - END_REACH && input(vessel) < 0.0)) 0.0 else input(vessel) * CLIMB_SPEED
+        vessel.ladderAlong = (vessel.ladderAlong + rate * dt).coerceIn(-half - END_REACH, half + END_REACH)
+        target.setTo(ladder.centre).addScaledInPlace(ladder.axis, vessel.ladderAlong).addScaledInPlace(ladder.out, HOLD_OFF)
         ladder.craft.body.velocityAtOffset(scratch.setTo(target).subInPlace(ladder.craft.body.position), out)
         // Where they'd be by the ladder's time, if it's a tick ahead of them.
         scratch.setTo(body.position).addScaledInPlace(out, lead)
-        val rate = if ((along >= half + END_REACH && input(vessel) > 0.0) || (along <= -half - END_REACH && input(vessel) < 0.0)) 0.0 else input(vessel) * CLIMB_SPEED
         out.addScaledInPlace(ladder.axis, rate)
         out.addScaledInPlace(target.subInPlace(scratch), PULL)
         body.linearVelocity.setTo(out)
@@ -265,6 +283,9 @@ class Walking {
 
         /** How deep their middle is, in metres, treading water at the surface with their head out. */
         const val SURFACE_DEPTH = 0.75
+
+        /** How much someone in the water resists turning, in N·m per rad/s. */
+        const val SWIM_TURN_DAMPING = 150.0
 
         /** Walking on the sea floor, in m/s. */
         const val SEABED_SPEED = 0.6

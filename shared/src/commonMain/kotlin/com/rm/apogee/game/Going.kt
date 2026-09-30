@@ -8,7 +8,7 @@ import com.rm.apogee.core.world.World
 
 /**
  * How a craft gets about, for the words the game uses about it. You fly a plane, but you drive a
- * rover, sail a boat, dive a sub, walk in a suit and visit a base, and a button that says FLY on
+ * rover, sail a boat, dive a sub, walk in a suit or swim in the sea, and visit a base, and a button that says FLY on
  * all of them reads wrong.
  */
 enum class Going(val verb: String, val doing: String, val keep: String) {
@@ -17,18 +17,19 @@ enum class Going(val verb: String, val doing: String, val keep: String) {
     SAIL("Sail", "Sailing", "Keep sailing"),
     DIVE("Dive", "Diving", "Keep diving"),
     WALK("Walk", "Walking", "Keep walking"),
+    SWIM("Swim", "Swimming", "Keep swimming"),
     VISIT("Visit", "Visiting", "Stay");
 
     companion object {
         /**
          * How [design] gets about: a founded base ([anchored]) is visited and someone in a suit
-         * walks, and anything else goes by its [CraftKind]. Something carrying a base that isn't
+         * walks, or swims if they're in the sea ([swimming]), and anything else goes by its [CraftKind]. Something carrying a base that isn't
          * founded yet goes by what's carrying it, so a hauler is driven, a lander flown and a sea
          * platform sailed.
          */
-        fun of(design: CraftDesign, catalog: PartCatalog, anchored: Boolean): Going = when {
+        fun of(design: CraftDesign, catalog: PartCatalog, anchored: Boolean, swimming: Boolean = false): Going = when {
             anchored -> VISIT
-            design.parts.singleOrNull()?.partId == World.SUIT_PART -> WALK
+            design.parts.singleOrNull()?.partId == World.SUIT_PART -> if (swimming) SWIM else WALK
             else -> when (CraftKind.of(carrier(design, catalog), catalog)) {
                 CraftKind.ROVER -> DRIVE
                 CraftKind.BOAT -> SAIL

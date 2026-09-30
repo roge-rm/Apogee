@@ -8,6 +8,7 @@ import com.rm.apogee.core.math.Vec3
 import com.rm.apogee.core.math.quatFromTo
 import com.rm.apogee.core.orbit.SolarSystem
 import com.rm.apogee.core.part.StockParts
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -56,7 +57,8 @@ class AirLandingTest {
         world.apply(Command.Stage(plane.id.raw))
         world.apply(Command.SetThrottle(plane.id.raw, 0.4))
         repeat(30) { world.step(Aloft.DT) }
-        val hardest = land(world, plane, 180.0)
+        // Too fast and too low to get down straight in, it goes round once.
+        val hardest = land(world, plane, 420.0)
         assertTrue("came down hard, at $hardest m/s", hardest < 2.5)
         assertTrue("never stopped: ${plane.control.autopilotNote}, ${Aloft.climb(world, plane)} m/s climb, touching ${plane.touchingGround}", plane.control.autopilotNote == "Landed")
         assertTrue("it broke: ${plane.broken.count { it }} parts", plane.broken.none { it })
@@ -115,5 +117,101 @@ class AirLandingTest {
         assertTrue("it broke: ${ship.broken.count { it }} parts", ship.broken.none { it })
         Aloft.run(world, 30.0)
         assertTrue("floated off again", ship.touchingGround)
+    }
+
+    /** Whether anything stands within [radius] metres of where [vessel] is now: trees, rocks or craft. */
+    private fun clearUnder(world: World, vessel: Vessel, radius: Double): Boolean {
+        val terra = world.attractorFor(vessel)
+        val rotation = terra.rotationAt(world.time)
+        val here = terra.toBodyFixed(vessel.body.position, rotation, Vec3()).normalizeInPlace()
+        val ground = ClearGround()
+        ground.gather(terra, here, radius, world.felledScatter, world.vessels, vessel, rotation)
+        return ground.isClear(terra, here, radius, floats = false)
+    }
+
+    @Test
+    fun `let down over a forest, a Hummingbird moves over to a clearing and lands there, clear of the trees`() {
+        val world = World.default(catalog)
+        val heli = over(world, StockCraft.hummingbird(catalog), 1_000.0, -1_000.0, 60.0)
+        Aloft.spinUp(heli, 0.6)
+        world.apply(Command.SetThrottle(heli.id.raw, 0.6))
+        assertTrue("the forest's clear there already", !clearUnder(world, heli, heli.contactRadius))
+        val hard = land(world, heli, 300.0)
+        assertTrue("never down: ${heli.control.autopilotNote}", heli.control.autopilotNote == "Landed")
+        assertTrue("came down hard, at $hard m/s", hard < 1.5)
+        assertTrue("it broke: ${heli.broken.count { it }} parts", heli.broken.none { it })
+        assertTrue("came down among the trees", clearUnder(world, heli, heli.contactRadius))
+    }
+
+    @Test
+    fun `a Quad let down over a forest lands in a clearing too`() {
+        val world = World.default(catalog)
+        val quad = over(world, StockCraft.quad(catalog), 1_000.0, -1_000.0, 50.0)
+        Aloft.spinUp(quad, 0.5)
+        world.apply(Command.SetThrottle(quad.id.raw, 0.5))
+        val hard = land(world, quad, 300.0)
+        assertTrue("never down: ${quad.control.autopilotNote}", quad.control.autopilotNote == "Landed")
+        assertTrue("came down hard, at $hard m/s", hard < 1.5)
+        assertTrue("it broke", quad.broken.none { it })
+        assertTrue("came down among the trees", clearUnder(world, quad, quad.contactRadius))
+    }
+
+    /** Whether [vessel] is on the runway's paving. */
+    private fun onRunway(world: World, vessel: Vessel): Boolean {
+        val terra = world.attractorFor(vessel)
+        val d = terra.toBodyFixed(vessel.body.position, terra.rotationAt(world.time), Vec3()).normalizeInPlace()
+        val terrain = terra.terrain!!
+        return terrain.material(d, terrain.elevation(d), 0.0) == com.rm.apogee.core.terrain.SurfaceMaterial.ASPHALT
+    }
+
+    /** A Sparrow flying [east] m/s east (west if negative) [height] metres over the Cape's ground at [x], [y]. */
+    private fun sparrow(world: World, x: Double, y: Double, height: Double, speed: Double): Vessel {
+        val plane = over(world, StockCraft.sparrow(catalog), x, y, height, speed = kotlin.math.abs(speed))
+        if (speed < 0.0) {
+            // Turned round to fly west.
+            val up = plane.body.position.normalized()
+            plane.body.orientation.setTo(Quat.fromAxisAngle(up, Math.PI) * plane.body.orientation).normalizeInPlace()
+            val ground = world.attractorFor(plane).surfaceVelocityAt(plane.body.position, Vec3())
+            plane.body.linearVelocity.subInPlace(ground).mulInPlace(-1.0).addInPlace(ground)
+        }
+        world.apply(Command.Stage(plane.id.raw))
+        world.apply(Command.SetThrottle(plane.id.raw, 0.6))
+        repeat(30) { world.step(Aloft.DT) }
+        return plane
+    }
+
+    @Test
+    fun `a Sparrow four kilometres out lines up with the runway, lands on it, and stops there`() {
+        val world = World.default(catalog)
+        val plane = sparrow(world, -4_000.0, -900.0, 600.0, 90.0)
+        val hard = land(world, plane, 400.0)
+        assertTrue("never down: ${plane.control.autopilotNote}", plane.control.autopilotNote == "Landed")
+        assertTrue("came down hard, at $hard m/s", hard < 2.5)
+        assertTrue("it broke", plane.broken.none { it })
+        assertTrue("stopped off the runway", onRunway(world, plane))
+    }
+
+    @Test
+    fun `a Sparrow past the runway and heading away turns back and lands on it`() {
+        val world = World.default(catalog)
+        val plane = sparrow(world, 4_500.0, -400.0, 500.0, 80.0)
+        val hard = land(world, plane, 500.0)
+        assertTrue("never down: ${plane.control.autopilotNote}", plane.control.autopilotNote == "Landed")
+        assertTrue("came down hard, at $hard m/s", hard < 2.5)
+        assertTrue("it broke", plane.broken.none { it })
+        assertTrue("stopped off the runway", onRunway(world, plane))
+    }
+
+    @Test
+    fun `a Sparrow over forest far from any runway finds a clear strip and lands on it without hitting anything`() {
+        val world = World.default(catalog)
+        val plane = sparrow(world, 20_000.0, 0.0, 400.0, 80.0)
+        world.apply(Command.SetAutopilot(plane.id.raw, autoBurn = false, autoLand = true))
+        world.step(Aloft.DT)
+        assertEquals("Landing on clear ground", plane.control.autopilotNote)
+        val hard = land(world, plane, 500.0)
+        assertTrue("never down: ${plane.control.autopilotNote}", plane.control.autopilotNote == "Landed")
+        assertTrue("came down hard, at $hard m/s", hard < 3.0)
+        assertTrue("it broke: ${plane.broken.count { it }} parts", plane.broken.none { it })
     }
 }

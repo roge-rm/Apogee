@@ -15,16 +15,18 @@ import kotlin.math.sqrt
 /**
  * Auto-land for anything that flies on the air instead of its engines: planes, rotorcraft and
  * airships. A rocket brakes down on its engines, and that's [World]'s own auto-land. These come
- * down where they are, the way a pilot of each would.
+ * down the way a pilot of each would, somewhere clear.
  *
  * - A plane glides straight ahead, wings level, sinking a few metres a second and less the lower it
  *   gets, and flares just over the ground. The nose sets the sink, like [Cruise], and the throttle
  *   keeps the wing at a comfortable angle: more power if the nose has to come up too far to hold
  *   the sink (it's getting slow), none as it flares. Gear and flaps go down on the way. On the
  *   ground (or the water) it shuts the throttle and brakes to a stop.
- * - A rotorcraft stops over where it is and comes straight down, slower and slower, on the
- *   collective, the way the keeper core holds a height, and shuts down on the ground.
- * - An airship stops the same way and comes down on its ballonets, and stays down with them full.
+ * - A rotorcraft moves over to somewhere clear to set down (World picks it, into its keep point),
+ *   and comes straight down, slower and slower, on the collective, the way the keeper core holds a
+ *   height, and shuts down on the ground.
+ * - An airship makes for the same kind of spot and comes down on its ballonets, and stays down
+ *   with them full.
  *
  * Each says whether it's down, and gives up, saying why, if it can't.
  */
@@ -40,6 +42,9 @@ internal class Landing(private val keeper: StationKeeping) {
     private val spot = Vec3()
     private val turnNose = Quat()
     private val turnDeck = Quat()
+    private val toSpot = Vec3()
+    private val wantDrift = Vec3()
+    private val drift = Vec3()
 
     /** What it's doing now, for the HUD. */
     enum class Outcome { FLYING, LANDED }
@@ -48,7 +53,7 @@ internal class Landing(private val keeper: StationKeeping) {
      * One tick of bringing plane [vessel] down, [height] metres over the ground or the water, for
      * [dt] seconds. [gearDown] lowers anything it has to stand on.
      */
-    fun plane(vessel: Vessel, attractor: CelestialBody, height: Double, dt: Double, gearDown: () -> Unit): Outcome {
+    fun plane(vessel: Vessel, attractor: CelestialBody, rotation: Quat, height: Double, dt: Double, gearDown: () -> Unit): Outcome {
         frame(vessel, attractor)
         val control = vessel.control
         control.sasEnabled = true
@@ -71,7 +76,7 @@ internal class Landing(private val keeper: StationKeeping) {
         }
         if (false && height < FLAPS_OUT && vessel.defs.any { (it.module<com.rm.apogee.core.part.AeroSurface>()?.flapLift ?: 0.0) > 0.0 }) control.flaps = true
         val climb = velocity dot up
-        val track = Math.toDegrees(atan2(flat dot north, flat dot east))
+        var track = Math.toDegrees(atan2(flat dot north, flat dot east))
         val path = Math.toDegrees(atan2(climb, speed))
         // In at a pilot's approach speed, a margin over the stall, unless it was already slower.
         // Holding whatever it had when the landing began, a plane asked to land at cruising speed
@@ -81,6 +86,15 @@ internal class Landing(private val keeper: StationKeeping) {
         // the ground in the flare.
         val approaching = height > FLARE_START
         var climbWanted = -minOf(height * SINK_PER_METRE, APPROACH_SINK).coerceAtLeast(FLARE_SINK)
+        // Lined up on a runway or a clear strip (see World's chooseStrip): out to where its line
+        // starts, then down it on a glide slope, until the flare takes over near the ground.
+        if (vessel.landStripSet) {
+            val guided = strip(vessel, attractor, rotation, height, speed, dt)
+            track = vessel.landHeading
+            // Going round, it climbs away however low it is. Left to the flare below it instead, it
+            // turned off the line twenty metres up and came down in the trees beside it.
+            if (!guided.isNaN() && (height > STRIP_FLARE_FROM || vessel.landOutbound)) climbWanted = guided
+        }
         // Too fast to land, it holds its height and lets the speed bleed off first. Coming down
         // regardless, it arrived at the flare half as fast again, floated, touched, and bounced.
         if (approaching && speed > vessel.landSpeed * TOO_FAST) climbWanted = 0.0
@@ -104,6 +118,106 @@ internal class Landing(private val keeper: StationKeeping) {
         hold(vessel, path + attack, track)
         return Outcome.FLYING
     }
+
+    /**
+     * Steers plane [vessel] for its strip: the heading it turns to, into [Vessel.landHeading], and
+     * the climb it wants, in m/s, returned. Out of line, it makes for where the strip's line
+     * starts, [Vessel.landFinal] metres out, no lower than the glide slope's height there. On the
+     * line, it keeps to its centre and comes down a [Approach.GLIDE_DEGREES] slope to the
+     * touchdown point. NaN leaves the climb to the ordinary way down.
+     */
+    private fun strip(vessel: Vessel, attractor: CelestialBody, rotation: Quat, height: Double, speed: Double, dt: Double): Double {
+        rotation.rotate(vessel.landStripAt, touchdown)
+        rotation.rotate(vessel.landStripAlong, along)
+        val body = vessel.body
+        offset.setTo(body.position).subInPlace(touchdown)
+        val alongLine = offset dot along
+        right.setTo(along).crossInPlace(up).normalizeInPlace()
+        val across = offset dot right
+        val lineHeading = Math.toDegrees(atan2(along dot north, along dot east))
+        val trackHeading = Math.toDegrees(atan2(flat dot north, flat dot east))
+        val final = vessel.landFinal
+        val slope = kotlin.math.tan(Math.toRadians(Approach.GLIDE_DEGREES))
+        // Its height over the touchdown point, not the ground under it, which rises and falls.
+        val overTouchdown = body.position.length - touchdown.length
+        val lined = abs(across) < ESTABLISHED_ACROSS && abs(wrap(trackHeading - lineHeading)) < ESTABLISHED_TURN
+        // Going round: past where it should have touched down and still high, or close in and not
+        // lined up. Out it goes, alongside the line, until it's far enough out to turn in again.
+        val longAndHigh = alongLine >= 0.0 && overTouchdown > GO_AROUND_HEIGHT
+        val offGate = alongLine > -GATE && alongLine < 0.0 && abs(across) > GATE_ACROSS && overTouchdown > FLARE_START
+        val tooClose = alongLine > -TOO_CLOSE && alongLine < 0.0 && !lined
+        // Lined up but so far over the slope, close in, that it can't get down to it in time. It
+        // goes round now rather than diving at the runway and going round anyway over the end.
+        val tooHigh = lined && alongLine > -TOO_CLOSE && alongLine < 0.0 && overTouchdown > -alongLine * slope * 2.0 + GO_AROUND_HEIGHT
+        if (!vessel.landOutbound && (longAndHigh || offGate || tooClose || tooHigh)) {
+            vessel.landOutbound = true
+            vessel.landOutSide = if (across >= 0.0) 1.0 else -1.0
+        }
+        if (vessel.landOutbound && alongLine < -final) vessel.landOutbound = false
+        val wanted: Double
+        val climbWanted: Double
+        // Where it'll be across the line a few seconds on, so it eases off before it gets there
+        // instead of swinging through it.
+        val acrossRate = flat dot right
+        if (!vessel.landOutbound) {
+            // Onto the line and along it: turned in square to it far off, and less and less the
+            // nearer it gets, so it closes on the centre from wherever it is without overshooting.
+            wanted = lineHeading + INTERCEPT * (2.0 / Math.PI) * kotlin.math.atan((across + acrossRate * LOOK_AHEAD) / CLOSING)
+            climbWanted = if (lined) {
+                val slopeHeight = (-alongLine).coerceAtLeast(0.0) * slope
+                (-speed * slope + (slopeHeight - overTouchdown) * SLOPE_GAIN).coerceIn(-STRIP_MOST_SINK, STRIP_MOST_CLIMB)
+            } else {
+                // Not lined up yet: no lower than the slope's height where it'll join it.
+                val joinHeight = (-alongLine).coerceAtLeast(TOO_CLOSE) * slope
+                ((joinHeight - overTouchdown) * CRUISE_HEIGHT_GAIN).coerceIn(-APPROACH_SINK, STRIP_MOST_CLIMB)
+            }
+        } else {
+            // Out alongside the line, the other way, far enough to one side to turn back in.
+            val outAcross = -(across + acrossRate * LOOK_AHEAD - vessel.landOutSide * OUT_OFFSET)
+            wanted = wrap(lineHeading + 180.0) + INTERCEPT * (2.0 / Math.PI) * kotlin.math.atan(outAcross / CLOSING)
+            val joinHeight = final * slope
+            climbWanted = ((joinHeight - overTouchdown) * CRUISE_HEIGHT_GAIN).coerceIn(-APPROACH_SINK, STRIP_MOST_CLIMB)
+        }
+        var climb = climbWanted
+        // Never low over whatever's between, until it's lined up to land.
+        if (!(lined && !vessel.landOutbound) && height < ENROUTE_LEAST) climb = maxOf(climb, STRIP_MOST_CLIMB)
+        // [wanted] is the way it wants to go over the ground. The nose points that way, less the
+        // angle the wind blows it off by, learned slowly from how its nose and its track differ,
+        // the way a pilot crabs into it. Pointed where it wanted to go and no more, it touched down
+        // seventy-five metres off to the side of the runway.
+        vessel.body.orientation.rotate(vessel.design.orientation.forward, nose)
+        val noseHeading = Math.toDegrees(atan2(nose dot north, nose dot east))
+        vessel.landCrab += (wrap(noseHeading - trackHeading) - vessel.landCrab) * (dt / CRAB_TIME).coerceAtMost(1.0)
+        vessel.landCrab = vessel.landCrab.coerceIn(-MOST_CRAB, MOST_CRAB)
+        val now = if (vessel.landHeading.isNaN()) noseHeading else vessel.landHeading
+        var turn = wrap(wanted + vessel.landCrab - now)
+        // A long way round, it keeps turning the way it started. Choosing afresh each time, a plane
+        // flying back down the line, the wrong way, turned left and right as it crossed the centre
+        // and never turned round at all.
+        if (abs(turn) > LONG_TURN) {
+            if (vessel.landTurn == 0.0) vessel.landTurn = if (turn >= 0.0) 1.0 else -1.0
+            if (turn * vessel.landTurn < 0.0) turn += 360.0 * vessel.landTurn
+        } else if (abs(turn) < LONG_TURN_DONE) {
+            vessel.landTurn = 0.0
+        }
+        val step = turn.coerceIn(-TURN_RATE * dt, TURN_RATE * dt)
+        vessel.landHeading = wrap(now + step)
+        return climb
+    }
+
+    /** [degrees] brought into -180..180. */
+    private fun wrap(degrees: Double): Double {
+        var d = degrees % 360.0
+        if (d > 180.0) d -= 360.0
+        if (d < -180.0) d += 360.0
+        return d
+    }
+
+    private val touchdown = Vec3()
+    private val along = Vec3()
+    private val offset = Vec3()
+    private val right = Vec3()
+    private val fix = Vec3()
 
     /**
      * The slowest [vessel] can fly level here, in m/s: the speed at which its flying surfaces, at
@@ -148,10 +262,22 @@ internal class Landing(private val keeper: StationKeeping) {
             return if (settled(vessel, dt)) Outcome.LANDED else Outcome.FLYING
         }
         vessel.landDownFor = 0.0
-        // Down slower and slower, the pace built up gently at first.
-        val goal = (height * HOVER_SINK_PER_METRE).coerceIn(HOVER_TOUCHDOWN, HOVER_MOST_SINK)
+        // Over the spot it picked first, if it had to move to find somewhere clear (see World's
+        // chooseSpot), and only then down. Otherwise straight down where it is, as always.
+        if (vessel.landSpotMoved) {
+            rotation.rotate(control.keepPoint, spot)
+            toSpot.setTo(spot).subInPlace(vessel.body.position)
+            toSpot.addScaledInPlace(up, -(toSpot dot up))
+        } else toSpot.setZero()
+        val over = !vessel.landSpotMoved || (toSpot.length < OVER_SPOT && flat.length < OVER_SPOT_SPEED)
+        // Down slower and slower, the pace built up gently at first. Held at its height while it
+        // gets there.
+        val goal = if (over || means == StationKeeping.Means.GAS) (height * HOVER_SINK_PER_METRE).coerceIn(HOVER_TOUCHDOWN, HOVER_MOST_SINK) else 0.0
         vessel.landSink = minOf(goal, vessel.landSink + HOVER_SINK_EASE * dt)
         val sink = vessel.landSink
+        // The way to drift to get there, faster the further off, up to a few metres a second.
+        wantDrift.setTo(toSpot).mulInPlace(SPOT_GAIN)
+        if (wantDrift.length > SPOT_DRIFT) wantDrift.mulInPlace(SPOT_DRIFT / wantDrift.length)
         if (means == StationKeeping.Means.LIFT) {
             val climb = velocity dot up
             val wanted = -sink
@@ -164,17 +290,24 @@ internal class Landing(private val keeper: StationKeeping) {
             if (vessel.defs.any { r -> r.module<com.rm.apogee.core.part.Rotor>()?.let { !it.tail && it.cyclic > 0.0 } == true }) {
                 control.sasEnabled = false
                 vessel.assistHolding = false
-                // A touch of stick against any drift, the way a pilot holds a hover, or the tail
-                // rotor's push walks it sideways all the way down.
+                // A touch of stick against any drift it doesn't want, the way a pilot holds a hover
+                // or moves over to a clearing, or the tail rotor's push walks it sideways all the
+                // way down.
                 vessel.body.orientation.rotate(vessel.design.orientation.forward, nose)
                 vessel.body.orientation.rotate(vessel.design.orientation.up, level)
                 wing.setTo(nose).crossInPlace(level)
-                control.pitch = ((flat dot nose) * DRIFT_STICK).coerceIn(-MOST_STICK, MOST_STICK)
-                control.roll = (-(flat dot wing) * DRIFT_STICK).coerceIn(-MOST_STICK, MOST_STICK)
+                drift.setTo(flat).subInPlace(wantDrift)
+                control.pitch = ((drift dot nose) * DRIFT_STICK).coerceIn(-MOST_STICK, MOST_STICK)
+                control.roll = (-(drift dot wing) * DRIFT_STICK).coerceIn(-MOST_STICK, MOST_STICK)
                 return Outcome.FLYING
             }
-            // A drone, on rotors that steer by their speeds, is held level by stability assist.
-            level.setTo(up)
+            // A drone, on rotors that steer by their speeds, is held level by stability assist,
+            // tipped into its drift toward the spot the way the keeper tips it.
+            drift.setTo(wantDrift).subInPlace(flat).mulInPlace(StationKeeping.SPEED_GAIN)
+            val g = attractor.gravityAt(vessel.body.position, level).length
+            val most = g * kotlin.math.tan(Math.toRadians(StationKeeping.MOST_TILT))
+            if (drift.length > most) drift.mulInPlace(most / drift.length)
+            level.setTo(up).mulInPlace(g).addInPlace(drift).normalizeInPlace()
             val from = if (vessel.assistHolding) vessel.assistHeld else vessel.body.orientation
             quatFromTo(from.rotate(vessel.design.orientation.up, wing), level, turnDeck)
             // Into its own quaternion first: [from] may be the held attitude itself.
@@ -241,6 +374,59 @@ internal class Landing(private val keeper: StationKeeping) {
     }
 
     companion object {
+        /** Lined up on a strip: within this many metres either side of its line, and this many degrees of its heading. */
+        const val ESTABLISHED_ACROSS = 150.0
+        const val ESTABLISHED_TURN = 30.0
+
+        /**
+         * Closing on a line: how far off it, in metres, it's turned halfway to square, and square
+         * to it is as far as it turns, in degrees.
+         */
+        const val CLOSING = 300.0
+
+        /** A turn further than this, in degrees, keeps its way round until it's under [LONG_TURN_DONE]. */
+        const val LONG_TURN = 135.0
+        const val LONG_TURN_DONE = 90.0
+        const val INTERCEPT = 90.0
+
+        /** Going round, how far to one side of the line it flies back out, in metres. */
+        const val OUT_OFFSET = 1_400.0
+
+        /** How hard a plane keeps to the glide slope, m/s per metre off it, and its most sink and climb. */
+        const val SLOPE_GAIN = 0.15
+        const val STRIP_MOST_SINK = 8.0
+        const val STRIP_MOST_CLIMB = 2.0
+
+        /**
+         * Nearer in than this, in metres, and not lined up, it goes round again, and past the
+         * touchdown point higher than [GO_AROUND_HEIGHT].
+         */
+        const val TOO_CLOSE = 1_500.0
+        const val GO_AROUND_HEIGHT = 40.0
+
+        /** Nearer in than this, in metres, and further off the centre than this, it goes round again. */
+        const val GATE = 600.0
+        const val GATE_ACROSS = 20.0
+
+        /** On the way out to the line, m/s of climb per metre off the height to join it at. */
+        const val CRUISE_HEIGHT_GAIN = 0.05
+
+        /** The least height over the ground, in metres, a plane keeps on its way out to the line. */
+        const val ENROUTE_LEAST = 80.0
+
+        /** How fast a landing plane turns, in degrees a second. */
+        const val TURN_RATE = 4.0
+
+        /** How far ahead, in seconds, a plane looks at where it'll be across its line. */
+        const val LOOK_AHEAD = 6.0
+
+        /** How long, in seconds, a plane takes to learn the angle the wind blows it off by, and the most it allows. */
+        const val CRAB_TIME = 8.0
+        const val MOST_CRAB = 25.0
+
+        /** Below this, in metres, the glide slope gives way to the ordinary flare. */
+        const val STRIP_FLARE_FROM = 25.0
+
         /** Metres up the gear and legs go down, and the flaps. */
         const val GEAR_OUT = 150.0
         const val FLAPS_OUT = 300.0
@@ -299,6 +485,17 @@ internal class Landing(private val keeper: StationKeeping) {
          */
         const val LEAST_COLLECTIVE = 0.15
         const val MOST_COLLECTIVE = 0.9
+
+        /**
+         * Nearer than this to its spot, in metres, and slower than this, in m/s, a rotorcraft is over
+         * it and comes down.
+         */
+        const val OVER_SPOT = 4.0
+        const val OVER_SPOT_SPEED = 1.5
+
+        /** How fast a rotorcraft drifts to its spot, m/s per metre off it, and the most. */
+        const val SPOT_GAIN = 0.25
+        const val SPOT_DRIFT = 5.0
 
         /** Stick a helicopter holds against its drift, per m/s, and the most. */
         const val DRIFT_STICK = 0.08

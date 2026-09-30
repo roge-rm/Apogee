@@ -1218,11 +1218,15 @@ class ApogeeApp(private val host: AppHost) {
             val flag = only == com.rm.apogee.core.world.World.FLAG_PART
             val depth = world.depthOf(vessel)
             val deck = if (flag || vessel.anchored) null else world.deckUnder(vessel)
+            // On the sea, measured from the waves where it is, not the sea's level. On a crest a
+            // jet ski was two metres up and "Flying".
+            val atSea = body.terrain?.isOcean(bodyFixed) == true && depth > -(vessel.contactRadius + AT_SEA_CLEARANCE)
+            val swimming = suit && deck == null && atSea
             val situation = when {
                 // Parked on another craft, a plane on a carrier or a buggy on a barge, or someone
                 // out on a ship's deck.
                 deck != null -> "On ${deck.name}'s deck"
-                suit && above < 2.0 && body.terrain?.isOcean(bodyFixed) == true -> "Swimming off ${body.displayName}"
+                swimming -> "Swimming off ${body.displayName}"
                 suit -> "On EVA on ${body.displayName}"
                 flag -> "Planted on ${body.displayName}"
                 // A base: where it is, and how it's keeping, with its power and stores.
@@ -1234,14 +1238,14 @@ class ApogeeApp(private val host: AppHost) {
                         (if (pads > 0) " · $pads pad${if (pads > 1) "s" else ""}" else "")
                 }
                 depth > com.rm.apogee.game.GameSession.UNDER_SEA -> "Under the sea off ${body.displayName}"
-                above < 2.0 && body.terrain?.isOcean(bodyFixed) == true -> "Afloat on ${body.displayName}"
+                atSea -> "Afloat on ${body.displayName}"
                 above < 2.0 -> "Landed on ${body.displayName}"
                 orbit.isBound && orbit.periapsis > floor -> "In orbit of ${body.displayName}"
                 else -> "${com.rm.apogee.game.Going.aloft(vessel.design, StockParts.catalog)} over ${body.displayName}"
             }
             val height = if (deck != null) "on ${body.displayName}"
                 else if (depth > com.rm.apogee.game.GameSession.UNDER_SEA) "%.0f m down".format(depth)
-                else if (above < 2.0) "on the surface"
+                else if (above < 2.0 || atSea) "on the surface"
                 else if (above < 10_000.0) "%.0f m up".format(above) else "%.1f km up".format(above / 1000.0)
             val aboard = vessel.crewAboard
             val crewNote = when {
@@ -1252,7 +1256,7 @@ class ApogeeApp(private val host: AppHost) {
             com.rm.apogee.ui.screens.CraftSummary(
                 vessel.id.raw, vessel.name, situation, height, crewNote,
                 canReset = !suit && !flag, canFly = !flag,
-                going = com.rm.apogee.game.Going.of(vessel.design, StockParts.catalog, vessel.anchored),
+                going = com.rm.apogee.game.Going.of(vessel.design, StockParts.catalog, vessel.anchored, swimming),
             )
         }
     }
@@ -1598,6 +1602,8 @@ class ApogeeApp(private val host: AppHost) {
     }
 
     private companion object {
+        /** How far, in metres, a craft's lowest reach can ride above the waves and still be afloat. */
+        const val AT_SEA_CLEARANCE = 1.0
         /**
          * The slide from the up and down buttons, before the stick's cubed response: about a third
          * of a metre a second squared on a tug.
