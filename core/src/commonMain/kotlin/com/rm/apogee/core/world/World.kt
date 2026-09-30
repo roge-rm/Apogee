@@ -3329,7 +3329,9 @@ class World(
                 // changes nothing on flat ground but is metres up or down on a steep slope. A pod
                 // landed on a mountainside came to rest two metres inside it.
                 contacts.resolve(vessel, attractor, h, time + (substep + 1) * h, substep > 0)
-                contacts.resolveOnCraft(vessel, attractor, decks, h)
+                // A deck stepped before this craft is already at the end of the tick, and one
+                // stepped after it is still at the start. This craft is (substep + 1) * h in.
+                contacts.resolveOnCraft(vessel, attractor, decks, h, tick, dt, (substep + 1) * h)
             }
             vessel.standingOn = contacts.deckUnder
             // A deck asleep doesn't move, so it's woken to take the weight.

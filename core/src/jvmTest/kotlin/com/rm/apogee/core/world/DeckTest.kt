@@ -191,4 +191,30 @@ class DeckTest {
         const val TILE = 16.0
         const val DECK_THICKNESS = 0.6
     }
+
+    @Test
+    fun `a buggy that was out before the barge it's set on meets her deck where it really is`() {
+        // Craft are stepped in the order they came into the world. The buggy's first, so when it
+        // meets her deck she hasn't moved on yet this tick, and on Terra, going round with it at a
+        // couple of hundred metres a second, that was three metres behind. The buggy fell off one
+        // end of her deck well short of it, and stood on air past the other.
+        for ((along, on) in listOf(16.5 to true, -15.5 to true, -17.5 to false)) {
+            val world = World.default(catalog)
+            world.weatherConfig = WeatherConfig(intensity = WeatherIntensity.CALM)
+            val d = com.rm.apogee.core.orbit.SolarSystem.capeDirection(-6_000.0, 2_000.0)
+            val site = LaunchSite("open", "Open sea", "terra", com.rm.apogee.core.orbit.SolarSystem.latitudeOf(d), com.rm.apogee.core.orbit.SolarSystem.longitudeOf(d))
+            val buggy = world.spawnOnSurface(StockCraft.buggy(catalog), World.launchSites.first { it.id == "cape" })
+            val barge = world.spawnOnSurface(StockCraft.deckBarge(catalog), site)
+            run(world, 10.0)
+            val up = barge.body.position.normalized()
+            buggy.body.position.setTo(barge.body.position).addScaledInPlace(up, 2.7).addScaledInPlace(barge.forward(), along)
+            buggy.body.orientation.setTo(barge.body.orientation)
+            buggy.body.linearVelocity.setTo(barge.body.linearVelocity)
+            buggy.body.angularVelocity.setTo(barge.body.angularVelocity)
+            buggy.wake()
+            world.apply(Command.SetBrakes(buggy.id.raw, true))
+            run(world, 3.0)
+            assertEquals("$along m along her", on, buggy.standingOn === barge || buggy.ridingOn == barge.id)
+        }
+    }
 }

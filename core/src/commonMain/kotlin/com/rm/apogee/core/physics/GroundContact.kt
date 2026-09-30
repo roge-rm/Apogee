@@ -143,6 +143,9 @@ class GroundContact {
      */
     private var deck: RigidBody? = null
     private val deckOffset = Vec3()
+    private val leadShift = Vec3()
+    private val testPoint = Vec3()
+    private val testCentre = Vec3()
     private val deckInverseInertia = Mat3()
     private val pushBack = Vec3()
     private val volume = PartVolume()
@@ -319,7 +322,20 @@ class GroundContact {
      * through here. Every other part meets another craft in [CraftContact], as a hull meets the
      * ground, and that skips the feet so nothing is met twice.
      */
-    fun resolveOnCraft(vessel: Vessel, attractor: CelestialBody, decks: List<Vessel>, dt: Double): ContactReport {
+    fun resolveOnCraft(
+        vessel: Vessel,
+        attractor: CelestialBody,
+        decks: List<Vessel>,
+        dt: Double,
+        /**
+         * The world's tick, how long it is, and how far into it [vessel] has got, in seconds. A
+         * deck already moved on this tick ([Vessel.movedTick]) is at its end, and one not moved yet
+         * is at its start, so it can be ahead of [vessel] or behind it.
+         */
+        tick: Long = Long.MIN_VALUE,
+        tickLength: Double = 0.0,
+        into: Double = 0.0,
+    ): ContactReport {
         val body = vessel.body
         if (body.inverseMass <= 0.0 || decks.isEmpty()) return report
         entryLinear.setTo(body.linearVelocity)
@@ -350,18 +366,27 @@ class GroundContact {
                 vessel.contactPointWorld(partIndex, pointIndex, partPosition)
                 // The first deck part the point is in. One is plenty: a foot stands on one thing.
                 search@ for (other in decks) {
-                    scratch.setTo(partPosition).subInPlace(other.body.position)
+                    // Where the point is as of the deck's own moment, so the two are measured
+                    // together. A tick apart, a rider on Terra was three metres out along the deck
+                    // from where it really stood, standing on air past one end of a barge and off
+                    // the other.
+                    val lead = if (tick == Long.MIN_VALUE) 0.0 else (if (other.movedTick == tick) tickLength else 0.0) - into
+                    other.body.velocityAtOffset(scratch.setTo(partPosition).subInPlace(other.body.position), leadShift)
+                    leadShift.mulInPlace(lead)
+                    testPoint.setTo(partPosition).addInPlace(leadShift)
+                    testCentre.setTo(craftCentre).addInPlace(leadShift)
+                    scratch.setTo(testPoint).subInPlace(other.body.position)
                     if (scratch.lengthSq > other.contactRadius * other.contactRadius) continue
                     for (deckPart in other.defs.indices) {
                         val deckDef = other.defs[deckPart]
                         if (!deckDef.solid) continue
                         other.partPositionWorld(deckPart, scratch)
                         val reach = deckDef.boundsHalfExtents.length
-                        if (scratch.subInPlace(partPosition).lengthSq > reach * reach) continue
-                        if (!volume.inside(partPosition, other, deckPart, craftCentre, localUp)) continue
+                        if (scratch.subInPlace(testPoint).lengthSq > reach * reach) continue
+                        if (!volume.inside(testPoint, other, deckPart, testCentre, localUp)) continue
                         val deckBody = other.body
                         deck = deckBody
-                        deckOffset.setTo(partPosition).subInPlace(deckBody.position)
+                        deckOffset.setTo(testPoint).subInPlace(deckBody.position)
                         deckInverseInertia.setRotated(deckBody.inverseInertiaLocal, deckBody.orientation)
                         normal.setTo(volume.normal)
                         deckUnder = other
