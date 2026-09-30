@@ -205,9 +205,18 @@ class Docking {
         val inertia = 1.0 / inverse
         val angle = Math.toRadians(m.angle)
         val spin = (bodyB.angularVelocity dot about) - (bodyA.angularVelocity dot about)
-        var t = inertia * (TURN_RATE * TURN_RATE * angle - 2.0 * TURN_RATE * spin)
         val limit = minOf(a.port.turn, b.port.turn)
-        t = t.coerceIn(-limit, limit)
+        // Stiff enough to reach the full turn by half the capture angle, the same as the pull by
+        // half the capture range. Set by the craft's own inertia alone it squared anything up in
+        // space, where nothing turns it back, but a submarine hanging off a sea floor base was held
+        // twenty-three degrees off by its keel and the water, with the magnets giving a tenth of
+        // what they could, and never latched. No stiffer than a tick can follow, though, or a light
+        // craft would be flung round past square and back.
+        val half = 0.5 * Math.toRadians(minOf(a.port.captureAngle, b.port.captureAngle))
+        val steadiest = inertia * (STEADY_TURN / dt) * (STEADY_TURN / dt)
+        val stiff = minOf(maxOf(inertia * TURN_RATE * TURN_RATE, limit / half), steadiest)
+        val damp = 2.0 * sqrt(stiff * inertia)
+        val t = (stiff * angle - damp * spin).coerceIn(-limit, limit)
         bodyB.applyAngularImpulse(torque.setTo(about).mulInPlace(t * dt))
         bodyA.applyAngularImpulse(torque.setTo(about).mulInPlace(-t * dt))
     }
@@ -231,6 +240,9 @@ class Docking {
          */
         const val PULL_RATE = 1.5
         const val TURN_RATE = 1.5
+
+        /** The most the turn can swing a craft in one tick, in radians of its natural rate, and still be followed. */
+        const val STEADY_TURN = 0.5
 
         fun pairKey(va: Long, ia: Int, vb: Long, ib: Int): Long {
             val a = va * 4_096 + ia

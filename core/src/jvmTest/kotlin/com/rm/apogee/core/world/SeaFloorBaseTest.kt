@@ -10,6 +10,7 @@ import com.rm.apogee.core.orbit.SolarSystem
 import com.rm.apogee.core.part.StockParts
 import com.rm.apogee.core.weather.WeatherConfig
 import com.rm.apogee.core.weather.WeatherIntensity
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -141,5 +142,50 @@ class SeaFloorBaseTest {
         assertTrue(Power.seaShade(terra, up.copy().mulInPlace(1.0 + 10.0 / terra.radius)) == 1.0)
         val down = Power.seaShade(terra, up.copy().mulInPlace(1.0 - 50.0 / terra.radius))
         assertTrue("$down of the daylight fifty metres down", down < 0.1)
+    }
+
+    @Test
+    fun `a submarine carrying a Base Connector docks at a base on the floor, and her crew come aboard it`() {
+        val world = World.default(catalog).also { it.weatherConfig = WeatherConfig(intensity = WeatherIntensity.CALM) }
+        val shallow = SolarSystem.capeDirection(-3_000.0, 2_000.0)
+        val base = world.spawnOnSurface(StockCraft.seaFloorBase(catalog), LaunchSite("sea", "Sea", "terra", SolarSystem.latitudeOf(shallow), SolarSystem.longitudeOf(shallow)))
+        world.assignOwner(base, "p1")
+        world.seatCrew(base)
+        run(world, 10.0)
+        world.apply(Command.SetBallast(base.id.raw, 1))
+        run(world, 200.0)
+        assertTrue("not founded", world.anchor(base))
+        // A Nautilus with a Base Connector on her side.
+        val builder = com.rm.apogee.core.craft.CraftBuilder(catalog)
+        builder.load(StockCraft.nautilus(catalog))
+        val hull = builder.design.parts.indexOfFirst { it.partId == "hull-nautilus" }
+        builder.attach("base-connector", builder.openNodes().first { it.partIndex == hull && it.node.id == "side-right" })
+        val design = builder.design
+        // Set down beside the base's first connector, facing it, half a metre off.
+        val basePort = base.defs.indices.first { base.defs[it].id == "base-connector" }
+        val theirs = com.rm.apogee.core.physics.PortRef(base, basePort, base.defs[basePort].module<com.rm.apogee.core.part.DockingPort>()!!).update()
+        val up = theirs.face.normalized()
+        val subPort = design.parts.indexOfLast { it.partId == "base-connector" }
+        val local = design.parts[subPort].rotation.rotate(Vec3.unitY(), Vec3())
+        val upright = com.rm.apogee.core.math.quatFromTo(design.orientation.up, up)
+        val facing = upright.rotate(local, Vec3()).let { it.addScaledInPlace(up, -(it dot up)).normalizeInPlace() }
+        val want = theirs.axis.copy().addScaledInPlace(up, -(theirs.axis dot up)).normalizeInPlace().mulInPlace(-1.0)
+        val rotation = (com.rm.apogee.core.math.quatFromTo(facing, want) * upright).normalizeInPlace()
+        val target = theirs.face.copy().addScaledInPlace(theirs.axis, 0.5)
+        val sub = world.spawnAt(design, "terra", target, world.attractorFor(base).surfaceVelocityAt(target, Vec3()), rotation)
+        world.assignOwner(sub, "p1")
+        world.seatCrew(sub)
+        val mine = com.rm.apogee.core.physics.PortRef(sub, subPort, sub.defs[subPort].module<com.rm.apogee.core.part.DockingPort>()!!).update()
+        sub.body.position.addInPlace(target.copy().subInPlace(mine.face))
+        // Dived and trimmed to hang where she is, the way she'd have come alongside: her tanks half
+        // full and holding her depth.
+        for (i in sub.defs.indices) sub.defs[i].module<com.rm.apogee.core.part.Ballast>()?.let { sub.flooded[i] = it.volume * 1025.0 * 0.5 }
+        sub.recomputeMass()
+        world.apply(Command.HoldDepth(sub.id.raw, true))
+        val aboard = base.crewAboard + sub.crewAboard
+        run(world, 15.0)
+        assertFalse("never docked", world.vessels.any { it === sub })
+        assertTrue("the base isn't founded now", base.anchored)
+        assertEquals("crew went missing", aboard, base.crewAboard)
     }
 }
