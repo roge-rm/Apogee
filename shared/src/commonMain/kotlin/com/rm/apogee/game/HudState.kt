@@ -238,6 +238,12 @@ class HudState {
         val boardable: String = "",
         val canGrab: Boolean = false,
         val onLadder: Boolean = false,
+        /** In the water: a craft they could climb out onto, or empty; swimming; and how cold, 0..1. */
+        val climbOnto: String = "",
+        val swimming: Boolean = false,
+        val chill: Float = 0f,
+        /** Why nobody can go outside now, or empty. */
+        val evaBlocked: String = "",
         /** Aboard someone else's craft. */
         val passenger: Boolean = false,
         /**
@@ -287,6 +293,9 @@ class HudState {
         /** Close enough to its depth limit to warn, and past it. */
         val deepCaution: Boolean get() = crush > DEEP_CAUTION
         val deepDanger: Boolean get() = crush > 1f
+        /** Cold enough in the water to warn, and near the end. */
+        val coldCaution: Boolean get() = chill > COLD_CAUTION
+        val coldDanger: Boolean get() = chill > COLD_DANGER
         /** Charge as a share of what it holds, 0..1. 1 with no battery. */
         val share: Float get() = if (capacity > 0f) charge / capacity else 1f
         /** Low enough to warn about. */
@@ -433,6 +442,10 @@ class HudState {
 
         /** The share of its depth limit where a diving craft gets warned. */
         const val DEEP_CAUTION = 0.8f
+
+        /** How cold, as a share of what kills, to warn about someone in the water, and to warn hard. */
+        const val COLD_CAUTION = 0.5f
+        const val COLD_DANGER = 0.85f
     }
 }
 

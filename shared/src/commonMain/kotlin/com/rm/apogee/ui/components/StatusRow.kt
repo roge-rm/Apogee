@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AcUnit
 import androidx.compose.material.icons.filled.BatteryAlert
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Groups
@@ -104,6 +105,9 @@ fun StatusRow(
         }
         if (power != null && power.deepCaution) {
             add(StatusChip("crush", Icons.Filled.Compress, "DEPTH LIMIT", if (power.deepDanger) ApogeeColors.Danger else ApogeeColors.Caution, power.deepDanger, HudState.STATUS_PARTS))
+        }
+        if (power != null && power.coldCaution) {
+            add(StatusChip("cold", Icons.Filled.AcUnit, "COLD", if (power.coldDanger) ApogeeColors.Danger else ApogeeColors.Caution, power.coldDanger, null))
         }
         if (power != null && power.findRange >= 0f) {
             val side = power.findBearing.roundToInt()

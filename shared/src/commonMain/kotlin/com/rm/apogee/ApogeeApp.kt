@@ -279,7 +279,14 @@ class ApogeeApp(private val host: AppHost) {
                 power.onLadder -> scope.launch { current.grab(false) }
                 power.canGrab -> scope.launch { current.grab(true) }
             }
-            com.rm.apogee.input.PadAction.BOARD -> if (hudState.isSuit && power?.boardable?.isNotEmpty() == true) scope.launch { current.board() }
+            // In the water with no seat in reach, the same button climbs out onto a deck.
+            com.rm.apogee.input.PadAction.BOARD -> when {
+                !hudState.isSuit || power == null -> Unit
+                power.boardable.isNotEmpty() -> scope.launch { current.board() }
+                power.climbOnto.isNotEmpty() -> scope.launch { current.climbOut() }
+            }
+            com.rm.apogee.input.PadAction.SWIM_DOWN -> if (hudState.isSuit && power?.ballast?.let { it >= 0f } == true) onBallast(1)
+            com.rm.apogee.input.PadAction.SWIM_UP -> if (hudState.isSuit && power?.ballast?.let { it >= 0f } == true) onBallast(-1)
             com.rm.apogee.input.PadAction.FLAG -> if (hudState.isSuit) scope.launch { current.plantFlag() }
             else -> Unit
         }
@@ -498,6 +505,7 @@ class ApogeeApp(private val host: AppHost) {
                             onJump = { session?.let { s -> scope.launch { s.jump() } } },
                             onGrab = { on -> session?.let { s -> scope.launch { s.grab(on) } } },
                             onFlag = { session?.let { s -> scope.launch { s.plantFlag() } } },
+                            onClimbOut = { session?.let { s -> scope.launch { s.climbOut() } } },
                         ),
                         burnActions = com.rm.apogee.ui.components.BurnActions(
                             onNudge = { p, n, r -> session?.let { s -> scope.launch { s.nudgeBurn(p, n, r) } } },
@@ -1209,17 +1217,20 @@ class ApogeeApp(private val host: AppHost) {
             val suit = only == com.rm.apogee.core.world.World.SUIT_PART
             val flag = only == com.rm.apogee.core.world.World.FLAG_PART
             val depth = world.depthOf(vessel)
-            val deck = if (suit || flag || vessel.anchored) null else world.deckUnder(vessel)
+            val deck = if (flag || vessel.anchored) null else world.deckUnder(vessel)
             val situation = when {
+                // Parked on another craft, a plane on a carrier or a buggy on a barge, or someone
+                // out on a ship's deck.
+                deck != null -> "On ${deck.name}'s deck"
+                suit && above < 2.0 && body.terrain?.isOcean(bodyFixed) == true -> "Swimming off ${body.displayName}"
                 suit -> "On EVA on ${body.displayName}"
                 flag -> "Planted on ${body.displayName}"
-                // Parked on another craft, a plane on a carrier or a buggy on a barge.
-                deck != null -> "On ${deck.name}'s deck"
                 // A base: where it is, and how it's keeping, with its power and stores.
                 vessel.anchored -> {
                     world.settlePower(vessel)
                     val pads = vessel.defs.count { it.hasModule<com.rm.apogee.core.part.LaunchPad>() }
-                    "Base on ${body.displayName}" + (if (!vessel.powered) " · dark" else "") +
+                    (if (depth > com.rm.apogee.game.GameSession.UNDER_SEA) "Base under the sea off ${body.displayName}" else "Base on ${body.displayName}") +
+                        (if (!vessel.powered) " · dark" else "") +
                         (if (pads > 0) " · $pads pad${if (pads > 1) "s" else ""}" else "")
                 }
                 depth > com.rm.apogee.game.GameSession.UNDER_SEA -> "Under the sea off ${body.displayName}"

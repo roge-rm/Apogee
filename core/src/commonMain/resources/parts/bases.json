@@ -3876,5 +3876,325 @@
         "launchCharge": 20.0
       }
     ]
+  },
+  {
+    "id": "base-footing-sea",
+    "title": "Sea Footing",
+    "category": "base",
+    "dryMass": 115000.0,
+    "description": "A slab of iron and concrete to hold a base down on the sea floor. A base floats otherwise, because its modules are full of air. Set it down on a floor no steeper than ten degrees and found the base. They stack, for a bigger base.",
+    "crashTolerance": 30.0,
+    "dragCoefficient": 1.0,
+    "mesh": {
+      "type": "box",
+      "width": 4.2,
+      "height": 1.0,
+      "depth": 4.2
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 4.2,
+              "height": 0.9,
+              "depth": 4.2
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": -0.05,
+            "z": 0.0
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 4.0,
+              "height": 0.1,
+              "depth": 4.0
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.45,
+            "z": 0.0
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 4.3,
+              "height": 0.12,
+              "depth": 0.3
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": -0.2,
+            "z": -2.0
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 4.3,
+              "height": 0.12,
+              "depth": 0.3
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": -0.2,
+            "z": 2.0
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.3,
+              "height": 0.12,
+              "depth": 4.3
+            }
+          },
+          "offset": {
+            "x": -2.0,
+            "y": -0.2,
+            "z": 0.0
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.3,
+              "height": 0.12,
+              "depth": 4.3
+            }
+          },
+          "offset": {
+            "x": 2.0,
+            "y": -0.2,
+            "z": 0.0
+          },
+          "tint": "metal"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "top",
+        "position": {
+          "x": 0.0,
+          "y": 0.5,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "size": 3
+      },
+      {
+        "id": "bottom",
+        "position": {
+          "x": 0.0,
+          "y": -0.5,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 3
+      }
+    ],
+    "modules": [
+      {
+        "type": "foundation",
+        "travel": 1.0,
+        "maxSlope": 10.0
+      }
+    ],
+    "strength": 2000000.0
+  },
+  {
+    "id": "base-float",
+    "title": "Base Float",
+    "category": "base",
+    "dryMass": 3000.0,
+    "description": "A tank the size of a base module, to float a sea floor base out to where it's going. Blown, it floats the base on its footing so a tug can tow it. Flood it with DIVE and the base goes down to the bottom, to be founded there. RISE blows it out again.",
+    "crashTolerance": 16.0,
+    "dragCoefficient": 1.0,
+    "maxPressure": 2000000.0,
+    "mesh": {
+      "type": "box",
+      "width": 4.0,
+      "height": 2.6,
+      "depth": 4.0
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 4.0,
+              "height": 2.4,
+              "depth": 4.0
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "accent"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 4.1,
+              "height": 0.12,
+              "depth": 4.1
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": -1.24,
+            "z": 0.0
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 4.1,
+              "height": 0.12,
+              "depth": 4.1
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 1.24,
+            "z": 0.0
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 4.05,
+              "height": 0.2,
+              "depth": 4.05
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.18,
+              "height": 0.3
+            }
+          },
+          "offset": {
+            "x": 1.5,
+            "y": 1.35,
+            "z": 1.5
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.18,
+              "height": 0.3
+            }
+          },
+          "offset": {
+            "x": -1.5,
+            "y": 1.35,
+            "z": -1.5
+          },
+          "tint": "metal"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "bottom",
+        "position": {
+          "x": 0.0,
+          "y": -1.3,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 3
+      },
+      {
+        "id": "top",
+        "position": {
+          "x": 0.0,
+          "y": 1.3,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "size": 3
+      }
+    ],
+    "modules": [
+      {
+        "type": "ballast",
+        "volume": 38.0,
+        "rate": 0.5,
+        "draw": 0.2
+      }
+    ],
+    "strength": 900000.0
   }
 ]

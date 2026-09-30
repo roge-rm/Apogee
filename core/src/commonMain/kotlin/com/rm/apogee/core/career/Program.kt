@@ -152,8 +152,10 @@ class Program(val tree: TechTree = TechTree.stock) {
     fun founded(world: World, vessel: Vessel) {
         val home = vessel.referenceBodyId == SolarSystem.HOMEWORLD_ID
         if (!home) award(world, vessel, Feat.OUTPOST)
-        // Afloat on the sea, or floating in the sky.
-        if (vessel.buoyed) award(world, vessel, Feat.SEA_STEAD)
+        // Afloat on the sea, on the sea floor, or floating in the sky. A base on the floor is in the
+        // water too, so it isn't a sea stead. Founded afloat, it rides the sea.
+        if (vessel.afloat) award(world, vessel, Feat.SEA_STEAD)
+        else if (world.depthOf(vessel) > UNDER_WATER) award(world, vessel, Feat.SEA_FLOOR_BASE)
         else if (!vessel.touchingGround && !home && vessel.defs.any { it.hasModule<com.rm.apogee.core.part.LiftGas>() }) award(world, vessel, Feat.CLOUD_CITY)
     }
 
@@ -623,6 +625,9 @@ class Program(val tree: TechTree = TechTree.stock) {
          * [ABYSS] is the Abyss.
          */
         const val SEAFLOOR_DEPTH = 100.0
+
+        /** How far under the surface, in metres, a base on the bottom has to be to count as under the sea. */
+        const val UNDER_WATER = 5.0
         const val ABYSS = 3_000.0
         /**
          * Being within this many metres of the floor, over a vent field at least this thick (0..1),

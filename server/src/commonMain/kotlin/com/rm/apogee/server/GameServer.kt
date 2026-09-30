@@ -615,6 +615,7 @@ class GameServer(
         is Command.Jump -> flies(session, command.vessel)
         is Command.Grab -> flies(session, command.vessel)
         is Command.PlantFlag -> flies(session, command.vessel)
+        is Command.ClimbOut -> flies(session, command.vessel)
         is Command.RightCraft -> flies(session, command.vessel)
         is Command.SetIndustry -> flies(session, command.vessel) || world.vessel(VesselId(command.vessel))?.let { it.anchored && it.owner == session.clientId } == true
         is Command.Unload -> flies(session, command.vessel)

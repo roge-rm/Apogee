@@ -15,6 +15,10 @@ import com.rm.apogee.core.math.Math
  * this tick: brisk on rock, a slow lope on Luna, and a shuffle on ice. They're held upright. On a
  * ladder they go where it goes, and the stick climbs. Off the ground and off a ladder none of this
  * does anything, because the jetpack is the thrusters.
+ *
+ * In the sea they swim. They're held upright with their head out, the stick swims them along and
+ * DIVE and RISE take them down and up, and let go of, they tread water where they are. A suit is a
+ * little heavier than the water it displaces, so down on the bottom they walk on it, slowly.
  */
 class Walking {
 
@@ -44,11 +48,16 @@ class Walking {
      * Before the forces: whether they're on their feet this tick, and the torque that keeps them
      * upright, either against the local vertical or along the ladder they're holding.
      */
-    fun stand(vessel: Vessel, walker: Walker, attractor: CelestialBody, ladder: LadderHold?) {
+    fun stand(vessel: Vessel, walker: Walker, attractor: CelestialBody, ladder: LadderHold?, water: Water? = null) {
         val body = vessel.body
-        vessel.onFeet = vessel.touchingGround || ladder != null
+        // Down on the sea floor they're on their feet, just about touching it or not, because a suit
+        // in the water weighs next to nothing. Until they swim up off it.
+        val onFloor = water != null && water.aboveFloor < FLOOR_REACH && vessel.control.ballast >= 0
+        vessel.onFeet = ladder != null || ((vessel.touchingGround || onFloor) && !(water != null && vessel.control.ballast < 0))
+        vessel.swimming = water != null && !vessel.onFeet
         vessel.walking = kotlin.math.abs(input(vessel)) > 0.05
-        if (!vessel.onFeet) return
+        if (vessel.swimming) swim(vessel, attractor, water!!)
+        if (!vessel.onFeet && !vessel.swimming) return
         if (ladder != null) up.setTo(ladder.axis) else up.setTo(body.position).normalizeInPlace()
         body.orientation.rotate(Vec3.unitY(), axis)
         // Tipped by sin(angle) around axis x up, so it's brought back upright, damped.
@@ -62,15 +71,20 @@ class Walking {
      * After the contacts, the walk uses up the grip the feet found, or the ladder carries them.
      * Returns whether they're still on a ladder.
      */
-    fun move(vessel: Vessel, walker: Walker, attractor: CelestialBody, ladder: LadderHold?, dt: Double) {
+    fun move(vessel: Vessel, walker: Walker, attractor: CelestialBody, ladder: LadderHold?, dt: Double, water: Water? = null) {
         val grip = vessel.walkGrip
         vessel.walkGrip = 0.0
         val body = vessel.body
         if (ladder != null) {
-            climb(vessel, ladder)
+            climb(vessel, ladder, dt)
             return
         }
-        if (!vessel.touchingGround || grip <= 0.0) return
+        // On the sea floor there's hardly any weight on their feet to grip with, so they push
+        // along with their arms and legs as a swimmer does, slowly.
+        val floor = water != null && vessel.onFeet
+        val reach = if (floor) walker.speed.coerceAtMost(SEABED_SPEED) else walker.speed
+        val holding = if (floor) maxOf(grip, SWIM_FORCE * dt) else grip
+        if (!(vessel.touchingGround || floor) || holding <= 0.0) return
         up.setTo(body.position).normalizeInPlace()
         underfoot(vessel, attractor, surface)
         relative.setTo(body.linearVelocity).subInPlace(surface)
@@ -79,11 +93,59 @@ class Walking {
         forward.addScaledInPlace(up, -(forward dot up))
         if (forward.length < 1e-6) return
         forward.normalizeInPlace()
-        want.setTo(forward).mulInPlace(input(vessel) * walker.speed)
+        want.setTo(forward).mulInPlace(input(vessel) * reach)
         want.subInPlace(relative)
         val needed = want.length * body.mass
         if (needed <= 1e-9) return
-        body.linearVelocity.addScaledInPlace(want, minOf(1.0, grip / needed))
+        body.linearVelocity.addScaledInPlace(want, minOf(1.0, holding / needed))
+    }
+
+    /**
+     * Where someone in the sea is: [depth] metres of their middle under the surface, [aboveFloor]
+     * metres of their feet over the bottom, [deepest] they'll swim down to before their suit gets
+     * near what it can take, and the sea's [density].
+     */
+    class Water(val depth: Double, val aboveFloor: Double, val deepest: Double, val density: Double)
+
+    /**
+     * Before the forces: someone in the water swims. The stick along the way they face, DIVE and
+     * RISE down and up, and otherwise treading water at the depth they're at, or at the surface with
+     * their head out. It's a push of their own, no more than [SWIM_FORCE], so a current or a big sea
+     * still carries them where it likes.
+     */
+    private fun swim(vessel: Vessel, attractor: CelestialBody, water: Water) {
+        val body = vessel.body
+        up.setTo(body.position).normalizeInPlace()
+        attractor.surfaceVelocityAt(body.position, surface)
+        relative.setTo(body.linearVelocity).subInPlace(surface)
+        body.orientation.rotate(FACING, forward)
+        forward.addScaledInPlace(up, -(forward dot up))
+        if (forward.length > 1e-6) forward.normalizeInPlace()
+        want.setTo(forward).mulInPlace(input(vessel) * SWIM_SPEED)
+        val control = vessel.control
+        val hold = maxOf(control.holdDepthAt, SURFACE_DEPTH)
+        val rise = when {
+            control.ballast > 0 && water.depth < water.deepest -> -SWIM_VERTICAL
+            control.ballast > 0 -> (water.depth - water.deepest) * HOLD_GAIN
+            control.ballast < 0 && water.depth > SURFACE_DEPTH -> SWIM_VERTICAL
+            else -> (water.depth - hold) * HOLD_GAIN
+        }.coerceIn(-SWIM_VERTICAL, SWIM_VERTICAL)
+        want.addScaledInPlace(up, rise)
+        // As much again as the water doesn't hold up, so treading water holds them where they are
+        // instead of sinking a little first.
+        val g = attractor.gravityAt(body.position, scratch).length
+        val wet = ((water.depth + HALF_HEIGHT) / (2.0 * HALF_HEIGHT)).coerceIn(0.0, 1.0)
+        val lift = water.density * vessel.defs[0].displacedVolume * wet
+        scratch.setTo(want).subInPlace(relative).mulInPlace(body.mass / SWIM_RESPONSE)
+        scratch.addScaledInPlace(up, (body.mass - lift) * g)
+        // Up and down, and along, each have their own limit, the way someone treads water with
+        // their arms and kicks along with their legs. Sharing one, holding their head up at the
+        // surface took most of it and they swam at two thirds the pace.
+        val vertical = (scratch dot up).coerceIn(-SWIM_FORCE, SWIM_FORCE)
+        scratch.addScaledInPlace(up, -(scratch dot up))
+        if (scratch.length > SWIM_FORCE) scratch.mulInPlace(SWIM_FORCE / scratch.length)
+        scratch.addScaledInPlace(up, vertical)
+        body.applyCentralForce(scratch)
     }
 
     /**
@@ -95,16 +157,23 @@ class Walking {
         return deck.body.velocityAtOffset(scratch.setTo(vessel.body.position).subInPlace(deck.body.position), out)
     }
 
-    /** Held to [ladder]'s line, moving with its craft, with the stick climbing. */
-    private fun climb(vessel: Vessel, ladder: LadderHold) {
+    /**
+     * Held to [ladder]'s line, moving with its craft, with the stick climbing. It's after they've
+     * moved on this tick, so the ladder's [LadderHold.lead] on them is a tick less.
+     */
+    private fun climb(vessel: Vessel, ladder: LadderHold, dt: Double) {
         val body = vessel.body
         val half = ladder.length / 2
-        val along = (scratch.setTo(body.position).subInPlace(ladder.centre) dot ladder.axis).coerceIn(-half - END_REACH, half + END_REACH)
+        val lead = ladder.lead - dt
+        ladder.craft.body.velocityAtOffset(scratch.setTo(ladder.centre).subInPlace(ladder.craft.body.position), out)
+        val along = (scratch.setTo(body.position).addScaledInPlace(out, lead).subInPlace(ladder.centre) dot ladder.axis).coerceIn(-half - END_REACH, half + END_REACH)
         target.setTo(ladder.centre).addScaledInPlace(ladder.axis, along).addScaledInPlace(ladder.out, HOLD_OFF)
         ladder.craft.body.velocityAtOffset(scratch.setTo(target).subInPlace(ladder.craft.body.position), out)
+        // Where they'd be by the ladder's time, if it's a tick ahead of them.
+        scratch.setTo(body.position).addScaledInPlace(out, lead)
         val rate = if ((along >= half + END_REACH && input(vessel) > 0.0) || (along <= -half - END_REACH && input(vessel) < 0.0)) 0.0 else input(vessel) * CLIMB_SPEED
         out.addScaledInPlace(ladder.axis, rate)
-        out.addScaledInPlace(target.subInPlace(body.position), PULL)
+        out.addScaledInPlace(target.subInPlace(scratch), PULL)
         body.linearVelocity.setTo(out)
     }
 
@@ -118,7 +187,7 @@ class Walking {
         val body = vessel.body
         val pace = when {
             ladder != null -> kotlin.math.abs(input(vessel)) * CLIMB_SPEED
-            vessel.touchingGround -> {
+            vessel.touchingGround || vessel.onFeet || vessel.swimming -> {
                 up.setTo(body.position).normalizeInPlace()
                 underfoot(vessel, attractor, surface)
                 relative.setTo(body.linearVelocity).subInPlace(surface)
@@ -141,16 +210,19 @@ class Walking {
      * A ladder being held: its craft, its middle, its axis and its outward face, all in the
      * reference body's frame.
      */
-    class LadderHold(val craft: Vessel, val centre: Vec3, val axis: Vec3, val out: Vec3, val length: Double)
+    class LadderHold(val craft: Vessel, val centre: Vec3, val axis: Vec3, val out: Vec3, val length: Double, val lead: Double = 0.0)
 
-    /** Ladder [part] of [craft] as held, or null if it isn't a working ladder. */
-    fun ladderOf(craft: Vessel, part: Int): LadderHold? {
+    /**
+     * Ladder [part] of [craft] as held, or null if it isn't a working ladder. [lead] is how many
+     * seconds ahead of the one holding it the craft has been moved on this tick.
+     */
+    fun ladderOf(craft: Vessel, part: Int, lead: Double = 0.0): LadderHold? {
         if (part !in craft.defs.indices || craft.isBroken(part)) return null
         val ladder = craft.defs[part].module<Ladder>() ?: return null
         val rotation = craft.design.parts[part].rotation
         val axis = craft.body.orientation.rotate(rotation.rotate(Vec3.unitY(), Vec3()), Vec3())
         val out = craft.body.orientation.rotate(rotation.rotate(Vec3.unitX(), Vec3()), Vec3())
-        return LadderHold(craft, craft.partPositionWorld(part, Vec3()), axis, out, ladder.length)
+        return LadderHold(craft, craft.partPositionWorld(part, Vec3()), axis, out, ladder.length, lead)
     }
 
     /** How far [position] is from [hold]'s rungs, in metres. */
@@ -179,5 +251,28 @@ class Walking {
         const val GRAB_REACH = 1.0
         /** How fast legs come back together once they stop, per second. */
         const val SETTLE = 6.0
+
+        /** Swimming along, and down or up, in m/s through the water. */
+        const val SWIM_SPEED = 1.0
+        const val SWIM_VERTICAL = 0.7
+
+        /** The most a swimmer can push with, up or down and along, in newtons, and how quickly they get to the pace they want, in seconds. */
+        const val SWIM_FORCE = 350.0
+        const val SWIM_RESPONSE = 0.5
+
+        /** How hard treading water pulls them back to the depth they're holding, in m/s per metre. */
+        const val HOLD_GAIN = 0.8
+
+        /** How deep their middle is, in metres, treading water at the surface with their head out. */
+        const val SURFACE_DEPTH = 0.75
+
+        /** Walking on the sea floor, in m/s. */
+        const val SEABED_SPEED = 0.6
+
+        /** How near the sea floor their feet have to be, in metres, to be standing on it. */
+        const val FLOOR_REACH = 0.25
+
+        /** Half a person's height, in metres, the same as World's. */
+        const val HALF_HEIGHT = 0.9
     }
 }

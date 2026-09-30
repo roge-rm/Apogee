@@ -443,6 +443,18 @@ class Vessel(
     /** On foot or on a ladder. The stick walks or climbs instead of turning them head over heels. */
     var onFeet: Boolean = false
 
+    /** The world's tick this was last moved on in, for anything that measures against it mid-tick. */
+    var movedTick: Long = -1L
+
+    /** Someone in the water, off their feet: the stick swims them, and DIVE and RISE take them down and up. */
+    var swimming: Boolean = false
+
+    /**
+     * How cold someone in the water has got, 0..1. It climbs while they're in it, faster the colder
+     * the sea, and falls again once they're out. At 1 the cold has killed them.
+     */
+    var chill: Double = 0.0
+
     /** The ladder being held (its craft's id and the part), or -1 for none. */
     var ladderVessel: Long = -1L
     var ladderPart: Int = -1

@@ -106,5 +106,6 @@ object PartTabs {
         "gear-arrest" to PartTab.WATER,
         "catapult-deck" to PartTab.WATER,
         "hook-tail" to PartTab.GROUND,
+        "ladder-boat" to PartTab.WATER,
     )
 }

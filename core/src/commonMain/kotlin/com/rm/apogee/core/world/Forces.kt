@@ -198,7 +198,7 @@ class Forces {
         firing.fill(0.0)
         val control = vessel.control
         // A jetpack is for flying. On their feet, it's off.
-        if (!control.rcsEnabled || vessel.onFeet) return
+        if (!control.rcsEnabled || vessel.onFeet || vessel.swimming) return
 
         // The slide asked for, in the craft's own axes. It's never more than one block's worth
         // however the axes combine, because a diagonal is just a direction.
@@ -406,7 +406,7 @@ class Forces {
 
         // On foot, the stick walks, so only turning around their own height (their roll) is left to
         // the wheels.
-        val tip = if (vessel.onFeet) 0.0 else 1.0
+        val tip = if (vessel.onFeet || vessel.swimming) 0.0 else 1.0
         // A boat afloat is given less turn when she's already turning hard for her speed, the same
         // as a motor's swing: at thirty knots a seat's wheels alone spun a light boat round so hard
         // the water tripped her. (A boat: something with a hull. A drone that dips a foot in the

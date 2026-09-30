@@ -97,7 +97,8 @@ fun ActionRail(
         if (hud.hasFlaps) {
             add(RailSwitch(Icons.Filled.FlightLand, "FLAPS", if (hud.flaps) ApogeeColors.Accent else idle, hud.flaps, actions.onFlaps))
         }
-        if (hud.hasRcs) {
+        // No jetpack in the water. Swimming does it.
+        if (hud.hasRcs && !(hud.isSuit && hud.power?.swimming == true)) {
             val left = hud.rcsLeft
             val caption = if (hud.rcsArmed && left != null) "RCS ${(left * 100).roundToInt()}%" else "RCS"
             val tint = when {
@@ -137,8 +138,10 @@ fun ActionRail(
             val holding = power.holdingDepth >= 0f
             // Up in the air on gas cells, the same buttons work the ballonets.
             val sink = if (power.lift >= 0f && hud.telemetry.depth <= 0.0) "SINK" else "DIVE"
-            add(RailSwitch(Icons.Filled.ArrowDownward, if (diving) "$sink $full" else sink, if (diving) ApogeeColors.Accent else idle, diving, actions.onDive))
-            add(RailSwitch(Icons.Filled.ArrowUpward, if (rising) "RISE $full" else "RISE", if (rising) ApogeeColors.Accent else idle, rising, actions.onRise))
+            // Someone swimming has no tanks to be full.
+            val tanks = if (hud.isSuit) "" else " $full"
+            add(RailSwitch(Icons.Filled.ArrowDownward, if (diving) "$sink$tanks" else sink, if (diving) ApogeeColors.Accent else idle, diving, actions.onDive))
+            add(RailSwitch(Icons.Filled.ArrowUpward, if (rising) "RISE$tanks" else "RISE", if (rising) ApogeeColors.Accent else idle, rising, actions.onRise))
             add(RailSwitch(
                 Icons.Filled.VerticalAlignCenter,
                 if (holding) "${power.holdingDepth.roundToInt()} m" else "HOLD",
@@ -160,7 +163,8 @@ fun ActionRail(
             }
             add(RailSwitch(Icons.Filled.Cable, if (reeling) "REEL IN" else "WINCH", tint, reeling, actions.onWinch))
         }
-        if (hud.isSuit && hud.telemetry.heightAboveGround < groundedBelow) {
+        // Nothing to jump off or plant a flag in while swimming.
+        if (hud.isSuit && hud.telemetry.heightAboveGround < groundedBelow && power?.swimming != true) {
             add(RailSwitch(Icons.Filled.KeyboardDoubleArrowUp, "JUMP", idle, false, actions.onJump))
             add(RailSwitch(Icons.Filled.Flag, "FLAG", idle, false, actions.onFlag))
         }

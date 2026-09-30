@@ -83,6 +83,7 @@ enum class Feat(
     LONG_FLOAT("long-float", "Long Float", Branch.SKIES, "Travel twenty kilometres floating on gas.", Metric.DISTANCE, 50.0, 100.0),
     CLOUD_CITY("cloud-city", "Cloud City", Branch.SKIES, "Found a base floating in another world's sky."),
     SEA_STEAD("sea-stead", "Sea Stead", Branch.SEA, "Found a base afloat on the sea."),
+    SEA_FLOOR_BASE("sea-floor-base", "Sea Floor Base", Branch.DEEP, "Found a base on the sea floor."),
     DIVE("dive", "Dive", Branch.DEEP, "Take a crewed craft under the sea, and bring it back up.", Metric.DEPTH, 300.0, 1_000.0),
     SEAFLOOR("seafloor", "Seafloor", Branch.DEEP, "Set down on the sea floor more than a hundred metres down, and come back up."),
     VENTS("vents", "Vents", Branch.DEEP, "Find a vent on the sea floor, where the water comes up hot."),

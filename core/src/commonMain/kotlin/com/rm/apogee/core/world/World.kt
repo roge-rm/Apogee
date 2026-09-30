@@ -1587,6 +1587,7 @@ class World(
             is Command.Jump -> heard(command.vessel)?.let { jump(it) }
             is Command.Grab -> heard(command.vessel)?.let { grab(it, command.on) }
             is Command.PlantFlag -> heard(command.vessel)?.let { plantFlag(it) }
+            is Command.ClimbOut -> heard(command.vessel)?.let { climbOut(it) }
             is Command.RightCraft -> heard(command.vessel)?.let { startRighting(it) }
             is Command.Unload -> if (command.active) unloading.add(VesselId(command.vessel)) else unloading.remove(VesselId(command.vessel))
 
@@ -1784,7 +1785,8 @@ class World(
         // Standing on the ground, it's set level on its feet first. Afloat or aloft, it's pinned
         // as it floats.
         if (!floatingFoundable(vessel) && !level(vessel, attractor)) return false
-        val onSea = !vessel.touchingGround && (if (vessel.dormant) vessel.afloat else vessel.buoyed)
+        // Not a base down on the sea floor, though, which is in the water too.
+        val onSea = !vessel.touchingGround && !vessel.submerged && (if (vessel.dormant) vessel.afloat else vessel.buoyed)
         vessel.anchor(anchorRotation)
         // Founded on the sea, it rides it: up and down with the swell, and tipped with it.
         if (onSea) settleAfloat(vessel, attractor)
@@ -1801,7 +1803,9 @@ class World(
      * on the sea, or aloft, with its gas cells lifting its weight or its keeper core holding it.
      */
     private fun floatingFoundable(vessel: Vessel): Boolean {
-        if (vessel.touchingGround) return false
+        // Nor hanging in the water under it. Founded there it rode the sea at a depth nothing held
+        // it at.
+        if (vessel.touchingGround || vessel.submerged) return false
         val afloat = if (vessel.dormant) vessel.afloat else vessel.buoyed
         val aloft = !afloat && !vessel.dormant && (liftShare(vessel) >= FLOATS_ALONE || vessel.control.keeping)
         if (!afloat && !aloft) return false
@@ -1823,7 +1827,10 @@ class World(
         if (floatingFoundable(vessel)) return true
         if (vessel.dormant) { if (vessel.afloat) return false }
         else {
-            if (!vessel.touchingGround) return false
+            // Under water a base weighs little more than the sea it's in, and it settles onto the
+            // floor so lightly its feet only touch it now and then. There, its feet being down on the
+            // floor, still, is enough, and the FOUND button doesn't blink.
+            if (!vessel.touchingGround && !vessel.submerged) return false
             attractorFor(vessel).surfaceVelocityAt(vessel.body.position, scratch)
             if (scratch.subInPlace(vessel.body.linearVelocity).length >= ANCHOR_MAX_SPEED) return false
         }
@@ -2382,6 +2389,20 @@ class World(
 
     // --- power --------------------------------------------------------------------
 
+    /** What [vessel]'s fuel cells make over [h] seconds while it's parked, in charge a second. */
+    private fun fuelCells(vessel: Vessel, anyCell: Int, cells: Double, cellMono: Double, h: Double): Double {
+        val capacity = vessel.capacityOf(com.rm.apogee.core.part.ResourceType.ELECTRIC_CHARGE)
+        if (capacity <= 0.0) return 0.0
+        val share = vessel.amountOf(com.rm.apogee.core.part.ResourceType.ELECTRIC_CHARGE) / capacity
+        if (!vessel.fuelCellsOn && share < Power.CELLS_ON) vessel.fuelCellsOn = true
+        else if (vessel.fuelCellsOn && share > Power.CELLS_OFF) vessel.fuelCellsOn = false
+        if (!vessel.fuelCellsOn) return 0.0
+        val want = cellMono * h
+        val got = vessel.drainFromGroupOf(anyCell, com.rm.apogee.core.part.ResourceType.MONOPROPELLANT, want)
+        if (got <= 0.0) { vessel.fuelCellsOn = false; return 0.0 }
+        return cells * (got / want)
+    }
+
     /**
      * Brings a founded base's power up to [until]. Its panels' charge comes in, depending on how
      * high the sun has stood over it, and its core's upkeep and its lamps after dusk go out. It's
@@ -2397,6 +2418,9 @@ class World(
         var solar = 0.0
         var upkeep = 0.0
         var lamps = 0.0
+        var cells = 0.0
+        var cellMono = 0.0
+        var anyCell = -1
         for (i in vessel.defs.indices) {
             if (vessel.isBroken(i)) continue
             for (module in vessel.defs[i].modules) when (module) {
@@ -2412,13 +2436,18 @@ class World(
                 is com.rm.apogee.core.part.Scanner -> upkeep += module.draw
                 is com.rm.apogee.core.part.Generator -> upkeep -= module.rate
                 is com.rm.apogee.core.part.Lamp -> lamps += module.draw
+                is com.rm.apogee.core.part.FuelCell -> { cells += module.rate; cellMono += module.rate * module.monoPerCharge; anyCell = i }
                 else -> Unit
             }
         }
         val site = vessel.sleepDirection(powerSite)
-        // What the air lets through at ground level. A tenth under Caligo's deck.
-        val gloom = if (attractor.atmosphere == null) 1.0
-            else Climate.of(attractor.id)?.sunThrough(vessel.body.position.length - attractor.radius) ?: 1.0
+        // What the air lets through at ground level. A tenth under Caligo's deck. And what the sea
+        // does, for a base on the floor of it.
+        val gloom = (if (attractor.atmosphere == null) 1.0
+            else Climate.of(attractor.id)?.sunThrough(vessel.body.position.length - attractor.radius) ?: 1.0) *
+            Power.seaShade(attractor, vessel.body.position)
+        // Down where the daylight's gone, its lamps are on all day.
+        val deep = attractor.ocean != null && attractor.altitudeOf(vessel.body.position) < -LAMP_DEPTH
         val step = maxOf(POWER_STEP, (until - from) / POWER_MAX_STEPS)
         var t = from
         var net = 0.0
@@ -2426,7 +2455,10 @@ class World(
             val h = minOf(step, until - t)
             // Faint among the giants, the same as panels anywhere.
             val sun = sunHeight(attractor, site, t + 0.5 * h) * system.sunStrength(attractor.id, vessel.body.position, t + 0.5 * h)
-            net = solar * gloom * maxOf(0.0, sun) - upkeep - if (sun < LAMP_DUSK) lamps else 0.0
+            net = solar * gloom * maxOf(0.0, sun) - upkeep - if (sun < LAMP_DUSK || deep) lamps else 0.0
+            // Its fuel cells, the same as a craft's: on when it's running low, off when it's well
+            // back up, and only while there's monopropellant to burn.
+            if (anyCell >= 0) net += fuelCells(vessel, anyCell, cells, cellMono, h)
             // Drills and converters, within whatever charge there is. It's parked on the ground
             // where it stands now, so it's posed as it is now.
             if (vessel.control.drilling || vessel.control.refining) {
@@ -3153,6 +3185,9 @@ class World(
         for (vessel in vesselsById.values) {
             val attractor = attractorFor(vessel)
             val body = vessel.body
+            // Moved on to the end of this tick from here, so anything measured against it by a
+            // craft still at the start of the tick knows it's a tick ahead.
+            vessel.movedTick = tick
 
             // Dormant craft ride the planet's rotation and aren't simulated.
             //
@@ -3204,9 +3239,10 @@ class World(
             updatePose(vessel, dt)
             // Someone on foot: kept upright, with the stick walking instead of tipping them over.
             val walker = walking.walkerOf(vessel)
-            val hold = if (walker != null && vessel.ladderVessel >= 0) heldLadder(vessel) else null
-            if (walker != null) walking.stand(vessel, walker, attractor, hold)
-            else { vessel.onFeet = false; vessel.walking = false }
+            val hold = if (walker != null && vessel.ladderVessel >= 0) heldLadder(vessel, dt) else null
+            val water = if (walker != null && hold == null) waterFor(vessel, attractor) else null
+            if (walker != null) walking.stand(vessel, walker, attractor, hold, water)
+            else { vessel.onFeet = false; vessel.walking = false; vessel.swimming = false }
 
             forces.applyGravity(vessel, attractor)
             forces.applyThrust(vessel, attractor, dt, time)
@@ -3311,8 +3347,9 @@ class World(
                 breakUpCause[vessel.id] = "lost in the lava"
             }
             if (walker != null) {
-                walking.move(vessel, walker, attractor, hold, dt)
+                walking.move(vessel, walker, attractor, hold, dt, water)
                 walking.swing(vessel, walker, attractor, hold, dt)
+                cold(vessel, attractor, water, dt)
             }
             vessel.groundContacts = report.contactCount
             vessel.countGrounded(report.hadContact, dt)
@@ -3701,13 +3738,18 @@ class World(
 
     private fun floatingStill(vessel: Vessel): Boolean {
         if (vessel.touchingGround || hydrostatics.submergedVolume <= 0.0) return false
+        // Someone in the water never dozes off there, because the cold is getting to them.
+        if (walking.walkerOf(vessel) != null) return false
         val control = vessel.control
         if (control.throttle > 0.0) return false
         val handsOff = control.pitch == 0.0 && control.yaw == 0.0 && control.roll == 0.0
         val attractor = attractorFor(vessel)
         // In a swell a boat is never at rest, because it goes up and down with the waves. So hands
-        // off and drifting slowly is enough, and asleep it rides the waves anyway.
-        val seaway = hydrostatics.seaHeight > SEAWAY_HS
+        // off and drifting slowly is enough, and asleep it rides the waves anyway. Not for a craft
+        // wholly under water, though, which doesn't heave with the waves. A Base Core let go of on
+        // the sea floor was rising straight up, drifting hardly at all, and fell asleep ten metres
+        // down, where it stayed.
+        val seaway = hydrostatics.seaHeight > SEAWAY_HS && !vessel.submerged
         if (seaway && !handsOff) return false
         if (!hurried && hydrostatics.seaHeight > tooRough(vessel)) return false
         val limit = if (seaway || (handsOff && vessel.air.wind.length > 0.5)) ANCHOR_DRIFT else FLOATING_REST_SPEED
@@ -3865,6 +3907,10 @@ class World(
             needsSignal = Comms.needsSignal(vessel),
             deployed = vessel.control.deployed,
             boardable = if (walking.walkerOf(vessel) != null) seatInReach(vessel)?.first?.name.orEmpty() else "",
+            climbOnto = if (walking.walkerOf(vessel) != null) climbSpot(vessel)?.first?.name.orEmpty() else "",
+            swimming = inSea(vessel),
+            chill = vessel.chill.toFloat(),
+            evaBlocked = evaBlocked(vessel),
             canGrab = walking.walkerOf(vessel) != null && !onLadder(vessel) && ladderInReach(vessel) != null,
             onLadder = onLadder(vessel),
             drilling = vessel.control.drilling,
@@ -3873,7 +3919,9 @@ class World(
             survey = if (hasScanner(vessel)) surveyShare(vessel).toFloat() else -1f,
             ore = reading(vessel, com.rm.apogee.core.part.ResourceType.ORE),
             water = reading(vessel, com.rm.apogee.core.part.ResourceType.WATER),
-            ballast = ballastShare(vessel).toFloat(),
+            // Someone in the water dives and rises with the same buttons. A founded base has no use
+            // for them, its tanks or not.
+            ballast = if (inSea(vessel)) 0f else if (vessel.anchored) -1f else ballastShare(vessel).toFloat(),
             ballastMode = vessel.control.ballast,
             // Aloft on gas, it's a height it holds, kept as a depth below the datum.
             holdingDepth = if (!vessel.control.holdDepth) -1f
@@ -4100,7 +4148,11 @@ class World(
         var moving = vessel.body.mass
         while (part >= 0 && visited.add(part)) {
             val def = vessel.defs[part]
-            val tolerance = def.crashTolerance
+            // Someone going into the water feet first takes a lot more than hitting the ground. A
+            // jump off a ship's deck is nothing, and eleven metres is about the most anyone lives
+            // through.
+            val person = def.module<com.rm.apogee.core.part.Walker>() != null
+            val tolerance = if (water && person) WATER_ENTRY else def.crashTolerance
             if (v <= tolerance) return
             // A person isn't a tank. Past what their suit can take, it's fatal.
             val blow = if (def.module<com.rm.apogee.core.part.Walker>() != null) Double.MAX_VALUE
@@ -5326,6 +5378,11 @@ class World(
     private fun ballast(vessel: Vessel, attractor: CelestialBody, dt: Double) {
         val control = vessel.control
         if (control.ballast == 0 && !control.holdDepth) return
+        // Someone swimming dives and rises by swimming, and holds whatever depth they got to.
+        if (walking.walkerOf(vessel) != null) {
+            if (control.ballast != 0) control.holdDepthAt = maxOf(0.0, depthOf(vessel))
+            return
+        }
         // Up in the air, the same buttons work the gas cells' ballonets.
         if (gasCraft(vessel)) { ballonets(vessel, attractor, dt); return }
         val ocean = attractor.ocean
@@ -5460,16 +5517,23 @@ class World(
      * The ladder [vessel] is holding, as it's held now. It lets go if the ladder has gone, broken,
      * or drifted out of reach.
      */
-    private fun heldLadder(vessel: Vessel): Walking.LadderHold? {
+    private fun heldLadder(vessel: Vessel, dt: Double): Walking.LadderHold? {
         val craft = vesselsById[VesselId(vessel.ladderVessel)]
-        val hold = craft?.takeIf { it.referenceBodyId == vessel.referenceBodyId }?.let { walking.ladderOf(it, vessel.ladderPart) }
-        if (hold == null || walking.distanceTo(hold, vessel.body.position) > LADDER_SLIP) {
+        // The ladder's craft may have been moved on to the end of this tick already, and the one
+        // holding it is still at the start. Everything on Terra goes round with it at a couple of
+        // hundred metres a second, so a tick apart they were three metres apart, and let go.
+        val lead = if (craft != null && craft.movedTick == tick) dt else 0.0
+        val hold = craft?.takeIf { it.referenceBodyId == vessel.referenceBodyId }?.let { walking.ladderOf(it, vessel.ladderPart, lead) }
+        scratchLadderAt.setTo(vessel.body.position).addScaledInPlace(vessel.body.linearVelocity, lead)
+        if (hold == null || walking.distanceTo(hold, scratchLadderAt) > LADDER_SLIP) {
             vessel.ladderVessel = -1L
             vessel.ladderPart = -1
             return null
         }
         return hold
     }
+
+    private val scratchLadderAt = Vec3()
 
     /** Whether [vessel] is someone on a ladder. */
     fun onLadder(vessel: Vessel): Boolean = vessel.ladderVessel >= 0
@@ -5486,6 +5550,43 @@ class World(
      * moving as it moves. It returns null, and nobody moves, if they aren't aboard or it's going
      * too fast to step off.
      */
+    /** Why the last EVA asked for didn't happen, when it's worth saying, or empty. */
+    var evaRefusal: String = ""
+        private set
+
+    /** Crew who came in out of the sea cold, as how cold and when, so they're still cold going straight back out. */
+    private val chilled = HashMap<Long, Pair<Double, Double>>()
+
+    /** How far under the sea's surface [point] is, in metres, or 0 or less out of it. */
+    private fun depthAt(attractor: CelestialBody, point: Vec3): Double {
+        val ocean = attractor.ocean ?: return 0.0
+        attractor.rotationAt(time, scratchRotation)
+        attractor.toBodyFixed(point, scratchRotation, scratchSea)
+        return ocean.surfaceHeight(scratchSea, time) - attractor.altitudeOf(point)
+    }
+
+    /** Whether [vessel] is someone in the sea, swimming or down on the bottom of it. */
+    fun inSea(vessel: Vessel): Boolean =
+        walking.walkerOf(vessel) != null && (vessel.swimming || (vessel.onFeet && vessel.standingOn == null && depthOf(vessel) > SUIT_HALF_HEIGHT))
+
+    /** Why nobody can go outside from [vessel] now, or empty. Only the sea's depth is checked here. */
+    private fun evaBlocked(vessel: Vessel): String {
+        if (walking.walkerOf(vessel) != null) return ""
+        val part = vessel.crew.indexOfFirst { it.isNotEmpty() }
+        if (part < 0) return ""
+        val attractor = attractorFor(vessel)
+        return if (depthAt(attractor, vessel.partPositionWorld(part, scratchCrew)) > suitDeepest(attractor)) TOO_DEEP else ""
+    }
+
+    /** The deepest, in metres, a suit can go in [attractor]'s sea before it starts to give. */
+    fun suitDeepest(attractor: CelestialBody): Double {
+        val ocean = attractor.ocean ?: return Double.MAX_VALUE
+        val suit = catalog[SUIT_PART] ?: return Double.MAX_VALUE
+        val g = attractor.gravitationalParameter / (attractor.radius * attractor.radius)
+        val air = attractor.atmosphere?.pressureAt(0.0) ?: 0.0
+        return (suit.maxPressure - air) / (ocean.density * g)
+    }
+
     fun eva(vesselId: Long, crewId: Long): Vessel? {
         val craft = vesselsById[VesselId(vesselId)] ?: return null
         val part = craft.crew.indexOfFirst { crewId in it }
@@ -5501,13 +5602,24 @@ class World(
         attractor.surfaceVelocityAt(craft.body.position, scratchCrew).subInPlace(craft.body.linearVelocity)
         val landed = craft.touchingGround || craft.dormant || craft.anchored
         if (landed && scratchCrew.length > EVA_LANDED_SPEED) return null
+        // A boat asleep on the water isn't on the ground. Stepped out beside it, they were put a
+        // craft's length off, in the sea, as if walking away from it on land. Over the side they
+        // go, beside where they were sitting.
+        val onGround = landed && !(craft.dormant && craft.afloat && !craft.touchingGround)
         // Out from the craft's axis, level.
         val partAt = craft.partPositionWorld(part, Vec3())
         val out = partAt.copy().subInPlace(craft.body.position)
         out.addScaledInPlace(up, -(out dot up))
         if (out.length < 0.1) out.setTo(up.cross(if (kotlin.math.abs(up.y) < 0.9) Vec3.unitY() else Vec3.unitX()))
         out.normalizeInPlace()
-        val position = if (landed) {
+        // Under water, out through the hatch at the depth it's at, not up at the surface, and not at
+        // all deeper than a suit can take.
+        val under = depthAt(attractor, partAt) > SUIT_HALF_HEIGHT
+        if (under && depthAt(attractor, partAt) > suitDeepest(attractor)) {
+            evaRefusal = "$TOO_DEEP to go outside: a suit's good to ${suitDeepest(attractor).toInt()} m"
+            return null
+        }
+        val position = if (onGround && !under) {
             val foot = craft.body.position.copy().addScaledInPlace(out, craft.contactRadius + SUIT_CLEARANCE)
             attractor.rotationAt(time, scratchRotation)
             val fixed = attractor.toBodyFixed(foot, scratchRotation, Vec3()).normalizeInPlace()
@@ -5527,6 +5639,11 @@ class World(
         program?.launched(suit)
         suit.ownerName = craft.ownerName
         suit.control.rcsEnabled = true
+        // Treading water where they came out, and as cold as they were when they climbed in, less
+        // what they've warmed up since.
+        if (under) suit.control.holdDepthAt = depthAt(attractor, position)
+        chilled.remove(crewId)?.let { (chill, at) -> suit.chill = maxOf(0.0, chill - (time - at) / WARM_ABOARD) }
+        evaRefusal = ""
         craft.crew[part] = craft.crew[part].filter { it != crewId }.toLongArray()
         suit.crew[0] = longArrayOf(crewId)
         setCrew(member.copy(vessel = suit.id.raw))
@@ -5547,6 +5664,7 @@ class World(
         val member = crew[crewId] ?: return null
         val seat = seatInReach(suit, targetId) ?: return null
         val (target, part) = seat
+        if (suit.chill > 0.0) chilled[crewId] = suit.chill to time
         target.crew[part] = target.crew[part] + crewId
         suit.crew[0] = Vessel.NO_CREW
         setCrew(member.copy(vessel = target.id.raw))
@@ -5562,6 +5680,10 @@ class World(
      * it isn't -1.
      */
     fun seatInReach(suit: Vessel, targetId: Long = -1L): Pair<Vessel, Int>? {
+        // From the water at the surface there's no climbing straight into a seat. They get out onto
+        // something first, up a ladder or onto a deck low enough to climb onto. Under water, at a
+        // base's or a submarine's hatch, they swim straight in.
+        if (suit.swimming && depthOf(suit) < HATCH_DEPTH) return null
         var best: Pair<Vessel, Int>? = null
         var bestGap = BOARD_REACH
         for (craft in vesselsById.values) {
@@ -5591,6 +5713,131 @@ class World(
         craft.crew[part] = craft.crew[part] + crewId
         crewRevision++
         pendingEvents.add(WorldEvent.VesselStructureChanged(craft.id))
+        return true
+    }
+
+    /**
+     * Where someone out of their craft is in the sea, or null if they aren't in it: on land, on a
+     * deck, or with their middle clear of the water.
+     */
+    private fun waterFor(vessel: Vessel, attractor: CelestialBody): Walking.Water? {
+        val ocean = attractor.ocean ?: return null
+        if (vessel.standingOn != null) return null
+        attractor.rotationAt(time, scratchRotation)
+        attractor.toBodyFixed(vessel.body.position, scratchRotation, scratchSea).normalizeInPlace()
+        val floor = attractor.solidRadiusInBodyFrame(scratchSea)
+        val surface = attractor.radius + ocean.surfaceHeight(scratchSea, time)
+        // The ground is above the sea here, so it's land, whatever the waves are doing.
+        if (floor >= surface) return null
+        val r = vessel.body.position.length
+        val depth = surface - r
+        if (depth < -SUIT_HALF_HEIGHT * 0.5) return null
+        val g = attractor.gravityAt(vessel.body.position, scratchCrew).length
+        val air = attractor.atmosphere?.pressureAt(0.0) ?: 0.0
+        val deepest = (vessel.defs[0].maxPressure * DIVE_SHARE - air) / (ocean.density * g)
+        return Walking.Water(depth, r - SUIT_HALF_HEIGHT - floor, deepest, ocean.density)
+    }
+
+    /**
+     * Someone in the sea getting colder, or out of it warming up again. How long they can last
+     * goes by how cold the water is: a couple of hours in a warm sea, a quarter of an hour at
+     * freezing, and minutes in another world's.
+     */
+    private fun cold(vessel: Vessel, attractor: CelestialBody, water: Walking.Water?, dt: Double) {
+        if (water != null && water.depth > -SUIT_HALF_HEIGHT * 0.5) {
+            vessel.chill += dt / SeaCold.lasts(attractor, vessel.body.position, water.depth, time)
+            if (vessel.chill >= 1.0 && pendingDestruction.none { it.first == vessel.id }) pendingDestruction.add(vessel.id to COLD_REASON)
+        } else if (vessel.chill > 0.0) {
+            vessel.chill = maxOf(0.0, vessel.chill - dt / WARM_OUT)
+        }
+    }
+
+    /**
+     * Where someone in the water, or near the top of a ladder, could climb out onto: a craft, and
+     * the spot on it they'd stand. It's the top of a part within [CLIMB_REACH] of them toward the
+     * craft, low enough to get up onto, with open air above it: a jet ski's, a runabout's or a
+     * platform's deck from the water, or a ship's from the top of her ladder. A ship's side is a
+     * wall from the water.
+     */
+    fun climbSpot(suit: Vessel): Pair<Vessel, Vec3>? {
+        if (walking.walkerOf(suit) == null) return null
+        val ladder = suit.ladderVessel >= 0
+        if (!suit.swimming && !ladder) return null
+        val attractor = attractorFor(suit)
+        val r = suit.body.position.length
+        val (low, high) = if (ladder) (r - SUIT_HALF_HEIGHT - 0.3) to (r + SUIT_HALF_HEIGHT)
+            else (r + depthOf(suit) - 0.3).let { it to it + 0.3 + CLIMB_HEIGHT }
+        var best: Pair<Vessel, Vec3>? = null
+        var bestAlong = Double.MAX_VALUE
+        for (craft in vesselsById.values) {
+            if (craft === suit || craft.referenceBodyId != suit.referenceBodyId || walking.walkerOf(craft) != null) continue
+            if (craft.body.position.distanceTo(suit.body.position) > craft.contactRadius + CLIMB_REACH + SUIT_HALF_HEIGHT) continue
+            scratchClimbDir.setTo(craft.body.position).subInPlace(suit.body.position)
+            scratchClimbUp.setTo(suit.body.position).normalizeInPlace()
+            scratchClimbDir.addScaledInPlace(scratchClimbUp, -(scratchClimbDir dot scratchClimbUp))
+            if (scratchClimbDir.length < 1e-3) continue
+            scratchClimbDir.normalizeInPlace()
+            // The furthest in they can reach, not the first edge. Set down right on the edge of a
+            // jet ski's hull, they slid straight back in.
+            var along = 0.0
+            var found: Vec3? = null
+            var first = Double.NaN
+            while (along <= CLIMB_REACH) {
+                scratchClimbAt.setTo(suit.body.position).addScaledInPlace(scratchClimbDir, along).normalizeInPlace()
+                val top = topOf(craft, scratchClimbAt, low, high)
+                if (!top.isNaN()) {
+                    if (first.isNaN()) first = along
+                    found = scratchClimbAt.copy().mulInPlace(top + SUIT_HALF_HEIGHT + 0.1)
+                } else if (!first.isNaN()) break
+                along += CLIMB_STEP
+            }
+            if (found != null && first < bestAlong) {
+                bestAlong = first
+                best = craft to found
+            }
+        }
+        return best
+    }
+
+    /**
+     * The top of [craft] along [direction] from the planet's centre, as a distance from it between
+     * [low] and [high], or NaN if there's none there: nothing in that band, or a wall that goes on
+     * up past it.
+     */
+    private fun topOf(craft: Vessel, direction: Vec3, low: Double, high: Double): Double {
+        var h = high
+        var first = true
+        while (h >= low) {
+            scratchClimbPoint.setTo(direction).mulInPlace(h)
+            var solid = false
+            for (i in craft.defs.indices) {
+                if (!craft.isBroken(i) && deckProbe.inside(scratchClimbPoint, craft, i)) { solid = true; break }
+            }
+            if (solid) return if (first) Double.NaN else h
+            first = false
+            h -= CLIMB_STEP * 0.4
+        }
+        return Double.NaN
+    }
+
+    private val scratchClimbDir = Vec3()
+    private val scratchClimbUp = Vec3()
+    private val scratchClimbAt = Vec3()
+    private val scratchClimbPoint = Vec3()
+
+    /** Someone in the water, or at the top of a ladder, climbs out onto a deck. See [climbSpot]. */
+    private fun climbOut(suit: Vessel): Boolean {
+        val (craft, spot) = climbSpot(suit) ?: return false
+        suit.ladderVessel = -1L
+        suit.ladderPart = -1
+        suit.body.position.setTo(spot)
+        craft.body.velocityAtOffset(scratchCrew.setTo(spot).subInPlace(craft.body.position), suit.body.linearVelocity)
+        suit.body.angularVelocity.setTo(craft.body.angularVelocity)
+        suit.control.ballast = 0
+        suit.control.holdDepth = false
+        suit.control.holdDepthAt = 0.0
+        suit.swimming = false
+        craft.wake()
         return true
     }
 
@@ -5884,6 +6131,34 @@ class World(
          * a seat they have to be to climb in, in metres.
          */
         const val SUIT_HALF_HEIGHT = 0.9
+
+        /** How deep, in metres, someone's middle has to be to be under water at a hatch, and can board through it. */
+        const val HATCH_DEPTH = 1.2
+
+        /** How far toward a craft, in metres, someone can reach to climb out onto it, and how high up. */
+        const val CLIMB_REACH = 1.5
+        const val CLIMB_HEIGHT = 0.8
+
+        /** The spacing of the spots looked at for somewhere to climb out onto, in metres. */
+        const val CLIMB_STEP = 0.25
+
+        /** The fastest, in m/s, someone can go into the water and live. */
+        const val WATER_ENTRY = 15.0
+
+        /** How near to what their suit can take, as a share, someone will swim down to. */
+        const val DIVE_SHARE = 0.9
+
+        /** Out of the water, how long it takes to warm right up from as cold as can be, in seconds. */
+        const val WARM_OUT = 1_800.0
+
+        /** Aboard, the same. */
+        const val WARM_ABOARD = 600.0
+
+        /** What the crew panel says when it's too deep under the sea to go outside. */
+        const val TOO_DEEP = "Too deep"
+
+        /** Why someone was lost to the sea's cold. */
+        const val COLD_REASON = "died of cold in the sea"
         const val SUIT_CLEARANCE = 0.7
         const val BOARD_REACH = 0.8
         /** The thickest air (Pa) and the hottest (K) anyone may step out into. */

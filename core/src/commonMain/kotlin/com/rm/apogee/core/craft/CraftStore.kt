@@ -145,6 +145,7 @@ class CraftStore(private val directory: Folder) {
             StockCraft.cart(catalog),
             StockCraft.baseCore(catalog),
             StockCraft.padBase(catalog),
+            StockCraft.seaFloorBase(catalog),
             StockCraft.baseCoreHauler(catalog),
             StockCraft.moduleHauler(catalog),
             StockCraft.depotHauler(catalog),

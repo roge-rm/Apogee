@@ -113,6 +113,11 @@ sealed interface Command {
     @SerialName("plantFlag")
     data class PlantFlag(val vessel: Long) : Command
 
+    /** Someone in the water, or at the top of a ladder, climbs out onto a deck in reach. */
+    @Serializable
+    @SerialName("climbOut")
+    data class ClimbOut(val vessel: Long) : Command
+
     /** The crew roll their capsized craft back upright. See `World.canRight`. */
     @Serializable
     @SerialName("rightCraft")
@@ -551,6 +556,14 @@ sealed interface ServerMessage {
         val standingOn: Long = -1L,
         /** The craft standing on its deck, or asleep there. */
         val riders: List<Long> = emptyList(),
+        /** For someone in the water: the craft they could climb out onto, or empty. */
+        val climbOnto: String = "",
+        /** Someone in the sea, swimming or down on the bottom of it. */
+        val swimming: Boolean = false,
+        /** How cold someone in the water has got, 0..1. At 1 it's killed them. */
+        val chill: Float = 0f,
+        /** Why nobody can go outside from it right now, like too deep under the sea for a suit, or empty. */
+        val evaBlocked: String = "",
     ) : ServerMessage
 
     /**
@@ -759,5 +772,6 @@ object Protocol {
     // 22: rotor speeds in the pose.
     // 23: PlacedPart.shroud; new parts (side chutes and decouplers, 3.75 m, the structural kit).
     // 24: righting a capsized craft - RightCraft, CraftSystems.canRight, standingOn and riders.
-    const val VERSION = 24
+    // 25: crew in the water - ClimbOut, CraftSystems.climbOnto, swimming, chill and evaBlocked.
+    const val VERSION = 25
 }

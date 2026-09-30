@@ -34,7 +34,7 @@ class PartTabsTest {
             "hull-punt", "hull-bow", "hull-mid", "hull-stern", "hull-skiff", "hull-cutter", "hull-jetski", "hull-runabout", "motor-outboard", "jet-water", "jet-pump", "rudder", "keel", "keel-skeg",
             "ballast-trim", "ballast-deep", "ballast-abyss", "float-foam", "keel-lead", "screw-drive", "planes-dive",
             "sail-sloop", "sail-cutter", "pontoon",
-            "hull-wide-bow", "hull-wide-mid", "hull-wide-stern", "engine-diesel", "engine-electric", "rudder-ship", "sail-schooner", "sail-square", "keel-ship", "barge-bow", "barge-mid", "barge-stern", "knees-push", "winch-tow", "bitt-tow", "deck-flight", "gear-arrest", "catapult-deck",
+            "hull-wide-bow", "hull-wide-mid", "hull-wide-stern", "engine-diesel", "engine-electric", "rudder-ship", "sail-schooner", "sail-square", "keel-ship", "barge-bow", "barge-mid", "barge-stern", "knees-push", "winch-tow", "bitt-tow", "deck-flight", "gear-arrest", "catapult-deck", "ladder-boat",
         ),
         PartTab.UTILITY to setOf(
             "chute-canopy", "chute-side", "chute-side-heavy", "rcs-nudge", "light-bar", "dock-port", "dock-port-small", "mooring-clamp",
@@ -45,7 +45,7 @@ class PartTabsTest {
         PartTab.AIR to setOf("rotor-main", "rotor-tail", "rotor-drone", "fan-lift", "balloon-small", "cell-gas", "envelope-airship"),
         PartTab.BASE to setOf(
             "deck-sky", "deck-sea",
-            "base-foundation", "base-core", "base-habitat", "base-depot", "base-mono-depot",
+            "base-foundation", "base-footing-sea", "base-float", "base-core", "base-habitat", "base-depot", "base-mono-depot",
             "base-refinery", "base-silo", "base-cistern", "base-battery", "base-solar",
             "base-connector", "base-corridor", "base-pad", "base-floodlight", "base-flatbed", "base-release-clamp",
         ),

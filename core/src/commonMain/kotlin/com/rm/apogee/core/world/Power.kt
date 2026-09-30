@@ -83,7 +83,7 @@ class Power(private val system: SolarSystem) {
         val capacity = vessel.capacityOf(ResourceType.ELECTRIC_CHARGE)
         // As bright as the distance from the star leaves it, so faint out among the giants.
         val lit = sunlight(attractor, vessel.body.position, time) * system.sunStrength(attractor.id, vessel.body.position, time) *
-            skyShade(vessel, attractor)
+            skyShade(vessel, attractor) * seaShade(attractor, vessel.body.position)
         val sun = system.sunDirection(attractor.id, vessel.body.position, time, scratchSunDir)
         // The sun in the craft's own axes, for which way each panel faces.
         vessel.body.orientation.inverseRotate(sun, scratchSun)
@@ -175,6 +175,20 @@ class Power(private val system: SolarSystem) {
          */
         fun poweredNow(vessel: Vessel, capacity: Double, net: Double): Boolean =
             capacity <= 0.0 || net > 0.0 || vessel.amountOf(ResourceType.ELECTRIC_CHARGE) > 0.0
+
+        /**
+         * How much daylight reaches [position] under the sea of [attractor], 0..1. All of it in the
+         * air, and it fades by e every [LIGHT_FADE] metres down, so a panel on a base fifty metres
+         * down makes a twelfth of what it would in the sun.
+         */
+        fun seaShade(attractor: CelestialBody, position: Vec3): Double {
+            if (attractor.ocean == null) return 1.0
+            val down = -attractor.altitudeOf(position)
+            return if (down <= 0.0) 1.0 else kotlin.math.exp(-down / LIGHT_FADE)
+        }
+
+        /** The depth, in metres, over which daylight in the sea fades by e. */
+        const val LIGHT_FADE = 20.0
 
         /** Whether fold-out part [i] of [vessel] is all the way out. */
         fun deployed(vessel: Vessel, i: Int): Boolean = vessel.legDeploy.getOrElse(i) { 0.0 } >= 0.99

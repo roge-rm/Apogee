@@ -14,6 +14,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.filled.Anchor
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Upgrade
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.LinkOff
 import androidx.compose.material.icons.automirrored.filled.Login
@@ -49,13 +50,15 @@ class PromptActions(
     val onRelease: () -> Unit = {},
     /** Roll a capsized craft back upright. */
     val onRight: () -> Unit = {},
+    /** Climb out of the water, or off the top of a ladder, onto a deck. */
+    val onClimbOut: () -> Unit = {},
 )
 
 /**
  * The top middle of the screen, only for what's asking for something right now. In flight that's
  * the next burn counting down, the landing coming up, the runway approach, lining up to dock, and
- * the one-tap chances: JOIN two modules, FOUND BASE where the craft stands, BOARD a craft, GRAB or
- * LET GO of a ladder, HOOK or RELEASE the winch's line, and ROLL UPRIGHT when the craft has gone over. On the map it's planning: the transfer window, the burn's editor, and which survey shows.
+ * the one-tap chances: JOIN two modules, FOUND BASE where the craft stands, BOARD a craft, CLIMB OUT
+ * of the water, GRAB or LET GO of a ladder, HOOK or RELEASE the winch's line, and ROLL UPRIGHT when the craft has gone over. On the map it's planning: the transfer window, the burn's editor, and which survey shows.
  * There's nothing at all while there's nothing to do.
  */
 @Composable
@@ -92,6 +95,7 @@ fun PromptSlot(
             if (service?.canFound == true) Prompt(Icons.Filled.Home, "FOUND BASE", ApogeeColors.Accent) { actions.onFound(true) }
             if (hud.isSuit && power != null) {
                 if (power.boardable.isNotEmpty()) Prompt(Icons.AutoMirrored.Filled.Login, "BOARD ${power.boardable.uppercase().take(12)}", ApogeeColors.Prograde, actions.onBoard)
+                else if (power.climbOnto.isNotEmpty()) Prompt(Icons.Filled.Upgrade, "CLIMB OUT", ApogeeColors.Prograde, actions.onClimbOut)
                 if (power.onLadder) Prompt(Icons.Filled.PanTool, "LET GO", ApogeeColors.Prograde) { actions.onGrab(false) }
                 else if (power.canGrab) Prompt(Icons.Filled.PanTool, "GRAB LADDER", ApogeeColors.Accent) { actions.onGrab(true) }
             }
@@ -236,6 +240,7 @@ fun promptKey(hud: HudState): String = buildString {
     if (hud.baseService?.canFound == true) append("found")
     hud.power?.let {
         if (it.boardable.isNotEmpty()) append("board")
+        if (it.climbOnto.isNotEmpty()) append("climb")
         if (it.canGrab) append("grab")
         if (it.hooked) append("hooked") else if (it.canHook.isNotEmpty()) append("hook")
     }

@@ -19,7 +19,9 @@ class PadBindingsTest {
         }
         assertEquals(PadAction.STAGE, bindings.action(PadLayer.FLYING, PadButton.A))
         assertEquals(PadAction.JUMP, bindings.action(PadLayer.ON_FOOT, PadButton.A))
-        assertEquals(PadAction.THROTTLE_UP, bindings.action(PadLayer.ON_FOOT, PadButton.R2))
+        // On foot the triggers swim up and down, since there's no throttle to work.
+        assertEquals(PadAction.SWIM_UP, bindings.action(PadLayer.ON_FOOT, PadButton.R2))
+        assertEquals(PadAction.SWIM_DOWN, bindings.action(PadLayer.ON_FOOT, PadButton.L2))
     }
 
     @Test

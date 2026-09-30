@@ -302,6 +302,10 @@ class Hydrostatics {
                 )
                 placed.rotation.rotate(local, force)
                 body.orientation.rotate(force, force)
+                // Someone swimming lies along the way they're going and meets the water with their
+                // head and shoulders, not the whole of them stood up like a box. As a box they swam
+                // at a quarter of a metre a second.
+                if (vessel.swimming) force.mulInPlace(SWIMMER_SHAPE)
 
                 // Never more than stops this cell's share of the craft in one tick. Quadratic drag
                 // on a craft arriving at a hundred metres a second is a force that would reverse
@@ -776,6 +780,9 @@ class Hydrostatics {
          * a couple of bobs and still visibly floats instead of looking set in jelly.
          */
         const val WAVE_MAKING_SPEED = 1.0
+
+        /** How much of an upright person's drag in the water a swimmer has. */
+        const val SWIMMER_SHAPE = 0.06
 
         /** The same along a hull, ahead and astern. */
         const val WAVE_MAKING_AHEAD = 0.3

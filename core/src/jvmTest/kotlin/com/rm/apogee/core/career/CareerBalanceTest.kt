@@ -186,6 +186,9 @@ class CareerBalanceTest {
         addAll(buy("flight-decks"))
         add(Fly(StockCraft.flatTop(catalog), "harbour"))
         add(Fly(StockCraft.petrel(catalog), "airfield")); addAll(earn(Feat.DECK_LANDING))
+        // A base let down onto the sea floor.
+        addAll(buy("sea-floor-bases"))
+        add(Fly(StockCraft.seaFloorBase(catalog), "harbour")); addAll(earn(Feat.SEA_FLOOR_BASE))
     }
 
     @Test

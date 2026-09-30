@@ -6044,6 +6044,287 @@
     ]
   },
   {
+    "id": "ladder-boat",
+    "title": "Boarding Ladder",
+    "category": "utility",
+    "dryMass": 35.0,
+    "description": "Three metres of rungs over a ship's side, from above her deck down into the sea, so someone in the water can climb back aboard. Take hold with GRAB, climb, and CLIMB OUT at the top.",
+    "crashTolerance": 8.0,
+    "dragCoefficient": 0.3,
+    "mesh": {
+      "type": "box",
+      "width": 0.1,
+      "height": 3.0,
+      "depth": 0.5
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.05,
+              "height": 3.0,
+              "depth": 0.05
+            }
+          },
+          "offset": {
+            "x": 0.06,
+            "y": 0.0,
+            "z": 0.22
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.05,
+              "height": 3.0,
+              "depth": 0.05
+            }
+          },
+          "offset": {
+            "x": 0.06,
+            "y": 0.0,
+            "z": -0.22
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.05,
+              "height": 0.5,
+              "depth": 0.05
+            }
+          },
+          "offset": {
+            "x": 0.06,
+            "y": 1.75,
+            "z": 0.22
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.05,
+              "height": 0.5,
+              "depth": 0.05
+            }
+          },
+          "offset": {
+            "x": 0.06,
+            "y": 1.75,
+            "z": -0.22
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.04,
+              "height": 0.04,
+              "depth": 0.44
+            }
+          },
+          "offset": {
+            "x": 0.06,
+            "y": -1.35,
+            "z": 0.0
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.04,
+              "height": 0.04,
+              "depth": 0.44
+            }
+          },
+          "offset": {
+            "x": 0.06,
+            "y": -1.05,
+            "z": 0.0
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.04,
+              "height": 0.04,
+              "depth": 0.44
+            }
+          },
+          "offset": {
+            "x": 0.06,
+            "y": -0.75,
+            "z": 0.0
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.04,
+              "height": 0.04,
+              "depth": 0.44
+            }
+          },
+          "offset": {
+            "x": 0.06,
+            "y": -0.45,
+            "z": 0.0
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.04,
+              "height": 0.04,
+              "depth": 0.44
+            }
+          },
+          "offset": {
+            "x": 0.06,
+            "y": -0.15,
+            "z": 0.0
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.04,
+              "height": 0.04,
+              "depth": 0.44
+            }
+          },
+          "offset": {
+            "x": 0.06,
+            "y": 0.15,
+            "z": 0.0
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.04,
+              "height": 0.04,
+              "depth": 0.44
+            }
+          },
+          "offset": {
+            "x": 0.06,
+            "y": 0.45,
+            "z": 0.0
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.04,
+              "height": 0.04,
+              "depth": 0.44
+            }
+          },
+          "offset": {
+            "x": 0.06,
+            "y": 0.75,
+            "z": 0.0
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.04,
+              "height": 0.04,
+              "depth": 0.44
+            }
+          },
+          "offset": {
+            "x": 0.06,
+            "y": 1.05,
+            "z": 0.0
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.04,
+              "height": 0.04,
+              "depth": 0.44
+            }
+          },
+          "offset": {
+            "x": 0.06,
+            "y": 1.35,
+            "z": 0.0
+          },
+          "tint": "metal"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "root",
+        "position": {
+          "x": -0.05,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": -1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "ladder",
+        "length": 3.0
+      }
+    ]
+  },
+  {
     "id": "panel-glint",
     "title": "Glint Sun Panel",
     "category": "utility",
@@ -11639,6 +11920,7 @@
       "height": 1.8,
       "depth": 0.45
     },
+    "displaces": 0.095,
     "model": {
       "type": "compound",
       "pieces": [
@@ -23663,6 +23945,36 @@
           "z": 0
         },
         "size": 1
+      },
+      {
+        "id": "side-right",
+        "position": {
+          "x": 10,
+          "y": 0,
+          "z": 0
+        },
+        "direction": {
+          "x": 1,
+          "y": 0,
+          "z": 0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "side-left",
+        "position": {
+          "x": -10,
+          "y": 0,
+          "z": 0
+        },
+        "direction": {
+          "x": -1,
+          "y": 0,
+          "z": 0
+        },
+        "size": 0,
+        "kind": "surface"
       }
     ],
     "modules": [

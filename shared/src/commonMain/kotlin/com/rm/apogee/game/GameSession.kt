@@ -720,6 +720,7 @@ class GameSession private constructor(
     suspend fun jump() = withControlledVessel { client.send(Command.Jump(it)) }
     suspend fun grab(on: Boolean) = withControlledVessel { client.send(Command.Grab(it, on)) }
     suspend fun plantFlag() = withControlledVessel { client.send(Command.PlantFlag(it)) }
+    suspend fun climbOut() = withControlledVessel { client.send(Command.ClimbOut(it)) }
 
     /** Whether the craft being flown has drills, and converters. */
     val controlledHasDrill: Boolean get() = controlledHas { it.hasModule<com.rm.apogee.core.part.Drill>() }
@@ -756,6 +757,10 @@ class GameSession private constructor(
                 boardable = systems.boardable,
                 canGrab = systems.canGrab,
                 onLadder = systems.onLadder,
+                climbOnto = systems.climbOnto,
+                swimming = systems.swimming,
+                chill = systems.chill,
+                evaBlocked = systems.evaBlocked,
                 passenger = systems.passenger,
                 ballast = systems.ballast,
                 ballastMode = systems.ballastMode,
@@ -1637,10 +1642,12 @@ class GameSession private constructor(
             if (!wrecked && focus.design.parts.size < framedParts && framedFor == focusId) {
                 camera.frameShrunk(designRadius(focus.design, designCentreOfMass(focus.design)))
             }
-            // Taken up afresh, stand back far enough to see all of it. A Flat Top is eighty metres
-            // long, and the camera's usual thirty put it inside her deck.
+            // Taken up afresh, stand back far enough to see all of it. A Flat Top is a hundred and
+            // sixty metres long, and the camera's usual thirty put it inside her deck. Someone who's
+            // just gone over her side was a speck at that distance, so for a person it comes in.
             if (!wrecked && framedFor != focusId) {
-                camera.frameAtLeast(designRadius(focus.design, designCentreOfMass(focus.design)))
+                val radius = designRadius(focus.design, designCentreOfMass(focus.design))
+                if (focus.design.parts.singleOrNull()?.partId == World.SUIT_PART) camera.frameFor(radius) else camera.frameAtLeast(radius)
             }
             if (!wrecked) { framedParts = focus.design.parts.size; framedFor = focusId }
             // Lost, so stand back far enough to take in the wreckage, instead of staying tucked in

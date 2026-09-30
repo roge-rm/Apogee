@@ -38,6 +38,8 @@ class CrewActions(
     /** Take hold of the nearest ladder (true), or let go. */
     val onGrab: (Boolean) -> Unit = {},
     val onFlag: () -> Unit = {},
+    /** Climb out of the water, or off the top of a ladder, onto a deck. */
+    val onClimbOut: () -> Unit = {},
 )
 
 /**
@@ -67,7 +69,13 @@ internal fun CrewList(hud: HudState, actions: CrewActions, modifier: Modifier = 
                 if (seat.mine) {
                     if (seat.canMove) SmallAction("MOVE") { actions.onMove(seat.id) }
                     Spacer(Modifier.width(6.dp))
-                    SmallAction("EVA") { actions.onEva(seat.id) }
+                    // Too deep under the sea for a suit, it says so instead of doing nothing.
+                    val blocked = hud.power?.evaBlocked.orEmpty()
+                    if (blocked.isNotEmpty()) {
+                        Text(blocked.uppercase(), style = MaterialTheme.typography.labelSmall, color = Color.White.alpha(ApogeeAlpha.SUBTITLE))
+                    } else {
+                        SmallAction("EVA") { actions.onEva(seat.id) }
+                    }
                 }
             }
         }

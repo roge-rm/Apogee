@@ -101,6 +101,8 @@ enum class PadAction(val id: String, val label: String, val group: PadGroup, val
     GRAB("grab", "Grab or let go of a ladder", PadGroup.ON_FOOT),
     BOARD("board", "Board", PadGroup.ON_FOOT),
     FLAG("flag", "Plant a flag", PadGroup.ON_FOOT),
+    SWIM_DOWN("swim-down", "Swim down", PadGroup.ON_FOOT),
+    SWIM_UP("swim-up", "Swim up", PadGroup.ON_FOOT),
     ;
 
     companion object {
@@ -179,6 +181,9 @@ class PadBindings private constructor(
                 PadButton.B to PadAction.GRAB,
                 PadButton.X to PadAction.BOARD,
                 PadButton.SELECT to PadAction.FLAG,
+                // The triggers work the throttle flying, and there's none on foot.
+                PadButton.L2 to PadAction.SWIM_DOWN,
+                PadButton.R2 to PadAction.SWIM_UP,
             )
             val sticks = mapOf(PadStick.LEFT to StickUse.STEER, PadStick.RIGHT to StickUse.LOOK)
             PadBindings(

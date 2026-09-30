@@ -591,6 +591,17 @@ object StockCraft {
             return added.first()
         }
 
+        /** Turns part [index] a quarter turn about the node it's on, [quarters] times. */
+        fun turn(index: Int, quarters: Int = 1) {
+            check(builder.turn(index, quarters)) { "${builder.design.parts[index].partId} wouldn't turn" }
+        }
+
+        /**
+         * A Boarding Ladder over the side at node [nodeId] of hull section [hull], standing up the
+         * ship's side instead of lying along it.
+         */
+        fun ladder(hull: Int, nodeId: String) = turn(on(hull, nodeId, "ladder-boat"), 3)
+
         fun design(): CraftDesign {
             builder.restage()
             return builder.design
@@ -940,6 +951,7 @@ object StockCraft {
         a.on(stern, "transom", if (electric) "engine-electric" else "engine-diesel")
         a.on(mid, "side-right", "mooring-clamp")
         a.on(mid, "side-left", "mooring-clamp")
+        a.ladder(aft, "side-right")
         return a.design()
     }
 
@@ -962,6 +974,7 @@ object StockCraft {
         a.on(stern, "keel", "rudder-ship")
         a.on(mid, "side-right", "mooring-clamp")
         a.on(mid, "side-left", "mooring-clamp")
+        a.ladder(aft, "side-right")
         return a.design()
     }
 
@@ -980,6 +993,7 @@ object StockCraft {
         a.on(stern, "deck", "bitt-tow")
         a.on(fore, "side-right", "mooring-clamp")
         a.on(fore, "side-left", "mooring-clamp")
+        a.ladder(aft, "side-right")
         return a.design()
     }
 
@@ -998,6 +1012,7 @@ object StockCraft {
         a.on(stern, "transom", "engine-diesel")
         a.on(bow, "side-right", "mooring-clamp")
         a.on(bow, "side-left", "mooring-clamp")
+        a.ladder(stern, "side-right")
         return a.design()
     }
 
@@ -1015,6 +1030,7 @@ object StockCraft {
         a.on(aft, "drive-right", "engine-diesel")
         a.on(aft, "drive-left", "engine-diesel")
         a.on(aft, "keel-aft", "rudder-ship")
+        a.ladder(aft, "side-right")
         return a.design()
     }
 
@@ -1036,6 +1052,7 @@ object StockCraft {
         a.on(tiles[7], "drive-right", "engine-diesel")
         a.on(tiles[7], "drive-left", "engine-diesel")
         a.on(tiles[7], "keel-aft", "rudder-ship")
+        a.ladder(tiles[5], "side-right")
         return a.design()
     }
 
@@ -1232,6 +1249,24 @@ object StockCraft {
         a.on(pad, "corner-1", "base-depot")
         val power = a.on(pad, "corner-2", "base-battery")
         a.on(power, "top", "base-solar")
+        return a.design()
+    }
+
+    /**
+     * A base for the sea floor: the core and a power module on a Base Float, all on a Sea Footing to
+     * hold it down. It floats out of the harbour with its float blown, to be towed where it's going,
+     * and goes down to the bottom when the float is flooded. Blown it floats with about twenty-four
+     * tonnes to spare, and flooded it sits on the floor fifteen tonnes heavy. There's no solar array,
+     * because there's no sun to speak of down there.
+     */
+    fun seaFloorBase(catalog: PartCatalog = StockParts.catalog): CraftDesign {
+        val a = Assembly(catalog, "Sea Floor Base", CraftOrientation.VERTICAL)
+        val footing = a.root("base-footing-sea")
+        val float = a.on(footing, "top", "base-float")
+        val core = a.on(float, "top", "base-core")
+        a.on(core, "surface-0", "base-connector")
+        a.on(core, "surface-2", "base-connector")
+        a.on(core, "top", "base-battery")
         return a.design()
     }
 

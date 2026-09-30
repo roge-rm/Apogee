@@ -197,7 +197,7 @@ fun FlightScreen(
             onFlaps = onToggleFlaps, onGroup = onGroup, onWinch = onWinch, onStationKeep = onStationKeep,
         )
         val statusActions = StatusActions(crewActions, onUndock, onFound, onRefuel, onUnload, onRefine, onDockPilot)
-        val promptActions = PromptActions(onJoin, onFound, crewActions.onBoard, crewActions.onGrab, onHook, onReleaseLine, onRightCraft)
+        val promptActions = PromptActions(onJoin, onFound, crewActions.onBoard, crewActions.onGrab, onHook, onReleaseLine, onRightCraft, crewActions.onClimbOut)
 
         if (hud.connectionError != null) {
             ConnectionProblem(hud.connectionError!!, onExit)

@@ -38,6 +38,7 @@ Dan
 - Rovers and haulers with suspension, steering, hitches and a winch.
 - Boats with hulls that take on water, keels, rudders, sails, outboards and water jets (there's a jet boat and a jet ski), and submarines with ballast, pressure hulls and sonar. A small boat that goes over can be rolled back upright by its crew.
 - Ships four and a half metres across on a diesel or an electric drive, and a schooner with a deep keel. Big water is rough on small boats, and ships ride it out.
+- Crew who go over the side swim, dive and walk on the bottom, down to what their suit can take. The sea is cold and they don't last forever in it, and getting back aboard a ship means her ladder.
 - Barges, and a harbour tug to tow them on a line or push them from astern. Anything parked on a deck rides along.
 - Decks at sea to fly from: a landing barge for a helicopter, and the Flat Top, with a catapult to throw a plane off the bow and wires to catch one landing with its tailhook down. The Petrel is a slow prop plane made for it.
 - Helicopters and drones on rotors, and balloons and airships on gas.
@@ -46,7 +47,7 @@ Dan
 
 **The sea.** Waves that move what floats on them, storms, tides, currents out in the open ocean, and a deep world underneath with canyons, vents and places to find. For big seas, launch at the Roaring Sea, and set the weather to Wild.
 
-**Bases.** Found a base on any solid world, or on a platform floating on the sea or in the sky. Bases have pads to launch from, power, and industry that digs ore and water and makes propellant from them.
+**Bases.** Found a base on any solid world, on a platform floating on the sea or in the sky, or on the sea floor. Bases have pads to launch from, power, and industry that digs ore and water and makes propellant from them.
 
 **Crew.** Named astronauts who fly your craft, walk on other worlds, climb ladders, plant flags and can be rescued.
 
@@ -113,7 +114,7 @@ A controller works on Android and in a browser, and so do the controls built in 
 | Select | gear and legs |
 | Start | the flight menu |
 
-On foot, A jumps, B grabs a ladder, X boards and Select plants a flag. You can change any of it in Settings, under Controls, then Controller buttons. Press a button there to find its row. In the menus, the D-pad or left stick moves, A picks and B goes back. The touch stick steps aside while the controller's flying, and comes back when you touch the screen. A browser only lets a page see a controller once you've pressed one of its buttons with the page in front, so press one first.
+On foot, A jumps, B grabs a ladder, X boards (or climbs out of the water onto a deck) and Select plants a flag. In the water the triggers swim down and up. You can change any of it in Settings, under Controls, then Controller buttons. Press a button there to find its row. In the menus, the D-pad or left stick moves, A picks and B goes back. The touch stick steps aside while the controller's flying, and comes back when you touch the screen. A browser only lets a page see a controller once you've pressed one of its buttons with the page in front, so press one first.
 
 ## Building it
 
