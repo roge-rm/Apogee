@@ -136,11 +136,54 @@ class AirLandingTest {
         Aloft.spinUp(heli, 0.6)
         world.apply(Command.SetThrottle(heli.id.raw, 0.6))
         assertTrue("the forest's clear there already", !clearUnder(world, heli, heli.contactRadius))
-        val hard = land(world, heli, 300.0)
+        world.apply(Command.SetAutopilot(heli.id.raw, autoBurn = false, autoLand = true))
+        var hard = 0.0
+        var fastestTurn = 0.0
+        var t = 0.0
+        while (t < 300.0 && heli.control.autoLand) {
+            world.step(Aloft.DT); t += Aloft.DT
+            if (heli.touchingGround) hard = maxOf(hard, -Aloft.climb(world, heli))
+            else fastestTurn = maxOf(fastestTurn, Math.toDegrees(kotlin.math.abs(heli.body.angularVelocity dot heli.body.position.normalized())))
+        }
         assertTrue("never down: ${heli.control.autopilotNote}", heli.control.autopilotNote == "Landed")
         assertTrue("came down hard, at $hard m/s", hard < 1.5)
         assertTrue("it broke: ${heli.broken.count { it }} parts", heli.broken.none { it })
         assertTrue("came down among the trees", clearUnder(world, heli, heli.contactRadius))
+        assertTrue("came down turning at $fastestTurn degrees a second", fastestTurn < 10.0)
+    }
+
+    @Test
+    fun `a Hummingbird left on uneven ground stays where it's left`() {
+        val world = World.default(catalog)
+        val spot = SolarSystem.capeDirection(1_200.0, -1_000.0)
+        val heli = world.spawnOnSurface(StockCraft.hummingbird(catalog), LaunchSite("s", "S", "terra", SolarSystem.latitudeOf(spot), SolarSystem.longitudeOf(spot)))
+        val terra = world.attractorFor(heli)
+        repeat(30) { world.step(Aloft.DT) }
+        val start = terra.toBodyFixed(heli.body.position, terra.rotationAt(world.time), Vec3())
+        repeat((60.0 / Aloft.DT).toInt()) { world.step(Aloft.DT) }
+        val moved = terra.toBodyFixed(heli.body.position, terra.rotationAt(world.time), Vec3()).distanceTo(start)
+        assertTrue("walked $moved m on its skids", moved < 0.5)
+    }
+
+    @Test
+    fun `a Sparrow in a strong wind lands on the runway into it`() {
+        val world = World.default(catalog)
+        world.weatherConfig = com.rm.apogee.core.weather.WeatherConfig(intensity = com.rm.apogee.core.weather.WeatherIntensity.WILD)
+        val plane = sparrow(world, -4_000.0, -900.0, 600.0, 90.0)
+        world.apply(Command.SetAutopilot(plane.id.raw, autoBurn = false, autoLand = true))
+        world.step(Aloft.DT)
+        val terra = world.attractorFor(plane)
+        val along = terra.rotationAt(world.time).rotate(plane.landStripAlong, Vec3())
+        val wind = terra.rotationAt(world.time).rotate(plane.air.wind, Vec3())
+        val hard = land(world, plane, 500.0)
+        assertTrue("never down: ${plane.control.autopilotNote}", plane.control.autopilotNote == "Landed")
+        assertTrue("came down hard, at $hard m/s", hard < 2.5)
+        assertTrue("it broke", plane.broken.none { it })
+        val rot = terra.rotationAt(world.time)
+        val off = plane.body.position.copy().subInPlace(rot.rotate(plane.landStripAt, Vec3()))
+        val right = rot.rotate(plane.landStripAlong, Vec3()).crossInPlace(plane.body.position.normalized())
+        assertTrue("stopped off the runway, ${off dot rot.rotate(plane.landStripAlong, Vec3())} along, ${off dot right} across, wind ${wind dot along} along, ${plane.control.autopilotNote}", onRunway(world, plane))
+        if (kotlin.math.abs(wind dot along) > World.RUNWAY_WIND) assertTrue("landed with ${wind dot along} m/s behind it", (wind dot along) < 0.0)
     }
 
     @Test

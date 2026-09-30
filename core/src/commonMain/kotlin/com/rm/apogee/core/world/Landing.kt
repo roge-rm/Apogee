@@ -65,7 +65,17 @@ internal class Landing(private val keeper: StationKeeping) {
             // attitude instead, the wing threw it back into the air, bounce after bounce.
             control.throttle = 0.0
             control.brakes = true
-            val track = Math.toDegrees(atan2(flat dot north, flat dot east))
+            var track = Math.toDegrees(atan2(flat dot north, flat dot east))
+            // Down its strip, steered back to the centre of it. Left to roll the way it touched
+            // down, a plane still crabbed into a crosswind ran off the side of the runway.
+            if (vessel.landStripSet) {
+                rotation.rotate(vessel.landStripAt, touchdown)
+                rotation.rotate(vessel.landStripAlong, along)
+                right.setTo(along).crossInPlace(up).normalizeInPlace()
+                val across = offset.setTo(vessel.body.position).subInPlace(touchdown) dot right
+                val lineHeading = Math.toDegrees(atan2(along dot north, along dot east))
+                track = lineHeading + ROLL_INTERCEPT * (2.0 / Math.PI) * kotlin.math.atan((across + (flat dot right) * ROLL_LOOK_AHEAD) / ROLL_CLOSING)
+            }
             hold(vessel, ROLLOUT_NOSE, track)
             return if (settled(vessel, dt)) Outcome.LANDED else Outcome.FLYING
         }
@@ -76,12 +86,17 @@ internal class Landing(private val keeper: StationKeeping) {
         }
         if (false && height < FLAPS_OUT && vessel.defs.any { (it.module<com.rm.apogee.core.part.AeroSurface>()?.flapLift ?: 0.0) > 0.0 }) control.flaps = true
         val climb = velocity dot up
+        // Its speed through the air, which is what keeps it flying: over the ground, with the wind
+        // behind it, it's that much slower through the air than it looks.
+        rotation.rotate(vessel.air.wind, airFlat).negateInPlace().addInPlace(flat)
+        airFlat.addScaledInPlace(up, -(airFlat dot up))
+        val airSpeed = airFlat.length
         var track = Math.toDegrees(atan2(flat dot north, flat dot east))
         val path = Math.toDegrees(atan2(climb, speed))
         // In at a pilot's approach speed, a margin over the stall, unless it was already slower.
         // Holding whatever it had when the landing began, a plane asked to land at cruising speed
         // floated the length of the runway.
-        if (vessel.landSpeed <= 0.0) vessel.landSpeed = minOf(speed, APPROACH_MARGIN * stallSpeed(vessel, attractor))
+        if (vessel.landSpeed <= 0.0) vessel.landSpeed = minOf(airSpeed, APPROACH_MARGIN * stallSpeed(vessel, attractor))
         // The nose sets the sink: a few metres a second on the way in, easing to almost nothing at
         // the ground in the flare.
         val approaching = height > FLARE_START
@@ -97,7 +112,7 @@ internal class Landing(private val keeper: StationKeeping) {
         }
         // Too fast to land, it holds its height and lets the speed bleed off first. Coming down
         // regardless, it arrived at the flare half as fast again, floated, touched, and bounced.
-        if (approaching && speed > vessel.landSpeed * TOO_FAST) climbWanted = 0.0
+        if (approaching && airSpeed > vessel.landSpeed * TOO_FAST) climbWanted = 0.0
         control.cruiseTrim = (control.cruiseTrim + (climbWanted - climb) * SINK_TRIM_RATE * dt).coerceIn(-MOST_ATTACK, MOST_ATTACK)
         val attack = (control.cruiseTrim + (climbWanted - climb) * SINK_GAIN).coerceIn(-MOST_ATTACK, MOST_ATTACK)
         // The throttle holds the speed on the way in, most of what it had when it was asked to
@@ -105,14 +120,14 @@ internal class Landing(private val keeper: StationKeeping) {
         // hold only the wing's angle instead, a plane without much power over its drag slowed
         // until it had nothing left to flare with, and hit hard.
         if (approaching) {
-            val short = vessel.landSpeed * KEEP_SPEED - speed
+            val short = vessel.landSpeed * KEEP_SPEED - airSpeed
             control.keepTrim = (control.keepTrim + short * POWER_TRIM_RATE * dt).coerceIn(0.0, 1.0)
             control.throttle = (control.keepTrim + short * POWER_GAIN).coerceIn(0.0, 1.0)
         } else {
             // Eased off through the flare, all of it gone at the ground. Cut at the top of the
             // flare, a plane at a real approach speed slowed to its stall on the way down and sank
             // onto the runway.
-            val short = vessel.landSpeed * KEEP_SPEED - speed
+            val short = vessel.landSpeed * KEEP_SPEED - airSpeed
             control.throttle = ((control.keepTrim + short * POWER_GAIN) * height / FLARE_START).coerceIn(0.0, 1.0)
         }
         hold(vessel, path + attack, track)
@@ -200,7 +215,12 @@ internal class Landing(private val keeper: StationKeeping) {
         } else if (abs(turn) < LONG_TURN_DONE) {
             vessel.landTurn = 0.0
         }
-        val step = turn.coerceIn(-TURN_RATE * dt, TURN_RATE * dt)
+        // The crab comes off at the last moment, so it touches down pointing along its line. Taken
+        // off any sooner, the wind blew it most of the way to the edge of the runway first.
+        val decrabbing = height < DECRAB_FROM
+        if (decrabbing) turn -= vessel.landCrab * (1.0 - height / DECRAB_FROM)
+        val rate = if (decrabbing) DECRAB_RATE else TURN_RATE
+        val step = turn.coerceIn(-rate * dt, rate * dt)
         vessel.landHeading = wrap(now + step)
         return climb
     }
@@ -213,6 +233,7 @@ internal class Landing(private val keeper: StationKeeping) {
         return d
     }
 
+    private val airFlat = Vec3()
     private val touchdown = Vec3()
     private val along = Vec3()
     private val offset = Vec3()
@@ -257,6 +278,7 @@ internal class Landing(private val keeper: StationKeeping) {
             control.throttle = 0.0
             control.pitch = 0.0
             control.roll = 0.0
+            control.yaw = 0.0
             // Heavy with the ballonets full, so it stays down.
             if (means == StationKeeping.Means.GAS) control.ballast = 1
             return if (settled(vessel, dt)) Outcome.LANDED else Outcome.FLYING
@@ -297,8 +319,17 @@ internal class Landing(private val keeper: StationKeeping) {
                 vessel.body.orientation.rotate(vessel.design.orientation.up, level)
                 wing.setTo(nose).crossInPlace(level)
                 drift.setTo(flat).subInPlace(wantDrift)
-                control.pitch = ((drift dot nose) * DRIFT_STICK).coerceIn(-MOST_STICK, MOST_STICK)
-                control.roll = (-(drift dot wing) * DRIFT_STICK).coerceIn(-MOST_STICK, MOST_STICK)
+                // Plus what it's learned to hold against a steady push, like the tail rotor's.
+                // Without it, held on one heading, that push walked it ten metres off a barge's
+                // deck on the way down.
+                vessel.landStickPitch = (vessel.landStickPitch + (drift dot nose) * DRIFT_TRIM_RATE * dt).coerceIn(-MOST_STICK, MOST_STICK)
+                vessel.landStickRoll = (vessel.landStickRoll - (drift dot wing) * DRIFT_TRIM_RATE * dt).coerceIn(-MOST_STICK, MOST_STICK)
+                control.pitch = (vessel.landStickPitch + (drift dot nose) * DRIFT_STICK).coerceIn(-MOST_STICK, MOST_STICK)
+                control.roll = (vessel.landStickRoll - (drift dot wing) * DRIFT_STICK).coerceIn(-MOST_STICK, MOST_STICK)
+                // And the pedals against any turn. With stability assist off, nothing else stopped
+                // one, and a helicopter let down into a clearing came down spinning at a turn every
+                // ten seconds.
+                control.yaw = (-(vessel.body.angularVelocity dot level) * YAW_DAMPING).coerceIn(-1.0, 1.0)
                 return Outcome.FLYING
             }
             // A drone, on rotors that steer by their speeds, is held level by stability assist,
@@ -386,6 +417,15 @@ internal class Landing(private val keeper: StationKeeping) {
 
         /** A turn further than this, in degrees, keeps its way round until it's under [LONG_TURN_DONE]. */
         const val LONG_TURN = 135.0
+
+        /** On the ground, steering back to its line: how far off it's turned halfway, the most it turns in, and how far ahead it looks, in metres, degrees and seconds. */
+        const val ROLL_CLOSING = 20.0
+        const val ROLL_INTERCEPT = 10.0
+        const val ROLL_LOOK_AHEAD = 2.0
+
+        /** Under what height, in metres, the crab comes off, and how fast, in degrees a second. */
+        const val DECRAB_FROM = 5.0
+        const val DECRAB_RATE = 10.0
         const val LONG_TURN_DONE = 90.0
         const val INTERCEPT = 90.0
 
@@ -499,6 +539,12 @@ internal class Landing(private val keeper: StationKeeping) {
 
         /** Stick a helicopter holds against its drift, per m/s, and the most. */
         const val DRIFT_STICK = 0.08
+
+        /** How fast a helicopter's stick learns a steady push, per m/s of drift, per second. */
+        const val DRIFT_TRIM_RATE = 0.02
+
+        /** A helicopter's pedal against its turn, per radian a second. */
+        const val YAW_DAMPING = 2.0
         const val MOST_STICK = 0.3
 
         /** A rotorcraft's or airship's sink wanted, m/s per metre up, the most, and at the ground. */

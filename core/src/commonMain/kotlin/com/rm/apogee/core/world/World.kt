@@ -615,6 +615,8 @@ class World(
             vessel.landOutbound = false
             vessel.landCrab = 0.0
             vessel.landTurn = 0.0
+            vessel.landStickPitch = 0.0
+            vessel.landStickRoll = 0.0
             attractor.toBodyFixed(vessel.body.position, attractor.rotationAt(time), control.keepPoint)
             control.keepTrim = control.throttle
             control.cruise = false
@@ -782,8 +784,13 @@ class World(
             val north = (from dot northward) * attractor.radius
             val middle = 0.5 * (com.rm.apogee.core.terrain.TerrainField.RUNWAY_WEST + com.rm.apogee.core.terrain.TerrainField.RUNWAY_EAST)
             if (kotlin.math.hypot(east - middle, north - com.rm.apogee.core.terrain.TerrainField.RUNWAY_NORTH) < RUNWAY_REACH) {
-                // From the side it's on, or over it, the way it's going.
+                // Into the wind, if there's much of one along it, the way a pilot would. Otherwise
+                // from the side it's on, or over it, the way it's going. Landed with a strong wind
+                // behind it, a plane holding its speed over the ground was nearly stalled through
+                // the air, and came down in the sea short of the runway.
+                val windAlong = vessel.air.wind dot eastward
                 val sense = when {
+                    kotlin.math.abs(windAlong) > RUNWAY_WIND -> if (windAlong > 0.0) -1.0 else 1.0
                     east > com.rm.apogee.core.terrain.TerrainField.RUNWAY_EAST -> -1.0
                     east < com.rm.apogee.core.terrain.TerrainField.RUNWAY_WEST -> 1.0
                     else -> if ((landScratch dot eastward) >= 0.0) 1.0 else -1.0
@@ -3774,6 +3781,9 @@ class World(
             val attractor = attractorFor(vessel)
             attractor.rotationAt(tickEnd, scratchRotation)
             vessel.sleep(scratchRotation)
+            // Resting with its throttle shut, whatever was still winding down has stopped. Asleep
+            // with it half wound down, a helicopter's rotor turned slowly on the ground for good.
+            if (report.anchored && vessel.control.throttle == 0.0) vessel.spool.fill(0.0)
             // Afloat, it rides the sea from here on, so note how it lies in it.
             val ocean = attractor.ocean
             if (!report.anchored && ocean != null && !vessel.touchingGround && vessel.buoyed) settleAfloat(vessel, attractor)
@@ -6437,6 +6447,9 @@ class World(
 
         /** A plane lands on the runway from no further off than this, in metres from its middle. */
         const val RUNWAY_REACH = 15_000.0
+
+        /** More wind than this along the runway, in m/s, and a plane lands into it whichever side it's on. */
+        const val RUNWAY_WIND = 3.0
 
         /** How far out, in metres, a plane joins a runway's line, or a clear strip's. */
         const val RUNWAY_FINAL = 3_000.0

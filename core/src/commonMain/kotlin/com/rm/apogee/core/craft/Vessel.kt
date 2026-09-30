@@ -741,6 +741,10 @@ class Vessel(
     /** The angle, in degrees, a plane landing itself has learned the wind blows it off its nose by. */
     var landCrab: Double = 0.0
 
+    /** The stick a helicopter landing itself has learned to hold against a steady push, pitch and roll. */
+    var landStickPitch: Double = 0.0
+    var landStickRoll: Double = 0.0
+
     /** Which way a plane landing itself is turning, once it has a long way round to go: 1 left, -1 right, 0 neither. */
     var landTurn: Double = 0.0
 

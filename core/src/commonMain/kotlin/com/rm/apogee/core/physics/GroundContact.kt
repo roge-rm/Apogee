@@ -5,6 +5,7 @@ import com.rm.apogee.core.math.Mat3
 import com.rm.apogee.core.math.Vec3
 import com.rm.apogee.core.orbit.CelestialBody
 import com.rm.apogee.core.part.LandingLeg
+import com.rm.apogee.core.part.Skid
 import com.rm.apogee.core.part.Wheel
 import com.rm.apogee.core.terrain.SurfaceMaterial
 
@@ -227,6 +228,7 @@ class GroundContact {
         // touched last tick. This decides how far soft ground gives under it.
         attractor.gravityAt(body.position, scratch)
         val loadPerContact = body.mass * scratch.length / vessel.groundContacts.coerceAtLeast(1)
+        fitSkids(vessel, scratch.length)
         hullNormalImpulse = 0.0
         var terrainContacts = 0
 
@@ -252,9 +254,13 @@ class GroundContact {
             val wheel = def.module<Wheel>()
             // Feet grip the way walking drives them, not the way a dragged hull does.
             val walker = def.module<com.rm.apogee.core.part.Walker>() != null
-            val suspensionTravel = if (!sprung) null else leg?.suspensionTravel ?: wheel?.suspensionTravel
-            val springRate = leg?.springRate ?: wheel?.springRate
-            val damping = leg?.damping ?: wheel?.damping
+            // Skids give a little too, the way real ones flex. Rigid, a helicopter on uneven ground
+            // rocked from corner to corner like a table with a short leg, and walked twenty metres
+            // across it in a minute.
+            val skid = def.module<Skid>() != null
+            val suspensionTravel = if (!sprung) null else leg?.suspensionTravel ?: wheel?.suspensionTravel ?: if (skid) SKID_TRAVEL else null
+            val springRate = leg?.springRate ?: wheel?.springRate ?: if (skid) skidSpring else null
+            val damping = leg?.damping ?: wheel?.damping ?: if (skid) skidDamping else null
             val pointCount = def.contactPoints.size
             // How far this part has sunk so far, and how far the ground under it wants it to sink
             // now, from the deepest of its points in contact.
@@ -349,6 +355,7 @@ class GroundContact {
         }
         craftCentre.setTo(body.position)
         localUp.setTo(body.position).normalizeInPlace()
+        fitSkids(vessel, attractor.gravityAt(body.position, scratch).length)
         for (partIndex in vessel.defs.indices) {
             val def = vessel.defs[partIndex]
             if (!isFoot(def)) continue
@@ -359,9 +366,13 @@ class GroundContact {
             if (leg != null && leg.stowedAngle == 0.0 && !vessel.isWorking(partIndex)) continue
             val wheel = def.module<Wheel>()
             val walker = def.module<com.rm.apogee.core.part.Walker>() != null
-            val suspensionTravel = if (!sprung) null else leg?.suspensionTravel ?: wheel?.suspensionTravel
-            val springRate = leg?.springRate ?: wheel?.springRate
-            val damping = leg?.damping ?: wheel?.damping
+            // Skids give a little too, the way real ones flex. Rigid, a helicopter on uneven ground
+            // rocked from corner to corner like a table with a short leg, and walked twenty metres
+            // across it in a minute.
+            val skid = def.module<Skid>() != null
+            val suspensionTravel = if (!sprung) null else leg?.suspensionTravel ?: wheel?.suspensionTravel ?: if (skid) SKID_TRAVEL else null
+            val springRate = leg?.springRate ?: wheel?.springRate ?: if (skid) skidSpring else null
+            val damping = leg?.damping ?: wheel?.damping ?: if (skid) skidDamping else null
             for (pointIndex in def.contactPoints.indices) {
                 vessel.contactPointWorld(partIndex, pointIndex, partPosition)
                 // The first deck part the point is in. One is plenty: a foot stands on one thing.
@@ -495,6 +506,24 @@ class GroundContact {
         } else {
             applyFriction(body, attractor, normalImpulse)
         }
+    }
+
+    private var skidSpring = 0.0
+    private var skidDamping = 0.0
+
+    /**
+     * The springing for [vessel]'s skids, if it has any: stiff enough that its weight, shared
+     * between the corners underneath them, presses them [SKID_SAG] in, and damped short of
+     * bouncing. Worked out from the craft, since skids go under anything from a drone to a
+     * heavy lifter.
+     */
+    private fun fitSkids(vessel: Vessel, gravity: Double) {
+        var feet = 0
+        for (def in vessel.defs) if (def.module<Skid>() != null) feet += def.contactPoints.size / 2
+        if (feet == 0) return
+        val mass = vessel.body.mass
+        skidSpring = mass * gravity / (feet * SKID_SAG)
+        skidDamping = SKID_DAMPING * 2.0 * kotlin.math.sqrt(skidSpring * mass / feet)
     }
 
     /**
@@ -867,6 +896,11 @@ class GroundContact {
 
         /** Structures don't bounce much. */
         const val RESTITUTION = 0.05
+
+        /** How far a craft's weight presses its skids in, how far they can give, in metres, and their damping as a share of critical. */
+        const val SKID_SAG = 0.03
+        const val SKID_TRAVEL = 0.12
+        const val SKID_DAMPING = 0.7
 
         /**
          * The grip before any ground has been touched this tick. Grass, which is what all ground
