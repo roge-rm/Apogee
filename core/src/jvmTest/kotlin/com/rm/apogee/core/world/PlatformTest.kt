@@ -89,6 +89,42 @@ class PlatformTest {
     }
 
     @Test
+    fun `set down in a swell, the Sea Platform comes to rest level on all four pontoons, free or founded`() {
+        // It used to doze off at the far end of a roll, fifteen degrees over on one pontoon, and
+        // ride the sea like that for good. Founded, for good and all.
+        for (found in listOf(false, true)) {
+            val world = World.default(catalog)
+            world.weatherConfig = com.rm.apogee.core.weather.WeatherConfig(intensity = com.rm.apogee.core.weather.WeatherIntensity.NORMAL)
+            world.steadyWind = com.rm.apogee.core.math.Vec3(0.0, 0.0, 0.0)
+            val spot = com.rm.apogee.core.orbit.SolarSystem.capeDirection(-6_000.0, 2_000.0)
+            val site = LaunchSite("open", "Open sea", "terra", com.rm.apogee.core.orbit.SolarSystem.latitudeOf(spot), com.rm.apogee.core.orbit.SolarSystem.longitudeOf(spot))
+            val platform = world.spawnOnSurface(StockCraft.seaPlatform(catalog), site)
+            world.assignOwner(platform, "p1")
+            Aloft.run(world, 30.0)
+            if (found) assertTrue(world.anchor(platform))
+            var most = 0.0
+            repeat(60) {
+                Aloft.run(world, 1.0)
+                most = maxOf(most, tilt(platform))
+            }
+            // The sea itself tips a few degrees across its sixteen metres.
+            assertTrue("founded=$found, it lay over ${most} degrees", most < 8.0)
+            assertTrue("founded=$found, its centre is ${above(world, platform)} m above the water", above(world, platform) in 0.5..1.8)
+        }
+    }
+
+    private fun tilt(v: Vessel): Double {
+        val up = v.body.orientation.rotate(v.design.orientation.up, com.rm.apogee.core.math.Vec3())
+        return Math.toDegrees(kotlin.math.acos((up dot v.body.position.normalized()).coerceIn(-1.0, 1.0)))
+    }
+
+    private fun above(world: World, v: Vessel): Double {
+        val terra = world.attractorFor(v)
+        val fixed = terra.toBodyFixed(v.body.position, terra.rotationAt(world.time), com.rm.apogee.core.math.Vec3()).normalizeInPlace()
+        return v.body.position.length - terra.radius - terra.ocean!!.surfaceHeight(fixed, world.time)
+    }
+
+    @Test
     fun `a craft set on the Sea Platform's pad rides along on its deck`() {
         val world = World.default(catalog)
         val platform = foundedOutOnTheSea(world)

@@ -19,6 +19,15 @@ actual fun workerPool(name: String, threads: Int): kotlinx.coroutines.CoroutineD
         }, name).apply { isDaemon = true }
     }.asCoroutineDispatcher()
 
+actual fun serverThread(): kotlinx.coroutines.CoroutineDispatcher =
+    java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+        Thread({
+            // Up with the display's own threads. Stubbed out off the device, in unit tests.
+            runCatching { android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_DISPLAY) }
+            r.run()
+        }, "game-server").apply { isDaemon = true }
+    }.asCoroutineDispatcher()
+
 actual class Worker actual constructor(name: String) {
     private val executor = java.util.concurrent.Executors.newSingleThreadExecutor { r ->
         Thread({

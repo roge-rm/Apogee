@@ -106,7 +106,29 @@ internal class StationKeeping {
                         else -> 0
                     }
                 }
-                if (steered) return
+                if (steered) {
+                    // By hand it flies like a drone: the stick tips it, never further than it can
+                    // hold its height at, and the yaw turns it. Passed straight through as a turn,
+                    // a stick held back kept it tipping until it fell out of the sky.
+                    vessel.body.orientation.rotate(vessel.design.orientation.forward, forward)
+                    forward.addScaledInPlace(up, -(forward dot up))
+                    if (forward.length > 1e-6) {
+                        forward.normalizeInPlace()
+                        scratch.setTo(forward).crossInPlace(up)
+                        val tilt = g * tan(Math.toRadians(MOST_HAND_TILT))
+                        desiredUp.setTo(up).mulInPlace(g)
+                            .addScaledInPlace(forward, -control.pitch * tilt)
+                            .addScaledInPlace(scratch, control.roll * tilt)
+                            .normalizeInPlace()
+                        if (control.yaw != 0.0 && vessel.assistHolding) {
+                            Quat.fromAxisAngle(up, -control.yaw * HAND_YAW_RATE * dt, turnForward)
+                            vessel.assistHeld.setTo(turnForward * vessel.assistHeld)
+                        }
+                        hold(vessel, null)
+                        control.stickTilts = true
+                    }
+                    return
+                }
                 // Tipped into the push it needs, like a drone.
                 val push = scratch.setTo(wanted).subInPlace(flat).mulInPlace(SPEED_GAIN)
                 val most = g * tan(Math.toRadians(MOST_TILT))
@@ -151,7 +173,10 @@ internal class StationKeeping {
                 forward.addScaledInPlace(up, -(forward dot up))
                 val facing = if (forward.length > 1e-6) ((forward dot through) / forward.length).coerceAtLeast(0.0) else 0.0
                 control.keepTrim = (control.keepTrim + along * PUSH_TRIM_RATE * dt).coerceIn(0.0, PUSH_MOST)
-                control.throttle = ((control.keepTrim + along * PUSH_GAIN).coerceIn(0.0, PUSH_MOST)) * facing * facing
+                // Only once it's come round to face the way it's going. Pushing while still turning,
+                // an airship whose tail fins damp its turns hard went round and round the spot.
+                val ready = ((facing - FACING_FROM) / (1.0 - FACING_FROM)).coerceIn(0.0, 1.0)
+                control.throttle = ((control.keepTrim + along * PUSH_GAIN).coerceIn(0.0, PUSH_MOST)) * ready
                 desiredUp.setTo(up)
                 hold(vessel, through.copy())
             }
@@ -198,6 +223,10 @@ internal class StationKeeping {
         const val SPEED_GAIN = 0.8
         const val MOST_TILT = 15.0
 
+        /** Degrees the stick tips it at full deflection, flown by hand, and how fast the yaw turns it, rad/s. */
+        const val MOST_HAND_TILT = 25.0
+        const val HAND_YAW_RATE = 1.0
+
         /** m/s of climb wanted per metre off the height, and the most. */
         const val HEIGHT_GAIN = 0.5
         const val MOST_CLIMB = 3.0
@@ -219,6 +248,9 @@ internal class StationKeeping {
 
         /** The most throttle it pushes a floating craft with. */
         const val PUSH_MOST = 0.5
+
+        /** How nearly it has to face the way it's going, as a cosine, before it pushes at all. */
+        const val FACING_FROM = 0.85
 
         /** Metres off the spot a floating craft is left to drift before it's pushed back. */
         const val SLACK = 10.0

@@ -35,6 +35,24 @@ class RotorTest {
     }
 
     @Test
+    fun `the Hummingbird stands still on its skids on the airfield, in a breeze or a gale`() {
+        for (weather in listOf(com.rm.apogee.core.weather.WeatherIntensity.NORMAL, com.rm.apogee.core.weather.WeatherIntensity.WILD)) {
+            val world = World.default(catalog)
+            world.weatherConfig = com.rm.apogee.core.weather.WeatherConfig(intensity = weather)
+            val heli = world.spawnFor(Command.SpawnCraft(StockCraft.hummingbird(catalog), "airfield"), "p1")
+            val terra = world.attractorFor(heli)
+            fun where() = terra.toBodyFixed(heli.body.position, terra.rotationAt(world.time), com.rm.apogee.core.math.Vec3())
+            repeat(120) { world.step(1.0 / 60.0) }
+            val start = where()
+            repeat(1200) { world.step(1.0 / 60.0) }
+            // On its skids, not balanced on their back edge: with the tail boom behind the skids'
+            // middle, it rocked over the edge and walked across the airfield.
+            assertTrue("it slid ${where().distanceTo(start)} m in $weather", where().distanceTo(start) < 0.1)
+            assertTrue("never settled in $weather", heli.dormant)
+        }
+    }
+
+    @Test
     fun `a quad's rotors turn opposite ways round the frame, so their twists cancel`() {
         val world = World.default(catalog)
         val quad = Aloft.spawn(world, StockCraft.quad(catalog), 50.0)

@@ -54,6 +54,14 @@ class SailTest {
     }
 
     @Test
+    fun `in a ten knot breeze she makes three knots and more, reaching or running`() {
+        for (wind in listOf(Vec3(0.0, 5.0, 0.0), Vec3(3.54, 3.54, 0.0), Vec3(5.0, 0.0, 0.0))) {
+            val (world, boat) = sail(wind, seconds = 120.0)
+            assertTrue("only ${ahead(world, boat)} m/s with the wind at $wind", ahead(world, boat) > 1.5)
+        }
+    }
+
+    @Test
     fun `the Sloop can be launched`() {
         val stats = CraftStats.analyze(StockCraft.sloop(catalog), catalog)
         assertTrue(stats.problems.toString(), stats.problems.isEmpty())

@@ -170,6 +170,22 @@ class CareerBalanceTest {
         // Twenty tonnes to orbit on the Moonshot's stack, and the grand size it opens.
         addAll(earn(Feat.HEAVY_LIFT))
         addAll(buy("grand"))
+        // A Trawler taken fifty kilometres out on blue water, which pays for ships four and a half
+        // metres across, and a Coaster out of the harbour. Then the tall rigs, and a Schooner
+        // sailed five kilometres.
+        add(Fly(StockCraft.trawler(catalog), "harbour")); addAll(earn(Feat.BLUE_WATER))
+        addAll(buy("big-ships"))
+        add(Fly(StockCraft.coaster(catalog), "harbour"))
+        addAll(buy("tall-ships"))
+        add(Fly(StockCraft.schooner(catalog), "harbour")); addAll(earn(Feat.TALL_SHIP))
+        // Barges, and a tug taking one in tow.
+        addAll(buy("barges"))
+        add(Fly(StockCraft.deckBarge(catalog), "harbour"))
+        add(Fly(StockCraft.harbourTug(catalog), "harbour")); addAll(earn(Feat.UNDER_TOW))
+        // Flight decks, and a Petrel down on a Flat Top's.
+        addAll(buy("flight-decks"))
+        add(Fly(StockCraft.flatTop(catalog), "harbour"))
+        add(Fly(StockCraft.petrel(catalog), "airfield")); addAll(earn(Feat.DECK_LANDING))
     }
 
     @Test

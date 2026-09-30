@@ -557,7 +557,10 @@ object StockCraft {
      */
     fun facingOutward(design: CraftDesign, catalog: PartCatalog): CraftDesign {
         val parts = design.parts.toMutableList()
-        val faced = if (faceOutward(parts, catalog)) design.copy(parts = parts) else design
+        // Only rockets, standing on their tails. Round a craft lying down, "out from the middle"
+        // would stand a flat deck fitting on its edge.
+        val upright = design.orientation == CraftOrientation.VERTICAL
+        val faced = if (upright && faceOutward(parts, catalog)) design.copy(parts = parts) else design
         // And anything on an opposite node rolled the right way up.
         return Attachment.settled(faced, catalog)
     }
@@ -625,6 +628,30 @@ object StockCraft {
         return a.design()
     }
 
+    /**
+     * A slow plane for short strips and ships' decks: the Sparrow's layout with plank wings of
+     * twice the area and a propeller pushing from the tail. It stalls at under thirty metres a
+     * second. The main wheels are on the Sparrow's station: a station further forward, it sat back
+     * on its tail after landing.
+     */
+    fun petrel(catalog: PartCatalog = StockParts.catalog): CraftDesign {
+        val a = Assembly(catalog, "Petrel", CraftOrientation.HORIZONTAL)
+        val cockpit = a.root("cockpit-sparrow")
+        val forward = a.on(cockpit, "bottom", "fuselage-short")
+        val aft = a.on(forward, "bottom", "fuselage-long")
+        val prop = a.on(aft, "bottom", "engine-prop")
+        a.on(aft, "side-right-fore", "wing-plank")
+        a.on(aft, "side-left-fore", "wing-plank")
+        a.on(prop, "surface-0", "tail-stabilator")
+        a.on(prop, "surface-1", "tail-stabilator")
+        a.on(prop, "surface-2", "tail-rudder")
+        a.on(prop, "surface-3", "hook-tail")
+        a.on(cockpit, "surface-3", "wheel-gear-nose")
+        a.on(aft, "belly-right-2", "wheel-gear-main")
+        a.on(aft, "belly-left-2", "wheel-gear-main")
+        return a.design()
+    }
+
     /** A four-wheeled buggy from the land kit: chassis, cab and cargo rack. */
     fun buggy(catalog: PartCatalog = StockParts.catalog): CraftDesign {
         val a = Assembly(catalog, "Buggy", CraftOrientation.HORIZONTAL)
@@ -662,6 +689,30 @@ object StockCraft {
         a.on(hull, "transom", "motor-outboard")
         a.on(hull, "side-right", "mooring-clamp")
         a.on(hull, "side-left", "mooring-clamp")
+        return a.design()
+    }
+
+    /**
+     * A jet boat: a decked runabout hull with a water jet on the transom. On the skiff's open hull
+     * she swamped. Driven hard into a rough sea she broached, and the water came over the gunwale.
+     * No skeg: one tripped her over in a hard turn.
+     */
+    fun jetBoat(catalog: PartCatalog = StockParts.catalog): CraftDesign {
+        val a = Assembly(catalog, "Jet Boat", CraftOrientation.HORIZONTAL)
+        val hull = a.root("hull-runabout")
+        a.on(hull, "deck", "cab-open")
+        a.on(hull, "transom", "jet-water")
+        a.on(hull, "side-right", "mooring-clamp")
+        a.on(hull, "side-left", "mooring-clamp")
+        return a.design()
+    }
+
+    /** A jet ski: a short, wide planing hull, a saddle to sit astride, and a jet pump on the back. */
+    fun jetSki(catalog: PartCatalog = StockParts.catalog): CraftDesign {
+        val a = Assembly(catalog, "Jet Ski", CraftOrientation.HORIZONTAL)
+        val hull = a.root("hull-jetski")
+        a.on(hull, "deck", "seat-saddle")
+        a.on(hull, "transom", "jet-pump")
         return a.design()
     }
 
@@ -858,6 +909,133 @@ object StockCraft {
         a.on(stern, "transom", "motor-outboard")
         a.on(mid, "side-right", "mooring-clamp")
         a.on(mid, "side-left", "mooring-clamp")
+        return a.design()
+    }
+
+    /**
+     * A small coaster: a ship's hull four and a half metres across and twenty-five long, a diesel
+     * turning a propeller under the stern, and a ship's rudder behind it. The wheelhouse is aft over
+     * the engine, and there's a cargo rack on the deck forward. Big enough to ride out a sea that
+     * rolls a jet boat over.
+     *
+     * [electric] makes her the Electric Coaster: an electric drive in place of the diesel, and a
+     * battery bank on deck fore and aft to run it.
+     */
+    fun coaster(catalog: PartCatalog = StockParts.catalog, electric: Boolean = false): CraftDesign {
+        val a = Assembly(catalog, if (electric) "Electric Coaster" else "Coaster", CraftOrientation.HORIZONTAL)
+        val bow = a.root("hull-wide-bow")
+        val fore = a.on(bow, "bottom", "hull-wide-mid")
+        val mid = a.on(fore, "bottom", "hull-wide-mid")
+        val aft = a.on(mid, "bottom", "hull-wide-mid")
+        val stern = a.on(aft, "bottom", "hull-wide-stern")
+        a.on(stern, "deck", "cabin-wheelhouse")
+        if (electric) {
+            a.on(fore, "deck", "battery-ship")
+            a.on(aft, "deck", "battery-ship")
+        } else {
+            a.on(fore, "deck", "rack-cargo")
+        }
+        a.on(mid, "keel", "keel")
+        a.on(stern, "keel", "rudder-ship")
+        a.on(stern, "transom", if (electric) "engine-electric" else "engine-diesel")
+        a.on(mid, "side-right", "mooring-clamp")
+        a.on(mid, "side-left", "mooring-clamp")
+        return a.design()
+    }
+
+    /**
+     * A schooner: the Coaster's hull with a foremast and a mainmast instead of an engine, a deep
+     * ship's keel under her middle to stop her sliding off to leeward and keep her upright, and a
+     * ship's rudder. The throttle is her sheets.
+     */
+    fun schooner(catalog: PartCatalog = StockParts.catalog): CraftDesign {
+        val a = Assembly(catalog, "Schooner", CraftOrientation.HORIZONTAL)
+        val bow = a.root("hull-wide-bow")
+        val fore = a.on(bow, "bottom", "hull-wide-mid")
+        val mid = a.on(fore, "bottom", "hull-wide-mid")
+        val aft = a.on(mid, "bottom", "hull-wide-mid")
+        val stern = a.on(aft, "bottom", "hull-wide-stern")
+        a.on(fore, "deck", "sail-schooner")
+        a.on(aft, "deck", "sail-schooner")
+        a.on(stern, "deck", "cabin-wheelhouse")
+        a.on(mid, "keel", "keel-ship")
+        a.on(stern, "keel", "rudder-ship")
+        a.on(mid, "side-right", "mooring-clamp")
+        a.on(mid, "side-left", "mooring-clamp")
+        return a.design()
+    }
+
+    /**
+     * A deck barge: a raked bow, two ten metre sections and a square stern, thirty-four metres by
+     * ten, with a flat deck to carry cargo or craft, and a tow bitt at each end. No engine: a tug
+     * tows her or pushes her.
+     */
+    fun deckBarge(catalog: PartCatalog = StockParts.catalog): CraftDesign {
+        val a = Assembly(catalog, "Deck Barge", CraftOrientation.HORIZONTAL)
+        val bow = a.root("barge-bow")
+        val fore = a.on(bow, "bottom", "barge-mid")
+        val aft = a.on(fore, "bottom", "barge-mid")
+        val stern = a.on(aft, "bottom", "barge-stern")
+        a.on(bow, "deck", "bitt-tow")
+        a.on(stern, "deck", "bitt-tow")
+        a.on(fore, "side-right", "mooring-clamp")
+        a.on(fore, "side-left", "mooring-clamp")
+        return a.design()
+    }
+
+    /**
+     * A harbour tug: a short, stout ship's hull with a diesel and a ship's rudder, the wheelhouse
+     * forward, a towing winch aft, and push knees on the stem for shoving a barge along.
+     */
+    fun harbourTug(catalog: PartCatalog = StockParts.catalog): CraftDesign {
+        val a = Assembly(catalog, "Harbour Tug", CraftOrientation.HORIZONTAL)
+        val bow = a.root("hull-wide-bow")
+        val stern = a.on(bow, "bottom", "hull-wide-stern")
+        a.on(bow, "deck", "cabin-wheelhouse")
+        a.on(bow, "stem", "knees-push")
+        a.on(stern, "deck", "winch-tow")
+        a.on(stern, "keel", "rudder-ship")
+        a.on(stern, "transom", "engine-diesel")
+        a.on(bow, "side-right", "mooring-clamp")
+        a.on(bow, "side-left", "mooring-clamp")
+        return a.design()
+    }
+
+    /**
+     * A landing barge: two flight deck tiles, forty metres by twenty, for a helicopter or a rocket
+     * to come down on out at sea. Two diesels and a rudder on the back, the wheelhouse off to one
+     * side where it's out of the way, and a tow bitt at the bow.
+     */
+    fun landingBarge(catalog: PartCatalog = StockParts.catalog): CraftDesign {
+        val a = Assembly(catalog, "Landing Barge", CraftOrientation.HORIZONTAL)
+        val fore = a.root("deck-flight")
+        val aft = a.on(fore, "aft", "deck-flight")
+        a.on(fore, "deck-right", "cabin-wheelhouse")
+        a.on(fore, "deck-fore", "bitt-tow")
+        a.on(aft, "drive-right", "engine-diesel")
+        a.on(aft, "drive-left", "engine-diesel")
+        a.on(aft, "keel-aft", "rudder-ship")
+        return a.design()
+    }
+
+    /**
+     * A flat top: eight flight deck tiles in a row, a hundred and sixty metres by twenty, long
+     * enough for a Petrel. Arresting wires near the stern to catch a plane landing from astern, a
+     * catapult forward to throw one off the bow, the island off to starboard, and two diesels and
+     * a rudder to turn her into the wind.
+     */
+    fun flatTop(catalog: PartCatalog = StockParts.catalog): CraftDesign {
+        val a = Assembly(catalog, "Flat Top", CraftOrientation.HORIZONTAL)
+        val tiles = ArrayList<Int>()
+        tiles.add(a.root("deck-flight"))
+        repeat(7) { tiles.add(a.on(tiles.last(), "aft", "deck-flight")) }
+        a.on(tiles[6], "deck", "gear-arrest")
+        a.on(tiles[2], "deck-left", "catapult-deck")
+        a.on(tiles[3], "deck-right", "cabin-wheelhouse")
+        a.on(tiles[0], "deck-fore", "bitt-tow")
+        a.on(tiles[7], "drive-right", "engine-diesel")
+        a.on(tiles[7], "drive-left", "engine-diesel")
+        a.on(tiles[7], "keel-aft", "rudder-ship")
         return a.design()
     }
 

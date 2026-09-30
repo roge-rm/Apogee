@@ -36,11 +36,15 @@ Dan
 - Rockets with staging, gimballed engines, stability assist, planned burns and an autopilot for burns and landings.
 - Planes with flaps, cruise control, and an approach cue and landing lights at the runway.
 - Rovers and haulers with suspension, steering, hitches and a winch.
-- Boats with hulls that take on water, keels, rudders and sails, and submarines with ballast, pressure hulls and sonar.
+- Boats with hulls that take on water, keels, rudders, sails, outboards and water jets (there's a jet boat and a jet ski), and submarines with ballast, pressure hulls and sonar. A small boat that goes over can be rolled back upright by its crew.
+- Ships four and a half metres across on a diesel or an electric drive, and a schooner with a deep keel. Big water is rough on small boats, and ships ride it out.
+- Barges, and a harbour tug to tow them on a line or push them from astern. Anything parked on a deck rides along.
+- Decks at sea to fly from: a landing barge for a helicopter, and the Flat Top, with a catapult to throw a plane off the bow and wires to catch one landing with its tailhook down. The Petrel is a slow prop plane made for it.
 - Helicopters and drones on rotors, and balloons and airships on gas.
+- An auto-land for anything that flies, each the way it flies: a rocket brakes down on its engines, a plane glides in and flares, and a helicopter, a drone or an airship comes straight down where it is. LAND is in the stability assist menu.
 - A keeper core that holds a craft still in the air or on the water.
 
-**The sea.** Waves that move what floats on them, storms, tides, currents out in the open ocean, and a deep world underneath with canyons, vents and places to find.
+**The sea.** Waves that move what floats on them, storms, tides, currents out in the open ocean, and a deep world underneath with canyons, vents and places to find. For big seas, launch at the Roaring Sea, and set the weather to Wild.
 
 **Bases.** Found a base on any solid world, or on a platform floating on the sea or in the sky. Bases have pads to launch from, power, and industry that digs ore and water and makes propellant from them.
 

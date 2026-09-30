@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.LinkOff
 import androidx.compose.material.icons.automirrored.filled.Login
 import androidx.compose.material.icons.filled.PanTool
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -46,13 +47,15 @@ class PromptActions(
     /** Hook the winch's line onto what's in front of it, or let it go. */
     val onHook: () -> Unit = {},
     val onRelease: () -> Unit = {},
+    /** Roll a capsized craft back upright. */
+    val onRight: () -> Unit = {},
 )
 
 /**
  * The top middle of the screen, only for what's asking for something right now. In flight that's
  * the next burn counting down, the landing coming up, the runway approach, lining up to dock, and
  * the one-tap chances: JOIN two modules, FOUND BASE where the craft stands, BOARD a craft, GRAB or
- * LET GO of a ladder, and HOOK or RELEASE the winch's line. On the map it's planning: the transfer window, the burn's editor, and which survey shows.
+ * LET GO of a ladder, HOOK or RELEASE the winch's line, and ROLL UPRIGHT when the craft has gone over. On the map it's planning: the transfer window, the burn's editor, and which survey shows.
  * There's nothing at all while there's nothing to do.
  */
 @Composable
@@ -92,6 +95,7 @@ fun PromptSlot(
                 if (power.onLadder) Prompt(Icons.Filled.PanTool, "LET GO", ApogeeColors.Prograde) { actions.onGrab(false) }
                 else if (power.canGrab) Prompt(Icons.Filled.PanTool, "GRAB LADDER", ApogeeColors.Accent) { actions.onGrab(true) }
             }
+            if (power != null && power.canRight) Prompt(Icons.Filled.Refresh, "ROLL UPRIGHT", ApogeeColors.Caution, actions.onRight)
             if (power != null && power.hasWinch) {
                 if (power.hooked) Prompt(Icons.Filled.LinkOff, "RELEASE", ApogeeColors.Caution, actions.onRelease)
                 else if (power.canHook.isNotEmpty()) Prompt(Icons.Filled.Anchor, "HOOK ${power.canHook.uppercase().take(12)}", ApogeeColors.Accent, actions.onHook)

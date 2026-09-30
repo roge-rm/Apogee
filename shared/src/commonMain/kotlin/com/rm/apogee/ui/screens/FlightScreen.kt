@@ -141,6 +141,7 @@ fun FlightScreen(
     /** The winch's line hooked on, or let go. */
     onHook: () -> Unit = {},
     onReleaseLine: () -> Unit = {},
+    onRightCraft: () -> Unit = {},
     /** Hold a plane's height and heading, or stop. */
     onCruise: (Boolean) -> Unit = {},
     /** Empty the craft's ore and water into a base or docked craft, or switch a base's refinery. */
@@ -188,7 +189,7 @@ fun FlightScreen(
     // multi-window as well as after a rotation. Asking the layout is asking the thing that decides.
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val portrait = maxWidth < maxHeight
-        val sas = SasActions(onToggleSas, onSasMode, targetChoices, onTarget, onStickMode, onCruise, onSteering)
+        val sas = SasActions(onToggleSas, onSasMode, targetChoices, onTarget, onStickMode, onCruise, onSteering, burnActions.onAutoLand)
         val railActions = RailActions(
             onBrakes = onToggleBrakes, onReverse = onToggleReverse, onRcs = onToggleRcs, onDeploy = onToggleDeploy,
             onDrill = onToggleDrill, onRefine = onToggleRefine, onJump = crewActions.onJump, onFlag = crewActions.onFlag,
@@ -196,7 +197,7 @@ fun FlightScreen(
             onFlaps = onToggleFlaps, onGroup = onGroup, onWinch = onWinch, onStationKeep = onStationKeep,
         )
         val statusActions = StatusActions(crewActions, onUndock, onFound, onRefuel, onUnload, onRefine, onDockPilot)
-        val promptActions = PromptActions(onJoin, onFound, crewActions.onBoard, crewActions.onGrab, onHook, onReleaseLine)
+        val promptActions = PromptActions(onJoin, onFound, crewActions.onBoard, crewActions.onGrab, onHook, onReleaseLine, onRightCraft)
 
         if (hud.connectionError != null) {
             ConnectionProblem(hud.connectionError!!, onExit)
@@ -320,6 +321,7 @@ fun FlightScreen(
                     WarpButton(
                         warp = hud.warp,
                         requested = hud.warpRequested,
+                        actual = hud.warpActual,
                         expanded = hud.warpPickerOpen,
                         onExpand = { hud.warpPickerOpen = it },
                         onWarp = onWarp,
@@ -393,6 +395,7 @@ fun FlightScreen(
                 modifier = Modifier.alpha(alpha),
                 current = if (hud.currentSpeed > 0f) hud.currentSpeed to hud.currentBearing else null,
                 sailing = hud.hasSails,
+                onSurface = hud.afloat || (hud.driving && hud.telemetry.heightAboveGround < DRIVING_HEIGHT),
                 lift = hud.power?.lift ?: -1f,
                 perLine = if (portrait) PORTRAIT_STRIP_PER_LINE else LANDSCAPE_STRIP_PER_LINE,
             )
@@ -653,6 +656,8 @@ class SasActions(
     val onCruise: (Boolean) -> Unit = {},
     /** The stick read by the screen (true) or by the craft's nose. */
     val onSteering: (Boolean) -> Unit = {},
+    /** The auto-land on or off, for something that flies on the air. */
+    val onLand: (Boolean) -> Unit = {},
 )
 
 /** Roll, stability assist and the attitude stick, as one block. */
@@ -692,6 +697,9 @@ private fun AttitudeCluster(
                 cruising = hud.power?.cruising == true,
                 onCruise = sas.onCruise,
                 keeping = hud.power?.keeping == true,
+                canLand = hud.canLand,
+                landing = hud.autoLanding && hud.canLand,
+                onLand = sas.onLand,
             )
             if (touchStick) HoldButton(if (sliding) "▲" else "↻", { held -> onRoll(if (held) 1f else 0f) }, size = 40.dp)
         }
@@ -831,6 +839,12 @@ private val LANDSCAPE_DETAIL_HEIGHT = 150.dp
 
 /** Numbers per line on the flight strip. */
 private const val PORTRAIT_STRIP_PER_LINE = 5
+
+/**
+ * Under this height a rover's readouts are a car's, in metres. Off a cliff or thrown clear of a
+ * crest, height and climb matter again.
+ */
+private const val DRIVING_HEIGHT = 20.0
 private const val LANDSCAPE_STRIP_PER_LINE = 5
 
 /**

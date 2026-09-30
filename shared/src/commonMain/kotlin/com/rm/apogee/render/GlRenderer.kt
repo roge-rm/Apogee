@@ -170,12 +170,16 @@ class GlRenderer(
 
     // --- the sea ------------------------------------------------------------
 
-    /** Sets [shader]'s model matrix and look-ahead for the sea built at [sea]. */
-    private fun placeSea(sea: SeaSurface, cameraPos: Vec3, shader: ShaderProgram, time: Double) {
+    /**
+     * Sets [shader]'s model matrix and look-ahead for the sea built at [sea]. Warped, a build is
+     * drawn for longer in the world's time, so it's carried further.
+     */
+    private fun placeSea(sea: SeaSurface, cameraPos: Vec3, shader: ShaderProgram, time: Double, warp: Double) {
         interpolatedBodyRotation.rotate(sea.origin, seaOrigin)
         modelMatrix.setFromTrs(seaOrigin, interpolatedBodyRotation, cameraPos)
         shader.setMat4("uModel", modelMatrix.m)
-        shader.setFloat("uAhead", (time - sea.time).coerceIn(-SEA_LOOKAHEAD, SEA_LOOKAHEAD).toFloat())
+        val most = SEA_LOOKAHEAD * warp.coerceAtLeast(1.0)
+        shader.setFloat("uAhead", (time - sea.time).coerceIn(-most, most).toFloat())
     }
 
     /**
@@ -188,7 +192,7 @@ class GlRenderer(
         val shader = seaProgram ?: return
         shader.use()
         shader.setMat4("uViewProjection", nearViewProjection.m)
-        placeSea(sea, cameraPos, shader, world.time)
+        placeSea(sea, cameraPos, shader, world.time, world.warp)
         shader.setVec3("uSunDirection", world.sunDirection.x.toFloat(), world.sunDirection.y.toFloat(), world.sunDirection.z.toFloat())
         shader.setFloat("uAtmosphereFactor", atmosphereFactorAt(world))
         shader.setFloat("uHazeDistance", (world.atmosphereScaleHeight * 8.0).toFloat())
@@ -520,6 +524,9 @@ class GlRenderer(
         shader.setMat4("uModel", modelMatrix.m)
         shader.setMat4("uViewProjection", farViewProjection.m)
         shader.setVec3("uSunDirection", world.sunDirection.x.toFloat(), world.sunDirection.y.toFloat(), world.sunDirection.z.toFloat())
+        // Cells about forty kilometres across, drifting one across in a couple of hours.
+        shader.setFloat("uNoiseScale", (world.radius / CLOUD_SHELL_CELL).toFloat())
+        shader.setFloat("uDrift", ((world.time / CLOUD_SHELL_DRIFT) % 1_000.0).toFloat())
         GLES30.glEnable(GLES30.GL_BLEND)
         GLES30.glBlendFunc(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA)
         GLES30.glDepthMask(false)
@@ -1131,7 +1138,11 @@ class GlRenderer(
         world.cloudShadow?.let { grid ->
             if (grid.revision != cloudRevision) uploadCloudShadow(grid)
             grid.matrix(interpolatedBodyRotation, cameraPos, cloudMatrix)
-            cloudOn = grid.strength
+            // Gone by the time the grid would look like a patch on the globe below. It reaches
+            // tens of kilometres, and from orbit the clouds over the rest of the planet cast
+            // nothing, so an overcast inside it was a dark square.
+            val height = interpolatedBodyRotation.inverseRotate(cameraPos, scratchShadow).length - world.radius
+            cloudOn = grid.strength * (1f - smooth01(((height - CLOUD_SHADOW_HIGH) / CLOUD_SHADOW_HIGH).toFloat()))
         }
         GLES30.glActiveTexture(GLES30.GL_TEXTURE1)
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, if (nearOn) nearMap?.texture ?: 0 else 0)
@@ -1182,6 +1193,11 @@ class GlRenderer(
         val size = shadowQuality.farSize
         val reach = shadowQuality.farReach
         val cameraFixed = interpolatedBodyRotation.inverseRotate(cameraPos, scratchShadow)
+        // Not from high up. From orbit the ground on screen is the whole globe, not the terrain
+        // this map is drawn from, and where the two shapes disagree the ground shaded itself: a
+        // dark square tens of kilometres across followed the craft round the planet. A mountain's
+        // shadow couldn't be seen from up there anyway.
+        if (cameraFixed.length - world.radius > reach) return
         val due = !farValid || farMap?.size != size || farDay != day ||
             (System.nanoTime() - farDrawnNanos) / 1e9 > shadowQuality.farEvery ||
             cameraFixed.distanceTo(farCameraFixed) > reach * 0.2
@@ -1485,6 +1501,13 @@ class GlRenderer(
         const val BAND_RATIO = 1.6
 
         val PASS_NAMES = arrayOf("setup", "shadows", "sky", "upload", "globe", "far", "lines", "terrain", "scatter", "items", "sea", "particles")
+
+        /** How big a cell of the map's cloud texture is, in metres, and how long it takes to drift one, in seconds. */
+        private const val CLOUD_SHELL_CELL = 40_000.0
+        private const val CLOUD_SHELL_DRIFT = 7_200.0
+
+        /** Above this height, in metres, the clouds' shadows fade out, and they're gone at twice it. */
+        private const val CLOUD_SHADOW_HIGH = 15_000.0
 
         /** The fog colour with no weather. It's never seen, since the fog distance is huge. */
         val CLEAR_FOG_COLOR = floatArrayOf(0.75f, 0.77f, 0.8f)

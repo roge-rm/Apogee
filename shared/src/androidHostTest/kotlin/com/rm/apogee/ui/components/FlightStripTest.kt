@@ -22,6 +22,7 @@ class FlightStripTest {
         target: String? = null,
         moonWindow: Double = Double.NaN,
         destroyed: String? = null,
+        depth: Double = 0.0,
     ) = FlightTelemetry(
         altitude = altitude, heightAboveGround = agl, surfaceSpeed = srf, orbitalSpeed = 2_200.0,
         apoapsisAltitude = 120_000.0, periapsisAltitude = 95_000.0, timeToApoapsis = 600.0,
@@ -29,6 +30,7 @@ class FlightStripTest {
         rotation = Quat.identity(), up = Vec3.unitY(), prograde = null,
         inAir = inAir, windSpeed = wind, windFrom = windFrom, lunaWindow = moonWindow, moonName = if (moonWindow.isNaN()) "" else "Luna",
         targetName = target, targetDistance = 1_500.0, destroyed = destroyed,
+        depth = depth, belowFloor = if (depth > 0.0) 600.0 else Double.NaN,
     )
 
     private fun labels(t: FlightTelemetry) = stripFields(t).map { it.label }
@@ -58,6 +60,27 @@ class FlightStripTest {
         assertEquals("7 \u2192", stripFields(telemetry(srf = 1.5, inAir = true, wind = 7.0, windFrom = 270.0), sailing = true)[1].value)
         // Not sailing, a light wind doesn't show.
         assertEquals(listOf("SRF", "HDG"), labels(telemetry(srf = 1.5, inAir = true, wind = 7.0)))
+    }
+
+    @Test
+    fun `riding on the water it's speed, the wind and the heading, never height or depth`() {
+        // A boat down in a trough, a couple of metres under the mean sea, moving at a fair clip.
+        val boat = telemetry(agl = 0.0, srf = 14.0, inAir = true, wind = 4.0, windFrom = 0.0, depth = 2.5)
+        assertEquals(listOf("SRF", "WIND", "HDG"), stripFields(boat, onSurface = true).map { it.label })
+        assertEquals("14", stripFields(boat, onSurface = true)[0].value)
+        // Slow, with the tenths.
+        assertEquals("3.5", stripFields(telemetry(srf = 3.5, inAir = true, depth = 2.5), onSurface = true)[0].value)
+        // With a sail too, the wind isn't there twice.
+        assertEquals(listOf("SRF", "WIND", "HDG"), stripFields(boat, sailing = true, onSurface = true).map { it.label })
+    }
+
+    @Test
+    fun `driving it's speed and heading, never height or climb`() {
+        // A rover bowling along at a fair clip on a world with air.
+        val rover = telemetry(agl = 0.3, srf = 12.0, inAir = true, wind = 3.0)
+        assertEquals(listOf("SRF", "WIND", "HDG"), stripFields(rover, onSurface = true).map { it.label })
+        // The same speed, not driving, reads like something flying low.
+        assertEquals(listOf("AGL", "VS", "AIR"), labels(rover))
     }
 
     @Test

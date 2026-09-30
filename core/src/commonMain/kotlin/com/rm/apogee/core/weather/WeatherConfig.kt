@@ -20,11 +20,18 @@ enum class WeatherIntensity(
     val thermals: Double,
     /** Scales turbulence and gusts. */
     val gusts: Double,
+    /**
+     * Scales the sea: the waves the wind raises, and the swell. The wind alone did too little.
+     * Off a coast the waves are held down by how little open water the wind has crossed, and the
+     * ocean's swell didn't change at all, so a wild sea near the Cape was hardly bigger than a
+     * normal one.
+     */
+    val sea: Double,
 ) {
     /** Wind but no storms, and gentle thermals, for learning to fly. */
-    @SerialName("calm") CALM("Calm", wind = 0.5, storms = 0.0, thermals = 0.5, gusts = 0.5),
-    @SerialName("normal") NORMAL("Normal", wind = 1.0, storms = 1.0, thermals = 1.0, gusts = 1.0),
-    @SerialName("wild") WILD("Wild", wind = 1.6, storms = 2.5, thermals = 1.4, gusts = 1.7),
+    @SerialName("calm") CALM("Calm", wind = 0.5, storms = 0.0, thermals = 0.5, gusts = 0.5, sea = 0.6),
+    @SerialName("normal") NORMAL("Normal", wind = 1.0, storms = 1.0, thermals = 1.0, gusts = 1.0, sea = 1.0),
+    @SerialName("wild") WILD("Wild", wind = 1.6, storms = 2.5, thermals = 1.4, gusts = 1.7, sea = 1.7),
 }
 
 /**

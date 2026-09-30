@@ -170,11 +170,21 @@ class HudState {
     /** Whether it has a sail, so the strip always shows the wind. */
     var hasSails: Boolean by mutableStateOf(false)
 
+    /** Whether it's riding on the water, so the readouts are a boat's. */
+    var afloat: Boolean by mutableStateOf(false)
+
+    /** Whether it's a rover, so on the ground the readouts are a car's. */
+    var driving: Boolean by mutableStateOf(false)
+
     /** Whether the list of the player's craft is open. */
     var craftListOpen: Boolean by mutableStateOf(false)
 
     /** Whether it's a plane in the air, which can hold its height and heading. */
     var canCruise: Boolean by mutableStateOf(false)
+
+    /** Whether the auto-land can take a plane, rotorcraft or airship down here, and whether it is. */
+    var canLand: Boolean by mutableStateOf(false)
+    var autoLanding: Boolean by mutableStateOf(false)
 
     /** The action groups its parts are in, 1 to 3, so the rail shows a switch for each. */
     var groupsUsed: List<Int> by mutableStateOf(emptyList())
@@ -265,6 +275,8 @@ class HudState {
         val keeping: Boolean = false,
         /** Its gas cells' lift as a share of its weight, or below 0 with none. */
         val lift: Float = -1f,
+        /** Gone over, and small enough for its crew to roll it back upright. */
+        val canRight: Boolean = false,
     ) {
         /** Whether it's holding height and heading. */
         val cruising: Boolean get() = cruiseHeight >= 0f
@@ -310,6 +322,9 @@ class HudState {
      */
     var warp: Double by mutableStateOf(1.0)
     var warpRequested: Double by mutableStateOf(1.0)
+
+    /** How fast the world is really going under physics warp, or NaN when that isn't measured. */
+    var warpActual: Double by mutableStateOf(Double.NaN)
     var warpAllowed: Boolean by mutableStateOf(false)
 
     /** Sounds playing right now, for diagnostics. */
@@ -370,7 +385,11 @@ class HudState {
         flaps = false
         groupsUsed = emptyList()
         canCruise = false
+        canLand = false
+        autoLanding = false
         hasSails = false
+        afloat = false
+        driving = false
         approach = null
         currentSpeed = 0f
         isSuit = false

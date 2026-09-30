@@ -147,7 +147,9 @@ class SeaTest {
         assertTrue("found open ${open.size} and lee ${lee.size}", open.size > 5 && lee.size > 5)
         val o = open.average(); val l = lee.average()
         assertTrue("open sea $o m beats the lee $l m", o > 1.5 * l)
-        assertTrue("a wind of 8-14 m/s over open sea: $o m", o in 1.0..5.0)
+        // What a real sea is for that wind, made bigger by Wild on purpose.
+        val wild = WeatherIntensity.WILD.sea
+        assertTrue("a wind of 8-14 m/s over open sea: $o m", o in 1.0 * wild..5.0 * wild)
     }
 
     /** A grown storm over deep water, and when. */

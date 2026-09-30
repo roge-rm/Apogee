@@ -31,6 +31,8 @@ class FlightLog(
     var sailed: Double = 0.0,
     /** How far it has sailed on the wind alone since an engine last ran, in metres. */
     var underSail: Double = 0.0,
+    /** How far it has towed something heavy on its winch line, in metres. */
+    var towed: Double = 0.0,
     /**
      * Hovering by hand: the body-fixed spot it's holding over, when it started (-1 for not), and
      * the furthest it has strayed from it, in metres.

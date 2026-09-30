@@ -33,8 +33,8 @@ android {
         // change. Note that this isn't what decides whether a client can join a server.
         // Protocol.VERSION and the part catalogue's content hash do that, and they move on their
         // own.
-        versionCode = 33
-        versionName = "0.8.8"
+        versionCode = 34
+        versionName = "0.8.9"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

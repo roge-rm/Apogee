@@ -39,6 +39,7 @@ class Ocean(
         sample(bodyFixed, time, out.middle)
         out.middle.depth = 1.0
         out.n = 0
+        out.time = time
         return out
     }
 

@@ -130,6 +130,11 @@ internal class Storms(
     private val cells = SphereCells(bodyRadius, CELL)
     private val cache = lruMapOf<Long, Storm>(64, 4_000)
     private val keys = LongArray(160)
+
+    /** The cells [apply] last looked in, and where from: unit, body-fixed. */
+    private val nearKeys = LongArray(160)
+    private var nearCount = -1
+    private val nearUp = Vec3()
     private val centre = Vec3()
     private val rel = Vec3()
     private val shaftRel = Vec3()
@@ -362,9 +367,15 @@ internal class Storms(
 
     fun apply(up: Vec3, east: Vec3, north: Vec3, position: Vec3, altitude: Double, groundTop: Double, time: Double, out: AirSample) {
         if (!active) return
-        val n = cells.around(up, east, north, CELL / bodyRadius, keys, reach = SEARCH)
+        // Which cells to look in depends only on where, and a craft is sampled many times a second
+        // a few metres on from the last. So the search is kept until it's gone a fair way.
+        if (nearCount < 0 || nearUp.distanceTo(up) * bodyRadius > NEAR_MOVE) {
+            nearCount = cells.around(up, east, north, CELL / bodyRadius, nearKeys, reach = SEARCH)
+            nearUp.setTo(up)
+        }
+        val n = nearCount
         for (k in 0 until n) {
-            val s = storm(keys[k], time)
+            val s = storm(nearKeys[k], time)
             if (!s.exists) continue
             val envelope = envelope(s, time) * s.strength
             if (envelope <= 0.0) continue
@@ -702,6 +713,12 @@ internal class Storms(
          * more from its middle.
          */
         const val SEARCH = 2
+
+        /**
+         * How far, in metres, a place sampled can move before the cells to look in are found again.
+         * A storm two cells off is over a hundred kilometres away, so a couple more don't matter.
+         */
+        const val NEAR_MOVE = 2_000.0
 
         /** The most towers one storm has. */
         const val MAX_CELLS = 14

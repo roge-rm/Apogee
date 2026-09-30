@@ -130,9 +130,12 @@ class SeaScene(
 
     /**
      * Asks for the sea around body-fixed [centre] at [time], if one isn't already being built. It's
-     * built for a moment ahead, by as long as the last one took, so it's drawn nearly on time.
+     * built for a moment ahead, by as long as the last one took and half the wait till the next, so
+     * it's drawn nearly on time. [warp] is how fast the world's clock runs: at 4x a build's tenth of
+     * a second is almost half a second of waves, and built for real time it was drawn that far
+     * behind, with a boat riding the real sea under it.
      */
-    fun update(centre: Vec3, time: Double) {
+    fun update(centre: Vec3, time: Double, warp: Double = 1.0, behind: Boolean = false) {
         if (building) return
         // Nothing to draw yet, so flat water straight away while the first real sea is worked out,
         // instead of a second or more of bare seabed.
@@ -140,14 +143,16 @@ class SeaScene(
         // Ten a second is plenty. The renderer carries each one on for a moment by how fast its
         // water is rising, and building back to back kept two cores busy for nothing.
         val now = System.nanoTime()
-        if (now - lastStartedNanos < MIN_BUILD_NANOS) return
+        if (now - lastStartedNanos < (if (behind) BEHIND_BUILD_NANOS else MIN_BUILD_NANOS)) return
         lastStartedNanos = now
         building = true
         val at = centre.copy()
         // No more than [MAX_AHEAD] ahead. A slow build (the first, in a new place) would otherwise
         // send the next one so far on that every vertex's prepared sea would be stale by then,
         // which would make it slow in turn.
-        val ahead = time + kotlin.math.min(lastBuildMillis / 1_000.0, MAX_AHEAD)
+        val rate = warp.coerceAtLeast(1.0)
+        val gap = if (behind) BEHIND_BUILD_NANOS else MIN_BUILD_NANOS
+        val ahead = time + kotlin.math.min((lastBuildMillis / 1_000.0 + gap / 2e9) * rate, MAX_AHEAD * rate)
         scope.launch(BUILD) {
             val started = System.nanoTime()
             try {
@@ -528,6 +533,9 @@ class SeaScene(
 
         /** Builds no closer together than this, in ns: ten a second. */
         const val MIN_BUILD_NANOS = 100_000_000L
+
+        /** And while the world is falling behind the warp asked for, five a second. */
+        const val BEHIND_BUILD_NANOS = 200_000_000L
 
         /**
          * The sea's own threads, just below normal priority, instead of the shared pool. A build is

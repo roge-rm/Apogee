@@ -168,10 +168,14 @@ class FeatsFlownTest {
         var down = false
         var t = 0.0
         while (t < 2_000.0) {
-            if (!down && terra.altitudeOf(jet.body.position) > 20_000.0) {
-                // Falling: engine off, and nose along the way it's going.
+            if (!down && (terra.altitudeOf(jet.body.position) > 20_000.0 || pilot.speed() > 300.0) && terra.altitudeOf(jet.body.position) > 6_000.0) {
+                // Falling: engine off, and flown nose high the way a glider back from space is, for
+                // the lift and the drag, until it's slowed to under 300 m/s, to come down shallow
+                // instead of diving. Left to steepen to seventy degrees and pulled out at Mach 3 in
+                // the thick air lower down, it broke up.
                 pilot.throttle(0.0)
-                pilot.attitude(pilot.path(), pilot.track(), 0.0)
+                val ease = ((-20.0 - pilot.path()) * 1.0).coerceIn(0.0, pilot.mostAttack(ceiling = 60.0))
+                pilot.attitude(pilot.path() + ease, pilot.track(), 0.0)
             } else {
                 down = pilot.land(-1.0, 2_000.0)
                 if (down && pilot.speed() < 0.2) break
@@ -272,8 +276,10 @@ class FeatsFlownTest {
         val driver = Driver(world, boat, sense = Driver.BOAT)
         var t = 0.0
         while (t < 3_000.0 && (boat.log?.sailed ?: 0.0) < 5_200.0) {
-            // Round and round, tiller over.
-            driver.wheel(0.5)
+            // Round and round, the tiller a little under half over. The circle wanders a little
+            // every lap, and with it half over, once she made more speed, it ran her aground short
+            // of five kilometres.
+            driver.wheel(0.4)
             driver.throttle(1.0)
             world.step(dt); t += dt
         }

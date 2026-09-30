@@ -93,6 +93,24 @@ internal class Pilot(private val world: World, private val craft: Vessel) {
     }
 
     /**
+     * The most the nose goes over the flight path, in degrees: [MAX_ATTACK], or less when it's fast
+     * enough that that would pull more than [MOST_G]. A pilot flies to a load, not an angle, and at
+     * the bottom of a dive from the edge of space eight degrees tore the Sparrow's wings off.
+     */
+    fun mostAttack(ceiling: Double = MAX_ATTACK): Double {
+        var lift = 0.0
+        for (def in craft.defs) lift += def.module<com.rm.apogee.core.part.AeroSurface>()?.area ?: 0.0
+        val density = terra.atmosphere?.densityAt(terra.altitudeOf(craft.body.position)) ?: return ceiling
+        val pressure = 0.5 * density * speed() * speed()
+        if (lift <= 0.0 || pressure <= 0.0) return ceiling
+        val weight = craft.body.mass * terra.gravityAt(craft.body.position, Vec3()).length
+        val altitude = terra.altitudeOf(craft.body.position)
+        val sound = kotlin.math.sqrt(1.4 * 287.0 * (terra.atmosphere?.temperatureAt(altitude) ?: 288.0))
+        val radians = MOST_G * weight / (pressure * lift * com.rm.apogee.core.world.slopeAt(speed() / sound))
+        return minOf(ceiling, Math.toDegrees(radians))
+    }
+
+    /**
      * Flying [direction] degrees north of east at [targetHeight] above the ground. It banks into
      * the turn onto it, with the nose held a few degrees above the way it's going to climb or sink
      * toward that height.
@@ -105,7 +123,7 @@ internal class Pilot(private val world: World, private val craft: Vessel) {
         // High above where it's going, so down at a good rate. At ten metres a second a glider from
         // space flies right over the Cape.
         val climbWanted = ((targetHeight - height()) / 10.0).coerceIn(if (height() > 2_000.0) -30.0 else -10.0, 12.0)
-        val attack = (2.0 + (climbWanted - climb()) * 0.3).coerceIn(-3.0, MAX_ATTACK)
+        val attack = (2.0 + (climbWanted - climb()) * 0.6).coerceIn(-3.0, mostAttack())
         attitude(path() + attack, track() + (turn * 0.3).coerceIn(-5.0, 5.0), bank)
     }
 
@@ -147,7 +165,7 @@ internal class Pilot(private val world: World, private val craft: Vessel) {
             // until the sink is just a touch.
             throttle(0.0)
             val wanted = -((h - 2.0) * 0.25).coerceAtLeast(0.6)
-            val attack = ((flare ?: (nose() - path())) + (wanted - climb()) * 1.2 / 60.0).coerceIn(0.0, MAX_ATTACK)
+            val attack = ((flare ?: (nose() - path())) + (wanted - climb()) * 1.2 / 60.0).coerceIn(0.0, mostAttack())
             flare = attack
             val turn = ((toRunway(sense) - track() + 540.0) % 360.0) - 180.0
             attitude(path() + attack, track() + turn * 0.2, 0.0)
@@ -174,11 +192,14 @@ internal class Pilot(private val world: World, private val craft: Vessel) {
 
         const val MAX_ATTACK = 8.0
 
+        /** The most load a pull puts on it, in g. */
+        const val MOST_G = 4.0
+
         /**
          * Approach speed in m/s, the glide slope in degrees, the height the flare starts in metres,
          * and circuit height in metres.
          */
-        const val APPROACH = 110.0
+        const val APPROACH = 60.0
         const val CRUISE_SPEED = 140.0
         const val GLIDE = 3.0
         const val FLARE = 25.0

@@ -65,7 +65,7 @@ class StabilityAssist(
         // however the sea takes it goes down nose first.
         val afloat = control.sasEnabled && vessel.buoyed && !vessel.submerged && !vessel.touchingGround && direction == null
         control.assistLevelling = afloat
-        if (afloat && control.hasAttitudeInput) {
+        if (afloat && control.stickOverrides) {
             vessel.assistHeld.setTo(body.orientation)
             levelled(vessel)
             // Taken again when the wheel is let go, meaning the heading at that moment.
@@ -76,7 +76,7 @@ class StabilityAssist(
             control.assistRoll = slew(control.assistRoll, command(errorBody.y, rateBody.y, 0.0), SLEW * dt)
             return
         }
-        val holding = control.sasEnabled && !control.hasAttitudeInput && !vessel.touchingGround
+        val holding = control.sasEnabled && !control.stickOverrides && !vessel.touchingGround
         if (!holding) {
             release(vessel)
             return

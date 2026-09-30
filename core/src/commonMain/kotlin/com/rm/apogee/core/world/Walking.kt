@@ -72,7 +72,7 @@ class Walking {
         }
         if (!vessel.touchingGround || grip <= 0.0) return
         up.setTo(body.position).normalizeInPlace()
-        attractor.surfaceVelocityAt(body.position, surface)
+        underfoot(vessel, attractor, surface)
         relative.setTo(body.linearVelocity).subInPlace(surface)
         relative.addScaledInPlace(up, -(relative dot up))
         body.orientation.rotate(FACING, forward)
@@ -84,6 +84,15 @@ class Walking {
         val needed = want.length * body.mass
         if (needed <= 1e-9) return
         body.linearVelocity.addScaledInPlace(want, minOf(1.0, grip / needed))
+    }
+
+    /**
+     * How fast what they're standing on is moving under them: the ground, or the deck of the craft
+     * they're on, which walking is relative to.
+     */
+    private fun underfoot(vessel: Vessel, attractor: CelestialBody, out: Vec3): Vec3 {
+        val deck = vessel.standingOn ?: return attractor.surfaceVelocityAt(vessel.body.position, out)
+        return deck.body.velocityAtOffset(scratch.setTo(vessel.body.position).subInPlace(deck.body.position), out)
     }
 
     /** Held to [ladder]'s line, moving with its craft, with the stick climbing. */
@@ -111,7 +120,7 @@ class Walking {
             ladder != null -> kotlin.math.abs(input(vessel)) * CLIMB_SPEED
             vessel.touchingGround -> {
                 up.setTo(body.position).normalizeInPlace()
-                attractor.surfaceVelocityAt(body.position, surface)
+                underfoot(vessel, attractor, surface)
                 relative.setTo(body.linearVelocity).subInPlace(surface)
                 relative.addScaledInPlace(up, -(relative dot up)).length
             }

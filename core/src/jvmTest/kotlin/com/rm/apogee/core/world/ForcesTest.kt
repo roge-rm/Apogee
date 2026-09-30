@@ -252,8 +252,11 @@ class ForcesTest {
         fun dragIn(rain: Double): Double {
             val vessel = rocketInVacuum()
             // Low down, moving level through the air at 150 m/s, sideways, so the rain's weight,
-            // straight down, isn't along the motion.
+            // straight down, isn't along the motion, and nose first, the way a rocket flies.
+            // Broadside, its fins square to the wind pushed back like plates, which is lift, not
+            // the drag the rain adds to.
             vessel.body.position.setTo(0.0, terra.radius + 1_000.0, 0.0)
+            vessel.body.orientation.setTo(com.rm.apogee.core.math.quatFromTo(Vec3.unitY(), Vec3.unitX()))
             terra.surfaceVelocityAt(vessel.body.position, vessel.body.linearVelocity)
             vessel.body.linearVelocity.addInPlace(Vec3(150.0, 0.0, 0.0))
             vessel.air.clear()

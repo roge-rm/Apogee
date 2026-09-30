@@ -137,6 +137,23 @@ class GroundContact {
     /** The normal impulse taken by hull contacts (not wheels) this pass. */
     private var hullNormalImpulse = 0.0
 
+    /**
+     * Another craft's body, while a contact against its deck is being worked out, and where on it
+     * the contact is. Null on the ground.
+     */
+    private var deck: RigidBody? = null
+    private val deckOffset = Vec3()
+    private val deckInverseInertia = Mat3()
+    private val pushBack = Vec3()
+    private val volume = PartVolume()
+    private val craftCentre = Vec3()
+    private val localUp = Vec3()
+    private var compressionCleared = false
+
+    /** The craft this one's wheels, legs or feet were last on, this tick, or null. */
+    var deckUnder: Vessel? = null
+        private set
+
     val report = ContactReport()
 
     /**
@@ -151,7 +168,8 @@ class GroundContact {
         time: Double,
         accumulate: Boolean = false,
     ): ContactReport {
-        if (!accumulate) report.reset()
+        if (!accumulate) { report.reset(); deckUnder = null }
+        compressionCleared = false
         // Once per vessel, not once per contact point.
         attractor.rotationAt(time, bodyRotation)
         val body = vessel.body
@@ -207,9 +225,11 @@ class GroundContact {
         attractor.gravityAt(body.position, scratch)
         val loadPerContact = body.mass * scratch.length / vessel.groundContacts.coerceAtLeast(1)
         hullNormalImpulse = 0.0
+        var terrainContacts = 0
 
         vessel.fitPose()
         vessel.wheelCompression.fill(0.0)
+        compressionCleared = true
         for (partIndex in vessel.defs.indices) {
             val def = vessel.defs[partIndex]
             // A leg meets the ground where its feet are: folded against the hull, swinging down, or
@@ -273,74 +293,150 @@ class GroundContact {
             bodyRotation.rotate(ground.normal, normal)
             radialUp.setTo(partPosition).mulInPlace(1.0 / distance)
             val penetration = radialDepth * (normal dot radialUp).coerceAtLeast(0.05)
-            groundFriction = ground.material.friction
             if (ground.material == com.rm.apogee.core.terrain.SurfaceMaterial.LAVA) report.lavaPart = partIndex
-            if (groundFriction > report.friction) report.friction = groundFriction
-            vessel.contactOffsetWorld(partIndex, pointIndex, offset)
-
-            relativeVelocityAt(body, attractor, partPosition, pointVelocity)
-            val normalSpeed = pointVelocity dot normal
-
-            report.contactCount++
-            // Soft ground takes the sting out of an arrival. The same landing that wrecks a craft
-            // on rock leaves it dented in snow. Without this, sinking made landings harder instead
-            // of softer, because the craft fell a little further before meeting the lowered
-            // surface.
-            val impactSpeed = -approachSpeedAt(attractor, partPosition) /
-                (1.0 + ground.material.softness * CUSHIONING)
-            if (impactSpeed > report.worstImpactSpeed) {
-                report.worstImpactSpeed = impactSpeed
-                report.worstPartIndex = partIndex
+            terrainContacts++
+            touch(vessel, attractor, partIndex, pointIndex, penetration, wheel, walker, suspensionTravel, springRate, damping, dt)
             }
-            if (impactSpeed > def.crashTolerance) report.recordImpact(partIndex, impactSpeed, normal)
-
-            inverseInertiaWorld.setRotated(body.inverseInertiaLocal, body.orientation)
-
-            // The springy case: a working leg that's still within its travel.
-            //
-            // It's applied as an impulse of force x dt instead of a force, because contacts are
-            // resolved *after* integration. A force added here wouldn't move anything until the
-            // next tick, and a suspension that responds a tick late is a suspension that
-            // oscillates.
-            //
-            // How far the wheel's suspension is taken up, so everyone can see it sit on its
-            // springs.
-            if (wheel != null && partIndex in vessel.wheelCompression.indices) {
-                val taken = minOf(penetration, suspensionTravel ?: 0.0)
-                if (taken > vessel.wheelCompression[partIndex]) vessel.wheelCompression[partIndex] = taken
+            if (partIndex in vessel.sunk.indices) {
+                vessel.sunk[partIndex] = sunkBefore + (sinkTarget - sunkBefore).coerceIn(-sinkStep, sinkStep)
             }
+        }
 
-            if (suspensionTravel != null && penetration < suspensionTravel) {
-                val spring = springRate!! * penetration - damping!! * normalSpeed
-                if (spring <= 0.0) continue
-                val normalImpulse = spring * dt
-                impulse.setTo(normal).mulInPlace(normalImpulse)
-                body.applyImpulseAtOffset(impulse, offset)
+        resistRolling(vessel, attractor)
+        // Only held still against the ground. Something on a deck moves with the deck.
+        if (terrainContacts > 0 && deckUnder == null) anchorIfResting(vessel, attractor, dt)
+        return report
+    }
 
-                if (wheel != null) {
-                    driveWheel(vessel, partIndex, attractor, wheel, normalImpulse, dt)
-                } else if (walker) {
-                    vessel.walkGrip += normalImpulse * groundFriction
-                } else {
-                    applyFriction(body, attractor, normalImpulse)
+    /**
+     * [vessel]'s wheels, legs and feet against the craft in [decks], after [resolve] has had the
+     * ground: a plane rolling out on a carrier's deck, a buggy driving onto a barge, a lander
+     * setting down on a platform in a swell, someone walking about on a base.
+     *
+     * It's the ground's own contact, with the deck's motion under each point instead of the
+     * planet's, a push back onto the deck for every push it gives, and the deck's weight in how
+     * hard each contact is. Decks grip like concrete and never give underfoot. Only the feet go
+     * through here. Every other part meets another craft in [CraftContact], as a hull meets the
+     * ground, and that skips the feet so nothing is met twice.
+     */
+    fun resolveOnCraft(vessel: Vessel, attractor: CelestialBody, decks: List<Vessel>, dt: Double): ContactReport {
+        val body = vessel.body
+        if (body.inverseMass <= 0.0 || decks.isEmpty()) return report
+        entryLinear.setTo(body.linearVelocity)
+        entryAngular.setTo(body.angularVelocity)
+        ground.material = com.rm.apogee.core.terrain.SurfaceMaterial.CONCRETE
+        sink = 0.0
+        vessel.fitPose()
+        if (!compressionCleared) {
+            vessel.wheelCompression.fill(0.0)
+            compressionCleared = true
+        }
+        craftCentre.setTo(body.position)
+        localUp.setTo(body.position).normalizeInPlace()
+        for (partIndex in vessel.defs.indices) {
+            val def = vessel.defs[partIndex]
+            if (!isFoot(def)) continue
+            // The same feet as on the ground: see [resolve].
+            val leg = def.module<LandingLeg>()
+            if (leg != null && vessel.broken[partIndex]) continue
+            val sprung = leg == null || (vessel.isWorking(partIndex) && vessel.legDeploy.getOrElse(partIndex) { 1.0 } >= 1.0)
+            if (leg != null && leg.stowedAngle == 0.0 && !vessel.isWorking(partIndex)) continue
+            val wheel = def.module<Wheel>()
+            val walker = def.module<com.rm.apogee.core.part.Walker>() != null
+            val suspensionTravel = if (!sprung) null else leg?.suspensionTravel ?: wheel?.suspensionTravel
+            val springRate = leg?.springRate ?: wheel?.springRate
+            val damping = leg?.damping ?: wheel?.damping
+            for (pointIndex in def.contactPoints.indices) {
+                vessel.contactPointWorld(partIndex, pointIndex, partPosition)
+                // The first deck part the point is in. One is plenty: a foot stands on one thing.
+                search@ for (other in decks) {
+                    scratch.setTo(partPosition).subInPlace(other.body.position)
+                    if (scratch.lengthSq > other.contactRadius * other.contactRadius) continue
+                    for (deckPart in other.defs.indices) {
+                        val deckDef = other.defs[deckPart]
+                        if (!deckDef.solid) continue
+                        other.partPositionWorld(deckPart, scratch)
+                        val reach = deckDef.boundsHalfExtents.length
+                        if (scratch.subInPlace(partPosition).lengthSq > reach * reach) continue
+                        if (!volume.inside(partPosition, other, deckPart, craftCentre, localUp)) continue
+                        val deckBody = other.body
+                        deck = deckBody
+                        deckOffset.setTo(partPosition).subInPlace(deckBody.position)
+                        deckInverseInertia.setRotated(deckBody.inverseInertiaLocal, deckBody.orientation)
+                        normal.setTo(volume.normal)
+                        deckUnder = other
+                        touch(vessel, attractor, partIndex, pointIndex, volume.penetration, wheel, walker, suspensionTravel, springRate, damping, dt)
+                        deck = null
+                        break@search
+                    }
                 }
-                continue
             }
+        }
+        return report
+    }
 
-            // Everything else, including a leg that has bottomed out, is rigid.
-            //
-            // Positional correction is a fraction per tick. Correcting the whole penetration at
-            // once makes a resting craft jitter, because gravity pushes it back in every step and
-            // the full correction throws it back out.
-            scratch.setTo(normal).mulInPlace(penetration * POSITION_CORRECTION)
-            body.position.addInPlace(scratch)
+    /**
+     * One contact point of part [partIndex] in contact, [penetration] metres into whatever it's
+     * touching, with the surface's normal already in [normal] and its point in [partPosition]: the
+     * ground, or with [deck] set, another craft.
+     */
+    private fun touch(
+        vessel: Vessel,
+        attractor: CelestialBody,
+        partIndex: Int,
+        pointIndex: Int,
+        penetration: Double,
+        wheel: Wheel?,
+        walker: Boolean,
+        suspensionTravel: Double?,
+        springRate: Double?,
+        damping: Double?,
+        dt: Double,
+    ) {
+        val body = vessel.body
+        val def = vessel.defs[partIndex]
+        groundFriction = ground.material.friction
+        if (groundFriction > report.friction) report.friction = groundFriction
+        vessel.contactOffsetWorld(partIndex, pointIndex, offset)
 
-            if (normalSpeed >= 0.0) continue
+        relativeVelocityAt(body, attractor, partPosition, pointVelocity)
+        val normalSpeed = pointVelocity dot normal
 
-            val normalImpulse = solveImpulse(body, normal, normalSpeed, RESTITUTION)
+        report.contactCount++
+        // Soft ground takes the sting out of an arrival. The same landing that wrecks a craft
+        // on rock leaves it dented in snow. Without this, sinking made landings harder instead
+        // of softer, because the craft fell a little further before meeting the lowered
+        // surface.
+        val impactSpeed = -approachSpeedAt(attractor, partPosition) /
+            (1.0 + ground.material.softness * CUSHIONING)
+        if (impactSpeed > report.worstImpactSpeed) {
+            report.worstImpactSpeed = impactSpeed
+            report.worstPartIndex = partIndex
+        }
+        if (impactSpeed > def.crashTolerance) report.recordImpact(partIndex, impactSpeed, normal)
+
+        inverseInertiaWorld.setRotated(body.inverseInertiaLocal, body.orientation)
+
+        // The springy case: a working leg that's still within its travel.
+        //
+        // It's applied as an impulse of force x dt instead of a force, because contacts are
+        // resolved *after* integration. A force added here wouldn't move anything until the
+        // next tick, and a suspension that responds a tick late is a suspension that
+        // oscillates.
+        //
+        // How far the wheel's suspension is taken up, so everyone can see it sit on its
+        // springs.
+        if (wheel != null && partIndex in vessel.wheelCompression.indices) {
+            val taken = minOf(penetration, suspensionTravel ?: 0.0)
+            if (taken > vessel.wheelCompression[partIndex]) vessel.wheelCompression[partIndex] = taken
+        }
+
+        if (suspensionTravel != null && penetration < suspensionTravel) {
+            val spring = springRate!! * penetration - damping!! * normalSpeed
+            if (spring <= 0.0) return
+            val normalImpulse = spring * dt
             impulse.setTo(normal).mulInPlace(normalImpulse)
-            body.applyImpulseAtOffset(impulse, offset)
-            if (wheel == null) hullNormalImpulse += normalImpulse
+            push(body, impulse)
 
             if (wheel != null) {
                 driveWheel(vessel, partIndex, attractor, wheel, normalImpulse, dt)
@@ -349,15 +445,31 @@ class GroundContact {
             } else {
                 applyFriction(body, attractor, normalImpulse)
             }
-            }
-            if (partIndex in vessel.sunk.indices) {
-                vessel.sunk[partIndex] = sunkBefore + (sinkTarget - sunkBefore).coerceIn(-sinkStep, sinkStep)
-            }
+            return
         }
 
-        resistRolling(vessel, attractor)
-        anchorIfResting(vessel, attractor, dt)
-        return report
+        // Everything else, including a leg that has bottomed out, is rigid.
+        //
+        // Positional correction is a fraction per tick. Correcting the whole penetration at
+        // once makes a resting craft jitter, because gravity pushes it back in every step and
+        // the full correction throws it back out.
+        scratch.setTo(normal).mulInPlace(penetration * POSITION_CORRECTION)
+        body.position.addInPlace(scratch)
+
+        if (normalSpeed >= 0.0) return
+
+        val normalImpulse = solveImpulse(body, normal, normalSpeed, RESTITUTION)
+        impulse.setTo(normal).mulInPlace(normalImpulse)
+        push(body, impulse)
+        if (wheel == null) hullNormalImpulse += normalImpulse
+
+        if (wheel != null) {
+            driveWheel(vessel, partIndex, attractor, wheel, normalImpulse, dt)
+        } else if (walker) {
+            vessel.walkGrip += normalImpulse * groundFriction
+        } else {
+            applyFriction(body, attractor, normalImpulse)
+        }
     }
 
     /**
@@ -447,7 +559,7 @@ class GroundContact {
      */
     private fun approachSpeedAt(attractor: CelestialBody, worldPoint: Vec3): Double {
         approachVelocity.setTo(entryAngular).crossInPlace(offset).addInPlace(entryLinear)
-        attractor.surfaceVelocityAt(worldPoint, surfaceVelocity)
+        surfaceVelocityAt(attractor, worldPoint, surfaceVelocity)
         approachVelocity.subInPlace(surfaceVelocity)
         return approachVelocity dot normal
     }
@@ -469,7 +581,15 @@ class GroundContact {
         scratch.crossInPlace(offset)
 
         val angularTerm = scratch dot contactNormal
-        val denominator = body.inverseMass + angularTerm
+        var denominator = body.inverseMass + angularTerm
+        // A deck gives a little too, by its own mass and turning, the way another craft does.
+        val deck = deck
+        if (deck != null && deck.inverseMass > 0.0) {
+            scratch.setTo(deckOffset).crossInPlace(contactNormal)
+            deckInverseInertia.transform(scratch, scratch)
+            scratch.crossInPlace(deckOffset)
+            denominator += deck.inverseMass + (scratch dot contactNormal)
+        }
         if (denominator <= 1e-12) return 0.0
 
         return -(1.0 + restitution) * normalSpeed / denominator
@@ -492,8 +612,26 @@ class GroundContact {
         out: Vec3,
     ): Vec3 {
         body.velocityAtOffset(offset, out)
-        attractor.surfaceVelocityAt(worldPoint, surfaceVelocity)
+        surfaceVelocityAt(attractor, worldPoint, surfaceVelocity)
         return out.subInPlace(surfaceVelocity)
+    }
+
+    /** How fast what's under [worldPoint] is moving: the ground, or the deck it's on. */
+    private fun surfaceVelocityAt(attractor: CelestialBody, worldPoint: Vec3, out: Vec3): Vec3 {
+        val deck = deck ?: return attractor.surfaceVelocityAt(worldPoint, out)
+        return deck.velocityAtOffset(deckOffset, out)
+    }
+
+    /**
+     * [impulse] on [body] at the contact, and the same back the other way on the deck it's pushing
+     * against, if it's on one that can be pushed.
+     */
+    private fun push(body: RigidBody, impulse: Vec3) {
+        body.applyImpulseAtOffset(impulse, offset)
+        val deck = deck ?: return
+        if (deck.inverseMass <= 0.0) return
+        pushBack.setTo(impulse).mulInPlace(-1.0)
+        deck.applyImpulseAtOffset(pushBack, deckOffset)
     }
 
     /** Coulomb friction along the contact tangent, capped by the normal impulse. */
@@ -574,7 +712,7 @@ class GroundContact {
             val tractive = (wheel.motorForce * control.throttle * fade * way)
                 .coerceIn(-groundFriction * normalImpulse / dt, groundFriction * normalImpulse / dt)
             driveForce.setTo(rollAxis).mulInPlace(tractive * dt)
-            body.applyImpulseAtOffset(driveForce, offset)
+            push(body, driveForce)
         }
     }
 
@@ -695,7 +833,7 @@ class GroundContact {
         val frictionMagnitude = stoppingImpulse.coerceIn(-maxImpulse, maxImpulse)
 
         impulse.setTo(frictionDirection).mulInPlace(frictionMagnitude)
-        body.applyImpulseAtOffset(impulse, offset)
+        push(body, impulse)
     }
 
     private companion object {
@@ -764,3 +902,9 @@ class GroundContact {
         const val TERRAIN_PROXIMITY_MARGIN = 50.0
     }
 }
+
+/**
+ * Whether [def] is something a craft stands on, rather than rests on: a wheel, a landing leg, or a
+ * foot.
+ */
+fun isFoot(def: com.rm.apogee.core.part.PartDef): Boolean = def.foot

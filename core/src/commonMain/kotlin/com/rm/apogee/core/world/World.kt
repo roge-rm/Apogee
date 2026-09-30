@@ -572,9 +572,31 @@ class World(
      * hold the nose, or null to leave it to stability assist. It gives up, saying why, if there's
      * too little engine to land on.
      */
-    private fun autoLand(vessel: Vessel, attractor: CelestialBody): Vec3? {
+    private fun autoLand(vessel: Vessel, attractor: CelestialBody, dt: Double): Vec3? {
         val control = vessel.control
         if (!mayAutopilot(vessel)) { control.autoLand = false; return null }
+        if (!vessel.landStarted) {
+            // Set up on its first tick, which is where it's switched on for the craft here and for
+            // a player's own copy of it alike: where a rotorcraft or an airship comes down
+            // (straight under it now), the trims it starts from, and nothing else flying it.
+            vessel.landStarted = true
+            vessel.landBraking = false
+            vessel.landSpeed = 0.0
+            vessel.landDownFor = 0.0
+            vessel.landSink = 0.0
+            attractor.toBodyFixed(vessel.body.position, attractor.rotationAt(time), control.keepPoint)
+            control.keepTrim = control.throttle
+            control.cruise = false
+            control.keeping = false
+        }
+        // Anything that flies on the air lands the way it flies, not on its engines.
+        airLanding(vessel, attractor, dt)?.let { outcome ->
+            if (outcome == Landing.Outcome.LANDED) {
+                control.autoLand = false
+                control.autopilotNote = "Landed"
+            }
+            return null
+        }
         val body = vessel.body
         control.sasEnabled = true
         control.rcsEnabled = true
@@ -653,6 +675,35 @@ class World(
         control.throttle = if (facing > LAND_ALIGNED) (push / most).coerceIn(0.0, 1.0) else 0.0
         return landDirection
     }
+
+    /**
+     * One tick of landing [vessel] the way a plane, a rotorcraft or an airship comes down, if it's
+     * one of those and there's air to do it in. Null for anything else, which lands on its engines.
+     */
+    private fun airLanding(vessel: Vessel, attractor: CelestialBody, dt: Double): Landing.Outcome? {
+        if (attractor.atmosphere == null) return null
+        val kind = com.rm.apogee.core.craft.CraftKind.of(vessel.design, catalog)
+        return when (kind) {
+            com.rm.apogee.core.craft.CraftKind.PLANE ->
+                landing.plane(vessel, attractor, airClearance(vessel, attractor), dt) { lowerLegs(vessel) }
+            com.rm.apogee.core.craft.CraftKind.ROTORCRAFT, com.rm.apogee.core.craft.CraftKind.AIRSHIP -> {
+                val means = keeper.means(vessel, attractor, false)?.takeIf { it != StationKeeping.Means.WATER } ?: return null
+                landing.hover(vessel, attractor, attractor.rotationAt(time, scratchKeeperRotation), means, airClearance(vessel, attractor), dt) { lowerLegs(vessel) }
+            }
+            else -> null
+        }
+    }
+
+    /** How far [vessel]'s lowest part is over the ground, or the sea where that's higher. */
+    private fun airClearance(vessel: Vessel, attractor: CelestialBody): Double {
+        val overGround = clearance(vessel, attractor)
+        if (attractor.ocean == null) return overGround
+        attractor.toBodyFixed(vessel.body.position, attractor.rotationAt(time), landScratch).normalizeInPlace()
+        val underCentre = attractor.heightAboveTerrain(vessel.body.position, landScratch) - overGround
+        return minOf(overGround, attractor.altitudeOf(vessel.body.position) - underCentre)
+    }
+
+    private val landing = Landing(keeper)
 
     /** Roughly how far the lowest part of [vessel] is above the ground under it, in metres. */
     private fun clearance(vessel: Vessel, attractor: CelestialBody): Double {
@@ -861,6 +912,11 @@ class World(
     private val heat = Heat()
     private val stabilityAssist = StabilityAssist()
     private val hydrostatics = Hydrostatics()
+
+    init {
+        forces.waterAt = { vessel, attractor, p, t -> hydrostatics.keptHeight(vessel, attractor, p, t) }
+    }
+
     private val scatterContacts = com.rm.apogee.core.physics.ScatterContact()
 
     /**
@@ -1024,6 +1080,58 @@ class World(
 
     private fun linked(a: Long, b: Long) = links.any { (it.a.raw == a && it.b.raw == b) || (it.a.raw == b && it.b.raw == a) }
 
+    /**
+     * The craft [vessel]'s wheels, legs or feet might be standing on this tick: those within reach
+     * round the same body, leaving out what it's docking or coupled with and what it has only just
+     * come apart from. Nobody drives over a person, so people on foot aren't decks.
+     */
+    private fun decksNear(vessel: Vessel): List<Vessel> {
+        decksScratch.clear()
+        if (vessel.defs.none { com.rm.apogee.core.physics.isFoot(it) }) return decksScratch
+        val id = vessel.id.raw
+        for (other in vesselsById.values) {
+            if (other === vessel || other.referenceBodyId != vessel.referenceBodyId) continue
+            val reach = vessel.contactRadius + other.contactRadius
+            if (other.body.position.distanceTo(vessel.body.position) > reach) continue
+            if (walking.walkerOf(other) != null) continue
+            val otherId = other.id.raw
+            if (docking.capturing(id, otherId) || linked(id, otherId) || justSeparated.containsKey(pairKey(id, otherId))) continue
+            decksScratch.add(other)
+        }
+        return decksScratch
+    }
+    private val decksScratch = ArrayList<Vessel>()
+
+    /**
+     * The craft [vessel] is parked on, a plane on a carrier or a buggy on a barge, or null. It's
+     * whatever's straight below its centre, within its own reach. Just loaded, nothing is standing on
+     * anything yet, and the Petrel on the Flat Top's deck was listed as afloat.
+     */
+    fun deckUnder(vessel: Vessel): Vessel? {
+        vessel.standingOn?.let { return it }
+        vessel.ridingOn?.let { id -> vesselsById[id]?.let { return it } }
+        if (vessel.defs.none { com.rm.apogee.core.physics.isFoot(it) }) return null
+        scratchDeckUp.setTo(vessel.body.position).normalizeInPlace()
+        for (other in vesselsById.values) {
+            if (other === vessel || other.referenceBodyId != vessel.referenceBodyId) continue
+            if (other.body.position.distanceTo(vessel.body.position) > vessel.contactRadius + other.contactRadius) continue
+            // Down from its centre a step at a time, as far as it reaches.
+            var down = DECK_PROBE_STEP
+            while (down <= vessel.contactRadius + DECK_PROBE_STEP) {
+                scratchDeckPoint.setTo(vessel.body.position).addScaledInPlace(scratchDeckUp, -down)
+                for (i in other.defs.indices) {
+                    if (!other.isBroken(i) && deckProbe.inside(scratchDeckPoint, other, i)) return other
+                }
+                down += DECK_PROBE_STEP
+            }
+        }
+        return null
+    }
+
+    private val deckProbe = com.rm.apogee.core.physics.PartVolume()
+    private val scratchDeckUp = Vec3()
+    private val scratchDeckPoint = Vec3()
+
     /** Whether craft [a] and [b] are drawing each other in to dock. */
     fun capturing(a: Long, b: Long) = docking.capturing(a, b)
 
@@ -1103,7 +1211,8 @@ class World(
         val groundRadius = kotlin.math.max(attractor.solidRadiusInBodyFrame(scratchBodyFixedUp), sea ?: 0.0)
             .let { if (sea == null) attractor.surfaceRadiusInBodyFrame(scratchBodyFixedUp) else it }
 
-        if (legsOut && (sea == null || groundRadius > sea)) standOnLegs(vessel, up)
+        // On legs on land, and on a base's pad, even one afloat: a deck is something to stand on.
+        if (legsOut && (sea == null || groundRadius > sea || site.onBase)) standOnLegs(vessel, up)
 
         // Lift the craft until its lowest part just touches the ground.
         val clearance = lowestExtentAlong(vessel, up)
@@ -1422,6 +1531,7 @@ class World(
                 vessel.control.autoBurn = command.autoBurn && allowed
                 vessel.control.autoLand = command.autoLand && allowed
                 vessel.landBraking = false
+                vessel.landStarted = false
                 vessel.control.autopilotNote = if ((command.autoBurn || command.autoLand) && !allowed) "Autopilot not available" else ""
                 if (!command.autoBurn && !command.autoLand) vessel.control.throttle = 0.0
             }
@@ -1477,6 +1587,7 @@ class World(
             is Command.Jump -> heard(command.vessel)?.let { jump(it) }
             is Command.Grab -> heard(command.vessel)?.let { grab(it, command.on) }
             is Command.PlantFlag -> heard(command.vessel)?.let { plantFlag(it) }
+            is Command.RightCraft -> heard(command.vessel)?.let { startRighting(it) }
             is Command.Unload -> if (command.active) unloading.add(VesselId(command.vessel)) else unloading.remove(VesselId(command.vessel))
 
             is Command.SetTranslation -> heard(command.vessel)?.control?.let {
@@ -1573,6 +1684,8 @@ class World(
             if (other.owner == WORLD_OWNER || vessel.owner == WORLD_OWNER) continue
             // Two halves that just parted, or one still pushing the other.
             if (justSeparated.containsKey(pairKey(vessel.id.raw, other.id.raw))) continue
+            // A deck and what's standing on it, a plane on a carrier or a buggy on a barge.
+            if (onDeckOf(vessel, other) || onDeckOf(other, vessel)) continue
 
             scratch.setTo(vessel.body.position).subInPlace(other.body.position)
             val distance = scratch.length
@@ -1590,6 +1703,10 @@ class World(
         }
         return best
     }
+
+    /** Whether [rider] is standing on [deck], or asleep on it. */
+    private fun onDeckOf(rider: Vessel, deck: Vessel): Boolean =
+        rider.standingOn === deck || rider.ridingOn == deck.id
 
     /**
      * Merges [absorbed] into [keeper], keeping momentum, and removes it.
@@ -2463,7 +2580,11 @@ class World(
         }
         solveLinks(dt)
         solveLines(dt)
+        deckGear.step(vesselsById, dt)
     }
+
+    /** Arresting wires and catapults on decks. */
+    private val deckGear = DeckGear()
 
     /**
      * Latches two rings. The lighter craft docks onto the heavier, set square on its ring (the last
@@ -2674,8 +2795,9 @@ class World(
         val face = Vec3().setTo(offset).addInPlace(vessel.body.position)
         val ahead = vessel.design.parts[index].rotation.rotate(Vec3.unitY())
         vessel.body.orientation.rotate(ahead, ahead)
-        // Another craft's part.
+        // Another craft's part: the nearest tow point in reach, or failing one, the nearest part.
         var best: HookTarget? = null
+        var bestFast = false
         val point = Vec3(); val toward = Vec3()
         for (other in vesselsById.values) {
             if (other === vessel || other.referenceBodyId != vessel.referenceBodyId) continue
@@ -2686,8 +2808,12 @@ class World(
                 toward.setTo(point).subInPlace(face)
                 val d = toward.length
                 if (d > winch.reach || d < 1e-3) continue
-                if ((toward dot ahead) / d < HOOK_CONE) continue
-                if (best == null || d < best.distance) best = HookTarget(other, j, Vec3(), Vec3(), d)
+                if (!winch.anyWay && (toward dot ahead) / d < HOOK_CONE) continue
+                val fast = other.defs[j].hasModule<com.rm.apogee.core.part.TowPoint>()
+                if (best == null || (fast && !bestFast) || (fast == bestFast && d < best.distance)) {
+                    best = HookTarget(other, j, Vec3(), Vec3(), d)
+                    bestFast = fast
+                }
             }
         }
         if (best != null) return best
@@ -3035,6 +3161,8 @@ class World(
             // things nobody is looking at, and otherwise a base on a pad costs exactly as much as
             // one being flown.
             if (vessel.dormant) {
+                // Asleep on a deck, it's posed from the deck once everything has moved.
+                if (vessel.ridingOn != null) continue
                 if (vessel.afloat) followSea(vessel, attractor, waves = true, dt = dt) else followGround(vessel, attractor)
                 // Parked in air that crushes, like Caligo's floor, or deeper in the sea than it's
                 // built for, it gets crushed all the same.
@@ -3064,10 +3192,13 @@ class World(
             // Before any force, because the elevons move inside the drag pass and the gimbal inside
             // thrust, and all of them act on what stability assist asks for this tick.
             if (vessel.control.autoBurn) autoBurn(vessel, attractor)
-            val landing = if (vessel.control.autoLand) autoLand(vessel, attractor) else null
-            if (vessel.control.cruise && landing == null) flyCruise(vessel, attractor, dt)
-            if (vessel.control.keeping) flyKeeper(vessel, attractor, dt)
-            val cruising = (vessel.control.cruise || vessel.control.keeping) && landing == null
+            if (!vessel.control.autoLand) vessel.landStarted = false
+            val landing = if (vessel.control.autoLand) autoLand(vessel, attractor, dt) else null
+            val landingItself = vessel.control.autoLand
+            if (vessel.control.cruise && !landingItself) flyCruise(vessel, attractor, dt)
+            vessel.control.stickTilts = false
+            if (vessel.control.keeping && !landingItself) flyKeeper(vessel, attractor, dt)
+            val cruising = (vessel.control.cruise || vessel.control.keeping || landingItself) && landing == null
             if (vessel.powered) stabilityAssist.update(vessel, dt, landing ?: if (cruising) null else holdDirection(vessel, attractor))
             else stabilityAssist.idle(vessel)
             updatePose(vessel, dt)
@@ -3086,6 +3217,7 @@ class World(
             val steady = steadyWind
             if (steady != null && attractor.atmosphere != null) {
                 vessel.air.clear()
+                vessel.airSampledAt = Double.NaN
                 attractor.toBodyFixed(body.position, weatherRotation, weatherPoint).normalizeInPlace()
                 // East and north at the craft, as the planet's spin about +Y defines them.
                 scratchEast.setTo(0.0, 1.0, 0.0).crossInPlace(weatherPoint).normalizeInPlace()
@@ -3093,9 +3225,19 @@ class World(
                 vessel.air.wind.setTo(scratchEast).mulInPlace(steady.x).addScaledInPlace(scratchNorth, steady.y)
             } else if (weather != null) {
                 attractor.toBodyFixed(body.position, weatherRotation, weatherPoint)
-                weather.sample(weatherPoint, time, vessel.air)
+                // Kept for a few hundredths of a second, or a few metres. The air doesn't change
+                // faster than that, and working it out (the ground's lie, the circulation, every
+                // storm near by) four times a tick was more than a phone at 4x could spare.
+                val age = time - vessel.airSampledAt
+                if (vessel.airSampledAt.isNaN() || age < 0.0 || age >= AIR_KEEP ||
+                    vessel.airSampledWhere.distanceTo(weatherPoint) > AIR_MOVE) {
+                    weather.sample(weatherPoint, time, vessel.air)
+                    vessel.airSampledAt = time
+                    vessel.airSampledWhere.setTo(weatherPoint)
+                }
             } else {
                 vessel.air.clear()
+                vessel.airSampledAt = Double.NaN
             }
             forces.applyDrag(vessel, attractor, weather, weatherRotation, time, dt)
             // Rotors and gas cells, after the drag pass, which is where the air at the craft is
@@ -3121,7 +3263,7 @@ class World(
                 }
                 pendingBreakUps.add(vessel.id)
             }
-            forces.applyReactionWheels(vessel)
+            forces.applyReactionWheels(vessel, attractor)
             forces.applyRcs(vessel, dt)
             stress.update(vessel, dt)
             for (i in 0 until stress.snappedCount) detach(vessel, stress.snapped[i], "tore off under load")
@@ -3142,6 +3284,7 @@ class World(
             burnBefore.setTo(body.linearVelocity)
             val substeps = contactSubsteps(vessel, attractor, dt)
             val h = dt / substeps
+            val decks = decksNear(vessel)
             for (substep in 0 until substeps) {
                 body.integrate(h)
                 // Test against the ground where it is now that the craft has moved on, which is the
@@ -3150,12 +3293,17 @@ class World(
                 // changes nothing on flat ground but is metres up or down on a steep slope. A pod
                 // landed on a mountainside came to rest two metres inside it.
                 contacts.resolve(vessel, attractor, h, time + (substep + 1) * h, substep > 0)
+                contacts.resolveOnCraft(vessel, attractor, decks, h)
             }
+            vessel.standingOn = contacts.deckUnder
+            // A deck asleep doesn't move, so it's woken to take the weight.
+            contacts.deckUnder?.wake()
             // Boulders and trunks go into the same report, so a craft wrecked on a rock is judged
             // the same way as one wrecked on the ground.
             scatterContacts.resolve(vessel, attractor, time + dt, contacts.report, felledScatter) { fell(it) }
             val report = contacts.report
             vessel.touchingGround = report.hadContact
+            if (!vessel.rightingStart.isNaN()) stepRighting(vessel, attractor)
             crossRings(vessel, attractor)
             // Molten ground: whatever touches it is gone.
             if (report.lavaPart >= 0 && vessel.damage(report.lavaPart, 1.0)) {
@@ -3170,7 +3318,7 @@ class World(
             vessel.countGrounded(report.hadContact, dt)
 
             // Mass changes as propellant burns, and the centre of mass moves with it.
-            if (vessel.control.throttle > 0.0) vessel.recomputeMass()
+            if (vessel.control.throttle > 0.0) vessel.recomputeMassIfChanged()
             if (report.hadContact && report.worstImpactSpeed > TOUCHDOWN_REPORT_SPEED) {
                 pendingEvents.add(WorldEvent.Touchdown(vessel.id, report.worstImpactSpeed))
             }
@@ -3194,6 +3342,14 @@ class World(
             }
             considerSleeping(vessel, report)
             crossInfluence(vessel, tickEnd)
+        }
+
+        // Craft asleep on decks, carried to wherever their decks went this tick. A deck that's gone
+        // leaves them awake.
+        for (vessel in vesselsById.values) {
+            val deckId = vessel.ridingOn ?: continue
+            val deck = vesselsById[deckId]
+            if (deck == null || deck.referenceBodyId != vessel.referenceBodyId) vessel.wake() else vessel.followRide(deck)
         }
 
         // Craft against craft, once everything has moved.
@@ -3344,10 +3500,28 @@ class World(
         // and one resting on the sea floor with its tanks blown stayed there.
         //
         // Or while a winch line on it is winding or pulling.
-        if (legsMoving(vessel) || docking.capturing(vessel.id.raw) || vessel.control.ballast != 0 || vessel.control.holdDepth ||
+        //
+        // Or while the auto-land is flying it. A balloon hanging still in the air on its way down
+        // went to sleep there, and the landing stopped with it.
+        //
+        // Or while its crew are rolling it upright, which holds it still as they do.
+        if (legsMoving(vessel) || docking.capturing(vessel.id.raw) || vessel.control.ballast != 0 || vessel.control.holdDepth || vessel.control.autoLand ||
+            !vessel.rightingStart.isNaN() ||
             lines.any { (it.a == vessel.id || it.b == vessel.id) && (it.reel != 0 || it.taut) }
         ) {
             vessel.noteStillness(false, SLEEP_SETTLE_TICKS)
+            return
+        }
+        // Standing on another craft's deck, it sleeps as a rider on it once it's still on the deck,
+        // however the deck's moving.
+        val deck = vessel.standingOn
+        if (deck != null) {
+            deck.body.velocityAtOffset(scratchRideFrom.setTo(vessel.body.position).subInPlace(deck.body.position), scratchRideVelocity)
+            scratchRideVelocity.subInPlace(vessel.body.linearVelocity)
+            scratchRideSpin.setTo(vessel.body.angularVelocity).subInPlace(deck.body.angularVelocity)
+            val riding = vessel.control.throttle == 0.0 && !vessel.walking &&
+                scratchRideVelocity.length < RIDE_STILL && scratchRideSpin.length < RIDE_SPIN
+            if (vessel.noteStillness(riding, SLEEP_SETTLE_TICKS)) vessel.ride(deck)
             return
         }
         val still = report.anchored || floatingStill(vessel) || aloftStill(vessel)
@@ -3376,11 +3550,24 @@ class World(
         vessel.afloat = true
         vessel.draft = scratchSeaPoint.length - attractor.radius - seaRide.height
         vessel.sleepNormal.setTo(seaRide.normal)
+        // Not as it lay this moment, which in a swell can be the far end of a roll, but at its
+        // balance in the water. See FloatingBalance.
+        scratchRotation.rotate(seaRide.normal, scratchSeaUp)
+        if (balance.solve(vessel, scratchSeaUp, ocean.density, vessel.draft)) {
+            vessel.body.orientation.setTo(balance.orientation)
+            vessel.retakeTurn(scratchRotation)
+            vessel.draft = balance.height
+        }
     }
+
+    private val balance = FloatingBalance()
 
     private val seaRide = com.rm.apogee.core.sea.SeaSample()
     private val scratchRide = com.rm.apogee.core.math.Quat()
     private val scratchRideTurn = com.rm.apogee.core.math.Quat()
+    private val scratchRideFrom = Vec3()
+    private val scratchRideVelocity = Vec3()
+    private val scratchRideSpin = Vec3()
     private val scratchSeaPoint = Vec3()
     private val scratchSeaUp = Vec3()
     private val scratchTilt = Quat()
@@ -3399,9 +3586,12 @@ class World(
     private fun followSea(vessel: Vessel, attractor: CelestialBody, waves: Boolean, dt: Double = 0.0) {
         val ocean = attractor.ocean ?: return followGround(vessel, attractor)
         // A founded base afloat carries whatever stands on its deck, and for that its deck has to
-        // move with the turning speed it really has, worked out from how it turned this tick.
+        // move with the speeds it really has, worked out from how it moved and turned this tick.
+        // The sea's own velocity isn't that. The base stays moored where it was founded and only
+        // heaves and tilts, while the water under it goes to and fro, and a buggy braked on its
+        // deck slid about by the difference, a metre a second in a wild sea.
         val carrying = vessel.anchored && dt > 0.0
-        if (carrying) scratchRide.setTo(vessel.body.orientation)
+        if (carrying) { scratchRide.setTo(vessel.body.orientation); scratchRideFrom.setTo(vessel.body.position) }
         attractor.rotationAt(tickEnd, scratchRotation)
         vessel.sleepDirection(scratchSeaUp)
         ocean.sample(scratchSeaUp, tickEnd, seaRide, spacing = if (waves) riderSpacing(vessel) else 1.0e9)
@@ -3413,6 +3603,11 @@ class World(
         attractor.angularVelocity(scratchSpin)
         vessel.followSea(scratchRotation, attractor.radius + height + vessel.draft, scratchTilt, scratchSurfaceVelocity, scratchSpin)
         if (carrying) {
+            vessel.body.linearVelocity.setTo(vessel.body.position).subInPlace(scratchRideFrom).mulInPlace(1.0 / dt)
+            // Except where it was put somewhere new this tick, just founded or just loaded, which
+            // isn't a speed. Then it's the ground's.
+            attractor.surfaceVelocityAt(vessel.body.position, scratchRideFrom)
+            if (vessel.body.linearVelocity.distanceTo(scratchRideFrom) > RIDE_MOST) vessel.body.linearVelocity.setTo(scratchRideFrom)
             // conj(before) then after: the turn this tick, as an angle about an axis.
             scratchRideTurn.setTo(vessel.body.orientation).mulInPlace(scratchRide.conjugateInPlace())
             if (scratchRideTurn.w < 0.0) scratchRideTurn.setTo(-scratchRideTurn.x, -scratchRideTurn.y, -scratchRideTurn.z, -scratchRideTurn.w)
@@ -3698,7 +3893,73 @@ class World(
             keepPoint = vessel.control.keepPoint.copy(),
             ballonet = vessel.ballonet.toFloat(),
             lift = liftShare(vessel).toFloat(),
+            canRight = canRight(vessel),
+            standingOn = vessel.standingOn?.id?.raw ?: -1L,
+            riders = vesselsById.values.filter { onDeckOf(it, vessel) }.map { it.id.raw },
         ).let { sonar(vessel, it) }
+    }
+
+    /**
+     * Whether [vessel]'s crew can roll it back upright: it's lying past [RIGHT_FROM] off upright,
+     * afloat or on the ground, nearly still, crewed, and no heavier than [RIGHT_MOST_MASS].
+     *
+     * Every small boat floats as happily upside down as the right way up. The sea's buoyancy doesn't
+     * care which way up the hull is, and a Jet Boat idling side on to a wild sea was rolled past
+     * seventy degrees by a breaking crest and settled keel up. On a small craft that's the end of
+     * it without this. People right dinghies and jet skis, and push a buggy back onto its wheels.
+     */
+    fun canRight(vessel: Vessel): Boolean {
+        if (!vessel.rightingStart.isNaN() || vessel.anchored || isDebris(vessel) || walking.walkerOf(vessel) != null) return false
+        if (!vessel.hasCrew() || vessel.body.mass > RIGHT_MOST_MASS) return false
+        if (!vessel.dormant && !vessel.buoyed && !vessel.touchingGround) return false
+        val up = vessel.body.position.normalized()
+        val deck = vessel.body.orientation.rotate(vessel.design.orientation.up, Vec3())
+        if ((deck dot up) > kotlin.math.cos(RIGHT_FROM)) return false
+        val attractor = attractorFor(vessel)
+        attractor.surfaceVelocityAt(vessel.body.position, scratchCrew).subInPlace(vessel.body.linearVelocity)
+        return scratchCrew.length < RIGHT_STILL
+    }
+
+    /**
+     * Sets [vessel]'s crew rolling it upright, about its own length the way a boat goes over, with
+     * whatever tilt is left along its length taken out as well, keeping its heading.
+     */
+    private fun startRighting(vessel: Vessel) {
+        if (!canRight(vessel)) return
+        val up = vessel.body.position.normalized()
+        val ahead = vessel.body.orientation.rotate(vessel.design.orientation.forward, Vec3())
+        val deck = vessel.body.orientation.rotate(vessel.design.orientation.up, Vec3())
+        val turn = Quat()
+        // The roll: the deck and the up, both seen end on along the craft.
+        val deckAcross = deck.copy().addScaledInPlace(ahead, -(deck dot ahead))
+        val upAcross = up.copy().addScaledInPlace(ahead, -(up dot ahead))
+        if (deckAcross.length > 1e-6 && upAcross.length > 1e-6) {
+            val roll = kotlin.math.atan2(deckAcross.cross(upAcross) dot ahead, deckAcross dot upAcross)
+            Quat.fromAxisAngle(ahead.normalizeInPlace(), roll, turn)
+        }
+        vessel.rightingTo.setTo(turn).mulInPlace(vessel.body.orientation)
+        // Then the pitch, now that what's left is small and has only the one way to go.
+        vessel.rightingTo.rotate(vessel.design.orientation.up, deck)
+        vessel.rightingTo.setTo(quatFromTo(deck, up) * vessel.rightingTo).normalizeInPlace()
+        vessel.rightingFrom.setTo(vessel.body.orientation)
+        vessel.rightingStart = time
+    }
+
+    /**
+     * One tick of the crew rolling [vessel] upright, after it has moved. The roll is theirs, not
+     * the sea's or the ground's, so it's posed, and the tick's turning is dropped. Afloat, the
+     * water still carries it. On the ground it's kept standing on its lowest point as it turns,
+     * or turning it about its middle would drive half of it into the ground.
+     */
+    private fun stepRighting(vessel: Vessel, attractor: CelestialBody) {
+        val share = ((time - vessel.rightingStart) / RIGHT_TIME).coerceIn(0.0, 1.0)
+        // Slow to start and to finish, the way people heave something over.
+        val eased = share * share * (3.0 - 2.0 * share)
+        Quat.slerp(vessel.rightingFrom, vessel.rightingTo, eased, vessel.body.orientation)
+        vessel.body.orientation.normalizeInPlace()
+        vessel.body.angularVelocity.setTo(Vec3.zero())
+        if (vessel.touchingGround && !vessel.buoyed) setDown(vessel)
+        if (share >= 1.0) vessel.rightingStart = Double.NaN
     }
 
     /**
@@ -4160,6 +4421,7 @@ class World(
         system.rebase(vessel.body.position, vessel.body.linearVelocity, attractor.id, next.id, at)
         vessel.referenceBodyId = next.id
         vessel.air.clear()
+        vessel.airSampledAt = Double.NaN
         vessel.ringSide = Double.NaN
         pendingEvents.add(WorldEvent.BodyChanged(vessel.id, attractor.id, next.id))
         program?.crossed(this, vessel, attractor.id, next.id, at)
@@ -5013,7 +5275,10 @@ class World(
         if (attractor.altitudeOf(vessel.body.position) > SEA_CHECK_HEIGHT) return
         attractor.rotationAt(time, scratchRotation)
         attractor.toBodyFixed(vessel.body.position, scratchRotation, scratchSea)
-        val surface = ocean.surfaceHeight(scratchSea, time)
+        // From the waves the water pass keeps for it, when they're fresh: working the sea out afresh
+        // here, every step, was an eighth of a boat's.
+        val surface = hydrostatics.keptHeight(vessel, attractor, scratchSea, time).takeIf { !it.isNaN() }
+            ?: ocean.surfaceHeight(scratchSea, time)
         val onTop = attractor.atmosphere?.pressureAt(surface) ?: 0.0
         val g = attractor.gravitationalParameter / (attractor.radius * attractor.radius)
         var inside: BooleanArray? = null
@@ -5370,7 +5635,8 @@ class World(
      * theirs, for good.
      */
     private fun plantFlag(suit: Vessel): Vessel? {
-        if (walking.walkerOf(suit) == null || !suit.touchingGround) return null
+        // On the ground itself. A flag on a deck would be planted in whatever's under the deck.
+        if (walking.walkerOf(suit) == null || !suit.touchingGround || suit.standingOn != null) return null
         val attractor = attractorFor(suit)
         attractor.surfaceVelocityAt(suit.body.position, scratchCrew).subInPlace(suit.body.linearVelocity)
         if (scratchCrew.length > FLAG_STILL) return null
@@ -5484,6 +5750,10 @@ class World(
 
         /** Up to this the world steps faster. Past it, craft go on rails. */
         const val PHYSICS_WARP = 4.0
+
+        /** How long a craft's air sample is kept, in seconds, and how far it can go meanwhile, in metres. */
+        const val AIR_KEEP = 0.05
+        const val AIR_MOVE = 20.0
 
         /**
          * The auto-burn lights up once it's pointing this close (the cosine of 2 degrees), and
@@ -5627,7 +5897,29 @@ class World(
         /**
          * A flag: how still you have to be to plant it, how far ahead it goes, and half its height.
          */
+        /** The fastest a founded base afloat heaves, in m/s. Anything faster is it being put somewhere. */
+        const val RIDE_MOST = 15.0
+        /**
+         * How still a craft has to sit on a deck to go to sleep on it: across the deck in m/s, and
+         * turning against it in rad/s. Looser than on the ground, because a deck in a swell never
+         * quite stops under a craft on its springs.
+         */
+        const val RIDE_STILL = 0.3
+
+        /** How far apart, in metres, the points looked at under a craft for a deck are. */
+        const val DECK_PROBE_STEP = 0.25
+        const val RIDE_SPIN = 0.1
         const val FLAG_STILL = 0.5
+        /**
+         * Righting a capsized craft: how far off upright it has to lie (radians), the most it can
+         * weigh (kg), how still it has to be against the ground or the sea's drift (m/s), and how
+         * long the roll takes (s). The still is loose, because a wild sea heaves a boat up and down
+         * at a couple of metres a second however still it lies.
+         */
+        const val RIGHT_FROM = 75.0 * kotlin.math.PI / 180.0
+        const val RIGHT_MOST_MASS = 2_500.0
+        const val RIGHT_STILL = 4.0
+        const val RIGHT_TIME = 4.0
         const val FLAG_AHEAD = 1.0
         const val FLAG_HALF_HEIGHT = 1.1
         /** Why a suit went: its wearer climbed aboard something. */
@@ -5949,6 +6241,16 @@ class World(
             // carries it onto them as it goes down.
             capeSite("arch-sea", "Great Arch (test)", -2_635.0, 7_100.0),
             capeSite("chimneys-sea", "The Chimneys (test)", com.rm.apogee.core.terrain.Seabed.CHIMNEYS_EAST - 130.0, com.rm.apogee.core.terrain.Seabed.CHIMNEYS_NORTH),
+            // Out on the open ocean where Terra's seas run biggest, day in, day out: four metres on
+            // an ordinary day, and past ten in a storm. Found by sampling the sea over the whole
+            // planet for five days and keeping the roughest place.
+            LaunchSite(
+                id = "roaring-sea",
+                displayName = "The Roaring Sea",
+                bodyId = SolarSystem.HOMEWORLD_ID,
+                latitude = Math.toRadians(-17.2),
+                longitude = Math.toRadians(-138.3),
+            ),
             // For testing: straight onto the Moon without flying there. It's on the mare north-east
             // of Luna's prime meridian, a kilometre and a half below the datum, where the ground
             // under the whole row of pads slopes less than one in a hundred.

@@ -67,6 +67,10 @@ fun SasButton(
     onCruise: (Boolean) -> Unit = {},
     /** Held still by the keeper core. */
     keeping: Boolean = false,
+    /** Whether the auto-land can bring it down here, whether it is, and to switch that. */
+    canLand: Boolean = false,
+    landing: Boolean = false,
+    onLand: (Boolean) -> Unit = {},
 ) {
     val holdingMarker = enabled && mode != null && mode != SasMode.HOLD
     Box {
@@ -79,7 +83,9 @@ fun SasButton(
                 Modifier.combinedClickable(onClick = onToggle, onLongClick = { onExpand(true) }),
                 contentAlignment = Alignment.Center,
             ) {
-                if (keeping) {
+                if (landing) {
+                    Text("LND", style = TelemetryTextStyle, color = ApogeeColors.Prograde, maxLines = 1)
+                } else if (keeping) {
                     Text("STN", style = TelemetryTextStyle, color = ApogeeColors.Prograde, maxLines = 1)
                 } else if (cruising) {
                     Text("A+H", style = TelemetryTextStyle, color = ApogeeColors.Prograde, maxLines = 1)
@@ -103,6 +109,7 @@ fun SasButton(
                 Picker(
                     mode, currentTarget, targetChoices(), onMode = { onMode(it); onExpand(false) }, onTarget = { onTarget(it); onExpand(false) },
                     canCruise = canCruise, cruising = cruising, onCruise = { onCruise(it); onExpand(false) },
+                    canLand = canLand, landing = landing, onLand = { onLand(it); onExpand(false) },
                 )
             }
         }
@@ -119,6 +126,9 @@ private fun Picker(
     canCruise: Boolean,
     cruising: Boolean,
     onCruise: (Boolean) -> Unit,
+    canLand: Boolean = false,
+    landing: Boolean = false,
+    onLand: (Boolean) -> Unit = {},
 ) {
     val scroll = rememberScrollState()
     Surface(
@@ -142,6 +152,15 @@ private fun Picker(
                     if (cruising) "ALT + HDG · off" else "ALT + HDG", ApogeeColors.Prograde,
                     selected = cruising, enabled = true, modifier = Modifier.fillMaxWidth(),
                 ) { onCruise(!cruising) }
+                Spacer(Modifier.height(6.dp))
+            }
+            // Down where it is, the way it flies: a plane glides in and flares, a helicopter or
+            // an airship comes straight down.
+            if (canLand || landing) {
+                Chip(
+                    if (landing) "LAND · off" else "LAND", ApogeeColors.Prograde,
+                    selected = landing, enabled = true, modifier = Modifier.fillMaxWidth(),
+                ) { onLand(!landing) }
                 Spacer(Modifier.height(6.dp))
             }
             val rows = listOf(

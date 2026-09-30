@@ -320,7 +320,64 @@ data class Winch(
     val draw: Double = 0.5,
     /** Metres along the part's +Y from its centre to where the line comes out. */
     val faceOffset: Double = 0.2,
+    /**
+     * Leads its line any way at all, the way a ship's towing winch pays out over a roller on the
+     * stern, instead of only out in front of it the way a rover's does.
+     */
+    val anyWay: Boolean = false,
 ) : PartModule
+
+/**
+ * A tailhook: an arm under a plane's tail that swings down with the landing gear and catches an
+ * arresting wire on a deck. [tip] is where its hook is, in the part's own frame.
+ */
+@Serializable
+@SerialName("tailhook")
+data class Tailhook(val tip: SerialVec3 = Vec3(0.0, -1.0, -0.9)) : PartModule
+
+/**
+ * Arresting wires laid across a deck: across the part's X, at each of [wires] along its Y, [span]
+ * metres wide. A lowered tailhook crossing one is caught, and the wire pays out and stops the plane
+ * in [runout] metres, never pulling harder than [mostG].
+ */
+@Serializable
+@SerialName("arrestingGear")
+data class ArrestingGear(
+    val wires: List<Double> = listOf(-4.0, 0.0, 4.0),
+    val span: Double = 18.0,
+    val runout: Double = 60.0,
+    val mostG: Double = 4.0,
+) : PartModule
+
+/**
+ * A catapult: a track along the part's +Y, [stroke] metres long. A craft sitting still on its
+ * near end at full throttle with its brakes off is shot along it, up to [endSpeed] m/s by the far
+ * end.
+ */
+@Serializable
+@SerialName("catapult")
+data class Catapult(
+    val stroke: Double = 70.0,
+    val endSpeed: Double = 60.0,
+    /** How wide the track is, in metres, for what counts as sitting on it. */
+    val width: Double = 3.0,
+) : PartModule
+
+/**
+ * A skid: something a craft stands on that neither folds nor rolls nor gives, like a helicopter's
+ * landing skids. It's a foot, so it stands on another craft's deck the way a wheel does.
+ */
+@Serializable
+@SerialName("skid")
+data object Skid : PartModule
+
+/**
+ * Somewhere to make a line fast: a bitt, a bollard or a towing eye. A winch hooks onto one in
+ * reach before anything else on the craft, so a tow takes hold where it's meant to.
+ */
+@Serializable
+@SerialName("towPoint")
+data object TowPoint : PartModule
 
 /** A drag device. It does nothing until deployed, and then it dominates. */
 @Serializable

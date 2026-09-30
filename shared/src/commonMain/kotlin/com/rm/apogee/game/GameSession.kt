@@ -313,7 +313,7 @@ class GameSession private constructor(
 
     fun start(scope: CoroutineScope) {
         terrainScope = scope
-        serverJob = hostedServer?.start(scope)
+        serverJob = hostedServer?.start(scope, SERVER_THREAD)
         clientJob = client.connect(scope)
         // Once the handshake lands, put the launched craft on the pad. It waits for `connected`
         // instead of sending straight away, because the server refuses anything before the
@@ -775,6 +775,7 @@ class GameSession private constructor(
                 hasKeeper = systems.hasKeeper,
                 keeping = systems.keeping,
                 lift = systems.lift,
+                canRight = systems.canRight,
                 held = prediction.replica?.let { local ->
                     val ore = com.rm.apogee.core.part.ResourceType.ORE
                     val water = com.rm.apogee.core.part.ResourceType.WATER
@@ -813,6 +814,41 @@ class GameSession private constructor(
             return !replica.touchingGround && replica.defs.any { it.hasModule<com.rm.apogee.core.part.AeroSurface>() }
         }
 
+    /**
+     * Whether the craft being flown is riding on the water, so its readouts are a boat's: speed,
+     * heading and the wind, not height, depth or orbit. It holds for a moment after the last time
+     * the water held it up, so a boat thrown off a crest doesn't flick over to a plane's for a
+     * second.
+     */
+    val controlledAfloat: Boolean
+        get() {
+            val replica = prediction.replica ?: return false
+            val now = kotlin.time.TimeSource.Monotonic.markNow()
+            if (replica.buoyed && !replica.submerged && !replica.touchingGround) afloatAt = now
+            if (replica.submerged || replica.touchingGround) afloatAt = null
+            val at = afloatAt ?: return false
+            return (now - at).inWholeMilliseconds < AFLOAT_HOLD_MS
+        }
+
+    private var afloatAt: kotlin.time.TimeSource.Monotonic.ValueTimeMark? = null
+
+    /**
+     * Whether the craft being flown can be handed to the auto-land here the way it flies: a plane,
+     * a rotorcraft or an airship, up in air. A rocket's comes up by itself as it falls, from the
+     * impact readout.
+     */
+    val controlledCanLand: Boolean
+        get() {
+            val replica = prediction.replica ?: return false
+            if (!autopilotAllowed || replica.touchingGround || replica.buoyed) return false
+            if (system.bodies[replica.referenceBodyId]?.atmosphere == null) return false
+            return when (com.rm.apogee.core.craft.CraftKind.of(replica.design, catalog)) {
+                com.rm.apogee.core.craft.CraftKind.PLANE, com.rm.apogee.core.craft.CraftKind.ROTORCRAFT,
+                com.rm.apogee.core.craft.CraftKind.AIRSHIP -> true
+                else -> false
+            }
+        }
+
     /** The action groups the craft being flown's parts are in, in order. */
     val controlledGroups: List<Int>
         get() {
@@ -845,6 +881,9 @@ class GameSession private constructor(
     suspend fun hook() = withControlledVessel { client.send(Command.Hook(it)) }
     suspend fun reel(mode: Int) = withControlledVessel { client.send(Command.Reel(it, mode)) }
     suspend fun releaseLine() = withControlledVessel { client.send(Command.ReleaseLine(it)) }
+
+    /** Rolls the flown craft back upright, when it's gone over. */
+    suspend fun rightCraft() = withControlledVessel { client.send(Command.RightCraft(it)) }
 
     /** Folds the flown craft's sun wings and dishes out, or away. */
     suspend fun setDeployed(deployed: Boolean) {
@@ -1179,7 +1218,16 @@ class GameSession private constructor(
         approachReadout = replica?.let { approachFor(it, attractor, time) }
         currentReadout = replica?.let { currentFor(it, attractor) }
         val impact = plan?.impact
-        landingReadout = if (impact == null || replica == null || replica.touchingGround || replica.dormant) null else run {
+        // Not for anything the water's holding up. A boat riding the waves drops into every trough,
+        // and it was being offered IMPACT and AUTO LAND each time. Nor for a plane, a rotorcraft or
+        // an airship in air: the impact is worked out as a fall, with nothing holding it up, so an
+        // airship sinking at a metre a second was told it would hit at thirty. They have LAND.
+        val flies = replica != null && attractor.atmosphere != null && when (controlledKind) {
+            com.rm.apogee.core.craft.CraftKind.PLANE, com.rm.apogee.core.craft.CraftKind.ROTORCRAFT,
+            com.rm.apogee.core.craft.CraftKind.AIRSHIP -> true
+            else -> false
+        }
+        landingReadout = if (impact == null || replica == null || flies || replica.touchingGround || replica.dormant || replica.buoyed) null else run {
             val up = replica.body.position.normalized()
             val surface = attractor.surfaceVelocityAt(replica.body.position, Vec3())
             val velocity = Vec3().setTo(replica.body.linearVelocity).subInPlace(surface)
@@ -1479,8 +1527,12 @@ class GameSession private constructor(
         // Warped, the snapshots' own time is too jumpy to draw by, because a few milliseconds of
         // arrival jitter is four times as much world time at 4x. So a clock of our own runs at the
         // warp rate and gets eased toward it.
-        var renderTime = if (warping) warpClock(snapshotTime + snapshotAge * warp, warp)
-            else { warpClockTime = Double.NaN; snapshotTime + snapshotAge }
+        // Under physics warp, at the rate the world is really going: asked for 4x, a phone busy with
+        // a rough sea managed under 2x, and a clock at 4x ran seconds past the newest snapshot, with
+        // a boat carried on from it as if it were falling, metres under the waves.
+        val rate = if (warping && warp <= World.PHYSICS_WARP) worldRate(snapshotTime, warp) else warp
+        var renderTime = if (warping) warpClock(snapshotTime + snapshotAge * rate, rate, snapshotTime, warp)
+            else { warpClockTime = Double.NaN; rateSince = Double.NaN; snapshotTime + snapshotAge }
         lastRenderTime = renderTime
         val animationNow = System.nanoTime()
         animationDt = if (lastAnimationNanos == 0L || warp == 0.0) 0.0 else ((animationNow - lastAnimationNanos) / 1e9).coerceAtMost(0.1)
@@ -1584,6 +1636,11 @@ class GameSession private constructor(
             // what's left.
             if (!wrecked && focus.design.parts.size < framedParts && framedFor == focusId) {
                 camera.frameShrunk(designRadius(focus.design, designCentreOfMass(focus.design)))
+            }
+            // Taken up afresh, stand back far enough to see all of it. A Flat Top is eighty metres
+            // long, and the camera's usual thirty put it inside her deck.
+            if (!wrecked && framedFor != focusId) {
+                camera.frameAtLeast(designRadius(focus.design, designCentreOfMass(focus.design)))
             }
             if (!wrecked) { framedParts = focus.design.parts.size; framedFor = focusId }
             // Lost, so stand back far enough to take in the wreckage, instead of staying tucked in
@@ -1832,7 +1889,9 @@ class GameSession private constructor(
         seaHeard = 0.0; seaRough = 0.0; seaStorm = 0.0
         if (sea != null) {
             if (!debugHideSea && attractor.altitudeOf(cameraPosition) < sea.reach) {
-                sea.update(bodyFixedCamera, renderTime)
+                // Built less often while the world can't keep up, which leaves more of the phone
+                // for the server.
+                sea.update(bodyFixedCamera, renderTime, rate, behind = warping && rate < warp * BEHIND_SHARE)
                 seaSurface = sea.latest
                 if (seaSurface != null) seaReach = sea.reach
             }
@@ -1971,6 +2030,7 @@ class GameSession private constructor(
                     cloudShadow = if (mapMode) null else clouds?.shadowGrid,
                     surfaceWind = clouds?.surfaceWind?.copy() ?: Vec3(),
                     time = renderTime,
+                    warp = warp,
                     seaReach = seaReach,
                     tide = tide,
                     sea = seaSurface,
@@ -3426,20 +3486,51 @@ class GameSession private constructor(
     private var warpClockNanos = 0L
 
     /**
-     * The world time to draw a warped frame at: a clock that runs at [warp] times real time and
+     * The world time to draw a warped frame at: a clock that runs at [rate] times real time and
      * eases toward [target] (the snapshots' time), instead of jumping with every one. Under physics
-     * warp it runs a snapshot and a half behind, so every craft has a snapshot either side of it to
-     * be drawn between.
+     * warp it runs a snapshot and a half behind, and never past [newest], so every craft has a
+     * snapshot either side of it to be drawn between.
      */
-    private fun warpClock(target: Double, warp: Double): Double {
+    private fun warpClock(target: Double, rate: Double, newest: Double, warp: Double): Double {
         val now = System.nanoTime()
         val dt = if (warpClockNanos == 0L) 0.0 else ((now - warpClockNanos) / 1e9).coerceAtMost(0.1)
         warpClockNanos = now
-        warpClockTime = if (warpClockTime.isNaN() || kotlin.math.abs(target - warpClockTime) > WARP_CLOCK_SNAP * maxOf(warp, 1.0)) target
-            else warpClockTime + dt * warp + (target - warpClockTime) * WARP_CLOCK_EASE
-        val behind = if (warp <= World.PHYSICS_WARP) 1.5 * SNAPSHOT_SPACING * warp else 0.0
-        return warpClockTime - behind
+        warpClockTime = if (warpClockTime.isNaN() || kotlin.math.abs(target - warpClockTime) > WARP_CLOCK_SNAP * maxOf(rate, 1.0)) target
+            else warpClockTime + dt * rate + (target - warpClockTime) * WARP_CLOCK_EASE
+        if (warp > World.PHYSICS_WARP) return warpClockTime
+        return minOf(warpClockTime - 1.5 * SNAPSHOT_SPACING * rate, newest)
     }
+
+    /**
+     * How fast the world's time is really going under physics warp, as a multiple of real time,
+     * from how far the snapshots' time has come over the last half second or so. It's [warp] when
+     * the host keeps up, and less when it can't, which a phone in a rough sea at 4x doesn't.
+     */
+    private fun worldRate(snapshotTime: Double, warp: Double): Double {
+        val now = client.latestSnapshotNanos
+        if (rateSince.isNaN() || warp != rateWarp || snapshotTime < rateSince) {
+            rateSince = snapshotTime; rateSinceNanos = now; rateWarp = warp; measuredRate = warp
+            return warp
+        }
+        val real = (now - rateSinceNanos) / 1e9
+        if (real >= RATE_WINDOW) {
+            val seen = (snapshotTime - rateSince) / real
+            measuredRate += (seen - measuredRate) * RATE_EASE
+            rateSince = snapshotTime; rateSinceNanos = now
+        }
+        return measuredRate.coerceIn(0.0, warp)
+    }
+
+    /**
+     * How fast the world is really going under physics warp, as last measured, or NaN when it
+     * isn't being measured (real time, or warped on rails).
+     */
+    val worldRateNow: Double get() = if (rateSince.isNaN()) Double.NaN else measuredRate
+
+    private var rateSince = Double.NaN
+    private var rateSinceNanos = 0L
+    private var rateWarp = 1.0
+    private var measuredRate = 1.0
 
     /**
      * Where [vessel] is, and how it's turned, at [time], into [position] and [rotation]. Under
@@ -4266,8 +4357,15 @@ class GameSession private constructor(
             firstSeenNear.clear()
         }
         val hitched = client.latestSnapshot?.hitches.orEmpty()
+        // What it's standing on, a plane on a carrier or a buggy on a barge, isn't something it's
+        // pressed against to be welded to. Offered, one tap would have made them one craft.
+        // Nor, flying the deck, what's standing on it.
+        val systems = client.systems?.takeIf { it.vessel == focus.id }
+        val deck = systems?.standingOn ?: -1L
+        val riders = systems?.riders.orEmpty()
         for (other in client.vessels) {
             if (other.id == focus.id) continue
+            if (other.id == deck || other.id in riders) continue
             // The Cape's own buildings are nobody's to weld to.
             if (other.owner == World.WORLD_OWNER) continue
             // Brought to the same moment as ours, the same as for docking. A snapshot apart at
@@ -4480,6 +4578,16 @@ class GameSession private constructor(
         /** How much of the gap to the snapshots' time the warp clock closes each frame. */
         private const val WARP_CLOCK_EASE = 0.1
 
+        /**
+         * How long the world's real rate under warp is measured over, in seconds, and how much of
+         * each new measure is taken.
+         */
+        private const val RATE_WINDOW = 0.5
+
+        /** Below this share of the warp asked for, the world counts as falling behind. */
+        const val BEHIND_SHARE = 0.9
+        private const val RATE_EASE = 0.5
+
         /** Real seconds out, at the warp rate, past which the warp clock just jumps. */
         private const val WARP_CLOCK_SNAP = 0.5
 
@@ -4583,6 +4691,9 @@ class GameSession private constructor(
         /** How far above the ground the camera is kept, in metres. */
         private const val CAMERA_CLEARANCE = 2.0
 
+        /** How long a craft still counts as afloat after the water last held it up, in ms. */
+        private const val AFLOAT_HOLD_MS = 2_000L
+
         /**
          * A launch window is called open this long either side of its moment, in seconds. Two
          * minutes off, a launch due east is still within a degree of the moon's plane. It's worked
@@ -4628,6 +4739,9 @@ class GameSession private constructor(
 
         /** The one thread other worlds' globes are built on, one after another. */
         private val FAR_GLOBES = workerPool("far-globes", 1)
+
+        /** The one thread every hosted game's server ticks on, kept for the app's life. */
+        private val SERVER_THREAD by lazy { serverThread() }
 
         /**
          * A shed shell: how many pieces it splits into, how thick they are in metres, how fast
@@ -4954,6 +5068,8 @@ class FlightTelemetry(
      * ahead into the screen, 90 from the right, and 180 from behind the camera.
      */
     val windFrom: Double = 0.0,
+    /** The compass bearing the wind comes from, in degrees clockwise from north. */
+    val windBearing: Double = 0.0,
     /** Whether there's any air to speak of. The wind readouts are hidden in space. */
     val inAir: Boolean = false,
     /** How far under the sea the craft is, in metres. 0 or less out of it, or with no sea. */
@@ -5140,6 +5256,9 @@ class FlightTelemetry(
                 val right = heading.cross(up)
                 Math.toDegrees(kotlin.math.atan2(from dot right, from dot heading))
             } else 0.0
+            val windBearing = if (horizontalWind.length > 0.3) {
+                com.rm.apogee.core.world.Navigation.heading(state.position, horizontalWind.copy().mulInPlace(-1.0))
+            } else 0.0
 
             return FlightTelemetry(
                 altitude = altitude,
@@ -5178,6 +5297,7 @@ class FlightTelemetry(
                 airspeed = throughAir.length,
                 windSpeed = horizontalWind.length,
                 windFrom = windFrom,
+                windBearing = windBearing,
                 inAir = density > 1e-3,
                 depth = depth,
                 belowFloor = if (depth > 0.0) belowFloor else Double.NaN,
@@ -5213,7 +5333,7 @@ class FlightTelemetry(
                 orbitalSpeed = orbitalSpeed, apoapsisAltitude = apoapsisAltitude, periapsisAltitude = periapsisAltitude,
                 timeToApoapsis = timeToApoapsis, throttle = throttle, stage = stage, inOrbit = inOrbit,
                 craftName = craftName, dynamicPressure = dynamicPressure, rotation = rotation, up = up,
-                prograde = prograde, airspeed = airspeed, windSpeed = windSpeed, windFrom = windFrom, inAir = inAir,
+                prograde = prograde, airspeed = airspeed, windSpeed = windSpeed, windFrom = windFrom, windBearing = windBearing, inAir = inAir,
                 frame = frame, frameChosen = frameChosen, normal = normal, radialOut = radialOut, toTarget = toTarget,
                 targetName = targetName, targetDistance = targetDistance, closingSpeed = closingSpeed,
                 throughAir = throughAir, heading = heading, verticalSpeed = verticalSpeed, sasMode = sasMode,

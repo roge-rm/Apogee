@@ -56,7 +56,9 @@ object PartTabs {
             docking != null && (docking.kind == DockKind.HITCH_BALL || docking.kind == DockKind.HITCH_COUPLING) -> PartTab.GROUND
             // Rotors and fans, and gas cells and envelopes, together.
             def.hasModule<com.rm.apogee.core.part.Rotor>() || def.hasModule<com.rm.apogee.core.part.LiftGas>() -> PartTab.AIR
-            // A winch goes with the hitches, and a sail with the hulls.
+            // A rover's winch goes with the hitches, and a sail with the hulls. So does a ship's
+            // towing winch, and somewhere to make its line fast.
+            def.module<com.rm.apogee.core.part.Winch>()?.anyWay == true || def.hasModule<com.rm.apogee.core.part.TowPoint>() -> PartTab.WATER
             def.hasModule<com.rm.apogee.core.part.Winch>() -> PartTab.GROUND
             def.hasModule<com.rm.apogee.core.part.Sail>() -> PartTab.WATER
             docking != null || def.hasModule<Rcs>() || def.hasModule<Parachute>() -> PartTab.UTILITY
@@ -97,5 +99,12 @@ object PartTabs {
         // A submarine's float and keel, foam and lead, with no module to say so.
         "float-foam" to PartTab.WATER,
         "keel-lead" to PartTab.WATER,
+        // A tug's push knees, timber and rubber with no module to say so.
+        "knees-push" to PartTab.WATER,
+        // A carrier's deck, and its gear, with the ships. The hook goes with the wheels.
+        "deck-flight" to PartTab.WATER,
+        "gear-arrest" to PartTab.WATER,
+        "catapult-deck" to PartTab.WATER,
+        "hook-tail" to PartTab.GROUND,
     )
 }

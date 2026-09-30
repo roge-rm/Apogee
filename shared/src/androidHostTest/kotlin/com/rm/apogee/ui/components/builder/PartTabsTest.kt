@@ -10,7 +10,7 @@ class PartTabsTest {
 
     /** Every stock part, where a player would look for it. */
     private val expected = mapOf(
-        PartTab.PODS to setOf("cockpit-bubble", "basket-wicker", "core-keeper", "pod-halo", "pod-trio", "probe-mote", "cockpit-sparrow", "cockpit-kestrel", "cab-rover", "cab-open", "cabin-wheelhouse",
+        PartTab.PODS to setOf("cockpit-bubble", "basket-wicker", "core-keeper", "pod-halo", "pod-trio", "probe-mote", "cockpit-sparrow", "cockpit-kestrel", "cab-rover", "cab-open", "seat-saddle", "cabin-wheelhouse",
             "pod-pearl", "pod-abyss", "hull-nautilus",
         ),
         PartTab.TANKS to setOf(
@@ -28,18 +28,19 @@ class PartTabsTest {
         ),
         PartTab.GROUND to setOf(
             "leg-stilt", "wheel-tread", "wheel-gear", "wheel-gear-main", "wheel-gear-nose", "wheel-tail",
-            "wheel-small", "wheel-large", "hitch-ball", "hitch-coupling", "winch-drum",
+            "wheel-small", "wheel-large", "hitch-ball", "hitch-coupling", "winch-drum", "hook-tail",
         ),
         PartTab.WATER to setOf(
-            "hull-punt", "hull-bow", "hull-mid", "hull-stern", "hull-skiff", "hull-cutter", "motor-outboard", "rudder", "keel", "keel-skeg",
+            "hull-punt", "hull-bow", "hull-mid", "hull-stern", "hull-skiff", "hull-cutter", "hull-jetski", "hull-runabout", "motor-outboard", "jet-water", "jet-pump", "rudder", "keel", "keel-skeg",
             "ballast-trim", "ballast-deep", "ballast-abyss", "float-foam", "keel-lead", "screw-drive", "planes-dive",
             "sail-sloop", "sail-cutter", "pontoon",
+            "hull-wide-bow", "hull-wide-mid", "hull-wide-stern", "engine-diesel", "engine-electric", "rudder-ship", "sail-schooner", "sail-square", "keel-ship", "barge-bow", "barge-mid", "barge-stern", "knees-push", "winch-tow", "bitt-tow", "deck-flight", "gear-arrest", "catapult-deck",
         ),
         PartTab.UTILITY to setOf(
             "chute-canopy", "chute-side", "chute-side-heavy", "rcs-nudge", "light-bar", "dock-port", "dock-port-small", "mooring-clamp",
             "panel-glint", "wing-kite", "battery-hoard", "cell-spark", "antenna-reed", "dish-beacon", "dish-great", "generator-glow",
             "drill-auger", "converter-small", "scanner-survey", "ladder-rung",
-            "battery-deep", "battery-abyss", "lamp-deep", "sonar-array",
+            "battery-deep", "battery-abyss", "lamp-deep", "sonar-array", "battery-ship",
         ),
         PartTab.AIR to setOf("rotor-main", "rotor-tail", "rotor-drone", "fan-lift", "balloon-small", "cell-gas", "envelope-airship"),
         PartTab.BASE to setOf(

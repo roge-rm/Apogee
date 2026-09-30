@@ -29,13 +29,17 @@ class LandingAPlaneTest {
         val offCentre: Double,
         /** Ticks in the last twenty seconds, parked, with no wheel on the ground. */
         val hopTicks: Int,
+        /** Degrees its nose is up, and its wings are over, at rest. */
+        val nose: Double = 0.0,
+        val bank: Double = 0.0,
     )
 
     private fun land(
-        approachSpeed: Double = 95.0,
+        approachSpeed: Double = 45.0,
         height: Double = 40.0,
         noseUpDegrees: Double = 6.0,
         weather: com.rm.apogee.core.weather.WeatherIntensity? = null,
+        design: com.rm.apogee.core.craft.CraftDesign = StockCraft.aeroplane(catalog),
     ): Outcome {
         val world = World.default(catalog)
         world.weatherConfig = weather?.let { com.rm.apogee.core.weather.WeatherConfig(intensity = it) }
@@ -58,7 +62,7 @@ class LandingAPlaneTest {
         check((rotation.rotate(Vec3(0.0, 1.0, 0.0)) dot up) > 0.0) { "pitched the wrong way" }
 
         val velocity = surface.copy().addScaledInPlace(east, approachSpeed)
-        val plane = world.spawnAt(StockCraft.aeroplane(catalog), "terra", position, velocity, rotation)
+        val plane = world.spawnAt(design, "terra", position, velocity, rotation)
         plane.control.sasEnabled = true
 
         var touchdownSpeed = -1.0
@@ -106,6 +110,8 @@ class LandingAPlaneTest {
             onRunway = world.attractorFor(plane).altitudeOf(plane.body.position) < 1_000.0,
             offCentre = offCentre,
             hopTicks = hopTicks,
+            nose = Math.toDegrees(kotlin.math.asin((plane.body.orientation.rotate(Vec3(0.0, 1.0, 0.0)) dot upNow).coerceIn(-1.0, 1.0))),
+            bank = Math.toDegrees(kotlin.math.asin((plane.body.orientation.rotate(Vec3(1.0, 0.0, 0.0)) dot upNow).coerceIn(-1.0, 1.0))),
         )
     }
 
@@ -154,5 +160,17 @@ class LandingAPlaneTest {
             // it drifts and might come down beside the tarmac.
             assertTrue("$intensity: %.0f m off the centreline".format(o.offCentre), o.offCentre < 120.0)
         }
+    }
+
+    @Test
+    fun `the Petrel lands slow and stops short`() {
+        val o = land(approachSpeed = 38.0, height = 25.0, noseUpDegrees = 5.0, design = StockCraft.petrel(catalog))
+        assertTrue("never touched down", o.touchdownSpeed >= 0.0)
+        assertTrue("${o.broken} parts broke", o.broken == 0)
+        // Half the Sparrow's landing speed, on its brakes alone. On a ship steaming into the wind
+        // there's twenty metres a second less of it, and the wires take the rest.
+        assertTrue("touched down at ${o.touchdownSpeed} m/s", o.touchdownSpeed < 37.0)
+        assertTrue("rolled ${o.rolloutMetres} m", o.rolloutMetres < 220.0)
+        assertTrue("sat back on its tail, nose up ${o.nose} degrees", o.nose < 10.0)
     }
 }

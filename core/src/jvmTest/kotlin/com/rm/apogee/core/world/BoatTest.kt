@@ -120,7 +120,9 @@ class BoatTest {
     fun `it turns its track, not just its nose`() {
         val (world, boat) = afloat()
         underWay(world, boat)
-        repeat((20.0 / dt).toInt()) { world.step(dt) }
+        // Not long: the harbour's small, and twenty seconds at full throttle took her most of the
+        // way to its edge before she'd turned.
+        repeat((8.0 / dt).toInt()) { world.step(dt) }
         val before = groundVelocity(world, boat).normalizeInPlace()
 
         world.apply(Command.SetAttitude(boat.id.raw, 0.0, 1.0, 0.0))

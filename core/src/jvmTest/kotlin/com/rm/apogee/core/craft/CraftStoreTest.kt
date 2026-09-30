@@ -92,7 +92,8 @@ class CraftStoreTest {
 
     /** The craft built from the vehicle kits, offered from 0.3.5. */
     private val KIT = setOf(
-        "Sparrow", "Buggy", "Hauler", "Skiff", "Sloop", "Hummingbird", "Quad", "Skylark", "Zeppelin", "Sky Platform", "Sea Platform", "Cutter", "Port Tug", "Dock Probe", "Tow Buggy", "Cart", "Trawler",
+        "Sparrow", "Buggy", "Hauler", "Skiff", "Sloop", "Jet Boat", "Jet Ski", "Hummingbird", "Quad", "Skylark", "Zeppelin", "Sky Platform", "Sea Platform", "Cutter", "Port Tug", "Dock Probe", "Tow Buggy", "Cart", "Trawler",
+        "Coaster", "Electric Coaster", "Schooner", "Deck Barge", "Harbour Tug", "Petrel", "Landing Barge", "Flat Top",
         "Base Core", "Pad Base", "Base Core Hauler", "Module Hauler", "Depot Hauler", "Base Core Lander", "Moonshot",
         "Mote Probe", "Prospector", "Surveyor", "Sounder", "Minnow", "Nautilus", "Abyss",
     )

@@ -337,6 +337,12 @@ data class PartDef(
         }
     }
 
+    /**
+     * Something a craft stands on, rather than rests on: a wheel, a landing leg, a skid, or a foot. These
+     * meet the ground, and other craft's decks, sprung and gripping.
+     */
+    val foot: Boolean by lazy { module<Wheel>() != null || module<LandingLeg>() != null || module<Walker>() != null || module<Skid>() != null }
+
     val displacedVolume: Double by lazy {
         module<Buoyancy>()?.displacedVolume ?: displaces.takeIf { it >= 0.0 } ?: when (val m = mesh) {
             is MeshSpec.Cylinder -> Math.PI * m.radius * m.radius * m.height

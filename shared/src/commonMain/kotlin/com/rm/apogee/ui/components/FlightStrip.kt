@@ -46,8 +46,10 @@ data class StripField(val label: String, val value: String, val colour: Color = 
  * air, it's the orbit's high and low points, the time to the high one, and the speed. A target,
  * when there is one, takes the last place, showing how far. A dangerous load of air always shows.
  * Under the sea, it's how deep, how far above the floor, climbing or sinking, and how fast, which
- * is slow enough down there to want the tenths. Afloat in a current that's worth knowing about, it's
- * how fast that runs and which way. Under sail, the wind always shows, with an arrow for the way it
+ * is slow enough down there to want the tenths. Riding on the water or driving on the ground, it's
+ * how fast, the wind and which way it blows, and the heading. Height, depth and climb are no use
+ * there: a metre either way of a surface that's always moving, or the ground the wheels are on. Afloat in a current that's worth knowing about, it's how
+ * fast that runs and which way. Under sail, the wind always shows, with an arrow for the way it
  * blows across the view, since it's what a sail goes by.
  */
 fun stripFields(
@@ -58,12 +60,19 @@ fun stripFields(
     sailing: Boolean = false,
     /** Its gas cells' lift as a share of its weight, or below 0 with none. */
     lift: Float = -1f,
+    /** Whether it's riding on the water or driving on the ground, so it reads like a boat or a car. */
+    onSurface: Boolean = false,
 ): List<StripField> {
     if (t.destroyed != null) return emptyList()
     val out = ArrayList<StripField>(5)
     val onGround = t.heightAboveGround < GROUND_HEIGHT && t.surfaceSpeed < GROUND_SPEED
     val low = !onGround && (t.inAir || t.heightAboveGround < LOW_HEIGHT) && !t.inOrbit
     when {
+        onSurface && !t.inOrbit -> {
+            out += StripField("SRF", if (t.surfaceSpeed < 10.0) "%.1f".format(t.surfaceSpeed) else "${t.surfaceSpeed.roundToInt()}")
+            if (t.inAir) out += StripField("WIND", windReading(t), if (t.windSpeed > STRONG_WIND) ApogeeColors.Caution else ApogeeColors.Data)
+            out += StripField("HDG", "%03d\u00b0".format(t.heading.roundToInt() % 360))
+        }
         t.depth > UNDER_DEPTH -> {
             out += StripField("DEPTH", formatDistance(t.depth), ApogeeColors.Data)
             if (t.belowFloor.isFinite()) {
@@ -145,6 +154,8 @@ fun FlightStrip(
     sailing: Boolean = false,
     /** Its gas cells' lift as a share of its weight, or below 0 with none. */
     lift: Float = -1f,
+    /** Whether it's riding on the water or driving on the ground, so it reads like a boat or a car. */
+    onSurface: Boolean = false,
     /**
      * Numbers per line: two in portrait, beside the top-left buttons, and all of them in landscape.
      */
@@ -160,7 +171,7 @@ fun FlightStrip(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(3.dp), horizontalAlignment = Alignment.End) {
-                for (line in stripFields(telemetry, current, sailing, lift).chunked(perLine.coerceAtLeast(1))) {
+                for (line in stripFields(telemetry, current, sailing, lift, onSurface).chunked(perLine.coerceAtLeast(1))) {
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         for (field in line) Cell(field)
                     }
@@ -175,7 +186,7 @@ fun FlightStrip(
         }
         if (open) {
             Spacer(Modifier.height(4.dp))
-            TelemetryPanel(telemetry, twoColumns = twoColumns, power = power)
+            TelemetryPanel(telemetry, twoColumns = twoColumns, power = power, onSurface = onSurface)
         }
     }
 }
@@ -220,6 +231,7 @@ internal fun TelemetryPanel(
     modifier: Modifier = Modifier,
     twoColumns: Boolean = false,
     power: com.rm.apogee.game.HudState.PowerReadout? = null,
+    onSurface: Boolean = false,
 ) {
     // Two columns in landscape (near the ground, then the orbit and target), where one tall column
     // used to run down over the roll and SAS buttons.
@@ -229,13 +241,13 @@ internal fun TelemetryPanel(
         .padding(horizontal = 12.dp, vertical = 8.dp)
     if (twoColumns) {
         Row(panel, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            Column(horizontalAlignment = Alignment.End) { SurfaceReadouts(telemetry) }
-            Column(horizontalAlignment = Alignment.End) { OrbitReadouts(telemetry); PowerReadout(power) }
+            Column(horizontalAlignment = Alignment.End) { SurfaceReadouts(telemetry, onSurface) }
+            Column(horizontalAlignment = Alignment.End) { OrbitReadouts(telemetry, onSurface); PowerReadout(power) }
         }
     } else {
         Column(panel, horizontalAlignment = Alignment.End) {
-            SurfaceReadouts(telemetry)
-            OrbitReadouts(telemetry)
+            SurfaceReadouts(telemetry, onSurface)
+            OrbitReadouts(telemetry, onSurface)
             PowerReadout(power)
         }
     }
@@ -277,13 +289,17 @@ private fun PowerReadout(power: com.rm.apogee.game.HudState.PowerReadout?) {
     )
 }
 
+/**
+ * Near the ground: height, speed, climb, heading and the air. [onSurface], onSurface or driving, it's
+ * the speed, heading and the wind, with the compass point the wind comes from.
+ */
 @Composable
-private fun SurfaceReadouts(telemetry: FlightTelemetry) {
-    Readout("ALT", formatDistance(telemetry.altitude))
+private fun SurfaceReadouts(telemetry: FlightTelemetry, onSurface: Boolean = false) {
+    if (!onSurface) Readout("ALT", formatDistance(telemetry.altitude))
     // Above the ground, not above the datum. The launch complex sits most of a kilometre up, so the
     // two disagree from the moment you spawn, and only one of them tells you whether you're about
     // to land.
-    if (telemetry.heightAboveGround < 20_000.0) {
+    if (!onSurface && telemetry.heightAboveGround < 20_000.0) {
         Readout(
             "AGL",
             formatDistance(telemetry.heightAboveGround),
@@ -291,9 +307,9 @@ private fun SurfaceReadouts(telemetry: FlightTelemetry) {
             else ApogeeColors.Data,
         )
     }
-    Readout("SRF", "${telemetry.surfaceSpeed.roundToInt()} m/s")
+    Readout("SRF", if (onSurface && telemetry.surfaceSpeed < 10.0) "${telemetry.surfaceSpeed.format(1)} m/s" else "${telemetry.surfaceSpeed.roundToInt()} m/s")
     // Climb or sink, and which way the nose points on the compass.
-    Readout(
+    if (!onSurface) Readout(
         "VS",
         (if (telemetry.verticalSpeed >= 0) "+" else "\u2212") + "${kotlin.math.abs(telemetry.verticalSpeed).roundToInt()} m/s",
         colour = if (telemetry.verticalSpeed < -10.0 && telemetry.heightAboveGround < 500.0) ApogeeColors.Caution else ApogeeColors.Data,
@@ -301,7 +317,7 @@ private fun SurfaceReadouts(telemetry: FlightTelemetry) {
     Readout("HDG", "%03d\u00b0".format(telemetry.heading.roundToInt() % 360))
     // Through the air, and the air itself, only where there is some.
     if (telemetry.inAir) {
-        Readout("AIR", "${telemetry.airspeed.roundToInt()} m/s")
+        if (!onSurface) Readout("AIR", "${telemetry.airspeed.roundToInt()} m/s")
         val windColour = if (telemetry.windSpeed > 15.0) ApogeeColors.Caution else ApogeeColors.Data
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("WIND", style = TelemetryTextStyle, color = Color.White.alpha(ApogeeAlpha.SUBTITLE))
@@ -318,12 +334,44 @@ private fun SurfaceReadouts(telemetry: FlightTelemetry) {
                 Spacer(Modifier.width(4.dp))
             }
             Text("${telemetry.windSpeed.roundToInt()} m/s", style = TelemetryTextStyle, color = windColour)
+            if (onSurface && telemetry.windSpeed >= 0.5) {
+                Text(
+                    " from ${compassPoint(telemetry.windBearing.toFloat())}",
+                    style = TelemetryTextStyle,
+                    color = Color.White.alpha(ApogeeAlpha.SUBTITLE),
+                )
+            }
         }
     }
 }
 
+/** The orbit, the moon's window, the target and the load of air. [onSurface], only the target. */
 @Composable
-private fun OrbitReadouts(telemetry: FlightTelemetry) {
+private fun OrbitReadouts(telemetry: FlightTelemetry, onSurface: Boolean = false) {
+    if (!onSurface) OrbitNumbers(telemetry)
+    telemetry.targetName?.let { name ->
+        Spacer(Modifier.height(4.dp))
+        Readout("TGT", name.take(12), colour = TARGET_COLOUR)
+        Readout("DST", formatDistance(telemetry.targetDistance), colour = TARGET_COLOUR)
+        Readout(
+            "CLS",
+            (if (telemetry.closingSpeed >= 0) "" else "\u2212") + "${kotlin.math.abs(telemetry.closingSpeed).format(1)} m/s",
+            colour = TARGET_COLOUR,
+        )
+    }
+    if (telemetry.dynamicPressure > 100.0 && (!onSurface || telemetry.highDynamicPressure)) {
+        Spacer(Modifier.height(4.dp))
+        Readout(
+            "Q",
+            "${(telemetry.dynamicPressure / 1000).format(1)} kPa",
+            colour = if (telemetry.highDynamicPressure) ApogeeColors.Danger
+            else ApogeeColors.Data,
+        )
+    }
+}
+
+@Composable
+private fun OrbitNumbers(telemetry: FlightTelemetry) {
     Readout("ORB", "${telemetry.orbitalSpeed.roundToInt()} m/s")
     Spacer(Modifier.height(4.dp))
     Readout(
@@ -352,25 +400,6 @@ private fun OrbitReadouts(telemetry: FlightTelemetry) {
             telemetry.moonName.uppercase(),
             if (open) "go east" else formatDuration(telemetry.lunaWindow),
             colour = if (open) ApogeeColors.Prograde else ApogeeColors.Data,
-        )
-    }
-    telemetry.targetName?.let { name ->
-        Spacer(Modifier.height(4.dp))
-        Readout("TGT", name.take(12), colour = TARGET_COLOUR)
-        Readout("DST", formatDistance(telemetry.targetDistance), colour = TARGET_COLOUR)
-        Readout(
-            "CLS",
-            (if (telemetry.closingSpeed >= 0) "" else "\u2212") + "${kotlin.math.abs(telemetry.closingSpeed).format(1)} m/s",
-            colour = TARGET_COLOUR,
-        )
-    }
-    if (telemetry.dynamicPressure > 100.0) {
-        Spacer(Modifier.height(4.dp))
-        Readout(
-            "Q",
-            "${(telemetry.dynamicPressure / 1000).format(1)} kPa",
-            colour = if (telemetry.highDynamicPressure) ApogeeColors.Danger
-            else ApogeeColors.Data,
         )
     }
 }

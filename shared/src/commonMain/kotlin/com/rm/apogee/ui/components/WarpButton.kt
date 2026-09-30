@@ -51,6 +51,8 @@ import com.rm.apogee.ui.theme.alpha
 fun WarpButton(
     warp: Double,
     requested: Double,
+    /** How fast the world is really going, when it's measured: less than [warp] when it can't keep up. */
+    actual: Double = Double.NaN,
     expanded: Boolean,
     onExpand: (Boolean) -> Unit,
     onWarp: (Double) -> Unit,
@@ -79,7 +81,14 @@ fun WarpButton(
                     paused -> Icon(Icons.Filled.Pause, contentDescription = "Paused. Tap to carry on", tint = ApogeeColors.Caution)
                     warped -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(Icons.Filled.FastForward, contentDescription = "Time warp. Tap for real time", tint = ApogeeColors.Accent, modifier = Modifier.size(18.dp))
-                        Text(rate(warp), style = TelemetryTextStyle, color = ApogeeColors.Accent, maxLines = 1)
+                        // Short of what was asked for, what it's really managing, in amber.
+                        val short = !actual.isNaN() && actual < warp * 0.9
+                        Text(
+                            if (short) rate(actual) else rate(warp),
+                            style = TelemetryTextStyle,
+                            color = if (short) ApogeeColors.Caution else ApogeeColors.Accent,
+                            maxLines = 1,
+                        )
                     }
                     else -> Icon(Icons.Filled.PlayArrow, contentDescription = "Real time. Tap to pause, hold to warp")
                 }
@@ -150,5 +159,7 @@ private fun Rates(warp: Double, requested: Double, onPick: (Double) -> Unit) {
 private fun rate(r: Double): String = when {
     r >= 1_000_000 -> "${(r / 1_000_000).toInt()}M×"
     r >= 1_000 -> "${(r / 1_000).toInt()}k×"
+    // A world falling behind at 1.7x, say.
+    r < 10.0 && r != kotlin.math.floor(r) -> "${kotlin.math.round(r * 10.0) / 10.0}×"
     else -> "${r.toInt()}×"
 }

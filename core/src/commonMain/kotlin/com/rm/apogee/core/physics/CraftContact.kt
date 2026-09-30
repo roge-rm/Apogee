@@ -3,9 +3,6 @@ package com.rm.apogee.core.physics
 import com.rm.apogee.core.craft.Vessel
 import com.rm.apogee.core.math.Mat3
 import com.rm.apogee.core.math.Vec3
-import com.rm.apogee.core.part.MeshSpec
-import kotlin.math.abs
-import kotlin.math.sqrt
 
 /** One craft hitting another, for the caller to turn into consequences. */
 class CraftImpactReport {
@@ -96,9 +93,6 @@ class CraftContact {
      * six-metre-a-second nudge got reported as six hundred and ninety-five.
      */
     private val contactWorld = Vec3()
-    private val localPoint = Vec3()
-    private val partLocal = Vec3()
-    private val localNormal = Vec3()
     private val relativeVelocity = Vec3()
     private val velocityA = Vec3()
     private val velocityB = Vec3()
@@ -193,13 +187,16 @@ class CraftContact {
                 val reach = radiusA + radiusB
                 if (scratch.lengthSq > reach * reach) continue
 
-                for (point in defA.contactPoints.indices) {
+                // Wheels, legs and feet meet another craft the way they meet the ground, sprung,
+                // rolling and gripping, in GroundContact. Here they're only something for the
+                // other craft's points to run into.
+                if (!isFoot(defA)) for (point in defA.contactPoints.indices) {
                     a.contactPointWorld(partA, point, contactWorld)
                     if (penetrationOf(contactWorld, b, partB)) {
                         applyContact(a, b, contactWorld, partA, partB, dt)
                     }
                 }
-                for (point in defB.contactPoints.indices) {
+                if (!isFoot(defB)) for (point in defB.contactPoints.indices) {
                     b.contactPointWorld(partB, point, contactWorld)
                     if (penetrationOf(contactWorld, a, partA)) {
                         // The normal came out pointing away from A, and the contact routine wants
@@ -212,107 +209,18 @@ class CraftContact {
         }
     }
 
+    /** The depth of the contact [penetrationOf] last found. */
+    private var penetration: Double = 0.0
+    private val volume = PartVolume()
+
     /**
      * Whether [worldPoint] is inside part [partIndex] of [vessel]. It leaves the outward normal in
-     * [normal] and returns the depth through [penetration].
+     * [normal] and the depth in [penetration].
      */
-    private var penetration: Double = 0.0
-
     private fun penetrationOf(worldPoint: Vec3, vessel: Vessel, partIndex: Int): Boolean {
-        val def = vessel.defs[partIndex]
-        if (!def.solid) return false
-        vessel.worldToPartLocal(partIndex, worldPoint, localPoint)
-        if (def.hull.isEmpty()) {
-            if (!insidePrimitive(def.mesh)) return false
-        } else {
-            // Inside any one of its volumes, each tested in its own place.
-            partLocal.setTo(localPoint)
-            var inside = false
-            for (volume in def.hull) {
-                localPoint.setTo(partLocal).subInPlace(volume.offset)
-                if (insidePrimitive(volume.mesh)) { inside = true; break }
-            }
-            if (!inside) return false
-        }
-
-        // Part local to world, for the normal.
-        vessel.design.parts[partIndex].rotation.rotate(localNormal, normal)
-        vessel.body.orientation.rotate(normal, normal)
-        return true
-    }
-
-    /**
-     * Point in primitive, with the shallowest way out as the normal.
-     *
-     * It's the shallowest way out rather than the nearest surface because that's the direction the
-     * contact should push. A corner barely inside a tank's end cap should be pushed out through the
-     * cap, not sideways through two metres of tank.
-     */
-    private fun insidePrimitive(mesh: MeshSpec): Boolean {
-        val p = localPoint
-        when (mesh) {
-            is MeshSpec.Sphere -> {
-                val distance = p.length
-                if (distance >= mesh.radius) return false
-                penetration = mesh.radius - distance
-                if (distance > 1e-9) {
-                    localNormal.setTo(p).mulInPlace(1.0 / distance)
-                } else {
-                    localNormal.setTo(0.0, 1.0, 0.0)
-                }
-                return true
-            }
-
-            is MeshSpec.Box -> {
-                val hx = mesh.width * 0.5
-                val hy = mesh.height * 0.5
-                val hz = mesh.depth * 0.5
-                val dx = hx - abs(p.x)
-                val dy = hy - abs(p.y)
-                val dz = hz - abs(p.z)
-                if (dx <= 0.0 || dy <= 0.0 || dz <= 0.0) return false
-                penetration = minOf(dx, dy, dz)
-                when (penetration) {
-                    dx -> localNormal.setTo(if (p.x < 0) -1.0 else 1.0, 0.0, 0.0)
-                    dy -> localNormal.setTo(0.0, if (p.y < 0) -1.0 else 1.0, 0.0)
-                    else -> localNormal.setTo(0.0, 0.0, if (p.z < 0) -1.0 else 1.0)
-                }
-                return true
-            }
-
-            is MeshSpec.Cylinder -> return insideTube(mesh.radius, mesh.radius, mesh.height)
-
-            // A cone is treated as a tube whose radius changes with height. The parts that use it
-            // are engine bells and nose cones, where the taper is gentle and the difference is
-            // millimetres.
-            is MeshSpec.Cone ->
-                return insideTube(mesh.bottomRadius, mesh.topRadius, mesh.height)
-        }
-    }
-
-    private fun insideTube(bottomRadius: Double, topRadius: Double, height: Double): Boolean {
-        val p = localPoint
-        val half = height * 0.5
-        val alongDepth = half - abs(p.y)
-        if (alongDepth <= 0.0) return false
-
-        val t = ((p.y + half) / height).coerceIn(0.0, 1.0)
-        val radius = bottomRadius + (topRadius - bottomRadius) * t
-        val radial = sqrt(p.x * p.x + p.z * p.z)
-        val radialDepth = radius - radial
-        if (radialDepth <= 0.0) return false
-
-        if (radialDepth < alongDepth) {
-            penetration = radialDepth
-            if (radial > 1e-9) {
-                localNormal.setTo(p.x / radial, 0.0, p.z / radial)
-            } else {
-                localNormal.setTo(1.0, 0.0, 0.0)
-            }
-        } else {
-            penetration = alongDepth
-            localNormal.setTo(0.0, if (p.y < 0) -1.0 else 1.0, 0.0)
-        }
+        if (!volume.inside(worldPoint, vessel, partIndex)) return false
+        normal.setTo(volume.normal)
+        penetration = volume.penetration
         return true
     }
 

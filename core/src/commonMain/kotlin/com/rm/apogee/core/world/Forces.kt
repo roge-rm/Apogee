@@ -24,6 +24,13 @@ import com.rm.apogee.core.math.Math
  */
 class Forces {
 
+    /**
+     * The sea's height at body-fixed point for a craft, from the waves the water pass keeps for it,
+     * or NaN when there aren't any fresh enough or there's no open water under it. Working the sea
+     * out afresh at every propeller, every step, cost a phone a good share of a tick.
+     */
+    var waterAt: ((Vessel, CelestialBody, Vec3, Double) -> Double)? = null
+
     /** Standard gravity, only used to turn specific impulse into mass flow. */
     private val g0 = 9.80665
 
@@ -149,7 +156,13 @@ class Forces {
             lastMassFlow += massFlow * feedFraction
             vessel.engineOutput[partIndex] = drive * feedFraction
 
-            gimballedDirection(vessel, engine, scratchDirection)
+            // Something pushing on the water steers with less of its swing once the turn is pulling
+            // the boat hard sideways. Full lock at thirty knots threw a jet boat round so hard the
+            // water tripped her over.
+            val steer = if (engine.waterProp != null) {
+                waterSteer(vessel, attractor)
+            } else 1.0
+            gimballedDirection(vessel, engine, scratchDirection, steer)
             vessel.body.orientation.rotate(scratchDirection, scratchDirection)
 
             scratchForce.setTo(scratchDirection).mulInPlace(actualThrust)
@@ -221,7 +234,7 @@ class Forces {
         // The turn asked for, around the craft's own axes (x pitch, y roll, z yaw): the stick's or
         // SAS's command, or with SAS on and nothing to hold, against the spin, the same way the
         // reaction wheels damp it.
-        if (control.sasEnabled && !control.hasAttitudeInput && !vessel.assistHolding) {
+        if (control.sasEnabled && !control.stickOverrides && !vessel.assistHolding) {
             vessel.body.orientation.inverseRotate(vessel.body.angularVelocity, scratchCommand)
             val spin = scratchCommand.length
             if (spin > 1e-6) scratchCommand.mulInPlace(-(spin / SAS_SATURATION_RATE).coerceAtMost(1.0) / spin)
@@ -308,6 +321,9 @@ class Forces {
         vessel.partPointOffsetWorld(partIndex, point, scratchWaterPoint).addInPlace(vessel.body.position)
         attractor.rotationAt(time, scratchWaterRotation)
         attractor.toBodyFixed(scratchWaterPoint, scratchWaterRotation, scratchWaterDirection)
+        // The craft's own waves, when they've been worked out lately, over open water.
+        val kept = waterAt?.invoke(vessel, attractor, scratchWaterDirection, time) ?: Double.NaN
+        if (!kept.isNaN()) return ((attractor.radius + kept - scratchWaterPoint.length) / PROP_IMMERSION_DEPTH).coerceIn(0.0, 1.0)
         val surface = ocean.surfaceHeight(scratchWaterDirection, time)
         val terrain = attractor.terrain
         if (terrain != null && terrain.elevation(scratchWaterDirection) >= surface) return 0.0
@@ -319,10 +335,35 @@ class Forces {
     private val scratchWaterDirection = Vec3()
     private val scratchWaterRotation = Quat.identity()
 
-    private fun gimballedDirection(vessel: Vessel, engine: Engine, out: Vec3): Vec3 {
+    private val scratchWaterSpeed = Vec3()
+
+    /**
+     * The share of its steering a craft on the water gets: all of it, until it's turning so fast
+     * for its speed that the turn pulls it sideways at [WATER_TURN_PULL], and less as it comes up
+     * to that, the way a helmsman eases the wheel before the boat trips over itself. A light boat
+     * at thirty knots got there in a moment, and a big slow one never does. He eases it as she
+     * heels past [WATER_HEEL_FROM] as well: a boat with skegs that grip well rolls out over a turn
+     * long before it pulls her sideways that hard.
+     */
+    private fun waterSteer(vessel: Vessel, attractor: CelestialBody): Double {
+        attractor.surfaceVelocityAt(vessel.body.position, scratchWaterSpeed).negateInPlace().addInPlace(vessel.body.linearVelocity)
+        val speed = scratchWaterSpeed.length
+        if (speed < 1.0) return 1.0
+        scratchWaterSpeed.setTo(vessel.body.position).normalizeInPlace()
+        val turning = kotlin.math.abs(vessel.body.angularVelocity dot scratchWaterSpeed)
+        val most = WATER_TURN_PULL / speed
+        val byTurn = ((most - turning) / (most * WATER_TURN_EASE)).coerceIn(0.0, 1.0)
+        vessel.body.orientation.rotate(vessel.design.orientation.up, scratchWaterDirection)
+        val heel = kotlin.math.acos((scratchWaterDirection dot scratchWaterSpeed).coerceIn(-1.0, 1.0))
+        val byHeel = ((WATER_HEEL_FROM + WATER_HEEL_OVER - heel) / WATER_HEEL_OVER).coerceIn(0.0, 1.0)
+        return byTurn * byHeel
+    }
+
+    /** [engine]'s thrust, swung by the stick through [share] of its gimbal range, in its part's axes. */
+    private fun gimballedDirection(vessel: Vessel, engine: Engine, out: Vec3, share: Double = 1.0): Vec3 {
         if (engine.gimbalRange <= 0.0) return out.setTo(engine.thrustDirection)
 
-        val range = Math.toRadians(engine.gimbalRange)
+        val range = Math.toRadians(engine.gimbalRange) * share
         // Negated, and that sign matters a lot. An engine sits *below* the centre of mass, so
         // swinging its thrust toward +Z makes a torque around -X, which is the opposite of what a
         // reaction wheel does for the same positive pitch command. Without the negation the two
@@ -340,7 +381,7 @@ class Forces {
      * The convention matches the mesh axes. +Y is the nose, so roll is around Y, pitch around X and
      * yaw around Z.
      */
-    fun applyReactionWheels(vessel: Vessel) {
+    fun applyReactionWheels(vessel: Vessel, attractor: CelestialBody? = null) {
         vessel.wheelWork = 0.0
         // No charge, no wheels.
         if (!vessel.powered) return
@@ -356,7 +397,7 @@ class Forces {
         val control = vessel.control
         // SAS with nothing to hold (on the ground, or before a hold has been taken) falls back to
         // bleeding off rotation.
-        if (control.sasEnabled && !control.hasAttitudeInput && !vessel.assistHolding) {
+        if (control.sasEnabled && !control.stickOverrides && !vessel.assistHolding) {
             dampRotation(vessel, authority)
             vessel.wheelWork = authority * DAMPING_WORK
             return
@@ -366,10 +407,18 @@ class Forces {
         // On foot, the stick walks, so only turning around their own height (their roll) is left to
         // the wheels.
         val tip = if (vessel.onFeet) 0.0 else 1.0
+        // A boat afloat is given less turn when she's already turning hard for her speed, the same
+        // as a motor's swing: at thirty knots a seat's wheels alone spun a light boat round so hard
+        // the water tripped her. (A boat: something with a hull. A drone that dips a foot in the
+        // sea isn't one.)
+        var turn = tip
+        if (attractor != null && vessel.buoyed && !vessel.submerged && vessel.defs.any { it.hasModule<com.rm.apogee.core.part.Buoyancy>() }) {
+            turn *= waterSteer(vessel, attractor)
+        }
         scratchTorque.setTo(
             control.commandPitch * authority * tip,
             control.commandRoll * authority,
-            control.commandYaw * authority * tip,
+            control.commandYaw * authority * turn,
         )
         vessel.body.orientation.rotate(scratchTorque, scratchTorque)
         vessel.body.applyTorque(scratchTorque)
@@ -475,6 +524,8 @@ class Forces {
         val air = vessel.air
         val density = atmosphere.densityAt(altitude) * air.loading
         if (density <= 0.0) return
+        // The speed of sound here, for how the wings lift past it.
+        soundSpeed = kotlin.math.sqrt(GAS_RATIO * GAS_CONSTANT * atmosphere.temperatureAt(altitude))
 
         // The wind, in the world's frame. The air moves with the ground, and on top of that with
         // the weather.
@@ -652,10 +703,15 @@ class Forces {
                 // already badly out of line. A wing has to hold an aircraft up at small angles, and
                 // couldn't.
                 //
-                // It also stalls for free, because the product peaks near 45 degrees and falls away
-                // past it.
+                // And it rises with the angle at a real wing's lift slope, up to the surface's
+                // [AeroSurface.liftCoefficient], which is the most lift it makes, where it stalls.
+                // That number was once used as the slope, and every wing made a fifth of the lift
+                // a real one does: the Sparrow needed seventy-eight metres a second to leave the
+                // ground.
                 val normalForce = if (crossSpeed > 1e-6) {
-                    0.5 * density * crossSpeed * abs(along) * surface.area * surface.liftCoefficient
+                    val attack = kotlin.math.atan2(crossSpeed, abs(along))
+                    val speed = kotlin.math.sqrt(crossSpeed * crossSpeed + along * along)
+                    0.5 * density * speed * speed * surface.area * normalCoefficient(attack, surface.liftCoefficient, slopeAt(speed / soundSpeed))
                 } else 0.0
                 if (crossSpeed > 1e-6) {
                     scratchForce.setTo(scratchCrossFlow)
@@ -693,6 +749,25 @@ class Forces {
      * slower speed and a lower nose, and land shorter. They cost drag while they do it.
      * [scratchLocalVelocity] is the part's airflow, as the drag pass left it.
      */
+    /**
+     * How hard the air pushes square to a surface meeting it at [attack] radians (0 edge on, pi/2
+     * broadside), as a share of the dynamic pressure times its area, for a surface whose most lift
+     * is [most].
+     *
+     * Before it stalls it's a real wing's: the lift slope times the flat plate's sin(a)cos(a),
+     * which is the slope times the angle at the few degrees a wing flies at. It stalls where that
+     * reaches [most], about fifteen degrees for a wing's 1.4, and drops to [STALL_KEEP] of it. Past
+     * that it's a flat plate held into the wind, up to [PLATE_BROADSIDE] square on.
+     */
+    fun normalCoefficient(attack: Double, most: Double, slope: Double = LIFT_SLOPE): Double {
+        val stall = 0.5 * kotlin.math.asin((2.0 * most / slope).coerceAtMost(1.0))
+        return if (attack < stall) slope * kotlin.math.sin(attack) * kotlin.math.cos(attack)
+        else maxOf(most * STALL_KEEP, PLATE_BROADSIDE * kotlin.math.sin(attack))
+    }
+
+    /** The speed of sound where the craft is, this pass, in m/s. */
+    private var soundSpeed = 340.0
+
     private fun flaps(vessel: Vessel, partIndex: Int, surface: AeroSurface, density: Double): Double {
         val out = vessel.flapPosition.getOrElse(partIndex) { 0.0 }
         if (out <= 0.0 || surface.flapLift <= 0.0) return 0.0
@@ -765,7 +840,14 @@ class Forces {
         val attack = offBow - out
         val drawing = smooth(SAIL_LUFFS, SAIL_CLOSEST, offBow)
         val normal = if (attack < PI / 4.0) SAIL_NORMAL * kotlin.math.sin(2.0 * attack) else SAIL_NORMAL
-        val pressure = 0.5 * density * wind * wind * sail.area * set
+        // Eased as she heels, the way a crew spills wind in a gust: past a moderate heel, less of
+        // the sail draws the harder she's pressed. Carried full, a sail big enough to move her in
+        // light air laid her over in a fresh breeze, lost its drive, and let her round up into
+        // the wind and stop.
+        vessel.body.orientation.rotate(vessel.design.orientation.up, scratchSailMast)
+        val heel = kotlin.math.acos((scratchSailMast dot scratchSailUp).coerceIn(-1.0, 1.0))
+        val eased = (1.0 - (heel - SAIL_EASE_FROM) / SAIL_EASE_OVER).coerceIn(SAIL_EASED_MOST, 1.0)
+        val pressure = 0.5 * density * wind * wind * sail.area * set * eased
         // Square to the sail, on its leeward side: forward by sin(out) and to leeward by cos(out).
         val push = pressure * normal * drawing
         val drag = pressure * (SAIL_DRAG + SAIL_FLOGGING * (1.0 - drawing))
@@ -856,13 +938,15 @@ class Forces {
         if (normalLength < 1e-6) return 0.0
         scratchNormal.mulInPlace(1.0 / normalLength)
 
-        // sin(d)cos(d) of the actual deflection, the same flat-plate form the lift uses. Charging
-        // the surface's full broadside force made four rocket fins worth tens of kilonewtons at max
-        // q.
+        // The same lift curve the surface flies on, at the deflection. Charging the surface's full
+        // broadside force made four rocket fins worth tens of kilonewtons at max q.
         val angle = Math.toRadians(surface.maxDeflection) * deflection
-        val force = 0.5 * density * airspeed * airspeed *
-            surface.area * surface.liftCoefficient * surface.controlAuthority *
-            kotlin.math.sin(angle) * kotlin.math.cos(angle)
+        // Blown back by the air at speed: its actuators can't hold it further over than pushes
+        // [BLOWBACK_SHARE] of what it's built to carry. Held at full travel at nine hundred metres
+        // a second, a stabilator pushed five times that and snapped off.
+        val force = (0.5 * density * airspeed * airspeed *
+            surface.area * surface.controlAuthority *
+            normalCoefficient(abs(angle), surface.liftCoefficient, slopeAt(airspeed / soundSpeed))).coerceAtMost(BLOWBACK_SHARE * surface.loadLimit) * kotlin.math.sign(angle)
         scratchForce.setTo(scratchNormal).mulInPlace(force)
         vessel.body.applyForceAtOffset(scratchForce, scratchOffset)
         vessel.recordForce(partIndex, scratchForce)
@@ -976,6 +1060,25 @@ class Forces {
         const val SAIL_DRAG = 0.05
         const val SAIL_FLOGGING = 0.25
 
+        /**
+         * The most a turn on the water is let pull a boat sideways, in m/s², and the share of that
+         * turn rate over which the steering eases off to nothing.
+         */
+        const val WATER_TURN_PULL = 4.0
+        const val WATER_TURN_EASE = 0.3
+
+        /** The heel, in radians, from which the steering on the water eases, and over which it goes. */
+        const val WATER_HEEL_FROM = 0.44
+        const val WATER_HEEL_OVER = 0.26
+
+        /**
+         * A sail eases from full once the boat heels past [SAIL_EASE_FROM] (radians), down to
+         * [SAIL_EASED_MOST] of it by [SAIL_EASE_OVER] further.
+         */
+        const val SAIL_EASE_FROM = 0.26
+        const val SAIL_EASE_OVER = 0.35
+        const val SAIL_EASED_MOST = 0.25
+
         /** The share of the wheels' strength counted as used while only damping rotation. */
         const val DAMPING_WORK = 0.1
 
@@ -1010,6 +1113,19 @@ class Forces {
         /** For weighing a chute's pull in g. */
         const val STANDARD_GRAVITY = 9.81
 
+        /** Air's ratio of specific heats, and its gas constant in J/(kg K), for the speed of sound. */
+        const val GAS_RATIO = 1.4
+        const val GAS_CONSTANT = 287.0
+
+        /** The most of its load limit a control surface pushes with, blown back by the air at speed. */
+        const val BLOWBACK_SHARE = 0.6
+
+        /** The share of its most lift a surface keeps once it has stalled. */
+        const val STALL_KEEP = 0.7
+
+        /** A flat plate's push held square to the wind, as a coefficient. */
+        const val PLATE_BROADSIDE = 1.2
+
         /** Extra drag in the heaviest rain, as a share: a quarter more. */
         const val RAIN_DRAG = 0.25
 
@@ -1028,3 +1144,26 @@ class Forces {
 
 /** The speed of a circular orbit at the given radius. Shared by spawn and telemetry. */
 fun circularSpeed(mu: Double, radius: Double): Double = sqrt(mu / radius)
+
+/**
+ * A wing's lift slope per radian: less than a thin aerofoil's 2 pi, for a wing of ordinary
+ * proportions, whose tips leak some of it.
+ */
+const val LIFT_SLOPE = 5.5
+
+/**
+ * The lift slope at [mach]: [LIFT_SLOPE] below the speed of sound, and past it the supersonic
+ * one, 4 / sqrt(M^2 - 1), a third of it at Mach 2.5, blended across the transonic between.
+ * Flown at its low-speed slope at Mach 3, a Sparrow pulling out of a dive at one degree was
+ * pulling ten g, and broke up.
+ */
+fun slopeAt(mach: Double): Double {
+    if (!(mach > SUPERSONIC_FROM)) return LIFT_SLOPE
+    val supersonic = 4.0 / kotlin.math.sqrt(maxOf(mach, SUPERSONIC_FULL) * maxOf(mach, SUPERSONIC_FULL) - 1.0)
+    val share = ((mach - SUPERSONIC_FROM) / (SUPERSONIC_FULL - SUPERSONIC_FROM)).coerceIn(0.0, 1.0)
+    return minOf(LIFT_SLOPE, LIFT_SLOPE + (supersonic - LIFT_SLOPE) * share)
+}
+
+/** Mach numbers from which a wing starts to lift like a supersonic one, and does entirely. */
+private const val SUPERSONIC_FROM = 1.0
+private const val SUPERSONIC_FULL = 1.2

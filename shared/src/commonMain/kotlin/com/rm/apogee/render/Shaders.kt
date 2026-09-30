@@ -132,7 +132,10 @@ object Shaders {
                     vec2 cloud = texture(uCloudShadow, c.xy).rg;
                     // Only under the cloud. Flying above it, it shades nothing.
                     float below = 1.0 - smoothstep(cloud.g - 0.004, cloud.g + 0.004, c.z);
-                    lit *= 1.0 - cloud.r * uCloudOn * below;
+                    // Fading out toward the grid's edge. Cut off square, an overcast in it was a
+                    // dark square on the ground, plain to see from high up.
+                    float edge = max(abs(c.x - 0.5), abs(c.y - 0.5)) * 2.0;
+                    lit *= 1.0 - cloud.r * uCloudOn * below * (1.0 - smoothstep(0.7, 1.0, edge));
                 }
             }
             return lit;
@@ -885,29 +888,67 @@ object Shaders {
 
         out vec4 vColour;
         out vec3 vUp;
+        out vec3 vBody;
 
         void main() {
             vColour = aColour;
             vUp = mat3(uModel) * aPosition;
+            vBody = aPosition;
             gl_Position = uViewProjection * uModel * vec4(aPosition, 1.0);
         }
     """.trimIndent()
 
-    /** Lit by the sun the same as the ground under it: bright by day, and a faint grey at night. */
+    /**
+     * Lit by the sun the same as the ground under it: bright by day, and a faint grey at night.
+     * The cover comes from the vertices, tens of kilometres apart, and the texture inside it from
+     * noise worked out here per pixel, in the planet's own frame so it stays on the ground under
+     * it: thick bright bands, thinner stretches the ground shows through, and a few breaks. An
+     * overcast was one even sheet of white paint over the whole globe without it.
+     */
     val CLOUD_SHELL_FRAGMENT = """
         #version 300 es
         precision highp float;
 
         in vec4 vColour;
         in vec3 vUp;
+        in vec3 vBody;
 
         uniform vec3 uSunDirection;
+        // Noise cells per body radius, so a cell is the same size on any world.
+        uniform float uNoiseScale;
+        // A slow drift, so the texture moves as the weather does.
+        uniform float uDrift;
 
         out vec4 fragColor;
 
+        float hash(vec3 p) {
+            p = fract(p * 0.3183099 + vec3(0.71, 0.113, 0.419));
+            p *= 17.0;
+            return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+        }
+
+        float noise(vec3 x) {
+            vec3 i = floor(x);
+            vec3 f = fract(x);
+            f = f * f * (3.0 - 2.0 * f);
+            return mix(
+                mix(mix(hash(i), hash(i + vec3(1, 0, 0)), f.x), mix(hash(i + vec3(0, 1, 0)), hash(i + vec3(1, 1, 0)), f.x), f.y),
+                mix(mix(hash(i + vec3(0, 0, 1)), hash(i + vec3(1, 0, 1)), f.x), mix(hash(i + vec3(0, 1, 1)), hash(i + vec3(1, 1, 1)), f.x), f.y),
+                f.z);
+        }
+
         void main() {
+            vec3 p = normalize(vBody) * uNoiseScale + vec3(uDrift, 0.0, -uDrift);
+            float n = 0.5 * noise(p) + 0.3 * noise(p * 2.3 + 7.1) + 0.2 * noise(p * 5.1 - 3.7);
+            // The texture stretched out to 0..1, since layered noise sits mostly near a half. It
+            // thins the cloud or thickens it around what the weather says is there, so there's as
+            // much in all as before, and opens breaks where it's thinnest.
+            float m = clamp((n - 0.5) * 2.4 + 0.5, 0.0, 1.0);
+            float alpha = min(vColour.a * (0.25 + 0.95 * m), 0.9) * smoothstep(0.08, 0.3, m);
+            // Thick cloud's tops are brighter than a thin veil's.
+            vec3 colour = vColour.rgb * (0.82 + 0.18 * m);
             float day = smoothstep(-0.12, 0.3, dot(normalize(vUp), uSunDirection));
-            fragColor = vec4(vColour.rgb * (0.05 + 0.95 * day), vColour.a * (0.3 + 0.7 * day));
+            fragColor = vec4(colour * (0.05 + 0.95 * day), alpha * (0.3 + 0.7 * day));
         }
     """.trimIndent()
 

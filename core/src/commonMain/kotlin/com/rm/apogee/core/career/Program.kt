@@ -251,6 +251,13 @@ class Program(val tree: TechTree = TechTree.stock) {
             if (engine) log.underSail = 0.0
             else if (vessel.sailFill.any { it > 0.0 }) log.underSail += speed * dt
             if (log.underSail >= UNDER_SAIL) award(world, vessel, Feat.UNDER_SAIL, log.underSail / 1000.0)
+            if (log.underSail >= TALL_SHIP && vessel.body.mass >= TALL_SHIP_MASS) award(world, vessel, Feat.TALL_SHIP)
+            if (log.sailed >= BLUE_WATER) award(world, vessel, Feat.BLUE_WATER)
+            // Towing: its line pulling on a heavy craft.
+            val line = world.lineOf(vessel)
+            val towing = line?.b?.let { world.vessel(it) }
+            if (line != null && line.taut && towing != null && towing.body.mass >= UNDER_TOW_MASS) log.towed += speed * dt
+            if (log.towed >= UNDER_TOW) award(world, vessel, Feat.UNDER_TOW)
         }
         when {
             wet -> log.sailed += speed * dt
@@ -425,6 +432,9 @@ class Program(val tree: TechTree = TechTree.stock) {
             val runway = down && horizontal && log.onRunway
             if (runway && log.aboveAir) award(world, vessel, Feat.GLIDE_HOME)
             if (runway && log.fromRunway && log.peak > FLIGHT_HEIGHT) award(world, vessel, Feat.FIRST_FLIGHT)
+            // Down on the deck of a craft afloat, having flown there.
+            val deck = vessel.standingOn
+            if (down && horizontal && crewed && log.peak > FLIGHT_HEIGHT && deck != null && (deck.buoyed || deck.afloat)) award(world, vessel, Feat.DECK_LANDING)
             if (horizontal && log.flown >= LONG_HAUL && down) award(world, vessel, Feat.LONG_HAUL, log.flown / 1000.0)
             if (wet && log.sailed >= SEAWORTHY && nearHarbour(world, vessel)) award(world, vessel, Feat.SEAWORTHY)
             log.landedOn.clear()
@@ -547,6 +557,13 @@ class Program(val tree: TechTree = TechTree.stock) {
         const val ALIEN_SAIL = 100.0
         const val SEAWORTHY = 5_000.0
         const val UNDER_SAIL = 1_000.0
+        /** How far a voyage goes to be blue water, and how far a ship sails for Tall Ship, in metres, and how heavy it is, in kg. */
+        const val BLUE_WATER = 50_000.0
+        const val TALL_SHIP = 5_000.0
+        const val TALL_SHIP_MASS = 20_000.0
+        /** How far a tow goes for Under Tow, in metres, and how heavy what's towed is, in kg. */
+        const val UNDER_TOW = 1_000.0
+        const val UNDER_TOW_MASS = 50_000.0
 
         /**
          * Hovering: the least height above the ground, in metres, how far off the spot counts as

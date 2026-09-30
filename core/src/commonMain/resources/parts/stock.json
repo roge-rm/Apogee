@@ -10136,7 +10136,7 @@
     "modules": [
       {
         "type": "sail",
-        "area": 10.0,
+        "area": 24.0,
         "effortHeight": -0.6
       }
     ]
@@ -15288,6 +15288,794 @@
     ]
   },
   {
+    "id": "jet-water",
+    "title": "Water Jet",
+    "category": "propulsion",
+    "dryMass": 140.0,
+    "description": "A pump that draws the water in through a grate under the stern and throws it out astern. There's nothing hanging in the water to drag, so a boat with one is several times quicker than with an outboard, and the nozzle swings to steer. Only pushes while the intake is in the water.",
+    "crashTolerance": 12.0,
+    "dragCoefficient": 0.3,
+    "displaces": 0.05,
+    "mesh": {
+      "type": "box",
+      "width": 0.45,
+      "height": 0.7,
+      "depth": 0.4
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.42,
+              "height": 0.42,
+              "depth": 0.36
+            }
+          },
+          "offset": {
+            "x": 0,
+            "y": 0.12,
+            "z": 0.02
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.3,
+              "height": 0.3,
+              "depth": 0.1
+            }
+          },
+          "offset": {
+            "x": 0,
+            "y": 0.18,
+            "z": -0.22
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "compound",
+            "pieces": [
+              {
+                "model": {
+                  "type": "primitive",
+                  "mesh": {
+                    "type": "cylinder",
+                    "radius": 0.12,
+                    "height": 0.35
+                  }
+                },
+                "offset": {
+                  "x": 0,
+                  "y": -0.05,
+                  "z": 0
+                },
+                "tint": "metal"
+              },
+              {
+                "model": {
+                  "type": "primitive",
+                  "mesh": {
+                    "type": "cylinder",
+                    "radius": 0.09,
+                    "height": 0.12
+                  }
+                },
+                "offset": {
+                  "x": 0,
+                  "y": -0.26,
+                  "z": 0
+                },
+                "tint": "dark"
+              }
+            ]
+          },
+          "role": "gimbal",
+          "pivot": {
+            "x": 0.0,
+            "y": 0.1,
+            "z": 0.0
+          }
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "top",
+        "position": {
+          "x": 0,
+          "y": 0.35,
+          "z": 0
+        },
+        "direction": {
+          "x": 0,
+          "y": 1,
+          "z": 0
+        },
+        "size": 1
+      }
+    ],
+    "modules": [
+      {
+        "type": "engine",
+        "thrustVacuum": 8000.0,
+        "thrustSeaLevel": 8000.0,
+        "ispVacuum": 2200.0,
+        "ispSeaLevel": 2200.0,
+        "gimbalRange": 25.0,
+        "propellant": "propellant",
+        "thrustDirection": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "minThrottle": 0.0,
+        "waterProp": {
+          "x": 0.0,
+          "y": 0.25,
+          "z": -0.55
+        }
+      },
+      {
+        "type": "tank",
+        "resource": "propellant",
+        "capacity": 40.0
+      }
+    ]
+  },
+  {
+    "id": "jet-pump",
+    "title": "Jet Pump",
+    "category": "propulsion",
+    "dryMass": 60.0,
+    "description": "A small water jet for a jet ski or a tender. The nozzle swings to steer, and it only pushes while the intake is in the water.",
+    "crashTolerance": 12.0,
+    "dragCoefficient": 0.3,
+    "displaces": 0.024,
+    "mesh": {
+      "type": "box",
+      "width": 0.315,
+      "height": 0.49,
+      "depth": 0.28
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.294,
+              "height": 0.294,
+              "depth": 0.252
+            }
+          },
+          "offset": {
+            "x": 0,
+            "y": 0.08399999999999999,
+            "z": 0.013999999999999999
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.21,
+              "height": 0.21,
+              "depth": 0.07
+            }
+          },
+          "offset": {
+            "x": 0,
+            "y": 0.126,
+            "z": -0.154
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "compound",
+            "pieces": [
+              {
+                "model": {
+                  "type": "primitive",
+                  "mesh": {
+                    "type": "cylinder",
+                    "radius": 0.08399999999999999,
+                    "height": 0.24499999999999997
+                  }
+                },
+                "offset": {
+                  "x": 0,
+                  "y": -0.034999999999999996,
+                  "z": 0
+                },
+                "tint": "metal"
+              },
+              {
+                "model": {
+                  "type": "primitive",
+                  "mesh": {
+                    "type": "cylinder",
+                    "radius": 0.063,
+                    "height": 0.08399999999999999
+                  }
+                },
+                "offset": {
+                  "x": 0,
+                  "y": -0.182,
+                  "z": 0
+                },
+                "tint": "dark"
+              }
+            ]
+          },
+          "role": "gimbal",
+          "pivot": {
+            "x": 0.0,
+            "y": 0.06999999999999999,
+            "z": 0.0
+          }
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "top",
+        "position": {
+          "x": 0,
+          "y": 0.24499999999999997,
+          "z": 0
+        },
+        "direction": {
+          "x": 0,
+          "y": 1,
+          "z": 0
+        },
+        "size": 1
+      }
+    ],
+    "modules": [
+      {
+        "type": "engine",
+        "thrustVacuum": 3000.0,
+        "thrustSeaLevel": 3000.0,
+        "ispVacuum": 2200.0,
+        "ispSeaLevel": 2200.0,
+        "gimbalRange": 15.0,
+        "propellant": "propellant",
+        "thrustDirection": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "minThrottle": 0.0,
+        "waterProp": {
+          "x": 0.0,
+          "y": 0.175,
+          "z": -0.385
+        }
+      },
+      {
+        "type": "tank",
+        "resource": "propellant",
+        "capacity": 25.0
+      }
+    ]
+  },
+  {
+    "id": "hull-jetski",
+    "title": "Jet Ski Hull",
+    "category": "structural",
+    "dryMass": 140.0,
+    "description": "A short, wide planing hull for one, made to be thrown about at speed. Put a saddle on top and a jet pump on the back.",
+    "crashTolerance": 14.0,
+    "dragCoefficient": 0.35,
+    "mesh": {
+      "type": "box",
+      "width": 1.2,
+      "height": 2.8,
+      "depth": 0.56
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "loft",
+            "sections": [
+              {
+                "y": -1.395,
+                "halfWidth": 0.56,
+                "top": 0.28,
+                "bottom": -0.21,
+                "vee": 0.3,
+                "round": 0.35
+              },
+              {
+                "y": -0.31,
+                "halfWidth": 0.597,
+                "top": 0.28,
+                "bottom": -0.28,
+                "vee": 0.55,
+                "round": 0.35
+              },
+              {
+                "y": 0.744,
+                "halfWidth": 0.463,
+                "top": 0.308,
+                "bottom": -0.21,
+                "vee": 0.75,
+                "round": 0.35
+              },
+              {
+                "y": 1.395,
+                "halfWidth": 0.075,
+                "top": 0.35,
+                "bottom": 0.105,
+                "vee": 0.3,
+                "round": 0.35
+              }
+            ],
+            "around": 14,
+            "capped": true
+          }
+        },
+        {
+          "model": {
+            "type": "loft",
+            "sections": [
+              {
+                "y": -1.395,
+                "halfWidth": 0.583,
+                "top": 0.266,
+                "bottom": 0.196,
+                "vee": 0.0,
+                "round": 0.2
+              },
+              {
+                "y": -0.31,
+                "halfWidth": 0.62,
+                "top": 0.266,
+                "bottom": 0.196,
+                "vee": 0.0,
+                "round": 0.2
+              },
+              {
+                "y": 0.744,
+                "halfWidth": 0.485,
+                "top": 0.294,
+                "bottom": 0.224,
+                "vee": 0.0,
+                "round": 0.2
+              },
+              {
+                "y": 1.395,
+                "halfWidth": 0.097,
+                "top": 0.336,
+                "bottom": 0.266,
+                "vee": 0.0,
+                "round": 0.2
+              }
+            ],
+            "around": 8,
+            "capped": true
+          },
+          "tint": "light"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "transom",
+        "position": {
+          "x": 0,
+          "y": -1.4,
+          "z": -0.05
+        },
+        "direction": {
+          "x": 0,
+          "y": -1,
+          "z": 0
+        },
+        "size": 1
+      },
+      {
+        "id": "deck",
+        "position": {
+          "x": 0,
+          "y": 0.0,
+          "z": 0.28
+        },
+        "direction": {
+          "x": 0,
+          "y": 0,
+          "z": 1
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "side-right",
+        "position": {
+          "x": 0.6,
+          "y": 0.0,
+          "z": 0.05
+        },
+        "direction": {
+          "x": 1,
+          "y": 0,
+          "z": 0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "side-left",
+        "position": {
+          "x": -0.6,
+          "y": 0.0,
+          "z": 0.05
+        },
+        "direction": {
+          "x": -1,
+          "y": 0,
+          "z": 0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "keel",
+        "position": {
+          "x": 0,
+          "y": -0.8,
+          "z": -0.28
+        },
+        "direction": {
+          "x": 0,
+          "y": 0,
+          "z": -1
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "buoyancy",
+        "displacedVolume": 1.7
+      }
+    ]
+  },
+  {
+    "id": "hull-runabout",
+    "title": "Runabout Hull",
+    "category": "structural",
+    "dryMass": 320.0,
+    "description": "A decked planing hull, a little bigger than the skiff's, with a cockpit that drains itself over the side. Made for a water jet on the transom and a sea that comes aboard.",
+    "crashTolerance": 14.0,
+    "dragCoefficient": 0.35,
+    "mesh": {
+      "type": "box",
+      "width": 1.9,
+      "height": 5.0,
+      "depth": 0.9
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "loft",
+            "sections": [
+              {
+                "y": -2.5,
+                "halfWidth": 0.891,
+                "top": 0.45,
+                "bottom": -0.337,
+                "vee": 0.3,
+                "round": 0.35
+              },
+              {
+                "y": -0.556,
+                "halfWidth": 0.95,
+                "top": 0.45,
+                "bottom": -0.45,
+                "vee": 0.55,
+                "round": 0.35
+              },
+              {
+                "y": 1.333,
+                "halfWidth": 0.736,
+                "top": 0.495,
+                "bottom": -0.337,
+                "vee": 0.75,
+                "round": 0.35
+              },
+              {
+                "y": 2.5,
+                "halfWidth": 0.119,
+                "top": 0.562,
+                "bottom": 0.169,
+                "vee": 0.3,
+                "round": 0.35
+              }
+            ],
+            "around": 14,
+            "capped": true
+          }
+        },
+        {
+          "model": {
+            "type": "loft",
+            "sections": [
+              {
+                "y": -2.5,
+                "halfWidth": 0.926,
+                "top": 0.427,
+                "bottom": 0.315,
+                "vee": 0.0,
+                "round": 0.2
+              },
+              {
+                "y": -0.556,
+                "halfWidth": 0.986,
+                "top": 0.427,
+                "bottom": 0.315,
+                "vee": 0.0,
+                "round": 0.2
+              },
+              {
+                "y": 1.333,
+                "halfWidth": 0.772,
+                "top": 0.472,
+                "bottom": 0.36,
+                "vee": 0.0,
+                "round": 0.2
+              },
+              {
+                "y": 2.5,
+                "halfWidth": 0.154,
+                "top": 0.54,
+                "bottom": 0.427,
+                "vee": 0.0,
+                "round": 0.2
+              }
+            ],
+            "around": 8,
+            "capped": true
+          },
+          "tint": "light"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "transom",
+        "position": {
+          "x": 0.0,
+          "y": -2.5,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 1
+      },
+      {
+        "id": "deck",
+        "position": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.45
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "keel",
+        "position": {
+          "x": 0.0,
+          "y": -1.333,
+          "z": -0.45
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "keel-front",
+        "position": {
+          "x": 0.0,
+          "y": 0.889,
+          "z": -0.45
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "side-right",
+        "position": {
+          "x": 0.95,
+          "y": 0.0,
+          "z": 0.113
+        },
+        "direction": {
+          "x": 1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "side-left",
+        "position": {
+          "x": -0.95,
+          "y": 0.0,
+          "z": 0.113
+        },
+        "direction": {
+          "x": -1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "stern",
+        "position": {
+          "x": 0.0,
+          "y": -2.278,
+          "z": -0.315
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "buoyancy",
+        "displacedVolume": 6.2
+      }
+    ]
+  },
+  {
+    "id": "seat-saddle",
+    "title": "Saddle",
+    "category": "command",
+    "dryMass": 45.0,
+    "description": "A seat you sit astride, with handlebars in front of it, for a jet ski or anything small. Nothing between you and the spray, and you lean into the turns.",
+    "crashTolerance": 10.0,
+    "dragCoefficient": 0.5,
+    "displaces": 0.05,
+    "mesh": {
+      "type": "box",
+      "width": 0.5,
+      "height": 1.1,
+      "depth": 0.5
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.36,
+              "height": 0.9,
+              "depth": 0.16
+            }
+          },
+          "offset": {
+            "x": 0,
+            "y": -0.1,
+            "z": -0.17
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.3,
+              "height": 0.25,
+              "depth": 0.3
+            }
+          },
+          "offset": {
+            "x": 0,
+            "y": 0.38,
+            "z": -0.1
+          },
+          "tint": "light"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.025,
+              "height": 0.7
+            }
+          },
+          "offset": {
+            "x": 0,
+            "y": 0.45,
+            "z": 0.1
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 90.0
+          },
+          "tint": "metal"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "base",
+        "position": {
+          "x": 0,
+          "y": 0,
+          "z": -0.25
+        },
+        "direction": {
+          "x": 0,
+          "y": 0,
+          "z": -1
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "command",
+        "crewCapacity": 1,
+        "reactionTorque": 400.0,
+        "providesControl": true,
+        "idleDraw": 0.0
+      }
+    ]
+  },
+  {
     "id": "planes-dive",
     "title": "Dive Planes",
     "category": "aero",
@@ -16129,7 +16917,7 @@
         "id": "belly",
         "position": {
           "x": 0.0,
-          "y": -0.2,
+          "y": -1.1,
           "z": -0.9
         },
         "direction": {
@@ -16346,7 +17134,11 @@
         "kind": "surface"
       }
     ],
-    "modules": []
+    "modules": [
+      {
+        "type": "skid"
+      }
+    ]
   },
   {
     "id": "frame-drone",
@@ -20365,5 +21157,2868 @@
     ],
     "modules": [],
     "strength": 3000000.0
+  },
+  {
+    "id": "hull-wide-bow",
+    "title": "Wide Bow",
+    "category": "structural",
+    "dryMass": 8000.0,
+    "description": "The front of a ship's hull, four and a half metres across, raked up to a tall stem so it rides over a sea instead of into it. A wide mid section or stern joins behind it.",
+    "crashTolerance": 16.0,
+    "dragCoefficient": 0.4,
+    "mesh": {
+      "type": "box",
+      "width": 4.5,
+      "height": 6.0,
+      "depth": 2.2
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "loft",
+            "sections": [
+              {
+                "y": -3.0,
+                "halfWidth": 2.25,
+                "top": 1.1,
+                "bottom": -1.1,
+                "vee": 0.25,
+                "round": 0.35
+              },
+              {
+                "y": -0.4,
+                "halfWidth": 2.182,
+                "top": 1.1,
+                "bottom": -1.045,
+                "vee": 0.35,
+                "round": 0.35
+              },
+              {
+                "y": 1.8,
+                "halfWidth": 1.575,
+                "top": 1.192,
+                "bottom": -0.66,
+                "vee": 0.6,
+                "round": 0.35
+              },
+              {
+                "y": 3.0,
+                "halfWidth": 0.225,
+                "top": 1.32,
+                "bottom": 0.22,
+                "vee": 0.3,
+                "round": 0.35
+              }
+            ],
+            "around": 14,
+            "capped": true
+          }
+        },
+        {
+          "model": {
+            "type": "loft",
+            "sections": [
+              {
+                "y": -3.0,
+                "halfWidth": 2.306,
+                "top": 1.063,
+                "bottom": 0.88,
+                "vee": 0.0,
+                "round": 0.2
+              },
+              {
+                "y": -0.4,
+                "halfWidth": 2.239,
+                "top": 1.063,
+                "bottom": 0.88,
+                "vee": 0.0,
+                "round": 0.2
+              },
+              {
+                "y": 1.8,
+                "halfWidth": 1.631,
+                "top": 1.155,
+                "bottom": 0.972,
+                "vee": 0.0,
+                "round": 0.2
+              },
+              {
+                "y": 3.0,
+                "halfWidth": 0.281,
+                "top": 1.283,
+                "bottom": 1.1,
+                "vee": 0.0,
+                "round": 0.2
+              }
+            ],
+            "around": 8,
+            "capped": true
+          },
+          "tint": "light"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "bottom",
+        "position": {
+          "x": 0.0,
+          "y": -3.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 7
+      },
+      {
+        "id": "deck",
+        "position": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 1.1
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "keel",
+        "position": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -1.1
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "side-right",
+        "position": {
+          "x": 2.25,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "side-left",
+        "position": {
+          "x": -2.25,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": -1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "stem",
+        "position": {
+          "x": 0,
+          "y": 3.0,
+          "z": 0.4
+        },
+        "direction": {
+          "x": 0,
+          "y": 1,
+          "z": 0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "buoyancy",
+        "displacedVolume": 37.1
+      }
+    ]
+  },
+  {
+    "id": "hull-wide-mid",
+    "title": "Wide Mid Section",
+    "category": "structural",
+    "dryMass": 10000.0,
+    "description": "Five metres of ship's hull, four and a half across. Add as many as the ship needs to be long, and there's room on deck for cargo or a crane.",
+    "crashTolerance": 16.0,
+    "dragCoefficient": 0.4,
+    "mesh": {
+      "type": "box",
+      "width": 4.5,
+      "height": 5.0,
+      "depth": 2.2
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "loft",
+            "sections": [
+              {
+                "y": -2.5,
+                "halfWidth": 2.25,
+                "top": 1.1,
+                "bottom": -1.1,
+                "vee": 0.25,
+                "round": 0.35
+              },
+              {
+                "y": 2.5,
+                "halfWidth": 2.25,
+                "top": 1.1,
+                "bottom": -1.1,
+                "vee": 0.25,
+                "round": 0.35
+              }
+            ],
+            "around": 14,
+            "capped": true
+          }
+        },
+        {
+          "model": {
+            "type": "loft",
+            "sections": [
+              {
+                "y": -2.5,
+                "halfWidth": 2.306,
+                "top": 1.063,
+                "bottom": 0.88,
+                "vee": 0.0,
+                "round": 0.2
+              },
+              {
+                "y": 2.5,
+                "halfWidth": 2.306,
+                "top": 1.063,
+                "bottom": 0.88,
+                "vee": 0.0,
+                "round": 0.2
+              }
+            ],
+            "around": 8,
+            "capped": true
+          },
+          "tint": "light"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "top",
+        "position": {
+          "x": 0.0,
+          "y": 2.5,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "size": 7
+      },
+      {
+        "id": "bottom",
+        "position": {
+          "x": 0.0,
+          "y": -2.5,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 7
+      },
+      {
+        "id": "deck",
+        "position": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 1.1
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "keel",
+        "position": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -1.1
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "side-right",
+        "position": {
+          "x": 2.25,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "side-left",
+        "position": {
+          "x": -2.25,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": -1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "buoyancy",
+        "displacedVolume": 49.3
+      }
+    ]
+  },
+  {
+    "id": "hull-wide-stern",
+    "title": "Wide Stern",
+    "category": "structural",
+    "dryMass": 8000.0,
+    "description": "The back of a ship's hull, with a fuel tank in the bottom of it and a transom for an inboard engine. The wheelhouse usually goes up here.",
+    "crashTolerance": 16.0,
+    "dragCoefficient": 0.4,
+    "mesh": {
+      "type": "box",
+      "width": 4.5,
+      "height": 4.0,
+      "depth": 2.2
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "loft",
+            "sections": [
+              {
+                "y": -2.0,
+                "halfWidth": 2.137,
+                "top": 1.1,
+                "bottom": -0.88,
+                "vee": 0.15,
+                "round": 0.35
+              },
+              {
+                "y": 2.0,
+                "halfWidth": 2.25,
+                "top": 1.1,
+                "bottom": -1.1,
+                "vee": 0.25,
+                "round": 0.35
+              }
+            ],
+            "around": 14,
+            "capped": true
+          }
+        },
+        {
+          "model": {
+            "type": "loft",
+            "sections": [
+              {
+                "y": -2.0,
+                "halfWidth": 2.194,
+                "top": 1.063,
+                "bottom": 0.88,
+                "vee": 0.0,
+                "round": 0.2
+              },
+              {
+                "y": 2.0,
+                "halfWidth": 2.306,
+                "top": 1.063,
+                "bottom": 0.88,
+                "vee": 0.0,
+                "round": 0.2
+              }
+            ],
+            "around": 8,
+            "capped": true
+          },
+          "tint": "light"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "top",
+        "position": {
+          "x": 0.0,
+          "y": 2.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "size": 7
+      },
+      {
+        "id": "transom",
+        "position": {
+          "x": 0.0,
+          "y": -2.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 1
+      },
+      {
+        "id": "deck",
+        "position": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 1.1
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "keel",
+        "position": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -1.1
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "side-right",
+        "position": {
+          "x": 2.25,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "side-left",
+        "position": {
+          "x": -2.25,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": -1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "buoyancy",
+        "displacedVolume": 38.5
+      },
+      {
+        "type": "tank",
+        "resource": "propellant",
+        "capacity": 1600.0
+      }
+    ]
+  },
+  {
+    "id": "engine-diesel",
+    "title": "Marine Diesel",
+    "category": "propulsion",
+    "dryMass": 2500.0,
+    "description": "A diesel down in the hull turning a big four-bladed propeller on a shaft out under the stern. It doesn't swing, so a ship with one steers on its rudder. It burns what's in the stern's tank as well as its own, and charges the batteries while it runs.",
+    "crashTolerance": 14.0,
+    "dragCoefficient": 0.3,
+    "displaces": 0.15,
+    "mesh": {
+      "type": "box",
+      "width": 0.3,
+      "height": 1.2,
+      "depth": 1.2
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.14,
+              "height": 0.9,
+              "depth": 0.9
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.1,
+            "z": -0.15
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.07,
+              "height": 1.1
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": -0.85
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "prop",
+            "radius": 0.5,
+            "blades": 4,
+            "chord": 0.14,
+            "pitchDegrees": 28.0
+          },
+          "offset": {
+            "x": 0.0,
+            "y": -0.5,
+            "z": -0.85
+          },
+          "tint": "metal",
+          "role": "spin",
+          "axis": {
+            "x": 0.0,
+            "y": 1.0,
+            "z": 0.0
+          }
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "top",
+        "position": {
+          "x": 0.0,
+          "y": 0.6,
+          "z": 0.6
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "size": 1
+      }
+    ],
+    "modules": [
+      {
+        "type": "engine",
+        "thrustVacuum": 50000.0,
+        "thrustSeaLevel": 50000.0,
+        "ispVacuum": 6000.0,
+        "ispSeaLevel": 6000.0,
+        "gimbalRange": 0.0,
+        "propellant": "propellant",
+        "thrustDirection": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "minThrottle": 0.0,
+        "waterProp": {
+          "x": 0.0,
+          "y": -0.5,
+          "z": -0.85
+        },
+        "alternator": 3.0
+      },
+      {
+        "type": "tank",
+        "resource": "propellant",
+        "capacity": 200.0
+      }
+    ],
+    "strength": 2000000.0
+  },
+  {
+    "id": "engine-electric",
+    "title": "Electric Drive",
+    "category": "propulsion",
+    "dryMass": 1400.0,
+    "description": "A motor in a pod under the stern, running on the batteries. It's quiet and carries no fuel, and it goes as far as the charge does. Like a diesel, it steers on a rudder.",
+    "crashTolerance": 14.0,
+    "dragCoefficient": 0.3,
+    "displaces": 0.15,
+    "mesh": {
+      "type": "box",
+      "width": 0.3,
+      "height": 1.2,
+      "depth": 1.2
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.14,
+              "height": 0.9,
+              "depth": 0.9
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.1,
+            "z": -0.15
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                0.12,
+                0.55
+              ],
+              [
+                0.26,
+                0.35
+              ],
+              [
+                0.28,
+                -0.1
+              ],
+              [
+                0.18,
+                -0.35
+              ],
+              [
+                0.06,
+                -0.45
+              ]
+            ],
+            "segments": 16
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": -0.85
+          },
+          "tint": "light",
+          "stackEnds": true
+        },
+        {
+          "model": {
+            "type": "prop",
+            "radius": 0.5,
+            "blades": 4,
+            "chord": 0.14,
+            "pitchDegrees": 28.0
+          },
+          "offset": {
+            "x": 0.0,
+            "y": -0.5,
+            "z": -0.85
+          },
+          "tint": "metal",
+          "role": "spin",
+          "axis": {
+            "x": 0.0,
+            "y": 1.0,
+            "z": 0.0
+          }
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "top",
+        "position": {
+          "x": 0.0,
+          "y": 0.6,
+          "z": 0.6
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "size": 1
+      }
+    ],
+    "modules": [
+      {
+        "type": "engine",
+        "thrustVacuum": 0.0,
+        "thrustSeaLevel": 40000.0,
+        "ispVacuum": 4000.0,
+        "ispSeaLevel": 4000.0,
+        "gimbalRange": 0.0,
+        "propellant": "electricCharge",
+        "thrustDirection": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "minThrottle": 0.0,
+        "waterProp": {
+          "x": 0.0,
+          "y": -0.5,
+          "z": -0.85
+        },
+        "alternator": 0.0
+      }
+    ],
+    "strength": 2000000.0
+  },
+  {
+    "id": "rudder-ship",
+    "title": "Ship's Rudder",
+    "category": "aero",
+    "dryMass": 300.0,
+    "description": "A rudder four times the size of a boat's, hung under a ship's stern behind the propeller. It's what turns a ship with an inboard engine.",
+    "crashTolerance": 14.0,
+    "dragCoefficient": 0.2,
+    "mesh": {
+      "type": "box",
+      "width": 1.6,
+      "height": 1.2,
+      "depth": 0.12
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "fin",
+            "rootChord": 0.4,
+            "tipChord": 0.32,
+            "span": 1.6,
+            "sweep": 0.08,
+            "thickness": 0.12
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.4,
+            "z": 0.0
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "fin",
+            "rootChord": 0.8,
+            "tipChord": 0.68,
+            "span": 1.6,
+            "sweep": 0.12,
+            "thickness": 0.08
+          },
+          "offset": {
+            "x": 0.0,
+            "y": -0.2,
+            "z": 0.0
+          },
+          "tint": "dark",
+          "role": "hinged",
+          "axis": {
+            "x": 1.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "pivot": {
+            "x": 0.0,
+            "y": 0.2,
+            "z": 0.0
+          }
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "root",
+        "position": {
+          "x": -0.8,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": -1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "hydroSurface",
+        "liftCoefficient": 1.2,
+        "area": 1.8,
+        "controllable": true,
+        "controlAuthority": 1.0,
+        "maxDeflection": 35.0,
+        "halfDepth": 0.8
+      }
+    ],
+    "strength": 1000000.0
+  },
+  {
+    "id": "battery-ship",
+    "title": "Ship's Battery Bank",
+    "category": "utility",
+    "dryMass": 1500.0,
+    "description": "Four thousand units of charge in a steel box for a ship's hold or deck. Enough to run an electric drive flat out for an hour.",
+    "crashTolerance": 12.0,
+    "dragCoefficient": 0.3,
+    "mesh": {
+      "type": "box",
+      "width": 0.6,
+      "height": 1.6,
+      "depth": 1.0
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.6,
+              "height": 1.6,
+              "depth": 1.0
+            }
+          }
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.624,
+              "height": 0.192,
+              "depth": 1.025
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.512,
+            "z": 0.0
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.624,
+              "height": 0.192,
+              "depth": 1.025
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": -0.512,
+            "z": 0.0
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.048,
+              "height": 0.256,
+              "depth": 0.3
+            }
+          },
+          "offset": {
+            "x": 0.312,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "accent"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "root",
+        "position": {
+          "x": -0.3,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": -1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "battery",
+        "capacity": 4000.0
+      }
+    ]
+  },
+  {
+    "id": "sail-schooner",
+    "title": "Schooner Rig",
+    "category": "propulsion",
+    "dryMass": 800.0,
+    "description": "A fourteen metre mast with a gaff mainsail, for a ship's deck. It trims itself to the wind and the throttle reefs it. Two of them, fore and aft, make a schooner.",
+    "crashTolerance": 8.0,
+    "dragCoefficient": 0.3,
+    "mesh": {
+      "type": "box",
+      "width": 0.2,
+      "height": 14.0,
+      "depth": 0.2
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.15,
+              "height": 14.0
+            }
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.11,
+              "height": 6.5
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": -5.444,
+            "z": -3.25
+          },
+          "rotation": {
+            "x": 90.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "metal",
+          "role": "sail",
+          "axis": {
+            "x": 0.0,
+            "y": 1.0,
+            "z": 0.0
+          },
+          "pivot": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        },
+        {
+          "model": {
+            "type": "fin",
+            "rootChord": 6.2,
+            "tipChord": 2.8,
+            "span": 10.5,
+            "sweep": 0.0,
+            "thickness": 0.04
+          },
+          "offset": {
+            "x": 0.0,
+            "y": -0.4,
+            "z": -3.1
+          },
+          "rotation": {
+            "x": 90.0,
+            "y": 0.0,
+            "z": 90.0
+          },
+          "tint": "light",
+          "role": "sail",
+          "axis": {
+            "x": 0.0,
+            "y": 1.0,
+            "z": 0.0
+          },
+          "pivot": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "base",
+        "position": {
+          "x": 0.0,
+          "y": -7.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "sail",
+        "area": 80.0,
+        "effortHeight": -1.9
+      }
+    ],
+    "strength": 2000000.0
+  },
+  {
+    "id": "sail-square",
+    "title": "Square Rig",
+    "category": "propulsion",
+    "dryMass": 1600.0,
+    "description": "A twenty metre mast crossed by three yards, with a square sail on each. It's the most sail there is, and it's happiest with the wind behind it. The throttle reefs it, from furled to full.",
+    "crashTolerance": 8.0,
+    "dragCoefficient": 0.3,
+    "mesh": {
+      "type": "box",
+      "width": 0.24,
+      "height": 20.0,
+      "depth": 0.24
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.18,
+              "height": 20.0
+            }
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.09,
+              "height": 11.6
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": -2.4,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": 90.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "metal",
+          "role": "sail",
+          "axis": {
+            "x": 0.0,
+            "y": 1.0,
+            "z": 0.0
+          },
+          "pivot": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        },
+        {
+          "model": {
+            "type": "fin",
+            "rootChord": 5.0,
+            "tipChord": 5.0,
+            "span": 11.0,
+            "sweep": 0.0,
+            "thickness": 0.04
+          },
+          "offset": {
+            "x": 0.0,
+            "y": -5.0,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 90.0,
+            "z": 0.0
+          },
+          "tint": "light",
+          "role": "sail",
+          "axis": {
+            "x": 0.0,
+            "y": 1.0,
+            "z": 0.0
+          },
+          "pivot": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.09,
+              "height": 9.6
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 2.35,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": 90.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "metal",
+          "role": "sail",
+          "axis": {
+            "x": 0.0,
+            "y": 1.0,
+            "z": 0.0
+          },
+          "pivot": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        },
+        {
+          "model": {
+            "type": "fin",
+            "rootChord": 4.5,
+            "tipChord": 4.5,
+            "span": 9.0,
+            "sweep": 0.0,
+            "thickness": 0.04
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 90.0,
+            "z": 0.0
+          },
+          "tint": "light",
+          "role": "sail",
+          "axis": {
+            "x": 0.0,
+            "y": 1.0,
+            "z": 0.0
+          },
+          "pivot": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.09,
+              "height": 7.6
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 6.1,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": 90.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "metal",
+          "role": "sail",
+          "axis": {
+            "x": 0.0,
+            "y": 1.0,
+            "z": 0.0
+          },
+          "pivot": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        },
+        {
+          "model": {
+            "type": "fin",
+            "rootChord": 3.5,
+            "tipChord": 3.5,
+            "span": 7.0,
+            "sweep": 0.0,
+            "thickness": 0.04
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 4.25,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 90.0,
+            "z": 0.0
+          },
+          "tint": "light",
+          "role": "sail",
+          "axis": {
+            "x": 0.0,
+            "y": 1.0,
+            "z": 0.0
+          },
+          "pivot": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "base",
+        "position": {
+          "x": 0.0,
+          "y": -10.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "sail",
+        "area": 150.0,
+        "effortHeight": -1.0
+      }
+    ],
+    "strength": 3000000.0
+  },
+  {
+    "id": "keel-ship",
+    "title": "Ship's Keel",
+    "category": "aero",
+    "dryMass": 4600.0,
+    "description": "A deep fin keel for a ship, with four tonnes of lead in a bulb along its foot. It grips the water hard enough to sail close to the wind without sliding off to leeward, and its weight keeps her on her feet when the wind heels her.",
+    "crashTolerance": 16.0,
+    "dragCoefficient": 0.2,
+    "mesh": {
+      "type": "box",
+      "width": 2.4,
+      "height": 5.0,
+      "depth": 0.3
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "fin",
+            "rootChord": 5.0,
+            "tipChord": 2.8,
+            "span": 2.4,
+            "sweep": 1.4,
+            "thickness": 0.3
+          }
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.3,
+              "height": 3.2
+            }
+          },
+          "offset": {
+            "x": 1.0,
+            "y": -0.4,
+            "z": 0.0
+          },
+          "tint": "dark"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "root",
+        "position": {
+          "x": -1.2,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": -1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "hydroSurface",
+        "liftCoefficient": 1.2,
+        "area": 10.0,
+        "controllable": false,
+        "controlAuthority": 1.0,
+        "maxDeflection": 0.0,
+        "halfDepth": 1.2
+      }
+    ],
+    "strength": 3000000.0,
+    "hollow": false
+  },
+  {
+    "id": "barge-bow",
+    "title": "Barge Bow",
+    "category": "structural",
+    "dryMass": 22000.0,
+    "description": "The front of a barge: its bottom raked up to the deck so it pushes the water under it instead of ahead of it. A barge section or a barge stern joins behind it.",
+    "crashTolerance": 20.0,
+    "dragCoefficient": 0.5,
+    "strength": 20000000.0,
+    "mesh": {
+      "type": "box",
+      "width": 10.0,
+      "height": 8.0,
+      "depth": 3.0
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "loft",
+            "sections": [
+              {
+                "y": -4.0,
+                "halfWidth": 5.0,
+                "top": 1.5,
+                "bottom": -1.5,
+                "vee": 0.0,
+                "round": 0.08
+              },
+              {
+                "y": 0.0,
+                "halfWidth": 5.0,
+                "top": 1.5,
+                "bottom": -1.2,
+                "vee": 0.0,
+                "round": 0.08
+              },
+              {
+                "y": 4.0,
+                "halfWidth": 5.0,
+                "top": 1.5,
+                "bottom": 0.9,
+                "vee": 0.0,
+                "round": 0.08
+              }
+            ],
+            "around": 12,
+            "capped": true
+          }
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 10.04,
+              "height": 8.0,
+              "depth": 0.12
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 1.45
+          },
+          "tint": "light"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "bottom",
+        "position": {
+          "x": 0,
+          "y": -4,
+          "z": 0
+        },
+        "direction": {
+          "x": 0,
+          "y": -1,
+          "z": 0
+        },
+        "size": 16
+      },
+      {
+        "id": "deck",
+        "position": {
+          "x": 0,
+          "y": 0,
+          "z": 1.5
+        },
+        "direction": {
+          "x": 0,
+          "y": 0,
+          "z": 1
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "keel",
+        "position": {
+          "x": 0,
+          "y": 0,
+          "z": -1.5
+        },
+        "direction": {
+          "x": 0,
+          "y": 0,
+          "z": -1
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "side-right",
+        "position": {
+          "x": 5.0,
+          "y": 0,
+          "z": 0
+        },
+        "direction": {
+          "x": 1,
+          "y": 0,
+          "z": 0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "side-left",
+        "position": {
+          "x": -5.0,
+          "y": 0,
+          "z": 0
+        },
+        "direction": {
+          "x": -1,
+          "y": 0,
+          "z": 0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "buoyancy",
+        "displacedVolume": 178.0
+      }
+    ]
+  },
+  {
+    "id": "barge-mid",
+    "title": "Barge Section",
+    "category": "structural",
+    "dryMass": 30000.0,
+    "description": "Ten metres of flat-decked barge, ten across and three deep. Join as many as you need. The deck's flat and strong enough to drive, park, or land on.",
+    "crashTolerance": 20.0,
+    "dragCoefficient": 0.5,
+    "strength": 20000000.0,
+    "mesh": {
+      "type": "box",
+      "width": 10.0,
+      "height": 10.0,
+      "depth": 3.0
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 10.0,
+              "height": 10.0,
+              "depth": 3.0
+            }
+          }
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 10.04,
+              "height": 10.0,
+              "depth": 0.12
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 1.45
+          },
+          "tint": "light"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "top",
+        "position": {
+          "x": 0,
+          "y": 5,
+          "z": 0
+        },
+        "direction": {
+          "x": 0,
+          "y": 1,
+          "z": 0
+        },
+        "size": 16
+      },
+      {
+        "id": "bottom",
+        "position": {
+          "x": 0,
+          "y": -5,
+          "z": 0
+        },
+        "direction": {
+          "x": 0,
+          "y": -1,
+          "z": 0
+        },
+        "size": 16
+      },
+      {
+        "id": "deck",
+        "position": {
+          "x": 0,
+          "y": 0,
+          "z": 1.5
+        },
+        "direction": {
+          "x": 0,
+          "y": 0,
+          "z": 1
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "keel",
+        "position": {
+          "x": 0,
+          "y": 0,
+          "z": -1.5
+        },
+        "direction": {
+          "x": 0,
+          "y": 0,
+          "z": -1
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "side-right",
+        "position": {
+          "x": 5.0,
+          "y": 0,
+          "z": 0
+        },
+        "direction": {
+          "x": 1,
+          "y": 0,
+          "z": 0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "side-left",
+        "position": {
+          "x": -5.0,
+          "y": 0,
+          "z": 0
+        },
+        "direction": {
+          "x": -1,
+          "y": 0,
+          "z": 0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "buoyancy",
+        "displacedVolume": 297.0
+      }
+    ]
+  },
+  {
+    "id": "barge-stern",
+    "title": "Barge Stern",
+    "category": "structural",
+    "dryMass": 20000.0,
+    "description": "The back of a barge, square, with a transom for a motor if it's to go under its own power, and a flat end for a tug to push against.",
+    "crashTolerance": 20.0,
+    "dragCoefficient": 0.5,
+    "strength": 20000000.0,
+    "mesh": {
+      "type": "box",
+      "width": 10.0,
+      "height": 6.0,
+      "depth": 3.0
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "loft",
+            "sections": [
+              {
+                "y": -3.0,
+                "halfWidth": 5.0,
+                "top": 1.5,
+                "bottom": -1.0,
+                "vee": 0.0,
+                "round": 0.08
+              },
+              {
+                "y": -1.0,
+                "halfWidth": 5.0,
+                "top": 1.5,
+                "bottom": -1.5,
+                "vee": 0.0,
+                "round": 0.08
+              },
+              {
+                "y": 3.0,
+                "halfWidth": 5.0,
+                "top": 1.5,
+                "bottom": -1.5,
+                "vee": 0.0,
+                "round": 0.08
+              }
+            ],
+            "around": 12,
+            "capped": true
+          }
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 10.04,
+              "height": 6.0,
+              "depth": 0.12
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 1.45
+          },
+          "tint": "light"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "top",
+        "position": {
+          "x": 0,
+          "y": 3,
+          "z": 0
+        },
+        "direction": {
+          "x": 0,
+          "y": 1,
+          "z": 0
+        },
+        "size": 16
+      },
+      {
+        "id": "transom",
+        "position": {
+          "x": 0,
+          "y": -3,
+          "z": 0
+        },
+        "direction": {
+          "x": 0,
+          "y": -1,
+          "z": 0
+        },
+        "size": 1
+      },
+      {
+        "id": "deck",
+        "position": {
+          "x": 0,
+          "y": 0,
+          "z": 1.5
+        },
+        "direction": {
+          "x": 0,
+          "y": 0,
+          "z": 1
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "keel",
+        "position": {
+          "x": 0,
+          "y": 0,
+          "z": -1.5
+        },
+        "direction": {
+          "x": 0,
+          "y": 0,
+          "z": -1
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "side-right",
+        "position": {
+          "x": 5.0,
+          "y": 0,
+          "z": 0
+        },
+        "direction": {
+          "x": 1,
+          "y": 0,
+          "z": 0
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "side-left",
+        "position": {
+          "x": -5.0,
+          "y": 0,
+          "z": 0
+        },
+        "direction": {
+          "x": -1,
+          "y": 0,
+          "z": 0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "buoyancy",
+        "displacedVolume": 176.0
+      }
+    ]
+  },
+  {
+    "id": "winch-tow",
+    "title": "Towing Winch",
+    "category": "utility",
+    "dryMass": 1200.0,
+    "description": "A ship's towing winch: sixty metres of heavy line on a drum, led out over the stern to whatever it's asked to take in tow, a barge, a ship or a platform. It hooks onto a tow bitt if there's one in reach, and pulls with two hundred kilonewtons before the drum slips.",
+    "crashTolerance": 20.0,
+    "dragCoefficient": 0.3,
+    "strength": 4000000.0,
+    "mesh": {
+      "type": "box",
+      "width": 1.6,
+      "height": 1.2,
+      "depth": 1.0
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 1.6,
+              "height": 1.2,
+              "depth": 0.2
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": -0.4
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.35,
+              "height": 1.2
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.05
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 90.0
+          },
+          "tint": "accent"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.12,
+              "height": 1.0,
+              "depth": 0.9
+            }
+          },
+          "offset": {
+            "x": 0.72,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.12,
+              "height": 1.0,
+              "depth": 0.9
+            }
+          },
+          "offset": {
+            "x": -0.72,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "dark"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "base",
+        "position": {
+          "x": 0,
+          "y": 0,
+          "z": -0.5
+        },
+        "direction": {
+          "x": 0,
+          "y": 0,
+          "z": -1
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "winch",
+        "reach": 60.0,
+        "pull": 200000.0,
+        "reelSpeed": 1.2,
+        "draw": 2.0,
+        "faceOffset": 0.7,
+        "anyWay": true
+      }
+    ]
+  },
+  {
+    "id": "bitt-tow",
+    "title": "Tow Bitt",
+    "category": "utility",
+    "dryMass": 200.0,
+    "description": "A pair of iron posts to make a towline fast to. A winch hooks onto one of these before anything else on a craft, so the tow takes hold where it's meant to.",
+    "crashTolerance": 25.0,
+    "dragCoefficient": 0.3,
+    "strength": 4000000.0,
+    "mesh": {
+      "type": "box",
+      "width": 1.0,
+      "height": 0.5,
+      "depth": 0.8
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 1.0,
+              "height": 0.5,
+              "depth": 0.1
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": -0.35
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.15,
+              "height": 0.7
+            }
+          },
+          "offset": {
+            "x": 0.3,
+            "y": 0.0,
+            "z": 0.05
+          },
+          "rotation": {
+            "x": 90.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.15,
+              "height": 0.7
+            }
+          },
+          "offset": {
+            "x": -0.3,
+            "y": 0.0,
+            "z": 0.05
+          },
+          "rotation": {
+            "x": 90.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "metal"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "base",
+        "position": {
+          "x": 0,
+          "y": 0,
+          "z": -0.4
+        },
+        "direction": {
+          "x": 0,
+          "y": 0,
+          "z": -1
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "towPoint"
+      }
+    ]
+  },
+  {
+    "id": "knees-push",
+    "title": "Push Knees",
+    "category": "structural",
+    "dryMass": 600.0,
+    "description": "Two upright timbers faced with rubber, on the stem of a tug, for pushing a barge or a ship along instead of towing it. They take the knocks the bow would otherwise.",
+    "crashTolerance": 30.0,
+    "dragCoefficient": 0.4,
+    "strength": 6000000.0,
+    "mesh": {
+      "type": "box",
+      "width": 2.4,
+      "height": 0.5,
+      "depth": 2.2
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.4,
+              "height": 0.5,
+              "depth": 2.2
+            }
+          },
+          "offset": {
+            "x": 0.9,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.4,
+              "height": 0.5,
+              "depth": 2.2
+            }
+          },
+          "offset": {
+            "x": -0.9,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 2.2,
+              "height": 0.3,
+              "depth": 0.3
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": -0.1,
+            "z": 0.6
+          },
+          "tint": "metal"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "base",
+        "position": {
+          "x": 0,
+          "y": -0.25,
+          "z": 0
+        },
+        "direction": {
+          "x": 0,
+          "y": -1,
+          "z": 0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": []
+  },
+  {
+    "id": "deck-flight",
+    "title": "Flight Deck",
+    "category": "structural",
+    "dryMass": 150000.0,
+    "description": "Twenty metres square of floating steel, three deep, with a flat deck on top to land on. Join them on any side to make a platform as big as you like: two for a helicopter or a rocket to come down on, a row of eight for a plane. Engines hang off its back edge, a rudder under it.",
+    "crashTolerance": 25.0,
+    "dragCoefficient": 0.6,
+    "strength": 50000000.0,
+    "mesh": {
+      "type": "box",
+      "width": 20.0,
+      "height": 20.0,
+      "depth": 3.0
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 20.0,
+              "height": 20.0,
+              "depth": 3.0
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 20.02,
+              "height": 20.02,
+              "depth": 0.1
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 1.47
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.3,
+              "height": 20.02,
+              "depth": 0.12
+            }
+          },
+          "offset": {
+            "x": 9.6,
+            "y": 0.0,
+            "z": 1.5
+          },
+          "tint": "light"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.3,
+              "height": 20.02,
+              "depth": 0.12
+            }
+          },
+          "offset": {
+            "x": -9.6,
+            "y": 0.0,
+            "z": 1.5
+          },
+          "tint": "light"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.4,
+              "height": 6.0,
+              "depth": 0.12
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 1.5
+          },
+          "tint": "light"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "fore",
+        "position": {
+          "x": 0,
+          "y": 10,
+          "z": 0
+        },
+        "direction": {
+          "x": 0,
+          "y": 1,
+          "z": 0
+        },
+        "size": 20
+      },
+      {
+        "id": "aft",
+        "position": {
+          "x": 0,
+          "y": -10,
+          "z": 0
+        },
+        "direction": {
+          "x": 0,
+          "y": -1,
+          "z": 0
+        },
+        "size": 20
+      },
+      {
+        "id": "right",
+        "position": {
+          "x": 10,
+          "y": 0,
+          "z": 0
+        },
+        "direction": {
+          "x": 1,
+          "y": 0,
+          "z": 0
+        },
+        "size": 20
+      },
+      {
+        "id": "left",
+        "position": {
+          "x": -10,
+          "y": 0,
+          "z": 0
+        },
+        "direction": {
+          "x": -1,
+          "y": 0,
+          "z": 0
+        },
+        "size": 20
+      },
+      {
+        "id": "deck",
+        "position": {
+          "x": 0,
+          "y": 0,
+          "z": 1.5
+        },
+        "direction": {
+          "x": 0,
+          "y": 0,
+          "z": 1
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "deck-fore",
+        "position": {
+          "x": 0,
+          "y": 6,
+          "z": 1.5
+        },
+        "direction": {
+          "x": 0,
+          "y": 0,
+          "z": 1
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "deck-aft",
+        "position": {
+          "x": 0,
+          "y": -6,
+          "z": 1.5
+        },
+        "direction": {
+          "x": 0,
+          "y": 0,
+          "z": 1
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "deck-right",
+        "position": {
+          "x": 8,
+          "y": 0,
+          "z": 1.5
+        },
+        "direction": {
+          "x": 0,
+          "y": 0,
+          "z": 1
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "deck-left",
+        "position": {
+          "x": -8,
+          "y": 0,
+          "z": 1.5
+        },
+        "direction": {
+          "x": 0,
+          "y": 0,
+          "z": 1
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "keel",
+        "position": {
+          "x": 0,
+          "y": 0,
+          "z": -1.5
+        },
+        "direction": {
+          "x": 0,
+          "y": 0,
+          "z": -1
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "keel-aft",
+        "position": {
+          "x": 0,
+          "y": -8,
+          "z": -1.5
+        },
+        "direction": {
+          "x": 0,
+          "y": 0,
+          "z": -1
+        },
+        "size": 0,
+        "kind": "surface"
+      },
+      {
+        "id": "drive-right",
+        "position": {
+          "x": 6,
+          "y": -10,
+          "z": -0.8
+        },
+        "direction": {
+          "x": 0,
+          "y": -1,
+          "z": 0
+        },
+        "size": 1
+      },
+      {
+        "id": "drive-left",
+        "position": {
+          "x": -6,
+          "y": -10,
+          "z": -0.8
+        },
+        "direction": {
+          "x": 0,
+          "y": -1,
+          "z": 0
+        },
+        "size": 1
+      }
+    ],
+    "modules": [
+      {
+        "type": "buoyancy",
+        "displacedVolume": 1180.0
+      }
+    ]
+  },
+  {
+    "id": "hook-tail",
+    "title": "Tailhook",
+    "category": "utility",
+    "dryMass": 40.0,
+    "description": "An arm under a plane's tail with a hook on the end. It swings down with the landing gear, and on a deck it catches an arresting wire, which stops the plane in sixty metres.",
+    "crashTolerance": 20.0,
+    "dragCoefficient": 0.2,
+    "solid": false,
+    "mesh": {
+      "type": "box",
+      "width": 0.12,
+      "height": 1.1,
+      "depth": 0.25
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.08,
+              "height": 1.35,
+              "depth": 0.08
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": -0.5,
+            "z": -0.45
+          },
+          "tint": "dark",
+          "rotation": {
+            "x": 42.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.25,
+              "height": 0.12,
+              "depth": 0.1
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": -1.0,
+            "z": -0.9
+          },
+          "tint": "accent"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "base",
+        "position": {
+          "x": 0,
+          "y": 0,
+          "z": 0.12
+        },
+        "direction": {
+          "x": 0,
+          "y": 0,
+          "z": 1
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "tailhook",
+        "tip": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": -0.9
+        }
+      }
+    ]
+  },
+  {
+    "id": "gear-arrest",
+    "title": "Arresting Gear",
+    "category": "utility",
+    "dryMass": 3000.0,
+    "description": "Three steel wires across a deck, four metres apart, for a plane with a tailhook to catch. The wire pays out under the deck and stops the plane in sixty metres, no harder than four g.",
+    "crashTolerance": 25.0,
+    "dragCoefficient": 0.1,
+    "solid": false,
+    "mesh": {
+      "type": "box",
+      "width": 18.0,
+      "height": 12.0,
+      "depth": 0.1
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.05,
+              "height": 18.0
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": -4.0,
+            "z": 0.06
+          },
+          "tint": "metal",
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 90.0
+          }
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.05,
+              "height": 18.0
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.06
+          },
+          "tint": "metal",
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 90.0
+          }
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.05,
+              "height": 18.0
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 4.0,
+            "z": 0.06
+          },
+          "tint": "metal",
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 90.0
+          }
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.4,
+              "height": 9.0,
+              "depth": 0.2
+            }
+          },
+          "offset": {
+            "x": 9.2,
+            "y": 0.0,
+            "z": 0.05
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.4,
+              "height": 9.0,
+              "depth": 0.2
+            }
+          },
+          "offset": {
+            "x": -9.2,
+            "y": 0.0,
+            "z": 0.05
+          },
+          "tint": "dark"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "base",
+        "position": {
+          "x": 0,
+          "y": 0,
+          "z": -0.05
+        },
+        "direction": {
+          "x": 0,
+          "y": 0,
+          "z": -1
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "arrestingGear",
+        "wires": [
+          -4.0,
+          0.0,
+          4.0
+        ],
+        "span": 18.0,
+        "runout": 60.0,
+        "mostG": 4.0
+      }
+    ]
+  },
+  {
+    "id": "catapult-deck",
+    "title": "Catapult",
+    "category": "utility",
+    "dryMass": 6000.0,
+    "description": "A seventy metre track in a deck with a shuttle in it. Taxi a plane onto the near end, open the throttle all the way with the brakes off, and it throws the plane off the far end at sixty metres a second.",
+    "crashTolerance": 25.0,
+    "dragCoefficient": 0.1,
+    "solid": false,
+    "mesh": {
+      "type": "box",
+      "width": 1.2,
+      "height": 70.0,
+      "depth": 0.12
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.6,
+              "height": 70.0,
+              "depth": 0.04
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.1,
+              "height": 70.0,
+              "depth": 0.05
+            }
+          },
+          "offset": {
+            "x": 0.45,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "light"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.1,
+              "height": 70.0,
+              "depth": 0.05
+            }
+          },
+          "offset": {
+            "x": -0.45,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint": "light"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.5,
+              "height": 1.0,
+              "depth": 0.16
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": -34.0,
+            "z": 0.05
+          },
+          "tint": "accent"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "base",
+        "position": {
+          "x": 0,
+          "y": 0,
+          "z": -0.06
+        },
+        "direction": {
+          "x": 0,
+          "y": 0,
+          "z": -1
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "catapult",
+        "stroke": 70.0,
+        "endSpeed": 60.0,
+        "width": 3.0
+      }
+    ]
   }
 ]

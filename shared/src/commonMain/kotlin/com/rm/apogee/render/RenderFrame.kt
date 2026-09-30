@@ -202,6 +202,8 @@ class WorldView(
     val surfaceWind: Vec3 = Vec3(),
     /** Universe time, for anything that sways. */
     val time: Double = 0.0,
+    /** How fast that time is running, as a multiple of real time: the warp. */
+    val warp: Double = 1.0,
     /**
      * How far around the camera the sea is drawn as waves, in metres. The terrain draws flat water
      * beyond that, and the seabed within it. 0 for no sea drawn.

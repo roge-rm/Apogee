@@ -113,6 +113,11 @@ sealed interface Command {
     @SerialName("plantFlag")
     data class PlantFlag(val vessel: Long) : Command
 
+    /** The crew roll their capsized craft back upright. See `World.canRight`. */
+    @Serializable
+    @SerialName("rightCraft")
+    data class RightCraft(val vessel: Long) : Command
+
     /**
      * Floods [vessel]'s ballast tanks (1), blows them (-1), or stops them (0), and lets go of any
      * depth being held.
@@ -540,6 +545,12 @@ sealed interface ServerMessage {
         val ballonet: Float = 0f,
         /** What its gas cells lift as a share of its weight, or below 0 with none. */
         val lift: Float = -1f,
+        /** Capsized, and small enough and still enough for its crew to roll it back upright. */
+        val canRight: Boolean = false,
+        /** The craft whose deck its wheels, legs or feet are on, or -1. */
+        val standingOn: Long = -1L,
+        /** The craft standing on its deck, or asleep there. */
+        val riders: List<Long> = emptyList(),
     ) : ServerMessage
 
     /**
@@ -747,5 +758,6 @@ object Protocol {
     // 21: suit colours - Hello.stripe, StructureUpdate.stripe and visor.
     // 22: rotor speeds in the pose.
     // 23: PlacedPart.shroud; new parts (side chutes and decouplers, 3.75 m, the structural kit).
-    const val VERSION = 23
+    // 24: righting a capsized craft - RightCraft, CraftSystems.canRight, standingOn and riders.
+    const val VERSION = 24
 }

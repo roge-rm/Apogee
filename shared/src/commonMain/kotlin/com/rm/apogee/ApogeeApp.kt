@@ -244,6 +244,10 @@ class ApogeeApp(private val host: AppHost) {
             com.rm.apogee.input.PadAction.STEERING -> onSteering(!hudState.steerByScreen)
             com.rm.apogee.input.PadAction.CRUISE -> if (hudState.canCruise) onCruise(power?.cruising != true)
             com.rm.apogee.input.PadAction.KEEPER -> if (power != null) onStationKeep()
+            com.rm.apogee.input.PadAction.AUTO_LAND ->
+                if (hudState.canLand || hudState.autoLanding || hudState.landing?.canAuto == true) {
+                    scope.launch { current.setAutopilot(current.localAutoBurn, !current.localAutoLand) }
+                }
             com.rm.apogee.input.PadAction.BRAKES -> onToggleBrakes()
             com.rm.apogee.input.PadAction.DEPLOY -> onToggleDeploy()
             com.rm.apogee.input.PadAction.FLAPS -> if (hudState.hasFlaps) onToggleFlaps()
@@ -258,6 +262,7 @@ class ApogeeApp(private val host: AppHost) {
             }
             com.rm.apogee.input.PadAction.WINCH -> if (power?.hooked == true) onWinch()
             com.rm.apogee.input.PadAction.DOCK -> if (hudState.canJoin) onJoin()
+            com.rm.apogee.input.PadAction.RIGHT -> if (power?.canRight == true) scope.launch { current.rightCraft() }
             com.rm.apogee.input.PadAction.MAP -> onToggleMap()
             com.rm.apogee.input.PadAction.CAMERA_MODE -> if (!hudState.mapMode) onCameraMode()
             com.rm.apogee.input.PadAction.WARP_FASTER, com.rm.apogee.input.PadAction.WARP_SLOWER -> {
@@ -451,6 +456,7 @@ class ApogeeApp(private val host: AppHost) {
                         onStationKeep = ::onStationKeep,
                         onHook = { session?.let { s -> scope.launch { s.hook() } } },
                         onReleaseLine = { session?.let { s -> scope.launch { s.releaseLine() } } },
+                        onRightCraft = { session?.let { s -> scope.launch { s.rightCraft() } } },
                         onCruise = ::onCruise,
                         onDockPilot = { who ->
                             session?.let { s ->
@@ -1203,9 +1209,12 @@ class ApogeeApp(private val host: AppHost) {
             val suit = only == com.rm.apogee.core.world.World.SUIT_PART
             val flag = only == com.rm.apogee.core.world.World.FLAG_PART
             val depth = world.depthOf(vessel)
+            val deck = if (suit || flag || vessel.anchored) null else world.deckUnder(vessel)
             val situation = when {
                 suit -> "On EVA on ${body.displayName}"
                 flag -> "Planted on ${body.displayName}"
+                // Parked on another craft, a plane on a carrier or a buggy on a barge.
+                deck != null -> "On ${deck.name}'s deck"
                 // A base: where it is, and how it's keeping, with its power and stores.
                 vessel.anchored -> {
                     world.settlePower(vessel)
@@ -1219,7 +1228,8 @@ class ApogeeApp(private val host: AppHost) {
                 orbit.isBound && orbit.periapsis > floor -> "In orbit of ${body.displayName}"
                 else -> "${com.rm.apogee.game.Going.aloft(vessel.design, StockParts.catalog)} over ${body.displayName}"
             }
-            val height = if (depth > com.rm.apogee.game.GameSession.UNDER_SEA) "%.0f m down".format(depth)
+            val height = if (deck != null) "on ${body.displayName}"
+                else if (depth > com.rm.apogee.game.GameSession.UNDER_SEA) "%.0f m down".format(depth)
                 else if (above < 2.0) "on the surface"
                 else if (above < 10_000.0) "%.0f m up".format(above) else "%.1f km up".format(above / 1000.0)
             val aboard = vessel.crewAboard
@@ -1487,7 +1497,11 @@ class ApogeeApp(private val host: AppHost) {
                     hudState.hasConverter = current.controlledHasConverter
                     hudState.hasFlaps = current.controlledHasFlaps
                     hudState.hasSails = current.controlledHasSails
+                    current.controlledAfloat.let { if (it != hudState.afloat) hudState.afloat = it }
+                    (current.controlledKind == com.rm.apogee.core.craft.CraftKind.ROVER).let { if (it != hudState.driving) hudState.driving = it }
                     hudState.canCruise = current.controlledCanCruise
+                    hudState.canLand = current.controlledCanLand
+                    hudState.autoLanding = current.localAutoLand
                     current.controlledGroups.let { if (it != hudState.groupsUsed) hudState.groupsUsed = it }
                     hudState.approach = current.approachReadout
                     current.currentReadout.let {
@@ -1510,6 +1524,11 @@ class ApogeeApp(private val host: AppHost) {
                         hudState.warp = clock.warp
                         hudState.warpRequested = clock.warpRequested
                         hudState.warpAllowed = clock.warpAllowed
+                    }
+                    // A tenth at a time, so it doesn't flicker with every measure.
+                    current.worldRateNow.let { r ->
+                        val shown = if (r.isNaN()) Double.NaN else kotlin.math.round(r * 10.0) / 10.0
+                        if (!(shown == hudState.warpActual || (shown.isNaN() && hudState.warpActual.isNaN()))) hudState.warpActual = shown
                     }
                     // Rewinding is only for your own world with nobody else in it, the same as
                     // warp.

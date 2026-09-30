@@ -142,13 +142,22 @@ class ControlState {
     val hasAttitudeInput: Boolean get() = pitch != 0.0 || yaw != 0.0 || roll != 0.0
 
     /**
+     * The stick is a request to the station keeper, which tips the craft for it, instead of a turn
+     * of its own. The keeper sets this every tick it's doing that.
+     */
+    var stickTilts: Boolean = false
+
+    /** Whether the stick is steering the craft itself, over stability assist. */
+    val stickOverrides: Boolean get() = hasAttitudeInput && !stickTilts
+
+    /**
      * The attitude command the craft acts on: the player's while they're steering, otherwise the
      * assist's. Every control surface, gimbal and reaction wheel reads these, so a hold uses the
      * same authority your thumb does instead of a second, hidden set of controls.
      */
-    val commandPitch: Double get() = if (hasAttitudeInput) pitch else assistPitch
-    val commandYaw: Double get() = if (hasAttitudeInput) yaw else assistYaw
-    val commandRoll: Double get() = if (hasAttitudeInput && !(assistLevelling && roll == 0.0)) roll else assistRoll
+    val commandPitch: Double get() = if (stickOverrides) pitch else assistPitch
+    val commandYaw: Double get() = if (stickOverrides) yaw else assistYaw
+    val commandRoll: Double get() = if (stickOverrides && !(assistLevelling && roll == 0.0)) roll else assistRoll
 
     /**
      * Stability assist keeping a boat level while you steer it. The roll stays with the assist
@@ -622,6 +631,10 @@ class Vessel(
      */
     val air = com.rm.apogee.core.weather.AirSample()
 
+    /** When [air] was worked out, in world time, and where, body-fixed. NaN until it has been. */
+    var airSampledAt = Double.NaN
+    val airSampledWhere = Vec3()
+
     /** Burns planned for this craft, soonest first. See [com.rm.apogee.core.world.PlannedBurn]. */
     val plannedBurns = ArrayList<com.rm.apogee.core.world.PlannedBurn>()
 
@@ -637,8 +650,52 @@ class Vessel(
      */
     val burnApplied = Vec3()
 
+    /**
+     * The auto-land has had its first tick, and set itself up: where it comes down, and the trims
+     * it starts from. Cleared whenever it's off.
+     */
+    var landStarted: Boolean = false
+
+    /**
+     * Its crew are rolling it back upright: when they started, in world time (NaN when they
+     * aren't), and the pose it goes from and to. Not saved. A save caught halfway has it lying
+     * wherever it had got to, and they can start again.
+     */
+    var rightingStart: Double = Double.NaN
+    val rightingFrom = Quat()
+    val rightingTo = Quat()
+
+    /**
+     * The craft its wheels, legs or feet are on, as of its last tick, or null on the ground or off
+     * it. Not saved: the next tick finds it again.
+     */
+    var standingOn: Vessel? = null
+
+    /**
+     * How long its hull is at the waterline, in metres, and the parts it was worked out for. See
+     * `Hydrostatics.hullLength`.
+     */
+    var hullLength: Double = 0.0
+    var hullLengthOf: List<PartDef>? = null
+
     /** The auto-land has started braking. See `World.autoLand`. */
     var landBraking: Boolean = false
+
+    /**
+     * A plane landing itself: its speed when it was asked to, which it keeps most of on the way
+     * down so there's enough left to flare with. 0 until the landing's first tick.
+     */
+    var landSpeed: Double = 0.0
+
+    /**
+     * The sink, in m/s, a rotorcraft or airship landing itself is working toward now. It builds up
+     * gently from nothing, since asking for it all at once dropped a drone's throttle so low it had
+     * nothing left to steer with.
+     */
+    var landSink: Double = 0.0
+
+    /** How long, in seconds, a craft landing itself has been standing on the ground. */
+    var landDownFor: Double = 0.0
 
     /**
      * How long the next burn takes at full throttle, in seconds, as last worked out. 0 if there's
@@ -1100,6 +1157,17 @@ class Vessel(
         body.setInertia(properties.inertia)
     }
 
+    /**
+     * [recomputeMass], but only once what it's carrying has changed its mass by more than [share]
+     * of it. Adding the parts up is cheap, and working out the inertia and the centre again is
+     * not. A boat burning its tank for minutes had it done every step for grams.
+     */
+    fun recomputeMassIfChanged(share: Double = MASS_CHANGE_SHARE) {
+        var total = 0.0
+        for (i in 0 until partCount) total += massOfPart(i)
+        if (kotlin.math.abs(total - body.mass) > share * body.mass) recomputeMass()
+    }
+
     /** Part [index]'s mass as it is now, dry plus what's in it, in kg. */
     fun partMass(index: Int): Double = massOfPart(index)
 
@@ -1433,6 +1501,14 @@ class Vessel(
     }
 
     /**
+     * Takes how it lies asleep again from how it's turned now, where it is. For a craft set down at
+     * its balance afloat after it went to sleep.
+     */
+    fun retakeTurn(bodyRotation: Quat) {
+        sleepOrientation.setTo(bodyRotation.conjugate().times(body.orientation))
+    }
+
+    /**
      * Pinned to the ground, as a founded base. It's asleep for good and rides the planet round like
      * any sleeping craft, but touching it never wakes it, and its body is
      * [com.rm.apogee.core.physics.RigidBody.fixed], so nothing that hits it moves it. Its parts
@@ -1482,6 +1558,7 @@ class Vessel(
         }
         dormant = false
         afloat = false
+        ridingOn = null
         settledTicks = 0
         hasRestPose = false
         return true
@@ -1509,6 +1586,36 @@ class Vessel(
      * body-fixed) when it settled.
      */
     var afloat = false
+
+    /**
+     * Asleep on another craft's deck: which craft, and where it sits on it, in that craft's own
+     * frame, so it goes wherever the deck goes. Null when it isn't. Not saved: loaded, it wakes
+     * where it was and settles on the deck again.
+     */
+    var ridingOn: VesselId? = null
+    private val rideOffset = Vec3()
+    private val rideTurn = Quat()
+
+    /** Goes to sleep on [deck], as it sits on it now. */
+    fun ride(deck: Vessel) {
+        if (dormant) return
+        rideOffset.setTo(body.position).subInPlace(deck.body.position)
+        deck.body.orientation.inverseRotate(rideOffset, rideOffset)
+        rideTurn.setTo(deck.body.orientation.conjugate().times(body.orientation))
+        dormant = true
+        ridingOn = deck.id
+        settledTicks = 0
+    }
+
+    /** Posed where it sleeps on [deck], moving with it. */
+    fun followRide(deck: Vessel) {
+        deck.body.orientation.rotate(rideOffset, body.position).addInPlace(deck.body.position)
+        body.orientation.setTo(deck.body.orientation).mulInPlace(rideTurn).normalizeInPlace()
+        deck.body.velocityAtOffset(rideScratch.setTo(body.position).subInPlace(deck.body.position), body.linearVelocity)
+        body.angularVelocity.setTo(deck.body.angularVelocity)
+    }
+
+    private val rideScratch = Vec3()
     var draft = 0.0
     val sleepNormal = Vec3()
 
@@ -1622,6 +1729,9 @@ class Vessel(
     override fun toString(): String = "Vessel($id '$name', ${partCount}p, ${body.mass.toInt()}kg)"
 
     companion object {
+        /** How much a craft's mass can drift from its last full working-out before it's done again. */
+        const val MASS_CHANGE_SHARE = 0.001
+
         /** Which way each rotor of [design] turns: see [rotorSpin]. The builder's stats use it too. */
         fun rotorSpins(design: CraftDesign, defs: List<com.rm.apogee.core.part.PartDef>): IntArray {
             val spins = IntArray(defs.size)

@@ -8,6 +8,8 @@ import kotlinx.coroutines.Dispatchers
 
 actual fun workerPool(name: String, threads: Int): CoroutineDispatcher = Dispatchers.Default
 
+actual fun serverThread(): CoroutineDispatcher = Dispatchers.Default
+
 actual class Worker actual constructor(name: String) {
     private val background = com.rm.apogee.core.Background(name)
     actual fun execute(task: () -> Unit) = background.execute(task)

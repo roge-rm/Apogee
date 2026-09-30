@@ -226,8 +226,12 @@ class GameServer(
      *
      * With a fixed schedule there's exactly one wake-up per tick, no drift, and an idle server
      * costs almost nothing.
+     *
+     * [dispatcher] is where the ticks run. A phone hosting its own game gives it a thread of its
+     * own, ahead of the ones building the sea and the ground: on the shared pool it waited its turn
+     * behind them, a tick starting tens of milliseconds late.
      */
-    fun start(scope: CoroutineScope): Job = scope.launch(Dispatchers.Default) {
+    fun start(scope: CoroutineScope, dispatcher: kotlinx.coroutines.CoroutineDispatcher = Dispatchers.Default): Job = scope.launch(dispatcher) {
         val tickNanos = (dt * 1e9).toLong()
         var nextTickAt = com.rm.apogee.core.nanoTime()
         var tickCount = 0L
@@ -611,6 +615,7 @@ class GameServer(
         is Command.Jump -> flies(session, command.vessel)
         is Command.Grab -> flies(session, command.vessel)
         is Command.PlantFlag -> flies(session, command.vessel)
+        is Command.RightCraft -> flies(session, command.vessel)
         is Command.SetIndustry -> flies(session, command.vessel) || world.vessel(VesselId(command.vessel))?.let { it.anchored && it.owner == session.clientId } == true
         is Command.Unload -> flies(session, command.vessel)
         is Command.SetBallast -> flies(session, command.vessel)

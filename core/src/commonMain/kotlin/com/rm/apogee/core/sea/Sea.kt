@@ -73,6 +73,22 @@ class WavePatch {
     /** Whether there's any sea under the craft at all. */
     val afloat: Boolean get() = middle.depth > 0.0
 
+    /** The time its phases are for. */
+    var time = Double.NaN
+        internal set
+
+    /**
+     * Carries it on to [to]: each train's phase moves on by its frequency, and nothing else. The
+     * sizes, the tide and the sea at the middle stay as they were built, which is fine for the
+     * few hundredths of a second between builds, since those change over seconds.
+     */
+    fun advanceTo(to: Double) {
+        val dt = to - time
+        if (dt == 0.0 || time.isNaN()) return
+        for (i in 0 until n) phase[i] -= omega[i] * dt
+        time = to
+    }
+
     /** The height of the surface above the datum at body-fixed [p] (any length), in metres. */
     fun height(p: Vec3): Double {
         if (!afloat) return middle.tide
@@ -191,6 +207,9 @@ class Sea(
             phase0[i] = 2.0 * Math.PI * Noise.hash(this.seed, i, 4, 0)
         }
     }
+
+    /** How big the world's weather makes its seas. See [com.rm.apogee.core.weather.WeatherIntensity.sea]. */
+    private val seaScale = weather?.config?.intensity?.sea ?: 1.0
 
     /** What makes this sea the sea it is, so it can share corners with others that are the same. */
     private val identity = "${body.id}:$seed:${weather?.config?.hashCode() ?: 0}"
@@ -368,7 +387,7 @@ class Sea(
             val u10 = sum / n
             val limited = 0.0016 * u10 * sqrt(kotlin.math.max(fetch, FETCH_STEP * 0.25) / g)
             val developed = 0.21 * u10 * u10 / g
-            hsWind = kotlin.math.min(limited, developed)
+            hsWind = kotlin.math.min(limited, developed) * seaScale
         }
         // What storms do to it.
         if (weather != null) {
@@ -381,7 +400,7 @@ class Sea(
         // A world with no weather has a still sea: tides and nothing else.
         set(systems[0], if (weather != null) FLOOR_HS else 0.0, FLOOR_PERIOD, windDirection, 1.0, 1.0)
         set(systems[1], hsWind, periodOf(hsWind), windDirection, 1.0, 3.3)
-        set(systems[2], stormSea.swellHs, kotlin.math.max(stormSea.swellPeriod, 8.0), stormSea.swellDirection, 6.0, 5.0)
+        set(systems[2], stormSea.swellHs * seaScale, kotlin.math.max(stormSea.swellPeriod, 8.0), stormSea.swellDirection, 6.0, 5.0)
         // A storm's sea is young and steep, with a shorter period than a sea of the same height
         // that grew over days.
         set(systems[3], stormSea.stormHs, 1.5 + 3.2 * sqrt(kotlin.math.max(stormSea.stormHs, 0.05)), stormSea.stormDirection, 0.5, 3.3)
@@ -391,7 +410,7 @@ class Sea(
         // Shelter still stops most of it, so the bay and the harbour stay calm.
         if (weather != null) {
             val k = radius / OCEAN_SWELL_SCALE
-            val swell = OCEAN_SWELL_HS * (1.0 + OCEAN_SWELL_VARY * Noise.simplex(seed + 7, u.x * k + time / OCEAN_SWELL_TIME, u.y * k, u.z * k))
+            val swell = OCEAN_SWELL_HS * seaScale * (1.0 + OCEAN_SWELL_VARY * Noise.simplex(seed + 7, u.x * k + time / OCEAN_SWELL_TIME, u.y * k, u.z * k))
             set(systems[4], swell, OCEAN_SWELL_PERIOD, shoreward(u, time), 6.0, 3.0)
         } else {
             set(systems[4], 0.0, OCEAN_SWELL_PERIOD, windDirection, 6.0, 3.0)
@@ -531,6 +550,7 @@ class Sea(
         } finally {
             patching = null
         }
+        out.time = time
         return out
     }
 

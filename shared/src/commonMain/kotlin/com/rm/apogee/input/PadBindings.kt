@@ -75,6 +75,7 @@ enum class PadAction(val id: String, val label: String, val group: PadGroup, val
     STEERING("steering", "Steer by nose or screen", PadGroup.FLYING),
     CRUISE("cruise", "Cruise on or off", PadGroup.FLYING),
     KEEPER("keeper", "Keeper core on or off", PadGroup.FLYING),
+    AUTO_LAND("auto-land", "Auto land on or off", PadGroup.FLYING),
 
     BRAKES("brakes", "Brakes", PadGroup.CRAFT),
     DEPLOY("deploy", "Gear and legs", PadGroup.CRAFT),
@@ -86,6 +87,7 @@ enum class PadAction(val id: String, val label: String, val group: PadGroup, val
     HOOK("hook", "Hook on or let go", PadGroup.CRAFT),
     WINCH("winch", "Winch", PadGroup.CRAFT),
     DOCK("dock", "Join", PadGroup.CRAFT),
+    RIGHT("right", "Roll upright", PadGroup.CRAFT),
 
     MAP("map", "Map view", PadGroup.VIEW),
     CAMERA_MODE("camera", "Camera mode", PadGroup.VIEW),
