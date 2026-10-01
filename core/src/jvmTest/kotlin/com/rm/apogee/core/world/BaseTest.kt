@@ -23,10 +23,7 @@ class BaseTest {
     private val dt = 1.0 / 60.0
     private val cape = World.launchSites.first { it.id == "cape" }
 
-    /**
-     * Where [vessel]'s centre is on the ground, body-fixed, which is what a founded base has to
-     * keep.
-     */
+    /** Where [vessel]'s centre is on the ground, body-fixed. A founded base has to keep it. */
     private fun groundPosition(world: World, vessel: Vessel): Vec3 {
         val body = world.attractorFor(vessel)
         return body.toBodyFixed(vessel.body.position, body.rotationAt(world.time))
@@ -171,9 +168,7 @@ class BaseTest {
 
     private fun charge(v: Vessel) = v.amountOf(com.rm.apogee.core.part.ResourceType.ELECTRIC_CHARGE)
 
-    /**
-     * A time when the sun stands [height] (the sine of elevation) over [base], rising if [rising].
-     */
+    /** A time when the sun stands [height] (sine of elevation) over [base], rising if [rising]. */
     private fun whenSun(world: World, base: Vessel, height: Double, rising: Boolean): Double {
         val site = base.sleepDirection(Vec3())
         val body = world.attractorFor(base)
@@ -613,8 +608,7 @@ class BaseTest {
         val baseConnector = base.defs.indices.first { base.defs[it].id == "base-connector" && base.design.parts[it].position.x > 0.5 }
         val module = world.spawnOnSurface(StockCraft.habitatModule(catalog), cape, pad = 2)
         settle(world, 2.0)
-        // Now, not before, because positions are inertial, and the ground (base and all) has been
-        // carried hundreds of metres round since then.
+        // Taken now, since positions are inertial and the ground has turned a long way since.
         val baseRef = PortRef(base, baseConnector, base.defs[baseConnector].module<DockingPort>()!!).update()
         val moduleConnector = module.defs.indexOfFirst { it.id == "base-connector" }
         val moduleRef = PortRef(module, moduleConnector, module.defs[moduleConnector].module<DockingPort>()!!).update()

@@ -1,8 +1,8 @@
 package com.rm.apogee.core
 
 /**
- * Somewhere to keep text files: a directory on disk on the JVM, the browser's storage on the web.
- * It's all the stores need (craft, assemblies, worlds), so they're the same everywhere.
+ * A place for text files: a directory on the JVM, browser storage on the web. The stores (craft,
+ * assemblies, worlds) only need this.
  */
 interface Folder {
     /** The names of the files in it. */
@@ -12,8 +12,8 @@ interface Folder {
     fun read(name: String): String?
 
     /**
-     * Writes a file, safely: until the new text is all there, the old stays, so a crash in the
-     * middle of writing leaves the previous version instead of a cut-off one.
+     * Writes a file safely: the old text stays until the new is complete, so a crash can't leave it
+     * cut off.
      */
     fun write(name: String, text: String)
 
@@ -21,10 +21,10 @@ interface Folder {
 
     fun exists(name: String): Boolean
 
-    /** When the file was last written, in milliseconds since 1970, or 0 if there's no such file. */
+    /** When the file was last written, in ms since 1970, or 0 if it doesn't exist. */
     fun lastModified(name: String): Long
 
-    /** Its size in bytes, or 0 if there's no such file. */
+    /** Its size in bytes, or 0 if it doesn't exist. */
     fun size(name: String): Long
 
     /** Where the file is, to show someone. */

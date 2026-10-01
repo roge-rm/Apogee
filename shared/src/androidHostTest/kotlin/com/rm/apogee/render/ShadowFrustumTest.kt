@@ -20,10 +20,10 @@ class ShadowFrustumTest {
         assertEquals(0.5, centre[0], f.texelSize / 200.0 * 2)
         assertEquals(0.5, centre[1], f.texelSize / 200.0 * 2)
         assertEquals(0.5, centre[2], 1e-6)
-        // Something between it and the light is nearer the light, so it has a smaller depth.
+        // Nearer the light means smaller depth.
         val above = craft.copy().addScaledInPlace(sun, 50.0).subInPlace(camera)
         assertTrue(f.project(above)[2] < centre[2])
-        // And it lands on the same texel as the point it shades.
+        // On the same texel as the point it shades.
         val below = f.project(above)
         assertEquals(centre[0], below[0], 1e-6)
         assertEquals(centre[1], below[1], 1e-6)
@@ -40,8 +40,7 @@ class ShadowFrustumTest {
         val nudge = Vec3(0.01, -0.02, 0.015)
         f.update(sun, craft.copy().addInPlace(nudge), camera.copy().addInPlace(nudge), 100.0, 300.0, 2048)
         val after = f.project(ground.copy().subInPlace(camera.copy().addInPlace(nudge)))
-        // Either it didn't move, or it moved by one whole texel (the grid ticked over). Never a
-        // fraction.
+        // Whole texels only, never a fraction.
         for (k in 0..1) {
             val texels = (after[k] - before[k]) * 2048
             val whole = Math.round(texels).toDouble()

@@ -37,11 +37,10 @@ import com.rm.apogee.core.math.Math
 import kotlin.concurrent.Volatile
 
 /**
- * The vehicle assembly building: editing state, its rendering, and picking.
+ * The vehicle assembly building: editing state, rendering and picking.
  *
- * Unlike [GameSession] there's no server here. A design being built isn't part of the world.
- * Nothing simulates it, nobody else can see it, and it has no position. It only becomes a world
- * object when it's launched, and then it travels as a spawn command like any other craft.
+ * Unlike [GameSession] there's no server. A design being built isn't part of the world: nothing
+ * simulates it, nobody else sees it, and it has no position until it's launched as a spawn command.
  */
 class BuilderSession(
     private val frameBus: FrameBus,
@@ -51,13 +50,13 @@ class BuilderSession(
     private val assemblies: com.rm.apogee.core.craft.AssemblyStore? = null,
 ) {
     val builder = CraftBuilder(catalog)
-    // FIXED, not RADIAL. There's no planet in the assembly building, and a design centred below the
-    // origin would otherwise draw upside down.
+    // FIXED, not RADIAL: there's no planet here, and a design centred below the origin would draw
+    // upside down.
     val camera = CameraController(UpReference.FIXED)
 
     /**
-     * What's in hand, waiting to be put on: a part picked from the drawer (kept in hand to put on
-     * again and again), or a copy of a piece of the craft, put on once.
+     * What's in hand to put on: a drawer part (kept in hand to place again and again) or a copy of
+     * a piece of the craft, put on once.
      */
     class Held(val assembly: Assembly, val partId: String?, val once: Boolean, val name: String? = null)
 
@@ -72,15 +71,14 @@ class BuilderSession(
         private set
 
     /**
-     * Where the selected part is on screen, in pixels, for the action bar to sit beside. Null when
-     * it's off screen.
+     * Where the selected part is on screen, in pixels, for the action bar. Null when off screen.
      */
     var selectionAnchor: Offset? by mutableStateOf(null)
         private set
 
     /**
-     * Something being carried under a finger: a part dragged out of the drawer, or a piece of the
-     * craft lifted off it. [rest] is the craft without it, drawn and snapped to in the meantime.
+     * Something carried under a finger: a part dragged from the drawer or a piece lifted off the
+     * craft. [rest] is the craft without it, drawn and snapped to meanwhile.
      */
     private class Carry(val assembly: Assembly, val lifted: Int?, val rest: CraftDesign, val symmetry: SymmetryMode)
 
@@ -106,8 +104,8 @@ class BuilderSession(
     @Volatile private var viewHeight = 1f
 
     /**
-     * Editing the staging sequence instead of the structure. The left panel lists stages, and
-     * tapping the craft moves a part into the chosen one.
+     * Editing staging instead of structure: the panel lists stages, and a tap moves a part into the
+     * chosen one.
      */
     var stagingMode: Boolean by mutableStateOf(false)
         private set
@@ -117,14 +115,14 @@ class BuilderSession(
         private set
 
     /**
-     * Where LAUNCH puts the craft: a [com.rm.apogee.core.world.LaunchSite] id, or null to let the
-     * design decide (the sea for hulls, the pad for everything else).
+     * Where LAUNCH puts the craft: a [com.rm.apogee.core.world.LaunchSite] id, or null for the
+     * design to decide (the sea for hulls, the pad for the rest).
      */
     var launchSiteId: String? by mutableStateOf(null)
 
     /**
-     * The pads on the player's own founded bases, as launch sites, offered next to the Cape's. A
-     * craft launched from one fills up from that base.
+     * Pads on the player's founded bases, offered as launch sites beside the Cape's. A craft
+     * launched from one fills up there.
      */
     var baseSites: List<com.rm.apogee.core.world.LaunchSite> by mutableStateOf(emptyList())
 
@@ -139,16 +137,11 @@ class BuilderSession(
 
     var statusMessage: String? by mutableStateOf(null)
 
-    /**
-     * The player's career, or null when building for a sandbox, where everything is unlocked and
-     * nothing is limited.
-     */
+    /** The player's career, or null in a sandbox, where everything is unlocked and unlimited. */
     var career: com.rm.apogee.core.career.CareerState? by mutableStateOf(null)
     val tree: com.rm.apogee.core.career.TechTree get() = com.rm.apogee.core.career.TechTree.stock
 
-    /**
-     * Parts the career hasn't unlocked yet, each mapped to the title of the node that unlocks it.
-     */
+    /** Parts the career hasn't unlocked yet, mapped to the title of the node that unlocks each. */
     fun lockedParts(): Map<String, String> {
         val c = career ?: return emptyMap()
         val have = c.parts(tree)
@@ -163,7 +156,7 @@ class BuilderSession(
     }
 
     /**
-     * What the facility it goes from can take, against what it is: "12.3 / 45 t · 22 / 40 parts".
+     * What the launching facility can take against what this is: "12.3 / 45 t · 22 / 40 parts".
      * Null outside a career.
      */
     fun careerLimits(): Pair<String, Boolean>? {
@@ -228,16 +221,13 @@ class BuilderSession(
         if (width > 0f && height > 0f) { viewWidth = width; viewHeight = height }
     }
 
-    /**
-     * Pixels down the left covered by an open panel. The craft is drawn in the middle of what's
-     * left, not behind the drawer.
-     */
+    /** Pixels down the left covered by an open panel. The craft is centred in what's left. */
     @Volatile var leftInset = 0f
 
     /** Pixels up the right covered by the open stats card. */
     @Volatile var rightInset = 0f
 
-    /** The difference between the covered sides as drawn, eased there instead of jumping. */
+    /** The difference between the covered sides as drawn, eased rather than jumping. */
     private var shownInset = 0f
 
     // --- the selected part's actions -------------------------------------------
@@ -426,7 +416,7 @@ class BuilderSession(
         val current = builder.stageOf(index)
         val title = catalog[builder.design.parts[index].partId]?.title ?: "Part"
         if (target == null || target == current) {
-            // There's nothing to move it to, so show where it is instead.
+            // Nothing to move it to, so show where it is instead.
             selectedStage = current.takeIf { it >= 0 }
             statusMessage = if (current >= 0) "$title fires in stage $current" else "$title is in no stage"
             revision++
@@ -448,8 +438,8 @@ class BuilderSession(
     val orientation: CraftOrientation get() = builder.orientation
 
     /**
-     * Stands the craft up or lays it down. Nothing moves in design space. The camera turns so the
-     * new "up" is up on screen, and the mounting rules follow.
+     * Stands the craft up or lays it down. Nothing moves in design space: the camera turns so the
+     * new up is up on screen, and the mounting rules follow.
      */
     fun toggleOrientation() {
         builder.orientation = builder.orientation.other()
@@ -461,13 +451,9 @@ class BuilderSession(
     }
 
     /**
-     * Acts on a tap in the 3D view.
-     *
-     * With a part held, the tap goes to the nearest open attach node, and with nothing held, it
-     * selects a placed part. Node picking works in *screen* space instead of by casting a ray at
-     * the node's sphere, because a generous radius in pixels is a target that stays the same size
-     * however far the camera has zoomed out. A radius in world space is either unusable when zoomed
-     * out or covers the whole craft when zoomed in.
+     * Acts on a tap in the 3D view: with a part held, onto the nearest open attach node; with
+     * nothing held, selects a placed part. Nodes are picked in screen space, so the generous pixel
+     * radius stays the same size at any zoom.
      */
     fun tap(x: Float, y: Float, width: Float, height: Float) {
         setViewSize(width, height)
@@ -517,10 +503,7 @@ class BuilderSession(
         camera.frameFor(designExtent(design, designCentre(design)))
     }
 
-    /**
-     * Two fingers moved the view by ([dx], [dy]) pixels, so slide what's being looked at along with
-     * them.
-     */
+    /** Two fingers moved the view by ([dx], [dy]) pixels, so slide the view target with them. */
     fun panBy(dx: Float, dy: Float) {
         val metresPerPixel = 2.0 * kotlin.math.tan(FOV_Y * 0.5) * camera.distance / viewHeight
         val right = cameraRotation.rotate(Vec3.unitX(), Vec3())
@@ -541,8 +524,8 @@ class BuilderSession(
     }
 
     /**
-     * Held still on a part: lift it, with its partners and everything below it, to carry somewhere
-     * else. False over nothing, or over the first part.
+     * Held still on a part: lifts it, with its partners and everything below, to carry elsewhere.
+     * False over nothing, or over the first part.
      */
     fun liftAt(x: Float, y: Float, width: Float, height: Float): Boolean {
         setViewSize(width, height)
@@ -701,8 +684,8 @@ class BuilderSession(
     private var loadJob: Job? = null
 
     /**
-     * Reads each saved craft to sort it and describe it, off the main thread, since it's every
-     * design in the store, and asks for the pictures of any not drawn yet.
+     * Reads and describes each saved craft off the main thread (it's every design in the store) and
+     * asks for any pictures not drawn yet.
      */
     private fun refreshLoadEntries() {
         val list = savedCraft
@@ -735,13 +718,11 @@ class BuilderSession(
         val design = c?.rest ?: builder.design
         val items = ArrayList<RenderItem>(design.parts.size + 16)
 
-        // Frame the craft instead of the design origin, so a tall stack stays centred as it grows
-        // instead of drifting off the top of the screen.
+        // Frame the craft, not the design origin, so a tall stack stays centred as it grows.
         val centre = designCentre(design)
         camera.frameAtLeast(designExtent(design, centre))
-        // Half the difference between the covered strips, so the craft sits in the middle of the
-        // open space between the panels. Not while a finger is carrying something, because the
-        // craft would slide out from under the node it's being taken to.
+        // Half the difference between the covered strips, so the craft sits centred between the
+        // panels. Not while carrying, or the craft would slide out from under the target node.
         if (c == null) shownInset += (leftInset - rightInset - shownInset) * INSET_EASE
         val metresPerPixel = 2.0 * tan(FOV_Y * 0.5) * camera.distance / viewHeight
         val aside = cameraRotation.rotate(Vec3.unitX(), Vec3()).mulInPlace(-shownInset * 0.5 * metresPerPixel)
@@ -749,8 +730,8 @@ class BuilderSession(
 
         camera.fixedUp.setTo(design.orientation.up)
         val caps = StackCaps.forDesign(design, catalog)
-        // In staging, the chosen stage's parts light up in the accent colour, and the selected part
-        // lights up with its partners.
+        // In staging the chosen stage's parts light up in the accent colour, and the selected part
+        // with its partners.
         val staged = selectedStage?.takeIf { stagingMode }?.let { design.stages.getOrNull(it)?.activatedParts?.toSet() }.orEmpty()
         val selected = selectedPartIndex?.takeIf { c == null && it in design.parts.indices }
         val partners = selected?.let { index ->
@@ -766,9 +747,8 @@ class BuilderSession(
             addPart(items, design, placed, caps[index], centre, highlight)
         }
 
-        // Attach-node markers, shown only while a part is in hand (the rest of the time they're
-        // clutter), and only the ones it can go on. That way a wheel held over a horizontal craft
-        // shows its underside and nothing else, instead of inviting taps that will be refused.
+        // Attach-node markers only while a part is in hand, and only the ones it can go on, so a
+        // wheel held over a horizontal craft shows its underside and nothing that would be refused.
         val rootId = c?.assembly?.rootPartId ?: held?.assembly?.rootPartId
         val nodes = rootId?.let { usableNodes(design, it) }.orEmpty()
         visibleNodes = nodes
@@ -863,11 +843,9 @@ class BuilderSession(
     // --- picking -------------------------------------------------------------
 
     /**
-     * Projects a design-space point to screen pixels, or null if it's behind the camera.
-     *
-     * It's done directly instead of through the render matrices. The camera pose is already here,
-     * and going through [com.rm.apogee.core.math.Mat4] would mean narrowing to float for a sum that
-     * only needs to be accurate to a pixel.
+     * Projects a design-space point to screen pixels, or null if it's behind the camera. Done
+     * directly from the camera pose rather than through [com.rm.apogee.core.math.Mat4], since a
+     * pixel's accuracy doesn't need narrowing to float.
      */
     private fun project(world: Vec3, width: Float, height: Float): Pair<Float, Float>? {
         scratch.setTo(world).subInPlace(cameraPosition)
@@ -902,10 +880,9 @@ class BuilderSession(
     }
 
     /**
-     * The part under ([x], [y]): the nearest one whose box the line of sight through that pixel
-     * passes through. A small part in front of a big one is the small one, and a big part is hit
-     * anywhere on it, not just near its middle. Failing that, the part whose middle is nearest the
-     * finger, within reach.
+     * The part under ([x], [y]): the nearest whose box the line of sight through that pixel hits,
+     * so a small part in front wins and a big one is hit anywhere. Failing that, the part whose
+     * middle is nearest the finger, within reach.
      */
     private fun pickPart(x: Float, y: Float, width: Float, height: Float, stageableOnly: Boolean = false): Int? {
         val design = builder.design
@@ -956,9 +933,8 @@ class BuilderSession(
         const val NEAR_PLANE = 0.2
 
         /**
-         * The snap radius in pixels. It's generous on purpose, because building on a touchscreen is
-         * the hardest thing to get right in this project, and a fingertip covers far more than a
-         * node marker does.
+         * The snap radius in pixels. Generous on purpose: a fingertip covers far more than a node
+         * marker.
          */
         const val TAP_RADIUS_PIXELS = 110f
         const val PART_TAP_RADIUS_PIXELS = 80f

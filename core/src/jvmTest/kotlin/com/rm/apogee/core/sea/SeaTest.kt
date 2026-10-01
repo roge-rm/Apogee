@@ -15,9 +15,7 @@ import org.junit.Test
 import kotlin.math.cos
 import kotlin.math.sin
 
-/**
- * The sea: tides from Luna and waves from the weather, the same wherever they're worked out.
- */
+/** The sea: tides from Luna and waves from the weather, deterministic. */
 class SeaTest {
 
     private val system = SolarSystem.defaultSystem()
@@ -77,7 +75,7 @@ class SeaTest {
 
     // --- tides ---------------------------------------------------------------------
 
-    /** Luna's direction over [at] in Terra's turning frame. */
+    /** Luna's direction at [time] in Terra's turning frame. */
     private fun lunaOver(time: Double): Vec3 {
         val p = luna.orbit!!.stateAt(time).position
         return terra.toBodyFixed(p, terra.rotationAt(time)).normalizeInPlace()
@@ -183,7 +181,7 @@ class SeaTest {
         val centre = weather.stormModel.centreAt(storm, t, Vec3())
         val sample = s.sample(centre, t, SeaSample())
         assertTrue("storm sea ${sample.significantHeight} m under a ${storm.kind} of strength ${storm.strength}", sample.significantHeight in 7.0..16.0)
-        // Its storm sea is wider than one tower, so it's halfway out to the base's edge too.
+        // The storm sea is wider than one tower, so it's there halfway out to the base's edge.
         val track = Vec3(); val right = Vec3(); val c = Vec3()
         weather.stormModel.frameAt(storm, t, c, track, right)
         val out = weather.stormModel.place(c, track, right, storm.deckAlong, storm.halfAcross * 0.5, 1.0, Vec3())
@@ -201,7 +199,7 @@ class SeaTest {
             if (terrain.elevation(far) > -200.0) continue
             weather.stormModel.seaAt(far, t + 150_000.0 / Storms.SWELL_GROUP_SPEED, stormSea, land)
             if (stormSea.swellHs < 0.5) continue
-            // Coming from this storm's direction, where no bigger one somewhere else drowns it out.
+            // From this storm's direction, where no bigger storm drowns it out.
             val toward = c.copy().subInPlace(far)
             toward.addScaledInPlace(far, -(toward dot far)).normalizeInPlace()
             if ((stormSea.swellDirection dot toward) > -0.7) continue
@@ -277,8 +275,7 @@ class SeaTest {
                 val p = centre.copy().addScaledInPlace(east, i * 1.2).addScaledInPlace(north, j * 1.2).addScaledInPlace(d, 1.5)
                 worst = maxOf(worst, kotlin.math.abs(patch.height(p) - s.height(p, t)))
             }
-            // Within a few millimetres, and a couple of centimetres where a rogue wave's edge
-            // crosses the hull.
+            // Millimetres, or a couple of centimetres where a rogue wave's edge crosses the hull.
             assertTrue("patch off the surface by $worst m", worst < 0.03)
         }
     }
@@ -292,7 +289,7 @@ class SeaTest {
         for (time in listOf(36_000.0, 90_000.0, 150_000.0)) {
             s.sample(beach, time, sample)
             val atBeach = sample.significantHeight
-            // Somewhere along the run in to the beach: where it breaks moves with the tide.
+            // Along the run in to the beach, since where it breaks moves with the tide.
             var breaking = 0.0
             for (east in listOf(-2_300.0, -2_600.0, -3_000.0, -3_500.0)) {
                 val at = SolarSystem.capeDirection(east, 0.0).mulInPlace(terra.radius)
@@ -300,7 +297,6 @@ class SeaTest {
             }
             s.sample(harbour, time, sample)
             val inHarbour = sample.significantHeight
-            // It used to be thirty centimetres there, and the sea at the Cape looked flat.
             assertTrue("the beach at $time: $atBeach m", atBeach > 1.0)
             assertTrue("surf on the beach at $time", breaking > 0.3)
             assertTrue("the harbour at $time: $inHarbour m, the beach $atBeach m", inHarbour < atBeach)

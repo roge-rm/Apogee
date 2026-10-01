@@ -41,9 +41,9 @@ import kotlinx.coroutines.CoroutineScope
 import java.io.File
 
 /**
- * The Android host for [ApogeeApp]: one FrameLayout holding the 3D surface and, above it, one
- * ComposeView holding every screen. The app itself is in :shared, the same as in a browser; this
- * only gives it Android's files, surface, touches, share sheet and system bars.
+ * The Android host for [ApogeeApp]: a FrameLayout with the 3D surface and one ComposeView over it
+ * for every screen. The app lives in :shared; this gives it Android's files, surface, touches,
+ * share sheet and system bars.
  */
 class MainActivity : ComponentActivity(), AppHost {
 
@@ -60,8 +60,8 @@ class MainActivity : ComponentActivity(), AppHost {
     override fun folder(name: String): Folder = FileFolder(File(filesDir, name))
 
     /**
-     * Every touch, wherever it lands (the view, a control, a dialog), wakes the flight controls
-     * from their idle fade. It's only watched, never taken.
+     * Any touch anywhere wakes the flight controls from their idle fade. Only watched, never
+     * consumed.
      */
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
         if (ev.actionMasked == MotionEvent.ACTION_DOWN && ::app.isInitialized) app.touched()
@@ -73,20 +73,17 @@ class MainActivity : ComponentActivity(), AppHost {
     private val gamepad = GamepadReader()
 
     /**
-     * A controller's buttons. In flight they fly the craft, and nothing else sees them. In the
-     * menus (and over a panel in flight) they go on to the screens: the D-pad moves between
-     * things, A presses the one it's on, and B goes back. Android does that last part itself on
-     * most controllers, sending A on as the D-pad's centre and B as Back when nothing takes them.
-     * It's done here as well for the few that don't.
+     * Controller buttons. In flight they fly the craft and nothing else sees them. In menus (or
+     * over a panel in flight) the D-pad moves, A presses and B goes back. Android usually maps A to
+     * D-pad centre and B to Back itself; this covers controllers that don't.
      */
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (!::app.isInitialized || !gamepad.key(event)) return super.dispatchKeyEvent(event)
         app.pad.update(gamepad.state)
         event.device?.takeIf { !it.isVirtual }?.let { app.controllerName = it.name }
         if (app.padMode() == PadMode.FLIGHT) return true
-        // Only the D-pad, A and B work the menus. The rest are kept from them, or Android's own
-        // stand-ins would fire (Y as Back, the stick clicks as presses), which on the controller
-        // page is exactly when you press one to find it.
+        // Only the D-pad, A and B work the menus. Others are blocked so Android's stand-ins (Y as
+        // Back, stick clicks as presses) don't fire, which matters on the controller page.
         val navigates = event.keyCode == KeyEvent.KEYCODE_BUTTON_A || event.keyCode == KeyEvent.KEYCODE_BUTTON_B ||
             event.keyCode in KeyEvent.KEYCODE_DPAD_UP..KeyEvent.KEYCODE_DPAD_RIGHT
         if (!navigates) return true
@@ -149,11 +146,10 @@ class MainActivity : ComponentActivity(), AppHost {
     override fun showSurface(renderer: GlRenderer, gestures: WorldGestures) {
         val view = createSurfaceView(renderer, gestures)
         findViewById<FrameLayout>(R.id.game_surface_host).addView(view)
-        // The builder picks and pans in pixels, so it needs the view's size from the start, not
-        // only once a finger has touched it.
+        // The builder picks and pans in pixels, so it needs the view's size before the first touch.
         view.addOnLayoutChangeListener { v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
             gestures.size(v.width.toFloat(), v.height.toFloat())
-            // A new view, or turned, draws at the resolution it's been asked for.
+            // A new or rotated view draws at the requested resolution.
             if (right - left != oldRight - oldLeft || bottom - top != oldBottom - oldTop) fitSurface(view)
         }
         surfaceView = view
@@ -164,8 +160,8 @@ class MainActivity : ComponentActivity(), AppHost {
     private var renderScale = 1.0
 
     /**
-     * The 3D view drawn at [scale] of the screen's resolution and stretched to fill it by the
-     * display's own scaler, which costs nothing. The HUD over it is its own view, so it stays sharp.
+     * Draws the 3D view at [scale] of screen resolution; the display's scaler stretches it for
+     * free. The HUD is a separate view, so it stays sharp.
      */
     override fun renderAt(scale: Double) {
         renderScale = scale
@@ -186,20 +182,16 @@ class MainActivity : ComponentActivity(), AppHost {
     private fun createSurfaceView(renderer: GlRenderer, gestures: WorldGestures): GLSurfaceView {
         val view = GLSurfaceView(this).apply {
             setEGLContextClientVersion(3)
-            // Keeping the context across pauses saves rebuilding every mesh and shader each time
-            // the player checks a notification.
+            // Keep the context across pauses, so meshes and shaders aren't rebuilt.
             preserveEGLContextOnPause = true
-            // 4x multisampling where the device has it. Without it every facet edge is a hard pixel
-            // staircase, and as the camera moves the staircases crawl, which on faceted ground is a
-            // shimmer across the whole landscape. Tile-based mobile GPUs resolve MSAA on chip, so
-            // it costs little, and a device without it falls back to none.
+            // 4x MSAA where the device has it, else none. Without it facet edges crawl as the
+            // camera moves. Tile-based GPUs resolve it on chip, so it's cheap.
             setEGLConfigChooser(MultisampleConfigChooser)
             setRenderer(GlSurfaceRenderer(renderer))
             renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
         }
 
-        // Camera gestures are handled on the surface itself instead of in Compose, so a drag over
-        // the 3D world doesn't have to travel through the overlay's hit testing to get here.
+        // Camera gestures go straight to the surface, skipping Compose hit testing.
         val pinch = ScaleGestureDetector(this, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
             override fun onScale(detector: ScaleGestureDetector): Boolean {
                 gestures.zoom(detector.scaleFactor)
@@ -331,13 +323,9 @@ class MainActivity : ComponentActivity(), AppHost {
 
     private fun hideSystemBars() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
-        // Let the window into the display cutout as well.
-        //
-        // Hiding the bars isn't enough on its own. By default the window is laid out clear of the
-        // cutout, so the scene stopped 136px short of the edge and the gap was drawn black, down
-        // the side in landscape and across the top in portrait. Every HUD control already applies
-        // WindowInsets.displayCutout itself, so nothing ends up under the notch. Only the 3D view
-        // reaches into it, which is where a fullscreen game wants it.
+        // Let the window into the display cutout too, or the scene stops short and the gap is
+        // black. HUD controls apply WindowInsets.displayCutout themselves, so only the 3D view
+        // reaches under the notch.
         setCutoutMode(fillCutout = true)
         WindowInsetsControllerCompat(window, window.decorView).apply {
             hide(WindowInsetsCompat.Type.systemBars())
@@ -347,8 +335,7 @@ class MainActivity : ComponentActivity(), AppHost {
     }
 
     private fun showSystemBars() {
-        // Back to the default. Menus are ordinary layouts and should sit clear of the notch instead
-        // of having a title disappear behind it.
+        // Back to the default, so menu titles stay clear of the notch.
         setCutoutMode(fillCutout = false)
         WindowInsetsControllerCompat(window, window.decorView)
             .show(WindowInsetsCompat.Type.systemBars())
@@ -372,10 +359,7 @@ class MainActivity : ComponentActivity(), AppHost {
     }
 }
 
-/**
- * Picks an RGBA8888 config with 24-bit depth and 4x multisampling if the device offers one, and
- * without multisampling otherwise.
- */
+/** An RGBA8888 config with 24-bit depth and 4x multisampling if offered, else without. */
 private object MultisampleConfigChooser : GLSurfaceView.EGLConfigChooser {
     override fun chooseConfig(
         egl: javax.microedition.khronos.egl.EGL10,

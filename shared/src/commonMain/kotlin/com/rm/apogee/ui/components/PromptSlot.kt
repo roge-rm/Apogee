@@ -55,11 +55,9 @@ class PromptActions(
 )
 
 /**
- * The top middle of the screen, only for what's asking for something right now. In flight that's
- * the next burn counting down, the landing coming up, the runway approach, lining up to dock, and
- * the one-tap chances: JOIN two modules, FOUND BASE where the craft stands, BOARD a craft, CLIMB OUT
- * of the water, GRAB or LET GO of a ladder, HOOK or RELEASE the winch's line, and ROLL UPRIGHT when the craft has gone over. On the map it's planning: the transfer window, the burn's editor, and which survey shows.
- * There's nothing at all while there's nothing to do.
+ * The top middle of the screen, for whatever needs you now: burns, landing, approach, docking and
+ * the one-tap prompts in flight; the window, burn editor and survey layer on the map. Empty when
+ * there's nothing to do.
  */
 @Composable
 fun PromptSlot(
@@ -82,7 +80,7 @@ fun PromptSlot(
             window = hud.window, align = Alignment.CenterHorizontally, plannable = hud.mapPlannable,
         )
         if (hud.mapMode) {
-            // A surveyed world's ore or water on the map, and a sea's currents. Tap round them and off.
+            // Ore, water or currents on the map. Taps cycle through them and off.
             if (hud.surveyedHere || hud.currentsHere) SurveyToggle(hud)
             return@Column
         }
@@ -128,7 +126,7 @@ private fun Banner(banner: HudState.Banner) {
 
 private const val BANNER_MS = 4_000L
 
-/** One chance to take, solid so it reads against a bright sky as well as the ground. */
+/** One prompt, solid so it reads against sky and ground. */
 @Composable
 private fun Prompt(icon: ImageVector, text: String, colour: Color, onTap: () -> Unit) {
     val ink = Color(0xFF0C1824)
@@ -147,9 +145,8 @@ private fun Prompt(icon: ImageVector, text: String, colour: Color, onTap: () -> 
 }
 
 /**
- * Coming in to the runway: which end, how far to go, four lights like the ones beside it (two white
- * and two red on the slope, more white when high, more red when low), whether that's high or low
- * and by how much, and how far off the centreline.
+ * The runway approach: which end, distance, the four slope lights (two white and two red on the
+ * slope), high or low by how much, and how far off the centreline.
  */
 @Composable
 private fun ApproachChip(cue: com.rm.apogee.core.world.Approach.Cue) {
@@ -171,7 +168,7 @@ private fun ApproachChip(cue: com.rm.apogee.core.world.Approach.Cue) {
         Text(if (cue.sense > 0) "RWY 09" else "RWY 27", style = TelemetryTextStyle, color = Color.White.alpha(ApogeeAlpha.SUBTITLE))
         Text(if (cue.toThreshold > 0) formatDistance(cue.toThreshold) else "OVER", style = TelemetryTextStyle, color = ApogeeColors.Data)
         Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-            // The way they look beside the runway, with the lowest setting outermost, on the left.
+            // As seen beside the runway, lowest setting outermost on the left.
             for (setAt in com.rm.apogee.core.world.Approach.LIGHTS) {
                 val white = com.rm.apogee.core.world.Approach.white(cue.angle, setAt)
                 androidx.compose.foundation.layout.Box(
@@ -194,13 +191,13 @@ private fun ApproachChip(cue: com.rm.apogee.core.world.Approach.Cue) {
     }
 }
 
-/** Metres off the centreline under which it reads as centred, and over which it's a warning. */
+/** Metres off the centreline: under [CENTRED] reads as centred, over [WIDE_OF_CENTRE] warns. */
 private const val CENTRED = 5.0
 private const val WIDE_OF_CENTRE = 25.0
 
 @Composable
 private fun SurveyToggle(hud: HudState) {
-    // Only what this world has: ore and water once it's surveyed, and currents if it has a sea.
+    // Only what this world has.
     val layers = buildList {
         if (hud.surveyedHere) { add("ORE"); add("H2O") }
         if (hud.currentsHere) add("CURRENTS")

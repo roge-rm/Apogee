@@ -1,5 +1,4 @@
-// The sounds the game can make, by number. The Kotlin side has the same list in audio/Recipes.kt.
-// The two have to agree, and a test checks that they do.
+// The game's sounds by number. audio/Recipes.kt has the same list and a test checks they agree.
 #pragma once
 
 namespace apogee {
@@ -79,10 +78,7 @@ inline int busOf(int r) {
 
 /** Voice flags. */
 namespace flag {
-/**
- * Heard through the craft's own structure: low, close and muffled, which is how sound reaches you
- * in vacuum.
- */
+/** Heard through the hull: low, close and muffled, as in vacuum. */
 constexpr int HULL = 1;
 }  // namespace flag
 

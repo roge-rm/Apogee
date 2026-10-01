@@ -3,10 +3,9 @@ package com.rm.apogee.platform
 import androidx.compose.ui.graphics.ImageBitmap
 
 /*
- * The handful of JVM things the app's shared code uses, under their JVM names, so the code reads
- * the same as it did and on Android is exactly what it was: on Android each is the JVM's own, and
- * in a browser, which has one thread and no java.*, it's the single-threaded equivalent. A file
- * that uses one imports it from here, which on Android takes precedence over the java.lang one.
+ * The few JVM things the shared code uses, under their JVM names. On Android each is the JVM's
+ * own; in a browser (one thread, no java.*) it's a single-threaded stand-in. Files import them from
+ * here, which on Android takes precedence over java.lang.
  */
 
 /** The clocks and array copying of `java.lang.System`. */

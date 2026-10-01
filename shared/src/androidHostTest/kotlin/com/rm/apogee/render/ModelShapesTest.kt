@@ -8,9 +8,8 @@ import kotlin.math.abs
 import kotlin.math.sqrt
 
 /**
- * Every model shape is a closed solid wound outward. It's checked in a way that can't be fooled by
- * how a generator happens to list its corners. Summed over a closed surface, area-weighted normals
- * cancel, and the divergence theorem gives a positive volume only when every face points out.
+ * Every model shape is a closed solid wound outward. On a closed surface the area-weighted normals
+ * sum to zero, and the signed volume is positive only when every face points out.
  */
 class ModelShapesTest {
 

@@ -21,36 +21,30 @@ class Strike(
     val id: Long,
 )
 
-/** What kind of storm. They differ most in how they spread, not how tall they are. */
+/** What kind of storm. They differ most in how they spread. */
 enum class StormKind {
-    /** One cell, about as wide as it is tall. It's the afternoon shower grown up. */
+    /** One cell, about as wide as it is tall: the afternoon shower grown up. */
     SINGLE,
     /** Several towers of different ages on one shared base, 15-30 km across. */
     MULTICELL,
     /**
-     * One huge rotating updraught under a broad layered base, with a wall cloud and an anvil tens
-     * of kilometres long.
+     * One huge rotating updraught under a broad layered base, with a wall cloud and a long anvil.
      */
     SUPERCELL,
-    /**
-     * A line of towers 40-100 km long across its track, with a shelf cloud in front and a wall of
-     * rain behind.
-     */
+    /** A line of towers 40-100 km long across its track, a shelf cloud in front and rain behind. */
     SQUALL,
 }
 
 /**
  * Thunderstorms.
  *
- * There's at most one per [CELL] per [CYCLE], each cell on its own phase, and they're more likely
- * where the pressure is low and the air is moist, and in bands. A storm is carried along by the
- * wind at its steering level, builds up for the first part of its life, matures and then rains
- * itself out. Each one is one of the [StormKind]s, and whatever its kind it has:
- * - a broad dark base over its whole footprint, kilometres across for a small one and tens of
- *   kilometres for a big one, not one tower on one spot;
+ * At most one per [CELL] per [CYCLE], each cell on its own phase, likelier where pressure is low,
+ * the air is moist, and in bands. A storm rides the wind at its steering level, builds, matures and
+ * rains itself out. Each is one of the [StormKind]s and has:
+ * - a broad dark base over its whole footprint, kilometres to tens of kilometres across;
  * - updraught towers ([Storm.cells]), with an anvil blown out ahead of the tallest;
  * - downdraughts and rain curtains, and light rain over the back of the base;
- * - a gust front of outflow running across the ground ahead of it;
+ * - a gust front of outflow running along the ground ahead of it;
  * - rough air everywhere near it, and lightning.
  */
 internal class Storms(
@@ -81,17 +75,16 @@ internal class Storms(
         var strength = 0.0        // 0.3..1: from a passing shower to a monster
         var strikeInterval = 0.0  // seconds between strikes at maturity
         /**
-         * How far the towers lean downwind with height, in cores, and how far the anvil spreads, as
-         * a share of the usual.
+         * How far the towers lean downwind with height, in cores, and the anvil's spread vs usual.
          */
         var lean = 0.0
         var anvilSpread = 1.0
 
         /**
-         * The updraught towers, in the storm's own frame: [cellAlong] metres along its track
-         * (downwind positive) and [cellAcross] to its right. Each one is [cellRadius] across its
-         * core, [cellHeight] of [top] tall, and [cellPhase] ahead of or behind the storm in its
-         * life, because a multicell's towers grow and die one after another.
+         * The updraught towers in the storm's frame: [cellAlong] metres along its track (downwind
+         * positive) and [cellAcross] to its right. Each is [cellRadius] across its core,
+         * [cellHeight] of [top] tall, and [cellPhase] ahead of or behind the storm in its life,
+         * so a multicell's towers grow and die in turn.
          */
         var cellCount = 0
         val cellAlong = DoubleArray(MAX_CELLS)
@@ -100,7 +93,9 @@ internal class Storms(
         val cellHeight = DoubleArray(MAX_CELLS)
         val cellPhase = DoubleArray(MAX_CELLS)
 
-        /** The base: an ellipse [halfAlong] by [halfAcross], centred [deckAlong] along the track from the storm's centre. */
+        /**
+         * The base: an ellipse [halfAlong] by [halfAcross], centred [deckAlong] along the track.
+         */
         var deckAlong = 0.0
         var halfAlong = 0.0
         var halfAcross = 0.0
@@ -114,9 +109,7 @@ internal class Storms(
         /** How much light rain falls over the back of the base, 0..1. */
         var stratiform = 0.0
 
-        /**
-         * How far from its centre any part of it reaches, in metres: base, towers and gust front.
-         */
+        /** How far from its centre any part reaches, in metres: base, towers and gust front. */
         val reach: Double get() = kotlin.math.abs(deckAlong) + kotlin.math.hypot(halfAlong, halfAcross) + 3.0 * core + 4_000.0
 
         /** The tallest tower. */
@@ -159,17 +152,14 @@ internal class Storms(
         frame(s.origin, s.east, s.north)
         // Lows breed storms, and highs suppress them.
         val pressure = weather.pressure(s.origin, s.start)
-        // And they come in groups: bands of bad weather hundreds of kilometres long with quieter
-        // country in between, not one storm here and there. That's about twice as many as there
-        // used to be, overall.
+        // And they come in bands hundreds of kilometres long with quieter country between.
         val chance = (intensity.storms * climate.storms * 0.34 * (0.6 - 0.5 * pressure).coerceIn(0.1, 1.2) *
             (0.2 + 1.6 * bandAt(s.origin, s.start))).coerceAtMost(0.9)
         s.exists = active && Noise.hash(seed + 74, cx, cy, c) < chance
         if (s.exists) {
             fun h(k: Int) = Noise.hash(seed + k, cx, cy, c)
-            // No two are alike, from a lone shower to a line of storms a hundred kilometres long.
             // Strength, size and height loosely go together, so a big storm is usually a strong
-            // one, but not always.
+            // one.
             val power = h(75)
             s.strength = 0.3 + 0.7 * power
             val pick = h(89)
@@ -202,8 +192,7 @@ internal class Storms(
                 StormKind.MULTICELL -> {
                     s.core = 1_800.0 + 1_700.0 * h(76)
                     s.top = 7_000.0 + 7_000.0 * s.strength * (0.8 + 0.4 * h(79))
-                    // Towers along a line, from the old ones at the back to the new ones growing on
-                    // the front edge.
+                    // Towers along a line, old at the back, new ones growing on the front edge.
                     val n = 3 + (h(80) * 5.99).toInt()
                     val spread = 9_000.0 + 9_000.0 * h(81)
                     val slant = (h(82) - 0.5) * 1.2
@@ -236,8 +225,7 @@ internal class Storms(
                     }
                     s.halfAlong = s.core * (1.5 + 0.3 * h(91)); s.halfAcross = s.core * (1.5 + 0.3 * h(92))
                     s.deckAlong = 0.2 * s.core
-                    // Rain and hail on the forward flank, well clear of the rain-free base under
-                    // the updraught.
+                    // Rain and hail on the forward flank, clear of the base under the updraught.
                     s.shaftAlong = 0.9
                     s.stratiform = 0.2
                 }
@@ -246,10 +234,8 @@ internal class Storms(
                     s.core = 1_800.0 + 1_500.0 * h(76)
                     s.top = 8_000.0 + 5_000.0 * s.strength * (0.8 + 0.4 * h(79))
                     s.lean = 0.2 + 0.4 * h(87)
-                    // Towers shoulder to shoulder, one dark wall, not a row of chimneys with sky
-                    // between them. When they stood evenly seven kilometres apart, a line on the
-                    // horizon looked like a picket fence, and I didn't like it. They're spaced
-                    // unevenly, so they bunch, and each is wide enough to overlap its neighbours.
+                    // Towers shoulder to shoulder in one dark wall. Unevenly spaced so they bunch,
+                    // and wide enough to overlap, so a far line doesn't look like a picket fence.
                     val n = (2.0 * half / (1.8 * s.core)).toInt().coerceIn(6, MAX_CELLS)
                     val steps = DoubleArray(n) { 0.6 + 0.8 * h(120 + it) }
                     val total = steps.sum()
@@ -261,8 +247,7 @@ internal class Storms(
                         // Bowed forward in the middle, like a line pushed along by its own outflow.
                         val bow = 0.08 * half * (1.0 - (across / half).let { it * it })
                         val radius = max(s.core * (0.8 + 0.4 * h(180 + i)), 0.75 * 2.0 * half / n)
-                        // Most of them up at the ceiling, where they flatten into the anvil, and a
-                        // few young ones still climbing, so the top is level with a few steps in it.
+                        // Most up at the ceiling in the anvil, a few young ones climbing.
                         val height = if (h(160 + i) < 0.25) 0.55 + 0.25 * h(165 + i) else 0.9 + 0.1 * h(165 + i)
                         addCell(s, bow + (h(100 + i) - 0.5) * 2_000.0, across, radius, height, (h(140 + i) - 0.5) * 0.16)
                     }
@@ -274,14 +259,12 @@ internal class Storms(
                     s.stratiform = 0.6
                 }
             }
-            // Its base a kilometre or so above the ground it forms over. Measured from sea level,
-            // it sat on the high ground with no room under it for its rain to fall through.
-            //
-            // Where there's no sea to stand on, it uses the ground, however low.
+            // Its base about a kilometre above the ground it forms over, so there's room for its
+            // rain on high ground. With no sea it uses the ground, however low.
             val terrain = weather.body.terrain
             val elevation = terrain?.elevation(s.origin) ?: 0.0
             val ground = if (terrain == null || terrain.hasOcean) max(elevation, 0.0) else elevation
-            // (A dust storm's wall stands on the ground itself.)
+            // A dust storm's wall stands on the ground itself.
             s.base = ground + 900.0 * climate.stormBase + 500.0 * h(77) * climate.stormBase
             s.top = s.top * climate.stormHeight + ground
             s.strikeInterval = (6.0 + 18.0 * h(78)) / s.strength
@@ -314,10 +297,7 @@ internal class Storms(
         s.halfAcross = max(abs(minC), abs(maxC))
     }
 
-    /**
-     * Tower [i] of [s] at [time]: 0 before it has grown or after it has died, 1 at its best, times
-     * the storm's own strength.
-     */
+    /** Tower [i] of [s] at [time]: 0 before it grows or after it dies, 1 at its best. */
     fun cellLife(s: Storm, i: Int, time: Double): Double {
         val u = ((time - s.start) / CYCLE) - s.cellPhase[i]
         return smooth(0.0, 0.3, u) * (1.0 - smooth(0.7, 1.0, u))
@@ -328,9 +308,8 @@ internal class Storms(
         s.base + (s.top - s.base) * s.cellHeight[i] * smooth(0.0, 0.35, (time - s.start) / CYCLE - s.cellPhase[i])
 
     /**
-     * [s]'s own frame at [time]: its centre (unit), which way it's going (unit, tangent) and its
-     * right (unit, tangent). Positions in it are `centre * radius + along * track + across *
-     * right`.
+     * [s]'s frame at [time]: centre (unit), track (unit, tangent) and right (unit, tangent).
+     * Positions are `centre * radius + along * track + across * right`.
      */
     fun frameAt(s: Storm, time: Double, centre: Vec3, track: Vec3, right: Vec3) {
         centreAt(s, time, centre)
@@ -346,8 +325,7 @@ internal class Storms(
             .normalizeInPlace().mulInPlace(radius)
 
     /**
-     * How stormy the country around unit [at] is, 0..1: long bands, stretched one way like a front,
-     * drifting over hours.
+     * How stormy the country round unit [at] is, 0..1: long front-like bands drifting over hours.
      */
     private fun bandAt(at: Vec3, time: Double): Double {
         val k = bodyRadius / BAND_SCALE
@@ -367,8 +345,8 @@ internal class Storms(
 
     fun apply(up: Vec3, east: Vec3, north: Vec3, position: Vec3, altitude: Double, groundTop: Double, time: Double, out: AirSample) {
         if (!active) return
-        // Which cells to look in depends only on where, and a craft is sampled many times a second
-        // a few metres on from the last. So the search is kept until it's gone a fair way.
+        // The cells to search depend only on where, and a craft moves a few metres between samples,
+        // so keep the search until it's moved [NEAR_MOVE].
         if (nearCount < 0 || nearUp.distanceTo(up) * bodyRadius > NEAR_MOVE) {
             nearCount = cells.around(up, east, north, CELL / bodyRadius, nearKeys, reach = SEARCH)
             nearUp.setTo(up)
@@ -387,7 +365,7 @@ internal class Storms(
             val across = rel dot right
             val agl = altitude - groundTop
 
-            // Under its base and near it, meaning the whole footprint, not a spot.
+            // Under or near its base, over the whole footprint.
             val da = (along - s.deckAlong) / s.halfAlong
             val dc = across / s.halfAcross
             val q = kotlin.math.sqrt(da * da + dc * dc)
@@ -424,8 +402,7 @@ internal class Storms(
                 }
                 if (wet) out.precipitation = max(out.precipitation, life * exp(-(dShaft / (0.9 * r)).let { it * it }))
 
-                // A lone storm's gust front: outflow spreading out from each shaft. A line's is
-                // along its front, below.
+                // A lone storm's gust front, spreading out from each shaft. A line's is below.
                 if (s.kind != StormKind.SQUALL && agl < 1_500.0 && dShaft > 1.0) {
                     val ring = (dShaft - 1.3 * r) / (0.8 * r)
                     val outward = GUST_FRONT * life * exp(-ring * ring) * min(dShaft / r, 1.0) * (1.0 - smooth(300.0, 1_500.0, agl))
@@ -434,7 +411,7 @@ internal class Storms(
                         shaftRel.setTo(steerDir).mulInPlace(sx / dShaft).addScaledInPlace(right, dy / dShaft)
                     }
                 }
-                // The tower drawing the low air in toward it. The strongest pull wins.
+                // The tower draws low air in. The strongest pull wins.
                 val pull = life * (d / r) * exp(-(d / (2.0 * r)).let { it * it })
                 if (pull > inflowPull && d > 1.0) { inflowPull = pull; inflowAlong = dx / d; inflowAcross = dy / d }
                 turbulence = max(turbulence, TURBULENCE * life * exp(-(d / (1.8 * r)).let { it * it }))
@@ -446,8 +423,8 @@ internal class Storms(
                 }
             }
 
-            // A squall line's gust front: all along its front, blowing the way the line goes, a few
-            // kilometres ahead of the towers.
+            // A squall line's gust front: along its whole front, blowing the way the line goes, a
+            // few kilometres ahead of the towers.
             if (s.kind == StormKind.SQUALL && agl < 1_500.0 && abs(across) < s.halfAcross) {
                 val half = s.halfAcross - 3_000.0
                 val bow = 0.08 * half * (1.0 - (across / half).coerceIn(-1.0, 1.0).let { it * it })
@@ -486,8 +463,7 @@ internal class Storms(
     }
 
     /**
-     * How much of the sky over unit [up] a storm's base covers, for someone [altitude] up and below
-     * it, 0..1. Under a big storm, it's all of it.
+     * How much of the sky over unit [up] storm bases cover, seen from [altitude] below them, 0..1.
      */
     fun overcastAbove(up: Vec3, east: Vec3, north: Vec3, altitude: Double, time: Double): Double {
         if (!active) return 0.0
@@ -511,19 +487,19 @@ internal class Storms(
     }
 
     /**
-     * What storms do to the sea at one place: the storm sea under them, and swell from the ones
-     * further away.
+     * What storms do to the sea at one place: the storm sea under them, and swell from further
+     * away.
      */
     class StormSea {
         /**
-         * The significant height of the sea raised under a storm here, in metres, and the way it
-         * runs (unit, tangent).
+         * Significant height in metres of the sea raised under a storm here, and its direction
+         * (unit, tangent).
          */
         var stormHs = 0.0
         val stormDirection = Vec3()
         /**
-         * The biggest swell arriving from storms further away: its height in metres, its period in
-         * seconds, and the way it runs.
+         * The biggest swell from storms further away: height in metres, period in seconds,
+         * direction.
          */
         var swellHs = 0.0
         var swellPeriod = 0.0
@@ -541,12 +517,10 @@ internal class Storms(
     /**
      * The sea storms make at unit [up] at [time], into [out].
      *
-     * Under a storm there's a big confused sea, up to [STORM_SEA_HS] at a monster's worst, over its
-     * whole footprint, running out from its towers or ahead of a squall line along its front.
-     * Further away there's the swell it throws out, travelling at its group speed. It arrives hours
-     * later and hundreds of kilometres away, smaller the further it has come, from wherever the
-     * storm was when it sent it, so swell from a storm that's long gone keeps coming in. Land in
-     * between stops it.
+     * Under a storm, a confused sea up to [STORM_SEA_HS] over its footprint, running out from its
+     * towers or ahead of a squall line. Further away, its swell arrives at group speed, hours later
+     * and smaller with distance, from where the storm was when it sent it, so swell from a storm
+     * long gone keeps coming. Land in between stops it.
      */
     fun seaAt(up: Vec3, time: Double, out: StormSea, land: (Vec3) -> Boolean) {
         out.stormHs = 0.0; out.swellHs = 0.0; out.swellPeriod = 0.0
@@ -625,7 +599,9 @@ internal class Storms(
     /** Half the anvil's length downwind, in metres. Tens of kilometres for a supercell's. */
     fun anvilHalfAlong(s: Storm): Double = max(2.4 * s.core, s.halfAlong * 0.8) * s.anvilSpread
 
-    /** Where the anvil is across the track, in metres: over the tallest tower, or a squall line's middle. */
+    /**
+     * The anvil's place across the track, in metres: over the tallest tower, or a line's middle.
+     */
     fun anvilAcross(s: Storm): Double = if (s.kind == StormKind.SQUALL) 0.0 else s.cellAcross[s.mainCell]
 
     /** Half the anvil's width, in metres. A squall line's runs its whole length. */
@@ -643,10 +619,7 @@ internal class Storms(
         }
     }
 
-    /**
-     * Strikes between [from] and [to] (exclusive, inclusive) from the storms around [up], in time
-     * order.
-     */
+    /** Strikes after [from] up to [to] from the storms around [up], in time order. */
     fun strikes(up: Vec3, east: Vec3, north: Vec3, from: Double, to: Double, out: MutableList<Strike>) {
         if (!active || !climate.lightning || to <= from) return
         val n = cells.around(up, east, north, CELL / bodyRadius, keys, reach = SEARCH)
@@ -674,7 +647,7 @@ internal class Storms(
             val c = (s.cycle.toInt() * 131 + index)
             val t = slot + Noise.hash(seed + 80, s.cx, s.cy, c) * s.strikeInterval * 0.8
             if (t > a && t <= b) {
-                // From one of its towers (any of them, along a line), near its core.
+                // From one of its towers, near its core.
                 val cell = (Noise.hash(seed + 84, s.cx, s.cy, c) * s.cellCount).toInt().coerceIn(0, s.cellCount - 1)
                 val at = Vec3(); val track = Vec3(); val side = Vec3()
                 frameAt(s, t, at, track, side)
@@ -693,12 +666,10 @@ internal class Storms(
     }
 
     companion object {
-        /** The spacing of storm cells, in metres. */
         /**
          * The storm's winds at full strength, in m/s: up through the core, down out of the rain
          * shaft, out along the gust front, and in toward the core low down. Also how rough the air
-         * around it is. They're twice what they were, because winds should be much worse in storms.
-         * A strong storm throws a light plane around and is no place for a parachute.
+         * round it is. A strong storm throws a light plane around and is no place for a parachute.
          */
         const val UPDRAUGHT = 25.0
         const val DOWNDRAUGHT = 18.0
@@ -706,17 +677,17 @@ internal class Storms(
         const val INFLOW = 14.0
         const val TURBULENCE = 1.6
 
+        /** The spacing of storm cells, in metres. */
         const val CELL = 60_000.0
 
         /**
-         * How many cells to search each way for storms that reach a point. A line runs a cell and
-         * more from its middle.
+         * How many cells to search each way for storms that reach a point. A line runs over a cell.
          */
         const val SEARCH = 2
 
         /**
-         * How far, in metres, a place sampled can move before the cells to look in are found again.
-         * A storm two cells off is over a hundred kilometres away, so a couple more don't matter.
+         * How far in metres a sample point can move before the search is redone. A storm two cells
+         * off is over 100 km away, so a couple more metres don't matter.
          */
         const val NEAR_MOVE = 2_000.0
 
@@ -727,8 +698,7 @@ internal class Storms(
         const val STORM_SEA_HS = 12.0
 
         /**
-         * How far swell travels from a storm in metres, and how fast in m/s: the group speed of a
-         * ten-second swell and up.
+         * How far swell travels in metres, and its speed in m/s: a ten-second swell's group speed.
          */
         const val SWELL_REACH = 400_000.0
         const val SWELL_GROUP_SPEED = 9.0
@@ -745,10 +715,7 @@ internal class Storms(
         /** One storm's lifetime, in seconds. */
         const val CYCLE = 2_400.0
 
-        /**
-         * The fastest a storm travels, in m/s. It keeps it within reach of its own cell's
-         * neighbours.
-         */
+        /** The fastest a storm travels, in m/s, so it stays within its cell's neighbours. */
         const val MAX_STEER = 15.0
 
         /** Roughly how wide a band of storms is in metres. They're several times that long. */

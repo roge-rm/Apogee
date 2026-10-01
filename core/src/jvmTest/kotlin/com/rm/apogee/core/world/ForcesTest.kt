@@ -33,10 +33,8 @@ class ForcesTest {
     }
 
     /**
-     * The regression this is here for. An engine sits below the centre of mass, so a naive gimbal
-     * deflection makes torque *opposite* to what a reaction wheel makes for the same command. When
-     * they disagree, a craft carrying both is harder to fly than one carrying either, and on a
-     * device it shows up as a rocket that sluggishly refuses to turn.
+     * An engine sits below the centre of mass, so a naive gimbal deflection torques the opposite
+     * way to a reaction wheel for the same command, and the two fight.
      */
     @Test
     fun `gimbal and reaction wheels torque the craft the same way`() {
@@ -159,11 +157,8 @@ class ForcesTest {
     }
 
     /**
-     * Why drag is applied part by part instead of through the centre of mass.
-     *
-     * A single central force makes no torque wherever the fins are, so a finned rocket flew exactly
-     * like one without fins, and the fins were just mass. Here the craft is put at an angle of
-     * attack and the aerodynamic torque has to push the nose back toward the airflow.
+     * Drag is applied part by part, so fins make torque. At an angle of attack it has to push the
+     * nose back toward the airflow.
      */
     @Test
     fun `fins produce a restoring torque at angle of attack`() {
@@ -251,10 +246,8 @@ class ForcesTest {
     fun `heavy rain means more drag`() {
         fun dragIn(rain: Double): Double {
             val vessel = rocketInVacuum()
-            // Low down, moving level through the air at 150 m/s, sideways, so the rain's weight,
-            // straight down, isn't along the motion, and nose first, the way a rocket flies.
-            // Broadside, its fins square to the wind pushed back like plates, which is lift, not
-            // the drag the rain adds to.
+            // Low, level and nose first at 150 m/s, so the rain's weight isn't along the motion.
+            // Broadside, the fins would make lift, which rain doesn't add to.
             vessel.body.position.setTo(0.0, terra.radius + 1_000.0, 0.0)
             vessel.body.orientation.setTo(com.rm.apogee.core.math.quatFromTo(Vec3.unitY(), Vec3.unitX()))
             terra.surfaceVelocityAt(vessel.body.position, vessel.body.linearVelocity)
@@ -263,7 +256,7 @@ class ForcesTest {
             vessel.air.precipitation = rain
             vessel.body.force.setZero()
             Forces().applyDrag(vessel, terra)
-            // Along the motion only, because rain also weighs the craft down, which isn't drag.
+            // Along the motion only, since rain's weight isn't drag.
             return -vessel.body.force.x
         }
         val dry = dragIn(0.0)

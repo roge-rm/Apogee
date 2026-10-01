@@ -16,11 +16,8 @@ enum class SymmetryMode(val count: Int, val label: String) {
     QUAD(4, "4x");
 
     /**
-     * The next mode a design with this [orientation] can use.
-     *
-     * A craft lying down is only symmetric left to right. Three or four wheels spaced around the
-     * fuselage would put some of them on its roof, so a horizontal design switches between one and
-     * a mirrored pair.
+     * The next mode for [orientation]. A horizontal craft only switches between one and a mirrored
+     * pair, since radial copies would put wheels on its roof.
      */
     fun next(orientation: CraftOrientation = CraftOrientation.VERTICAL): SymmetryMode {
         val offered = offeredFor(orientation)
@@ -34,13 +31,9 @@ enum class SymmetryMode(val count: Int, val label: String) {
 }
 
 /**
- * The editing model behind the vehicle assembly building.
- *
- * Every change makes a whole new [CraftDesign] and pushes the old one onto an undo stack. Designs
- * are small, a few dozen parts of plain data, so copying one is cheap, and in return the undo can
- * never get out of step with the model. The hardest part of this whole project is building in 3D on
- * a touchscreen, so a reliable undo isn't a nice extra. It's what makes it forgiving enough to use
- * at all.
+ * The editing model behind the assembly building. Every change makes a new [CraftDesign] and pushes
+ * the old one on the undo stack. Designs are small, so copying is cheap and undo can't get out of
+ * step. Building in 3D on a touchscreen needs a reliable undo.
  */
 class CraftBuilder(
     private val catalog: PartCatalog,
@@ -50,8 +43,8 @@ class CraftBuilder(
         private set
 
     /**
-     * The current symmetry mode. A radial mode picked on a standing craft reads as a mirrored pair
-     * once the craft is laid down, whether that happened by toggling, loading or undoing.
+     * The symmetry mode. A radial mode reads as a mirrored pair once the craft is horizontal,
+     * however that happened.
      */
     var symmetry: SymmetryMode = SymmetryMode.NONE
         get() = if (field in SymmetryMode.offeredFor(orientation)) field else SymmetryMode.MIRROR
@@ -65,8 +58,8 @@ class CraftBuilder(
     val canRedo: Boolean get() = redoStack.isNotEmpty()
 
     /**
-     * Which way up the craft is built. Changing it doesn't move any parts. It changes which way is
-     * the sky, and so where wheels can go and what symmetry means from here on.
+     * Which way up the craft is built. Moves no parts, but changes where the sky is, so where
+     * wheels go and what symmetry means.
      */
     var orientation: CraftOrientation
         get() = design.orientation
@@ -85,11 +78,8 @@ class CraftBuilder(
     fun openNodes(): List<OpenNode> = Attachment.openNodes(design, catalog)
 
     /**
-     * Places the first part, which becomes the root.
-     *
-     * The root is whatever gets placed first, and the builder nudges you toward a command pod by
-     * putting those first in the drawer. A craft rooted at its pod is one where staging throws away
-     * the spent half and leaves the crew flying, rather than the other way round.
+     * Places the first part as the root. The drawer lists command pods first, since a craft rooted
+     * at its pod drops the spent half when staging and keeps the crew flying.
      */
     fun placeRoot(partId: String): Boolean {
         if (!isEmpty) return false
@@ -104,17 +94,14 @@ class CraftBuilder(
     }
 
     /**
-     * Attaches [partId] to [target], using the current symmetry mode.
-     *
-     * @return the indices of the parts added, or empty if the join wasn't allowed.
+     * Attaches [partId] to [target] with the current symmetry. Returns the indices added, or empty
+     * if not allowed.
      */
     fun attach(partId: String, target: OpenNode): List<Int> = attachAssembly(Assembly.of(partId), target)
 
     /**
-     * Puts [assembly] on [target], copied around by the current symmetry mode the same way a single
-     * part would be.
-     *
-     * @return the indices of the parts added, or empty if it won't go there.
+     * Puts [assembly] on [target], copied by the current symmetry like a single part. Returns the
+     * indices added, or empty if it won't go.
      */
     fun attachAssembly(assembly: Assembly, target: OpenNode): List<Int> {
         val done = Assemblies.attach(design, assembly, target, symmetry, catalog) ?: return emptyList()
@@ -123,15 +110,14 @@ class CraftBuilder(
     }
 
     /**
-     * What lifting part [index] would leave behind and hold, without actually lifting it. The
-     * builder shows the craft without the piece while your finger carries it, and only [move]
-     * changes the design. Null for the root.
+     * What lifting part [index] would leave and hold, without lifting it. The builder shows the
+     * craft without it while you drag; only [move] changes the design. Null for the root.
      */
     fun lift(index: Int): Assemblies.Lift? = Assemblies.lift(design, index)
 
     /**
-     * Moves part [index], with its partners and everything below it, onto [target], a node of
-     * [lift]'s [Assemblies.Lift.rest]. This is one undo step.
+     * Moves part [index], with partners and everything below, onto [target], a node of [lift]'s
+     * [Assemblies.Lift.rest]. One undo step.
      */
     fun move(index: Int, target: OpenNode, symmetry: SymmetryMode = this.symmetry): List<Int> {
         val lifted = lift(index) ?: return emptyList()
@@ -143,7 +129,7 @@ class CraftBuilder(
     /** A copy of part [index] and everything below it, to put somewhere else. */
     fun duplicate(index: Int): Assembly? = Assemblies.extract(design, index)
 
-    /** Turns part [index] and its partners by a quarter turn [quarters] times around its join. */
+    /** Turns part [index] and its partners [quarters] quarter turns about its join. */
     fun turn(index: Int, quarters: Int = 1): Boolean {
         val turned = Assemblies.turn(design, index, quarters, catalog) ?: return false
         mutate { Attachment.settled(turned, catalog) }
@@ -151,8 +137,8 @@ class CraftBuilder(
     }
 
     /**
-     * Whether part [index] can go in an action group: something a group can switch, like an engine,
-     * a driven wheel, a rotor, a lamp, a drill or converter, a fold-out, a wing with flaps, or a sail.
+     * Whether part [index] can go in an action group: an engine, driven wheel, rotor, lamp, drill,
+     * converter, fold-out, flapped wing or sail.
      */
     fun groupable(index: Int): Boolean {
         val def = design.parts.getOrNull(index)?.let { catalog[it.partId] } ?: return false
@@ -169,8 +155,8 @@ class CraftBuilder(
     }
 
     /**
-     * Puts part [index] and its symmetry partners in action group [group] (1 to 3), or in none with
-     * 0. False if it's not something a group can switch.
+     * Puts part [index] and its symmetry partners in action group [group] (1 to 3), or none with 0.
+     * False if a group can't switch it.
      */
     fun setGroup(index: Int, group: Int): Boolean {
         if (!groupable(index) || group !in 0..Vessel.GROUPS) return false
@@ -183,15 +169,10 @@ class CraftBuilder(
         return true
     }
 
-    /**
-     * Removes a part and everything hanging below it.
-     *
-     * Symmetry partners go with it, so parts placed together are removed together. Leaving three of
-     * four boosters behind is never what you meant.
-     */
+    /** Removes a part and everything below it, with its symmetry partners. */
     fun remove(index: Int): Boolean {
         if (index !in design.parts.indices) return false
-        // Removing the root would orphan the whole craft.
+        // The root can't be removed.
         if (design.parts[index].parentIndex == -1) return false
 
         val group = design.parts[index].symmetryGroup
@@ -224,8 +205,7 @@ class CraftBuilder(
     }
 
     fun clear() {
-        // Keeps the orientation. If you clear a plane to start again, you're starting another
-        // plane.
+        // Keeps the orientation: clearing a plane starts another plane.
         mutate {
             CraftDesign("Untitled", emptyList(), emptyList(), catalog.contentHash, it.orientation)
         }
@@ -235,24 +215,21 @@ class CraftBuilder(
         mutate { loaded }
     }
 
-    /** Works the staging out again from the structure. See [autoStage]. */
+    /** Rebuilds staging from the structure. See [autoStage]. */
     fun restage() {
         mutate { it.copy(stages = autoStage(it, catalog)) }
     }
 
     // --- staging -------------------------------------------------------------
 
-    /** Whether a stage can fire [index], meaning it's an engine, decoupler, parachute or leg. */
+    /** Whether a stage can fire [index]: an engine, decoupler, parachute or leg. */
     fun isStageable(index: Int): Boolean =
         index in design.parts.indices && catalog[design.parts[index].partId]?.let { stageable(it) } == true
 
     /** The stage [index] fires in, or -1 if none. */
     fun stageOf(index: Int): Int = design.stages.indexOfFirst { index in it.activatedParts }
 
-    /**
-     * Moves [index] into [stage] along with its symmetry partners. Four boosters placed together
-     * get staged together, just like they get removed together.
-     */
+    /** Moves [index] and its symmetry partners into [stage]. */
     fun moveToStage(index: Int, stage: Int): Boolean {
         if (!isStageable(index) || stage !in design.stages.indices) return false
         val group = design.parts[index].symmetryGroup
@@ -269,7 +246,7 @@ class CraftBuilder(
         return true
     }
 
-    /** Inserts an empty stage at [at], so it fires at that point in the order. */
+    /** Inserts an empty stage at [at]. */
     fun addStage(at: Int): Boolean {
         if (at !in 0..design.stages.size) return false
         editStages { it.toMutableList().apply { add(at, Stage()) } }
@@ -277,9 +254,8 @@ class CraftBuilder(
     }
 
     /**
-     * Removes [stage]. Whatever it fired joins the stage that fires next (or the one before, for
-     * the last stage) instead of dropping out of the sequence, because a part in no stage would
-     * never fire at all.
+     * Removes [stage]. Its parts join the next stage (or the one before, for the last), since a
+     * part in no stage never fires.
      */
     fun removeStage(stage: Int): Boolean {
         val stages = design.stages
@@ -302,7 +278,7 @@ class CraftBuilder(
         return true
     }
 
-    /** Hands staging back to the builder and throws away the hand-made arrangement. */
+    /** Goes back to automatic staging, dropping the hand-made sequence. */
     fun useAutomaticStaging() {
         if (!design.manualStaging) return
         mutate { it.copy(manualStaging = false) }
@@ -317,16 +293,15 @@ class CraftBuilder(
         if (undoStack.size > MAX_UNDO) undoStack.removeFirst()
         redoStack.clear()
         val updated = transform(design)
-        // Changing the structure breaks the staging sequence, so it gets rebuilt on every change
-        // instead of leaving you to notice it's wrong. The exception is when you arranged it
-        // yourself. Then it's kept, and only adjusted for what was added or taken away.
+        // Structure changes break staging, so it's rebuilt every time, unless you arranged it
+        // yourself; then it's kept and only adjusted for parts added or removed.
         design = updated.copy(
             stages = if (updated.manualStaging) fitStages(updated, catalog) else autoStage(updated, catalog),
         )
     }
 
 
-    /** Rebuilds a design from some of its parts, remapping the parent indices. */
+    /** Rebuilds a design from some of its parts, remapping parents. */
     private fun rebuild(source: CraftDesign, keep: List<Int>): CraftDesign = source.keeping(keep)
 
     companion object {
@@ -340,12 +315,10 @@ class CraftBuilder(
                 def.module<com.rm.apogee.core.part.Fairing>() != null
 
         /**
-         * A sequence arranged by hand, adjusted to the design as it is now. Parts that are gone, or
-         * that nothing fires, are dropped. Stageable parts that aren't in any stage go where the
-         * automatic sequence would put them: next to a part that fires with them automatically if
-         * that part has a stage, or otherwise ahead of the first stage holding anything the
-         * automatic sequence fires later. Empty stages are kept, because you might have just made
-         * one to fill.
+         * A hand-arranged sequence fitted to the design as it is now. Missing or unstageable parts
+         * are dropped. Unstaged stageable parts go next to a part they'd auto-fire with, if that
+         * has a stage, else ahead of the first stage holding something auto-fired later. Empty
+         * stages are kept, since you may have just made one.
          */
         fun fitStages(design: CraftDesign, catalog: PartCatalog): List<Stage> {
             fun canStage(i: Int) = i in design.parts.indices &&
@@ -373,15 +346,12 @@ class CraftBuilder(
         }
 
         /**
-         * Works out a staging sequence from the part tree.
+         * A staging sequence from the part tree, so a craft can fly as soon as it's built. You can
+         * rearrange it after; see [moveToStage] and [fitStages].
          *
-         * Parts are grouped by what a decoupler separates, the same way fuel crossfeed works, and
-         * the groups fire from the outside in. The group furthest from the root burns first, then
-         * its decoupler lets it go and the next group lights. Parachutes go last, then legs.
-         *
-         * Working this out automatically, instead of asking you to build it, means a craft can fly
-         * the moment it's put together. You can rearrange it afterwards. See [moveToStage] and
-         * [fitStages].
+         * Parts are grouped by what decouplers separate, like crossfeed, and fire from the outside
+         * in: the furthest group burns, its decoupler lets go, the next lights. Then parachutes,
+         * then legs.
          */
         fun autoStage(design: CraftDesign, catalog: PartCatalog): List<Stage> {
             if (design.parts.isEmpty()) return emptyList()
@@ -406,8 +376,8 @@ class CraftBuilder(
             fun isLeg(index: Int) =
                 catalog[design.parts[index].partId]?.module<LandingLeg>() != null
 
-            // Each part's separation group, which is how many decouplers lie between it and the
-            // root. Higher means it gets thrown away sooner.
+            // Each part's separation group: the decouplers between it and the root. Higher is
+            // dropped sooner.
             val separation = IntArray(design.parts.size) { -1 }
             fun separationOf(index: Int): Int {
                 if (separation[index] >= 0) return separation[index]
@@ -425,8 +395,8 @@ class CraftBuilder(
                 val engines = design.parts.indices.filter {
                     separation[it] == level && isEngine(it)
                 }
-                // The decoupler that lets go of the level below this one fires together with this
-                // level's engines, so there's no coasting gap between separation and ignition.
+                // The decoupler dropping the level below fires with this level's engines, so
+                // there's no coast between.
                 val decouplers = design.parts.indices.filter {
                     separation[it] == level + 1 && isDecoupler(it)
                 }
@@ -434,8 +404,8 @@ class CraftBuilder(
                 if (activated.isNotEmpty()) stages.add(Stage(activated))
             }
 
-            // Fairings open just before anything they hold fires, since the craft is out of the air
-            // by then. If they hold nothing that fires, they open once the engines are done.
+            // Fairings open just before anything inside fires, being out of the air by then;
+            // holding nothing that fires, after the engines.
             val fairings = design.parts.indices.filter { catalog[design.parts[it].partId]?.module<com.rm.apogee.core.part.Fairing>() != null }
             if (fairings.isNotEmpty()) {
                 val defs = design.parts.map { catalog[it.partId] }
@@ -449,8 +419,7 @@ class CraftBuilder(
             val parachutes = design.parts.indices.filter { isParachute(it) }
             if (parachutes.isNotEmpty()) stages.add(Stage(parachutes))
 
-            // Legs go last of all. They come out for the landing, after the chute has slowed the
-            // craft down, and don't drag through the ascent.
+            // Legs go last, after the chute, so they don't drag through the ascent.
             val legs = design.parts.indices.filter { isLeg(it) }
             if (legs.isNotEmpty()) stages.add(Stage(legs))
 

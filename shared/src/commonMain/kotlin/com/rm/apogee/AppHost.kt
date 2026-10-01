@@ -10,9 +10,8 @@ import com.rm.apogee.settings.GameSettings
 import kotlinx.coroutines.CoroutineScope
 
 /**
- * What [ApogeeApp] needs from the platform it runs on: an Android activity, or a web page. Each
- * gives it storage, a surface to draw the world on, and the few things only it can do (sharing a
- * file, the system bars, a performance hint).
+ * What [ApogeeApp] needs from its platform, an Android activity or a web page: storage, a surface
+ * for the world, and the few things only it can do (sharing a file, system bars, perf hints).
  */
 interface AppHost {
     /** Where the app's work runs, on the main thread, for as long as the app does. */
@@ -30,8 +29,8 @@ interface AppHost {
     val serverBrowser: ServerBrowser
 
     /**
-     * Puts a surface up, under the screens, that [renderer] draws on every frame, with its touches
-     * (or the mouse's) handed to [gestures].
+     * Puts up a surface under the screens that [renderer] draws every frame, with touches or mouse
+     * going to [gestures].
      */
     fun showSurface(renderer: GlRenderer, gestures: WorldGestures)
 
@@ -49,7 +48,7 @@ interface AppHost {
 
     /**
      * Whether the menus are full screen too, as on a phone. A web page is only full screen in the
-     * world, and goes back to an ordinary page for the menus.
+     * world.
      */
     val fullscreenMenus: Boolean get() = false
 
@@ -78,9 +77,9 @@ interface AppHost {
     fun runOnMain(block: () -> Unit)
 
     /**
-     * Whether the world's touches come through Compose ([WorldInputLayer]), because the screens
-     * are drawn over the surface and take every pointer event, as on a web page. Android's surface
-     * takes its own.
+     * Whether the world's touches come through Compose ([WorldInputLayer]) because the screens sit
+     * over the surface and take every pointer event, as on a web page. Android's surface takes its
+     * own.
      */
     val worldInputInCompose: Boolean get() = false
 

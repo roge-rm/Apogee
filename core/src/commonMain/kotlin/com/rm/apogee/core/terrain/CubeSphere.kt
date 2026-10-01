@@ -6,17 +6,10 @@ import com.rm.apogee.core.math.Math
 import com.rm.apogee.core.math.StrictMath
 
 /**
- * A sphere addressed as the six faces of a cube.
- *
- * This is the grid terrain is sampled on. A latitude-longitude grid squeezes to nothing at the
- * poles and wastes most of its samples there. Six square faces cover the sphere with cells that
- * stay within about 1.4 times of each other in size, and each face is an ordinary square grid,
- * which is what tiles, chunks and quadtrees all want.
- *
- * Face coordinates run -1..1 and get warped through tan(s * pi/4) before projection, which evens
- * out the cell size. An unwarped cube projection makes the cells at a face's corners half the size
- * of the ones at its centre. It uses StrictMath throughout, so the server and every client land on
- * the same sample positions to the last bit.
+ * A sphere addressed as the six faces of a cube, the grid terrain is sampled on. Cells stay within
+ * about 1.4x of each other in size, and each face is a plain square grid. Face coordinates (-1..1)
+ * are warped through tan(s * pi/4) to even out cell size. StrictMath throughout, so every machine
+ * gets the same sample positions.
  */
 object CubeSphere {
 
@@ -44,9 +37,8 @@ object CubeSphere {
     fun unwarp(a: Double): Double = StrictMath.atan(a) / QUARTER_PI
 
     /**
-     * The unit direction for face [face] at warped plane coordinates [a], [b], which have already
-     * been through [warp]. It's split out so a grid can warp each row and column once instead of
-     * every sample.
+     * The unit direction on [face] at plane coordinates [a], [b] that have already been through
+     * [warp]. Split out so a grid can warp each row and column once.
      */
     fun directionWarped(face: Int, a: Double, b: Double, out: Vec3): Vec3 {
         val n = normals[face]; val u = uAxes[face]; val v = vAxes[face]

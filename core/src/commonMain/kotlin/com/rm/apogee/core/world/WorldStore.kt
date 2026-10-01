@@ -4,16 +4,9 @@ import com.rm.apogee.core.Folder
 import kotlinx.serialization.json.Json
 
 /**
- * A persistent world on disk.
- *
- * It writes to a temporary file and renames it, so a crash or a power cut during a save leaves the
- * previous world intact instead of a cut-off one. The previous save is also kept as a single
- * backup. An autosave that captures a broken state is rarer than one that captures a state you
- * didn't want, and having exactly one step back has saved more worlds than a full history would.
- *
- * It takes a [Folder] and a name instead of finding a location itself, because :core doesn't depend
- * on any platform. The dedicated server passes a path from its config, the browser its storage, and
- * tests a temporary folder.
+ * A persistent world on disk. It writes a temporary file and renames it, so a crash mid-save leaves
+ * the previous world intact, and keeps the previous save as one backup. It takes a [Folder] because
+ * :core doesn't depend on any platform.
  */
 class WorldStore(private val folder: Folder, private val name: String) {
 
@@ -21,7 +14,7 @@ class WorldStore(private val folder: Folder, private val name: String) {
         prettyPrint = true
         prettyPrintIndent = "  "
         classDiscriminator = "type"
-        // An operator might edit a save by hand, and a stray field shouldn't cost them the world.
+        // A stray field from hand editing shouldn't cost the world.
         ignoreUnknownKeys = true
     }
 

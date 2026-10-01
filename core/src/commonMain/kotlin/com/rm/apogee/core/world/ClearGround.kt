@@ -14,15 +14,11 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 
 /**
- * Somewhere clear to set a craft down: on land (or water, for one that floats), near enough level,
- * not lava, with no tree, rock or other craft on it. The auto-land looks for one near where it is
- * before it comes down, instead of coming down on whatever's there. A helicopter let down into a
- * forest had its rotor in the trees, and a plane landed straight ahead two and a half kilometres
- * short of the runway, among them.
+ * Somewhere clear to set a craft down: land (or water, if it floats), near level, not lava, with no
+ * tree, rock or other craft on it. Auto land looks for one near where it is before coming down.
  *
- * It all works in the body-fixed frame, where the ground and its trees don't move. The ground and
- * the trees are the same on every machine, but the other craft are only as each sees them, so a
- * client's choice can differ from the server's where another craft is close.
+ * Works in the body-fixed frame. Ground and trees are the same on every machine, but other craft
+ * are only as each sees them, so a client's choice can differ from the server's near another craft.
  */
 internal class ClearGround {
     /** Everything standing near the search, gathered once: x, y, z, reach, per thing. */
@@ -40,9 +36,9 @@ internal class ClearGround {
     private val world = Vec3()
 
     /**
-     * Gathers what stands within [reach] metres of body-fixed [centre] on [attractor]: its trees
-     * and rocks (less the [felled] ones), and the solid parts of [others] other than [self] on the
-     * ground there, with the body turned to [rotation]. Done once before a search.
+     * Gathers what stands within [reach] metres of body-fixed [centre] on [attractor]: trees and
+     * rocks (less [felled]) and the solid parts of [others] besides [self], with the body turned to
+     * [rotation]. Done once before a search.
      */
     fun gather(attractor: CelestialBody, centre: Vec3, reach: Double, felled: Set<Long>, others: Collection<Vessel>, self: Vessel, rotation: Quat) {
         thingCount = 0
@@ -52,11 +48,11 @@ internal class ClearGround {
             for (k in 0 until block.count) {
                 if (block.ids[k] in felled) continue
                 val kind = ScatterKind.of(block.kinds[k].toInt())
-                // A shrub or a stone is nothing to a craft coming down on it. Counted, there was
-                // nowhere in a forest's clearings clear enough for a plane.
+                // Shrubs and stones don't matter, or a forest's clearings would never be clear
+                // enough.
                 if (kind in SMALL) continue
                 val size = block.sizes[k].toDouble()
-                // A tree's crown, not only its trunk, which is what a rotor or a wing meets.
+                // A tree's crown, which is what a rotor or wing meets.
                 val reachOf = max(kind.radius * size, kind.height * size * CROWN_SHARE)
                 addThing(block.x[k], block.y[k], block.z[k], reachOf)
             }
@@ -134,8 +130,8 @@ internal class ClearGround {
     }
 
     /**
-     * The nearest clear spot to body-fixed [from], a circle [radius] across, looked for out to [reach]
-     * metres in rings, into [out] as a body-fixed unit direction. Null if there's none in reach.
+     * The nearest clear spot to body-fixed [from], a circle [radius] across, searched in rings out
+     * to [reach] metres, into [out] as a body-fixed unit direction. Null if there's none.
      */
     fun find(attractor: CelestialBody, from: Vec3, radius: Double, reach: Double, floats: Boolean, out: Vec3): Vec3? {
         val centre = Vec3().setTo(from).normalizeInPlace()
@@ -209,13 +205,19 @@ internal class ClearGround {
         /** How many points round the edge of a spot are tried for level ground. */
         const val RIM_POINTS = 6
 
-        /** The most the ground can rise or fall across a spot, as a share of its radius: about eight degrees. */
+        /**
+         * The most the ground can rise or fall across a spot, as a share of its radius: about 8
+         * degrees.
+         */
         const val MOST_SLOPE = 0.14
 
         /** The closest spots are tried to each other, in metres. */
         const val MIN_STEP = 8.0
 
-        /** Higher than this over the ground, in metres, another craft's part is flying, not in the way. */
+        /**
+         * Above this height over the ground, in metres, another craft's part is flying, not in the
+         * way.
+         */
         const val PART_ABOVE = 40.0
 
         /** A landing strip's points, how far apart, and how much it can rise or fall along it. */

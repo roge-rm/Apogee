@@ -7,10 +7,7 @@ import android.content.SharedPreferences
 fun GameSettings(context: Context): GameSettings =
     GameSettings(AndroidPreferences(context.getSharedPreferences("apogee.settings", Context.MODE_PRIVATE)))
 
-/**
- * SharedPreferences instead of DataStore on purpose: the values are read while building the first
- * frame, synchronously, and written rarely.
- */
+/** SharedPreferences, since the values are read synchronously while building the first frame. */
 private class AndroidPreferences(private val prefs: SharedPreferences) : Preferences {
     override fun getString(key: String, default: String?): String? = prefs.getString(key, default)
     override fun getBoolean(key: String, default: Boolean): Boolean = prefs.getBoolean(key, default)

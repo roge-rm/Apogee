@@ -5,11 +5,10 @@ import com.rm.apogee.core.terrain.Landforms.distance
 import kotlin.math.abs
 
 /**
- * Aurantia: the only moon with real air, thick and orange, and the only other world with seas.
- * They're liquid methane, dark and glassy. The seas are in the north, in lowlands below the datum,
- * with lakes dotted over the land around them. Rivers wind down to them from rugged icy highlands.
- * Around the equator lie belts of **dunes**, long parallel crests of dark organic sand, all lined
- * up with the wind. There are few craters, because the weather wears them away.
+ * Aurantia: the only moon with real air, thick and orange, and the only other world with seas, of
+ * dark glassy liquid methane. The seas lie in northern lowlands below the datum, with lakes around
+ * them and rivers winding down from icy highlands. Belts of dark organic dunes circle the equator,
+ * lined up with the wind. Weather has worn away most craters.
  */
 internal class AurantiaLand(seed: Int, private val radius: Double) : WorldLand {
     private val detail = Noise.hashInt(seed, 1, 0, 0)
@@ -54,9 +53,9 @@ internal class AurantiaLand(seed: Int, private val radius: Double) : WorldLand {
 }
 
 /**
- * Fons: small, and the brightest thing in the system, from fresh ice falling back as snow from its
- * own geysers. The north is old and cratered, and the south is smooth and young. At the south pole
- * there are four long parallel cracks, **the Stripes**, venting ice into space.
+ * Fons: small, and the brightest thing in the system, snowed on by its own geysers. Old cratered
+ * north, smooth young south, and at the south pole four long parallel cracks, the Stripes, venting
+ * ice into space.
  */
 internal class FonsLand(seed: Int, private val radius: Double) : WorldLand {
     private val detail = Noise.hashInt(seed, 1, 0, 0)
@@ -90,10 +89,9 @@ internal class FonsLand(seed: Int, private val radius: Double) : WorldLand {
 }
 
 /**
- * Aversa: a captured wanderer that goes around its planet backwards. Its western half is **melon
- * skin**, shallow round pits packed edge to edge with ridges between them. The south is capped in
- * pinkish **nitrogen ice**, streaked dark where geysers blew soot out across it. There are hardly
- * any craters, because it's young too.
+ * Aversa: a captured wanderer orbiting backwards. Its western half is melon skin (shallow round pits
+ * packed edge to edge). The south is capped in pinkish nitrogen ice streaked dark by geyser soot.
+ * Young, so hardly any craters.
  */
 internal class AversaLand(seed: Int, private val radius: Double) : WorldLand {
     private val detail = Noise.hashInt(seed, 1, 0, 0)
@@ -126,12 +124,10 @@ internal class AversaLand(seed: Int, private val radius: Double) : WorldLand {
 }
 
 /**
- * Ultima, the last of the worlds: small, and much stranger than it has any right to be. Its face is
- * marked by **the Heart**, a huge plain of frozen nitrogen lying low and smooth, slowly churning in
- * big cells. Along its western edge rise **mountains of water ice**, blocks kilometres high
- * floating in it like icebergs. A **dark belt** of reddened ground wraps around the equator, the
- * east is **bladed** with ridges like knife edges, and frost whitens the north. Everywhere else has
- * old craters.
+ * Ultima, the last world: small and strange. The Heart is a huge low plain of frozen nitrogen
+ * churning in big cells, with mountains of water ice kilometres high floating along its west edge.
+ * A dark reddened belt wraps the equator, the east is bladed with knife-edge ridges, frost whitens
+ * the north, and the rest is old craters.
  */
 internal class UltimaLand(seed: Int, private val radius: Double) : WorldLand {
     private val detail = Noise.hashInt(seed, 1, 0, 0)
@@ -189,9 +185,9 @@ internal class UltimaLand(seed: Int, private val radius: Double) : WorldLand {
 }
 
 /**
- * Portitor, Ultima's companion, half its size. It's grey and cratered, with **the Belt** wrapped
- * around it, a band of canyons and cracks running all the way round near its equator, where it
- * split long ago as its insides froze. Its north pole is stained **dark red**.
+ * Portitor, Ultima's companion, half its size. Grey and cratered, with the Belt, a band of canyons
+ * all the way round near the equator where it split as its insides froze. Its north pole is
+ * stained dark red.
  */
 internal class PortitorLand(seed: Int, private val radius: Double) : WorldLand {
     private val detail = Noise.hashInt(seed, 1, 0, 0)
@@ -200,13 +196,13 @@ internal class PortitorLand(seed: Int, private val radius: Double) : WorldLand {
     override fun height(nx: Double, ny: Double, nz: Double): Double {
         val px = nx * radius; val py = ny * radius; val pz = nz * radius
         var h = Landforms.fbm(detail, px, py, pz, 1.0 / 8_000.0, 4) * 400.0
-        // The Belt: three parallel canyons wandering around the world.
+        // The Belt: three parallel canyons wandering round the world.
         val wander = Landforms.fbm(detail + 9, px, py, pz, 1.0 / 40_000.0, 2) * 0.05
         for (k in -1..1) {
             val d = abs(ny - 0.05 * k - wander) * radius
             h += Landforms.canyon(d, 2_500.0, 1_500.0 - 300.0 * abs(k))
         }
-        // The south is smooth plains, so there are fewer craters.
+        // The south is smooth plains with fewer craters.
         h += craters.height(px, py, pz, if (ny < -0.1) 0.35 else 1.0)
         return h
     }

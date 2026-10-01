@@ -14,14 +14,9 @@ import kotlin.math.PI
 import kotlin.math.sqrt
 
 /**
- * Flies the stock rocket from the pad to orbit, headless.
- *
- * This is the project's fast loop for physics work. It runs in a plain JVM test in well under a
- * second, so a change to thrust, drag, staging or the integrator gets checked against a complete
- * flight before anything is built, installed or launched on a device.
- *
- * The autopilot only drives [Vessel.control], the same throttle, gimbal and reaction-wheel path a
- * player's thumb drives, so a flight that works here is a flight that can really be flown.
+ * Flies the stock rocket from the pad to orbit, headless, in well under a second. It's the fast
+ * check for physics work. The autopilot only drives [Vessel.control], the same path the player's
+ * thumb drives, so a flight that works here can really be flown.
  */
 class AscentScenario(
     private val targetApoapsisAltitude: Double = 100_000.0,
@@ -128,8 +123,7 @@ class AscentScenario(
                 }
 
                 Phase.GRAVITY_TURN -> {
-                    // Pitch over on a square-root profile: fast early where the air is thick and
-                    // the craft is heavy, tapering as it thins.
+                    // Pitch over on a square-root profile: fast early, tapering as the air thins.
                     val progress = ((altitude - 500.0) / (turnEndAltitude - 500.0))
                         .coerceIn(0.0, 1.0)
                     val pitchFromVertical = (PI / 2.0) * sqrt(progress)
@@ -145,9 +139,8 @@ class AscentScenario(
                     // Hold horizontal, waiting for apoapsis.
                     headingAt(PI / 2.0, up, east, desired)
 
-                    // Start the burn half a burn length early, so it straddles apoapsis. Firing at
-                    // apoapsis instead of around it spends the second half of the burn raising
-                    // apoapsis instead of periapsis, and leaves a noticeably elliptical orbit.
+                    // Start half a burn early so the burn straddles apoapsis. Otherwise the second
+                    // half raises apoapsis and leaves the orbit elliptical.
                     val halfBurn = halfBurnSeconds(vessel, orbit, attractor)
                     if (orbit.timeToApoapsis <= halfBurn || orbit.apoapsis < targetApoapsis * 0.98) {
                         phase = Phase.CIRCULARISE
@@ -155,17 +148,15 @@ class AscentScenario(
                 }
 
                 Phase.CIRCULARISE -> {
-                    // Burn along the horizon, not along the velocity vector. Prograde still has a
-                    // vertical part here, and burning into it pushes apoapsis up instead of pulling
-                    // periapsis up.
+                    // Burn along the horizon. Prograde still has a vertical part here, which would
+                    // push apoapsis up.
                     horizontalProgrgarde(vessel, up, desired)
 
                     val circularSpeed = sqrt(attractor.gravitationalParameter /
                         vessel.body.position.length)
                     val shortfall = circularSpeed - vessel.body.linearVelocity.length
 
-                    // Taper, so the last few m/s don't overshoot into an orbit that's eccentric the
-                    // other way.
+                    // Taper so the last few m/s don't overshoot.
                     vessel.control.throttle = (shortfall / THROTTLE_TAPER_MARGIN)
                         .coerceIn(0.0, 1.0)
 
@@ -204,7 +195,7 @@ class AscentScenario(
                 peakStress = vessel.stress
                 peakStressPart = vessel.defs.getOrNull(vessel.worstJoint)?.id ?: ""
             }
-            // Its own parts only, because the spent stage is meant to go into the sea in pieces.
+            // Its own parts only. The spent stage is meant to break up in the sea.
             partsLost += world.drainEvents().count {
                 (it is com.rm.apogee.core.world.WorldEvent.PartDetached && it.id == vessel.id) ||
                     (it is com.rm.apogee.core.world.WorldEvent.PartDestroyed && it.id == vessel.id)
@@ -240,10 +231,7 @@ class AscentScenario(
         )
     }
 
-    /**
-     * Half the time the circularisation burn will take, from the rocket equation and the craft's
-     * current thrust.
-     */
+    /** Half the circularisation burn's length, from its delta-v and the current thrust. */
     private fun halfBurnSeconds(
         vessel: Vessel,
         orbit: Orbit,

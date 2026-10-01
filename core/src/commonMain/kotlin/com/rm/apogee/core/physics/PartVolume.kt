@@ -7,8 +7,8 @@ import kotlin.math.abs
 import kotlin.math.sqrt
 
 /**
- * Whether a point is inside one of a craft's parts, how deep, and which way is out. Craft against
- * craft uses it for every point, and a wheel on a deck uses it to find the deck.
+ * Whether a point is inside one of a craft's parts, how deep, and which way is out. Used by craft
+ * against craft, and by a wheel finding a deck.
  */
 class PartVolume {
     /** The way out, in world axes, after [inside] says yes. */
@@ -30,10 +30,8 @@ class PartVolume {
     /**
      * Whether [worldPoint] is inside part [partIndex] of [vessel].
      *
-     * With [from], a box is only ever left through a face on [from]'s side of it. That's for a
-     * wheel on a deck, with [from] the craft it belongs to. The shallowest way out of a deck sixty
-     * centimetres thick is down through its underside once a wheel has sunk more than half way into
-     * it, and a hard landing would have pushed the plane through the deck instead of back up.
+     * With [from] (the craft a wheel belongs to), a box is only left through a face on [from]'s
+     * side, so a wheel sunk past half way into a thin deck is pushed back up, not down through it.
      */
     fun inside(worldPoint: Vec3, vessel: Vessel, partIndex: Int, from: Vec3? = null, up: Vec3? = null): Boolean {
         val def = vessel.defs[partIndex]
@@ -68,11 +66,8 @@ class PartVolume {
     }
 
     /**
-     * Point in primitive, with the shallowest way out as the normal.
-     *
-     * It's the shallowest way out rather than the nearest surface because that's the direction the
-     * contact should push. A corner barely inside a tank's end cap should be pushed out through the
-     * cap, not sideways through two metres of tank.
+     * Point in primitive, with the shallowest way out as the normal. That's the way the contact
+     * should push: a corner just inside a tank's end goes out through the end, not sideways.
      */
     private fun insidePrimitive(mesh: MeshSpec): Boolean {
         val p = localPoint
@@ -94,8 +89,8 @@ class PartVolume {
                 val hy = mesh.height * 0.5
                 val hz = mesh.depth * 0.5
                 if (abs(p.x) >= hx || abs(p.y) >= hy || abs(p.z) >= hz) return false
-                // Each axis's way out: through the near face, or with a side to leave by, the face
-                // on that side, however deep that is.
+                // Each axis's way out: the near face, or with [from], the face on its side however
+                // deep.
                 val sx = if (fromSet) (if (localFrom.x < 0) -1.0 else 1.0) else if (p.x < 0) -1.0 else 1.0
                 val sy = if (fromSet) (if (localFrom.y < 0) -1.0 else 1.0) else if (p.y < 0) -1.0 else 1.0
                 val sz = if (fromSet) (if (localFrom.z < 0) -1.0 else 1.0) else if (p.z < 0) -1.0 else 1.0
@@ -108,11 +103,9 @@ class PartVolume {
                     dy -> localNormal.setTo(0.0, sy, 0.0)
                     else -> localNormal.setTo(0.0, 0.0, sz)
                 }
-                // With an up, the face on top is the way out whenever it's no more than a step
-                // away. A deck laid from several parts has their ends butted together inside it,
-                // and a wheel rolling from one onto the next was nearest the next one's end, which
-                // pushed it back like a wall. A Sparrow taking off along a deck broke up at the
-                // first join past fifty metres a second.
+                // With an up, the top face is the way out whenever it's no more than a step away.
+                // A deck built from several parts has butted ends inside it, and a wheel crossing a
+                // join would otherwise meet the next part's end as a wall.
                 if (upSet) {
                     val ux = localUp.x * sx; val uy = localUp.y * sy; val uz = localUp.z * sz
                     val best = maxOf(ux, uy, uz)
@@ -133,9 +126,8 @@ class PartVolume {
 
             is MeshSpec.Cylinder -> return insideTube(mesh.radius, mesh.radius, mesh.height)
 
-            // A cone is treated as a tube whose radius changes with height. The parts that use it
-            // are engine bells and nose cones, where the taper is gentle and the difference is
-            // millimetres.
+            // A cone is a tube whose radius changes with height. It's used for bells and nose cones,
+            // where the error is millimetres.
             is MeshSpec.Cone ->
                 return insideTube(mesh.bottomRadius, mesh.topRadius, mesh.height)
         }
@@ -171,7 +163,7 @@ class PartVolume {
         /** How near straight up a face has to be to stand on, as the cosine of its tilt. */
         const val FACING_UP = 0.7
 
-        /** The highest step a wheel or a foot goes up instead of meeting it as a wall, in metres. */
+        /** The highest step a wheel or foot goes up instead of meeting it as a wall, in metres. */
         const val STEP = 0.35
     }
 }

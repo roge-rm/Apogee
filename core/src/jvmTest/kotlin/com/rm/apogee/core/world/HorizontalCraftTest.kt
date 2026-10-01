@@ -11,11 +11,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * A craft built lying down, launched lying down.
- *
- * It's built through [CraftBuilder] instead of by hand, because the claim is about the whole path.
- * The builder puts the wheels underneath, the spawn lays the craft along the ground nose first, and
- * the wheels roll it along its nose instead of along whatever +Z happens to be.
+ * A craft built lying down, launched lying down. Built through [CraftBuilder] to test the whole
+ * path: wheels go underneath, it spawns nose first along the ground, and rolls along its nose.
  */
 class HorizontalCraftTest {
 

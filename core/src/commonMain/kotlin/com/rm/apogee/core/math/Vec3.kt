@@ -5,20 +5,16 @@ import kotlin.math.sqrt
 import kotlin.jvm.JvmField
 
 /**
- * A 3-vector in double precision.
+ * A double 3-vector.
  *
- * Everything in the simulation is `Double`, not `Float`, and that's not up for negotiation. A
- * homeworld is ~600 km across and craft regularly sit millions of metres from the system
- * barycentre. float32 carries about 7 significant digits, so a few hundred kilometres out it can't
- * resolve centimetres any more and a landed rocket visibly jitters. Floats appear exactly once, at
- * the very end of the pipeline, after the floating-origin subtraction in [Mat4.setFromTrs].
+ * The simulation is all `Double`. Craft sit millions of metres from the barycentre, and float32's 7
+ * digits can't resolve centimetres a few hundred km out, so a landed rocket would jitter. Floats
+ * appear only at the end, after the floating-origin subtraction in [Mat4.setFromTrs].
  *
- * The class is **mutable**, with in-place operations that return `this` so they can be chained.
- * `World.step()` runs 60 times a second over every vessel, and allocating a new vector for every
- * force term would hand the GC tens of thousands of objects a second, which shows up directly as
- * frame-time jitter. Hot paths use [addInPlace]/[mulInPlace]/[setTo] against scratch vectors made
- * up front. The allocating `operator` forms are there for readable setup and test code, where the
- * cost doesn't matter.
+ * Mutable, with chainable in-place ops returning `this`. `World.step()` runs 60 times a second over
+ * every vessel, and allocating per force term causes GC jitter. Hot paths use
+ * [addInPlace]/[mulInPlace]/[setTo] on scratch vectors; the allocating `operator` forms are for
+ * setup and tests.
  */
 class Vec3(
     @JvmField var x: Double = 0.0,
@@ -40,7 +36,7 @@ class Vec3(
 
     fun addInPlace(other: Vec3): Vec3 = setTo(x + other.x, y + other.y, z + other.z)
 
-    /** `this += other * scale`. The most common step when adding up forces. */
+    /** `this += other * scale`, the usual step when summing forces. */
     fun addScaledInPlace(other: Vec3, scale: Double): Vec3 =
         setTo(x + other.x * scale, y + other.y * scale, z + other.z * scale)
 
@@ -56,7 +52,7 @@ class Vec3(
         x * other.y - y * other.x,
     )
 
-    /** Scales to unit length, or leaves the vector alone if it has no length. */
+    /** Scales to unit length, or leaves a zero vector alone. */
     fun normalizeInPlace(): Vec3 {
         val len = length
         return if (len > EPSILON) mulInPlace(1.0 / len) else this
@@ -107,10 +103,7 @@ class Vec3(
 
     override fun toString(): String = "($x, $y, $z)"
 
-    /**
-     * Value equality, for tests and map keys. This is an exact float comparison, so use
-     * [approxEquals] for anything that has been through the integrator.
-     */
+    /** Exact value equality, for tests and map keys. Use [approxEquals] after integration. */
     override fun equals(other: Any?): Boolean =
         this === other || (other is Vec3 && x == other.x && y == other.y && z == other.z)
 

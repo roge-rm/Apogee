@@ -121,7 +121,7 @@ class WeatherPhysicsTest {
         assertTrue("it broke: ${jet.defs.indices.filter { jet.isBroken(it) }}", jet.defs.indices.none { jet.isBroken(it) })
     }
 
-    /** A storm doesn't care whether anyone is flying. A parked craft under a strike takes it. */
+    /** A parked craft under a lightning strike takes it, flown or not. */
     @Test
     fun `lightning strikes a craft parked under a storm`() {
         val world = world(WeatherIntensity.WILD)
@@ -140,8 +140,7 @@ class WeatherPhysicsTest {
         }
         val target = strike ?: throw AssertionError("no strike over land found in a wild sky")
 
-        // Parked there before its storm has formed (a storm's whole life is shorter than this),
-        // until it's asleep, because under a storm's gusts it would never settle.
+        // Parked until asleep before its storm forms, since under the gusts it would never settle.
         world.syncClock(target.time - 2_600.0)
         // The strike's place is on the turning ground, so this is where that is now.
         val turn = terra.rotationAt(target.time - 2_600.0)

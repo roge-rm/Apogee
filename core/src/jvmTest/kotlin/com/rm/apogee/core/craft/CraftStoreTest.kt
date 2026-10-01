@@ -52,7 +52,7 @@ class CraftStoreTest {
     @Test
     fun `craft names that aren't safe filenames still save`() {
         val store = store()
-        // Free text will contain a slash sooner or later, and it did.
+        // Names can hold slashes and quotes.
         val design = StockCraft.probe(catalog).copy(name = "Apollo / 11: \"Eagle\"")
 
         val saved = store.save(design).getOrThrow()
@@ -117,10 +117,7 @@ class CraftStoreTest {
         assertFalse("Plank" in names(store))
     }
 
-    /**
-     * A store seeded by the old empty-store rule. It has had the first three, the player has
-     * deleted one since, and the plane and rover are new.
-     */
+    /** A store seeded by the old empty-store rule: it had the first three and one was deleted. */
     @Test
     fun `an old store gets the new designs and not the deleted old one`() {
         val store = store()

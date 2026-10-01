@@ -7,10 +7,9 @@ actual fun <K, V> concurrentMapOf(): MutableMap<K, V> = SnapshotMap()
 actual fun <T> concurrentSetOf(): MutableSet<T> = SnapshotSet()
 
 /**
- * A map that can be changed while it's being gone through, as a ConcurrentHashMap can on the JVM.
- * There's only one thread here, but a loop over a map can still call something that adds to it or
- * takes from it, and a plain HashMap throws when that happens. Going through this one goes through
- * a copy taken at the start, and removing through the iterator removes from the map itself.
+ * A map that can change while it's iterated, like a ConcurrentHashMap on the JVM. One thread, but a
+ * loop can still add or remove, which a plain HashMap throws on. Iteration goes over a copy taken
+ * at the start; removing through the iterator removes from the map.
  */
 private class SnapshotMap<K, V>(private val map: HashMap<K, V> = HashMap()) : AbstractMutableMap<K, V>() {
     override val size: Int get() = map.size

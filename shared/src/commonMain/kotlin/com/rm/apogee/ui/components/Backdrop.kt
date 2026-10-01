@@ -32,13 +32,11 @@ import com.rm.apogee.ui.theme.ApogeeColors
 import com.rm.apogee.ui.theme.Dimens
 
 /**
- * The full-screen navy-to-plum gradient every screen except flight sits on.
+ * The navy-to-plum gradient every screen but flight sits on.
  *
- * Without a [title] it only scrolls when its content overflows, so a short menu stays centred
- * instead of sticking to the top. Those put a [BackButton] under their buttons. With one, it's a
- * page: the title and Back sit in a row at the top that stays put, and only what's under them
- * scrolls, so a long page never has to be scrolled back up to leave it. That's how ScorchDroid does
- * it.
+ * Without a [title] it's a menu: centred, scrolling only on overflow, with a [BackButton] under
+ * its buttons. With one it's a page: the title and Back stay fixed at the top and only what's
+ * under them scrolls.
  */
 @Composable
 fun Backdrop(
@@ -49,9 +47,8 @@ fun Backdrop(
     /** Back, on the title row, for a page with a [title]. */
     onBack: (() -> Unit)? = null,
     /**
-     * A page whose list fills the height under the title row and scrolls itself, instead of the
-     * page scrolling. The list takes `Modifier.weight(1f)`. With the list capped at a fixed height
-     * inside a scrolling page, the crew list stopped halfway down a phone.
+     * The list fills the height under the title row and scrolls itself, instead of the page. The
+     * list takes `Modifier.weight(1f)`.
      */
     fillHeight: Boolean = false,
     content: @Composable ColumnScope.(Modifier) -> Unit,
@@ -65,16 +62,13 @@ fun Backdrop(
                     listOf(ApogeeColors.BackdropTop, ApogeeColors.BackdropBottom),
                 )
             )
-            // Clear of the notch, now that the menus are full screen too.
+            // Clear of the notch.
             .windowInsetsPadding(WindowInsets.displayCutout)
-            // After the background, so the gradient still fills the screen while the content
-            // centres itself in the space the keyboard leaves. Without it the join screen's Connect
-            // button sits under the keyboard you raised to type the address into the field above
-            // it.
+            // After the background, so the gradient fills the screen while the content centres
+            // in the space above the keyboard.
             .imePadding()
-            // On the full-screen box, not the content column, so the bar sits at the screen's right
-            // edge, where you'd look for a scroll bar.
-            // (Not on a page whose list scrolls itself: the list has its own.)
+            // On the full-screen box so the bar sits at the screen's right edge. A list that
+            // scrolls itself has its own.
             .let { if (fillHeight) it else it.verticalScrollbar(scroll) },
         contentAlignment = if (title == null) Alignment.Center else Alignment.TopCenter,
     ) {

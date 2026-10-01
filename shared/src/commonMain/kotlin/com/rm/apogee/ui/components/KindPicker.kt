@@ -39,9 +39,8 @@ import com.rm.apogee.ui.theme.ApogeeColors
 import com.rm.apogee.ui.theme.alpha
 
 /**
- * Which kinds of craft to show: one even row of round icons, All and then each kind there is, with
- * the chosen one's name and how many there are underneath. As word tabs they wrapped onto three
- * uneven lines on a phone, with Bases alone on the last.
+ * Which kinds of craft to show: one even row of round icons, All then each kind, with the chosen
+ * one's name and count underneath. Icons so it fits one line on a phone.
  */
 @Composable
 fun KindPicker(
@@ -91,7 +90,7 @@ private fun KindIcon(icon: ImageVector, label: String, chosen: Boolean, modifier
     }
 }
 
-/** A kind's picture: a rocket, a plane, a turbine for rotors, a cloud for gas, a car, a sail, a diver and a building. */
+/** A kind's icon. */
 fun iconOf(kind: CraftKind): ImageVector = when (kind) {
     CraftKind.ROCKET -> Icons.Filled.RocketLaunch
     CraftKind.PLANE -> Icons.Filled.Flight

@@ -25,8 +25,7 @@ class QuatLookAtTest {
 
     @Test
     fun `looking straight up doesn't give a degenerate rotation`() {
-        // Up is the default roll reference, so this is the case that breaks a naive cross-product
-        // basis.
+        // Up is the default roll reference, which breaks a naive cross-product basis.
         val rotation = quatLookAt(Vec3.unitY())
         val aimed = rotation.rotate(Vec3(0.0, 0.0, -1.0))
         assertTrue("got $aimed", aimed.approxEquals(Vec3.unitY(), 1e-9))

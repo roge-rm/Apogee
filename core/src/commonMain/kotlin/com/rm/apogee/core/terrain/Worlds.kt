@@ -4,9 +4,8 @@ import com.rm.apogee.core.concurrentMapOf
 import com.rm.apogee.core.putIfAbsentShared
 
 /**
- * The ground of every world beyond Terra and Luna, made once and shared by every world object in
- * the process, the same as Terra's and Luna's. The terrain never changes, and its tile cache is
- * thread-safe.
+ * The ground of every world beyond Terra and Luna, made once and shared across the process. The
+ * terrain never changes and its tile cache is thread-safe.
  */
 object Worlds {
     private val made = concurrentMapOf<String, Terrain>()

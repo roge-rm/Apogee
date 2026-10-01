@@ -33,10 +33,7 @@ import com.rm.apogee.ui.theme.ApogeeAlpha
 import com.rm.apogee.ui.theme.ApogeeColors
 import com.rm.apogee.ui.theme.alpha
 
-/**
- * The signature menu control: a full-pill button with a see-through accent wash instead of a solid
- * fill, and an optional second line.
- */
+/** The menu button: a pill with a see-through accent wash and an optional second line. */
 @Composable
 fun ApogeeButton(
     label: String,
@@ -176,8 +173,7 @@ fun SliderRow(
             onValueChange = onValueChange,
             valueRange = range,
             steps = steps,
-            // Left and right move it. Up and down move on to the next thing, or a controller's
-            // D-pad got stuck on the slider, turning it down a step at a time.
+            // Left and right move it. Up and down move focus on, so a D-pad can't get stuck here.
             modifier = Modifier.onPreviewKeyEvent { event ->
                 val direction = when (event.key) {
                     Key.DirectionUp -> androidx.compose.ui.focus.FocusDirection.Up
@@ -196,21 +192,16 @@ fun SliderRow(
     }
 }
 
-/**
- * One of several, each with a line saying what it does.
- *
- * These are radio buttons instead of a dropdown, because there are only a few options and the
- * description under each one is the point. "Aircraft" on its own doesn't tell you which way the
- * stick will go.
- */
+/** Radio buttons for a few options, each with an optional line saying what it does. */
 @Composable
 fun <T> ChoiceGroup(
     title: String,
     options: List<T>,
     selected: T,
     label: (T) -> String,
-    description: (T) -> String,
     onSelect: (T) -> Unit,
+    /** A line under an option, only where its label can't say it. */
+    description: (T) -> String? = { null },
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier.fillMaxWidth().padding(vertical = 8.dp)) {
@@ -224,7 +215,7 @@ fun <T> ChoiceGroup(
                     .padding(vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                // The row's the one thing to press, so a controller stops on each option once.
+                // Only the row takes the press, so a controller stops on each option once.
                 RadioButton(
                     selected = option == selected,
                     onClick = null,
@@ -235,11 +226,13 @@ fun <T> ChoiceGroup(
                 )
                 Column {
                     Text(label(option), style = MaterialTheme.typography.bodyMedium, color = Color.White)
-                    Text(
-                        description(option),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color.White.alpha(ApogeeAlpha.SUBTITLE),
-                    )
+                    description(option)?.let {
+                        Text(
+                            it,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.White.alpha(ApogeeAlpha.SUBTITLE),
+                        )
+                    }
                 }
             }
         }

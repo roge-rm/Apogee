@@ -4,11 +4,8 @@ import com.rm.apogee.core.craft.Vessel
 import com.rm.apogee.core.part.LandingLeg
 
 /**
- * Stages [vessel] through [stages] and puts its landing legs straight down, standing it on them
- * where it is.
- *
- * Legs take a second and a half to swing out. Tests about what happens once they're out (landings,
- * craft resting on craft) start from there instead of each one waiting for the deploy.
+ * Stages [vessel] through [stages], snaps its legs fully out and stands it on them where it is,
+ * so tests skip the second and a half of deploy.
  */
 fun World.gearDown(vessel: Vessel, stages: Int = 3) {
     repeat(stages) { stage(vessel) }

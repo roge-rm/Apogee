@@ -3,11 +3,7 @@ package com.rm.apogee.render
 import com.rm.apogee.core.weather.Climate
 import com.rm.apogee.platform.synchronized
 
-/**
- * The colours a world's air is drawn in: its day sky, the band around a low sun, the haze over
- * distance, and how much of a sky it makes at all. Terra's are exactly the ones the shaders always
- * had.
- */
+/** The colours a world's air is drawn in: day sky, sunset band, haze, and how much sky it makes. */
 class SkyColours(
     val zenith: FloatArray,
     val horizon: FloatArray,

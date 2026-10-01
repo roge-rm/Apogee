@@ -12,14 +12,9 @@ import kotlin.math.sqrt
 import com.rm.apogee.core.math.Math
 
 /**
- * The shapes worlds are made of, as pure functions of a place on the sphere: craters and great
- * basins, shield volcanoes, canyons, cliff scarps, dunes, cracks in ice, grooves, broken chaos,
- * pancake domes, rivers, ridged mountains and lone mesas. Each world's own land ([WorldLand]) is a
- * handful of these, placed and weighted to make it what it is.
- *
- * Positions are metres on the datum sphere (a unit direction times the body's radius), or unit
- * directions where only the direction matters. Everything comes from its seed, so every machine
- * grows the same ground.
+ * The shapes worlds are made of, as pure functions of a place on the sphere. Each [WorldLand] is a
+ * handful of these. Positions are metres on the datum sphere, or unit directions where only
+ * direction matters. All seeded, so every machine grows the same ground.
  */
 internal object Landforms {
 
@@ -31,7 +26,7 @@ internal object Landforms {
 
     /** Metres along the ground from unit [nx],[ny],[nz] to unit [c], on a body of [radius]. */
     fun distance(nx: Double, ny: Double, nz: Double, c: DoubleArray, radius: Double): Double {
-        // Chord to arc: exact at any distance, and well behaved up close.
+        // Chord to arc: exact at any distance and well behaved up close.
         val dx = nx - c[0]; val dy = ny - c[1]; val dz = nz - c[2]
         val chord = sqrt(dx * dx + dy * dy + dz * dz)
         return 2.0 * asin((chord / 2.0).coerceAtMost(1.0)) * radius
@@ -49,10 +44,7 @@ internal object Landforms {
         return total / norm
     }
 
-    /**
-     * Ridged fractal, 0..1, with sharp crests where the simplex crosses zero, for mountain chains
-     * and folded ground.
-     */
+    /** Ridged fractal, 0..1, sharp where the simplex crosses zero. For mountain chains and folds. */
     fun ridged(seed: Int, x: Double, y: Double, z: Double, frequency: Double, octaves: Int): Double {
         var total = 0.0; var amplitude = 1.0; var f = frequency; var norm = 0.0
         for (o in 0 until octaves) {
@@ -71,8 +63,8 @@ internal object Landforms {
     fun within(d: Double, edge: Double, width: Double): Double = 1.0 - smooth((d - edge) / width)
 
     /**
-     * A shield volcano [d] metres from its summit: broad and gently domed out to [radius], [height]
-     * tall, with a caldera [calderaRadius] across sunk [calderaDepth] into its top.
+     * A shield volcano [d] metres from its summit: a broad dome out to [radius], [height] tall, with
+     * a caldera [calderaRadius] across sunk [calderaDepth] into its top.
      */
     fun shield(d: Double, radius: Double, height: Double, calderaRadius: Double = 0.0, calderaDepth: Double = 0.0): Double {
         if (d >= radius) return 0.0
@@ -86,9 +78,8 @@ internal object Landforms {
     }
 
     /**
-     * A great basin [d] metres from its middle: a broad bowl [radius] across and [depth] deep,
-     * ringed by [rings] low ridges in circles out beyond its rim. It's the scar of a blow that
-     * nearly split the world.
+     * A great basin [d] metres from its middle: a bowl [radius] across and [depth] deep, ringed by
+     * [rings] low ridges beyond its rim.
      */
     fun basin(d: Double, radius: Double, depth: Double, rings: Int = 0, ringHeight: Double = 0.0): Double {
         val x = d / radius
@@ -103,10 +94,7 @@ internal object Landforms {
         return h
     }
 
-    /**
-     * How far unit [n] is from the great-circle arc from unit [a] to unit [b], in metres on a body
-     * of [radius].
-     */
+    /** How far unit [n] is from the great-circle arc from unit [a] to [b], in metres. */
     fun arcDistance(nx: Double, ny: Double, nz: Double, a: DoubleArray, b: DoubleArray, radius: Double): Double {
         // The arc's pole.
         var px = a[1] * b[2] - a[2] * b[1]; var py = a[2] * b[0] - a[0] * b[2]; var pz = a[0] * b[1] - a[1] * b[0]
@@ -133,17 +121,14 @@ internal object Landforms {
         return best
     }
 
-    /**
-     * A canyon's floor [d] metres off its line: [depth] down and [width] across, with steep walls
-     * and a flat bottom.
-     */
+    /** A canyon [d] metres off its line: [depth] down, [width] across, steep walls, flat bottom. */
     fun canyon(d: Double, width: Double, depth: Double): Double {
         val x = d / (width / 2)
         if (x >= 1.4) return 0.0
         return -depth * (1.0 - smooth((x - 0.55) / 0.85))
     }
 
-    /** A scarp, a long cliff [height] tall, stepping up on one side of a line [d] metres off it (signed). */
+    /** A long cliff [height] tall, stepping up on one side of a line, [signed] metres off it. */
     fun scarp(signed: Double, width: Double, height: Double): Double =
         height * smooth(0.5 + signed / width)
 
@@ -152,9 +137,8 @@ internal object Landforms {
         asin((nx * p[0] + ny * p[1] + nz * p[2]).coerceIn(-1.0, 1.0)) * radius
 
     /**
-     * Dunes: long crests across the wind, [wavelength] apart and [height] tall, sharp on their
-     * sheltered side, and broken and bent by noise so they look like sand instead of corrugated
-     * iron.
+     * Dunes: crests across the wind, [wavelength] apart and [height] tall, sharp on the lee side, and
+     * bent by noise so they look like sand.
      */
     fun dunes(seed: Int, x: Double, y: Double, z: Double, wx: Double, wy: Double, wz: Double, wavelength: Double, height: Double): Double {
         val bend = fbm(seed, x, y, z, 1.0 / (wavelength * 8), 2) * wavelength * 1.5
@@ -167,16 +151,16 @@ internal object Landforms {
     }
 
     /**
-     * Double ridges along great circles, like the cracks on an icy moon: [count] circles from
-     * [seed], each a pair of low ridges [width] across with a trough between. It also says how
-     * close the nearest crack is, 0..1, for staining the ice there.
+     * Double ridges along great circles, like the cracks on an icy moon: [count] arcs from [seed],
+     * each a pair of low ridges [width] across with a trough between. Puts how close the nearest
+     * crack is, 0..1, in [near] for staining the ice.
      */
     fun lineae(seed: Int, nx: Double, ny: Double, nz: Double, count: Int, radius: Double, width: Double, height: Double, near: DoubleArray): Double {
         var h = 0.0
         var closest = Double.MAX_VALUE
         for (k in 0 until count) {
             val p = pole(seed, k)
-            // Each one only goes part of the way round, so they're arcs, not whole circles.
+            // Each one goes only part of the way round.
             val reach = 0.4 + 0.6 * Noise.hash(seed + 11, k, 0, 0)
             val phase = Noise.hash(seed + 12, k, 0, 0) * 2 * Math.PI
             val along = kotlin.math.atan2(ny * p[0] - nx * p[1], nz) + phase
@@ -206,23 +190,22 @@ internal object Landforms {
     }
 
     /**
-     * Broken ground: blocks [cell] across standing at heights up to [height], like a crust that
-     * shattered and refroze.
+     * Broken ground: blocks [cell] across at heights up to [height], like a shattered, refrozen
+     * crust.
      */
     fun chaos(seed: Int, x: Double, y: Double, z: Double, cell: Double, height: Double): Double {
         val bx = floor(x / cell).toInt(); val by = floor(y / cell).toInt(); val bz = floor(z / cell).toInt()
         val lift = Noise.hash(seed, bx, by, bz)
-        // Blocks with sloped edges, not sheer ones.
+        // Sloped block edges.
         val fx = x / cell - bx; val fy = y / cell - by; val fz = z / cell - bz
         val edge = minOf(minOf(fx, 1 - fx), minOf(minOf(fy, 1 - fy), minOf(fz, 1 - fz)))
         return height * lift * smooth(edge / 0.15)
     }
 
     /**
-     * One of a scatter of round landforms (pancake domes, mesas, pits) on a lattice of cells [cell]
-     * metres across, at most one per cell with chance [chance]. It calls [action] with (metres from
-     * its middle, its size 0..1, which one) for each one whose reach of [reach] cells covers the
-     * point.
+     * A scatter of round landforms (domes, mesas, pits) on a lattice of [cell]-metre cells, at most
+     * one per cell with chance [chance]. Calls [action] with (metres from its middle, size 0..1, which
+     * one) for each one near the point.
      */
     inline fun scattered(
         seed: Int, px: Double, py: Double, pz: Double, radius: Double, cell: Double, chance: Double,
@@ -244,20 +227,20 @@ internal object Landforms {
     }
 
     /**
-     * A pancake dome [d] metres from its middle: flat-topped, [radius] across and [height] tall,
-     * with steep sides.
+     * A pancake dome [d] metres from its middle: flat-topped, [radius] across, [height] tall, steep
+     * sides.
      */
     fun pancake(d: Double, radius: Double, height: Double): Double = height * (1.0 - smooth((d / radius - 0.8) / 0.25))
 
     /**
-     * A mesa [d] metres from its middle: [radius] across its top and [height] tall, with cliffs
-     * [skirt] wide falling away from it.
+     * A mesa [d] metres from its middle: [radius] across the top, [height] tall, cliffs [skirt]
+     * wide.
      */
     fun mesa(d: Double, radius: Double, height: Double, skirt: Double): Double = height * (1.0 - smooth((d - radius) / skirt))
 
     /**
-     * River channels: winding troughs where noise crosses zero, [depth] deep, with [width] as a
-     * share of the pattern.
+     * River channels: winding troughs where noise crosses zero, [depth] deep, [width] a share of
+     * the pattern.
      */
     fun rivers(seed: Int, x: Double, y: Double, z: Double, scale: Double, width: Double, depth: Double): Double {
         val w = simplex(seed + 1, x / (scale / 5), y / (scale / 5), z / (scale / 5)) * scale * 0.1
@@ -266,9 +249,8 @@ internal object Landforms {
     }
 
     /**
-     * Cellular ground: shallow pits packed edge to edge, like a melon's skin or a nitrogen
-     * glacier's churning cells. It returns 0 at a cell's middle, rising to 1 on the ridges between
-     * them.
+     * Cellular ground: shallow pits packed edge to edge, like a nitrogen glacier's cells. 0 at a
+     * cell's middle, rising to 1 on the ridges between.
      */
     fun cells(seed: Int, x: Double, y: Double, z: Double, cell: Double): Double {
         val cx = floor(x / cell).toInt(); val cy = floor(y / cell).toInt(); val cz = floor(z / cell).toInt()
@@ -281,30 +263,30 @@ internal object Landforms {
             val d = fx * fx + fy * fy + fz * fz
             if (d < d1) { d2 = d1; d1 = d } else if (d < d2) d2 = d
         }
-        // Near the boundary the two nearest are almost equally close.
+        // Near a boundary the two nearest are almost equally close.
         return 1.0 - smooth((sqrt(d2) - sqrt(d1)) / (cell * 0.35))
     }
 }
 
 /**
- * Craters in size classes on a lattice, done Luna's way, for any world. There's one or none per
- * cell of a 3D lattice, from cells near the surface only. See [LunaLand] for why.
+ * Craters in size classes on a lattice, Luna's way, for any world: one or none per cell of a 3D
+ * lattice, from cells near the surface only. See [LunaLand].
  */
 internal class Craters(private val seed: Int, private val radius: Double, private val classes: List<CraterClass>) {
 
     class CraterClass(val cell: Double, val chance: Double, val minRadius: Double, val maxRadius: Double)
 
-    /**
-     * Every crater near the point added up, keeping [keep] of the lattice's craters, so younger
-     * ground has fewer.
-     */
+    /** Every crater near the point summed, keeping [keep] of them, so younger ground has fewer. */
     fun height(px: Double, py: Double, pz: Double, keep: Double): Double {
         var total = 0.0
         for (c in classes.indices) forEach(px, py, pz, c, keep) { x01, r, age -> total += profile(x01, r) * age }
         return total
     }
 
-    /** Whether the point is on a fresh crater's rim or apron (0.85..1.6 radii) of class [upTo] or bigger. */
+    /**
+     * Whether the point is on a fresh crater's rim or apron (0.85..1.6 radii) of class [upTo] or
+     * bigger.
+     */
     fun onRim(px: Double, py: Double, pz: Double, keep: Double, upTo: Int = 2): Boolean {
         for (c in 0..minOf(upTo, classes.size - 1)) {
             var rubble = false
@@ -364,23 +346,20 @@ internal class Craters(private val seed: Int, private val radius: Double, privat
         return h * Noise.smoothstep(((EJECTA_REACH - x) / (EJECTA_REACH - 1.4)).coerceIn(0.0, 1.0))
     }
 
-    /**
-     * Past this radius a crater has a flat floor and a central peak. It's a fiftieth of the world's
-     * radius.
-     */
+    /** Past this radius (a fiftieth of the world's) a crater has a flat floor and a central peak. */
     private val complexRadius = radius / 50.0
 
     companion object {
         const val EJECTA_REACH = 2.6
 
-        /** Luna's crater classes, scaled to a world of [radius]: the same battering, sized to fit. */
+        /** Luna's crater classes scaled to a world of [radius]. */
         fun scaledFrom(radius: Double, density: Double = 1.0): List<CraterClass> {
             val k = radius / 200_000.0
             return listOf(
                 CraterClass(90_000.0 * k, 0.30 * density, 8_000.0 * k, 25_000.0 * k),
                 CraterClass(22_000.0 * k, 0.40 * density, 1_500.0 * k, 6_000.0 * k),
                 CraterClass(4_000.0 * k, 0.45 * density, 200.0 * k, 1_000.0 * k),
-                // The smallest stay the size they are, because a pit is a pit on any world.
+                // The smallest stay their size on any world.
                 CraterClass(700.0, 0.45 * density, 30.0, 160.0),
                 CraterClass(120.0, 0.30 * density, 5.0, 22.0),
             )
@@ -397,9 +376,8 @@ internal interface WorldLand {
 }
 
 /**
- * The [Terrain] of any world except Terra and Luna: its [land]'s height and ground, sampled into
- * tiles the same way theirs are. Lifeless, and dry unless it has seas ([hasSea], like Aurantia's
- * methane).
+ * The [Terrain] of any world but Terra and Luna: its [land]'s height and ground, tiled the same way.
+ * Lifeless, and dry unless it has seas ([hasSea], like Aurantia's methane).
  */
 class WorldField internal constructor(
     override val bodyRadius: Double,
@@ -421,7 +399,7 @@ class WorldField internal constructor(
         return s.ventField(direction.x / l, direction.y / l, direction.z / l)
     }
 
-    /** Under its sea is the open ocean's floor, the same as Terra's. See [Seabed]. */
+    /** Under its sea is the open ocean floor, as on Terra. See [Seabed]. */
     private val seabed: Seabed? = if (hasSea) Seabed(world.hashCode(), bodyRadius) else null
 
     override fun elevation(direction: Vec3): Double {

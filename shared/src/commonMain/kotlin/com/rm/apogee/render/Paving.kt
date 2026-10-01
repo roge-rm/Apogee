@@ -6,20 +6,13 @@ import com.rm.apogee.core.terrain.SurfaceMaterial
 import com.rm.apogee.core.terrain.TerrainField
 import com.rm.apogee.core.math.Math
 
-/**
- * One paved work's surface as a mesh. See [Paving]. They're compared by identity, because each one
- * is built once and kept.
- */
+/** One paved work's surface as a mesh. See [Paving]. Compared by identity; each is built once. */
 class PavingShape(val order: Int, val vertices: FloatArray, val indices: IntArray) : Shape
 
 /**
- * The Cape's paving (pads, runway, apron, taxiways, roads and quay), drawn as meshes of their own
- * laid a few centimetres over the levelled ground, instead of as the colour of the terrain's
- * triangles. The terrain's triangles run on the planet's grid, not along the runway, so paving
- * painted onto them had edges like a saw. These have the works' own straight edges and round ends.
- * The ground under them is drawn as the land around it (`Terrain.groundMaterial`), so where a
- * triangle reaches past the paving's edge it's grass, not a tooth of asphalt. They're still flat
- * triangles, flat-shaded. Only their edges are the works' own now.
+ * The Cape's paving (pads, runway, apron, taxiways, roads, quay) as flat-shaded meshes of their
+ * own, laid a few centimetres over the levelled ground so they get straight edges and round ends.
+ * The terrain under them is drawn as the land around it (`Terrain.groundMaterial`).
  */
 object Paving {
 
@@ -29,7 +22,7 @@ object Paving {
     /** Every piece, with their vertices relative to [origin], body-fixed, on the pad. */
     class Built(val origin: Vec3, val pieces: List<Piece>)
 
-    /** Laid this far over the ground, in metres: over it, and still below a tire's notice. */
+    /** Height over the ground, in metres. Too small for a tire to notice. */
     private const val LIFT = 0.04
 
     /** The grid spacing the surface follows the ground by, in metres. */
@@ -105,9 +98,7 @@ object Paving {
         fan(work.toEast, work.toNorth, w, heading - Math.PI / 2, heading + Math.PI / 2, out)
     }
 
-    /**
-     * A disc of [radius] around [east], [north] from angle [from] to [to], in rings, into [out].
-     */
+    /** A disc of [radius] around [east], [north] from angle [from] to [to], in rings, into [out]. */
     private fun fan(east: Double, north: Double, radius: Double, from: Double, to: Double, out: MutableList<DoubleArray>) {
         val span = to - from
         val segments = kotlin.math.max(4, kotlin.math.ceil(HALF_TURN * span / Math.PI).toInt())

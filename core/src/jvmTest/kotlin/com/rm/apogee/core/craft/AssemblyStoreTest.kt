@@ -34,8 +34,7 @@ class AssemblyStoreTest {
         val store = CraftStore(folder.newFolder("craft"))
         val design = StockCraft.sparrow(catalog)
         val text = store.encode(design)
-        // Read, each quaternion is normalised, which can move its last digit, so it comes back
-        // the same to within that.
+        // Quaternions are normalised on reading, which can move the last digit.
         val back = store.decode(text, catalog).getOrThrow()
         assertEquals(design.parts.map { it.partId to it.parentIndex }, back.parts.map { it.partId to it.parentIndex })
         assertEquals(design.stages, back.stages)

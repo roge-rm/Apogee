@@ -9,10 +9,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * Landing legs take time to deploy, and the ground meets them where they really are while they do:
- * folded against the hull, swinging down, and out.
- */
+/** Legs take time to deploy, and the ground meets them where they are as they swing. */
 class LandingGearTest {
 
     private val catalog = StockParts.catalog
@@ -38,9 +35,8 @@ class LandingGearTest {
     }
 
     /**
-     * Standing on its legs, the lander is held up by them. With them stowed it sits on its engine
-     * bell, lower by about the length the legs reach below it. So the contact is where the drawn
-     * leg is, not a box that's always out.
+     * On its legs the lander stands on them. Stowed, it sits lower on its engine bell, so contact
+     * is where the drawn leg is.
      */
     @Test
     fun `a lander stands higher on deployed legs than on stowed ones`() {
@@ -59,10 +55,7 @@ class LandingGearTest {
         assertTrue("on its legs ($out m) it should stand clear of where it sits stowed ($stowed m)", out - stowed > 0.3)
     }
 
-    /**
-     * Legs swinging down while the craft sits on the ground lift it onto them, instead of passing
-     * through the ground and springing out underneath it.
-     */
+    /** Legs swinging down on the ground lift the craft onto them, not pass through the ground. */
     @Test
     fun `deploying on the ground stands the craft up on its legs`() {
         val world = World.default(catalog)

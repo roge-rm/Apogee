@@ -6,10 +6,9 @@ import com.rm.apogee.platform.format
 import kotlin.concurrent.Volatile
 
 /**
- * The sound engine: the C++ synth on its own low-latency audio thread, driven from here. Nothing in
- * the game waits on it. The scene is handed over once a frame and one-shots are queued, and if the
- * synth can't be had, the game just plays silent. It's reached through [Synth]: over JNI on
- * Android, and built as WebAssembly in a browser.
+ * The sound engine: the C++ synth on its own low-latency audio thread, driven from here. The game
+ * never waits on it: the scene is handed over once a frame, one-shots are queued, and with no synth
+ * the game plays silent. Reached through [Synth]: JNI on Android, WebAssembly in a browser.
  */
 object AudioEngine {
 
@@ -37,14 +36,14 @@ object AudioEngine {
         running = false
     }
 
-    /** With the app in the background, the stream stops, and picks up where it was. */
+    /** In the background the stream stops, then picks up where it was. */
     fun pause(paused: Boolean) {
         if (running) Synth.nativePause(paused)
     }
 
     /**
-     * The held sounds this frame: [count] of them, each with a key that stays the same while the
-     * sound does, its recipe, flags, and [SharedParams.COUNT] parameters in [params].
+     * This frame's held sounds: [count] of them, each with a key that's stable while the sound
+     * lasts, its recipe, flags, and [SharedParams.COUNT] parameters in [params].
      */
     fun scene(count: Int, keys: IntArray, recipes: IntArray, flags: IntArray, params: FloatArray) {
         if (logging) logScene(count, recipes, params)
@@ -82,7 +81,7 @@ object AudioEngine {
 
     /** How much room the mix is in: close and boxy inside a hull, open outdoors. */
     fun room(amount: Float) {
-        // Only when it changes. It's one of two values nearly always, and it was sent every frame.
+        // Only on change: it's nearly always one of two values.
         if (running && amount != lastRoom) { lastRoom = amount; Synth.nativeRoom(amount) }
     }
 

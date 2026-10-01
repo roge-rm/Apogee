@@ -6,10 +6,7 @@ import com.rm.apogee.core.world.Command
 import com.rm.apogee.core.world.World
 import kotlin.math.atan2
 
-/**
- * A test driver for a rover or a boat, on any world: throttle, plus the wheel or the tiller turned
- * to steer onto a heading, through the commands a player sends.
- */
+/** A test driver for a rover or a boat on any world, through player commands. */
 internal class Driver(private val world: World, private val craft: Vessel, private val sense: Double) {
     private val body get() = world.attractorFor(craft)
 
@@ -26,10 +23,7 @@ internal class Driver(private val world: World, private val craft: Vessel, priva
     /** Degrees north of east the nose points, flattened. */
     fun heading(): Double = craft.body.orientation.rotate(craft.design.orientation.forward).let { Math.toDegrees(atan2(it dot north(), it dot east())) }
 
-    /**
-     * Where it is, in metres east and north of [from], a body-fixed unit direction, along the
-     * surface.
-     */
+    /** Metres east and north of body-fixed unit direction [from], along the surface. */
     fun offset(from: Vec3): Pair<Double, Double> {
         val here = body.toBodyFixed(craft.body.position, body.rotationAt(world.time)).normalizeInPlace()
         val e = Vec3.unitY().crossInPlace(from).normalizeInPlace()
@@ -49,10 +43,8 @@ internal class Driver(private val world: World, private val craft: Vessel, priva
     }
 
     /**
-     * Toward [direction] degrees north of east at [cruise] m/s, slowing to a crawl for a sharp turn
-     * the way a driver would, because taken flat out, a hairpin rolls a rover. No more than [most]
-     * throttle, because in low gravity a rover given everything from a standstill goes over
-     * backwards.
+     * Toward [direction] degrees north of east at [cruise] m/s, slowing for sharp turns so a hairpin
+     * doesn't roll it. At most [most] throttle, since full throttle in low gravity flips a rover.
      */
     fun drive(direction: Double, cruise: Double, most: Double = 1.0) {
         var turn = direction - heading()
@@ -63,8 +55,7 @@ internal class Driver(private val world: World, private val craft: Vessel, priva
         throttle(((wanted - speed) * 0.3).coerceIn(0.0, most))
         val braking = speed > wanted + 1.5
         if (craft.control.brakes != braking) world.apply(Command.SetBrakes(craft.id.raw, braking))
-        // Full lock only at a crawl. The Trundler rolls when it's half over at eleven metres a
-        // second.
+        // Full lock only at a crawl. The Trundler rolls half over at 11 m/s.
         val lock = (LOCK_SPEED / speed.coerceAtLeast(0.1)).coerceAtMost(1.0)
         world.apply(Command.SetAttitude(craft.id.raw, 0.0, (turn / 20.0).coerceIn(-lock, lock) * sense, 0.0))
     }
@@ -73,10 +64,7 @@ internal class Driver(private val world: World, private val craft: Vessel, priva
     fun wheel(amount: Double) = world.apply(Command.SetAttitude(craft.id.raw, 0.0, amount * sense, 0.0))
 
     companion object {
-        /**
-         * Which way yaw turns it, left positive the way the heading counts, the same for every
-         * rover and boat.
-         */
+        /** Which way yaw turns it: left positive, like the heading. Same for rovers and boats. */
         const val BOAT = 1.0
         const val ROVER = 1.0
 

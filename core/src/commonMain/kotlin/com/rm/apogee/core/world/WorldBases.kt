@@ -1,22 +1,17 @@
 package com.rm.apogee.core.world
 
 /**
- * These are the world's own bases. There is one on every world that can hold one, so in free play
- * you can launch and refuel there without flying out first. Each one stands next to that world's
- * test site, on the row of pads the site lays out. Each is named after the astronomer who found or
- * mapped the real world it stands in for.
- *
- * They only exist in free play. A career has none of them, because players build their own, and a
- * career world that had them from an older save loses them.
+ * The world's own bases, one on every world that can hold one, beside its test site, named after the
+ * astronomer who found or mapped the real world it stands in for. Free play only; a career world
+ * from an older save loses them.
  */
 object WorldBases {
     /** A base on [bodyId] called [name], next to launch site [siteId]. */
     class Base(val bodyId: String, val name: String, val siteId: String)
 
     /**
-     * Every world with ground to stand on and air a base can survive, except Caligo. Its air is
-     * nine times what a base's parts are built for and would crush one where it stood. If it ever
-     * gets one, it should be Lomonosov Base, after the man who first saw Venus's atmosphere.
+     * Every world with ground and air a base can survive. Not Caligo: its air is nine times what
+     * the parts are built for. If it ever gets one, call it Lomonosov Base.
      */
     val all: List<Base> = listOf(
         // Riccioli named the Moon's seas and craters.
@@ -49,15 +44,10 @@ object WorldBases {
         Base("portitor", "Christy Crossing", "portitor-belt"),
     )
 
-    /**
-     * Which pad in the site's row the base sits on. It's out along the row, clear of where craft
-     * get put down.
-     */
+    /** Which pad in the site's row the base sits on, clear of where craft get put down. */
     const val PAD = 6
 
-    /**
-     * What Luna's base was called before it had a proper name, for older saves that still use it.
-     */
+    /** Luna's base's old name, for older saves. */
     const val OLD_LUNA_NAME = "Luna Test Base"
 
     fun named(name: String): Base? = all.firstOrNull { it.name == name }

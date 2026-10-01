@@ -38,17 +38,13 @@ class CrewSummary(
     val visor: Int = 0,
 )
 
-/**
- * The player's crew in the solo world: who's at home ready to go, who's out there and in what, and
- * below that, the ones who were lost, and how. Each of the living has a visor colour of their own to
- * pick.
- */
+/** Your crew in the solo world and where they are, then the lost. The living pick a visor colour. */
 @Composable
 fun CrewScreen(crew: List<CrewSummary>, onVisor: (Long, Int) -> Unit, onBack: () -> Unit = {}) {
     Backdrop(maxContentWidth = Dimens.PanelContentMaxWidth, title = "Crew", onBack = onBack, fillHeight = true) { contentModifier ->
         if (crew.isEmpty()) {
             Text(
-                "Nobody yet. Launch a crewed craft and its seats fill with new recruits.",
+                "Nobody yet",
                 style = MaterialTheme.typography.bodyMedium,
                 color = Color.White.alpha(ApogeeAlpha.SUBTITLE),
                 textAlign = TextAlign.Center,
@@ -92,7 +88,7 @@ private fun Row(member: CrewSummary, onVisor: (Long, Int) -> Unit) {
         Text(member.name, style = MaterialTheme.typography.bodyLarge, color = if (member.lost) Color.White.alpha(ApogeeAlpha.SUBTITLE) else Color.White)
         Text(member.status, style = MaterialTheme.typography.labelMedium, color = Color.White.alpha(ApogeeAlpha.SUBTITLE))
         if (!member.lost) {
-            // Their visor, so crew out together can be told apart.
+            // So crew out together can be told apart.
             Spacer(Modifier.height(8.dp))
             com.rm.apogee.ui.components.Swatches(
                 choices = com.rm.apogee.render.SuitColours.VISORS,

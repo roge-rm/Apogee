@@ -7,11 +7,7 @@ import org.junit.Test
 
 class CameraControllerTest {
 
-    /**
-     * Flying over a pole, the view turns smoothly. It used to swap its idea of north for another
-     * axis inside the polar cap, and the whole view turned in one frame. I caught it on video at
-     * 4x, heading north at 415 km.
-     */
+    /** Over a pole the view turns smoothly, with no swap of north inside the polar cap. */
     @Test
     fun `passing over a pole the view never jumps`() {
         val camera = CameraController()
@@ -19,7 +15,7 @@ class CameraControllerTest {
         val position = Vec3(); val rotation = Quat.identity()
         val lastRotation = Quat.identity()
         var worst = 0.0
-        // From 20 degrees short of the north pole to 20 past it, a small step each frame.
+        // From 20 degrees short of the north pole to 20 past it.
         val steps = 4_000
         for (k in 0..steps) {
             val lat = Math.toRadians(70.0 + 40.0 * k / steps)
@@ -34,8 +30,7 @@ class CameraControllerTest {
         assertTrue("the view turns no more than a sliver a frame (${"%.3f".format(worst)} deg)", worst < 0.2)
     }
 
-    // A craft on the ground at the top of a planet (+Y up), built lying down (up +Z, nose +Y),
-    // heading along +X.
+    // A craft at the top of a planet (+Y up), built lying down (up +Z, nose +Y), heading +X.
     private val target = Vec3(0.0, 6_000_000.0, 0.0)
     private val craft = Quat.fromAxisAngle(Vec3.unitY(), -Math.PI / 2) *
         com.rm.apogee.core.math.quatFromTo(Vec3.unitZ(), Vec3.unitY())

@@ -12,9 +12,8 @@ import kotlin.math.abs
 import kotlin.math.asin
 
 /**
- * A boat: a hull that floats, rights itself, goes where it's pointed and turns when asked, with
- * none of it from a boat-specific system. Buoyancy and water drag are forces on cells of each
- * part's volume, and everything below comes out of where those cells are.
+ * A boat floats, rights itself, goes where it's pointed and turns, with no boat-specific system.
+ * It all comes from buoyancy and water drag on cells of each part's volume.
  */
 class BoatTest {
 
@@ -33,10 +32,7 @@ class BoatTest {
 
     private fun up(vessel: Vessel) = vessel.body.position.copy().normalizeInPlace()
 
-    /**
-     * How high the craft's centre is above the water where it is, in metres. The tide comes and
-     * goes under it.
-     */
+    /** How high the craft's centre is above the water where it is, in metres, tide and all. */
     private fun aboveWater(world: World, vessel: Vessel): Double {
         val attractor = world.attractorFor(vessel)
         val bodyFixed = attractor.toBodyFixed(vessel.body.position, attractor.rotationAt(world.time))
@@ -88,10 +84,7 @@ class BoatTest {
         assertTrue("still heeled at ${tilt(boat)} degrees", tilt(boat) < 6.0)
     }
 
-    /**
-     * Through commands, the way the game does it. A settled boat is asleep, and a command is what
-     * wakes a craft. Setting its controls directly would be talking to one that isn't listening.
-     */
+    /** Through commands, since only a command wakes a settled boat. */
     private fun underWay(world: World, boat: Vessel) {
         world.apply(Command.Stage(boat.id.raw))
         world.apply(Command.SetThrottle(boat.id.raw, 1.0))
@@ -111,17 +104,12 @@ class BoatTest {
         assertTrue("it has left the water", abs(aboveWater(world, boat)) < 2.0)
     }
 
-    /**
-     * The keel test. A hull that skated sideways as easily as forwards would spin on the spot and
-     * keep going the way it was. One that grips the water sideways turns its track with its
-     * heading.
-     */
+    /** The keel test: a hull that grips the water sideways turns its track with its heading. */
     @Test
     fun `it turns its track, not just its nose`() {
         val (world, boat) = afloat()
         underWay(world, boat)
-        // Not long: the harbour's small, and twenty seconds at full throttle took her most of the
-        // way to its edge before she'd turned.
+        // Not long, since the harbour's small.
         repeat((8.0 / dt).toInt()) { world.step(dt) }
         val before = groundVelocity(world, boat).normalizeInPlace()
 
@@ -137,14 +125,10 @@ class BoatTest {
         assertTrue("skidding: track is ${90 - slip} degrees off the nose", slip > 70.0)
     }
 
-    /**
-     * A boat left alone at sea costs nothing, the same as one parked on a pad, and comes back to
-     * life when someone takes the controls.
-     */
+    /** A boat left alone at sea sleeps like one on a pad, and wakes when someone takes the controls. */
     @Test
     fun `moored, it goes to sleep, and wakes to the throttle`() {
-        // Launched level, it rocks into its trim (its motor's weight is at the stern) and is still
-        // within the minute.
+        // It rocks into its trim (the motor's at the stern) and is still within the minute.
         val (world, boat) = afloat(settle = 45.0)
         assertTrue("a still boat never went to sleep", boat.dormant)
 
@@ -155,9 +139,8 @@ class BoatTest {
     }
 
     /**
-     * SAS at sea is a helmsman. It keeps the deck level through a turn, instead of letting the boat
-     * heel as far as the turn throws it, and when the wheel is let go it holds the heading with the
-     * deck level, not with the heel it had then. That's what I wanted from it.
+     * SAS at sea is a helmsman. It keeps the deck level through a turn, and when the wheel is let
+     * go it holds the heading with the deck level.
      */
     @Test
     fun `SAS afloat keeps the deck level through a turn and holds the heading after`() {
@@ -188,10 +171,7 @@ class BoatTest {
         assertTrue("on its heading: turned $turned degrees since", turned < 5.0)
     }
 
-    /**
-     * Boats make way. A hull's drag is its bow's, once, not once for every slice of it along its
-     * length, which held the Trawler to a knot and a half at full throttle.
-     */
+    /** Boats make way. A hull's drag is its bow's, counted once, not once per slice along it. */
     @Test
     fun `the stock boats make way at full throttle`() {
         for ((design, least) in listOf(

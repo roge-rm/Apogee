@@ -7,15 +7,12 @@ import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
 
 /**
- * Serialisation for the math types.
+ * Serialisation for the math types. [Vec3] and [Quat] are mutable so the simulation doesn't
+ * allocate, but `@Serializable` wants immutable records, so these surrogates convert at the
+ * boundary.
  *
- * [Vec3] and [Quat] are mutable classes, which is right for a simulation that mustn't allocate
- * every tick, but wrong for `@Serializable`, which wants something immutable. These stand-ins
- * bridge the two. The network and disk formats are plain immutable records, and the conversion
- * happens at the boundary.
- *
- * The same format covers part definitions (hand-edited JSON), craft designs (save files) and
- * network snapshots, so a field name picked here is a field name in all three.
+ * The same format covers part definitions (hand-edited JSON), craft designs (saves) and network
+ * snapshots, so a field name here is one in all three.
  */
 @Serializable
 private data class Vec3Surrogate(val x: Double, val y: Double, val z: Double)
@@ -49,9 +46,8 @@ object QuatSerializer : KSerializer<Quat> {
 
     override fun deserialize(decoder: Decoder): Quat {
         val s = decoder.decodeSerializableValue(QuatSurrogate.serializer())
-        // Anything coming from disk or the network can't be trusted. A quaternion that isn't
-        // normalised would quietly shear every mesh attached to it, so normalise it on the way in
-        // instead of trusting the source.
+        // Disk and network input can't be trusted, and an unnormalised quaternion shears every mesh
+        // on it, so normalise on the way in.
         return Quat(s.x, s.y, s.z, s.w).normalizeInPlace()
     }
 }

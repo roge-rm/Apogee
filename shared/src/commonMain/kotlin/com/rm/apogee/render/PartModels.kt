@@ -35,10 +35,8 @@ class PartAnim(
     var gimbalPitch: Double = 0.0,
     var gimbalYaw: Double = 0.0,
     /**
-     * For a wheel: turns its tire from the axle it was made with, X, to the craft's real one
-     * (across the craft's forward, level with its up), whatever the wheel is mounted on. A gear leg
-     * under a fuselage and a wheel on a rover's side are the same part rotated differently, and
-     * both have to roll the way the craft drives. Null for anything that isn't a wheel.
+     * For a wheel: turns its tire from its made axle, X, to the craft's real one (across forward,
+     * level with up), however it's mounted, so it rolls the way the craft drives. Null otherwise.
      */
     var wheelAlign: Quat? = null,
     /** For a wheel: the craft's up in part space, the axis it steers about. */
@@ -55,10 +53,7 @@ class PartAnim(
      * -1 on a wing mounted the other way up. See [PartModels.alignFlap].
      */
     var flapSign: Double = 1.0,
-    /**
-     * A sail's angle around its mast, in radians from the part's -Z, and how full it is: 0 furled
-     * or flapping, 1 drawing hard.
-     */
+    /** A sail's angle round its mast, radians from the part's -Z, and how full it is (0..1). */
     var sailAngle: Double = 0.0,
     var sailFill: Double = 1.0,
 )
@@ -90,10 +85,7 @@ object PartModels {
 
     private val bladesCache = HashMap<String, Blades?>()
 
-    /**
-     * Where [def]'s blades are, if it has any: its model's first spinning propeller. The rotors'
-     * and propellers' blur discs are drawn there.
-     */
+    /** Where [def]'s blades are, if any: its model's first spinning propeller. Blur discs go here. */
     fun blades(def: PartDef): Blades? = bladesCache.getOrPut(def.id) {
         val compound = def.model as? ModelSpec.Compound ?: return@getOrPut null
         compound.pieces.firstOrNull { it.role == PieceRole.SPIN && it.model is ModelSpec.Prop }?.let { piece ->
@@ -102,9 +94,7 @@ object PartModels {
     }
 
     fun expand(def: PartDef, caps: Int, anim: PartAnim?, out: MutableList<Leaf>) {
-        // A part with nothing on it that moves is the same pieces every time, so they're made once
-        // for each way its ends can be capped. The launch complex alone is hundreds of pieces, all
-        // rebuilt every frame, each with a dozen new vectors and turns.
+        // A part with no moving pieces is made once per cap setting and reused.
         if (caps in 0..StackCaps.BOTH && isStill(def)) {
             val made = synchronized(stillLeaves) {
                 stillLeaves.getOrPut(def) { arrayOfNulls(StackCaps.BOTH + 1) }.let { byCaps ->
@@ -163,10 +153,8 @@ object PartModels {
                 val offset = piece.offset.copy()
                 // ...then what moves it, about its pivot.
                 val motion = motion(piece, anim, maxDeflection)
-                // A leg folds about its module's hinge, the same one the physics folds its feet
-                // about, so the two can't disagree. A propeller spins where it is, on its own
-                // shaft. Spun about the part's origin, the outboard's propeller swung round in a
-                // circle nearly a metre across, in and out of the water, which I spotted.
+                // A leg folds about its module's hinge, the same one the physics uses. A propeller
+                // spins about its own offset, not the part's origin.
                 val pivot = when (piece.role) {
                     PieceRole.DEPLOY -> leg?.hinge ?: piece.pivot
                     PieceRole.SPIN -> piece.offset
@@ -248,20 +236,16 @@ object PartModels {
         val f = partRotation.inverseRotate(forward)
         val u = partRotation.inverseRotate(up)
         val axle = u.cross(f).normalizeInPlace()
-        // Either way along the axle is the same tire, so take the one nearer the made axle, and a
-        // wheel mounted normally doesn't get flipped round.
+        // Either way along the axle is the same tire; take the one nearer X so it isn't flipped.
         if (axle.x < 0.0) axle.mulInPlace(-1.0)
         anim.wheelAlign = com.rm.apogee.core.math.quatFromTo(Vec3(1.0, 0.0, 0.0), axle)
         anim.steerAxis = u.normalizeInPlace()
     }
 
     /**
-     * Sets [anim]'s hinge direction for a control surface mounted at [partRotation], [offset] from
-     * the craft's centre (both design space), so its trailing edge is drawn moving against the push
-     * the physics applies. That push is across the fuselage and the mounting radius (see
-     * Forces.controlDeflection), so a wing on the left and one on the right, mounted as mirror
-     * images, turn opposite ways round their own hinges for the same deflection. See
-     * ControlSurfaceLookTest.
+     * Sets [anim]'s hinge direction for a control surface at [partRotation], [offset] from the
+     * craft's centre (design space), so its trailing edge moves against the physics' push (see
+     * Forces.controlDeflection). Mirrored wings turn opposite ways. See ControlSurfaceLookTest.
      */
     fun alignSurface(def: PartDef, partRotation: Quat, offset: Vec3, anim: PartAnim) {
         val controllable = def.module<AeroSurface>()?.controllable == true ||
@@ -272,8 +256,7 @@ object PartModels {
         radial.normalizeInPlace()
         // The push for a positive deflection, in part space.
         val push = partRotation.inverseRotate(Vec3(0.0, 1.0, 0.0).cross(radial))
-        // Which way a positive turn about the hinge moves the trailing edge, which is at -Y in
-        // every surface as it's made.
+        // Which way a positive turn moves the trailing edge, at -Y in every surface as made.
         val hinge = (def.model as? ModelSpec.Compound)?.pieces?.firstOrNull { it.role == PieceRole.HINGED } ?: return
         val trailingMoves = hinge.axis.normalized().cross(Vec3(0.0, -1.0, 0.0))
         anim.hingeSign = if ((trailingMoves dot push) > 0.0) -1.0 else 1.0
@@ -310,13 +293,8 @@ object PartModels {
     }
 
     /**
-     * A part's own colour, by family. Kit parts of one vehicle class share a scheme, so a craft
-     * looks like one machine instead of a parts bin.
-     */
-    /**
-     * A part's colour by the start of its name, worked out once per name. Every part asked for it
-     * every frame, down a chain of seventeen string comparisons, with a new array each time. The
-     * arrays are shared, so they're only ever read.
+     * A part's colour by family, from the start of its name, cached per name. Parts of one vehicle
+     * class share a scheme. The arrays are shared, so only ever read them.
      */
     fun bodyColour(partId: String): FloatArray = synchronized(bodyColours) { bodyColours.getOrPut(partId) { bodyColourOf(partId) } }
 

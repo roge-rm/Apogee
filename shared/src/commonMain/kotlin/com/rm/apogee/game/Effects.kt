@@ -42,10 +42,9 @@ class EngineEmitter(
  * What engines and weather leave in the air: flames, smoke, dust, spray, contrails, rain and
  * lightning.
  *
- * Particles live in the body's turning frame, where the wind is, and they're carried by the same
- * [Weather] every device works out. So smoke drifts downwind, rises in a thermal and swirls in a
- * gust the same way for every player watching. They're small faceted hexagons, flat-coloured, to
- * match everything else. Flames are see-through faceted cones that glow.
+ * Particles live in the body's turning frame and are carried by the same [Weather] every device
+ * works out, so smoke drifts, rises and swirls the same for every player. They're small
+ * flat-coloured faceted hexagons; flames are see-through faceted cones that glow.
  */
 class Effects(tier: QualityTier) {
 
@@ -67,10 +66,8 @@ class Effects(tier: QualityTier) {
     /** Falls and comes to rest on the ground, the way fragments and sparks do. */
     private val falls = BooleanArray(capacity)
     /**
-     * Born since the last step, so where it was put is where it is at the frame's own time. When it
-     * was moved on by that step, everything made this frame (a spark off a seam, smoke off a
-     * nozzle) was drawn a frame ahead of the craft it came from. At 560 m/s that's twenty metres
-     * off, and I caught it on video.
+     * Born since the last step, so it's drawn where it was put at the frame's own time. Moving it
+     * on in that step drew anything made this frame a frame ahead of its craft (20 m at 560 m/s).
      */
     private val fresh = BooleanArray(capacity)
     private var count = 0
@@ -116,8 +113,8 @@ class Effects(tier: QualityTier) {
         private set
 
     /**
-     * Moves everything on by [dt], at [time]. It emits from [emitters], moves the particles through
-     * the air, rains if [cameraAir] is raining, and lights any strike near the camera.
+     * Moves everything on by [dt] at [time]: emits from [emitters], moves particles through the
+     * air, rains if [cameraAir] is raining, and lights any strike near the camera.
      */
     fun step(
         dt: Double,
@@ -134,8 +131,8 @@ class Effects(tier: QualityTier) {
         val terrain = body.terrain
         val atmosphere = body.atmosphere
 
-        // The wind at two heights over the focus, and the particles take whichever is nearer
-        // theirs. It's one sample each per frame, not one per particle.
+        // The wind at two heights over the focus; each particle takes the nearer. One sample each
+        // per frame, not per particle.
         up.setTo(cameraBodyFixed).normalizeInPlace()
         focusGround = terrain?.let { max(it.elevation(up), if (it.hasOcean) 0.0 else -1e9) } ?: 0.0
         focusHeight = cameraBodyFixed.length - body.radius
@@ -162,17 +159,17 @@ class Effects(tier: QualityTier) {
     // --- plumes -----------------------------------------------------------------
 
     /**
-     * The chimneys on the sea floor near the camera, as body-fixed tops, and where and on what they
-     * were last looked for.
+     * The sea floor's chimneys near the camera, as body-fixed tops, and where and on what they were
+     * last looked for.
      */
     private val ventTops = ArrayList<Vec3>()
     private val ventsLookedFrom = Vec3()
     private var ventsBody = ""
 
     /**
-     * The sea floor's vents near the camera, at work: dark water welling up out of each chimney,
-     * spreading as it rises, with a faint shimmer of heat at its mouth. Only in the water, and only
-     * close, because past the murk nothing would show.
+     * The sea floor's vents near the camera at work: dark water welling up and spreading from each
+     * chimney, with a faint heat shimmer at the mouth. Only in the water, and only close, since the
+     * murk hides the rest.
      */
     private fun seaVents(dt: Double, body: CelestialBody, camera: Vec3) {
         val scatter = body.terrain?.scatter
@@ -220,8 +217,8 @@ class Effects(tier: QualityTier) {
 
     /**
      * A world's vents at work near the camera: Fornax's volcanoes throwing sulfur kilometres up,
-     * Fons's geysers, and Aversa's dark jets. They're only for looking at: fountains of big
-     * particles, arcing up and falling back with no air to slow them.
+     * Fons's geysers, Aversa's dark jets. Only for looking at: fountains of big particles arcing up
+     * and back with no air to slow them.
      */
     private fun plumes(dt: Double, body: CelestialBody, camera: Vec3) {
         val vents = PLUMES[body.id] ?: return
@@ -266,8 +263,8 @@ class Effects(tier: QualityTier) {
     private val seaPoint = Vec3()
 
     /**
-     * Spray torn off the breaking crests by a strong wind or a storm, around the camera. It's tried
-     * at a handful of points a frame, and thrown up and downwind where the sea there is breaking.
+     * Spray torn off breaking crests by strong wind or storm round the camera. Tried at a handful
+     * of points a frame and thrown up and downwind where the sea is breaking.
      */
     private fun seaSpray(dt: Double, time: Double, body: CelestialBody) {
         val sample = sea ?: return
@@ -299,9 +296,9 @@ class Effects(tier: QualityTier) {
     }
 
     /**
-     * A hull moving through the water, from [stern] to [bow] (world), [beam] wide, at [velocity]
-     * (world) over the ground. Foam spreads from its stern and quarters in a vee behind it, and
-     * spray gets thrown up and out from its bow when it drives into the sea.
+     * A hull moving through the water from [stern] to [bow] (world), [beam] wide, at [velocity]
+     * (world) over the ground. Foam spreads in a vee from its stern and quarters, and spray flies
+     * from its bow when it drives into the sea.
      */
     fun wake(stern: Vec3, bow: Vec3, beam: Double, velocity: Vec3, body: CelestialBody, bodyRotation: Quat, time: Double, dt: Double, seed: Int) {
         val sample = sea ?: return
@@ -310,14 +307,14 @@ class Effects(tier: QualityTier) {
         if (seaSample.depth <= 0.0) return
         // Only while it's in the water.
         if (kotlin.math.abs(bodyFixed.length - body.radius - seaSample.height) > beam + 1.5) return
-        // Through the water, not over the ground, because a boat carried about by the waves' own
-        // motion makes no wake.
+        // Through the water, not over the ground: a boat carried by the waves' own motion makes no
+        // wake.
         body.surfaceVelocityAt(stern, scratch)
         relative.setTo(velocity).subInPlace(scratch)
         bodyRotation.inverseRotate(relative, relative)
         relative.subInPlace(seaSample.velocity)
         val speed = relative.length
-        // Foam in a big sea gets broken up in moments.
+        // Foam in a big sea breaks up in moments.
         val lasting = 1.0 / (1.0 + seaSample.significantHeight / 1.5)
         if (speed < 0.8) return
         val forward = scratch2.setTo(relative).mulInPlace(1.0 / speed)
@@ -480,9 +477,8 @@ class Effects(tier: QualityTier) {
 
     private fun rain(dt: Double, precipitation: Double, camera: Vec3, body: CelestialBody) {
         up.setTo(camera).normalizeInPlace()
-        // As many as keeps no more than [RAIN_SHARE] of the budget falling in a downpour. At the
-        // old rate the heaviest rain filled all of it, and every new drop pushed out smoke, spray
-        // or flame to make room.
+        // Few enough that a downpour keeps under [RAIN_SHARE] of the budget, so new drops don't
+        // push out smoke, spray or flame.
         val life = 70.0 / RAIN_FALL
         val rate = kotlin.math.min(1_800.0 * rateScale, capacity * RAIN_SHARE / life)
         val n = poisson(precipitation * rate * dt, 991)
@@ -597,7 +593,7 @@ class Effects(tier: QualityTier) {
         r: Float, g: Float, b: Float, a: Float, grip: Double, rise: Double, streak: Boolean = false,
         glow: Boolean = false, fall: Boolean = false,
     ) {
-        // Full, so the oldest-looking one makes way instead of the new one not appearing. Fresh
+        // Full, so the oldest-looking one makes way rather than the new one not appearing. Fresh
         // smoke matters more than old.
         val i = if (count < capacity) count++ else (spawnCounter++ % capacity)
         px[i] = x; py[i] = y; pz[i] = z
@@ -613,9 +609,9 @@ class Effects(tier: QualityTier) {
     // --- flames -----------------------------------------------------------------
 
     /**
-     * Each lit engine's flame, as glowing see-through cones into [out]: a long pale outer plume and
-     * a short bright core, longer with throttle, swelling into a broad faint bloom as the air
-     * thins, and flickering.
+     * Each lit engine's flame as glowing see-through cones into [out]: a long pale plume and a
+     * short bright core, longer with throttle, blooming broad and faint as the air thins, and
+     * flickering.
      */
     fun flames(emitters: List<EngineEmitter>, body: CelestialBody, time: Double, out: MutableList<RenderItem>) {
         for (e in emitters) {
@@ -626,13 +622,12 @@ class Effects(tier: QualityTier) {
             val orient = quatFromTo(Vec3(0.0, -1.0, 0.0), e.out)
             when (e.kind) {
                 Exhaust.ROCKET -> {
-                    // The plume only really opens up near space. It's cubed, so it's still a flame
-                    // at 7 km (a third of the pressure left) and only a broad bloom in the last few
-                    // percent of air.
+                    // The plume only really opens near space. Cubed, so it's still a flame at 7 km
+                    // (a third of the pressure left) and only a broad bloom in the last few percent
+                    // of air.
                     val vacuum = (1.0 - pressure).let { it * it * it }
-                    // It leaves the bell at the bell's own width and only spreads downstream of it.
-                    // It used to start three bell-widths across in thin air, a slab hiding the
-                    // engine, which I didn't like at all.
+                    // It leaves the bell at the bell's own width and only spreads downstream, so it
+                    // never hides the engine.
                     val width = e.exitRadius
                     val length = e.radius * (22.0 + 14.0 * vacuum) * (0.35 + 0.65 * e.throttle) * flicker
                     out.add(RenderItem(rocketPlume(vacuum), e.nozzle.copy(), orient, floatArrayOf(1.0f, 0.55f, 0.2f, (0.65 - 0.35 * vacuum).toFloat()), scale = Vec3(width, length, width), ambient = EMISSIVE, key = RenderItem.effectKey(e.seed.toLong(), 0)))
@@ -649,8 +644,7 @@ class Effects(tier: QualityTier) {
 
     /**
      * Dust thrown up behind a wheel rolling at [speed] over dry ground at [contact] (attractor
-     * frame). Nothing on grass, snow, rock or water, because the ground has to be loose and dry to
-     * give any.
+     * frame). Nothing on grass, snow, rock or water: the ground has to be loose and dry.
      */
     fun wheelDust(contact: Vec3, speed: Double, body: CelestialBody, bodyRotation: Quat, dt: Double, seed: Int) {
         if (speed < 3.0 || body.atmosphere == null) return
@@ -682,11 +676,11 @@ class Effects(tier: QualityTier) {
     // --- the air made visible ------------------------------------------------------
 
     /**
-     * What a craft's passage does to the air around it, drawn: a condensation cone as it nears the
-     * speed of sound in damp low air, and at re-entry speeds a glowing shock ahead of it with a
-     * trail of hot sparks. It's sized from the same airspeed and density the drag uses.
+     * A craft's passage through the air, drawn: a condensation cone near Mach 1 in damp low air,
+     * and at re-entry speeds a glowing shock ahead with a trail of hot sparks. Sized from the same
+     * airspeed and density the drag uses.
      *
-     * [centre] is the middle of the craft and [airVelocity] its motion through the air, both in the
+     * [centre] is the craft's middle and [airVelocity] its motion through the air, both in the
      * attractor's frame. [size] is its radius.
      */
     fun aero(
@@ -714,15 +708,14 @@ class Effects(tier: QualityTier) {
         if (speed < 150.0) return
         val flow = airVelocity.copy().mulInPlace(-1.0 / speed)
 
-        // Vapour: a shock cone of condensed cloud, strongest right at Mach 1, and only where
-        // there's water in the air to condense.
+        // Vapour: a condensation shock cone, strongest right at Mach 1, and only where there's
+        // water in the air.
         val mach = speed / SPEED_OF_SOUND
         val damp = smoothstep(0.05, 0.35, density)
         val vapour = damp * (1.0 - smoothstep(0.0, 0.2, kotlin.math.abs(mach - 1.0))) * (0.85 + 0.15 * Noise.simplex(seed, time * 9.0, 0.0, 0.0))
         if (vapour > 0.02) {
-            // A collar just behind the nose, flaring back past the shoulders, where the air speeds
-            // round the craft and drops below its dew point. It's the size of the body there, not
-            // of the whole craft.
+            // A collar just behind the nose, flaring back past the shoulders where the air speeds
+            // round and drops below its dew point. Sized to the body there, not the whole craft.
             val length = girth * 3.0
             val along = back ?: flow
             val collar = Vec3().setTo(nose).addScaledInPlace(along, 0.55 * length + girth * 0.6)
@@ -736,11 +729,9 @@ class Effects(tier: QualityTier) {
             )
         }
 
-        // Re-entry glow: air heated to plasma. What decides it is how hot the air stopped against
-        // the craft gets. That's the recovery temperature, v²/2cp, the same one the heat model
-        // uses. A return from orbit goes past 2,500 K, where a fast dive low down at a kilometre a
-        // second never goes past 800. The air has to be thick enough to glow, but past that it
-        // hardly matters how thick.
+        // Re-entry glow: air heated to plasma. It's decided by the recovery temperature, v²/2cp, as
+        // in the heat model: an orbital return passes 2,500 K, while a 1 km/s dive low down stays
+        // under 800. The air must be thick enough to glow, but past that thickness hardly matters.
         val recovery = speed * speed / (2.0 * 1_005.0)
         val glow = smoothstep(GLOW_FROM, GLOW_FULL, recovery) * smoothstep(1e-6, 1e-4, density)
         if (glow > 0.02) {
@@ -773,9 +764,8 @@ class Effects(tier: QualityTier) {
     // --- crashes -------------------------------------------------------------------
 
     /**
-     * What a blow, a breakage or a blast looks like, at [at] (body-fixed). [amount] is the impact
-     * speed for an impact and the propellant for an explosion. [colour] is the part's own, for its
-     * fragments.
+     * What a blow, breakage or blast looks like at body-fixed [at]. [amount] is impact speed for an
+     * impact and propellant for an explosion. [colour] is the part's own, for its fragments.
      */
     fun partEvent(kind: PartEventKind, at: Vec3, amount: Double, colour: FloatArray?, seed: Int, water: Boolean = false) {
         up.setTo(at).normalizeInPlace()
@@ -846,8 +836,8 @@ class Effects(tier: QualityTier) {
     }
 
     /**
-     * A part on fire: flames licking up off it and smoke drifting away downwind, from [at]
-     * (body-fixed), for a part [size] across.
+     * A part on fire: flames licking up and smoke drifting downwind from body-fixed [at], for a
+     * part [size] across.
      */
     fun burn(at: Vec3, size: Double, dt: Double, seed: Int) {
         up.setTo(at).normalizeInPlace()
@@ -872,17 +862,9 @@ class Effects(tier: QualityTier) {
     }
 
     /**
-     * A seam working near its limit: sparks, and now and then a fleck of metal off it, at [rate] a
-     * second. [at] is the seam (body-fixed), [across] the way out of it, and [radius] its reach.
-     * [velocity] is the craft's (body-fixed), so what comes off leaves with it and falls behind as
-     * the air takes it. In vacuum nothing takes it, and it keeps going with the craft. [colour] is
-     * the part's own, for the flecks.
-     */
-    /**
-     * A thruster block firing at [strength] (0..1): quick pale puffs from [at] (body-fixed) along
-     * [out] (unit, the way the gas goes, body frame), carried along at the craft's [velocity] over
-     * the ground. In vacuum they shoot straight out and thin to nothing at once, and in air they
-     * slow and hang for a moment.
+     * A thruster block firing at [strength] (0..1): quick pale puffs from body-fixed [at] along
+     * [out] (unit, the gas's direction), carried at the craft's [velocity] over the ground. In
+     * vacuum they shoot straight out and vanish; in air they slow and hang a moment.
      */
     fun rcsPuff(at: Vec3, out: Vec3, velocity: Vec3, strength: Double, inAir: Boolean, dt: Double, seed: Int) {
         if (strength < 0.02) return
@@ -902,17 +884,20 @@ class Effects(tier: QualityTier) {
         }
     }
 
+    /**
+     * A seam working near its limit: sparks, and now and then a fleck of metal, at [rate] a second.
+     * [at] is the seam (body-fixed), [radius] its reach, and [velocity] the craft's (body-fixed),
+     * so what comes off leaves with it. [colour] is the part's own, for the flecks.
+     */
     fun strain(
         at: Vec3, velocity: Vec3, radius: Double, rate: Double, inAir: Boolean,
         colour: FloatArray?, dt: Double, seed: Int,
     ) {
         up.setTo(at).normalizeInPlace()
-        // Carried along with the craft for the moment they live. Dragged to a stop by the air, at a
-        // kilometre a second they fell tens of metres behind within a blink and seemed to come from
-        // nowhere near the seam, which I caught on video. Now they fly out from it, and die there.
+        // Carried along with the craft for their short life. Dragged to a stop by the air, at 1
+        // km/s they fell far behind at once and seemed to come from nowhere near the seam.
         val grip = 0.0
-        // In bursts, the way metal grinding on metal gives them: a handful at a time, now and then,
-        // not a steady trickle.
+        // In bursts, as metal grinding on metal gives them: a handful now and then, not a trickle.
         val n = poisson(rate / BURST * rateScale * dt, seed) * BURST
         for (k in 0 until n) {
             // Around the seam, flung outward.
@@ -993,14 +978,14 @@ class Effects(tier: QualityTier) {
     private val smokeLight = FloatArray(3)
     private val rainLight = FloatArray(3)
 
-    /** Triple-buffered, so the renderer can still be reading one while the next is being filled. */
+    /** Triple-buffered, so the renderer can read one while the next is filled. */
     private val buffers = Array(3) { FloatArray(0) }
     private var bufferIndex = 0
 
     /**
      * The particles and bolts as camera-facing faceted hexagons (streaks for rain, ribbons for
      * bolts), camera-relative, into a vertex array of [VERTEX_FLOATS] per vertex, six vertices per
-     * shape. It returns the array and how many shapes are in it.
+     * shape. Returns the array and the shape count.
      */
     fun vertices(
         bodyRotation: Quat,
@@ -1023,9 +1008,8 @@ class Effects(tier: QualityTier) {
         val p = Vec3()
         var o = 0
         var written = 0
-        // What lights a puff that doesn't glow: the sun, or the moon and twilight. By day rain is
-        // lit by the sky's full light, not dimmed by the cloud it falls from, and smoke by what
-        // reaches under it.
+        // What lights a puff that doesn't glow: sun, or moon and twilight. By day rain gets the
+        // sky's full light, not dimmed by its cloud, and smoke what reaches under it.
         NightLight.flatLight(daylight, 0.55f + 0.45f * lightScale, lightScale, smokeLight)
         NightLight.flatLight(daylight, 1f, lightScale, rainLight)
         for (c in 0 until 3) {
@@ -1037,15 +1021,12 @@ class Effects(tier: QualityTier) {
             bodyRotation.rotate(p, p).subInPlace(cameraPos)
             val u = age[i] / life[i]
             val size = size0[i] + (size1[i] - size0[i]) * u
-            // Short-lived ones come in fast. A spark that took a fifth of a second to appear would
-            // be gone before it was ever bright.
+            // Short-lived ones come in fast, or a spark would be gone before it was ever bright.
             val fadeIn = min(1f, age[i] / min(0.2f, life[i] * 0.15f))
-            // Rain holds its strength until the end. Faded the way smoke is, a drop had lost three
-            // quarters of it by the time it fell past the camera, and a downpour was hard for me to
-            // see at all.
+            // Rain holds its strength to the end; faded like smoke, a downpour was hard to see.
             val fadeOut = if (streak[i] && !glows[i]) {
-                // And gone before it reaches the lens, because a drop a hand's width from the
-                // camera drew as a bar across the whole screen.
+                // And gone before it reaches the lens, or a drop near the camera draws as a bar
+                // across the screen.
                 val near = ((p.length - 2.0) / 3.0).coerceIn(0.0, 1.0).toFloat()
                 (1f - ((u - 0.8f) / 0.2f).coerceIn(0f, 1f)) * near
             } else (1f - u) * (1f - u)
@@ -1057,8 +1038,8 @@ class Effects(tier: QualityTier) {
             }
             val r = colour[i * 4] * light[0]; val g = colour[i * 4 + 1] * light[1]; val b = colour[i * 4 + 2] * light[2]
             if (streak[i]) {
-                // A short streak along its travel, as seen: rain is a long thin line, and a spark a
-                // glowing dash as long as it is quick.
+                // A short streak along its travel as seen: rain a long thin line, a spark a glowing
+                // dash as long as it's quick.
                 scratch.setTo(vx[i], vy[i], vz[i])
                 bodyRotation.rotate(scratch, scratch)
                 val length = if (glows[i]) (scratch.length * 0.05).coerceIn(0.15, 1.2) else 2.2
@@ -1102,7 +1083,7 @@ class Effects(tier: QualityTier) {
     }
 
     /**
-     * A thin quad centred on [c], half-length along [along], and half-width along [across], as a
+     * A thin quad centred on [c], half-length along [along] and half-width along [across], as a
      * degenerate hexagon.
      */
     private fun quad(v: FloatArray, start: Int, c: Vec3, along: Vec3, across: Vec3, r: Float, g: Float, b: Float, a: Float): Int {
@@ -1119,8 +1100,8 @@ class Effects(tier: QualityTier) {
 
     // --- noise --------------------------------------------------------------------
 
-    // Only the look of the smoke depends on these, so plain randomness is fine. Nothing about it
-    // has to agree between devices beyond where it drifts.
+    // Only the smoke's look depends on these, so plain randomness is fine. Nothing but its drift
+    // has to agree between devices.
     private val random = com.rm.apogee.platform.SplittableRandom(0x5A0E)
 
     @Suppress("UNUSED_PARAMETER")
@@ -1144,8 +1125,8 @@ class Effects(tier: QualityTier) {
         private const val PLUME_REACH = 150_000.0
 
         /**
-         * A sea-floor vent's reach in metres, well past what the murk lets you see, and how far the
-         * camera goes before they're looked for again.
+         * A sea-floor vent's reach in metres (past what the murk shows), and how far the camera
+         * goes before they're looked for again.
          */
         private const val VENT_REACH = 150.0
         private const val VENT_LOOK_AGAIN = 25.0
@@ -1159,8 +1140,8 @@ class Effects(tier: QualityTier) {
         private val SOOT = floatArrayOf(0.26f, 0.22f, 0.22f)
 
         /**
-         * Each world's vents: where they are, how high they throw, how often, how big and spread
-         * out, and what colour.
+         * Each world's vents: where, how high and how often they throw, how big and spread, and
+         * what colour.
          */
         private val PLUMES: Map<String, List<Vent>> = mapOf(
             "fornax" to listOf(
@@ -1180,13 +1161,13 @@ class Effects(tier: QualityTier) {
             ),
         )
 
-        /**
-         * Spray: how high above the sea the camera still sees it, in metres, how far around, in
-         * metres, and tries per second.
-         */
         /** The most of the particle budget rain can take, in a downpour. */
         const val RAIN_SHARE = 0.5
 
+        /**
+         * Spray: how high over the sea the camera still sees it and how far round, in metres, and
+         * tries per second.
+         */
         const val SPRAY_HEIGHT = 400.0
         const val SPRAY_REACH = 90.0
         const val SPRAY_TRIES = 40.0
@@ -1210,7 +1191,6 @@ class Effects(tier: QualityTier) {
         private const val BURST = 5
         const val SPEED_OF_SOUND = 340.0
 
-        /** Heat index 1 is a strong glow. See [aero]. */
         /**
          * The recovery temperature rise where the plasma starts to show, and where it's full, in K.
          */
@@ -1237,11 +1217,11 @@ class Effects(tier: QualityTier) {
         const val LIGHTNING_VISIBLE = 40_000.0
 
         /**
-         * The outer flame for [vacuum] (0 in thick air, 1 in none), in units of the bell's mouth
-         * across and the flame's length along, from a point far downstream back to exactly the
-         * mouth. In air it's a flame, barely wider than the bell. As the air thins it fans out
-         * behind the engine like a second, larger bell, but never at the nozzle itself. It's one of
-         * [PLUME_STEPS] shapes, so the renderer only builds a few.
+         * The outer flame for [vacuum] (0 thick air, 1 none), in units of the bell's mouth across
+         * and the flame's length along, from far downstream back to exactly the mouth. In air it's
+         * barely wider than the bell; as the air thins it fans out behind like a second, larger
+         * bell, never at the nozzle. One of [PLUME_STEPS] shapes, so the renderer only builds a
+         * few.
          */
         fun rocketPlume(vacuum: Double): ModelSpec.Lathe =
             PLUME_SHAPES[(vacuum.coerceIn(0.0, 1.0) * (PLUME_STEPS - 1) + 0.5).toInt()]

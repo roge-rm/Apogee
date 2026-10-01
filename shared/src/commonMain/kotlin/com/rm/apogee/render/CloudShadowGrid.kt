@@ -10,12 +10,12 @@ import kotlin.math.sqrt
 
 /**
  * The clouds' shadows on the ground around the camera. Each cloud is cast along the light onto a
- * flat sheet at the ground's height, as a grid of how shaded it is (red) and how high the lowest
- * cloud over it is (green), so a craft flying above a cloud doesn't get darkened by it.
+ * flat sheet at ground height, as a grid of shade (red) and lowest cloud base over it (green), so a
+ * craft flying above a cloud isn't darkened by it.
  *
- * It's in the planet's own turning frame, since it's made once a second and read every frame in
- * between, and [matrix] turns it to the world as it is. It's built off the GL thread, and the
- * renderer uploads it when [revision] changes.
+ * It's in the planet's turning frame, since it's made once a second and read every frame; [matrix]
+ * turns it to the world as it is now. Built off the GL thread; the renderer uploads it when
+ * [revision] changes.
  */
 class CloudShadowGrid(
     val size: Int,
@@ -32,15 +32,13 @@ class CloudShadowGrid(
     val strength: Float,
     val revision: Int,
 ) {
-    /**
-     * Red is how shaded, 0..255. Green is the lowest cloud base over it, in [HEIGHT_SCALE] units.
-     */
+    /** Red is shade, 0..255. Green is the lowest cloud base over it, in [HEIGHT_SCALE] units. */
     val data = ByteArray(size * size * 2)
 
     /**
-     * Camera-relative world to the grid: x and y [0,1] across it, and z the height over its sheet
-     * in [HEIGHT_SCALE] units, for a point cast back along the light onto the sheet the way the
-     * cloud's shadow was. [turn] is the planet's rotation now, and [camera] is absolute.
+     * Camera-relative world to the grid: x and y [0,1] across it, z the height over its sheet in
+     * [HEIGHT_SCALE] units, for a point cast back along the light the way the shadow was. [turn] is
+     * the planet's rotation now; [camera] is absolute.
      */
     fun matrix(turn: Quat, camera: Vec3, out: FloatArray) {
         val lUp = light dot up
@@ -119,7 +117,7 @@ class CloudShadowGrid(
                     }
                 }
             }
-            // A light blur, because a cloud's shadow has a soft edge, and the cells are coarse.
+            // A light blur: shadow edges are soft and the cells coarse.
             val soft = FloatArray(size * size)
             for (j in 0 until size) for (i in 0 until size) {
                 var sum = 0f; var n = 0

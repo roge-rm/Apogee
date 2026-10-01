@@ -8,13 +8,8 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 /**
- * Prints what the terrain function really produces.
- *
- * `./gradlew :core:terrainSurvey`
- *
- * Settings like sea fraction and sharpness only mean something as the world they make, and a
- * histogram answers "is this a planet or a bath" faster than any amount of staring at the
- * constants.
+ * Prints what the terrain function really makes: `./gradlew :core:terrainSurvey`. A histogram says
+ * more about settings like sea fraction and sharpness than the constants do.
  */
 fun main() {
     val field = TerrainField(bodyRadius = 600_000.0, homeDirection = Vec3(1.0, 0.0, 0.0))
@@ -22,9 +17,7 @@ fun main() {
     surveyHomeRelief(field, radius, Vec3(1.0, 0.0, 0.0))
     surveyMeshError(field, radius, Vec3(1.0, 0.0, 0.0))
 
-    // Fibonacci sphere: an even spread without bunching at the poles. A naive latitude/longitude
-    // grid bunches there, and that would skew every number below toward whatever the poles happen
-    // to look like.
+    // Fibonacci sphere: an even spread that doesn't bunch at the poles like a lat/long grid.
     val samples = 40_000
     val golden = PI * (3.0 - kotlin.math.sqrt(5.0))
     val elevations = DoubleArray(samples)
@@ -89,10 +82,7 @@ fun main() {
     surveyCost(field)
 }
 
-/**
- * What one sample of the height field costs, because every plan to make the terrain richer is a
- * plan to make this number bigger, and the collider and the mesh builder both pay it.
- */
+/** What one sample of the height field costs. The collider and the mesh builder both pay it. */
 fun surveyCost(field: TerrainField) {
     val directions = Array(20_000) { i ->
         Vec3(cos(i * 0.37), sin(i * 0.11), cos(i * 0.73)).normalizeInPlace()
@@ -123,10 +113,7 @@ fun surveyCost(field: TerrainField) {
     if (sink == 42.0) println()
 }
 
-/**
- * Relief near the launch complex, which is what the eye really judges altitude and drift against. A
- * planet can have six-kilometre peaks and still look like a flat green sheet from the pad.
- */
+/** Relief near the launch complex, which is what the eye judges height and drift against. */
 fun surveyHomeRelief(field: TerrainField, radius: Double, pad: Vec3) {
     val east = (if (kotlin.math.abs(pad.y) < 0.9) Vec3.unitY() else Vec3.unitX())
         .cross(pad).normalizeInPlace()
@@ -161,13 +148,8 @@ fun surveyHomeRelief(field: TerrainField, radius: Double, pad: Vec3) {
 }
 
 /**
- * How far the *drawn* ground sits from the ground the collider uses.
- *
- * The renderer samples the height field on a grid and draws flat triangles between the samples, and
- * the collider works the field out exactly. Wherever the grid is too coarse for a feature, those
- * two disagree, and a craft rests on the collider's surface while the player looks at the
- * renderer's. So the disagreement shows up as a craft floating above, or sunk into, the ground it's
- * standing on.
+ * How far the drawn ground sits from the collider's. The mesh is a grid of flat triangles and the
+ * collider is exact, so any gap shows as a craft floating above or sunk into the ground.
  */
 fun surveyMeshError(field: TerrainField, radius: Double, pad: Vec3) {
     val up = pad.normalized()

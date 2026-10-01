@@ -10,14 +10,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * Welding two craft into one, which is how a base gets built: land the modules, push them together,
- * and tie them.
- *
- * What matters throughout is that nothing *moves* when it's joined. A player has already put these
- * things where they are, and a merge that shifts them by even a metre would be worse than no merge
- * at all.
- */
+/** Welding two craft into one, how a base gets built. Nothing may move when it's joined. */
 class JoinTest {
 
     private val catalog = StockParts.catalog
@@ -52,11 +45,7 @@ class JoinTest {
         assertEquals("and only one craft should remain", 1, world.vessels.size)
     }
 
-    /**
-     * The one that would catch a bad transform. Merging expresses one craft's parts again in the
-     * other's design space, and getting that wrong moves things without anyone noticing until a
-     * base looks scrambled.
-     */
+    /** Merging moves one craft's parts into the other's design space; a bad transform shows here. */
     @Test
     fun `welding doesn't move anything`() {
         val world = world()
@@ -89,9 +78,7 @@ class JoinTest {
         val merged = world.joinToNeighbour(base)!!
         val attractor = world.attractorFor(merged)
 
-        // Measured in the body-fixed frame. Inertially a craft parked on the pad covers a hundred
-        // and seventy-five metres a second, because the planet turns underneath it, so comparing
-        // inertial positions would call a perfectly still base a runaway.
+        // Body-fixed: inertially a parked craft moves 175 m/s as the planet turns.
         val start = attractor.toBodyFixed(
             merged.body.position, attractor.rotationAt(world.time), Vec3(),
         )
@@ -116,9 +103,7 @@ class JoinTest {
         assertEquals(1, world.vessels.size)
     }
 
-    /**
-     * Welding to something you're flying past would be a grappling hook, not a way to build.
-     */
+    /** No welding to something you're flying past. */
     @Test
     fun `a craft moving quickly past another doesn't weld to it`() {
         val world = world()

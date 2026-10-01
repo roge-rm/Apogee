@@ -7,11 +7,11 @@ import kotlin.math.acos
 import kotlin.math.sqrt
 import com.rm.apogee.core.math.Math
 
-/** One docking part on one craft: which one, where its face is and which way it faces, this tick. */
+/** One docking part on one craft, with its face position and direction this tick. */
 class PortRef(val vessel: Vessel, val index: Int, val port: DockingPort) {
     /** The centre of the face, in world space. */
     val face = Vec3()
-    /** The way the face faces, in world space, unit length. */
+    /** The direction the face points, in world space, unit length. */
     val axis = Vec3()
     /** The face's offset from the craft's centre of mass, in world space. */
     val offset = Vec3()
@@ -28,17 +28,11 @@ class PortRef(val vessel: Vessel, val index: Int, val port: DockingPort) {
 }
 
 /**
- * Two docking parts drawing each other in: captured, and on the way to latching or letting go.
- *
- * Soft capture: brought within [DockingPort.captureRange], facing each other within
- * [DockingPort.captureAngle] and coming together slower than [DockingPort.captureSpeed], a pair
- * takes hold. From then on a spring pulls the faces together and a torque lines them up. It's
- * critically damped on the two craft's own masses and inertias, so a light probe and a heavy
- * station come together without bouncing, and it's capped at the part's [DockingPort.pull] and
- * [DockingPort.turn], so the magnets can steady a drift but can't drag a craft under power. Once
- * the faces have sat together long enough it asks to latch. If they're pulled apart, it lets go.
- *
- * It's pure. It pushes the two bodies and reports back, and joining the craft is the world's job.
+ * Two docking parts drawing each other in. A pair captures within [DockingPort.captureRange],
+ * [DockingPort.captureAngle] and [DockingPort.captureSpeed]. A critically damped spring then pulls
+ * the faces together and a torque lines them up, capped at [DockingPort.pull] and
+ * [DockingPort.turn] so they steady a drift but can't drag a craft under power. Faces that sit
+ * together long enough latch; pulled apart, they let go. Joining the craft is the world's job.
  */
 class Docking {
 
@@ -65,8 +59,8 @@ class Docking {
     private val scratch = Vec3()
 
     /**
-     * Steps every capture and looks for new ones among [vessels] over [dt]. [ignore] names pairs of
-     * craft that mustn't capture now, because they just undocked or are already joined.
+     * Steps every capture and looks for new ones among [vessels]. [ignore] names craft pairs that
+     * mustn't capture now, because they just undocked or are already joined.
      */
     fun step(vessels: Collection<Vessel>, dt: Double, ignore: (Long, Long) -> Boolean, occupied: (Vessel, Int) -> Boolean = { _, _ -> false }) {
         latching.clear()
@@ -80,7 +74,7 @@ class Docking {
             val b = find(c.b.vessel, c.b.index)
             if (a == null || b == null || ignore(a.vessel.id.raw, b.vessel.id.raw)) { iterator.remove(); continue }
             val m = measure(a, b)
-            // Yanked apart, or twisted right off, so let go.
+            // Pulled apart or twisted off, so let go.
             if (m.distance > a.port.captureRange * RELEASE_RANGE || (a.port.rigid && m.angle > a.port.captureAngle * RELEASE_ANGLE)) {
                 iterator.remove(); continue
             }
@@ -103,9 +97,8 @@ class Docking {
             if (a.face.distanceTo(b.face) > maxOf(a.port.captureRange, b.port.captureRange)) continue
             val m = measure(a, b)
             val range = minOf(a.port.captureRange, b.port.captureRange)
-            // Close in, the guides allow more, up to twice the angle with the faces touching. That
-            // way two rings that met a little crooked and came to rest against each other still
-            // draw in instead of just sitting there.
+            // Close in, the guides allow up to twice the angle with faces touching, so rings that
+            // met a little crooked still draw in.
             val angle = minOf(a.port.captureAngle, b.port.captureAngle) * (2.0 - minOf(1.0, m.distance / range))
             val speed = minOf(a.port.captureSpeed, b.port.captureSpeed)
             if (m.distance > range || m.angle > angle || m.speed > speed) continue
@@ -117,7 +110,7 @@ class Docking {
         }
     }
 
-    /** Forgets any capture involving [vessel], because it has been joined, split or removed. */
+    /** Forgets any capture involving [vessel], because it was joined, split or removed. */
     fun forget(vessel: Long) {
         captures.values.removeAll { it.a.vessel.id.raw == vessel || it.b.vessel.id.raw == vessel }
     }
@@ -151,9 +144,9 @@ class Docking {
 
     class Measure {
         var distance = 0.0
-        /** Degrees off facing each other, with 0 meaning face to face. */
+        /** Degrees off facing each other. 0 is face to face. */
         var angle = 0.0
-        /** How fast the faces are moving apart or together, in m/s. */
+        /** How fast the faces are closing or parting, in m/s. */
         var speed = 0.0
     }
 
@@ -172,18 +165,16 @@ class Docking {
 
     /**
      * The magnets: a critically damped spring drawing B's face to A's, and for a rigid pair a
-     * second one turning B to face A squarely.
+     * second one turning B to face A.
      */
     private fun pull(a: PortRef, b: PortRef, m: Measure, dt: Double) {
         val bodyA = a.vessel.body; val bodyB = b.vessel.body
-        // From the inverse masses, so a founded base, which can't move and is infinitely heavy,
-        // leaves the other craft's own mass to be drawn in.
+        // From inverse masses, so a founded base (infinitely heavy) leaves the other craft's mass.
         val inverseMass = bodyA.inverseMass + bodyB.inverseMass
         if (inverseMass <= 0.0) return
         val reduced = 1.0 / inverseMass
-        // Stiff enough to reach full pull by half the capture range (when it was soft, a cart's
-        // rolling resistance held a hitch a quarter of a metre short), and critically damped on the
-        // two craft's masses.
+        // Stiff enough to reach full pull by half the capture range, or rolling resistance holds a
+        // hitch short. Critically damped on the two masses.
         val most = minOf(a.port.pull, b.port.pull)
         val k = maxOf(reduced * PULL_RATE * PULL_RATE, most / (0.5 * minOf(a.port.captureRange, b.port.captureRange)))
         val c = 2.0 * sqrt(k * reduced)
@@ -206,12 +197,8 @@ class Docking {
         val angle = Math.toRadians(m.angle)
         val spin = (bodyB.angularVelocity dot about) - (bodyA.angularVelocity dot about)
         val limit = minOf(a.port.turn, b.port.turn)
-        // Stiff enough to reach the full turn by half the capture angle, the same as the pull by
-        // half the capture range. Set by the craft's own inertia alone it squared anything up in
-        // space, where nothing turns it back, but a submarine hanging off a sea floor base was held
-        // twenty-three degrees off by its keel and the water, with the magnets giving a tenth of
-        // what they could, and never latched. No stiffer than a tick can follow, though, or a light
-        // craft would be flung round past square and back.
+        // Stiff enough to reach full turn by half the capture angle, so a keel in water can't hold
+        // a sub off square. No stiffer than a tick can follow, or a light craft overshoots.
         val half = 0.5 * Math.toRadians(minOf(a.port.captureAngle, b.port.captureAngle))
         val steadiest = inertia * (STEADY_TURN / dt) * (STEADY_TURN / dt)
         val stiff = minOf(maxOf(inertia * TURN_RATE * TURN_RATE, limit / half), steadiest)
@@ -222,26 +209,22 @@ class Docking {
     }
 
     companion object {
-        /**
-         * Faces within this many metres, this many degrees and this slow in m/s are ready to latch.
-         */
+        /** Faces within these metres, degrees and m/s are ready to latch. */
         /** The default for [DockingPort.latchRange]. */
         const val LATCH_DISTANCE = 0.06
         /** The default for [DockingPort.latchAngle]. */
         const val LATCH_ANGLE = 2.5
         const val LATCH_SPEED = 0.25
 
-        /** How far past capture range, and capture angle, before a capture lets go. */
+        /** How far past capture range and capture angle a capture lets go. */
         const val RELEASE_RANGE = 1.6
         const val RELEASE_ANGLE = 2.5
 
-        /**
-         * The magnets' natural rates, in rad/s. That's about three seconds to draw in and line up.
-         */
+        /** The magnets' natural rates, in rad/s. About three seconds to draw in and line up. */
         const val PULL_RATE = 1.5
         const val TURN_RATE = 1.5
 
-        /** The most the turn can swing a craft in one tick, in radians of its natural rate, and still be followed. */
+        /** The most the turn can swing a craft in one tick, in radians at its natural rate. */
         const val STEADY_TURN = 0.5
 
         fun pairKey(va: Long, ia: Int, vb: Long, ib: Int): Long {

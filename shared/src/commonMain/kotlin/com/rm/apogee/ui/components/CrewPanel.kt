@@ -42,10 +42,7 @@ class CrewActions(
     val onClimbOut: () -> Unit = {},
 )
 
-/**
- * Who's aboard, each by name and seat, with MOVE and EVA for the player's own crew. This is what
- * the crew chip opens.
- */
+/** Who's aboard and where, with MOVE and EVA for your own crew. The crew chip opens it. */
 @Composable
 internal fun CrewList(hud: HudState, actions: CrewActions, modifier: Modifier = Modifier) {
     val scroll = rememberScrollState()
@@ -69,7 +66,7 @@ internal fun CrewList(hud: HudState, actions: CrewActions, modifier: Modifier = 
                 if (seat.mine) {
                     if (seat.canMove) SmallAction("MOVE") { actions.onMove(seat.id) }
                     Spacer(Modifier.width(6.dp))
-                    // Too deep under the sea for a suit, it says so instead of doing nothing.
+                    // Says why EVA is blocked, e.g. too deep for a suit.
                     val blocked = hud.power?.evaBlocked.orEmpty()
                     if (blocked.isNotEmpty()) {
                         Text(blocked.uppercase(), style = MaterialTheme.typography.labelSmall, color = Color.White.alpha(ApogeeAlpha.SUBTITLE))

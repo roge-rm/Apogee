@@ -8,13 +8,7 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * One world that people come back to.
- *
- * The mechanics of building a base (landing modules, welding them) could be reached long before the
- * *game* could, because every launch built a fresh universe and threw the last one away. These are
- * about the world outliving the flight.
- */
+/** One world that people come back to, outliving each flight. */
 class PersistentWorldTest {
 
     private val catalog = StockParts.catalog
@@ -44,10 +38,7 @@ class PersistentWorldTest {
         assertTrue("it should come back where it was, moved $moved m", moved < 0.01)
     }
 
-    /**
-     * Launching into a world you already have a craft in. This is the whole base-building loop:
-     * land a module, launch the next, and weld them.
-     */
+    /** Launching into a world you already have a craft in: land a module, launch the next, weld. */
     @Test
     fun `launching a second craft leaves the first where it was`() {
         val world = World.default(catalog)
@@ -66,10 +57,7 @@ class PersistentWorldTest {
         assertTrue("the first craft should not have been disturbed ($drift m)", drift < 0.01)
     }
 
-    /**
-     * A new craft mustn't be dropped into one that's already standing there. Now that craft are
-     * solid, that's an explosion instead of a curiosity.
-     */
+    /** A new craft mustn't spawn inside one already standing there, or they explode. */
     @Test
     fun `craft launched one after another get their own pads`() {
         val world = World.default(catalog)

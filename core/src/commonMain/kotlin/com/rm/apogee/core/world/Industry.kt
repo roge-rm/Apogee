@@ -30,8 +30,8 @@ enum class DrillState {
 
 /**
  * Drills and converters, a step at a time: what a craft digs and refines in [step]'s time, and the
- * charge it takes. Both the tick (for craft being flown) and the power ledger (for parked craft and
- * bases nobody is near) share this, so a base mines and refines whether anyone is watching or not.
+ * charge it takes. Shared by the tick (flown craft) and the power ledger (parked craft and bases),
+ * so a base works whether anyone is watching or not.
  */
 class Industry {
 
@@ -41,9 +41,9 @@ class Industry {
     private val fixed = Vec3()
 
     /**
-     * One step of [dt] for [vessel] around [attractor] at [time]. It digs if it's [still] and has
-     * [charge], refines if it has charge, puts the charge that took per second in
-     * [Vessel.industryDraw], and returns it.
+     * One step of [dt] for [vessel] round [attractor] at [time]. Digs if [still] and has [charge],
+     * refines if it has charge, and puts the charge per second in [Vessel.industryDraw] and returns
+     * it.
      */
     fun step(vessel: Vessel, attractor: CelestialBody, time: Double, dt: Double, still: Boolean, charge: Boolean): Double {
         var draw = 0.0
@@ -54,7 +54,7 @@ class Industry {
                 if (vessel.isBroken(i) || !vessel.running(i, vessel.control.drilling)) continue
                 val here = dig(vessel, i, drill, attractor, time, dt, still, charge)
                 if (here == DrillState.DIGGING) draw += drill.draw
-                // The best of what its drills are doing is what the pilot hears about.
+                // The pilot hears about the best of what its drills are doing.
                 if (state == DrillState.OFF || here.ordinal < state.ordinal) state = here
             }
         }
@@ -83,7 +83,7 @@ class Industry {
         val gap = fixed.length - attractor.surfaceRadiusInBodyFrame(fixed.normalized())
         if (gap > drill.reach) return DrillState.NO_GROUND
         if (!charge) return DrillState.NO_POWER
-        // What's down there, only worked out again once it has moved.
+                // What's down there, read again only once it has moved.
         val site = vessel.drillSite
         if (site.x.isNaN() || site.distanceTo(fixed) > SITE_MOVE) {
             site.setTo(fixed)

@@ -9,22 +9,14 @@ import kotlin.math.sqrt
 /**
  * What each joint of a craft is carrying, and what gives.
  *
- * A craft gets pushed at its parts (thrust at the engines, drag and lift where the air meets it)
- * but moves as one. Every part has to be dragged along at the craft's acceleration (and swung round
- * with its spin), and whatever force that takes goes through the joints in between. So the load on
- * the joint above a part is everything pushing on the parts hanging from it, minus what those
- * parts' own mass takes to keep up. An engine at full thrust shoves the whole stack, and the joint
- * above it carries all of that except its own share. A fin at an angle of attack bends the tank
- * it's bolted to.
+ * The load on the joint above a part is everything pushing on the parts hanging from it, minus what
+ * their own mass takes to keep up with the craft's acceleration and spin. Gravity loads nothing,
+ * and ground and craft contact is [World.impact]'s job. Load is force plus bending moment over the
+ * joint's width, against its strength. Past [FATIGUE_START] the joint wears, faster and faster,
+ * and past [SNAP] it lets go at once. A wing or fin is judged by its own [AeroSurface.loadLimit] in
+ * the drag pass and only reported here. A chute tears by its own rule.
  *
- * Gravity pulls every part the same and so loads nothing. Neither do the ground and other craft,
- * which are [World.impact]'s job. What a joint carries is weighed against its strength (force, plus
- * the bending moment over its width). Past [FATIGUE_START] of it the joint fatigues, faster and
- * faster, until it lets go, and past [SNAP] it lets go straight away. A wing or fin is judged by
- * its own [AeroSurface.loadLimit] in the drag pass. Its share of that is reported here as its
- * joint's load, but it doesn't fatigue. A chute tears by its own rule.
- *
- * It reuses scratch space, like [Forces], because this runs for every craft every tick.
+ * It reuses scratch space, like [Forces], since it runs for every craft every tick.
  */
 class Stress {
 
@@ -117,9 +109,8 @@ class Stress {
                     if (wear >= vessel.health[i]) snap(i) else vessel.damage(i, wear)
                 }
             } else if (child.module<AeroSurface>() != null) {
-                // A wing or fin gets judged by its own limit in the drag pass, but how close it is
-                // still shows and still warns. It's read once, so a tick with no air leaves it at
-                // nothing.
+                // Judged in the drag pass, but shown and warned on here. Cleared on read, so a
+                // tick with no air leaves it at nothing.
                 val ratio = vessel.surfaceLoad[i]
                 vessel.surfaceLoad[i] = 0f
                 vessel.jointLoad[i] = ratio
@@ -167,7 +158,7 @@ class Stress {
         }
         val out = IntArray(n)
         var k = n
-        // Breadth first from the roots, filled from the back, so parents end up after all their
+        // Breadth first from the roots, filled from the back, so parents end up after their
         // descendants.
         val queue = ArrayDeque(roots)
         while (queue.isNotEmpty()) {
@@ -187,10 +178,7 @@ class Stress {
         /** Where it lets go straight away. */
         const val SNAP = 1.5
 
-        /**
-         * Health worn from a joint per second at its limit. Five seconds there breaks it, at 0.9 of
-         * it about twenty, and at 1.3 under a second.
-         */
+        /** Health worn from a joint per second at its limit, so five seconds there breaks it. */
         const val FATIGUE_RATE = 0.2
     }
 }

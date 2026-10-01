@@ -9,16 +9,17 @@ import kotlin.math.tan
 import com.rm.apogee.core.math.Math
 
 /**
- * The approach to the Cape's runway: how far there is to go, how far off the centreline you are,
- * and how far above or below a [GLIDE_DEGREES] glide slope, for whichever end you're heading
- * toward. It's what the landing chip shows a pilot, and what the approach lights beside each end
- * of the runway are lit by.
+ * The approach to the Cape's runway, for whichever end you're heading toward: distance to go,
+ * offset from the centreline, and height off a [GLIDE_DEGREES] glide slope. The landing chip shows
+ * it and the approach lights are lit by it.
  */
 object Approach {
 
     /** What the cue shows. */
     class Cue {
-        /** Metres along the runway's line to its threshold. Negative once past it, over the runway. */
+        /**
+         * Metres along the runway's line to its threshold. Negative once past it, over the runway.
+         */
         var toThreshold = 0.0
         /** Metres off the centreline, to the pilot's right positive. */
         var offCentre = 0.0
@@ -34,7 +35,10 @@ object Approach {
     const val GLIDE_DEGREES = 3.0
     const val AIM = 300.0
 
-    /** How far out it starts, in metres, and the most the heading can be off the runway's line, in degrees. */
+    /**
+     * How far out it starts in metres, and the most the heading can be off the runway's line in
+     * degrees.
+     */
     const val REACH = 20_000.0
     const val MOST_OFF_LINE = 60.0
 
@@ -44,7 +48,7 @@ object Approach {
     /**
      * The cue for a craft at body-fixed [position] (metres from Terra's centre), moving at
      * body-fixed [velocity], [height] metres above the runway, into [out]. False if it isn't
-     * approaching the runway at all: too far, heading away, or off to one side.
+     * approaching: too far, heading away, or off to one side.
      */
     fun cue(position: Vec3, velocity: Vec3, height: Double, radius: Double, out: Cue): Boolean {
         val pad = SolarSystem.capeDirection(0.0, 0.0)
@@ -76,15 +80,14 @@ object Approach {
     }
 
     /**
-     * Whether a light set to show white above [setAt] degrees shows white to something seen [angle]
-     * degrees up from it. Four of them, set at 2.5, 2.83, 3.17 and 3.5, show two white and two red on
-     * the slope.
+     * Whether a light set at [setAt] degrees shows white from [angle] degrees up. Four set at 2.5,
+     * 2.83, 3.17 and 3.5 show two white and two red on the slope.
      */
     fun white(angle: Double, setAt: Double): Boolean = angle > setAt
 
     /**
-     * The four approach lights' settings, in degrees, from the outermost in. They stand to the left
-     * of the runway, so on the slope they read white, white, red, red from left to right.
+     * The four approach lights' settings in degrees, outermost first. They stand left of the
+     * runway, so on the slope they read white, white, red, red from left to right.
      */
     val LIGHTS = doubleArrayOf(2.5, 2.83, 3.17, 3.5)
 }

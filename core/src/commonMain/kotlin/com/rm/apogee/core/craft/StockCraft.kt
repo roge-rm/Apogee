@@ -8,32 +8,21 @@ import com.rm.apogee.core.part.StockParts
 import com.rm.apogee.core.math.Math
 
 /**
- * Reference craft, built in code.
+ * Reference craft, built in code. The tests fly them too, so a physics break shows up as one
+ * failing to make orbit.
  *
- * These exist so the simulation had something real to fly before the builder existed, and so the
- * headless ascent test has a fixed subject. If thrust, drag or staging breaks, it shows up as this
- * craft failing to make orbit, which is a much clearer signal than a number moving in a unit test.
- *
- * Layout rules: +Y is up, the design origin is at the very bottom of the stack, and the tree is
- * rooted at the command pod with everything hanging below it. Rooting at the pod is what makes
- * staging work. Separating the part of the tree below a decoupler throws away the spent stage and
- * leaves the crew flying, not the other way round.
+ * Layout: +Y is up, the origin is the bottom of the stack, and the tree is rooted at the command
+ * pod, so a decoupler drops the part below it and the crew keeps flying.
  */
 object StockCraft {
 
-    /**
-     * How far a ladder stands off the axis of a 1.25 m tank, in metres, so its rails sit on the
-     * skin.
-     */
+    /** How far a ladder stands off a 1.25 m tank's axis, in metres, to sit on the skin. */
     private const val LADDER_RADIUS = 0.675
 
 
     /**
-     * The Sounder: what a career's starting kit can build and nothing more. It's a pod on a parting
-     * ring, two small tanks and an Ember, four fins and a chute. A career isn't given it, but it's
-     * the first thing you'd build, and the balance is worked out from it. Go up, let the spent
-     * stage go, and come down under the canopy, and you get the Hop and Staging feats in one
-     * flight.
+     * The Sounder: only the career starting kit, and the craft the early balance is set from. One
+     * flight earns Hop and Staging.
      */
     fun sounder(catalog: PartCatalog = StockParts.catalog): CraftDesign {
         val parts = ArrayList<PlacedPart>()
@@ -61,12 +50,7 @@ object StockCraft {
         )
     }
 
-    /**
-     * A two-stage launcher sized to reach a ~100 km orbit with some margin.
-     *
-     * It has roughly 3.5 km/s of delta-v against the ~3.4 km/s the homeworld needs, with a liftoff
-     * thrust-to-weight of about 1.4.
-     */
+    /** A two-stage launcher for a ~100 km orbit: about 3.5 km/s against the 3.4 needed, TWR 1.4. */
     fun starterRocket(catalog: PartCatalog = StockParts.catalog): CraftDesign {
         val parts = ArrayList<PlacedPart>()
 
@@ -82,29 +66,23 @@ object StockCraft {
             return parts.size - 1
         }
 
-        // Built top down so the pod can be the root, but placed in the bottom-up coordinates the
-        // stack actually sits in.
+        // Built top down so the pod is the root, in bottom-up coordinates.
         val pod = add("pod-halo", 15.6, -1)
         add("chute-canopy", 16.4, pod)
-        // A shield under the pod and a ring under that, so the pod comes home on its own, shield
-        // first.
+        // A shield and ring under the pod, so it comes home alone, shield first.
         val shield = add("shield-halo", 14.9, pod)
         val podRing = add("decoupler-ring", 14.7, shield)
-        // The long tank on the upper stage. From the coast, at sea level, the short one reached
-        // orbit with almost nothing left.
+        // The long tank upstairs; the short one barely reaches orbit from the coast.
         val upperTank = add("tank-cask4", 12.6, podRing)
         val upperEngine = add("engine-vesper", 10.1, upperTank)
         val decoupler = add("decoupler-ring", 9.5, upperEngine)
         val lowerTankTop = add("tank-cask4", 7.4, decoupler)
         val lowerTankMid = add("tank-cask4", 3.4, lowerTankTop)
         val lowerTankBottom = add("tank-cask4", -0.6, lowerTankMid)
-        // Below the tank, not inside it. The Ember is 1.4m tall and the bottom tank ends at -2.6,
-        // so its centre belongs at -3.3. At -2.0 all but the last ten centimetres of the engine was
-        // buried in the tank above it, which is what made the bottom of the stack look wrong.
+        // The Ember is 1.4 m tall and the tank ends at -2.6, so its centre is at -3.3.
         val mainEngine = add("engine-ember", -3.3, lowerTankBottom)
 
-        // Fins low on the stack, well behind the centre of mass, which is what makes them stabilise
-        // the rocket instead of the opposite.
+        // Fins low, well behind the centre of mass, so they stabilise it.
         val finRadius = 0.975
         add("fin-vane", -0.6, lowerTankBottom, x = finRadius)
         add("fin-vane", -0.6, lowerTankBottom, x = -finRadius)
@@ -116,12 +94,11 @@ object StockCraft {
         val stages = listOf(
             // Light the lifter.
             Stage(listOf(mainEngine)),
-            // Separate the spent first stage and light the vacuum engine, both in one stage, so
-            // there's no coasting gap.
+            // Drop the first stage and light the vacuum engine together, with no coast.
             Stage(listOf(decoupler, upperEngine)),
-            // Let go of the upper stage, and the pod goes home behind its shield.
+            // Drop the upper stage; the pod goes home behind its shield.
             Stage(listOf(podRing)),
-            // The chute, for the last part of the way down.
+            // The chute.
             Stage(listOf(chute)),
         )
 
@@ -136,9 +113,8 @@ object StockCraft {
     }
 
     /**
-     * The Starter I's lifter with nobody aboard: a Mote Probe Core on a Vesper upper stage, two Sun
-     * Wings and a Whip Antenna. It can only be flown while it can hear home. The stages are the
-     * lifter, then the first stage let go and the Vesper lit, then the wings out.
+     * The Starter I's lifter uncrewed: a Mote Probe Core on a Vesper stage with two Sun Wings and a
+     * Whip Antenna. Flyable only in contact with home.
      */
     fun moteProbe(catalog: PartCatalog = StockParts.catalog): CraftDesign {
         val parts = ArrayList<PlacedPart>()
@@ -159,7 +135,7 @@ object StockCraft {
         add("fin-vane", -0.6, lowerTankBottom, x = -finRadius)
         add("fin-vane", -0.6, lowerTankBottom, z = finRadius)
         add("fin-vane", -0.6, lowerTankBottom, z = -finRadius)
-        // Wings high on the upper tank, hanging down it while folded.
+        // Wings high on the tank, hanging down it while folded.
         val wings = listOf(
             add("wing-kite", 14.2, upperTank, x = 0.725),
             add("wing-kite", 14.2, upperTank, x = -0.725),
@@ -180,10 +156,9 @@ object StockCraft {
     }
 
     /**
-     * A mining lander that doesn't need a base. It's the Stilt Lander's engine, tank and legs under
-     * an Ore Bin, a Water Tank, a Small Converter and the pod, with an Auger Drill low on the tank,
-     * four Kite Sun Wings and a battery pack. Set it down on ice or rock, dig, refine, and fly on.
-     * The wings come out with DEPLOY, not by staging, because they tear off in air.
+     * A mining lander that needs no base: the Stilt Lander with an Ore Bin, Water Tank, Small
+     * Converter, Auger Drill, four Kite Sun Wings and a battery. Land, dig, refine, fly on. The
+     * wings use DEPLOY rather than staging, since they tear off in air.
      */
     fun prospector(catalog: PartCatalog = StockParts.catalog): CraftDesign {
         val parts = ArrayList<PlacedPart>()
@@ -200,11 +175,11 @@ object StockCraft {
         val ore = add("bin-ore", 3.75, water)
         val tank = add("tank-cask2", 2.0, ore)
         val engine = add("engine-vesper", 0.5, tank)
-        // Legs like the Stilt Lander's, where they reach below the bell.
+        // Legs like the Stilt Lander's, reaching below the bell.
         for ((x, z) in listOf(1.0 to 0.0, -1.0 to 0.0, 0.0 to 1.0, 0.0 to -1.0)) add("leg-stilt", 0.2, tank, x = x, z = z)
         val ladderOut = LADDER_RADIUS / kotlin.math.sqrt(2.0)
         add("ladder-rung", 1.5, tank, x = -ladderOut, z = ladderOut)
-        // The drill between two legs, low down, with its bit reaching the ground.
+        // The drill low between two legs, its bit reaching the ground.
         val diagonal = 0.775 / kotlin.math.sqrt(2.0)
         add("drill-auger", 1.3, tank, x = diagonal, z = diagonal)
         // Wings high on the water tank, hanging down the stack while folded.
@@ -230,7 +205,7 @@ object StockCraft {
         val upperTank = probe.parts.indexOfFirst { it.partId == "tank-cask4" }
         val parts = ArrayList(probe.parts)
         parts.add(PlacedPart("scanner-survey", Vec3(0.0, 13.8, -0.75), Quat.identity(), parentIndex = upperTank))
-        // So it gets through the night side of a low orbit on what it stored during the day.
+        // To get through the night side of a low orbit.
         val pack = (0.625 + 0.125) / kotlin.math.sqrt(2.0)
         parts.add(PlacedPart("battery-hoard", Vec3(pack, 12.0, pack), Quat.identity(), parentIndex = upperTank))
         faceOutward(parts, catalog)
@@ -238,12 +213,8 @@ object StockCraft {
     }
 
     /**
-     * A lander: engine, tank, pod, chute and four sprung legs.
-     *
-     * This is deliberately not the starter rocket with legs bolted on. Arriving is a different
-     * problem from leaving, and this is the craft the descent test flies. It has a wide footprint,
-     * gear that reaches below the engine bell, and enough propellant for a retro burn but not for
-     * orbit.
+     * A lander: engine, tank, pod, chute and four sprung legs. The descent test flies it. Wide
+     * footprint, gear below the bell, fuel for a retro burn but not orbit.
      */
     fun lander(catalog: PartCatalog = StockParts.catalog): CraftDesign {
         val parts = ArrayList<PlacedPart>()
@@ -260,36 +231,28 @@ object StockCraft {
             return parts.size - 1
         }
 
-        // The bottom of the stack is y = 0: engine 0.0-1.0, tank 1.0-3.0, pod 3.0-4.2, chute on
-        // top.
+        // Bottom up from y = 0: engine 0-1, tank 1-3, pod 3-4.2, chute on top.
         val pod = add("pod-halo", 3.6, -1)
         val chute = add("chute-canopy", 4.4, pod)
         val tank = add("tank-cask2", 2.0, pod)
         val engine = add("engine-vesper", 0.5, tank)
 
-        // Feet at y = -0.6. That's further below the engine bell at 0.0 than the suspension's 0.4 m
-        // of travel, so the leg can compress all the way and the bell still clears the ground by
-        // 0.2 m. Gear that reaches less far than it compresses is just decoration. The first firm
-        // landing bottoms the springs out and puts the engine in the dirt anyway, which is exactly
-        // what the first version of this craft did.
-        //
-        // A metre out from the axis each way gives a two-metre footprint. The footprint is what
-        // stops a lander tipping over. The legs' strength only decides whether it survives the
-        // arrival.
+        // Feet at y = -0.6, more than the 0.4 m of travel below the bell, so it still clears by
+        // 0.2 m fully compressed. A metre out each way gives a two-metre footprint against tipping.
         val legReach = 1.0
         val legHeight = 0.2
         add("leg-stilt", legHeight, tank, x = legReach)
         add("leg-stilt", legHeight, tank, x = -legReach)
         add("leg-stilt", legHeight, tank, z = legReach)
         add("leg-stilt", legHeight, tank, z = -legReach)
-        // Between two legs, from near the ground up to the pod, as the way back in.
+        // Between two legs, from near the ground up to the pod.
         val ladderOut = LADDER_RADIUS / kotlin.math.sqrt(2.0)
         add("ladder-rung", 1.5, tank, x = -ladderOut, z = ladderOut)
 
         val stages = listOf(
             Stage(listOf(engine)),
             Stage(listOf(chute)),
-            // Gear last, because it's the last thing you want out.
+            // Gear last.
             Stage(parts.indices.filter { catalog[parts[it].partId]?.id == "leg-stilt" }),
         )
 
@@ -304,13 +267,8 @@ object StockCraft {
     }
 
     /**
-     * To Luna and down onto it. It's a Forge first stage on two Broad Cask-8s, an Ember upper stage
-     * on a Broad Cask-4 that finishes the climb to orbit and sends it on its way, and the Stilt
-     * Lander on top under a Shroud, to brake into orbit around Luna and set down there. It's a
-     * one-way trip.
-     *
-     * The stages are: the Forge, then the first stage let go and the Ember lit, then the Shroud
-     * opened, then the lander let go and lit, then its chute, then its legs.
+     * One way to Luna: a Forge on two Broad Cask-8s, an Ember stage on a Broad Cask-4 for orbit and
+     * the transfer, and the Stilt Lander under a Shroud to brake and land.
      */
     fun moonshot(catalog: PartCatalog = StockParts.catalog): CraftDesign {
         val lander = lander(catalog)
@@ -319,16 +277,13 @@ object StockCraft {
             parts.add(PlacedPart(partId, Vec3(x, y, z), rotation, parentIndex = parent))
             return parts.size - 1
         }
-        // The lander as it is, lifted onto the stack. Its parts go first so its pod is the root,
-        // and everything below hangs from its engine.
+        // The lander lifted onto the stack. Its parts go first so its pod is the root.
         val lift = 25.3
         for (p in lander.parts) parts.add(p.copy(position = Vec3(p.position.x, p.position.y + lift, p.position.z)))
         val landerEngine = lander.parts.indexOfFirst { it.partId == "engine-vesper" }
         val landerChute = lander.parts.indexOfFirst { it.partId == "chute-canopy" }
         val landerLegs = lander.parts.indices.filter { lander.parts[it].partId == "leg-stilt" }
-        // Sun Panels around the lander's tank between its legs, and a Battery Pack under one. It's
-        // seven hours out to Luna, and without them its pod and assist would run it flat long
-        // before it got there.
+        // Sun Panels and a Battery Pack, or it'd go flat in the seven hours to Luna.
         val landerTank = lander.parts.indexOfFirst { it.partId == "tank-cask2" }
         val diagonal = 0.655 / kotlin.math.sqrt(2.0)
         for ((x, z) in listOf(1.0 to 1.0, -1.0 to 1.0, -1.0 to -1.0, 1.0 to -1.0)) {
@@ -339,13 +294,12 @@ object StockCraft {
         faceOutward(parts, catalog)
         val release = add("decoupler-ring", 25.2, landerEngine)
         val taper = add("adapter-taper", 24.5, release)
-        // The Shroud's ring, with its shell standing around everything above it.
+        // The Shroud's ring; its shell stands round everything above.
         val shroud = add("fairing-base", 23.8, taper)
         val upperTank = add("tank-broad4", 21.7, shroud)
         val upperEngine = add("engine-ember", 19.0, upperTank)
-        // The first stage hangs from the upper tank, not from the engine between them. The whole
-        // climb's thrust goes up through this joint, and an engine's narrow mount tore off under
-        // it.
+        // Hung from the upper tank, not the engine: the whole climb's thrust goes through this
+        // joint, and an engine mount tears off.
         val staging = add("decoupler-broad", 18.15, upperTank)
         val tankA = add("tank-broad8", 14.0, staging)
         val tankB = add("tank-broad8", 6.0, tankA)
@@ -367,21 +321,15 @@ object StockCraft {
     }
 
     /**
-     * A lander with thruster blocks, the craft a base gets built from.
-     *
-     * This is deliberately not the plain [lander] with thrusters bolted on. That craft is what the
-     * landing tests measure against, and adding a couple of hundred kilograms to it moved every
-     * drop they check. That's a fair warning that gear margins are thin, and no reason to make the
-     * test craft and the working vehicle the same thing.
+     * A lander with thruster blocks, for building bases. Kept apart from [lander], which the landing
+     * tests are tuned to.
      */
     fun moduleTug(catalog: PartCatalog = StockParts.catalog): CraftDesign {
         val base = lander(catalog)
         val parts = ArrayList(base.parts)
         val tank = parts.indexOfFirst { it.partId == "tank-cask2" }
 
-        // Around the tank, opposite each other. Where they sit doesn't decide the torque (see
-        // Forces.applyRcs), but it does decide where they're in the way, and out here they clear
-        // the legs.
+        // Placement doesn't set the torque (see Forces.applyRcs); out here they clear the legs.
         for ((x, z) in listOf(0.78 to 0.0, -0.78 to 0.0, 0.0 to 0.78, 0.0 to -0.78)) {
             parts.add(
                 PlacedPart(
@@ -404,13 +352,8 @@ object StockCraft {
     }
 
     /**
-     * A rover from the first part of the land kit: a small chassis, an open seat and four tread
-     * wheels, with the front pair steering. It's low and wide. It used to be a pod standing on four
-     * wheels, and it rolled over in any hard turn and on the first rock on Luna.
-     *
-     * It has no engine and no stages. Driving is the throttle working through the wheels instead of
-     * through a bell, which is the whole point being tested: a vehicle class is a different bag of
-     * modules, not a different simulation.
+     * A rover: small chassis, open seat and four tread wheels, front pair steering. Low and wide so
+     * it doesn't roll. No engine or stages; the throttle drives the wheels.
      */
     fun rover(catalog: PartCatalog = StockParts.catalog): CraftDesign {
         val a = Assembly(catalog, "Trundler", CraftOrientation.HORIZONTAL)
@@ -421,12 +364,8 @@ object StockCraft {
     }
 
     /**
-     * An aeroplane: a fuselage with wings, an air-breathing engine, and wheels to take off from.
-     *
-     * It's built [CraftOrientation.HORIZONTAL], so it launches lying on the ground facing east
-     * instead of standing on its tail. +Y is still the nose, because a plane is a stack flown on
-     * its side, not a new kind of object, and +Z is the sky, which is where the fin goes. The wings
-     * are the stock [AeroSurface] module with a wing's area instead of a fin's.
+     * An aeroplane: fuselage, wings, an air-breathing engine and wheels. Built
+     * [CraftOrientation.HORIZONTAL], so +Y is the nose and +Z the sky, where the fin goes.
      */
     fun aeroplane(catalog: PartCatalog = StockParts.catalog): CraftDesign {
         val parts = ArrayList<PlacedPart>()
@@ -442,31 +381,22 @@ object StockCraft {
         val tank = add("tank-cask2", 2.4, pod)
         val engine = add("engine-zephyr", 0.6, tank)
 
-        // Wings on either side of the tank, near the centre of mass, so the craft doesn't pitch the
-        // moment it makes lift.
+        // Wings near the centre of mass, so lift doesn't pitch it.
         add("wing-plank", 2.4, tank, x = 2.2)
         add("wing-plank", 2.4, tank, x = -2.2)
 
-        // A tail fin on top for yaw stability. It does the same job it does on the rocket, and it
-        // doesn't move. It's turned so its root faces down into the hull, which is the turn the
-        // builder would give it on that node.
+        // A fixed tail fin on top for yaw stability, turned root down as the builder would.
         add("fin-vane", 0.4, engine, z = 0.975)
         parts[parts.size - 1] = parts.last().copy(
             rotation = Quat.fromAxisAngle(Vec3.unitY(), -Math.PI / 2.0),
         )
 
-        // Elevons well behind the wings. Being behind the centre of mass is what makes them pitch
-        // the aircraft instead of rolling it. Nothing in the part says "elevator".
+        // Elevons well behind the centre of mass, which is what makes them pitch it.
         add("tail-elevon", 0.4, engine, x = 1.525)
         add("tail-elevon", 0.4, engine, x = -1.525)
 
-        // Undercarriage on the lower quarters, where the builder puts it: a pair under the pod and
-        // a pair just behind the centre of mass, all at the same depth so it sits level. The main
-        // wheels go *just* behind the balance point, far enough that it doesn't sit back on its
-        // tail, and close enough that the elevons can lift the nose at take-off speed. At 0.4 m
-        // behind, rotating meant lifting fifteen kilonewton-metres of the craft's own weight, which
-        // was twice what the controls give at sixty metres a second, and it ran the whole runway
-        // before the wing alone could lift it.
+        // Gear on the lower quarters, level: a pair under the pod and a pair just behind the centre
+        // of mass. Any further back and the elevons can't lift the nose at take-off speed.
         val quarter = 0.625 * kotlin.math.sqrt(0.5) + 0.3 * kotlin.math.sqrt(0.5)
         for (side in listOf(1.0, -1.0)) {
             add("wheel-gear", 4.0, pod, x = side * quarter, z = -quarter)
@@ -484,12 +414,7 @@ object StockCraft {
         )
     }
 
-    /**
-     * A boat: a hull, a pod at the bow, and an air-breathing engine at the stern pushing it along.
-     * It's an airboat, which is a real thing and doesn't need any part this game doesn't already
-     * have. The only boat part here is the hull, and the hull is just a box that floats. Staying
-     * upright and going straight both come from where the water pushes on it.
-     */
+    /** An airboat: a floating hull, a pod at the bow, and an air-breathing engine at the stern. */
     fun boat(catalog: PartCatalog = StockParts.catalog): CraftDesign {
         val parts = ArrayList<PlacedPart>()
 
@@ -506,8 +431,7 @@ object StockCraft {
         val hull = add("hull-punt", 0.0, -1, null, null)
         // The pod at the bow, riding the hull's top node.
         add("pod-halo", 4.6, hull, "top", "bottom")
-        // Fuel and engine at the stern, so the weight is spread along the hull instead of piled at
-        // one end.
+        // Fuel and engine at the stern, to spread the weight along the hull.
         val tank = add("tank-cask2", -5.0, hull, "bottom", "top")
         val engine = add("engine-zephyr", -6.8, tank, "bottom", "top")
 
@@ -523,13 +447,9 @@ object StockCraft {
     }
 
     /**
-     * Turns every surface-mounted part that's still at its default rotation to face out from the
-     * stack, the way the builder would have turned it: around the stack axis, toward the side it's
-     * on. A fin, a leg, a wheel or a wing reaches out from its root along its own +X. Left
-     * unturned, all four fins of a rocket pointed the same way and a left wing's tip sat against
-     * the fuselage. It turns around the axis instead of using the shortest turn, because for a part
-     * on the -X side that's a half turn around an arbitrary axis, which often flips a wing upside
-     * down and back to front.
+     * Turns each surface part still at its default rotation to face out from the stack, about the
+     * stack axis, as the builder would. Surface parts reach out along their own +X. A shortest-arc
+     * turn would flip a -X wing upside down.
      */
     private fun faceOutward(parts: MutableList<PlacedPart>, catalog: PartCatalog): Boolean {
         var changed = false
@@ -551,14 +471,12 @@ object StockCraft {
     }
 
     /**
-     * [design] with its surface parts turned to face outward. This is for stock designs saved by
-     * older builds, whose fins and legs all pointed the same way. Anything the builder placed
-     * already faces outward and is left alone.
+     * [design] with its surface parts turned outward, for stock designs saved by older builds.
+     * Builder-placed parts already face out.
      */
     fun facingOutward(design: CraftDesign, catalog: PartCatalog): CraftDesign {
         val parts = design.parts.toMutableList()
-        // Only rockets, standing on their tails. Round a craft lying down, "out from the middle"
-        // would stand a flat deck fitting on its edge.
+        // Only upright craft; on one lying down it would stand a deck fitting on edge.
         val upright = design.orientation == CraftOrientation.VERTICAL
         val faced = if (upright && faceOutward(parts, catalog)) design.copy(parts = parts) else design
         // And anything on an opposite node rolled the right way up.
@@ -567,9 +485,8 @@ object StockCraft {
 
     // --- craft from the vehicle kits -----------------------------------------
     //
-    // These are put together through the builder, node by node, exactly like a player would. So
-    // each one is something that can actually be built, and its parts sit where the builder would
-    // put them.
+    // Put together through the builder node by node, like a player would, so each can really be
+    // built.
 
     private class Assembly(catalog: PartCatalog, name: String, orientation: CraftOrientation) {
         val builder = CraftBuilder(catalog).also {
@@ -596,10 +513,7 @@ object StockCraft {
             check(builder.turn(index, quarters)) { "${builder.design.parts[index].partId} wouldn't turn" }
         }
 
-        /**
-         * A Boarding Ladder over the side at node [nodeId] of hull section [hull], standing up the
-         * ship's side instead of lying along it.
-         */
+        /** A Boarding Ladder at node [nodeId] of hull [hull], turned to stand up the ship's side. */
         fun ladder(hull: Int, nodeId: String) = turn(on(hull, nodeId, "ladder-boat"), 3)
 
         fun design(): CraftDesign {
@@ -608,42 +522,31 @@ object StockCraft {
         }
     }
 
-    /**
-     * A light jet from the aircraft kit: cockpit, fuselage, a jet at the tail, swept wings with
-     * ailerons, a tailplane and rudder, and tricycle gear with the main wheels just behind the
-     * balance point.
-     */
+    /** A light jet: cockpit, fuselage, tail jet, swept wings, tailplane, rudder and tricycle gear. */
     fun sparrow(catalog: PartCatalog = StockParts.catalog): CraftDesign {
         val a = Assembly(catalog, "Sparrow", CraftOrientation.HORIZONTAL)
         val cockpit = a.root("cockpit-sparrow")
         val forward = a.on(cockpit, "bottom", "fuselage-short")
         val aft = a.on(forward, "bottom", "fuselage-long")
         val jet = a.on(aft, "bottom", "engine-zephyr")
-        // Wings on the front station, where it flies trimmed with the tail neutral. At the middle
-        // of the fuselage the nose hung so heavy that the tail could barely lift it, and if you let
-        // go it dived into the ground. One station further forward and it pitched up by itself and
-        // looped.
+        // Wings on the front station, where it trims with the tail neutral. Further back it's
+        // nose-heavy; further forward it pitches up.
         a.on(aft, "side-right-fore", "wing-swept")
         a.on(aft, "side-left-fore", "wing-swept")
-        // An all-moving tail. Elevons alone couldn't lift the nose until the wings did it for them,
-        // at a hundred metres a second.
+        // An all-moving tail; elevons alone can't lift the nose at take-off speed.
         a.on(jet, "surface-0", "tail-stabilator")
         a.on(jet, "surface-1", "tail-stabilator")
         a.on(jet, "surface-2", "tail-rudder")
         a.on(cockpit, "surface-3", "wheel-gear-nose")
-        // Main wheels on the belly station just behind the balance point, which is a little ahead
-        // of the middle of the long fuselage. That's close enough behind it for the tail to lift
-        // the nose at flying speed.
+        // Main wheels just behind the balance point, close enough for the tail to lift the nose.
         a.on(aft, "belly-right-2", "wheel-gear-main")
         a.on(aft, "belly-left-2", "wheel-gear-main")
         return a.design()
     }
 
     /**
-     * A slow plane for short strips and ships' decks: the Sparrow's layout with plank wings of
-     * twice the area and a propeller pushing from the tail. It stalls at under thirty metres a
-     * second. The main wheels are on the Sparrow's station: a station further forward, it sat back
-     * on its tail after landing.
+     * A slow plane for short strips and decks: the Sparrow with plank wings of twice the area and a
+     * pusher prop. Stalls under 30 m/s. Main wheels on the Sparrow's station, or it sits on its tail.
      */
     fun petrel(catalog: PartCatalog = StockParts.catalog): CraftDesign {
         val a = Assembly(catalog, "Petrel", CraftOrientation.HORIZONTAL)
@@ -681,21 +584,17 @@ object StockCraft {
         a.on(chassis, "deck-rear", "rack-cargo")
         a.on(chassis, "deck", "light-bar")
         for (k in 1..6) a.on(chassis, "wheel-$k", "wheel-large")
-        // A winch on the front, for getting out of trouble.
+        // A winch on the front.
         a.on(chassis, "front", "winch-drum")
         return a.design()
     }
 
-    /**
-     * A small V-hulled boat from the boat kit: a seat, an outboard, and a mooring clamp on each
-     * side.
-     */
+    /** A small V-hulled boat: a seat, an outboard and a mooring clamp each side. */
     fun skiff(catalog: PartCatalog = StockParts.catalog): CraftDesign {
         val a = Assembly(catalog, "Skiff", CraftOrientation.HORIZONTAL)
         val hull = a.root("hull-skiff")
         a.on(hull, "deck", "cab-open")
-        // A skeg underneath. Without it, turning hard at full throttle, the motor's push rolled her
-        // past seventy degrees.
+        // A skeg, or a hard turn at full throttle rolls her over.
         a.on(hull, "keel-front", "keel-skeg")
         a.on(hull, "transom", "motor-outboard")
         a.on(hull, "side-right", "mooring-clamp")
@@ -704,9 +603,8 @@ object StockCraft {
     }
 
     /**
-     * A jet boat: a decked runabout hull with a water jet on the transom. On the skiff's open hull
-     * she swamped. Driven hard into a rough sea she broached, and the water came over the gunwale.
-     * No skeg: one tripped her over in a hard turn.
+     * A jet boat: a decked runabout hull, so she doesn't swamp, with a water jet on the transom. No
+     * skeg, which trips her in a hard turn.
      */
     fun jetBoat(catalog: PartCatalog = StockParts.catalog): CraftDesign {
         val a = Assembly(catalog, "Jet Boat", CraftOrientation.HORIZONTAL)
@@ -728,8 +626,7 @@ object StockCraft {
     }
 
     /**
-     * A small sailing boat: a skiff's hull with a sloop rig in front of the seat, a keel under the
-     * middle and another further aft to stop her sliding sideways, and a rudder at the stern. No
+     * A small sailing boat: a skiff hull with a sloop rig, two keels against leeway and a rudder. No
      * motor, so the throttle is her sheet.
      */
     fun sloop(catalog: PartCatalog = StockParts.catalog): CraftDesign {
@@ -747,10 +644,7 @@ object StockCraft {
 
     // --- rotors, and lighter than air ----------------------------------------------
 
-    /**
-     * A light helicopter: a bubble cockpit for two, a rotor on its roof, a fuel tank and a tail boom
-     * behind it with a tail rotor at the end, and skids to stand on.
-     */
+    /** A light helicopter: bubble cockpit, main rotor, tank, tail boom with tail rotor, and skids. */
     fun hummingbird(catalog: PartCatalog = StockParts.catalog): CraftDesign {
         val a = Assembly(catalog, "Hummingbird", CraftOrientation.HORIZONTAL)
         val cabin = a.root("cockpit-bubble")
@@ -782,8 +676,8 @@ object StockCraft {
     }
 
     /**
-     * An airship: a long envelope with a gondola under it and a power car behind that (a tank and a
-     * propeller), fins and a rudder on its tail, and a keeper core to hold it over a spot.
+     * An airship: envelope, gondola, a power car (tank and propeller), tail fins and rudder, and a
+     * keeper core to hold it over a spot.
      */
     fun zeppelin(catalog: PartCatalog = StockParts.catalog): CraftDesign {
         val a = Assembly(catalog, "Zeppelin", CraftOrientation.HORIZONTAL)
@@ -791,11 +685,10 @@ object StockCraft {
         val gondola = a.on(envelope, "belly", "cockpit-bubble")
         a.on(gondola, "belly", "core-keeper")
         a.on(envelope, "tail-top", "tail-rudder")
-        // The power car hangs behind the gondola, under the middle, since on the nose its weight
-        // tipped the whole ship over.
+        // The power car under the middle; on the nose its weight tips the ship.
         val tank = a.on(envelope, "belly-rear", "fuselage-short")
         a.on(tank, "top", "engine-prop")
-        // Charge for the ballonets' pumps, topped up by the engine while it runs.
+        // Charge for the ballonet pumps; the engine tops it up.
         a.on(tank, "side-right", "battery-hoard")
         a.on(tank, "side-left", "battery-hoard")
         a.on(envelope, "tail-right", "tail-stabilator")
@@ -803,10 +696,7 @@ object StockCraft {
         return a.design()
     }
 
-    /**
-     * A platform that floats in the sky: a sky deck (a pad over a hull of light gas), a lift fan
-     * under each corner, and a keeper core and batteries under the middle.
-     */
+    /** A sky platform: a sky deck on light gas, a lift fan per corner, a keeper core and batteries. */
     fun skyPlatform(catalog: PartCatalog = StockParts.catalog): CraftDesign {
         val a = Assembly(catalog, "Sky Platform", CraftOrientation.VERTICAL)
         val deck = a.root("deck-sky")
@@ -829,29 +719,20 @@ object StockCraft {
 
     // --- submarines ---------------------------------------------------------------
     //
-    // Each one has a pressure hull in the middle with a trim tank in front of it and behind it, a
-    // screw at the tail, bow planes on each side and a rudder on top, and lamps under the hull
-    // aimed at the floor. The deep ones also have a sonar underneath to find their way in the dark.
-    // With its tanks blown it's nearly as heavy as the water it displaces, so it floats. Flooded,
-    // it's a little heavier, so it sinks.
-    //
-    // The tanks sit on either side of the middle, as far forward as back. All of its lift is in
-    // them, and with only one tank behind the hull it floated standing on its nose, and flooding or
-    // blowing it would tip it again. Balanced like this, it lies level either way.
+    // A pressure hull between two trim tanks, a screw at the tail, bow planes, a rudder and lamps
+    // underneath; the deep ones add sonar. Blown it just floats, flooded it just sinks. The tanks
+    // sit evenly fore and aft so it lies level either way.
 
-    /** The first one: a Pearl sphere between two trim tanks, good to three hundred metres. */
+    /** A Pearl sphere between two trim tanks, good to 300 m. */
     fun minnow(catalog: PartCatalog = StockParts.catalog): CraftDesign = submarine(catalog, "Minnow", "pod-pearl", "ballast-trim")
 
-    /**
-     * Two aboard, down to a kilometre and a half: the Nautilus hull between two deep trim tanks.
-     */
+    /** Two aboard, down to 1.5 km: the Nautilus hull between two deep trim tanks. */
     fun nautilus(catalog: PartCatalog = StockParts.catalog): CraftDesign =
         submarine(catalog, "Nautilus", "hull-nautilus", "ballast-deep", sonar = true)
 
     /**
-     * Down to the bottom of the Terra Deep: the Abyss sphere between abyssal tanks, with a float
-     * standing on top to hold up its weight. The float is a sail, high up, which also keeps it
-     * upright.
+     * Down to the bottom of the Terra Deep: the Abyss sphere between abyssal tanks, with a float on
+     * top that holds up its weight and keeps it upright.
      */
     fun abyss(catalog: PartCatalog = StockParts.catalog): CraftDesign =
         submarine(catalog, "Abyss", "pod-abyss", "ballast-abyss", float = "float-foam", cell = "battery-abyss", sonar = true)
@@ -865,24 +746,18 @@ object StockCraft {
         val fore = a.on(middle, "top", tank)
         val aft = a.on(middle, "bottom", tank)
         a.on(aft, "bottom", "screw-drive")
-        // Bow planes on the front tank, the rudder at the back, and lamps and sonar under the hull.
-        // The planes go forward to even out the water's drag along it. With them at the back next
-        // to the screw and rudder, that end dragged the most, so when it sank the tail trailed up
-        // and it went down nose first.
+        // Bow planes forward to balance the drag of the screw and rudder aft, or it sinks nose
+        // first.
         a.on(fore, "side-right", "planes-dive")
         a.on(fore, "side-left", "planes-dive")
         a.on(aft, "spine-aft", "rudder")
         a.on(middle, "belly-right", "lamp-deep")
         a.on(middle, "belly-left", "lamp-deep")
-        // To stay upright under water you want the weight low and the lift high. There's a lead
-        // keel under the hull, because with everything else on its axis nothing held it level, and
-        // the smallest push from its screw or planes stood it on end. The Abyss also has a float
-        // standing on top. The keel's weight is also what takes it down at about a metre a second
-        // when flooded. Sinking broadside, the lighter ones took half an hour to go down a
-        // kilometre.
+        // A lead keel keeps the weight low so it stays upright, and sinks it at about 1 m/s when
+        // flooded. The Abyss's float on top keeps the lift high.
         a.on(middle, "belly", "keel-lead")
         val sail = float?.let { a.on(middle, "spine", it) }
-        // A spare cell in the middle, on the float, where its weight doesn't tip anything.
+        // A spare cell in the middle, where its weight doesn't tip it.
         cell?.let { a.on(sail ?: middle, "spine", it) }
         if (sonar) a.on(fore, "belly", "sonar-array")
         return a.design()
@@ -901,11 +776,7 @@ object StockCraft {
         return a.design()
     }
 
-    /**
-     * A working boat for bad weather: five decked hull sections, fourteen metres long, with a
-     * wheelhouse in the middle and a deep keel. This is the one that rides out a storm that swamps
-     * a skiff.
-     */
+    /** A storm boat: five decked hull sections, 14 m long, a wheelhouse amidships and a deep keel. */
     fun trawler(catalog: PartCatalog = StockParts.catalog): CraftDesign {
         val a = Assembly(catalog, "Trawler", CraftOrientation.HORIZONTAL)
         val bow = a.root("hull-bow")
@@ -924,13 +795,8 @@ object StockCraft {
     }
 
     /**
-     * A small coaster: a ship's hull four and a half metres across and twenty-five long, a diesel
-     * turning a propeller under the stern, and a ship's rudder behind it. The wheelhouse is aft over
-     * the engine, and there's a cargo rack on the deck forward. Big enough to ride out a sea that
-     * rolls a jet boat over.
-     *
-     * [electric] makes her the Electric Coaster: an electric drive in place of the diesel, and a
-     * battery bank on deck fore and aft to run it.
+     * A small coaster: a 4.5 by 25 m ship's hull, a diesel and ship's rudder, wheelhouse aft and a
+     * cargo rack forward. [electric] swaps the diesel for an electric drive and two battery banks.
      */
     fun coaster(catalog: PartCatalog = StockParts.catalog, electric: Boolean = false): CraftDesign {
         val a = Assembly(catalog, if (electric) "Electric Coaster" else "Coaster", CraftOrientation.HORIZONTAL)
@@ -956,9 +822,8 @@ object StockCraft {
     }
 
     /**
-     * A schooner: the Coaster's hull with a foremast and a mainmast instead of an engine, a deep
-     * ship's keel under her middle to stop her sliding off to leeward and keep her upright, and a
-     * ship's rudder. The throttle is her sheets.
+     * A schooner: the Coaster's hull with two masts instead of an engine, a deep keel and a ship's
+     * rudder. The throttle is her sheets.
      */
     fun schooner(catalog: PartCatalog = StockParts.catalog): CraftDesign {
         val a = Assembly(catalog, "Schooner", CraftOrientation.HORIZONTAL)
@@ -978,11 +843,7 @@ object StockCraft {
         return a.design()
     }
 
-    /**
-     * A deck barge: a raked bow, two ten metre sections and a square stern, thirty-four metres by
-     * ten, with a flat deck to carry cargo or craft, and a tow bitt at each end. No engine: a tug
-     * tows her or pushes her.
-     */
+    /** A deck barge, 34 by 10 m, with a tow bitt each end. No engine; a tug tows or pushes her. */
     fun deckBarge(catalog: PartCatalog = StockParts.catalog): CraftDesign {
         val a = Assembly(catalog, "Deck Barge", CraftOrientation.HORIZONTAL)
         val bow = a.root("barge-bow")
@@ -997,10 +858,7 @@ object StockCraft {
         return a.design()
     }
 
-    /**
-     * A harbour tug: a short, stout ship's hull with a diesel and a ship's rudder, the wheelhouse
-     * forward, a towing winch aft, and push knees on the stem for shoving a barge along.
-     */
+    /** A harbour tug: short ship's hull, diesel, wheelhouse forward, tow winch aft and push knees. */
     fun harbourTug(catalog: PartCatalog = StockParts.catalog): CraftDesign {
         val a = Assembly(catalog, "Harbour Tug", CraftOrientation.HORIZONTAL)
         val bow = a.root("hull-wide-bow")
@@ -1017,9 +875,8 @@ object StockCraft {
     }
 
     /**
-     * A landing barge: two flight deck tiles, forty metres by twenty, for a helicopter or a rocket
-     * to come down on out at sea. Two diesels and a rudder on the back, the wheelhouse off to one
-     * side where it's out of the way, and a tow bitt at the bow.
+     * A landing barge: two flight deck tiles, 40 by 20 m, for landing at sea. Two diesels, a rudder,
+     * the wheelhouse to one side and a tow bitt.
      */
     fun landingBarge(catalog: PartCatalog = StockParts.catalog): CraftDesign {
         val a = Assembly(catalog, "Landing Barge", CraftOrientation.HORIZONTAL)
@@ -1035,10 +892,8 @@ object StockCraft {
     }
 
     /**
-     * A flat top: eight flight deck tiles in a row, a hundred and sixty metres by twenty, long
-     * enough for a Petrel. Arresting wires near the stern to catch a plane landing from astern, a
-     * catapult forward to throw one off the bow, the island off to starboard, and two diesels and
-     * a rudder to turn her into the wind.
+     * A flat top: eight flight deck tiles, 160 by 20 m, long enough for a Petrel. Arresting wires
+     * aft, a catapult forward, the island to starboard, two diesels and a rudder.
      */
     fun flatTop(catalog: PartCatalog = StockParts.catalog): CraftDesign {
         val a = Assembly(catalog, "Flat Top", CraftOrientation.HORIZONTAL)
@@ -1059,10 +914,9 @@ object StockCraft {
     // --- docking --------------------------------------------------------------
 
     /**
-     * A lander made for building bases. Its legs are out on the diagonals with thrusters above
-     * them, a standard docking ring on the side of its tank (at the same height as every other
-     * tug's, so two landed side by side can be walked together ring to ring), and a small ring on
-     * top for a probe.
+     * A base-building lander: legs on the diagonals with thrusters above, a docking ring on the
+     * tank's side at the same height as every tug's (so two landed can meet ring to ring), and a
+     * small ring on top for a probe.
      */
     fun portTug(catalog: PartCatalog = StockParts.catalog): CraftDesign {
         val parts = ArrayList<PlacedPart>()
@@ -1090,10 +944,7 @@ object StockCraft {
         )
     }
 
-    /**
-     * A pod with thrusters and a small docking ring on its nose. It's the lightest thing that can
-     * dock.
-     */
+    /** A pod with thrusters and a small docking ring: the lightest thing that can dock. */
     fun dockProbe(catalog: PartCatalog = StockParts.catalog): CraftDesign {
         val parts = ArrayList<PlacedPart>()
         parts.add(PlacedPart("pod-halo", Vec3.zero()))
@@ -1128,11 +979,7 @@ object StockCraft {
 
     // --- bases ------------------------------------------------------------------
 
-    /**
-     * The start of a base: a core on a foundation, with connectors on two sides to build out from
-     * and a solar array on top. Set it down and found it, and modules brought up to its connectors
-     * join it.
-     */
+    /** The start of a base: a core on a foundation, two connectors and a solar array. */
     fun baseCore(catalog: PartCatalog = StockParts.catalog): CraftDesign {
         val a = Assembly(catalog, "Base Core", CraftOrientation.VERTICAL)
         val foundation = a.root("base-foundation")
@@ -1144,14 +991,9 @@ object StockCraft {
     }
 
     /**
-     * A base core that flies itself down. It's the core on its foundation, with connectors east and
-     * west, and a descent stage built around it: a tank and engine on each of the other two sides,
-     * legs on the diagonals, and thrusters on the tanks because the core has no reaction wheels.
-     *
-     * It's made for Luna, so the two engines are vacuum ones, each lifting a sixth of Terra's
-     * weight. It lands on its legs with the foundation a hand's width off the ground and gets
-     * founded where it stands. The descent stage stays on, and whatever it didn't burn becomes the
-     * new base's first store.
+     * A base core that lands itself on Luna: the core and connectors with a descent stage round it
+     * (two tanks and vacuum engines, diagonal legs, thrusters since the core has no reaction
+     * wheels). It's founded where it stands, and leftover fuel becomes the base's first store.
      */
     fun baseCoreLander(catalog: PartCatalog = StockParts.catalog): CraftDesign {
         val a = Assembly(catalog, "Base Core Lander", CraftOrientation.VERTICAL)
@@ -1167,20 +1009,18 @@ object StockCraft {
             parts.add(PlacedPart(partId, Vec3(x, floor + y, z), Quat.identity(), parentIndex = parent))
             return parts.size - 1
         }
-        // Tanks just clear of the edge of the foundation, and legs out on its corners.
+        // Tanks just clear of the foundation's edge, legs on its corners.
         val tankOut = 2.75
         val legOut = 2.3
         val engines = ArrayList<Int>()
         for (side in listOf(1.0, -1.0)) {
-            // Tank 1.5-5.5 m up and bell 0.5-1.5, so it clears the ground with the legs fully
-            // pressed.
+            // Tank 1.5-5.5 m up and bell 0.5-1.5, clear of the ground with legs fully pressed.
             val z = side * tankOut
             val tank = add("tank-cask4", 0.0, 3.5, z, core)
             engines.add(add("engine-vesper", 0.0, 1.0, z, tank))
             for (x in listOf(0.7, -0.7)) add("rcs-nudge", x, 5.1, z, tank)
         }
-        // Feet a quarter metre below the foundation. Once the landing presses them, they leave it
-        // close enough to the ground to be founded.
+        // Feet 0.25 m below the foundation, so pressed legs leave it close enough to found.
         val legs = ArrayList<Int>()
         for ((x, z) in listOf(1.0 to 1.0, -1.0 to 1.0, 1.0 to -1.0, -1.0 to -1.0)) {
             legs.add(add("leg-stilt", x * legOut, 0.55, z * legOut, foundation))
@@ -1205,10 +1045,8 @@ object StockCraft {
     }
 
     /**
-     * A flatbed truck carrying [load]: a cab, eight big wheels, and a release clamp holding the
-     * load on its own foundation. Drive it up beside where the load needs to go and stage it, and
-     * the clamp lets go and the load drops onto its feet next to a base's connector, ready to be
-     * pulled in and joined.
+     * A flatbed truck carrying [load] on its own foundation in a release clamp. Stage it beside a
+     * base and the load drops onto its feet, ready to join.
      */
     private fun flatbed(catalog: PartCatalog, name: String, load: (Assembly, Int) -> Unit): CraftDesign {
         val a = Assembly(catalog, name, CraftOrientation.HORIZONTAL)
@@ -1221,16 +1059,14 @@ object StockCraft {
         return a.design()
     }
 
-    /**
-     * A habitat module on a flatbed, with a connector on its right-hand side to join a base with.
-     */
+    /** A habitat module on a flatbed, with a connector on its right-hand side. */
     fun moduleHauler(catalog: PartCatalog = StockParts.catalog): CraftDesign =
         flatbed(catalog, "Module Hauler") { a, foundation ->
             val habitat = a.on(foundation, "top", "base-habitat")
             a.on(habitat, "surface-0", "base-connector")
         }
 
-    /** A base core on a flatbed. Drive it out, set it down, and found it where it lands. */
+    /** A base core on a flatbed, to set down and found. */
     fun baseCoreHauler(catalog: PartCatalog = StockParts.catalog): CraftDesign =
         flatbed(catalog, "Base Core Hauler") { a, foundation ->
             val core = a.on(foundation, "top", "base-core")
@@ -1238,11 +1074,7 @@ object StockCraft {
             a.on(core, "surface-1", "base-connector")
         }
 
-    /**
-     * A pad on its own: a deck to launch from and land on, with a depot and a power module standing
-     * at two corners and a solar array on the power module. Found it where it's set down and it's a
-     * base of its own.
-     */
+    /** A pad base: a deck to launch from and land on, with a depot, a power module and solar. */
     fun padBase(catalog: PartCatalog = StockParts.catalog): CraftDesign {
         val a = Assembly(catalog, "Pad Base", CraftOrientation.VERTICAL)
         val pad = a.root("base-pad")
@@ -1253,11 +1085,8 @@ object StockCraft {
     }
 
     /**
-     * A base for the sea floor: the core and a power module on a Base Float, all on a Sea Footing to
-     * hold it down. It floats out of the harbour with its float blown, to be towed where it's going,
-     * and goes down to the bottom when the float is flooded. Blown it floats with about twenty-four
-     * tonnes to spare, and flooded it sits on the floor fifteen tonnes heavy. There's no solar array,
-     * because there's no sun to speak of down there.
+     * A sea floor base: core and power module on a Base Float and Sea Footing. Blown it floats with
+     * about 24 t to spare, to be towed out; flooded it sits on the floor 15 t heavy. No solar.
      */
     fun seaFloorBase(catalog: PartCatalog = StockParts.catalog): CraftDesign {
         val a = Assembly(catalog, "Sea Floor Base", CraftOrientation.VERTICAL)

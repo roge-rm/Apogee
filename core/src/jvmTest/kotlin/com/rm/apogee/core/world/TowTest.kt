@@ -15,8 +15,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Barges, and moving big things on the water: a tug takes a barge in tow on its winch, hooked to a
- * tow bitt, or pushes it from astern on its knees, and tows a platform that isn't founded yet.
+ * Barges and tugs: towing on the winch from a tow bitt, pushing from astern on the knees, and
+ * towing an unfounded platform.
  */
 class TowTest {
     private val catalog = StockParts.catalog
@@ -90,8 +90,7 @@ class TowTest {
     fun `the tug pushes the barge from astern on its knees`() {
         val world = calm()
         val barge = afloat(world, StockCraft.deckBarge(catalog), 0.0)
-        // Her stern is seventeen metres aft of her middle, and the tug's knees five and a bit ahead
-        // of its own.
+        // Her stern is 17 m aft of her middle, and the tug's knees just over 5 m ahead of its own.
         val tug = afloat(world, StockCraft.harbourTug(catalog), -23.3)
         run(world, 5.0)
         world.apply(Command.Stage(tug.id.raw))

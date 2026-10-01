@@ -14,10 +14,7 @@ import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * Another craft's deck is somewhere to stand, drive, land and take off: wheels roll on it, legs
- * take a landing on their springs, brakes hold, and people walk, all moving with the deck.
- */
+/** Another craft's deck to stand, drive, land and take off on, all moving with the deck. */
 class DeckTest {
     private val catalog = StockParts.catalog
     private val dt = 1.0 / 60.0
@@ -77,8 +74,7 @@ class DeckTest {
         val start = platform.body.orientation.inverseRotate(buggy.body.position.copy().subInPlace(platform.partPositionWorld(deck)), Vec3())
         run(world, 60.0)
         val end = platform.body.orientation.inverseRotate(buggy.body.position.copy().subInPlace(platform.partPositionWorld(deck)), Vec3())
-        // A little creep is fair, on brakes that grip at a third of its weight on a deck heaving
-        // about under it.
+        // A little creep is fair, with brakes gripping at a third of its weight on a heaving deck.
         assertTrue("it wandered ${start.distanceTo(end)} m across the deck", start.distanceTo(end) < 2.0)
         assertSame("not on the deck", platform, buggy.standingOn)
     }
@@ -117,10 +113,7 @@ class DeckTest {
         assertTrue("broke: ${lander.broken.count { it }}", lander.broken.none { it })
     }
 
-    /**
-     * A deck [tiles] Sea Platform decks long, laid on the airfield's runway under a Sparrow parked
-     * thirty metres from its west end, and the Sparrow on it.
-     */
+    /** A deck [tiles] Sea Platform decks long on the runway, with a Sparrow 30 m from its west end. */
     private fun sparrowOnALongDeck(world: World, tiles: Int): Pair<Vessel, Vessel> {
         val jet = world.spawnFor(Command.SpawnCraft(StockCraft.sparrow(catalog), "airfield"), "p1")
         run(world, 2.0)
@@ -194,10 +187,8 @@ class DeckTest {
 
     @Test
     fun `a buggy that was out before the barge it's set on meets her deck where it really is`() {
-        // Craft are stepped in the order they came into the world. The buggy's first, so when it
-        // meets her deck she hasn't moved on yet this tick, and on Terra, going round with it at a
-        // couple of hundred metres a second, that was three metres behind. The buggy fell off one
-        // end of her deck well short of it, and stood on air past the other.
+        // Craft step in the order they came into the world, so the buggy meets her deck before
+        // she's moved on this tick. At a few hundred m/s round the planet, that's metres off.
         for ((along, on) in listOf(16.5 to true, -15.5 to true, -17.5 to false)) {
             val world = World.default(catalog)
             world.weatherConfig = WeatherConfig(intensity = WeatherIntensity.CALM)

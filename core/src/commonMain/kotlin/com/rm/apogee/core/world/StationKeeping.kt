@@ -12,19 +12,14 @@ import kotlin.math.tan
 import com.rm.apogee.core.math.Math
 
 /**
- * The keeper core flying: it holds a craft over a spot on the ground, at a height, where it was
- * when it was asked to, using whatever the craft has.
+ * The keeper core: holds a craft over a spot on the ground at a height, with whatever it has.
  *
- * - Something that lifts it (rotors, or engines pointing down, like a hovering lander): it has the
- *   throttle, on the climb it wants for the height, with a trim that creeps to whatever holds it
- *   level. It tips the craft toward the spot through stability assist, the way a drone pilot does,
- *   no more than [MOST_TILT].
- * - Gas cells and nothing to lift it: the ballonets hold the height, and whatever pushes it
- *   along (props, fans, an outboard) points into the wind and holds it over the spot.
- * - Afloat, it's the same without the height.
+ * - Rotors or down-pointing engines: throttle holds the height, with a creeping trim, and it tips
+ *   toward the spot through stability assist like a drone, no more than [MOST_TILT].
+ * - Gas cells only: ballonets hold the height, and whatever pushes it points into the wind.
+ * - Afloat: the same without the height.
  *
- * Steered by hand, it lets the stick fly the craft over the ground and keeps only the height, and
- * holds wherever it's let go.
+ * Steered by hand, the stick flies it and it keeps only the height, then holds where it's let go.
  */
 internal class StationKeeping {
     private val up = Vec3()
@@ -84,9 +79,8 @@ internal class StationKeeping {
         rotation.rotate(vessel.air.wind, wind)
         wind.addScaledInPlace(up, -(wind dot up))
 
-        // Over the spot: the speed over the ground wanted, toward it and slowing as it gets there.
-        // Something floating can't brake, only turn and push, and it coasts a long way, so it
-        // comes back gently.
+        // Speed over the ground wanted, toward the spot and slowing near it. Floating craft can't
+        // brake and coast a long way, so they come back gently.
         val floating = means != Means.LIFT
         wanted.setTo(across).mulInPlace(if (floating) FLOAT_POSITION_GAIN else POSITION_GAIN)
         val most = if (floating) FLOAT_DRIFT else MOST_DRIFT
@@ -97,8 +91,7 @@ internal class StationKeeping {
                 val climbWanted = (below * HEIGHT_GAIN).coerceIn(-MOST_CLIMB, MOST_CLIMB)
                 control.keepTrim = (control.keepTrim + (climbWanted - climb) * TRIM_RATE * dt).coerceIn(0.0, 1.0)
                 control.throttle = (control.keepTrim + (climbWanted - climb) * CLIMB_GAIN).coerceIn(0.0, 1.0)
-                // With gas cells too, the ballonets take the weight off the rotors slowly: let out
-                // while they're working hard, and taken in while it still rises with them idle.
+                // With gas cells too, the ballonets slowly take the weight off the rotors.
                 if (vessel.defs.any { it.hasModule<LiftGas>() }) {
                     control.ballast = when {
                         control.throttle > GAS_OFFLOAD -> -1
@@ -107,9 +100,8 @@ internal class StationKeeping {
                     }
                 }
                 if (steered) {
-                    // By hand it flies like a drone: the stick tips it, never further than it can
-                    // hold its height at, and the yaw turns it. Passed straight through as a turn,
-                    // a stick held back kept it tipping until it fell out of the sky.
+                    // By hand it flies like a drone: the stick sets a tilt (capped so it can hold
+                    // its height), never a turn rate, and yaw turns it.
                     vessel.body.orientation.rotate(vessel.design.orientation.forward, forward)
                     forward.addScaledInPlace(up, -(forward dot up))
                     if (forward.length > 1e-6) {
@@ -147,8 +139,7 @@ internal class StationKeeping {
                     }
                 }
                 if (steered) return
-                // Near enough over the spot and hardly moving, it just holds its attitude and lets
-                // the ballonets or the water do the rest.
+                // Near the spot and hardly moving, it just holds its attitude.
                 if (across.length < SLACK && flat.length < STILL * 2.0) {
                     control.throttle = 0.0
                     control.keepTrim = 0.0
@@ -156,9 +147,8 @@ internal class StationKeeping {
                     hold(vessel, null)
                     return
                 }
-                // Through the air (or water) it has to go to make the speed wanted over the ground:
-                // nose into it first, and then the throttle on how fast, never flat out, since a
-                // propeller hung below the middle pitches the whole ship up.
+                // The way through the air or water that gives the speed wanted over the ground. Nose
+                // into it, then throttle, never flat out, since a low prop pitches the ship up.
                 val through = scratch.setTo(wanted).apply { if (means == Means.GAS) subInPlace(wind) }
                 val speed = through.length
                 if (speed < STILL) {
@@ -173,8 +163,7 @@ internal class StationKeeping {
                 forward.addScaledInPlace(up, -(forward dot up))
                 val facing = if (forward.length > 1e-6) ((forward dot through) / forward.length).coerceAtLeast(0.0) else 0.0
                 control.keepTrim = (control.keepTrim + along * PUSH_TRIM_RATE * dt).coerceIn(0.0, PUSH_MOST)
-                // Only once it's come round to face the way it's going. Pushing while still turning,
-                // an airship whose tail fins damp its turns hard went round and round the spot.
+                // Only push once it faces the way it's going, or it circles the spot.
                 val ready = ((facing - FACING_FROM) / (1.0 - FACING_FROM)).coerceIn(0.0, 1.0)
                 control.throttle = ((control.keepTrim + along * PUSH_GAIN).coerceIn(0.0, PUSH_MOST)) * ready
                 desiredUp.setTo(up)
@@ -189,8 +178,7 @@ internal class StationKeeping {
      */
     private fun hold(vessel: Vessel, nose: Vec3?) {
         val orientation = vessel.design.orientation
-        // From the attitude it's already holding, so its heading stays put instead of wandering
-        // with whatever the craft happens to point at.
+        // From the attitude it's already holding, so the heading doesn't wander.
         val from = if (vessel.assistHolding) vessel.assistHeld else vessel.body.orientation
         quatFromTo(from.rotate(orientation.up, scratch), desiredUp, turnUp)
         turnUp.mulInPlace(from)
@@ -235,10 +223,7 @@ internal class StationKeeping {
         const val CLIMB_GAIN = 0.12
         const val TRIM_RATE = 0.08
 
-        /**
-         * Rotors working harder than this share let the ballonets out, and idling under the other
-         * with the craft still rising take air in.
-         */
+        /** Rotor throttle over this lets the ballonets out; under the other while rising takes air in. */
         const val GAS_OFFLOAD = 0.08
         const val GAS_IDLE = 0.02
 

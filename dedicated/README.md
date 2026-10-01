@@ -1,11 +1,9 @@
 # Apogee dedicated server
 
-This is a standalone, persistent Apogee world. Players join it from the game's
-**Join a Game** screen, fly, log off, and find their craft where they left them.
-
-It runs exactly the same simulation a phone runs when it hosts a game. The only
-differences are that this one has no client of its own, writes its world to
-disk, and has an admin control channel.
+A standalone, persistent Apogee world. Players join it from **Join a Game**, fly,
+log off, and find their craft where they left them. It runs the same simulation a
+phone does when it hosts, with no client of its own, a world saved to disk, and an
+admin channel.
 
 ## Running it with Docker
 
@@ -22,25 +20,19 @@ There are two containers:
 | | |
 |---|---|
 | `server` | the game. It keeps its world in the `state` volume. |
-| `web` | the admin page. It owns no game state, and talks to the server over a Unix socket in the `control` volume. |
-
-You can stop, restart or remove the admin page from the compose file
-completely, and the game won't notice.
+| `web` | the admin page. It talks to the server over a Unix socket in the `control` volume, and the game runs fine without it. |
 
 ### Networking
 
-Host networking is the default, because that's what lets a phone find the
-server by itself. Discovery is a UDP broadcast, and broadcast doesn't cross a
-bridge network.
-
-If you're on Docker Desktop, or you want the ports mapped explicitly:
+Host networking is the default, so phones can find the server on their own
+(discovery is a UDP broadcast, which doesn't cross a bridge network). On Docker
+Desktop, or to map the ports yourself:
 
 ```sh
 docker compose -f docker-compose.yml -f docker-compose.bridge.yml up --build
 ```
 
-That costs you auto-discovery and nothing else. Players just type the address
-instead.
+Players then type the address instead.
 
 ## Running it without Docker
 
@@ -51,36 +43,23 @@ APOGEE_STATE_DIR=./state dedicated/build/install/apogee-server/bin/apogee-server
 
 Or straight from Gradle: `./gradlew :dedicated:run`.
 
-The Android app is left out of the build automatically when there's no Android
-SDK, so a server-only checkout needs nothing but a JDK.
+Without an Android SDK the app is left out, so this needs just a JDK.
 
 ## The images
 
-Both are distroless: a runtime, the application, and nothing else. There's no
-shell, no package manager and no coreutils.
+Both are distroless: a runtime and the application, with no shell.
 
 | | size | |
 |---|---|---|
 | `apogee-server` | ~71 MB | linked JRE (43 MB) + application (5 MB) |
 | `apogee-web` | ~63 MB | Python 3.11 + FastAPI |
 
-The server links its own Java runtime with `jlink` instead of shipping a JRE.
-`jdeps` says it loads three modules (`java.base`, `java.instrument` and
-`jdk.unsupported`), so a stock JRE was 159 MB for a small fraction of itself.
-The module list is worked out during the build from the jars that were just
-made, so a new dependency that needs another module gets caught then, not at
-startup.
+The server links its own Java runtime with `jlink`, from the modules the build
+finds it needs.
 
-Having no shell means two things worth knowing:
-
-- `docker exec <container> sh` won't work. The server image carries a static
-  busybox for its healthcheck, so `docker exec apogee-server /bin/busybox sh`
-  gets you in when you need it. The web image has no way in like that, so
-  restart it and read the logs.
-- Both entry points run their interpreter directly, because the usual wrappers
-  (Gradle's start script, `sh -c uvicorn …`) are shell scripts. Extra JVM
-  options go in `JAVA_TOOL_OPTIONS`, which the JVM reads from the environment
-  by itself.
+- `docker exec <container> sh` won't work. Use `docker exec apogee-server
+  /bin/busybox sh` for the server. For the web image, read the logs.
+- Extra JVM options go in `JAVA_TOOL_OPTIONS`.
 
 ## Capacity
 
@@ -92,13 +71,12 @@ On a current desktop core:
 | 50 | 0.65 | 3.9% |
 | 200 | 2.47 | 14.8% |
 
-It's linear, about 0.012 ms per craft, so one core carries something like 1,300
-at 60 Hz. An idle server costs about 3% of a core and 80 MB.
+About 0.012 ms per craft, so one core carries around 1,300 at 60 Hz. An idle
+server uses about 3% of a core and 80 MB.
 
 ## Configuration
 
-Everything is an environment variable, because the server is meant to live in
-a container, and that's how settings arrive there.
+Everything is an environment variable.
 
 | Variable | Default | |
 |---|---|---|
@@ -113,29 +91,19 @@ a container, and that's how settings arrive there.
 
 ## The world file
 
-`$APOGEE_STATE_DIR/world.json` is the whole universe: every craft, where it is,
-how much fuel it has, what stage it's on and who owns it. I made it JSON on
-purpose, so an operator can read it, diff it, and hand-edit a craft out of a
-hole it has got itself into.
+`$APOGEE_STATE_DIR/world.json` is the whole world: every craft, where it is, its
+fuel, its stage and its owner. It's JSON so you can read it and hand-edit it.
 
-Saves are written to a temporary file and renamed, so an interrupted save
-leaves the previous world as it was. One backup (`world.json.bak`) is kept, and
-the server falls back to it by itself if the live file won't parse.
-
-The file records the part catalogue's hash. Loading a world built with
-different parts is allowed but reported, and any craft whose parts don't exist
-any more is skipped and named in the log, instead of quietly dropped.
+Saves go to a temporary file and are renamed, so an interrupted save leaves the
+old world alone. One backup (`world.json.bak`) is kept, and the server falls back
+to it if the live file won't parse. A craft whose parts no longer exist is
+skipped and named in the log.
 
 ## The control channel
 
-It's a Unix domain socket, not a network port. The channel can stop the server
-and kick players, and putting it on the network would mean the only thing
-between an open port and a stranger is a password somebody left at the
-default. A socket in a directory has filesystem permissions instead, and the
-web admin reaches it by sharing a volume, not by being trusted.
-
-One tab-separated line goes in, and one line of JSON comes out. You can use it
-by hand:
+It's a Unix domain socket, so it's protected by file permissions rather than a
+password on an open port. One tab-separated line goes in and one line of JSON
+comes out:
 
 ```sh
 printf 'status\n' | socat - UNIX-CONNECT:/run/apogee/control.sock
@@ -151,5 +119,4 @@ printf 'status\n' | socat - UNIX-CONNECT:/run/apogee/control.sock
 | `kick <name>` | disconnect a player |
 | `stop` | save and shut down |
 
-`dedicated/src/main/kotlin/com/rm/apogee/dedicated/ControlServer.kt` is the one
-place this list is kept up to date.
+The full list is in `dedicated/src/main/kotlin/com/rm/apogee/dedicated/ControlServer.kt`.

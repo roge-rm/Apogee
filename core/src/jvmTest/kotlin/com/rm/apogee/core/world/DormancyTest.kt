@@ -10,12 +10,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Sleeping craft.
- *
- * A world people leave bases in is mostly made of things nobody is looking at, and the whole point
- * is that those cost nothing. What makes it safe and not just cheap is that a dormant craft is
- * still *there*. It holds its place on the ground, it still collides, and anything that touches it
- * wakes it.
+ * Sleeping craft. A dormant craft costs nothing but is still there: it holds its place on the
+ * ground, still collides, and wakes when anything touches it.
  */
 class DormancyTest {
 
@@ -47,9 +43,8 @@ class DormancyTest {
     }
 
     /**
-     * The one that would catch freezing the inertial state instead of the ground-relative one. A
-     * craft parked on the equator is travelling at about 175 m/s inertially. Holding *that* still
-     * leaves the planet to rotate out from under it, and the base sinks or floats away.
+     * Sleep freezes the ground-relative state. A craft on the equator moves at about 175 m/s
+     * inertially, and freezing that would let the planet turn out from under it.
      */
     @Test
     fun `a sleeping craft stays where it is standing, not where it was in space`() {
@@ -66,8 +61,7 @@ class DormancyTest {
         val drift = Vec3().setTo(after).subInPlace(before).length
         assertTrue("it drifted $drift m across the ground while asleep", drift < 0.01)
 
-        // And it really did keep moving through space instead of being frozen, otherwise the test
-        // above would pass for the wrong reason.
+        // And it still moved through space, so the check above isn't passing by accident.
         val inertialMoved = Vec3().setTo(vessel.body.position)
             .subInPlace(inertialBefore).length
         assertTrue(
@@ -120,8 +114,7 @@ class DormancyTest {
         world.attractorFor(arriving)
             .surfaceVelocityAt(arriving.body.position, arriving.body.linearVelocity)
 
-        // Woken at some point, not necessarily awake at the end. Once the other craft has come to
-        // rest (or rolled off) the base is still again and can rightly go back to sleep.
+        // Woken at some point. Once the other craft settles, the base can rightly sleep again.
         var woke = false
         repeat(300) {
             world.step(dt)
@@ -143,10 +136,7 @@ class DormancyTest {
         )
     }
 
-    /**
-     * The thing that made dormancy hard to get right in the first place: a craft "at rest" was
-     * never really at rest.
-     */
+    /** A resting craft must be truly still, or it would never sleep. */
     @Test
     fun `a resting craft is held exactly still, not roughly`() {
         val world = world()
@@ -174,16 +164,12 @@ class DormancyTest {
             )
         }
 
-        // Before anchoring these peaked at 0.065 m/s and 0.032 rad/s and never died away. Friction
-        // should now remove them completely.
+        // Friction anchoring should remove all creep and twitch.
         assertTrue("it still creeps at $worstLinear m/s", worstLinear < 1e-9)
         assertTrue("it still twitches at $worstAngular rad/s", worstAngular < 1e-9)
     }
 
-    /**
-     * Anchoring mustn't turn into glue. A craft on ground steeper than friction can hold has to
-     * slide, which is the same rule seen from the other side.
-     */
+    /** Anchoring isn't glue: anything stronger than friction still moves the craft. */
     @Test
     fun `a craft isn't held by friction when something stronger acts on it`() {
         val world = world()
@@ -203,13 +189,9 @@ class DormancyTest {
     }
 
     /**
-     * The case a base actually lands in.
-     *
-     * A craft on sprung legs never passed the old velocity test. Contacts resolve after gravity, so
-     * it finishes every tick holding the impulse that cancelled that tick's gravity (0.163 m/s,
-     * against a budget of 0.098), while its height above the ground doesn't move in five decimal
-     * places. Since bases land on gear, that meant nothing in a persistent world would ever have
-     * slept.
+     * Bases land on gear, so this matters. Contacts resolve after gravity, so a craft on sprung legs
+     * ends each tick holding that tick's gravity impulse (0.163 m/s) while not moving at all. A
+     * plain velocity test would never let it sleep.
      */
     @Test
     fun `a craft resting on deployed legs sleeps too`() {

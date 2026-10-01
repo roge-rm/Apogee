@@ -14,9 +14,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * Rocks and trees: where they are, and what happens when something hits one.
- */
+/** Rocks and trees: where they are, and what happens when something hits one. */
 class ScatterTest {
 
     private val catalog = StockParts.catalog
@@ -71,10 +69,7 @@ class ScatterTest {
         }
     }
 
-    /**
-     * A rover sent at [target] from twenty metres away at [speed], rolling along the ground. The
-     * world is fresh each time.
-     */
+    /** A rover sent at [target] from 20 m away at [speed], in a fresh world. */
     private fun charge(target: Vec3, speed: Double): Pair<World, Vessel> {
         val world = World.default(catalog)
         val body = world.system.body("terra")!!
@@ -94,9 +89,8 @@ class ScatterTest {
     }
 
     /**
-     * Solid, so nothing drives through a boulder. A rover at speed meets a big one's buried lower
-     * slope and rides up it to a stop instead of taking a head-on blow, which is what a wheeled
-     * vehicle does to a rounded rock. But it never ends up inside it or past it.
+     * Nothing drives through a boulder. A fast rover may ride up its buried lower slope to a stop,
+     * but never ends up inside it or past it.
      */
     @Test
     fun `a boulder stops a rover`() {
@@ -119,8 +113,7 @@ class ScatterTest {
     @Test
     fun `a tree hit hard falls, and stays fallen after a restart`() {
         val (tree, id) = nearest(ScatterKind.BROADLEAF)
-        // Hard, because a glancing blow from one wheel at twenty metres a second might not be
-        // enough for a big tree, which is the point of trees.
+        // Hard: a glancing blow from one wheel at 20 m/s may not fell a big tree.
         val (world, _) = charge(tree, 30.0)
         repeat((4.0 / dt).toInt()) { world.step(dt) }
         assertTrue("the tree is still standing", id in world.felledScatter)

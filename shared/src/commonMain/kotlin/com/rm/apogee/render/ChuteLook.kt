@@ -8,13 +8,12 @@ import com.rm.apogee.core.part.ModelSpec
 import com.rm.apogee.core.math.Math
 
 /**
- * An open parachute: a faceted dome on its lines, trailing from the pack away from the way the
- * craft moves through the air, and growing as it fills. It's drawn from the part's deploy value, so
- * everyone sees it open.
+ * An open parachute: a faceted dome on its lines, trailing from the pack against the airflow and
+ * growing as it fills. Drawn from the part's deploy value, so everyone sees it.
  */
 object ChuteLook {
 
-    /** The full canopy radius for a pack of this drag, in metres. Close to a real one's size. */
+    /** Full canopy radius for a pack of this drag, in metres. Close to a real one. */
     fun radius(dragArea: Double): Double = kotlin.math.sqrt(dragArea / (Math.PI * 1.5)).coerceIn(1.5, 12.0)
 
     /**
@@ -25,13 +24,13 @@ object ChuteLook {
         pack: Vec3, trail: Vec3, open: Double, fullRadius: Double, key: Long,
         out: MutableList<RenderItem>,
     ) {
-        // [open] is the canopy's size as a share of the full one. A drogue is small, on short
-        // lines, and the main is big, on long ones.
+        // [open] is the canopy's share of full size: a drogue is small on short lines, the main big
+        // on long ones.
         val r = fullRadius * open.coerceAtLeast(0.1)
         val reach = 3.0 + r * 1.6
         val turn = quatFromTo(Vec3.unitY(), trail)
         val rim = Vec3().setTo(pack).addScaledInPlace(trail, reach)
-        // Filling, it's a narrow bag, and full, it's a broad dome.
+        // Narrow bag while filling, broad dome when full.
         val scale = Vec3(r, r * (0.9 - 0.35 * open), r)
         out.add(RenderItem(CANOPY_OUT, rim.copy(), turn, ORANGE, caps = 0, scale = scale, ambient = 0.32f, wrap = false,
             key = RenderItem.effectKey(key, 0)))

@@ -16,13 +16,8 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 /**
- * The M2 loop end to end: put a craft together with the builder, save it, load it back, and fly the
- * result.
- *
- * The builder and the simulation share their part model, their crossfeed rule and how they work out
- * staging, but they're still two users of it. This is the test that says a craft someone actually
- * built is a craft that actually flies, and that the delta-v the builder promised is the delta-v it
- * delivers.
+ * Build a craft, save it, load it and fly it. Checks a built craft really flies and gets the
+ * delta-v the builder promised.
  */
 class BuiltCraftFliesTest {
 
@@ -39,10 +34,7 @@ class BuiltCraftFliesTest {
         fun stackNode(partIndex: Int, nodeId: String) =
             builder.openNodes().first { it.partIndex == partIndex && it.node.id == nodeId }
 
-        // Top down: capsule, upper tank, vacuum engine, separator, two lower tanks, lifter. That's
-        // exactly the order a player works in, and it only goes together at all because engines
-        // have a bottom node. Without one nothing can be hung under them, which is how that gap was
-        // found.
+        // Top down, the way a player works. It needs engines to have a bottom node.
         val upperTank = builder.attach("tank-cask2", stackNode(0, "bottom")).first()
         val upperEngine = builder.attach("engine-vesper", stackNode(upperTank, "bottom")).first()
         val decoupler = builder.attach("decoupler-ring", stackNode(upperEngine, "bottom")).first()
@@ -112,9 +104,7 @@ class BuiltCraftFliesTest {
         val world = World.default(catalog)
         val vessel = world.spawnOnSurface(builder.design, World.launchSites.first())
 
-        // Whatever the builder says the first burn will use, the vessel really has to be able to
-        // reach. Two versions of the crossfeed rule would drift apart, and the builder would
-        // predict flights that can't happen.
+        // What the builder says the first burn uses, the vessel must be able to reach.
         val firstBurn = stats.burns.first()
         world.apply(Command.Stage(vessel.id.raw))
 

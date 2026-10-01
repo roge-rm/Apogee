@@ -5,11 +5,7 @@ import org.junit.Test
 
 class PlanetMeshTest {
 
-    /**
-     * Every triangle of the globe faces out of the planet. Culling only keeps the faces pointed at
-     * the camera. Wound inward, the whole near side vanished and from orbit you saw the inside of
-     * the far one.
-     */
+    /** Every triangle of the globe faces out, or culling hides the near side. */
     @Test
     fun `the globe faces outward`() {
         val data = PlanetMesh.buildGlobe(null, 600_000.0, 16)
@@ -31,11 +27,7 @@ class PlanetMeshTest {
         assertTrue(checked > 16 * 32)
     }
 
-    /**
-     * HIGH's globe has more vertices than a 16-bit index can count. Its indices are 32-bit and
-     * every one of them lands on a vertex. Wrapped at 65536, the southern half would be stitched to
-     * the northern.
-     */
+    /** HIGH's globe has more than 65536 vertices, so its indices are 32-bit and must all fit. */
     @Test
     fun `the finest globe indexes past sixteen bits`() {
         val data = PlanetMesh.buildGlobe(null, 600_000.0, 256)

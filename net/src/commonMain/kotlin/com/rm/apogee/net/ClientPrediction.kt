@@ -11,19 +11,11 @@ import com.rm.apogee.core.world.VesselKinematics
 import com.rm.apogee.core.world.World
 
 /**
- * Runs a local copy of the physics for the craft this client is flying.
+ * Runs a local copy of the physics for the craft this client flies, so it answers your input on the
+ * same frame instead of after a round trip. Other craft are interpolated between snapshots.
  *
- * Without it, pressing the throttle does nothing you can see until a command has reached the
- * server, been stepped, and come back in a snapshot. At 20 Hz that's up to 50 ms of stale state on
- * top of the round trip, and the controls feel spongy even on a LAN. With it the craft responds on
- * the same frame as your input, and the server stays in charge by correcting instead of by waiting.
- *
- * Only the craft you're *controlling* is predicted. Everything else is interpolated between
- * snapshots, because there's no input to predict from, and guessing at another player's throttle
- * would give confident, wrong motion.
- *
- * The server is in charge the whole time. Every snapshot resets the local state to what the server
- * said and simulates forward again from there. This hides latency. It isn't a second opinion.
+ * The server stays in charge: every snapshot resets the local state to the server's and simulates
+ * forward again from there.
  */
 class ClientPrediction(
     private val catalog: PartCatalog,
@@ -34,19 +26,12 @@ class ClientPrediction(
     private var accumulator = 0.0
 
     /**
-     * The difference between where prediction had the craft and where reconciling put it, fading
-     * toward zero over a few frames.
+     * Where prediction had the craft minus where reconciling put it, fading over a few frames so
+     * corrections don't twitch.
      *
-     * Snapping straight to the corrected state makes the craft visibly twitch on every snapshot.
-     * Carrying the error and bleeding it off hides the correction without lying about where the
-     * craft really is.
-     *
-     * It's held in the body's rotating frame (relative to the ground), not the inertial one. Each
-     * snapshot moves the prediction's clock by however unevenly the server has been ticking, a few
-     * milliseconds. Measured inertially, that's 175 m/s times the slip at the equator, and the
-     * smoothing faithfully kept the craft where it had been while the ground was drawn at the new
-     * time. That put the craft metres off its ground, fading over a few frames, on every snapshot.
-     * Against the ground, a craft that hasn't moved over it has no error to smooth.
+     * Held in the body's rotating frame. Each snapshot shifts the clock by a few ms of server
+     * jitter, which inertially is 175 m/s times that at the equator; against the ground, a craft
+     * that hasn't moved has no error.
      */
     private val renderOffset = Vec3()
 
@@ -56,25 +41,21 @@ class ClientPrediction(
     val isReady: Boolean get() = vessel != null
 
     /**
-     * Rebuilds the local replica. Called when the craft's structure changes.
-     *
-     * [time] is the universe time [state] describes. It matters as much as the position. On a
-     * turning planet the ground under a craft is wherever the planet has turned to by then, and a
-     * replica on its own clock puts a craft parked on the runway onto whatever ground its wrong
-     * time says is there, and every snapshot drags it back.
+     * Rebuilds the local replica when the craft's structure changes. [time] is the universe time
+     * [state] describes; on a turning planet the ground under the craft depends on it.
      */
     fun adopt(
         design: CraftDesign,
         state: VesselKinematics,
         time: Double = 0.0,
-        /** The server's weather, so the replica gets pushed by the same wind. */
+        /** The server's weather, so the replica feels the same wind. */
         weather: com.rm.apogee.core.weather.WeatherConfig? = null,
     ) {
         val replica = World.default(catalog)
         neighbours.clear()
         neighbourDesigns.clear()
         neighbourPinned.clear()
-        // A new replica has no plan yet. The next sync gives it the server's.
+        // No plan yet; the next sync brings the server's.
         syncedBurns = null
         replica.weatherConfig = weather
         replica.syncClock(time)
@@ -86,8 +67,7 @@ class ClientPrediction(
             rotation = state.rotation.copy(),
             angularVelocity = state.angularVelocity.copy(),
         )
-        // Parked on the server, so parked here from the start, instead of settling onto its legs
-        // until the first snapshot says otherwise.
+        // Parked on the server, so parked here, instead of settling onto its legs.
         if (serverHasItAsleep(state)) {
             vessel?.sleep(system.body(state.referenceBodyId).rotationAt(time, scratchRotation))
         }
@@ -100,19 +80,13 @@ class ClientPrediction(
     }
 
     /**
-     * Brings the replica's staging and tanks to what the server last said.
-     *
-     * A replica is rebuilt from the design alone, unstaged and full. After a separation that left
-     * the upper stage's engine unlit and its tanks brimming here, while the server's burned on.
-     * Staging is taken whenever it's different, and fuel whenever it arrives, a small correction a
-     * few times a second.
+     * Brings the replica's staging and tanks to the server's. A rebuilt replica starts unstaged and
+     * full, so after a separation it would have the upper stage unlit with full tanks.
      */
     fun sync(stage: Int, activatedParts: List<Int>, fuel: List<Float>?) {
         val local = vessel ?: return
         val lit = local.design.parts.indices.filter { local.isActivated(it) }
-        // Never backwards. A stage fired here a moment ago is ahead of the server until its own
-        // staging comes back, and undoing it in between would put the engine out for a frame or
-        // two.
+        // Never backwards. A stage fired here is ahead of the server until its staging comes back.
         if (stage > local.currentStage || (stage == local.currentStage && lit != activatedParts.sorted())) {
             local.restoreStaging(stage, activatedParts, local.design.parts.indices.filter { local.isBroken(it) })
         }
@@ -125,8 +99,8 @@ class ClientPrediction(
     private var lastFuel: List<Float>? = null
 
     /**
-     * Whether the server acts on what this player sends the craft. It's false for a probe that's
-     * out of touch or flat, so the replica doesn't fly on inputs the server's craft never gets.
+     * Whether the server acts on this player's inputs. False for a probe out of touch or flat, so
+     * the replica ignores inputs too.
      */
     @Volatile var heard: Boolean = true
 
@@ -137,20 +111,18 @@ class ClientPrediction(
         if (local.control.deployed != systems.deployed || local.control.drilling != systems.drilling) {
             local.control.deployed = systems.deployed
             local.control.drilling = systems.drilling
-            // Parked, it would never step its wings or drill out.
+            // A sleeping craft never steps its wings or drill.
             local.wake()
         }
         local.control.refining = systems.refining
-        // Holding its height and heading, and its action groups, as the server has them, so the
-        // replica flies the same attitude and runs the same parts.
+        // Cruise hold and action groups as the server has them.
         local.control.cruise = systems.cruiseHeight >= 0f
         if (local.control.cruise) {
             local.control.cruiseHeight = systems.cruiseHeight.toDouble()
             local.control.cruiseHeading = systems.cruiseHeading.toDouble()
         }
         for (k in local.groupStates.indices) local.groupStates[k] = systems.groups.getOrElse(k) { 0 }
-        // Holding station, and the gas cells' trim, the same way, since the keeper has the
-        // throttle.
+        // Station keeping and gas cell trim too, since the keeper has the throttle.
         local.control.keeping = systems.keeping
         if (systems.keeping) local.control.keepPoint.setTo(systems.keepPoint)
         local.ballonet = systems.ballonet.toDouble()
@@ -159,19 +131,15 @@ class ClientPrediction(
     private val serverPose = com.rm.apogee.core.world.VesselPose.Values()
 
     /**
-     * Each chute as the server has it: packed, filling, open or cut away. A rebuilt replica starts
-     * with every chute packed, so after a pause or a change of warp its canopy filled all over
-     * again, and for the second that took it fell with almost no drag while the server's hung under
-     * a full one. Each fold-out part is done too, for the same kind of reason.
+     * Chutes, fold-out parts and rotor spool as the server has them. A rebuilt replica starts with
+     * everything packed and at rest, so a canopy would fill all over again.
      */
     private fun chutesFrom(local: Vessel, state: VesselKinematics) {
         if (!com.rm.apogee.core.world.VesselPose.decode(local.defs, state.pose, serverPose)) return
         for (i in local.defs.indices) {
-            // Sun wings and dishes too. A craft parked on the pad sleeps here as it does on the
-            // server, and a sleeping replica never steps them out.
+            // Sun wings and dishes too; a sleeping replica never steps them out.
             val def = local.defs[i]
-            // Rotors and propellers at the speed they're turning on the server. Rebuilt at rest,
-            // a hovering helicopter's replica dropped while its rotor spooled up again.
+            // Rotors and propellers at the server's speed, or a hovering helicopter drops.
             val propeller = def.module<com.rm.apogee.core.part.Engine>()?.exhaustKind.let {
                 it == com.rm.apogee.core.part.Exhaust.PROP || it == com.rm.apogee.core.part.Exhaust.WATER
             }
@@ -183,18 +151,15 @@ class ClientPrediction(
                 continue
             }
             if (def.module<com.rm.apogee.core.part.Parachute>() == null) continue
-            // The wire carries it to a 127th, so the drogue's 0.5 arrives as 0.504, which read as
-            // the main starting to fill. A held drogue stays held.
+            // The wire rounds to a 127th, so the drogue's 0.5 arrives as 0.504. Snap it back so it
+            // doesn't read as the main filling.
             val d = serverPose.deploy[i]
             val held = com.rm.apogee.core.part.Parachute.DROGUE_FULL
             local.setLegDeploy(i, if (kotlin.math.abs(d - held) < 0.02) held else d)
         }
     }
 
-    /**
-     * The local replica, for reading. Staging and fuel for the HUD move here first with the
-     * player's own presses and burns.
-     */
+    /** The local replica, for reading. The HUD's staging and fuel change here first. */
     val replica: Vessel? get() = vessel
 
     /** The sea's current where the replica is, in the world's frame, or null with no replica. */
@@ -224,7 +189,7 @@ class ClientPrediction(
         flaps: Boolean = false,
     ) {
         val control = vessel?.control ?: return
-        // Out of touch, so the server's craft carries on as it was left, and so does this one.
+        // Out of touch: the server's craft carries on as it was left, so this one does too.
         if (!heard) return
         // When it's flying itself, the autopilot has the throttle.
         if (!control.autoBurn && !control.autoLand) control.throttle = throttle
@@ -239,7 +204,7 @@ class ClientPrediction(
         control.translateX = translateX
         control.translateY = translateY
         control.translateZ = translateZ
-        // A hand on the controls is the same signal the server wakes on.
+        // Wakes on input, as the server does.
         if (!inputsNeutral(control)) vessel?.wake()
     }
 
@@ -247,9 +212,8 @@ class ClientPrediction(
     private var syncedBurns: List<com.rm.apogee.core.world.PlannedBurn>? = null
 
     /**
-     * Puts the flown craft's plan onto the replica: its autopilots, its target body, and its burns.
-     * The burns only go on when the server's list has changed, so a burn the replica has just
-     * finished isn't put back while the server finishes it too.
+     * Puts the flown craft's autopilots, target body and burns onto the replica. Burns only go on
+     * when the server's list changes, so one the replica just finished isn't put back.
      */
     fun syncPlan(burns: List<com.rm.apogee.core.world.PlannedBurn>, autoBurn: Boolean, autoLand: Boolean, targetBody: String) {
         val local = vessel ?: return
@@ -290,10 +254,7 @@ class ClientPrediction(
         replica.stage(local)
     }
 
-    /**
-     * Back to stepping, from where it's been drawn: the server's last word carried on to now, so
-     * taking the controls doesn't jump it back to the last snapshot.
-     */
+    /** Back to stepping from where it's been drawn, so taking the controls doesn't jump it. */
     private fun unpark() {
         parked = false
         val replica = world ?: return
@@ -318,10 +279,8 @@ class ClientPrediction(
     private val scratchSpinTurn = Quat.identity()
 
     /**
-     * Asleep on the server, with nobody at the controls, so the replica isn't stepped at all. It's
-     * drawn carried on from the server's last word instead. A Flat Top asleep at sea, riding the
-     * waves, was worked out afloat in full every frame here, which on a phone was most of the time
-     * it took to build one.
+     * Asleep on the server with nobody at the controls, so the replica isn't stepped; it's drawn
+     * carried on from the last snapshot. Saves a lot on a big ship asleep at sea.
      */
     private var parked = false
 
@@ -345,21 +304,14 @@ class ClientPrediction(
             stepsTaken++
             accumulator -= DT
         }
-        // Bleed off any correction that's left.
+        // Bleed off the correction.
         renderOffset.mulInPlace(OFFSET_DECAY)
         if (renderOffset.lengthSq < 1e-6) renderOffset.setZero()
     }
 
     /**
-     * Resets to the server's state and simulates forward again by [ageSeconds].
-     *
-     * The snapshot describes the world as it was when the server sent it. Using it directly would
-     * rubber-band the craft backwards on every update. The catch-up runs the same controls again
-     * over the time that's passed, so the local state is the server's answer brought up to date.
-     */
-    /**
-     * Another craft near the one being flown, as the server last had it, for the replica to push
-     * against and be pushed by. [time] is when [state] was true.
+     * Another craft near the flown one, as the server last had it, for the replica to push against.
+     * [time] is when [state] was true.
      */
     class Neighbour(
         val id: Long,
@@ -374,15 +326,13 @@ class ClientPrediction(
 
     /** The replica's copies of the craft near ours, by their ids on the server. */
     private val neighbours = HashMap<Long, Vessel>()
-    /** The design each copy was made from, and whether it was pinned, to tell when it must be made again. */
+    /** Each copy's design and pinning, to tell when it must be rebuilt. */
     private val neighbourDesigns = HashMap<Long, CraftDesign>()
     private val neighbourPinned = HashMap<Long, Boolean>()
 
     /**
-     * Keeps copies of [near] in the replica, at [time]: added, moved to where the server says they
-     * are, and dropped once they're gone or far away. A stage just let go of and still burning
-     * pushes the flown craft, and a ring being docked with draws it in, and the replica sees that,
-     * instead of every snapshot dragging the craft to where the server had it pushed.
+     * Keeps copies of [near] in the replica at [time]: added, moved to the server's place, dropped
+     * when gone. So a burning dropped stage or a docking ring pushes and pulls the replica too.
      */
     private fun placeNeighbours(replica: World, near: List<Neighbour>, time: Double) {
         val keep = near.map { it.id }.toSet()
@@ -394,21 +344,18 @@ class ClientPrediction(
         }
         for (n in near) {
             val position = if (n.state.asleep && serverHasItAsleep(n.state)) {
-                // Asleep, so turned with its world since it was last heard of, which may have been
-                // a couple of seconds ago.
+                // Asleep, so turned with its world since last heard of, maybe seconds ago.
                 val body = system.body(n.state.referenceBodyId)
                 body.rotationAt(time).rotate(body.toBodyFixed(n.state.position, body.rotationAt(n.time), scratchVelocity), Vec3())
             } else n.state.position.copy().addScaledInPlace(n.state.velocity, time - n.time)
             var copy = neighbours[n.id]
-            // The same design object, not an equal one: hashing a launch complex's every part twenty
-            // times a second to find it hadn't changed cost more than rebuilding it ever would.
+            // By identity; hashing a big base 20 times a second costs more than rebuilding it.
             if (copy != null && (neighbourDesigns[n.id] !== n.design || neighbourPinned[n.id] != n.anchored)) {
                 replica.destroy(copy.id, "rebuilt")
                 copy = null
             }
             if (copy == null) {
-                // Staged here already and not heard back yet, so the replica has its own copy of
-                // what fell away, right there. Not two.
+                // Staged here and not heard back yet, so the replica already has its own copy.
                 val stand = replica.vessels.any { v ->
                     v !== vessel && v !in neighbours.values && v.body.position.distanceTo(position) < LOCAL_COPY_REACH
                 }
@@ -417,9 +364,9 @@ class ClientPrediction(
                 neighbours[n.id] = copy
                 neighbourDesigns[n.id] = n.design
                 neighbourPinned[n.id] = n.anchored
-                // A founded base doesn't give. It's where the server has it, for good.
+                // A founded base doesn't move.
                 if (n.anchored) replica.pin(copy)
-                // First seen already beside us, so it probably just came away from us.
+                // First seen beside us, so it probably just came off us.
                 vessel?.let { replica.graceBetween(it.id, copy.id, NEIGHBOUR_GRACE) }
                 if (!n.anchored && n.state.asleep) copy.sleep(system.body(n.state.referenceBodyId).rotationAt(time, scratchRotation))
             } else if (!copy.anchored) {
@@ -428,9 +375,8 @@ class ClientPrediction(
                 copy.body.linearVelocity.setTo(n.state.velocity)
                 copy.body.orientation.setTo(n.state.rotation)
                 copy.body.angularVelocity.setTo(n.state.angularVelocity)
-                // Asleep on the server, so asleep here, where the server has it, until the next
-                // snapshot. Woken, a ship asleep beside us was worked out afloat in full every step,
-                // and a carrier under a plane parked on her deck most of all.
+                // Asleep on the server, so asleep here until the next snapshot. Saves floating a
+                // whole ship every step.
                 if (n.state.asleep) copy.sleep(system.body(n.state.referenceBodyId).rotationAt(time, scratchRotation))
             }
             copy.restoreStaging(n.stage, n.activated, copy.brokenIndices())
@@ -440,11 +386,7 @@ class ClientPrediction(
 
     private val condition = com.rm.apogee.core.world.VesselCondition.Values()
 
-    /**
-     * The water the server says each hull has shipped. Otherwise a boat that swamped before this
-     * replica existed (or before it could see why) would float high and dry here, and the two would
-     * never agree.
-     */
+    /** The water the server says each hull has shipped, so a swamped boat sits low here too. */
     private fun floodingFrom(local: com.rm.apogee.core.craft.Vessel, state: VesselKinematics) {
         val n = local.defs.size
         com.rm.apogee.core.world.VesselCondition.decode(n, state.condition, condition)
@@ -462,6 +404,10 @@ class ClientPrediction(
         if (changed) local.recomputeMass()
     }
 
+    /**
+     * Resets to the server's state and simulates forward again by [ageSeconds], so the snapshot's
+     * old state is brought up to now with the same controls.
+     */
     fun reconcile(
         state: VesselKinematics,
         ageSeconds: Double,
@@ -472,27 +418,21 @@ class ClientPrediction(
     ) {
         val replica = world ?: return
         val local = vessel ?: return
-        // Let go for the moment, so the server's state can be written into it.
+        // Unpinned so the server's state can be written in.
         if (local.anchored) replica.unanchor(local)
-        // It passed into another body's pull on one side and not yet on the other, so it's measured
-        // from the server's body from here on. It's the same place, from another centre, and any
-        // correction being eased away (held against the old body's ground) goes with it.
+        // Changed body on one side only. Rebase to the server's body and drop the correction,
+        // which was held against the old body's ground.
         if (local.referenceBodyId != state.referenceBodyId && system.bodies.containsKey(state.referenceBodyId)) {
             system.rebase(local.body.position, local.body.linearVelocity, local.referenceBodyId, state.referenceBodyId, replica.time)
             local.referenceBodyId = state.referenceBodyId
             renderOffset.setZero()
         }
 
-        // Where it was being drawn, not where it last stepped to. The two differ by the fraction of
-        // a step since, and counting that as error would twitch the craft on every snapshot.
+        // Where it was drawn, not where it last stepped to, or the part step counts as error.
         val before = local.body.position.copy().addScaledInPlace(local.body.linearVelocity, accumulator)
         toGround(local, before, replica.time + accumulator)
 
-        // Writing state into a sleeping replica would be ignored. A dormant craft rides the
-        // planet's rotation from its stored ground position and isn't integrated, so it would sit
-        // there while the server's craft flew away. The replica sleeps for the same reason the
-        // server's world does (it's the same World), and reconciling is exactly the moment to say
-        // it isn't parked any more.
+        // A sleeping craft isn't integrated and would ignore the new state, so wake it first.
         local.wake()
         local.body.position.setTo(state.position)
         local.body.linearVelocity.setTo(state.velocity)
@@ -500,18 +440,14 @@ class ClientPrediction(
         local.body.angularVelocity.setTo(state.angularVelocity)
         chutesFrom(local, state)
         floodingFrom(local, state)
-        // Back to the moment the snapshot describes, so the ground is where it was then, and the
-        // catch-up brings both forward together. Without the server's time, it's the replica's own
-        // clock minus the snapshot's age.
+        // Back to the snapshot's time so the ground matches, then catch up both together. Without
+        // the server's time, use our clock minus the age.
         val describes = snapshotTime ?: (replica.time + accumulator - ageSeconds)
         replica.syncClock(describes)
         placeNeighbours(replica, near, describes)
 
-        // Asleep on the server, and nobody's touching the controls, so it's asleep here too, at
-        // exactly the server's pose. Woken instead, the replica's craft settles onto its sprung
-        // legs for the three frames until the next snapshot resets it. That's a few centimetres of
-        // bounce, which with the camera following the craft looks like the ground jittering under
-        // it.
+        // Asleep on the server and nobody at the controls, so asleep here at the server's pose.
+        // Awake, it would bounce a few centimetres on its sprung legs between snapshots.
         parked = !anchored && state.asleep && inputsNeutral(local.control)
         if (anchored) {
             replica.pin(local)
@@ -519,7 +455,7 @@ class ClientPrediction(
             local.sleep(system.body(state.referenceBodyId).rotationAt(describes, scratchRotation))
         }
         if (parked) {
-            // Nothing to catch up: it's drawn from here, carried on.
+            // Nothing to catch up; it's drawn carried on from here.
             accumulator = ageSeconds.coerceIn(0.0, MAX_CATCHUP_SECONDS)
             val after = local.body.position.copy().addScaledInPlace(local.body.linearVelocity, accumulator)
             toGround(local, after, replica.time + accumulator)
@@ -530,26 +466,23 @@ class ClientPrediction(
 
         val catchUp = (ageSeconds / DT).toInt().coerceIn(0, MAX_CATCHUP_TICKS)
         repeat(catchUp) { replica.step(DT) }
-        // The part of the age too short for a whole step waits in the accumulator, where the next
-        // advance spends it and [renderTime] counts it, instead of being dropped.
+        // The leftover part step waits in the accumulator for the next advance and [renderTime].
         accumulator = (ageSeconds - catchUp * DT).coerceIn(0.0, DT)
 
-        // Carry the difference so the correction gets smoothed out instead of applied as a jump.
+        // Carry the difference so the correction is smoothed.
         val after = local.body.position.copy().addScaledInPlace(local.body.linearVelocity, accumulator)
         toGround(local, after, replica.time + accumulator)
         renderOffset.addInPlace(before).subInPlace(after)
         if (renderOffset.length > MAX_SMOOTHED_ERROR) {
-            // Too far out to hide. The replica was wrong about something real, so show the truth
-            // instead of sliding toward it for a second.
+            // Too far to hide, so show the truth at once.
             renderOffset.setZero()
         }
     }
 
     /**
-     * Whether [state] is a sleeping craft. The server rebuilds a sleeping craft's velocity from the
-     * planet's rotation every tick, so it matches the surface to rounding error. An awake one
-     * resting on its gear never does, because it carries the tick's contact impulse, a tenth of a
-     * metre a second or more. No flag on the wire is needed.
+     * Whether [state] is a sleeping craft. A sleeping craft's velocity matches the surface to
+     * rounding error; an awake one on its gear carries a contact impulse of 0.1 m/s or more. So no
+     * flag on the wire is needed.
      */
     private fun serverHasItAsleep(state: VesselKinematics): Boolean {
         val body = system.bodies[state.referenceBodyId] ?: return false
@@ -563,10 +496,8 @@ class ClientPrediction(
     private val scratchRotation = Quat.identity()
 
     /**
-     * The universe time the predicted craft is drawn at: the replica's last step plus the part of a
-     * step since then. Everything else in the frame (above all the planet's rotation) has to be
-     * drawn at this same time, or the ground and the craft on it disagree by 175 m/s times the
-     * difference.
+     * The universe time the predicted craft is drawn at: the last step plus the part step since.
+     * The rest of the frame, the planet's rotation above all, must use the same time.
      */
     fun renderTime(): Double? {
         val replica = world ?: return null
@@ -574,17 +505,8 @@ class ClientPrediction(
     }
 
     /**
-     * Where to draw the craft: the prediction carried forward to [renderTime], plus the fading
-     * correction.
-     *
-     * It's carried forward because the replica steps at 60 Hz and a display runs at 60 to 120.
-     * Drawn at its last step, a craft parked on the equator moves in 2.9 m jumps while the ground
-     * under it turns smoothly.
-     */
-    /**
-     * Shifts where the craft is drawn by [delta] (inertial), to be eased away like any correction.
-     * This keeps it where it was drawn when the replica is rebuilt, instead of snapping. It does
-     * nothing if it's too far to hide.
+     * Shifts where the craft is drawn by [delta] (inertial), eased away like any correction, so a
+     * rebuilt replica doesn't snap. Does nothing if it's too far to hide.
      */
     fun carryOffset(delta: Vec3) {
         val replica = world ?: return
@@ -595,16 +517,16 @@ class ClientPrediction(
     }
 
     /**
-     * Where to draw the craft, from the centre of body [bodyId]. That's the one the rest of the
-     * frame is drawn around, which for a moment either side of passing into another's pull isn't
-     * the one the replica has.
+     * Where to draw the craft: the prediction carried forward to [renderTime] (the replica steps at
+     * 60 Hz, displays run faster), plus the fading correction. Measured from the centre of
+     * [bodyId], the frame's body, which near a change of body may not be the replica's.
      */
     fun renderPosition(out: Vec3 = Vec3(), bodyId: String? = null): Vec3? {
         val local = vessel ?: return null
         val replica = world ?: return null
         out.setTo(local.body.position).addScaledInPlace(local.body.linearVelocity, accumulator)
         if (renderOffset.lengthSq != 0.0) {
-            // The correction is held against the ground, so turn it with the ground.
+            // The correction is held in the ground frame, so turn it with the ground.
             system.body(local.referenceBodyId).rotationAt(replica.time + accumulator, scratchRotation)
             scratchRotation.rotate(renderOffset, scratchVelocity)
             out.addInPlace(scratchVelocity)
@@ -622,10 +544,9 @@ class ClientPrediction(
     }
 
     /**
-     * Pieces the replica has dropped (a stage let go here a moment before the server hears about
-     * it), with where each one is drawn, carried and corrected the way [renderPosition] carries the
-     * replica. This only lasts until the server's own version of the split arrives. The replica
-     * gets adopted afresh then, and these go with its old world.
+     * Pieces the replica dropped before the server heard, with where to draw each, carried and
+     * corrected like [renderPosition]. They go when the server's split arrives and the replica is
+     * adopted afresh.
      */
     fun droppedPieces(): List<Pair<Vessel, Vec3>> {
         val local = vessel ?: return emptyList()
@@ -646,16 +567,12 @@ class ClientPrediction(
     fun renderRotation(out: Quat = Quat()): Quat? {
         val local = vessel ?: return null
         out.setTo(local.body.orientation)
-        // Parked, it's carried on from the server's last word, turning as well as moving, or a ship
-        // asleep on the water would rock only as often as snapshots come.
+        // Parked, it turns on as well as moves, or a sleeping ship rocks only per snapshot.
         if (parked) spin(out, local.body.angularVelocity, accumulator)
         return out
     }
 
-    /**
-     * The replica's moving parts, straight from its own tick, so control surfaces move on the same
-     * frame the stick does instead of a snapshot later.
-     */
+    /** The replica's moving parts from its own tick, so surfaces follow the stick at once. */
     fun pose(into: com.rm.apogee.core.world.VesselPose.Values): Boolean {
         val local = vessel ?: return false
         local.fitPose()
@@ -690,12 +607,9 @@ class ClientPrediction(
     }
 
     private companion object {
-        /**
-         * A craft first seen beside ours only touches it gently for this long, in seconds. See
-         * World's separation grace.
-         */
+        /** Seconds a new neighbour only touches us gently. See World's separation grace. */
         const val NEIGHBOUR_GRACE = 1.5
-        /** A craft of the replica's own this near a neighbour, in metres, is taken to be it. */
+        /** A replica craft this near a neighbour, in metres, is taken to be it. */
         const val LOCAL_COPY_REACH = 12.0
         const val DT = 1.0 / 60.0
 
@@ -708,19 +622,13 @@ class ClientPrediction(
         /** The most real time one advance can try to make up. */
         const val MAX_CATCHUP_SECONDS = 0.25
 
-        /** A cap on the reconciliation catch-up, so a stalled connection can't spiral. */
+        /** Caps the catch-up, so a stalled connection can't spiral. */
         const val MAX_CATCHUP_TICKS = 30
 
         /** Per-frame fading of the smoothed correction. */
         const val OFFSET_DECAY = 0.85
 
-        /**
-         * Errors bigger than this get shown straight away.
-         *
-         * Smoothing a large error means drawing the craft somewhere it isn't for a noticeable time.
-         * If prediction was wrong by more than a craft's length, the honest thing is to correct it
-         * where you can see it.
-         */
+        /** Errors over this many metres (about a craft's length) are shown at once, unsmoothed. */
         const val MAX_SMOOTHED_ERROR = 25.0
     }
 }

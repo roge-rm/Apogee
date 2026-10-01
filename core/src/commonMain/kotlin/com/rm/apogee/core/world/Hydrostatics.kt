@@ -12,17 +12,14 @@ import com.rm.apogee.core.math.Math
 /**
  * Water: buoyancy and drag, cell by cell.
  *
- * Each part's volume is carried as a grid of cells ([com.rm.apogee.core.part.PartDef.volumeCells]),
- * and each cell is weighed against the water surface where it is. The fraction of a cell below the
- * surface displaces that fraction of its volume, pushing up at the cell and not at the craft's
- * centre. So a hull that heels over has more of itself under water on the low side and rights
- * itself, and when there are waves, a crest under the bow lifts the bow. One force at the centre of
- * mass gives you neither, and that's the failure this is built to avoid.
+ * Each part's volume is a grid of cells ([com.rm.apogee.core.part.PartDef.volumeCells]), each
+ * weighed against the water surface where it is. The share under displaces that share of its
+ * volume, pushing up at the cell, not the craft's centre. So a heeled hull rights itself and a
+ * crest under the bow lifts the bow, which one force at the centre of mass can't do.
  *
- * Drag is per cell too, and per axis of the part it belongs to. Water resists a cell's motion
- * across each face in proportion to that face's area. So a long, narrow hull slides easily along
- * its length and hardly at all sideways. That's a keel, arrived at without anything called a keel,
- * and it's what lets a boat turn instead of skating.
+ * Drag is per cell and per axis of its part, by each face's area. A long narrow hull slides easily
+ * along its length and hardly at all sideways, which acts as a keel and lets a boat turn rather
+ * than skate.
  */
 class Hydrostatics {
 
@@ -39,8 +36,8 @@ class Hydrostatics {
     private val cellAxis = Vec3()
 
     /**
-     * Parts that hit the water this tick, and how hard: the speed into it, plus some of the skim
-     * across it. There are [splashCount] of them.
+     * Parts that hit the water this tick, [splashCount] of them, and how hard: the speed into it
+     * plus some of the skim across it.
      */
     val splashParts = IntArray(MAX_SPLASHES)
     val splashSpeeds = DoubleArray(MAX_SPLASHES)
@@ -59,13 +56,12 @@ class Hydrostatics {
     private var patch = com.rm.apogee.core.sea.WavePatch()
 
     /**
-     * Each craft's waves, as last worked out. Building them means the sea state, the shelter and
-     * the shoaling and every train's size, which a phone at 4x couldn't keep up with four times a
-     * tick in a rough sea. So they're built every [PATCH_KEEP] seconds, or when the craft has gone
-     * [PATCH_MOVE] metres, and carried on in between by each train's phase alone.
+     * Each craft's waves as last built. Building them (sea state, shelter, shoaling, every train's
+     * size) is too slow for a phone at 4x in a rough sea, so they're built every [PATCH_KEEP]
+     * seconds or after [PATCH_MOVE] metres, and carried on between by each train's phase alone.
      */
     private class Kept(val patch: com.rm.apogee.core.sea.WavePatch, val at: Vec3, var body: String, var used: Double) {
-        /** When it was last built, as opposed to carried on to. */
+        /** When it was last built, not just carried on. */
         var built = Double.NaN
     }
     private val kept = HashMap<VesselId, Kept>()
@@ -126,9 +122,8 @@ class Hydrostatics {
         val ocean = attractor.ocean ?: run { vessel.wet = null; return }
         val body = vessel.body
 
-        // Far above any sea there could be, it's clear of it without asking the sea anything.
-        // Asked anyway, every craft in flight round a world with a sea had its waves worked out
-        // every few ticks, a rocket fifty kilometres up included.
+        // Far above any sea there could be, it's clear without asking the sea, so craft high in
+        // flight don't build waves.
         if (attractor.altitudeOf(body.position) - vessel.contactRadius > CLEAR_ABOVE) {
             seaHeight = 0.0
             val n = vessel.defs.size
@@ -142,24 +137,23 @@ class Hydrostatics {
         wavesFor(vessel, attractor, ocean, time)
         seaHeight = sea.significantHeight
 
-        // Nowhere near the water. The margin is generous: the craft's own reach, since that's how
-        // far below its centre a cell can be, plus the biggest crest the sea here might throw up.
+        // Nowhere near the water. The margin is the craft's reach (how far below its centre a cell
+        // can be) plus the biggest crest the sea here might throw up.
         val altitude = attractor.altitudeOf(body.position)
         if (altitude - vessel.contactRadius > sea.height + SURFACE_MARGIN + CREST_MARGIN * sea.significantHeight) {
-            // Clear of it, and known to be, so whatever goes under next, fast, counts as a splash.
+            // Known to be clear, so whatever goes under next, fast, counts as a splash.
             val n = vessel.defs.size
             (vessel.wet?.takeIf { it.size == n } ?: BooleanArray(n).also { vessel.wet = it }).fill(false)
             return
         }
 
-        // Whether there's sea here at all, asked once for the whole craft instead of per cell,
-        // because a craft is small next to a coastline.
+        // Whether there's sea here at all, asked once for the craft, since it's small next to a
+        // coastline.
         if (sea.depth <= 0.0) return
 
-        // The water's up is against effective gravity (gravity minus what it takes to go round with
-        // the planet), not straight out from the centre. Off the equator the two differ by a
-        // fraction of a degree, and pushing straight out left every floating boat shoved gently
-        // toward the equator, drifting forever.
+        // The water's up is against effective gravity (gravity less the spin's share), not straight
+        // out from the centre. Off the equator they differ slightly, and pushing straight out
+        // drifts every floating boat toward the equator.
         attractor.gravityAt(body.position, force)
         attractor.angularVelocity(spin)
         spinning.setTo(spin).crossInPlace(body.position)
@@ -177,9 +171,8 @@ class Hydrostatics {
         for (i in vessel.defs.indices) partWater[i * 3] = Double.NaN
         var submergedCells = 0
         var c = 0
-        // The waves only need working out where a cell might be partly in them. One wholly below
-        // the lowest trough the sea here can make is under, and one wholly above the highest crest
-        // is clear.
+        // Waves only need working out where a cell might be partly in them: one wholly below the
+        // lowest trough is under, one wholly above the highest crest is clear.
         val tideRadius = attractor.radius + patch.middle.tide
         val highest = tideRadius + patch.reach
         val lowest = tideRadius - patch.reach
@@ -195,8 +188,8 @@ class Hydrostatics {
                 val surface = when {
                     r + half < lowest -> lowest
                     r - half > highest -> highest
-                    // Cells stacked in one column share the surface over them, while the hull is
-                    // close enough to upright that they stand over the same water.
+                    // Cells stacked in one column share the surface over them while the hull is
+                    // near upright.
                     cell.x == columnX && cell.y == columnY && horizontalFrom(point, lastColumnPoint) < COLUMN_SHARE -> columnSurface
                     else -> {
                         attractor.toBodyFixed(point, rotation, bodyFixed)
@@ -220,9 +213,8 @@ class Hydrostatics {
         flood(vessel, attractor, ocean, time, dt)
         if (submergedCells == 0) return
 
-        // How the hull meets the water as a whole, from its length and its speed through it. The
-        // bow's wave only builds as it nears hull speed, and a long hull slips through the water
-        // more easily than a short one at the same speed.
+        // How the hull meets the water as a whole, from its length and speed. The bow wave only
+        // builds near hull speed, and a long hull slips through more easily than a short one.
         val length = hullLength(vessel)
         attractor.surfaceVelocityAt(body.position, relative)
         val through = relative.subInPlace(body.linearVelocity).length
@@ -237,18 +229,16 @@ class Hydrostatics {
             val size = def.volumeCellSize
             val placed = vessel.design.parts[i]
             val faces = exposure(vessel)[i]
-            // A hull's ends are shaped to part the water, and a keel's or a rudder's leading edge is
-            // a foil's, sharper still. Anything else meets it square on.
+            // A hull's ends part the water, and a keel's or rudder's leading edge is a foil's,
+            // sharper still. Anything else meets it square on.
             val hull = def.module<com.rm.apogee.core.part.Buoyancy>() != null
             val foil = !hull && def.module<com.rm.apogee.core.part.HydroSurface>() != null
             val endCd = if (hull) HULL_END_CD else if (foil) FOIL_END_CD else WATER_CD
-            // A hull's own length makes few waves at a walking pace, and a foil deep under it
-            // makes none. Anything else's +Y is just an axis, and on something standing up that's
-            // its heave.
+            // A hull makes few waves along its length at a walking pace, and a foil deep under it
+            // none. Anything else's +Y is just an axis, and standing up that's its heave.
             val aheadMaking = if (hull || foil) WAVE_MAKING_AHEAD else WAVE_MAKING_SPEED
-            // Only along the hull, though. A pontoon standing on end under a platform has its +Y
-            // straight up, and there it's heave. Shaped by a bow wave that isn't there, it went
-            // undamped, and the Sea Platform bounced about its harbour for good.
+            // Only along the hull, though. A pontoon on end under a platform has +Y straight up,
+            // where it's heave and needs full damping.
             placed.rotation.rotate(Vec3.unitY(), point)
             val endShare = if (hull && abs(point dot vessel.design.orientation.forward) > ALONG_HULL) waves else 1.0
 
@@ -264,39 +254,34 @@ class Hydrostatics {
                 force.setTo(buoyUp).mulInPlace(rho * g * displaced)
                 body.applyForceAtOffset(force, offset)
 
-                // Drag against the water, which moves with the ground and with the waves. A crest
-                // carries a boat forward, a trough pulls it back, and a big sea throws it around.
+                // Drag against the water, which moves with the ground and the waves. A crest
+                // carries a boat forward, a trough pulls it back, a big sea throws it around.
                 body.velocityAtOffset(offset, relative)
                 waterVelocity(vessel, attractor, ocean, time, i, waterVelocity)
                 relative.subInPlace(waterVelocity)
                 val speed = relative.length
                 if (speed < 1e-6) continue
 
-                // Into the part's own axes, where its face areas are known.
+                // Into the part's axes, where its face areas are known.
                 body.orientation.inverseRotate(relative, local)
                 placed.rotation.inverseRotate(local, local)
-                // Only the faces that meet the water: the one leading into the flow along each
-                // axis, and only where no part of the craft lies against it. A hull six cells long
-                // meets the water with one bow, not six, and a hull of five sections with one, not
-                // five.
+                // Only faces that meet the water: the leading one along each axis, and only where
+                // no part of the craft lies against it. A hull of six cells or five sections has
+                // one bow.
                 val open = faces[n].toInt()
                 val areaX = if (open and (if (local.x > 0.0) PLUS_X else MINUS_X) != 0) size.y * size.z * fraction else 0.0
                 val areaY = if (open and (if (local.y > 0.0) PLUS_Y else MINUS_Y) != 0) size.x * size.z * fraction else 0.0
                 val areaZ = if (open and (if (local.z > 0.0) PLUS_Z else MINUS_Z) != 0) size.x * size.y * fraction else 0.0
-                // |v| plus a constant, not |v|. The constant is wave-making. A hull moving through
-                // the surface loses energy into the waves it makes, in proportion to speed instead
-                // of its square, and that's what stops a floating boat bobbing. On quadratic drag
-                // alone the stock boat was still heaving at a tenth of a metre a second half a
-                // minute after launch.
+                // |v| plus a constant, not |v|. The constant is wave-making: a hull loses energy to
+                // its waves in proportion to speed, not its square, and that's what stops a boat
+                // bobbing. Quadratic drag alone leaves it heaving long after launch.
                 //
-                // Less of it along the hull, off the bow and stern: going ahead at a walking pace,
-                // a boat makes hardly any waves, and with the whole of it there a sailing boat in a
-                // breeze made half the speed a real one does. A little is kept, or a moored boat
-                // surged back and forth and never settled.
+                // Less of it along the hull: a boat at a walking pace makes hardly any waves, and
+                // the full amount halves a sailing boat's speed. A little is kept so a moored boat
+                // doesn't surge forever.
                 //
-                // Then there's skin friction, the water dragging along every wetted face it slides
-                // past. That's what holds back a long flat hull skimming along with almost no bow
-                // in the water.
+                // Then skin friction along every wetted face, which holds back a long flat hull
+                // skimming with almost no bow in the water.
                 val sideX = (if (open and PLUS_X != 0) 1 else 0) + (if (open and MINUS_X != 0) 1 else 0)
                 val sideY = (if (open and PLUS_Y != 0) 1 else 0) + (if (open and MINUS_Y != 0) 1 else 0)
                 val sideZ = if (open and MINUS_Z != 0) 1 else 0
@@ -312,14 +297,12 @@ class Hydrostatics {
                 )
                 placed.rotation.rotate(local, force)
                 body.orientation.rotate(force, force)
-                // Someone swimming lies along the way they're going and meets the water with their
-                // head and shoulders, not the whole of them stood up like a box. As a box they swam
-                // at a quarter of a metre a second.
+                // A swimmer lies along the way they're going and meets the water head and shoulders
+                // first, not stood up like a box.
                 if (vessel.swimming) force.mulInPlace(SWIMMER_SHAPE)
 
-                // Never more than stops this cell's share of the craft in one tick. Quadratic drag
-                // on a craft arriving at a hundred metres a second is a force that would reverse
-                // its motion, and an explicit step would fling it back out of the water.
+                // Never more than stops this cell's share of the craft in a tick, or quadratic drag
+                // on a fast arrival reverses its motion and an explicit step flings it back out.
                 val limit = body.mass / submergedCells * speed / dt
                 val magnitude = force.length
                 if (magnitude > limit) force.mulInPlace(limit / magnitude)
@@ -332,8 +315,8 @@ class Hydrostatics {
     }
 
     /**
-     * How long [vessel]'s hull is at the waterline, in metres: the length of its buoyant parts
-     * along its forward axis. Worked out again only when its parts change.
+     * [vessel]'s hull length at the waterline in metres: its buoyant parts along its forward axis.
+     * Redone only when its parts change.
      */
     private fun hullLength(vessel: Vessel): Double {
         if (vessel.hullLengthOf === vessel.defs) return vessel.hullLength
@@ -358,9 +341,8 @@ class Hydrostatics {
     }
 
     /**
-     * How fast the water around part [index] is moving, inertial, into [out]: the ground's own
-     * motion, plus the waves' at the part's depth. It's worked out once per part per tick, because
-     * the water hardly changes across one.
+     * The water's velocity around part [index], inertial, into [out]: the ground's motion plus the
+     * waves' at the part's depth. Once per part per tick, since it hardly changes across one.
      */
     private fun waterVelocity(vessel: Vessel, attractor: CelestialBody, ocean: com.rm.apogee.core.terrain.Ocean, time: Double, index: Int, out: Vec3): Vec3 {
         val o = index * 3
@@ -371,7 +353,7 @@ class Hydrostatics {
         val surface = attractor.radius + patch.height(scratchFixed)
         val below = kotlin.math.max(0.0, surface - scratchPoint.length)
         patch.velocity(scratchFixed, below, scratchVelocity)
-        // And the current it's in, carrying the whole sea along.
+        // And the current, carrying the whole sea along.
         ocean.sea?.let { scratchVelocity.addInPlace(it.current(scratchFixed, below, scratchCurrent)) }
         rotation.rotate(scratchVelocity, out)
         attractor.surfaceVelocityAt(scratchPoint, scratchGround)
@@ -381,10 +363,9 @@ class Hydrostatics {
     }
 
     /**
-     * Which faces of each part's volume cells meet the water, per part and cell, as bits. It's
-     * worked out once for a craft's shape and kept until it changes. A face is open unless the
-     * point just past it lies inside some part of the craft, either its own next cell or the hull
-     * section it's joined to.
+     * Which faces of each part's volume cells meet the water, per part and cell, as bits. Worked
+     * out once per shape. A face is open unless the point just past it lies inside some part of the
+     * craft, its own next cell or the hull section it's joined to.
      */
     private fun exposure(vessel: Vessel): Array<ByteArray> {
         val design = vessel.design
@@ -446,11 +427,10 @@ class Hydrostatics {
     private val scratchGround = Vec3()
 
     /**
-     * Water coming aboard. An open hull takes on whatever comes over its gunwale, either a crest
-     * breaking over it or a heel that puts the edge under, like water over a weir, going by the
-     * depth over the edge to the power of one and a half. A holed hull, open or not, does the same
-     * through its broken sides. It's carried as weight, and a slow pump takes it out again while
-     * nothing is coming in. Full enough, the boat sinks.
+     * Water coming aboard. An open hull takes on whatever comes over its gunwale, from a breaking
+     * crest or a heel that puts the edge under, like a weir (depth over the edge to the 1.5 power).
+     * A holed hull, open or not, does the same through its broken sides. It's carried as weight and
+     * a slow pump clears it while nothing comes in. Full enough, the boat sinks.
      */
     private fun flood(vessel: Vessel, attractor: CelestialBody, ocean: com.rm.apogee.core.terrain.Ocean, time: Double, dt: Double) {
         val flooded = vessel.flooded
@@ -462,7 +442,7 @@ class Hydrostatics {
             if (!hull.open && !holed) continue
             val box = vessel.defs[i].mesh as? com.rm.apogee.core.part.MeshSpec.Box ?: continue
             val capacity = com.rm.apogee.core.part.Buoyancy.capacity(vessel.defs[i], ocean.density)
-            // The rim: points around the top edge, each standing for its share of it.
+            // The rim: points round the top edge, each standing for its share.
             val w = box.width; val h = box.height
             val perimeter = 2.0 * (w + h)
             val each = perimeter / RIM_POINTS
@@ -490,7 +470,7 @@ class Hydrostatics {
                 val here = patch.height(bodyFixed)
                 val atSurface = kotlin.math.abs(attractor.radius + here - point.length) < box.depth + sea.significantHeight * 0.3
                 // Breaking where the crests are: the sea's breaking, by how high the water stands
-                // here over the rest.
+                // here.
                 val crest = if (sea.significantHeight > 0.1) ((here - sea.tide) / sea.significantHeight).coerceIn(0.0, 1.0) else 0.0
                 val breaking = kotlin.math.max(sea.breaking, crest * kotlin.math.min(1.0, sea.stormHeight / 5.0))
                 if (atSurface && breaking > BREAKING_FROM) {
@@ -506,7 +486,7 @@ class Hydrostatics {
             if (flooded[i] != before) changed = true
         }
         if (changed) {
-            // Work out the mass properties again every so often while it changes, not every tick.
+            // Redo the mass properties every so often while it changes, not every tick.
             if (++floodedSinceMass >= MASS_EVERY) { vessel.recomputeMass(); floodedSinceMass = 0 }
         }
     }
@@ -515,10 +495,9 @@ class Hydrostatics {
     private val rimLocal = Vec3()
 
     /**
-     * Which parts went under this tick, and how fast, measured into the surface as it faces, moving
-     * as it moves. A hull slamming into the face of a wave hits it as hard as its speed into the
-     * slope, not the level. The first look at a craft only notes what's already wet, because a
-     * craft set down in the sea, or just broken apart in it, hasn't hit anything.
+     * Which parts went under this tick and how fast, measured into the surface as it faces and
+     * moves, so slamming into a wave's face counts its slope. The first look at a craft only notes
+     * what's wet, since a craft set down in the sea or just broken apart in it hasn't hit anything.
      */
     private fun splashes(vessel: Vessel, attractor: CelestialBody, ocean: com.rm.apogee.core.terrain.Ocean, time: Double) {
         val n = vessel.defs.size
@@ -550,14 +529,12 @@ class Hydrostatics {
     }
 
     /**
-     * Rudders, keels and foils: flat plates in the water.
+     * Rudders, keels and foils: flat plates in the water, normal along the part's Z.
      *
-     * The plate's normal is its part's Z axis. Water flowing across it pushes back along that
-     * normal, the same sin(a)cos(a) flat-plate force a wing makes, from the flow across the plate
-     * times the flow along it. That's what stops a keeled boat sliding sideways while hardly
-     * slowing it going forward. A controllable one that's deflected adds the push its deflection
-     * makes, the same way an aircraft's control surfaces do. All of it is scaled by how much of the
-     * plate is under water.
+     * Flow across the plate pushes back along the normal with a wing's sin(a)cos(a) flat-plate
+     * force, which stops a keeled boat sliding sideways while hardly slowing it forward. A
+     * deflected controllable one adds its push, as an aircraft's control surfaces do. All scaled by
+     * how much of the plate is wet.
      */
     private fun applySurfaces(vessel: Vessel, attractor: CelestialBody, ocean: com.rm.apogee.core.terrain.Ocean, time: Double, dt: Double) {
         val body = vessel.body
@@ -584,14 +561,13 @@ class Hydrostatics {
             if (surface.controllable) {
                 val deflection = vessel.surfaceDeflection.getOrElse(i) { 0.0 }
                 val angle = Math.toRadians(surface.maxDeflection) * deflection
-                // Along the plate's own push direction for the command, like Forces.deflect: across
-                // the hull and the mounting radius.
+                // Along the plate's push direction for the command, like Forces.deflect: across the
+                // hull and the mounting radius.
                 push += q * surface.controlAuthority * relative.lengthSq *
                     kotlin.math.sin(angle) * kotlin.math.cos(angle) * deflectSign(vessel, i)
             }
-            // Never more than would stop the whole craft's motion across the plate in one tick.
-            // Water is dense enough that an explicit step of the raw force could reverse it and
-            // fling the boat sideways.
+            // Never more than stops the craft's motion across the plate in a tick. Water is dense
+            // enough that an explicit step could reverse it and fling the boat sideways.
             val limit = body.mass * kotlin.math.abs(across) / dt + q * surface.controlAuthority * relative.lengthSq
             if (kotlin.math.abs(push) > limit) push = kotlin.math.sign(push) * limit
             force.setTo(plateNormal).mulInPlace(push)
@@ -600,9 +576,8 @@ class Hydrostatics {
     }
 
     /**
-     * Which way along the plate's normal a positive deflection pushes: the direction
-     * Forces.controlDeflection's rule gives (across the fuselage and the mounting radius),
-     * projected onto the plate's normal.
+     * Which way along the plate's normal a positive deflection pushes, by
+     * Forces.controlDeflection's rule (across the fuselage and the mounting radius).
      */
     private fun deflectSign(vessel: Vessel, partIndex: Int): Double {
         vessel.centerOfMass(scratchCentre)
@@ -622,12 +597,9 @@ class Hydrostatics {
     private val scratchPlate = Vec3()
 
     /**
-     * How much of the cell centred at [point] is under water, 0..1.
-     *
-     * A cell sitting across the surface is partly under in proportion to how far its centre is
-     * below it, over the cell's own height as seen from above, which for a cell tipped on its side
-     * is its width, not its height. Without that, the lift would switch on and off as each cell
-     * centre crossed the surface, and a floating hull would buzz.
+     * How much of the cell centred at [point] is under water, 0..1: its centre's depth over the
+     * cell's height as seen from above (its width, if tipped on its side). Without it the lift
+     * switches as each centre crosses the surface and a floating hull buzzes.
      */
     private fun depthFraction(
         vessel: Vessel,
@@ -651,29 +623,24 @@ class Hydrostatics {
 
     private companion object {
         /**
-         * How much of a hull's bow drag there is at [speed] m/s through the water, for a hull
-         * [length] metres long, 0..1. It's the wave the bow makes, and that's all about the
-         * Froude number, speed over the square root of g times length. At a walking pace a hull
-         * makes almost none, and it builds steeply to all of it as it nears hull speed, a Froude
-         * number of about 0.4. Charged in full at every speed, it held a twenty-five metre schooner to
-         * four knots in a fresh breeze.
+         * How much of a hull's bow drag there is at [speed] m/s for a hull [length] metres long,
+         * 0..1. It's the bow wave, set by the Froude number (speed over sqrt(g * length)): almost
+         * none at a walking pace, building steeply to all of it near hull speed (Froude about 0.4).
          */
         fun waveMaking(speed: Double, length: Double): Double {
             val froude = speed / sqrt(STANDARD_GRAVITY * length.coerceAtLeast(0.5))
             val share = froude / HULL_SPEED_FROUDE
-            // Then the hump: just past hull speed the hull is trying to climb its own bow wave, and
-            // more power buys very little more speed. That's the wall a ship runs into. A planing
-            // hull gets over it and up on top of the water, and the drag eases off again.
+            // Then the hump: just past hull speed the hull climbs its own bow wave and more power
+            // buys little speed. A planing hull gets over it and the drag eases.
             val over = (froude - HUMP_FROUDE) / HUMP_WIDTH
             return (share * share * share * share).coerceAtMost(1.0) + HUMP * kotlin.math.exp(-over * over)
         }
 
         /**
-         * The skin friction coefficient at [speed] through the water, on a hull [length] long: the
-         * ITTC 1957 line, 0.075 / (log10 Re - 2)^2, with a form factor for a hull that isn't a flat
-         * plate and an allowance for one that isn't polished. A long hull going quickly has a high
-         * Reynolds number and a low coefficient, which is why a ship slips along where a dinghy
-         * drags. A single number had a twenty-five metre ship dragging like a dinghy.
+         * The skin friction coefficient at [speed] for a hull [length] long: the ITTC 1957 line,
+         * 0.075 / (log10 Re - 2)^2, plus a form factor and a roughness allowance. A long fast hull
+         * has a high Reynolds number and a low coefficient, so a ship slips along where a dinghy
+         * drags.
          */
         fun skinFriction(speed: Double, length: Double): Double {
             val reynolds = (speed * length / WATER_VISCOSITY).coerceAtLeast(MIN_REYNOLDS)
@@ -686,7 +653,10 @@ class Hydrostatics {
         /** The Froude number at which a displacement hull reaches hull speed. */
         const val HULL_SPEED_FROUDE = 0.4
 
-        /** The wave drag's hump past hull speed: how much more there is at its worst, where, and how wide. */
+        /**
+         * The wave drag's hump past hull speed: how much more there is at its worst, where, and how
+         * wide.
+         */
         const val HUMP = 2.0
         const val HUMP_FROUDE = 0.5
         const val HUMP_WIDTH = 0.12
@@ -694,7 +664,9 @@ class Hydrostatics {
         /** Seawater's kinematic viscosity, in m²/s. */
         const val WATER_VISCOSITY = 1.19e-6
 
-        /** The lowest Reynolds number the friction line is taken at: a crawl, where it's laminar. */
+        /**
+         * The lowest Reynolds number the friction line is taken at: a crawl, where it's laminar.
+         */
         const val MIN_REYNOLDS = 1.0e5
 
         /** How much more than a flat plate of its area a hull's friction drags. */
@@ -703,10 +675,13 @@ class Hydrostatics {
         /** The allowance for a hull that isn't polished smooth. */
         const val ROUGHNESS = 0.0004
 
-        /** How long a craft's waves are carried on before they're built again, in seconds, and how far it can go meanwhile, in metres. */
         /** Higher than this over the datum, in metres, no tide or crest could reach a craft. */
         const val CLEAR_ABOVE = 500.0
 
+        /**
+         * How long a craft's waves are carried on before they're rebuilt, in seconds, and how far
+         * it can go meanwhile, in metres.
+         */
         const val PATCH_KEEP = 0.05
         const val PATCH_MOVE = 50.0
 
@@ -725,15 +700,15 @@ class Hydrostatics {
         const val CREST_MARGIN = 1.2
 
         /**
-         * Points around a hull's rim that water can come in over, and the weir coefficient, in
+         * Points round a hull's rim that water can come in over, and the weir coefficient in
          * m^0.5/s.
          */
         const val RIM_POINTS = 12
         const val WEIR = 1.7
 
         /**
-         * Breaking crests over an open hull: m³/s per metre of its rim when the sea breaks fully
-         * over it, from this much breaking up, in a sea of this height in metres or more.
+         * Breaking crests over an open hull: m³/s per metre of rim when the sea breaks fully, from
+         * this much breaking up, in a sea of this height in metres or more.
          */
         const val BREAKER = 0.1
         const val BREAKING_FROM = 0.25
@@ -747,26 +722,27 @@ class Hydrostatics {
 
         const val MAX_SPLASHES = 16
 
-        /** How much of the speed across the water counts in a splash. Skimming in is gentler than diving. */
+        /**
+         * How much of the speed across the water counts in a splash. Skimming in is gentler than
+         * diving.
+         */
         const val SKIM_SHARE = 0.3
 
         /**
-         * The drag coefficient of a hull face moving through water. It's around a bluff body's. A
-         * hull isn't streamlined, but it is long, and the per-face areas are what make it prefer to
-         * go forwards.
+         * The drag coefficient of a hull face moving through water, about a bluff body's. The
+         * per-face areas are what make a hull prefer to go forwards.
          */
         const val WATER_CD = 0.8
 
         /**
-         * The drag coefficient of a hull's ends, moving along it. The bow and stern are shaped to
-         * part the water, and a boat is built to go forwards.
+         * The drag coefficient of a hull's ends, moving along it. Bow and stern are shaped to part
+         * the water.
          */
         const val HULL_END_CD = 0.25
 
         /**
-         * The same for a keel, a rudder or a foil along its chord, on its face into the water. A
-         * streamlined section drags a tenth of a blunt one. Met square on, a ship's keel five metres
-         * long cost a schooner a knot and a half.
+         * The same for a keel, rudder or foil along its chord. A streamlined section drags about a
+         * tenth of a blunt one.
          */
         const val FOIL_END_CD = 0.08
 
@@ -774,8 +750,8 @@ class Hydrostatics {
         const val ALONG_HULL = 0.7
 
         /**
-         * Cells in one column share the surface over them while they stand within this many metres
-         * of each other across the horizontal.
+         * Cells in one column share the surface while within this many metres across the
+         * horizontal.
          */
         private const val COLUMN_SHARE = 0.1
 
@@ -788,9 +764,9 @@ class Hydrostatics {
         private const val PLUS_Z = 16; private const val MINUS_Z = 32
 
         /**
-         * The linear part of water drag, as the speed at which it equals the quadratic part. It's
-         * sized so the stock boat's heave is damped to about a third of critical, so it settles in
-         * a couple of bobs and still visibly floats instead of looking set in jelly.
+         * The linear part of water drag, as the speed where it equals the quadratic part. Sized to
+         * damp the stock boat's heave to about a third of critical, so it settles in a couple of
+         * bobs and still looks afloat.
          */
         const val WAVE_MAKING_SPEED = 1.0
 

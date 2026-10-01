@@ -57,9 +57,8 @@ import kotlin.math.roundToInt
 import com.rm.apogee.platform.format
 
 /**
- * A panel on the left edge that slides away. It slides instead of being removed, so a part dragged
- * out of it keeps its finger while the panel tucks itself away. When it's away, a slim handle stays
- * at the edge. Tap it, or pull it out.
+ * A left-edge panel that slides away rather than leaving composition, so a part dragged out of it
+ * keeps its finger. When away, a slim handle stays at the edge to tap or pull.
  */
 @Composable
 fun SlidePanel(
@@ -67,7 +66,7 @@ fun SlidePanel(
     onOpen: () -> Unit,
     handleLabel: String,
     modifier: Modifier = Modifier,
-    /** How much of the left of the screen it covers, in pixels from the edge. 0 while it's away. */
+    /** Pixels it covers from the left edge. 0 while away. */
     onCovers: (Float) -> Unit = {},
     content: @Composable () -> Unit,
 ) {
@@ -111,10 +110,7 @@ fun SlidePanel(
     }
 }
 
-/**
- * The stats. One line shows delta-v, thrust to weight, mass, and a dot when something's wrong, and
- * tapping it shows the whole card.
- */
+/** Delta-v, TWR and mass in a line, with a dot when something's wrong. A tap opens the card. */
 @Composable
 fun StatsChip(stats: CraftStats, onOpen: () -> Unit, modifier: Modifier = Modifier) {
     Surface(
@@ -147,7 +143,7 @@ fun StatsChip(stats: CraftStats, onOpen: () -> Unit, modifier: Modifier = Modifi
     }
 }
 
-/** What's in your hand, and a way to put it down. */
+/** The held part, with a way to put it down. */
 @Composable
 fun HeldChip(title: String, picture: ImageBitmap?, onDrop: () -> Unit, modifier: Modifier = Modifier) {
     Surface(
@@ -170,9 +166,8 @@ fun HeldChip(title: String, picture: ImageBitmap?, onDrop: () -> Unit, modifier:
 }
 
 /**
- * Next to a tapped part: take it off, copy it, turn it, or see its stage, and under those, put it in
- * an action group or save it (with everything on it) to use again. It goes under the part where
- * there's room, otherwise over it, and it's always on screen.
+ * Actions for a tapped part: delete, copy, turn, stage, group, save as an assembly. Below the part
+ * if there's room, else above, always on screen.
  */
 @Composable
 fun PartActionBar(
@@ -190,8 +185,7 @@ fun PartActionBar(
     var size by remember { mutableStateOf(IntSize.Zero) }
     val gap = with(LocalDensity.current) { 44.dp.toPx() }
     val margin = with(LocalDensity.current) { 8.dp.toPx() }
-    // Below the part, clear of the finger that tapped it, or above it where below would run into
-    // the launch button.
+    // Below the part, clear of the finger, or above where below would hit the launch button.
     val bottomLimit = screen.height - with(LocalDensity.current) { 150.dp.toPx() }
     val below = anchor.y + gap
     val y = (if (below + size.height <= bottomLimit) below else anchor.y - gap - size.height)
@@ -251,10 +245,7 @@ private fun Action(label: String, colour: Color, onClick: () -> Unit) {
     )
 }
 
-/**
- * The part under a carrying finger while it has nowhere to go: a picture of it, just above your
- * fingertip.
- */
+/** A picture of a carried part with nowhere to go, just above the fingertip. */
 @Composable
 fun CarryPicture(picture: ImageBitmap?, at: Offset, lift: Float) {
     val half = with(LocalDensity.current) { 32.dp.toPx() }

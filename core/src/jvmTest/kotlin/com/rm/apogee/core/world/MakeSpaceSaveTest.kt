@@ -6,18 +6,14 @@ import com.rm.apogee.core.part.StockParts
 import org.junit.Test
 import java.io.File
 /**
- * Not a test: a tool. It writes a solo-world save with a Starter I coasting up through 240 km at a
- * kilometre a second (somewhere a tap-driven emulator can't fly to), for checking staging, warp and
- * so on in space.
+ * A tool. Writes a solo-world save with a Starter I coasting up through 240 km at
+ * 1 km/s, for checking things in space. Does nothing without SPACE_SAVE.
  *
  *     SPACE_SAVE=/tmp/solo.json ./gradlew :core:test --tests '*MakeSpaceSaveTest*' --rerun-tasks
  *
- * Then copy it over the app's files/world/solo.json and use Resume Flight. With NIGHT set as well,
- * the rocket stands on the pad instead, with the clock moved on until the launch site is at local
- * midnight, for checking how things look after dark. Given a number of seconds, it goes to that
- * time instead: NIGHT=2400 is just before sunset. With CRASH=<metres> instead, the rocket starts
- * that high over the pad, tipped over and falling at 60 m/s (or CRASH_SPEED), for watching a crash
- * and what follows. It does nothing without SPACE_SAVE set.
+ * Copy it over the app's files/world/solo.json and use Resume Flight. NIGHT puts the rocket on the
+ * pad at local midnight, or at NIGHT seconds if given (2400 is just before sunset). CRASH=<metres>
+ * starts it that high over the pad, tipped over and falling at 60 m/s (or CRASH_SPEED).
  */
 class MakeSpaceSaveTest {
     @Test fun make() {
@@ -27,8 +23,8 @@ class MakeSpaceSaveTest {
         val terra = world.system.body("terra")
         val night = System.getenv("NIGHT")
         if (night != null) {
-            // The site turns with Terra from +X, and the sun sits a little north of the equator at
-            // x 0.62, z 0.64. Midnight is when the site faces away.
+            // The site turns with Terra from +X and the sun is at x 0.62, z 0.64. Midnight is when
+            // the site faces away.
             val away = kotlin.math.atan2(0.64, -0.62)
             val midnight = night.toDoubleOrNull()?.takeIf { it > 1.0 }
                 ?: ((away + 2 * kotlin.math.PI) % (2 * kotlin.math.PI)) / (2 * kotlin.math.PI) * terra.rotationPeriod
@@ -39,9 +35,8 @@ class MakeSpaceSaveTest {
             println("saved to $out at t=$midnight")
             return
         }
-        // SEA=wind|storm|surf: boats afloat somewhere the sea is like that, in daylight. That's an
-        // open-ocean wind sea of a few metres, a storm's sea with a Cutter, a Skiff and a Trawler
-        // side by side, or surf over a beach.
+        // SEA=wind|storm|surf: boats afloat in that sea, in daylight. A few metres of open-ocean
+        // wind sea, a storm sea with a Cutter, Skiff and Trawler, or surf over a beach.
         System.getenv("SEA")?.let { kind ->
             world.weatherConfig = com.rm.apogee.core.weather.WeatherConfig()
             val sun = Vec3(0.62, 0.0, 0.64).normalizeInPlace()
@@ -85,8 +80,8 @@ class MakeSpaceSaveTest {
             println("saved to $out: $kind sea, Hs ${"%.1f".format(ocean.sample(where, time, sample).significantHeight)} m, t=$time")
             return
         }
-        // DOCK=space|luna|land|water: two craft ready to dock, a few metres apart. That's tugs ring
-        // to ring in orbit or on Luna, a buggy with a cart behind it, or two skiffs side by side.
+        // DOCK=space|luna|land|water: two craft a few metres apart, ready to dock. Tugs in orbit or
+        // on Luna, a buggy and cart, or two skiffs.
         System.getenv("DOCK")?.let { where ->
             fun ref(v: com.rm.apogee.core.craft.Vessel, part: Int) =
                 com.rm.apogee.core.physics.PortRef(v, part, v.defs[part].module<com.rm.apogee.core.part.DockingPort>()!!).update()
@@ -137,21 +132,17 @@ class MakeSpaceSaveTest {
             return
         }
         val crash = System.getenv("CRASH")?.toDoubleOrNull()
-        // AT=DAWN (or NOON, DUSK, MIDNIGHT): the next such time at the pad, for looking at the
-        // light. With CRASH, it's up in the air at that time. AT_PLUS=<seconds> moves it on from
-        // there.
+        // AT=DAWN|NOON|DUSK|MIDNIGHT: the next such time at the pad. AT_PLUS=<seconds> moves it on.
         System.getenv("AT")?.let { at ->
             val design = StockCraft.starterRocket(catalog)
             val probe = world.spawnAtSite(design, World.launchSiteFor(design, catalog))
             val pad = terra.toBodyFixed(probe.body.position, terra.rotationAt(world.time), Vec3()).normalizeInPlace()
-            // AT_PLUS=<seconds> on from it, an hour after dawn, say.
             val t = LaunchTime.valueOf(at).nextAt(world.system, terra, pad, 1_000.0) +
                 (System.getenv("AT_PLUS")?.toDoubleOrNull() ?: 0.0)
             world.restore(WorldSave(catalogHash = catalog.contentHash, universeTime = t, nextVesselId = 1L))
             println("at $at: t=$t")
         }
-        // STORM=day or night: a time when a grown storm stands near the pad in daylight or in
-        // darkness, for looking at storms. With CRASH the rocket is up in the air at that time.
+        // STORM=day|night|rain: a time when a grown storm is near the pad.
         var underRain: Vec3? = null
         System.getenv("STORM")?.let { want ->
             val design = StockCraft.starterRocket(catalog)
@@ -169,8 +160,7 @@ class MakeSpaceSaveTest {
                     val shapes = ArrayList<com.rm.apogee.core.weather.CloudShape>()
                     weather.clouds(pad, 35_000.0, t, shapes)
                     val here = pad.copy().mulInPlace(terra.radius)
-                    // STORM_KIND=single|multicell|supercell|squall: that kind, grown, 15-45 km
-                    // away.
+                    // STORM_KIND=single|multicell|supercell|squall: that kind, 15 to 45 km away.
                     val kind = System.getenv("STORM_KIND")?.let { com.rm.apogee.core.weather.StormKind.valueOf(it.uppercase()) }
                     val storm = if (kind != null) {
                         val e = Vec3(); val n = Vec3()
@@ -203,9 +193,8 @@ class MakeSpaceSaveTest {
             val rocket = world.spawnAtSite(design, World.launchSiteFor(design, catalog))
             rocket.name = "Starter I"
             val body = rocket.body
-            // ROUGH=1: not over the pad but over the roughest ground within 20 km of it, where
-            // coarse drawn ground strays furthest from the collider's, for checking what's drawn
-            // under a craft.
+            // ROUGH: over the ground near the pad where the coarse drawn mesh strays furthest from
+            // the collider's. A number sets the search spacing in metres (200, about 20 km out).
             underRain?.let { spot ->
                 // In the rain, a little off the middle of the shaft.
                 val rotation = terra.rotationAt(world.time)

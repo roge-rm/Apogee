@@ -3,11 +3,8 @@ package com.rm.apogee.net
 import kotlinx.coroutines.flow.Flow
 
 /**
- * Message channels. Structure and kinematics are split because they're shaped the opposite way. A
- * [STRUCTURE] message is large and rare (a craft appears, a stage separates), and a [KINEMATICS]
- * message is small and constant (20 Hz of positions). Keeping them apart stops a craft spawn from
- * stalling the position stream, and later it lets kinematics move to unreliable delivery while
- * structure stays reliable.
+ * Message channels. [STRUCTURE] is large and rare, [KINEMATICS] small and constant (20 Hz), so a
+ * craft spawn can't stall positions, and kinematics could later go unreliable.
  */
 enum class Channel {
     /** Handshake, chat and commands. Reliable and ordered. */
@@ -23,10 +20,7 @@ enum class Channel {
 data class Packet(
     val channel: Channel,
     val bytes: ByteArray,
-    /**
-     * The message itself, on a transport that [Transport.passesObjects], with [bytes] left empty.
-     * Within one process there's nobody to encode it for.
-     */
+    /** The message itself when the transport [Transport.passesObjects]; [bytes] is then empty. */
     val message: Any? = null,
 ) {
     override fun equals(other: Any?): Boolean =
@@ -36,21 +30,13 @@ data class Packet(
 }
 
 /**
- * The one seam between the game and the network.
- *
- * Single player is a one-player server talking over [LoopbackTransport], so the client code path is
- * the same whether or not there's a socket involved. Swapping in the TCP version for LAN play
- * changes nothing above this interface. That's the whole reason I built multiplayer in from the
- * start instead of bolting it on later.
+ * The one seam between the game and the network. Single player runs over [LoopbackTransport] and
+ * LAN play over TCP; nothing above this interface changes.
  */
 interface Transport {
     val incoming: Flow<Packet>
 
-    /**
-     * Whether both ends are in this process, so messages can go across as they are, unencoded. A
-     * phone's own game encoded every snapshot to bytes on one thread and decoded it again on the
-     * next.
-     */
+    /** Both ends are in this process, so messages go across unencoded. */
     val passesObjects: Boolean get() = false
 
     suspend fun send(packet: Packet)

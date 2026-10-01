@@ -12,10 +12,7 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * Loading a world saved on older ground. Every save from before 0.3.0 has its parked craft sitting
- * on terrain that doesn't exist any more.
- */
+/** Loading a world saved on older ground, as every save from before 0.3.0 was. */
 class TerrainMigrationTest {
 
     private val catalog = StockParts.catalog
@@ -77,8 +74,8 @@ class TerrainMigrationTest {
         repeat(120) { world.step(dt) }
         val orbitPosition = orbiting.body.position.copy()
 
-        // The old ground was four metres higher under one rover and three lower under the other, so
-        // as saved, one is buried and one hovers.
+        // The old ground was 4 m higher under one rover and 3 m lower under the other, so as
+        // saved one is buried and one hovers.
         val save = oldSave(world, felled = listOf(42L, 43L)) { v ->
             val p = Vec3().setTo(v.position)
             val up = p.normalized()

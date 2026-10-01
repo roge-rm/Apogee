@@ -13,8 +13,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Ocean currents: running in the open sea, calm in harbours, bays and protected places, the same
- * wherever they're worked out, and carrying what floats in them.
+ * Ocean currents: running in the open sea, calm in harbours and bays, deterministic, and carrying
+ * what floats.
  */
 class CurrentsTest {
 
@@ -129,7 +129,7 @@ class CurrentsTest {
         assertTrue("current $speed m/s", current.length > 0.15)
         assertTrue("drifting ${ground.length} m/s in a ${current.length} m/s current", ground.distanceTo(current) < 0.1 * current.length + 0.02)
 
-        // Engine off: it's left alone, so it drops anchor and sleeps, and stays where it is.
+        // Engine off: left alone, it anchors, sleeps and stays put.
         world.apply(Command.SetThrottle(skiff.id.raw, 0.0))
         repeat((60.0 / dt).toInt()) { world.step(dt) }
         assertTrue("asleep", skiff.dormant)

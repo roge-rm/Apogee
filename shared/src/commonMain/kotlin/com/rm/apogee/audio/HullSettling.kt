@@ -4,12 +4,10 @@ import kotlin.math.abs
 import kotlin.math.exp
 
 /**
- * How hard a crewed hull is still working against a change in the pressure outside it, 0..1. It's
- * what makes it tick and creak. It climbs quickly while the air thins on the way up (or thickens on
- * the way down), then dies away over a minute or so once the pressure has levelled out, so in
- * space, once the craft has settled, it's almost silent.
- *
- * It runs on world time, so time warp doesn't turn a climb into a storm of ticks.
+ * How hard a crewed hull is working against a change in outside pressure, 0..1, which drives its
+ * ticks and creaks. It climbs quickly while the air thins or thickens, then dies away over a minute
+ * or so once pressure levels out, so a settled craft in space is almost silent. Runs on world time,
+ * so time warp doesn't turn a climb into a storm of ticks.
  */
 class HullSettling {
     var level = 0.0
@@ -18,12 +16,12 @@ class HullSettling {
     private var lastTime = Double.NaN
 
     /**
-     * Feeds in this frame's outside [pressure] (a share of sea level) at world [time], in seconds.
+     * Feeds in this frame's outside [pressure] (share of sea level) at world [time], in seconds.
      */
     fun update(pressure: Double, time: Double): Double {
         val dt = time - lastTime
         if (lastPressure.isNaN() || dt.isNaN() || dt <= 0.0 || dt > MAX_STEP) {
-            // The first look, a pause, or a jump, so there's nothing to judge a change by.
+            // First look, a pause or a jump: nothing to judge a change by.
             if (dt.isNaN() || dt > MAX_STEP) { lastPressure = pressure; lastTime = time }
             return level
         }
@@ -44,11 +42,10 @@ class HullSettling {
 
     companion object {
         /**
-         * The change of pressure, as a share of sea level per second, that has the hull working
-         * flat out.
+         * Pressure change, as a share of sea level per second, that has the hull working flat out.
          */
         const val FULL_RATE = 0.008
-        /** How fast the working builds up, and how slowly it dies away, in seconds. */
+        /** How fast the working builds and how slowly it dies away, in seconds. */
         const val RISE = 2.0
         const val FALL = 45.0
         /** A gap between frames longer than this, in seconds, is a jump, not a change. */

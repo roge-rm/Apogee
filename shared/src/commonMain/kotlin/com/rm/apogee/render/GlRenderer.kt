@@ -18,30 +18,24 @@ import kotlin.concurrent.Volatile
 /**
  * Draws whatever the game thread last published to the [FrameBus].
  *
- * It runs on GLSurfaceView's own thread in RENDERMODE_CONTINUOUSLY. It never touches simulation
- * state directly (it reads one [RenderFrame] pair that never changes, and interpolates), so no
- * amount of work here can stall the physics, and no physics tick can stall a frame.
+ * Runs on GLSurfaceView's own thread, continuously. It never touches simulation state (it reads an
+ * immutable [RenderFrame] pair and interpolates), so rendering can't stall physics or the reverse.
  *
- * **Two depth passes, not one.** A 600 km planet and a 1 m fuel tank can't share a depth buffer.
- * Any near/far pair that resolves centimetres on a part can't reach the horizon, and any pair that
- * reaches the horizon quantises the craft into z-fighting mush. So the world is drawn first against
- * a far frustum, the depth buffer is cleared, and craft are drawn against a near one. GLES has no
- * reliable `glClipControl`, so reversed-Z isn't available, and logarithmic depth misbehaves across
- * the very large triangles a planet mesh is made of. That leaves this, which is what space sims
- * have done for years.
+ * Two depth passes. A 600 km planet and a 1 m tank can't share a depth buffer: no near/far pair
+ * resolves centimetres on a part and also reaches the horizon. So the world is drawn against a far
+ * frustum, depth is cleared, and craft are drawn against a near one. GLES has no reliable
+ * `glClipControl` for reversed-Z, and logarithmic depth misbehaves on a planet's huge triangles.
  *
- * The cost is that a craft is always drawn in front of the planet, even when it's behind it. With a
- * chase camera on one craft that never comes up. When it does (other players' craft on the far side
- * of a world), they'll need sorting into the far pass by distance.
+ * The cost: a craft always draws in front of the planet, even behind it. With a chase camera that
+ * never comes up; other players' craft on a world's far side would need sorting into the far pass.
  */
 class GlRenderer(
     /** Picks the device's quality tier, once there's a context to judge it by. */
     private val detectTier: () -> QualityTier,
     private val frameBus: FrameBus,
     /**
-     * Called once, on the GL thread, as soon as a context exists and the device can really be
-     * judged. The caller saves it so the Settings screen can show a real tier instead of a
-     * placeholder.
+     * Called once on the GL thread as soon as a context exists and the device can really be judged,
+     * so Settings can show the real tier.
      */
     private val onTierDetected: (QualityTier) -> Unit = {},
 ) {
@@ -53,8 +47,8 @@ class GlRenderer(
     val framesDrawn = AtomicLong(0)
 
     /**
-     * Debug: time each pass, with the GPU finished before the clock is read. The frame is slower
-     * while this is on, but each pass's share is its own.
+     * Debug: time each pass, finishing the GPU before reading the clock. Slower, but each pass's
+     * share is its own.
      */
     @Volatile var timePasses = false
     private val passNanos = LongArray(PASS_NAMES.size)
@@ -98,7 +92,10 @@ class GlRenderer(
     private val frameLamps = FloatArray(4 * WorldView.MAX_LAMPS)
     private var frameLampCount = 0
 
-    /** The body's centre, camera-relative, and the sea's surface radius, and how far light gets through it. See [WorldView.seaRadius]. */
+    /**
+     * The body's centre (camera-relative), the sea's surface radius, and how far light gets through
+     * it. See [WorldView.seaRadius].
+     */
     private val frameSea = FloatArray(4)
     private val frameWater = FloatArray(3) { 1f }
     private val scratchLamp = Vec3()
@@ -106,11 +103,8 @@ class GlRenderer(
     private var terrainProgram: ShaderProgram? = null
 
     /**
-     * Terrain geometry, handed over by the game thread.
-     *
-     * It's built by sampling the simulation's own height field, which takes long enough that it
-     * can't happen on the GL thread. The producer swaps a finished mesh in here and the renderer
-     * uploads it on the next frame.
+     * Terrain geometry, handed over by the game thread. Sampling the height field is too slow for
+     * the GL thread, so the producer swaps a finished mesh in here and it's uploaded next frame.
      */
     val terrainSource = TerrainSource()
     private var globeMesh: TerrainMesh? = null
@@ -125,11 +119,9 @@ class GlRenderer(
     private val chunkMeshes = HashMap<ChunkKey, TerrainMesh>()
 
     /**
-     * One mesh per different shape, built the first time it's seen.
-     *
-     * It's keyed by the MeshSpec value itself, so a rocket with three identical fuel tanks uploads
-     * one mesh and draws it three times. It's cleared whenever the GL context is recreated, because
-     * every handle in it is dangling then.
+     * One mesh per distinct shape, built the first time it's seen. Keyed by the shape value, so
+     * three identical tanks upload one mesh. Cleared when the GL context is recreated, since every
+     * handle in it is dangling then.
      */
     private val meshes = HashMap<Pair<com.rm.apogee.core.part.Shape, Int>, Mesh>()
     private var lineProgram: ShaderProgram? = null
@@ -138,7 +130,7 @@ class GlRenderer(
     private var emptyVao = IntArray(1)
     private var lineScratch = FloatArray(0)
 
-    // Allocated up front, because allocating per draw call would put the GC on the render path.
+    // Allocated up front, so the GC stays off the render path.
     private val modelMatrix = Mat4()
     private val viewMatrix = Mat4()
     private val nearProjection = Mat4()
@@ -151,11 +143,8 @@ class GlRenderer(
     private val interpolatedCameraRot = Quat()
 
     /**
-     * The planet's rotation for this displayed frame, interpolated exactly the way the camera and
-     * craft are. Taken from the newest published frame alone, the ground was up to one publish
-     * interval ahead of the craft on it on every frame drawn between two (most of three metres at
-     * the equator), and back in line on the next. That was the ground jittering under a still
-     * craft.
+     * The planet's rotation for this displayed frame, interpolated exactly as the camera and craft
+     * are, so the ground doesn't jitter under a still craft between publishes.
      */
     private val interpolatedBodyRotation = Quat()
     private val cameraRight = Vec3()
@@ -171,8 +160,8 @@ class GlRenderer(
     // --- the sea ------------------------------------------------------------
 
     /**
-     * Sets [shader]'s model matrix and look-ahead for the sea built at [sea]. Warped, a build is
-     * drawn for longer in the world's time, so it's carried further.
+     * Sets [shader]'s model matrix and look-ahead for the sea built at [sea]. Warped, a build lasts
+     * longer in world time, so it's carried further.
      */
     private fun placeSea(sea: SeaSurface, cameraPos: Vec3, shader: ShaderProgram, time: Double, warp: Double) {
         interpolatedBodyRotation.rotate(sea.origin, seaOrigin)
@@ -183,8 +172,8 @@ class GlRenderer(
     }
 
     /**
-     * The sea, after everything solid. It's see-through over the shallows, so the bottom and
-     * anything under it show, and it has both faces, for looking up at it from beneath.
+     * The sea, after everything solid. See-through over the shallows so the bottom shows, and
+     * two-faced for looking up at it from beneath.
      */
     private fun drawSea(world: WorldView, cameraPos: Vec3) {
         val mesh = seaMesh ?: return
@@ -265,9 +254,8 @@ class GlRenderer(
         GLES30.glEnable(GLES30.GL_CULL_FACE)
         GLES30.glCullFace(GLES30.GL_BACK)
 
-        // The EGL context can be lost and recreated (surface teardown, some driver events), so
-        // every GL object is rebuilt here instead of in the constructor. Anything cached across
-        // this boundary is a dangling name.
+        // The EGL context can be lost and recreated, so every GL object is rebuilt here, not in the
+        // constructor. Anything cached across this boundary is a dangling name.
         releaseGlObjects()
 
         vesselProgram = ShaderProgram(Shaders.VESSEL_VERTEX, Shaders.VESSEL_FRAGMENT, "vessel")
@@ -289,8 +277,7 @@ class GlRenderer(
         seaProgram = ShaderProgram(Shaders.SEA_VERTEX, Shaders.SEA_FRAGMENT, "sea")
         terrainDepth = ShaderProgram(Shaders.TERRAIN_VERTEX, Shaders.DEPTH_FRAGMENT, "terrain-depth")
 
-        // The sky shader makes its own vertices, but GLES still needs a bound vertex array object
-        // to draw.
+        // The sky shader makes its own vertices, but GLES still needs a bound VAO to draw.
         GLES30.glGenVertexArrays(1, emptyVao, 0)
     }
 
@@ -315,9 +302,8 @@ class GlRenderer(
         val latest = pair.latest
         val previous = pair.previous
 
-        // The interpolation factor between the two most recent published states. The server streams
-        // at 20 Hz and the display might be at 60, 90 or 120, so drawing the newest state as it is
-        // would judder, even though the simulation is perfectly smooth.
+        // The interpolation factor between the two newest published states. The server streams at
+        // 20 Hz and the display runs at 60 to 120, so drawing the newest state as is would judder.
         val alpha = if (previous == null) {
             1.0
         } else {
@@ -331,8 +317,8 @@ class GlRenderer(
         nightDim(latest.world?.fogColor ?: CLEAR_FOG_COLOR, frameDaylight, frameFog)
         latest.world?.let { now ->
             val before = previous?.world
-            // Only between frames of the same body. Across a change of sphere of influence the two
-            // rotations have nothing to do with each other.
+            // Only between frames of the same body; across a sphere of influence change the
+            // rotations are unrelated.
             if (before != null && before.radius == now.radius) {
                 Quat.slerp(before.bodyRotation, now.bodyRotation, alpha, interpolatedBodyRotation)
             } else {
@@ -350,7 +336,7 @@ class GlRenderer(
         interpolatedCameraRot.rotate(Vec3.unitY(), cameraUp)
         interpolatedCameraRot.rotate(Vec3(0.0, 0.0, -1.0), cameraForward)
 
-        // The newest sea onto the GPU first, because it casts shadows too.
+        // The newest sea onto the GPU first, since it casts shadows too.
         latest.world?.sea?.let { next -> (seaMesh ?: SeaMesh().also { seaMesh = it }).take(next) }
         if (latest.world?.sea == null) seaMesh?.let { it.release(); seaMesh = null }
 
@@ -382,9 +368,9 @@ class GlRenderer(
             drawFarGlobes(latest.farGlobes, world, cameraPos, atmosphereFactor)
             drawCloudShell(world, cameraPos)
             mark(5)
-            // Paths go through the far projection, since an orbit is hundreds of kilometres across
-            // and the near frustum would clip it away. They're drawn last, over everything: close in
-            // on the map, the ground drawn in the near pass covered a rover's course.
+            // Paths use the far projection, since an orbit is hundreds of kilometres across and the
+            // near frustum would clip it. Drawn last, over everything, so near ground can't cover a
+            // rover's course.
             linesDue = true
 
             // Take back the whole depth range for the near pass.
@@ -395,17 +381,16 @@ class GlRenderer(
         val nearPlane = (latest.nearestDistance * 0.5).coerceIn(NEAR_NEAR_PLANE, MAX_NEAR_PLANE)
         nearProjection.setPerspective(latest.fovYRadians, aspect, nearPlane, NEAR_FAR_PLANE)
         nearViewProjection.setMultiplied(nearProjection, viewMatrix)
-        // The patch belongs here, not in the far pass. The far pass starts at a hundred metres, and
-        // clipping the nearest hundred metres of ground leaves the craft standing at the edge of a
-        // hole with sky underneath it, which is exactly what it looked like.
+        // The patch belongs in the near pass: the far pass starts at 100 m, which would leave the
+        // craft on the edge of a hole.
         mark(6)
         if (world != null) drawChunks(world, cameraPos, atmosphereFactorAt(world))
         mark(8)
         drawVessels(latest, previous, alpha, cameraPos)
         mark(9)
         if (world != null) drawSea(world, cameraPos)
-        // Cloud after the sea. Drawn before it, the sea (blended, since its shallows are clear) got
-        // laid over the clouds below a high craft, a disc of blue on the cloud deck.
+        // Cloud after the sea, or the blended sea lays a disc of blue over the cloud deck below a
+        // high craft.
         drawDeferredTranslucent(latest, alpha, cameraPos)
         mark(10)
         latest.particles?.let { particles ->
@@ -430,29 +415,25 @@ class GlRenderer(
         }
     }
 
-    /**
-     * How much atmosphere is overhead: 1 at the datum, 0 in vacuum.
-     *
-     * It's on the same exponential the simulation uses for density, so the sky fades out exactly
-     * where drag and engine performance say it should, instead of at some separately tuned
-     * altitude.
-     */
     /** The air's colour over distance, for every lit shader. This world's. */
     private fun setHaze(shader: ShaderProgram, world: WorldView?) {
         val haze = (world?.sky ?: SkyColours.TERRA).haze
         shader.setVec3("uHaze", haze[0], haze[1], haze[2])
     }
 
+    /**
+     * How much atmosphere is overhead: 1 at the datum, 0 in vacuum. On the simulation's density
+     * curve, so the sky fades where drag and engines say it should.
+     */
     private fun atmosphereFactorAt(world: WorldView): Float {
         if (world.atmosphereHeight <= 0.0) return 0f
         if (world.cameraAltitude >= world.atmosphereHeight) return 0f
         val density = kotlin.math.exp(
             -world.cameraAltitude.coerceAtLeast(0.0) / world.atmosphereScaleHeight
         )
-        // Raised to a fractional power so the sky stays convincingly solid through the low
-        // atmosphere. Plain density has already dropped to 0.87 at 800 m, which is enough for stars
-        // to show through in daylight a few hundred metres off the pad. A thin air only makes a
-        // little of a sky: black overhead, with a glow at the rim.
+        // Raised to a fractional power so the sky stays solid through the low atmosphere. Plain
+        // density is already 0.87 at 800 m, enough for stars to show by day just off the pad. Thin
+        // air makes only a little sky: black overhead, a glow at the rim.
         return Math.pow(density, 0.30).toFloat() * world.sky.depth
     }
 
@@ -521,8 +502,8 @@ class GlRenderer(
     private var cloudShellMesh: CloudShellMesh? = null
 
     /**
-     * The planet's cloud over the globe, on the map: a veil, blended, with the far half hidden
-     * behind the planet by the depth already drawn.
+     * The planet's cloud over the globe on the map: a blended veil, its far half hidden by depth
+     * already drawn.
      */
     private fun drawCloudShell(world: WorldView, cameraPos: Vec3) {
         val shell = world.cloudShell ?: return
@@ -534,7 +515,7 @@ class GlRenderer(
         shader.setMat4("uModel", modelMatrix.m)
         shader.setMat4("uViewProjection", farViewProjection.m)
         shader.setVec3("uSunDirection", world.sunDirection.x.toFloat(), world.sunDirection.y.toFloat(), world.sunDirection.z.toFloat())
-        // Cells about forty kilometres across, drifting one across in a couple of hours.
+        // Cells about 40 km across, drifting one across in a couple of hours.
         shader.setFloat("uNoiseScale", (world.radius / CLOUD_SHELL_CELL).toFloat())
         shader.setFloat("uDrift", ((world.time / CLOUD_SHELL_DRIFT) % 1_000.0).toFloat())
         GLES30.glEnable(GLES30.GL_BLEND)
@@ -552,9 +533,9 @@ class GlRenderer(
     private val farGlobeCentre = Vec3()
 
     /**
-     * The other worlds big enough in the sky, each as itself: its own globe, lit by the sun, where
-     * it really is. Its sea is the flat water the globe already carries, and our own air's haze
-     * isn't laid over it, only the day sky's wash.
+     * Other worlds big enough in the sky, each as its own globe lit by the sun where it really is.
+     * Its sea is the flat water the globe carries, and our air's haze isn't laid over it, only the
+     * day sky's wash.
      */
     private fun drawFarGlobes(globes: List<FarGlobe>, world: WorldView, cameraPos: Vec3, atmosphereFactor: Float) {
         if (globes.isEmpty()) return
@@ -586,24 +567,17 @@ class GlRenderer(
         if (!mesh.isReady || !world.drawFarSurface) return
 
         shader.use()
-        // Globe vertices are in body radii, so the model matrix scales them, and rotates them,
-        // because terrain turns with the planet.
+        // Globe vertices are in body radii, so the model matrix scales them, and rotates them since
+        // terrain turns with the planet.
         modelMatrix.setFromTrs(Vec3.zero(), interpolatedBodyRotation, cameraPos, world.radius)
         applySurfaceUniforms(shader, world, atmosphereFactor, cameraPos)
         applyShadowUniforms(shader, false)
         applyLamps(shader, false)
-        // A little inside the chunks' reach, so there's no gap between them.
+        // A little inside the chunks' reach, so there's no gap.
         shader.setFloat("uDiscardNearer", (world.chunkRange * 0.85).toFloat())
         mesh.draw()
     }
 
-    /**
-     * The chunks the game side chose, drawn in the near pass over the globe.
-     *
-     * Each chunk's vertices are metres from its own centre, and the camera subtraction happens here
-     * in double against numbers in the hundreds of thousands. So what reaches float is a handful of
-     * metres, and the ground doesn't shimmer at the equator.
-     */
     /** Chunk meshes that aren't drawn any more, kept to be written over. A few at most. */
     private val spareChunkMeshes = ArrayList<TerrainMesh>()
 
@@ -611,32 +585,35 @@ class GlRenderer(
         if (spareChunkMeshes.size < MAX_SPARE_CHUNK_MESHES) spareChunkMeshes.add(mesh) else mesh.release()
     }
 
+    /**
+     * The chunks the game side chose, drawn in the near pass over the globe. Vertices are metres
+     * from each chunk's centre and the camera is subtracted here in double, so float only sees a
+     * few metres and the ground doesn't shimmer.
+     */
     private fun drawChunks(world: WorldView, cameraPos: Vec3, atmosphereFactor: Float) {
         val shader = terrainProgram ?: return
         val indices = chunkIndices ?: return
         val list = terrainSource.drawList()
 
-        // Upload what's new, a few per frame. Each one is a buffer allocation and a copy, and a
-        // burst of dozens on the first frame over new ground is a visible hitch. Anything not
-        // uploaded yet is skipped this frame. The builder only lists built chunks, so it's a frame
-        // late, not a hole that lasts.
+        // Upload a few new ones per frame: each is a buffer allocation and copy, and dozens at once
+        // over new ground is a visible hitch. Anything not uploaded is skipped this frame (the
+        // builder only lists built chunks, so it's a frame late, not a lasting hole).
         //
-        // Releases go first. A chunk released and then rebuilt is queued in that order, and freeing
+        // Releases go first: a chunk released then rebuilt is queued in that order, and freeing
         // after uploading would free the new one.
         while (true) {
             val key = terrainSource.nextReleased() ?: break
             chunkMeshes.remove(key)?.let(::retire)
         }
-        // Up to a count, and a time. In fast flight low over new ground there are always more
-        // waiting, and the frame isn't theirs alone.
+        // Up to a count and a time: low and fast over new ground there are always more waiting.
         var uploads = 0
         val uploadStarted = System.nanoTime()
         while (uploads < MAX_CHUNK_UPLOADS_PER_FRAME && (uploads == 0 || System.nanoTime() - uploadStarted < CHUNK_UPLOAD_BUDGET_NANOS)) {
             val chunk = terrainSource.nextToUpload() ?: break
             val vertices = chunk.vertices ?: continue
             chunkMeshes.remove(chunk.key)?.let(::retire)
-            // A mesh retired from a chunk that's gone is the same size as any other, so its buffers
-            // are written over, not made again.
+            // A retired mesh is the same size as any other, so its buffers are written over, not
+            // remade.
             val mesh = if (spareChunkMeshes.isNotEmpty()) spareChunkMeshes.removeAt(spareChunkMeshes.size - 1) else TerrainMesh(indices)
             mesh.upload(vertices)
             chunk.vertices = null
@@ -655,8 +632,8 @@ class GlRenderer(
             val chunk = entry.chunk
             val mesh = chunkMeshes[chunk.key] ?: continue
             interpolatedBodyRotation.rotate(chunk.centre, scratchChunkCentre)
-            // Behind the camera by more than the chunk's own size, so nothing of it can be on
-            // screen. It's cheap, and usually half the chunks.
+            // Behind the camera by more than the chunk's size, so none of it can be on screen.
+            // Cheap, and usually half the chunks.
             scratchChunkCentre.subInPlace(cameraPos)
             if ((scratchChunkCentre dot cameraForward) < -chunk.boundingRadius) continue
             scratchChunkCentre.addInPlace(cameraPos)
@@ -704,23 +681,20 @@ class GlRenderer(
         shader.setFloat("uFogDistance", world.fogDistance.toFloat())
         shader.setVec3("uFogColor", frameFog[0], frameFog[1], frameFog[2])
         shader.setFloat("uDaylight", frameDaylight)
-        // The body's centre, camera-relative. The scene is drawn around the camera, and the body
+        // The body's centre, camera-relative: the scene is drawn round the camera, and the body
         // sits at the world origin.
         shader.setVec3("uBodyCentre", (-cameraPos.x).toFloat(), (-cameraPos.y).toFloat(), (-cameraPos.z).toFloat())
         shader.setFloat("uSeaReach", if (world.sea != null) world.seaReach.toFloat() else 0f)
         shader.setFloat("uTide", world.tide.toFloat())
     }
 
-    /**
-     * Draws path polylines.
-     *
-     * Depth writes are off so a conic that passes behind the planet still looks like one continuous
-     * path, instead of being sliced into arcs by its own far side, which is the whole point of a
-     * map view.
-     */
     /** Whether this frame's far pass set up the lines to be drawn at its end. */
     private var linesDue = false
 
+    /**
+     * Draws path polylines, with depth writes off so an orbit passing behind the planet stays one
+     * continuous path.
+     */
     private fun drawLines(frame: RenderFrame, cameraPos: Vec3) {
         if (frame.lines.isEmpty()) return
         val shader = lineProgram ?: return
@@ -797,13 +771,11 @@ class GlRenderer(
         cloudProgram?.let { setItemUniforms(it, latest, viewProjection); it.setFloat("uWrap", 1f); it.setFloat("uReceivesShadow", 0f) }
         shader.use()
 
-        // Solid things first, then the see-through ones (cloud) far to near, with blending on and
-        // depth writes off, so each layer shows through the ones in front of it and nothing solid
-        // behind gets lost.
+        // Solid things first, then see-through ones (cloud) far to near with blending on and depth
+        // writes off, so each layer shows through those in front and nothing solid behind is lost.
         matchPrevious(items, previousItems)
         translucent.clear()
-        // Solid parts by shape, to be drawn many per call. The Cape's buildings alone are some
-        // eight hundred pieces, and one call each was the frame's biggest pass.
+        // Solid parts by shape, many per call. The Cape's buildings alone are some 800 pieces.
         val batching = cloudProgram != null && solidBuffer[0] != 0
         for ((index, item) in items.withIndex()) {
             if (item.color[3] < 0.999f) { translucent.add(index); continue }
@@ -835,9 +807,8 @@ class GlRenderer(
     }
 
     /**
-     * The solid items [solidGroups] holds. A shape with one of it is drawn as it always was, and
-     * every shape with more is drawn all at once, instanced, with each piece's place, colour and
-     * glow in its instance.
+     * The solid items [solidGroups] holds. A shape with one item is drawn alone; a shape with more
+     * is drawn instanced, with each piece's place, colour and glow in its instance.
      */
     private fun drawSolidBatches(items: List<RenderItem>, alpha: Double, cameraPos: Vec3, shader: ShaderProgram) {
         val instanced = cloudProgram ?: return
@@ -879,8 +850,8 @@ class GlRenderer(
     }
 
     /**
-     * The shadow pass's solid items, grouped in [shadowGroups]: one alone drawn by [shader] as it
-     * always was, and more of a shape drawn all at once.
+     * The shadow pass's solid items, grouped in [shadowGroups]: one alone drawn by [shader], more
+     * of a shape all at once.
      */
     private fun drawShadowBatches(items: List<RenderItem>, alpha: Double, cameraPos: Vec3, shader: ShaderProgram) {
         val instanced = vesselDepthInstanced ?: return
@@ -981,10 +952,9 @@ class GlRenderer(
         matcher.match(items, previousItems)
 
     /**
-     * The see-through items, far to near. Cloud lobes are drawn many per call, one band of distance
-     * at a time, with a call for each shape in it, and anything else one by one in its place.
-     * Within a band the lobes aren't in strict order any more, which doesn't show between soft
-     * lobes at about the same distance. A sky of two thousand draw calls did show.
+     * The see-through items, far to near. Cloud lobes are drawn many per call, one distance band at
+     * a time with a call per shape, and anything else one by one in its place. Order within a band
+     * doesn't show between soft lobes; 2,000 draw calls did.
      */
     private fun drawTranslucent(items: List<RenderItem>, alpha: Double, cameraPos: Vec3, shader: ShaderProgram) {
         val clouds = cloudProgram
@@ -1039,9 +1009,9 @@ class GlRenderer(
     }
 
     /**
-     * [translucent] far to near by distance from [cameraPos]. Each distance is worked out once,
-     * into [distances] in the same order, and sorted as plain numbers. Sorting boxed distances,
-     * each measured again at every comparison, took twelve milliseconds a frame over a HIGH sky.
+     * [translucent] far to near by distance from [cameraPos]. Each distance is worked out once into
+     * [distances] and sorted as plain numbers; boxed distances recomputed per comparison took 12 ms
+     * a frame over a HIGH sky.
      */
     private fun sortFarToNear(items: List<RenderItem>, cameraPos: Vec3) {
         val n = translucent.size
@@ -1084,10 +1054,9 @@ class GlRenderer(
         placeItem(item, prevItem, alpha, cameraPos, shader)
         shader.setVec4("uColor", item.color)
         shader.setFloat("uAmbient", item.ambient)
-        // Clouds wrap their light and thin at the edges, and a flame (ambient of one or more) glows
-        // whole.
+        // Clouds wrap their light and thin at the edges; a flame (ambient 1 or more) glows whole.
         shader.setFloat("uWrap", if (item.wrap) 1f else 0f)
-        // A part gets shaded by what's between it and the light, and a cloud or a flame doesn't.
+        // A part is shaded by what's between it and the light; a cloud or flame isn't.
         shader.setFloat("uReceivesShadow", if (item.wrap || item.ambient >= 1f || item.sky) 0f else 1f)
         shader.setFloat("uSkyBody", if (item.sky) 1f else 0f)
         shader.setFloat("uCurtain", if (item.curtain) 1f else 0f)
@@ -1121,8 +1090,8 @@ class GlRenderer(
                     lerp(prevItem.position.z, item.position.z, alpha),
                 )
                 if (item.shape is CloudPuff) {
-                    // A cloud only turns with the planet between two frames, so a normalised
-                    // straight blend is as good, and far cheaper over two thousand of them.
+                    // A cloud only turns with the planet between frames, so a normalised straight
+                    // blend is as good and far cheaper over two thousand of them.
                     val a = prevItem.rotation; val b = item.rotation
                     val sign = if (a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w < 0.0) -1.0 else 1.0
                     val t = alpha; val u = 1.0 - alpha
@@ -1148,9 +1117,8 @@ class GlRenderer(
             } else {
                 modelMatrix.setFromTrs(position, rotation, cameraPos, scale.x, scale.y, scale.z)
                 // The shape only, relative to the largest axis. The shader normalises the result,
-                // so the scale itself isn't needed, and a cloud a kilometre across has a 1/scale^2
-                // near 1e-7, which a phone GPU's reduced precision rounds to nothing. A normal of
-                // zero lit the facets in random colours and black.
+                // and a kilometre-wide cloud's 1/scale^2 (near 1e-7) rounds to zero on a phone GPU,
+                // giving a zero normal and random colours.
                 val largest = maxOf(scale.x, scale.y, scale.z)
                 invScale[0] = ((largest / scale.x) * (largest / scale.x)).toFloat()
                 invScale[1] = ((largest / scale.y) * (largest / scale.y)).toFloat()
@@ -1162,9 +1130,9 @@ class GlRenderer(
     // --- shadows ------------------------------------------------------------
 
     /**
-     * Draws this frame's shadow maps and binds them, with the clouds' shadows: the near map around
-     * the craft every frame, and the mountains' when it's due. The light comes from the sun by day
-     * and the moon by night, fading across twilight instead of jumping from one to the other.
+     * Draws and binds this frame's shadow maps and the clouds' shadows: the near map round the
+     * craft every frame, and the mountains' when due. Lit by the sun by day and the moon by night,
+     * fading across twilight.
      */
     private fun prepareShadows(latest: RenderFrame, previous: RenderFrame?, alpha: Double, cameraPos: Vec3) {
         shadowQuality = shadowChoice ?: ShadowQuality.defaultFor(qualityTier)
@@ -1191,9 +1159,8 @@ class GlRenderer(
         world.cloudShadow?.let { grid ->
             if (grid.revision != cloudRevision) uploadCloudShadow(grid)
             grid.matrix(interpolatedBodyRotation, cameraPos, cloudMatrix)
-            // Gone by the time the grid would look like a patch on the globe below. It reaches
-            // tens of kilometres, and from orbit the clouds over the rest of the planet cast
-            // nothing, so an overcast inside it was a dark square.
+            // Gone before the grid would look like a patch on the globe below: it reaches tens of
+            // kilometres, and from orbit an overcast inside it would be a dark square.
             val height = interpolatedBodyRotation.inverseRotate(cameraPos, scratchShadow).length - world.radius
             cloudOn = grid.strength * (1f - smooth01(((height - CLOUD_SHADOW_HIGH) / CLOUD_SHADOW_HIGH).toFloat()))
         }
@@ -1218,7 +1185,7 @@ class GlRenderer(
         shader.setMat4("uViewProjection", nearFrustum.viewProjection)
         shadowMatcher.match(latest.items, previous?.items)
         // By shape, many to a call where there's more than one, as the main pass draws them. One
-        // call each, the launch complex alone was eight hundred calls a frame here.
+        // call each was 800 calls a frame for the launch complex alone.
         val batching = vesselDepthInstanced != null && shadowBuffer[0] != 0
         for ((index, item) in latest.items.withIndex()) {
             // Solid, lit things cast shadows, not cloud, flame, vapour or rain.
@@ -1237,28 +1204,24 @@ class GlRenderer(
             terrainSource.scatter.drawList(), interpolatedBodyRotation, cameraPos,
             nearFrustum.viewProjection, world, focus, reach,
         )
-        // Not the sea. It used to cast too, so a crest would shade the trough behind it, but then
-        // the seabed under it was in the water's shadow wherever this map reached, and through
-        // clear shallows that was a dark square round the craft that went where it went. The
-        // waves are shaded by their slope anyway.
+        // Not the sea: its shadow made the seabed a dark square round the craft through clear
+        // shallows. Waves are shaded by their slope anyway.
         map.end(viewportWidth, viewportHeight)
         nearOn = true
     }
 
     /**
-     * The ground for kilometres around, from the light's side, for the hills' shadows. It's redrawn
-     * every second or two, or when the camera has gone a fair way, since ground and sun barely move
-     * in between. It's made in the planet's own turning frame, so it stays on its mountains as they
-     * turn.
+     * The ground for kilometres round, from the light's side, for the hills' shadows. Redrawn every
+     * second or two, or when the camera has gone a fair way. Made in the planet's turning frame, so
+     * it stays on its mountains as they turn.
      */
     private fun drawFarMap(world: WorldView, cameraPos: Vec3, day: Boolean) {
         val size = shadowQuality.farSize
         val reach = shadowQuality.farReach
         val cameraFixed = interpolatedBodyRotation.inverseRotate(cameraPos, scratchShadow)
-        // Not from high up. From orbit the ground on screen is the whole globe, not the terrain
-        // this map is drawn from, and where the two shapes disagree the ground shaded itself: a
-        // dark square tens of kilometres across followed the craft round the planet. A mountain's
-        // shadow couldn't be seen from up there anyway.
+        // Not from high up: from orbit the ground on screen is the globe, not the terrain this map
+        // is drawn from, and where they disagree a dark square followed the craft. A mountain's
+        // shadow can't be seen from there anyway.
         if (cameraFixed.length - world.radius > reach) return
         val due = !farValid || farMap?.size != size || farDay != day ||
             (System.nanoTime() - farDrawnNanos) / 1e9 > shadowQuality.farEvery ||
@@ -1274,14 +1237,13 @@ class GlRenderer(
         farFrustum.aim(lightFixed, ground, reach, reach + 15_000.0, size)
         farFrustum.place(cameraFixed, interpolatedBodyRotation)
         val shader = terrainDepth ?: return
-        // Barely pushed back. Ground in a low sun is steep as the light sees it (a texel's slope is
-        // a hundred metres of depth at dawn), and the usual push hid every shadow within a few
-        // hundred metres of the ridge that cast it. The receivers' offset along their normal does
-        // the rest.
+        // Barely pushed back. In a low sun the ground is steep to the light (a texel's slope is 100
+        // m of depth at dawn), and the usual push hid every shadow near its ridge. The receivers'
+        // normal offset does the rest.
         map.begin(slope = 0.5f, units = 2f)
         shader.use()
         shader.setMat4("uViewProjection", farFrustum.viewProjection)
-        // The sea as flat water to the light, because waves cast nothing it could see.
+        // The sea as flat water to the light, since it couldn't see waves cast anything.
         shader.setFloat("uSeaReach", 0f)
         shader.setFloat("uTide", world.tide.toFloat())
         shader.setVec3("uBodyCentre", (-cameraPos.x).toFloat(), (-cameraPos.y).toFloat(), (-cameraPos.z).toFloat())
@@ -1327,13 +1289,8 @@ class GlRenderer(
     }
 
     /**
-     * Tells a lit program where the shadows are this frame. Its samplers always point at units 1, 2
-     * and 3, even with shadows off, since two sampler types left on one unit is an error when it
-     * draws.
-     */
-    /**
-     * [world]'s lamps into [frameLamps], camera-relative, on the ground as it's turned this frame,
-     * so a pool stays put on the concrete it lights.
+     * [world]'s lamps into [frameLamps], camera-relative, on the ground as turned this frame, so a
+     * pool stays put.
      */
     private fun placeLamps(world: WorldView, cameraPos: Vec3): Int {
         val count = minOf(world.lamps.size / 4, WorldView.MAX_LAMPS)
@@ -1353,11 +1310,15 @@ class GlRenderer(
         val count = if (lit) frameLampCount else 0
         shader.setInt("uLampCount", count)
         if (count > 0) shader.setVec4Array("uLamps", frameLamps, count)
-        // The sea's dark goes with the lamps, so wherever they light, it does too.
+        // The sea's dark goes with the lamps: wherever they light, it does too.
         shader.setVec4("uSea", if (lit) frameSea else NO_SEA)
         shader.setVec3("uWater", frameWater[0], frameWater[1], frameWater[2])
     }
 
+    /**
+     * Tells a lit program where the shadows are this frame. Its samplers always point at units 1, 2
+     * and 3, even with shadows off, since two sampler types on one unit is an error when it draws.
+     */
     private fun applyShadowUniforms(shader: ShaderProgram, receives: Boolean) {
         shader.setInt("uNearShadow", 1)
         shader.setInt("uFarShadow", 2)
@@ -1382,11 +1343,9 @@ class GlRenderer(
     }
 
     /**
-     * Builds and caches the GPU mesh for a shape the first time it's drawn.
-     *
-     * It's keyed on the cap mask as well as the shape, because a tank buried in a stack and the
-     * same tank standing alone are different meshes. There are at most four variants per shape, and
-     * in practice two.
+     * Builds and caches the GPU mesh for a shape the first time it's drawn. Keyed on the cap mask
+     * as well, since a tank buried in a stack and one standing alone are different meshes (at most
+     * four variants per shape, in practice two).
      */
     private fun meshFor(spec: com.rm.apogee.core.part.Shape, caps: Int): Mesh = meshes.getOrPut(spec to caps) {
         when (spec) {
@@ -1439,9 +1398,8 @@ class GlRenderer(
     private val thumbBytes = ByteArray(THUMB_RENDER * THUMB_RENDER * 4)
 
     /**
-     * A few waiting part pictures, drawn off screen before the frame itself, at twice the size and
-     * scaled down for smooth edges without multisampling, lit by the builder's key light with no
-     * shadows.
+     * A few waiting part pictures, drawn off screen before the frame at twice size and halved for
+     * smooth edges without multisampling, lit by the builder's key light with no shadows.
      */
     private fun drawThumbnails() {
         val source = thumbnails ?: return
@@ -1477,7 +1435,7 @@ class GlRenderer(
             drawItems(job.items, null, frame, 1.0, job.cameraPosition, thumbViewProjection.m)
             GLES30.glReadPixels(0, 0, THUMB_RENDER, THUMB_RENDER, GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, thumbPixels)
             thumbPixels.getBytes(thumbBytes)
-            // Read bottom row first, so turned the right way up, and halved for smooth edges.
+            // Read bottom row first, so flipped, and halved for smooth edges.
             source.done(job.key, halved(thumbBytes, THUMB_RENDER))
             // Only taken off the queue once there's time to draw it.
             if (++drawn >= THUMBS_PER_FRAME) break
@@ -1490,8 +1448,8 @@ class GlRenderer(
     }
 
     /**
-     * [rgba] ([size] square, bottom row first, as GL reads it) turned the right way up and halved,
-     * each pixel the average of four, as 0xAARRGGBB.
+     * [rgba] ([size] square, bottom row first as GL reads it) flipped and halved, each pixel the
+     * average of four, as 0xAARRGGBB.
      */
     private fun halved(rgba: ByteArray, size: Int): IntArray {
         val half = size / 2
@@ -1511,7 +1469,7 @@ class GlRenderer(
     }
 
     private fun releaseGlObjects() {
-        // Names from a lost context are gone with it, and made again when they're next needed.
+        // Names from a lost context are gone with it, and made again when next needed.
         thumbTarget = false
         vesselProgram?.release(); vesselProgram = null
         cloudProgram?.release(); cloudProgram = null
@@ -1525,8 +1483,7 @@ class GlRenderer(
         for (mesh in farGlobeMeshes.values) mesh.release()
         farGlobeMeshes.clear()
         uploadedGlobe = 0
-        // Every chunk on the GPU is gone with the context. Say so, so they get built again instead
-        // of drawn from names that don't exist any more.
+        // Every chunk on the GPU went with the context, so say so and they're rebuilt.
         for (key in chunkMeshes.keys) terrainSource.discarded(key)
         chunkMeshes.values.forEach { it.release() }
         chunkMeshes.clear()
@@ -1560,10 +1517,10 @@ class GlRenderer(
         /** For what the sea's dark doesn't reach: the globe from far off. */
         val NO_SEA = FloatArray(4)
 
-        /** The times of the passes [timePasses] measures, in order. */
         /** Cloud lobes within this ratio of distance share a band, drawn many per call. */
         const val BAND_RATIO = 1.6
 
+        /** The passes [timePasses] measures, in order. */
         val PASS_NAMES = arrayOf("setup", "shadows", "sky", "upload", "globe", "far", "lines", "terrain", "scatter", "items", "sea", "particles")
 
         /** How big a cell of the map's cloud texture is, in metres, and how long it takes to drift one, in seconds. */
@@ -1573,7 +1530,7 @@ class GlRenderer(
         /** Above this height, in metres, the clouds' shadows fade out, and they're gone at twice it. */
         private const val CLOUD_SHADOW_HIGH = 15_000.0
 
-        /** The fog colour with no weather. It's never seen, since the fog distance is huge. */
+        /** The fog colour with no weather. Never seen, since the fog distance is huge. */
         val CLEAR_FOG_COLOR = floatArrayOf(0.75f, 0.77f, 0.8f)
 
         /** Part pictures are drawn at this size, in pixels, and halved. */
@@ -1584,9 +1541,8 @@ class GlRenderer(
         const val SEA_LOOKAHEAD = 0.25
 
         /**
-         * Terrain chunks uploaded per frame at most. Each is about 50 KB. A dozen fits well inside
-         * a frame, and the first arrival over new ground spreads over a few frames instead of
-         * landing in one.
+         * Terrain chunks uploaded per frame at most, about 50 KB each, so new ground spreads over a
+         * few frames.
          */
         const val MAX_CHUNK_UPLOADS_PER_FRAME = 12
 
@@ -1597,12 +1553,9 @@ class GlRenderer(
         const val MAX_SPARE_CHUNK_MESHES = 48
 
         /**
-         * Near pass: parts and the ground underfoot.
-         *
-         * Half a metre instead of twenty centimetres. Nothing is drawn closer than the camera's own
-         * minimum stand-off, and every doubling of the near plane doubles depth precision across
-         * the whole range, which this pass needs now, because it carries terrain out to the terrain
-         * patch as well as parts at arm's length.
+         * Near pass: parts and the ground underfoot. Half a metre, since nothing is closer than the
+         * camera's stand-off, and each doubling of the near plane doubles depth precision, which
+         * this pass needs for terrain out to the patch as well as parts at arm's length.
          */
         const val NEAR_NEAR_PLANE = 0.5
 
@@ -1610,9 +1563,8 @@ class GlRenderer(
         const val MAX_NEAR_PLANE = 2_000.0
 
         /**
-         * Far enough for the largest patch. Depth resolution at the far end works out at around
-         * twenty metres, which would matter for two surfaces meeting at a shallow angle, and
-         * doesn't for a heightfield, where nothing lies in the same plane as anything else.
+         * Far enough for the largest patch. Depth resolution at the far end is about 20 m, which a
+         * heightfield doesn't mind since nothing in it lies in the same plane.
          */
         const val NEAR_FAR_PLANE = 250_000.0
 
@@ -1622,8 +1574,8 @@ class GlRenderer(
     }
 
     /**
-     * [colour] as it looks with [daylight] of the sun. Cloud and fog lit by the moon are a dim
-     * blue-grey, not the white they are by day.
+     * [colour] as it looks with [daylight] of the sun. Moonlit cloud and fog are a dim blue-grey,
+     * not white.
      */
     private fun nightDim(colour: FloatArray, daylight: Float, out: FloatArray) {
         val light = NightLight.NIGHT_AIR + (1f - NightLight.NIGHT_AIR) * daylight

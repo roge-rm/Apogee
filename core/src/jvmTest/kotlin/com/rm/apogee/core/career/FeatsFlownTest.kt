@@ -14,8 +14,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * The career's feats earned the way a player earns them: flown, driven and sailed, through the
- * commands the game sends, from a launch site, and the program only finds out by watching.
+ * Feats earned the way a player earns them: flown, driven and sailed through game commands from a
+ * launch site, with the program only watching.
  */
 class FeatsFlownTest {
     private val catalog = StockParts.catalog
@@ -33,10 +33,7 @@ class FeatsFlownTest {
 
     private fun fuel(v: Vessel) = v.amountOf(ResourceType.PROPELLANT)
 
-    /**
-     * A design put together in the builder, node by node, the way a player would. [build] is given
-     * the builder and an attach-at function.
-     */
+    /** A design built node by node in the builder. [build] gets an attach-at function. */
     private fun assemble(name: String, orientation: CraftOrientation, root: String, build: ((Int, String, String) -> Int) -> Unit): CraftDesign {
         val builder = CraftBuilder(catalog).also { it.orientation = orientation; it.name = name }
         check(builder.placeRoot(root))
@@ -48,10 +45,7 @@ class FeatsFlownTest {
         return builder.design
     }
 
-    /**
-     * The Sparrow with a second short fuselage ahead of the first: a third more fuel, with the
-     * weight of it forward.
-     */
+    /** The Sparrow with a second short fuselage in front: a third more fuel, weight forward. */
     private fun longSparrow(): CraftDesign = assemble("Long Sparrow", CraftOrientation.HORIZONTAL, "cockpit-sparrow") { on ->
         val front = on(0, "bottom", "fuselage-short")
         val forward = on(front, "bottom", "fuselage-short")
@@ -68,9 +62,8 @@ class FeatsFlownTest {
     }
 
     /**
-     * The Sparrow off the airfield's runway, heading east, out over the sea [out] metres, round,
-     * and back down the glide slope onto the runway heading west, braked to a stop. [each] sees
-     * what happens along the way, every tick.
+     * The Sparrow off the runway heading east, [out] metres out over the sea, round, and back down
+     * the glide slope heading west to a stop.
      */
     private fun circuit(world: World, jet: Vessel, out: Double, cruise: Double = 0.7, limit: Double = 3_000.0): Pilot {
         val pilot = Pilot(world, jet)
@@ -137,8 +130,7 @@ class FeatsFlownTest {
             } else if (pilot.height() < 300.0) {
                 pilot.fly(pilot.toRunway(1.0), Pilot.CRUISE)
             } else {
-                // Climbing at its best speed: the nose goes up more when it's faster, and less when
-                // it's slower.
+                // Climb at its best speed: more nose up when faster, less when slower.
                 pilot.attitude(pilot.path() + (3.0 + (pilot.speed() - climbSpeed) * 0.15).coerceIn(1.0, 8.0), pilot.track(), 0.0)
             }
             world.step(dt); t += dt
@@ -154,8 +146,7 @@ class FeatsFlownTest {
     fun `dropped from above the air, pulled out of the dive and brought down onto the runway is Supersonic and Glide Home`() {
         val world = careerWorld()
         val terra = world.system.body("terra")
-        // A hundred and twenty kilometres out along the runway's line, just above the air, gliding
-        // west.
+        // 120 km out on the runway's line, just above the air, gliding west.
         val up = terra.rotationAt(world.time).rotate(com.rm.apogee.core.orbit.SolarSystem.capeDirection(120_000.0, Pilot.CENTRELINE))
         val position = up.copy().mulInPlace(terra.radius + terra.atmosphereHeight + 1_000.0)
         val velocity = terra.surfaceVelocityAt(position, com.rm.apogee.core.math.Vec3())
@@ -169,10 +160,8 @@ class FeatsFlownTest {
         var t = 0.0
         while (t < 2_000.0) {
             if (!down && (terra.altitudeOf(jet.body.position) > 20_000.0 || pilot.speed() > 300.0) && terra.altitudeOf(jet.body.position) > 6_000.0) {
-                // Falling: engine off, and flown nose high the way a glider back from space is, for
-                // the lift and the drag, until it's slowed to under 300 m/s, to come down shallow
-                // instead of diving. Left to steepen to seventy degrees and pulled out at Mach 3 in
-                // the thick air lower down, it broke up.
+                // Engine off, nose high for lift and drag until under 300 m/s, so it comes down
+                // shallow. A steep dive pulled out at Mach 3 low down breaks it up.
                 pilot.throttle(0.0)
                 val ease = ((-20.0 - pilot.path()) * 1.0).coerceIn(0.0, pilot.mostAttack(ceiling = 60.0))
                 pilot.attitude(pilot.path() + ease, pilot.track(), 0.0)
@@ -199,8 +188,7 @@ class FeatsFlownTest {
         val rover = launch(world, StockCraft.rover(catalog), "cape")
         val driver = Driver(world, rover, sense = Driver.ROVER)
         val pad = com.rm.apogee.core.orbit.SolarSystem.capeDirection(0.0, 0.0)
-        // Out to the runway, then round in a wide circle over it and the grass either side. It's
-        // kept clear, with no hairpin to roll it in.
+        // Out to the runway, then a wide circle over it and the grass. No hairpin to roll it.
         val middle = 1_500.0 to Pilot.CENTRELINE
         val entry = middle.first to middle.second + 300.0
         var circling = false
@@ -213,8 +201,7 @@ class FeatsFlownTest {
                 circling = kotlin.math.hypot(entry.first - east, entry.second - north) < 30.0
                 driver.drive(Math.toDegrees(kotlin.math.atan2(entry.second - north, entry.first - east)), cruise = 12.0)
             } else {
-                // Round the middle, three hundred metres out: along the circle, turned in by how
-                // far off it is.
+                // Round the middle 300 m out, turned in by how far off the circle it is.
                 val out = kotlin.math.hypot(dx, dy)
                 val along = Math.toDegrees(kotlin.math.atan2(-dy, -dx)) + 90.0 + ((out - 300.0) / 5.0).coerceIn(-45.0, 45.0)
                 driver.drive(along, cruise = 12.0)
@@ -252,8 +239,7 @@ class FeatsFlownTest {
         world.seatCrew(rover)
         val driver = Driver(world, rover, sense = Driver.ROVER)
         repeat(120) { world.step(dt) }
-        // Straight on the way it faces, gently. In a sixth of Terra's weight a hard turn or a heavy
-        // foot puts it on its back.
+        // Straight on, gently. In a sixth of a g a hard turn or a heavy foot rolls it.
         val heading = driver.heading()
         var t = 0.0
         while (t < 1_500.0 && Feat.ROVER_OFF_WORLD.id !in earned(world)) {
@@ -276,9 +262,8 @@ class FeatsFlownTest {
         val driver = Driver(world, boat, sense = Driver.BOAT)
         var t = 0.0
         while (t < 3_000.0 && (boat.log?.sailed ?: 0.0) < 5_200.0) {
-            // Round and round, the tiller a little under half over. The circle wanders a little
-            // every lap, and with it half over, once she made more speed, it ran her aground short
-            // of five kilometres.
+            // Round and round, tiller a little under half over. The circle wanders each lap, and
+            // half over runs her aground short of five kilometres.
             driver.wheel(0.4)
             driver.throttle(1.0)
             world.step(dt); t += dt
@@ -355,9 +340,8 @@ class FeatsFlownTest {
         val lunaAt = world.system.positionOf("luna", world.time).subInPlace(world.system.positionOf("terra", world.time))
         val lunaGoing = world.system.velocityOf("luna", world.time).subInPlace(world.system.velocityOf("terra", world.time))
         val normal = lunaAt.cross(lunaGoing).normalizeInPlace()
-        // A pass three hundred kilometres over Luna, six hundred metres a second faster than Luna's
-        // own pull would have it, with its low point behind Luna. Swung round the back of it, it
-        // gets flung on the way Luna goes.
+        // A pass 300 km over Luna, 600 m/s over what Luna's pull would hold, low point behind
+        // Luna, so it's flung on the way Luna goes.
         val low = luna.radius + 300_000.0
         val out = lunaGoing.normalized().mulInPlace(-1.0)
         val along = normal.cross(out).normalizeInPlace()
@@ -384,8 +368,7 @@ class FeatsFlownTest {
         val after = world.orbitOf(craft)
         val feats = earned(world)
         assertTrue("no Gravity Assist: $feats, orbit $before -> $after, log body '${craft.log?.flybyBody}' energy ${craft.log?.flybyEnergy} thrust ${craft.log?.flybyThrust}, coasted $coasted of $back", Feat.GRAVITY_ASSIST.id in feats)
-        // And going round Luna on the way isn't its first orbit there, because it was never bound
-        // to it.
+        // Never bound to Luna, so not an orbit there.
         assertTrue(!world.program!!.careerOf("p1").visited("luna", Visit.ORBIT))
     }
 
@@ -519,8 +502,7 @@ class FeatsFlownTest {
     fun `the Nautilus taken down to Farrow's flank finds the Chimneys and their vents`() {
         val world = careerWorld()
         val chimneys = com.rm.apogee.core.world.SeaWonders.byId("chimneys")!!
-        // Upstream of them, because going down, the planet's turn carries it east, a hundred metres
-        // and more by the time it's that deep.
+        // Upstream, since the planet's turn carries it 100 m or more east on the way down.
         val sub = afloatAt(world, StockCraft.nautilus(catalog), "terra", beside(chimneys.direction, -130.0, 0.0))
         repeat((5.0 / dt).toInt()) { world.step(dt) }
         world.apply(Command.SetBallast(sub.id.raw, 1))

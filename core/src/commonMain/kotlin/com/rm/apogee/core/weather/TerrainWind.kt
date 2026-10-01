@@ -14,20 +14,18 @@ import com.rm.apogee.core.math.Math
 import com.rm.apogee.core.lruMapOf
 
 /**
- * What the ground's shape and surface do to the wind, described at kilometre scale.
+ * What the ground's shape and surface do to the wind, at kilometre scale.
  *
- * Each lattice point looks at the ground around it on a ring 1.2 km out and boils it down to a few
- * numbers the wind can use whichever way it blows:
- * - whether it's a crest or a hollow (the centre against the ring's average);
- * - the slope (the ring's first harmonic), so wind meeting rising ground lifts and wind leaving it
- *   sinks;
- * - whether it's a valley, and along which axis (the second harmonic, because a valley is a ring
- *   that's low on two opposite sides and high on the other two);
- * - how rough the surface is, and how much it heats up for thermals.
+ * Each lattice point samples the ground on a ring 1.2 km out and keeps a few numbers that work
+ * whichever way the wind blows:
+ * - crest or hollow (centre against the ring's average);
+ * - slope (the ring's first harmonic), so wind lifts up rising ground and sinks off it;
+ * - valley and its axis (the second harmonic: low on two opposite sides, high on the other two);
+ * - surface roughness, and how much it heats up for thermals.
  *
  * Points sit on a 3D lattice [SPACING] apart, projected onto the ground, and a sample blends the
- * eight around it, so the wind never jumps as a craft crosses from one to the next. Every point
- * comes purely from the terrain, and they're cached because each one costs nine elevation samples.
+ * eight around it so the wind never jumps. Points come purely from the terrain and are cached,
+ * since each costs nine elevation samples.
  */
 class TerrainWind(private val terrain: Terrain, private val bodyRadius: Double) {
 
@@ -132,8 +130,7 @@ class TerrainWind(private val terrain: Terrain, private val bodyRadius: Double) 
 
     private fun compute(d: Vec3): FloatArray {
         frame(d, east, north)
-        // The air feels the sea's surface, not the floor under it. A canyon or a seamount down
-        // there doesn't steer any wind.
+        // The air feels the sea's surface, not the floor under it.
         val sea = terrain.hasOcean
         val ground = terrain.elevation(d)
         val h0 = if (sea) max(ground, 0.0) else ground

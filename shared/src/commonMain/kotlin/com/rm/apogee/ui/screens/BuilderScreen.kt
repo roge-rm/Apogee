@@ -98,11 +98,8 @@ import kotlin.math.roundToInt
 import com.rm.apogee.platform.format
 
 /**
- * The vehicle assembly building.
- *
- * It's transparent, like the flight HUD. The craft itself is drawn by the GL surface underneath,
- * and every panel here has its own scrim. The panels slide away to the edges, and the drawer does
- * it by itself while a part is in hand, so the craft is in view to put it on.
+ * The vehicle assembly building. Transparent like the flight HUD: the GL surface draws the craft,
+ * and each panel has its own scrim. The drawer slides away by itself while a part is in hand.
  */
 @Composable
 fun BuilderScreen(
@@ -116,8 +113,7 @@ fun BuilderScreen(
     onShare: () -> Unit = {},
     onOpenShared: () -> Unit = {},
 ) {
-    // Reading `revision` is what subscribes this composable to the plain mutable builder model
-    // underneath.
+    // Reading `revision` subscribes this to the builder model, which isn't observable itself.
     @Suppress("UNUSED_EXPRESSION") session.revision
 
     var showLoadDialog by remember { mutableStateOf(false) }
@@ -125,7 +121,7 @@ fun BuilderScreen(
     var showNameDialog by remember { mutableStateOf(false) }
     var savingAssembly by remember { mutableStateOf<String?>(null) }
     var confirmNew by remember { mutableStateOf(false) }
-    // Opened by its handle while something is in hand, it stays out until the next pick.
+    // Opened by its handle with something in hand, it stays out until the next pick.
     var peek by remember { mutableStateOf(false) }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -137,11 +133,8 @@ fun BuilderScreen(
 
         // --- the drawer or the stages, left -------------------------------------
         //
-        // The same place for both. Editing the staging isn't placing parts, and the craft stays
-        // clear down the middle either way. It's pinned by its top, at one height whatever the tab
-        // holds. Centred and sized to its parts, it jumped up and down from tab to tab, which
-        // bothered me. In portrait it sits below the toolbar and the stats line, clear of the
-        // launch button at the bottom.
+        // Both share one place. Pinned by its top so it doesn't jump between tabs. In portrait
+        // it sits below the toolbar and stats line, clear of the launch button.
         val top = if (portrait) 112.dp else 8.dp
         val bottom = if (portrait) 150.dp else 8.dp
         val paletteHeight = (maxHeight - top - bottom).coerceIn(200.dp, 560.dp)
@@ -171,8 +164,7 @@ fun BuilderScreen(
             val tabName = if (horizontal) settings.builderTabHorizontal else settings.builderTabVertical
             val tab = PartTab.entries.firstOrNull { it.name == tabName } ?: PartTab.ALL
             SlidePanel(
-                // Tucked away while a part is in hand, carried or being worked on with the action
-                // bar, unless it's pulled out.
+                // Tucked away while a part is held, carried or selected, unless it's pulled out.
                 shown = settings.builderPartsOpen && !carrying && ((!holding && session.selectedPartIndex == null) || peek),
                 onOpen = { settings.builderPartsOpen = true; peek = true },
                 handleLabel = "Show the parts",
@@ -202,7 +194,7 @@ fun BuilderScreen(
                     modifier = Modifier.height(paletteHeight),
                     locked = session.lockedParts(),
                     onLocked = { id ->
-                        session.statusMessage = "${catalog[id]?.title ?: id}: unlocked by ${session.lockedParts()[id] ?: "the Program"}, in the Program"
+                        session.statusMessage = "${catalog[id]?.title ?: id} needs ${session.lockedParts()[id] ?: "unlocking"} in the Program"
                     },
                     saved = session.savedAssemblies.map { (piece, file) ->
                         com.rm.apogee.ui.components.builder.SavedPiece(piece.name, piece.rootPartId, piece.parts.map { it.partId }, file)
@@ -215,8 +207,7 @@ fun BuilderScreen(
 
         // --- stats, right ------------------------------------------------------
         //
-        // One line until you ask for more. The whole card is out by default only where there's room
-        // beside the craft.
+        // One line until you ask for more.
         val statsOpen = if (portrait) settings.builderStatsOpenPortrait else settings.builderStatsOpenLandscape
         val setStats: (Boolean) -> Unit = { if (portrait) settings.builderStatsOpenPortrait = it else settings.builderStatsOpenLandscape = it }
         val statsModifier = Modifier
@@ -230,7 +221,7 @@ fun BuilderScreen(
                 craftName = session.builder.name,
                 width = if (portrait) 200.dp else 230.dp,
                 onClose = { setStats(false) },
-                // The craft is drawn in the space left between it and the drawer.
+                // The craft is drawn in the space between this and the drawer.
                 modifier = statsModifier.onGloballyPositioned { session.rightInset = screen.width - it.positionInWindow().x },
             )
         } else {
@@ -330,8 +321,7 @@ fun BuilderScreen(
                 Spacer(Modifier.height(8.dp))
             }
 
-            // Where it goes. It's small and above the button instead of a step before it, because
-            // nearly every launch wants the default.
+            // Where it launches from. Small, since nearly every launch wants the default.
             val chosen = session.allSites().firstOrNull { it.id == session.launchSiteId }
             Surface(
                 shape = RoundedCornerShape(Dimens.CornerSmall),
@@ -428,7 +418,7 @@ fun BuilderScreen(
         AlertDialog(
             onDismissRequest = { confirmNew = false },
             title = { Text("Start a new craft?") },
-            text = { Text("This clears the building. Undo brings it back.") },
+            text = { Text("Undo brings it back.") },
             confirmButton = { TextButton(onClick = { session.clear(); confirmNew = false }) { Text("New") } },
             dismissButton = { TextButton(onClick = { confirmNew = false }) { Text("Keep building") } },
         )
@@ -497,15 +487,11 @@ private fun ToolButton(
     }
 }
 
-/**
- * Vertical or horizontal. It's drawn as a bar standing up or lying down instead of an icon, because
- * the bar *is* the craft, and that's the whole choice.
- */
+/** Vertical or horizontal, drawn as a bar standing up or lying down. */
 @Composable
 private fun OrientationButton(orientation: CraftOrientation, onToggle: () -> Unit) {
-    // It takes the value instead of the session. The session isn't observable state, so a
-    // composable reading it through a stable parameter gets skipped on recomposition, and the bar
-    // never turned over.
+    // Takes the value, not the session. The session isn't observable state, so reading it here
+    // would get skipped on recomposition and the bar wouldn't turn.
     val horizontal = orientation == CraftOrientation.HORIZONTAL
     Surface(
         shape = RoundedCornerShape(Dimens.HudIconSize / 2),
@@ -557,16 +543,14 @@ private fun StagesButton(active: Boolean, onToggle: () -> Unit) {
 }
 
 /**
- * The staging sequence as cards, with the stage that fires last at the top and stage 0 at the
- * bottom, the way the stack sits above the STAGE button in flight. Tap a card to choose it, and its
- * parts light up on the craft. Tap parts on the craft to move them into it. The chosen card has its
- * own controls: fire earlier, fire later, and remove.
+ * The stages as cards, last to fire at the top and stage 0 at the bottom, as in flight. Tap a card
+ * to choose it and light up its parts, then tap parts to move them into it. The chosen card can
+ * fire earlier, later, or be removed.
  */
 @Composable
 private fun StagePanel(
     session: BuilderSession,
-    // Values, not read through the session. It isn't observable state, and a composable given only
-    // that gets skipped when the stages change.
+    // Values, not the session, which isn't observable, so this recomposes when stages change.
     entries: List<BuilderSession.StageEntry>,
     manual: Boolean,
     selected: Int?,
@@ -589,8 +573,7 @@ private fun StagePanel(
                 )
                 Text("STAGES", style = TelemetryTextStyle, color = Color.White.alpha(ApogeeAlpha.BODY))
                 Spacer(Modifier.weight(1f))
-                // Automatic until the player changes something. Tapping it when it's manual hands
-                // the sequence back.
+                // Automatic until the player changes something. Tap it when manual to go back.
                 Text(
                     if (manual) "MANUAL · AUTO?" else "AUTO",
                     style = TelemetryTextStyle,
@@ -672,7 +655,7 @@ private fun StageEntryCard(
         }
         if (entry.parts.isEmpty()) {
             Text(
-                if (selected) "Empty. Tap parts on the craft" else "Empty",
+                "Empty",
                 style = MaterialTheme.typography.labelSmall,
                 color = Color.White.alpha(ApogeeAlpha.SUBTITLE),
             )
@@ -700,8 +683,7 @@ private fun StageAction(symbol: String, description: String, enabled: Boolean, o
 
 @Composable
 private fun SymmetryButton(symmetry: SymmetryMode, onToggle: () -> Unit) {
-    // The value, not the session, for the same reason as the orientation button: the session isn't
-    // observable state.
+    // The value, not the session, as in the orientation button.
     val active = symmetry.count > 1
     Surface(
         shape = RoundedCornerShape(Dimens.HudIconSize / 2),
@@ -757,16 +739,16 @@ private fun StatsPanel(
                 stats.liftoffTwr.format(2),
                 if (stats.liftoffTwr >= 1.0) ApogeeColors.Prograde else ApogeeColors.Danger,
             )
-            // Rotors: what they lift against its weight on Terra. Over one, it hovers.
+            // Rotor lift against its weight on Terra. Over one, it hovers.
             if (stats.rotorLift > 0.0) {
                 StatRow("HOVER", "${stats.hoverRatio.format(2)} of weight", if (stats.hoverRatio >= 1.0) ApogeeColors.Prograde else ApogeeColors.Caution)
             }
-            // Gas: what it lifts at sea level on Terra, and how high it floats with nothing running.
+            // Gas lift at sea level on Terra, and how high it floats with nothing running.
             if (stats.gasVolume > 0.0) {
                 StatRow("FLOATS", "${stats.floatRatio.format(2)} of weight", if (stats.floatRatio >= 1.0) ApogeeColors.Prograde else ApogeeColors.Caution)
                 if (stats.ceiling > 0.0) StatRow("CEILING", if (stats.ceiling >= 1_000.0) "${(stats.ceiling / 1000.0).format(1)} km" else "${stats.ceiling.roundToInt()} m")
             }
-            // Charge held, and a second's worth in full sun against just being on.
+            // Charge held, and the rate in full sun against idle draw.
             if (stats.powerCapacity > 0.0) {
                 StatRow("POWER", "${stats.powerCapacity.roundToInt()}")
                 if (stats.powerSunlit > 0.0) StatRow("SUN", "+${stats.powerSunlit.format(2)}/s", ApogeeColors.Prograde)
@@ -792,8 +774,7 @@ private fun StatsPanel(
                 Spacer(Modifier.height(8.dp))
                 HorizontalDivider(color = Color.White.alpha(ApogeeAlpha.DIVIDER))
                 Spacer(Modifier.height(6.dp))
-                // Blockers show as danger, and advice shows as caution. Showing both in the same
-                // colour is what made a lander look broken.
+                // Blockers in the danger colour, advice in caution.
                 stats.problems.forEach { problem ->
                     Text(
                         problem,
@@ -847,13 +828,13 @@ private fun NameDialog(initial: String, onDismiss: () -> Unit, onConfirm: (Strin
 
 @Composable
 private fun LoadDialog(session: BuilderSession, pictures: Map<String, ImageBitmap>, onDismiss: () -> Unit) {
-    // Deleting is permanent (there's no undo for a file), so it asks first.
+    // Deleting can't be undone, so it asks first.
     var confirmDelete by remember { mutableStateOf<com.rm.apogee.core.craft.SavedCraft?>(null) }
     confirmDelete?.let { doomed ->
         AlertDialog(
             onDismissRequest = { confirmDelete = null },
             title = { Text("Delete \"${doomed.name}\"?") },
-            text = { Text("This removes the saved design for good. It can't be undone.") },
+            text = { Text("It can't be undone.") },
             confirmButton = {
                 TextButton(onClick = {
                     session.delete(doomed)
@@ -940,9 +921,7 @@ internal fun SiteDialog(
     selected: String?,
     automatic: String,
     bases: List<com.rm.apogee.core.world.LaunchSite>,
-    /**
-     * A career launches only from the Cape and its own bases, with no test sites on other worlds.
-     */
+    /** A career launches only from the Cape and its own bases. */
     career: Boolean = false,
     onPick: (String?) -> Unit,
     onDismiss: () -> Unit,
@@ -951,7 +930,7 @@ internal fun SiteDialog(
         onDismissRequest = onDismiss,
         title = { Text("Launch from") },
         text = {
-            // A player with lots of bases has lots of pads, so it scrolls, with a bar to say so.
+            // Lots of bases means lots of pads, so it scrolls.
             val scroll = androidx.compose.foundation.rememberScrollState()
             Column(
                 Modifier
@@ -962,8 +941,7 @@ internal fun SiteDialog(
                 val choices = listOf<Pair<String?, String>>(null to "Automatic") +
                     World.launchSites.filter { !career || it.id in com.rm.apogee.core.career.CareerRules.CAREER_SITES }.map { it.id to it.displayName } +
                     bases.map { it.id to it.displayName }
-                // Headed by world (Terra's pads, Luna's, then every other world's test site), and
-                // then the player's own bases.
+                // Headed by world, then the player's own bases.
                 val headings = HashMap<String?, String>()
                 World.launchSites.groupBy { it.bodyId }.forEach { (body, sites) ->
                     headings[sites.first().id] = body.uppercase()
@@ -993,7 +971,7 @@ internal fun SiteDialog(
                             )
                             if (id == null) {
                                 Text(
-                                    "Boats to the harbour, planes to the airfield, everything else to the pad. Right now that's $automatic",
+                                    "Right now, $automatic",
                                     style = MaterialTheme.typography.labelSmall,
                                 )
                             }

@@ -13,8 +13,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * A small craft that's gone over, a boat keel up or a buggy on its roof, can be rolled back upright
- * by its crew. A big one can't, and nothing that's upright is offered it.
+ * A small craft that's gone over can be rolled upright by its crew. A big one can't, and an
+ * upright one isn't offered it.
  */
 class RightingTest {
     private val catalog = StockParts.catalog

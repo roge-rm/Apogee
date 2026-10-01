@@ -7,25 +7,14 @@ import kotlin.math.sqrt
 import com.rm.apogee.core.math.StrictMath
 
 /**
- * The shape of a planet's surface: one height function, worked out everywhere.
- *
- * **There's deliberately no GLSL version of this.** The obvious way to draw a procedural planet is
- * to run the same noise in a fragment shader, and that's a trap. It means two versions of one
- * function in two languages, which drift apart the first time either one is touched, and then a
- * craft collides with a sea floor while the screen shows a mountain. Instead the renderer *samples
- * this* to build its mesh, so the ground you see is always the ground you land on.
- *
- * It comes from [seed] alone, with no floating-point surprises. The hash is integer maths and the
- * interpolation is plain smoothstep, so a phone and a server working out the same point get the
- * same metre.
+ * A planet's surface height, worked out everywhere from [seed] with integer hashing, so every
+ * machine gets the same metre. There's no GLSL copy on purpose: the renderer samples this, so the
+ * ground you see is the ground you land on.
  */
 class TerrainField(
     /**
-     * The radius of the body this describes, in metres.
-     *
-     * The field needs it because some of its features are sized in metres instead of fractions of a
-     * sphere. The flat ground under the launch complex matters most, because it has to be about as
-     * wide as a launch complex, not about as wide as a tenth of a degree.
+     * The body's radius, in metres. Needed because some features are sized in metres, like the flat
+     * ground under the launch complex.
      */
     override val bodyRadius: Double,
     val seed: Int = DEFAULT_SEED,
@@ -34,25 +23,22 @@ class TerrainField(
     /** Metres from the datum down to the deepest ocean floor. */
     val oceanDepth: Double = 3_000.0,
     /**
-     * Where to guarantee dry land, as a surface normal.
-     *
-     * The launch complex is a fixed point on the planet and can't be in the sea. Instead of
-     * searching the noise for a suitable coastline, the terrain is raised around it, which is also
-     * how real launch sites come about.
+     * Where to guarantee dry land, as a surface normal. The launch complex can't be in the sea, so
+     * the terrain is raised around it.
      */
     val homeDirection: Vec3? = null,
     /**
-     * Where the launch complex itself stands (its pad levelled, its runway laid, the country around
-     * it kept gentle), if it's not at [homeDirection]. The continent stays raised where it always
-     * was, because moving that would move every coastline on the planet.
+     * Where the launch complex itself stands (pad levelled, runway laid, country kept gentle), if
+     * it's not at [homeDirection]. The continent stays raised where it was, since moving that would
+     * move every coastline.
      */
     val padDirection: Vec3? = null,
     /**
-     * A harbour: a broad natural bay in the coast here, reached from the sea by an inlet that winds
-     * on its way in, so no swell runs straight into it. See [bay].
+     * A harbour: a broad natural bay in the coast here, reached by a winding inlet so no swell runs
+     * straight in. See [bay].
      */
     val harbourDirection: Vec3? = null,
-    /** Which kind of world this is, which decides what shapes the land. */
+    /** Which kind of world this is, which picks what shapes the land. */
     val profile: Profile = Profile.TERRA,
 ) : Terrain {
 
@@ -86,10 +72,7 @@ class TerrainField(
         return nearestWork(east, north) >= 0
     }
 
-    /**
-     * What stands on the continents. Only for a body with a home to keep clear, which is Terra.
-     * Other bodies get their own profiles.
-     */
+    /** What stands on the continents. Only for a body with a home to keep clear (Terra). */
     private val homeUnit: Vec3? = homeDirection?.normalized()
     private val padUnit: Vec3? = (padDirection ?: homeDirection)?.normalized()
     private val land: TerraLand? = homeUnit?.let { home ->
@@ -98,9 +81,9 @@ class TerrainField(
     }
 
     /**
-     * How many of the works this world has: all of them where there's a harbour, and only the
-     * launch complex and the airfield where there isn't. The road down to the quay, the quay and
-     * its berth are laid out against the bay's own shore, and anywhere else they'd cut a pit.
+     * How many of the works this world has: all of them with a harbour, else only the launch complex
+     * and airfield. The quay road, quay and berth are laid against the bay's shore and would cut a
+     * pit anywhere else.
      */
     private val workCount: Int = if (harbourDirection != null) WORK_FROM_EAST.size else HARBOUR_WORKS_FROM
 
@@ -110,9 +93,8 @@ class TerrainField(
     private val harbourNorth: Vec3? = harbourUnit?.let { it.copy().crossInPlace(harbourEast!!) }
 
     /**
-     * The runway's heading at home: east, which is the way the planet's spin around +Y carries the
-     * ground, and the way a horizontal craft is pointed when it launches. Null at a pole, where
-     * there's no east.
+     * The runway's heading at home: east, the way the spin about +Y carries the ground and the way a
+     * horizontal craft launches. Null at a pole.
      */
     private val runwayAlong: Vec3? = padUnit?.let { home ->
         Vec3(0.0, 1.0, 0.0).crossInPlace(home).takeIf { it.lengthSq > 1e-12 }?.normalizeInPlace()
@@ -122,24 +104,19 @@ class TerrainField(
     }
 
     /**
-     * Ground level at the launch complex.
-     *
-     * It's worked out once from the field before flattening, because the flattening is defined as
-     * "level with this", and it can't be asked what that is without going round in a loop. It's
-     * done up front instead of lazily because [elevation] is on the collision hot path and doesn't
-     * want a synchronised read for every contact point.
+     * Ground level at the launch complex, worked out once from the field before flattening, since
+     * flattening is defined as "level with this". Done up front because [elevation] is on the
+     * collision hot path and can't afford a synchronised lazy read.
      */
     private val homeElevation: Double =
         padUnit?.let { kotlin.math.max(shapedElevation(it.x, it.y, it.z), if (hasOcean) PAD_MIN_ELEVATION else -1e9) } ?: 0.0
     /**
-     * Height above the datum at [direction], in metres. Negative is sea floor.
-     *
-     * [direction] doesn't need to be normalised.
+     * Height above the datum at [direction] (needn't be normalised), in metres. Negative is sea
+     * floor.
      */
     override fun elevation(direction: Vec3): Double {
-        // Plain numbers throughout, because this is the hottest function in the game, run on
-        // several threads at once, and every temporary vector here became garbage a collector later
-        // stopped the world to sweep up.
+        // Plain numbers only: this is the hottest function in the game, run on several threads, and
+        // temporary vectors cause GC pauses.
         val length = sqrt(direction.x * direction.x + direction.y * direction.y + direction.z * direction.z)
         if (length < 0.7) return 0.0
         val nx = direction.x / length; val ny = direction.y / length; val nz = direction.z / length
@@ -148,23 +125,18 @@ class TerrainField(
         val shaped = shapedElevation(nx, ny, nz)
         val home = padUnit ?: return shaped
 
-        // A level pad, and only a level pad. Rolling ground is what makes height and sideways drift
-        // readable from the cockpit, so the flattening is kept to about the footprint of a launch
-        // complex.
-        //
-        // It uses chord length instead of acos(dot). At these angles the dot product is within a
-        // rounding error of 1 and acos throws away most of its precision, while the chord is still
-        // exact.
+        // A level pad, and only about a launch complex's footprint of it: rolling ground makes
+        // height and drift readable from the cockpit. Offsets use the chord, since acos(dot) loses
+        // its precision at these tiny angles.
         val ox = nx - home.x; val oy = ny - home.y; val oz = nz - home.z
         val a = runwayAlong ?: return shaped
         val c = runwayAcross!!
         val east = (a.x * ox + a.y * oy + a.z * oz) * bodyRadius
         val north = (c.x * ox + c.y * oy + c.z * oz) * bodyRadius
         if (abs(east) > WORKS_REACH || abs(north) > WORKS_REACH) return shaped
-        // Every work close enough to reach here has a say, weighted by how close it is. The level
-        // is their heights weighted that way, and the land gives way to it as far as the nearest of
-        // them needs. Taking only the nearest put a fourteen metre step where a road's blend met
-        // the quay's.
+        // Every work in reach has a say, weighted by closeness. The level is their weighted heights,
+        // and the land gives way as far as the nearest needs. Taking only the nearest leaves steps
+        // where two blends meet.
         var total = 0.0
         var weighed = 0.0
         var strongest = 0.0
@@ -181,9 +153,9 @@ class TerrainField(
     }
 
     /**
-     * The Cape's works: the pad complex, the runway, the airfield's apron, roads, the harbour's
-     * quay and its dredged berth. Each is a disc or a strip in metres east and north of the pad,
-     * levelled to its own height and blended back into the land around it. See [WORK_FROM_EAST].
+     * The Cape's works: pad complex, runway, apron, roads, quay and dredged berth. Each is a disc or
+     * strip in metres east and north of the pad, levelled to its own height and blended into the
+     * land. See [WORK_FROM_EAST].
      */
     private fun nearestWork(east: Double, north: Double): Int {
         var best = -1
@@ -213,8 +185,8 @@ class TerrainField(
     }
 
     /**
-     * The height work [k] is levelled to where the point is: its own height, or sloping from one
-     * end's to the other's.
+     * The height work [k] is levelled to at the point: its own, or sloping from one end's to the
+     * other's.
      */
     private fun workHeight(k: Int, east: Double, north: Double): Double {
         val from = WORK_FROM_HEIGHT[k].let { if (it.isNaN()) homeElevation else it }
@@ -228,8 +200,8 @@ class TerrainField(
     }
 
     /**
-     * What the ground under the launch complex is paved with, or null off it: a concrete pad around
-     * the pads themselves, and an asphalt runway running east from it.
+     * What the ground under the launch complex is paved with, or null off it: concrete around the
+     * pads and an asphalt runway east from them.
      */
     fun paving(direction: Vec3): SurfaceMaterial? {
         val home = padUnit ?: return null
@@ -242,8 +214,7 @@ class TerrainField(
         val east = (a.x * ox + a.y * oy + a.z * oz) * bodyRadius
         val north = (c.x * ox + c.y * oy + c.z * oz) * bodyRadius
         if (abs(east) > WORKS_REACH || abs(north) > WORKS_REACH) return null
-        // The last one listed wins where two overlap, so roads go over the land they cross and the
-        // runway goes over the road that meets it.
+        // The last listed wins where two overlap, so roads go over land and the runway over roads.
         var found: SurfaceMaterial? = null
         for (k in 0 until workCount) {
             val material = WORK_MATERIAL[k] ?: continue
@@ -265,19 +236,12 @@ class TerrainField(
         return s.ventField(direction.x / l, direction.y / l, direction.z / l)
     }
 
-    /**
-     * The sea floor's own shapes and ground. See [Seabed]. It's Terra's, with the Cape's off its
-     * coast.
-     */
+    /** The sea floor's shapes and ground: Terra's, with the Cape's off its coast. See [Seabed]. */
     private val seabed: Seabed? = if (profile == Profile.TERRA) Seabed(seed, bodyRadius, padDirection ?: homeDirection) else null
 
     /**
-     * The Cape's low country lifted clear of the tide. The plain around the pad came out of the
-     * field a metre or two above the datum, which is under the four-metre tides on this coast. So
-     * at high water it was a tidal flat kilometres wide with the pad as an island in it, and seen
-     * from above, the sea drawn around the craft was a disc of shallows and foam on land that
-     * looked dry. Low land is raised the most, higher land less, and the shore not at all, so the
-     * coastline stays where it was. Nothing further than [CAPE_LIFT_FADE] from the pad changes.
+     * The Cape's low country lifted clear of its four-metre tides. Low land rises most, higher land
+     * less, the shore not at all, so the coastline stays put. Nothing past [CAPE_LIFT_FADE] changes.
      */
     private fun capeLift(nx: Double, ny: Double, nz: Double, ground: Double): Double {
         if (ground <= 0.0) return ground
@@ -292,9 +256,8 @@ class TerrainField(
 
     /**
      * One paved work: a strip from [fromEast], [fromNorth] to [toEast], [toNorth] (metres from the
-     * pad), paved [halfWidth] on either side of its line and around its ends. It's a disc where the
-     * two ends are the same. They're listed in the order they're laid, each over the ones before
-     * it.
+     * pad), paved [halfWidth] either side of its line and round its ends. A disc when both ends are
+     * the same. Listed in laying order, each over the ones before.
      */
     class PavedWork(
         val fromEast: Double,
@@ -303,7 +266,7 @@ class TerrainField(
         val toNorth: Double,
         val halfWidth: Double,
         val material: SurfaceMaterial,
-        /** Cut square across its ends, like a runway, instead of rounded. */
+        /** Square ends, like a runway, instead of rounded. */
         val squareEnds: Boolean = false,
     )
 
@@ -317,10 +280,7 @@ class TerrainField(
         }
     }
 
-    /**
-     * The unit direction [east], [north] metres from the pad, into [out], which is where
-     * [pavedWorks] are.
-     */
+    /** The unit direction [east], [north] metres from the pad, into [out]. Where [pavedWorks] are. */
     fun worksDirection(east: Double, north: Double, out: Vec3 = Vec3()): Vec3 {
         val pad = padUnit!!
         val a = runwayAlong!!
@@ -335,10 +295,9 @@ class TerrainField(
     }
 
     /**
-     * How much the land at [east], [north] of the pad is the Cape's green country, 0..1. It's fully
-     * green on and around the works, fading out over a kilometre and more beyond them along an edge
-     * bent by noise, so the grass meets the dry country around it as a ragged margin instead of a
-     * ring.
+     * How much the land at [east], [north] of the pad is the Cape's green country, 0..1. Fully green
+     * on and round the works, fading over a kilometre or more along a noise-bent edge, so the grass
+     * meets the dry country raggedly.
      */
     private fun capeGreen(east: Double, north: Double): Double {
         var nearest = Double.MAX_VALUE
@@ -349,13 +308,9 @@ class TerrainField(
     }
 
     /**
-     * The harbour's bay, cut into [ground]: a broad basin with a cove to its south-east, opening
-     * northward into an inlet that winds north-east and then north-west out to sea, getting wider
-     * between its headlands as it goes. The bend is the point. Nothing the ocean sends has a
-     * straight run in to the harbour. The shore is bent and nibbled by noise so it looks like a
-     * coast instead of a drawing, shelving gently from [BAY_FLOOR] to beaches, with banks rising
-     * behind them. It only ever lowers the ground, so nothing changes beyond its banks, and out at
-     * the mouth the sea floor it meets is the ocean's own.
+     * The harbour's bay cut into [ground]: a basin with a cove to the south-east, opening north into
+     * an inlet that bends north-east then north-west to sea, so nothing from the ocean has a straight
+     * run in. The shore is noise-bent and shelves from [BAY_FLOOR]. It only lowers the ground.
      */
     private fun bay(nx: Double, ny: Double, nz: Double, ground: Double): Double {
         val centre = harbourUnit ?: return ground
@@ -364,8 +319,7 @@ class TerrainField(
         val x0 = (e.x * ox + e.y * oy + e.z * oz) * bodyRadius
         val y0 = (n.x * ox + n.y * oy + n.z * oz) * bodyRadius
         if (abs(x0) > BAY_REACH_METRES || abs(y0) > BAY_REACH_METRES) return ground
-        // Bent: the whole outline pushed around by a slow field, then its edge nibbled by a quicker
-        // one.
+        // Bent: the outline pushed round by a slow field, then its edge nibbled by a quicker one.
         val x = x0 + BAY_WARP_METRES * Noise.simplex(BAY_SEED, x0 / BAY_WARP_SCALE, y0 / BAY_WARP_SCALE, 0.5)
         val y = y0 + BAY_WARP_METRES * Noise.simplex(BAY_SEED + 1, x0 / BAY_WARP_SCALE, y0 / BAY_WARP_SCALE, 0.5)
         var d = ellipseDistance(x - BAY_X, y - BAY_Y, BAY_RADIUS_X, BAY_RADIUS_Y)
@@ -406,8 +360,8 @@ class TerrainField(
 
     /** The field as it comes, before anything is built into it. */
     private fun naturalElevation(nx: Double, ny: Double, nz: Double): Double {
-        // Continents at the largest scale, then detail. Each octave halves in size and in
-        // contribution, which is what makes the result look the same at every distance.
+        // Continents at the largest scale, then detail. Each octave halves in size and weight, so it
+        // looks alike at every distance.
         var amplitude = 1.0
         var frequency = CONTINENT_FREQUENCY
         var total = 0.0
@@ -430,8 +384,8 @@ class TerrainField(
             }
         }
 
-        // Push the spread away from the middle so coastlines are definite. Without it most of the
-        // planet sits within a few metres of sea level and the whole world is beach.
+        // Push the spread away from the middle so coastlines are definite, or most of the world is
+        // beach.
         val centred = (shaped - SEA_FRACTION) / (1.0 - SEA_FRACTION)
         val base = if (centred >= 0.0) {
             StrictMath.pow(centred, LAND_SHARPNESS) * maxElevation
@@ -441,16 +395,8 @@ class TerrainField(
         }
         if (base <= 0.0) return seabed?.global(nx, ny, nz, base) ?: base
 
-        // Hills, in metres instead of as another octave of the curve above.
-        //
-        // Adding them before the sharpening curve is the obvious approach and doesn't work.
-        // LAND_SHARPNESS squashes everything near sea level, so exactly the lowland a craft
-        // launches from comes out ironed flat. Added in metres afterwards, a hill is the same hill
-        // wherever it stands.
-        //
-        // They fade in over the first few hundred metres of land so the shoreline stays where the
-        // curve put it. HILL_SHORE_FADE is more than twice HILL_AMPLITUDE, which guarantees a hill
-        // can never dig a patch of land back below the waterline and speckle the coast with ponds.
+        // Hills, added in metres after sharpening, which would iron the lowlands flat. They fade in
+        // over [HILL_SHORE_FADE], over twice [HILL_AMPLITUDE], so no hill digs a pond on the coast.
         val landness = smoothstep((base / HILL_SHORE_FADE).coerceIn(0.0, 1.0))
         land?.let { return it.height(nx, ny, nz, base, landness) }
         return base + hills(nx, ny, nz) * HILL_AMPLITUDE * landness
@@ -472,16 +418,13 @@ class TerrainField(
     }
 
     /**
-     * What the ground here is made of.
-     *
-     * For now these are the same bands the renderer has always coloured by (shore, grass, dry
-     * upland, rock, snow, and rock on anything steep), so that moving the classification out of the
-     * shader changes nothing you can see. Biomes replace it.
+     * What the ground here is made of. Without [land] it falls back to plain height bands (shore,
+     * grass, dry upland, rock, snow, and rock on anything steep).
      */
     override fun material(direction: Vec3, elevation: Double, slope: Double): SurfaceMaterial =
         materialOf(direction, elevation, slope, paved = true)
 
-    /** The land under the Cape's paving, which is drawn as its own straight-edged meshes. See [pavedWorks]. */
+    /** The land under the Cape's paving, which is drawn as its own meshes. See [pavedWorks]. */
     override fun groundMaterial(direction: Vec3, elevation: Double, slope: Double): SurfaceMaterial =
         materialOf(direction, elevation, slope, paved = false)
 
@@ -493,9 +436,9 @@ class TerrainField(
         if (paved) paving(direction)?.let { return it }
         land?.let {
             var landness = smoothstep((elevation / HILL_SHORE_FADE).coerceIn(0.0, 1.0))
-            // Around the Cape's works it's green country: kept grass on the works themselves, and
-            // grass country around them, where the dry coast's sand and clay give way to grass,
-            // copses and bare patches. The beach right at the water's edge stays sand.
+            // Round the Cape's works it's green country: kept grass on the works, and grass,
+            // copses and bare patches around them in place of the dry coast's sand and clay. The
+            // beach at the water's edge stays sand.
             var watered = 0.0
             val pad = padUnit
             val a = runwayAlong
@@ -526,11 +469,9 @@ class TerrainField(
     }
 
     /**
-     * An approximate surface normal, for placing things flat on a slope.
-     *
-     * It's sampled instead of worked out directly, because the field has no analytic gradient, and
-     * a finite difference over a few metres is both simpler and closer to what the collider
-     * actually sees.
+     * An approximate surface normal, for placing things flat on a slope. Sampled by finite
+     * difference, since the field has no analytic gradient, which is also closer to what the
+     * collider sees.
      */
     fun surfaceNormal(direction: Vec3, sample: Double = 30.0): Vec3 {
         val up = direction.normalized()
@@ -569,11 +510,8 @@ class TerrainField(
         private const val STEEP_SLOPE = 0.22
 
         /**
-         * Octaves of detail.
-         *
-         * Ten puts the finest features at roughly three kilometres across on a 600km world. That's
-         * fine enough for a near-field mesh to have something to show, and coarse enough that the
-         * collider's hundred or so samples per craft per tick stay cheap.
+         * Octaves of detail. Ten puts the finest features about 3 km across on a 600 km world: enough
+         * for the near mesh, and cheap for the collider's hundred-odd samples per craft per tick.
          */
         private const val OCTAVES = 10
 
@@ -595,22 +533,12 @@ class TerrainField(
         private const val HOME_LIFT = 0.22
 
         /**
-         * The Cape's works, in metres east and north of the pad. Each is a strip from one point to
-         * another (a disc where the two are the same), levelled flat out to [WORK_FLAT] from its
-         * line, blended back into the land by [WORK_BLEND] beyond that, and paved with
-         * [WORK_MATERIAL] out to [WORK_PAVED]. Heights of NaN are the pad's own.
+         * The Cape's works, in metres east and north of the pad. Each is a strip between two points
+         * (a disc if they're the same), level to [WORK_FLAT] from its line, blended over
+         * [WORK_BLEND], and paved with [WORK_MATERIAL] to [WORK_PAVED]. NaN heights are the pad's.
          *
-         * The pad complex is dead level out to three hundred metres and rises to it over seven
-         * hundred more, so it's a low hill. A tighter blend made a flat-topped mesa out of it.
-         *
-         * The runway is 2.5 km east, parallel to the row of pads and 400 m south of it, clear of
-         * every pad, and ends short of the bay's west shore so a plane climbs out over the water.
-         *
-         * The airfield's apron is at its west end, north of it, with two taxiways down to it.
-         *
-         * Roads run from the pad to the apron, along the runway from the apron, then wind down
-         * inland of the shore to the harbour's quay, which runs along the bay's west shore. Its
-         * berth, dredged deep enough for the Trawler, runs out east from the quay beside the jetty.
+         * The pad complex blends over 700 m so it's a low hill, not a mesa. The runway ends short of
+         * the bay so planes climb out over water. The berth is dredged for the Trawler.
          */
         // pad, runway, apron, two taxiways, roads (four legs), quay, berth
         private val WORK_FROM_EAST = doubleArrayOf(0.0, RUNWAY_WEST, 350.0, 420.0, 640.0, 0.0, 700.0, 2_650.0, 2_600.0, 2_560.0, 2_570.0, 2_625.0)
@@ -633,8 +561,8 @@ class TerrainField(
         )
 
         /**
-         * The runway's centreline, in metres east and north of the pad: from its west end to its east
-         * end, along a line [RUNWAY_NORTH] metres north (so it's south), and its paved half-width.
+         * The runway's centreline, in metres east and north of the pad: west end, east end, its line
+         * [RUNWAY_NORTH] metres north (so south), and its paved half-width.
          */
         const val RUNWAY_WEST = 250.0
         const val RUNWAY_EAST = 2_750.0
@@ -645,8 +573,8 @@ class TerrainField(
         private const val RUNWAY_WORK = 1
 
         /**
-         * Where the harbour's works start in the table: the road's third leg, heading down toward
-         * the shore.
+         * Where the harbour's works start in the table: the road's third leg, down toward the
+         * shore.
          */
         private const val HARBOUR_WORKS_FROM = 7
 
@@ -654,21 +582,19 @@ class TerrainField(
         private const val CAPE_LIFT = 7.0
 
         /**
-         * How quickly the lift comes in above the shoreline, in metres, and how it dies away over
-         * higher ground, in metres.
+         * How quickly the lift comes in above the shoreline, and how it dies away over high ground,
+         * in metres.
          */
         private const val CAPE_LIFT_SHORE = 0.4
         private const val CAPE_LIFT_HIGH = 6.0
 
-        /**
-         * Fully lifted within this many metres of the pad, and not at all past [CAPE_LIFT_FADE].
-         */
+        /** Fully lifted within this many metres of the pad, and not at all past [CAPE_LIFT_FADE]. */
         private const val CAPE_LIFT_REACH = 5_000.0
         private const val CAPE_LIFT_FADE = 8_000.0
 
         /**
-         * The Cape's green country: how far beyond the works it fades out, in metres, and how bent
-         * its edge is. See [capeGreen].
+         * The Cape's green country: how far past the works it fades, in metres, and how bent its edge
+         * is. See [capeGreen].
          */
         private const val GREEN_REACH = 1_200.0
         private const val GREEN_BEND = 350.0
@@ -681,29 +607,23 @@ class TerrainField(
         /** None of the works reach further than this many metres east or north of the pad. */
         private const val WORKS_REACH = 3_500.0
 
-        /**
-         * The harbour's quay, in metres above the datum, clear of the highest tide the bay gets.
-         */
+        /** The harbour's quay, in metres above the datum, clear of the bay's highest tide. */
         private const val QUAY_HEIGHT = 4.5
 
-        /**
-         * Its berth is dredged to this depth in metres, which leaves room under the Trawler at the
-         * lowest tide.
-         */
+        /** The berth's dredged depth in metres, leaving room under the Trawler at lowest tide. */
         private const val BERTH_DEPTH = -7.0
 
         /**
-         * The lowest a launch complex by the sea is built, in metres above the datum, clear of the
-         * highest tide the coast gets plus the surf on top of it. Lower ground gets built up to it.
+         * The lowest a seaside launch complex is built, in metres above the datum, clear of the
+         * highest tide plus surf. Lower ground is built up to it.
          */
         private const val PAD_MIN_ELEVATION = 15.0
 
 
         /**
          * The harbour's bay, in metres east and north of its middle: a basin [BAY_RADIUS_X] by
-         * [BAY_RADIUS_Y] around ([BAY_X], [BAY_Y]), five kilometres of water across with its west
-         * shore just past the end of the runway, and a cove to its south-east, [BAY_FLOOR] deep,
-         * shelving up to the shore over [BAY_SHELF_METRES].
+         * [BAY_RADIUS_Y] round ([BAY_X], [BAY_Y]), its west shore just past the runway's end, and a
+         * cove to the south-east. [BAY_FLOOR] deep, shelving to the shore over [BAY_SHELF_METRES].
          */
         private const val BAY_FLOOR = -16.0
         private const val BAY_SHELF_METRES = 600.0
@@ -716,9 +636,9 @@ class TerrainField(
         private const val COVE_RADIUS = 1_300.0
 
         /**
-         * The inlet's line, as east, north and half-width in metres: out of the basin to the
-         * north-east, then north-west to the open sea, opening out between the headlands at its
-         * mouth. The bend is the point. There's no straight line from the harbour to open water.
+         * The inlet's line, as east, north and half-width in metres: north-east out of the basin,
+         * then north-west to open sea, widening between the headlands. No straight line from harbour
+         * to open water.
          */
         private val INLET = doubleArrayOf(
             300.0, 2_400.0, 1_100.0,
@@ -730,9 +650,7 @@ class TerrainField(
         /** How smoothly the basin, cove and inlet run into each other, in metres. */
         private const val BAY_BLEND_METRES = 700.0
 
-        /**
-         * The slow bending of the whole outline: how far in metres, over what distance in metres.
-         */
+        /** The slow bending of the whole outline: how far, over what distance, in metres. */
         private const val BAY_WARP_METRES = 450.0
         private const val BAY_WARP_SCALE = 2_500.0
 
@@ -745,21 +663,18 @@ class TerrainField(
         /** How fast the banks rise behind the waterline, in metres per metre. */
         private const val BANK_GRADE = 0.08
 
-        /**
-         * Nothing of the bay reaches further than this many metres from its middle, east or north.
-         */
+        /** Nothing of the bay reaches further than this many metres from its middle, east or north. */
         private const val BAY_REACH_METRES = 12_000.0
 
         /**
-         * The hill band. It's sized in metres and added after the sharpening curve, so lowlands get
-         * the same relief as highlands.
+         * The hill band. Sized in metres and added after sharpening, so lowlands get the same
+         * relief.
          */
         private const val HILL_FREQUENCY = 250.0
 
         /**
-         * Five, not four. The fourth octave bottoms out at around two hundred and sixty metres,
-         * which is bigger than anything a craft on the ground can see past, so the near field had
-         * no texture at all and looked like a painted plane.
+         * Five, so the finest octave is small enough to give the near field texture. At four it
+         * bottomed out around 260 m and the ground looked painted.
          */
         private const val HILL_OCTAVES = 5
         private const val HILL_AMPLITUDE = 150.0

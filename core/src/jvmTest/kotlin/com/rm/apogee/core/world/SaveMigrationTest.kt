@@ -12,15 +12,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Old saves, read by a newer game.
- *
- * People leave bases and come back months later. By then the catalogue has moved on, and without
- * any of this the failure is quiet. A renamed part means the design refers to something that
- * doesn't exist any more, the craft fails to validate, and it gets dropped with a line in a log
- * nobody reads.
- *
- * The tables these use are empty today. That's the point of testing them now. Waiting for the first
- * rename to find out whether the mechanism works would be finding out at the worst possible moment.
+ * Old saves, read by a newer game. A renamed part would otherwise fail validation and the craft
+ * would be dropped quietly. The rename tables are empty today; these test the mechanism anyway.
  */
 class SaveMigrationTest {
 
@@ -86,10 +79,7 @@ class SaveMigrationTest {
         assertTrue("and nothing worth saying: ${result.notes}", result.notes.isEmpty())
     }
 
-    /**
-     * The whole point: one bad craft mustn't cost the world. A base that can't be put together is a
-     * bad afternoon, and a world that won't load is everything.
-     */
+    /** One bad craft mustn't stop the world loading. */
     @Test
     fun `one craft that can't load doesn't take the rest of the world with it`() {
         val world = World.default(catalog)

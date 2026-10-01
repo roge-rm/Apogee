@@ -8,13 +8,10 @@ import com.rm.apogee.core.math.Math
 import kotlin.concurrent.Volatile
 
 /**
- * The things lying and growing on the ground: rocks, boulders, trees and shrubs.
- *
- * Every one is solid, and the ones that grow can be knocked down.
+ * Things on the ground: rocks, boulders, trees and shrubs. All solid; growing ones can be felled.
  *
  * @param radius collider radius in metres at size 1: a boulder's sphere, or a trunk's thickness.
- * @param height how high the collider reaches in metres at size 1. Zero for a boulder, because its
- *     sphere is all there is.
+ * @param height how high the collider reaches in metres at size 1. Zero for a boulder.
  * @param breakImpulse newton-seconds to knock it down. Infinite for rock.
  */
 enum class ScatterKind(
@@ -23,9 +20,8 @@ enum class ScatterKind(
     val breakImpulse: Double,
 ) {
     /**
-     * Rubble a wheel rolls over as a bump. It's sized under a wheel's radius on purpose. At sixty
-     * centimetres, rocks sat at axle height, and a wheel at speed rode up their rounded side like a
-     * ramp. A rover driven across open country for a minute rolled over one run in four.
+     * Rubble a wheel rolls over as a bump. Kept under a wheel's radius, or a wheel at speed rides up
+     * it like a ramp and rolls the rover.
      */
     BOULDER_SMALL(radius = 0.3, height = 0.0, breakImpulse = Double.POSITIVE_INFINITY),
 
@@ -37,15 +33,10 @@ enum class ScatterKind(
     SHRUB(radius = 0.6, height = 1.1, breakImpulse = 600.0),
     CACTUS(radius = 0.3, height = 3.0, breakImpulse = 900.0),
 
-    /**
-     * A spire of rock on the sea floor, as tall as a house or taller, on a canyon's walls or a
-     * seamount's sides.
-     */
+    /** A spire of rock on the sea floor, house-high or more, on canyon walls and seamounts. */
     PINNACLE(radius = 2.2, height = 18.0, breakImpulse = Double.POSITIVE_INFINITY),
 
-    /**
-     * A vent's chimney: mineral stacked up around hot water rising, a few metres tall and brittle.
-     */
+    /** A vent's chimney: mineral stacked round rising hot water, a few metres tall and brittle. */
     VENT(radius = 0.9, height = 6.0, breakImpulse = 40_000.0),
 
     /** A lump of metal lying on the ooze, fist-sized and bigger. */
@@ -61,15 +52,14 @@ enum class ScatterKind(
 }
 
 /**
- * One block's worth of scatter, in the body-fixed frame. It's parallel arrays instead of one object
- * each, because a forest block holds a couple of hundred and the renderer and collider both walk
- * through them every frame.
+ * One block's scatter, body-fixed. Parallel arrays, since a forest block holds a couple of hundred
+ * and the renderer and collider walk them every frame.
  */
 class ScatterBlock(
     val face: Int,
     val i: Int,
     val j: Int,
-    /** Stable and unique across the body. It's what a felled tree gets remembered by. */
+    /** Stable and unique across the body. A felled tree is remembered by it. */
     val ids: LongArray,
     val kinds: ByteArray,
     /** Base position on the ground, body-fixed, in metres from the centre. */
@@ -86,13 +76,10 @@ class ScatterBlock(
 }
 
 /**
- * Where scatter goes, block by block, on the same grid as the collider's tiles.
- *
- * Placement comes only from position: a jittered grid of cells a few metres across, each rolling
- * once against the odds its ground gives. So every machine grows the same forest without it ever
- * being sent anywhere. It only samples the height field at the few points it needs, not a whole
- * tile's grid, so the renderer can place scatter out to its draw distance cheaply while the
- * collider only ever looks close to a craft.
+ * Where scatter goes, block by block, on the collider's tile grid. Placement comes only from
+ * position (a jittered grid of cells, each rolling once against its ground's odds), so every
+ * machine grows the same forest. It samples only the points it needs, so placing out to draw
+ * distance is cheap.
  */
 class ScatterField(private val terrain: Terrain) {
 
@@ -111,8 +98,8 @@ class ScatterField(private val terrain: Terrain) {
     }
 
     /**
-     * Calls [action] with every block within [radiusMetres] of body-fixed [direction]. It stays on
-     * one cube face, like the tile prefetch.
+     * Calls [action] with every block within [radiusMetres] of body-fixed [direction]. Stays on one
+     * cube face, like the tile prefetch.
      */
     inline fun forEachBlockNear(direction: Vec3, radiusMetres: Double, scratch: Vec3, action: (ScatterBlock) -> Unit) {
         val unit = scratch.setTo(direction).normalizeInPlace()
@@ -145,7 +132,7 @@ class ScatterField(private val terrain: Terrain) {
         for (cj in 0 until CELLS) for (ci in 0 until CELLS) {
             val cell = cj * CELLS + ci
             val roll = Noise.hash(SEED, face * 7919 + ci, i * 104729 + cj, j)
-            // A cheap early exit, since nothing anywhere is denser than this.
+            // Cheap early exit: nothing anywhere is denser than this.
             if (roll > MAX_DENSITY) continue
             val u = Noise.hash(SEED + 1, face * 7919 + ci, i * 104729 + cj, j)
             val v = Noise.hash(SEED + 2, face * 7919 + ci, i * 104729 + cj, j)
@@ -154,8 +141,7 @@ class ScatterField(private val terrain: Terrain) {
             CubeSphere.direction(face, s, t, d)
             if (terrain.isLaunchComplex(d)) continue
             val h = terrain.elevation(d)
-            // On the sea floor, only what lies there, and nothing in the swash, where the sea comes
-            // and goes.
+            // On the sea floor, only what lies there, and nothing in the swash.
             val underwater = terrain.hasOcean && h < 1.0
             if (underwater && h > -SWASH) continue
             // The slope, from two more samples a metre away along the face axes.
@@ -166,8 +152,7 @@ class ScatterField(private val terrain: Terrain) {
             val gradient = kotlin.math.sqrt(dhx * dhx + dhy * dhy)
             val slope = 1.0 - 1.0 / kotlin.math.sqrt(1.0 + gradient * gradient)
             val kind = (if (underwater) seaKindFor(terrain.material(d, h, slope), roll) else kindFor(terrain.material(d, h, slope), h, slope, roll))
-                // Nothing grows off Terra. Only its rocks, plus the sea floor's spires and
-                // chimneys.
+                // Nothing grows off Terra: only rocks, plus the sea floor's spires and chimneys.
                 ?.takeIf { !terrain.barren || it.isBoulder || underwater } ?: continue
 
             ids[n] = base + cell
@@ -185,12 +170,12 @@ class ScatterField(private val terrain: Terrain) {
     }
 
     /**
-     * What, if anything, grows or lies in a cell of this ground. [roll] is the cell's own 0..1
-     * draw, and the ground's odds are stacked bands of it.
+     * What, if anything, grows or lies in a cell of this ground. [roll] is the cell's 0..1 draw,
+     * and the ground's odds are stacked bands of it.
      */
     /**
-     * What lies in a cell of sea floor of [material]: chimneys at the vents, nodules on their
-     * fields, and spires on the rock.
+     * What lies on sea floor of [material]: chimneys at vents, nodules on their fields, spires on
+     * rock.
      */
     private fun seaKindFor(material: SurfaceMaterial, roll: Double): ScatterKind? = when (material) {
         SurfaceMaterial.VENT_CRUST -> if (roll < 0.07) ScatterKind.VENT else if (roll < 0.1) ScatterKind.BOULDER_SMALL else null
@@ -204,20 +189,17 @@ class ScatterField(private val terrain: Terrain) {
     private fun kindFor(material: SurfaceMaterial, elevation: Double, slope: Double, roll: Double): ScatterKind? {
         if (slope > 0.45) return null
         return when (material) {
-            // Nothing grows on the launch complex's paving, or on sea floor that's been lifted dry.
+            // Nothing grows on paving, or on sea floor lifted dry.
             SurfaceMaterial.CONCRETE, SurfaceMaterial.ASPHALT, SurfaceMaterial.OOZE, SurfaceMaterial.NODULES, SurfaceMaterial.VENT_CRUST -> null
             SurfaceMaterial.FOREST -> when {
-                // One cell in five, so it's a forest and not a hedge. At one in three it was over
-                // four thousand trees a square kilometre, which is thick enough to be a wall and
-                // too many to draw.
+                // One cell in five, so it's a forest and not a wall, and few enough to draw.
                 roll < 0.20 -> if (elevation > 1_300.0 || roll < 0.07) ScatterKind.CONIFER else ScatterKind.BROADLEAF
                 roll < 0.25 -> ScatterKind.SHRUB
                 roll < 0.26 -> ScatterKind.BOULDER_SMALL
                 else -> null
             }
-            // Open country: a lone tree every hundred and fifty metres or so. They're solid, and a
-            // wheel that catches one at speed spins the craft around it. That's fair, but the
-            // grassland around the Cape is where people learn to drive.
+            // Open country: a lone tree every 150 m or so. Sparse, since the grassland round the
+            // Cape is where people learn to drive.
             SurfaceMaterial.GRASS -> when {
                 roll < 0.006 -> ScatterKind.BROADLEAF
                 roll < 0.024 -> ScatterKind.SHRUB
@@ -241,8 +223,7 @@ class ScatterField(private val terrain: Terrain) {
                 roll < 0.045 -> ScatterKind.SHRUB
                 else -> null
             }
-            // Mare floors are the smooth ground landings aim for, so the odd rock, not a boulder
-            // field.
+            // Mare floors are where landings aim, so just the odd rock.
             SurfaceMaterial.BASALT -> if (roll < 0.008) ScatterKind.BOULDER_SMALL else null
             SurfaceMaterial.ROCK -> when {
                 roll < 0.05 -> ScatterKind.BOULDER_SMALL

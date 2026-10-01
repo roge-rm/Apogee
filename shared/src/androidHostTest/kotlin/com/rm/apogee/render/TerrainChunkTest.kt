@@ -10,11 +10,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * The drawn ground against the ground the collider uses.
- *
- * At the finest level a chunk is built from the same samples as the collider's tiles and split
- * along the same diagonal, so a craft resting on the ground is resting on exactly what's drawn, not
- * floating over it or sunk into it.
+ * The drawn ground against the collider's. At the finest level a chunk uses the same samples and
+ * diagonal as the collider's tiles, so a craft rests on exactly what's drawn.
  */
 class TerrainChunkTest {
 
@@ -68,8 +65,7 @@ class TerrainChunkTest {
         val grid = TerrainChunk.SIDE * TerrainChunk.SIDE
         var checked = 0
         for (t in 0 until indices.size / 3) {
-            // Grid triangles only. Skirts are wound both ways on purpose, and they sit among them,
-            // a quarter at a time.
+            // Grid triangles only. Skirts are wound both ways on purpose.
             if ((0 until 3).any { (indices[t * 3 + it].toInt() and 0xFFFF) >= grid }) continue
             checked++
             vertex(chunk, indices[t * 3].toInt() and 0xFFFF, a)
@@ -96,9 +92,8 @@ class TerrainChunkTest {
     }
 
     /**
-     * The shared index buffer comes in four equal quarters, each covering only its own child's
-     * cells, so a chunk can stand in for just the children that are missing. Together they're the
-     * whole chunk: every cell twice (two triangles) and every skirt segment once.
+     * The shared index buffer is four equal quarters, one per child, so a chunk can stand in for
+     * just its missing children. Together: every cell twice (two triangles), every skirt once.
      */
     @Test
     fun `the index buffer is laid out a quarter at a time`() {
@@ -115,8 +110,7 @@ class TerrainChunkTest {
             for (t in 0 until perQuarter / 3) {
                 val tri = (0 until 3).map { indices[quarter * perQuarter + t * 3 + it].toInt() }
                 val top = tri.filter { it < grid }
-                // Every grid vertex of this quarter's triangles is inside the quarter or on its
-                // boundary.
+                // Every grid vertex is inside the quarter or on its edge.
                 for (v in top) {
                     val p = v % side; val q = v / side
                     assertTrue("quarter $quarter has vertex ($p,$q)", p in di * half..di * half + half && q in dj * half..dj * half + half)

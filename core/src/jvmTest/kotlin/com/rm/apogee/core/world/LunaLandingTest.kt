@@ -13,18 +13,15 @@ import kotlin.math.abs
 import kotlin.math.asin
 import kotlin.math.atan2
 
-/**
- * Setting down on the Moon: on a mare, the flat dark plain every first landing aims for, a
- * kilometre and more below the datum on a world that has no sea to fill it.
- */
+/** Setting down on a lunar mare, a flat plain a kilometre or more below the datum. */
 class LunaLandingTest {
 
     private val catalog = StockParts.catalog
     private val dt = 1.0 / 60.0
 
     /**
-     * A level patch of basalt near the mare north-west of Luna's prime meridian. It's searched for
-     * instead of pinned, so tuning the craters doesn't quietly move the test onto a crater wall.
+     * A level patch on the mare north-west of Luna's prime meridian. Searched for, not pinned, so
+     * crater tuning can't move the test onto a crater wall.
      */
     private fun mareSite(world: World): LaunchSite {
         val luna = world.system.body("luna").terrain!!
@@ -67,10 +64,8 @@ class LunaLandingTest {
             radius < luna.radius - 300.0,
         )
 
-        // Engine cut a couple of metres up, for a touchdown at about 2.5 m/s. In a sixth of a g a
-        // bounce carries a long way before gravity settles it, so a lunar landing has to be gentle
-        // (the real ones touched down at about one metre a second), and a free fall from ten metres
-        // is enough to rock a lander over.
+        // Engine cut 2 m up, touching down at about 2.5 m/s. In a sixth of a g a bounce carries
+        // far, and a fall from 10 m is enough to rock a lander over.
         vessel.body.position.addScaledInPlace(up, 2.0)
         luna.surfaceVelocityAt(vessel.body.position, vessel.body.linearVelocity)
         vessel.body.linearVelocity.addScaledInPlace(up, -1.5)

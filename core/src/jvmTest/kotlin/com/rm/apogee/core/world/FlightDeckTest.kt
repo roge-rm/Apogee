@@ -128,8 +128,7 @@ class FlightDeckTest {
         val ship = afloat(world, StockCraft.flatTop(catalog))
         val wires = ship.design.parts.indexOfFirst { it.partId == "gear-arrest" }
         val gear = ship.design.parts[wires].position
-        // Twenty metres astern of the wires, a couple of metres over the deck, coming in at
-        // thirty-five metres a second with the nose a little up and the gear and hook down.
+        // 20 m astern of the wires, just over the deck, at 35 m/s, nose a little up, gear and hook down.
         val plane = placeOn(world, ship, StockCraft.petrel(catalog), Vec3().setTo(gear).addInPlace(Vec3(0.0, -20.0, 0.0)), 2.6)
         val ahead = ship.body.orientation.rotate(ship.design.orientation.forward, Vec3())
         val right = ahead.copy().crossInPlace(ship.body.orientation.rotate(ship.design.orientation.up, Vec3())).normalizeInPlace()

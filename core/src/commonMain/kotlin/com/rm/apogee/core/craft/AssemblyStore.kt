@@ -5,8 +5,8 @@ import com.rm.apogee.core.Folder
 import kotlinx.serialization.json.Json
 
 /**
- * A piece of a craft kept to use again: a part and everything hanging from it, named. A pair of
- * boosters with their nose cones, a wing with its elevon and engine, a lander's legs.
+ * A named piece of craft kept for reuse: a part and everything under it, like a pair of boosters or
+ * a wing.
  */
 @Serializable
 data class SavedAssembly(
@@ -18,10 +18,7 @@ data class SavedAssembly(
     val rootPartId: String get() = parts[0].partId
 }
 
-/**
- * Saved pieces on disk, one JSON file each, the same way [CraftStore] keeps whole craft. They're
- * listed newest first.
- */
+/** Saved pieces on disk, one JSON file each like [CraftStore], newest first. */
 class AssemblyStore(private val directory: Folder) {
 
     private val format = Json {
@@ -40,9 +37,9 @@ class AssemblyStore(private val directory: Folder) {
             }
             .filter { it.first.parts.isNotEmpty() }
 
-    /** Saves [assembly] as [name], under a new file if the name's taken, so nothing's written over. */
+    /** Saves [assembly] as [name], under a new file name if taken, so nothing's overwritten. */
     fun save(name: String, assembly: Assembly): Result<String> = runCatching {
-        // Where it came from doesn't go with it: its stages and any docking are the craft's own.
+        // Docking belongs to the craft it came from, so it's cleared.
         val parts = assembly.parts.map { it.copy(dockedTo = -1, dockedFrom = null) }
         val base = fileNameFor(name)
         var file = "$base.$EXTENSION"

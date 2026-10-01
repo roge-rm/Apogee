@@ -10,11 +10,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Craft against craft.
- *
- * Every one of these passed trivially before the resolver existed, because two vessels just sat in
- * the same space without noticing. That's why they're written as "is it still above the other one"
- * instead of as checks on impulses.
+ * Craft against craft. Written as "is it still above the other one" so they'd fail if two craft
+ * just sat in the same space.
  */
 class CraftCollisionTest {
 
@@ -53,16 +50,12 @@ class CraftCollisionTest {
         assertNotNull("the lower craft should have survived being landed on", settledLower)
         assertNotNull("the upper craft should have survived the landing", settledUpper)
 
-        // The landers are about 4.6m tall. Anything under a couple of metres means one has sunk
-        // into the other.
+        // The landers are about 4.6 m tall, so under a couple of metres means one sank into the other.
         val gap = separation(settledUpper!!, settledLower!!)
         assertTrue("the upper craft ended up $gap m above the lower one", gap > 2.0)
     }
 
-    /**
-     * The control. Without it the test above would also pass if the resolver just froze everything
-     * in place.
-     */
+    /** The control: the test above would also pass if the resolver froze everything in place. */
     @Test
     fun `craft on separate pads don't touch`() {
         val world = world()
@@ -108,10 +101,7 @@ class CraftCollisionTest {
         )
     }
 
-    /**
-     * A collision has two sides. If only the moving craft responds, a base is a wall instead of an
-     * object, and nothing built in orbit would work.
-     */
+    /** A collision has two sides: both craft respond, not just the moving one. */
     @Test
     fun `both craft feel the impact, the lighter one more`() {
         val world = world()

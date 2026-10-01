@@ -1,6 +1,5 @@
-// The building blocks every sound in the game is made from: noise, filters, oscillators, envelopes,
-// resonators and a little room. It's header-only, with no allocation and no platform, so the same
-// code runs in the game's audio callback and in the desktop tool that renders the sound gallery.
+// The building blocks of every sound: noise, filters, oscillators, envelopes and resonators.
+// Header-only, no allocation, no platform, so the audio callback and the sound gallery share it.
 #pragma once
 
 #include <cmath>
@@ -43,9 +42,8 @@ struct Pink {
 };
 
 /**
- * Brown noise: integrated white with a leak, the deep roll under an engine. The leak sets its
- * corner near 75 Hz. Any lower and its energy sits where no phone speaker can play it, and drifts
- * toward DC.
+ * Brown noise: leaky integrated white, the roll under an engine. The leak puts its corner near
+ * 75 Hz, since lower is lost on phone speakers and drifts toward DC.
  */
 struct Brown {
     float y = 0;
@@ -56,13 +54,12 @@ struct Brown {
 };
 
 /**
- * Zero for a value too small to matter. A feedback path dying away ends in denormals, which some
- * CPUs work through very slowly: a page's WebAssembly on a PC can't switch them off, and silence
- * after a bang cost eight times what a sound did.
+ * Zero for a value too small to matter. Decaying feedback ends in denormals, which are very slow on
+ * some CPUs, and WebAssembly can't switch them off.
  */
 inline float flush(float x) { return (x > -1e-15f && x < 1e-15f) ? 0.0f : x; }
 
-/** Takes out DC and anything below hearing, so nothing a speaker can play is lost. */
+/** Takes out DC and anything below hearing. */
 struct DcBlock {
     float x1 = 0, y1 = 0;
     float next(float x) {
@@ -82,7 +79,7 @@ struct Smooth {
     float next(float target) { value += (target - value) * coeff; return value; }
 };
 
-/** A state-variable filter (Simper's): low, band and high pass together, and stable when swept. */
+/** Simper's state-variable filter: low, band and high pass at once, stable when swept. */
 struct Svf {
     float ic1 = 0, ic2 = 0;
     float g = 0, k = 1, a1 = 0, a2 = 0, a3 = 0;
@@ -163,10 +160,7 @@ struct Decay {
     bool done() const { return !rising && value < 1e-4f; }
 };
 
-/**
- * A few tuned ringing band passes. They're what give a blow its material: the clang of a tank, the
- * thunk of rock, the dull thud of earth.
- */
+/** A few tuned ringing band passes that give a hit its material: tank, rock, earth. */
 struct Resonators {
     static constexpr int kMax = 6;
     Svf band[kMax];
@@ -183,10 +177,7 @@ struct Resonators {
     }
 };
 
-/**
- * Crackle: sparse random clicks, each a tiny burst, for fire, plasma and the rasp of a solid motor.
- * [rate] is clicks per second.
- */
+/** Sparse random clicks for fire, plasma and solid motors. [rate] is clicks per second. */
 struct Crackle {
     float env = 0;
     float sign = 1;

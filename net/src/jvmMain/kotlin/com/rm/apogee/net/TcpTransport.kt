@@ -18,22 +18,12 @@ import java.net.InetSocketAddress
 import java.net.Socket
 
 /**
- * A [Transport] over a TCP socket.
+ * A [Transport] over a TCP socket. Each frame is one byte of channel, four bytes of big-endian
+ * length, then the payload, since TCP is a stream with no message boundaries.
  *
- * Each frame is one byte of channel, four bytes of big-endian length, then the payload. TCP is a
- * stream and has no idea where one message ends. A protocol that forgets that works perfectly on
- * localhost, where writes tend to arrive whole, and then falls apart the moment it meets a real
- * network.
- *
- * It uses blocking IO on [Dispatchers.IO] instead of NIO selectors. A game hosted from a phone has
- * a handful of players and a dedicated server has tens, and at that size a thread per connection is
- * simpler, easier to think about, and behaves the same on Android and on a server JVM. Selectors
- * are only worth the trouble in the hundreds.
- *
- * It's TCP, not UDP, for now. Head-of-line blocking means a lost packet holds up the positions
- * behind it, which is exactly the wrong trade for a 20 Hz state stream. But it's the right trade
- * for getting two devices flying together, and the [Channel] split already marks where an
- * unreliable path will go.
+ * Blocking IO on [Dispatchers.IO], a thread per connection, which is fine for tens of players.
+ * TCP's head-of-line blocking isn't ideal for a 20 Hz stream; the [Channel] split marks where an
+ * unreliable path could go.
  */
 class TcpTransport private constructor(
     private val socket: Socket,
@@ -55,8 +45,7 @@ class TcpTransport private constructor(
                 val channelOrdinal = input.readByte().toInt()
                 val length = input.readInt()
                 if (length < 0 || length > MAX_FRAME_BYTES) {
-                    // A bad length is either corruption or something hostile. Either way the stream
-                    // can't be trusted any more, because we don't know where the next frame starts.
+                    // Corrupt or hostile. We've lost the frame boundary, so drop the stream.
                     throw IOException("Frame length $length out of range")
                 }
                 val channel = CHANNELS.getOrNull(channelOrdinal)
@@ -67,9 +56,9 @@ class TcpTransport private constructor(
                 emit(Packet(channel, bytes))
             }
         } catch (_: EOFException) {
-            // The other end hung up. That's an ordinary disconnect, not an error.
+            // The other end hung up.
         } catch (_: IOException) {
-            // A reset, a timeout, or a malformed frame. To the game that's just a disconnect too.
+            // A reset, timeout or bad frame. Treated as a disconnect.
         } finally {
             close()
         }
@@ -77,13 +66,8 @@ class TcpTransport private constructor(
 
     override suspend fun send(packet: Packet) {
         if (closed) return
-        // This goes on the IO dispatcher instead of the caller's, because these are blocking socket
-        // writes and the client sends control commands straight from the UI's own scope. On Android
-        // that scope is the main thread, and a blocking write there is a fatal
-        // NetworkOnMainThreadException. Single player never hits it, because its transport is an
-        // in-memory queue with no socket to block on. So the crash could only ever show up once you
-        // joined a real server, which is exactly where it did. The read side already says which
-        // dispatcher it uses, and the write side has to as well.
+        // Blocking writes go on IO. The client sends commands from the UI scope, which on Android
+        // is the main thread, where a socket write throws NetworkOnMainThreadException.
         withContext(Dispatchers.IO) {
             writeLock.withLock {
                 try {
@@ -106,19 +90,15 @@ class TcpTransport private constructor(
 
     companion object {
         /**
-         * Frames larger than this get refused.
-         *
-         * A craft design is a few kilobytes, and a megabyte is already hard to believe. The cap is
-         * there so a corrupt or hostile length can't make the server allocate any buffer it's asked
-         * for.
+         * Larger frames are refused, so a bad length can't make us allocate any size. A craft
+         * design is a few kilobytes.
          */
         const val MAX_FRAME_BYTES = 1 shl 20
 
         private val CHANNELS = Channel.entries.toTypedArray()
 
         fun wrap(socket: Socket): TcpTransport {
-            // Nagle is off. The whole point of a 20 Hz state stream is that each update goes out
-            // now, not when the buffer happens to fill up.
+            // Nagle off, so each 20 Hz update goes out at once.
             runCatching { socket.tcpNoDelay = true }
             return TcpTransport(
                 socket,
@@ -143,10 +123,8 @@ class TcpTransport private constructor(
 }
 
 /**
- * Accepts TCP connections and hands each one to [onConnected] as a [Transport].
- *
- * It knows nothing about the game. It's the seam between sockets and sessions, so that
- * [com.rm.apogee.server.GameServer] never has to know about sockets.
+ * Accepts TCP connections and hands each one to [onConnected] as a [Transport], so
+ * [com.rm.apogee.server.GameServer] never sees sockets.
  */
 class TcpListener(
     private val port: Int,
@@ -172,7 +150,7 @@ class TcpListener(
                     onConnected(TcpTransport.wrap(client))
                 }
             } catch (_: IOException) {
-                // Closed while blocked in accept(). That's how stop() works.
+                // Closed while blocked in accept(); that's how stop() works.
             }
         }
     }

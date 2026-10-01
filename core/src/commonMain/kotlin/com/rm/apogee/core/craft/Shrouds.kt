@@ -8,11 +8,9 @@ import com.rm.apogee.core.part.PartCatalog
 import kotlinx.serialization.Serializable
 
 /**
- * A shell round an engine that has something attached under it, carried by that part: [height]
- * metres up from the join, narrowing or widening to [radius] at the top where the engine's tank
- * sits. When the stage below drops away the shell splits and falls away in pieces, leaving the
- * engine above bare to fire. Without it an upper stage's engine hung in the open between the
- * stages.
+ * A shell round an engine with something attached under it, carried by that part: [height] metres
+ * up from the join, to [radius] at the top where the engine's tank sits. When the stage below
+ * drops, the shell splits and falls away, leaving the engine bare to fire.
  */
 @Serializable
 data class Shroud(
@@ -24,20 +22,19 @@ data class Shroud(
 
 object Shrouds {
 
-    /** How much wider than the stack a shell stands, in metres, so it doesn't flicker against it. */
+    /** How much wider than the stack a shell is, in metres, so it doesn't z-fight. */
     private const val CLEARANCE = 0.012
 
-    /** A stack node's radius in metres, by its size: 1.25, 2.5 or 3.75 metres across. */
+    /** A stack node's radius in metres by size: 1.25, 2.5 or 3.75 m across. */
     fun nodeRadius(size: Int): Double = size * 0.625
 
-    /** How near two nodes have to be to count as joined, in metres. */
+    /** Metres within which two nodes count as joined. */
     private const val JOINED = 0.05
 
     /**
      * Each part's shroud, or null: one it carries for a rocket engine whose bottom it's joined to.
-     * It goes by where the nodes are, not the tree, because the stock craft are put together by
-     * position, and an engine can be built onto the part under it as well as the other way round.
-     * A shell shed when its stage dropped isn't one of them (see [PlacedPart.shroud]).
+     * Found by node position, not the tree, since stock craft are built by position and the engine
+     * can be either parent or child. A shell already shed isn't included (see [PlacedPart.shroud]).
      */
     fun of(design: CraftDesign, catalog: PartCatalog): Array<Shroud?> {
         val out = arrayOfNulls<Shroud>(design.parts.size)
@@ -51,7 +48,7 @@ object Shrouds {
             val top = nodes.firstOrNull { it.direction.y > 0.5 } ?: continue
             engine.rotation.rotate(bottom.position, at).addInPlace(engine.position)
             engine.rotation.rotate(bottom.direction, axis)
-            // Its neighbours in the tree: what hangs from it, and what it hangs from.
+            // Its tree neighbours: what hangs from it and what it hangs from.
             for ((c, carrier) in parts.withIndex()) {
                 if (c == e || !(carrier.parentIndex == e || engine.parentIndex == c)) continue
                 val carrierDef = catalog[carrier.partId] ?: continue

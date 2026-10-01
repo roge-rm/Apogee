@@ -6,12 +6,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * The vertical slice, as a test.
- *
- * If this fails, something in thrust, drag, mass, staging, crossfeed, attitude control or the
- * integrator has gone backwards, and the telemetry it prints on failure usually says which. It's an
- * end-to-end check on purpose, not a tight number one. Exact numbers will move as the model gets
- * better, but "the stock rocket makes a stable orbit" mustn't.
+ * The stock rocket to orbit, end to end. A failure means thrust, drag, mass, staging, crossfeed,
+ * attitude or the integrator went backwards; the telemetry it prints usually says which. The
+ * bounds are loose on purpose.
  */
 class AscentScenarioTest {
 
@@ -20,8 +17,7 @@ class AscentScenarioTest {
         val result = AscentScenario().fly()
 
         if (!result.reachedOrbit) {
-            // Showing the flight log here is the point, because a bare assertion failure would say
-            // nothing about where the ascent went wrong.
+            // The log shows where the ascent went wrong.
             println(result.log.joinToString("\n"))
         }
 
@@ -53,7 +49,7 @@ class AscentScenarioTest {
         )
     }
 
-    /** Weather is part of the world now, and the stock rocket makes orbit through it. */
+    /** The stock rocket makes orbit through the weather. */
     @Test
     fun `the stock rocket reaches orbit through the weather`() {
         for (intensity in listOf(com.rm.apogee.core.weather.WeatherIntensity.NORMAL, com.rm.apogee.core.weather.WeatherIntensity.WILD)) {
@@ -69,9 +65,8 @@ class AscentScenarioTest {
 
     @Test
     fun `ascent is reproducible`() {
-        // The same inputs give the same flight. Not because we rely on cross-device determinism (we
-        // don't), but because a simulation whose own results wander can't be tested or replayed at
-        // all.
+        // The same inputs give the same flight, or nothing can be tested or replayed. Cross-device
+        // determinism isn't needed.
         val first = AscentScenario().fly()
         val second = AscentScenario().fly()
 

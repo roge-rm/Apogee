@@ -1,13 +1,10 @@
 package com.rm.apogee.core.terrain
 
 /**
- * What the ground is made of, and what that does to a craft on it.
+ * What the ground is made of and what that does to a craft. The renderer colours a facet by it and
+ * the collider grips, drags and sinks by it, so ground that looks like ice is ice.
  *
- * One set of materials drives both the look and the physics. The renderer colours a facet by its
- * material, and the collider grips, drags and sinks by it, so ground that looks like ice is ice.
- *
- * @param friction Coulomb coefficient, dry grip. Grass and packed dirt sit at 0.6, which is what
- *     all ground was before materials existed.
+ * @param friction Coulomb coefficient, dry grip. Grass and packed dirt are 0.6.
  * @param rollingDrag multiplies a wheel's own rolling resistance.
  * @param softness metres of sinking per unit of contact pressure ratio. Zero for anything firm. See
  *     GroundContact.
@@ -25,11 +22,8 @@ enum class SurfaceMaterial(
     /** Packed earth, firm. The launch complex stands on it. */
     DIRT(friction = 0.6, rollingDrag = 1.2, softness = 0.0, bog = 0.0),
     SAND(friction = 0.45, rollingDrag = 3.0, softness = 0.06, bog = 2.0),
-    // Drag stays under grip for a light load on the soft ones, or nothing gets anywhere. Bog is per
-    // metre of sinking. At four, twelve centimetres into mud cost half a rover's weight on its own,
-    // grip and drag cancelled out exactly, and it crept along at a fifth of a metre a second.
-    // Sinking is what separates light from heavy (three times the load sinks three times as deep),
-    // so a heavy craft still bogs down.
+    // On soft ground drag must stay under grip for a light load, or nothing moves. Too much bog and
+    // a rover in mud barely crawls. Sinking scales with load, so heavy craft still bog down.
     MUD(friction = 0.35, rollingDrag = 2.5, softness = 0.12, bog = 1.0),
     SNOW(friction = 0.3, rollingDrag = 2.0, softness = 0.08, bog = 1.0),
     ICE(friction = 0.08, rollingDrag = 0.6, softness = 0.0, bog = 0.0),
@@ -54,18 +48,13 @@ enum class SurfaceMaterial(
     /** Fornax's plains: sulfur frost and crust, firm. */
     SULFUR(friction = 0.6, rollingDrag = 1.0, softness = 0.0, bog = 0.0),
 
-    /**
-     * Molten rock, like Fornax's lakes and Caligo's fresh flows. Nothing that touches it survives.
-     */
+    /** Molten rock, like Fornax's lakes and Caligo's fresh flows. Nothing that touches it survives. */
     LAVA(friction = 0.3, rollingDrag = 3.0, softness = 0.0, bog = 0.0),
 
     /** Aurantia's dunes: grains of frozen hydrocarbon, dark and soft. */
     ORGANIC_SAND(friction = 0.45, rollingDrag = 3.0, softness = 0.06, bog = 2.0),
 
-    /**
-     * Frozen nitrogen, like Ultima's great plain and Aversa's cap. It's slicker than water ice, and
-     * a little soft.
-     */
+    /** Frozen nitrogen, like Ultima's plain and Aversa's cap. Slicker than water ice, a little soft. */
     NITROGEN_ICE(friction = 0.06, rollingDrag = 0.7, softness = 0.01, bog = 0.5),
 
     /** Dark red organic dust, on Ultima's and Portitor's reddened ground. */

@@ -24,7 +24,7 @@ class PlatformTest {
 
     @Test
     fun `the hashes clients and servers compare come out as they did`() {
-        // Worked the old way, straight from the JDK, from the same text.
+        // The same text, straight through the JDK.
         val text = resourceText("/parts/stock.json")!!.encodeToByteArray()
         assertEquals(jdk(text).joinToString("") { "%02x".format(it) }, hex(Sha256.digest(text)))
         assertEquals(16, StockParts.catalog.contentHash.length)

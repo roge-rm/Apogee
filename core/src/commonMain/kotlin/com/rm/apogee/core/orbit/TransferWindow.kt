@@ -7,34 +7,31 @@ import kotlin.math.atan2
 import kotlin.math.sqrt
 
 /**
- * When to leave one planet for another, and what it costs. It uses the simplest transfer there is:
- * half an ellipse touching both orbits, treating them as circles. It isn't a search over every
- * departure day. It's a rule of thumb, good to within a few days and a few percent, which is what a
- * pilot needs to know to be ready.
+ * When to leave one planet for another and what it costs, by a Hohmann transfer between circular
+ * orbits. A rule of thumb, good to a few days and a few percent.
  */
 class TransferWindow(
     /**
-     * Where the target is now, ahead of the planet you're leaving, around the star, in radians
-     * (0..2 pi).
+     * How far the target is ahead of the departure planet round the star now, in radians (0..2 pi).
      */
     val phase: Double,
     /** Where it has to be at departure, in radians. */
     val phaseNeeded: Double,
-    /** Seconds from now to the next departure. */
+    /** Seconds to the next departure. */
     val waitFor: Double,
-    /** How many seconds the crossing takes. */
+    /** Seconds the crossing takes. */
     val flight: Double,
-    /** The speed to add leaving from [parkedAt] metres from the planet's centre, in m/s. */
+    /** Speed to add leaving from [parkedAt] metres from the planet's centre, in m/s. */
     val departure: Double,
-    /** The speed to lose to settle into a low orbit on arrival, in m/s. */
+    /** Speed to lose for a low orbit on arrival, in m/s. */
     val arrival: Double,
-    /** Seconds between one window and the next. */
+    /** Seconds between windows. */
     val synodic: Double,
 ) {
     companion object {
         /**
-         * From planet [fromId], with a craft parked [parkedAt] metres from its centre, to planet
-         * [toId], at [time]. Null unless both go around the same star and are different planets.
+         * From planet [fromId], parked [parkedAt] metres from its centre, to planet [toId] at
+         * [time]. Null unless both are different planets of the same star.
          */
         fun between(system: SolarSystem, fromId: String, toId: String, time: Double, parkedAt: Double): TransferWindow? {
             if (fromId == toId) return null
@@ -52,7 +49,7 @@ class TransferWindow(
             val n1 = sqrt(mu / (a1 * a1 * a1))
             val n2 = sqrt(mu / (a2 * a2 * a2))
 
-            // Angles measured round the way the planet you're leaving goes.
+            // Angles measured in the departure planet's direction of travel.
             val normal = from.orbit!!.angularMomentum.normalized()
             val phase = angle(r1, r2, normal)
             val needed = wrap(PI - n2 * flight)
@@ -73,7 +70,7 @@ class TransferWindow(
             return TransferWindow(phase, needed, wait, flight, departure, arrival, synodic)
         }
 
-        /** The angle from [a] to [b] around [normal], 0..2 pi. */
+        /** Angle from [a] to [b] about [normal], 0..2 pi. */
         private fun angle(a: Vec3, b: Vec3, normal: Vec3): Double =
             wrap(atan2(a.cross(b) dot normal, a dot b))
 

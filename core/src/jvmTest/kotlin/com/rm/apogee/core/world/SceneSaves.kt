@@ -124,8 +124,7 @@ class SceneSaves {
             w.spawnOnSurface(StockCraft.starterRocket(c), World.launchSites.first { it.id == "cape" }).name = "Starter I"
             WorldStore(File(dir, "padnight.json")).save(w.save()).getOrThrow()
         }
-        // In a 100 km orbit around Terra, in Luna's plane, with a transfer to Luna planned five
-        // minutes on.
+        // A 100 km Terra orbit in Luna's plane, with a transfer to Luna planned five minutes on.
         run {
             val w = world()
             val system = w.system
@@ -150,7 +149,7 @@ class SceneSaves {
             w.apply(Command.SetTarget(craft.id.raw, -1L, "luna"))
             WorldStore(File(dir, "transfer.json")).save(w.save()).getOrThrow()
         }
-        // In a 30 km orbit around Luna, over the mare, with the engine lit, to come down on it.
+        // A 30 km Luna orbit over the mare, engine lit, to come down on it.
         run {
             val w = world()
             val luna = w.system.body("luna")
@@ -158,7 +157,7 @@ class SceneSaves {
             val over = luna.rotationAt(w.time).rotate(SolarSystem.surfaceDirection(mare.latitude, mare.longitude))
             val r = luna.radius + 30_000.0
             val position = over.copy().mulInPlace(r)
-            // Heading east, so it passes over the mare, along the turn of the ground.
+            // Heading east, so it passes over the mare.
             val east = Vec3(0.0, 1.0, 0.0).crossInPlace(over).normalizeInPlace()
             val velocity = east.mulInPlace(luna.circularVelocityAt(r))
             val design = StockCraft.lander(c)
@@ -167,8 +166,7 @@ class SceneSaves {
             w.stage(craft)
             WorldStore(File(dir, "lunaorbit.json")).save(w.save()).getOrThrow()
         }
-        // Three kilometres over the mare, falling and drifting, with the engine lit and the legs
-        // next.
+        // 3 km over the mare, falling and drifting, engine lit and legs next.
         run {
             val w = world()
             val craft = w.spawnOnSurface(StockCraft.lander(c), World.launchSites.first { it.id == "luna-mare" }, pad = 3)
@@ -229,7 +227,7 @@ class SceneSaves {
             repeat(120) { w.step(1.0 / 60) }
             WorldStore(File(dir, "padbase.json")).save(w.save()).getOrThrow()
         }
-        // A rocket nine kilometres up over the pads, climbing, at the day's highest tide there.
+        // A rocket climbing 9 km over the pads at the morning's high tide.
         run {
             val sea = com.rm.apogee.core.sea.Sea(terra, probe.system.body("luna"), null, 0)
             val padGround = SolarSystem.capeDirection(-600.0, 0.0)

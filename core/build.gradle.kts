@@ -1,18 +1,16 @@
 import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
-// The whole simulation, with NO Android dependency on purpose, so it runs unchanged inside the app,
-// inside the dedicated server, inside a plain JUnit test, and in a browser. It's Kotlin
-// Multiplatform for that last one: the code is in commonMain, the few things only the JVM has (files,
-// threads) are behind small expect/actual pieces, and the tests run on the JVM.
+// The whole simulation, with no Android dependency, so it runs in the app, the server, JUnit and a
+// browser. JVM-only bits (files, threads) are behind expect/actual. Tests run on the JVM.
 plugins {
     alias(libs.plugins.kotlin.multiplatform)
     alias(libs.plugins.kotlin.serialization)
 }
 
 /**
- * commonMain's resources as Kotlin source, for the browser, which has no classpath to read them
- * from. Each file is a string, in pieces, since one constant that long is more than some tools like.
+ * commonMain's resources as Kotlin source, since the browser has no classpath. Each file is split
+ * into pieces because some tools choke on one huge string constant.
  */
 val embedResources: TaskProvider<Task> = tasks.register("embedResources") {
     val from = file("src/commonMain/resources")
@@ -70,15 +68,13 @@ kotlin {
             implementation(libs.kotlinx.coroutines.test)
         }
         wasmJsMain {
-            // The browser has no classpath to read the part catalogue and the career tree from, so
-            // they're compiled in.
+            // No classpath in the browser, so the resources are compiled in.
             kotlin.srcDir(embedResources)
         }
     }
 }
 
-// Binaryen (wasm-opt) is set up per project; its download repository is declared in
-// settings.gradle.kts, which refuses plugin-added ones.
+// Binaryen's download repository is declared in settings.gradle.kts, which refuses plugin-added ones.
 plugins.withType<org.jetbrains.kotlin.gradle.targets.wasm.binaryen.BinaryenPlugin> {
     the<org.jetbrains.kotlin.gradle.targets.wasm.binaryen.BinaryenEnvSpec>().downloadBaseUrl.set(null as String?)
 }
@@ -89,12 +85,7 @@ val jvmTestClasspath: FileCollection = files(
     kotlin.jvm().compilations.getByName("test").runtimeDependencyFiles,
 )
 
-/**
- * Runs the headless ascent scenario: `./gradlew :core:flyAscent`.
- *
- * This is the physics loop. A full flight to orbit runs in well under a second here, compared with
- * minutes to rebuild, install and fly on a device.
- */
+/** Flies the headless ascent scenario to orbit in under a second: `./gradlew :core:flyAscent`. */
 tasks.register<JavaExec>("flyAscent") {
     group = "verification"
     description = "Flies the stock rocket to orbit headlessly and prints telemetry."
@@ -116,12 +107,7 @@ tasks.register<JavaExec>("craftStats") {
     mainClass.set("com.rm.apogee.core.scenario.StatsKt")
 }
 
-/**
- * Measures simulation cost against vessel count: `./gradlew :core:tickBenchmark`.
- *
- * It answers the server-sizing question directly (how many craft fit in a 60Hz tick), which is the
- * only honest way to argue about what the server should be written in.
- */
+/** Measures how many craft fit in a 60 Hz tick: `./gradlew :core:tickBenchmark`. */
 tasks.register<JavaExec>("tickBenchmark") {
     group = "verification"
     description = "Measures simulation cost per tick against vessel count."
@@ -136,21 +122,15 @@ tasks.register<JavaExec>("terrainSurvey") {
     mainClass.set("com.rm.apogee.core.scenario.TerrainSurveyKt")
 }
 
-/**
- * Prints the test runtime classpath, so a scenario can be run without Gradle buffering its output.
- * Otherwise a long benchmark killed mid-run reports nothing at all.
- */
+/** Prints the test classpath, to run a scenario without Gradle buffering its output. */
 tasks.register("printTestClasspath") {
     val cp = jvmTestClasspath
     doLast { println(cp.asPath) }
 }
 
 /**
- * Draws the terrain as shaded maps: `./gradlew :core:terrainAtlas`.
- *
- * PNGs in build/terrain-atlas, with material colour, hillshade and water, at regional and local
- * scales around the launch sites. It's for judging what the generator makes without a device in the
- * loop.
+ * Draws shaded terrain maps around the launch sites to build/terrain-atlas:
+ * `./gradlew :core:terrainAtlas`.
  */
 tasks.register<JavaExec>("terrainAtlas") {
     group = "verification"
@@ -160,10 +140,7 @@ tasks.register<JavaExec>("terrainAtlas") {
     args = listOf(layout.buildDirectory.dir("terrain-atlas").get().asFile.absolutePath)
 }
 
-/**
- * Draws the Cape from above, with what stands where: `./gradlew :core:capeMap`. PNGs in
- * build/cape-map.
- */
+/** Draws the Cape from above to build/cape-map: `./gradlew :core:capeMap`. */
 tasks.register<JavaExec>("capeMap") {
     group = "verification"
     description = "Writes maps of the Cape's spaceport, airfield and harbour to build/cape-map."
@@ -181,8 +158,7 @@ tasks.register<JavaExec>("restSurvey") {
 
 
 
-// The tests run on the JVM, as jvmTest; `test` is kept as the name for them, as before it was
-// multiplatform.
+// `test` runs jvmTest.
 tasks.register("test") {
     group = "verification"
     description = "Runs the tests (on the JVM)."

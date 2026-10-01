@@ -3,23 +3,17 @@ package com.rm.apogee.render
 import com.rm.apogee.core.math.Math
 
 /**
- * Vertex and index data for one primitive, before it reaches the GPU.
- *
- * It's separate from [Mesh] so the geometry can be made and checked without a GL context. Every
- * shape here is built by hand, and a triangle wound the wrong way is invisible from outside instead
- * of obviously broken. See [MeshShapesTest], which is what the separation is for.
+ * Vertex and index data for one primitive, before it reaches the GPU. Kept apart from [Mesh] so
+ * [MeshShapesTest] can check winding without a GL context.
  */
 class MeshData(val vertices: FloatArray, val indices: IntArray)
 
 /**
- * Builds the procedural primitives that part definitions refer to.
+ * Builds the primitives that part definitions refer to. Units are metres, centred on the origin,
+ * with +Y as the axis of revolution, so stacks can be placed by their attachment nodes alone.
  *
- * Units are metres, and shapes are centred on the origin with +Y as the axis of revolution, a
- * rocket's "up". That rule is what lets a stack of parts be positioned purely by their attachment
- * nodes.
- *
- * Triangles are wound **anticlockwise seen from outside**, which is what `glFrontFace(GL_CCW)` and
- * `glCullFace(GL_BACK)` expect.
+ * Triangles wind anticlockwise seen from outside, for `glFrontFace(GL_CCW)` and
+ * `glCullFace(GL_BACK)`.
  */
 object MeshShapes {
 
@@ -27,8 +21,7 @@ object MeshShapes {
         val vertices = ArrayList<Float>(6 * 4 * Mesh.STRIDE_FLOATS)
         val indices = ArrayList<Int>(36)
 
-        // Each face gets its own four vertices so the normals stay flat, instead of being averaged
-        // across the edges into a rounded-looking cube.
+        // Four vertices per face so the normals stay flat.
         val faces = arrayOf(
             floatArrayOf(0f, 0f, 1f), floatArrayOf(0f, 0f, -1f),
             floatArrayOf(1f, 0f, 0f), floatArrayOf(-1f, 0f, 0f),
@@ -60,10 +53,7 @@ object MeshShapes {
         return MeshData(vertices.toFloatArray(), indices.toIntArray())
     }
 
-    /**
-     * A cone frustum about the +Y axis. It covers cylinders too (a cylinder is just a frustum whose
-     * radii match), so tanks, engine bells, nose cones and pods all go through the same code.
-     */
+    /** A cone frustum about +Y. A cylinder is one with matching radii. */
     fun frustum(
         bottomRadius: Float,
         topRadius: Float,
@@ -76,18 +66,15 @@ object MeshShapes {
 
         val halfHeight = height * 0.5f
 
-        // Caps sit flush with the walls. Sinking them in was tried and it's worse, because it opens
-        // a well you can see into from a steep angle. Which caps get drawn at all is up to
-        // [StackCaps].
+        // Caps sit flush with the walls; sunk in, they open a well you can see into. [StackCaps]
+        // picks which get drawn.
         val capY = halfHeight
 
-        // Side normals tilt with the slope, so a cone shades like a cone instead of like a cylinder
-        // someone squashed.
+        // Side normals tilt with the slope so a cone shades like a cone.
         val slope = (bottomRadius - topRadius) / height
         val normalScale = 1f / kotlin.math.sqrt(1f + slope * slope)
 
-        // Each segment gets its own four vertices instead of sharing a seam, so the side normals
-        // stay per segment and the outline looks clean.
+        // Four vertices per segment so the side normals stay per segment.
         for (i in 0 until segments) {
             val quad = vertices.size / Mesh.STRIDE_FLOATS
 
@@ -111,10 +98,8 @@ object MeshShapes {
                 vertices.add(nx); vertices.add(ny); vertices.add(nz)
             }
 
-            // quad+0 is the bottom at this angle, +1 the top at this angle, +2 the bottom at the
-            // next, and +3 the top at the next. The angle goes anticlockwise looking down -Y, so
-            // from outside the next segment is to the *left*. Winding up and left is what faces the
-            // triangle outward.
+            // quad+0/+1 are bottom/top at this angle, +2/+3 at the next. Seen from outside the next
+            // segment is to the left, so winding up and left faces outward.
             indices.add(quad); indices.add(quad + 3); indices.add(quad + 2)
             indices.add(quad); indices.add(quad + 1); indices.add(quad + 3)
         }
@@ -136,7 +121,7 @@ object MeshShapes {
         caps: Int = StackCaps.BOTH,
     ): MeshData = frustum(radius, radius, height, segments, caps)
 
-    /** A UV sphere. Used for spherical tanks and, later, celestial bodies. */
+    /** A UV sphere. */
     fun sphere(radius: Float, rings: Int = 12, segments: Int = 20): MeshData {
         val vertices = ArrayList<Float>()
         val indices = ArrayList<Int>()
@@ -190,8 +175,7 @@ object MeshShapes {
         for (i in 0 until segments) {
             val a = centre + 1 + i
             val b = centre + 2 + i
-            // Wind the two caps opposite ways so each faces away from the inside of the part, and
-            // back-face culling keeps both.
+            // The two caps wind opposite ways so both face outward.
             if (normalY > 0f) {
                 indices.add(centre); indices.add(b); indices.add(a)
             } else {

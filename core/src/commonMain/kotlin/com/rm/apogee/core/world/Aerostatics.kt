@@ -6,16 +6,12 @@ import com.rm.apogee.core.orbit.CelestialBody
 import com.rm.apogee.core.part.LiftGas
 
 /**
- * Air: the lift of gas cells, the way [Hydrostatics] is the lift of hulls in water.
+ * The lift of gas cells in air, as [Hydrostatics] is the lift of hulls in water.
  *
- * Each cell lifts with the weight of the air it pushes aside, less the weight of its own light gas,
- * straight up from where it is. Air thins with height, so a cell lifts less the higher it goes, and
- * a craft that's light enough to rise settles where its lift matches its weight. That's a ceiling
- * that holds itself: above it, it sinks back; below it, it rises. The ballonets inside the cells
- * take in air to lower that ceiling and let it out to raise it.
- *
- * Lifting from each cell, and not from the middle of the craft, is what keeps a gondola hanging
- * under its envelope upright.
+ * Each cell lifts by the weight of air it displaces less its own gas, straight up from where it is.
+ * Air thins with height, so a light craft settles where lift matches weight: above it, it sinks;
+ * below it, it rises. Ballonets take in air to lower that height and let it out to raise it.
+ * Lifting per cell, not from the craft's middle, keeps a gondola upright under its envelope.
  */
 class Aerostatics {
     private val gravity = Vec3()
@@ -48,9 +44,8 @@ class Aerostatics {
 
     companion object {
         /**
-         * A light gas's density as a share of the air's around it. About hydrogen's and helium's in
-         * Terra's air, and kept the same everywhere, since the gas in a cell matches the air's
-         * pressure and warmth.
+         * A light gas's density as a share of the air round it: about hydrogen's and helium's in
+         * Terra's air. Same everywhere, since the gas matches the air's pressure and warmth.
          */
         const val GAS_SHARE = 0.14
 
@@ -59,14 +54,13 @@ class Aerostatics {
 
         /**
          * The ballonet [vessel] wants, 0..1, to hold a height it's [below] metres under (negative
-         * above) while climbing at [climb] m/s, in gravity [g]: the fill that gives the lift for the
-         * climb it should have, for a tick of [dt] seconds. It damps itself, so it settles instead of
-         * swinging past, and learns slowly whatever holds it off the height that the sum leaves out.
+         * above) while climbing at [climb] m/s in gravity [g], over a tick of [dt] seconds. It's
+         * damped so it settles, and slowly learns whatever else holds it off the height.
          */
         fun trimFor(vessel: Vessel, below: Double, climb: Double, g: Double, dt: Double): Double {
             val empty = vessel.gasLift / (1.0 - BALLONET_MOST * vessel.ballonet)
             if (empty <= 0.0) return vessel.ballonet
-            // Learning only near the height, so a long climb to it doesn't wind it up.
+            // Learn only near the height, so a long climb doesn't wind it up.
             if (kotlin.math.abs(below) < LEARN_WITHIN) {
                 vessel.heightIntegral = (vessel.heightIntegral + below * HEIGHT_INTEGRAL * dt).coerceIn(-MOST_INTEGRAL, MOST_INTEGRAL)
             }
@@ -80,7 +74,9 @@ class Aerostatics {
         const val HEIGHT_DAMPING = 0.09
         const val MOST_ACCEL = 0.4
 
-        /** How fast the height hold learns what it's missing, m/s² per metre-second, and the most. */
+        /**
+         * How fast the height hold learns what it's missing, m/s² per metre-second, and the most.
+         */
         const val HEIGHT_INTEGRAL = 0.0001
         const val MOST_INTEGRAL = 0.15
 

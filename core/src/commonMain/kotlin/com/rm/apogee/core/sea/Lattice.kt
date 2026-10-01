@@ -5,15 +5,9 @@ import com.rm.apogee.core.concurrentMapOf
 import com.rm.apogee.core.math.Math
 
 /**
- * A field over a planet's surface, worked out at the corners of a 3D grid and blended between them.
- * The physics and the renderer blend the same corners, so they get the same numbers everywhere.
- *
- * It's a 3D grid instead of one on the cube-sphere's faces because a 3D grid has no seams. A point
- * on the surface sits in one cube of the grid, and each of its eight corners stands for the surface
- * straight out from it, so neighbouring points always blend neighbouring corners.
- *
- * It works over time too, when [epoch] is set. A corner's value is fixed for each epoch and blended
- * between the two either side. Each corner gets worked out once and kept, up to [capacity] of them.
+ * A field over a planet's surface, worked out at the corners of a seamless 3D grid and blended
+ * between them, so physics and renderer agree. With [epoch] set it varies over time, blended
+ * between epochs. Corners are computed once and kept, up to [capacity].
  */
 internal class Lattice(
     private val radius: Double,
@@ -24,9 +18,8 @@ internal class Lattice(
     val size: Int,
     private val capacity: Int,
     /**
-     * Which field this is, out of every lattice in the process. Lattices with the same name share
-     * their corners, worked out once by whichever sea asks first, since a corner is the same
-     * wherever it gets computed.
+     * Which field this is, process-wide. Lattices with the same name share corners, since a corner
+     * is the same wherever it's computed.
      */
     name: String,
     /** A corner's values at unit [direction] and [time], into its array. */
@@ -54,8 +47,7 @@ internal class Lattice(
             e = 0L; fe = 0.0
         }
         val epochs = if (epoch > 0.0) 2 else 1
-        // The same cube as last time (neighbouring samples nearly always are) uses the same
-        // corners, found once.
+        // The same cube as last time (nearly always, for neighbouring samples) reuses its corners.
         val i0 = ix.toInt(); val j0 = iy.toInt(); val k0 = iz.toInt()
         if (i0 != lastI || j0 != lastJ || k0 != lastK || e != lastE) {
             for (c in 0 until 8) {
@@ -86,14 +78,13 @@ internal class Lattice(
     private fun node(i: Int, j: Int, k: Int, e: Long): DoubleArray {
         val packed = ((i + 32_768).toLong() shl 48) or ((j + 32_768).toLong() shl 32) or
             ((k + 32_768).toLong() shl 16) or (e and 0xFFFF)
-        // Stirred, one to one, so nearby corners don't share a hash. A Long hashes as its two
-        // halves XORed, and corners side by side kept landing together, slowing every lookup in a
-        // sea build to a search through a tree.
+        // Stir the key one to one, so neighbouring corners don't collide. A Long hashes as its two
+        // halves XORed, which piled neighbours into the same bucket.
         var key = packed * -7_046_029_254_386_353_131L
         key = key xor (key ushr 29)
         val kept = cache[key]
-        // The low bits of the epoch are in the key, and the whole thing is kept with the values, so
-        // a corner from long ago never gets mistaken for now.
+        // Only the epoch's low bits are in the key, so the full epoch is kept with the values and
+        // an old corner is never mistaken for a current one.
         if (kept != null && kept[size] == e.toDouble()) return kept
         direction.setTo(i * spacing, j * spacing, k * spacing).normalizeInPlace()
         val values = DoubleArray(size + 1)
@@ -104,9 +95,7 @@ internal class Lattice(
         return values
     }
 
-    /**
-     * Makes room, throwing out epochs well in the past first, then anything if it's still too full.
-     */
+    /** Makes room: drops old epochs first, then everything if it's still too full. */
     private fun trim(now: Long) {
         if (epoch > 0.0) cache.values.removeAll { it[size] < now - 2 }
         if (cache.size > capacity) cache.clear()

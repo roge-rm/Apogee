@@ -50,11 +50,7 @@ import com.rm.apogee.ui.theme.alpha
 import com.rm.apogee.platform.format
 import com.rm.apogee.core.math.Math
 
-/**
- * A career's program: what insight there is to spend and where to spend it (the tech tree by
- * branch), what the player has pulled off and how well, and where they've been, beside who got
- * there first.
- */
+/** A career's program: insight to spend on the tech tree, feats and grades, and worlds visited. */
 @Composable
 fun ProgramScreen(
     state: CareerState,
@@ -64,7 +60,7 @@ fun ProgramScreen(
     /** Unlocks a node. Null if it worked, or the reason it didn't. */
     onUnlock: (String) -> String?,
     tree: TechTree = TechTree.stock,
-    /** Back: to the Play screen, or opened over a flight, back to it. */
+    /** Back to the Play screen, or to the flight it was opened over. */
     onClose: (() -> Unit)? = null,
 ) {
     var tab by remember { mutableStateOf(0) }
@@ -272,8 +268,8 @@ private fun WorldsTab(state: CareerState, tree: TechTree, firsts: List<WorldFirs
 }
 
 /**
- * The sea's named places: each by name and world, how deep it is, and what finding it pays (what it
- * actually is only shows once it's been found), and who found it first.
+ * The sea's named places: world, depth, what finding one pays, and who found it first. What it is
+ * shows only once found.
  */
 @Composable
 private fun UnderTheSea(state: CareerState, firsts: List<WorldFirst>, me: String) {

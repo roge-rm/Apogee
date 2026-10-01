@@ -11,9 +11,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Crashes, in order. The part that meets the ground takes the blow first, soaks up what it can as
- * it's crushed, and passes the rest on. So a crash strips a craft from the end that hit, and what's
- * left of it is still there.
+ * Crashes, in order. The part that hits soaks up what it can as it's crushed and passes the rest
+ * on, so a crash strips a craft from the end that hit.
  */
 class CrashTest {
 
@@ -46,10 +45,7 @@ class CrashTest {
         assertTrue("damaged at 5 m/s: ${rocket.health.toList()}", rocket.health.all { it > 0.999 })
     }
 
-    /**
-     * Tail first at 25 m/s: the engine is crushed, the tank above it takes what gets through, and
-     * the pod at the far end is spared, and is still a craft.
-     */
+    /** Tail first at 25 m/s: the engine's crushed, the tank above takes the rest, and the pod's spared. */
     @Test
     fun `a crash crushes from the end that hit`() {
         val world = World.default(catalog)
@@ -83,10 +79,7 @@ class CrashTest {
         assertTrue("60 m/s destroyed $hard parts, 25 m/s $gentle", hard > gentle)
     }
 
-    /**
-     * A crushed part soaks up energy, so the pod at the top of a rocket that hit tail first
-     * survives a speed that would destroy it if it hit first.
-     */
+    /** A crushed part soaks up energy, so the pod on top survives a speed that would kill it head first. */
     @Test
     fun `the parts that hit first protect the rest`() {
         val world = World.default(catalog)
@@ -101,9 +94,8 @@ class CrashTest {
     }
 
     /**
-     * At 55 m/s the crushing reaches the bottom tank, which is full, and it goes up, taking the
-     * tanks beside it, and hurting and shoving what's near. The pod, built to take a beating, is
-     * the one thing left.
+     * At 55 m/s the crushing reaches the full bottom tank, which goes up, taking the tanks beside it
+     * and hurting what's near. Only the pod is left.
      */
     @Test
     fun `a full tank explodes and damages its neighbours`() {
@@ -146,8 +138,8 @@ class CrashTest {
     }
 
     /**
-     * Cut the fins and the stack below the decoupler loose. The fins are fragments and get cleared
-     * after a while, the tanks are wreckage and stay, and the pod is still the craft.
+     * Cut the fins and the stack below the decoupler loose. The fins are fragments and get cleared,
+     * the tanks are wreckage and stay, and the pod is still the craft.
      */
     @Test
     fun `fragments are cleared and wreckage stays`() {
@@ -186,9 +178,7 @@ class CrashTest {
         return craft
     }
 
-    /**
-     * The sea isn't soft at speed. A rocket driven into it breaks the way it would on the ground.
-     */
+    /** The sea isn't soft at speed: a rocket driven into it breaks as it would on the ground. */
     @Test
     fun `hitting the sea hard breaks a craft`() {
         val world = World.default(catalog)
@@ -220,11 +210,7 @@ class CrashTest {
         assertTrue("unhurt: ${capsule.health.toList()}", capsule.health.all { it > 0.99 })
     }
 
-    /**
-     * With its command pod gone the craft is lost, even though pieces of it are left, because
-     * they're wreckage. It used to carry on as its heaviest piece, and the player flew a heat
-     * shield across the ground.
-     */
+    /** With its command pod gone the craft is lost, since what's left is wreckage. */
     @Test
     fun `losing the last command module loses the craft, and leaves wreckage`() {
         val world = World.default(StockParts.catalog)

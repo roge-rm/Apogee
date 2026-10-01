@@ -4,11 +4,9 @@ import com.rm.apogee.render.gl.GLES30
 import com.rm.apogee.render.gl.GlData
 
 /**
- * Draws the frame's particles. Each is a shape of six camera-relative vertices (position and
- * colour) fanned into four triangles, blended over everything and writing no depth.
- *
- * There's one streamed buffer, rewritten each frame. The index pattern never changes, so it's built
- * once, as long as the most shapes seen so far.
+ * Draws the frame's particles: six camera-relative vertices (position, colour) per shape, fanned
+ * into four triangles, blended, with no depth writes. One streamed vertex buffer; the fixed index
+ * pattern only grows.
  */
 class ParticleRenderer {
 

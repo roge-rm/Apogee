@@ -3,12 +3,8 @@ package com.rm.apogee.render
 import com.rm.apogee.render.gl.GLES30
 
 /**
- * How much the renderer is allowed to try on this device.
- *
- * This exists because minSdk is 27. Keeping the floor that low is a deliberate choice about reach,
- * but it lets in 2017-era hardware that can't run a continuous 6-DOF physics sandbox at full
- * detail, so the low end is a real, tested setup and not just a hope. Detection picks a starting
- * tier. The player can override it in Settings, and M3's acceptance pass includes forcing [LOW].
+ * How much the renderer may try on this device. minSdk 27 lets in old hardware, so [LOW] is a
+ * real, tested setup. Detection picks a starting tier; the player can change it in Settings.
  */
 enum class QualityTier {
     LOW,
@@ -24,10 +20,8 @@ enum class QualityTier {
         }
 
     /**
-     * Terrain chunks kept on the GPU. Each one is about fifteen kilobytes of vertices. The working
-     * set on the ground is one to three hundred, and the rest of the budget is ground you've
-     * recently driven over, kept so turning round doesn't rebuild it. How fine the ground is drawn
-     * is up to the terrain builder, per tier.
+     * Terrain chunks kept on the GPU, about 15 KB each. The working set on the ground is 100 to
+     * 300; the rest holds ground you've just left, so turning round doesn't rebuild it.
      */
     val terrainChunkBudget: Int
         get() = when (this) {

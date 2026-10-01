@@ -1,30 +1,23 @@
 package com.rm.apogee.game
 
 /**
- * The server's world time, as well as it can be told from here, running smoothly with the local
+ * The server's world time as well as it can be told from here, running smoothly with the local
  * clock.
  *
- * Each snapshot says what time it was on the server when it was sent. It arrives some milliseconds
- * later, and how many changes from one to the next. Taking each one at its word ("it's now its time
- * plus how long ago it arrived") moves the present back and forth by that jitter on every snapshot,
- * and at orbital speed ten milliseconds is five metres. The craft being flown, drawn at that
- * jittering present, jumped about against a stage it had just let go of. I caught it on video.
- *
- * So the gap between server time and local time is followed instead of read. It goes up at once to
- * any snapshot that arrived quicker than expected, because the least delayed ones are the truest,
- * and comes down only slowly. That way a late one hardly moves it at all, while a server that's
- * really falling behind still gets followed within seconds.
+ * Each snapshot carries its server send time, but arrives after a varying delay. Taking each at its
+ * word makes the present jitter, and at orbital speed ten milliseconds is five metres, so a craft
+ * jumps against a stage it just dropped. Instead the server-minus-local gap is followed: it rises
+ * at once to any snapshot that arrived quicker than expected (the least delayed are truest) and
+ * falls only slowly. A late one hardly moves it, but real drift is followed within seconds.
  */
 class ServerClock {
     /** Server time minus local time, in seconds, as followed. NaN before the first sample. */
     private var gap = Double.NaN
 
     /**
-     * The gap that's actually used, slewed toward [gap] a little at a time. The estimate still
-     * steps by milliseconds as snapshots arrive, and each step moved the present (and everything
-     * drawn at it) by metres at orbital speed. A stage just let go of jumped about against the
-     * craft on every snapshot, which I caught in a second video. Slewed, the present runs smoothly
-     * and a correction gets spread over a second.
+     * The gap actually used, slewed toward [gap] a little at a time. The estimate still steps by
+     * milliseconds per snapshot, which is metres at orbital speed; slewing spreads a correction
+     * over a second so the present runs smoothly.
      */
     private var shown = Double.NaN
     private var shownAt = Double.NaN
@@ -54,8 +47,7 @@ class ServerClock {
     }
 
     /**
-     * Forgets everything. For after a pause or warp, when the server's clock ran at a different
-     * rate.
+     * Forgets everything. For after a pause or warp, when the server's clock ran at another rate.
      */
     fun reset() {
         gap = Double.NaN
@@ -66,15 +58,15 @@ class ServerClock {
         /** The share of an arrival earlier than expected that gets taken at once. */
         const val RISE = 0.5
 
-        /** The share of a later one. It takes a few seconds to follow a real drift. */
+        /** The share of a later one. Takes a few seconds to follow a real drift. */
         const val FALL = 0.05
 
-        /** Further out than this, in seconds, isn't jitter but a jump, so start again from it. */
+        /** Further out than this, in seconds, is a jump, not jitter, so start again from it. */
         const val JUMP = 0.25
 
         /**
-         * How fast the present can be moved to follow the estimate, in seconds per second. Two
-         * percent spreads a ten-millisecond correction over half a second.
+         * How fast the present can move to follow the estimate, in seconds per second. Two percent
+         * spreads a ten millisecond correction over half a second.
          */
         const val SLEW = 0.02
     }

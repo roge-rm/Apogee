@@ -4,17 +4,15 @@ import kotlin.math.tan
 import kotlin.jvm.JvmField
 
 /**
- * A 4x4 matrix in **float**, column-major, ready to pass straight to `glUniformMatrix4fv`.
+ * A column-major float 4x4 matrix, ready for `glUniformMatrix4fv`.
  *
- * This is the one place floats are allowed, and it's deliberately the last step in the pipeline.
- * [setFromTrs] takes double world positions and a double camera position, does the subtraction in
- * double, and only then narrows to float. That subtraction is the floating origin, and it's what
- * lets a rocket on a launchpad and a 600 km planet share one frame without the rocket jumping in
- * visible steps. Narrowing before the subtraction would throw away exactly the precision the
- * subtraction was meant to keep.
+ * The one place floats are allowed, and the last step. [setFromTrs] subtracts the camera position
+ * from world positions in double and only then narrows to float. That's the floating origin, which
+ * lets a rocket on the pad and a 600 km planet share a frame without jitter. Narrowing first would
+ * lose exactly that precision.
  */
 class Mat4 {
-    /** Column-major, the way OpenGL wants it: [m] holds column 0 in indices 0..3. */
+    /** Column-major, as OpenGL wants: [m] holds column 0 in indices 0..3. */
     @JvmField
     val m = FloatArray(16)
 
@@ -29,11 +27,8 @@ class Mat4 {
     }
 
     /**
-     * Builds a model matrix for an object at [worldPos] with orientation [rot], relative to a
-     * camera at [cameraPos].
-     *
-     * The camera ends up at the origin of the rendered scene and every object is placed at
-     * `worldPos - cameraPos`. See the class note on why the order of operations matters here.
+     * A model matrix for an object at [worldPos] with orientation [rot], relative to a camera at
+     * [cameraPos], so it's placed at `worldPos - cameraPos`. See the class note on order.
      */
     fun setFromTrs(
         worldPos: Vec3,
@@ -72,8 +67,8 @@ class Mat4 {
     }
 
     /**
-     * [setFromTrs] with a different scale along each of the object's own axes, for things like a
-     * cloud lobe, which is an ellipsoid stretched from a unit mesh.
+     * [setFromTrs] with a scale per local axis, for things like a cloud lobe stretched from a unit
+     * mesh.
      */
     fun setFromTrs(worldPos: Vec3, rot: Quat, cameraPos: Vec3, sx: Double, sy: Double, sz: Double): Mat4 {
         setFromTrs(worldPos, rot, cameraPos)
@@ -82,9 +77,8 @@ class Mat4 {
     }
 
     /**
-     * The view matrix for a camera sitting at the scene origin with orientation [rot]. Because the
-     * floating origin has already moved the world to meet the camera, the view matrix is only a
-     * rotation: the inverse (conjugate) of the camera's orientation, with no translation at all.
+     * The view matrix for a camera at the scene origin with orientation [rot]. The floating origin
+     * already moved the world, so it's only the camera's inverse (conjugate) rotation.
      */
     fun setViewFromCameraRotation(rot: Quat): Mat4 {
         val x = -rot.x; val y = -rot.y; val z = -rot.z; val w = rot.w
@@ -109,12 +103,9 @@ class Mat4 {
     }
 
     /**
-     * Standard OpenGL perspective projection.
-     *
-     * The depth range this game needs runs from about 0.1 m (a part in the builder) to 10^7 m (a
-     * planet from orbit), which no single near/far pair can handle. The renderer deals with that
-     * using a logarithmic depth term in the vertex shader instead of here, because GLES has no
-     * reliable `glClipControl`, so reversed-Z isn't an option.
+     * Standard OpenGL perspective projection. Depth runs from about 0.1 m to 10^7 m, which no
+     * near/far pair handles, so the vertex shader uses logarithmic depth. GLES has no reliable
+     * `glClipControl` for reversed-Z.
      */
     fun setPerspective(fovYRadians: Double, aspect: Double, near: Double, far: Double): Mat4 {
         val f = 1.0 / tan(fovYRadians * 0.5)

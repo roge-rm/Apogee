@@ -122,8 +122,7 @@ class EffectsTest {
     @Test
     fun `the vapour collar sits just behind the nose, sized to the body`() {
         val fx = Effects(QualityTier.MEDIUM)
-        // A rocket's middle 1 km up, climbing through Mach 1 in damp low air. Its nose is 8 m ahead
-        // of the middle, and its body is 1 m in radius.
+        // A rocket 1 km up at Mach 1 in damp air, nose 8 m ahead of the middle, 1 m radius.
         val up = Vec3(1.0, 0.0, 0.0)
         val centre = up.copy().mulInPlace(terra.radius + 1_000.0)
         val air = up.copy().mulInPlace(Effects.SPEED_OF_SOUND)
@@ -144,11 +143,11 @@ class EffectsTest {
             val profile = Effects.rocketPlume(vacuum).profile
             val atNozzle = profile.single { it[1] == 0.0 }[0]
             assertTrue("vacuum $vacuum: $atNozzle at the nozzle", kotlin.math.abs(atNozzle - 1.0) < 1e-9)
-            // It only spreads downstream, so a tenth of the way along it's barely wider.
+            // A tenth of the way along it's barely wider.
             val near = profile.filter { it[1] >= -0.1 }.maxOf { it[0] }
             assertTrue("vacuum $vacuum: $near near the nozzle", near <= 1.3)
         }
-        // In thick air it stays a flame, hardly wider than the bell anywhere.
+        // In thick air it's hardly wider than the bell anywhere.
         assertTrue(Effects.rocketPlume(0.0).profile.maxOf { it[0] } <= 1.1)
         // In vacuum it fans out well past the bell downstream.
         assertTrue(Effects.rocketPlume(1.0).profile.maxOf { it[0] } >= 2.5)
@@ -171,10 +170,7 @@ class EffectsTest {
         assertEquals(0, fx.particleCount)
     }
 
-    /**
-     * A joint at its limit on a craft doing a kilometre a second. Its sparks stay with it, not
-     * strewn out behind.
-     */
+    /** A joint at its limit on a craft doing a kilometre a second. */
     @Test
     fun `sparks off a straining seam stay with a fast craft`() {
         val fx = Effects(QualityTier.HIGH)
@@ -182,16 +178,14 @@ class EffectsTest {
         val start = up.copy().mulInPlace(terra.radius + 18_000.0)
         val velocity = Vec3(0.0, 1_000.0, 0.0)
         val seam = start.copy()
-        // The way the game does it, a frame at a time: the craft moved to this frame's place,
-        // sparks thrown from there, then the effects stepped.
+        // As the game does each frame: move the craft, throw sparks, step the effects.
         repeat(30) { k ->
             if (k > 0) seam.addScaledInPlace(velocity, 1.0 / 60.0)
             fx.strain(seam, velocity, 0.6, 40.0, inAir = true, colour = null, dt = 1.0 / 60.0, seed = 7)
             fx.step(1.0 / 60.0, k / 60.0, terra, Quat.identity(), emptyList(), null, seam, null)
         }
         assertTrue("some sparks: ${fx.particleCount}", fx.particleCount > 5)
-        // Drawn with the craft where it is this frame: centred on the seam, not strewn out behind
-        // it or a frame ahead of it.
+        // Centred on this frame's seam, not strewn behind it or a frame ahead.
         val off = fx.centroid(Vec3()).distanceTo(seam)
         assertTrue("with the seam ($off m)", off < 3.0)
     }

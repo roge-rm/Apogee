@@ -1,9 +1,8 @@
 import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
-// How clients and servers talk, and a client's prediction of the craft it flies. The messages,
-// the in-process transport and the prediction are common, for the browser too; real sockets and
-// finding games on the network are the JVM's, in jvmMain.
+// Client/server messages, transports and client prediction. Sockets and LAN discovery are
+// JVM only (jvmMain); the rest is common, so the browser gets it too.
 plugins {
     alias(libs.plugins.kotlin.multiplatform)
     alias(libs.plugins.kotlin.serialization)
@@ -36,8 +35,7 @@ plugins.withType<org.jetbrains.kotlin.gradle.targets.wasm.binaryen.BinaryenPlugi
     the<org.jetbrains.kotlin.gradle.targets.wasm.binaryen.BinaryenEnvSpec>().downloadBaseUrl.set(null as String?)
 }
 
-// The tests run on the JVM, as jvmTest; `test` is kept as the name for them, as before it was
-// multiplatform.
+// The tests run as jvmTest; `test` still runs them.
 tasks.register("test") {
     group = "verification"
     description = "Runs the tests (on the JVM)."

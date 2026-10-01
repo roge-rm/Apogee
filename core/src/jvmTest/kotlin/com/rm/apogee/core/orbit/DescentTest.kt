@@ -31,10 +31,7 @@ class DescentTest {
         return world to pod
     }
 
-    /**
-     * Steps [world] until [pod] touches down, and returns the time and where (a body-fixed unit
-     * direction).
-     */
+    /** Steps [world] until [pod] touches down. Returns the time and a body-fixed unit direction. */
     private fun land(world: World, pod: com.rm.apogee.core.craft.Vessel): Pair<Double, Vec3> {
         val body = world.attractorFor(pod)
         while (!pod.touchingGround && world.time < 3_600.0) world.step(dt)
@@ -64,8 +61,7 @@ class DescentTest {
         val dragged = Descent.predict(body, pod.body.position, pod.body.linearVelocity, world.time, pod.body.mass, area)!!
         assertTrue("air made it no later", dragged.time > airless.time + 5.0)
         assertTrue("air made it no slower", dragged.speed < airless.speed * 0.7)
-        // And the world, flying it, agrees about when to within a few per cent. It has wind, and a
-        // pod that turns as it falls.
+        // The world, flying it with wind and a turning pod, agrees to within a few per cent.
         val start = world.time
         val (time, _) = land(world, pod)
         val fall = dragged.time - start

@@ -23,10 +23,7 @@ object Aloft {
         return vessel
     }
 
-    /**
-     * [vessel]'s rotors already turning at the speed [throttle] holds them at, as they would be in
-     * a craft that's been flying, instead of at rest in mid-air.
-     */
+    /** [vessel]'s rotors already turning at the speed [throttle] holds them at, as if it's been flying. */
     fun spinUp(vessel: Vessel, throttle: Double) {
         vessel.fitPose()
         for (i in vessel.defs.indices) {

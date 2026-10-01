@@ -49,8 +49,7 @@ class SystemTest {
         for (parent in system.bodies.values) {
             val kids = system.childrenOf(parent.id).sortedBy { it.orbit!!.semiMajorAxis }
             for ((a, b) in kids.zipWithNext()) {
-                // Ultima crosses inside Caerula's orbit, like the real pair do, kept apart by
-                // resonance, not distance.
+                // Ultima crosses inside Caerula's orbit, kept apart by resonance.
                 if (a.id == "caerula" && b.id == "ultima") continue
                 assertTrue("${a.id} and ${b.id} overlap", a.orbit!!.apoapsis + a.sphereOfInfluence < b.orbit!!.periapsis - b.sphereOfInfluence)
             }

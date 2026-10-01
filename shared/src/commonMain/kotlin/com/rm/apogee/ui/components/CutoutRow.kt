@@ -15,12 +15,8 @@ import androidx.compose.ui.unit.Dp
 import com.rm.apogee.ui.displayCutouts
 
 /**
- * A row that steps round the screen's camera hole. Each child goes after the one before it,
- * centred on the row's height, and one that would land under a hole goes past it instead, with
- * the row carrying on from there. Without a hole in the way it's an ordinary row.
- *
- * Padding the whole row for the cutout pushes it a hole's height down the screen, or its width
- * across, for a hole that's only over one of the buttons, or none of them.
+ * A row that steps round the camera hole. A child that would land under a hole goes past it and
+ * the row carries on from there. Padding the whole row would move every button for one hole.
  */
 @Composable
 fun CutoutRow(
@@ -29,8 +25,8 @@ fun CutoutRow(
     content: @Composable () -> Unit,
 ) {
     val cutouts = displayCutouts()
-    // Where the row is in the window, to bring the holes into its own coordinates. It's found
-    // after it's placed, so a row that moves is laid out again the frame after.
+    // The row's window position, to bring the holes into its coordinates. Known only after
+    // placement, so a row that moves settles a frame later.
     var origin by remember { mutableStateOf(Offset.Unspecified) }
     Layout(
         content = content,
@@ -45,7 +41,7 @@ fun CutoutRow(
         val xs = IntArray(placeables.size)
         var x = 0
         placeables.forEachIndexed { i, p ->
-            // Past every hole it would overlap, which could be more than one in a row.
+            // Past every hole it would overlap, possibly several.
             var moved = true
             while (moved) {
                 moved = false

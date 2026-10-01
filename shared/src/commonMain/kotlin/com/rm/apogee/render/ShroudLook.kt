@@ -24,8 +24,8 @@ object ShroudLook {
     }
 
     /**
-     * [shroud] as a piece of [placed] (a [def]), in its own space: a shell standing on the node it's
-     * joined by, as wide there as that node's stack and as wide at the top as the engine's.
+     * [shroud] as a piece of [placed] (a [def]), in part space: a shell on its node, as wide as the
+     * node's stack at the bottom and the engine at the top.
      */
     fun leaf(def: PartDef, placed: PlacedPart, shroud: Shroud): PartModels.Leaf? {
         val node = def.attachNodes.firstOrNull { it.id == shroud.node } ?: def.attachNodes.firstOrNull { it.direction.y > 0.5 } ?: return null

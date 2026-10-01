@@ -63,7 +63,7 @@ fun PlayScreen(
     onCareer: (Boolean) -> Unit = {},
     /** The career's insight to spend, when you're on it. */
     insight: Int? = null,
-    /** Whether games can be hosted and joined here. A web page can't open the sockets they need. */
+    /** Whether games can be hosted and joined. A web page can't open sockets. */
     networked: Boolean = true,
     onBack: () -> Unit = {},
 ) {
@@ -75,7 +75,7 @@ fun PlayScreen(
             color = Color.White,
         )
         Spacer(Modifier.height(16.dp))
-        // Two worlds: a career grown from nothing, or everything at once.
+        // Career or sandbox: two separate worlds.
         PillRow(listOf("Career" to true, "Sandbox" to false), career, onCareer)
         Spacer(Modifier.height(20.dp))
         if (career) {
@@ -83,52 +83,45 @@ fun PlayScreen(
                 "Program",
                 { onNavigate(AppScreen.PROGRAM) },
                 contentModifier,
-                subtitle = (insight?.let { "$it insight · " } ?: "") + "Your tech tree, your feats, the worlds",
+                subtitle = insight?.let { "$it insight" },
             )
         }
 
-        // Not in a career, because there's no stock craft to put on the pad. It starts from
-        // scratch, in the Vehicle Assembly.
+        // Not in a career: it has no stock craft.
         if (!career) {
             ApogeeButton(
                 "Quick Launch",
                 { onNavigate(AppScreen.QUICK_LAUNCH) },
                 contentModifier,
-                subtitle = "Pick a craft and a site, and go",
             )
         }
-        // When in the day to go up, for Free Flight and the builder's launches.
+        // Time of day for Quick Launch and the builder's launches.
         LaunchTimeRow(chosen, contentModifier) { chosen = it; onLaunchTime(it) }
         ApogeeButton(
             "Out There",
             { onNavigate(AppScreen.RESUME_FLIGHT) },
             contentModifier,
-            subtitle = "Go back to any craft you left out there, or tidy them away",
         )
         ApogeeButton(
             "Crew",
             { onNavigate(AppScreen.CREW) },
             contentModifier,
-            subtitle = "Who's at home, who's out there, and who was lost",
         )
         ApogeeButton(
             "Vehicle Assembly",
             { onNavigate(AppScreen.BUILDER) },
             contentModifier,
-            subtitle = "Build a craft, then launch it",
         )
         if (networked) {
             ApogeeButton(
                 "Host a Game",
                 { onNavigate(AppScreen.HOST_GAME) },
                 contentModifier,
-                subtitle = "Let others on your network join",
             )
             ApogeeButton(
                 "Join a Game",
                 { onNavigate(AppScreen.JOIN_GAME) },
                 contentModifier,
-                subtitle = "Find one nearby, or type an address",
             )
         }
         Spacer(Modifier.height(12.dp))
@@ -136,7 +129,7 @@ fun PlayScreen(
     }
 }
 
-/** One of a few, as a row of pills, with the chosen one lit. */
+/** A row of pills to pick one from, the chosen one lit. */
 @Composable
 internal fun <T> PillRow(options: List<Pair<String, T>>, selected: T, onSelect: (T) -> Unit) {
     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {

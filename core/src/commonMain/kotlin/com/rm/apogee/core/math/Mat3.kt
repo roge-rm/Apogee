@@ -3,12 +3,8 @@ package com.rm.apogee.core.math
 import kotlin.jvm.JvmField
 
 /**
- * A 3x3 matrix in double precision, row-major.
- *
- * It's here almost entirely for inertia tensors. Unlike [Mat4], which is a float buffer shaped for
- * OpenGL, this one stays at the simulation's precision and never goes to the GPU.
- *
- * Indexing is `m[row * 3 + col]`.
+ * A row-major double 3x3 matrix, mostly for inertia tensors. Unlike [Mat4] (a float buffer for
+ * OpenGL), it stays at simulation precision. Indexing is `m[row * 3 + col]`.
  */
 class Mat3(
     @JvmField val m: DoubleArray = DoubleArray(9),
@@ -77,14 +73,9 @@ class Mat3(
     }
 
     /**
-     * A general 3x3 inverse by cofactors.
-     *
-     * An inertia tensor is symmetric positive-definite, so in principle it can always be inverted.
-     * But a craft that's a single point mass (or a one-part stack with no size along an axis) can
-     * give a singular tensor. Instead of producing infinities that spread quietly through the whole
-     * simulation, that case returns a zero matrix, which reads downstream as "infinite inertia
-     * around that axis". In other words it just won't rotate. That's wrong, but it's harmless and
-     * you can see it, which beats NaN.
+     * A general 3x3 inverse by cofactors. A singular tensor (a point mass, or a part with no size
+     * along an axis) returns a zero matrix, meaning infinite inertia about that axis: it won't
+     * rotate. Wrong but visible, and better than NaN spreading through the simulation.
      */
     fun inverted(): Mat3 {
         val a = m[0]; val b = m[1]; val c = m[2]
@@ -109,11 +100,8 @@ class Mat3(
     }
 
     /**
-     * Rebuilds this as `R * I * R^T`, the local-frame inertia tensor [local] expressed in world
-     * space for a body oriented by [rotation].
-     *
-     * This is needed every tick. Angular acceleration is `I⁻¹ * torque` with both in the same
-     * frame, and torque adds up in world space.
+     * Sets this to `R * I * R^T`: [local] inertia in world space for a body at [rotation]. Needed
+     * every tick, since torque sums in world space and `I⁻¹ * torque` needs both in one frame.
      */
     fun setRotated(local: Mat3, rotation: Quat): Mat3 {
         val r = fromQuat(rotation)
@@ -155,11 +143,9 @@ class Mat3(
         }
 
         /**
-         * The parallel-axis (Huygens-Steiner) term for moving the tensor of a body of mass [mass],
-         * taken around its own centre of mass, to an axis [offset] away: `m * ((r·r)E - r⊗r)`.
-         *
-         * This is what lets a craft's inertia be built up by adding up its parts, which is the
-         * whole reason the builder can show real handling before anything launches.
+         * The parallel-axis (Huygens-Steiner) term moving a [mass] body's tensor about its centre
+         * of mass to an axis [offset] away: `m * ((r·r)E - r⊗r)`. Lets a craft's inertia be summed
+         * from its parts.
          */
         fun parallelAxisTerm(mass: Double, offset: Vec3): Mat3 {
             val rr = offset.lengthSq

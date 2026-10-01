@@ -12,23 +12,20 @@ import kotlin.math.sqrt
 /**
  * How hot every part of a craft is.
  *
- * Air rushing past a craft gets brought to a stop against it, and stopping it heats it up to the
- * recovery temperature, which is the air's own temperature plus v²/2cp. That's about 750 K at a
- * kilometre a second, and over 2,600 K coming back from orbit. A part is driven toward that at a
- * rate that grows with √ρ·v, which is the shape of the real heat flux, over the area it shows to
- * the flow. So a climb, however fast, never makes anything hotter than it can stand, while a return
- * from orbit will burn up anything that isn't shielded. At low speed the same term is the breeze
- * that cools things down.
+ * Air stopped against a craft heats it toward the recovery temperature, the air's own plus v²/2cp:
+ * about 750 K at 1 km/s and over 2,600 K back from orbit. A part is driven toward that at a rate
+ * growing with √ρ·v (the shape of real heat flux) over the area it shows the flow. So a climb never
+ * overheats anything, a return from orbit burns up anything unshielded, and at low speed the same
+ * term is a cooling breeze.
  *
- * The part that meets the air takes it. Anything with another part squarely ahead of it in the flow
- * is shaded and gets [SHADED] of it. A heat shield turns most of what reaches it into charred
- * ablator instead of heat. Every part glows its heat away as σεT⁴ over its whole skin, conducts it
- * across its joints to its neighbours, and a lit engine heats itself by its thrust. Past its
- * [com.rm.apogee.core.part.PartDef.heatLimit] a part loses health, faster the hotter it is, and
- * burns away.
+ * A part with another squarely ahead of it in the flow is shaded and gets [SHADED] of it. A heat
+ * shield turns most of what reaches it into charred ablator. Every part radiates σεT⁴ over its
+ * whole skin, conducts across its joints, and a lit engine heats itself by its thrust. Past its
+ * [com.rm.apogee.core.part.PartDef.heatLimit] a part loses health, faster the hotter, and burns
+ * away.
  *
- * Only a thin skin heats quickly, [SKIN] of it, not the part's whole mass, which is what lets a
- * re-entry glow and be over in a couple of minutes.
+ * Only a thin skin heats ([SKIN] of the mass), which lets a re-entry glow and be over in a couple
+ * of minutes.
  */
 class Heat {
 
@@ -51,8 +48,8 @@ class Heat {
     private val scratch = Vec3()
 
     /**
-     * [sunStrength]: the sunlight where it is, as a share of Terra's. This sets how cold empty
-     * space leaves a part, which is bitter out among the giants and hot inside Celer's orbit.
+     * [sunStrength] is the sunlight here as a share of Terra's. It sets how cold empty space leaves
+     * a part: bitter out among the giants, hot inside Celer's orbit.
      */
     fun update(vessel: Vessel, attractor: CelestialBody, dt: Double, sunStrength: Double = 1.0) {
         burntCount = 0
@@ -118,8 +115,8 @@ class Heat {
                 power -= flowOut / dt
             }
 
-            // A shield at its char temperature gets no hotter while it has ablator left. Whatever
-            // would heat it further burns some away instead.
+            // A shield at its char temperature gets no hotter while it has ablator left; the excess
+            // burns ablator instead.
             val shield = def.module<HeatShield>()
             if (shield != null && power > 0.0 && t >= shield.charTemperature) {
                 val wanted = power * dt / shield.energyPerUnit
@@ -143,8 +140,7 @@ class Heat {
 
     /**
      * Who meets the air. A part is shaded if another sits ahead of it in the flow, close enough
-     * across it to be in its way. It's only worth working out when the air is fast enough to
-     * matter.
+     * across to be in the way. Only worked out when the air is fast enough to matter.
      */
     private fun shade(vessel: Vessel, n: Int, speed: Double) {
         if (speed < SHADE_SPEED || n == 1) {
@@ -182,15 +178,12 @@ class Heat {
         const val CP_AIR = 1_005.0
 
         /**
-         * W/m²K per √(kg/m³)·(m/s): how hard the air drives a part toward the recovery temperature.
-         * It's set so a bare pod coming back from low orbit goes past its limit and a shielded one
-         * doesn't.
+         * W/m²K per √(kg/m³)·(m/s): how hard the air drives a part toward recovery temperature. Set
+         * so a bare pod back from low orbit passes its limit and a shielded one doesn't.
          */
         const val FILM = 10.0
 
-        /**
-         * Metres per second of breeze even in still air, so a parked craft still loses heat to it.
-         */
+        /** Metres per second of breeze even in still air, so a parked craft still loses heat. */
         const val STILL_AIR = 3.0
 
         /** Of a part's skin, how much the air along its sides reaches as well as its face. */

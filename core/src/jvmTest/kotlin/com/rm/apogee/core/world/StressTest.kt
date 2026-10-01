@@ -25,10 +25,7 @@ class StressTest {
         return world.spawnAt(StockCraft.starterRocket(catalog), "terra", position, velocity, rotation, spin)
     }
 
-    /**
-     * The joint above a burning engine passes its thrust on to the rest of the stack, all of it
-     * except what it takes to push the engine itself.
-     */
+    /** The joint above a burning engine carries its thrust, less what pushes the engine itself. */
     @Test
     fun `the joint above an engine carries its thrust less its own share`() {
         val world = World.default(catalog)
@@ -55,10 +52,7 @@ class StressTest {
         assertTrue("stress ${rocket.stress}", rocket.stress < 1e-6)
     }
 
-    /**
-     * Spun end over end, every part has to be swung round. A slow tumble is nothing, and one fast
-     * enough flies the craft apart, into pieces, not a vanished craft.
-     */
+    /** A slow tumble is nothing; a fast one flies the craft apart into pieces. */
     @Test
     fun `a craft spun too fast flies apart`() {
         fun spun(rate: Double): Pair<Int, Double> {

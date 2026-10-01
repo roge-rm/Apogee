@@ -24,14 +24,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Two clients, one server, over real TCP sockets on the loopback interface.
- *
- * This is different from [GameServerTest], which runs everything over an in-process queue pair.
- * That proves the protocol, and this proves the *transport*: framing across a stream that might
- * split or join writes, a real accept loop, and real disconnects. A protocol that works in memory
- * and fails on a socket is what normally happens when you don't write this test.
- *
- * It uses real time instead of a test dispatcher, because sockets do.
+ * Two clients, one server, over real TCP sockets on loopback. [GameServerTest] covers the protocol
+ * in memory; this covers the transport: framing across split or joined writes, a real accept loop
+ * and real disconnects. It runs in real time, since sockets do.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class TcpIntegrationTest {
@@ -39,16 +34,9 @@ class TcpIntegrationTest {
     private val catalog = StockParts.catalog
 
     /**
-     * Runs a test against a real listener on a real port.
-     *
-     * Clients are launched into [net], on purpose *not* into the `runBlocking` scope, and it gets
-     * cancelled in `finally`.
-     *
-     * A client collecting from a socket never finishes on its own, and `runBlocking` doesn't return
-     * until every coroutine started in its scope has finished. Launching clients there hangs the
-     * entire test run forever, and `withTimeout` doesn't rescue it, because the timeout cancels its
-     * own block, not children started outside it. The first version of this file did exactly that
-     * and wedged the build.
+     * Runs a test against a real listener on a real port. Clients go into [net], cancelled in
+     * `finally`, never into the `runBlocking` scope: a client never finishes on its own, so
+     * `runBlocking` would wait forever, and `withTimeout` wouldn't save it.
      */
     private fun harness(
         block: suspend (server: GameServer, net: CoroutineScope, port: Int) -> Unit,
@@ -140,15 +128,8 @@ class TcpIntegrationTest {
     }
 
     /**
-     * The framing check.
-     *
-     * TCP is a stream, so a write isn't a read. A protocol that assumes otherwise passes every
-     * in-process test and then loses its first craft spawn on a real network, where a
-     * multi-kilobyte message gets split across segments.
-     *
-     * The stock rocket isn't big enough to prove this (protobuf encodes all thirteen parts in well
-     * under a kilobyte), so this sends a craft that's oversized on purpose and can't fit in one
-     * segment.
+     * The framing check: TCP is a stream, so a large message can arrive split across segments. The
+     * stock rocket encodes in under a kilobyte, so this sends an oversized craft on purpose.
      */
     @Test
     fun `a large craft survives being split across segments`() = harness { server, net, port ->
@@ -185,7 +166,7 @@ class TcpIntegrationTest {
         )
     }
 
-    /** A pod on top of a very long stack of tanks. It's only useful for its size. */
+    /** A pod on a very long stack of tanks, for its size. */
     private fun longStack(partCount: Int): com.rm.apogee.core.craft.CraftDesign {
         val builder = com.rm.apogee.core.craft.CraftBuilder(catalog)
         builder.placeRoot("pod-halo")

@@ -25,9 +25,8 @@ import kotlinx.coroutines.MainScope
 import org.w3c.dom.HTMLCanvasElement
 
 /**
- * Apogee in a browser: the same app as on a phone, with the world drawn by WebGL2 on a canvas under
- * the screens, and everything kept in the browser's storage. There's no network play from a page,
- * so it's solo, in the career or the sandbox.
+ * Apogee in a browser: the phone app, with the world drawn by WebGL2 on a canvas under the screens
+ * and everything in the browser's storage. Solo only; a page has no network play.
  */
 fun main() {
     val canvas = document.getElementById("world") as HTMLCanvasElement
@@ -56,10 +55,7 @@ fun main() {
 private fun context(canvas: HTMLCanvasElement): JsAny? =
     js("canvas.getContext('webgl2', { antialias: true, alpha: false, depth: true, stencil: false, powerPreference: 'high-performance' })")
 
-/**
- * Keys to [onKey], by their codes, except while something's being typed. A key the game used does
- * nothing else (Space doesn't scroll, Ctrl doesn't reach the browser's shortcuts with it).
- */
+/** Keys to [onKey] by code, except while typing. Keys the game uses do nothing else in the page. */
 private fun onKeys(onKey: (String, Boolean) -> Boolean, onLost: () -> Unit): Unit = js("""{
     const typing = () => { const a = document.activeElement; return a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.isContentEditable); };
     const handle = (e, down) => {
@@ -126,9 +122,8 @@ private fun memoryGb(): Double = js("navigator.deviceMemory || 4")
 private fun touchScreen(): Boolean = js("matchMedia('(pointer: coarse)').matches")
 
 /**
- * The first gamepad connected, as one line: its buttons (how far each is pressed), then its
- * axes, then its name, split by |. Empty with none. A line a frame is cheaper than going back
- * and forth for every button.
+ * The first connected gamepad as one line, cheaper than a call per button: button values, axes
+ * and name, split by |. Empty with none.
  */
 private fun gamepadLine(): String = js("""{
     const pads = navigator.getGamepads ? navigator.getGamepads() : [];
@@ -141,9 +136,8 @@ private fun gamepadLine(): String = js("""{
 }""")
 
 /**
- * A key sent to the screens, as if typed: to whatever in them has the page's focus, or their canvas.
- * True if they used it. That's how the controller works the menus, which answer Tab, Enter and Esc
- * as a keyboard's, and the arrows where something takes them (a slider).
+ * Sends a key to the screens as if typed, to the focused element or their canvas. True if used.
+ * This is how the controller works the menus.
  */
 private fun screensKey(key: String, shift: Boolean): Boolean = js("""{
     let canvas = null;
@@ -209,8 +203,7 @@ private class WebHost(private val canvas: HTMLCanvasElement) : AppHost {
                     r.onSurfaceChanged(w, h)
                 }
                 r.onDrawFrame()
-                // Building the ground and the rest, a few milliseconds a frame, since a page has
-                // one thread for everything.
+                // Background work gets a few milliseconds a frame; a page has one thread.
                 runBackgroundWork(BACKGROUND_MILLIS)
                 frame = requestFrame(draw)
             }
@@ -225,10 +218,8 @@ private class WebHost(private val canvas: HTMLCanvasElement) : AppHost {
     }
 
     /**
-     * From what the browser will say: its cores and memory, and whether it's a phone or tablet. The
-     * GL renderer doesn't tell. Never high on its own: a page does everything on one thread (the
-     * world, the sea, the terrain and the drawing), and high on a fast PC ran at 34 frames a
-     * second where medium ran at 55. It can be turned up in Settings.
+     * From the browser's cores, memory and touch screen. Never high on its own, since a page does
+     * everything on one thread; it can be turned up in Settings.
      */
     override fun detectTier(): QualityTier = when {
         !touchScreen() && cores() >= 8 && memoryGb() >= 8.0 -> QualityTier.MEDIUM
@@ -265,10 +256,9 @@ private class WebHost(private val canvas: HTMLCanvasElement) : AppHost {
     private var hadGamepad = false
 
     /**
-     * The browser's gamepad, asked for every frame on every screen (a page isn't told when a stick
-     * moves), in the standard layout: A, B, X, Y, L1, R1, L2, R2, Select, Start, L3, R3, then the
-     * D-pad, and the two sticks' axes. In flight the app flies with it. Anywhere else it works the
-     * screens the way a keyboard would, as Android's own handling does on a phone.
+     * Polls the browser's gamepad every frame (a page isn't told when a stick moves), in the
+     * standard layout. In flight the app flies with it; elsewhere it works the screens like a
+     * keyboard.
      */
     fun startGamepad() {
         requestFrame(::gamepadFrame)
@@ -333,10 +323,8 @@ private class WebHost(private val canvas: HTMLCanvasElement) : AppHost {
     }
 
     /**
-     * One step [way]. The screens on a page don't move between things by the arrows, so up and down
-     * are Shift-Tab and Tab. (Sent as arrows, a scrolling page took them to scroll by, and nothing
-     * moved.) Left and right go as arrows first, for whatever takes them (a slider), and as Tab or
-     * Shift-Tab when nothing does.
+     * One step [way]. Up and down are Shift-Tab and Tab, since arrows would scroll the page. Left
+     * and right go as arrows first (for a slider), then Tab or Shift-Tab if unused.
      */
     private fun step(way: com.rm.apogee.input.PadButton) {
         when (way) {

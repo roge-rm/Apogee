@@ -47,25 +47,16 @@ class CraftSummary(
     val situation: String,
     /** Height above the ground, or altitude, formatted. */
     val height: String,
-    /** What removing it does to whoever's aboard, in words. Blank with nobody aboard. */
+    /** What removing it does to whoever's aboard. Blank with nobody aboard. */
     val crewNote: String = "",
-    /**
-     * Whether it can be put back on its launch site and flown at all. Not someone on EVA, and not a
-     * flag.
-     */
+    /** Whether it can be reset to its launch site, and flown. Not for someone on EVA or a flag. */
     val canReset: Boolean = true,
     val canFly: Boolean = true,
-    /** How it gets about, for its button: FLY, DRIVE, SAIL and so on. */
+    /** Its button's verb: FLY, DRIVE, SAIL and so on. */
     val going: com.rm.apogee.game.Going = com.rm.apogee.game.Going.FLY,
 )
 
-/**
- * Out There: every craft the player has out in the solo world. You can take up any of them, put one
- * back on its launch site, or take one away for good.
- *
- * This is the other half of Quick Launch, which always starts fresh. A world people leave bases in
- * needs a way back to each of them, and a way to tidy up.
- */
+/** Out There: your craft in the solo world, to fly, reset to the launch site, or remove. */
 @Composable
 fun ResumeFlightScreen(
     craft: List<CraftSummary>,
@@ -80,7 +71,7 @@ fun ResumeFlightScreen(
     Backdrop(maxContentWidth = Dimens.PanelContentMaxWidth, title = "Out There", onBack = onBack, fillHeight = true) { contentModifier ->
         if (craft.isEmpty()) {
             Text(
-                "Nothing out there yet. Quick Launch or a launch from Vehicle Assembly puts a craft on the pad.",
+                "Nothing out there yet",
                 style = MaterialTheme.typography.bodyMedium,
                 color = Color.White.alpha(ApogeeAlpha.SUBTITLE),
                 textAlign = TextAlign.Center,
@@ -107,7 +98,7 @@ fun ResumeFlightScreen(
             title = { Text("Remove \"${doomed.name}\"?") },
             text = {
                 Text(
-                    "It's taken out of the world for good. The design stays in Vehicle Assembly if you saved it." +
+                    "It's gone for good. A saved design stays in Vehicle Assembly." +
                         if (doomed.crewNote.isNotEmpty()) "\n\n${doomed.crewNote}" else "",
                 )
             },
@@ -123,7 +114,7 @@ fun ResumeFlightScreen(
         AlertDialog(
             onDismissRequest = { confirmReset = null },
             title = { Text("Reset \"${target.name}\"?") },
-            text = { Text("A fresh one goes back on its launch site, fuelled and unstaged. The craft as it is now is gone.") },
+            text = { Text("A fresh one goes back on its launch site. This one's gone.") },
             confirmButton = {
                 TextButton(onClick = { onReset(target.id); confirmReset = null }) { Text("Reset") }
             },

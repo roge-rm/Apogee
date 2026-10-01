@@ -20,9 +20,9 @@ enum class Signal {
 }
 
 /**
- * Who can hear whom: a craft's antennas, the ground stations, and the relays in between. Two ends
- * hear each other when both are within the shorter of their two ranges and the line between them
- * clears every body. There's no delay. A craft that can be heard is flown as if from its own seat.
+ * Who can hear whom: craft antennas, ground stations and relays. Two ends hear each other when
+ * both are within the shorter of their ranges and the line between clears every body. No delay; a
+ * craft that can be heard flies as if from its own seat.
  */
 class Comms(private val system: SolarSystem) {
 
@@ -32,8 +32,7 @@ class Comms(private val system: SolarSystem) {
     private val rotation = Quat.identity()
 
     /**
-     * [vessel]'s link home at [time] among [others], meaning its signal and the relays it goes
-     * through, nearest first, written into it.
+     * Writes [vessel]'s link home at [time] among [others]: its signal and relays, nearest first.
      */
     fun update(vessel: Vessel, others: Collection<Vessel>, time: Double, isDebris: (Vessel) -> Boolean) {
         val own = reach(vessel)
@@ -94,7 +93,7 @@ class Comms(private val system: SolarSystem) {
             scratchC.setTo(centre).subInPlace(a)
             val t = if (lengthSq <= 0.0) 0.0 else ((scratchC dot scratchD) / lengthSq).coerceIn(0.0, 1.0)
             scratchC.addScaledInPlace(scratchD, -t)
-            // A little inside the sphere, because ground stations and landed craft sit right on it.
+            // A little inside the sphere, since stations and landed craft sit right on it.
             if (scratchC.length < body.radius * GRAZE) return false
         }
         return true
@@ -134,8 +133,8 @@ class Comms(private val system: SolarSystem) {
     fun stationPositions(time: Double): List<Vec3> = stationNodes(time).map { it.position }
 
     /**
-     * The nearest ground station with a clear line to [at], in the system's frame, at [time], or
-     * null for none. It's where a link drawn home ends.
+     * The nearest ground station with a clear line to [at] at [time], in the system's frame, or
+     * null. Where a link drawn home ends.
      */
     fun stationInSight(at: Vec3, time: Double): Vec3? =
         stationNodes(time).filter { clear(at, it.position) }.minByOrNull { it.position.distanceTo(at) }?.position
@@ -147,8 +146,8 @@ class Comms(private val system: SolarSystem) {
         const val GRAZE = 0.998
 
         /**
-         * [vessel]'s longest reach, and whether it relays, over its working antennas. A fold-out
-         * one only counts when it's out. Null if there are none.
+         * [vessel]'s longest reach over its working antennas, and whether it relays. A fold-out one
+         * counts only when out. Null if there are none.
          */
         fun reach(vessel: Vessel): Pair<Double, Boolean>? {
             var range = 0.0
@@ -167,16 +166,14 @@ class Comms(private val system: SolarSystem) {
         fun crewed(vessel: Vessel): Boolean = vessel.hasCrew()
 
         /**
-         * Whether [vessel] has a working probe core, which is a command part with no seat that's
-         * flown from home.
+         * Whether [vessel] has a working probe core: a command part with no seat, flown from home.
          */
         fun hasProbeCore(vessel: Vessel): Boolean = vessel.defs.indices.any {
             !vessel.isBroken(it) && vessel.defs[it].module<Command>()?.let { c -> c.crewCapacity == 0 } == true
         }
 
         /**
-         * Whether [vessel] needs a signal to be flown: it has a working command part, and nobody
-         * aboard.
+         * Whether [vessel] needs a signal to be flown: a working command part and nobody aboard.
          */
         fun needsSignal(vessel: Vessel): Boolean =
             !crewed(vessel) && vessel.defs.indices.any { !vessel.isBroken(it) && vessel.defs[it].module<Command>() != null }

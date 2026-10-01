@@ -9,13 +9,10 @@ import com.rm.apogee.core.terrain.Noise
 import com.rm.apogee.core.world.VesselCondition
 
 /**
- * What a joint working near its limit looks like. The part beyond it, and everything hanging from
- * that, shudders about the seam, a degree or two at most, so a long stack visibly flexes at its
- * tip. Past [SPARKS_FROM], sparks and flecks of metal come off the seam itself (drawn by the
- * effects, from [seam] and [sparkRate]).
- *
- * Only the picture moves. The physics shape stays rigid. Loads come from the condition block, so
- * everyone watching sees the same craft straining.
+ * How a joint near its limit looks: the part beyond it, and everything hanging from that, shudders
+ * a degree or two about the seam. Past [SPARKS_FROM] the effects throw sparks off the seam (see
+ * [seamOf] and [sparkRate]). Only the picture moves; the physics stays rigid. Loads come from the
+ * condition block, so everyone sees the same thing.
  */
 class StrainLook {
 
@@ -33,8 +30,8 @@ class StrainLook {
     private val local = Quat()
 
     /**
-     * Works out every part's flex for [loads] (each part's joint, as a share of its strength) at
-     * [time], in seconds. False, with nothing to apply, if no joint is working hard enough to show.
+     * Works out every part's flex for [loads] (each joint's share of its strength) at [time], in
+     * seconds. False if no joint is working hard enough to show.
      */
     fun compute(design: CraftDesign, defs: List<PartDef?>, loads: FloatArray, time: Double, seed: Int): Boolean {
         val n = design.parts.size
@@ -108,17 +105,13 @@ class StrainLook {
             return MOST_FLEX * t * t * (3 - 2 * t)
         }
 
-        /**
-         * Sparks a second off a seam at [load]. None below [SPARKS_FROM], and a stream at the
-         * limit.
-         */
+        /** Sparks a second off a seam at [load]. None below [SPARKS_FROM], a stream at the limit. */
         fun sparkRate(load: Double): Double =
             if (load < SPARKS_FROM) 0.0 else 6.0 + 34.0 * ((load - SPARKS_FROM) / (1.0 - SPARKS_FROM)).coerceIn(0.0, 2.0)
 
         /**
-         * Where a part centred at [child] meets its parent (at [parent], turned by [turn]), into
-         * [out]. Seen from the parent, a part beyond its end is stacked on it and meets it on that
-         * end face. One beside it is mounted on its side and meets its skin level with itself.
+         * Where a part at [child] meets its parent (at [parent], turned by [turn]), into [out]: on
+         * the end face if stacked, or on the skin level with it if side-mounted.
          */
         fun seamOf(child: Vec3, parent: Vec3, turn: Quat, def: PartDef?, out: Vec3): Vec3 {
             val local = turn.inverseRotate(out.setTo(child).subInPlace(parent), Vec3())

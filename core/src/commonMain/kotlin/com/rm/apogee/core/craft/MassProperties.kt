@@ -8,18 +8,15 @@ import com.rm.apogee.core.part.PartDef
 import com.rm.apogee.core.fixed
 
 /**
- * The total mass, centre of mass and inertia tensor of a built craft.
- *
- * It gets worked out again as propellant drains, and that's not just an optimisation detail. A
- * rocket at burnout is a fraction of its launch mass and its centre of mass has moved by metres. A
- * craft that ignored that would fly nothing like one that didn't.
+ * Total mass, centre of mass and inertia tensor of a built craft. Recomputed as propellant drains,
+ * since mass and centre of mass shift a lot over a burn.
  */
 class MassProperties(
     /** In kg. */
     val mass: Double,
-    /** In craft-local space, in metres from the design origin. */
+    /** Craft-local, in metres from the design origin. */
     val centerOfMass: Vec3,
-    /** Around the centre of mass, in craft-local axes. */
+    /** About the centre of mass, in craft-local axes. */
     val inertia: Mat3,
 ) {
     val inverseMass: Double = if (mass > 0.0) 1.0 / mass else 0.0
@@ -31,10 +28,9 @@ class MassProperties(
     companion object {
 
         /**
-         * Builds up the craft's properties from its parts.
+         * Builds the craft's properties from its parts.
          *
-         * @param partMasses the current mass of each part in [design]'s order, including whatever
-         *     propellant it's holding right now.
+         * @param partMasses each part's current mass in [design]'s order, propellant included.
          */
         fun compute(
             design: CraftDesign,
@@ -59,8 +55,8 @@ class MassProperties(
             }
             com.mulInPlace(1.0 / totalMass)
 
-            // Add up each part's own tensor, rotated into craft axes, plus its parallel-axis term
-            // around the craft's centre of mass.
+            // Each part's own tensor rotated into craft axes, plus its parallel-axis term about the
+            // craft's centre of mass.
             val inertia = Mat3()
             val offset = Vec3()
             for (i in design.parts.indices) {
@@ -77,13 +73,9 @@ class MassProperties(
         }
 
         /**
-         * A part's inertia tensor around its own centre, from its mesh shape.
-         *
-         * This uses the real exact tensor for each primitive instead of treating everything as a
-         * box. A fuel tank is a cylinder, and a cylinder only resists roll half as much as it
-         * resists pitch. Getting that wrong makes long stacks roll far too slowly.
-         *
-         * +Y is the axis of revolution, to match the mesh convention.
+         * A part's inertia tensor about its own centre, from the exact tensor of its mesh
+         * primitive. A cylinder resists roll half as much as pitch, so a box would make long stacks
+         * roll too slowly. +Y is the axis of revolution, as for meshes.
          */
         fun partInertia(def: PartDef, mass: Double): Mat3 = when (val mesh = def.mesh) {
             is MeshSpec.Cylinder -> {
@@ -97,9 +89,8 @@ class MassProperties(
             }
 
             is MeshSpec.Cone -> {
-                // Treated as a cylinder of the average radius. The error is small next to the
-                // parallel-axis term for any part that isn't sitting on the craft's centre of mass,
-                // which is most of them.
+                // A cylinder of the average radius. The error is small next to the parallel-axis
+                // term for parts off the centre of mass.
                 val r = (mesh.bottomRadius + mesh.topRadius) * 0.5
                 val r2 = r * r
                 val h2 = mesh.height * mesh.height
@@ -127,7 +118,7 @@ class MassProperties(
             }
         }
 
-        /** A helper with no rotation, for tests and single-part craft. */
+        /** No rotation, for tests and single-part craft. */
         fun ofSinglePart(def: PartDef, mass: Double, position: Vec3 = Vec3.zero()) =
             MassProperties(
                 mass = mass,

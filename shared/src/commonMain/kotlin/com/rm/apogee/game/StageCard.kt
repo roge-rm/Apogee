@@ -11,8 +11,8 @@ import com.rm.apogee.core.part.Parachute
 class FuelGauge(val name: String, val fraction: Float)
 
 /**
- * One stage as the flight HUD shows it: what it fires, and for a stage that burns, how much fuel it
- * has left and what that's worth.
+ * One stage as the flight HUD shows it: what it fires and, if it burns, its fuel and what that's
+ * worth.
  */
 class StageCard(
     /** The stage's number, the way the STAGE button counts. 0 fires first. */
@@ -30,9 +30,9 @@ class StageCard(
 ) {
     companion object {
         /**
-         * Cards for [vessel]'s stages from [stats], which is
-         * [com.rm.apogee.core.craft.CraftStats.analyzeLive] of the same craft. The one burning now
-         * comes first, if there is one, then each one still to fire, soonest first.
+         * Cards for [vessel]'s stages from [stats]
+         * ([com.rm.apogee.core.craft.CraftStats.analyzeLive] of the same craft): the one burning
+         * now first, if any, then the rest, soonest first.
          */
         fun from(vessel: Vessel, stats: List<StageStats>, throttle: Double): List<StageCard> {
             val cards = ArrayList<StageCard>(stats.size)
@@ -40,8 +40,8 @@ class StageCard(
                 val current = stat.index < vessel.currentStage
                 val fired = vessel.design.stages.getOrNull(stat.index)?.activatedParts.orEmpty()
                 val lightsEngine = fired.any { vessel.defs.getOrNull(it)?.module<Engine>() != null }
-                // A stage burns if it lights something, or is the one burning. A chute stage behind
-                // a spent engine is only a chute.
+                // A stage burns if it lights something or is burning now. A chute stage behind a
+                // spent engine is only a chute.
                 val burns = stat.isBurn && (current || lightsEngine)
                 if (current && !burns) continue
                 val contents = if (current) "burning" else describe(vessel, fired)

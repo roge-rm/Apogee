@@ -3,15 +3,14 @@ package com.rm.apogee.render
 import com.rm.apogee.core.math.Math
 
 /**
- * The colours of a crew member's suit, numbered the way [com.rm.apogee.core.crew.Crew] numbers
- * them: a stripe, which is their player's, and a visor, which is their own. The suit's accent pieces
- * take the stripe and its glass the visor.
+ * Suit colours, numbered as [com.rm.apogee.core.crew.Crew] numbers them: the stripe is the
+ * player's, on the accent pieces, and the visor is the crew member's own, on the glass.
  */
 object SuitColours {
 
     class Choice(val name: String, val rgb: FloatArray)
 
-    /** Bright enough to pick out across a landing site, none of them neon. Orange was the old trim. */
+    /** Bright enough to pick out across a landing site, none neon. */
     val STRIPES = listOf(
         Choice("Orange", floatArrayOf(0.88f, 0.56f, 0.16f, 1f)),
         Choice("Red", floatArrayOf(0.82f, 0.24f, 0.22f, 1f)),
@@ -23,10 +22,7 @@ object SuitColours {
         Choice("Pink", floatArrayOf(0.90f, 0.44f, 0.62f, 1f)),
     )
 
-    /**
-     * Darker and glossier than the stripes, as glass is. Neighbours differ a lot, because recruits
-     * who join together take them in order.
-     */
+    /** Darker than the stripes. Neighbours differ a lot, since recruits who join together take them in order. */
     val VISORS = listOf(
         Choice("Blue", floatArrayOf(0.30f, 0.48f, 0.66f, 1f)),
         Choice("Gold", floatArrayOf(0.80f, 0.62f, 0.22f, 1f)),

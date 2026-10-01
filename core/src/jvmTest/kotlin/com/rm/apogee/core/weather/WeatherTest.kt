@@ -10,9 +10,8 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 /**
- * The weather as a pure function, and whether the shapes in it are the ones a pilot would expect:
- * faster up high, faster on crests than in hollows, lift under cumulus, no thermals at sea, storms
- * only when the world allows them, and all of it the same wherever it's worked out.
+ * The weather as a pure function, with the shapes a pilot would expect: faster up high and on
+ * crests, lift under cumulus, no thermals at sea, storms only when the settings allow them.
  */
 class WeatherTest {
 
@@ -63,7 +62,7 @@ class WeatherTest {
     fun `wind picks up with height, and there's none in space`() {
         val w = weather()
         val s = AirSample()
-        // Averaged over lots of places, because any one of them can be a hollow or a thermal.
+        // Averaged over lots of places, since any one can be a hollow or a thermal.
         fun meanSpeed(agl: Double): Double {
             var total = 0.0
             for (i in 0 until 150) {
@@ -83,10 +82,7 @@ class WeatherTest {
         assertEquals("no wind at 40 km", 0.0, s.wind.length, 1e-9)
     }
 
-    /**
-     * The terrain's hand in it. Over lots of places, crests are windier than hollows at the same
-     * height above them.
-     */
+    /** Over lots of places, crests are windier than hollows at the same height above them. */
     @Test
     fun `crests are windier than hollows`() {
         val w = weather(WeatherIntensity.CALM)
@@ -187,8 +183,7 @@ class WeatherTest {
         assertEquals(CloudType.CUMULONIMBUS, s.cloudType)
         assertTrue("an updraught in the tower: ${s.lift}", s.lift > 3.0)
 
-        // And the gust front: low down, somewhere around it, a wind to knock things over, whatever
-        // the wind was before.
+        // The gust front: low down somewhere around it, a wind to knock things over.
         var strongest = 0.0
         val reach = storm.reach
         for (i in -12..12) for (j in -12..12) {
@@ -245,10 +240,7 @@ class WeatherTest {
         assertTrue("a sample took $micros us", micros < 80.0)
     }
 
-    /**
-     * A deck is cloudy where its puffs are drawn and clear between them, so climbing through a gap
-     * in the drawn deck, there's no fog.
-     */
+    /** A deck is cloudy where its puffs are drawn and clear between them, so a gap has no fog. */
     @Test
     fun `deck air is cloudy only inside the drawn puffs`() {
         val w = weather()
@@ -262,10 +254,9 @@ class WeatherTest {
             val decks = shapes.filter { it.type == CloudType.STRATUS || it.type == CloudType.ALTOSTRATUS }
             if (decks.isEmpty()) continue
             for (shape in decks) for (lobe in shape.lobes) {
-                // Only puffs well inside what was listed. Beside one at the edge, a "gap" can be
-                // under a puff of a cell that was never listed.
+                // Only puffs well inside the listing. At the edge, a "gap" can be under an unlisted puff.
                 if (lobe.centre.copy().normalizeInPlace().distanceTo(dir) * w.body.radius > 2_500.0) continue
-                // Nor one only just growing in, too small yet to see or to fly into.
+                // Nor one just growing in, too small to see.
                 if (lobe.horizontal < 20.0) continue
                 // Its heart is cloud of its own kind.
                 w.sample(lobe.centre, 3_000.0, s)
@@ -408,7 +399,7 @@ class WeatherTest {
                 w.stormModel.around(dir, e, n, 1, t, list)
                 for (st in list) {
                     val key = st.cx.toLong() * 1_000_003L + st.cy * 97L + st.cycle
-                    // At its best means a third of the way through its life and more.
+                    // At its best: just under half way through its life.
                     found.getOrPut(key) { st to (st.start + 0.45 * Storms.CYCLE) }
                 }
             }

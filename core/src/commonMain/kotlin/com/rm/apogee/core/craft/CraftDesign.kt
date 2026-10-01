@@ -10,13 +10,8 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 /**
- * One part placed in a design.
- *
- * It carries both a local transform and a parent link, which doubles up on purpose. The transform
- * is what physics and rendering want, and it's the one that counts. The parent link is what
- * *staging* wants, because decoupling needs to know which part of the tree comes away. Working one
- * out from the other whenever it's needed would be slower and more fragile than storing both and
- * checking they agree when it loads.
+ * One part placed in a design. It keeps both a transform, which physics and rendering use and which
+ * wins, and a parent link, which staging uses to know what comes away when a decoupler fires.
  */
 @Serializable
 data class PlacedPart(
@@ -30,34 +25,19 @@ data class PlacedPart(
     val parentNodeId: String? = null,
     /** Which of this part's own nodes makes the join. */
     val ownNodeId: String? = null,
-    /**
-     * Parts placed together by a symmetry mode share a group id, so the builder can move or delete
-     * them as one.
-     */
+    /** Shared by parts placed together in symmetry, so the builder moves or deletes them as one. */
     val symmetryGroup: Int = -1,
-    /**
-     * Quarter turns around the join, on top of how [Attachment.solve] settles the part. For example
-     * a cockpit turned to face sideways, or a wheel turned around its strut. 0..3.
-     */
+    /** Quarter turns around the join, 0..3, on top of how [Attachment.solve] settles the part. */
     val turn: Int = 0,
-    /**
-     * Which action group it's in, 1 to 3, or 0 for none. A group is switched on and off together
-     * from one button in flight.
-     */
+    /** Its action group, 1 to 3, or 0 for none. One button in flight toggles a group. */
     val group: Int = 0,
-    /**
-     * If this is a docking part latched to another in this craft, that part's index, or -1 for
-     * none. It's set on both.
-     */
+    /** The docking part this one is latched to in this craft, or -1. Set on both. */
     val dockedTo: Int = -1,
-    /**
-     * On the docking part a craft docked with: what that craft was, so it can get back its name,
-     * owner and staging when it undocks.
-     */
+    /** On the docking part a craft docked with: what that craft was, restored when it undocks. */
     val dockedFrom: DockedOrigin? = null,
     /**
-     * The shell round the engine this was attached under, recorded as its stage dropped, so
-     * everyone watching sees it split and fall away in pieces from where it was. See [Shrouds].
+     * The engine shell this was attached under, recorded as its stage drops so everyone sees it
+     * split and fall away. See [Shrouds].
      */
     val shroud: Shroud? = null,
 )
@@ -73,28 +53,16 @@ data class DockedOrigin(
     val throttle: Double = 0.0,
 )
 
-/**
- * One step of the staging sequence.
- *
- * Holds the indices of the parts *activated* when the stage fires: engines ignite, decouplers let
- * go, parachutes open. Stage 0 fires first.
- */
+/** One step of staging: indices of the parts activated when it fires. Stage 0 fires first. */
 @Serializable
 data class Stage(
     val activatedParts: List<Int> = emptyList(),
 )
 
 /**
- * Which way up a design is built, and so which way up it stands on the ground.
- *
- * The nose is always +Y in design space, whatever this says. Engines, fins, the attitude controller
- * and the navball all read +Y as "where it's going", and a plane is just a stack flown on its side,
- * not a different kind of object. What this decides is the other axis: which way is the *sky* when
- * the craft is sitting on the ground, and which way it rolls along it.
- *
- * Without it the builder could only make things that stand on their tails, a rover's forward had to
- * be a hard-coded +Z that happened to work, and you could only test a plane already in the air
- * because there was no way to put one on a runway.
+ * Which way up a design stands on the ground. The nose is always +Y in design space, and everything
+ * reads +Y as where it's going. This only picks which axis is the sky at rest and which it rolls
+ * along.
  */
 @Serializable
 enum class CraftOrientation(
@@ -113,41 +81,27 @@ enum class CraftOrientation(
     fun other(): CraftOrientation = if (this == VERTICAL) HORIZONTAL else VERTICAL
 }
 
-/**
- * A saved vehicle: the blueprint, not a thing in the world.
- *
- * This same type is both the save file format *and* what gets sent over the network to spawn a
- * craft. Keeping them the same means a craft that loads fine can't fail to send, and there's no
- * second format to keep in step.
- */
+/** A saved vehicle's blueprint. It's both the save format and what the network sends to spawn one. */
 @Serializable
 data class CraftDesign(
     val name: String,
     val parts: List<PlacedPart>,
     val stages: List<Stage> = emptyList(),
-    /**
-     * The catalogue this was made against. A design that refers to parts the loader doesn't have
-     * gets refused with a useful message, instead of quietly losing pieces.
-     */
+    /** The catalogue this was made against. */
     val catalogHash: String = "",
-    /** Defaults to vertical, because that's what every design saved before this existed was. */
+    /** Vertical by default, which old saves were. */
     val orientation: CraftOrientation = CraftOrientation.VERTICAL,
     /**
-     * Whether [stages] were arranged by hand.
-     *
-     * When false, the builder works out staging from the part tree on every edit, as it always has.
-     * When true, it keeps your arrangement and only fits new parts into it and drops removed ones,
-     * because rebuilding it would throw away the order you picked.
+     * Whether [stages] were arranged by hand. If not, the builder rebuilds staging from the part tree
+     * on every edit. If so, it keeps your order and only adds new parts and drops removed ones.
      */
     val manualStaging: Boolean = false,
 ) {
     val partCount: Int get() = parts.size
 
-    /** Indices of every part hanging below [index], including itself. */
     /**
-     * The same parts in the same order, with the tree turned around so part [index] is the root.
-     * Every joint on the way from it up to the old root is reversed, and the nodes at each end swap
-     * sides. Nothing moves.
+     * The same parts in order, with the tree turned so part [index] is the root. Joints up to the
+     * old root reverse and swap nodes. Nothing moves.
      */
     fun rerootedAt(index: Int): CraftDesign {
         if (index !in parts.indices || parts[index].parentIndex < 0) return this
@@ -157,8 +111,7 @@ data class CraftDesign(
         out[index] = out[index].copy(parentIndex = -1, parentNodeId = null, ownNodeId = null)
         while (parent >= 0) {
             val next = parts[parent].parentIndex
-            // Child-of-parent becomes parent-of-child, so the node the child hung from is now the
-            // one the old parent hangs from.
+            // The old parent now hangs from the child, so the nodes swap.
             out[parent] = out[parent].copy(
                 parentIndex = child,
                 parentNodeId = parts[child].ownNodeId,
@@ -170,6 +123,7 @@ data class CraftDesign(
         return copy(parts = out)
     }
 
+    /** Indices of every part hanging below [index], including itself. */
     fun subtreeOf(index: Int): List<Int> {
         val result = ArrayList<Int>()
         val queue = ArrayDeque<Int>()
@@ -184,21 +138,12 @@ data class CraftDesign(
 
     fun rootIndex(): Int = parts.indexOfFirst { it.parentIndex == -1 }
 
-    /**
-     * The design as it flies, with stages that fire nothing dropped. The builder keeps an empty
-     * stage you've just made so you can fill it, but in flight it would be a button press that did
-     * nothing.
-     */
+    /** The design as it flies, without empty stages, which the builder keeps for you to fill. */
     fun withoutEmptyStages(): CraftDesign =
         if (stages.none { it.activatedParts.isEmpty() }) this
         else copy(stages = stages.filter { it.activatedParts.isNotEmpty() })
 
-    /**
-     * Checks the design against a catalogue.
-     *
-     * Returns the problems instead of throwing, because the builder wants to show all of them at
-     * once and the network wants to reject with a reason.
-     */
+    /** Checks the design against a catalogue and lists every problem, without throwing. */
     fun validate(catalog: PartCatalog): List<String> {
         val problems = ArrayList<String>()
         if (parts.isEmpty()) {
@@ -221,8 +166,7 @@ data class CraftDesign(
             }
         }
 
-        // A cycle would make subtreeOf loop forever when decoupling, which is the worst possible
-        // moment to find out.
+        // A cycle would make subtreeOf loop forever when decoupling.
         if (problems.isEmpty() && hasCycle()) {
             problems.add("Design '$name' has a cycle in its part tree")
         }

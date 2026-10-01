@@ -8,10 +8,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlin.math.abs
 
-/**
- * Luna: maria, highlands and craters. It's airless, so there's no sea, and the surface radius, the
- * scatter and the renderer all have to respect that.
- */
+/** Luna: maria, highlands and craters, and no sea. */
 class LunaTerrainTest {
 
     private val luna = SolarSystem.defaultSystem().body("luna").terrain!!
@@ -42,11 +39,7 @@ class LunaTerrainTest {
         assertEquals(r + e, luna.surfaceRadius(low), 1e-6)
     }
 
-    /**
-     * A big complex crater a few tens of kilometres from the prime meridian: a floor well below its
-     * rim, a central peak standing up off the floor, and a rim that stands above the plain outside
-     * it.
-     */
+    /** A big crater near the prime meridian: a deep floor, a central peak and a raised rim. */
     @Test
     fun `a large crater has a floor, a central peak and a raised rim`() {
         fun h(z: Double) = luna.elevation(at(-4_000.0, z))
@@ -58,9 +51,8 @@ class LunaTerrainTest {
     }
 
     /**
-     * Small craters, the ones a rover actually meets, are everywhere. They're counted as bowls on a
-     * 3 km square: points lower than everything within 16 m, and at least a metre and a half below
-     * the ring around them.
+     * Small craters are everywhere. Counted as bowls on a 3 km square: points lower than everything
+     * within 16 m and at least 1.5 m below the ring around them.
      */
     @Test
     fun `small craters pock the ground`() {

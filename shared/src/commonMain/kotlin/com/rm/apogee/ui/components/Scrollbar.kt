@@ -16,12 +16,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 /**
- * A scroll bar down the right edge of anything that scrolls: a track, and a thumb sized to how much
- * of the content is in view and placed where the view is. Every list that can run past its space
- * has one, so what's below the fold is never a secret.
- *
- * It's only drawn while the content overflows, so a list that fits shows nothing. Put it before
- * `verticalScroll` in the chain, so it measures the viewport and not the whole scrolled content.
+ * A scroll bar down the right edge, drawn only while the content overflows. Put it before
+ * `verticalScroll` in the chain so it measures the viewport, not the whole content.
  */
 fun Modifier.verticalScrollbar(state: ScrollState, width: Dp = 4.dp, inset: Dp = 2.dp): Modifier = composed {
     val shown by animateFloatAsState(if (state.maxValue > 0) 1f else 0f, label = "scrollbar")
@@ -39,8 +35,8 @@ fun Modifier.verticalScrollbar(state: ScrollState, width: Dp = 4.dp, inset: Dp =
 }
 
 /**
- * The same, for a lazy list. Its full length isn't known until every row has been laid out, so it's
- * estimated from the rows in view. That's exact for lists of equal rows, which is all of ours.
+ * The same for a lazy list. Its length is estimated from the rows in view, which is exact for
+ * equal rows, as all of ours are.
  */
 fun Modifier.verticalScrollbar(state: LazyListState, width: Dp = 4.dp, inset: Dp = 2.dp): Modifier = composed {
     val info = state.layoutInfo
@@ -64,10 +60,7 @@ fun Modifier.verticalScrollbar(state: LazyListState, width: Dp = 4.dp, inset: Dp
     }
 }
 
-/**
- * The same, for a lazy grid: rows of [LazyGridState]'s items, estimated from the rows in view like
- * a list.
- */
+/** The same for a lazy grid, estimated from the rows in view. */
 fun Modifier.verticalScrollbar(state: androidx.compose.foundation.lazy.grid.LazyGridState, width: Dp = 4.dp, inset: Dp = 2.dp): Modifier = composed {
     val info = state.layoutInfo
     val visible = info.visibleItemsInfo

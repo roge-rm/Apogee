@@ -36,8 +36,7 @@ class CraftBuilderTest {
         val added = builder.attach("tank-cask2", bottom)
         assertEquals(1, added.size)
 
-        // The tank's top node should now be in the same place as where the pod's bottom node was.
-        // That *is* attachment, and everything else about placement follows from it.
+        // The tank's top node sits where the pod's bottom node was. That's attachment.
         val tank = builder.design.parts[added.first()]
         val tankDef = catalog.require("tank-cask2")
         val tankTop = tankDef.attachNodes.first { it.id == "top" }
@@ -61,8 +60,7 @@ class CraftBuilderTest {
         val mountDirection = tank.rotation.rotate(
             tankDef.attachNodes.first { it.id == "top" }.direction
         )
-        // Opposite to the target's outward direction, which is what makes the orientation automatic
-        // instead of something the player sets by hand.
+        // Opposite the target's outward direction, so orientation is automatic.
         assertEquals(-1.0, mountDirection dot bottom.direction, 1e-9)
     }
 
@@ -91,8 +89,8 @@ class CraftBuilderTest {
     fun `stack nodes of different sizes won't mate`() {
         val builder = builder()
         builder.placeRoot("pod-halo")
-        // The pod's top node is size 0 stack. The tank's stack nodes are size 1, and its generated
-        // surface nodes can't mate with a stack node at all.
+        // The pod's top node is size 0 stack. The tank's stack nodes are size 1, and its surface
+        // nodes can't mate with a stack node.
         val top = nodeOn(builder, 0, "top")
         val added = builder.attach("tank-cask4", top)
         assertTrue("a size mismatch should be refused", added.isEmpty())

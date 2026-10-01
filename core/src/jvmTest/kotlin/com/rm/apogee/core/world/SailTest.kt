@@ -10,18 +10,15 @@ import com.rm.apogee.core.part.StockParts
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * Sails: the Sloop, out on open water off the Cape in a steady wind, goes where a sailing boat can
- * and not where it can't.
- */
+/** Sails: the Sloop in a steady wind goes where a sailing boat can and not where it can't. */
 class SailTest {
 
     private val catalog = StockParts.catalog
     private val dt = 1.0 / 60.0
 
     /**
-     * The Sloop afloat well off the Cape, facing east, in a steady [wind] (x toward the east and y
-     * toward the north, m/s), with [sheet] of her sail out. She sails for [seconds].
+     * The Sloop off the Cape facing east in a steady [wind] (x east, y north, m/s), with [sheet]
+     * of her sail out, sailing for [seconds].
      */
     private fun sail(wind: Vec3, sheet: Double = 1.0, seconds: Double = 60.0): Pair<World, Vessel> {
         val world = World.default(catalog)

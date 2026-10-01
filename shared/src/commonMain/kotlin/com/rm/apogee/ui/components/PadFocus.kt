@@ -16,9 +16,9 @@ import com.rm.apogee.ui.theme.ApogeeColors
 import com.rm.apogee.ui.theme.Dimens
 
 /**
- * An accent ring round whatever the D-pad is on, so the menus can be worked with a controller.
- * Material's own sign of focus is a faint wash that can't be seen on these dark screens. It goes
- * before the clickable part in the chain, and rings it while it (or anything in it) has focus.
+ * An accent ring round whatever the D-pad is on, since Material's focus wash can't be seen on
+ * these dark screens. Put it before the clickable in the chain. It rings while it or anything in
+ * it has focus.
  */
 fun Modifier.padFocus(
     shape: Shape = RoundedCornerShape(Dimens.CornerTight),

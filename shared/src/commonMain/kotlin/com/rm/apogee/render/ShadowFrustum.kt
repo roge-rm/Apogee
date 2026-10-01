@@ -3,15 +3,9 @@ package com.rm.apogee.render
 import com.rm.apogee.core.math.Vec3
 
 /**
- * Where a shadow map looks from: a box along the light, [radius] each way across it and [depth]
- * each way along it, centred on a point.
- *
- * It's built camera-relative, like everything drawn (a position handed to the shader is metres from
- * the camera), but its centre is snapped to whole texels in the light's own axes, measured from the
- * world's origin. So a moving camera or craft slides the map a texel at a time, and every shadow
- * edge stays put on the ground instead of crawling.
- *
- * It's pure, with no GL here, so it gets tested on its own.
+ * Where a shadow map looks from: a box along the light, [radius] each way across and [depth] each
+ * way along, centred on a point. Matrices are camera-relative, but the centre snaps to whole texels
+ * in the light's axes from the world's origin, so shadow edges don't crawl. No GL, so it's tested.
  */
 class ShadowFrustum {
     /** Camera-relative world to clip space, for drawing the map. Column-major. */
@@ -38,9 +32,8 @@ class ShadowFrustum {
     }
 
     /**
-     * Sets where it looks: along [toLight] at [centre], in whatever frame those are given in.
-     * That's either the world's, or a planet's own turning one for a map that gets drawn now and
-     * read for a while after as the planet turns.
+     * Sets where it looks: along [toLight] at [centre], in their frame. That's the world's, or a
+     * planet's turning frame for a map that's read for a while after it's drawn.
      */
     fun aim(toLight: Vec3, centre: Vec3, radius: Double, depth: Double, texels: Int) {
         along.setTo(toLight).mulInPlace(-1.0).normalizeInPlace() // the way the light travels
@@ -60,13 +53,12 @@ class ShadowFrustum {
     private val wr = Vec3(); private val wu = Vec3(); private val wa = Vec3()
 
     /**
-     * Builds the matrices for a camera at [camera], given in the frame it was aimed in. [turn]
-     * takes that frame to the world's (the planet's rotation now), or is null if it's already the
-     * world's.
+     * Builds the matrices for a camera at [camera], in the frame it was aimed in. [turn] takes that
+     * frame to the world's (the planet's rotation now), or null if it's already the world's.
      */
     fun place(camera: Vec3, turn: com.rm.apogee.core.math.Quat?) {
-        // Rows: x = (p + camera)·right - sx over radius, and so on. The camera part and the snapped
-        // centre cancel to a few metres in double here, before anything is narrowed.
+        // Rows: x = ((p + camera)·right - sx) / radius, and so on. Camera and snapped centre cancel
+        // in double before narrowing.
         val tx = ((camera dot right) - sx) / radius
         val ty = ((camera dot up) - sy) / radius
         val tz = ((camera dot along) - sz) / depth

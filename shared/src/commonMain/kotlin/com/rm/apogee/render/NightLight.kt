@@ -3,9 +3,8 @@ package com.rm.apogee.render
 import com.rm.apogee.core.math.Vec3
 
 /**
- * How much sun reaches a place, and what lights it when none does. These are the same sums as
- * `NIGHT_LIGHT` in [Shaders], for things lit on the CPU (smoke, dust and rain), so particles agree
- * with the ground about how dark it is.
+ * How much sun reaches a place, and what lights it when none does. The same sums as `NIGHT_LIGHT`
+ * in [Shaders], for things lit on the CPU (smoke, dust, rain), so they match the ground.
  */
 object NightLight {
 
@@ -22,10 +21,9 @@ object NightLight {
     private val DUSK = floatArrayOf(0.17f, 0.15f, 0.18f)
 
     /**
-     * How much sunlight reaches [position] (planet-centred, on a body of [radius]) with the sun
-     * along [sun]. It's 1 by day and 0 in the planet's shadow, eased across the terminator. High
-     * up, the sun is seen past the planet's edge for longer (by the angle the horizon dips at that
-     * height), so a craft in orbit is lit well round onto the night side.
+     * How much sunlight reaches [position] (planet-centred, body of [radius]) with the sun along
+     * [sun]: 1 by day, 0 in shadow, eased across the terminator. Higher up the horizon dips, so a
+     * craft in orbit stays lit well onto the night side.
      */
     fun daylight(position: Vec3, radius: Double, sun: Vec3): Float {
         val r = position.length
@@ -44,9 +42,8 @@ object NightLight {
     }
 
     /**
-     * The light on something that isn't lit by any face (a puff of smoke), per channel, into [out].
-     * It's the sun's [daySun] share by day, and otherwise the moon and the twilight sky, dimmed
-     * under a storm by [lightScale].
+     * The light on something with no face to light (a puff of smoke), per channel, into [out]: the
+     * sun's [daySun] share by day, else moon and twilight, dimmed by a storm's [lightScale].
      */
     fun flatLight(daylight: Float, daySun: Float, lightScale: Float, out: FloatArray): FloatArray {
         val moon = moonLeft(daylight) * (0.4f + 0.6f * lightScale)

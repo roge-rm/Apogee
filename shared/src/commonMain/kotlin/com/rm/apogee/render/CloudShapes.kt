@@ -12,16 +12,15 @@ data class CloudPuff(
     val variant: Int,
     val flat: Boolean = false,
     /**
-     * Subdivisions of the icosahedron: 4 closest (5,120 facets), 3 close (1,280), 2 near (320), and
-     * 1 far (80).
+     * Icosahedron subdivisions: 4 closest (5,120 facets), 3 close (1,280), 2 near (320), 1 far
+     * (80).
      */
     val detail: Int = 2,
 ) : Shape
 
 /**
- * Cloud meshes in the game's own style: faceted, flat-shaded heaps, like everything else. It's a
- * subdivided icosahedron pushed in and out by noise, with its underside cut flat, because cumulus
- * clouds have flat bases.
+ * Cloud meshes in the game's faceted, flat-shaded style: a subdivided icosahedron pushed in and out
+ * by noise, with the underside cut flat like a cumulus base.
  */
 object CloudShapes {
 
@@ -31,15 +30,15 @@ object CloudShapes {
         val (vertices, faces) = icosphere(shape.detail.coerceIn(0, 4))
         val seed = 0xC10D + shape.variant * 7919
         val displaced = vertices.map { v ->
-            // Broad billows, gently. A finer, stronger layer pushed the facets out into spikes and
-            // cracks, which looked like rock, not cloud. The finest meshes get one more small layer
-            // of billow, but only there, where there are enough facets to show it as roundness.
+            // Broad, gentle billows; stronger fine noise made spikes that looked like rock. Only
+            // the finest meshes get an extra small layer, since they have the facets to show it as
+            // roundness.
             val fine = if (shape.detail >= 3) 0.035 * Noise.simplex(seed + 2, v[0] * 5.0, v[1] * 5.0, v[2] * 5.0) else 0.0
             val bump = 1.0 + 0.2 * Noise.simplex(seed, v[0] * 1.3, v[1] * 1.3, v[2] * 1.3) +
                 0.05 * Noise.simplex(seed + 1, v[0] * 2.6, v[1] * 2.6, v[2] * 2.6) + fine
             val p = doubleArrayOf(v[0] * bump, v[1] * bump, v[2] * bump)
             if (shape.flat) p[1] *= 0.55
-            // A flat base, because cloud forms at a level and stops there.
+            // Flat base: cloud forms at a level and stops there.
             if (p[1] < BASE) p[1] = BASE
             p
         }

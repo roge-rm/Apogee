@@ -22,11 +22,8 @@ import kotlinx.serialization.json.JsonPrimitive
 import java.util.concurrent.CountDownLatch
 
 /**
- * The standalone Apogee server.
- *
- * It runs exactly the same [GameServer] a phone hosts a game with. The only differences are that
- * this one has no client of its own, keeps its world on disk, and has an admin control socket.
- * There's one version of the simulation, and this isn't a special copy of it.
+ * The standalone Apogee server. It runs the same [GameServer] a phone hosts with, but has no client
+ * of its own, keeps its world on disk and has an admin control socket.
  */
 fun main(): Unit = runBlocking {
     val settings = ServerSettings.fromEnvironment()
@@ -40,7 +37,7 @@ fun main(): Unit = runBlocking {
     val store = WorldStore(settings.worldFile)
     val world = World.default(catalog)
 
-    // Load a world if there is one. A fresh directory is the normal first run, not an error.
+    // Load a world if there is one. A fresh directory is a normal first run.
     val loaded = store.loadWithFallback()
     if (loaded == null) {
         log.info("No saved world at ${store.path}; starting a new one")
@@ -73,8 +70,7 @@ fun main(): Unit = runBlocking {
         log.info("Connection from ${transport.remoteAddress}")
         server.accept(transport, scope)
     }
-    // A port that's already in use is the most common way starting a server fails, and a Java stack
-    // trace is a poor way to find that out.
+    // A port in use is the usual failure, so say so plainly instead of a stack trace.
     val bound = runCatching { listener.start(scope) }
     if (bound.isFailure) {
         val cause = bound.exceptionOrNull()
@@ -111,11 +107,8 @@ fun main(): Unit = runBlocking {
 
     // --- autosave ----------------------------------------------------------
     //
-    // A world nobody saved is a world nobody keeps. The interval is a trade. Too long and a crash
-    // costs real play, and too short and a large world spends all its time serialising.
-    // Taken between ticks, never during one. Read from another thread mid-tick, the craft could be
-    // half moved, or the list of them changing under it as it was walked. Once ticking has stopped
-    // there's nothing to wait for, so it's taken straight away.
+    // The world is taken between ticks, never during one, since mid-tick the craft could be half
+    // moved. Once ticking has stopped it's taken straight away.
     fun worldNow(): com.rm.apogee.core.world.WorldSave {
         val taken = java.util.concurrent.atomic.AtomicReference<com.rm.apogee.core.world.WorldSave?>(null)
         val done = CountDownLatch(1)
@@ -213,8 +206,7 @@ fun main(): Unit = runBlocking {
 
     // --- shutdown ------------------------------------------------------------
     //
-    // A container stop is a SIGTERM, and a server that doesn't save on the way out loses everything
-    // since the last autosave. This is what makes a restart routine instead of expensive.
+    // A container stop is a SIGTERM; save on the way out so nothing since the last autosave is lost.
     Runtime.getRuntime().addShutdownHook(
         Thread {
             log.info("Shutting down")

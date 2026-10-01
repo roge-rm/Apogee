@@ -17,14 +17,11 @@ import kotlinx.coroutines.launch
 
 
 /**
- * Watches the network for games and keeps a live list.
+ * Watches the network for games and keeps a live list, one entry per address and port, dropping
+ * hosts that stop announcing.
  *
- * It removes duplicates by address and port, and drops hosts that stop announcing. A game that has
- * ended should disappear from the list, not sit there waiting to fail when you tap it.
- *
- * It holds a [WifiManager.MulticastLock] while running. Android drops broadcast and multicast
- * frames that aren't addressed to the device to save power, so without the lock the listener is
- * simply deaf, with no error to explain it.
+ * Holds a [WifiManager.MulticastLock] while running. Without it Android silently drops broadcast
+ * frames and the listener hears nothing.
  */
 class AndroidServerBrowser(
     private val context: Context,
@@ -98,10 +95,7 @@ class AndroidServerBrowser(
     private companion object {
         const val EXPIRY_CHECK_MILLIS = 1_000L
 
-        /**
-         * Hosts announce once a second, so three missed rounds is a host that has gone, not a
-         * dropped packet.
-         */
+        /** Hosts announce once a second, so this is three missed rounds. */
         const val STALE_AFTER_MILLIS = 4_000L
     }
 }

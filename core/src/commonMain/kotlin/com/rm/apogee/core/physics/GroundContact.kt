@@ -21,12 +21,9 @@ class ContactReport {
     var lavaPart: Int = -1
 
     /**
-     * Parts that hit harder than they can take this tick: which ones, how hard (m/s into the
-     * surface, softened by soft ground), and the surface's normal, so the damage knows how much and
-     * the dent knows which way.
-     *
-     * These are fixed arrays instead of lists because `World.step` runs this for every vessel every
-     * tick and mustn't allocate.
+     * Parts that hit harder than they can take this tick: which, how hard (m/s into the surface,
+     * softened by soft ground), and the surface normal, for the damage and the dent's direction.
+     * Fixed arrays because `World.step` runs this for every vessel every tick and mustn't allocate.
      */
     val impactParts = IntArray(MAX_FAILURES)
     val impactSpeeds = DoubleArray(MAX_FAILURES)
@@ -46,7 +43,7 @@ class ContactReport {
 
     /**
      * Records [partIndex] hitting at [speed] against a surface facing [normal] (world axes). A part
-     * hit twice this tick keeps the harder hit.
+     * hit twice keeps the harder hit.
      */
     fun recordImpact(partIndex: Int, speed: Double, normal: Vec3) {
         for (i in 0 until impactCount) {
@@ -67,16 +64,14 @@ class ContactReport {
     val hadContact: Boolean get() = contactCount > 0
 
     /**
-     * The craft is being held in place by friction, not just touching.
-     *
-     * Set when the contact pass finished with the craft's motion relative to the ground small
-     * enough for friction to cancel in a single tick.
+     * Held in place by friction, not just touching: the craft's motion relative to the ground was
+     * small enough for friction to cancel in one tick.
      */
     var anchored: Boolean = false
 
     /**
-     * The best grip among this tick's contacts. This decides whether friction can hold the craft
-     * still. A rover with one wheel on rock and three on ice is held by the rock.
+     * The best grip among this tick's contacts, which decides whether friction can hold the craft.
+     * A rover with one wheel on rock and three on ice is held by the rock.
      */
     var friction: Double = 0.0
 
@@ -86,16 +81,9 @@ class ContactReport {
 }
 
 /**
- * Resolves a vessel against a celestial body's surface.
- *
- * The surface comes from the body's own height field, sampled in the body-fixed frame. That's the
- * same function the renderer builds its mesh from, so a craft lands on the ground you can see.
- * Sampling in the inertial frame instead is a mistake worth mentioning: the planet turns
- * underneath, so a craft parked on the pad slowly climbs an imaginary hill.
- *
- * Contacts are per *part*, not per vessel, which is what makes a craft tip over when it lands on
- * one leg instead of settling flat like a ball. Parts with a working [LandingLeg] make contact
- * through a spring instead of rigidly, and everything else arrives all at once.
+ * Resolves a vessel against a body's surface, sampled in the body-fixed frame from the height field
+ * the renderer meshes, so a craft lands on the ground you see. Contacts are per part, so a craft
+ * landing on one leg tips. Working [LandingLeg]s touch through a spring; everything else is rigid.
  */
 class GroundContact {
 
@@ -108,10 +96,7 @@ class GroundContact {
     private val bodyRotation = com.rm.apogee.core.math.Quat.identity()
     private val tangent = Vec3()
     private val rollAxis = Vec3()
-    /**
-     * Its own vector, not [scratch]. solveImpulse uses scratch internally, so handing it scratch as
-     * the direction would make it cross a vector with itself and return nonsense.
-     */
+    /** Its own vector, because solveImpulse uses [scratch] internally. */
     private val frictionDirection = Vec3()
     private val driveForce = Vec3()
     private val restPosition = Vec3()
@@ -126,10 +111,7 @@ class GroundContact {
     private val groundLookup = com.rm.apogee.core.terrain.TerrainTileCache.Lookup()
     private val radialUp = Vec3()
 
-    /**
-     * The grip of the ground under the contact being resolved, from its own material instead of one
-     * number for the whole planet. It's set per contact, and read by friction, brakes and traction.
-     */
+    /** The grip of the ground under the current contact, from its material. */
     private var groundFriction = DEFAULT_FRICTION
 
     /** How far the contact being resolved has sunk into soft ground, in metres. */
@@ -154,7 +136,7 @@ class GroundContact {
     private val localUp = Vec3()
     private var compressionCleared = false
 
-    /** The craft this one's wheels, legs or feet were last on, this tick, or null. */
+    /** The craft this one's wheels, legs or feet were last on this tick, or null. */
     var deckUnder: Vessel? = null
         private set
 
@@ -162,8 +144,8 @@ class GroundContact {
 
     /**
      * @param time universe time, needed because terrain turns with the planet.
-     * @param accumulate keep what the report already holds, for a caller that's splitting a tick up
-     *     and wants the worst of all its substeps instead of whatever the last one happened to see.
+     * @param accumulate keep what the report already holds, so a caller splitting a tick into
+     *     substeps gets the worst of them all.
      */
     fun resolve(
         vessel: Vessel,
@@ -172,8 +154,8 @@ class GroundContact {
         time: Double,
         accumulate: Boolean = false,
         /**
-         * The ground under the craft as the tick began, if the caller has it, and how far the craft
-         * can move during the tick. Not worked out again each substep.
+         * The ground under the craft at the start of the tick, if the caller has it, and how far the
+         * craft can move during the tick. Saves working it out every substep.
          */
         groundBelowAtTick: Double = Double.NaN,
         tickSlack: Double = 0.0,
@@ -187,27 +169,16 @@ class GroundContact {
         // A gas giant has no ground, only more air all the way down.
         if (attractor.atmosphere?.deep == true) return report
 
-        // Nothing is within reach of the ground, so there's nothing to sample.
-        //
-        // This is worth testing explicitly, because otherwise it would evaluate the height field
-        // under every contact point of every craft in the system every tick, including the ones in
-        // orbit. The height field is fifteen octaves of noise, which makes it easily the most
-        // expensive thing in the step.
+        // Nothing is within reach of the ground. Worth testing, since the height field is fifteen
+        // octaves of noise and the most expensive thing in the step.
         val ceiling = attractor.radius +
             (attractor.terrain?.maxElevation ?: 0.0) + vessel.contactRadius
         if (body.position.length > ceiling) return report
 
-        // One sample decides whether the other hundred are worth taking.
-        //
-        // The ceiling above only rules out craft higher than the tallest mountain the *planet* can
-        // make. That still leaves a rocket climbing through five kilometres of empty air evaluating
-        // fifteen octaves of noise under every contact point, eight times a tick once substepping
-        // kicks in. A single query for the ground directly below the craft rules that out for a
-        // hundredth of the cost.
-        //
-        // The margin is generous on purpose. The ground under a contact point at the edge of the
-        // craft isn't the ground under its centre, and terrain here reaches slopes steeper than
-        // forty-five degrees.
+        // One sample below the craft decides whether the other hundred are worth taking. The
+        // ceiling above only rules out craft over the tallest mountain the planet can make.
+        // The margin is generous because the ground under an edge point isn't the ground under the
+        // centre, and slopes can pass forty-five degrees.
         attractor.toBodyFixed(body.position, bodyRotation, bodyFixedDirection)
         val groundBelow = if (groundBelowAtTick.isNaN()) attractor.solidRadiusInBodyFrame(bodyFixedDirection) else groundBelowAtTick + tickSlack
         val lowestPossible = body.position.length - vessel.contactRadius
@@ -215,23 +186,18 @@ class GroundContact {
             return report
         }
 
-        // Ask for the ground ahead before arriving on it: under the craft, and where it'll be a
-        // couple of seconds from now at its current speed.
+        // Ask for the ground ahead before arriving: under the craft, and where it'll be a couple of
+        // seconds from now.
         prefetchGround(vessel, attractor)
 
-        // The velocity the craft arrived with, before any contact is solved.
-        //
-        // Damage is judged against this instead of the running velocity, because contacts are
-        // solved one part at a time in part order. The first one solved absorbs the arrival, and
-        // every later contact sees a craft that has already stopped. That put the blame on
-        // whichever part happened to come first in the design. A lander's legs, which touch the
-        // ground first and come last in the index, were recorded as touching down at nothing while
-        // the engine above them was written off.
+        // The velocity the craft arrived with. Damage is judged against this, because contacts are
+        // solved in part order and the first one solved absorbs the arrival. Otherwise later parts
+        // (like a lander's legs) see a craft that has already stopped.
         entryLinear.setTo(body.linearVelocity)
         entryAngular.setTo(body.angularVelocity)
 
-        // The load under each contact point, from the craft's weight shared between however many
-        // touched last tick. This decides how far soft ground gives under it.
+        // The load under each contact point: the craft's weight shared between the points that
+        // touched last tick. It sets how far soft ground gives.
         attractor.gravityAt(body.position, scratch)
         val loadPerContact = body.mass * scratch.length / vessel.groundContacts.coerceAtLeast(1)
         fitSkids(vessel, scratch.length)
@@ -243,33 +209,29 @@ class GroundContact {
         compressionCleared = true
         for (partIndex in vessel.defs.indices) {
             val def = vessel.defs[partIndex]
-            // A leg meets the ground where its feet are: folded against the hull, swinging down, or
-            // out. Only a fully deployed, unbroken leg gives on its springs. Stowed or still
-            // moving, it's rigid, and touching down on it is judged like any other hard contact, so
-            // leaving the gear up or putting it down too late is a way to land badly. A collapsed
-            // leg has no foot at all.
+            // A leg meets the ground where its feet are: folded, swinging down, or out. Only a fully
+            // deployed, unbroken leg is sprung. Stowed or moving, it's rigid and judged like any
+            // hard contact, so landing with gear up or late is a bad landing. A collapsed leg has
+            // no foot.
             val leg = def.module<LandingLeg>()
             if (leg != null && vessel.broken[partIndex]) continue
             val sprung = leg == null || (vessel.isWorking(partIndex) && vessel.legDeploy.getOrElse(partIndex) { 1.0 } >= 1.0)
-            // A leg that doesn't fold has no stowed pose to meet the ground in. Stowed, as before,
-            // it just isn't there.
+            // A leg that doesn't fold has no stowed pose to touch with. Stowed, it isn't there.
             if (leg != null && leg.stowedAngle == 0.0 && !vessel.isWorking(partIndex)) continue
 
-            // A wheel is a leg that rolls, so it borrows the leg's whole suspension instead of
-            // growing a second, almost identical one.
+            // A wheel is a leg that rolls, so it borrows the leg's suspension.
             val wheel = def.module<Wheel>()
             // Feet grip the way walking drives them, not the way a dragged hull does.
             val walker = def.module<com.rm.apogee.core.part.Walker>() != null
-            // Skids give a little too, the way real ones flex. Rigid, a helicopter on uneven ground
-            // rocked from corner to corner like a table with a short leg, and walked twenty metres
-            // across it in a minute.
+            // Skids flex a little. Rigid, a helicopter rocks corner to corner on uneven ground and
+            // walks across it.
             val skid = def.module<Skid>() != null
             val suspensionTravel = if (!sprung) null else leg?.suspensionTravel ?: wheel?.suspensionTravel ?: if (skid) SKID_TRAVEL else null
             val springRate = leg?.springRate ?: wheel?.springRate ?: if (skid) skidSpring else null
             val damping = leg?.damping ?: wheel?.damping ?: if (skid) skidDamping else null
             val pointCount = def.contactPoints.size
-            // How far this part has sunk so far, and how far the ground under it wants it to sink
-            // now, from the deepest of its points in contact.
+            // How far this part has sunk, and how far the ground wants it to sink now, from its
+            // deepest point in contact.
             val sunkBefore = vessel.sunk.getOrElse(partIndex) { 0.0 }
             val sinkStep = SINK_RATE * dt
             var sinkTarget = 0.0
@@ -283,16 +245,9 @@ class GroundContact {
             attractor.groundInBodyFrame(bodyFixedDirection, ground, groundLookup)
             if (ground.radius - distance <= -MAX_SINK_METRES) continue
 
-            // Soft ground gives. The surface a contact meets in sand, mud, snow or regolith sits
-            // below the drawn one, lower under more load and less the faster it's moving. A heavy
-            // rover bogs down where a light one going fast skims across.
-            //
-            // Not all at once, though. The load is the craft's weight shared between the points
-            // that touched last tick, which jumps whenever one more comes down. Taken all at once,
-            // a parked plane rocking from two wheels onto four had the ground under every wheel
-            // spring up ten centimetres in a tick, and got thrown clear of it, over and over, every
-            // second. So a part sinks toward that depth, and comes back up from it, no faster than
-            // [SINK_RATE].
+            // Soft ground gives: in sand, mud, snow or regolith the contact surface sits lower under
+            // more load and less at speed. The load jumps as points touch down, so a part sinks or
+            // rises no faster than [SINK_RATE], or the ground throws the craft clear.
             relativeVelocityAt(body, attractor, partPosition, pointVelocity)
             val target = sinkDepth(ground.material, loadPerContact, pointVelocity.length)
             sink = sunkBefore + (target - sunkBefore).coerceIn(-sinkStep, sinkStep)
@@ -300,11 +255,8 @@ class GroundContact {
             if (radialDepth <= 0.0) continue
             if (target > sinkTarget) sinkTarget = target
 
-            // The face's own normal, not the radial direction. Radial treats every surface as a
-            // floor, so a craft driven into a cliff got lifted up it instead of stopped. The face
-            // normal pushes it back the way the wall actually faces. Depth is measured along that
-            // normal too, because on a slope, a point a metre below the surface vertically is less
-            // than a metre inside it.
+            // Push along the face's own normal, so a craft driven into a cliff stops there instead of
+            // climbing it. Depth is measured along that normal too.
             bodyRotation.rotate(ground.normal, normal)
             radialUp.setTo(partPosition).mulInPlace(1.0 / distance)
             val penetration = radialDepth * (normal dot radialUp).coerceAtLeast(0.05)
@@ -318,21 +270,16 @@ class GroundContact {
         }
 
         resistRolling(vessel, attractor)
-        // Only held still against the ground. Something on a deck moves with the deck.
+        // Only held still against the ground. On a deck it moves with the deck.
         if (terrainContacts > 0 && deckUnder == null) anchorIfResting(vessel, attractor, dt)
         return report
     }
 
     /**
-     * [vessel]'s wheels, legs and feet against the craft in [decks], after [resolve] has had the
-     * ground: a plane rolling out on a carrier's deck, a buggy driving onto a barge, a lander
-     * setting down on a platform in a swell, someone walking about on a base.
-     *
-     * It's the ground's own contact, with the deck's motion under each point instead of the
-     * planet's, a push back onto the deck for every push it gives, and the deck's weight in how
-     * hard each contact is. Decks grip like concrete and never give underfoot. Only the feet go
-     * through here. Every other part meets another craft in [CraftContact], as a hull meets the
-     * ground, and that skips the feet so nothing is met twice.
+     * [vessel]'s wheels, legs and feet against the craft in [decks], after [resolve] has done the
+     * ground. The ground's contact with the deck's motion under each point and an equal push back on
+     * the deck. Decks grip like concrete. Only feet go through here; other parts meet craft in
+     * [CraftContact].
      */
     fun resolveOnCraft(
         vessel: Vessel,
@@ -340,9 +287,9 @@ class GroundContact {
         decks: List<Vessel>,
         dt: Double,
         /**
-         * The world's tick, how long it is, and how far into it [vessel] has got, in seconds. A
-         * deck already moved on this tick ([Vessel.movedTick]) is at its end, and one not moved yet
-         * is at its start, so it can be ahead of [vessel] or behind it.
+         * The world's tick, its length, and how far into it [vessel] has got, in seconds. A deck
+         * already moved this tick ([Vessel.movedTick]) is at its end, one not moved yet at its
+         * start, so it can be ahead of [vessel] or behind it.
          */
         tick: Long = Long.MIN_VALUE,
         tickLength: Double = 0.0,
@@ -365,28 +312,24 @@ class GroundContact {
         for (partIndex in vessel.defs.indices) {
             val def = vessel.defs[partIndex]
             if (!isFoot(def)) continue
-            // The same feet as on the ground: see [resolve].
+            // The same feet as on the ground. See [resolve].
             val leg = def.module<LandingLeg>()
             if (leg != null && vessel.broken[partIndex]) continue
             val sprung = leg == null || (vessel.isWorking(partIndex) && vessel.legDeploy.getOrElse(partIndex) { 1.0 } >= 1.0)
             if (leg != null && leg.stowedAngle == 0.0 && !vessel.isWorking(partIndex)) continue
             val wheel = def.module<Wheel>()
             val walker = def.module<com.rm.apogee.core.part.Walker>() != null
-            // Skids give a little too, the way real ones flex. Rigid, a helicopter on uneven ground
-            // rocked from corner to corner like a table with a short leg, and walked twenty metres
-            // across it in a minute.
+            // Skids flex a little. See [resolve].
             val skid = def.module<Skid>() != null
             val suspensionTravel = if (!sprung) null else leg?.suspensionTravel ?: wheel?.suspensionTravel ?: if (skid) SKID_TRAVEL else null
             val springRate = leg?.springRate ?: wheel?.springRate ?: if (skid) skidSpring else null
             val damping = leg?.damping ?: wheel?.damping ?: if (skid) skidDamping else null
             for (pointIndex in def.contactPoints.indices) {
                 vessel.contactPointWorld(partIndex, pointIndex, partPosition)
-                // The first deck part the point is in. One is plenty: a foot stands on one thing.
+                // The first deck part the point is in. A foot stands on one thing.
                 search@ for (other in decks) {
-                    // Where the point is as of the deck's own moment, so the two are measured
-                    // together. A tick apart, a rider on Terra was three metres out along the deck
-                    // from where it really stood, standing on air past one end of a barge and off
-                    // the other.
+                    // Where the point is at the deck's own moment in the tick, so both are measured
+                    // together. A tick apart, a rider on a fast deck stands metres off where it is.
                     val lead = if (tick == Long.MIN_VALUE) 0.0 else (if (other.movedTick == tick) tickLength else 0.0) - into
                     other.body.velocityAtOffset(scratch.setTo(partPosition).subInPlace(other.body.position), leadShift)
                     leadShift.mulInPlace(lead)
@@ -418,9 +361,9 @@ class GroundContact {
     }
 
     /**
-     * One contact point of part [partIndex] in contact, [penetration] metres into whatever it's
-     * touching, with the surface's normal already in [normal] and its point in [partPosition]: the
-     * ground, or with [deck] set, another craft.
+     * One contact point of part [partIndex], [penetration] metres into the ground, or into another
+     * craft when [deck] is set. The surface normal is already in [normal] and the point in
+     * [partPosition].
      */
     private fun touch(
         vessel: Vessel,
@@ -445,10 +388,8 @@ class GroundContact {
         val normalSpeed = pointVelocity dot normal
 
         report.contactCount++
-        // Soft ground takes the sting out of an arrival. The same landing that wrecks a craft
-        // on rock leaves it dented in snow. Without this, sinking made landings harder instead
-        // of softer, because the craft fell a little further before meeting the lowered
-        // surface.
+        // Soft ground cushions an arrival: a landing that wrecks a craft on rock dents it in snow.
+        // Without this, sinking made landings harder, since the craft fell further first.
         val impactSpeed = -approachSpeedAt(attractor, partPosition) /
             (1.0 + ground.material.softness * CUSHIONING)
         if (impactSpeed > report.worstImpactSpeed) {
@@ -459,15 +400,11 @@ class GroundContact {
 
         inverseInertiaWorld.setRotated(body.inverseInertiaLocal, body.orientation)
 
-        // The springy case: a working leg that's still within its travel.
+        // The springy case: a working leg still within its travel. It's an impulse (force x dt),
+        // because contacts are resolved after integration and a force would act a tick late and
+        // oscillate.
         //
-        // It's applied as an impulse of force x dt instead of a force, because contacts are
-        // resolved *after* integration. A force added here wouldn't move anything until the
-        // next tick, and a suspension that responds a tick late is a suspension that
-        // oscillates.
-        //
-        // How far the wheel's suspension is taken up, so everyone can see it sit on its
-        // springs.
+        // Record how far the wheel's suspension is taken up, so it's drawn sitting on its springs.
         if (wheel != null && partIndex in vessel.wheelCompression.indices) {
             val taken = minOf(penetration, suspensionTravel ?: 0.0)
             if (taken > vessel.wheelCompression[partIndex]) vessel.wheelCompression[partIndex] = taken
@@ -490,11 +427,8 @@ class GroundContact {
             return
         }
 
-        // Everything else, including a leg that has bottomed out, is rigid.
-        //
-        // Positional correction is a fraction per tick. Correcting the whole penetration at
-        // once makes a resting craft jitter, because gravity pushes it back in every step and
-        // the full correction throws it back out.
+        // Everything else, including a bottomed-out leg, is rigid. Correct a fraction of the
+        // penetration per tick, or a resting craft jitters.
         scratch.setTo(normal).mulInPlace(penetration * POSITION_CORRECTION)
         body.position.addInPlace(scratch)
 
@@ -518,10 +452,9 @@ class GroundContact {
     private var skidDamping = 0.0
 
     /**
-     * The springing for [vessel]'s skids, if it has any: stiff enough that its weight, shared
-     * between the corners underneath them, presses them [SKID_SAG] in, and damped short of
-     * bouncing. Worked out from the craft, since skids go under anything from a drone to a
-     * heavy lifter.
+     * Springing for [vessel]'s skids: stiff enough that its weight, shared between the corners,
+     * presses them [SKID_SAG] in, and damped short of bouncing. Worked out per craft, since skids go
+     * under anything from a drone to a heavy lifter.
      */
     private fun fitSkids(vessel: Vessel, gravity: Double) {
         var feet = 0
@@ -533,56 +466,26 @@ class GroundContact {
     }
 
     /**
-     * Holds a resting craft still, the way friction really does.
+     * Holds a resting craft still, as static friction does. Over one tick friction can cancel up to
+     * `mu * g * dt` of motion relative to the ground; slower than that, the motion is removed. That
+     * gives sticking on a slope while `tan(theta) < mu`.
      *
-     * Without this a craft parked on a pad never stops moving. The solver corrects a fraction of
-     * its penetration each tick and gravity puts it straight back, and with eight contact points
-     * resolved one after another the leftovers don't cancel out. A settled lander jitters at up to
-     * 0.065 m/s and 0.032 rad/s forever, and everything further down then has to allow for motion
-     * that isn't real.
-     *
-     * The rule is the static friction condition itself. Friction can give at most `mu * N`, and a
-     * resting craft's normal force is its weight, so over one tick it can cancel a speed relative
-     * to the ground of up to `mu * g * dt`. If the craft is moving slower than that, friction wins
-     * and it doesn't move, so this says so exactly by removing the motion. If it's moving faster,
-     * friction loses and this does nothing.
-     *
-     * That gets the slope behaviour for free. Gravity adds `g * sin(theta) * dt` of downhill motion
-     * each tick against a budget of `mu * g * cos(theta) * dt`, so a craft sticks while `tan(theta)
-     * < mu` and slides once it's steeper. That's the textbook result, reached without anywhere to
-     * put a fudge factor.
-     *
-     * The limit it creates is real and easy to trip over. The contact solver's own leftover jitter
-     * has to stay under one tick's friction budget, about 0.1 m/s. Stiffening the landing legs to
-     * carry a heavier craft pushed that jitter above it, and craft just stopped settling. Spring
-     * rates are part of this balance, not something you can set freely.
-     *
-     * A known limit, measured rather than guessed: a craft standing on *deployed* landing legs
-     * doesn't anchor. A sprung contact resolves after gravity and before the next tick's, so it
-     * finishes every tick holding the impulse that cancelled that tick's gravity, 0.163 m/s against
-     * a budget of 0.098, even though its height above the ground hasn't changed by a tenth of a
-     * millimetre. Adding the acceleration back before the test reads correctly on its own, but then
-     * fights the spring, which pushes the craft off the ground once the motion it was balancing is
-     * removed. Rigid contacts (gear up, or resting on the hull) anchor correctly. `./gradlew
-     * :core:restSurvey` prints what each craft actually settles to.
+     * The solver's own jitter has to stay under that budget (about 0.1 m/s), so leg and wheel spring
+     * rates can't be set freely. `./gradlew :core:restSurvey` prints what each craft settles to.
      */
     private fun anchorIfResting(vessel: Vessel, attractor: CelestialBody, dt: Double) {
         if (!report.hadContact) return
         val body = vessel.body
 
-        // Under power isn't at rest, however slowly it happens to be moving, and neither is someone
-        // walking or jumping.
+        // Under power isn't at rest, however slow, and neither is walking or jumping.
         if (vessel.control.throttle > 0.0 || vessel.walking) return
 
         attractor.gravityAt(body.position, scratch)
         val budget = report.friction * scratch.length * dt
         if (budget <= 0.0) return
 
-        // Two questions, because they catch different things.
-        //
-        // First, is it moving slowly enough for friction to stop it outright? If so, stop it.
-        // That's what removes the contact solver's leftover jitter, which a craft resting on its
-        // hull would otherwise carry forever.
+        // First: slow enough for friction to stop it outright? Then stop it. This removes the
+        // solver's leftover jitter on a hull contact.
         attractor.surfaceVelocityAt(body.position, surfaceVelocity)
         pointVelocity.setTo(body.linearVelocity).subInPlace(surfaceVelocity)
         attractor.angularVelocity(scratch)
@@ -594,28 +497,22 @@ class GroundContact {
             body.angularVelocity.setTo(scratch)
         }
 
-        // Second, and this is what decides whether it's at rest: has it actually gone anywhere? A
-        // craft balanced on sprung legs never passes the speed test. Contacts resolve after
-        // gravity, so it finishes every tick holding the impulse that cancelled that tick's
-        // gravity, 0.163 m/s against a budget of 0.098, while its height above the ground doesn't
-        // change to five decimal places. Asking what it did instead of what it's doing gives the
-        // same answer for both kinds of contact, and needs no correction for where in the tick it's
-        // asked.
+        // Second, which decides rest: has it actually gone anywhere? A craft on sprung legs never
+        // passes the speed test, since it ends each tick holding the impulse that cancelled gravity
+        // (0.163 m/s against a 0.098 budget) without moving. Asking what it did works for both kinds
+        // of contact.
         attractor.toBodyFixed(body.position, bodyRotation, restPosition)
         restOrientation.setTo(bodyRotation).conjugateInPlace().mulInPlace(body.orientation)
         val moved = vessel.groundMovementSince(restPosition, restOrientation)
 
-        // A craft creeping at the fastest speed friction could still cancel covers this much in a
-        // tick. Anything less isn't going anywhere.
+        // What a craft creeping at the fastest speed friction could cancel covers in a tick.
         report.anchored = moved <= budget * dt
     }
 
     /**
-     * How fast this point was closing on the ground when the tick's contact pass started, along the
-     * current contact normal.
-     *
-     * It's rebuilt from the saved starting velocity instead of read from the body, because earlier
-     * contacts this tick have already pushed the body around.
+     * How fast this point was closing on the ground when the contact pass started, along the
+     * current normal. Built from the saved starting velocity, since earlier contacts this tick have
+     * already pushed the body.
      */
     private fun approachSpeedAt(attractor: CelestialBody, worldPoint: Vec3): Double {
         approachVelocity.setTo(entryAngular).crossInPlace(offset).addInPlace(entryLinear)
@@ -625,10 +522,9 @@ class GroundContact {
     }
 
     /**
-     * The impulse size to cancel the approach, including the rotational term.
-     *
-     * `j = -(1+e) v_n / (1/m + n . (I⁻¹ (r x n)) x r)`. The second term is what makes a hit far
-     * from the centre of mass spin the craft instead of just stopping it.
+     * The impulse that cancels the approach, with the rotational term:
+     * `j = -(1+e) v_n / (1/m + n . (I⁻¹ (r x n)) x r)`. That term makes an off-centre hit spin the
+     * craft.
      */
     private fun solveImpulse(
         body: RigidBody,
@@ -642,7 +538,7 @@ class GroundContact {
 
         val angularTerm = scratch dot contactNormal
         var denominator = body.inverseMass + angularTerm
-        // A deck gives a little too, by its own mass and turning, the way another craft does.
+        // A deck gives a little too, by its own mass and turning.
         val deck = deck
         if (deck != null && deck.inverseMass > 0.0) {
             scratch.setTo(deckOffset).crossInPlace(contactNormal)
@@ -656,14 +552,9 @@ class GroundContact {
     }
 
     /**
-     * The velocity of the body's contact point *relative to the ground it's touching*, written into
-     * [out].
-     *
-     * Subtracting the surface velocity isn't a refinement. It's the difference between a game where
-     * things can land and one where they can't. A planet's equator moves at ~175 m/s in the
-     * inertial frame, so a craft parked on the pad is travelling at 175 m/s inertially, and
-     * friction worked out in that frame brakes it at mu*g until it topples. The first unpowered pad
-     * test slid the stock rocket over and buried it.
+     * The velocity of the contact point relative to the ground it's touching, into [out]. Essential:
+     * the equator moves at ~175 m/s inertially, and friction in that frame would topple a parked
+     * craft.
      */
     private fun relativeVelocityAt(
         body: RigidBody,
@@ -682,10 +573,7 @@ class GroundContact {
         return deck.velocityAtOffset(deckOffset, out)
     }
 
-    /**
-     * [impulse] on [body] at the contact, and the same back the other way on the deck it's pushing
-     * against, if it's on one that can be pushed.
-     */
+    /** [impulse] on [body] at the contact, and the opposite on the deck under it, if it can move. */
     private fun push(body: RigidBody, impulse: Vec3) {
         body.applyImpulseAtOffset(impulse, offset)
         val deck = deck ?: return
@@ -696,16 +584,9 @@ class GroundContact {
 
     /** Coulomb friction along the contact tangent, capped by the normal impulse. */
     /**
-     * A wheel on the ground: it rolls along its axis, grips across it, and drives.
-     *
-     * The rolling direction is the craft's own forward, turned by the steering input for a
-     * steerable wheel and flattened into the ground plane, so a wheel on a slope rolls along the
-     * slope, not into it.
-     *
-     * Friction is split instead of scaled. Across the axis it's the full ground friction, which
-     * stops a rover sliding sideways out of a turn. Along it, it's only [Wheel.rollingResistance],
-     * which lets a motor measured in hundreds of newtons move a tonne that ordinary friction would
-     * pin in place.
+     * A wheel on the ground: it rolls along the craft's steered forward, flattened onto the ground.
+     * Full friction across the axis so it doesn't slide out of a turn, only
+     * [Wheel.rollingResistance] along it so a small motor can move a tonne.
      */
     private fun driveWheel(
         vessel: Vessel,
@@ -718,20 +599,14 @@ class GroundContact {
         val body = vessel.body
         val control = vessel.control
 
-        // The craft's forward, steered, then projected onto the ground plane.
-        //
-        // The design says which way forward is. Using the nose (+Y) for a craft that stands on its
-        // tail leaves a rolling direction pointing at the sky, with nothing left once it's
-        // flattened into the ground. That's how the first version of this failed: the wheels
-        // turned, and the rover crept along at a fifth of a metre per second on rounding error.
+        // The craft's forward, steered, then flattened onto the ground plane. Use the design's
+        // forward, not the nose (+Y), which points at the sky on a craft standing on its tail.
         body.orientation.rotate(vessel.design.orientation.forward, rollAxis)
-        // Steered by the angle the world posed this wheel at this tick: front wheels into the
-        // corner and rear wheels away from it, which is what makes a yaw moment at all. Steering
-        // every wheel the same way just moves the craft sideways like a crab, with its own grip
-        // fighting it. It's the same angle every player sees the wheel turned to.
+        // Steered by the angle the world posed this wheel at: fronts into the corner, rears away,
+        // which gives the yaw moment. It's the angle every player sees.
         val steer = vessel.wheelSteer.getOrElse(steeringPart) { 0.0 }
         if (steer != 0.0) {
-            // Turn around the contact normal, which is the local vertical.
+            // Turn around the contact normal, the local vertical.
             rotateAbout(rollAxis, normal, steer)
         }
         val intoGround = rollAxis dot normal
@@ -743,26 +618,22 @@ class GroundContact {
         }
         rollAxis.mulInPlace(1.0 / axisLength)
 
-        // Braked, a wheel grips along its rolling direction at its brake friction, so the craft
-        // stops, or stays where it was left.
-        //
-        // What the ground costs to roll over is the wheel's own resistance, scaled by the material,
-        // plus the drag of being sunk into it. It's never more than the ground itself will give,
-        // and brakes on ice skid.
+        // Braked, a wheel grips along its rolling direction at brake friction. Rolling costs the
+        // wheel's resistance times the material, plus drag from sinking. Never more than the ground
+        // gives, so brakes on ice skid.
         val material = ground.material
         val free = wheel.rollingResistance * material.rollingDrag + material.bog * sink
         val rolling = (if (control.brakes) maxOf(wheel.brakeFriction, free) else free)
             .coerceAtMost(groundFriction)
         applyFriction(body, attractor, normalImpulse, rollAxis, rolling)
 
-        // Traction. Torque comes from where the wheel is, like every other force on a craft, so a
-        // rover with all its drive at one end pitches under power exactly like it should. A wheel
-        // in an action group that's switched off freewheels, so a land yacht can sail on the
-        // throttle without its motors running too.
+        // Traction, applied where the wheel is, so a rover with drive at one end pitches under
+        // power. A wheel in a switched-off action group freewheels, so a land yacht can sail on the
+        // throttle without its motors.
         if (wheel.motorForce > 0.0 && control.throttle != 0.0 && !control.brakes && vessel.groupState(steeringPart) >= 0) {
-            // How fast this wheel is already rolling, relative to the ground.
+            // How fast this wheel is already rolling over the ground.
             relativeVelocityAt(body, attractor, partPosition, pointVelocity)
-            // In reverse, it's the same motor running the other way, at a crawl's top speed.
+            // Reverse is the same motor the other way, at a crawl's top speed.
             val way = if (control.reverse) -1.0 else 1.0
             val rolling = (pointVelocity dot rollAxis) * way
             val top = wheel.topSpeed * if (control.reverse) REVERSE_TOP else 1.0
@@ -792,11 +663,9 @@ class GroundContact {
     }
 
     /**
-     * How far a contact sinks into [material], in metres.
-     *
-     * It's proportional to the load on it against a reference load, and less the faster it goes. A
-     * wheel moving fast spends less time loading any one patch of soft ground, which is why a
-     * vehicle that keeps its momentum gets through where one that stops sinks.
+     * How far a contact sinks into [material], in metres: proportional to load against a reference
+     * load, and less at speed, so a vehicle that keeps moving gets through where one that stops
+     * sinks.
      */
     private fun sinkDepth(material: SurfaceMaterial, load: Double, speed: Double): Double {
         if (material.softness <= 0.0) return 0.0
@@ -805,14 +674,10 @@ class GroundContact {
     }
 
     /**
-     * Resists a craft rolling on its hull.
-     *
-     * Sliding friction does nothing to something that rolls. A tank on its side, a toppled lander
-     * or a capsule down on the grass all roll without their contact points sliding, and without
-     * this they rolled forever. A tug pushed over on the pad was a kilometre away by the time
-     * anyone looked. Real ground deforms and takes a little energy from every turn, and this is
-     * that: an angular impulse against the spin relative to the ground, scaled by how hard the hull
-     * is pressed down, and never more than enough to stop it.
+     * Resists a craft rolling on its hull. Sliding friction doesn't touch something that rolls, so a
+     * toppled tank or capsule would roll forever. This is an angular impulse against the spin
+     * relative to the ground, scaled by how hard the hull is pressed down, and never more than
+     * enough to stop it.
      */
     private fun resistRolling(vessel: Vessel, attractor: CelestialBody) {
         if (hullNormalImpulse <= 0.0) return
@@ -844,11 +709,8 @@ class GroundContact {
     }
 
     /**
-     * Ground friction at the current contact.
-     *
-     * With [roll] given, the sideways velocity is split. The part along that axis is only resisted
-     * at [rollingCoefficient], and the rest at the full ground friction. That split is all that
-     * makes a wheel a wheel.
+     * Ground friction at the current contact. With [roll] given, motion along that axis is only
+     * resisted at [rollingCoefficient] and the rest at full grip. That split is what makes a wheel.
      */
     private fun applyFriction(
         body: RigidBody,
@@ -866,7 +728,7 @@ class GroundContact {
             // Across the rolling direction first, at full grip.
             tangent.addScaledInPlace(roll, -along)
             opposeAlong(body, tangent, tangent.length, groundFriction * normalImpulse)
-            // Then along it, at whatever a free wheel costs.
+            // Then along it, at what a free wheel costs.
             tangent.setTo(roll).mulInPlace(if (along < 0.0) -1.0 else 1.0)
             opposeAlong(
                 body, tangent, kotlin.math.abs(along), rollingCoefficient * normalImpulse,
@@ -903,26 +765,26 @@ class GroundContact {
         /** Structures don't bounce much. */
         const val RESTITUTION = 0.05
 
-        /** How far a craft's weight presses its skids in, how far they can give, in metres, and their damping as a share of critical. */
+        /**
+         * How far a craft's weight presses its skids in and how far they can give, in metres, and
+         * their damping as a share of critical.
+         */
         const val SKID_SAG = 0.03
         const val SKID_TRAVEL = 0.12
         const val SKID_DAMPING = 0.7
 
-        /**
-         * The grip before any ground has been touched this tick. Grass, which is what all ground
-         * used to be.
-         */
+        /** The grip before any ground has been touched this tick. Grass. */
         const val DEFAULT_FRICTION = 0.6
 
         /**
-         * The load, in newtons, at which a contact sinks by exactly its material's softness. That's
-         * about a quarter of a small rover's weight on each wheel.
+         * The load, in newtons, at which a contact sinks by exactly its material's softness. About a
+         * quarter of a small rover's weight per wheel.
          */
         const val REFERENCE_LOAD_NEWTONS = 3_000.0
 
         /**
          * How much soft ground reduces the impact speed a part is judged by, per unit of softness.
-         * Mud takes about two thirds off, and sand half.
+         * Mud takes about two thirds off, sand half.
          */
         const val CUSHIONING = 20.0
 
@@ -934,42 +796,32 @@ class GroundContact {
 
         /**
          * How fast soft ground gives under a part, or lets it back up, in m/s. A wheel settles into
-         * sand over a second or so, not in a single tick. See the sinking in [resolve].
+         * sand over a second or so. See [resolve].
          */
         const val SINK_RATE = 0.1
 
-        /** The deepest anything sinks, in metres. Mud up to the axles, not the roof. */
+        /** The deepest anything sinks, in metres. Mud up to the axles. */
         const val MAX_SINK_METRES = 0.35
 
         /**
-         * The rolling resistance of a hull on the ground, as a fraction of the normal force at the
-         * craft's reach. It's enough to stop a toppled tank within a few metres of flat ground, and
-         * small next to sliding friction.
+         * Rolling resistance of a hull on the ground, as a fraction of the normal force at the
+         * craft's reach. Stops a toppled tank within a few metres, and is small next to sliding.
          */
         const val HULL_ROLLING_RESISTANCE = 0.15
 
-        /** How far ahead, in seconds of travel, ground gets prepared before arriving on it. */
+        /** How far ahead, in seconds of travel, ground is prepared. */
         const val PREFETCH_LOOKAHEAD_SECONDS = 2.0
 
-        /**
-         * Extra room around the craft's reach, in metres, so a turn doesn't outrun the prefetch.
-         */
+        /** Extra room around the craft's reach, in metres, so a turn doesn't outrun the prefetch. */
         const val PREFETCH_MARGIN_METRES = 40.0
 
         /**
-         * Metres of slack on the "is this craft near the ground" test.
-         *
-         * It covers the difference between the ground under the craft's centre and the ground under
-         * a contact point at its edge. Too small and a craft skims over a ridge it should have hit,
-         * too large and the saving disappears. Fifty metres is far more than the terrain varies
-         * across a craft-sized footprint.
+         * Metres of slack on the "is this craft near the ground" test, for the ground under an edge
+         * point differing from under the centre. Far more than terrain varies across a craft.
          */
         const val TERRAIN_PROXIMITY_MARGIN = 50.0
     }
 }
 
-/**
- * Whether [def] is something a craft stands on, rather than rests on: a wheel, a landing leg, or a
- * foot.
- */
+/** Whether [def] is something a craft stands on: a wheel, a landing leg, or a foot. */
 fun isFoot(def: com.rm.apogee.core.part.PartDef): Boolean = def.foot

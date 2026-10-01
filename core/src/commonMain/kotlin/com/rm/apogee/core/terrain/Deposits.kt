@@ -5,13 +5,11 @@ import com.rm.apogee.core.part.ResourceType
 import com.rm.apogee.core.PerThread
 
 /**
- * How much ore or water the ground holds, 0..1, which is what a drill there brings up for each unit
- * of its rate.
+ * How much ore or water the ground holds, 0..1: what a drill brings up per unit of its rate.
  *
- * It's read off the ground itself (the same material the renderer colours and the wheels grip),
- * with a slow patchiness laid over it, so two stretches of the same rock aren't equally good and a
- * survey is worth having. It comes straight from the terrain, so client and server agree without
- * having to tell each other anything. Deposits never run out. A spot is only as good as its ground.
+ * Read off the ground's material with a slow patchiness on top, so a survey is worth having. It
+ * comes straight from the terrain, so client and server agree without talking. Deposits never run
+ * out.
  */
 object Deposits {
 
@@ -24,9 +22,7 @@ object Deposits {
         return richnessOf(material, resource, patch(terrain, d, resource))
     }
 
-    /**
-     * [richness] for ground of [material] at patchiness [patch], 0..1. This is the table itself.
-     */
+    /** [richness] for ground of [material] at patchiness [patch], 0..1. The table itself. */
     fun richnessOf(material: SurfaceMaterial, resource: ResourceType, patch: Double): Double {
         val range = when (resource) {
             ResourceType.ORE -> ORE[material.ordinal]
@@ -83,8 +79,7 @@ object Deposits {
             SurfaceMaterial.THOLIN -> 0.2 to 0.4
             SurfaceMaterial.ORGANIC_SAND -> 0.1 to 0.2
             SurfaceMaterial.NITROGEN_ICE, SurfaceMaterial.LAVA -> 0.0 to 0.0
-            // The sea floor's: vent crust is the richest of anything, nodules are rich, and ooze is
-            // poor.
+            // Sea floor: vent crust is the richest of all, nodules rich, ooze poor.
             SurfaceMaterial.VENT_CRUST -> 0.75 to 1.0
             SurfaceMaterial.NODULES -> 0.55 to 0.85
             SurfaceMaterial.OOZE -> 0.02 to 0.08

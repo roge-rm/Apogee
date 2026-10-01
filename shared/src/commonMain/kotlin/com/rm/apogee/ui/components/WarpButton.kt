@@ -42,16 +42,15 @@ import com.rm.apogee.ui.theme.TelemetryTextStyle
 import com.rm.apogee.ui.theme.alpha
 
 /**
- * Time. Tap to pause, and tap again to carry on. Hold it for the warp rates, and while warped, a
- * tap brings it straight back to real time. It shows what the world is really running at, which the
- * world might be holding below what you asked for, near a planet or under power.
+ * Time. Tap to pause or resume, hold for warp rates. While warped, a tap returns to real time. It
+ * shows the rate the world is really running at, which can be held below what you asked for.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun WarpButton(
     warp: Double,
     requested: Double,
-    /** How fast the world is really going, when it's measured: less than [warp] when it can't keep up. */
+    /** The measured rate, below [warp] when the world can't keep up. NaN if unknown. */
     actual: Double = Double.NaN,
     expanded: Boolean,
     onExpand: (Boolean) -> Unit,
@@ -81,7 +80,7 @@ fun WarpButton(
                     paused -> Icon(Icons.Filled.Pause, contentDescription = "Paused. Tap to carry on", tint = ApogeeColors.Caution)
                     warped -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(Icons.Filled.FastForward, contentDescription = "Time warp. Tap for real time", tint = ApogeeColors.Accent, modifier = Modifier.size(18.dp))
-                        // Short of what was asked for, what it's really managing, in amber.
+                        // Amber with the real rate when it falls short.
                         val short = !actual.isNaN() && actual < warp * 0.9
                         Text(
                             if (short) rate(actual) else rate(warp),
@@ -113,7 +112,7 @@ private fun Rates(warp: Double, requested: Double, onPick: (Double) -> Unit) {
         Column(Modifier.padding(10.dp)) {
             Text("TIME", style = TelemetryTextStyle, color = Color.White.alpha(ApogeeAlpha.SUBTITLE))
             Spacer(Modifier.height(6.dp))
-            // Four to a row, because the rates on rails now go up to a million.
+            // Four to a row; rates on rails go up to a million.
             val rows = listOf(listOf(0.0, 1.0, 2.0, 4.0)) + World.WARP_RATES.filter { it > World.PHYSICS_WARP }.chunked(4)
             for (row in rows) {
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -147,7 +146,7 @@ private fun Rates(warp: Double, requested: Double, onPick: (Double) -> Unit) {
                 )
             } else {
                 Text(
-                    "Past 4× only out of the air, and higher for more",
+                    "Past 4× only above the air",
                     style = MaterialTheme.typography.labelSmall,
                     color = Color.White.alpha(ApogeeAlpha.SUBTITLE),
                 )
@@ -159,7 +158,7 @@ private fun Rates(warp: Double, requested: Double, onPick: (Double) -> Unit) {
 private fun rate(r: Double): String = when {
     r >= 1_000_000 -> "${(r / 1_000_000).toInt()}M×"
     r >= 1_000 -> "${(r / 1_000).toInt()}k×"
-    // A world falling behind at 1.7x, say.
+    // A fractional measured rate, like 1.7×.
     r < 10.0 && r != kotlin.math.floor(r) -> "${kotlin.math.round(r * 10.0) / 10.0}×"
     else -> "${r.toInt()}×"
 }

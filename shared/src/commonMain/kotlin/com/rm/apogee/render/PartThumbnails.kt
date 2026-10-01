@@ -19,17 +19,13 @@ import com.rm.apogee.core.math.Math
 import kotlin.concurrent.Volatile
 
 /**
- * A small picture of every part, for the drawer, and of each saved craft, for the load list. Each
- * is drawn once by the GL renderer, off screen, the way the builder draws it, and kept on disk for
- * next time. They're kept under the catalogue's content hash, so a changed part gets drawn again,
- * and a craft's picture is named for its design, so a changed craft does too.
+ * Small pictures of every part, for the drawer, and of saved craft, for the load list. Each is
+ * drawn once off screen by the GL renderer and kept on disk. Part pictures are keyed by the
+ * catalogue's content hash and craft pictures by design, so changes get drawn again.
  */
 class PartThumbnails(private val store: PictureStore) {
 
-    /**
-     * Pictures ready so far, by part id, or for a craft by [craftKey]. Compose reads them, and
-     * they're written on the main thread.
-     */
+    /** Pictures ready so far, by part id or [craftKey]. Written on the main thread. */
     val pictures = mutableStateMapOf<String, ImageBitmap>()
 
     /** One picture to draw: what it's called, its pieces, and where the camera stands to see them. */
@@ -41,10 +37,7 @@ class PartThumbnails(private val store: PictureStore) {
     private var requested: String? = null
     private val craftAsked = com.rm.apogee.core.concurrentSetOf<String>()
 
-    /**
-     * Every part of [catalog], from disk where it was drawn before, and queued for drawing where it
-     * wasn't.
-     */
+    /** Every part of [catalog], from disk if drawn before, otherwise queued for drawing. */
     fun request(catalog: PartCatalog) {
         if (requested == catalog.contentHash) return
         requested = catalog.contentHash
@@ -77,9 +70,8 @@ class PartThumbnails(private val store: PictureStore) {
     fun craftKey(design: CraftDesign): String = "craft-" + (design.hashCode()).toUInt().toString(16)
 
     /**
-     * A picture of the whole of [design], from disk if it was drawn before, and queued to be drawn
-     * if it wasn't. It's shown standing the way it's built to: a rocket upright, and a plane, rover
-     * or boat level with its nose to the right.
+     * A picture of [design], from disk or queued. A rocket stands upright; a plane, rover or boat
+     * sits level, nose to the right.
      */
     fun requestCraft(design: CraftDesign, catalog: PartCatalog) {
         val key = craftKey(design)
@@ -138,8 +130,7 @@ class PartThumbnails(private val store: PictureStore) {
         val anim = PartAnim()
         val rotation = Quat.identity()
         PartModels.alignWheel(def, rotation, orientation.forward, orientation.up, anim)
-        // As if on the right side of something, so fins, legs and wheels stand out the way they
-        // would.
+        // As if on the right side of something, so fins, legs and wheels stand out.
         PartModels.alignSurface(def, rotation, Vec3(1.0, 0.0, 0.0), anim)
         val leaves = ArrayList<PartModels.Leaf>()
         PartModels.expand(def, StackCaps.BOTH, anim, leaves)
@@ -153,9 +144,7 @@ class PartThumbnails(private val store: PictureStore) {
                 color = PartModels.colour(leaf.tint, body),
             )
         }
-        // A three-quarter view from a little above, far enough back for the whole part to fit.
-        // That's all of what's drawn, which for a fairing is metres of shell over a ring a hand's
-        // width deep.
+        // A three-quarter view from a little above, far enough back for everything drawn to fit.
         val low = Vec3(Double.MAX_VALUE, Double.MAX_VALUE, Double.MAX_VALUE)
         val high = Vec3(-Double.MAX_VALUE, -Double.MAX_VALUE, -Double.MAX_VALUE)
         for (leaf in leaves) {
@@ -187,10 +176,7 @@ class PartThumbnails(private val store: PictureStore) {
     }
 }
 
-/**
- * Where the pictures are kept between runs: PNG files on Android. [load] and [save] are called off
- * the main thread.
- */
+/** Where pictures are kept between runs (PNG files on Android). Called off the main thread. */
 interface PictureStore {
     /** The picture saved as [key] in [folder], or null if there isn't one. */
     fun load(folder: String, key: String): ImageBitmap?

@@ -13,12 +13,9 @@ import java.io.File
 import javax.imageio.ImageIO
 
 /**
- * Draws the Cape from above: `./gradlew :core:capeMap`.
- *
- * The ground in metres east and north of the pad (water by depth, land by what it is, the works
- * paved), with the launch sites marked and [marks] drawn over it, showing what's planned to stand
- * where. It's for laying out the spaceport, the airfield and the harbour without a device in the
- * loop.
+ * Draws the Cape from above: `./gradlew :core:capeMap`. The ground in metres east and north of the
+ * pad, with the launch sites and [marks] drawn over it. For laying out the spaceport, airfield and
+ * harbour without a device.
  */
 fun main(args: Array<String>) {
     val out = File(args.firstOrNull() ?: "build/cape-map").apply { mkdirs() }

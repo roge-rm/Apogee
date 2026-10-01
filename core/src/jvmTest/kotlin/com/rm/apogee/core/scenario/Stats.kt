@@ -5,11 +5,8 @@ import com.rm.apogee.core.craft.StockCraft
 import com.rm.apogee.core.part.StockParts
 
 /**
- * Prints the stock rocket's stage analysis: `./gradlew :core:craftStats`.
- *
- * This is the other half of the ascent scenario. That one flies the rocket, and this one says what
- * the builder will *predict* about it. When the two disagree, one of them is wrong, and having both
- * printable side by side is how you find out which.
+ * Prints the stock rocket's stage analysis: `./gradlew :core:craftStats`. Set it beside the ascent
+ * scenario's flight to see where the builder's prediction and the flight disagree.
  */
 fun main() {
     val catalog = StockParts.catalog

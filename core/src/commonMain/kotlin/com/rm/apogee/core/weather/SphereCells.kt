@@ -7,11 +7,9 @@ import kotlin.math.ceil
 import kotlin.math.floor
 
 /**
- * The sphere cut into cells about [cellSize] across, for scattering weather features: one thermal,
- * one storm or one cloud per cell and time.
- *
- * It's on the cube-sphere, the same mapping the terrain uses, so cells are nearly square everywhere
- * and the poles aren't a pinch point.
+ * The sphere cut into cells about [cellSize] across, for scattering weather: one thermal, storm or
+ * cloud per cell and time. Uses the terrain's cube-sphere so cells are nearly square and the poles
+ * don't pinch.
  */
 class SphereCells(bodyRadius: Double, cellSize: Double) {
 
@@ -44,13 +42,11 @@ class SphereCells(bodyRadius: Double, cellSize: Double) {
     }
 
     /**
-     * The cells around [direction]: its own and those up to [reach] cells away, into [out].
+     * The cells around [direction], its own and up to [reach] cells away, into [out].
      *
-     * It goes by index within the face. Stepping a cell's width across the tangent plane skipped
-     * cells wherever the face grid runs at an angle to east and north, which away from the equator
-     * is nearly everywhere. Only near a face edge, where the neighbours are on another face, does
-     * it probe instead, at half-cell steps so none get missed. [east], [north] and [angularStep] (a
-     * cell's width in radians) are for that.
+     * Goes by index within the face, since stepping across the tangent plane skips cells where the
+     * grid runs at an angle to east and north. Near a face edge it probes at half-cell steps
+     * instead, using [east], [north] and [angularStep] (a cell's width in radians).
      *
      * @return how many different keys were written.
      */

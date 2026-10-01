@@ -136,8 +136,7 @@ class CodecTest {
 
     @Test
     fun `vectors survive the round trip at full double precision`() {
-        // The whole point of a double-precision core is lost if the wire format narrows on the way
-        // past.
+        // The wire format mustn't narrow the core's doubles.
         val position = Vec3(6_400_000.000000123, -1.0e-7, 12_345.678901234)
         val message = ServerMessage.SnapshotMessage(
             Snapshot(
@@ -164,8 +163,7 @@ class CodecTest {
             Command.SpawnCraft(StockCraft.starterRocket(StockParts.catalog), "cape")
         )
         val size = Codec.encode(message).size
-        // Not a hard budget, but a canary. Structure travels rarely, but if a 13-part rocket ever
-        // costs tens of kilobytes something has gone wrong in the schema.
+        // A canary, not a hard budget: tens of KB for a 13-part rocket means the schema's wrong.
         assertTrue("craft design encoded to $size bytes", size < 8_000)
     }
 }

@@ -10,18 +10,16 @@ import kotlin.math.hypot
 import kotlin.math.max
 
 /**
- * How a craft floats at rest: how high it sits in still water and how it lies, with the water it
- * displaces weighing what it does and pushing up right under its centre of mass.
+ * How a craft floats at rest: its height in still water and how it lies, displacing its weight with
+ * the push right under its centre of mass.
  *
- * A craft that goes to sleep afloat, or is founded on the sea, rides the sea from then on the way
- * it lay at that moment. In a swell that moment was often halfway through a roll. The Sea Platform
- * dozed off at the end of one, fifteen degrees over and resting on one pontoon, and rode the sea
- * like that for good. So it's set at its balance first. A craft that really lists, loaded to one
- * side, keeps its list, because that's where its balance is.
+ * A craft that sleeps afloat, or is founded on the sea, rides the sea as it lay at that moment,
+ * which in a swell can be halfway through a roll. So it's set at its balance first. A craft loaded
+ * to one side keeps its list, since that's its balance.
  *
- * It's the same cells the hydrostatics floats it on, against a flat sea. However it's turned, the
- * height it floats at is where it displaces its weight, and from how it lies now it's turned the way
- * the water turns it until the water pushes up right under its centre.
+ * Uses the same cells the hydrostatics floats it on, against a flat sea. At each attitude it sits
+ * where it displaces its weight, and it's turned the way the water turns it until the push is
+ * right under its centre.
  */
 internal class FloatingBalance {
     /** The craft's centre of mass above the water, in metres, once [solve] has found it. */
@@ -42,9 +40,9 @@ internal class FloatingBalance {
     private val jacobian = Array(2) { DoubleArray(2) }
 
     /**
-     * Finds [vessel]'s balance in water of [density] whose surface faces [up] (world, unit), starting
-     * from how it lies now, its centre [from] metres above the surface. False, and nothing found, if it doesn't float at the surface or its
-     * balance is far from how it lies, which is no rest a craft would come to on its own.
+     * Finds [vessel]'s balance in water of [density] whose surface faces [up] (world, unit),
+     * starting from how it lies now with its centre [from] metres above the surface. False if it
+     * doesn't float at the surface or the balance is far from how it lies.
      */
     fun solve(vessel: Vessel, up: Vec3, density: Double, from: Double): Boolean {
         gather(vessel)
@@ -60,7 +58,7 @@ internal class FloatingBalance {
         var error = hypot(residual[0], residual[1])
         repeat(ITERATIONS) {
             if (error < MOMENT_DONE) return finish(vessel, start, up, x, from)
-            // How the moments change with each turn, to find the turn that brings them to nothing.
+            // How the moments change with each turn, to find the turn that zeroes them.
             for (j in 0 until 2) {
                 trial[0] = x[0]; trial[1] = x[1]
                 trial[j] += TURN_STEP
@@ -68,11 +66,9 @@ internal class FloatingBalance {
                 for (i in 0 until 2) jacobian[i][j] = (scratchResidual[i] - residual[i]) / TURN_STEP
             }
             val det = jacobian[0][0] * jacobian[1][1] - jacobian[0][1] * jacobian[1][0]
-            // The moments are the way the water turns it, in these same two turns. Near a
-            // balance it would come to rest in, turning it that way eases them, and then Newton's
-            // step is safe. Further off it isn't: from fifteen degrees over, on one pontoon, the
-            // nearest balance to Newton was the platform on its side. There it's rolled the way the
-            // water would roll it, a bit at a time, until it's somewhere that settles.
+            // The moments are how the water turns it. Near a stable balance turning that way eases
+            // them and Newton's step is safe. Further off Newton can find the craft on its side, so
+            // it's rolled the way the water would, a bit at a time, until it settles.
             val settles = jacobian[0][0] < 0.0 && jacobian[1][1] < 0.0 && det > 1e-12
             var d0: Double
             var d1: Double
@@ -85,7 +81,7 @@ internal class FloatingBalance {
             }
             val size = hypot(d0, d1)
             if (size > MOST_TURN) { d0 *= MOST_TURN / size; d1 *= MOST_TURN / size }
-            // Only a step that leaves it nearer balance, or still being turned the same way.
+            // Only a step that leaves it nearer balance, or still turning the same way.
             var share = 1.0
             while (true) {
                 trial[0] = x[0] + share * d0; trial[1] = x[1] + share * d1
@@ -109,8 +105,7 @@ internal class FloatingBalance {
         pose(start, x, orientation)
         height = heaveFor(orientation, up)
         if (height.isNaN() || !partlyWet) return false
-        // Nor one far above or below where it is. A submarine asleep at depth, just heavy enough to
-        // hang there, would otherwise float at the surface, and it's where it is on purpose.
+        // Nor one far above or below where it is, so a submarine hanging at depth stays there.
         if (abs(height - from) > max(MOST_HEAVE, HEAVE_SHARE * vessel.contactRadius)) return false
         return angleBetween(start, orientation, vessel) < MOST_CHANGE
     }
@@ -122,10 +117,9 @@ internal class FloatingBalance {
     private val probe = Quat()
 
     /**
-     * The moment of the water it displaces about its centre of mass each way, over its weight, so
-     * how far off to the side the water's push is from its centre, in metres. That's with it turned
-     * by [x] from [start] and sat at the height where it displaces its own weight. False if there's
-     * no such height.
+     * The water's moment about the centre of mass each way, over its weight: how far off centre the
+     * push is, in metres. With it turned by [x] from [start] and sat where it displaces its weight.
+     * False if there's no such height.
      */
     private fun moments(start: Quat, up: Vec3, x: DoubleArray, out: DoubleArray): Boolean {
         pose(start, x, probe)
@@ -139,7 +133,7 @@ internal class FloatingBalance {
 
     /**
      * The height of its centre above the water, turned to [q], at which it displaces its weight,
-     * or NaN if it can't. The deeper it sits the more it displaces, so it's halved in on.
+     * or NaN if it can't. Found by halving.
      */
     private fun heaveFor(q: Quat, up: Vec3): Double {
         var low = -reach
@@ -157,7 +151,9 @@ internal class FloatingBalance {
     private var momentA = 0.0
     private var momentB = 0.0
 
-    /** Each cell's offset from the centre of mass in the craft's own axes, its volume, and its size. */
+    /**
+     * Each cell's offset from the centre of mass in the craft's own axes, its volume, and its size.
+     */
     private fun gather(vessel: Vessel) {
         count = 0
         for (def in vessel.defs) count += def.volumeCells.size
@@ -197,8 +193,8 @@ internal class FloatingBalance {
     }
 
     /**
-     * The water it displaces, turned to [q] with its centre [h] metres above the surface, and that
-     * water's moment about its centre each way into [momentA] and [momentB].
+     * The water displaced with it turned to [q] and its centre [h] metres above the surface, and
+     * that water's moment about its centre each way into [momentA] and [momentB].
      */
     private fun displace(q: Quat, up: Vec3, h: Double): Double {
         // The surface's up in the craft's own axes, so the cells needn't be turned.
@@ -254,11 +250,17 @@ internal class FloatingBalance {
         /** How small a share of a step is still worth taking. */
         const val SMALLEST_SHARE = 1.0 / 64.0
 
-        /** Close enough: the water's push this near under its centre, in metres, or a step this small, in radians. */
+        /**
+         * Close enough: the push this near under its centre in metres, or a step this small in
+         * radians.
+         */
         const val MOMENT_DONE = 1e-4
         const val TURN_DONE = 1e-6
 
-        /** Further than this from where it floats, in metres or as a share of its reach, it isn't either. */
+        /**
+         * Further than this from where it floats, in metres or as a share of its reach, isn't a
+         * balance.
+         */
         const val MOST_HEAVE = 1.0
         const val HEAVE_SHARE = 0.3
 

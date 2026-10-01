@@ -5,8 +5,8 @@ import com.rm.apogee.core.math.Vec3
 import kotlin.math.abs
 
 /**
- * What damage and heat look like on a part. It's scorched darker the more it's hurt, glows dull
- * red, then orange, then nearly white as it heats up, and gets squashed along the line it was hit.
+ * What damage and heat look like on a part: scorched darker as it's hurt, glowing red to orange to
+ * near white as it heats, and squashed along the line it was hit.
  */
 object ConditionLook {
 

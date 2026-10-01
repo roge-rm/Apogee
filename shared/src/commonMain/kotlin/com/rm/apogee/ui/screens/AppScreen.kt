@@ -1,12 +1,8 @@
 package com.rm.apogee.ui.screens
 
 /**
- * Every screen in the app.
- *
- * It's an enum plus a `when` plus a [androidx.activity.compose.BackHandler], instead of a
- * navigation library. A game has a shallow, hand-made screen graph and needs the back button to do
- * something specific in flight (nothing). A route and back-stack library would be weight with no
- * payoff here.
+ * Every screen in the app. An enum, a `when` and a [androidx.activity.compose.BackHandler] do the
+ * navigation; the graph is shallow and flight needs back to do nothing.
  */
 enum class AppScreen {
     MENU,
@@ -16,7 +12,7 @@ enum class AppScreen {
     SETTINGS,
     ABOUT,
 
-    /** The builder (VAB). M2. */
+    /** The builder (VAB). */
     BUILDER,
 
     /** Pick a craft and a site, and launch it in place of the last one. */
@@ -45,8 +41,7 @@ enum class AppScreen {
             HOST_GAME, JOIN_GAME -> PLAY
             BUILDER, QUICK_LAUNCH, RESUME_FLIGHT, CREW, PROGRAM -> PLAY
             CONTROLLER -> SETTINGS
-            // Flight handles its own exit through a confirmation, so a stray back gesture can't
-            // throw away a flight in progress.
+            // Flight asks before leaving, so a stray back can't end a flight.
             FLIGHT -> null
         }
 

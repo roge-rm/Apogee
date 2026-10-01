@@ -13,8 +13,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Auto-land for things that fly on the air: a plane glides in and flares, and a helicopter and an
- * airship come straight down, each onto the airfield's runway, and each stops there in one piece.
+ * Auto land for things that fly on the air: a plane glides in and flares, a helicopter or airship
+ * comes straight down, and each stops in one piece.
  */
 class AirLandingTest {
     private val catalog = StockParts.catalog
@@ -207,7 +207,7 @@ class AirLandingTest {
         return terrain.material(d, terrain.elevation(d), 0.0) == com.rm.apogee.core.terrain.SurfaceMaterial.ASPHALT
     }
 
-    /** A Sparrow flying [east] m/s east (west if negative) [height] metres over the Cape's ground at [x], [y]. */
+    /** A Sparrow flying [speed] m/s east (west if negative) [height] metres over the Cape's ground at [x], [y]. */
     private fun sparrow(world: World, x: Double, y: Double, height: Double, speed: Double): Vessel {
         val plane = over(world, StockCraft.sparrow(catalog), x, y, height, speed = kotlin.math.abs(speed))
         if (speed < 0.0) {

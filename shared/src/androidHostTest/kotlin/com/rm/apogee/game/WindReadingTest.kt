@@ -12,11 +12,7 @@ import com.rm.apogee.net.ClientVessel
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
-/**
- * The wind arrow is read against the screen, the same as the windsock in view, not against the
- * craft's nose, which the camera might be looking anywhere but along. Before, the windsock and the
- * reading didn't match, which I noticed.
- */
+/** The wind arrow is read against the screen, like the windsock in view, not the craft's nose. */
 class WindReadingTest {
 
     private val catalog = StockParts.catalog

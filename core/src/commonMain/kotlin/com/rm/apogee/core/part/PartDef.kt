@@ -7,12 +7,9 @@ import kotlinx.serialization.Serializable
 import com.rm.apogee.core.math.Math
 
 /**
- * Below this radius a part is too thin to hang things off.
- *
- * It's at file level instead of in a companion because kotlinx-serialization generates
- * PartDef.Companion for `serializer()`, and declaring a private companion makes that generated
- * accessor unreachable from outside the class. That fails when the *catalogue loads*, not at
- * compile time.
+ * Below this radius a part is too thin to hang things off. File level rather than in a companion: a
+ * private companion hides the serializer's generated PartDef.Companion, which fails when the
+ * catalogue loads, not at compile time.
  */
 private const val MIN_SURFACE_MOUNT_RADIUS = 0.3
 
@@ -20,17 +17,17 @@ private const val MIN_SURFACE_MOUNT_RADIUS = 0.3
 private const val VOLUME_CELL_METRES = 0.75
 
 /**
- * The target size, and the most along any axis, of a hull's buoyancy cells. See
+ * Target size, and the most cells along any axis, for a hull's buoyancy cells. See
  * [PartDef.volumeCells].
  */
 private const val HULL_CELL_METRES = 0.4
 private const val HULL_CELLS = 6
 private const val HULL_CELLS_DEEP = 3
 
-/** N a joint carries per square metre of its radius. See [PartDef.jointStrength]. */
+/** N a joint carries per square metre of radius. See [PartDef.jointStrength]. */
 private const val JOINT_STRENGTH_PER_M2 = 1.0e6
 
-/** However thin a part is, its joint is at least this wide, in metres. */
+/** Minimum joint radius in metres, however thin the part. */
 private const val MIN_JOINT_RADIUS = 0.15
 
 @Serializable
@@ -42,22 +39,17 @@ enum class PartCategory {
     @SerialName("aero") AERO,
     @SerialName("utility") UTILITY,
     @SerialName("ground") GROUND,
-    /** Modules for building bases: foundations, habitats, depots, pads. */
+    /** Base modules: foundations, habitats, depots, pads. */
     @SerialName("base") BASE,
     /** Buildings and fittings: towers, hangars, jetties, lamps. */
     @SerialName("structure") STRUCTURE,
 }
 
 /**
- * The shape a part is drawn as.
- *
- * It's a tagged spec instead of a path to a model file, so the whole asset pipeline stays out of
- * the early milestones. Every mesh in the game is generated from one of these at load time. A
- * `gltf` variant can be added to this family later without breaking a single existing part file,
- * which is why it's a sealed type now instead of a string.
- *
- * Convention: shapes are centred on the origin and +Y is the axis of revolution, so a stack of
- * parts is positioned purely by attachment nodes.
+ * The physics shape of a part. A tagged spec rather than a model file path, so every mesh is
+ * generated at load time; a `gltf` variant could join later without breaking part files. Shapes are
+ * centred on the origin with +Y the axis of revolution, so stacks are placed purely by attach
+ * nodes.
  */
 @Serializable
 sealed interface MeshSpec : Shape {
@@ -93,29 +85,20 @@ enum class AttachNodeKind {
 }
 
 /**
- * A point where another part can be joined on.
- *
- * [direction] points *outward* from the part. Two parts join when one's node direction faces the
- * other's, which is what makes attachment orientation automatic, instead of something you have to
- * get right by hand on a touch screen.
+ * A point another part can join. [direction] points outward; two parts join with their node
+ * directions facing, which makes orientation automatic.
  */
 @Serializable
 data class AttachNode(
     val id: String,
     val position: SerialVec3,
     val direction: SerialVec3,
-    /**
-     * Size class. Nodes only join with equal sizes unless an adapter part bridges them, which stops
-     * a 0.6 m probe core being bolted straight onto a 2.5 m booster.
-     */
+    /** Size class. Nodes only join equal sizes unless an adapter bridges them. */
     val size: Int = 1,
     val kind: AttachNodeKind = AttachNodeKind.STACK,
 )
 
-/**
- * One of the volumes a part is solid as, when it's more than one: a primitive placed at [offset] in
- * the part's own frame.
- */
+/** One of several solid volumes of a part: a primitive at [offset] in the part's frame. */
 @Serializable
 data class HullVolume(
     val mesh: MeshSpec,
@@ -123,10 +106,8 @@ data class HullVolume(
 )
 
 /**
- * The fixed definition of a kind of part.
- *
- * It's loaded from JSON instead of written in Kotlin, so the catalogue is data the server can check
- * and hash, and so it can be modded without a rebuild.
+ * The fixed definition of a kind of part, loaded from JSON so the server can check and hash the
+ * catalogue, and it can be modded without a rebuild.
  */
 @Serializable
 data class PartDef(
@@ -136,68 +117,58 @@ data class PartDef(
     /** Mass with all tanks empty, in kg. */
     val dryMass: Double,
     val mesh: MeshSpec,
-    /**
-     * How it's drawn, if not simply as [mesh]. This only affects looks. Every physical property
-     * still comes from [mesh]. See [ModelSpec].
-     */
+    /** How it's drawn, if not as [mesh]. Looks only; physics still uses [mesh]. See [ModelSpec]. */
     val model: ModelSpec? = null,
     val attachNodes: List<AttachNode> = emptyList(),
     val modules: List<PartModule> = emptyList(),
     val description: String = "",
-    /** The impact speed this survives, in m/s. */
+    /** Impact speed it survives, in m/s. */
     val crashTolerance: Double = 12.0,
     /** Drag coefficient, dimensionless. */
     val dragCoefficient: Double = 0.3,
     /**
-     * What the joint to its parent can carry before it starts to give, in N. That's force plus
-     * bending moment over its diameter. Zero means "based on its size". See [jointStrength].
+     * What the joint to its parent carries before giving, in N: force plus bending moment over its
+     * diameter. Zero means size-based. See [jointStrength].
      */
     val strength: Double = 0.0,
     /**
-     * Not offered in the builder. It's a piece that only ever comes off another one, like a
-     * fairing's half, or the sea's own rock.
+     * Not offered in the builder: only comes off another part, like a fairing half or the sea's
+     * rock.
      */
     val hidden: Boolean = false,
-    /**
-     * How hot it can get before it starts to fail, in K. Zero means "based on what it is". See
-     * [heatLimit].
-     */
+    /** Temperature in K before it starts to fail. Zero means by category. See [heatLimit]. */
     val maxTemperature: Double = 0.0,
     /**
-     * The air pressure it can take, in Pa, before it starts to give. By default that's twenty times
-     * Terra's. Caligo's floor is nearly five times that, and a gas giant's depths have no end.
+     * Pressure in Pa it takes before giving. Default is twenty times Terra's; Caligo's floor is
+     * nearly five times that, and a gas giant's depths have no limit.
      */
     val maxPressure: Double = 2e6,
     /**
-     * Whether the sea can crush it. True for something with room inside, like a cabin, a tank, a
-     * hull or a battery's case. False for a solid lump the water only squeezes. Null lets its
-     * modules decide. See [isHollow].
+     * Whether the sea can crush it: true for things with room inside (cabin, tank, hull, battery
+     * case), false for solid lumps. Null lets its modules decide. See [isHollow].
      */
     val hollow: Boolean? = null,
-    /** Cost, for a money-based career mode that doesn't exist yet. */
+    /** Cost, for a money-based career that doesn't exist. */
     val cost: Double = 0.0,
     /**
-     * What it displaces under water, in m³, where its [mesh] doesn't tell you, like an open frame
-     * the water runs through or a solid lump of metal. Negative means "use its mesh's volume". See
-     * [displacedVolume].
+     * Volume displaced under water in m³ where [mesh] is wrong, like an open frame or a solid lump.
+     * Negative means use the mesh volume. See [displacedVolume].
      */
     val displaces: Double = -1.0,
     /**
-     * What it's solid as, if not simply its [mesh]: several volumes, like a hangar's walls and roof
-     * with the room inside left open to taxi into. [mesh] is then only its outline, for its size
-     * and bounds. See [HullVolume].
+     * Its solid volumes, if not just [mesh]: like a hangar's walls and roof with room inside to
+     * taxi in. [mesh] is then only the outline, for size and bounds. See [HullVolume].
      */
     val hull: List<HullVolume> = emptyList(),
     /**
-     * False for things that are only seen, like paint on a runway, a lamp on a mast or a windsock.
-     * They're drawn, but nothing hits them and they cost nothing in collision.
+     * False for things only seen, like runway paint, a mast lamp or a windsock: drawn, but nothing
+     * hits them.
      */
     val solid: Boolean = true,
 ) {
     /**
-     * Shortcut: the first module of a given type, or null. It's asked for all through the physics
-     * and the drawing, many times a part a tick, so it looks without making anything. Filtering
-     * into a new list each time, as it did, had a phone collecting garbage for much of every frame.
+     * The first module of type [T], or null. Called many times per part per tick, so it doesn't
+     * allocate.
      */
     inline fun <reified T : PartModule> module(): T? {
         val all = modules
@@ -214,21 +185,20 @@ data class PartDef(
         return false
     }
 
-    /** Its radius across the stack, in metres, which is how wide a joint to it is. */
+    /** Radius across the stack in metres, which sets the joint's width. */
     val jointRadius: Double
         get() = boundsHalfExtents.let { maxOf(it.x, it.z) }.coerceAtLeast(MIN_JOINT_RADIUS)
 
     /**
-     * [strength], or by default based on the joint's area, since a ring of metal twice as wide
-     * holds four times as much. A 1.25 m stack joint takes about 390 kN, and a 0.625 m one about
-     * 100 kN.
+     * [strength], or by default from the joint's area (twice as wide holds four times as much):
+     * about 390 kN at 1.25 m, 100 kN at 0.625 m.
      */
     val jointStrength: Double
         get() = if (strength > 0.0) strength else JOINT_STRENGTH_PER_M2 * jointRadius * jointRadius
 
     /**
-     * [maxTemperature], or by default based on what the part is. Engines are built to run hot,
-     * wings and tanks are thin skins, and a heat shield is made for nothing else.
+     * [maxTemperature], or by default from what the part is: engines run hot, wings and tanks are
+     * thin skins, heat shields are made for it.
      */
     val heatLimit: Double
         get() = when {
@@ -253,11 +223,8 @@ data class PartDef(
             .sumOf { it.capacity * it.resource.densityPerUnit }
 
     /**
-     * Half-extents of the axis-aligned box around this part's mesh.
-     *
-     * Used for the collider and for the inertia approximation. Working it out from the mesh instead
-     * of writing it separately means a part can never have a collider that disagrees with what you
-     * see.
+     * Half-extents of the axis-aligned box round the mesh, for the collider and inertia. Derived
+     * from the mesh so the collider can't disagree with what you see.
      */
     val boundsHalfExtents: Vec3
         get() = when (val m = mesh) {
@@ -271,15 +238,9 @@ data class PartDef(
         }
 
     /**
-     * Mounting points generated around the part's hull, for surface attachment.
-     *
-     * Real surface attachment is freeform, so you can stick a fin anywhere on a tank. But freeform
-     * placement needs you to aim precisely at a curved surface with a fingertip, which is the worst
-     * case for touch. Four generated points around the waist give the same ability with a target
-     * big enough to hit, and symmetry fills in the rest.
-     *
-     * Nodes written into the part always win. A part that declares its own surface nodes gets those
-     * instead, so the generated ones are a default, not something forced on it.
+     * Generated mounting points round the hull for surface attachment: four round the waist, big
+     * enough to hit with a finger, with symmetry filling in. A part that declares its own surface
+     * nodes gets those instead.
      */
     val surfaceNodes: List<AttachNode> by lazy {
         if (attachNodes.any { it.kind == AttachNodeKind.SURFACE }) return@lazy emptyList()
@@ -290,7 +251,7 @@ data class PartDef(
             is MeshSpec.Box -> m.width * 0.5
             is MeshSpec.Sphere -> m.radius
         }
-        // Too small to mount anything on sensibly.
+        // Too small to mount anything on.
         if (radius < MIN_SURFACE_MOUNT_RADIUS) return@lazy emptyList()
 
         listOf(
@@ -310,13 +271,9 @@ data class PartDef(
     }
 
     /**
-     * Two more generated mounting points, on the lower quarters of the hull.
-     *
-     * The four waist nodes are all a stack needs, but a craft lying on its side has one of them on
-     * its belly and one on its back. Every wheel would go on the centreline in a row and the craft
-     * would fall over sideways. These are the corners a pair of wheels or floats actually wants.
-     * Only a horizontal design offers them (see [com.rm.apogee.core.craft.Attachment.openNodes]),
-     * because on a standing craft they'd just be two more targets cluttering every tank.
+     * Two more generated mounting points on the lower quarters. Lying on its side, a craft has
+     * waist nodes on its belly and back, and wheels or floats want these corners. Only horizontal
+     * designs offer them (see [com.rm.apogee.core.craft.Attachment.openNodes]).
      */
     val quarterNodes: List<AttachNode> by lazy {
         if (surfaceNodes.isEmpty()) return@lazy emptyList()
@@ -334,17 +291,8 @@ data class PartDef(
     }
 
     /**
-     * Volume of the mesh, in m³, which is what the part displaces under water.
-     *
-     * This applies to every part, not just ones with [Buoyancy]. A sealed tank floats whether or
-     * not anyone thought of it as a boat, and a rocket that comes down in the sea should bob
-     * instead of sinking like a stone. [Buoyancy] overrides it for a part whose mesh doesn't
-     * describe what it encloses, and [displaces] does for one whose mesh is only its outline.
-     */
-    /**
-     * Room inside, so the sea can crush it: crew or a probe core, a tank, a hull, a habitat or a
-     * battery. [maxPressure] is what it can take. Anything else is a solid lump, however deep it
-     * goes.
+     * Room inside, so the sea can crush it: crew or probe core, tank, hull, habitat or battery.
+     * [maxPressure] is its limit. Anything else is a solid lump at any depth.
      */
     val isHollow: Boolean by lazy {
         hollow ?: modules.any {
@@ -353,11 +301,16 @@ data class PartDef(
     }
 
     /**
-     * Something a craft stands on, rather than rests on: a wheel, a landing leg, a skid, or a foot. These
-     * meet the ground, and other craft's decks, sprung and gripping.
+     * What a craft stands on rather than rests on: a wheel, leg, skid or foot. These meet the
+     * ground and decks sprung and gripping.
      */
     val foot: Boolean by lazy { module<Wheel>() != null || module<LandingLeg>() != null || module<Walker>() != null || module<Skid>() != null }
 
+    /**
+     * Mesh volume in m³: what any part displaces under water, so a sealed tank or a downed rocket
+     * floats. [Buoyancy] overrides it where the mesh doesn't describe what's enclosed, and
+     * [displaces] where the mesh is only an outline.
+     */
     val displacedVolume: Double by lazy {
         module<Buoyancy>()?.displacedVolume ?: displaces.takeIf { it >= 0.0 } ?: when (val m = mesh) {
             is MeshSpec.Cylinder -> Math.PI * m.radius * m.radius * m.height
@@ -369,17 +322,11 @@ data class PartDef(
     }
 
     /**
-     * Where the part's volume is, as a grid of cells through its bounds: each cell's centre in
-     * part-local space, and the cell's full size.
-     *
-     * Buoyancy is sampled cell by cell instead of as one force at the part's centre, and that's the
-     * whole point. A force at the centre gives a hull no reason to right itself when it heels over,
-     * and gives a wave nothing to lift one end of it by. Pitch, roll and heave all come from
-     * *where* the water is pushing, which is the same lesson drag taught the fins. Cells are about
-     * three-quarters of a metre on a side, with at most four along any axis. Across and down a hull
-     * they're finer, [HULL_CELL_METRES] and up to [HULL_CELLS]. With two cells across the skiff and
-     * one deep, it felt so little of the buoyancy shifting to the low side as it heeled that the
-     * seat's own reaction wheel could roll it over.
+     * The part's volume as a grid of cells through its bounds: each cell's centre in part-local
+     * space, and the cell size. Buoyancy is sampled per cell so heeling makes a righting moment and
+     * waves can lift one end; pitch, roll and heave come from where the water pushes. Cells are
+     * about 0.75 m, at most four per axis. Across and down a hull they're finer, [HULL_CELL_METRES]
+     * and up to [HULL_CELLS], or a small boat doesn't feel the buoyancy shift as it heels.
      */
     val volumeCells: List<Vec3> by lazy {
         val h = boundsHalfExtents
@@ -399,16 +346,15 @@ data class PartDef(
         cells
     }
 
-    /** The size of one of [volumeCells], in metres, in part-local axes. */
+    /** Size of one of [volumeCells], in metres, in part-local axes. */
     val volumeCellSize: Vec3 by lazy {
         val h = boundsHalfExtents
         Vec3(2.0 * h.x / cellsAlong(h.x, 0), 2.0 * h.y / cellsAlong(h.y, 1), 2.0 * h.z / cellsAlong(h.z, 2))
     }
 
     /**
-     * Cells along part [axis] (0 across, 1 along, 2 up). A hull is finer across and in depth, where
-     * its stability gets decided, and as coarse as anything along its length. Every cell samples
-     * the waves every tick, and a Trawler at the finer grid all round had over five hundred.
+     * Cells along part [axis] (0 across, 1 along, 2 up). Hulls are finer across and in depth, where
+     * stability is decided, and coarse lengthwise, since every cell samples the waves every tick.
      */
     private fun cellsAlong(halfExtent: Double, axis: Int): Int =
         if (axis != 1 && module<Buoyancy>() != null) {
@@ -417,19 +363,13 @@ data class PartDef(
             kotlin.math.round(2.0 * halfExtent / VOLUME_CELL_METRES).toInt().coerceIn(1, 4)
         }
 
-    /** Nodes written into the part plus the generated surface ones. */
+    /** Declared nodes plus generated surface ones. */
     val allAttachNodes: List<AttachNode> get() = attachNodes + surfaceNodes
 
     /**
-     * Points on the part's hull used for ground contact, in part-local space.
-     *
-     * A part is *not* collided as a bounding sphere. A sphere touches a plane at exactly one point,
-     * which gives a resting craft no footprint and nothing to stop it tipping. A rocket standing on
-     * its engine bell becomes an upside-down pendulum and topples from rounding noise alone.
-     * Sampling the hull gives contacts a real base, so a wide part resists tipping and a narrow one
-     * doesn't, which is how you'd expect it to behave.
-     *
-     * Worked out once per definition, since the catalogue only loads once.
+     * Points on the hull for ground contact, in part-local space. A bounding sphere touches at one
+     * point, so a craft standing on its bell would topple from rounding noise; sampled hull points
+     * give it a real base. Computed once per definition.
      */
     val contactPoints: List<Vec3> by lazy {
         if (!solid) return@lazy emptyList()
@@ -439,7 +379,7 @@ data class PartDef(
         pointsOf(mesh)
     }
 
-    /** Points on the surface of [shape], in its own frame, for contact. */
+    /** Points on [shape]'s surface, in its frame, for contact. */
     private fun pointsOf(shape: MeshSpec): List<Vec3> =
         when (val m = shape) {
             is MeshSpec.Cylinder -> rim(m.radius, -m.height * 0.5) + rim(m.radius, m.height * 0.5)
@@ -465,7 +405,7 @@ data class PartDef(
             }
         }
 
-    /** Four points around a circle of [radius] at height [y]. */
+    /** Four points round a circle of [radius] at height [y]. */
     private fun rim(radius: Double, y: Double): List<Vec3> = listOf(
         Vec3(radius, y, 0.0),
         Vec3(-radius, y, 0.0),
@@ -473,7 +413,7 @@ data class PartDef(
         Vec3(0.0, y, -radius),
     )
 
-    /** The frontal reference area for drag, in m², taken across the stack axis. */
+    /** Frontal reference area for drag, in m², across the stack axis. */
     val referenceArea: Double
         get() {
             val h = boundsHalfExtents

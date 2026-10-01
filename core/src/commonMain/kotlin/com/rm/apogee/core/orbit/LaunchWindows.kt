@@ -4,25 +4,22 @@ import com.rm.apogee.core.math.Quat
 import com.rm.apogee.core.math.Vec3
 
 /**
- * When to launch for a moon.
- *
- * A rocket launched due east from some latitude flies into an orbit tilted by that latitude, with
- * the launch site at the top of it. Luna's orbit is tilted by the Cape's latitude, so once a day,
- * as the planet carries the Cape round to the top of Luna's plane, a due-east launch goes straight
- * into Luna's plane and you don't have to spend anything turning into it later.
+ * When to launch for a moon. A due-east launch makes an orbit tilted by the site's latitude, with
+ * the site at its top. Luna's orbit is tilted by the Cape's latitude, so once a day a due-east
+ * launch goes straight into Luna's plane, with no plane change later.
  */
 object LaunchWindows {
 
     /**
-     * The universe time of the next window at or after [time]: when a due-east launch from [site]
-     * (a body-fixed unit direction on [body]) rises into the plane of [target]'s orbit around
-     * [body]. Null if [target] doesn't orbit [body].
+     * Universe time of the next window at or after [time]: when a due-east launch from [site] (a
+     * body-fixed unit direction on [body]) rises into the plane of [target]'s orbit. Null if
+     * [target] doesn't orbit [body].
      */
     fun next(body: CelestialBody, site: Vec3, target: CelestialBody, time: Double): Double? {
         val orbit = target.orbit ?: return null
         if (target.parentId != body.id) return null
         val normal = orbit.angularMomentum.normalized()
-        // The top of the target's plane, meaning the point on it furthest north.
+        // The northernmost point of the target's plane.
         val top = Vec3(0.0, 1.0, 0.0).addScaledInPlace(normal, -normal.y)
         if (top.lengthSq < 1e-12) return null
         top.normalizeInPlace()
@@ -34,7 +31,7 @@ object LaunchWindows {
             rotation.rotate(site, p)
             return p dot top
         }
-        // Once round roughly to find the best, then closer in around it.
+        // A coarse pass over a day, then a golden-section search around the best.
         val steps = 720
         var best = time
         var bestValue = -2.0

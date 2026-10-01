@@ -55,9 +55,8 @@ import kotlin.math.roundToInt
 import com.rm.apogee.platform.format
 
 /**
- * The STAGE button: round, with the next stage's number on it and the fuel of the stage burning now
- * as a ring round its edge, red for the last few percent. It's a target for your thumb, not a bar
- * across the view.
+ * The round STAGE button: the next stage's number, with the burning stage's fuel as a ring round
+ * the edge, red for the last few percent.
  */
 @Composable
 fun RoundStageButton(
@@ -106,9 +105,8 @@ fun RoundStageButton(
 }
 
 /**
- * The stages still to fire, folded into one small tab beside the STAGE button: the next one, what
- * it does, and how many more come after it. Tap it and it opens every stage in full (fuels, delta-v
- * and burn time) over the view, and tap it again to fold it away.
+ * A small tab beside STAGE: the next stage, what it does, and how many follow. A tap opens every
+ * stage in full over the view.
  */
 @Composable
 fun StageTab(
@@ -152,7 +150,7 @@ fun StageTab(
                 modifier = Modifier.size(14.dp),
             )
         }
-        // Over the view, not in the layout, so opening it doesn't move anything else.
+        // A popup, so opening it doesn't move anything else.
         if (expanded) {
             Popup(
                 alignment = Alignment.BottomCenter,
@@ -164,7 +162,7 @@ fun StageTab(
     }
 }
 
-/** Small print for the tab. It only gets glanced at, and every row costs view. */
+/** Small print for the tab. */
 private val ChipText = TelemetryTextStyle.copy(fontSize = 11.sp, lineHeight = 13.sp)
 
 /** The round STAGE button's size, and its fuel ring's width. */
@@ -176,8 +174,7 @@ private val RING = 5.dp
 private fun StageDetail(stages: List<StageCard>, onToggle: () -> Unit, width: Dp, modifier: Modifier = Modifier) {
     val scroll = rememberScrollState()
     LaunchedEffect(Unit) { scroll.scrollTo(scroll.maxValue) }
-    // Nearly opaque, unlike the chips. It lies over the navball and the stack, and through a scrim
-    // they read as clutter behind the numbers.
+    // Nearly opaque, so the navball and stack behind don't clutter the numbers.
     Surface(
         shape = RoundedCornerShape(Dimens.CornerPanel),
         color = ApogeeColors.Surface.alpha(0.95f),
@@ -254,10 +251,7 @@ private fun StageRow(card: StageCard) {
     }
 }
 
-/**
- * A fuel gauge: accent while there's plenty, caution under a fifth, and danger for the last few
- * percent.
- */
+/** A fuel gauge: accent, caution under a fifth, danger under 5%. */
 @Composable
 fun FuelBar(fraction: Float, modifier: Modifier = Modifier, track: Color = Color.White.alpha(0.15f), fill: Color? = null) {
     val colour = fill ?: when {

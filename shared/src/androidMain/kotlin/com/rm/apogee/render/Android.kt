@@ -37,9 +37,8 @@ class PngPictures(private val cacheRoot: File) : PictureStore {
 }
 
 /**
- * Chooses a tier from RAM, core count and the GL renderer string.
- *
- * It has to be called on the GL thread, because [GLES30.glGetString] needs a current context.
+ * Chooses a tier from RAM, core count and the GL renderer string. Call it on the GL thread, since
+ * [GLES30.glGetString] needs a current context.
  */
 fun QualityTier.Companion.detect(context: Context): QualityTier {
     val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager

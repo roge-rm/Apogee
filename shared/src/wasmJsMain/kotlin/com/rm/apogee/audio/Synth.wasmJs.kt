@@ -5,9 +5,8 @@ package com.rm.apogee.audio
 import kotlin.js.ExperimentalWasmJsInterop
 
 /**
- * The synth in a browser: the phone's synth built as WebAssembly (web/synth), running in an
- * AudioWorklet, with each call here sent over to it as a message. The page starts it without
- * waiting. If there's no synth.wasm next to the page, or no Web Audio, it's quietly silent.
+ * The synth in a browser: the phone's synth built as WebAssembly (web/synth) in an AudioWorklet,
+ * each call sent over as a message. Silent if there's no synth.wasm or no Web Audio.
  */
 internal actual object Synth {
     private var voices = 0
@@ -70,9 +69,8 @@ private fun setInt(array: JsAny, index: Int, value: Int): Unit = js("array[index
 private fun setFloat(array: JsAny, index: Int, value: Float): Unit = js("array[index] = value")
 
 /**
- * Makes the context and the worklet, and sends the calls to it once it's there, keeping all but
- * the scenes (a fresh one comes every frame) until then. A browser won't play anything until the
- * page has been touched or clicked, so the first touch, click or key starts it.
+ * Makes the context and worklet, queueing calls until it's ready (except scenes, which come every
+ * frame). Browsers won't play until the page is touched, so the first touch, click or key starts it.
  */
 private fun start(voiceBudget: Int, onVoices: (Int) -> Unit): Unit = js("""{
     const s = globalThis.__apogeeSynth || (globalThis.__apogeeSynth = { queue: [], node: null, ctx: null });

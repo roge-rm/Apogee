@@ -4,16 +4,9 @@ import com.rm.apogee.core.terrain.Noise
 import com.rm.apogee.core.terrain.SurfaceMaterial
 
 /**
- * What each kind of ground looks like, decided on the CPU when a mesh is built.
- *
- * Colour used to be worked out per pixel in the terrain shader from height and slope. It lives here
- * now, keyed by [SurfaceMaterial], because the material is what the collider grips by. Ground that
- * looks like ice has to *be* ice, and the only way to be sure of that is one classification feeding
- * both.
- *
- * There are only a few colours on purpose, with hard edges between them, because a low-poly look is
- * as much a small palette as it is big facets. There's also a small hashed variation per vertex,
- * which is what stops a hillside of identical triangles looking like a flat sheet of paint.
+ * What each kind of ground looks like, set on the CPU when a mesh is built. Keyed by
+ * [SurfaceMaterial], the same thing the collider grips by, so ground that looks like ice is ice.
+ * A small palette with hard edges, plus a little hashed variation per vertex.
  */
 object TerrainPalette {
 
@@ -33,7 +26,7 @@ object TerrainPalette {
             r = own[0]; g = own[1]; b = own[2]
         } else when (material) {
             SurfaceMaterial.GRASS -> {
-                // Three shades by height, like the shader had: lowland grass, meadow, and upland.
+                // Three shades by height: lowland, meadow and upland.
                 when {
                     elevation < 220.0 -> { r = 0.22f; g = 0.42f; b = 0.18f }
                     elevation < 520.0 -> { r = 0.30f; g = 0.46f; b = 0.20f }
@@ -66,8 +59,7 @@ object TerrainPalette {
             SurfaceMaterial.NITROGEN_ICE -> { r = 0.93f; g = 0.90f; b = 0.86f }
             SurfaceMaterial.THOLIN -> { r = 0.40f; g = 0.20f; b = 0.12f }
             SurfaceMaterial.TESSERA -> { r = 0.46f; g = 0.38f; b = 0.28f }
-            // The deep sea's floor: pale ooze, the dark of metal nodules scattered over it, and a
-            // vent's crust, rust and black.
+            // The deep sea floor: pale ooze, dark nodules, and rust-and-black vent crust.
             SurfaceMaterial.OOZE -> { r = 0.58f; g = 0.56f; b = 0.50f }
             SurfaceMaterial.NODULES -> { r = 0.30f; g = 0.28f; b = 0.26f }
             SurfaceMaterial.VENT_CRUST -> {
@@ -75,8 +67,7 @@ object TerrainPalette {
                 r = 0.45f - 0.28f * t; g = 0.24f - 0.14f * t; b = 0.14f - 0.07f * t
             }
         }
-        // +-6% brightness, fixed per vertex. It's hashed instead of random so the same ground looks
-        // the same every time it's built.
+        // +-6% brightness per vertex, hashed so it's the same every build.
         val jitter = 0.94f + 0.12f * Noise.hash(JITTER_SEED, jitterKey, 0, 0).toFloat()
         out[offset] = r * jitter
         out[offset + 1] = g * jitter
@@ -102,10 +93,7 @@ object TerrainPalette {
 
     private fun rgb(r: Float, g: Float, b: Float) = floatArrayOf(r, g, b)
 
-    /**
-     * Where a world's rock, dust or ice isn't the same colour as Terra's and Luna's: Rubra's rock
-     * is rusty, Cicatrix's regolith nearly black, Crusta's ice cream, and Aversa's nitrogen pink.
-     */
+    /** Worlds whose ground differs in colour from Terra's and Luna's. */
     private val WORLD_COLOURS: Map<String, Map<SurfaceMaterial, FloatArray>> = mapOf(
         "celer" to mapOf(
             SurfaceMaterial.REGOLITH to rgb(0.42f, 0.40f, 0.38f),

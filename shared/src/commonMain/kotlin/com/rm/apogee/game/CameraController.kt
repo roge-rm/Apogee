@@ -8,34 +8,24 @@ import kotlin.math.cos
 import kotlin.math.sin
 import com.rm.apogee.platform.System
 
-/**
- * Where "up" comes from when the camera builds its frame.
- */
+/** Where "up" comes from when the camera builds its frame. */
 enum class UpReference {
     /**
-     * Away from the origin of the current frame, which is the planet's centre. This is right in
-     * flight. A world-fixed camera looks fine on the launch pad and then slowly rolls onto its side
-     * as the craft travels around the planet, because "up" is a different direction ten degrees of
-     * longitude later.
+     * Away from the frame's origin, the planet's centre. Right for flight: a world-fixed up would
+     * slowly roll the view onto its side as the craft travels round the planet.
      */
     RADIAL,
 
     /**
-     * A fixed axis, [CameraController.fixedUp], which is world +Y unless told otherwise. This is
-     * right in the builder, where there's no planet and the design sits near the origin, and where
-     * a horizontal design wants its own +Z shown as up.
-     *
-     * Using RADIAL here is actually wrong, not just arbitrary. A craft whose parts hang below the
-     * origin has a centre at negative Y, so "away from the origin" points *down* and the whole
-     * craft draws upside down.
+     * A fixed axis, [CameraController.fixedUp], world +Y unless set. Right for the builder, where
+     * there's no planet and a horizontal design wants its +Z shown as up. RADIAL would be wrong
+     * there: a craft hanging below the origin has its centre at negative Y, so it'd draw upside
+     * down.
      */
     FIXED,
 }
 
-/**
- * How the flight camera follows the craft. The camera button on the flight screen goes through
- * them in turn, and C does on a keyboard.
- */
+/** How the flight camera follows the craft. The camera button (C on a keyboard) cycles them. */
 enum class CameraMode(val label: String) {
     /** Round the craft, keeping its compass direction as the craft turns under it. */
     FREE("Free"),
@@ -52,9 +42,7 @@ enum class CameraMode(val label: String) {
     fun next(): CameraMode = entries[(ordinal + 1) % entries.size]
 }
 
-/**
- * An orbit camera that stays with a craft, in one of the [CameraMode]s.
- */
+/** An orbit camera that stays with a craft, in one of the [CameraMode]s. */
 class CameraController(
     private val upReference: UpReference = UpReference.RADIAL,
     private val minDistance: Double = 5.0,
@@ -94,9 +82,9 @@ class CameraController(
     fun orbitBy(deltaYaw: Double, deltaPitch: Double) {
         when (mode) {
             CameraMode.FREE, CameraMode.LOCKED -> { yaw += deltaYaw; pitch += deltaPitch }
-            // Looking round from behind, and it swings back once you let go.
+            // Looking round from behind; it swings back once you let go.
             CameraMode.CHASE -> { lookYaw += deltaYaw; pitch += deltaPitch; lookedNanos = System.nanoTime() }
-            // Turning your head, the other way from a drag, as if you'd pulled the view.
+            // Turning your head: opposite to the drag, as if you'd pulled the view.
             CameraMode.COCKPIT -> {
                 lookYaw -= deltaYaw
                 lookPitch = (lookPitch - deltaPitch).coerceIn(-HEAD_PITCH, HEAD_PITCH)
@@ -114,7 +102,7 @@ class CameraController(
             chaseHeading = Double.NaN
         }
 
-    // Looking round in chase and from the cockpit, eased back to straight ahead after a moment.
+    // Looking round in chase and cockpit, eased back to straight ahead after a moment.
     private var lookYaw = 0.0
     private var lookPitch = 0.0
     private var lookedNanos = 0L
@@ -126,9 +114,9 @@ class CameraController(
     private val look = Vec3()
 
     /**
-     * Places the camera for [mode] on a craft whose middle is at [target] (attractor frame), turned
-     * [craft], with [forward] and [upward] its own ahead and up in its design's axes, and [seat]
-     * where its pilot sits (for the cockpit), or null to use the middle.
+     * Places the camera for [mode] on a craft centred at [target] (attractor frame), turned
+     * [craft]. [forward] and [upward] are its ahead and up in design axes, and [seat] is the
+     * pilot's seat (for the cockpit), or null to use the middle.
      */
     fun solve(
         target: Vec3, craft: Quat, forward: Vec3, upward: Vec3, seat: Vec3?,
@@ -137,7 +125,7 @@ class CameraController(
         val now = System.nanoTime()
         val dt = if (solvedNanos == 0L) 0.0 else ((now - solvedNanos) / 1e9).coerceIn(0.0, 0.1)
         solvedNanos = now
-        // Let go a moment, and the view eases back to straight ahead.
+        // Let go a moment and the view eases back to straight ahead.
         if (now - lookedNanos > LOOK_HOLD_NANOS) {
             val back = kotlin.math.exp(-dt / LOOK_EASE)
             lookYaw *= back; lookPitch *= back
@@ -146,8 +134,8 @@ class CameraController(
             CameraMode.FREE -> solve(target, outPosition, outRotation)
             CameraMode.CHASE -> {
                 frame(target)
-                // Its heading along the ground: the nose, or for a craft built standing up, which
-                // way it's leaning. Nearly straight up, it keeps the heading it had.
+                // Heading along the ground: the nose, or for a craft built standing up, its lean.
+                // Nearly straight up, it keeps the heading it had.
                 craft.rotate(if (upward.y > 0.5) upward else forward, craftAhead)
                 craftAhead.addScaledInPlace(up, -(craftAhead dot up))
                 if (craftAhead.length > HEADING_LEAST) {
@@ -163,7 +151,7 @@ class CameraController(
                 craft.rotate(upward, craftUp).normalizeInPlace()
                 craft.rotate(forward, craftAhead).normalizeInPlace()
                 craftRight.setTo(craftAhead).crossInPlace(craftUp)
-                // Behind it, swung round its up by the yaw, and up by the pitch, all in its axes.
+                // Behind it, swung round its up by yaw and up by pitch, all in its axes.
                 look.setTo(craftAhead).mulInPlace(-cos(yaw)).addScaledInPlace(craftRight, sin(yaw))
                 look.mulInPlace(cos(pitch)).addScaledInPlace(craftUp, sin(pitch)).mulInPlace(distance)
                 outPosition.setTo(target).addInPlace(look)
@@ -171,7 +159,7 @@ class CameraController(
                 quatLookAt(look, craftUp, outRotation)
             }
             CameraMode.COCKPIT -> {
-                // A rocket's pilot looks up its nose, and anyone else out ahead.
+                // A rocket's pilot looks up its nose; anyone else looks ahead.
                 val lying = upward.y < 0.5
                 craft.rotate(if (lying) upward else forward, craftUp).normalizeInPlace()
                 craft.rotate(if (lying) forward else upward, craftAhead).normalizeInPlace()
@@ -193,8 +181,7 @@ class CameraController(
     }
 
     /**
-     * Places the camera relative to [target], which is in the attractor's frame, and aims it back
-     * at the craft.
+     * Places the camera relative to [target] (attractor frame) and aims it back at the craft.
      *
      * @param outPosition receives the camera position.
      * @param outRotation receives the camera orientation.
@@ -206,8 +193,6 @@ class CameraController(
 
     /** The frame at [target]: up, and east and north to swing the camera round in. */
     private fun frame(target: Vec3) {
-        // Build a local frame at the craft: up, plus two tangent directions to swing the camera
-        // around in.
         when (upReference) {
             UpReference.RADIAL -> {
                 up.setTo(target).normalizeInPlace()
@@ -216,10 +201,9 @@ class CameraController(
             UpReference.FIXED -> up.setTo(fixedUp)
         }
 
-        // North carried on from the last frame and straightened against the new up, instead of
-        // taken from the planet's axis again. Near a pole that has to switch to some other axis,
-        // and the swap turned the whole view in one frame, twice on the way over. I caught it on
-        // video at 4x, flying north across the polar cap.
+        // North is carried on from the last frame and straightened against the new up, not taken
+        // from the planet's axis again. Near a pole that would swap axes and snap the whole view in
+        // one frame.
         if (carried) {
             north.setTo(carriedNorth).addScaledInPlace(up, -(carriedNorth dot up))
         }
@@ -251,10 +235,8 @@ class CameraController(
     }
 
     /**
-     * Frames a craft of the given size, but only widens. It never zooms back in.
-     *
-     * It only goes one way so that a craft growing as it's put together stays in view, without
-     * yanking the camera back every time the player zooms in on purpose to place a small part.
+     * Frames a craft of the given size, but only widens, so a craft growing in the builder stays in
+     * view without undoing the player's zoom on a small part.
      */
     fun frameAtLeast(craftSize: Double) {
         val wanted = (craftSize * 1.8 + 6.0).coerceIn(minDistance, maxDistance)
@@ -262,16 +244,15 @@ class CameraController(
     }
 
     /**
-     * For a craft that has just got much smaller, like a pod left over from a crash. It comes in to
-     * frame it if the camera is now far too far out for it, and otherwise leaves the player's zoom
-     * alone.
+     * For a craft that just got much smaller, like a pod left from a crash. Comes in to frame it if
+     * the camera is far too far out, and otherwise leaves the zoom alone.
      */
     fun frameShrunk(craftSize: Double) {
         val wanted = (craftSize * 1.8 + 6.0).coerceIn(minDistance, maxDistance)
         if (distance > wanted * 2.0) distance = wanted
     }
 
-    /** Frames a craft of this size, closer or further, so it's back to the whole of it. */
+    /** Frames a craft of this size, closer or further, to show all of it. */
     fun frameFor(craftSize: Double) {
         distance = (craftSize * 1.8 + 6.0).coerceIn(minDistance, maxDistance)
     }
@@ -282,7 +263,7 @@ class CameraController(
     }
 
     private companion object {
-        /** How long a look round is held after letting go, and how quickly it then eases back. */
+        /** How long a look round is held after letting go, and how fast it then eases back. */
         const val LOOK_HOLD_NANOS = 1_500_000_000L
         const val LOOK_EASE = 0.5
 

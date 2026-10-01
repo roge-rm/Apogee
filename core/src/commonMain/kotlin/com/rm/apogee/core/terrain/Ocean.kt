@@ -6,17 +6,9 @@ import com.rm.apogee.core.sea.SeaSample
 import kotlin.concurrent.Volatile
 
 /**
- * The sea: where its surface is, and what it's made of.
- *
- * This is the one definition of the water surface, the same way [TerrainField] is the one
- * definition of the ground. Buoyancy samples it at every point under water on every hull, and the
- * renderer builds the sea's shape by sampling it too, so a craft can never float on water that
- * isn't where it's drawn. It's a function of position, time and seed that gives the same answer on
- * every machine, for the same reason terrain does: the server and every client work it out on their
- * own.
- *
- * Its tides and waves are its [sea], tied by the world that owns it to that world's weather and
- * moon. Without that, it lies flat at the datum.
+ * The sea: where its surface is and its density. The one definition of the water surface, sampled
+ * by buoyancy and the renderer alike, and the same on every machine. Tides and waves come from
+ * [sea]; without it the sea lies flat at the datum.
  */
 class Ocean(
     /** Kilograms per cubic metre. Sea water, not fresh. */
@@ -26,13 +18,16 @@ class Ocean(
     @Volatile var sea: Sea? = null
 
     /**
-     * The height of the water surface above the datum, in metres, at a **body-fixed** position (any
-     * length, since only its direction counts) and a world time. See
-     * [com.rm.apogee.core.orbit.CelestialBody.surfaceRadiusInBodyFrame] for why it's body-fixed.
+     * The height of the water surface above the datum, in metres, at a body-fixed position (any
+     * length; only direction counts) and world time. See
+     * [com.rm.apogee.core.orbit.CelestialBody.surfaceRadiusInBodyFrame] for why body-fixed.
      */
     fun surfaceHeight(bodyFixed: Vec3, time: Double): Double = sea?.height(bodyFixed, time) ?: 0.0
 
-    /** The waves over a craft at body-fixed [bodyFixed] at [time], into [out]. See [com.rm.apogee.core.sea.WavePatch]. */
+    /**
+     * The waves over a craft at body-fixed [bodyFixed] at [time], into [out]. See
+     * [com.rm.apogee.core.sea.WavePatch].
+     */
     fun patch(bodyFixed: Vec3, time: Double, out: com.rm.apogee.core.sea.WavePatch): com.rm.apogee.core.sea.WavePatch {
         val s = sea
         if (s != null) return s.patch(bodyFixed, time, out)

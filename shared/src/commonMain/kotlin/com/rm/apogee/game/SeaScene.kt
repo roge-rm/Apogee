@@ -17,20 +17,18 @@ import kotlin.concurrent.Volatile
 import com.rm.apogee.platform.synchronized
 
 /**
- * The sea to draw, sampled from the same [Sea] the physics floats boats on, around the camera, on a
- * worker.
+ * The sea to draw round the camera, sampled on a worker from the same [Sea] the physics floats
+ * boats on.
  *
- * It's laid out on the ground, not around the craft: square grids nested one inside the other, each
- * twice as coarse as the one inside it, finest around the camera and coarsest out at [reach]. Every
- * vertex sits on a fixed point of the planet (a lattice in the same cube-face coordinates the
- * terrain uses), and each grid only moves by whole cells of the one outside it, so the facets stay
- * where they are on the water as the camera flies over. There's no centre to it. It used to be
- * rings around the craft, and the rings (and from high up, the fan they collapsed into) showed as
- * a pattern that followed it wherever it went.
+ * It's laid out on the ground: square grids nested inside each other, each twice as coarse as the
+ * one inside, finest at the camera and coarsest out at [reach]. Every vertex is a fixed point on
+ * the planet (a lattice in the terrain's cube-face coordinates) and each grid moves only by whole
+ * cells of the one outside it, so facets stay put on the water as the camera flies over, with no
+ * pattern following the craft.
  *
- * Where two grids meet, the finer one's edge takes its points from the coarser one, so they join
- * without a crack. Waves too short to show at a grid's spacing are left out there, because they'd
- * only alias. From high up, the finest grids aren't drawn at all.
+ * Where two grids meet, the finer one's edge takes its points from the coarser, so there's no
+ * crack. Waves too short for a grid's spacing are left out there, since they'd only alias. From
+ * high up, the finest grids aren't drawn.
  */
 class SeaScene(
     val body: CelestialBody,
@@ -40,8 +38,7 @@ class SeaScene(
     private val scope: kotlinx.coroutines.CoroutineScope,
 ) {
     /**
-     * For building, off the frame thread: one for each of the workers that share a build, since a
-     * sea keeps caches that aren't for sharing.
+     * For building off the frame thread: one per worker, since a sea's caches aren't thread safe.
      */
     private val builders = Array(WORKERS) { Builder(Sea(body, moon, config?.let { Weather(body, it) }, config?.seed ?: 0)) }
 
@@ -59,7 +56,9 @@ class SeaScene(
         QualityTier.HIGH -> 20_000.0
     }
 
-    /** Cells along each side of a grid. A multiple of four, so each grid sits on the next one's lines. */
+    /**
+     * Cells along each side of a grid. A multiple of four, so each grid sits on the next's lines.
+     */
     private val cells = when (tier) {
         QualityTier.LOW -> 24
         QualityTier.MEDIUM -> 32
@@ -72,7 +71,7 @@ class SeaScene(
     private val finest = if (tier == QualityTier.LOW) 1.0 else 0.5
 
     /**
-     * How many grids, finest to coarsest, it takes to reach [reach], with room to spare: toward a
+     * How many grids, finest to coarsest, it takes to reach [reach] with room to spare: toward a
      * face's corners the lattice is up to a third finer than at its middle.
      */
     private val levels: Int = run {
@@ -93,8 +92,8 @@ class SeaScene(
             .normalizeInPlace()
 
     /**
-     * Which cube face the grids are laid out on, and its axes: [faceAxis] out through its middle,
-     * [faceU] and [faceV] across it. It only changes when the camera is well over the edge of it.
+     * The cube face the grids are laid on and its axes: [faceAxis] out through its middle, [faceU]
+     * and [faceV] across it. Changes only when the camera is well over its edge.
      */
     @Volatile private var face = -1
     private val faceAxis = Vec3()
@@ -102,11 +101,10 @@ class SeaScene(
     private val faceV = Vec3()
 
     /**
-     * What the sea is like at each lattice point (depth, tide, how big each wave train is there),
-     * kept from build to build, per grid. It changes over tens of metres and seconds, whereas the
-     * waves change every frame, so it's only worked out again once it's old. The points are fixed
-     * on the ground, so they're kept by where they are, in a small wrap-around table per grid.
-     * See [Sea.Prepared].
+     * The sea state at each lattice point (depth, tide, each wave train's size), kept between
+     * builds per grid. It changes over tens of metres and seconds while waves change every frame,
+     * so it's only redone once old. Points are fixed on the ground, so they're kept by position in
+     * a small wrap-around table per grid. See [Sea.Prepared].
      */
     private val table = side + 4
     private val prepared = Array(levels) { arrayOfNulls<Sea.Prepared>(table * table) }
@@ -117,10 +115,7 @@ class SeaScene(
     @Volatile var latest: SeaSurface? = null
         private set
 
-    /**
-     * Whether [latest] is a sea that's been worked out, as opposed to the flat stand-in drawn until
-     * the first one is.
-     */
+    /** Whether [latest] is a worked-out sea, not the flat stand-in drawn until the first one is. */
     @Volatile var built = false
         private set
     @Volatile private var building = false
@@ -129,27 +124,25 @@ class SeaScene(
     private var lastStartedNanos = 0L
 
     /**
-     * Asks for the sea around body-fixed [centre] at [time], if one isn't already being built. It's
-     * built for a moment ahead, by as long as the last one took and half the wait till the next, so
-     * it's drawn nearly on time. [warp] is how fast the world's clock runs: at 4x a build's tenth of
-     * a second is almost half a second of waves, and built for real time it was drawn that far
-     * behind, with a boat riding the real sea under it.
+     * Asks for the sea round body-fixed [centre] at [time], unless one's already building. It's
+     * built for a moment ahead (the last build's time plus half the wait till the next) so it's
+     * drawn nearly on time. [warp] is the world clock's rate: at 4x a tenth-second build is nearly
+     * half a second of waves, so it has to be built that far ahead to match the sea the boats ride.
      */
     fun update(centre: Vec3, time: Double, warp: Double = 1.0, behind: Boolean = false) {
         if (building) return
-        // Nothing to draw yet, so flat water straight away while the first real sea is worked out,
-        // instead of a second or more of bare seabed.
+        // Nothing to draw yet: flat water at once while the first real sea is worked out, not bare
+        // seabed.
         if (latest == null) latest = placeholder(centre, time)
-        // Ten a second is plenty. The renderer carries each one on for a moment by how fast its
-        // water is rising, and building back to back kept two cores busy for nothing.
+        // Ten a second is plenty. The renderer carries each forward by how fast its water is
+        // rising.
         val now = System.nanoTime()
         if (now - lastStartedNanos < (if (behind) BEHIND_BUILD_NANOS else MIN_BUILD_NANOS)) return
         lastStartedNanos = now
         building = true
         val at = centre.copy()
-        // No more than [MAX_AHEAD] ahead. A slow build (the first, in a new place) would otherwise
-        // send the next one so far on that every vertex's prepared sea would be stale by then,
-        // which would make it slow in turn.
+        // No more than [MAX_AHEAD] ahead. A slow first build would otherwise send the next one so
+        // far on that every prepared point would be stale, making it slow in turn.
         val rate = warp.coerceAtLeast(1.0)
         val gap = if (behind) BEHIND_BUILD_NANOS else MIN_BUILD_NANOS
         val ahead = time + kotlin.math.min((lastBuildMillis / 1_000.0 + gap / 2e9) * rate, MAX_AHEAD * rate)
@@ -159,8 +152,8 @@ class SeaScene(
                 latest = kotlinx.coroutines.coroutineScope { build(this, at, ahead) }
                 built = true
                 lastBuildMillis = (System.nanoTime() - started) / 1e6
-                // The sea state around the craft for the next while, worked out here instead of by
-                // the flight's own step when it gets there.
+                // The sea state round the craft for the next while, worked out here rather than in
+                // the flight step when it gets there.
                 builders[0].sea.prefetch(at, ahead)
             } finally {
                 building = false
@@ -185,8 +178,8 @@ class SeaScene(
 
         /**
          * Lattice point ([gi], [gj]) of grid [level] into vertex [index] of [out]. Past [deadline]
-         * (ns), one that isn't [near] isn't prepared any more. It keeps what it was last prepared
-         * with, if it has been, or it's drawn as flat water at [tide].
+         * (ns), a point that isn't [near] isn't prepared any more: it keeps its last preparation,
+         * or is drawn as flat water at [tide].
          */
         fun vertex(
             out: FloatArray, index: Int, origin: Vec3, level: Int, gi: Int, gj: Int, time: Double,
@@ -214,10 +207,9 @@ class SeaScene(
                 }
             }
             sea.surface(direction, time, p, sample, spacing)
-            // Over dry land, sunk under it. Left at the tide's height, the coarse water far off and
-            // the coarse ground crossed each other facet by facet along every low coast, which
-            // looked like a speckle of sea and sand from high up. I noticed it and didn't like it.
-            // Sunk, the coast is where they cross.
+            // Over dry land, sunk under it. At tide height the coarse far water and coarse ground
+            // cross facet by facet along low coasts and speckle from high up; sunk, the coast is
+            // where they cross.
             val height = if (sample.depth <= 0.0) {
                 minOf(sample.height, sample.tide - sample.depth - kotlin.math.max(DRY_SINK, DRY_SINK_SHARE * spacing))
             } else sample.height
@@ -231,7 +223,7 @@ class SeaScene(
             out[o + 10] = sample.rise.toFloat()
         }
 
-        /** Vertex [index] at [direction] as open water, flat at [tide], until there's time to work it out. */
+        /** Vertex [index] as open water, flat at [tide], until there's time to work it out. */
         private fun flat(out: FloatArray, index: Int, origin: Vec3, tide: Double) {
             flatVertex(out, index, direction, origin, body.radius + tide)
         }
@@ -249,9 +241,8 @@ class SeaScene(
     }
 
     /**
-     * The grids for a build: which is the finest drawn, where each one's middle is (as a lattice
-     * index, always even, so it sits on the next one's lines), and the point the vertices are
-     * measured from.
+     * The grids for a build: the finest drawn, each one's middle as a lattice index (always even,
+     * so it sits on the next one's lines), and the point vertices are measured from.
      */
     private inner class Layout(centre: Vec3) {
         val first: Int
@@ -265,8 +256,8 @@ class SeaScene(
             val along = up dot faceAxis
             val u = CubeSphere.unwarp((up dot faceU) / along)
             val v = CubeSphere.unwarp((up dot faceV) / along)
-            // Seen from well above, the finest grids are finer than anything you can make out, and
-            // cost the most to keep up with a fast camera, so they're left out.
+            // From well above, the finest grids are finer than you can see and cost the most with a
+            // fast camera, so they're left out.
             val height = kotlin.math.max(0.0, centre.length - body.radius)
             var k = 0
             while (k < levels - 1 && spacing(k) < height * FINEST_SHARE) k++
@@ -318,10 +309,9 @@ class SeaScene(
                     if (!drawn(level, i, j)) continue
                     val a = index(level, i, j); val b = index(level, i + 1, j)
                     val c = index(level, i, j + 1); val d = index(level, i + 1, j + 1)
-                    // Counterclockwise seen from above: U, then V. Each triangle takes its colour
-                    // from its last corner, so the two end on different ones, c and b, as the
-                    // ground's do. Both used to end on c, and the sea came out in squares next to
-                    // the ground's triangles.
+                    // Counterclockwise from above: U, then V. Each triangle takes its colour from
+                    // its last corner, so the two end on different ones (c and b), as the ground's
+                    // do; otherwise the sea shows in squares beside the ground's triangles.
                     list.add(a); list.add(b); list.add(c)
                     list.add(d); list.add(c); list.add(b)
                 }
@@ -355,8 +345,8 @@ class SeaScene(
     }
 
     /**
-     * Picks the cube face to lay the grids on for a camera over unit [up]. It keeps the one it has
-     * until the camera is well past its edge, so the grids don't jump from face to face along it.
+     * Picks the cube face for the grids under a camera over unit [up]. Keeps the current one until
+     * the camera is well past its edge, so the grids don't jump back and forth.
      */
     private fun chooseFace(up: Vec3) {
         if (face >= 0) {
@@ -382,8 +372,8 @@ class SeaScene(
     }
 
     /**
-     * Vertex arrays the GPU is done with, to build into again. A new one ten times a second was
-     * the better part of a megabyte, all of it for the collector.
+     * Vertex arrays the GPU is done with, to build into again rather than churn a megabyte ten
+     * times a second.
      */
     private val spare = com.rm.apogee.core.ConcurrentQueue<FloatArray>()
     private val giveBack: (FloatArray) -> Unit = { if (spare.size < SPARES) spare.add(it) }
@@ -405,10 +395,9 @@ class SeaScene(
             b.sea.prepare(cameraUp, time, spacing(layout.first), Sea.Prepared()).let { p -> b.sea.surface(cameraUp, time, p, b.sample, spacing(layout.first)) }
         }
         val tide = builders[0].sample.tide
-        // Somewhere new (the first build, or flying fast over fresh sea), the sea state out there
-        // takes seconds to work out while the terrain is being built too. The water near the camera
-        // is always worked out. Further off, it's only worked out for so long, and the rest gets
-        // filled in by the builds that follow, drawn as flat water in the meantime.
+        // Somewhere new (the first build, or flying fast over fresh sea) the outer sea state takes
+        // seconds while terrain builds too. Near the camera it's always worked out; further off
+        // only within a budget, with later builds filling in and flat water meanwhile.
         val deadline = System.nanoTime() + OUTER_BUDGET_NANOS
         // Rows are dealt out in turn, so each worker gets near and far alike.
         val rows = ArrayList<Pair<Int, Int>>()
@@ -422,7 +411,7 @@ class SeaScene(
                     val h = spacing(level)
                     for (i in 0..cells) {
                         if (!layout.used(level, i, j) || layout.edge(level, i, j)) continue
-                        // How far from the camera, roughly, for what has to be worked out now.
+                        // Roughly how far from the camera, for what has to be worked out now.
                         val di = (si + i - layout.middleI[layout.first]) * h
                         val dj = (sj + j - layout.middleJ[layout.first]) * h
                         val near = di * di + dj * dj <= NEAR_REACH * NEAR_REACH
@@ -433,9 +422,8 @@ class SeaScene(
             }
         }
         jobs.forEach { it.await() }
-        // Each grid's edge from the grid outside it: on its points exactly, and halfway between
-        // them where the finer grid has a point the coarser one doesn't. That way they meet with
-        // no crack.
+        // Each grid's edge from the grid outside: on its points exactly, and halfway between where
+        // the finer grid has an extra point, so they meet with no crack.
         for (level in layout.first until levels - 1) {
             val si = layout.startI(level); val sj = layout.startJ(level)
             val ci = layout.startI(level + 1); val cj = layout.startJ(level + 1)
@@ -463,9 +451,8 @@ class SeaScene(
     }
 
     /**
-     * The grids laid flat at the datum in deep water's colour, around body-fixed [centre]. No sea
-     * is worked out at all, so it's quick enough for the frame thread. It's only used until the
-     * first build lands.
+     * The grids laid flat at the datum in deep water's colour round body-fixed [centre]. No sea is
+     * worked out, so it's quick enough for the frame thread. Only used until the first build lands.
      */
     private fun placeholder(centre: Vec3, time: Double): SeaSurface {
         val layout = Layout(centre)
@@ -483,9 +470,9 @@ class SeaScene(
     }
 
     /**
-     * The water's colour here, and how see-through it is: deep blue out at sea, turquoise over the
-     * shallows (clear enough there to see the bottom), lighter on the crests, grey-green under a
-     * storm, and white where it breaks, with whitecaps, storm crests, and surf along the shore.
+     * The water's colour and opacity here: deep blue at sea, turquoise and clear over the shallows,
+     * lighter on crests, grey-green under a storm, and white where it breaks (whitecaps, storm
+     * crests, surf).
      */
     private fun colour(s: SeaSample, at: Vec3, out: FloatArray, o: Int, spacing: Double) {
         val depth = s.depth
@@ -498,22 +485,20 @@ class SeaScene(
             // Liquid methane: dark and brown, glassy, and amber over the shallows.
             r = 0.06 + 0.10 * shallow; g = 0.045 + 0.07 * shallow; b = 0.025 + 0.03 * shallow
         }
-        // Crests are lighter and greener, where the light comes through them.
+        // Crests are lighter and greener, where light comes through.
         val crest = if (s.significantHeight > 0.05) smooth(0.1, 0.6, (s.height - s.tide) / s.significantHeight) else 0.0
         if (!methane) { r += 0.03 * crest; g += 0.09 * crest; b += 0.05 * crest }
         // A storm sea: grey and hard.
         val storm = smooth(1.0, 8.0, s.stormHeight)
         r += (STORM_R - r) * storm * 0.7; g += (STORM_G - g) * storm * 0.7; b += (STORM_B - b) * storm * 0.7
-        // Foam's ragged edge: each facet foams or doesn't by its own hash, against how much foam
-        // there is. The grain is never finer than the grid, so far off it isn't noise.
+        // Foam's ragged edge: each facet foams or not by its own hash against the foam amount. The
+        // grain is never finer than the grid, so it isn't noise far off.
         val r0 = body.radius / kotlin.math.max(1.0 / FOAM_GRAIN, spacing)
         val speckle = com.rm.apogee.core.terrain.Noise.hash(
             0xF0A, Math.floor(at.x * r0).toInt(), Math.floor(at.y * r0).toInt(), Math.floor(at.z * r0).toInt(),
         )
-        // Foam (surf, waves breaking in the shallows, whitecaps and storm crests) only where the
-        // grid is fine enough to draw it, fading out as the facets get coarser. Out where they're
-        // tens of metres apart, each white facet was a big grey diamond, and a shore wore a solid
-        // band of them with a staircase edge. Out there it's only a paler tint.
+        // Foam only where the grid is fine enough to draw it, fading as facets coarsen. Far out
+        // each white facet would be a big grey diamond, so there it's only a paler tint.
         val fine = 1.0 - smooth(SURF_SPACING, SURF_SPACING * 2.5, spacing)
         val surf = if (depth in 0.0..1.2 && s.significantHeight > 0.2) 1.0 - depth / 1.2 else 0.0
         val breaking = kotlin.math.max(s.breaking, surf)
@@ -558,16 +543,15 @@ class SeaScene(
         const val BEHIND_BUILD_NANOS = 200_000_000L
 
         /**
-         * The sea's own threads, just below normal priority, instead of the shared pool. A build is
-         * long and never pauses, and together with the terrain and scatter workers it could take
-         * every thread the shared pool has on a four-core phone, including the game server's, and
-         * the world would stop.
+         * The sea's own threads, just below normal priority, not the shared pool. A build is long
+         * and never pauses, and with terrain and scatter it could take every shared thread on a
+         * four-core phone, including the game server's, and stop the world.
          */
         val BUILD = workerPool("sea-build", WORKERS)
 
         /**
-         * A grid's [Sea.Prepared] is worked out again once it's this many seconds old (half as long
-         * again, staggered).
+         * A grid's [Sea.Prepared] is redone once it's this many seconds old (up to half again,
+         * staggered).
          */
         const val REPREPARE_SECONDS = 3.0
 
@@ -578,8 +562,8 @@ class SeaScene(
         const val FINEST_SHARE = 0.005
 
         /**
-         * How far past its face's edge, in face coordinates (1 is the edge), the camera can go
-         * before the grids move to the next face.
+         * How far past its face's edge, in face coordinates (1 is the edge), the camera goes before
+         * the grids move face.
          */
         const val FACE_KEEP = 1.15
 
@@ -592,21 +576,21 @@ class SeaScene(
         const val FOAM = 0.93; const val FOAM_B = 0.97
 
         /**
-         * Water over dry land is drawn this far under it, in metres, or this share of the grid's
-         * spacing if that's more.
+         * Water over dry land is drawn this far under it, in metres, or this share of grid spacing
+         * if more.
          */
         const val DRY_SINK = 2.0
         const val DRY_SINK_SHARE = 0.03
 
         /**
-         * Surf is drawn fully where the grid is finer than this, in metres, and fades out by two
-         * and a half times it.
+         * Surf is drawn fully where the grid is finer than this, in metres, fading out by 2.5 times
+         * it.
          */
         const val SURF_SPACING = 25.0
 
         /**
-         * How far over the foam amount a facet's speckle can be and still be white. Over 1, so the
-         * middle of a breaking crest is solid white and only its edges are ragged.
+         * How far over the foam amount a facet's speckle can be and still be white. Over 1, so a
+         * breaking crest's middle is solid and only its edges are ragged.
          */
         const val FOAM_COVER = 1.15
 
@@ -619,22 +603,19 @@ class SeaScene(
 }
 
 /**
- * How much foam there is on the sea, 0..1, where it's breaking. It rides the waves: solid along
- * each breaking crest, thinning to lace behind it as the water falls away, and none in the trough
- * ahead of the next. Across the whole surf zone at once, and fixed to the ground, it was a
- * checkerboard of grey and green triangles that never moved, and I didn't think it looked like
- * surf.
+ * How much foam there is where the sea breaks, 0..1. It rides the waves: solid along each breaking
+ * crest, thinning to lace behind as the water falls away, none in the trough ahead.
  */
 internal object SurfFoam {
     /**
-     * [breaking] from the sea, where on the wave this is as [crest] (its height over the tide in
-     * significant heights: about 0.5 on a crest and -0.5 in a trough), how fast the water is rising
-     * there, [rise], and the swash at the waterline, [swash], which is white all the way.
+     * [breaking] from the sea; [crest] is the height over the tide in significant heights (about
+     * 0.5 on a crest, -0.5 in a trough); [rise] is how fast the water is rising; [swash] at the
+     * waterline is white all the way.
      */
     fun amount(breaking: Double, crest: Double, rise: Double, swash: Double): Double {
         if (breaking <= 0.0) return swash
         val onCrest = smooth(0.05, 0.35, crest)
-        // Behind a crest the water is falling, and the foam it left is thinning out.
+        // Behind a crest the water's falling and its foam is thinning.
         val trail = if (rise < 0.0) 0.5 * smooth(-0.35, 0.05, crest) else 0.0
         return maxOf(swash, breaking * maxOf(onCrest, trail))
     }

@@ -16,8 +16,8 @@ actual fun displayCutouts(): List<Rect> {
     val view = LocalView.current
     val density = LocalDensity.current
     val direction = LocalLayoutDirection.current
-    // Reading the cutout's insets here is what brings this back round when they change: on
-    // turning the phone, or when the window starts or stops reaching into the cutout.
+    // Reading the insets here recomposes this when they change: on rotation, or when the window
+    // starts or stops reaching into the cutout.
     val insets = WindowInsets.displayCutout
     val key = listOf(
         insets.getLeft(density, direction), insets.getTop(density),

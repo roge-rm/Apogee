@@ -8,13 +8,8 @@ import kotlin.math.sqrt
 import com.rm.apogee.core.math.Math
 
 /**
- * Low-poly shapes for scatter, one per [ScatterKind].
- *
- * Each is twenty to fifty triangles, faceted (every triangle has its own three vertices and its own
- * normal, the same flat look as the ground), and coloured per vertex, so a tree is a brown trunk
- * under a green crown without a texture. They're built at unit size in a local frame with +Y up.
- * The renderer scales each instance by its kind's usual size and its own variation, and turns it
- * about the vertical.
+ * Low-poly shapes for scatter, one per [ScatterKind]: 20 to 50 flat-shaded triangles, coloured per
+ * vertex, +Y up. The renderer scales and turns each instance about the vertical.
  */
 object ScatterMeshes {
 
@@ -96,10 +91,7 @@ object ScatterMeshes {
         }
     }
 
-    /**
-     * A kind's mesh, at size 1 in metres: a boulder of its usual radius, or a tree of its usual
-     * height.
-     */
+    /** A kind's mesh in metres at its usual size: a boulder's radius, a tree's height. */
     fun build(kind: ScatterKind): Data {
         val b = Builder()
         when (kind) {
@@ -131,8 +123,7 @@ object ScatterMeshes {
                 b.lathe(listOf(0f to 0.3f, h to 0.25f, h + 0.1f to 0f), 6, 0.30f, 0.48f, 0.26f)
             }
             ScatterKind.PINNACLE -> {
-                // A spire of rock, broad at its foot and leaning to a point, in two pieces turned
-                // against each other.
+                // A spire of rock in two pieces turned against each other.
                 val h = kind.height.toFloat()
                 val r = kind.radius.toFloat()
                 b.lathe(listOf(-1f to r * 1.3f, h * 0.35f to r * 0.9f, h * 0.6f to r * 0.55f), 5, 0.40f, 0.37f, 0.33f)

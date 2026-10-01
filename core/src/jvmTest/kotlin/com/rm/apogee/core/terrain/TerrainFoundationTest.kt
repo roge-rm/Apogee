@@ -19,10 +19,8 @@ class TerrainFoundationTest {
     private fun probe(i: Int) = Vec3(cos(i * 0.9), sin(i * 0.4), cos(i * 1.7))
 
     /**
-     * Exact bit patterns, pinned down. The server is a JVM and the client is ART, and they have to
-     * agree on the ground to the last bit, or a resting craft jitters between their two opinions of
-     * it. These only change when the terrain is meant to change, which bumps
-     * [TerrainField.GENERATION].
+     * Exact bit patterns, so the JVM and ART agree on the ground to the last bit. They only change
+     * when the terrain is meant to, which bumps [TerrainField.GENERATION].
      */
     @Test
     fun `terrain is bit-for-bit what it was`() {
@@ -134,10 +132,8 @@ class TerrainFoundationTest {
     }
 
     /**
-     * No steps in the ground. A step is a wall a wheel can't climb and the collider can't sort out
-     * sensibly, and every one found while building the landforms came from a single cause:
-     * something switched on or off at a threshold instead of fading. It's scanned at half-metre
-     * spacing across the country around the launch complex.
+     * No steps in the ground, which a wheel can't climb. They come from something switching at a
+     * threshold instead of fading. Scanned every half metre round the launch complex.
      */
     @Test
     fun `the terrain has no steps`() {

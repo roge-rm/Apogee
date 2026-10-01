@@ -3,16 +3,15 @@ package com.rm.apogee.core.orbit
 import com.rm.apogee.core.math.Vec3
 
 /**
- * Where a coasting craft goes from here: the conic around the body it's in, and then, if that
- * carries it into a moon's pull or out of its planet's, the conic around the next one, and so on.
- * This is the same patched-conic picture the world itself flies by (see `World.crossInfluence`), so
- * what the map shows is what will actually happen, apart from the craft's own engines.
+ * Where a coasting craft goes: the conic about its current body, then, if that enters a moon's pull
+ * or leaves its planet's, the conic about the next, and so on. The same patched conics the world
+ * flies by (see `World.crossInfluence`), so the map matches what happens, short of engine burns.
  */
 class Trajectory(val segments: List<Segment>) {
 
     /** How a segment ends. */
     enum class Ending {
-        /** It doesn't, within the horizon. It's an orbit, round and round. */
+        /** No end within the horizon: an orbit. */
         NONE,
         /** Into a moon's pull ([Segment.nextBodyId]). */
         ENCOUNTER,
@@ -23,8 +22,8 @@ class Trajectory(val segments: List<Segment>) {
     }
 
     /**
-     * One conic: [orbit] around body [bodyId] (its epoch is the segment's [start]), flown from
-     * [start] to [end] in universe time.
+     * One conic: [orbit] about [bodyId] (epoch at [start]), flown from [start] to [end] in universe
+     * time.
      */
     class Segment(
         val bodyId: String,
@@ -42,7 +41,7 @@ class Trajectory(val segments: List<Segment>) {
             return points
         }
 
-        /** Where it is at [time], relative to its body. */
+        /** State at [time], relative to its body. */
         fun stateAt(time: Double): StateVector = orbit.propagate(time - start)
     }
 
@@ -58,18 +57,18 @@ class Trajectory(val segments: List<Segment>) {
     companion object {
         const val MAX_SEGMENTS = 3
 
-        /** The furthest it looks ahead, in seconds. That's about one of Luna's months. */
+        /** Furthest look-ahead in seconds, about one of Luna's months. */
         const val HORIZON = 400_000.0
 
         /**
-         * Once a path is out among the planets, around the star, it gets followed at least this
-         * much further, in seconds. That's long enough to reach Ultima the slowest way there.
+         * Once a path is out round the star, it's followed at least this many more seconds, enough
+         * to reach Ultima the slow way.
          */
         const val STAR_HORIZON = 5.0e8
 
         /**
-         * The trajectory of a craft at [position] and [velocity] around body [bodyId] at [time], at
-         * most [maxSegments] conics long and [horizon] seconds.
+         * The trajectory of a craft at [position] and [velocity] about [bodyId] at [time], up to
+         * [maxSegments] conics and [horizon] seconds.
          */
         fun predict(
             system: SolarSystem,
@@ -87,7 +86,7 @@ class Trajectory(val segments: List<Segment>) {
             var t = time
             var limit = time + horizon
             while (segments.size < maxSegments && t < limit) {
-                // Out among the planets a crossing takes months, or years.
+                // Interplanetary crossings take months or years.
                 if (body.parentId == null && system.childrenOf(body.id).isNotEmpty()) limit = maxOf(limit, t + STAR_HORIZON)
                 val orbit = Orbit(p.copy(), v.copy(), body.gravitationalParameter, t)
                 val segment = follow(system, body, orbit, t, limit)
@@ -103,16 +102,15 @@ class Trajectory(val segments: List<Segment>) {
             return Trajectory(segments)
         }
 
-        /** The conic [orbit] around [body] from [t0], up to its first ending or [limit]. */
+        /** The conic [orbit] about [body] from [t0], up to its first ending or [limit]. */
         private fun follow(system: SolarSystem, body: CelestialBody, orbit: Orbit, t0: Double, limit: Double): Segment {
             val children = system.childrenOf(body.id).filter { it.orbit != null }
             val parent = body.parentId
             val end = if (orbit.isBound && orbit.apoapsis < body.sphereOfInfluence) minOf(limit, t0 + orbit.period) else limit
             val impacts = orbit.periapsis < body.radius
             val escapes = !orbit.isBound || orbit.apoapsis >= body.sphereOfInfluence
-            // Steps short enough that neither the ground nor a moon's reach can slip between two
-            // looks. That's a fiftieth of the craft's own distance over speed, and shorter near a
-            // moon (see below).
+            // Steps short enough that neither the ground nor a moon's reach slips between looks: a
+            // fiftieth of distance over speed, shorter near moons.
             var t = t0
             var before = t0
             val scratch = Vec3()
@@ -132,9 +130,7 @@ class Trajectory(val segments: List<Segment>) {
                 val r = state.position.length
                 val speed = state.velocity.length.coerceAtLeast(1.0)
                 var step = 0.02 * r / speed
-                // Short enough that no moon's reach slips between two looks, judged by how far away
-                // each one is now. That means long strides far out between the planets, where
-                // months have to be crossed.
+                // Limit by each moon's current gap, allowing long strides far out between planets.
                 for (child in children) {
                     val gap = scratch.setTo(state.position).subInPlace(child.orbit!!.stateAt(t).position).length - child.sphereOfInfluence
                     step = minOf(step, maxOf(0.25 * child.sphereOfInfluence, 0.5 * gap) / (speed + child.orbit.velocity.length))
@@ -144,7 +140,7 @@ class Trajectory(val segments: List<Segment>) {
                 before = t
                 t = minOf(end, t + step)
                 val found = event(t) ?: continue
-                // Halved down to a hundredth of a second.
+                // Bisect down to a hundredth of a second.
                 var lo = before
                 var hi = t
                 while (hi - lo > 0.01) {
@@ -158,9 +154,9 @@ class Trajectory(val segments: List<Segment>) {
         }
 
         /**
-         * The closest approach along [segment] to something whose position relative to the
-         * segment's body is [target] at a given time. It searches [steps] even steps, then closes
-         * in around the nearest.
+         * Closest approach along [segment] to something at [target] (relative to the segment's
+         * body) over time. Scans [steps] even steps, then a golden-section search round the
+         * nearest.
          */
         fun closestApproach(segment: Segment, steps: Int = 256, target: (Double, Vec3) -> Vec3): Approach {
             val span = segment.end - segment.start
@@ -184,7 +180,7 @@ class Trajectory(val segments: List<Segment>) {
             val t = 0.5 * (lo + hi)
             val here = segment.stateAt(t)
             val d = here.position.distanceTo(target(t, there))
-            // Its speed past it, from how much the target's position changes over a second.
+            // Relative speed, from the target's motion over one second.
             val later = target(t + 0.5, Vec3())
             val earlier = target(t - 0.5, Vec3())
             val targetVelocity = later.subInPlace(earlier)

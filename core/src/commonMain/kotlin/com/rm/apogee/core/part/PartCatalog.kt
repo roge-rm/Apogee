@@ -3,16 +3,10 @@ package com.rm.apogee.core.part
 import kotlinx.serialization.json.Json
 
 /**
- * Every part the game knows about, plus a hash of the whole set.
+ * Every part the game knows, plus a hash of the set. A client and server with different parts drift
+ * apart quietly, so the handshake compares [contentHash] and refuses to connect.
  *
- * The hash is the important bit. A client and a server that disagree about what "tank-t200" weighs
- * don't fail loudly. They drift apart, and the player sees their craft slide around as the server
- * corrects a path worked out from different numbers. Comparing [contentHash] during the handshake
- * turns that into a clean, immediate refusal to connect.
- *
- * :core can't read Android assets or open files, on purpose, because it doesn't depend on any
- * platform. Callers supply the JSON text: the app reads it from assets, the server from disk, and
- * tests from string literals.
+ * Callers supply the JSON text, since :core doesn't read files.
  */
 class PartCatalog private constructor(
     val parts: Map<String, PartDef>,
@@ -47,11 +41,8 @@ class PartCatalog private constructor(
         }
 
         /**
-         * Builds a catalogue from one or more JSON documents, each an array of [PartDef].
-         *
-         * Checking happens here instead of on first use, so a broken catalogue fails when it loads
-         * with a message naming the part, instead of turning up as a null dereference in the middle
-         * of a flight.
+         * Builds a catalogue from JSON documents, each an array of [PartDef]. It checks everything
+         * here, so a broken part fails at load with its name.
          */
         fun fromJson(sources: List<String>): PartCatalog {
             val all = sources.flatMapIndexed { index, source ->
@@ -93,8 +84,7 @@ class PartCatalog private constructor(
                     require(engine.ispVacuum > 0.0 && engine.ispSeaLevel > 0.0) {
                         "Part '${def.id}' has an engine with non-positive Isp"
                     }
-                    // Some thrust somewhere. Not necessarily in vacuum, since an air-breather has
-                    // none there by definition.
+                    // Some thrust somewhere; an air-breather has none in vacuum.
                     require(
                         engine.thrustVacuum >= 0.0 && engine.thrustSeaLevel >= 0.0 &&
                             engine.thrustVacuum + engine.thrustSeaLevel > 0.0
@@ -111,11 +101,8 @@ class PartCatalog private constructor(
         }
 
         /**
-         * A stable hash of the catalogue's content.
-         *
-         * It's sorted by id and re-encoded through the compact format, so it depends on what the
-         * parts *are* and not on file order, whitespace or which file each one came from. Two
-         * machines that loaded the same parts arranged differently still have to agree.
+         * A stable hash of the parts, sorted by id and re-encoded compactly, so file order and
+         * whitespace don't change it.
          */
         private fun hash(defs: List<PartDef>): String {
             val canonical = json.encodeToString(defs.sortedBy { it.id })

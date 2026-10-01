@@ -3,13 +3,10 @@ package com.rm.apogee.core.world
 import com.rm.apogee.core.craft.Vessel
 
 /**
- * The state of a craft's parts (how hurt, how hot, how dented, and how hard their joints are
- * working) packed for sending, so everyone sees the scorch and the glow, the crumpled nose and the
- * sparks off a straining seam, not only the pilot.
+ * The state of a craft's parts packed for sending, so everyone sees the damage, heat and strain.
  *
- * It's seven bytes a part: health, temperature, the dent's three axes, the load on its joint, and
- * how full of water it is. It's empty for a craft that's whole, cool and unstrained, which is
- * nearly every craft nearly all the time, so a snapshot of a fleet parked on the pad costs nothing.
+ * Seven bytes a part: health, temperature, the dent's three axes, joint load, and how full of water
+ * it is. It's empty for a craft that's whole, cool and unstrained, which is nearly all of them.
  */
 object VesselCondition {
 
@@ -92,9 +89,8 @@ object VesselCondition {
     }
 
     /**
-     * Unpacks [bytes] for a craft of [parts] parts into [into]. An empty block, or one for a
-     * different number of parts (the structure changed and the snapshot hasn't caught up), reads as
-     * whole and cool.
+     * Unpacks [bytes] for a craft of [parts] parts into [into]. An empty block, or one sized for a
+     * different part count (the snapshot hasn't caught up), reads as whole and cool.
      */
     fun decode(parts: Int, bytes: ByteArray, into: Values): Values {
         into.fit(parts)

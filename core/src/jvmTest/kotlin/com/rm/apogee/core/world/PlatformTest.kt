@@ -90,8 +90,7 @@ class PlatformTest {
 
     @Test
     fun `set down in a swell, the Sea Platform comes to rest level on all four pontoons, free or founded`() {
-        // It used to doze off at the far end of a roll, fifteen degrees over on one pontoon, and
-        // ride the sea like that for good. Founded, for good and all.
+        // It mustn't fall asleep heeled over at the end of a roll.
         for (found in listOf(false, true)) {
             val world = World.default(catalog)
             world.weatherConfig = com.rm.apogee.core.weather.WeatherConfig(intensity = com.rm.apogee.core.weather.WeatherIntensity.NORMAL)

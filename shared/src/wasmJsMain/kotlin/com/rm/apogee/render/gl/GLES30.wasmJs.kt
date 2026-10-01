@@ -8,12 +8,11 @@ import kotlin.wasm.unsafe.UnsafeWasmMemoryApi
 import kotlin.wasm.unsafe.withScopedMemoryAllocator
 
 /*
- * GLES30 as WebGL2. WebGL hands out objects where OpenGL ES hands out numbers, so each object is
- * kept in [objects] and the renderer gets its index; 0 stays "none", as in OpenGL. Uniform
- * locations get a table of their own.
+ * GLES30 as WebGL2. WebGL objects are kept in [objects] and the renderer gets the index; 0 is
+ * "none", as in OpenGL. Uniform locations have their own table.
  *
- * Arrays go over whole. Each crossing into JavaScript costs far more than a store, so a buffer is
- * written into this module's own memory, in WebAssembly, and WebGL is handed a view of those bytes.
+ * Crossing into JavaScript is costly, so arrays are written into this module's memory and WebGL
+ * gets a view of those bytes.
  */
 
 /** The page's WebGL2 context, set by the page before anything is drawn. */
@@ -163,8 +162,8 @@ actual object GLES30 : GlConstants {
 }
 
 /**
- * Bytes for the GPU, kept as little-endian words in an IntArray, which WebAssembly writes at full
- * speed. They're copied into the module's memory for the moment a call needs them ([inMemory]).
+ * Bytes for the GPU, as little-endian words in an IntArray (fast to write in WebAssembly), copied
+ * into the module's memory when a call needs them ([inMemory]).
  */
 actual class GlData actual constructor(bytes: Int) {
     private val words = IntArray((bytes + 3) / 4)

@@ -1,12 +1,8 @@
 package com.rm.apogee.render
 
 /**
- * How much of the screen's resolution the 3D view is drawn at. The display stretches it to fill the
- * screen for nothing, and the HUD over it is drawn at full resolution whatever this is.
- *
- * A mid-range phone judged high tier drew the Flat Top at sea at 26 frames a second at full
- * resolution, 35 at 80%, 41 at 67% and 51 at half: the time went on filling pixels, spread across
- * every pass, not on any one thing drawn.
+ * The share of the screen's resolution the 3D view is drawn at. The display stretches it for free,
+ * and the HUD stays at full resolution. On phones, filling pixels is most of the frame time.
  */
 enum class Resolution(val label: String, val scale: Double) {
     AUTO("Automatic", 1.0),
@@ -17,9 +13,8 @@ enum class Resolution(val label: String, val scale: Double) {
 }
 
 /**
- * The resolution chosen for itself: full to start with, a step less whenever the frame rate falls
- * under [DOWN_FPS], and a step more when there's room to spare, which it only tries again a while
- * after a step up didn't hold.
+ * Picks the resolution itself: full to start, a step down when the frame rate falls under
+ * [DOWN_FPS], a step up when there's room. A step up that didn't hold waits a while to retry.
  */
 class AutoResolution {
     private var step = 0
@@ -37,10 +32,7 @@ class AutoResolution {
         step = 0; windowStart = 0L; settleUntil = now + SETTLE_NANOS; upAgainAt = 0L; steppedUpAt = 0L
     }
 
-    /**
-     * Takes the frames drawn by [now], in nanoseconds, and moves a step if the last few seconds
-     * call for it. Returns whether the scale changed.
-     */
+    /** Takes the frames drawn by [now] (nanoseconds) and steps if needed. True if the scale changed. */
     fun update(now: Long, framesDrawn: Long): Boolean {
         if (now < settleUntil) { windowStart = 0L; return false }
         if (windowStart == 0L) { windowStart = now; windowFrames = framesDrawn; return false }

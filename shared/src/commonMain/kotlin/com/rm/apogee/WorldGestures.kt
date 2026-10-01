@@ -3,10 +3,10 @@ package com.rm.apogee
 import com.rm.apogee.game.BuilderGestures
 
 /**
- * Touches on the world's surface, worked out the same on every platform: in flight, a drag turns
- * the camera, a pinch zooms, and on the map a tap plans a burn and a finger on the burn drags it;
- * in the assembly building, [BuilderGestures] has them. The host turns its own events (Android's
- * MotionEvents, a page's pointer events) into these calls, in pixels, with times in milliseconds.
+ * Touches on the world's surface, the same on every platform. In flight a drag turns the camera
+ * and a pinch zooms; on the map a tap plans a burn and a finger on the burn drags it; in the
+ * assembly building [BuilderGestures] has them. The host feeds its own events in, in pixels, with
+ * times in milliseconds.
  */
 class WorldGestures(private val app: ApogeeApp) {
 
@@ -20,10 +20,8 @@ class WorldGestures(private val app: ApogeeApp) {
     private var downTime = 0L
 
     /**
-     * Set when a second finger lands, and cleared when the next gesture starts. A pinch ends with
-     * one finger lifting before the other, and the one left behind used to carry on as a drag
-     * measured from where the *first* finger had been before the pinch. That was one enormous move,
-     * and the camera whipped round. After a pinch, the rest of that gesture belongs to the pinch.
+     * Set when a second finger lands, cleared when the next gesture starts. After a pinch the rest
+     * of the gesture belongs to it, so the finger left behind doesn't turn into a huge drag.
      */
     private var multiTouch = false
 
@@ -33,10 +31,7 @@ class WorldGestures(private val app: ApogeeApp) {
     /** Two fingers apart, for a pinch the host doesn't measure itself. */
     private var spread = 0f
 
-    /**
-     * The assembly building's own gestures (taps, holds that lift a part, two-finger pan and
-     * pinch), worked out in one place, and testable.
-     */
+    /** The assembly building's gestures: taps, holds that lift a part, two-finger pan and pinch. */
     private val building = BuilderGestures(object : BuilderGestures.Listener {
         override fun tap(x: Float, y: Float) { app.builderSession?.tap(x, y, width, height) }
         override fun doubleTap(x: Float, y: Float) { app.builderSession?.recentre() }
@@ -97,8 +92,8 @@ class WorldGestures(private val app: ApogeeApp) {
     }
 
     /**
-     * Two fingers move. [measurePinch] when the host doesn't work out the pinch itself (Android's
-     * ScaleGestureDetector does), so it's measured here from how far apart they are.
+     * Two fingers move. [measurePinch] when the host doesn't measure the pinch itself (Android's
+     * ScaleGestureDetector does), so it's measured here from their spread.
      */
     fun move(x0: Float, y0: Float, x1: Float, y1: Float, measurePinch: Boolean) {
         if (building0) { building.move(x0, y0, x1, y1); return }
@@ -116,9 +111,8 @@ class WorldGestures(private val app: ApogeeApp) {
     /** The last finger lifts at [x], [y]. */
     fun up(x: Float, y: Float, time: Long) {
         if (building0) { building.up(x, y, time); return }
-        // A tap is a touch that neither travelled nor lingered. The slop has to be generous. On a
-        // phone, a finger put down to tap always moves a few pixels, and treating that as a drag
-        // makes placing a part feel broken.
+        // A tap neither travelled nor lingered. The slop is generous: a finger put down to tap
+        // always moves a few pixels.
         val travelled = kotlin.math.hypot(x - downX, y - downY)
         val duration = time - downTime
         if (holdingBurn) {
@@ -144,7 +138,7 @@ class WorldGestures(private val app: ApogeeApp) {
     /** A pinch (or the mouse wheel) by [factor]: over 1 closer, under 1 further. */
     fun zoom(factor: Float) {
         if (building0) { app.builderSession?.camera?.zoomBy(factor.toDouble()); return }
-        // The map's own camera in map view, or it zoomed the flight view behind the map.
+        // The map's own camera in map view, not the flight view behind it.
         app.session?.let { (if (it.mapMode) it.mapCamera else it.camera).zoomBy(factor.toDouble()) }
     }
 

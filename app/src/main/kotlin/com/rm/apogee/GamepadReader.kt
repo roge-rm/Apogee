@@ -7,20 +7,17 @@ import com.rm.apogee.input.PadButton
 import com.rm.apogee.input.PadState
 
 /**
- * Android's gamepad events turned into a [PadState]: the buttons from key events, and the sticks,
- * triggers and a D-pad that reports as a hat from motion events.
+ * Turns Android gamepad events into a [PadState]: buttons from key events; sticks, triggers and a
+ * hat D-pad from motion events.
  *
- * Controllers disagree on where they put the right stick and the triggers. Most (and a handheld's
- * built in controls) have the right stick on Z and RZ and the triggers on LTRIGGER and RTRIGGER,
- * often mirrored on BRAKE and GAS. Some have the right stick on RX and RY instead, so that's used
- * where a controller has those and no trigger axes. A trigger that only sends L2 and R2 as keys
- * counts as all the way in while it's down.
+ * Most controllers put the right stick on Z/RZ and the triggers on LTRIGGER/RTRIGGER (often
+ * mirrored on BRAKE/GAS). Some use RX/RY for the right stick, so that's used when there are no
+ * trigger axes. A trigger that only sends L2/R2 keys counts as fully in while down.
  */
 class GamepadReader {
     val state = PadState()
 
-    // The two ways a D-pad and the triggers can arrive, kept apart so one letting go doesn't
-    // cancel the other still held.
+    // Key and axis input kept apart, so releasing one doesn't cancel the other.
     private val keyDown = BooleanArray(PadButton.entries.size)
     private var hatX = 0f
     private var hatY = 0f
@@ -29,8 +26,8 @@ class GamepadReader {
 
     /** The button [event] is, if it's from a controller. */
     fun button(event: KeyEvent): PadButton? {
-        // A button only a controller has counts from anywhere (adb's pretend gamepad has no device
-        // of its own). A D-pad key only counts from a controller, so a keyboard's arrows don't.
+        // A controller-only button counts from anywhere (adb's fake gamepad has no device). A D-pad
+        // key only counts from a controller, so keyboard arrows don't.
         val controller = fromController(event.device) || event.isFromSource(InputDevice.SOURCE_GAMEPAD) ||
             KeyEvent.isGamepadButton(event.keyCode)
         if (!controller) return null
@@ -113,8 +110,8 @@ class GamepadReader {
 
     companion object {
         /**
-         * Whether [device] is a controller. By the device and not the event, since a handheld's
-         * D-pad can send its keys as a plain D-pad while the device it's part of is a gamepad.
+         * Whether [device] is a controller. Checked by device, since a handheld's D-pad can send
+         * plain D-pad keys.
          */
         fun fromController(device: InputDevice?): Boolean {
             val sources = device?.sources ?: return false

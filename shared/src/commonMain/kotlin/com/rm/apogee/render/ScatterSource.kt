@@ -6,11 +6,8 @@ import com.rm.apogee.platform.AtomicReference
 import kotlin.concurrent.Volatile
 
 /**
- * One block of scatter, ready to draw: instances grouped by kind.
- *
- * Instances are [INSTANCE_FLOATS] each: position relative to [centre] (body-fixed), size, and yaw.
- * [offsets] and [counts] say where each kind's run starts, so a block is one buffer drawn once for
- * each kind in it.
+ * One block of scatter, ready to draw, instances grouped by kind. Each is [INSTANCE_FLOATS]:
+ * position from [centre] (body-fixed), size and yaw. [offsets] and [counts] give each kind's run.
  */
 class ScatterDraw(
     val key: Long,

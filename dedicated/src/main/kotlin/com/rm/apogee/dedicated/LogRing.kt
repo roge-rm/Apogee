@@ -5,12 +5,8 @@ import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 
 /**
- * The last few hundred log lines, kept in memory for the admin page.
- *
- * It's limited on purpose. A server that runs for weeks would otherwise hand the web UI an endless
- * buffer, and nobody scrolls back three weeks, because the interesting lines are always the recent
- * ones. Anything worth keeping longer belongs in the container's own log, which this writes to as
- * well.
+ * The last few hundred log lines, kept in memory for the admin page. Capped so a long-running
+ * server doesn't grow it forever; every line also goes to stdout for the container's log.
  */
 class LogRing(private val capacity: Int = 400) {
 

@@ -10,8 +10,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Passing from one body's pull into another's: into Luna's on the way out from Terra, and back into
- * Terra's on the way home. It's the same place and motion either side, measured from a new centre.
+ * Passing between Terra's pull and Luna's. Same place and motion either side, from a new centre.
  */
 class InfluenceTest {
     private val catalog = StockParts.catalog
@@ -46,8 +45,7 @@ class InfluenceTest {
             track.add(absolute(world, probe))
         }
         assertEquals("never entered Luna's pull", "luna", probe.referenceBodyId)
-        // Smooth through the handover. Each tick's move differs from the last by what the pull
-        // changes it by, a few micrometres, not by a jump.
+        // Smooth through the handover: each tick's move changes by micrometres, never a jump.
         for (i in 1 until track.size - 1) {
             val bend = Vec3().setTo(track[i + 1]).subInPlace(track[i]).subInPlace(track[i]).addInPlace(track[i - 1]).length
             assertTrue("jumped ${bend} m at tick $i", bend < 1e-3)

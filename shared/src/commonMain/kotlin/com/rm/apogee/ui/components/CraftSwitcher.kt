@@ -52,8 +52,8 @@ import com.rm.apogee.ui.theme.TelemetryTextStyle
 import com.rm.apogee.ui.theme.alpha
 
 /**
- * The player's craft. Tap it for the list of them all, where you can take up any of them or take one
- * out of the world. Hold it to retire the one you're flying and go back to the menu.
+ * Tap for the list of your craft, to fly or remove one. Hold to retire the flown one and go back
+ * to the menu.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -109,8 +109,8 @@ fun CraftSwitcher(
             title = { Text("Remove \"${doomed.name}\"?") },
             text = {
                 Text(
-                    if (doomed.id == current()) "It's taken out of the world for good, and you go back to the menu."
-                    else "It's taken out of the world for good. The design stays in Vehicle Assembly if you saved it.",
+                    if (doomed.id == current()) "It's gone for good, and you go back to the menu."
+                    else "It's gone for good. A saved design stays in Vehicle Assembly.",
                 )
             },
             confirmButton = {
@@ -127,7 +127,7 @@ fun CraftSwitcher(
         AlertDialog(
             onDismissRequest = { retireAsked = false },
             title = { Text("Retire this craft?") },
-            text = { Text("It's taken out of the world for good, and you go back to the menu.") },
+            text = { Text("It's gone for good, and you go back to the menu.") },
             confirmButton = {
                 TextButton(onClick = { retireAsked = false; onRetire() }) { Text("Retire", color = ApogeeColors.Danger) }
             },

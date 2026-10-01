@@ -12,8 +12,8 @@ import com.rm.apogee.net.Transport
 expect fun workerPool(name: String, threads: Int): CoroutineDispatcher
 
 /**
- * The thread a hosted game's server ticks on: one of its own, ahead of the drawing's helpers, so a
- * tick isn't kept waiting behind a sea or a patch of ground being built.
+ * The thread a hosted game's server ticks on. It's its own, ahead of the drawing helpers, so a tick
+ * never waits behind sea or ground being built.
  */
 expect fun serverThread(): CoroutineDispatcher
 

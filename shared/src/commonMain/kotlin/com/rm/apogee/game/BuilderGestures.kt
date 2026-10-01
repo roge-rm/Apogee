@@ -3,22 +3,21 @@ package com.rm.apogee.game
 import kotlin.math.hypot
 
 /**
- * What fingers on the assembly building's 3D view mean, worked out from raw touches. It takes plain
- * numbers in, so it can be tested without a device.
+ * Turns raw touches on the assembly building's 3D view into gestures. Plain numbers in, so it's
+ * testable without a device.
  *
  * - One finger moving turns the view round the craft.
- * - A tap is a touch that neither travelled nor lingered, and two close together are a double tap.
- * - A finger held still picks up the part under it, if there is one, and carries it from then on
- *   until it's lifted.
- * - Two fingers pan (moving together) and zoom (moving apart). After two, the rest of that touch
- *   belongs to them, so the finger left behind as the other lifts doesn't turn the view.
+ * - A tap neither travels nor lingers; two close together are a double tap.
+ * - A finger held still picks up the part under it and carries it until lifted.
+ * - Two fingers pan (together) and zoom (apart). After two, the finger left behind doesn't turn
+ *   the view.
  */
 class BuilderGestures(private val listener: Listener) {
 
     interface Listener {
         fun tap(x: Float, y: Float)
         fun doubleTap(x: Float, y: Float)
-        /** Held still. True if that picked something up, and later moves carry it. */
+        /** Held still. True if that picked something up, so later moves carry it. */
         fun longPress(x: Float, y: Float): Boolean
         fun carry(x: Float, y: Float)
         fun drop(x: Float, y: Float)
@@ -84,7 +83,7 @@ class BuilderGestures(private val listener: Listener) {
         lastX = cx; lastY = cy; lastSpread = spread
     }
 
-    /** One of two fingers lifted. The other one does nothing more in this touch. */
+    /** One of two fingers lifted. The other does nothing more this touch. */
     fun secondUp() {
         if (mode == Mode.TWO) mode = Mode.SPENT
     }
@@ -116,14 +115,11 @@ class BuilderGestures(private val listener: Listener) {
         mode = Mode.IDLE
     }
 
-    /**
-     * The clock moved on, so a finger held still long enough is a long press. It's called by a
-     * timer set when the finger went down.
-     */
+    /** Called by a timer set on finger down: a finger held still long enough is a long press. */
     fun tick(time: Long) {
         if (mode != Mode.ONE || pressed || travelled >= TAP_SLOP || time - downTime < LONG_PRESS) return
         pressed = true
-        // Nothing there to pick up, so the finger can still turn the view.
+        // If there's nothing to pick up, the finger can still turn the view.
         if (listener.longPress(lastX, lastY)) mode = Mode.CARRYING
     }
 

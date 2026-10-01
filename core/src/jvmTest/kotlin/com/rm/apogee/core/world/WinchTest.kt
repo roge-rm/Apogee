@@ -15,8 +15,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * The winch: hooked onto another craft it drags it in, hooked onto the ground it drags itself
- * along, slack it does nothing, and a hard yank snaps it.
+ * The winch drags in a craft it's hooked to, drags itself along the ground, does nothing slack,
+ * and snaps on a hard yank.
  */
 class WinchTest {
 
@@ -97,7 +97,7 @@ class WinchTest {
         val buggy = onRunway(world, StockCraft.buggy(catalog), 622.0)
         settle(world)
         world.apply(Command.Hook(hauler.id.raw))
-        // The buggy suddenly flung away east at thirty metres a second.
+        // The buggy flung away east at 30 m/s.
         val east = world.attractorFor(buggy).surfaceVelocityAt(buggy.body.position, Vec3()).normalizeInPlace()
         buggy.wake()
         buggy.body.linearVelocity.addScaledInPlace(east, 30.0)

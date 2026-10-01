@@ -8,61 +8,34 @@ import androidx.compose.runtime.setValue
 import com.rm.apogee.render.QualityTier
 
 /**
- * Per-device, per-player preferences.
+ * Per-device, per-player preferences. Rules of the game world (difficulty, parts, re-entry heat)
+ * belong to the server; only things about this device and person live here.
  *
- * Note the split this sets up. Anything that's a *rule of the game world* (difficulty, which parts
- * you have, whether re-entry heating is on) belongs to the server and arrives over the wire. Only
- * things about this device and this person live here. Getting that line wrong is how settings
- * screens end up quietly disagreeing with the server a player has joined.
- *
- * They're kept in [Preferences]: SharedPreferences on Android and the browser's storage on the web.
- * On Android I use SharedPreferences instead of DataStore on purpose. These values are read while
- * building the first frame, and DataStore's reads are asynchronous. Swapping a synchronous read on a
- * tiny preference file for a suspending one gains nothing here and makes every call site more
- * complicated.
- *
- * Each property is Compose state with a setter that writes straight through, so there's no save
- * button and no way for the UI and the stored value to disagree.
+ * Kept in [Preferences]. On Android that's SharedPreferences, not DataStore, because these are read
+ * synchronously while building the first frame. Each property is Compose state that writes straight
+ * through.
  */
 class GameSettings(private val prefs: Preferences) {
 
     /** What other players see. It's only cosmetic. See [clientId]. */
     var playerName: String by stringPref(KEY_PLAYER_NAME, "Pilot")
 
-    /**
-     * The stripe on your crew's suits, as [com.rm.apogee.core.crew.Crew] numbers them, or -1 for
-     * one picked from who you are.
-     */
+    /** Your crew's suit stripe, as [com.rm.apogee.core.crew.Crew] numbers them, or -1 to pick from your id. */
     var suitStripe: Int by intPref(KEY_SUIT_STRIPE, -1, -1 until com.rm.apogee.core.crew.Crew.STRIPES)
 
     /**
-     * This install's identity, made once and never shown as something to edit.
-     *
-     * Ownership of craft and bases hangs off this. It's deliberately not the player's name, because
-     * names aren't unique or stable, and two devices that never set one both arrive as "Pilot" and
-     * end up sharing a craft. That's exactly what happened the first time two clients met on a
-     * server.
-     *
-     * It's made the first time it's read instead of in the constructor, so a fresh install doesn't
-     * write to disk before anyone has played.
+     * This install's identity, made once and never edited. Craft and bases are owned by it, not by
+     * the player's name, which isn't unique. Made on first read, so a fresh install doesn't write
+     * to disk before anyone plays.
      */
     val clientId: String
         get() = prefs.getString(KEY_CLIENT_ID, null) ?: newClientId()
             .also { prefs.putString(KEY_CLIENT_ID, it) }
 
-    /**
-     * The last address typed into the join screen.
-     *
-     * It's remembered because the case that needs it is the case where discovery can't help (a VPN,
-     * a different subnet, a server on the internet), and that doesn't just happen once. Typing an
-     * address again every session is the kind of hassle that makes people stop joining.
-     */
+    /** The last address typed into the join screen, for servers discovery can't find. */
     var lastServerAddress: String by stringPref(KEY_LAST_SERVER, "")
 
-    /**
-     * Opacity of the flight control overlay. The floor is well above zero, because a fully
-     * transparent HUD looks exactly like a broken one.
-     */
+    /** Opacity of the flight controls. The floor is well above zero so the HUD never looks broken. */
     var controlOpacity: Float by floatPref(KEY_CONTROL_OPACITY, 1.0f, 0.3f..1.0f)
 
     /** Mirrors the flight controls for left-handed play. */
@@ -104,18 +77,13 @@ class GameSettings(private val prefs: Preferences) {
 
     var uiSoundEnabled: Boolean by booleanPref(KEY_UI_SOUND, true)
 
-    /**
-     * The craft's own sounds: engines, wheels, the air rushing past, and the hull. Crashes stay.
-     */
+    /** The craft's own sounds: engines, wheels, rushing air and the hull. Crashes stay. */
     var vehicleSoundEnabled: Boolean by booleanPref(KEY_VEHICLE_SOUND, true)
 
     /** The world's sounds: wind, rain, thunder, surf and fires. */
     var ambientSoundEnabled: Boolean by booleanPref(KEY_AMBIENT_SOUND, true)
 
-    /**
-     * Everything, then each part of the mix: craft and crashes, the world around, and the
-     * interface.
-     */
+    /** The master volume, then each part of the mix: craft and crashes, the world, the interface. */
     var masterVolume: Float by floatPref(KEY_MASTER_VOLUME, 0.8f, 0f..1f)
     var effectsVolume: Float by floatPref(KEY_EFFECTS_VOLUME, 1.0f, 0f..1f)
     var ambienceVolume: Float by floatPref(KEY_AMBIENCE_VOLUME, 0.8f, 0f..1f)
@@ -135,10 +103,8 @@ class GameSettings(private val prefs: Preferences) {
     var hapticsEnabled: Boolean by booleanPref(KEY_HAPTICS, true)
 
     /**
-     * A controller: which button does what (see [com.rm.apogee.input.PadBindings], saved as its
-     * line of text, blank for the default), the sticks' dead zone, how fast the look stick turns
-     * the camera, whether it's upside down, whether the touch stick gets out of the way while a
-     * controller's in use, and whether staging needs A held for a moment.
+     * Controller settings: bindings (a [com.rm.apogee.input.PadBindings] line, blank for default),
+     * dead zone, look speed and inversion, hiding the touch stick, and holding A to stage.
      */
     var padBindings: String by stringPref(KEY_PAD_BINDINGS, "")
     var padDeadZone: Float by floatPref(KEY_PAD_DEAD_ZONE, 0.15f, 0.05f..0.4f)
@@ -150,9 +116,7 @@ class GameSettings(private val prefs: Preferences) {
     /** The assembly building's panels as the player last left them. */
     var builderPartsOpen: Boolean by booleanPref(KEY_BUILDER_PARTS, true)
     var builderStagesOpen: Boolean by booleanPref(KEY_BUILDER_STAGES, true)
-    /**
-     * The full stats card, or just the one-line chip. It's out by default only where there's room.
-     */
+    /** The full stats card, or just the one-line chip. Open by default only where there's room. */
     var builderStatsOpenPortrait: Boolean by booleanPref(KEY_BUILDER_STATS_PORTRAIT, false)
     var builderStatsOpenLandscape: Boolean by booleanPref(KEY_BUILDER_STATS_LANDSCAPE, true)
     /** The drawer tab last used, for a craft standing up and one lying down. */
@@ -161,20 +125,12 @@ class GameSettings(private val prefs: Preferences) {
 
     var showDebugOverlay: Boolean by booleanPref(KEY_DEBUG_OVERLAY, false)
 
-    /**
-     * Null means "use whatever [QualityTier.detect] decided". A value set here overrides detection.
-     * That's needed both for players whose device gets misjudged and for the low-tier acceptance
-     * pass.
-     */
+    /** Overrides [QualityTier.detect], or null to use it. For misjudged devices and low-tier testing. */
     var qualityOverride: QualityTier? by nullableEnumPref<QualityTier>(KEY_QUALITY)
 
     /**
-     * What detection decided last time, remembered across runs.
-     *
-     * Detection needs a current GL context, so it can't run until the player has gone into the
-     * world at least once. Without saving it, the Settings screen shows a placeholder on first
-     * launch, which is worse than useless, because that's the screen someone goes to to find out
-     * what their device was judged to be.
+     * What detection decided last time. Detection needs a GL context, so this lets Settings show
+     * the tier before the player has been into the world.
      */
     var lastDetectedTier: QualityTier? by nullableEnumPref<QualityTier>(KEY_DETECTED_QUALITY)
 
@@ -239,8 +195,7 @@ class GameSettings(private val prefs: Preferences) {
 
     private inline fun <reified T : Enum<T>> enumPref(key: String, default: T) =
         object : kotlin.properties.ReadWriteProperty<Any?, T> {
-            // An unknown stored name (a value from a later version, or one that's been removed
-            // since) falls back to the default instead of failing.
+            // An unknown stored name (from a later version, or since removed) falls back to the default.
             private var state by mutableStateOf(
                 prefs.getString(key, null)?.let { stored ->
                     enumValues<T>().firstOrNull { it.name == stored }

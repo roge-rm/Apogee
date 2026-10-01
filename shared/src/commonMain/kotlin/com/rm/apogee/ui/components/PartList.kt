@@ -30,13 +30,9 @@ import com.rm.apogee.ui.theme.TelemetryTextStyle
 import com.rm.apogee.ui.theme.alpha
 import kotlin.math.roundToInt
 
-/**
- * The parts worth a look, worst first: each one's health, heat and load. This is what the damage,
- * heat and load chips open.
- */
+/** Hurt, hot or loaded parts, worst first. The damage, heat and load chips open it. */
 @Composable
 internal fun PartList(telemetry: FlightTelemetry, width: Dp, height: Dp, onClose: () -> Unit) {
-    // The parts worth a look, worst first.
     val shown = telemetry.parts
         .filter { it.health < 0.99 || it.heat > 0.3 || it.load > 0.3 }
         .sortedByDescending { maxOf(1.0 - it.health, it.heat, it.load) }

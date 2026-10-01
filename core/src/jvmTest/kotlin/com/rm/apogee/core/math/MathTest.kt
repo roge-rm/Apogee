@@ -54,19 +54,18 @@ class QuatTest {
 
     @Test
     fun `integrating angular velocity tracks the analytic rotation and stays normalised`() {
-        // 1 rad/s about Y, stepped at the simulation's fixed 60 Hz for a little over a full turn.
+        // 1 rad/s about Y at the fixed 60 Hz step, for a little over a full turn.
         val q = Quat.identity()
         val omega = Vec3(0.0, 1.0, 0.0)
         val dt = 1.0 / 60.0
         val steps = 400
         repeat(steps) { q.integrateAngularVelocity(omega, dt) }
 
-        // Staying on the unit sphere is the part that can't give. Drifting off it shears the craft
-        // instead of just aiming it wrong.
+        // Drifting off the unit sphere shears the craft, so this can't give.
         assertEquals("quaternion must stay normalised", 1.0, q.length, 1e-12)
 
-        // Explicit Euler plus renormalisation under-rotates a little each step, so compare against
-        // the analytic result instead of against identity.
+        // Euler plus renormalising under-rotates a little each step, so compare with the analytic
+        // result.
         val expected = Quat.fromAxisAngle(Vec3.unitY(), steps * dt)
         val error = angleBetween(q, expected)
         assertTrue("integrator drifted $error rad over $steps steps", error < 1e-3)
@@ -93,8 +92,7 @@ class QuatTest {
     @Test
     fun `slerp takes the short way round when the inputs are in opposite hemispheres`() {
         val a = Quat.fromAxisAngle(Vec3.unitY(), 0.1)
-        // The same orientation as a small positive rotation, but negated. The naive path would spin
-        // almost all the way round.
+        // A small rotation, negated. The naive path would spin almost all the way round.
         val b = Quat.fromAxisAngle(Vec3.unitY(), 0.2).let { Quat(-it.x, -it.y, -it.z, -it.w) }
 
         val mid = Quat.slerp(a, b, 0.5)
@@ -117,10 +115,8 @@ class QuatTest {
 class Mat4Test {
 
     /**
-     * The floating-origin guarantee, as a test. A part 1 cm from the camera but 6400 km from the
-     * world origin still has to land 1 cm from the scene origin. Narrowing world coordinates to
-     * float before subtracting the camera would quantise this to zero, which is the bug this whole
-     * double-precision core exists to prevent.
+     * The floating origin: a part 1 cm from the camera but 6400 km from the world origin lands 1 cm
+     * from the scene origin. Narrowing to float before subtracting the camera would make it zero.
      */
     @Test
     fun `setFromTrs preserves centimetre offsets at planetary distance`() {
@@ -131,7 +127,7 @@ class Mat4Test {
 
         assertEquals(0.01f, model.m[12], 1e-4f)
 
-        // And the counterexample: the naive float-first path really does lose it.
+        // The float-first path does lose it.
         val naive = objectPos.x.toFloat() - cameraPos.x.toFloat()
         assertEquals("float32 cannot resolve this, which is the point", 0.0f, naive, 0.0f)
     }

@@ -2,13 +2,7 @@ package com.rm.apogee.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-/**
- * The one place Apogee's palette is defined.
- *
- * It's defined once, on purpose. The app this borrows its look from copies its three colour
- * constants into four separate files, and they've already started to drift apart. Everything here
- * is referenced, never copied.
- */
+/** Apogee's palette. Reference these, never copy them. */
 object ApogeeColors {
     /** The backdrop gradient, top to bottom: deep navy into plum. */
     val BackdropTop = Color(0xFF101830)
@@ -24,9 +18,7 @@ object ApogeeColors {
 
     // --- flight signal colours ---------------------------------------------
     //
-    // A HUD needs meanings, not decoration. These are the only colours allowed to carry
-    // information, and none of them is ever the only thing carrying it. An icon or a label changes
-    // too (see how FirePill does it).
+    // The only colours that carry meaning, and never alone: an icon or label changes too.
 
     /** Prograde / nominal / go. */
     val Prograde = Color(0xFF7CFFB2)
@@ -45,11 +37,8 @@ object ApogeeColors {
 }
 
 /**
- * The white-alpha ladder, which is really what holds this whole look together. Almost nothing in
- * the UI is a separate colour. It's white at a chosen transparency over the gradient, and keeping
- * those steps consistent is what makes unrelated screens look like one system.
- *
- * Use these names instead of literal alphas, so a change carries through everywhere.
+ * The white-alpha ladder. Most of the UI is white at one of these alphas over the gradient. Use
+ * these names instead of literal alphas.
  */
 object ApogeeAlpha {
     /** Main text and active icons. */

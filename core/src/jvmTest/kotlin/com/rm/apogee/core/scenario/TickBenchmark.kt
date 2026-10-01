@@ -6,28 +6,15 @@ import com.rm.apogee.core.world.Command
 import com.rm.apogee.core.world.World
 
 /**
- * How much CPU one simulation tick costs, against vessel count.
- *
- * `./gradlew :core:tickBenchmark`
- *
- * This is the number that decides how many players a server holds. A tick has 16.7ms of wall clock
- * to fit in at 60Hz, and what share of that a given craft count uses is the capacity question.
- * Everything else about server sizing follows from it.
- *
- * It's crude on purpose, with no JMH and no forked JVMs. It measures the thing that matters to an
- * order of magnitude, which is all you need to answer "is the JVM fast enough for this".
+ * How much CPU one tick costs against vessel count: `./gradlew :core:tickBenchmark`. A tick has
+ * 16.7 ms at 60 Hz. Crude on purpose (no JMH); it only needs to be right to an order of magnitude.
  */
 fun main() {
     val catalog = StockParts.catalog
     val dt = 1.0 / 60.0
 
-    // Two scenarios, because they cost wildly different amounts and the difference is the whole
-    // story. A craft under power climbs away from the ground and stops sampling the height field
-    // within a minute. A craft parked on a pad samples it under every contact point forever. A
-    // persistent world is mostly the second kind, and only measuring the first is how "capacity"
-    // ends up quoted ten times too high. Driving is the third, and it's the one terrain work has to
-    // answer to. A moving rover samples the ground under every wheel every tick and keeps moving
-    // onto ground nobody has sampled yet.
+    // They cost very different amounts. A climbing craft soon stops sampling the height field, a
+    // parked one samples it under every contact forever, and a rover keeps reaching new ground.
     for (scenario in Scenario.entries) {
         val flying = scenario == Scenario.ASCENDING
         val driving = scenario == Scenario.DRIVING
@@ -54,12 +41,10 @@ fun main() {
             }
         }
 
-        // Let the JIT settle before measuring. A cold JVM measures the interpreter, not the server.
+        // Let the JIT settle first.
         repeat(WARMUP_TICKS) { world.step(dt) }
 
-        // The worst single tick as well as the average. Terrain work arrives in lumps (a craft
-        // rolls onto an unsampled tile and that one tick pays for all of it), and an average
-        // spreads a visible hitch into nothing.
+        // The worst tick too, since terrain work comes in lumps that an average hides.
         var worst = 0L
         val started = System.nanoTime()
         repeat(MEASURED_TICKS) {

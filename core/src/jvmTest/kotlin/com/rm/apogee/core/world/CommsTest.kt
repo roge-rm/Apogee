@@ -79,8 +79,7 @@ class CommsTest {
             world, craft("probe-mote", "dish-beacon"),
             toward.copy().mulInPlace(1_000_000.0).addScaledInPlace(across, 2_000_000.0),
         )
-        // Out here with its dish folded it can't hear being told, so it's as if it were unfolded
-        // near home.
+        // With its dish folded out here it can't hear the command, so this stands for unfolding it near home.
         world.apply(Command.Deploy(relay.id.raw, true))
         assertFalse(relay.control.deployed)
         relay.control.deployed = true

@@ -110,7 +110,7 @@ class CareerTest {
         val program = Program()
         val start = program.careerOf("p1").insight
         assertNull(program.unlock("p1", "tanks"))
-        // Through the world too, where done is null, not a complaint.
+        // Through the world too, where success is null.
         val world = careerWorld()
         assertNull(world.unlock("p1", "tanks"))
         assertEquals("Not a career", World.default(catalog).unlock("p1", "tanks"))
@@ -231,8 +231,7 @@ class CareerTest {
     fun `an aerobraking pass lowers the orbit, and only counts with the engines off`() {
         val world = careerWorld()
         val terra = world.system.body("terra")
-        // Coming down from a high point 250 km up, with the low point 52 km up: a skim through the
-        // air.
+        // 250 km by 52 km up: a skim through the air.
         val rp = terra.radius + 52_000.0
         val ra = terra.radius + 250_000.0
         val a = (rp + ra) / 2.0

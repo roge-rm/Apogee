@@ -5,12 +5,10 @@ import com.rm.apogee.core.terrain.Landforms.distance
 import kotlin.math.abs
 
 /**
- * Celer: closest to the sun, airless and scorched. It has a battered face a lot like Luna's, but
- * darker and more heavily cratered. There's one huge impact basin, the **Great Basin**, with its
- * floor flooded smooth and ringed by mountains, and opposite it the jumbled "weird ground" its
- * shock threw up. There are long lobed cliffs where the whole world shrank as it cooled, a
- * kilometre high and running for hundreds of kilometres. And there's ice in the shaded floors of
- * its polar craters, where the sun never reaches.
+ * Celer: nearest the sun, airless and scorched. Like Luna but darker and more cratered. One huge
+ * impact basin, the Great Basin, flooded smooth and ringed by mountains, with jumbled ground at its
+ * antipode. Long lobed cliffs a kilometre high where the world shrank as it cooled, and ice in the
+ * shaded floors of polar craters.
  */
 internal class CelerLand(seed: Int, private val radius: Double) : WorldLand {
     private val craters = Craters(Noise.hashInt(seed, 1, 0, 0), radius, Craters.scaledFrom(radius, 1.15))
@@ -26,12 +24,12 @@ internal class CelerLand(seed: Int, private val radius: Double) : WorldLand {
         // The antipode: hilly, broken ground where the shock met itself.
         val fromAntipode = distance(nx, ny, nz, ANTIPODE, radius)
         h += Landforms.within(fromAntipode, 40_000.0, 25_000.0) * Landforms.ridged(detail + 5, px, py, pz, 1.0 / 3_000.0, 3) * 900.0
-        // The basin's floor was flooded smooth, so there are fewer craters there.
+        // The basin floor was flooded smooth, so fewer craters there.
         h += craters.height(px, py, pz, 1.0 - 0.7 * inBasin)
         for (k in 0 until SCARPS) {
             val pole = Landforms.pole(scarpSeed, k)
             val d = Landforms.signedFromCircle(nx, ny, nz, pole, radius)
-            // A cliff along part of the circle, not all the way round.
+            // A cliff along part of the circle only.
             val along = Landforms.fbm(scarpSeed + k, px, py, pz, 1.0 / 150_000.0, 1)
             if (along > 0.1) h += Landforms.scarp(d, 3_000.0, 900.0 * Landforms.smooth((along - 0.1) / 0.2))
         }
@@ -57,13 +55,11 @@ internal class CelerLand(seed: Int, private val radius: Double) : WorldLand {
 }
 
 /**
- * Caligo: a world under a lid. Under the crushing air it's mostly volcanic plains, dark young
- * basalt with few craters, crossed by long lava channels and dotted with **pancake domes**, which
- * are flat-topped blisters of thick lava. Two highland continents stand out of them. **Ishtar**, in
- * the far north, is a high plateau walled by mountain ranges and topped by **Maxwell**, the tallest
- * peak on the world. **Aphrodite** is a long ragged highland along the equator. Both are
- * **tesserae**, rock folded and refolded into criss-crossing ridges. There are a few great shield
- * volcanoes, and one is still glowing, with a lava lake in its caldera.
+ * Caligo: a world under a lid. Mostly young dark basalt plains with few craters, lava channels and
+ * pancake domes (flat-topped blisters of thick lava). Two highland continents of tesserae (rock
+ * folded into criss-crossing ridges): Ishtar in the far north, a walled plateau topped by Maxwell,
+ * the tallest peak, and Aphrodite, long and ragged along the equator. A few great shield volcanoes,
+ * one with a glowing lava lake.
  */
 internal class CaligoLand(seed: Int, private val radius: Double) : WorldLand {
     private val detail = Noise.hashInt(seed, 1, 0, 0)
@@ -75,7 +71,7 @@ internal class CaligoLand(seed: Int, private val radius: Double) : WorldLand {
     /** 1 on a highland continent, 0 on the plains. */
     private fun highland(nx: Double, ny: Double, nz: Double, px: Double, py: Double, pz: Double): Double {
         val ishtar = Landforms.within(distance(nx, ny, nz, ISHTAR, radius), 110_000.0, 40_000.0)
-        // Aphrodite is long, so this finds the nearest point on its spine.
+        // Aphrodite is long, so use the distance to the nearest point on its spine.
         val aphrodite = Landforms.within(Landforms.pathDistance(nx, ny, nz, APHRODITE, radius), 55_000.0, 35_000.0)
         val ragged = 0.75 + 0.25 * Landforms.fbm(detail + 9, px, py, pz, 1.0 / 60_000.0, 3)
         return (maxOf(ishtar, aphrodite) * ragged).coerceIn(0.0, 1.0)
@@ -117,13 +113,11 @@ internal class CaligoLand(seed: Int, private val radius: Double) : WorldLand {
 }
 
 /**
- * Rubra: the red world. Its two halves are different. There are low, smooth **northern plains** a
- * few kilometres down, and old, high, **cratered southern highlands** cut by dry river channels. On
- * the rise between them stands the **Great Mount**, the tallest volcano anywhere, and in a line
- * next to it are **the Three**, shields nearly as big. East of them is the **Rift**, a canyon a
- * continent long and kilometres deep. There are ice caps at both poles, with the northern one
- * ringed by seas of dunes. Rust-red dust covers everything, with rock showing where the slopes are
- * too steep to hold it.
+ * Rubra: the red world. Low smooth northern plains a few kilometres down, and old cratered southern
+ * highlands cut by dry river channels. On the rise between stand the Great Mount, the tallest
+ * volcano anywhere, and the Three, shields in a line beside it. East of them the Rift, a canyon a
+ * continent long. Ice caps at both poles, the northern one ringed by dunes. Red dust everywhere,
+ * with rock on slopes too steep to hold it.
  */
 internal class RubraLand(seed: Int, private val radius: Double) : WorldLand {
     private val detail = Noise.hashInt(seed, 1, 0, 0)
@@ -131,10 +125,7 @@ internal class RubraLand(seed: Int, private val radius: Double) : WorldLand {
     private val riverSeed = Noise.hashInt(seed, 3, 0, 0)
     private val duneSeed = Noise.hashInt(seed, 4, 0, 0)
 
-    /**
-     * 1 in the northern lowlands, 0 in the southern highlands, with the boundary wandering between
-     * them.
-     */
+    /** 1 in the northern lowlands, 0 in the southern highlands, with a wandering boundary. */
     private fun lowland(ny: Double, px: Double, py: Double, pz: Double): Double {
         val wander = Landforms.fbm(detail + 7, px, py, pz, 1.0 / 120_000.0, 3) * 0.18
         return Landforms.smooth((ny - 0.05 + wander) / 0.25)
@@ -182,10 +173,8 @@ internal class RubraLand(seed: Int, private val radius: Double) : WorldLand {
 }
 
 /**
- * Rubra's two little moons. They're not round at all, because they're too small for their own
- * gravity to have pulled them round. They're lumpy, cratered and grey. **Timor**, the larger and
- * closer one, has one crater nearly a third of its own size, and it's scored with long parallel
- * grooves.
+ * Rubra's two little moons: too small to pull themselves round, so lumpy, cratered and grey. Timor,
+ * the larger and closer, has one crater nearly a third its own size, and long parallel grooves.
  */
 internal class LumpLand(seed: Int, private val radius: Double, private val lumpiness: Double, private val bigCrater: Boolean) : WorldLand {
     private val shape = Noise.hashInt(seed, 1, 0, 0)
@@ -196,7 +185,7 @@ internal class LumpLand(seed: Int, private val radius: Double, private val lumpi
 
     override fun height(nx: Double, ny: Double, nz: Double): Double {
         val px = nx * radius; val py = ny * radius; val pz = nz * radius
-        // A potato: big, slow swellings, up to a good share of its size.
+        // A potato: big slow swellings, up to a good share of its size.
         var h = Landforms.fbm(shape, px, py, pz, 1.0 / (radius * 1.2), 3) * radius * lumpiness
         h += craters.height(px, py, pz, 1.0)
         if (bigCrater) {

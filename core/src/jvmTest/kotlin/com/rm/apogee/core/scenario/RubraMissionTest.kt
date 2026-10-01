@@ -24,18 +24,16 @@ import kotlin.math.abs
 import kotlin.math.sqrt
 
 /**
- * To Rubra: from a parking orbit around Terra, out at the window the map gives, a correction on the
- * way, and caught into orbit at Rubra, with the autopilot flying every burn. Then, at the canyon,
- * the last of a landing.
+ * To Rubra: out of Terra's parking orbit at the window, a correction, and caught into orbit at
+ * Rubra, with the autopilot flying every burn. Then the end of a landing in the canyon.
  */
 class RubraMissionTest {
     private val catalog = StockParts.catalog
     private val dt = 1.0 / 60.0
 
     /**
-     * The Moonshot above its first stage: its upper stage with the lander on top, the way a player
-     * would send it on from orbit. (A bigger upper tank was more than its wheels and its engine's
-     * swivel could hold steady.)
+     * The Moonshot without its first stage. A bigger upper tank is more than its wheels and gimbal
+     * can hold steady.
      */
     private fun cruiser(): CraftDesign {
         val m = StockCraft.moonshot(catalog)
@@ -82,9 +80,8 @@ class RubraMissionTest {
     private fun meetsWell(world: World, bodyId: String, orbit: Orbit, time: Double) = miss(world, bodyId, orbit, time) < 150.0
 
     /**
-     * The smallest burn at [at] that brings the path from [orbit] to Rubra's low orbit. It takes a
-     * step each way along each axis, halving the step whenever none helps, the way a player nudges
-     * the burn until the map meets.
+     * The smallest burn at [at] that brings the path from [orbit] to Rubra's low orbit. Steps each
+     * way along each axis, halving the step when none helps.
      */
     private fun correction(world: World, bodyId: String, orbit: Orbit, at: Double, start: PlannedBurn = PlannedBurn(at)): PlannedBurn {
         var best = start
@@ -125,8 +122,7 @@ class RubraMissionTest {
         val along = north.cross(out).normalizeInPlace()
         val craft = world.spawnAt(cruiser(), "terra", out * r, along * sqrt(terra.gravitationalParameter / r), Quat.identity())
         craft.control.pitch = 0.0; craft.control.yaw = 0.0; craft.control.roll = 0.0
-        // The upper stage's engine lit, as it is when the first stage falls away, and the Shroud
-        // thrown open, with its panels to the sun for the weeks of waiting and crossing.
+        // Light the upper stage and open the Shroud, so the panels get sun on the crossing.
         world.stage(craft)
         world.stage(craft)
         assertFalse("the lander still rides inside a closed Shroud", craft.enclosed().any { it })
@@ -141,8 +137,7 @@ class RubraMissionTest {
             assertTrue("rails stopped at ${world.time}", moved > 0.0)
         }
 
-        // The departure: the window's speed, at whichever point around the parking orbit sends it
-        // nearest Rubra, then nudged until it meets.
+        // The window's speed, at the point of the parking orbit nearest Rubra, then nudged to meet.
         val parking = world.orbitOf(craft)
         var departure: PlannedBurn? = null
         var bestScore = Double.MAX_VALUE

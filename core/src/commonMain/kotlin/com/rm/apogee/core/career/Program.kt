@@ -14,12 +14,10 @@ import com.rm.apogee.core.world.WorldEvent
 import kotlin.math.abs
 
 /**
- * All the careers in a world: every player's, and the world firsts they race each other for.
+ * Every player's career in a world, and the world firsts they race for.
  *
- * It watches what craft do, a few times a second and at every event the world raises, and credits
- * their owners with the feats and visits that shows. That might be a stage dropped and the crew
- * brought home, an orbit held above the air, or a moon passed close by for its pull. Nobody is told
- * what to do. Whatever works, counts.
+ * It watches craft a few times a second and on every world event, and credits owners with the feats
+ * and visits it sees. Nobody is told what to do; whatever works counts.
  */
 class Program(val tree: TechTree = TechTree.stock) {
     private val careers = LinkedHashMap<String, CareerState>()
@@ -29,10 +27,10 @@ class Program(val tree: TechTree = TechTree.stock) {
     var revision: Long = 0
         private set
 
-    /** [owner]'s career, started from the starting kit the first time it's asked for. */
+    /** [owner]'s career, started from the starting kit if new. */
     fun careerOf(owner: String): CareerState =
-        // A craft belonging to nobody, like one of the world's own or a player without a name yet,
-        // can show a career but doesn't keep one.
+        // A craft owned by nobody (the world's own, or a player without a name yet) gets a
+        // throwaway career.
         if (owner.isBlank() || owner == World.WORLD_OWNER) CareerState(owner, insight = tree.start.insight)
         else careers.getOrPut(owner) { CareerState(owner, insight = tree.start.insight) }
 
@@ -40,7 +38,7 @@ class Program(val tree: TechTree = TechTree.stock) {
 
     fun restore(states: List<CareerState>, firsts: List<WorldFirst>) {
         careers.clear()
-        // Careers belonging to nobody, saved by an earlier build, aren't kept.
+        // Careers owned by nobody, saved by older builds, are dropped.
         for (s in states) if (s.owner.isNotBlank() && s.owner != World.WORLD_OWNER) careers[s.owner] = s
         this.firsts.clear()
         this.firsts.addAll(firsts)
@@ -54,9 +52,7 @@ class Program(val tree: TechTree = TechTree.stock) {
 
     // --- what a career may do ------------------------------------------------
 
-    /**
-     * Spends [owner]'s insight on node [id]. Returns null if it worked, or the reason it didn't.
-     */
+    /** Spends [owner]'s insight on node [id]. Null if it worked, else the reason. */
     fun unlock(owner: String, id: String): String? {
         val node = tree.node(id) ?: return "No such node"
         val state = careerOf(owner)
@@ -75,8 +71,8 @@ class Program(val tree: TechTree = TechTree.stock) {
     // --- crediting -------------------------------------------------------------
 
     /**
-     * [feat] was done by [vessel]'s owner, scoring [value] in the feat's metric. It pays for the
-     * grade that earns, minus whatever an earlier, lower grade already paid.
+     * [vessel]'s owner did [feat], scoring [value] in its metric. Pays for the grade earned, minus
+     * what a lower grade already paid.
      */
     internal fun award(world: World, vessel: Vessel, feat: Feat, value: Double = 0.0) {
         val owner = vessel.owner
@@ -91,8 +87,8 @@ class Program(val tree: TechTree = TechTree.stock) {
     }
 
     /**
-     * [vessel]'s owner has been to [body] in the way [visit] says. It pays the first time, and it's
-     * a world first if nobody has done it yet.
+     * [vessel]'s owner has been to [body] as [visit] says. Pays the first time, and is a world
+     * first if nobody has done it.
      */
     internal fun visit(world: World, vessel: Vessel, body: String, visit: Visit) {
         val owner = vessel.owner
@@ -115,7 +111,7 @@ class Program(val tree: TechTree = TechTree.stock) {
     fun launched(vessel: Vessel) {
         vessel.log = FlightLog(
             launchMass = vessel.body.mass, parts = vessel.defs.size,
-            // It's as full as it was built, so only more than this counts as a top-up.
+            // It's as full as built, so only more counts as a top-up.
             propellant = vessel.amountOf(com.rm.apogee.core.part.ResourceType.PROPELLANT),
         )
     }
@@ -124,8 +120,8 @@ class Program(val tree: TechTree = TechTree.stock) {
     private val scratch2 = Vec3()
 
     /**
-     * What [world] raised since the career last looked, in [events], and if [look] is set (every
-     * [LOOK_TICKS]) a look at every craft that has a log.
+     * Handles [events] raised since the last look and, if [look] is set (every [LOOK_TICKS]), looks
+     * at every craft with a log.
      */
     fun observe(world: World, events: List<WorldEvent>, look: Boolean) {
         for (event in events) when (event) {
@@ -141,8 +137,8 @@ class Program(val tree: TechTree = TechTree.stock) {
         for (vessel in world.vessels.toList()) {
             if (vessel.anchored) continue
             val log = vessel.log ?: continue
-            // If it's asleep and already counted, nothing is happening to it. If it fell asleep
-            // before its landing was counted, and craft do settle quickly, it still needs a look.
+            // Asleep and counted means nothing's happening. Asleep before its landing was counted
+            // still needs a look.
             if (vessel.dormant && log.resting) continue
             look(world, vessel, log)
         }
@@ -152,8 +148,8 @@ class Program(val tree: TechTree = TechTree.stock) {
     fun founded(world: World, vessel: Vessel) {
         val home = vessel.referenceBodyId == SolarSystem.HOMEWORLD_ID
         if (!home) award(world, vessel, Feat.OUTPOST)
-        // Afloat on the sea, on the sea floor, or floating in the sky. A base on the floor is in the
-        // water too, so it isn't a sea stead. Founded afloat, it rides the sea.
+        // Afloat, on the sea floor, or floating in the sky. A floor base is in the water, so it
+        // isn't a sea stead.
         if (vessel.afloat) award(world, vessel, Feat.SEA_STEAD)
         else if (world.depthOf(vessel) > UNDER_WATER) award(world, vessel, Feat.SEA_FLOOR_BASE)
         else if (!vessel.touchingGround && !home && vessel.defs.any { it.hasModule<com.rm.apogee.core.part.LiftGas>() }) award(world, vessel, Feat.CLOUD_CITY)
@@ -214,8 +210,7 @@ class Program(val tree: TechTree = TechTree.stock) {
         val speed = scratch2.subInPlace(vessel.body.linearVelocity).length
         val dt = if (log.lookedAt < 0.0) 0.0 else (world.time - log.lookedAt).coerceIn(0.0, 60.0)
         log.lookedAt = world.time
-        // Whether it's down. Touching the ground can flicker on and off at rest, so this goes by
-        // how long it has been down.
+        // Down, by how long it's been down, since touching the ground flickers at rest.
         val down = vessel.touchingGround || vessel.groundedSeconds > 0.0
         val wet = onWater(vessel)
         val grounded = down || wet || vessel.dormant
@@ -223,19 +218,19 @@ class Program(val tree: TechTree = TechTree.stock) {
         val suit = vessel.defs.any { it.id == World.SUIT_PART }
         val horizontal = vessel.design.orientation == CraftOrientation.HORIZONTAL
 
-        // A stage fired since the last look that let something go.
+        // A stage fired since the last look that dropped something.
         if (log.stagePending) {
             if (vessel.defs.size < log.parts) log.stagesDropped++
             log.stagePending = false
         }
         log.parts = vessel.defs.size
         log.peak = maxOf(log.peak, if (grounded) 0.0 else height)
-        // Standing on a runway, which is where a flight that takes off now started.
+        // On a runway, where a flight that takes off now starts.
         if (down && home && horizontal) log.onRunway = onRunway(world, vessel, attractor)
         val thrusting = vessel.control.throttle > 0.0 && vessel.activeEngines().isNotEmpty()
 
-        // Off the ground, so this is a new flight. That includes a craft refuelled on another world
-        // taking off again.
+        // Off the ground, so a new flight, including taking off again after refuelling on another
+        // world.
         if (!grounded && height > LIFTOFF && !log.airborne) {
             if (log.refuelledAway && !home) award(world, vessel, Feat.REFUEL_OFF_WORLD)
             log.airborne = true
@@ -243,11 +238,11 @@ class Program(val tree: TechTree = TechTree.stock) {
             log.relaunch(vessel.body.mass)
         }
         if (speed > MOVING) log.resting = false
-        // Someone out walking on another world's ground.
+        // Out walking on another world.
         if (suit && !home && down) award(world, vessel, Feat.MOONWALK)
 
-        // How far it went, and how: flown, driven or sailed.
-        // Sailing: the sail drawing and no engine running. Any engine starts the count again.
+        // Distance flown, driven or sailed. Under sail means the sail drawing and no engine; any
+        // engine resets it.
         if (wet) {
             val engine = vessel.engineOutput.any { it > 0.0 }
             if (engine) log.underSail = 0.0
@@ -270,8 +265,7 @@ class Program(val tree: TechTree = TechTree.stock) {
         if (!home && log.driven >= OFF_WORLD_DRIVE) award(world, vessel, Feat.ROVER_OFF_WORLD, log.driven / 1000.0)
         if (!home && wet && log.sailed >= ALIEN_SAIL) award(world, vessel, Feat.ALIEN_SEA)
 
-        // Rotors and gas: hovering by hand, rising on gas alone, floating a long way, and other
-        // worlds' air.
+        // Rotors and gas: hovering by hand, rising on gas, floating far, and other worlds' air.
         skies(world, vessel, log, attractor, home, grounded, height, altitude, speed, dt)
 
         // Aircraft: fast and high.
@@ -282,7 +276,7 @@ class Program(val tree: TechTree = TechTree.stock) {
             if (altitude > HIGH_FLYER && airBreathingOnly(vessel)) award(world, vessel, Feat.HIGH_FLYER)
         }
 
-        // Out of Terra's air, and an orbit held above it, or above any world's ground.
+        // Out of Terra's air, and an orbit clear of the air or highest ground.
         val orbit = world.orbitOf(vessel)
         if (home && altitude > attractor.atmosphereHeight) log.aboveAir = true
         if (!grounded && orbit.isBound && orbit.periapsis > attractor.radius + clearance(attractor)) {
@@ -307,8 +301,7 @@ class Program(val tree: TechTree = TechTree.stock) {
             }
         }
 
-        // Aerobraking: the high point of its orbit on the way into the air, compared to on the way
-        // out.
+        // Aerobraking: apoapsis on the way into the air against on the way out.
         attractor.atmosphere?.let {
             val inAir = altitude < attractor.atmosphereHeight
             if (inAir && !grounded) {
@@ -320,8 +313,7 @@ class Program(val tree: TechTree = TechTree.stock) {
                 if (thrusting) log.airThrust = true
             } else if (!inAir && log.airApoapsis >= 0.0) {
                 if (!log.airThrust && orbit.isBound) {
-                    // Measured as heights above the ground, how much of the climb to the high point
-                    // it took off.
+                    // How much of the climb to apoapsis it took off, as heights above the ground.
                     val top = log.airApoapsis - attractor.radius
                     val drop = if (log.airUnbound) 1.0 else 1.0 - (orbit.apoapsis - attractor.radius) / top
                     if (drop >= AEROBRAKE_DROP) award(world, vessel, Feat.AEROBRAKE, drop * 100.0)
@@ -331,7 +323,7 @@ class Program(val tree: TechTree = TechTree.stock) {
         }
         if (log.flybyBody.isNotEmpty() && thrusting) log.flybyThrust = true
 
-        // Probes whose signal is passed along by a relay beyond the Moon.
+        // Uncrewed probes relayed from beyond the Moon.
         if (!vessel.hasCrew() && vessel.signalPath.isNotEmpty()) {
             val out = world.system.positionOf(attractor.id, world.time).addInPlace(position)
                 .subInPlace(world.system.positionOf(SolarSystem.HOMEWORLD_ID, world.time)).length
@@ -339,9 +331,8 @@ class Program(val tree: TechTree = TechTree.stock) {
             if (out > moon) award(world, vessel, Feat.RELAY)
         }
 
-        // Topped up while standing on another world: more propellant than the lowest it has had
-        // since it came down. A refinery makes it slowly, only a fraction of a unit between one
-        // look and the next.
+        // Topped up on another world: more propellant than its lowest since landing. A refinery is
+        // slow, so only a fraction of a unit between looks.
         val propellant = vessel.amountOf(com.rm.apogee.core.part.ResourceType.PROPELLANT)
         if (!home && grounded) {
             if (propellant < log.propellant) log.propellant = propellant
@@ -350,15 +341,14 @@ class Program(val tree: TechTree = TechTree.stock) {
             log.propellant = propellant
         }
 
-        // Came down on the water at the end of a flight. A splashdown is over once it's in the sea,
-        // whether or not wind and waves (or its own chute being dragged along the surface) ever let
-        // it lie still.
+        // Came down on water at the end of a flight. It's a splashdown once in the sea for a while,
+        // even if waves or a dragging chute never let it lie still.
         if (wet && log.airborne) { if (log.wetAt < 0.0) log.wetAt = world.time } else log.wetAt = -1.0
         val splashedDown = log.wetAt >= 0.0 && world.time - log.wetAt > SPLASHDOWN
 
         underSea(world, vessel, log, attractor, home, down)
 
-        // At rest, so work out what the flight added up to.
+        // At rest, so count up the flight.
         if (grounded && (speed < REST || splashedDown) && !log.resting) {
             log.resting = true
             if (working || suit) settle(world, vessel, log, attractor, home, suit, horizontal, down, wet)
@@ -367,10 +357,8 @@ class Program(val tree: TechTree = TechTree.stock) {
     }
 
     /**
-     * Under the sea. This tracks how deep [vessel] has been since it was last at the surface,
-     * whether it settled on the floor, whether there was a vent next to it, and which named places
-     * it reached. Once it's back at the surface with its crew, it works out what the dive was
-     * worth.
+     * Under the sea: tracks the deepest point since the surface, whether it settled on the floor,
+     * vents nearby and named places reached. Back at the surface with crew, it scores the dive.
      */
     private fun underSea(world: World, vessel: Vessel, log: FlightLog, attractor: CelestialBody, home: Boolean, down: Boolean) {
         if (attractor.ocean == null) return
@@ -382,15 +370,13 @@ class Program(val tree: TechTree = TechTree.stock) {
             val terrain = attractor.terrain
             if (terrain != null) {
                 attractor.toBodyFixed(vessel.body.position, attractor.rotationAt(world.time), scratch)
-                // Height over the floor, not the surface, using the terrain's own height under the
-                // water.
+                // Height over the floor, from the terrain's own height under water.
                 val floor = attractor.altitudeOf(vessel.body.position) - terrain.elevation(scratch)
                 if (floor < VENT_HEIGHT && terrain.ventField(scratch) > VENT_FIELD) award(world, vessel, Feat.VENTS)
-                // The world spots the named places a craft reaches, in free play too, and passes
-                // them on here. See World.lookForWonders.
+                // World.lookForWonders spots named places, in free play too, and passes them here.
             }
         } else if (depth < SURFACED && log.deepest > DIVED) {
-            // Back at the top, so the dive counts, as long as the crew is aboard.
+            // Back at the top, so the dive counts if the crew is aboard.
             if (vessel.hasCrew()) {
                 award(world, vessel, Feat.DIVE, log.deepest)
                 if (log.seafloor) award(world, vessel, Feat.SEAFLOOR)
@@ -402,8 +388,8 @@ class Program(val tree: TechTree = TechTree.stock) {
     }
 
     /**
-     * [vessel]'s owner has reached [wonder]. It pays the first time, and it's a world first if
-     * nobody has found it yet.
+     * [vessel]'s owner reached [wonder]. Pays the first time, and is a world first if nobody found
+     * it yet.
      */
     internal fun found(world: World, vessel: Vessel, wonder: SeaWonders.Wonder) {
         val owner = vessel.owner
@@ -418,10 +404,7 @@ class Program(val tree: TechTree = TechTree.stock) {
         world.raise(WorldEvent.FeatEarned(owner, wonder.name, FOUND, wonder.insight, vessel.id))
     }
 
-    /**
-     * [vessel] has come to rest on [attractor], so work out what the flight that brought it there
-     * was worth.
-     */
+    /** [vessel] has come to rest on [attractor], so score the flight that brought it. */
     private fun settle(world: World, vessel: Vessel, log: FlightLog, attractor: CelestialBody, home: Boolean, suit: Boolean, horizontal: Boolean, down: Boolean, wet: Boolean) {
         if (suit) return
         if (home) {
@@ -443,13 +426,12 @@ class Program(val tree: TechTree = TechTree.stock) {
             return
         }
         if (!down && !vessel.dormant) return
-        // It has to have set down there, not launched there. A craft coming off a base's pad hasn't
-        // landed anywhere.
+        // It has to have landed there, not launched from a base's pad.
         if (!log.airborne) return
         award(world, vessel, Feat.TOUCHDOWN)
         visit(world, vessel, attractor.id, Visit.LAND)
         if (attractor.id !in log.landedOn) log.landedOn.add(attractor.id)
-        // Next to something already there, like a flag, a base or another craft.
+        // Next to something already there: a flag, a base or another craft.
         val position = vessel.body.position
         val nearest = world.vessels.filter { it !== vessel && it.referenceBodyId == vessel.referenceBodyId && !world.isDebris(it) }
             .minOfOrNull { it.body.position.distanceTo(position) }
@@ -457,17 +439,16 @@ class Program(val tree: TechTree = TechTree.stock) {
     }
 
     /**
-     * [vessel] has just passed from [fromId]'s pull into [toId]'s at [time], and its state is
-     * already measured from the new body. This takes its energy relative to the parent right then,
-     * because on rails a slice of warp can carry it a long way on before the world's events get
-     * looked at.
+     * [vessel] just passed from [fromId]'s pull into [toId]'s at [time]; its state is already
+     * relative to the new body. Takes its energy about the parent now, since warp on rails can
+     * carry it far before events are read.
      */
     fun crossed(world: World, vessel: Vessel, fromId: String, toId: String, time: Double) {
         val log = vessel.log ?: return
         val to = world.system.bodies[toId] ?: return
         val from = world.system.bodies[fromId] ?: return
         if (to.parentId == from.id) {
-            // Its energy relative to [from] on the way in, from its state moved back to that body.
+            // Its energy about [from] on the way in.
             log.flybyBody = to.id
             log.flybyEnergy = energyAbout(world, vessel, to, from, time)
             log.flybyThrust = false
@@ -489,11 +470,11 @@ class Program(val tree: TechTree = TechTree.stock) {
 
     private fun energy(p: Vec3, v: Vec3, mu: Double) = v.lengthSq / 2.0 - mu / p.length
 
-    /** Above the air or the highest ground, including its low point. */
+    /** Above the air or the highest ground, whichever is higher. */
     private fun clearance(body: CelestialBody): Double =
         maxOf(body.atmosphere?.let { body.atmosphereHeight } ?: 0.0, body.terrain?.maxElevation ?: 0.0)
 
-    /** On the sea, either riding it while asleep or held up by it while awake. */
+    /** On the sea: riding it asleep, or held up by it awake. */
     private fun onWater(vessel: Vessel): Boolean = vessel.afloat || (vessel.buoyed && !vessel.touchingGround)
 
     private fun inOrbit(world: World, vessel: Vessel): Boolean {
@@ -506,25 +487,25 @@ class Program(val tree: TechTree = TechTree.stock) {
     private fun commandIntact(vessel: Vessel): Boolean =
         vessel.defs.indices.any { vessel.defs[it].module<com.rm.apogee.core.part.Command>() != null && !vessel.isBroken(it) }
 
-    /** The right way up. Tumbling across the ground doesn't count as driving. */
+    /** Right way up. Tumbling across the ground isn't driving. */
     private fun upright(vessel: Vessel, attractor: CelestialBody): Boolean =
         (vessel.body.orientation.rotate(vessel.design.orientation.up, scratch) dot attractor.let { vessel.body.position.normalized() }) > UPRIGHT
 
     private fun hasWheels(vessel: Vessel): Boolean =
         vessel.defs.any { it.module<com.rm.apogee.core.part.Wheel>() != null }
 
-    /** Only air-breathing engines are lit: a propeller or the Zephyr, no rockets. */
+    /** Only air-breathing engines lit: propellers or the Zephyr, no rockets. */
     private fun airBreathingOnly(vessel: Vessel): Boolean {
         val lit = vessel.activeEngines()
         if (lit.isEmpty() || vessel.control.throttle <= 0.0) return false
         return lit.all { i -> vessel.defs[i].module<com.rm.apogee.core.part.Engine>()?.let { it.thrustVacuum < it.thrustSeaLevel * 0.2 } == true }
     }
 
-    /** On tarmac, meaning the runway or a road. The pad's concrete isn't a place to land. */
+    /** On tarmac (runway or road). The pad's concrete doesn't count. */
     private fun onRunway(world: World, vessel: Vessel, attractor: CelestialBody): Boolean {
         val terrain = attractor.terrain ?: return false
         val d = attractor.toBodyFixed(vessel.body.position, attractor.rotationAt(world.time), Vec3()).normalizeInPlace()
-        // The paved surface, not the ground underneath it.
+        // The paved surface, not the ground under it.
         return terrain.material(d, terrain.elevation(d), 0.0) == SurfaceMaterial.ASPHALT
     }
 
@@ -536,22 +517,21 @@ class Program(val tree: TechTree = TechTree.stock) {
     }
 
     companion object {
-        /** Ticks between looks at every craft, which works out to six a second. */
+        /** Ticks between looks at every craft: six a second. */
         const val LOOK_TICKS = 10L
 
-        /** How many metres above the ground count as having left it, as a hop, and as a flight. */
+        /** Metres above the ground for liftoff, a hop and a flight. */
         const val LIFTOFF = 20.0
         const val HOP = 1_000.0
         const val FLIGHT_HEIGHT = 50.0
 
         /**
-         * Faster than this over the ground counts as moving, and slower than [REST] counts as at
-         * rest, in m/s.
+         * Over the ground, faster than this is moving and slower than [REST] is at rest, in m/s.
          */
         const val MOVING = 2.0
         const val REST = 0.5
 
-        /** How many seconds in the sea after coming down make it a splashdown, drifting or not. */
+        /** Seconds in the sea after coming down that make a splashdown, drifting or not. */
         const val SPLASHDOWN = 3.0
 
         const val ROAD_TRIP = 10_000.0
@@ -559,17 +539,17 @@ class Program(val tree: TechTree = TechTree.stock) {
         const val ALIEN_SAIL = 100.0
         const val SEAWORTHY = 5_000.0
         const val UNDER_SAIL = 1_000.0
-        /** How far a voyage goes to be blue water, and how far a ship sails for Tall Ship, in metres, and how heavy it is, in kg. */
+        /** Blue water distance and Tall Ship distance in metres, and Tall Ship mass in kg. */
         const val BLUE_WATER = 50_000.0
         const val TALL_SHIP = 5_000.0
         const val TALL_SHIP_MASS = 20_000.0
-        /** How far a tow goes for Under Tow, in metres, and how heavy what's towed is, in kg. */
+        /** Under Tow distance in metres and towed mass in kg. */
         const val UNDER_TOW = 1_000.0
         const val UNDER_TOW_MASS = 50_000.0
 
         /**
-         * Hovering: the least height above the ground, in metres, how far off the spot counts as
-         * having left it, and how long it has to be held, in seconds.
+         * Hovering: least height in metres, how far off the spot counts as leaving it, and seconds
+         * to hold.
          */
         const val HOVER_HEIGHT = 20.0
         const val HOVER_LOST = 20.0
@@ -582,68 +562,58 @@ class Program(val tree: TechTree = TechTree.stock) {
         const val HARBOUR_REACH = 400.0
 
         /**
-         * The speed of sound, near enough, in m/s, and the height below which beating it counts, in
-         * metres. A jet's thrust drops off with the air, so none of them get there in level flight.
-         * You need a rocket, or a dive from a long way up.
+         * Speed of sound, near enough, in m/s, and the height in metres below which beating it
+         * counts. Jets lose thrust with the air and can't get there level; it takes a rocket or a
+         * long dive.
          */
         const val SOUND = 343.0
         const val HIGH = 15_000.0
 
-        /** In orbit round Terra at once for [Feat.HEAVY_LIFT], in kg. */
+        /** Mass in orbit round Terra at once for [Feat.HEAVY_LIFT], in kg. */
         const val HEAVY_LIFT_KG = 20_000.0
 
-        /**
-         * High for a jet, in metres. The stock Sparrow flown well is near the top of its climb
-         * here.
-         */
+        /** High for a jet, in metres. Near the top of a well-flown stock Sparrow's climb. */
         const val HIGH_FLYER = 5_000.0
 
         const val RENDEZVOUS_RANGE = 50.0
         const val RENDEZVOUS_SPEED = 1.0
         const val PRECISION = 200.0
 
-        /**
-         * How many units of propellant gained while standing on another world count as refuelling
-         * there.
-         */
+        /** Propellant units gained on another world that count as refuelling. */
         const val REFUELLED = 5.0
 
-        /**
-         * How closely its own up has to match the ground's for a craft to count as on its wheels,
-         * which is within about 45 degrees.
-         */
+        /** Dot of craft up and ground up to count as on its wheels: within about 45 degrees. */
         const val UPRIGHT = 0.7
 
         /**
-         * Under the sea, deeper than this in metres counts as a dive, and shallower than [SURFACED]
-         * counts as back at the top.
+         * Under the sea: deeper than this in metres is a dive; shallower than [SURFACED] is back
+         * up.
          */
         const val DIVED = 5.0
         const val SURFACED = 2.0
         /**
-         * Settling on the floor deeper than this, in metres, is the Seafloor feat, and deeper than
-         * [ABYSS] is the Abyss.
+         * Settling on the floor deeper than this, in metres, is Seafloor; deeper than [ABYSS] is
+         * the Abyss.
          */
         const val SEAFLOOR_DEPTH = 100.0
 
-        /** How far under the surface, in metres, a base on the bottom has to be to count as under the sea. */
+        /** Depth in metres a floor base needs to count as under the sea. */
         const val UNDER_WATER = 5.0
         const val ABYSS = 3_000.0
         /**
-         * Being within this many metres of the floor, over a vent field at least this thick (0..1),
-         * counts as finding a vent.
+         * Within this many metres of the floor, over a vent field at least this thick (0..1), finds
+         * a vent.
          */
         const val VENT_HEIGHT = 50.0
         const val VENT_FIELD = 0.3
-        /** How a found wonder is written in a career's visits and in the world firsts. */
+        /** A found wonder's key in a career's visits and the world firsts. */
         const val WONDER = "wonder"
 
-        /** Shown on a find's banner in place of a feat's grade. */
+        /** Shown on a find's banner instead of a grade. */
         const val FOUND = "found"
 
         /**
-         * Taking a third off the high point using the air alone, or a tenth of the energy using a
-         * flyby alone.
+         * Taking a third off apoapsis with air alone, or a tenth of the energy with a flyby alone.
          */
         const val AEROBRAKE_DROP = 0.3
         const val ASSIST_CHANGE = 0.1

@@ -5,9 +5,8 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 /**
- * How lively a world's weather is. It's the host's choice, saved with the world and shared by
- * everyone in it. Weather comes from this and the seed, so two players with different settings
- * would be flying through different skies.
+ * How lively a world's weather is. The host picks it; it's saved with the world and shared, since
+ * the weather comes from this and the seed.
  */
 @Serializable
 enum class WeatherIntensity(
@@ -21,10 +20,8 @@ enum class WeatherIntensity(
     /** Scales turbulence and gusts. */
     val gusts: Double,
     /**
-     * Scales the sea: the waves the wind raises, and the swell. The wind alone did too little.
-     * Off a coast the waves are held down by how little open water the wind has crossed, and the
-     * ocean's swell didn't change at all, so a wild sea near the Cape was hardly bigger than a
-     * normal one.
+     * Scales the sea: wind waves and swell. Wind alone wasn't enough, since fetch holds waves
+     * down near a coast and the swell didn't change.
      */
     val sea: Double,
 ) {
@@ -35,9 +32,8 @@ enum class WeatherIntensity(
 }
 
 /**
- * How much layer cloud a world has. This is the host's choice too, and saved with the world.
- * Whatever the setting, cover gathers in pockets: thin and see-through over most of the map, and
- * thick here and there.
+ * How much layer cloud a world has. The host picks it; it's saved with the world. Cover always
+ * gathers in pockets: thin over most of the map, thick here and there.
  */
 @Serializable
 enum class CloudCover(
@@ -47,9 +43,8 @@ enum class CloudCover(
     /** How thick the pockets get, and how common they are. */
     val pockets: Double,
     /**
-     * Where the low and middle decks close up into a blanket, over the part of a slow, broad
-     * pattern above this (0..1). Past 1 it never happens, and you only get scattered cloud. Lower
-     * means more of the map is overcast, with breaks drifting through it.
+     * Where low and middle decks close into a blanket, over the part of a slow broad pattern above
+     * this (0..1). Past 1 it never does. Lower means more overcast.
      */
     val blanketFrom: Double,
 ) {
@@ -59,10 +54,8 @@ enum class CloudCover(
 }
 
 /**
- * Everything a world's weather is made from, apart from the planet itself.
- *
- * All of it goes over the network and into saves. Nothing else about the air does, because the
- * weather comes purely from this, the terrain, the time and the place.
+ * Everything a world's weather is made from, apart from the planet. It all goes over the network
+ * and into saves; the weather comes purely from this, the terrain, the time and the place.
  */
 @Serializable
 data class WeatherConfig(

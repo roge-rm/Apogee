@@ -7,13 +7,9 @@ import kotlin.math.abs
 import kotlin.math.pow
 
 /**
- * How cold the sea is, and how long someone in it lasts.
- *
- * Terra's sea is warm at the equator and near freezing at the poles, and colder the deeper you go,
- * down to four degrees in the deep. Anyone in it gets colder the whole time, and how long they last
- * goes by how cold it is: a quarter of an hour at freezing, an hour at ten degrees, a couple at
- * twenty. Another world's sea is something else again, like Aurantia's methane, and nobody lasts
- * more than a couple of minutes in it.
+ * How cold the sea is, and how long someone in it lasts. Terra's sea is warm at the equator, near
+ * freezing at the poles and four degrees in the deep. Nobody lasts more than a couple of minutes in
+ * another world's sea.
  */
 internal object SeaCold {
     private val fixed = Vec3()

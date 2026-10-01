@@ -94,10 +94,7 @@ sealed interface WorldEvent {
      */
     data class FeatEarned(val owner: String, val title: String, val grade: String, val insight: Int, val vessel: VesselId) : WorldEvent
 
-    /**
-     * A part failed but the craft is still flying, like a leg collapsing or a chute tearing away.
-     * It's different from [VesselDestroyed], which ends the craft.
-     */
+    /** A part failed but the craft flies on, like a leg collapsing or a chute tearing away. */
     data class PartFailed(
         val id: VesselId,
         val partIndex: Int,
@@ -131,8 +128,8 @@ sealed interface WorldEvent {
     ) : WorldEvent
 
     /**
-     * A part torn off whole, like a joint that let go or a wing that snapped, taking whatever hangs
-     * from it along as debris of its own. At [position] in its attractor's frame.
+     * A part torn off whole, taking whatever hangs from it as debris. At [position] in its
+     * attractor's frame.
      */
     data class PartDetached(
         val id: VesselId,
@@ -147,9 +144,8 @@ sealed interface WorldEvent {
     data class Explosion(val bodyId: String, val position: Vec3, val energy: Double) : WorldEvent
 
     /**
-     * Lightning struck a craft. [partIndex] is what it knocked out, or -1 if it came through
-     * unharmed. Strikes that hit nothing need no event, because every client works them out from
-     * the weather for itself.
+     * Lightning struck a craft. [partIndex] is what it knocked out, or -1 for none. Strikes that hit
+     * nothing need no event: every client works them out from the weather.
      */
     data class LightningHit(
         val id: VesselId,
@@ -159,14 +155,11 @@ sealed interface WorldEvent {
 }
 
 /**
- * The simulation. One authoritative copy lives on the server, and each client runs a second one to
- * predict its own craft.
+ * The simulation. The server runs the authoritative copy and each client runs another to predict
+ * its own craft.
  *
- * Everything here gives the same result from the same starting state, the same commands and the
- * same tick sequence. The iteration order is fixed, the timestep is fixed, and nothing reads a wall
- * clock. That isn't because we're aiming for lockstep, since devices disagree about floating point.
- * It's because a simulation that repeats on one machine can be tested, replayed and reasoned about,
- * and one that doesn't can't.
+ * Same start, commands and ticks give the same result on one machine (fixed order and timestep, no
+ * wall clock), for tests and replays. Not lockstep: devices differ in floating point.
  */
 class World(
     val system: SolarSystem,
@@ -177,10 +170,8 @@ class World(
         private set
 
     /**
-     * Sets the clock of a replica. A client's prediction world has to agree with the server's about
-     * what time it is, because the time is where the planet has turned to, and so where the ground
-     * is under every craft. It's never used on an authoritative world, whose clock only moves
-     * forward by stepping.
+     * Sets a replica's clock. It has to match the server's, since time sets how far the planet has
+     * turned and so where the ground is. Never used on an authoritative world.
      */
     fun syncClock(time: Double) {
         this.time = time
@@ -224,10 +215,8 @@ class World(
     }
 
     /**
-     * What the weather is made from: the world's seed and how lively the host wants it, or null for
-     * still air. A game's world gets its config from the server that owns it, and a replica takes
-     * the server's. A bare world is still, so a test of how a leg takes a landing isn't also a test
-     * of which way the wind happened to blow.
+     * What the weather is made from: the seed and how lively it is, or null for still air. A replica
+     * takes the server's. A bare world is still so tests don't depend on the wind.
      */
     var weatherConfig: WeatherConfig? = null
         set(value) {
@@ -240,18 +229,15 @@ class World(
         }
 
     /**
-     * The sea has just been made again for a different weather, so everything floating free is set
-     * down at its balance on the new one, asleep, and rides it from there until something wakes it.
-     * The game's weather is set as it starts, and a world saved in a calm sea and opened in a normal
-     * one had every boat still lying as the calm left it, in waves two thirds bigger. A jet ski was
-     * rolled over in its first second.
+     * The sea was just remade for new weather, so everything floating free is set down asleep at its
+     * balance on it, or boats saved in a calm can roll over in bigger waves.
      */
     private fun resettleAfloat() {
         for (vessel in vesselsById.values) {
             if (vessel.anchored || walking.walkerOf(vessel) != null || isDebris(vessel)) continue
             val attractor = attractorFor(vessel)
             if (!floatsOnSea(vessel, attractor)) continue
-            // With sea under it and clear of the bottom, not drawn up on a beach.
+            // Only over sea and clear of the bottom, not on a beach.
             attractor.rotationAt(tickEnd, scratchRotation)
             attractor.toBodyFixed(vessel.body.position, scratchRotation, scratchSea).normalizeInPlace()
             if (attractor.terrain?.isOcean(scratchSea) != true) continue
@@ -262,18 +248,16 @@ class World(
     }
 
     /**
-     * A steady wind over the ground everywhere there's air, in place of the weather: x is the part
-     * blowing toward the east and y toward the north, in m/s. Null for the weather as usual. It's
-     * for tests and tuning, where a sail or a windsock needs a wind that doesn't gust or turn.
+     * A steady wind everywhere there's air, replacing the weather: x toward east, y toward north,
+     * m/s. Null for normal weather. For tests and tuning.
      */
     var steadyWind: Vec3? = null
     private val scratchEast = Vec3()
     private val scratchNorth = Vec3()
 
     /**
-     * Gives each body's ocean its sea: always its moon's tides, and waves from this world's weather
-     * when it has any. Every world does its own (the server's, and each client's replica), and they
-     * agree because they're the same function of the same config.
+     * Gives each body's ocean its sea: its moon's tides, plus waves from the weather if there is
+     * any. Server and replicas each do this and agree, since it only depends on the config.
      */
     private fun bindSeas() {
         for (body in system.bodies.values) {
@@ -293,9 +277,8 @@ class World(
     private val holdScratch = Vec3()
 
     /**
-     * Where stability assist should hold the nose, in inertial axes, for a craft holding a navball
-     * marker, worked out exactly the way the navball draws it. Null for plain attitude hold, or for
-     * a marker with nothing to point at (no motion, no target).
+     * Where SAS holds the nose for a navball marker, in inertial axes, worked out the way the navball
+     * draws it. Null for plain attitude hold or a marker with nothing to point at.
      */
     private fun holdDirection(vessel: Vessel, attractor: CelestialBody): Vec3? {
         val control = vessel.control
@@ -317,7 +300,7 @@ class World(
 
     /**
      * Where [vessel]'s target body is relative to [attractor] at [at], into [position] and
-     * [velocity], if it has one other than the body it's in. False if not.
+     * [velocity]. False if it has no target body other than the one it's in.
      */
     fun targetBodyFor(vessel: Vessel, attractor: CelestialBody, at: Double, position: Vec3, velocity: Vec3): Boolean {
         val id = vessel.control.targetBody
@@ -329,10 +312,6 @@ class World(
 
     // --- planned burns ------------------------------------------------------------
 
-    /**
-     * Whether [vessel] can fly itself, doing burns and landings. Everyone can for now. A career
-     * will make it something to earn.
-     */
     /** Whether [vessel] can hold its height and heading: in a career, once its owner has Cruise Control. */
     fun mayCruise(vessel: Vessel): Boolean {
         val program = program ?: return true
@@ -350,8 +329,8 @@ class World(
         vessel.defs.indices.any { vessel.defs[it].module<com.rm.apogee.core.part.StationKeeper>() != null && !vessel.isBroken(it) }
 
     /**
-     * Turns [vessel]'s keeper core on, to hold it where it is now, or off. It needs a working
-     * keeper core, something to hold the craft with, and to be off the ground or afloat.
+     * Turns [vessel]'s keeper core on, holding it where it is now, or off. Needs a working core,
+     * something to hold the craft with, and to be off the ground or afloat.
      */
     private fun setStationKeep(vessel: Vessel, on: Boolean) {
         val control = vessel.control
@@ -402,7 +381,7 @@ class World(
             control.autopilotNote = reason
             return
         }
-        // Let go of the stick, and it holds wherever it is then, at the height it's at.
+        // When the stick is let go it holds wherever it is then.
         val steered = control.hasAttitudeInput
         if (steered) keeperSteered.add(vessel.id)
         else if (keeperSteered.remove(vessel.id)) {
@@ -417,8 +396,8 @@ class World(
     private fun winged(vessel: Vessel): Boolean = vessel.defs.any { it.module<AeroSurface>() != null }
 
     /**
-     * Turns [vessel]'s height and heading hold on at its height and heading now, or off. It only
-     * takes over a craft with wings, in the air, at least [Cruise.LOWEST] up.
+     * Turns [vessel]'s height and heading hold on at its height and heading now, or off. Only for a
+     * winged craft in the air, at least [Cruise.LOWEST] up.
      */
     private fun setCruise(vessel: Vessel, on: Boolean) {
         val control = vessel.control
@@ -449,13 +428,12 @@ class World(
         return altitude - maxOf(terrain.elevation(up), 0.0)
     }
 
-    /** Whether the stick was being held last tick, per cruising craft: letting go picks up the new heading and height. */
+    /** Cruising craft whose stick was held last tick. Letting go picks up the new heading and height. */
     private val cruiseSteered = HashSet<VesselId>()
 
     /**
-     * Flies [vessel]'s height and heading hold for this tick, before stability assist. Steered by
-     * hand it lets the stick fly, and when the stick is let go it holds the heading and height it
-     * has then.
+     * One tick of [vessel]'s height and heading hold, before SAS. The stick overrides it, and on
+     * letting go it holds the heading and height it has then.
      */
     private fun flyCruise(vessel: Vessel, attractor: CelestialBody, dt: Double) {
         val control = vessel.control
@@ -490,14 +468,18 @@ class World(
         vessel.wake()
     }
 
+    /**
+     * Whether [vessel] can fly itself, doing burns and landings: in a career, once its owner has
+     * the autopilot.
+     */
     fun mayAutopilot(vessel: Vessel): Boolean {
         val program = program ?: return true
         return vessel.owner.isBlank() || program.allows(vessel.owner, com.rm.apogee.core.career.TechTree.AUTOPILOT)
     }
 
     /**
-     * What's left of [vessel]'s next burn, in world axes, into [out], and how much in m/s. 0 with
-     * none planned. Before its window opens, it's the whole burn, from the orbit as it is now.
+     * What's left of [vessel]'s next burn, in world axes, into [out], and its size in m/s. 0 with
+     * none planned. Before its window opens it's the whole burn, from the orbit now.
      */
     fun burnRemaining(vessel: Vessel, attractor: CelestialBody = attractorFor(vessel), out: Vec3 = Vec3()): Double {
         val burn = vessel.plannedBurns.firstOrNull() ?: return 0.0.also { out.setZero() }
@@ -513,17 +495,15 @@ class World(
     private val burnBefore = Vec3()
 
     /**
-     * Opens [vessel]'s next burn window when it's due, counts what this tick gave toward it (its
-     * change of velocity, minus what gravity gave), and crosses it off once there's nothing left of
-     * it.
+     * Opens [vessel]'s next burn window when it's due, counts this tick's change of velocity less
+     * gravity toward it, and crosses it off when it's done.
      */
     private fun trackBurn(vessel: Vessel, attractor: CelestialBody, dt: Double) {
         val burn = vessel.plannedBurns.firstOrNull() ?: return
         val start = Burns.startOf(burn, vessel.burnDuration)
         if (vessel.burnVector.x.isNaN()) {
             if (tickEnd < start - Burns.WINDOW) return
-            // Its direction is fixed in space from here on. The orbit's own axes turn as the craft
-            // burns, and a burn chasing them spirals.
+            // Fixed in space from here on. A burn chasing the orbit's turning axes spirals.
             Burns.vectorOf(burn, orbitAbout(vessel, attractor), vessel.burnVector)
             vessel.burnApplied.setZero()
             vessel.burnDuration = Burns.duration(vessel, burn.deltaV)
@@ -548,8 +528,8 @@ class World(
     private val scratchBurn = Vec3()
 
     /**
-     * Flies [vessel]'s next burn: turns onto it, waits for its time, goes to full throttle, eases
-     * off as it runs out, and cuts. It gives up, saying why, when there's nothing to burn with.
+     * Flies [vessel]'s next burn: turns onto it, waits, burns full, eases off at the end and cuts.
+     * Gives up, saying why, with nothing to burn with.
      */
     private fun autoBurn(vessel: Vessel, attractor: CelestialBody) {
         val control = vessel.control
@@ -566,7 +546,7 @@ class World(
         val start = Burns.startOf(burn, vessel.burnDuration)
         if (vessel.burnVector.x.isNaN() || time < start || left < Burns.DONE) { control.throttle = 0.0; return }
         var thrust = litThrust(vessel)
-        // If the stage burns out part way through, move on to the next one, if it has an engine.
+        // Stage burnt out part way: move on to the next if it has an engine.
         if (thrust <= 0.0 && nextStageLights(vessel)) {
             stage(vessel)
             thrust = litThrust(vessel)
@@ -581,7 +561,7 @@ class World(
         val burning = control.throttle > 0.0
         val aligned = facing > (if (burning) ALIGNED_BURNING else ALIGNED_START)
         if (!aligned) { control.throttle = 0.0; return }
-        // Full, then easing off over the last half second's worth.
+        // Full, easing off over the last half second's worth.
         val most = thrust / vessel.body.mass
         control.throttle = (left / (most * AUTO_TAPER)).coerceIn(AUTO_LEAST_THROTTLE, 1.0)
     }
@@ -589,20 +569,17 @@ class World(
     // --- auto-land ------------------------------------------------------------------
 
     /**
-     * Lands [vessel] by itself. The engine stays off with the nose into the fall until stopping
-     * would take all the height that's left, then it brakes. It comes down at a pace that slows as
-     * the ground gets closer, down to a metre a second, taking off the sideways speed on the way,
-     * gets the legs out near the ground, and cuts once it's standing on them. Returns the way to
-     * hold the nose, or null to leave it to stability assist. It gives up, saying why, if there's
-     * too little engine to land on.
+     * Lands [vessel] by itself: coasts until stopping would take all the height left, then brakes
+     * to a metre a second at the ground, legs out, and cuts once it stands. Returns the way to hold
+     * the nose, or null to leave it to SAS. Gives up, saying why, with too little engine.
      */
     private fun autoLand(vessel: Vessel, attractor: CelestialBody, dt: Double): Vec3? {
         val control = vessel.control
         if (!mayAutopilot(vessel)) { control.autoLand = false; return null }
         if (!vessel.landStarted) {
-            // Set up on its first tick, which is where it's switched on for the craft here and for
-            // a player's own copy of it alike: where a rotorcraft or an airship comes down
-            // (straight under it now), the trims it starts from, and nothing else flying it.
+            // Set up on the first tick, so the server and the player's copy start alike: where a
+            // rotorcraft or airship comes down (straight under it now), its starting trims, and
+            // nothing else flying it.
             vessel.landStarted = true
             vessel.landBraking = false
             vessel.landSpeed = 0.0
@@ -621,13 +598,13 @@ class World(
             control.keepTrim = control.throttle
             control.cruise = false
             control.keeping = false
-            // Anything flying on the air picks its spot now. A rocket does when it starts braking,
-            // because from orbit it doesn't know yet where it'll be.
+            // Air craft pick their spot now. A rocket picks when it starts braking, since from orbit
+            // it can't know yet.
             if (flownOnAir(vessel, attractor)) chooseSpot(vessel, attractor, HOVER_SPOT_REACH)
-            // A plane picks a runway, or a clear strip of ground, to line up on.
+            // A plane picks a runway or clear strip to line up on.
             if (attractor.atmosphere != null && com.rm.apogee.core.craft.CraftKind.of(vessel.design, catalog) == com.rm.apogee.core.craft.CraftKind.PLANE) chooseStrip(vessel, attractor)
         }
-        // Anything that flies on the air lands the way it flies, not on its engines.
+        // Air craft land the way they fly, not on their engines.
         airLanding(vessel, attractor, dt)?.let { outcome ->
             if (outcome == Landing.Outcome.LANDED) {
                 control.autoLand = false
@@ -663,8 +640,7 @@ class World(
         val height = clearance(vessel, attractor)
         if (height < LEGS_OUT) lowerLegs(vessel)
         val speed = landVelocity.length
-        // Coasting down with nothing lit and the nose into the fall, until stopping from here would
-        // take all the height there is.
+        // Coast, nose into the fall, until stopping would take all the height left.
         if (!vessel.landBraking) {
             val stopping = speed * speed / (2.0 * (LAND_BRAKE_SHARE * most - g).coerceAtLeast(0.1))
             if (vertical > 0.0 || height > stopping * LAND_MARGIN + LAND_FLARE) {
@@ -675,9 +651,8 @@ class World(
             vessel.landBraking = true
         }
         if (!vessel.landSpotChosen) chooseSpot(vessel, attractor, ROCKET_SPOT_REACH)
-        // Still going fast over the ground, coming down from orbit: full thrust against the way
-        // it's going, with the nose never under the horizon, until the sideways speed is nearly
-        // gone.
+        // Fast over the ground from orbit: full thrust against the motion, nose never below the
+        // horizon, until the sideways speed is nearly gone.
         if (landSide.length > LAND_SIDE_KILLED) {
             landDirection.setTo(landVelocity).negateInPlace().normalizeInPlace()
             val below = landDirection dot landUp
@@ -686,14 +661,13 @@ class World(
             control.throttle = if (facing > LAND_ALIGNED) 1.0 else 0.0
             return landDirection
         }
-        // Down no faster than it could still stop from. It falls freely while that's faster than
-        // it's going, so no propellant gets spent holding a pace high up, and it eases to a metre a
-        // second at the ground with no sideways drift.
+        // Down no faster than it could still stop from, so it falls freely high up and spends no
+        // propellant there. Eases to a metre a second at the ground.
         val canStop = kotlin.math.sqrt(2.0 * (LAND_BRAKE_SHARE * most - g).coerceAtLeast(0.5) * height.coerceAtLeast(0.0)) * LAND_CURVE
         val want = -maxOf(LAND_TOUCHDOWN, minOf(canStop, LAND_TOUCHDOWN + height * LAND_PACE))
         val lift = (g + LAND_GAIN * (want - vertical)).coerceAtLeast(0.0)
         landDirection.setTo(landUp).mulInPlace(lift)
-        // Its drift taken off, less a gentle drift toward the clear spot it picked.
+        // Take off its drift, less a gentle drift toward its chosen spot.
         towardSpot(vessel, attractor, landScratch)
         landScratch.subInPlace(landSide).mulInPlace(LAND_SIDE_GAIN)
         val sideways = landScratch.length
@@ -702,9 +676,8 @@ class World(
         val need = landDirection.length
         if (need < 1e-6) { control.throttle = 0.0; return landDirection.setTo(landUp) }
         landDirection.mulInPlace(1.0 / need)
-        // Never leaning far over. A craft tipped well off upright near the ground can't be brought
-        // back in time, and maybe not at all. Leaning no further than this, it pushes up no harder
-        // than the descent needs, because taking off drift is never worth climbing for.
+        // Never lean far: tipped well over near the ground it can't recover in time. At the limit
+        // it pushes up only as hard as the descent needs, since drift isn't worth climbing for.
         var push = need
         val lean = kotlin.math.acos((landDirection dot landUp).coerceIn(-1.0, 1.0))
         if (lean > LAND_MOST_LEAN) {
@@ -728,10 +701,9 @@ class World(
     }
 
     /**
-     * Picks where [vessel] comes down: the nearest clear spot within [reach] metres of the ground
-     * under it, into its keep point, body-fixed at its height now. Over another craft's deck it
-     * comes down on the deck, which is what the player put it over. With nowhere clear in reach, it
-     * comes down where it is, and says so.
+     * Picks where [vessel] comes down: the nearest clear spot within [reach] metres, into its keep
+     * point, body-fixed at its height now. Over another craft's deck it lands on the deck. With
+     * nowhere clear, it lands where it is and says so.
      */
     private fun chooseSpot(vessel: Vessel, attractor: CelestialBody, reach: Double) {
         vessel.landSpotChosen = true
@@ -746,7 +718,7 @@ class World(
             control.autopilotNote = "Nowhere clear near: landing here"
             return
         }
-        // Where it is is fine, so it comes down the way it always did, only taking off its drift.
+        // Where it is is fine, so it just takes off its drift.
         val height = landSpotFrom.length
         if (found.distanceTo(landSpotFrom.normalizeInPlace()) * attractor.radius <= LAND_SPOT_MOVED) return
         control.keepPoint.setTo(found).mulInPlace(height)
@@ -757,14 +729,12 @@ class World(
     private val clearGround = ClearGround()
 
     /**
-     * Picks where plane [vessel] lands: the Cape's runway if it's near enough and clear, landing
-     * toward the end it's on the far side of, or else the nearest straight strip of clear ground
-     * ahead long enough to stop on. With neither, it comes down straight ahead, as it always did,
-     * and says so.
+     * Picks where plane [vessel] lands: the Cape's runway if it's near and clear, or else the nearest
+     * clear strip ahead long enough to stop on. With neither, it lands straight ahead and says so.
      */
     private fun chooseStrip(vessel: Vessel, attractor: CelestialBody) {
         val control = vessel.control
-        // First, because it works in the same scratch the velocity goes into.
+        // First, since it uses the same scratch as the velocity.
         val height = airClearance(vessel, attractor).coerceAtLeast(0.0)
         val rotation = attractor.rotationAt(time, scratchRotation)
         attractor.toBodyFixed(vessel.body.position, rotation, landSpotFrom)
@@ -784,10 +754,8 @@ class World(
             val north = (from dot northward) * attractor.radius
             val middle = 0.5 * (com.rm.apogee.core.terrain.TerrainField.RUNWAY_WEST + com.rm.apogee.core.terrain.TerrainField.RUNWAY_EAST)
             if (kotlin.math.hypot(east - middle, north - com.rm.apogee.core.terrain.TerrainField.RUNWAY_NORTH) < RUNWAY_REACH) {
-                // Into the wind, if there's much of one along it, the way a pilot would. Otherwise
-                // from the side it's on, or over it, the way it's going. Landed with a strong wind
-                // behind it, a plane holding its speed over the ground was nearly stalled through
-                // the air, and came down in the sea short of the runway.
+                // Into the wind if there's much along it, since a tailwind leaves it near stalling
+                // and short of the runway. Otherwise from the side it's on, or the way it's going.
                 val windAlong = vessel.air.wind dot eastward
                 val sense = when {
                     kotlin.math.abs(windAlong) > RUNWAY_WIND -> if (windAlong > 0.0) -1.0 else 1.0
@@ -807,7 +775,7 @@ class World(
                 }
             }
         }
-        // A clear strip ahead: the nearest first, turning as little as it can.
+        // A clear strip ahead: nearest first, turning as little as it can.
         val farthest = (height * STRIP_GLIDE).coerceIn(STRIP_NEAREST, STRIP_FARTHEST)
         val up = landSpotFrom.copy().normalizeInPlace()
         val track = landScratch.addScaledInPlace(up, -(landScratch dot up))
@@ -848,8 +816,8 @@ class World(
     private val landSpotAt = Vec3()
 
     /**
-     * The level velocity toward [vessel]'s landing spot it should drift at, into [out]: faster the
-     * further off it is, up to a few metres a second. Nothing if it hasn't picked one.
+     * The level drift velocity toward [vessel]'s landing spot, into [out]: faster the further off,
+     * up to a few metres a second. Zero if it hasn't picked one.
      */
     private fun towardSpot(vessel: Vessel, attractor: CelestialBody, out: Vec3): Vec3 {
         out.setZero()
@@ -859,7 +827,7 @@ class World(
         landUp.setTo(vessel.body.position).normalizeInPlace()
         out.addScaledInPlace(landUp, -(out dot landUp)).mulInPlace(LAND_SPOT_GAIN)
         if (out.length > LAND_SPOT_DRIFT) out.mulInPlace(LAND_SPOT_DRIFT / out.length)
-        // None of it at the ground, where it has to come down straight or tip over on its legs.
+        // None near the ground, where it has to come down straight or it tips over.
         out.mulInPlace(((clearance(vessel, attractor) - LAND_SPOT_STRAIGHT) / LAND_SPOT_STRAIGHT).coerceIn(0.0, 1.0))
         return out
     }
@@ -888,8 +856,8 @@ class World(
     }
 
     /**
-     * One tick of landing [vessel] the way a plane, a rotorcraft or an airship comes down, if it's
-     * one of those and there's air to do it in. Null for anything else, which lands on its engines.
+     * One tick of landing a plane, rotorcraft or airship in air. Null for anything else, which lands
+     * on its engines.
      */
     private fun airLanding(vessel: Vessel, attractor: CelestialBody, dt: Double): Landing.Outcome? {
         if (attractor.atmosphere == null) return null
@@ -928,10 +896,7 @@ class World(
         return centre - below
     }
 
-    /**
-     * Fires the next stage if it's nothing but legs and gear still up, so it has something to stand
-     * on.
-     */
+    /** Fires the next stage if it's only legs and gear, so it has something to stand on. */
     private fun lowerLegs(vessel: Vessel) {
         val next = vessel.design.stages.getOrNull(vessel.currentStage) ?: return
         if (next.activatedParts.isEmpty()) return
@@ -942,9 +907,7 @@ class World(
         if (gear) stage(vessel)
     }
 
-    /**
-     * The thrust the lit engines can give where the craft is, in N: in the air there, or in vacuum.
-     */
+    /** The thrust the lit engines can give at the craft's air pressure, in N. */
     private fun litThrustHere(vessel: Vessel, attractor: CelestialBody): Double {
         val pressure = attractor.atmosphere?.pressureRatioAt(attractor.altitudeOf(vessel.body.position)) ?: 0.0
         var total = 0.0
@@ -964,9 +927,8 @@ class World(
     private val landOffset = Vec3()
 
     /**
-     * Opens [vessel]'s fairing at part [index]. Its shell's two halves become craft of their own
-     * where the shell stood, pushed out sideways from the craft's axis, one each way. The base
-     * stays on, lighter by them.
+     * Opens [vessel]'s fairing at part [index]. The shell's two halves become craft of their own,
+     * pushed out sideways one each way. The base stays on.
      */
     private fun openFairing(vessel: Vessel, index: Int) {
         val fairing = vessel.defs[index].module<com.rm.apogee.core.part.Fairing>() ?: return
@@ -979,8 +941,7 @@ class World(
             val turn = if (side > 0) Quat.identity() else Quat.fromAxisAngle(Vec3.unitY(), Math.PI)
             val rotation = (vessel.body.orientation * placed.rotation * turn).normalizeInPlace()
             val out = rotation.rotate(Vec3.unitX())
-            // The half's own middle: out from the axis by half the shell's radius, and up by half
-            // its height.
+            // The half's middle: half the shell's radius out and half its height up.
             val at = Vec3().setTo(offset).addScaledInPlace(axis, rise).addScaledInPlace(out, fairing.radius / 2)
             val half = Vessel(
                 id = VesselId(nextVesselId++),
@@ -1008,10 +969,7 @@ class World(
         return next.activatedParts.any { vessel.defs.getOrNull(it)?.module<com.rm.apogee.core.part.Engine>() != null }
     }
 
-    /**
-     * The thrust the craft's lit engines can give now, in vacuum, in N, counting those with
-     * propellant.
-     */
+    /** The vacuum thrust of the lit engines that have propellant, in N. */
     fun litThrust(vessel: Vessel): Double {
         var total = 0.0
         for (i in vessel.activeEngines()) {
@@ -1030,9 +988,8 @@ class World(
     val surveyed: MutableSet<String> = LinkedHashSet()
 
     /**
-     * [dt] more of [vessel]'s survey of [attractor]. It counts while it has a working scanner and
-     * power, in a low, steep orbit clear of the ground. It's done in half an orbit, and lost the
-     * moment it leaves one.
+     * [dt] more of [vessel]'s survey of [attractor]. Counts with a working scanner and power in a
+     * low, steep orbit clear of the ground. Done in half an orbit, lost if it leaves the orbit.
      */
     private fun survey(vessel: Vessel, attractor: CelestialBody, dt: Double) {
         if (attractor.id in surveyed || attractor.terrain == null) return
@@ -1051,8 +1008,7 @@ class World(
             vessel.surveyBody = if (qualifies) attractor.id else ""
             if (!qualifies) return
         }
-        // When it's out of power it waits, because the orbit it has is just as good when the sun
-        // comes back.
+        // Out of power it just waits; the orbit's still good when the sun comes back.
         if (!vessel.powered) return
         vessel.surveyProgress += dt
         if (vessel.surveyProgress >= 0.5 * orbit!!.period) {
@@ -1062,10 +1018,7 @@ class World(
         }
     }
 
-    /**
-     * How far [vessel] has got through surveying the body it orbits, 0..1. It's 1 once that body is
-     * surveyed.
-     */
+    /** How far [vessel] is through surveying the body it orbits, 0..1. 1 once it's surveyed. */
     fun surveyShare(vessel: Vessel): Double {
         val attractor = attractorFor(vessel)
         if (attractor.id in surveyed) return 1.0
@@ -1130,38 +1083,35 @@ class World(
 
     private val scatterContacts = com.rm.apogee.core.physics.ScatterContact()
 
-    /** The ground under the craft being stepped, from [contactSubsteps], and how far it can move this tick. NaN when it wasn't worked out. */
+    /**
+     * The ground under the craft being stepped, from [contactSubsteps], and how far it can move
+     * this tick. NaN if not worked out.
+     */
     private var tickGroundBelow = Double.NaN
     private var tickGroundSlack = 0.0
 
     /**
-     * Scatter knocked down (trees, shrubs, cacti), by id. It's world state, so it's saved, sent to
-     * every client, and never grows back. Everything else about scatter is decided by the terrain
-     * and doesn't need remembering.
+     * Scatter knocked down (trees, shrubs, cacti), by id. Saved, sent to every client, never grows
+     * back. The rest of scatter comes from the terrain.
      */
     val felledScatter: MutableSet<Long> = concurrentSetOf()
 
     /**
-     * The craft each player last flew, by owner id. It's saved with the world, so starting a fresh
-     * flight can clear away the one from the last session, and only that one. Anything else a
-     * player owns is a base they left on purpose.
+     * The craft each player last flew, by owner id. Saved, so a fresh flight clears away only that
+     * one. Anything else they own is a base they left on purpose.
      */
     val lastFlown: MutableMap<String, Long> = com.rm.apogee.core.concurrentMapOf()
 
-    /**
-     * The stripe each player picked for their crew's suits, by owner id. Kept with the world, so a
-     * player's crew still wear it while they're away.
-     */
+    /** The stripe each player picked for their crew's suits, by owner id. Saved with the world. */
     val stripes: MutableMap<String, Int> = com.rm.apogee.core.concurrentMapOf()
 
     /**
-     * The named places under the sea each player has found, by owner. It works the same in a career
-     * and in free play, giving you somewhere to go that stays hidden until you reach it. A career
-     * also pays for each one and keeps the world firsts.
+     * The named places under the sea each player has found, by owner, in a career or free play. A
+     * career also pays for each and keeps the world firsts.
      */
     val wondersFound: MutableMap<String, MutableSet<String>> = com.rm.apogee.core.concurrentMapOf()
 
-    /** Goes up whenever anyone finds one, so a server knows to tell them. */
+    /** Goes up whenever anyone finds one, so a server knows to send it. */
     @Volatile var wondersRevision = 0
         private set
 
@@ -1169,9 +1119,8 @@ class World(
     fun wondersFoundBy(owner: String): Set<String> = wondersFound[owner]?.toSet().orEmpty()
 
     /**
-     * Checks every craft under the sea for the named places it has reached, meaning close by and
-     * nearly as deep. The first time for its owner, it's a find. In a career that pays, and in free
-     * play it gets a banner of its own.
+     * Checks every craft under the sea for named places it has reached (close by and nearly as
+     * deep). The first time for its owner it's a find: paid in a career, a banner in free play.
      */
     private fun lookForWonders() {
         for (vessel in vesselsById.values) {
@@ -1209,12 +1158,7 @@ class World(
         if (felledScatter.add(id)) pendingEvents.add(WorldEvent.ScatterFelled(id))
     }
 
-    /**
-     * Craft to remove once the step finishes.
-     *
-     * Destroying them in place would change the map while it's being walked through. It's reused
-     * instead of allocated every step, and it's empty on almost every one.
-     */
+    /** Craft to remove once the step finishes, since the map can't change while it's walked. */
     private val pendingDestruction = ArrayList<Pair<VesselId, String>>()
 
     /** Craft with a part damaged to nothing this tick, to break up at the end of it. */
@@ -1228,9 +1172,8 @@ class World(
     private val impactNormal = Vec3()
 
     /**
-     * Small crash fragments, and when they go. Bits of fins and rings would otherwise litter every
-     * crash site forever. Anything with controls on it, or heavy enough to be wreckage worth
-     * finding, never goes here.
+     * Small crash fragments, and when they go, so crash sites don't fill up forever. Anything with
+     * controls, or heavy enough to be worth finding, never goes here.
      */
     private val fragmentExpiry = HashMap<VesselId, Double>()
 
@@ -1242,8 +1185,8 @@ class World(
         contacts.ignorePair = { a, b -> docking.capturing(a, b) || linked(a, b) }
         // Just parted, so still solid to each other, but only gently.
         contacts.gentlePair = { a, b -> justSeparated.containsKey(pairKey(a, b)) }
-        // A stage let go under power can push the one above for seconds, so they stay gentle for as
-        // long as they touch, not just the first second and a half.
+        // A stage let go under power can push the one above for seconds, so they stay gentle for
+        // as long as they touch.
         contacts.gentleTouching = { a, b ->
             val key = pairKey(a, b)
             val until = justSeparated[key]
@@ -1264,9 +1207,9 @@ class World(
     val hitches: List<Link> get() = links
 
     /**
-     * A winch line out: from winch [partA] on craft [a] to a hook on part [partB] of craft [b] at
-     * [hook] (in that part's own axes), or with [b] null, to the ground at body-fixed [ground] on
-     * [bodyId]. [length] is how much line is out, in metres.
+     * A winch line from winch [partA] on craft [a] to a hook at [hook] (in part [partB]'s own axes)
+     * on craft [b], or with [b] null to the ground at body-fixed [ground] on [bodyId]. [length] is
+     * how much line is out, in metres.
      */
     class Line(
         val a: VesselId,
@@ -1296,9 +1239,9 @@ class World(
     private fun linked(a: Long, b: Long) = links.any { (it.a.raw == a && it.b.raw == b) || (it.a.raw == b && it.b.raw == a) }
 
     /**
-     * The craft [vessel]'s wheels, legs or feet might be standing on this tick: those within reach
-     * round the same body, leaving out what it's docking or coupled with and what it has only just
-     * come apart from. Nobody drives over a person, so people on foot aren't decks.
+     * The craft [vessel]'s wheels, legs or feet might stand on this tick: those in reach round the
+     * same body, less what it's docking with, coupled to or just parted from. People on foot aren't
+     * decks.
      */
     private fun decksNear(vessel: Vessel): List<Vessel> {
         decksScratch.clear()
@@ -1318,9 +1261,8 @@ class World(
     private val decksScratch = ArrayList<Vessel>()
 
     /**
-     * The craft [vessel] is parked on, a plane on a carrier or a buggy on a barge, or null. It's
-     * whatever's straight below its centre, within its own reach. Just loaded, nothing is standing on
-     * anything yet, and the Petrel on the Flat Top's deck was listed as afloat.
+     * The craft [vessel] is parked on, or null. Falls back to what's straight below its centre,
+     * since nothing is standing on anything just after loading.
      */
     fun deckUnder(vessel: Vessel): Vessel? {
         vessel.standingOn?.let { return it }
@@ -1350,10 +1292,7 @@ class World(
     /** Whether craft [a] and [b] are drawing each other in to dock. */
     fun capturing(a: Long, b: Long) = docking.capturing(a, b)
 
-    /**
-     * Vessels in step order, reused so the craft-against-craft pass can index them without
-     * allocating a list every tick.
-     */
+    /** Vessels in step order, reused so the craft-against-craft pass can index them. */
     private val stepOrder = ArrayList<Vessel>()
 
     private val scratchSurfaceVelocity = Vec3()
@@ -1382,12 +1321,7 @@ class World(
 
     /**
      * Places a craft on the ground at [site], resting on its lowest part and moving with the
-     * surface.
-     *
-     * Matching the surface velocity matters more than it looks. A craft spawned at rest in the
-     * planet's *inertial* frame is really moving at a couple of hundred metres per second relative
-     * to the ground it's standing on, and would get dragged off the pad the moment friction kicked
-     * in.
+     * surface, not at inertial rest.
      */
     fun spawnOnSurface(
         design: CraftDesign,
@@ -1409,19 +1343,15 @@ class World(
             referenceBodyId = site.bodyId,
         )
 
-        // The site is a point on a turning planet. Its body-fixed normal stays put, but its
-        // inertial direction doesn't.
+        // The site's normal is fixed to the body; its inertial direction turns with the planet.
         surfaceNormalAt(site, pad, scratchBodyFixedUp)
         attractor.rotationAt(time, scratchRotation)
         scratchRotation.rotate(scratchBodyFixedUp, scratchUp)
         val up = scratchUp
         standUpright(vessel, attractor, up)
 
-        // On the ground, not at sea level. The pad might be most of a kilometre above the datum,
-        // and spawning at the datum would drop the craft inside a hill.
-        //
-        // At sea, it goes on the water as it is right now, since the tide might be metres up or
-        // down.
+        // On the ground, not at the datum, which could be inside a hill. At sea, on the water as it
+        // is now, since the tide might be metres up or down.
         val sea = attractor.ocean?.let { attractor.radius + it.surfaceHeight(scratchBodyFixedUp, time) }
         val groundRadius = kotlin.math.max(attractor.solidRadiusInBodyFrame(scratchBodyFixedUp), sea ?: 0.0)
             .let { if (sea == null) attractor.surfaceRadiusInBodyFrame(scratchBodyFixedUp) else it }
@@ -1448,11 +1378,8 @@ class World(
     }
 
     /**
-     * A boat set down afloat, settled at the draft its weight gives it on the water it's put in,
-     * and moving with that water. Stood on its lowest point instead (an outboard's leg), it got
-     * dropped most of a metre, and in a swell it landed still on a moving slope and slammed over. A
-     * skiff launched into the harbour pitched up fifty degrees and swamped where it was put. If
-     * nothing floats, or the water's too shallow for it, it stays standing on the bottom.
+     * Sets a boat down at the draft its weight gives it, moving with the water, so it doesn't drop
+     * onto a swell and swamp. If nothing floats or it's too shallow, it stands on the bottom.
      */
     private fun floatAtDraft(vessel: Vessel, attractor: CelestialBody, up: Vec3, seaRadius: Double) {
         val ocean = attractor.ocean ?: return
@@ -1481,12 +1408,7 @@ class World(
         vessel.body.linearVelocity.addInPlace(scratchRotation.rotate(seaRide.velocity, offset))
     }
 
-    /**
-     * Places a craft at a given state.
-     *
-     * Client-side prediction uses this. It needs to start a local replica from an authoritative
-     * snapshot instead of from a launch site or an orbit.
-     */
+    /** Places a craft at a given state. Prediction uses it to start a replica from a snapshot. */
     fun spawnAt(
         design: CraftDesign,
         bodyId: String,
@@ -1536,37 +1458,28 @@ class World(
     }
 
     /**
-     * Turns a craft so the design's [CraftOrientation.up] points at the sky.
-     *
-     * A vertical craft keeps exactly the attitude it always had, nose up with its roll wherever the
-     * shortest turn leaves it, so nothing that was already flying changes under it. A horizontal
-     * one also gets a heading: nose east, along the way the ground is already carrying it. That's
-     * the cheap direction to take off in, for the same reason it's the cheap direction to launch
-     * in.
+     * Turns a craft so the design's [CraftOrientation.up] points at the sky. A vertical craft keeps
+     * the roll the shortest turn leaves it. Anything that goes along the ground also faces east, the
+     * way the surface carries it.
      */
     private fun standUpright(vessel: Vessel, attractor: CelestialBody, up: Vec3) {
         val orientation = vessel.design.orientation
         val rotation = vessel.body.orientation
         quatFromTo(orientation.up, up, rotation)
 
-        // Facing east, along the runway, if it goes anywhere along the ground, like a plane or a
-        // rover built standing up. Left to the turn that stood it upright, a rover's heading
-        // depended on where on the planet it stood. At the old Cape it happened to face east, and
-        // at the new one it faced straight off the side of the pad into the sea. A rocket or a
-        // lander has no front to face, so it keeps the turn.
+        // Anything with wheels, or built lying down, faces east along the runway. A rocket or
+        // lander has no front, so it keeps the turn.
         if (orientation == CraftOrientation.VERTICAL &&
             vessel.defs.none { it.module<com.rm.apogee.core.part.Wheel>() != null }
         ) return
 
-        // East is the way the surface moves. At a pole it doesn't move, so any heading is as good
-        // as another.
+        // East is the way the surface moves. At a pole any heading will do.
         val east = attractor.surfaceVelocityAt(up, Vec3())
         east.addScaledInPlace(up, -(east dot up))
         if (east.lengthSq < 1e-12) return
         east.normalizeInPlace()
 
-        // The first turn left the nose somewhere level, so swing it around the vertical until it
-        // faces east.
+        // Swing the level nose around the vertical until it faces east.
         val nose = rotation.rotate(orientation.forward, Vec3())
         val heading = if ((nose dot east) < -0.999999) {
             Quat.fromAxisAngle(up, Math.PI)
@@ -1577,16 +1490,12 @@ class World(
     }
 
     /**
-     * The surface normal at a launch site's [pad].
-     *
-     * Pads are spread along the local east-west line. Without this every player who joins spawns at
-     * exactly the same point, inside everyone already there, and the contact solver throws them
-     * apart at violent speed, which is a spectacular but unhelpful way to start a game.
+     * The surface normal at a launch site's [pad]. Pads are spread east-west so players don't spawn
+     * inside each other.
      */
     private fun surfaceNormalAt(site: LaunchSite, pad: Int, out: Vec3): Vec3 {
         val attractor = system.body(site.bodyId)
-        // Alternate on either side of the site so the first few pads stay near the middle instead
-        // of marching off in one direction.
+        // Alternate sides so the first few pads stay near the middle.
         val slot = if (pad % 2 == 0) pad / 2 else -(pad + 1) / 2
         val longitude = site.longitude + slot * PAD_SPACING_METRES / attractor.radius
 
@@ -1599,18 +1508,8 @@ class World(
     }
 
     /**
-     * How far the craft's centre of mass has to sit above the surface.
-     *
-     * It uses exactly the same hull contact points the collision resolver does, so a craft spawns
-     * already meeting the contact constraint. Working out clearance one way and collision another
-     * leaves every craft either hovering or spawning inside the ground.
-     */
-    /**
-     * A craft a player launches stands on its landing legs if they're what it would stand on:
-     * out and working, as if it had landed, instead of balanced on its engine bell with them folded
-     * against it. Only the legs whose feet reach the bottom go out, so a rocket with a lander high
-     * up its stack keeps that lander's folded. Their stage still fires in its turn, and changes
-     * nothing.
+     * A player's launch stands on its landing legs if their feet reach the bottom; a lander high up
+     * a stack keeps its legs folded. Their stage still fires in turn and changes nothing.
      */
     private fun standOnLegs(vessel: Vessel, up: Vec3) {
         val legs = vessel.defs.indices.filter { vessel.defs[it].hasModule<LandingLeg>() }
@@ -1627,6 +1526,10 @@ class World(
         }
     }
 
+    /**
+     * How far the craft's centre of mass has to sit above the surface. Uses the same contact points
+     * as the collision resolver, so a craft spawns neither hovering nor sunk.
+     */
     private fun lowestExtentAlong(vessel: Vessel, up: Vec3): Double {
         var deepest = 0.0
         val offset = Vec3()
@@ -1641,10 +1544,9 @@ class World(
     }
 
     /**
-     * Stands [vessel] on the ground directly below it, as it's posed now. It's lifted or lowered
-     * until its lowest contact just touches, moving with the surface and not turning. This is for
-     * putting a craft down after changing its shape, like deploying its legs in place, without
-     * dropping it or burying it.
+     * Stands [vessel] on the ground below it as posed now: lifted or lowered until its lowest
+     * contact touches, moving with the surface, not turning. For setting a craft down after a shape
+     * change, like deploying its legs.
      */
     fun setDown(vessel: Vessel) {
         val attractor = system.body(vessel.referenceBodyId)
@@ -1658,18 +1560,9 @@ class World(
     }
 
     /**
-     * Sets every craft that was resting on the ground back onto it, after loading onto different
-     * terrain.
-     *
-     * The saved position was on the old ground, which might now be metres above or below it. A
-     * parked rover would wake up buried and get flung out, or hovering and drop. Whether it's
-     * resting is judged by motion, since the old ground is gone: barely moving relative to the
-     * surface, and low enough that the surface is what it could be resting on. Craft in flight and
-     * in orbit are left exactly where they were, and so is anything afloat.
-     *
-     * The craft keeps its orientation and gets lifted or lowered so its lowest contact point just
-     * touches the new ground, moving with the surface. If it was parked on a slope, it settles onto
-     * the new one by itself.
+     * Sets every craft resting on the ground (barely moving and low) back onto it after loading
+     * onto different terrain. It keeps its orientation and is lifted or lowered until its lowest
+     * contact touches. Craft in flight, in orbit or afloat are left alone.
      *
      * @return how many craft were moved.
      */
@@ -1706,8 +1599,7 @@ class World(
 
     fun apply(command: Command) {
         when (command) {
-            // Each of these wakes its target first. A command means somebody is paying attention to
-            // that craft, which is exactly the signal dormancy is waiting for.
+            // Each wakes its target first: a command means someone is paying attention to it.
             is Command.SetThrottle ->
                 heard(command.vessel)?.control?.throttle = command.throttle
 
@@ -1722,7 +1614,7 @@ class World(
 
             is Command.SetSasMode -> heard(command.vessel)?.let {
                 it.control.sasMode = command.mode
-                // A new mode is a new hold, so start it from where the craft is.
+                // A new mode starts a new hold from where the craft is.
                 it.assistHolding = false
             }
 
@@ -1791,7 +1683,7 @@ class World(
                 it.control.drilling = command.drilling
                 it.control.refining = command.refining
                 if (!command.drilling) it.drillState = DrillState.OFF
-                // A founded base never steps its pose, so its drills go straight down, or up.
+                // A founded base never steps its pose, so its drills are set fully down or up at once.
                 if (it.anchored) for (i in it.defs.indices) {
                     if (it.defs[i].module<com.rm.apogee.core.part.Drill>() != null) it.setLegDeploy(i, if (unfolded(it, i)) 1.0 else 0.0)
                 }
@@ -1817,8 +1709,8 @@ class World(
 
             is Command.Stage -> heard(command.vessel)?.let { stage(it) }
 
-            // The server handles this, because it has to decide who owns and flies the result.
-            // Getting here means nobody claimed it.
+            // The server's job, since it decides who owns and flies the result. Getting here means
+            // nobody claimed it.
             is Command.SpawnCraft -> spawnFor(command, owner = "")
 
             is Command.Join -> waken(command.vessel)?.let { joinToNeighbour(it) }
@@ -1827,8 +1719,7 @@ class World(
             is Command.Undock -> heard(command.vessel)?.let { undock(it, command.part) }
             is Command.SetDockPilot -> Unit // the server's job: who can fly what
 
-            // The server handles this, because it owns the idea of who's flying what. Getting to
-            // the world means nobody was listening.
+            // The server's job: it owns who's flying what. Getting here means nobody was listening.
             is Command.SwitchVessel -> waken(command.vessel)
 
             is Command.Chat -> Unit // handled above the world
@@ -1841,11 +1732,9 @@ class World(
     }
 
     /**
-     * Fires the next stage, and splits the craft at any decoupler in it.
-     *
-     * The part of the tree below the decoupler becomes a new vessel that keeps the motion it had,
-     * plus a separation push. Splitting a body is all there is to staging here. There are no joints
-     * to release, because parts are welded.
+     * Fires the next stage and splits the craft at any decoupler in it. The tree below each
+     * decoupler becomes a new vessel with its motion plus a separation push. Parts are welded, so
+     * there are no joints to release.
      */
     fun stage(vessel: Vessel) {
         val activated = vessel.activateNextStage()
@@ -1854,9 +1743,8 @@ class World(
         // Fairings open: the shell comes off in halves and the ring stays.
         for (index in activated) if (vessel.defs.getOrNull(index)?.module<com.rm.apogee.core.part.Fairing>() != null) openFairing(vessel, index)
 
-        // Every decoupler in the stage, not just the first. Four radial boosters are four
-        // decouplers firing together. Each split renumbers the craft that keeps flying, so the rest
-        // are followed through it.
+        // Every decoupler in the stage, like four radial boosters. Each split renumbers the craft
+        // that keeps flying, so the rest are followed through it.
         var pending = activated.filter { index -> vessel.defs.getOrNull(index)?.module<Decoupler>() != null }
         while (pending.isNotEmpty()) {
             val kept = splitAt(vessel, pending.first()) ?: break
@@ -1865,22 +1753,8 @@ class World(
     }
 
     /**
-     * Separates the part of the tree below [decouplerIndex] into its own vessel.
-     *
-     * The decoupler itself stays with the half that's thrown away, which matches the usual
-     * convention and means the craft that's left doesn't keep carrying dead weight.
-     */
-    /**
-     * Welds [vessel] to the nearest craft it's touching.
-     *
-     * This is the reverse of [splitAt], and it's how a base gets built. Modules are landed, pushed
-     * into place, and tied together into one structure. Doing it as a merge of part trees instead
-     * of a new kind of link means everything downstream (mass, inertia, fuel crossfeed, collision,
-     * saving) keeps working without knowing bases exist.
-     *
-     * They're welded where they stand instead of snapped onto attach nodes. A base is put together
-     * by moving things into position, and snapping would teleport a module you've just spent a
-     * minute placing.
+     * Welds [vessel] to the nearest craft it's touching, where they stand: the reverse of
+     * [splitAt], and how bases get built. It merges part trees, so nothing else needs to know.
      *
      * @return the merged vessel, or null if there was nothing to join to.
      */
@@ -1907,8 +1781,7 @@ class World(
             val distance = scratch.length
             if (distance > vessel.contactRadius + other.contactRadius) continue
 
-            // Only things it's resting against. Welding to something you're flying past is how a
-            // docking mechanic turns into a grappling hook.
+            // Only things it's resting against, not something flying past.
             scratch.setTo(vessel.body.linearVelocity).subInPlace(other.body.linearVelocity)
             if (scratch.length > JOIN_MAX_CLOSING_SPEED) continue
 
@@ -1925,17 +1798,13 @@ class World(
         rider.standingOn === deck || rider.ridingOn == deck.id
 
     /**
-     * Merges [absorbed] into [keeper], keeping momentum, and removes it.
-     *
-     * The transform is the only fiddly bit. [absorbed]'s parts are described in its own design
-     * space, and they have to be described again in [keeper]'s so every part ends up exactly where
-     * it already is in the world.
+     * Merges [absorbed] into [keeper], keeping momentum, and removes it. [absorbed]'s parts are
+     * re-expressed in [keeper]'s design space so each stays where it is in the world.
      */
     fun join(keeper: Vessel, absorbed: Vessel, dock: DockJoin? = null): Vessel? {
         if (keeper.id == absorbed.id) return null
         if (keeper.referenceBodyId != absorbed.referenceBodyId) return null
-        // A base takes in whatever joins it, never the other way round. It stays where it's
-        // founded, and what came is fixed to it where it stands.
+        // A founded base always does the absorbing, so it stays where it's founded.
         if (absorbed.anchored && !keeper.anchored) {
             return join(absorbed, keeper, dock?.let { DockJoin(it.absorbedPart, it.keeperPart) })
         }
@@ -1987,23 +1856,21 @@ class World(
     // --- anchoring ------------------------------------------------------------
 
     /**
-     * Founds [vessel] where it rests. From then on it's pinned to the ground, never woken, and
-     * can't be moved by anything that hits it, though its parts still break. Only a craft with a
-     * working [com.rm.apogee.core.part.Foundation], on the ground and still. Otherwise it returns
-     * false and nothing changes.
+     * Founds [vessel] where it rests: pinned, never woken, unmoved by anything that hits it, though
+     * its parts still break. Needs a working [com.rm.apogee.core.part.Foundation] and to be still.
+     * Returns false, changing nothing, if it can't.
      */
     fun anchor(vessel: Vessel): Boolean {
         if (vessel.anchored) return true
         if (!canAnchor(vessel)) return false
         val attractor = attractorFor(vessel)
         attractor.rotationAt(tickEnd, anchorRotation)
-        // Standing on the ground, it's set level on its feet first. Afloat or aloft, it's pinned
-        // as it floats.
+        // On the ground it's levelled on its feet first. Afloat or aloft it's pinned as it floats.
         if (!floatingFoundable(vessel) && !level(vessel, attractor)) return false
-        // Not a base down on the sea floor, though, which is in the water too.
+        // Not a base on the sea floor, which is in the water too.
         val onSea = !vessel.touchingGround && !vessel.submerged && (if (vessel.dormant) vessel.afloat else vessel.buoyed)
         vessel.anchor(anchorRotation)
-        // Founded on the sea, it rides it: up and down with the swell, and tipped with it.
+        // Founded on the sea, it rides the swell.
         if (onSea) settleAfloat(vessel, attractor)
         vessel.powerSettledAt = tickEnd
         attractor.surfaceVelocityAt(vessel.body.position, vessel.body.linearVelocity)
@@ -2014,12 +1881,11 @@ class World(
     }
 
     /**
-     * Whether [vessel] floats where it is on its own and is still enough to be founded there: afloat
-     * on the sea, or aloft, with its gas cells lifting its weight or its keeper core holding it.
+     * Whether [vessel] floats on its own and is still enough to be founded there: afloat on the sea,
+     * or aloft on its gas cells or keeper core.
      */
     private fun floatingFoundable(vessel: Vessel): Boolean {
-        // Nor hanging in the water under it. Founded there it rode the sea at a depth nothing held
-        // it at.
+        // Not hanging underwater either, where nothing would hold its depth.
         if (vessel.touchingGround || vessel.submerged) return false
         val afloat = if (vessel.dormant) vessel.afloat else vessel.buoyed
         val aloft = !afloat && !vessel.dormant && (liftShare(vessel) >= FLOATS_ALONE || vessel.control.keeping)
@@ -2027,7 +1893,7 @@ class World(
         if (vessel.dormant) return true
         attractorFor(vessel).surfaceVelocityAt(vessel.body.position, scratch).subInPlace(vessel.body.linearVelocity)
         if (!afloat) return scratch.length < FLOAT_FOUND_SPEED
-        // Afloat, only its drift across the sea counts, not its heaving and swaying with the waves.
+        // Afloat, only its drift counts, not its heave and sway.
         val up = vessel.body.position.normalized()
         scratch.addScaledInPlace(up, -(scratch dot up))
         return scratch.length < FLOAT_FOUND_DRIFT
@@ -2042,21 +1908,17 @@ class World(
         if (floatingFoundable(vessel)) return true
         if (vessel.dormant) { if (vessel.afloat) return false }
         else {
-            // Under water a base weighs little more than the sea it's in, and it settles onto the
-            // floor so lightly its feet only touch it now and then. There, its feet being down on the
-            // floor, still, is enough, and the FOUND button doesn't blink.
+            // Underwater a base's feet only touch now and then, so still with its feet down is
+            // enough.
             if (!vessel.touchingGround && !vessel.submerged) return false
             attractorFor(vessel).surfaceVelocityAt(vessel.body.position, scratch)
             if (scratch.subInPlace(vessel.body.linearVelocity).length >= ANCHOR_MAX_SPEED) return false
         }
-        // Standing on its feet. A foundation still on the flatbed that brought it isn't on the
-        // ground, whatever the truck is doing.
+        // Standing on its own feet, not still on the flatbed that brought it.
         return lowestFoot(vessel) <= FOOT_ON_GROUND
     }
 
-    /**
-     * How far the lowest foot of any working foundation of [vessel] is above the ground, in metres.
-     */
+    /** How far the lowest foot of [vessel]'s working foundations is above the ground, in metres. */
     private fun lowestFoot(vessel: Vessel): Double {
         val attractor = attractorFor(vessel)
         attractor.rotationAt(tickEnd, anchorRotation)
@@ -2078,10 +1940,9 @@ class World(
     }
 
     /**
-     * Stands [vessel] level on its foundations' feet before it's founded. It's turned upright
-     * around its centre (no further than the steepest ground its foundations can take) and set down
-     * on its lowest foot, with the rest reaching down to the ground within their travel. Returns
-     * false, leaving the craft as it was, where the ground is too steep or too uneven.
+     * Stands [vessel] level on its foundations before it's founded: turned upright about its centre
+     * (up to their steepest slope) and set down on its lowest foot, the rest reaching down within
+     * their travel. Returns false, leaving it as it was, if the ground is too steep or uneven.
      */
     private fun level(vessel: Vessel, attractor: CelestialBody): Boolean {
         val body = vessel.body
@@ -2126,7 +1987,7 @@ class World(
             body.position.setTo(oldPosition)
             return false
         }
-        // Down (or up) until the highest foot meets the ground.
+        // Down (or up) until the lowest foot meets the ground.
         body.position.addScaledInPlace(up, -lowest)
         return true
     }
@@ -2152,17 +2013,17 @@ class World(
     }
 
     /**
-     * Where a craft gets filled from: the [base], the parts of it that give, and the [craft] parts
-     * that take.
+     * Where a craft gets filled from: the [base], its parts that give, and the [craft] parts that
+     * take.
      */
     class Service(val base: Vessel, val from: List<Int>, val craft: Vessel, val into: List<Int>)
 
     /**
-     * What [craft] could be filled from right now: the base whose pad deck it stands on, or if it's
-     * docked to a base (and so one craft with it), the rest of that base. Null if neither.
+     * What [craft] could be filled from now: the base whose pad it stands on, or, docked to a base
+     * (so one craft with it), the rest of that base. Null if neither.
      */
     fun serviceFor(craft: Vessel): Service? {
-        // Docked: what came is what hangs from each ring that docked on.
+        // Docked: what came is whatever hangs from each ring that docked on.
         val docked = LinkedHashSet<Int>()
         for (i in craft.design.parts.indices) {
             if (craft.design.parts[i].dockedFrom != null) docked.addAll(craft.design.subtreeOf(i))
@@ -2171,8 +2032,7 @@ class World(
             if (docked.isEmpty()) return null
             return Service(craft, craft.defs.indices.filter { it !in docked }, craft, docked.toList())
         }
-        // Two craft docked in flight. The one being flown is the one that stayed, and it gets
-        // filled from, or emptied into, whatever docked onto it.
+        // Docked in flight: the craft that stayed fills from, or empties into, what docked onto it.
         if (docked.isNotEmpty()) return Service(craft, docked.toList(), craft, craft.defs.indices.filter { it !in docked })
         val up = Vec3()
         val offset = Vec3()
@@ -2201,8 +2061,8 @@ class World(
     }
 
     /**
-     * Whether [craft] could be filled from a base right now: standing on or docked to one, with
-     * room for something it has.
+     * Whether [craft] could be filled from a base now: on or docked to one, with room for something
+     * it has.
      */
     fun canRefuel(craft: Vessel): Boolean {
         val service = serviceFor(craft) ?: return false
@@ -2213,9 +2073,8 @@ class World(
     }
 
     /**
-     * Room for [type] in what [service] fills. There's none for charge within a trickle of full,
-     * because a craft sitting there draws on it as fast as it's topped up, and it would never
-     * finish.
+     * Room for [type] in what [service] fills. None for charge within a trickle of full, since the
+     * craft draws it as fast as it's topped up and it would never finish.
      */
     private fun room(service: Service, type: com.rm.apogee.core.part.ResourceType): Double {
         val room = service.craft.roomIn(service.into, type)
@@ -2261,8 +2120,8 @@ class World(
     }
 
     /**
-     * One tick of pumping for [service], either into the craft or, when [unload]ing, its ore and
-     * water out of it. Returns why it stopped, or null while it's still going.
+     * One tick of pumping for [service]: into the craft, or its ore and water out when [unload]ing.
+     * Returns why it stopped, or null while it's going.
      */
     private fun pump(service: Service, dt: Double, unload: Boolean = false): String? {
         val base = service.base
@@ -2277,7 +2136,7 @@ class World(
         if (rate <= 0.0 && service.base === service.craft && !service.base.anchored) rate = DOCKED_TRANSFER
         if (rate <= 0.0) return "this base has no pump"
         if (unload) return unloadStep(service, rate, draw, dt)
-        // The world's own bases, like the Cape and Luna's test base, never run dry or dark.
+        // The world's own bases never run dry or dark.
         val endless = base.owner == WORLD_OWNER
         if (!endless && (!base.powered || !base.drawCharge(draw * dt))) return "the base has no power"
         var moved = 0.0
@@ -2288,8 +2147,7 @@ class World(
             moved += service.craft.putInto(service.into, type, out)
         }
         if (moved <= 1e-9) {
-            // Full of everything the base has to give, or the base is out of what the craft still
-            // wants.
+            // Full of what the base has, or the base is out of what the craft wants.
             val wanting = REFUEL_TYPES.any { room(service, it) > 1e-9 && base.amountIn(service.from, it) > 1e-9 }
             val holds = REFUEL_TYPES.any { base.amountIn(service.from, it) > 1e-9 }
             return if (!wanting && holds) "full" else "the base has nothing more to give"
@@ -2322,9 +2180,8 @@ class World(
     // --- the Cape's own buildings --------------------------------------------------
 
     /**
-     * Puts up any of the Cape's buildings that are missing: the launch complex, the airfield and
-     * the harbour, each a founded base belonging to the world. A new world and one saved before
-     * they existed both get them, and one that has them keeps the ones it has.
+     * Puts up any of the Cape's buildings that are missing (launch complex, airfield, harbour), each
+     * a founded base owned by the world. Ones already there are kept.
      */
     fun ensureStructures() {
         if (SolarSystem.HOMEWORLD_ID !in system.bodies) return
@@ -2333,7 +2190,7 @@ class World(
             if (structureOf(complex) != null) continue
             raiseStructure(complex)
         }
-        // Luna's, from before it had a name of its own.
+        // Renames Luna's base from its old name.
         vesselsById.values.firstOrNull { it.owner == WORLD_OWNER && it.name == WorldBases.OLD_LUNA_NAME }
             ?.let { it.name = WorldBases.all.first { b -> b.bodyId == "luna" }.name }
         // What lies on the sea floor to be found: an arch and wrecks.
@@ -2349,9 +2206,8 @@ class World(
     // --- the world's bases, in free play ------------------------------------------------
 
     /**
-     * The world's base on [bodyId], if it has one standing: a pad base next to that world's test
-     * site, somewhere to launch from and refuel at in free play without flying there. Its stores
-     * never run dry and its power never runs out, the same as the Cape's. See [WorldBases].
+     * The world's base on [bodyId], if one's standing: a pad base by its test site to launch from
+     * and refuel at in free play. Never runs dry or dark. See [WorldBases].
      */
     fun worldBase(bodyId: String): Vessel? {
         val name = WorldBases.all.firstOrNull { it.bodyId == bodyId }?.name ?: return null
@@ -2363,9 +2219,8 @@ class World(
         vesselsById.values.firstOrNull { it.owner == WORLD_OWNER && it.name == wonder.landmark && it.anchored }
 
     /**
-     * Puts [wonder]'s landmark on the sea floor there: the Great Arch standing, or a wreck lying
-     * the way it came to rest (a rocket on its side, a trawler heeled over), pinned where it lies
-     * and belonging to the world.
+     * Puts [wonder]'s landmark on the sea floor: the Great Arch, or a wreck lying tipped over,
+     * pinned and owned by the world.
      */
     private fun raiseLandmark(wonder: SeaWonders.Wonder): Vessel? {
         if (wonder.bodyId !in system.bodies) return null
@@ -2387,7 +2242,7 @@ class World(
         val rotation = (scratchRotation * local).normalizeInPlace()
         val upNow = scratchRotation.rotate(up, Vec3())
         val wreck = spawnAt(design, body.id, Vec3().setTo(upNow).mulInPlace(ground), Vec3(), rotation)
-        // Resting on the floor, not in it, as low as it goes on the ground.
+        // Resting on the floor, not in it.
         wreck.body.position.setTo(upNow).mulInPlace(ground + lowestExtentAlong(wreck, upNow))
         body.surfaceVelocityAt(wreck.body.position, wreck.body.linearVelocity)
         assignOwner(wreck, WORLD_OWNER)
@@ -2424,10 +2279,9 @@ class World(
     private val quietSince = HashMap<String, Double>()
 
     /**
-     * Rebuilds any of the Cape's buildings that have been broken (parts lost or hurt) once nothing
-     * awake has come within [REPAIR_REACH] of them for [REPAIR_QUIET] seconds, or straight away
-     * when [now] is set. The wreckage is cleared and the complex is put back the way it was built.
-     * Nobody sees it happen, and the start of the game is never left in ruins.
+     * Rebuilds any broken Cape buildings once nothing awake has been within [REPAIR_REACH] for
+     * [REPAIR_QUIET] seconds, or at once if [now] is set. The wreckage is cleared and the complex
+     * put back as built, out of sight.
      */
     fun repairStructures(now: Boolean = false) {
         if (!capeBuilt) return
@@ -2436,7 +2290,7 @@ class World(
         val here = Vec3()
         for (complex in com.rm.apogee.core.craft.StockStructures.complexes) {
             val site = SolarSystem.capeDirection(complex.east, complex.north, body.radius).mulInPlace(body.radius)
-            // Anything awake close by keeps it as it is, broken or not.
+            // Anything awake close by leaves it as it is.
             val busy = vesselsById.values.any { v ->
                 !v.dormant && v.owner != WORLD_OWNER && v.referenceBodyId == body.id &&
                     body.toBodyFixed(v.body.position, scratchRotation, here).distanceTo(site) < REPAIR_REACH
@@ -2446,8 +2300,7 @@ class World(
             val standing = structureOf(complex)
             if (standing != null && intact(standing, complex)) continue
             if (!now && time - since < REPAIR_QUIET) continue
-            // Whatever fell off it and is lying around: every loose craft made of nothing but
-            // buildings near it.
+            // What fell off it: every loose craft near it made only of buildings.
             val wreckage = vesselsById.values.filter { v ->
                 !v.anchored && v.referenceBodyId == body.id &&
                     v.defs.all { it.category == com.rm.apogee.core.part.PartCategory.STRUCTURE } &&
@@ -2460,10 +2313,7 @@ class World(
         if (program == null) for (base in WorldBases.all) repairWorldBase(base, now)
     }
 
-    /**
-     * The world's base on a world, put back if it's broken, once nothing awake is near it, or
-     * straight away when [now] is set.
-     */
+    /** Puts a world base back if it's broken, once nothing awake is near, or at once if [now] is set. */
     private fun repairWorldBase(spec: WorldBases.Base, now: Boolean) {
         val site = launchSites.firstOrNull { it.id == spec.siteId } ?: return
         if (site.bodyId !in system.bodies) return
@@ -2487,8 +2337,8 @@ class World(
     }
 
     /**
-     * Whether [standing] is all of [complex], whole, and the way it's designed now. A world saved
-     * before a building was moved or turned gets the new layout, the same as a broken one would.
+     * Whether [standing] is all of [complex], whole and laid out as designed now. An old layout
+     * counts as broken, so old saves get the new one.
      */
     private fun intact(standing: Vessel, complex: com.rm.apogee.core.craft.StockStructures.Complex): Boolean {
         if (standing.broken.any { it } || standing.health.any { it < 1.0 }) return false
@@ -2500,7 +2350,7 @@ class World(
         }
     }
 
-    /** Each complex as designed, by name. This is what [intact] holds a standing one to. */
+    /** Each complex as designed, by name, for [intact] to compare against. */
     private val canonicalStructures = HashMap<String, com.rm.apogee.core.craft.CraftDesign>()
 
     /** The world's standing copy of [complex], if it has one. */
@@ -2524,7 +2374,7 @@ class World(
         val rotation = (scratchRotation * local).normalizeInPlace()
         val origin = scratchRotation.rotate(Vec3().setTo(up).mulInPlace(ground), Vec3())
         val probe = spawnAt(design, body.id, origin, Vec3(), rotation)
-        // Its centre where its centre is, with the design's origin on the ground.
+        // Centre of mass placed so the design's origin is on the ground.
         probe.body.position.setTo(origin).addInPlace(rotation.rotate(probe.centerOfMass(Vec3()), Vec3()))
         body.surfaceVelocityAt(probe.body.position, probe.body.linearVelocity)
         assignOwner(probe, WORLD_OWNER)
@@ -2536,9 +2386,7 @@ class World(
 
     // --- launching from bases -----------------------------------------------------
 
-    /**
-     * A player's own, plus the world's too in free play. A career's players only have their own.
-     */
+    /** A player's own bases, plus the world's in free play. In a career, only their own. */
     fun mayLaunchFrom(base: Vessel, owner: String): Boolean = base.owner == owner || (base.owner == WORLD_OWNER && program == null)
 
     /** The pads [owner] can launch from on founded bases, as launch sites. */
@@ -2567,9 +2415,8 @@ class World(
     }
 
     /**
-     * A craft set upright on the deck of [base]'s pad [pad], with its tanks filled from the base's
-     * stores as far as they go, if the base has the power to pump. If the base is dark, it's put
-     * there empty.
+     * A craft set upright on [base]'s pad [pad], its tanks filled from the base's stores as far as
+     * they go if the base has power to pump. Empty if the base is dark.
      */
     fun spawnOnBasePad(design: CraftDesign, base: Vessel, pad: Int, legsOut: Boolean = false): Vessel {
         val site = baseSites(base.owner).firstOrNull { it.id == "${LaunchSite.BASE_SITE_PREFIX}${base.id.raw}:$pad" }
@@ -2579,14 +2426,14 @@ class World(
         val up = Vec3().setTo(craft.body.position).normalizeInPlace()
         val top = Vec3().setTo(base.partPositionWorld(pad)).addScaledInPlace(up, base.defs[pad].boundsHalfExtents.y)
         craft.body.position.setTo(up).mulInPlace(top.length + lowestExtentAlong(craft, up) + 0.02)
-        // Moving with the deck: the ground's speed, or on a base afloat, the swell's too.
+        // Moving with the deck: the ground's speed, plus the swell's on a base afloat.
         if (base.afloat) base.body.velocityAtOffset(Vec3().setTo(craft.body.position).subInPlace(base.body.position), craft.body.linearVelocity)
         else attractorFor(craft).surfaceVelocityAt(craft.body.position, craft.body.linearVelocity)
 
-        // Whatever it carries, it carries from the base.
+        // What it carries comes from the base.
         settlePower(base)
         val all = craft.defs.indices.toList()
-        // The world's own bases supply it in full, the same as the Cape does.
+        // The world's bases fill it in full.
         if (base.owner == WORLD_OWNER) return craft
         val launch = base.defs[pad].module<com.rm.apogee.core.part.LaunchPad>()!!.launchCharge
         val pumping = base.powered && base.drawCharge(launch)
@@ -2619,11 +2466,8 @@ class World(
     }
 
     /**
-     * Brings a founded base's power up to [until]. Its panels' charge comes in, depending on how
-     * high the sun has stood over it, and its core's upkeep and its lamps after dusk go out. It's
-     * worked out over the time since it was last done, in steps of a minute, or across a long
-     * absence up to [POWER_MAX_STEPS] of them. Nobody needs to be near, because a base keeps a
-     * ledger, not ticks.
+     * Brings a founded or parked craft's power ledger up to [until]: panels in by the sun's height,
+     * upkeep and lamps out, in steps of [POWER_STEP] or at most [POWER_MAX_STEPS] steps.
      */
     fun settlePower(vessel: Vessel, until: Double = time) {
         val from = vessel.powerSettledAt
@@ -2639,8 +2483,7 @@ class World(
         for (i in vessel.defs.indices) {
             if (vessel.isBroken(i)) continue
             for (module in vessel.defs[i].modules) when (module) {
-                // Folded, a wing makes nothing, and a fixed panel on the ground meets the sun at an
-                // angle.
+                // A folded wing makes nothing; a fixed panel on a craft meets the sun at an angle.
                 is com.rm.apogee.core.part.SolarPanel -> solar += module.chargeRate * when {
                     module.deployable -> if (Power.deployed(vessel, i)) 1.0 else 0.0
                     module.normal != null && !vessel.anchored -> 0.5
@@ -2656,26 +2499,25 @@ class World(
             }
         }
         val site = vessel.sleepDirection(powerSite)
-        // What the air lets through at ground level. A tenth under Caligo's deck. And what the sea
-        // does, for a base on the floor of it.
+        // What the air lets through at ground level (a tenth under Caligo's deck), and the sea for a
+        // base on its floor.
         val gloom = (if (attractor.atmosphere == null) 1.0
             else Climate.of(attractor.id)?.sunThrough(vessel.body.position.length - attractor.radius) ?: 1.0) *
             Power.seaShade(attractor, vessel.body.position)
-        // Down where the daylight's gone, its lamps are on all day.
+        // Deep enough that daylight's gone, lamps are on all day.
         val deep = attractor.ocean != null && attractor.altitudeOf(vessel.body.position) < -LAMP_DEPTH
         val step = maxOf(POWER_STEP, (until - from) / POWER_MAX_STEPS)
         var t = from
         var net = 0.0
         while (t < until) {
             val h = minOf(step, until - t)
-            // Faint among the giants, the same as panels anywhere.
+            // Fainter further out, as for panels anywhere.
             val sun = sunHeight(attractor, site, t + 0.5 * h) * system.sunStrength(attractor.id, vessel.body.position, t + 0.5 * h)
             net = solar * gloom * maxOf(0.0, sun) - upkeep - if (sun < LAMP_DUSK || deep) lamps else 0.0
-            // Its fuel cells, the same as a craft's: on when it's running low, off when it's well
-            // back up, and only while there's monopropellant to burn.
+            // Fuel cells as on a craft: on when low, off when well back up, while there's
+            // monopropellant.
             if (anyCell >= 0) net += fuelCells(vessel, anyCell, cells, cellMono, h)
-            // Drills and converters, within whatever charge there is. It's parked on the ground
-            // where it stands now, so it's posed as it is now.
+            // Drills and converters, within the charge there is, posed as it stands now.
             if (vessel.control.drilling || vessel.control.refining) {
                 val charged = vessel.amountOf(com.rm.apogee.core.part.ResourceType.ELECTRIC_CHARGE) > 0.0 || net > 0.0
                 net -= industry.step(vessel, attractor, time, h, still = !vessel.afloat, charge = charged)
@@ -2726,27 +2568,22 @@ class World(
         val inertiaWorld = com.rm.apogee.core.math.Mat3()
             .setRotated(vessel.body.inertiaLocal, vessel.body.orientation)
         val spin = inertiaWorld.transform(vessel.body.angularVelocity, Vec3())
-        // Plus the orbital term: the craft's own centre swinging around the combined one. Dropping
-        // this quietly loses the rotation you get from welding two things that were drifting past
-        // each other.
+        // Plus the orbital term, the craft's centre swinging round the combined one, or welding two
+        // drifting craft loses their spin.
         val lever = Vec3().setTo(vessel.body.position).subInPlace(centre)
         val relative = Vec3().setTo(vessel.body.linearVelocity).subInPlace(velocity)
         return spin.addInPlace(lever.crossInPlace(relative).mulInPlace(vessel.body.mass))
     }
 
-    /**
-     * [absorbed]'s parts, described again in [keeper]'s design space so each one lands exactly
-     * where it already is in the world.
-     */
+    /** [absorbed]'s parts in [keeper]'s design space, so each stays where it is in the world. */
     private fun mergeDesigns(keeper: Vessel, absorbed: Vessel, dock: DockJoin? = null): CraftDesign? {
         val offset = keeper.design.parts.size
         val parts = ArrayList<PlacedPart>(offset + absorbed.design.parts.size)
         parts.addAll(keeper.design.parts)
 
-        // The part of the keeper nearest the absorbed craft becomes the parent of its root, so the
-        // tree stays connected and staging still has something to walk through. When docked, its
-        // ring is the joint instead. The absorbed craft is re-rooted at its own ring and hung from
-        // the keeper's, so undocking just cuts that one joint.
+        // The keeper's part nearest the absorbed craft parents its root, keeping one tree. Docked,
+        // the absorbed craft is re-rooted at its ring and hung from the keeper's, so undocking cuts
+        // just that joint.
         val anchor = dock?.keeperPart ?: nearestPartTo(keeper, absorbed.body.position)
         val absorbedDesign = if (dock != null) absorbed.design.rerootedAt(dock.absorbedPart) else absorbed.design
 
@@ -2763,8 +2600,7 @@ class World(
                     rotation = rotation,
                     parentIndex = if (placed.parentIndex < 0) anchor
                     else placed.parentIndex + offset,
-                    // A weld, not a node attachment. The transform is what counts, and there's no
-                    // node pair to name.
+                    // A weld: no node pair, just the transform.
                     parentNodeId = if (placed.parentIndex < 0) null else placed.parentNodeId,
                     ownNodeId = if (placed.parentIndex < 0) null else placed.ownNodeId,
                     symmetryGroup = -1,
@@ -2773,7 +2609,7 @@ class World(
             )
         }
         if (dock != null) {
-            // Each ring knows its partner, and the one that came knows what it came as.
+            // Each ring knows its partner, and the one that came remembers its craft.
             parts[dock.keeperPart] = parts[dock.keeperPart].copy(dockedTo = offset + dock.absorbedPart, dockedFrom = null)
             parts[offset + dock.absorbedPart] = parts[offset + dock.absorbedPart].copy(
                 dockedTo = dock.keeperPart,
@@ -2790,7 +2626,7 @@ class World(
                 com.rm.apogee.core.craft.Stage(stage.activatedParts.map { it + offset })
             }
 
-        // The keeper's design, extended. If it was built lying down, it stays lying down.
+        // The keeper's design extended, keeping its orientation.
         return keeper.design.copy(parts = parts, stages = stages)
     }
 
@@ -2798,10 +2634,7 @@ class World(
     fun ownersOf(vessel: Vessel): Set<String> =
         (listOf(vessel.owner) + vessel.design.parts.mapNotNull { it.dockedFrom?.owner }).filter { it.isNotBlank() }.toSet()
 
-    /**
-     * Lets [a] and [b] only touch gently for [seconds], as two halves that just parted, when a
-     * replica first sees them.
-     */
+    /** Lets [a] and [b] touch only gently for [seconds], for a replica that just saw them part. */
     fun graceBetween(a: VesselId, b: VesselId, seconds: Double) {
         justSeparated[pairKey(a.raw, b.raw)] = time + seconds
     }
@@ -2810,8 +2643,8 @@ class World(
     class DockJoin(val keeperPart: Int, val absorbedPart: Int)
 
     /**
-     * Docking, each tick after craft have moved and met. The magnets pull, captures latch into one
-     * craft or a coupled hitch, and coupled hitches hold their two craft together.
+     * Docking, each tick after craft have moved and met: magnets pull, captures latch into one craft
+     * or a hitch, and hitches hold their craft together.
      */
     private fun stepDocking(dt: Double) {
         docking.step(
@@ -2834,8 +2667,8 @@ class World(
     private val deckGear = DeckGear()
 
     /**
-     * Latches two rings. The lighter craft docks onto the heavier, set square on its ring (the last
-     * centimetres and degrees the magnets left), and the two become one craft.
+     * Latches two rings. The lighter craft is squared up on the heavier one's ring and the two
+     * become one craft.
      */
     fun dockPorts(a: Vessel, partA: Int, b: Vessel, partB: Int): Vessel? {
         // The heavier one keeps it, or a base does, whatever it weighs.
@@ -2851,7 +2684,7 @@ class World(
         absorbedRef.update()
         absorbed.body.position.addInPlace(Vec3().setTo(keeperRef.face).subInPlace(absorbedRef.face))
         val at = keeperRef.face.copy()
-        // A craft belonging to nobody, taken in hand by somebody's, is theirs now.
+        // An ownerless craft taken in by someone's becomes theirs.
         if (keeper.owner.isBlank() && absorbed.owner.isNotBlank()) {
             keeper.owner = absorbed.owner
             keeper.ownerName = absorbed.ownerName
@@ -2872,9 +2705,9 @@ class World(
     }
 
     /**
-     * Lets go of whatever docking part [part] of [vessel] holds. A ring or clamp undocks, so the
-     * craft that docked on gets its own name, owner and staging back, and the two are pushed gently
-     * apart. A hitch uncouples. False if it wasn't holding anything.
+     * Lets go of what docking part [part] of [vessel] holds. A ring or clamp undocks: the craft that
+     * docked on gets its name, owner and staging back and they're pushed gently apart. A hitch
+     * uncouples. False if it held nothing.
      */
     fun undock(vessel: Vessel, part: Int): Boolean {
         if (part !in vessel.defs.indices) return false
@@ -2887,7 +2720,7 @@ class World(
         }
         val partner = vessel.design.parts[part].dockedTo
         if (partner !in vessel.design.parts.indices) return false
-        // The ring that came, hung from the one it came to.
+        // The ring that came hangs from the one it came to.
         val child = if (vessel.design.parts[part].parentIndex == partner) part else partner
         val parent = vessel.design.parts[child].parentIndex
         val origin = vessel.design.parts[child].dockedFrom
@@ -2913,9 +2746,9 @@ class World(
     }
 
     /**
-     * Splits the part of the tree under [root] off [vessel] as a craft of its own, pushed away
-     * along [along] (in world space, the way the root's part faces, so backward for the piece) with
-     * [impulse] N·s each way. Returns the new craft.
+     * Splits the tree under [root] off [vessel] as its own craft, pushed apart along [along] (world
+     * space, the way the root faces, so backward for the piece) with [impulse] N·s each way.
+     * Returns the new craft.
      */
     private fun splitOff(vessel: Vessel, root: Int, along: Vec3?, impulse: Double): Vessel? {
         val separating = vessel.design.subtreeOf(root).toSet()
@@ -2943,7 +2776,7 @@ class World(
         piece.body.angularVelocity.setTo(angularVelocity)
         piece.body.position.setTo(position).addInPlace(centre)
         piece.recomputeMass(shiftBodyPosition = false)
-        // Its place in its own staging: past every stage whose parts have all fired.
+        // Its staging resumes past every stage whose parts have all fired.
         piece.restoreStaging(
             piece.design.stages.indexOfFirst { st -> st.activatedParts.any { !piece.isActivated(it) } }
                 .let { if (it < 0) piece.design.stages.size else it },
@@ -2964,10 +2797,8 @@ class World(
     }
 
     /**
-     * Holds each coupled hitch together. It's a point joint, solved as impulses on the two craft:
-     * the relative velocity of the two hitch points along each axis is taken out, plus a share of
-     * any gap, so the towed craft follows along and turns freely around the ball. Yank it too hard
-     * and it breaks.
+     * Holds each hitch as a point joint: impulses take out the relative velocity on each axis plus
+     * a share of any gap. Yanked too hard, it breaks.
      */
     private fun solveLinks(dt: Double) {
         if (links.isEmpty()) return
@@ -2975,7 +2806,7 @@ class World(
         for (link in links) {
             val a = vesselsById[link.a]; val b = vesselsById[link.b]
             if (a == null || b == null || link.partA !in a.defs.indices || link.partB !in b.defs.indices) { broken.add(link); continue }
-            // Both awake, or both asleep. A towed craft never sleeps while its tug is moving.
+            // Both awake or both asleep, so a tow never sleeps while its tug moves.
             if (!a.dormant || !b.dormant) { if (a.dormant) a.wake(); if (b.dormant) b.wake() }
             if (a.dormant && b.dormant) continue
             val pa = com.rm.apogee.core.physics.PortRef(a, link.partA, a.defs[link.partA].module<com.rm.apogee.core.part.DockingPort>()!!).update()
@@ -2983,8 +2814,8 @@ class World(
             val gap = Vec3().setTo(pb.face).subInPlace(pa.face)
             var total = 0.0
             val axis = Vec3(); val va = Vec3(); val vb = Vec3(); val ra = Vec3(); val rb = Vec3()
-            // Every pass aims at the same closing speed, a share of the gap per tick. Otherwise the
-            // later passes undo the first one's correction, and a gap, once opened, never closes.
+            // Every pass aims at the same closing speed, or later passes undo the first's correction
+            // and a gap never closes.
             for (iteration in 0 until LINK_ITERATIONS) for (k in 0 until 3) {
                 axis.setTo(if (k == 0) 1.0 else 0.0, if (k == 1) 1.0 else 0.0, if (k == 2) 1.0 else 0.0)
                 a.body.velocityAtOffset(pa.offset, va); b.body.velocityAtOffset(pb.offset, vb)
@@ -3027,13 +2858,14 @@ class World(
     private fun winchFace(vessel: Vessel, index: Int, winch: com.rm.apogee.core.part.Winch, out: Vec3): Vec3 =
         vessel.partPointOffsetWorld(index, Vec3(0.0, winch.faceOffset, 0.0), out)
 
-    /**
-     * What [vessel]'s winch could hook onto if asked: its nearest other craft's part in reach in front
-     * of it (within [HOOK_CONE] of straight ahead), or failing that, the ground in front of it. Null
-     * with no winch, a line already out, or nothing in reach.
-     */
+    /** What a winch could hook: part [part] of [craft], or with [craft] null the body-fixed [ground]. */
     class HookTarget(val craft: Vessel?, val part: Int, val hook: Vec3, val ground: Vec3, val distance: Double)
 
+    /**
+     * What [vessel]'s winch could hook onto: the nearest part of another craft in reach ahead
+     * (within [HOOK_CONE]), or else the ground ahead. Null with no winch, a line out, or nothing in
+     * reach.
+     */
     fun hookTarget(vessel: Vessel): HookTarget? {
         val (index, winch) = winchOf(vessel) ?: return null
         if (lineOf(vessel) != null) return null
@@ -3042,7 +2874,7 @@ class World(
         val face = Vec3().setTo(offset).addInPlace(vessel.body.position)
         val ahead = vessel.design.parts[index].rotation.rotate(Vec3.unitY())
         vessel.body.orientation.rotate(ahead, ahead)
-        // Another craft's part: the nearest tow point in reach, or failing one, the nearest part.
+        // The nearest tow point in reach, or else the nearest part.
         var best: HookTarget? = null
         var bestFast = false
         val point = Vec3(); val toward = Vec3()
@@ -3064,8 +2896,7 @@ class World(
             }
         }
         if (best != null) return best
-        // The ground, a little way ahead: along the line flattened onto the ground, where the
-        // terrain is there.
+        // The ground a little way ahead, along the line flattened level.
         if (attractor.terrain == null) return null
         val up = Vec3().setTo(vessel.body.position).normalizeInPlace()
         val flat = Vec3().setTo(ahead).addScaledInPlace(up, -(ahead dot up))
@@ -3098,10 +2929,9 @@ class World(
     }
 
     /**
-     * Each winch line, as a rope: it pulls only when it's taut, along the line, and never pushes.
-     * Winding in shortens it, while there's charge. It pulls no harder than its winch can, and past
-     * that the drum slips and lets line out instead. A sudden yank well past that, with the two
-     * flying apart, snaps it.
+     * Each winch line as a rope: pulls along the line only when taut, never pushes. Winding in needs
+     * charge. Past the winch's pull the drum slips and lets line out; a sharp yank well past it, with
+     * the two flying apart, snaps it.
      */
     private fun solveLines(dt: Double) {
         for (vessel in vesselsById.values) vessel.winchDraw = 0.0
@@ -3126,7 +2956,7 @@ class World(
             } else {
                 attractor.rotationAt(time).rotate(line.ground, pb)
             }
-            // Winding in, while there's charge, or letting out.
+            // Winding in (needs charge) or letting out.
             if (line.reel > 0 && a.powered) {
                 line.length = maxOf(LINE_SHORTEST, line.length - winch.reelSpeed * dt)
                 a.winchDraw += winch.draw
@@ -3142,7 +2972,7 @@ class World(
             if (b != null && b.dormant) b.wake()
             a.body.velocityAtOffset(offA, va)
             if (b != null) b.body.velocityAtOffset(offB, vb) else attractor.surfaceVelocityAt(pb, vb)
-            // Coming apart along the line, positive.
+            // Positive when coming apart along the line.
             val apart = (vb dot n) - (va dot n)
             r.setTo(offA).crossInPlace(n)
             var inverse = a.body.inverseMass + a.body.inverseInertiaAbout(r.normalizedOrZero()) * r.lengthSq
@@ -3191,6 +3021,11 @@ class World(
         return best
     }
 
+    /**
+     * Separates the tree below [decouplerIndex] into its own vessel. The decoupler goes with the
+     * half thrown away, unless it's a clamp that [Decoupler.stays], which sets its load down beside
+     * the craft. Returns the kept parts' old indices, or null if there's nothing to split.
+     */
     private fun splitAt(vessel: Vessel, decouplerIndex: Int): List<Int>? {
         val clamp = vessel.defs[decouplerIndex].module<Decoupler>()?.stays == true
         val separating = vessel.design.subtreeOf(decouplerIndex).toSet().let { if (clamp) it - decouplerIndex else it }
@@ -3199,8 +3034,7 @@ class World(
 
         val ejection = vessel.defs[decouplerIndex].module<Decoupler>()?.ejectionImpulse ?: 0.0
 
-        // Both halves need their motion in the world kept, so capture it before either design is
-        // rebuilt underneath them.
+        // Capture the motion before either design is rebuilt.
         val position = vessel.body.position.copy()
         val orientation = vessel.body.orientation.copy()
         val angularVelocity = vessel.body.angularVelocity.copy()
@@ -3210,21 +3044,15 @@ class World(
         val discarded = buildSubDesign(vessel.design, separating.sorted(), keepShrouds = shrouds)
         val kept = buildSubDesign(vessel.design, remaining, firedStages = vessel.currentStage)
 
-        // Look up BOTH halves' definitions before either design is replaced. replaceStructure swaps
-        // vessel.defs for the kept subset, so indexing it afterwards with the original indices
-        // reads the wrong parts, or runs off the end, which is how this was found.
+        // Look up both halves' defs first: replaceStructure swaps vessel.defs for the kept subset,
+        // so the original indices are wrong after it.
         val originalDefs = vessel.defs
         val keptDefs = kept.indices.map { originalDefs[it] }
         val discardedDefs = discarded.indices.map { originalDefs[it] }
 
-        // The half that falls away becomes a new vessel, with its own centre of mass where that
-        // was, moving the way that point of the craft was moving, and with its parts as they were:
-        // what's left in its tanks, what it had fired, and how hurt and hot it is. It's worked out
-        // from the whole craft, so before the kept half is rebuilt.
-        //
-        // It used to be placed at the whole craft's centre instead, metres up the stack inside the
-        // stage it had just let go of, and built fresh with full tanks. The halves then met again
-        // the moment the grace period after separating ran out, and stuck together.
+        // The half that falls away becomes a new vessel at its own centre of mass, moving as that
+        // point was, with its parts as they were (tanks, fired, damage, heat). Worked out from the
+        // whole craft, so before the kept half is rebuilt.
         val centre = pieceCentre(vessel, discarded.indices, Vec3()).copy()
         val pointVelocity = vessel.body.velocityAtOffset(centre, Vec3())
         val debris = Vessel(
@@ -3234,17 +3062,14 @@ class World(
             referenceBodyId = vessel.referenceBodyId,
         )
         debris.inheritParts(vessel, discarded.indices)
-        // Let go while burning, it keeps burning. The control module it answered to is gone, but
-        // nothing ever told its engine to stop, so it runs on at the throttle it had until its
-        // tanks are dry.
+        // Let go while burning, it keeps burning at its throttle until it's dry.
         debris.control.throttle = vessel.control.throttle
         debris.body.orientation.setTo(orientation)
         debris.body.linearVelocity.setTo(pointVelocity)
         debris.body.angularVelocity.setTo(angularVelocity)
         debris.body.position.setTo(position).addInPlace(centre)
         debris.recomputeMass(shiftBodyPosition = false)
-        // A load set down, not a stage thrown away, so it still belongs to its owner and is named
-        // for what it is.
+        // A load set down, not a spent stage, so it keeps its owner and is named for what it is.
         if (clamp) {
             debris.owner = vessel.owner
             debris.ownerName = vessel.ownerName
@@ -3265,8 +3090,7 @@ class World(
             return kept.indices
         }
 
-        // Push the halves apart along the craft's long axis, or for a shell falling open, out
-        // sideways from it.
+        // Push the halves apart along the long axis, or sideways for a radial decoupler.
         scratch.setTo(Vec3.unitY())
         orientation.rotate(scratch, scratch)
         val separation = scratch.copy()
@@ -3281,15 +3105,13 @@ class World(
             scratch.setTo(separation).mulInPlace(-ejection)
             debris.body.applyImpulse(scratch)
         }
-        // Nudge them apart in space too, so the contact-free frame after separation doesn't start
-        // with the two halves inside each other.
+        // Nudge them apart in space too, so they don't start inside each other.
         scratch.setTo(separation).mulInPlace(-SEPARATION_CLEARANCE)
         debris.body.position.addInPlace(scratch)
 
         vesselsById[debris.id] = debris
-        // The halves overlap as they part (an engine bell inside the ring it sat on), and they meet
-        // again if the craft is turning or the spent half gets braked harder by the air than the
-        // live one. Neither of those is a collision, because they're still coming apart.
+        // The halves overlap as they part and can meet again if the craft turns or the spent half
+        // drags more. Neither is a collision.
         justSeparated[pairKey(vessel.id.raw, debris.id.raw)] = time + SEPARATION_GRACE
         pendingEvents.add(WorldEvent.VesselStructureChanged(vessel.id))
         pendingEvents.add(WorldEvent.VesselSpawned(debris.id))
@@ -3297,9 +3119,8 @@ class World(
     }
 
     /**
-     * [load] lifted off [truck] and put on the ground to its right, clear of it by
-     * [SET_DOWN_CLEARANCE], standing upright the way its own design stands, resting on its lowest
-     * part and moving with the ground.
+     * Puts [load] on the ground to [truck]'s right, [SET_DOWN_CLEARANCE] clear of it, upright as its
+     * design stands, on its lowest part and moving with the ground.
      */
     private fun setDownBeside(truck: Vessel, load: Vessel) {
         val attractor = attractorFor(truck)
@@ -3321,10 +3142,7 @@ class World(
         attractor.angularVelocity(load.body.angularVelocity)
     }
 
-    /**
-     * How far [vessel] reaches from its centre along [direction], in metres: the furthest of its
-     * contact points.
-     */
+    /** How far [vessel]'s contact points reach from its centre along [direction], in metres. */
     private fun halfWidth(vessel: Vessel, direction: Vec3): Double {
         var most = 0.0
         val offset = Vec3()
@@ -3338,13 +3156,9 @@ class World(
     private class SubDesign(val design: CraftDesign, val indices: List<Int>)
 
     /**
-     * Rebuilds a design from some of its parts, remapping the parent indices.
-     *
-     * Stages left with nothing to fire get dropped, except the first [firedStages], which have
-     * already fired and are kept empty as placeholders. Dropping those renumbered every stage after
-     * them. The chute a player knew as stage 2 became stage 1 the moment the stage below it fell
-     * away, and the craft's place in its own sequence had to be moved back to match, or it skipped
-     * a stage.
+     * Rebuilds a design from some of its parts, remapping the parent indices. Empty stages are
+     * dropped, except the first [firedStages], kept as placeholders so later stages keep their
+     * numbers.
      */
     private fun buildSubDesign(
         source: CraftDesign, keep: List<Int>, firedStages: Int = 0,
@@ -3376,23 +3190,19 @@ class World(
             )
         }.filterIndexed { index, stage -> index < firedStages || stage.activatedParts.isNotEmpty() }
 
-        // A copy, so the orientation comes too. A plane dropping a tank was left thinking it stood
-        // on its tail.
+        // A copy, so the orientation comes too.
         return SubDesign(source.copy(parts = parts, stages = stages), keep)
     }
 
     // --- the step -----------------------------------------------------------
 
     /**
-     * Moves forward one fixed timestep.
-     *
-     * Vessels are gone through in the order they were added, which stays stable because ids only
-     * ever go up and the map keeps that order. The order doesn't affect anything today, since
-     * vessels don't interact yet, but fixing it now means it can't quietly start mattering later.
+     * Moves forward one fixed timestep. Vessels go in the order they were added, which is stable
+     * since ids only go up and the map keeps insertion order.
      */
     fun step(dt: Double) {
         tickEnd = time + dt
-        // The first tick after a world's made or restored, and then once a second.
+        // The first tick after a world's made or restored, then once a second.
         if (calmCheckedAt < 0L || tick - calmCheckedAt >= CALM_BASES_EVERY) {
             calmCheckedAt = tick
             calmBases()
@@ -3400,22 +3210,17 @@ class World(
         for (vessel in vesselsById.values) {
             val attractor = attractorFor(vessel)
             val body = vessel.body
-            // Moved on to the end of this tick from here, so anything measured against it by a
-            // craft still at the start of the tick knows it's a tick ahead.
+            // Marks it as at the end of this tick, for craft still at the start that measure
+            // against it.
             vessel.movedTick = tick
 
-            // Dormant craft ride the planet's rotation and aren't simulated.
-            //
-            // This is the same idea as putting an orbit on rails, for the other place a craft
-            // spends most of its life: parked. A world people leave bases in is mostly made of
-            // things nobody is looking at, and otherwise a base on a pad costs exactly as much as
-            // one being flown.
+            // Dormant craft ride the planet's rotation and aren't simulated, so parked craft and
+            // bases cost almost nothing.
             if (vessel.dormant) {
-                // Asleep on a deck, it's posed from the deck once everything has moved.
+                // Asleep on a deck: posed from the deck once everything has moved.
                 if (vessel.ridingOn != null) continue
                 if (vessel.afloat) followSea(vessel, attractor, waves = true, dt = dt) else followGround(vessel, attractor)
-                // Parked in air that crushes, like Caligo's floor, or deeper in the sea than it's
-                // built for, it gets crushed all the same.
+                // Parked in crushing air (Caligo's floor) or too deep in the sea, it's still crushed.
                 val air = attractor.atmosphere
                 val deep = attractor.ocean != null && attractor.altitudeOf(vessel.body.position) < -WATER_PARKED_SAFE
                 if (!isDebris(vessel) && (deep || air != null && air.pressureAt(attractor.altitudeOf(vessel.body.position)) > CRUSH_FLOOR)) {
@@ -3428,10 +3233,9 @@ class World(
             body.clearAccumulators()
             vessel.clearForces()
 
-            // Just woken, off the ground's ledger or off rails, so bring its power up to now before
-            // anything draws on it.
+            // Just woken: bring its power ledger up to now before anything draws on it.
             if (!vessel.powerSettledAt.isNaN() && time - vessel.powerSettledAt > 1.0) settlePower(vessel, time)
-            // Dark, so there's nothing to hold or fly with.
+            // No power, no autopilot.
             if (!vessel.powered && (vessel.control.autoBurn || vessel.control.autoLand)) {
                 vessel.control.autoBurn = false
                 vessel.control.autoLand = false
@@ -3439,8 +3243,8 @@ class World(
                 vessel.control.autopilotNote = "No power"
             }
 
-            // Before any force, because the elevons move inside the drag pass and the gimbal inside
-            // thrust, and all of them act on what stability assist asks for this tick.
+            // Before any force: elevons move in the drag pass and gimbals in thrust, both acting on
+            // what SAS asks for this tick.
             if (vessel.control.autoBurn) autoBurn(vessel, attractor)
             if (!vessel.control.autoLand) vessel.landStarted = false
             val landing = if (vessel.control.autoLand) autoLand(vessel, attractor, dt) else null
@@ -3452,7 +3256,7 @@ class World(
             if (vessel.powered) stabilityAssist.update(vessel, dt, landing ?: if (cruising) null else holdDirection(vessel, attractor))
             else stabilityAssist.idle(vessel)
             updatePose(vessel, dt)
-            // Someone on foot: kept upright, with the stick walking instead of tipping them over.
+            // Someone on foot: kept upright, the stick walks them.
             val walker = walking.walkerOf(vessel)
             val hold = if (walker != null && vessel.ladderVessel >= 0) heldLadder(vessel, dt) else null
             val water = if (walker != null && hold == null) waterFor(vessel, attractor) else null
@@ -3461,8 +3265,8 @@ class World(
 
             forces.applyGravity(vessel, attractor)
             forces.applyThrust(vessel, attractor, dt, time)
-            // The air it's flying through, sampled once per craft per tick at its centre of mass.
-            // Gusts over its length come in the drag pass.
+            // The air at its centre of mass, once per tick. Gusts along its length come in the drag
+            // pass.
             val weather = weatherFor(attractor)
             attractor.rotationAt(time, weatherRotation)
             val steady = steadyWind
@@ -3470,15 +3274,14 @@ class World(
                 vessel.air.clear()
                 vessel.airSampledAt = Double.NaN
                 attractor.toBodyFixed(body.position, weatherRotation, weatherPoint).normalizeInPlace()
-                // East and north at the craft, as the planet's spin about +Y defines them.
+                // East and north at the craft, from the planet's spin about +Y.
                 scratchEast.setTo(0.0, 1.0, 0.0).crossInPlace(weatherPoint).normalizeInPlace()
                 scratchNorth.setTo(weatherPoint).crossInPlace(scratchEast)
                 vessel.air.wind.setTo(scratchEast).mulInPlace(steady.x).addScaledInPlace(scratchNorth, steady.y)
             } else if (weather != null) {
                 attractor.toBodyFixed(body.position, weatherRotation, weatherPoint)
-                // Kept for a few hundredths of a second, or a few metres. The air doesn't change
-                // faster than that, and working it out (the ground's lie, the circulation, every
-                // storm near by) four times a tick was more than a phone at 4x could spare.
+                // Reused for a few hundredths of a second or a few metres: the air doesn't change
+                // faster, and sampling it is too dear for phones at high warp.
                 val age = time - vessel.airSampledAt
                 if (vessel.airSampledAt.isNaN() || age < 0.0 || age >= AIR_KEEP ||
                     vessel.airSampledWhere.distanceTo(weatherPoint) > AIR_MOVE) {
@@ -3491,8 +3294,7 @@ class World(
                 vessel.airSampledAt = Double.NaN
             }
             forces.applyDrag(vessel, attractor, weather, weatherRotation, time, dt)
-            // Rotors and gas cells, after the drag pass, which is where the air at the craft is
-            // sampled for this tick.
+            // Rotors and gas cells, after the drag pass has sampled this tick's air.
             rotors.apply(vessel, attractor, weatherRotation, time, dt)
             aerostatics.apply(vessel, attractor)
             for (i in 0 until forces.tornCount) {
@@ -3528,31 +3330,25 @@ class World(
             hostile(vessel, attractor, dt)
             ballast(vessel, attractor, dt)
 
-            // Integration and contact get split into smaller steps together when the craft is
-            // moving fast near the ground. Forces aren't recalculated per substep, because they
-            // change far more slowly than the geometry does, and working out thrust and drag eight
-            // times a tick would cost more than the problem is worth.
+            // Integration and contact are substepped together when moving fast near the ground.
+            // Forces aren't redone per substep; they change much more slowly than the geometry.
             burnBefore.setTo(body.linearVelocity)
             val substeps = contactSubsteps(vessel, attractor, dt)
             val h = dt / substeps
             val decks = decksNear(vessel)
             for (substep in 0 until substeps) {
                 body.integrate(h)
-                // Test against the ground where it is now that the craft has moved on, which is the
-                // end of this substep, not its start. The ground turns with the planet at 175 m/s
-                // at the equator. A substep behind, it stood 2.9 m back along the turn, which
-                // changes nothing on flat ground but is metres up or down on a steep slope. A pod
-                // landed on a mountainside came to rest two metres inside it.
+                // Test against the ground as it is at the end of this substep. It turns at 175 m/s
+                // at the equator, so a substep behind is metres off on a steep slope.
                 contacts.resolve(vessel, attractor, h, time + (substep + 1) * h, substep > 0, tickGroundBelow, tickGroundSlack)
-                // A deck stepped before this craft is already at the end of the tick, and one
-                // stepped after it is still at the start. This craft is (substep + 1) * h in.
+                // Decks stepped before this craft are at the end of the tick, those after at the
+                // start. This craft is (substep + 1) * h in.
                 contacts.resolveOnCraft(vessel, attractor, decks, h, tick, dt, (substep + 1) * h)
             }
             vessel.standingOn = contacts.deckUnder
-            // A deck asleep doesn't move, so it's woken to take the weight.
+            // Wake the deck to take the weight.
             contacts.deckUnder?.wake()
-            // Boulders and trunks go into the same report, so a craft wrecked on a rock is judged
-            // the same way as one wrecked on the ground.
+            // Boulders and trunks go in the same report as the ground.
             scatterContacts.resolve(vessel, attractor, time + dt, contacts.report, felledScatter, tickGroundBelow, tickGroundSlack) { fell(it) }
             val report = contacts.report
             vessel.touchingGround = report.hadContact
@@ -3598,26 +3394,20 @@ class World(
             crossInfluence(vessel, tickEnd)
         }
 
-        // Craft asleep on decks, carried to wherever their decks went this tick. A deck that's gone
-        // leaves them awake.
+        // Craft asleep on decks follow them. If the deck's gone they wake.
         for (vessel in vesselsById.values) {
             val deckId = vessel.ridingOn ?: continue
             val deck = vesselsById[deckId]
             if (deck == null || deck.referenceBodyId != vessel.referenceBodyId) vessel.wake() else vessel.followRide(deck)
         }
 
-        // Craft against craft, once everything has moved.
-        //
-        // This happens after the per-vessel pass instead of inside it, because a pair needs both
-        // halves in their new positions before it means anything. The cost is that a craft-to-craft
-        // contact is resolved against terrain contacts from the same tick instead of interleaved
-        // with them, which at a sixtieth of a second isn't something anyone can see.
+        // Craft against craft, once everything has moved, since a pair needs both in their new
+        // places. It isn't interleaved with terrain contact, which at 60 Hz nobody can see.
         stepOrder.clear()
         stepOrder.addAll(vesselsById.values)
         if (justSeparated.isNotEmpty()) justSeparated.values.removeAll { it < time }
         val impacts = craftContacts.resolve(stepOrder, dt)
-        // Anything that got touched is awake again, whether it was hurt or not. A sleeping base
-        // that stayed asleep while something landed on it would be a wall, not an object.
+        // Anything touched wakes, hurt or not, or a sleeping base would act like a wall.
         for (i in 0 until craftContacts.touchedCount) {
             vesselsById[VesselId(craftContacts.touched[i])]?.wake()
         }
@@ -3662,7 +3452,7 @@ class World(
         if (tick % REPAIR_CHECK_TICKS == 0L) repairStructures()
         if (tick % CREW_CHECK_TICKS == 0L) reconcileCrew()
         if (tick % SIGNAL_CHECK_TICKS == 0L) {
-            // Whatever the drills and converters moved, weighed again.
+            // Reweigh whatever the drills and converters moved.
             for (vessel in vesselsById.values) if (vessel.industryMoved) { vessel.industryMoved = false; vessel.recomputeMass() }
             for (vessel in vesselsById.values) {
                 if (!vessel.dormant && !isDebris(vessel) && Comms.needsSignal(vessel)) refreshSignal(vessel, tickEnd)
@@ -3679,10 +3469,9 @@ class World(
     }
 
     /**
-     * Lightning since the last look, up to [until]. Every strike near any craft (flying or parked,
-     * since a storm doesn't care which) that lands within [LIGHTNING_REACH] of one below the cloud
-     * hits it. The highest part takes the hit, and might be knocked out. All of it comes from the
-     * weather and the strike, so a replica agrees.
+     * Lightning since the last look, up to [until]. A strike within [LIGHTNING_REACH] of any craft
+     * below the cloud, flying or parked, hits its highest part, which might be knocked out. It all
+     * comes from the weather, so replicas agree.
      */
     private fun strikeLightning(until: Double) {
         val from = if (lightningCheckedTo.isNaN()) until - LIGHTNING_CHECK_TICKS / 60.0 else lightningCheckedTo
@@ -3702,7 +3491,7 @@ class World(
             for (strike in strikesFound) {
                 val horizontal = strike.direction.distanceTo(weatherPoint) * attractor.radius
                 if (horizontal > LIGHTNING_REACH + vessel.contactRadius) continue
-                // One craft per strike: the first one found, which is stable.
+                // One craft per strike: the first found, which is stable.
                 if (!strikesSeen.add(strike.id)) continue
                 hitByLightning(vessel, attractor, strike)
             }
@@ -3733,32 +3522,14 @@ class World(
     }
 
     /**
-     * Puts a craft to sleep once friction has been holding it still for a while.
-     *
-     * The condition is [ContactReport.anchored], not a speed threshold. The contact resolver
-     * already answers the hard question, which is whether friction is winning, and a craft it has
-     * anchored is exactly, not roughly, still on the ground. Comparing speeds here instead meant
-     * picking a number above a resting craft's jitter and below a real slide, and the first try at
-     * that number was below the jitter's ninetieth percentile, so nothing ever slept.
-     *
-     * The delay stops flickering. A lander rocking onto its gear can be anchored for a tick or two
-     * on the way to settling.
+     * Puts a craft to sleep once friction has held it still for a while. It uses
+     * [ContactReport.anchored], since no speed threshold separates resting jitter from a slide. The
+     * delay stops flickering.
      */
     private fun considerSleeping(vessel: Vessel, report: ContactReport) {
-        // Not while a leg is still swinging, because asleep it would stop half out.
-        //
-        // Not while it's being drawn in to dock either. Held short of the latch by the ground's
-        // friction, asleep it would stay there.
-        //
-        // And not while its ballast is working, or holding it at a depth. Asleep, its tanks stop,
-        // and one resting on the sea floor with its tanks blown stayed there.
-        //
-        // Or while a winch line on it is winding or pulling.
-        //
-        // Or while the auto-land is flying it. A balloon hanging still in the air on its way down
-        // went to sleep there, and the landing stopped with it.
-        //
-        // Or while its crew are rolling it upright, which holds it still as they do.
+        // Not while anything asleep would freeze part way: legs swinging, being drawn in to dock,
+        // ballast working or holding depth, a winch line winding or pulling, auto land flying it,
+        // or crew rolling it upright.
         if (legsMoving(vessel) || docking.capturing(vessel.id.raw) || vessel.control.ballast != 0 || vessel.control.holdDepth || vessel.control.autoLand ||
             !vessel.rightingStart.isNaN() ||
             lines.any { (it.a == vessel.id || it.b == vessel.id) && (it.reel != 0 || it.taut) }
@@ -3766,8 +3537,7 @@ class World(
             vessel.noteStillness(false, SLEEP_SETTLE_TICKS)
             return
         }
-        // Standing on another craft's deck, it sleeps as a rider on it once it's still on the deck,
-        // however the deck's moving.
+        // On another craft's deck, it sleeps as a rider once still relative to the deck.
         val deck = vessel.standingOn
         if (deck != null) {
             deck.body.velocityAtOffset(scratchRideFrom.setTo(vessel.body.position).subInPlace(deck.body.position), scratchRideVelocity)
@@ -3780,24 +3550,22 @@ class World(
         }
         val still = report.anchored || floatingStill(vessel) || aloftStill(vessel)
         if (vessel.noteStillness(still, SLEEP_SETTLE_TICKS)) {
-            // The pose was just integrated to the end of the tick, so it gets pinned to the ground
-            // as the ground is then.
+            // The pose is at the end of the tick, so pin it to the ground as it is then.
             val attractor = attractorFor(vessel)
             attractor.rotationAt(tickEnd, scratchRotation)
             vessel.sleep(scratchRotation)
-            // Resting with its throttle shut, whatever was still winding down has stopped. Asleep
-            // with it half wound down, a helicopter's rotor turned slowly on the ground for good.
+            // Resting with the throttle shut, stop anything still winding down, or a rotor turns
+            // forever.
             if (report.anchored && vessel.control.throttle == 0.0) vessel.spool.fill(0.0)
-            // Afloat, it rides the sea from here on, so note how it lies in it.
+            // Afloat, note how it lies in the sea it'll ride.
             val ocean = attractor.ocean
             if (!report.anchored && ocean != null && !vessel.touchingGround && vessel.buoyed) settleAfloat(vessel, attractor)
         }
     }
 
     /**
-     * Notes how [vessel] lies in the sea where it floats now: afloat, its centre [Vessel.draft]
-     * metres from the surface, tilted the way the water is, so asleep (or founded) it rides the sea
-     * from here on.
+     * Notes how [vessel] lies in the sea now (its centre [Vessel.draft] metres from the surface,
+     * tilted with the water) so asleep or founded it rides the sea from here.
      */
     private fun settleAfloat(vessel: Vessel, attractor: CelestialBody) {
         val ocean = attractor.ocean ?: return
@@ -3807,8 +3575,7 @@ class World(
         vessel.afloat = true
         vessel.draft = scratchSeaPoint.length - attractor.radius - seaRide.height
         vessel.sleepNormal.setTo(seaRide.normal)
-        // Not as it lay this moment, which in a swell can be the far end of a roll, but at its
-        // balance in the water. See FloatingBalance.
+        // At its balance, not as it lies now, which can be mid-roll. See FloatingBalance.
         scratchRotation.rotate(seaRide.normal, scratchSeaUp)
         if (balance.solve(vessel, scratchSeaUp, ocean.density, vessel.draft)) {
             vessel.body.orientation.setTo(balance.orientation)
@@ -3829,24 +3596,17 @@ class World(
     private val scratchSeaUp = Vec3()
     private val scratchTilt = Quat()
 
-    /**
-     * Waves shorter than a craft's own length don't move it as a whole, so a rider only feels the
-     * longer ones.
-     */
+    /** Waves shorter than a craft don't move it as a whole, so a rider only feels longer ones. */
     private fun riderSpacing(vessel: Vessel): Double = kotlin.math.max(1.0, vessel.contactRadius)
 
     /**
-     * A craft asleep afloat, riding the sea: up and down with the tide and the waves, tipped with
-     * them, where it was moored. [waves] is off for time warped on rails, when only the tide is
-     * followed.
+     * A craft asleep afloat rides the sea where it's moored, with the tide and the waves. [waves] is
+     * off for on-rails warp, when only the tide is followed.
      */
     private fun followSea(vessel: Vessel, attractor: CelestialBody, waves: Boolean, dt: Double = 0.0) {
         val ocean = attractor.ocean ?: return followGround(vessel, attractor)
-        // A founded base afloat carries whatever stands on its deck, and for that its deck has to
-        // move with the speeds it really has, worked out from how it moved and turned this tick.
-        // The sea's own velocity isn't that. The base stays moored where it was founded and only
-        // heaves and tilts, while the water under it goes to and fro, and a buggy braked on its
-        // deck slid about by the difference, a metre a second in a wild sea.
+        // A founded base afloat is moored, so for what's on its deck its velocities come from how it
+        // moved and turned this tick, not the water's.
         val carrying = vessel.anchored && dt > 0.0
         if (carrying) { scratchRide.setTo(vessel.body.orientation); scratchRideFrom.setTo(vessel.body.position) }
         attractor.rotationAt(tickEnd, scratchRotation)
@@ -3861,8 +3621,7 @@ class World(
         vessel.followSea(scratchRotation, attractor.radius + height + vessel.draft, scratchTilt, scratchSurfaceVelocity, scratchSpin)
         if (carrying) {
             vessel.body.linearVelocity.setTo(vessel.body.position).subInPlace(scratchRideFrom).mulInPlace(1.0 / dt)
-            // Except where it was put somewhere new this tick, just founded or just loaded, which
-            // isn't a speed. Then it's the ground's.
+            // Unless it was just founded or loaded somewhere new: then the ground's.
             attractor.surfaceVelocityAt(vessel.body.position, scratchRideFrom)
             if (vessel.body.linearVelocity.distanceTo(scratchRideFrom) > RIDE_MOST) vessel.body.linearVelocity.setTo(scratchRideFrom)
             // conj(before) then after: the turn this tick, as an angle about an axis.
@@ -3874,44 +3633,22 @@ class World(
                 vessel.body.angularVelocity.setTo(scratchRideTurn.x, scratchRideTurn.y, scratchRideTurn.z).mulInPlace(angle / (sine * dt))
             }
         }
-        // The sea has got up big for it, so what happens to it now (riding it out, taking on water,
-        // going over) is for the physics to decide.
+        // Too rough for it: wake it and let the physics decide.
         if (waves && !hurried && !vessel.anchored && seaRide.significantHeight > tooRough(vessel)) vessel.wake()
     }
 
     /**
-     * Time was asked to go faster than physics can follow. A boat left alone in a rough sea can
-     * then drop anchor and ride it asleep after all, the same as in a calm one. Otherwise any storm
-     * anywhere would hold the whole world to physics warp until it blew over.
+     * Warp is faster than physics can follow, so boats in rough seas may sleep too. Otherwise any
+     * storm would hold the whole world to physics warp.
      */
     var hurried: Boolean = false
 
-    /**
-     * The significant wave height, in metres, past which the sea counts as rough for [vessel],
-     * meaning too big for its size to be ridden asleep like a cork.
-     */
+    /** The significant wave height, in metres, past which [vessel] can't ride the sea asleep. */
     private fun tooRough(vessel: Vessel): Double = kotlin.math.max(ROUGH_SEA, ROUGH_PER_METRE * vessel.contactRadius)
 
     /**
-     * Afloat, clear of the bottom, engine off, and going nowhere relative to the water.
-     *
-     * This is the other way to be at rest. Ground contact normally decides, and a floating craft
-     * has none, so without this a boat moored at sea got simulated every tick forever. In a world
-     * of bases people leave and come back to, that's exactly the craft that should cost nothing.
-     *
-     * This uses a speed threshold, not an anchor, because nothing is holding a floating craft. It's
-     * still because the water has damped it. It's only valid while the sea is calm. With waves (M9)
-     * a floating craft is never at rest, and a dormant one has to ride the surface instead.
-     *
-     * In a wind, a boat left alone never stops. It drifts, steadily, at whatever pace the wind on
-     * its topsides and the water on its hull agree on. Held to the still-water threshold it would
-     * never sleep, and in a world people leave boats in, it would drift off across the sea while
-     * nobody was there. So a boat left alone (engine off, hands off) drops anchor. Drifting no
-     * faster than [ANCHOR_DRIFT], it's allowed to sleep, and while asleep it stays where it is.
-     */
-    /**
      * The sea's current where [vessel] floats, in the world's frame, into [out]. Zero out of the
-     * water, or on a world without currents.
+     * water or with no currents.
      */
     fun currentAt(vessel: Vessel, attractor: CelestialBody = attractorFor(vessel), out: Vec3 = Vec3()): Vec3 {
         val sea = attractor.ocean?.sea ?: return out.setZero()
@@ -3927,17 +3664,15 @@ class World(
     private val scratchCurrentRotation = com.rm.apogee.core.math.Quat()
 
     /**
-     * Up in the air and going nowhere: held by its keeper core with hands off the stick, or floating
-     * in balance on its gas cells with nothing running. Then it may sleep aloft, and asleep it rides
-     * the planet round at its height, like a sleeping craft on the ground, so a platform left in the
-     * sky is where it was when you come back.
+     * Aloft and going nowhere: held by its keeper core hands off, or balanced on its gas cells with
+     * nothing running. Then it may sleep, riding the planet round at its height.
      */
     private fun aloftStill(vessel: Vessel): Boolean {
         if (vessel.touchingGround || vessel.buoyed) return false
         val control = vessel.control
         if (control.hasAttitudeInput) return false
         val keeping = control.keeping
-        // Held by its keeper, only once it's back where it's meant to be.
+        // Held by its keeper, only once it's back on its spot.
         if (keeping) {
             val attractor = attractorFor(vessel)
             attractor.rotationAt(time, scratchCurrentRotation).rotate(control.keepPoint, scratchCurrent).subInPlace(vessel.body.position)
@@ -3949,33 +3684,35 @@ class World(
         val attractor = attractorFor(vessel)
         attractor.surfaceVelocityAt(vessel.body.position, scratchSurfaceVelocity)
         scratchRelativeVelocity.setTo(vessel.body.linearVelocity).subInPlace(scratchSurfaceVelocity)
-        // Kept over its spot, it's still over the ground. Left to float, it's still in the air.
+        // Kept on its spot, still over the ground; left to float, still in the air.
         if (!keeping) scratchRelativeVelocity.subInPlace(attractor.rotationAt(time, scratchCurrentRotation).rotate(vessel.air.wind, scratchCurrent))
         if (scratchRelativeVelocity.length > ANCHOR_DRIFT) return false
         attractor.angularVelocity(scratchSpin)
         return vessel.body.angularVelocity.distanceTo(scratchSpin) < ALOFT_TURN
     }
 
+    /**
+     * Afloat, clear of the bottom, engine off, and going nowhere relative to the water, so a boat at
+     * sea can sleep. In wind or swell a boat left alone never stops, so hands off it drops anchor
+     * and may sleep drifting up to [ANCHOR_DRIFT].
+     */
     private fun floatingStill(vessel: Vessel): Boolean {
         if (vessel.touchingGround || hydrostatics.submergedVolume <= 0.0) return false
-        // Someone in the water never dozes off there, because the cold is getting to them.
+        // Someone in the water never sleeps: the cold is getting to them.
         if (walking.walkerOf(vessel) != null) return false
         val control = vessel.control
         if (control.throttle > 0.0) return false
         val handsOff = control.pitch == 0.0 && control.yaw == 0.0 && control.roll == 0.0
         val attractor = attractorFor(vessel)
-        // In a swell a boat is never at rest, because it goes up and down with the waves. So hands
-        // off and drifting slowly is enough, and asleep it rides the waves anyway. Not for a craft
-        // wholly under water, though, which doesn't heave with the waves. A Base Core let go of on
-        // the sea floor was rising straight up, drifting hardly at all, and fell asleep ten metres
-        // down, where it stayed.
+        // In a swell, hands off and drifting slowly is enough, since asleep it rides the waves. Not
+        // for a craft wholly underwater, which doesn't heave and could fall asleep mid-rise.
         val seaway = hydrostatics.seaHeight > SEAWAY_HS && !vessel.submerged
         if (seaway && !handsOff) return false
         if (!hurried && hydrostatics.seaHeight > tooRough(vessel)) return false
         val limit = if (seaway || (handsOff && vessel.air.wind.length > 0.5)) ANCHOR_DRIFT else FLOATING_REST_SPEED
         attractor.surfaceVelocityAt(vessel.body.position, scratchSurfaceVelocity)
         scratchRelativeVelocity.setTo(vessel.body.linearVelocity).subInPlace(scratchSurfaceVelocity)
-        // Across the water, not the ground: a boat carried along by a current is still in it.
+        // Relative to the water, so a boat carried by a current counts as still.
         scratchRelativeVelocity.subInPlace(currentAt(vessel, attractor, scratchCurrent))
         if (seaway) {
             // Only its drift across the water counts, not its heaving.
@@ -3990,18 +3727,15 @@ class World(
     }
 
     /**
-     * Poses the craft's moving parts for this tick: control surfaces to the stick (and stability
-     * assist), steerable wheels to the steering, and legs toward deployed once staged. The forces
-     * and the contacts read these, and snapshots carry them, so what moves a craft and what
-     * everyone sees of it are the same numbers.
+     * Poses the craft's moving parts for this tick: surfaces, wheels, gimbals, flaps and legs.
+     * Forces, contacts and snapshots all read these.
      */
     private fun updatePose(vessel: Vessel, dt: Double) {
         vessel.fitPose()
         val yaw = vessel.control.yaw
         val forward = vessel.design.orientation.forward
         vessel.centerOfMass(scratch)
-        // Less lock the faster it goes, like a car's steering is geared. Hard over at speed, the
-        // Trundler rolled at eleven metres a second.
+        // Less lock the faster it goes, or a rover rolls when steered hard at speed.
         var lock = Double.NaN
         for (i in vessel.defs.indices) {
             val def = vessel.defs[i]
@@ -4026,9 +3760,8 @@ class World(
             val wheel = def.module<com.rm.apogee.core.part.Wheel>()
             if (wheel != null) {
                 vessel.wheelSteer[i] = if (!wheel.steerable || yaw == 0.0) 0.0 else {
-                    // Front wheels into the corner, rear wheels away from it. Which end is which is
-                    // judged from the centre of mass along the craft's forward. See
-                    // GroundContact.driveWheel.
+                    // Front wheels into the corner, rear wheels away, judged from the centre of mass
+                    // along forward. See GroundContact.driveWheel.
                     val ahead = (vessel.design.parts[i].position.x - scratch.x) * forward.x +
                         (vessel.design.parts[i].position.y - scratch.y) * forward.y +
                         (vessel.design.parts[i].position.z - scratch.z) * forward.z
@@ -4055,8 +3788,8 @@ class World(
     private fun foldsOut(def: com.rm.apogee.core.part.PartDef) = VesselPose.foldsOut(def)
 
     /**
-     * Whether fold-out part [i] should be out: a drill while drilling, or a wing or dish told to be
-     * or staged, and none of them broken.
+     * Whether fold-out part [i] should be out: a drill while drilling, a wing or dish when deployed
+     * or staged.
      */
     private fun unfolded(vessel: Vessel, i: Int): Boolean {
         if (vessel.isBroken(i)) return false
@@ -4081,9 +3814,8 @@ class World(
     private fun waken(id: Long): Vessel? = vesselsById[VesselId(id)]?.also { it.wake() }
 
     /**
-     * [id], woken, if what gets sent to it is heard and acted on. That's always true for a craft
-     * with somebody aboard, and for a probe only with power and a link home. Null for one that's
-     * out of touch, which carries on the way it was left.
+     * [id], woken, if commands reach it: always with crew aboard, for a probe only with power and a
+     * link home. Null if it's out of touch.
      */
     private fun heard(id: Long): Vessel? {
         val vessel = vesselsById[VesselId(id)] ?: return null
@@ -4094,10 +3826,7 @@ class World(
         return vessel.also { it.wake() }
     }
 
-    /**
-     * Whether [vessel] can be flown right now: someone's aboard, or it's a probe core with power
-     * and a link home. Nobody flies an empty pod.
-     */
+    /** Whether [vessel] can be flown now: crew aboard, or a probe core with power and a link home. */
     fun controllable(vessel: Vessel): Boolean =
         !Comms.needsSignal(vessel) || (Comms.hasProbeCore(vessel) && vessel.powered && vessel.signal != Signal.NONE)
 
@@ -4139,11 +3868,10 @@ class World(
             survey = if (hasScanner(vessel)) surveyShare(vessel).toFloat() else -1f,
             ore = reading(vessel, com.rm.apogee.core.part.ResourceType.ORE),
             water = reading(vessel, com.rm.apogee.core.part.ResourceType.WATER),
-            // Someone in the water dives and rises with the same buttons. A founded base has no use
-            // for them, its tanks or not.
+            // Someone in the water dives and rises with these buttons. A founded base has none.
             ballast = if (inSea(vessel)) 0f else if (vessel.anchored) -1f else ballastShare(vessel).toFloat(),
             ballastMode = vessel.control.ballast,
-            // Aloft on gas, it's a height it holds, kept as a depth below the datum.
+            // Aloft on gas it holds a height, kept as a depth below the datum.
             holdingDepth = if (!vessel.control.holdDepth) -1f
                 else if (gasCraft(vessel)) (-vessel.control.holdDepthAt).toFloat() else vessel.control.holdDepthAt.toFloat(),
             crush = vessel.crushShare.toFloat(),
@@ -4168,13 +3896,9 @@ class World(
     }
 
     /**
-     * Whether [vessel]'s crew can roll it back upright: it's lying past [RIGHT_FROM] off upright,
-     * afloat or on the ground, nearly still, crewed, and no heavier than [RIGHT_MOST_MASS].
-     *
-     * Every small boat floats as happily upside down as the right way up. The sea's buoyancy doesn't
-     * care which way up the hull is, and a Jet Boat idling side on to a wild sea was rolled past
-     * seventy degrees by a breaking crest and settled keel up. On a small craft that's the end of
-     * it without this. People right dinghies and jet skis, and push a buggy back onto its wheels.
+     * Whether [vessel]'s crew can roll it back upright: past [RIGHT_FROM] off upright, afloat or on
+     * the ground, nearly still, crewed, and no heavier than [RIGHT_MOST_MASS]. Small boats float
+     * just as well upside down, so this is the way back.
      */
     fun canRight(vessel: Vessel): Boolean {
         if (!vessel.rightingStart.isNaN() || vessel.anchored || isDebris(vessel) || walking.walkerOf(vessel) != null) return false
@@ -4189,8 +3913,8 @@ class World(
     }
 
     /**
-     * Sets [vessel]'s crew rolling it upright, about its own length the way a boat goes over, with
-     * whatever tilt is left along its length taken out as well, keeping its heading.
+     * Sets [vessel]'s crew rolling it upright about its length, then taking out any pitch left,
+     * keeping its heading.
      */
     private fun startRighting(vessel: Vessel) {
         if (!canRight(vessel)) return
@@ -4198,7 +3922,7 @@ class World(
         val ahead = vessel.body.orientation.rotate(vessel.design.orientation.forward, Vec3())
         val deck = vessel.body.orientation.rotate(vessel.design.orientation.up, Vec3())
         val turn = Quat()
-        // The roll: the deck and the up, both seen end on along the craft.
+        // The roll: deck and up, both seen end on along the craft.
         val deckAcross = deck.copy().addScaledInPlace(ahead, -(deck dot ahead))
         val upAcross = up.copy().addScaledInPlace(ahead, -(up dot ahead))
         if (deckAcross.length > 1e-6 && upAcross.length > 1e-6) {
@@ -4206,7 +3930,7 @@ class World(
             Quat.fromAxisAngle(ahead.normalizeInPlace(), roll, turn)
         }
         vessel.rightingTo.setTo(turn).mulInPlace(vessel.body.orientation)
-        // Then the pitch, now that what's left is small and has only the one way to go.
+        // Then the pitch, now small.
         vessel.rightingTo.rotate(vessel.design.orientation.up, deck)
         vessel.rightingTo.setTo(quatFromTo(deck, up) * vessel.rightingTo).normalizeInPlace()
         vessel.rightingFrom.setTo(vessel.body.orientation)
@@ -4214,14 +3938,12 @@ class World(
     }
 
     /**
-     * One tick of the crew rolling [vessel] upright, after it has moved. The roll is theirs, not
-     * the sea's or the ground's, so it's posed, and the tick's turning is dropped. Afloat, the
-     * water still carries it. On the ground it's kept standing on its lowest point as it turns,
-     * or turning it about its middle would drive half of it into the ground.
+     * One tick of the crew rolling [vessel] upright, after it has moved. The turn is posed and spin
+     * dropped. On the ground it's kept on its lowest point.
      */
     private fun stepRighting(vessel: Vessel, attractor: CelestialBody) {
         val share = ((time - vessel.rightingStart) / RIGHT_TIME).coerceIn(0.0, 1.0)
-        // Slow to start and to finish, the way people heave something over.
+        // Slow to start and finish.
         val eased = share * share * (3.0 - 2.0 * share)
         Quat.slerp(vessel.rightingFrom, vessel.rightingTo, eased, vessel.body.orientation)
         vessel.body.orientation.normalizeInPlace()
@@ -4231,10 +3953,9 @@ class World(
     }
 
     /**
-     * [systems] with what [vessel]'s sonar hears when it's powered and under the sea: the floor
-     * below it, and the nearest named place under the sea its owner hasn't found yet, within the
-     * sonar's range. It gives how far away it is, and which way from the nose in degrees, with
-     * right positive.
+     * [systems] plus what [vessel]'s sonar hears, powered and under the sea: the floor below, and
+     * the nearest unfound named place in range, with its distance and bearing from the nose in
+     * degrees (right positive).
      */
     private fun sonar(vessel: Vessel, systems: ServerMessage.CraftSystems): ServerMessage.CraftSystems {
         if (!vessel.powered) return systems
@@ -4258,8 +3979,7 @@ class World(
             if (far < bestRange) { best = wonder; bestRange = far }
         }
         val nearest = best ?: return systems.copy(seabed = floor.toFloat())
-        // Which way it lies compared with which way the nose points, both along the ground, in the
-        // body's turning frame.
+        // Its heading against the nose's, both level, in the body-fixed frame.
         val nose = attractor.toBodyFixed(vessel.forward(), scratchRotation, Vec3())
         val relative = Navigation.heading(here, nearest.direction.copy().subInPlace(here)) - Navigation.heading(here, nose)
         return systems.copy(
@@ -4273,8 +3993,8 @@ class World(
         vessel.defs.indices.any { !vessel.isBroken(it) && vessel.defs[it].hasModule<com.rm.apogee.core.part.Scanner>() }
 
     /**
-     * What the ground right under [vessel] holds of [type], by its scanner, when it's low enough
-     * and powered. -1 for no reading.
+     * What the ground under [vessel] holds of [type] by its scanner, low and powered. -1 for no
+     * reading.
      */
     private fun reading(vessel: Vessel, type: com.rm.apogee.core.part.ResourceType): Float {
         if (!vessel.powered || !hasScanner(vessel)) return -1f
@@ -4295,26 +4015,9 @@ class World(
     }
 
     /**
-     * A part of one craft hit another hard enough to fail.
-     *
-     * It's the same rule as hitting the ground: gear gives way and the craft lives, and anything
-     * else and the craft doesn't. Collisions between craft are how a base gets damaged by something
-     * landing badly on it, so the two paths agree on purpose. It would be strange for a tank to
-     * survive a thirty-metre-a-second arrival onto a station but not onto a hillside.
-     */
-
-    /**
-     * How finely to split up this tick's integration and contact test.
-     *
-     * A tick is a sixtieth of a second, and a craft coming down at thirty-five metres a second
-     * covers well over half a metre in one. Anything smaller than that, like a landing leg sticking
-     * out below an engine bell, a wheel, or a ridge in the terrain, can get stepped straight over,
-     * so the first thing the solver ever sees is several parts already buried. That's how a
-     * lander's legs got skipped while the engine above them was recorded as the part that hit.
-     *
-     * It's only paid for near the ground. Above the highest ground the body can have there's
-     * nothing to hit, and orbital speeds would otherwise demand the most splitting on every tick of
-     * every flight.
+     * How finely to split this tick's integration and contact test. At 35 m/s a tick covers over
+     * half a metre, enough to step straight past a leg, wheel or ridge. Only near the ground, or
+     * orbital speeds would split every tick.
      */
     private fun contactSubsteps(vessel: Vessel, attractor: CelestialBody, dt: Double): Int {
         val body = vessel.body
@@ -4322,9 +4025,7 @@ class World(
         val ceiling = (attractor.terrain?.maxElevation ?: 0.0) + SUBSTEP_CEILING_METRES
         if (attractor.altitudeOf(body.position) > ceiling) return 1
 
-        // Then against the ground actually underneath, for the same reason GroundContact does it.
-        // The ceiling only rules out craft above the tallest mountain on the body, which doesn't
-        // help a rocket climbing through clear air five kilometres up.
+        // Then against the ground actually underneath, since the ceiling is the tallest mountain.
         attractor.rotationAt(time, scratchRotation)
         attractor.toBodyFixed(body.position, scratchRotation, scratchBodyFixedUp)
         val groundBelow = attractor.solidRadiusInBodyFrame(scratchBodyFixedUp)
@@ -4334,10 +4035,8 @@ class World(
         val sweep = scratchRelativeVelocity.length +
             body.angularVelocity.length * vessel.contactRadius
         val distance = sweep * dt
-        // Kept for the ground and the scatter to rule themselves out by, this tick: the ground
-        // under the craft is fifteen octaves of noise, and each worked it out again, the ground
-        // once a substep. However far the craft gets this tick, the ground under it can't have
-        // come up by more than that, short of a cliff.
+        // Kept so ground and scatter contact can skip themselves this tick without redoing fifteen
+        // octaves of noise. Short of a cliff, the ground can't come up by more than the craft moves.
         tickGroundBelow = groundBelow
         tickGroundSlack = distance
         if (body.position.length - vessel.contactRadius >
@@ -4353,35 +4052,29 @@ class World(
 
     /**
      * A part hit at [speed] (m/s, into the surface) along [push] (world axes, the way the blow
-     * drives it).
+     * drives it). Crashes and craft-on-craft hits use the same rule.
      *
-     * The blow travels through the craft in order. The part that touched takes it first. Below its
-     * crash tolerance nothing happens, and above it the damage rises steeply, ((v - tol) /
-     * 2tol)^1.5, so three times its tolerance finishes it. A part that survives stops the blow
-     * there, and its neighbours only feel a jolt. A part that's crushed soaks up energy as it goes
-     * (its structure's mass times its tolerance squared, because propellant doesn't crumple), and
-     * whatever's left carries on, slower, with the rest of the craft into the next part along the
-     * line of the blow. So a nose cone or an engine bell acts as a crumple zone. A crash can strip
-     * the front off a craft and leave the pod behind it whole.
-     *
-     * A leg is built for this and folds instead, as it always has.
+     * The blow goes through the craft in order. Below a part's crash tolerance nothing happens;
+     * above it damage is ((v - tol) / 2tol)^1.5, so three times tolerance finishes it. A part that
+     * survives stops the blow and jolts its neighbours. A crushed part soaks up dry mass times
+     * tolerance squared (propellant doesn't crumple) and the rest carries on, slower, into the next
+     * part along the blow, so nose cones and bells are crumple zones. Legs fold instead.
      */
     fun impact(vessel: Vessel, partIndex: Int, speed: Double, push: Vec3, water: Boolean = false) {
         var part = partIndex
         var v = speed
         val local = vessel.body.orientation.inverseRotate(push)
         val visited = HashSet<Int>()
-        // What's still moving behind the blow. The crushed parts stop.
+        // What's still moving behind the blow; crushed parts stop.
         var moving = vessel.body.mass
         while (part >= 0 && visited.add(part)) {
             val def = vessel.defs[part]
-            // Someone going into the water feet first takes a lot more than hitting the ground. A
-            // jump off a ship's deck is nothing, and eleven metres is about the most anyone lives
-            // through.
+            // A person takes much more going into water than onto ground: about eleven metres'
+            // fall is survivable.
             val person = def.module<com.rm.apogee.core.part.Walker>() != null
             val tolerance = if (water && person) WATER_ENTRY else def.crashTolerance
             if (v <= tolerance) return
-            // A person isn't a tank. Past what their suit can take, it's fatal.
+            // For a person, past what the suit takes is fatal.
             val blow = if (def.module<com.rm.apogee.core.part.Walker>() != null) Double.MAX_VALUE
                 else Math.pow((v - tolerance) / (2.0 * tolerance), 1.5)
             if (def.module<LandingLeg>() != null && vessel.breakPart(part)) {
@@ -4396,12 +4089,12 @@ class World(
                 ),
             )
             if (blow < health) {
-                // It held, so the blow stops here, and the parts around it get jolted.
+                // It held: the blow stops here and jolts the parts around it.
                 vessel.damage(part, blow, local)
                 shock(vessel, part, blow * SHOCK_SHARE, 1)
                 return
             }
-            // Crushed. It takes what it could, and passes the rest on.
+            // Crushed: it takes what it can and passes the rest on.
             vessel.damage(part, health, local)
             val absorbed = CRUSH_ENERGY * def.dryMass * tolerance * tolerance * health
             moving = (moving - vessel.partMass(part)).coerceAtLeast(1.0)
@@ -4412,10 +4105,7 @@ class World(
         }
     }
 
-    /**
-     * The neighbour of [part] (its parent or a child) that lies furthest along [push] (design
-     * axes), which is where a blow driving it that way goes next.
-     */
+    /** The neighbour of [part] furthest along [push] (design axes), where the blow goes next. */
     private fun nextAlong(vessel: Vessel, part: Int, push: Vec3, visited: Set<Int>): Int {
         val parts = vessel.design.parts
         val here = parts[part].position
@@ -4448,13 +4138,9 @@ class World(
     }
 
     /**
-     * Breaks [vessel] up if any of its parts is damaged to nothing. Those parts are gone, and the
-     * craft falls into however many pieces are left holding together. The piece with the controls
-     * on it (or the heaviest, if none has them) stays as this vessel, so the player is still flying
-     * what's left. The rest become debris, each carrying on at its own point's velocity. A tank
-     * that goes with propellant in it explodes.
-     *
-     * If nothing's left at all, the craft is destroyed.
+     * Breaks [vessel] up if any part is damaged to nothing. Those parts go and the rest splits into
+     * connected pieces: the one with controls stays this vessel, the rest become debris. See
+     * [failParts].
      */
     fun breakUp(vessel: Vessel, cause: String = "struck", detached: Set<Int> = emptySet()) {
         val destroyed = vessel.defs.indices.filter { vessel.health[it] <= 0.0 }.toSet()
@@ -4463,9 +4149,8 @@ class World(
     }
 
     /**
-     * Part [index] of [vessel] tears away at the end of the tick, with whatever hangs from it. A
-     * root has no joint above it, so it tears away from everything below it instead. A craft of one
-     * part has nothing to tear away from.
+     * Part [index] of [vessel] tears away at the end of the tick with whatever hangs from it. A root
+     * tears away from everything below it instead.
      */
     private fun detach(vessel: Vessel, index: Int, cause: String) {
         val parts = vessel.design.parts
@@ -4487,7 +4172,7 @@ class World(
     fun failParts(vessel: Vessel, destroyed: Set<Int>, detached: Set<Int>, cause: String) {
         val design = vessel.design
         val count = design.parts.size
-        // Blasts and events first, while the indices still mean something.
+        // Blasts and events first, while the indices are valid.
         for (index in destroyed) {
             vessel.partOffsetWorld(index, scratch)
             val at = Vec3().setTo(vessel.body.position).addInPlace(scratch)
@@ -4531,9 +4216,7 @@ class World(
         // Which piece the craft carries on as: the one with the controls, otherwise the heaviest.
         fun mass(indices: List<Int>) = indices.sumOf { vessel.partMass(it) }
         fun controls(indices: List<Int>) = indices.any { vessel.defs[it].module<com.rm.apogee.core.part.Command>() != null }
-        // A craft that had controls and has none left is lost along with them, and what's left is
-        // wreckage, not the craft. When it carried on as its heaviest piece, a player went on
-        // flying a heat shield rolling across the ground, with its parts counted as the craft's.
+        // A craft that had controls and has none left is lost; what's left is wreckage.
         val lostWithControls = controls(vessel.design.parts.indices.toList()) && members.none { controls(it) }
         val keep = if (lostWithControls) -1 else members.indices.maxWith(
             compareBy<Int>({ k -> if (controls(members[k])) 1 else 0 })
@@ -4548,8 +4231,7 @@ class World(
         val offset = Vec3()
         val pointVelocity = Vec3()
 
-        // The debris first, each piece from the original, before the craft itself gets rebuilt
-        // underneath it.
+        // The debris first, from the original, before the craft is rebuilt.
         val spawned = ArrayList<VesselId>()
         for (k in members.indices) {
             if (k == keep) continue
@@ -4561,12 +4243,12 @@ class World(
                 referenceBodyId = vessel.referenceBodyId,
             )
             debris.inheritParts(vessel, sub.indices)
-            // A piece broken off with a lit engine keeps it lit, the same as a stage does.
+            // A piece broken off with a lit engine keeps it lit, like a stage.
             debris.control.throttle = vessel.control.throttle
             if (members[k].none { originalDefs[it].module<com.rm.apogee.core.part.Command>() != null }) {
                 debris.name = "${vessel.name} debris"
             }
-            // Where its own centre was, moving the way that point of the craft was moving.
+            // At its own centre, moving as that point was.
             val centre = pieceCentre(vessel, members[k], offset)
             vessel.body.velocityAtOffset(centre, pointVelocity)
             debris.body.orientation.setTo(orientation)
@@ -4588,8 +4270,7 @@ class World(
             pendingDestruction.add(vessel.id to "${vessel.name} was destroyed")
             return
         }
-        // The pieces start out touching where they were joined, which is a break, not a fresh
-        // collision between them.
+        // The pieces start out touching where they were joined; that's not a collision.
         spawned.add(vessel.id)
         for (a in spawned.indices) for (b in a + 1 until spawned.size) {
             justSeparated[pairKey(spawned[a].raw, spawned[b].raw)] = time + SEPARATION_GRACE
@@ -4604,10 +4285,7 @@ class World(
         pendingEvents.add(WorldEvent.VesselStructureChanged(vessel.id))
     }
 
-    /**
-     * The mass-weighted centre of parts [indices], as an offset from the craft's body position, in
-     * world axes.
-     */
+    /** The mass-weighted centre of parts [indices], as an offset from the body position, world axes. */
     private fun pieceCentre(vessel: Vessel, indices: List<Int>, out: Vec3): Vec3 {
         out.setZero()
         var total = 0.0
@@ -4621,17 +4299,13 @@ class World(
         return if (total > 0.0) out.mulInPlace(1.0 / total) else out
     }
 
-    /**
-     * Tanks that went up this tick. Everything within reach, on any craft, gets damaged by how
-     * close it was and pushed away from the blast.
-     */
+    /** Tanks that went up this tick: everything in reach is damaged by closeness and pushed away. */
     private fun resolveExplosions() {
         if (pendingBlasts.isEmpty()) return
         val blasts = pendingBlasts.toList()
         pendingBlasts.clear()
         for (blast in blasts) {
-            // Energy from the propellant, capped, so a big tank is a big bang, not the end of the
-            // world.
+            // Energy from the propellant, capped.
             val energy = blast.energy.coerceAtMost(MAX_BLAST_KG)
             val radius = BLAST_RADIUS_PER_KG * kotlin.math.sqrt(energy)
             pendingEvents.add(WorldEvent.Explosion(blast.bodyId, blast.centre.copy(), energy))
@@ -4646,7 +4320,7 @@ class World(
                     offset.addInPlace(other.body.position).subInPlace(blast.centre)
                     val d = offset.length
                     if (d > radius) continue
-                    // Falling off steeply, because the shock wave spends itself fast.
+                    // Falls off steeply with distance.
                     val strength = 1.0 - d / radius
                     val ratio = BLAST_TOUGHNESS / other.defs[i].crashTolerance
                     val toughness = (ratio * ratio).coerceIn(0.25, 1.5)
@@ -4655,7 +4329,7 @@ class World(
                     hit = true
                 }
                 if (hit) {
-                    // A shove away from the blast, depending on the energy and how close it was.
+                    // A shove away, by energy and closeness.
                     val away = other.body.position.copy().subInPlace(blast.centre)
                     val d = away.length.coerceAtLeast(1.0)
                     val impulse = (BLAST_IMPULSE_PER_KG * energy * (1.0 - (d / (radius + other.contactRadius)).coerceIn(0.0, 1.0)))
@@ -4670,8 +4344,8 @@ class World(
     fun attractorFor(vessel: Vessel): CelestialBody = system.body(vessel.referenceBodyId)
 
     /**
-     * A sleeping craft, carried round with the ground to where it is at the end of the tick, which
-     * is the time the tick's positions are reported at.
+     * Carries a sleeping craft round with the ground to the end of the tick, when positions are
+     * reported.
      */
     private fun followGround(vessel: Vessel, attractor: CelestialBody) {
         val body = vessel.body
@@ -4679,18 +4353,16 @@ class World(
         attractor.surfaceVelocityAt(body.position, scratchSurfaceVelocity)
         attractor.angularVelocity(scratchSpin)
         vessel.followRotation(scratchRotation, scratchSurfaceVelocity, scratchSpin)
-        // The ground's velocity where it is now, not where it was a tick ago. A client recognises a
-        // sleeping craft by it moving with the surface exactly.
+        // The ground's velocity where it is now: a client spots a sleeping craft by it matching the
+        // surface exactly.
         attractor.surfaceVelocityAt(body.position, body.linearVelocity)
     }
 
     // --- spheres of influence ---------------------------------------------------
 
     /**
-     * Hands [vessel] over to whichever body's pull governs it at [at]: a moon's once it's close
-     * enough, and its planet's again once it's clear. It's measured from the new body's centre,
-     * with the same place and motion, so nothing jumps. That's the patched-conic picture every
-     * orbit is drawn in, where one body pulls at a time. True if it changed.
+     * Hands [vessel] over to whichever body governs it at [at] (patched conics: one body pulls at a
+     * time). Rebased to the new body's centre with the same place and motion. True if it changed.
      */
     private fun crossInfluence(vessel: Vessel, at: Double): Boolean {
         if (vessel.dormant || vessel.anchored) return false
@@ -4708,9 +4380,8 @@ class World(
     }
 
     /**
-     * Carries an awake [vessel] [h] seconds along its orbit on rails, into another body's pull and
-     * on around that one if it crosses over. The crossing is found to within a millisecond by
-     * halving the slice where it goes over.
+     * Carries an awake [vessel] [h] seconds along its orbit on rails, across into another body's
+     * pull if it gets there. The crossing is found to a millisecond by bisection.
      */
     private fun coast(vessel: Vessel, h: Double) {
         val body = vessel.body
@@ -4748,15 +4419,13 @@ class World(
     // --- time warp --------------------------------------------------------------
 
     /**
-     * The fastest the world can run right now, as a multiple of real time: the lowest any awake
-     * craft allows (see [warpLimit]). A sleeping craft rides the ground at any rate and doesn't
-     * limit anything.
+     * The fastest the world can run now, as a multiple of real time: the lowest any awake craft
+     * allows (see [warpLimit]). Sleeping craft don't limit it.
      */
     fun maxWarp(): Double {
         var limit = WARP_RATES.last()
         for (vessel in vesselsById.values) {
-            // Debris doesn't hold time back. Otherwise a spent stage still falling through the air
-            // would keep every warp at physics speed until it hit the ground. See [advanceOnRails].
+            // Debris doesn't hold time back. See [advanceOnRails].
             if (vessel.dormant || isDebris(vessel)) continue
             limit = minOf(limit, warpLimit(vessel))
         }
@@ -4768,18 +4437,15 @@ class World(
         !vessel.anchored && vessel.defs.indices.none { vessel.defs[it].module<com.rm.apogee.core.part.Command>() != null && !vessel.isBroken(it) }
 
     /**
-     * How fast one craft lets time go. Up to [PHYSICS_WARP] the world just steps more often, and
-     * anything goes. Beyond that craft move on rails, exactly along their orbits, which is only
-     * honest for a craft that nothing but gravity is acting on: out of the air, well clear of the
-     * ground, and not burning. Going faster still needs more room. Each rate needs a greater
-     * height, depending on the body's size, because a tick then covers so much of an orbit that an
-     * atmosphere or a mountain could slip by between two looks, or a burn the pilot meant to make.
+     * How fast one craft lets time go. Up to [PHYSICS_WARP] the world steps more often. Beyond that
+     * craft go on rails, so only out of the air, clear of the ground and not burning, with faster
+     * rates needing more height.
      */
     fun warpLimit(vessel: Vessel): Double {
         if (vessel.control.throttle > 0.0 && vessel.activeEngines().isNotEmpty()) return PHYSICS_WARP
-        // Landing by itself, so never on rails, which would skip past where it has to brake.
+        // Auto landing: rails would skip where it has to brake.
         if (vessel.control.autoLand) return PHYSICS_WARP
-        // Its autopilot's burn is coming up, so real time for the turn onto it.
+        // An autopilot burn is coming up: real time for the turn onto it.
         if (vessel.control.autoBurn) vessel.plannedBurns.firstOrNull()?.let {
             if (time >= Burns.startOf(it, vessel.burnDuration) - Burns.WINDOW) return 1.0
         }
@@ -4803,10 +4469,9 @@ class World(
     }
 
     /**
-     * Moves the world on by [seconds] on rails: every awake craft along its orbit, turning as it
-     * was, and every sleeping one with the ground. It goes in slices of at most [RAILS_STEP],
-     * checking again after each. The moment any craft stops allowing it (it has reached the air, or
-     * come down toward a moon), it stops, and says how far it got.
+     * Moves the world on by [seconds] on rails: awake craft along their orbits, still turning,
+     * sleeping ones with the ground. Goes in slices of at most [RAILS_STEP], checking after each,
+     * and stops once any craft won't allow it. Returns how far it got.
      */
     fun advanceOnRails(seconds: Double): Double {
         var done = 0.0
@@ -4815,8 +4480,7 @@ class World(
         while (seconds - done > 1e-9) {
             val allowed = maxWarp()
             if (allowed <= PHYSICS_WARP) break
-            // Longer slices only as far out as the fastest warps are allowed. On a conic, far from
-            // anything, a long slice is as exact as a short one.
+            // Longer slices only where the fastest warps are allowed; on a conic they're as exact.
             val h = minOf(RAILS_STEP * maxOf(1.0, allowed / RAILS_SLICE_WARP), seconds - done)
             tickEnd = time + h
             for (vessel in vesselsById.values) {
@@ -4825,8 +4489,8 @@ class World(
                     if (vessel.afloat) followSea(vessel, attractor, waves = false) else followGround(vessel, attractor)
                     continue
                 }
-                // Debris in the air or near the ground can't go on rails, because it would fly
-                // through both, and it doesn't hold anything back. It's lost on the way down.
+                // Debris in the air or near the ground can't go on rails and doesn't hold warp back,
+                // so it's lost on the way down.
                 if (isDebris(vessel) && warpLimit(vessel) <= PHYSICS_WARP) {
                     pendingDestruction.add(vessel.id to "lost on the way down")
                     continue
@@ -4866,11 +4530,9 @@ class World(
     var warpUntil: Double = Double.NaN
 
     /**
-     * Moves the clock straight on to [until], for a launch at a chosen time of day. A parked craft
-     * stays on its ground, and one in a clear orbit goes round it. Anything else, in the air or
-     * just set down and not settled yet, is carried round with the planet, over the same ground and
-     * moving as it was, as if time had been paused for it. Lightning isn't checked for over the
-     * gap.
+     * Jumps the clock to [until], for a launch at a chosen time of day. Parked craft stay put, those
+     * in clear orbit go round it, and anything else is carried round with the planet as if paused.
+     * No lightning over the gap.
      */
     fun skipTo(until: Double) {
         val seconds = until - time
@@ -4885,7 +4547,7 @@ class World(
                 body.position.setTo(next.position)
                 body.linearVelocity.setTo(next.velocity)
             } else {
-                // The planet's turn over the gap, applied to the whole craft.
+                // The planet's turn over the gap, applied to the craft.
                 attractor.rotationAt(until, turn)
                 turn.setTo(turn * attractor.rotationAt(time).conjugate())
                 turn.rotate(body.position, body.position)
@@ -4922,18 +4584,14 @@ class World(
     }
 
     /**
-     * The world's motion now, for sending. With [quietEvery] above nothing, a craft asleep on the
-     * ground (not afloat, not riding a deck) is only in one snapshot in that many ticks: it's where
-     * it was, turning with its world, and a client draws it so from its last word. Sent twenty
-     * times a second, every base and landmark in the system went out each time, from worlds nobody
-     * was anywhere near. Waking puts it back in the very next one.
+     * The world's motion now, for sending. With [quietEvery] above 0, a craft asleep on the ground
+     * goes in one snapshot in that many ticks; clients turn it with its world meanwhile.
      */
     fun snapshot(
         quietEvery: Long = 0L,
         /**
-         * Craft that go in every snapshot, quiet or not: the ones being flown. A client draws its
-         * own craft, and times the whole frame, by its own craft's last word, and only hearing of
-         * it every couple of seconds while it sat on the pad, the frame's clock stuck and jumped.
+         * Craft that go in every snapshot, quiet or not: the ones being flown. A client times its
+         * whole frame by its own craft's last word.
          */
         always: Set<Long> = emptySet(),
     ): Snapshot = Snapshot(
@@ -4995,14 +4653,12 @@ class World(
         return vessel.crew.firstOrNull()?.firstOrNull()?.let { crew[it] }
     }
 
-    /**
-     * Tells each sea where the founded bases on it are, so the currents leave the water round them
-     * calm. Bases don't move, so now and then is plenty. It goes by the anchored craft this world
-     * holds, which on a client's replica are the bases near the craft being flown, so the replica's
-     * water agrees with the server's where it matters.
-     */
     private var calmCheckedAt = -1L
 
+    /**
+     * Tells each sea where its founded bases are, so the water round them stays calm. A replica has
+     * the bases near the flown craft, so it agrees with the server where it matters.
+     */
     private fun calmBases() {
         val direction = Vec3()
         val byBody = HashMap<String, MutableList<Pair<Vec3, Double>>>()
@@ -5022,17 +4678,13 @@ class World(
         }
     }
 
-    /**
-     * Pins [vessel] where it is now, because the server says it's founded. This is for a client's
-     * replica, which takes the server's word instead of asking whether it could be.
-     */
+    /** Pins [vessel] where it is now because the server says it's founded. For replicas. */
     fun pin(vessel: Vessel) {
         if (vessel.anchored) return
         val attractor = attractorFor(vessel)
         attractor.rotationAt(time, anchorRotation)
         vessel.anchor(anchorRotation)
-        // A base afloat rides the same sea here as on the server, since the sea is worked out the
-        // same everywhere.
+        // A base afloat rides the same sea as on the server's.
         if (floatsOnSea(vessel, attractor)) settleAfloat(vessel, attractor)
     }
 
@@ -5045,14 +4697,11 @@ class World(
     // --- persistence ---------------------------------------------------------
 
     /**
-     * Captures the whole world for saving.
-     *
-     * It takes a copy of everything it touches. An autosave runs on the same thread as the tick in
-     * this design, but the moment it doesn't, handing out live vectors would let a save see a craft
-     * halfway through a step.
+     * Captures the whole world for saving. It copies everything, so a save off the tick's thread
+     * can't see a craft halfway through a step.
      */
     fun save(): WorldSave {
-        // Bases' and parked craft's power brought up to now, so what gets saved is what they have.
+        // Bring bases' and parked craft's power up to now first.
         for (vessel in vesselsById.values) if (vessel.anchored || (vessel.dormant && !isDebris(vessel))) settlePower(vessel)
         return saveNow()
     }
@@ -5132,22 +4781,19 @@ class World(
     /**
      * Replaces this world's contents with a saved one.
      *
-     * @return the problems found. A craft that refers to parts this build doesn't have any more
-     *     gets skipped and reported instead of quietly dropped. An operator who changed the
-     *     catalogue needs to know which craft they lost.
+     * @return the problems found. A craft using parts this build doesn't have is skipped and
+     *     reported, not quietly dropped.
      */
     fun restore(save: WorldSave): List<String> {
         val problems = ArrayList<String>()
-        // Its bases tell the seas where to stay calm on the next tick.
+        // Recheck calm water round bases next tick.
         calmCheckedAt = -1L
-        // Founded bases, pinned again once everything is in place, after any setting down on
-        // changed ground.
+        // Founded bases, pinned again once everything's in place and reseated.
         val founded = ArrayList<Vessel>()
         val foundedAfloat = HashSet<VesselId>()
         val terrainChanged = save.terrainGeneration != TerrainField.GENERATION
         felledScatter.clear()
-        // Scatter ids name places on one generation's ground. On another they'd knock down some
-        // unrelated tree, so new terrain grows back whole.
+        // Scatter ids belong to one terrain generation, so new terrain grows back whole.
         if (!terrainChanged) felledScatter.addAll(save.felledScatter)
         surveyed.clear()
         surveyed.addAll(save.surveyed.filter { it in system.bodies })
@@ -5182,9 +4828,7 @@ class World(
                     "${WorldSave.FORMAT_VERSION}"
             )
         }
-        // A different catalogue is expected, not alarming, because parts get tuned between every
-        // build. What matters is whether each craft can still be put together, which gets settled
-        // per craft below.
+        // A changed catalogue is normal; each craft is checked below.
         val catalogueChanged = save.catalogHash != catalog.contentHash
 
         vesselsById.clear()
@@ -5227,11 +4871,8 @@ class World(
                 vessel.owner = saved.owner
                 vessel.ownerName = saved.ownerName
             } else {
-                // Format 1 stored a display name where the id now goes. There's no way to work out
-                // which install that was, and guessing would hand someone else's base to whoever
-                // types the same name. The craft keeps its label and becomes unowned, which is the
-                // honest outcome. It's still there, still yours to fly, and claimable instead of
-                // locked to a name.
+                // Format 1 stored a display name where the id now goes. Guessing the owner could
+                // hand a base to anyone with that name, so it keeps the label and becomes unowned.
                 vessel.owner = ""
                 vessel.ownerName = saved.owner
                 if (saved.owner.isNotBlank()) {
@@ -5284,15 +4925,14 @@ class World(
             if (saved.anchored && saved.afloat) foundedAfloat.add(vessel.id)
 
             vesselsById[vessel.id] = vessel
-            // Everyone connected needs to be told these exist.
+            // Tell everyone connected.
             pendingEvents.add(WorldEvent.VesselSpawned(vessel.id))
 
-            // A save written by an older build could have an id at or past the counter, and handing
-            // it out again would collide.
+            // An older save can have ids at or past the counter.
             if (saved.id >= nextVesselId) nextVesselId = saved.id + 1
         }
 
-        // From before there were crew, so fill everyone's seats and nothing is an empty pod.
+        // From before there were crew: fill everyone's seats.
         if (!save.crewSeated) for (vessel in vesselsById.values) seatCrew(vessel)
 
         if (terrainChanged) {
@@ -5310,7 +4950,7 @@ class World(
             if (vessel.id in foundedAfloat) settleAfloat(vessel, attractorFor(vessel))
         }
 
-        // Only worth saying once, and only when something actually suffered.
+        // Said once, and only if something suffered.
         if (catalogueChanged && problems.isNotEmpty()) {
             problems.add(
                 0,
@@ -5321,12 +4961,7 @@ class World(
         return problems
     }
 
-    /**
-     * Spawns the craft a [Command.SpawnCraft] asks for, on a free pad.
-     *
-     * It returns the vessel, because whoever asked for it almost certainly wants to fly it, which
-     * is the difference between launching a module and just adding one to the scenery.
-     */
+    /** Spawns the craft a [Command.SpawnCraft] asks for on a free pad, and returns it to be flown. */
     fun spawnFor(command: Command.SpawnCraft, owner: String): Vessel {
         if (command.siteId.startsWith(LaunchSite.BASE_SITE_PREFIX)) {
             val (base, pad) = command.siteId.removePrefix(LaunchSite.BASE_SITE_PREFIX).split(":").let {
@@ -5343,12 +4978,8 @@ class World(
     }
 
     /**
-     * Puts a craft on the nearest clear pad at [site]. That's the site itself if nothing's standing
-     * there, otherwise the next pad out, alternating either side, forty metres apart.
-     *
-     * Clear means clear of the whole craft, not just its centre. A pad counts as taken while any
-     * craft is closer than the two craft's radii plus a margin, so a wide aeroplane doesn't get a
-     * rocket put through its wing.
+     * Puts a craft on the nearest clear pad at [site]: the site itself if free, else the next out,
+     * alternating sides. A pad is taken while any craft is closer than both radii plus a margin.
      */
     fun spawnAtSite(design: CraftDesign, site: LaunchSite, legsOut: Boolean = false): Vessel =
         spawnOnSurface(design, site, pad = nextFreePad(site, radiusOf(design)), legsOut = legsOut)
@@ -5365,13 +4996,7 @@ class World(
         return probe.contactRadius
     }
 
-    /**
-     * The first pad at [site] with nothing standing on it.
-     *
-     * A persistent world builds up craft at the launch complex, and dropping a new one onto a pad
-     * that's already taken would spawn it inside somebody's base, which now that craft are solid is
-     * an explosion instead of a curiosity.
-     */
+    /** The first pad at [site] with nothing standing on it, or the roomiest if all are taken. */
     private fun nextFreePad(site: LaunchSite, radius: Double): Int {
         val spot = Vec3()
         var best = 0
@@ -5388,9 +5013,7 @@ class World(
                 if (other.referenceBodyId != site.bodyId) continue
                 val gap = scratch.setTo(other.body.position).subInPlace(spot).length -
                     other.contactRadius - radius - PAD_MARGIN_METRES
-                // A founded base can be hundreds of metres across with its pads in the middle of
-                // it, so what matters is its buildings, one by one, not the reach of the whole
-                // thing.
+                // A founded base can be hundreds of metres across, so check its parts one by one.
                 val near = if (other.anchored && gap < 0.0) partsGap(other, spot, radius) else gap
                 if (near < clearance) clearance = near
             }
@@ -5422,15 +5045,12 @@ class World(
     /** Finds a craft belonging to [owner], so a returning player gets it back. */
     fun vesselOwnedBy(owner: String): Vessel? =
         if (owner.isBlank()) null
-        // Exact, not case-insensitive. This is an opaque id now, not a name someone typed, so
-        // ignoring case could only ever create a false match.
+        // Exact match: it's an opaque id.
         else vesselsById.values.firstOrNull { it.owner == owner }
 
     /**
-     * Puts a fresh copy of craft [id] back on its launch site (the site its design would launch
-     * from, on the nearest clear pad), fuelled and unstaged, with the same name and owner. The
-     * craft as it was is gone, like a rover stuck in a ravine or a lander on its side. Returns the
-     * new craft, or null if there was no such craft.
+     * Replaces craft [id] with a fresh copy on its design's launch site, fuelled and unstaged, same
+     * name and owner. Returns the new craft, or null if there was none.
      */
     fun resetToSite(id: VesselId): Vessel? {
         val old = vesselsById[id] ?: return null
@@ -5449,8 +5069,7 @@ class World(
 
     fun destroy(id: VesselId, reason: String) {
         val vessel = vesselsById.remove(id) ?: return
-        // Taken away by its owner, or reset: home safe if it's somewhere they could walk away from.
-        // Otherwise, they went with it.
+        // Reset, or removed somewhere they could walk away from: crew go home. Otherwise they're lost.
         val home = reason == RESET_REASON || (reason == REMOVED_REASON && recoverable(vessel))
         for (seat in vessel.crew) for (member in seat) if (home) releaseCrew(member) else loseCrew(member, vessel, reason)
         pendingEvents.add(WorldEvent.VesselDestroyed(id, reason))
@@ -5462,7 +5081,7 @@ class World(
     val crew = LinkedHashMap<Long, com.rm.apogee.core.crew.CrewMember>()
     private var nextCrewId = 1L
 
-    /** Goes up whenever anyone's crew changes (who's where, who was lost), so rosters only get sent when they change. */
+    /** Goes up whenever anyone's crew changes, so rosters are only sent then. */
     var crewRevision = 0L
         private set
 
@@ -5489,8 +5108,8 @@ class World(
     }
 
     /**
-     * Fills [vessel]'s empty seats from its owner's crew at home, recruiting as many more as it
-     * takes. The world's own buildings don't seat anybody.
+     * Fills [vessel]'s empty seats from its owner's crew at home, recruiting as needed. Not the
+     * world's.
      */
     fun seatCrew(vessel: Vessel) {
         if (vessel.owner == WORLD_OWNER) return
@@ -5504,8 +5123,8 @@ class World(
     }
 
     /**
-     * Someone of [owner]'s at home, put into [vessel]. They're recruited if need be (in a career,
-     * only while there's room), or it's -1.
+     * Puts someone of [owner]'s at home into [vessel], recruiting if need be (in a career, if
+     * there's room). -1 if not.
      */
     private fun board(owner: String, vessel: Vessel): Long {
         val member = crew.values.firstOrNull { it.owner == owner && it.status == com.rm.apogee.core.crew.CrewStatus.AVAILABLE }
@@ -5518,10 +5137,7 @@ class World(
         return member.id
     }
 
-    /**
-     * Gives [vessel] to [owner], with its seats filled from their crew instead of whoever it
-     * spawned with.
-     */
+    /** Gives [vessel] to [owner], seated with their crew. */
     fun assignOwner(vessel: Vessel, owner: String) {
         if (vessel.log == null) program?.launched(vessel)
         if (vessel.owner == owner && vessel.crewAboard > 0) return
@@ -5537,9 +5153,8 @@ class World(
     private val scratchSteer = Vec3()
 
     /**
-     * What the place itself does to [vessel]: air heavy enough to crush a part (Caligo's, or a gas
-     * giant's deep down), and the star's own heat close in. Parts give way as they get hurt, and
-     * the craft breaks up the way it would from any blow.
+     * What the place does to [vessel]: crushing air (Caligo's, or deep in a gas giant), the sea, and
+     * the star's heat close in. Hurt parts give way as from any blow.
      */
     private fun hostile(vessel: Vessel, attractor: CelestialBody, dt: Double) {
         val position = vessel.body.position
@@ -5572,22 +5187,18 @@ class World(
     }
 
     /**
-     * The sea's weight on [vessel]'s hollow parts, each at its own depth: the air on the surface
-     * above it plus the water in between. A part past what it's built for gives way, slowly when
-     * it's just over and in seconds at twice its rating. [Vessel.crushShare] is how close the worst
-     * of them is, so the HUD can warn about it. Solid parts only get squeezed, and a closed shell
-     * keeps it off whatever is inside.
+     * The sea's weight on [vessel]'s hollow parts, plus the air on top. Past its rating a part gives
+     * way. [Vessel.crushShare] is the worst, for the HUD. Parts inside a closed shell are spared.
      */
     private fun underSea(vessel: Vessel, attractor: CelestialBody, dt: Double) {
         vessel.crushShare = 0.0
-        // The world's own craft (a wreck on the floor) already went down.
+        // Not the world's own wrecks.
         if (vessel.owner == WORLD_OWNER) return
         val ocean = attractor.ocean ?: return
         if (attractor.altitudeOf(vessel.body.position) > SEA_CHECK_HEIGHT) return
         attractor.rotationAt(time, scratchRotation)
         attractor.toBodyFixed(vessel.body.position, scratchRotation, scratchSea)
-        // From the waves the water pass keeps for it, when they're fresh: working the sea out afresh
-        // here, every step, was an eighth of a boat's.
+        // Reuse the water pass's waves when fresh; resampling the sea here is dear.
         val surface = hydrostatics.keptHeight(vessel, attractor, scratchSea, time).takeIf { !it.isNaN() }
             ?: ocean.surfaceHeight(scratchSea, time)
         val onTop = attractor.atmosphere?.pressureAt(surface) ?: 0.0
@@ -5616,8 +5227,8 @@ class World(
     private val scratchPart = Vec3()
 
     /**
-     * How far [vessel]'s centre is below the sea's surface above it, in metres. It's 0 or less out
-     * of the water, or with no sea.
+     * How far [vessel]'s centre is below the sea's surface, in metres. 0 or less out of it or with
+     * no sea.
      */
     fun depthOf(vessel: Vessel): Double {
         val attractor = attractorFor(vessel)
@@ -5628,21 +5239,18 @@ class World(
     }
 
     /**
-     * [vessel]'s ballast tanks letting the sea in or blowing it out. While holding a depth, the
-     * tanks are worked to hold it: if it's sinking faster than it should toward the depth, a little
-     * gets blown, and if it's rising, a little gets let in. I aim for a gentle climb or sink toward
-     * the depth instead of the depth itself, and leave it alone within a small band, so it doesn't
-     * hunt.
+     * [vessel]'s ballast tanks flooding or blowing. Holding a depth, it aims for a gentle climb or
+     * sink toward it and leaves it alone within a small band, so it doesn't hunt.
      */
     private fun ballast(vessel: Vessel, attractor: CelestialBody, dt: Double) {
         val control = vessel.control
         if (control.ballast == 0 && !control.holdDepth) return
-        // Someone swimming dives and rises by swimming, and holds whatever depth they got to.
+        // A swimmer dives and rises by swimming and holds the depth they reach.
         if (walking.walkerOf(vessel) != null) {
             if (control.ballast != 0) control.holdDepthAt = maxOf(0.0, depthOf(vessel))
             return
         }
-        // Up in the air, the same buttons work the gas cells' ballonets.
+        // In the air, the same buttons work the ballonets.
         if (gasCraft(vessel)) { ballonets(vessel, attractor, dt); return }
         val ocean = attractor.ocean
         var mode = control.ballast
@@ -5666,8 +5274,7 @@ class World(
             val step = tank.rate * ocean.density * dt
             val had = vessel.flooded[i]
             if (mode > 0) {
-                // Only the sea it's in can come in, through vents in its underside. While any of it
-                // is under, it floods.
+                // Floods while any of it is under the sea.
                 attractor.rotationAt(time, scratchRotation)
                 attractor.toBodyFixed(vessel.partPositionWorld(i, scratchPart), scratchRotation, scratchSea)
                 val reach = vessel.defs[i].boundsHalfExtents.let { maxOf(it.x, it.y, it.z) }
@@ -5697,15 +5304,14 @@ class World(
         !vessel.buoyed && vessel.defs.indices.any { vessel.defs[it].module<com.rm.apogee.core.part.LiftGas>() != null && !vessel.isBroken(it) }
 
     /**
-     * Fills [vessel]'s ballonets with air to sink, or lets it out to rise, or holds a height with
-     * them, the way a submarine's tanks hold a depth. Pumping air in takes charge; letting it out
-     * doesn't.
+     * Fills [vessel]'s ballonets to sink, empties them to rise, or holds a height with them like a
+     * sub's tanks hold depth. Pumping in takes charge; letting out doesn't.
      */
     private fun ballonets(vessel: Vessel, attractor: CelestialBody, dt: Double) {
         val control = vessel.control
         var mode = control.ballast
         if (control.holdDepth) {
-            // The fill that gives the lift for the climb it should have, like the keeper core.
+            // The fill that gives the climb it should have, as the keeper core does.
             val below = -attractor.altitudeOf(vessel.body.position) - control.holdDepthAt
             attractor.surfaceVelocityAt(vessel.body.position, scratchSea)
             val climb = scratchSea.subInPlace(vessel.body.linearVelocity).mulInPlace(-1.0) dot vessel.body.position.normalized()
@@ -5746,9 +5352,8 @@ class World(
     }
 
     /**
-     * A craft that crossed [attractor]'s rings since it was last looked at, going through them
-     * instead of along with them, gets torn apart. Rings are gravel on circular orbits, so a craft
-     * on a circular orbit of its own, in their plane, can ride among them.
+     * A craft that crossed [attractor]'s rings since last checked, faster than [RING_SPEED] against
+     * the gravel's circular orbits, is torn apart. One moving with them can ride among them.
      */
     private fun crossRings(vessel: Vessel, attractor: CelestialBody) {
         val rings = attractor.rings
@@ -5760,7 +5365,7 @@ class World(
         scratchRing.setTo(position).addScaledInPlace(attractor.spinAxis, -side)
         val r = scratchRing.length
         if (r < rings.inner || r > rings.outer) return
-        // The gravel here: round the planet at this radius, the way it spins.
+        // The gravel here: circular orbit at this radius, the way the planet spins.
         val speed = kotlin.math.sqrt(attractor.gravitationalParameter / r)
         scratchRing.normalizeInPlace()
         attractor.spinAxis.cross(scratchRing).normalizeInPlace().mulInPlace(speed).let { gravel ->
@@ -5772,15 +5377,11 @@ class World(
 
     private val scratchRing = Vec3()
 
-    /**
-     * The ladder [vessel] is holding, as it's held now. It lets go if the ladder has gone, broken,
-     * or drifted out of reach.
-     */
+    /** The ladder [vessel] is holding, as held now. Lets go if it's gone, broken or out of reach. */
     private fun heldLadder(vessel: Vessel, dt: Double): Walking.LadderHold? {
         val craft = vesselsById[VesselId(vessel.ladderVessel)]
-        // The ladder's craft may have been moved on to the end of this tick already, and the one
-        // holding it is still at the start. Everything on Terra goes round with it at a couple of
-        // hundred metres a second, so a tick apart they were three metres apart, and let go.
+        // The ladder's craft may already be at the end of this tick while the climber is at the
+        // start; at ground speeds that's metres apart.
         val lead = if (craft != null && craft.movedTick == tick) dt else 0.0
         val hold = craft?.takeIf { it.referenceBodyId == vessel.referenceBodyId }?.let { walking.ladderOf(it, vessel.ladderPart, lead) }
         scratchLadderAt.setTo(vessel.body.position).addScaledInPlace(vessel.body.linearVelocity, lead)
@@ -5803,17 +5404,11 @@ class World(
         stages = emptyList(), manualStaging = true, catalogHash = catalog.contentHash,
     )
 
-    /**
-     * Crew member [crewId] climbs out of craft [vesselId] into a suit of their own, a craft of one,
-     * beside it. That's on the ground next to it if it's landed, or beside their part if not, and
-     * moving as it moves. It returns null, and nobody moves, if they aren't aboard or it's going
-     * too fast to step off.
-     */
     /** Why the last EVA asked for didn't happen, when it's worth saying, or empty. */
     var evaRefusal: String = ""
         private set
 
-    /** Crew who came in out of the sea cold, as how cold and when, so they're still cold going straight back out. */
+    /** Crew who came in cold from the sea: how cold and when, so they're still cold going back out. */
     private val chilled = HashMap<Long, Pair<Double, Double>>()
 
     /** How far under the sea's surface [point] is, in metres, or 0 or less out of it. */
@@ -5846,13 +5441,18 @@ class World(
         return (suit.maxPressure - air) / (ocean.density * g)
     }
 
+    /**
+     * Crew member [crewId] climbs out of craft [vesselId] into a suit, a craft of one, beside it:
+     * on the ground if landed, else beside their part, moving with it. Null, and nobody moves, if
+     * they aren't aboard, it's too fast, or outside would kill them.
+     */
     fun eva(vesselId: Long, crewId: Long): Vessel? {
         val craft = vesselsById[VesselId(vesselId)] ?: return null
         val part = craft.crew.indexOfFirst { crewId in it }
         val member = crew[crewId]
         if (part < 0 || member == null) return null
         val attractor = attractorFor(craft)
-        // Nobody steps out into air that would crush or cook them.
+        // Not into air that would crush or cook them.
         attractor.atmosphere?.let { air ->
             val altitude = attractor.altitudeOf(craft.body.position)
             if (air.pressureAt(altitude) > EVA_PRESSURE || air.temperatureAt(altitude) > EVA_HOT) return null
@@ -5861,9 +5461,7 @@ class World(
         attractor.surfaceVelocityAt(craft.body.position, scratchCrew).subInPlace(craft.body.linearVelocity)
         val landed = craft.touchingGround || craft.dormant || craft.anchored
         if (landed && scratchCrew.length > EVA_LANDED_SPEED) return null
-        // A boat asleep on the water isn't on the ground. Stepped out beside it, they were put a
-        // craft's length off, in the sea, as if walking away from it on land. Over the side they
-        // go, beside where they were sitting.
+        // A boat asleep afloat isn't on the ground: they go over the side by their seat.
         val onGround = landed && !(craft.dormant && craft.afloat && !craft.touchingGround)
         // Out from the craft's axis, level.
         val partAt = craft.partPositionWorld(part, Vec3())
@@ -5871,8 +5469,7 @@ class World(
         out.addScaledInPlace(up, -(out dot up))
         if (out.length < 0.1) out.setTo(up.cross(if (kotlin.math.abs(up.y) < 0.9) Vec3.unitY() else Vec3.unitX()))
         out.normalizeInPlace()
-        // Under water, out through the hatch at the depth it's at, not up at the surface, and not at
-        // all deeper than a suit can take.
+        // Underwater, out through the hatch at its depth, but not deeper than a suit can take.
         val under = depthAt(attractor, partAt) > SUIT_HALF_HEIGHT
         if (under && depthAt(attractor, partAt) > suitDeepest(attractor)) {
             evaRefusal = "$TOO_DEEP to go outside: a suit's good to ${suitDeepest(attractor).toInt()} m"
@@ -5888,8 +5485,7 @@ class World(
             partAt.copy().addScaledInPlace(out, reach)
         }
         val velocity = craft.body.velocityAtOffset(position.copy().subInPlace(craft.body.position))
-        // Upright, facing away from the craft they came out of, so walking forward takes them away
-        // from it.
+        // Upright, facing away from the craft.
         val rotation = quatFromTo(Vec3.unitY(), up)
         val facing = rotation.rotate(Walking.FACING, Vec3())
         val turn = quatFromTo(facing.addScaledInPlace(up, -(facing dot up)).normalizeInPlace(), out)
@@ -5898,8 +5494,8 @@ class World(
         program?.launched(suit)
         suit.ownerName = craft.ownerName
         suit.control.rcsEnabled = true
-        // Treading water where they came out, and as cold as they were when they climbed in, less
-        // what they've warmed up since.
+        // Treading water at that depth, and as cold as when they climbed in, less what they've
+        // warmed since.
         if (under) suit.control.holdDepthAt = depthAt(attractor, position)
         chilled.remove(crewId)?.let { (chill, at) -> suit.chill = maxOf(0.0, chill - (time - at) / WARM_ABOARD) }
         evaRefusal = ""
@@ -5912,9 +5508,8 @@ class World(
     }
 
     /**
-     * Someone in suit [suitId] climbs into a free seat of craft [targetId] (or, with -1, the
-     * nearest craft that has one in reach), and the suit is gone. It can be anyone's craft. Aboard
-     * someone else's, they ride along. Null if there's no free seat in reach.
+     * Someone in suit [suitId] climbs into a free seat of craft [targetId] (with -1, the nearest in
+     * reach), anyone's, and the suit is gone. Null if there's no free seat in reach.
      */
     fun boardCraft(suitId: Long, targetId: Long = -1L): Vessel? {
         val suit = vesselsById[VesselId(suitId)] ?: return null
@@ -5935,13 +5530,12 @@ class World(
     }
 
     /**
-     * The nearest free seat to suit [suit] within reach, as a craft and part. Only in [targetId] if
-     * it isn't -1.
+     * The nearest free seat in reach of [suit], as craft and part, only in [targetId] unless it's
+     * -1.
      */
     fun seatInReach(suit: Vessel, targetId: Long = -1L): Pair<Vessel, Int>? {
-        // From the water at the surface there's no climbing straight into a seat. They get out onto
-        // something first, up a ladder or onto a deck low enough to climb onto. Under water, at a
-        // base's or a submarine's hatch, they swim straight in.
+        // At the surface they climb out onto something first. Underwater they swim straight in at a
+        // hatch.
         if (suit.swimming && depthOf(suit) < HATCH_DEPTH) return null
         var best: Pair<Vessel, Int>? = null
         var bestGap = BOARD_REACH
@@ -5949,7 +5543,7 @@ class World(
             if (craft === suit || craft.referenceBodyId != suit.referenceBodyId) continue
             if (targetId >= 0 && craft.id.raw != targetId) continue
             if (walking.walkerOf(craft) != null) continue
-            // Far off, so no part of it is near.
+            // Too far for any part to be near.
             if (craft.body.position.distanceTo(suit.body.position) > craft.contactRadius + BOARD_REACH + SUIT_HALF_HEIGHT) continue
             for (i in craft.defs.indices) {
                 if (craft.isBroken(i)) continue
@@ -5975,10 +5569,7 @@ class World(
         return true
     }
 
-    /**
-     * Where someone out of their craft is in the sea, or null if they aren't in it: on land, on a
-     * deck, or with their middle clear of the water.
-     */
+    /** Where someone on foot is in the sea, or null on land, on a deck, or with their middle clear. */
     private fun waterFor(vessel: Vessel, attractor: CelestialBody): Walking.Water? {
         val ocean = attractor.ocean ?: return null
         if (vessel.standingOn != null) return null
@@ -5986,7 +5577,7 @@ class World(
         attractor.toBodyFixed(vessel.body.position, scratchRotation, scratchSea).normalizeInPlace()
         val floor = attractor.solidRadiusInBodyFrame(scratchSea)
         val surface = attractor.radius + ocean.surfaceHeight(scratchSea, time)
-        // The ground is above the sea here, so it's land, whatever the waves are doing.
+        // Ground above the sea is land, whatever the waves do.
         if (floor >= surface) return null
         val r = vessel.body.position.length
         val depth = surface - r
@@ -5998,7 +5589,7 @@ class World(
         water.aboveFloor = r - SUIT_HALF_HEIGHT - floor
         water.deepest = (vessel.defs[0].maxPressure * DIVE_SHARE - air) / (ocean.density * g)
         water.density = ocean.density
-        // The waves' own motion where they are, turned into world axes.
+        // The waves' motion there, in world axes.
         ocean.sample(scratchSea, time, swimSample, below = maxOf(0.0, depth))
         scratchRotation.rotate(swimSample.velocity, water.flow)
         return water
@@ -6008,9 +5599,8 @@ class World(
     private val swimSample = com.rm.apogee.core.sea.SeaSample()
 
     /**
-     * Someone in the sea getting colder, or out of it warming up again. How long they can last
-     * goes by how cold the water is: a couple of hours in a warm sea, a quarter of an hour at
-     * freezing, and minutes in another world's.
+     * Someone in the sea getting colder, or out of it warming up. How long they last depends on the
+     * water: hours when warm, a quarter hour at freezing, minutes on other worlds.
      */
     private fun cold(vessel: Vessel, attractor: CelestialBody, water: Walking.Water?, dt: Double) {
         if (water != null && water.depth > -SUIT_HALF_HEIGHT * 0.5) {
@@ -6022,11 +5612,8 @@ class World(
     }
 
     /**
-     * Where someone in the water, or near the top of a ladder, could climb out onto: a craft, and
-     * the spot on it they'd stand. It's the top of a part within [CLIMB_REACH] of them toward the
-     * craft, low enough to get up onto, with open air above it: a jet ski's, a runabout's or a
-     * platform's deck from the water, or a ship's from the top of her ladder. A ship's side is a
-     * wall from the water.
+     * Where someone in the water or near a ladder's top could climb out: a craft and the spot to
+     * stand, a part's top within [CLIMB_REACH] and low enough to get onto.
      */
     fun climbSpot(suit: Vessel): Pair<Vessel, Vec3>? {
         if (walking.walkerOf(suit) == null) return null
@@ -6046,8 +5633,7 @@ class World(
             scratchClimbDir.addScaledInPlace(scratchClimbUp, -(scratchClimbDir dot scratchClimbUp))
             if (scratchClimbDir.length < 1e-3) continue
             scratchClimbDir.normalizeInPlace()
-            // The furthest in they can reach, not the first edge. Set down right on the edge of a
-            // jet ski's hull, they slid straight back in.
+            // The furthest in they can reach, not the first edge, or they slide back in.
             var along = 0.0
             var found: Vec3? = null
             var first = Double.NaN
@@ -6069,9 +5655,8 @@ class World(
     }
 
     /**
-     * The top of [craft] along [direction] from the planet's centre, as a distance from it between
-     * [low] and [high], or NaN if there's none there: nothing in that band, or a wall that goes on
-     * up past it.
+     * The top of [craft] along [direction] from the planet's centre, as a radius between [low] and
+     * [high], or NaN for nothing in that band or a wall going up past it.
      */
     private fun topOf(craft: Vessel, direction: Vec3, low: Double, high: Double): Double {
         var h = high
@@ -6083,9 +5668,8 @@ class World(
             for (i in craft.defs.indices) {
                 if (!craft.isBroken(i) && deckProbe.inside(scratchClimbPoint, craft, i)) {
                     solid = true
-                    // Somewhere to stand faces up. Rolled a little in a swell, a ship's side leans
-                    // out over the water, and going down it from the air met her side halfway, which
-                    // is a wall.
+                    // Somewhere to stand faces up. A ship's side rolled in a swell leans out, but
+                    // it's still a wall.
                     upward = (deckProbe.normal dot direction) > CLIMB_FACING
                     break
                 }
@@ -6115,8 +5699,8 @@ class World(
         suit.control.holdDepthAt = 0.0
         suit.swimming = false
         craft.wake()
-        // Onto something as small as a jet ski, there's its seat right there, so they sit in it.
-        // Stood up on one, the next wave rolled them off it again.
+        // Onto something as small as a jet ski, they sit straight in its seat, or a wave rolls them
+        // off.
         if (seatInReach(suit, craft.id.raw) != null) boardCraft(suit.id.raw, craft.id.raw)
         return true
     }
@@ -6159,11 +5743,11 @@ class World(
     }
 
     /**
-     * Someone standing still on the ground plants their flag beside them. It's a craft of its own,
-     * theirs, for good.
+     * Someone standing still on the ground plants their flag ahead of them, a craft of their own
+     * for good.
      */
     private fun plantFlag(suit: Vessel): Vessel? {
-        // On the ground itself. A flag on a deck would be planted in whatever's under the deck.
+        // On the ground itself, not a deck.
         if (walking.walkerOf(suit) == null || !suit.touchingGround || suit.standingOn != null) return null
         val attractor = attractorFor(suit)
         attractor.surfaceVelocityAt(suit.body.position, scratchCrew).subInPlace(suit.body.linearVelocity)
@@ -6187,7 +5771,7 @@ class World(
         )
         flag.owner = suit.owner
         flag.ownerName = suit.ownerName
-        // Planted, so it stays up whoever walks into it.
+        // Planted, so it stays up.
         attractor.rotationAt(time, anchorRotation)
         flag.anchor(anchorRotation)
         return flag
@@ -6214,8 +5798,8 @@ class World(
     }
 
     /**
-     * Makes [vessel] [owner]'s, and the crew aboard theirs too. This is for a craft claimed by the
-     * one player of a solo world, whoever an older save had it under.
+     * Makes [vessel] and its crew [owner]'s. For the one player of a solo world claiming a craft an
+     * older save had under someone else.
      */
     fun claim(vessel: Vessel, owner: String) {
         vessel.owner = owner
@@ -6235,9 +5819,8 @@ class World(
     private val scratchCrew = Vec3()
 
     /**
-     * Squares the roster with where everyone actually sits. Crew in a part that has failed are lost
-     * with it. Crew whose part went with no craft to carry them (torn away and destroyed) are lost.
-     * Crew whose part came away as a craft of its own are aboard that craft now.
+     * Squares the roster with where everyone sits. Crew in a failed part, or whose part went with no
+     * craft, are lost. Crew whose part came away as its own craft are aboard that one now.
      */
     private fun reconcileCrew() {
         val seatedIn = HashMap<Long, Vessel>()
@@ -6279,14 +5862,14 @@ class World(
         /** Up to this the world steps faster. Past it, craft go on rails. */
         const val PHYSICS_WARP = 4.0
 
-        /** How long a craft's air sample is kept, in seconds, and how far it can go meanwhile, in metres. */
+        /**
+         * How long a craft's air sample is kept, in seconds, and how far it can move meanwhile, in
+         * metres.
+         */
         const val AIR_KEEP = 0.05
         const val AIR_MOVE = 20.0
 
-        /**
-         * The auto-burn lights up once it's pointing this close (the cosine of 2 degrees), and
-         * keeps burning within 10.
-         */
+        /** The auto-burn lights within 2 degrees (as cosines) and keeps burning within 10. */
         private val ALIGNED_START = kotlin.math.cos(Math.toRadians(2.0))
         private val ALIGNED_BURNING = kotlin.math.cos(Math.toRadians(10.0))
 
@@ -6294,61 +5877,50 @@ class World(
         private const val AUTO_TAPER = 0.5
         private const val AUTO_LEAST_THROTTLE = 0.02
 
-        /** Auto-land: standing this still on the ground, in m/s, it's down. */
+        /** Auto land: this still on the ground, in m/s, it's down. */
         private const val LANDED_SPEED = 0.5
-        /** Too little engine to land on: thrust under this many times the weight. */
+        /** Too little engine to land: thrust under this many times the weight. */
         private const val LAND_LEAST_TWR = 1.1
         /** Legs go out this near the ground, in metres. */
         private const val LEGS_OUT = 300.0
-        /** Braking is planned on this share of the engine, and the rest is kept in hand. */
+        /** Braking is planned on this share of the engine; the rest is kept in hand. */
         private const val LAND_BRAKE_SHARE = 0.75
         /** Braking starts with this much more height than stopping takes, plus this many metres. */
         private const val LAND_MARGIN = 1.15
         private const val LAND_FLARE = 60.0
         /**
          * The descent I want: this share of the stopping curve, and near the ground a metre a
-         * second more for every [1 / LAND_PACE] metres up.
+         * second more per [1 / LAND_PACE] metres up, down to [LAND_TOUCHDOWN] m/s.
          */
         private const val LAND_CURVE = 0.8
         private const val LAND_PACE = 0.25
         private const val LAND_TOUCHDOWN = 1.0
-        /** How hard a gap in descent rate, and sideways drift, get pushed against, per second. */
+        /** How hard errors in descent rate and sideways drift are pushed against, per second. */
         private const val LAND_GAIN = 1.5
         private const val LAND_SIDE_GAIN = 0.6
-        /** At most this share of the engine goes to taking off sideways drift. */
+        /** At most this share of the engine goes to taking off drift. */
         private const val LAND_SIDE_SHARE = 0.5
-        /**
-         * It brakes hard against its motion until it's moving sideways slower than this, in m/s.
-         */
+        /** It brakes hard against its motion until sideways speed is under this, in m/s. */
         private const val LAND_SIDE_KILLED = 25.0
         /**
-         * While braking hard, the nose stays at least this far up from the horizon (the sine of
-         * about 6 degrees).
+         * Braking hard, the nose stays at least this far above the horizon (sine of about 6
+         * degrees).
          */
         private const val LAND_LEAST_RISE = 0.1
         /** While braking, it leans no further than this off upright, in radians. */
         private val LAND_MOST_LEAN = Math.toRadians(30.0)
-        /**
-         * The engine is only lit when it's pointing this close to where it should (the cosine of 25
-         * degrees).
-         */
+        /** The engine is only lit within 25 degrees of where it should point (as a cosine). */
         private val LAND_ALIGNED = kotlin.math.cos(Math.toRadians(25.0))
 
-        /**
-         * The rails rates, and the height above the air (or [RAILS_CLEARANCE]) each one needs, in
-         * the body's radii.
-         */
+        /** The rails warp rates, matched with [RAILS_HEIGHTS]. */
         private val RAILS_RATES = doubleArrayOf(10.0, 50.0, 100.0, 1_000.0, 10_000.0, 100_000.0, 1_000_000.0)
         /**
-         * The height each rate wants, in the body's radii above its air or ground. The fastest is
-         * only allowed far out between worlds.
+         * The height each rails rate needs, in body radii above the air (or [RAILS_CLEARANCE]). The
+         * fastest is only for far out between worlds.
          */
         private val RAILS_HEIGHTS = doubleArrayOf(0.0, 0.1, 0.2, 0.4, 0.8, 5.0, 20.0)
 
-        /**
-         * Up to this warp, rails slices are [RAILS_STEP] long. Past it they get longer by as much,
-         * so minutes each at a million times.
-         */
+        /** Up to this warp, rails slices are [RAILS_STEP] long; past it they grow in proportion. */
         private const val RAILS_SLICE_WARP = 10_000.0
 
         /** Over an airless body, how far above the ground rails warp can start, in metres. */
@@ -6360,9 +5932,7 @@ class World(
         /** Metres between neighbouring launch pads at a site. */
         private const val PAD_SPACING_METRES = 40.0
 
-        /**
-         * The gap, in metres, kept between a new craft and anything already standing near its pad.
-         */
+        /** The gap, in metres, kept between a new craft and anything near its pad. */
         private const val PAD_MARGIN_METRES = 5.0
 
         /** How many pads to look through before giving up and reusing one. */
@@ -6375,29 +5945,23 @@ class World(
         private const val RESEAT_MAX_HEIGHT = 500.0
 
         /**
-         * Above this closing speed a weld is a collision, not an assembly.
-         *
-         * It's public because the client uses it to decide whether to offer the action at all. A
-         * button that shows up when the server would refuse is worse than no button.
+         * Above this closing speed, in m/s, a weld is a collision. Public so the client can hide
+         * the button.
          */
         const val JOIN_MAX_CLOSING_SPEED = 2.0
 
-        /** Luna's test base: its name, the site it stands by, and which of the site's pads it takes. */
+        /** The site Luna's test base stands by. */
         const val LUNA_TEST_SITE = "luna-mare"
 
         /** How far, in metres, a leg's feet have to reach below the rest to be stood on at launch. */
         private const val LEGS_REACH = 0.05
 
-        /** Who the Cape's own buildings belong to: nobody, and everybody can launch from them. */
+        /** Owner of the world's own buildings and bases. */
         const val WORLD_OWNER = "world"
 
-        /**
-         * Ground speed, in m/s, up to which a wheel steers to its full lock. Above it,
-         * proportionally less.
-         */
+        /** Ground speed, in m/s, up to which a wheel steers to full lock; less in proportion above. */
         const val FULL_LOCK_SPEED = 5.0
 
-        /** What a base's pump moves into a craft. */
         /** What a craft unloads into a base: what it has dug up. */
         private val UNLOAD_TYPES = listOf(
             com.rm.apogee.core.part.ResourceType.ORE,
@@ -6407,32 +5971,29 @@ class World(
         /** The parts that make up someone out of their craft, and a planted flag. */
         const val SUIT_PART = "crew-suit"
         const val FLAG_PART = "flag-pole"
-        /**
-         * Half a suit's height in metres, how far clear of a craft someone steps out, and how near
-         * a seat they have to be to climb in, in metres.
-         */
+        /** Half a suit's height, in metres. */
         const val SUIT_HALF_HEIGHT = 0.9
 
-        /** How deep, in metres, someone's middle has to be to be under water at a hatch, and can board through it. */
+        /** How deep, in metres, someone's middle must be to board through a hatch underwater. */
         const val HATCH_DEPTH = 1.2
 
-        /** How far toward a craft, in metres, someone can reach to climb out onto it, and how high up. */
+        /** How far toward a craft and how high, in metres, someone can reach to climb out onto it. */
         const val CLIMB_REACH = 1.5
         const val CLIMB_HEIGHT = 0.8
 
         /** How nearly straight up, as a cosine, a surface has to face to be climbed out onto. */
         const val CLIMB_FACING = 0.8
 
-        /** The spacing of the spots looked at for somewhere to climb out onto, in metres. */
+        /** The spacing of the spots tried for somewhere to climb out, in metres. */
         const val CLIMB_STEP = 0.25
 
         /** The fastest, in m/s, someone can go into the water and live. */
         const val WATER_ENTRY = 15.0
 
-        /** How near to what their suit can take, as a share, someone will swim down to. */
+        /** How near their suit's limit, as a share, someone will swim down. */
         const val DIVE_SHARE = 0.9
 
-        /** Out of the water, how long it takes to warm right up from as cold as can be, in seconds. */
+        /** Out of the water, seconds to warm right up from as cold as can be. */
         const val WARM_OUT = 1_800.0
 
         /** Aboard, the same. */
@@ -6443,6 +6004,10 @@ class World(
 
         /** Why someone was lost to the sea's cold. */
         const val COLD_REASON = "died of cold in the sea"
+        /**
+         * How far clear of a craft someone steps out, and how near a seat they must be to board, in
+         * metres.
+         */
         const val SUIT_CLEARANCE = 0.7
         const val BOARD_REACH = 0.8
         /** The thickest air (Pa) and the hottest (K) anyone may step out into. */
@@ -6453,24 +6018,20 @@ class World(
         const val EVA_LANDED_SPEED = 5.0
         /** How far from its rungs someone can drift and still be holding a ladder, in metres. */
         const val LADDER_SLIP = 1.5
-        /**
-         * A flag: how still you have to be to plant it, how far ahead it goes, and half its height.
-         */
-        /** The fastest a founded base afloat heaves, in m/s. Anything faster is it being put somewhere. */
+        /** The fastest a founded base afloat heaves, in m/s. Faster is it being moved somewhere. */
         const val RIDE_MOST = 15.0
         /**
-         * How still a craft has to sit on a deck to go to sleep on it: across the deck in m/s, and
-         * turning against it in rad/s. Looser than on the ground, because a deck in a swell never
-         * quite stops under a craft on its springs.
+         * How still a craft must sit on a deck to sleep on it, in m/s, with [RIDE_SPIN] for turning.
+         * Looser than on the ground, since a deck in a swell never quite stops.
          */
         const val RIDE_STILL = 0.3
 
-        /** How far apart, in metres, the points looked at under a craft for a deck are. */
+        /** The spacing, in metres, of the points tried under a craft for a deck. */
         const val DECK_PROBE_STEP = 0.25
 
         /**
-         * How far a craft landing itself looks for a clear spot, in metres: a rotorcraft or an
-         * airship, and a rocket braking on its engines, which can't go far out of its way.
+         * How far, in metres, auto land looks for a clear spot: rotorcraft and airships, and
+         * rockets.
          */
         const val HOVER_SPOT_REACH = 300.0
         const val ROCKET_SPOT_REACH = 120.0
@@ -6478,20 +6039,23 @@ class World(
         /** Room kept round a craft's own reach on the spot it picks, in metres. */
         const val LAND_SPOT_MARGIN = 2.0
 
-        /** Further than this from where it was, in metres, it says it's moved to land somewhere clear. */
+        /** Further than this from where it was, in metres, it says it's landing somewhere clear. */
         const val LAND_SPOT_MOVED = 5.0
 
-        /** Lower than this over the ground, in metres, a rocket comes straight down, easing off the drift to its spot from twice as high. */
+        /**
+         * Below this, in metres, a rocket comes straight down, easing off its drift from twice as
+         * high.
+         */
         const val LAND_SPOT_STRAIGHT = 30.0
 
-        /** How fast a craft drifts toward its landing spot, m/s per metre off it, and the most. */
+        /** Drift toward the landing spot, m/s per metre off it, and the most in m/s. */
         const val LAND_SPOT_GAIN = 0.25
         const val LAND_SPOT_DRIFT = 6.0
 
         /** A plane lands on the runway from no further off than this, in metres from its middle. */
         const val RUNWAY_REACH = 15_000.0
 
-        /** More wind than this along the runway, in m/s, and a plane lands into it whichever side it's on. */
+        /** With more wind than this along the runway, in m/s, a plane lands into it from either side. */
         const val RUNWAY_WIND = 3.0
 
         /** How far out, in metres, a plane joins a runway's line, or a clear strip's. */
@@ -6499,8 +6063,8 @@ class World(
         const val STRIP_FINAL = 2_500.0
 
         /**
-         * A clear strip for a plane: room either side of its reach, in metres, how far it floats
-         * before its wheels touch, and how hard it stops on them, in m/s².
+         * A clear strip: room either side of the plane's reach and how far it floats before touching,
+         * in metres, and how hard it stops, in m/s².
          */
         const val STRIP_MARGIN = 3.0
         const val STRIP_FLOAT = 200.0
@@ -6510,8 +6074,9 @@ class World(
         const val STRIP_TOUCHDOWN = 60.0
 
         /**
-         * Where a plane looks for a strip: from this far ahead, out to how far it can glide, a
-         * metre down for every this many ahead, but no further than this, in steps of this.
+         * Where a plane looks for a strip, in metres: from [STRIP_NEAREST] ahead out to its glide
+         * ([STRIP_GLIDE] ahead per metre of height) but no further than [STRIP_FARTHEST], in steps of
+         * [STRIP_STEP_AHEAD].
          */
         const val STRIP_NEAREST = 1_000.0
         const val STRIP_GLIDE = 8.0
@@ -6523,43 +6088,39 @@ class World(
 
         /** How far under a craft, in metres, another craft's deck counts as what it's coming down on. */
         const val CRAFT_BELOW_REACH = 300.0
+        /** Turning against a deck, in rad/s, still enough to sleep on it. See [RIDE_STILL]. */
         const val RIDE_SPIN = 0.1
+        /** How still, in m/s, you must be to plant a flag. */
         const val FLAG_STILL = 0.5
         /**
-         * Righting a capsized craft: how far off upright it has to lie (radians), the most it can
-         * weigh (kg), how still it has to be against the ground or the sea's drift (m/s), and how
-         * long the roll takes (s). The still is loose, because a wild sea heaves a boat up and down
-         * at a couple of metres a second however still it lies.
+         * Righting a capsized craft: how far off upright it must lie (rad), the most it can weigh
+         * (kg), how still it must be (m/s, loose since a wild sea heaves a boat a couple of m/s), and
+         * how long the roll takes (s).
          */
         const val RIGHT_FROM = 75.0 * kotlin.math.PI / 180.0
         const val RIGHT_MOST_MASS = 2_500.0
         const val RIGHT_STILL = 4.0
         const val RIGHT_TIME = 4.0
+        /** How far ahead a flag is planted, and half its height, in metres. */
         const val FLAG_AHEAD = 1.0
         const val FLAG_HALF_HEIGHT = 1.1
         /** Why a suit went: its wearer climbed aboard something. */
         const val BOARDED_REASON = "boarded"
 
-        /** Air pressure, in Pa, under which nothing gets crushed, so there's nothing to look at. */
+        /** Air pressure, in Pa, under which nothing gets crushed. */
         const val CRUSH_FLOOR = 1e6
         /** Health lost per second for each whole limit over its pressure rating. */
         const val CRUSH_RATE = 0.002
 
-        /**
-         * The same under water, where a hull gives way far quicker than a lander in heavy air. A
-         * tenth over and it has minutes. At twice what it's built for, it has seconds.
-         */
+        /** The same underwater, far quicker: minutes a tenth over, seconds at twice. */
         const val WATER_CRUSH_RATE = 0.05
 
-        /**
-         * Above this, in metres over the datum, a craft is clear of any sea, so there's nothing to
-         * weigh.
-         */
+        /** Above this, in metres over the datum, a craft is clear of any sea. */
         const val SEA_CHECK_HEIGHT = 50.0
 
         /**
-         * Holding a depth: the climb I want, in m/s, for each metre off it, and the most of it.
-         * Also the band left alone, in m/s.
+         * Holding a depth: the climb wanted per metre off it, the most, and the band left alone, in
+         * m/s.
          */
         const val HOLD_DEPTH_GAIN = 0.15
         const val HOLD_DEPTH_SPEED = 0.8
@@ -6572,14 +6133,11 @@ class World(
         /** Gas lift this close to its weight, as a share, counts as floating in balance. */
         const val BALANCED = 0.03
 
-        /**
-         * Slower than this over the ground, in m/s, a floating platform can be founded aloft, and
-         * drifting slower than the other across the sea, afloat, where the waves sway it.
-         */
+        /** In m/s: how slow over the ground to found aloft, and how slow a drift to found afloat. */
         const val FLOAT_FOUND_SPEED = 1.0
         const val FLOAT_FOUND_DRIFT = 3.0
 
-        /** How near its held spot, in metres, a craft held by its keeper has to be to sleep there. */
+        /** How near its held spot, in metres, a keeper-held craft must be to sleep. */
         const val KEEP_SETTLED = 4.0
 
         /** Turning slower than this against the planet, in rad/s, it's still enough to sleep aloft. */
@@ -6589,17 +6147,14 @@ class World(
         const val BALLAST_MASS_EVERY = 6
 
         /**
-         * Parked no deeper than this, in metres, nothing hollow gets near what it can stand, so it
-         * isn't worth weighing.
+         * Parked shallower than this, in metres, nothing hollow is near its limit, so it isn't
+         * checked.
          */
         const val WATER_PARKED_SAFE = 150.0
 
         /** Ticks between telling the seas where the founded bases are. */
         const val CALM_BASES_EVERY = 60L
-        /**
-         * The star: within this many of its radii its heat starts to tell, harder the closer you
-         * get.
-         */
+        /** The star burns craft within this many of its radii, harder the closer. */
         const val SOL_REACH = 2.0
         const val SOL_BURN = 0.05
         /** Faster than this through a ring's gravel, in m/s, a craft gets torn apart. */
@@ -6607,13 +6162,10 @@ class World(
 
         /** Ticks between squaring the crew roster with the seats. */
         const val CREW_CHECK_TICKS = 15L
-        /** Why a craft taken away by its owner, or reset to its site, went. Its crew go home. */
+        /** Why a craft was removed by its owner or reset. Its crew go home. */
         const val REMOVED_REASON = "removed"
         const val RESET_REASON = "reset to its launch site"
-        /**
-         * The slowest a landed or floating craft has to be going, in m/s, for its crew to walk away
-         * from it.
-         */
+        /** How slow, in m/s, a landed or floating craft must be for its crew to walk away. */
         const val RECOVER_SPEED = 1.0
 
         /** How high above its body a scanner can read the ground below, in metres. */
@@ -6622,27 +6174,25 @@ class World(
         /** Units per second that two craft docked in flight move between them, with no pump. */
         const val DOCKED_TRANSFER = 20.0
 
-        /** How far an orbit's plane must be tipped from the equator to survey from: the cosine of 60 degrees. */
+        /** How far an orbit must be tipped from the equator to survey from: cosine of 60 degrees. */
         const val SURVEY_TILT = 0.5
 
+        /** What a base's pump moves into a craft. */
         private val REFUEL_TYPES = listOf(
             com.rm.apogee.core.part.ResourceType.PROPELLANT,
             com.rm.apogee.core.part.ResourceType.MONOPROPELLANT,
             com.rm.apogee.core.part.ResourceType.ELECTRIC_CHARGE,
         )
 
-        /**
-         * How far above a pad deck's top a craft's lowest point can be and still be standing on it,
-         * in metres.
-         */
+        /** How far above a pad's top, in metres, a craft's lowest point can be and still stand on it. */
         const val PAD_SERVICE_HEIGHT = 0.8
 
         /** How often the Cape's buildings get looked at for repair, in ticks. */
         const val REPAIR_CHECK_TICKS = 60L
 
         /**
-         * Nothing awake can be within this many metres of a complex for [REPAIR_QUIET] seconds for
-         * it to be rebuilt.
+         * A complex is rebuilt once nothing awake has been within this many metres for
+         * [REPAIR_QUIET] s.
          */
         const val REPAIR_REACH = 2_000.0
         const val REPAIR_QUIET = 60.0
@@ -6651,8 +6201,8 @@ class World(
         const val POWER_CHECK_TICKS = 60L
 
         /**
-         * A base's power ledger is worked out in steps of this many seconds, or coarser, up to
-         * [POWER_MAX_STEPS] of them.
+         * A base's power ledger steps this many seconds, or coarser, at most [POWER_MAX_STEPS]
+         * steps.
          */
         const val POWER_STEP = 60.0
         const val POWER_MAX_STEPS = 20_000
@@ -6663,13 +6213,10 @@ class World(
         /** Lamps come on when the sun is lower than this, as the sine of its elevation: dusk. */
         const val LAMP_DUSK = 0.05
 
-        /** ...and under the sea deeper than this, in metres, where the daylight has gone. */
+        /** Lamps are also on deeper than this under the sea, in metres. */
         const val LAMP_DEPTH = 60.0
 
-        /**
-         * Shallower than this, in metres, a craft isn't checked for the sea's named places, because
-         * it's at the surface.
-         */
+        /** Shallower than this, in metres, a craft isn't checked for the sea's named places. */
         const val WONDER_LOOK_DEPTH = 5.0
 
         /** Charge units short of full that count as topped up at a pad. */
@@ -6687,10 +6234,9 @@ class World(
         const val GROUND_HOOK_DISTANCE = 15.0
 
         /**
-         * A winch line: the slack left on hooking, in metres, the shortest it winds in to, the share
-         * of a stretch taken up per tick, how much harder than its pull a yank has to be to snap it,
-         * and how fast the two have to be flying apart for that, in m/s. And how much it lets out at
-         * a time when the drum slips.
+         * A winch line: slack on hooking and shortest length (m), share of a stretch taken up per
+         * tick, how many times its pull snaps it and how fast apart that needs (m/s), and how much
+         * it lets out when the drum slips (m).
          */
         const val LINE_SLACK = 0.3
         const val LINE_SHORTEST = 1.0
@@ -6708,10 +6254,7 @@ class World(
         /** How far clear of the truck a release clamp sets its load down, in metres. */
         const val SET_DOWN_CLEARANCE = 0.3
 
-        /**
-         * How near the ground a foundation's lowest foot has to be for the craft to be founded, in
-         * metres.
-         */
+        /** How near the ground, in metres, a foundation's lowest foot must be to found the craft. */
         const val FOOT_ON_GROUND = 0.3
 
         /** The fastest a craft can be going over the ground and still be founded, in m/s. */
@@ -6736,10 +6279,8 @@ class World(
         private const val SHOCK_SHARE = 0.2
 
         /**
-         * Energy a part soaks up being crushed, in J, per kg of its dry mass per (m/s of crash
-         * tolerance) squared. A half-tonne tank with tolerance 6 takes 2.7 MJ, and the Ember's 1.5
-         * t bell 11 MJ. That's enough to stop the Starter I from 40 m/s tail first, but not from
-         * 60.
+         * Energy a part soaks up being crushed, in J per kg of dry mass per (m/s of tolerance)
+         * squared. Enough for the Starter I to survive 40 m/s tail first but not 60.
          */
         private const val CRUSH_ENERGY = 150.0
 
@@ -6755,15 +6296,14 @@ class World(
         /** Blast radius, in metres, per square root of kg of propellant. 1 t is about 24 m. */
         private const val BLAST_RADIUS_PER_KG = 0.75
         /**
-         * Damage at the heart of a blast, to a part with [BLAST_TOUGHNESS] crash tolerance. Tougher
-         * parts take less, and flimsier ones more, by the square of it, so a pod rides out the
-         * blast that takes the tank beside it.
+         * Damage at a blast's heart to a part with [BLAST_TOUGHNESS] tolerance. It scales by the
+         * square of tolerance, so a pod rides out the blast that takes the tank beside it.
          */
         private const val BLAST_DAMAGE = 1.2
         private const val BLAST_TOUGHNESS = 8.0
         /** N*s of push per kg of propellant, at the centre. */
         private const val BLAST_IMPULSE_PER_KG = 6.0
-        /** The most a blast can change a craft's speed, in m/s. It throws fins, not bullets. */
+        /** The most a blast can change a craft's speed, in m/s. */
         private const val BLAST_MAX_KICK = 25.0
 
         /** Lightning gets looked for once a second. */
@@ -6776,10 +6316,8 @@ class World(
         private const val LIGHTNING_CEILING = 3_000.0
 
         /**
-         * The furthest a contact point can sweep in one substep, in metres.
-         *
-         * It's smaller than the smallest thing that has to be noticed, which is a landing leg
-         * sticking out below the engine it protects.
+         * The furthest a contact point can sweep in one substep, in metres: less than a leg sticks
+         * out below its engine.
          */
         private const val MAX_SUBSTEP_DISTANCE = 0.15
 
@@ -6790,46 +6328,35 @@ class World(
         private const val SUBSTEP_CEILING_METRES = 200.0
 
         /**
-         * Metres above the ground *directly beneath* to stop subdividing.
-         *
-         * It's wider than the contact resolver's own margin, because a craft this close is about to
-         * need the fine steps, and the test runs a tick before they matter.
+         * Metres above the ground directly beneath to stop subdividing. Wider than the contact
+         * margin, since the test runs a tick before the fine steps matter.
          */
         private const val SUBSTEP_PROXIMITY_MARGIN = 120.0
 
         /**
-         * How long it has to stay that still first.
-         *
-         * Two seconds. This is hysteresis, so a lander rocking on its gear settles once instead of
-         * flickering in and out of dormancy. It's also long enough that a craft still creeping down
-         * a slope doesn't get caught halfway and frozen there.
+         * Ticks a craft must stay still before it sleeps: two seconds, so a rocking lander settles
+         * once and a craft creeping down a slope isn't frozen halfway.
          */
         private const val SLEEP_SETTLE_TICKS = 120
 
         /**
-         * Metres per second, of the hull or of its ends turning, below which a floating craft
-         * counts as moored. It's above the few millimetres a second the heave damping leaves behind
-         * after settling, and well below any drift anyone could see.
+         * Speed in m/s, of the hull or its turning ends, below which a floating craft is moored:
+         * above the heave damping's leftover millimetres a second, below any visible drift.
          */
         private const val FLOATING_REST_SPEED = 0.02
 
-        /**
-         * Significant wave height, in metres, above which the sea is a seaway and floating craft
-         * heave with it.
-         */
+        /** Significant wave height, in metres, above which floating craft heave with the sea. */
         private const val SEAWAY_HS = 0.3
 
         /**
-         * How rough a sea a craft can sleep through past [ROUGH_SEA], in metres of significant
-         * height per metre of its contact radius. A Trawler gets a little more than that, and in a
-         * storm's sea, none.
+         * How rough a sea a craft can sleep through past [ROUGH_SEA], in metres of significant height
+         * per metre of contact radius.
          */
         private const val ROUGH_PER_METRE = 0.4
 
         /**
-         * Significant wave height, in metres, that any boat can sleep through: an ordinary day's
-         * sea off an open coast. Below it, boats moored at a harbour cost nothing, as a base's
-         * should. Above it is weather.
+         * Significant wave height, in metres, any boat can sleep through: an ordinary day off a
+         * coast.
          */
         private const val ROUGH_SEA = 3.0
 
@@ -6844,21 +6371,15 @@ class World(
                 latitude = SolarSystem.PAD_LATITUDE,
                 longitude = SolarSystem.PAD_LONGITUDE,
             ),
-            // The airfield: at the runway's west end, facing down it to the east toward the bay,
-            // with the next one along it forty metres on.
+            // The airfield: the runway's west end, facing east toward the bay.
             capeSite("airfield", "Cape Airfield", 340.0, -400.0),
-            // The harbour's berth, off its jetty in the broad bay beside the Cape. It's dredged
-            // deep, and open to the sea only up a winding inlet.
+            // The harbour's berth, off its jetty in the bay beside the Cape.
             capeSite("harbour", "Cape Harbour", 2_700.0, 330.0),
-            // For testing, like the worlds' sites: out over the deep, a long way for a submarine
-            // from the harbour. One is just west of the Great Arch on the shelf's edge, facing it.
-            // The other is upstream of the Chimneys on Farrow's flank, where the planet's turn
-            // carries it onto them as it goes down.
+            // For testing, over the deep: just west of the Great Arch, and upstream of the Chimneys
+            // so the planet's turn carries a sub onto them as it sinks.
             capeSite("arch-sea", "Great Arch (test)", -2_635.0, 7_100.0),
             capeSite("chimneys-sea", "The Chimneys (test)", com.rm.apogee.core.terrain.Seabed.CHIMNEYS_EAST - 130.0, com.rm.apogee.core.terrain.Seabed.CHIMNEYS_NORTH),
-            // Out on the open ocean where Terra's seas run biggest, day in, day out: four metres on
-            // an ordinary day, and past ten in a storm. Found by sampling the sea over the whole
-            // planet for five days and keeping the roughest place.
+            // Where Terra's seas run biggest: four metres on an ordinary day, past ten in a storm.
             LaunchSite(
                 id = "roaring-sea",
                 displayName = "The Roaring Sea",
@@ -6866,9 +6387,8 @@ class World(
                 latitude = Math.toRadians(-17.2),
                 longitude = Math.toRadians(-138.3),
             ),
-            // For testing: straight onto the Moon without flying there. It's on the mare north-east
-            // of Luna's prime meridian, a kilometre and a half below the datum, where the ground
-            // under the whole row of pads slopes less than one in a hundred.
+            // For testing: on Luna's mare, where the ground under all the pads slopes under one in a
+            // hundred.
             LaunchSite(
                 id = "luna-mare",
                 displayName = "Luna Mare (test)",
@@ -6904,16 +6424,15 @@ class World(
         }
 
         /**
-         * Where a design should be launched from: the sea for anything built around a hull, and the
-         * pad for everything else. A chooser is the right answer once there are more than two. With
-         * two, the design already says which it wants.
+         * Where a design launches from: the harbour for hulls, the airfield for planes, else the
+         * pad.
          */
         fun launchSiteFor(design: CraftDesign, catalog: PartCatalog): LaunchSite {
-            // A hull, or ballast tanks, means a boat or a submarine, so the harbour.
+            // A hull or ballast tanks: a boat or sub.
             val floats = design.parts.any {
                 catalog[it.partId]?.let { p -> p.hasModule<com.rm.apogee.core.part.Buoyancy>() || p.hasModule<com.rm.apogee.core.part.Ballast>() } == true
             }
-            // Built lying down, with wings, means a plane, so the runway.
+            // Built lying down with wings: a plane.
             val flies = design.orientation == com.rm.apogee.core.craft.CraftOrientation.HORIZONTAL && design.parts.any {
                 catalog[it.partId]?.hasModule<com.rm.apogee.core.part.AeroSurface>() == true
             }

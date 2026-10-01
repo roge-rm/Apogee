@@ -29,8 +29,7 @@ class RotorTest {
         }
         assertTrue("tipped to $worstTilt degrees", worstTilt < 6.0)
         assertTrue("spun at $worstSpin rad/s", worstSpin < 0.1)
-        // Stability assist holds its attitude, not its height, so near the hover it only drifts
-        // gently up or down.
+        // SAS holds attitude, not height, so near the hover it only drifts gently.
         assertTrue("climbing at up to $worstClimb m/s", worstClimb < 3.0)
     }
 
@@ -45,8 +44,7 @@ class RotorTest {
             repeat(120) { world.step(1.0 / 60.0) }
             val start = where()
             repeat(1200) { world.step(1.0 / 60.0) }
-            // On its skids, not balanced on their back edge: with the tail boom behind the skids'
-            // middle, it rocked over the edge and walked across the airfield.
+            // Flat on its skids, not rocked onto their back edge by the tail boom.
             assertTrue("it slid ${where().distanceTo(start)} m in $weather", where().distanceTo(start) < 0.1)
             assertTrue("never settled in $weather", heli.dormant)
         }
@@ -76,7 +74,7 @@ class RotorTest {
             worstTilt = maxOf(worstTilt, Aloft.tilt(heli))
             worstSpin = maxOf(worstSpin, heli.body.angularVelocity.length)
         }
-        // It used to pitch right over within two seconds of lifting off.
+        // It mustn't pitch over just after lifting off.
         assertTrue("only rose ${Aloft.altitude(world, heli) - start} m", Aloft.altitude(world, heli) - start > 20.0)
         assertTrue("tipped to $worstTilt degrees", worstTilt < 20.0)
         assertTrue("turning at $worstSpin rad/s", worstSpin < 0.3)

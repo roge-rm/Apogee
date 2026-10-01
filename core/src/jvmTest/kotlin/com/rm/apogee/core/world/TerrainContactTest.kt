@@ -12,11 +12,7 @@ import com.rm.apogee.core.terrain.TerrainTileCache
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * The collider against ground built to order: a wall exactly where the test wants one, and ice
- * exactly where it wants ice. The generated planet puts these wherever its noise does, which is no
- * use for checking what happens at them.
- */
+/** The collider against made-to-order ground: a wall or ice exactly where the test wants it. */
 class TerrainContactTest {
 
     private val catalog = StockParts.catalog
@@ -52,14 +48,10 @@ class TerrainContactTest {
 
     private fun speed(v: Vessel) = v.body.linearVelocity.length
 
-    /**
-     * A rover driven at a wall. With the collider pushing along the radial direction, a wall is a
-     * floor that happens to be high, and the rover got lifted up it. With the face's own normal it
-     * gets stopped.
-     */
+    /** A rover driven at a wall. The collider pushes along the face's normal, so it stops. */
     @Test
     fun `a cliff stops a rover instead of lifting it`() {
-        // A fifteen-metre wall all the way round, twenty-five metres out.
+        // A 15 m wall all the way round, 25 m out.
         val (world, site) = worldOn(Synthetic({ d ->
             val m = fromSite(d)
             when {
@@ -114,13 +106,7 @@ class TerrainContactTest {
         return speed(rover)
     }
 
-    /**
-     * The stock rover carrying a full four-metre tank's weight: about twice as heavy, with the tank
-     * lying along its deck behind the cab. On the low, wide Trundler that sits well enough. Under
-     * the old tall one, it had to go between the wheels, and anything standing there hung below
-     * them, so you got a tank lying in the grass with its wheels in the air, as stuck on firm
-     * ground as in mud.
-     */
+    /** The stock rover with a full four-metre tank on its deck: about twice as heavy. */
     private fun heavyRover(): com.rm.apogee.core.craft.CraftDesign {
         val light = StockCraft.rover(catalog)
         return light.copy(
@@ -136,10 +122,7 @@ class TerrainContactTest {
         assertTrue("grass $grass m/s, sand $sand m/s", sand < grass * 0.9)
     }
 
-    /**
-     * Sinkage grows with load, so the same mud a light rover gets through, a heavy one bogs down
-     * in.
-     */
+    /** Sinkage grows with load, so a heavy rover bogs in mud a light one gets through. */
     @Test
     fun `a heavy rover bogs in mud where a light one gets through`() {
         val light = driveOn(SurfaceMaterial.MUD, StockCraft.rover(catalog))
@@ -150,11 +133,7 @@ class TerrainContactTest {
         assertTrue("heavy rover no slower in mud ($heavy) than on grass ($heavyOnGrass)", heavy < heavyOnGrass * 0.6)
     }
 
-    /**
-     * A tank lying on its side and rolling comes to rest. Sliding friction does nothing to a
-     * rolling body, and before rolling resistance a toppled tug rolled a kilometre across a flat
-     * pad.
-     */
+    /** A tank rolling on its side comes to rest, through rolling resistance. */
     @Test
     fun `a rolling hull comes to rest`() {
         val (world, site) = worldOn(Synthetic({ 0.0 }))
@@ -166,7 +145,7 @@ class TerrainContactTest {
         )
         val log = world.spawnOnSurface(design, site)
         repeat(60) { world.step(dt) }
-        // Spin it about its own long axis, rolling at a metre and a quarter a second.
+        // Spin it about its long axis, rolling at 1.25 m/s.
         log.body.angularVelocity.setTo(log.forward()).mulInPlace(2.0)
         val start = log.body.position.copy()
         repeat((15.0 / dt).toInt()) { world.step(dt) }
@@ -176,8 +155,8 @@ class TerrainContactTest {
     }
 
     /**
-     * A lander with no gear dropped at [speed] onto [material]: how much of it was damaged, as
-     * health lost summed over its parts, and a whole part for each part lost.
+     * Damage to a gearless lander dropped at [speed] onto [material]: health lost summed over its
+     * parts, plus one for each part lost.
      */
     private fun damageFromDrop(material: SurfaceMaterial, speed: Double): Double {
         val (world, site) = worldOn(Synthetic({ 0.0 }, material))
@@ -195,8 +174,7 @@ class TerrainContactTest {
     fun `snow cushions a hard landing that rock doesn't`() {
         val rock = damageFromDrop(SurfaceMaterial.ROCK, 10.0)
         val snow = damageFromDrop(SurfaceMaterial.SNOW, 10.0)
-        // The engine bell takes the blow and crumples, so this is the damage a crumple zone lets
-        // through, not a write-off.
+        // The engine bell crumples and takes the blow, so the craft survives damaged.
         assertTrue("ten metres a second onto rock did only $rock damage", rock > 0.1)
         assertTrue("snow ($snow) should cushion what rock ($rock) does not", snow < rock * 0.5)
     }

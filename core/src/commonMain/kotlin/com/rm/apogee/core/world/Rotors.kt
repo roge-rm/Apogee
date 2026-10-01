@@ -11,24 +11,18 @@ import kotlin.math.tan
 import com.rm.apogee.core.math.Math
 
 /**
- * Rotors: lift from each one along its axis, steered the way its craft is built to be steered.
+ * Rotors: lift from each one along its axis.
  *
- * The throttle is the collective. Several rotors on a craft (a drone, a platform) are mixed: each
- * one's collective is nudged up or down by how much it would help the turn the stick or stability
- * assist is asking for, worked out from where it sits and which way it turns. So a quad tips toward
- * the stick, and turns by speeding up the rotors spinning one way against the others. A rotor with
- * cyclic (a helicopter's main rotor) tilts its lift instead, and a tail rotor pushes sideways just
- * hard enough to cancel the main rotor's twist, plus whatever turn is asked for.
+ * The throttle is the collective. Several rotors (a drone, a platform) are mixed: each one's
+ * collective is nudged by how much it helps the turn asked for, from where it sits and which way
+ * it spins. A rotor with cyclic (a helicopter's main rotor) tilts its lift instead, and a tail
+ * rotor cancels the main rotor's twist plus whatever yaw is asked for.
  *
- * Lift goes with the air, as the square root of its density, since the engine turning a rotor has
- * only so much power: none in vacuum, a sixth in Rubra's thin air, twice as much on Aurantia. It
- * gains a little in forward flight and close over the ground, and loses some climbing fast through
- * its own downwash.
+ * Lift goes as the square root of air density (the engine's power is limited), gains a little in
+ * forward flight and near the ground, and loses some climbing through its own downwash.
  *
- * Each rotor has a speed ([Vessel.spool]) that spools toward what's asked of it over a moment, a
- * blink for a drone's and a second and a half for a helicopter's, and it lifts with the square of
- * that speed. So the blades, drawn at that speed, show what it's lifting. A tail rotor is geared
- * to the main rotor, turning as fast as it does, and loses its grip as the main rotor slows.
+ * Each rotor's speed ([Vessel.spool]) eases toward what's asked, and lift goes with its square. A
+ * tail rotor is geared to the main rotor's speed.
  */
 class Rotors {
     private val command = Vec3()
@@ -44,13 +38,13 @@ class Rotors {
     private val scratch = Vec3()
     private val middle = Vec3()
 
-    /** The rotors on the craft last worked out, by part, and each one's steering use per newton. */
+    /** The mixed rotors by part, and each one's steering effect per newton. */
     private var indices = IntArray(0)
     private var levers = Array(0) { Vec3() }
 
     /**
-     * Turns [vessel]'s rotors for a tick of [dt] at [time], with the planet at [bodyRotation] and the
-     * air already sampled into [Vessel.air].
+     * Turns [vessel]'s rotors for a tick of [dt], with the planet at [bodyRotation] and the air
+     * already sampled into [Vessel.air].
      */
     fun apply(vessel: Vessel, attractor: CelestialBody, bodyRotation: Quat, time: Double, dt: Double) {
         vessel.fitPose()
@@ -164,10 +158,7 @@ class Rotors {
         vessel.engineOutput[i] = vessel.spool[i]
     }
 
-    /**
-     * How fast the craft's main rotors are turning, the fastest of them, which is what a tail
-     * rotor is geared to. Null if it has none.
-     */
+    /** The fastest main rotor's speed, which tail rotors are geared to. Null if it has none. */
     private fun mainSpeed(vessel: Vessel): Double? {
         val defs = vessel.defs
         var fastest: Double? = null
@@ -187,8 +178,8 @@ class Rotors {
     private fun working(vessel: Vessel, i: Int): Boolean = !vessel.isBroken(i) && vessel.groupState(i) >= 0
 
     /**
-     * What a newton of rotor [i]'s lift does to the craft's turning, in its own axes, into [out]:
-     * its lever about the centre of mass, and its twist the other way from turning.
+     * What a newton of rotor [i]'s lift does to the craft's turning, in craft axes, into [out]: its
+     * lever about the centre of mass, plus its counter-twist.
      */
     private fun steering(vessel: Vessel, i: Int, rotor: Rotor, spin: Int, out: Vec3): Vec3 {
         val placed = vessel.design.parts[i]
@@ -200,10 +191,8 @@ class Rotors {
     }
 
     /**
-     * Rotor [i] asked for [output] of its collective (a tail rotor's can go negative): its speed
-     * spooling toward that, lift with the square of the speed, the stick tilting it for [cyclic],
-     * its twist, and its fuel. A tail rotor turns at the main rotor's speed, [geared], if there is
-     * one, and [output] sets only its pitch.
+     * Rotor [i] at [output] collective (a tail rotor's can go negative): spool, lift, fuel, twist,
+     * and tilt for [cyclic]. A tail rotor turns at [geared] if given, and [output] sets only its pitch.
      */
     private fun spinOff(
         vessel: Vessel, i: Int, rotor: Rotor, spin: Int, output: Double, thickness: Double, height: Double, dt: Double,
@@ -219,8 +208,7 @@ class Rotors {
         val boost = (1.0 + TRANSLATIONAL * (through / TRANSLATIONAL_SPEED).coerceAtMost(1.0)) *
             (1.0 + GROUND_EFFECT * (1.0 - height / rotor.diameter.coerceAtLeast(0.1)).coerceIn(0.0, 1.0)) *
             (1.0 - climbing / INFLOW).coerceIn(MOST_LOST, 1.0)
-        // Lift from the speed it's turning at now. For one spooled up, speed squared is what was
-        // asked for, so a steady hover is where it always was, and only getting there takes time.
+        // Lift from its speed now. Spooled up, speed squared equals what was asked.
         val speed = if (rotor.tail && geared != null) geared else vessel.spool[i]
         val pull = if (rotor.tail) output * speed * speed else speed * speed
         var thrust = rotor.lift * thickness * boost * pull
@@ -245,16 +233,14 @@ class Rotors {
 
         if (cyclic) hang(vessel, rotor, thrust, dt)
         if (cyclic) {
-            // Tilted so its lift, pulling from where it sits, turns the craft the way the stick
-            // says: toward (command across the axis) x axis, reversed for a rotor below the middle.
+            // Tilt toward (command across the axis) x axis, reversed for a rotor below the middle.
             tilt.setTo(command).addScaledInPlace(lift, -(command dot lift))
             val ask = tilt.length.coerceAtMost(1.0)
             if (ask > 1e-6) {
                 tilt.crossInPlace(lift).normalizeInPlace()
                 if ((offset dot lift) < 0.0) tilt.negateInPlace()
                 lift.addScaledInPlace(tilt, tan(Math.toRadians(rotor.cyclic)) * ask).normalizeInPlace()
-                // A rotor head's own push against the mast, which is most of what turns a
-                // helicopter, since its rotor sits close over the middle.
+                // The rotor head's push on the mast, most of what turns a helicopter.
                 tilt.setTo(command).addScaledInPlace(lift, -(command dot lift))
                 if (tilt.length > 1.0) tilt.normalizeInPlace()
                 vessel.body.orientation.rotate(tilt, scratch)
@@ -279,13 +265,10 @@ class Rotors {
     private val levelling = Vec3()
 
     /**
-     * A helicopter hangs under its rotor. Its rotor's lift points from the middle of the craft
-     * through the rotor head, so it doesn't pitch the craft over wherever the two are, and as the
-     * craft tips the rotor pulls the head back over the middle, damped by the rotor itself, the
-     * way a real one's body settles under a level rotor. Its lift fixed to the body, the
-     * Hummingbird pitched over within two seconds of lifting off without stability assist. The
-     * stick tips it against this, and let go, it levels. [lift] and [offset] are set for the
-     * rotor, and [lift] comes back turned to hang.
+     * A helicopter hangs under its rotor. Lift points from the craft's middle through the rotor
+     * head, so it doesn't pitch the craft over, and as the craft tips the rotor pulls the head back
+     * over the middle, damped. Let go of the stick and it levels. [lift] and [offset] are set for
+     * the rotor on entry, and [lift] comes back turned.
      */
     private fun hang(vessel: Vessel, rotor: Rotor, thrust: Double, dt: Double) {
         val reach = offset.length
@@ -331,10 +314,8 @@ class Rotors {
         const val THICK_AIR = 2.5
 
         /**
-         * How long a rotor takes to get most of the way to a new speed, in seconds. An electric
-         * motor answers in a blink: a drone's, or a platform's fans, which steer by speeding up
-         * against each other and hunted up and down when they lagged. An engine turning a big
-         * rotor takes its time, a second and a half for a helicopter's eight metres.
+         * Time constant for a rotor's speed, in seconds. Electric motors are quick (mixed rotors
+         * hunt if they lag); an engine-driven eight metre rotor takes about a second and a half.
          */
         fun spoolTime(rotor: Rotor): Double =
             if (rotor.propellant == ResourceType.ELECTRIC_CHARGE) MOTOR_BASE + MOTOR_PER_METRE * rotor.diameter
@@ -344,17 +325,13 @@ class Rotors {
         const val MOTOR_BASE = 0.04
         const val MOTOR_PER_METRE = 0.04
 
-        /**
-         * The least a tail rotor's reach is reckoned at, as a share of its full lift, so asking it
-         * for a push while the main rotor's barely turning doesn't divide by nothing.
-         */
+        /** The least tail rotor grip, as a share of full lift, so it never divides by zero. */
         const val MIN_TAIL_GRIP = 1e-3
 
         /**
-         * Hanging under a rotor: how far its lift can lean to pass through the middle of the craft,
-         * how hard the rotor pulls its head back over the middle (per newton of lift per metre
-         * from the middle to the head), how strongly it damps the rocking (per newton per metre of
-         * rotor), and the least distance from the middle to the head it works at.
+         * Hanging under a rotor: the most the lift leans, the pull back over the middle (per newton
+         * of lift per metre to the head), the damping (per newton per metre of rotor), and the least
+         * middle-to-head distance it works at.
          */
         const val HANG_MOST_DEGREES = 15.0
         const val HANG_STIFFNESS = 1.0
@@ -377,7 +354,7 @@ class Rotors {
         /** Extra lift close over the ground, as a share, fading out by one rotor's width up. */
         const val GROUND_EFFECT = 0.1
 
-        /** Climbing this fast along its axis, in m/s, it would lose all its lift; and the most it can lose. */
+        /** Climbing this fast along its axis, in m/s, would lose all its lift; and the least share kept. */
         const val INFLOW = 25.0
         const val MOST_LOST = 0.4
     }

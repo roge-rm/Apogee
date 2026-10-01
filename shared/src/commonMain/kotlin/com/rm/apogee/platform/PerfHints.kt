@@ -1,8 +1,8 @@
 package com.rm.apogee.platform
 
 /**
- * Tells the system how long the simulation's work takes, so it can clock the CPU to fit: Android's
- * performance hints. Where there's nothing to tell, there's no [PerfHints] at all.
+ * Android's performance hints: tells the system how long the simulation's work takes so it can
+ * clock the CPU to fit. Where there's nothing to tell, there's no [PerfHints].
  */
 interface PerfHints {
     /** How long the last simulation step really took. Safe to call every tick. */

@@ -1,19 +1,15 @@
 package com.rm.apogee.core.part
 
 /**
- * Loads the part catalogue that ships with the game, from the classpath.
- *
- * It lives in :core's resources instead of the app's Android assets so there's exactly one copy.
- * The app, the dedicated server and the unit tests all load the same bytes, and so all work out the
- * same [PartCatalog.contentHash]. Two copies of a catalogue is two catalogues, and the handshake
- * would start rejecting builds that match perfectly.
+ * Loads the stock part catalogue from :core's resources. It's the one copy the app, server and tests
+ * all read, so they agree on [PartCatalog.contentHash] at the handshake.
  */
 object StockParts {
 
     /** The catalogue's files: craft parts, parts for building bases, and the Cape's buildings. */
     private val RESOURCE_PATHS = listOf("/parts/stock.json", "/parts/bases.json", "/parts/structures.json")
 
-    /** Parsed once, because the catalogue never changes. */
+    /** Parsed once. */
     val catalog: PartCatalog by lazy {
         val texts = RESOURCE_PATHS.map { path ->
             com.rm.apogee.core.resourceText(path)

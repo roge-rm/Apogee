@@ -36,21 +36,18 @@ enum class SasMode(val label: String) {
 }
 
 /**
- * The navball's directions, in the attractor's inertial frame. They're the same for the HUD that
- * draws them and the stability assist that holds the nose on them, so a craft told to hold prograde
- * points exactly at the prograde marker.
+ * The navball's directions, in the attractor's inertial frame. The HUD and stability assist share
+ * them, so holding prograde points right at the prograde marker.
  */
 class NavDirections {
-    /**
-     * The frame actually in use: [NavFrame.AUTO] worked out, and TARGET only when there's a target.
-     */
+    /** The frame in use: [NavFrame.AUTO] resolved, and TARGET only when there's a target. */
     var frame = NavFrame.SURFACE
     /** Velocity in that frame, in m/s. */
     val velocity = Vec3()
     val prograde = Vec3()
     val normal = Vec3()
     val radialOut = Vec3()
-    /** Whether [prograde], [normal] and [radialOut] mean anything, meaning it's moving at all. */
+    /** Whether it's moving, so [prograde], [normal] and [radialOut] mean anything. */
     var moving = false
     /** Toward the target, when there is one. */
     val toTarget = Vec3()

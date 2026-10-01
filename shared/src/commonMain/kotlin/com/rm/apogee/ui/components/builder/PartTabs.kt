@@ -18,7 +18,7 @@ import com.rm.apogee.core.part.Rcs
 import com.rm.apogee.core.part.Tank
 import com.rm.apogee.core.part.Wheel
 
-/** The drawer's tabs: parts by the job they do, whatever kind of craft they go on. */
+/** The drawer's tabs, by the job a part does. */
 enum class PartTab(val label: String) {
     ALL("All"),
     PODS("Pods"),
@@ -33,31 +33,28 @@ enum class PartTab(val label: String) {
     BASE("Base"),
     BUILDINGS("Buildings"),
 
-    /** Pieces of craft you've saved to use again, not parts. */
+    /** Saved pieces of craft, not parts. */
     SAVED("Saved"),
 }
 
 object PartTabs {
 
     /**
-     * The tab [def] belongs in, worked out from what it does instead of written into the parts
-     * file. That way a part added later sorts itself, and the catalogue's content hash (which a
-     * join between players checks) doesn't change for the sake of the drawer.
+     * The tab [def] belongs in, worked out from its modules. Not stored in the parts file, so the
+     * catalogue hash a join checks doesn't change for the drawer.
      */
     fun of(def: PartDef): PartTab {
         OVERRIDES[def.id]?.let { return it }
         val docking = def.module<DockingPort>()
-        // By what they are before what they do. A base's core is a command part and its depot is a
-        // tank, but they belong with the base.
+        // Category first: a base's core and depot belong with the base.
         if (def.category == PartCategory.BASE) return PartTab.BASE
         if (def.category == PartCategory.STRUCTURE) return PartTab.BUILDINGS
         return when {
             def.hasModule<Command>() -> PartTab.PODS
             docking != null && (docking.kind == DockKind.HITCH_BALL || docking.kind == DockKind.HITCH_COUPLING) -> PartTab.GROUND
-            // Rotors and fans, and gas cells and envelopes, together.
+            // Rotors, fans and gas cells together.
             def.hasModule<com.rm.apogee.core.part.Rotor>() || def.hasModule<com.rm.apogee.core.part.LiftGas>() -> PartTab.AIR
-            // A rover's winch goes with the hitches, and a sail with the hulls. So does a ship's
-            // towing winch, and somewhere to make its line fast.
+            // A ship's towing winch and tow points go with the hulls, a rover's winch with the hitches.
             def.module<com.rm.apogee.core.part.Winch>()?.anyWay == true || def.hasModule<com.rm.apogee.core.part.TowPoint>() -> PartTab.WATER
             def.hasModule<com.rm.apogee.core.part.Winch>() -> PartTab.GROUND
             def.hasModule<com.rm.apogee.core.part.Sail>() -> PartTab.WATER
@@ -74,9 +71,9 @@ object PartTabs {
         }
     }
 
-    /** Parts on [tab], in drawer order: tabs in order, then the catalogue's own order within each. */
+    /** Parts on [tab]: by tab, then catalogue order within each. */
     fun parts(catalog: PartCatalog, tab: PartTab): List<PartDef> {
-        // Never a part that only comes off another one, like a fairing's half.
+        // Not hidden parts, like a fairing's half.
         val all = ORDER.flatMap { category -> catalog.byCategory(category) }.filter { !it.hidden }
         val sorted = all.sortedBy { of(it).ordinal }
         return when (tab) {
@@ -92,16 +89,13 @@ object PartTabs {
         PartCategory.GROUND, PartCategory.BASE, PartCategory.STRUCTURE,
     )
 
-    /** The odd ones the rules don't place. */
+    /** Parts the rules can't place, mostly ones with no module to say what they are. */
     private val OVERRIDES = mapOf(
-        // Lamps, with no module to say so.
         "light-bar" to PartTab.UTILITY,
-        // A submarine's float and keel, foam and lead, with no module to say so.
         "float-foam" to PartTab.WATER,
         "keel-lead" to PartTab.WATER,
-        // A tug's push knees, timber and rubber with no module to say so.
         "knees-push" to PartTab.WATER,
-        // A carrier's deck, and its gear, with the ships. The hook goes with the wheels.
+        // A carrier's deck gear goes with the ships, the hook with the wheels.
         "deck-flight" to PartTab.WATER,
         "gear-arrest" to PartTab.WATER,
         "catapult-deck" to PartTab.WATER,

@@ -2,10 +2,7 @@ package com.rm.apogee.core.weather
 
 import com.rm.apogee.core.math.Vec3
 
-/**
- * The kinds of cloud. Each has its own place in the sky, its own weight of water to push through,
- * and its own murk.
- */
+/** The kinds of cloud, each with its own height, water load and murk. */
 enum class CloudType(
     /** Extra air loading at full density. Drag and lift scale by 1 + this. */
     val dragLoad: Double,
@@ -27,7 +24,7 @@ enum class CloudType(
     /** A storm tower: rain, hail, updraughts and the heaviest water load. */
     CUMULONIMBUS(dragLoad = 0.15, visibility = 30.0),
 
-    /** The wall of a dust storm. It's grit, not water, thick enough to lose the sun in. */
+    /** The wall of a dust storm: grit thick enough to lose the sun in. */
     DUST(dragLoad = 0.02, visibility = 150.0),
 
     /** A deck all the way around the world that never breaks, like Caligo's acid cloud. */
@@ -37,10 +34,9 @@ enum class CloudType(
 /**
  * The air at one place and time.
  *
- * [wind] is the steady part (circulation, terrain, thermals, a storm's outflow) in the body's own
- * rotating frame, including its up and down motion. Turbulence is left out on purpose, because it
- * changes over a craft's length. It gets sampled part by part through [Weather.turbulence] at
- * [turbulence]'s strength.
+ * [wind] is the steady part (circulation, terrain, thermals, storm outflow) in the body's rotating
+ * frame, vertical included. Turbulence is left out because it changes over a craft's length; it's
+ * sampled per part through [Weather.turbulence] at [turbulence]'s strength.
  */
 class AirSample {
     /** Body-fixed, in m/s, including vertical. */
@@ -102,27 +98,23 @@ class CloudShape(
     val type: CloudType,
     val amount: Double,
     /**
-     * One of a deck's rough far sheets, not its puffs. The two are drawn fading into each other
-     * round [Weather.NEAR_DECK], so where one gives way to the other doesn't show.
+     * One of a deck's rough far sheets rather than its puffs. The two fade into each other round
+     * [Weather.NEAR_DECK].
      */
     val far: Boolean = false,
 ) {
     val lobes = ArrayList<CloudLobe>(6)
 
     /**
-     * How fast it's moving, body-fixed, in m/s: a storm along its steering wind. Zero for cloud
-     * that stays where it is, as a deck's puffs do. Drawing carries its lobes on by this between
-     * listings, which it otherwise jumped by every time the sky was listed again.
+     * Body-fixed velocity in m/s: a storm along its steering wind, zero for a deck's puffs. Drawing
+     * carries the lobes on by this between listings so they don't jump.
      */
     val drift = com.rm.apogee.core.math.Vec3()
 
     /** How fast [amount] is changing, per second, until its lobes' [CloudLobe.changingUntil]. */
     var amountRate = 0.0
 
-    /**
-     * Rain falling out of it, as curtains from its base to the ground, which is what you see from
-     * far away.
-     */
+    /** Rain curtains from its base to the ground, seen from far away. */
     val rain = ArrayList<CloudLobe>(0)
 }
 
@@ -137,8 +129,8 @@ class CloudLobe(
     val flat: Boolean = false,
 ) {
     /**
-     * How fast it's changing, per second, until [changingUntil]: a deck's puff growing, shrinking
-     * or rising as its deck changes. Drawing carries it on by these between listings.
+     * Rates of change per second until [changingUntil], as a deck's puff grows, shrinks or rises.
+     * Drawing carries it on by these between listings.
      */
     var horizontalRate = 0.0
     var verticalRate = 0.0

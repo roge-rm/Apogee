@@ -10,13 +10,9 @@ import kotlin.math.sqrt
 import com.rm.apogee.core.math.Math
 
 /**
- * Meshes for the leaves of a part's [ModelSpec].
- *
- * Everything is flat-shaded (each triangle has its own face normal) to match the low-poly look of
- * the ground. And every triangle is turned to face away from a point known to be inside the solid,
- * instead of trusting the order its corners were listed in. With a dozen hand-built generators, one
- * wound the wrong way is invisible from outside until it gets culled, which is a mistake the planet
- * itself once shipped with.
+ * Meshes for the leaves of a part's [ModelSpec]. Everything is flat-shaded to match the ground.
+ * Each triangle is turned to face away from a point inside the solid, so the order its corners
+ * are listed in doesn't matter.
  */
 object ModelShapes {
 
@@ -35,11 +31,9 @@ object ModelShapes {
     // --- surfaces of revolution --------------------------------------------
 
     /**
-     * [profile] is (radius, y), walked from the bottom with the solid on the left: up the outside
-     * of a tank, or in and back out of an engine bell. Each face points to the walker's right,
-     * which is what lets a profile turn back on itself, so a bell's inside faces the axis and its
-     * outside faces away. Ends with a radius get capped where [caps] asks for it, and ends at the
-     * axis need nothing.
+     * [profile] is (radius, y), walked from the bottom with the solid on the left. Each face points
+     * to the walker's right, so a profile can turn back on itself, like an engine bell. Ends off
+     * the axis get capped where [caps] asks.
      */
     fun lathe(
         profile: List<Pair<Double, Double>>,
@@ -220,9 +214,8 @@ object ModelShapes {
     // --- wheels and propellers ----------------------------------------------
 
     /**
-     * A tire about the X axis: a smooth rounded ring, with tread blocks set on the crown as solids
-     * of their own. That's a closed shape either way, where raising alternate strips of one surface
-     * would leave a crack down every step between them.
+     * A tire about the X axis: a rounded ring with tread blocks as separate solids on the crown, so
+     * there are no cracks between steps.
      */
     fun tyre(spec: ModelSpec.Tyre): MeshData {
         val r = spec.radius
@@ -320,9 +313,7 @@ object ModelShapes {
         q(1, 3, 7, 5) // thickness +
     }
 
-    /**
-     * Swaps the axis of revolution from Y to X. It's a proper rotation, so faces keep their facing.
-     */
+    /** Swaps the axis of revolution from Y to X. A proper rotation, so faces keep their facing. */
     private fun MeshData.turnedYToX(): MeshData {
         val v = vertices.copyOf()
         var i = 0
@@ -336,10 +327,7 @@ object ModelShapes {
         return MeshData(v, indices)
     }
 
-    /**
-     * Flat-shaded triangles, each with its own three vertices and face normal, each turned to face
-     * away from the point given as inside.
-     */
+    /** Flat-shaded triangles, each turned to face away from the given inside point. */
     class Soup {
         private val vertices = ArrayList<Float>()
 

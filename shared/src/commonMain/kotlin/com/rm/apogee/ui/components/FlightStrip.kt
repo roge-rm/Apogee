@@ -39,18 +39,16 @@ import com.rm.apogee.platform.format
 data class StripField(val label: String, val value: String, val colour: Color = ApogeeColors.Data)
 
 /**
- * The three or four numbers that matter for what the craft is doing right now. The rest of the
- * panel is a tap away. Sitting on the ground, it's how fast it's rolling, which way it faces, and
- * the moon's window when there is one. Low, or in the air, it's how high (above the ground, under
- * two kilometres), climbing or sinking, how fast through the air, and a strong wind. Out of the
- * air, it's the orbit's high and low points, the time to the high one, and the speed. A target,
- * when there is one, takes the last place, showing how far. A dangerous load of air always shows.
- * Under the sea, it's how deep, how far above the floor, climbing or sinking, and how fast, which
- * is slow enough down there to want the tenths. Riding on the water or driving on the ground, it's
- * how fast, the wind and which way it blows, and the heading. Height, depth and climb are no use
- * there: a metre either way of a surface that's always moving, or the ground the wheels are on. Afloat in a current that's worth knowing about, it's how
- * fast that runs and which way. Under sail, the wind always shows, with an arrow for the way it
- * blows across the view, since it's what a sail goes by.
+ * The three or four numbers that matter for what the craft's doing now. The rest is a tap away.
+ *
+ * - On the ground: speed, heading, and the moon's window.
+ * - Low or in the air: height (above ground under 2 km), climb, airspeed, and a strong wind.
+ * - Out of the air: apoapsis, periapsis, time to apoapsis, speed.
+ * - Under the sea: depth, height off the floor, climb, and speed in tenths.
+ * - On the water or driving: speed, wind and heading. Height and climb mean nothing there.
+ *
+ * A target takes the last place with its distance, and so do lift and a current. A dangerous load
+ * of air always shows. Under sail the wind always shows, since a sail goes by it.
  */
 fun stripFields(
     t: FlightTelemetry,
@@ -115,11 +113,11 @@ fun stripFields(
         }
     }
     if (sailing && !t.inOrbit && out.none { it.label == "WIND" }) {
-        // In place of the heading if there's no room: the wind matters more to a sail.
+        // Replaces the heading if there's no room.
         if (out.size >= MAX_FIELDS) out.removeAt(out.indexOfFirst { it.label == "HDG" }.takeIf { it >= 0 } ?: out.lastIndex)
         out.add(1.coerceAtMost(out.size), StripField("WIND", windReading(t), if (t.windSpeed > STRONG_WIND) ApogeeColors.Caution else ApogeeColors.Data))
     }
-    // Floating on gas: how much of its weight its cells hold up. Over a hundred, it rises.
+    // How much of its weight the gas cells hold up. Over 100% it rises.
     if (lift >= 0f && !t.inOrbit && t.depth <= UNDER_DEPTH) {
         if (out.size >= MAX_FIELDS) out.removeAt(out.lastIndex)
         out += StripField("LIFT", "${(lift * 100).roundToInt()}%", if (lift < 0.9f) ApogeeColors.Caution else ApogeeColors.Data)
@@ -136,10 +134,7 @@ fun stripFields(
     return out
 }
 
-/**
- * The flight strip: one slim line of [stripFields] along the top edge. Tap it to open the whole
- * panel under it, and again to fold it away.
- */
+/** One slim line of [stripFields] along the top edge. A tap opens the full panel under it. */
 @Composable
 fun FlightStrip(
     telemetry: FlightTelemetry,
@@ -156,9 +151,7 @@ fun FlightStrip(
     lift: Float = -1f,
     /** Whether it's riding on the water or driving on the ground, so it reads like a boat or a car. */
     onSurface: Boolean = false,
-    /**
-     * Numbers per line: two in portrait, beside the top-left buttons, and all of them in landscape.
-     */
+    /** Numbers per line. */
     perLine: Int = MAX_FIELDS + 1,
 ) {
     Column(modifier, horizontalAlignment = Alignment.End) {
@@ -191,7 +184,7 @@ fun FlightStrip(
     }
 }
 
-/** One number, with its name small above it so a line of them stays narrow. */
+/** One number, with its name small above it to keep the line narrow. */
 @Composable
 private fun Cell(field: StripField) {
     Column(horizontalAlignment = Alignment.End) {
@@ -233,8 +226,7 @@ internal fun TelemetryPanel(
     power: com.rm.apogee.game.HudState.PowerReadout? = null,
     onSurface: Boolean = false,
 ) {
-    // Two columns in landscape (near the ground, then the orbit and target), where one tall column
-    // used to run down over the roll and SAS buttons.
+    // Two columns in landscape, so it doesn't run down over the roll and SAS buttons.
     val panel = modifier
         .clip(RoundedCornerShape(Dimens.CornerSmall))
         .background(Color.Black.alpha(ApogeeAlpha.SCRIM))
@@ -257,12 +249,12 @@ internal fun TelemetryPanel(
 @Composable
 private fun PowerReadout(power: com.rm.apogee.game.HudState.PowerReadout?) {
     if (power == null) return
-    // What the ground below holds, from a scanner that's low enough.
+    // What the ground below holds, from a scanner low enough.
     if (power.ore >= 0f) {
         Spacer(Modifier.height(4.dp))
         Readout("GROUND", "ORE ${(power.ore * 100).roundToInt()}%  H2O ${(power.water * 100).roundToInt()}%")
     }
-    // What it has dug up, on a craft that can hold any.
+    // What it's dug up.
     power.held?.let { h ->
         if (h[1] > 0f) Readout("ORE", "${h[0].roundToInt()}/${h[1].roundToInt()}")
         if (h[3] > 0f) Readout("WATER", "${h[2].roundToInt()}/${h[3].roundToInt()}")
@@ -290,15 +282,14 @@ private fun PowerReadout(power: com.rm.apogee.game.HudState.PowerReadout?) {
 }
 
 /**
- * Near the ground: height, speed, climb, heading and the air. [onSurface], onSurface or driving, it's
- * the speed, heading and the wind, with the compass point the wind comes from.
+ * Height, speed, climb, heading and the air. With [onSurface], just speed, heading and the wind
+ * with where it comes from.
  */
 @Composable
 private fun SurfaceReadouts(telemetry: FlightTelemetry, onSurface: Boolean = false) {
     if (!onSurface) Readout("ALT", formatDistance(telemetry.altitude))
-    // Above the ground, not above the datum. The launch complex sits most of a kilometre up, so the
-    // two disagree from the moment you spawn, and only one of them tells you whether you're about
-    // to land.
+    // Above the ground. The launch site is most of a kilometre above the datum, so ALT alone
+    // won't tell you when you're about to land.
     if (!onSurface && telemetry.heightAboveGround < 20_000.0) {
         Readout(
             "AGL",
@@ -308,22 +299,20 @@ private fun SurfaceReadouts(telemetry: FlightTelemetry, onSurface: Boolean = fal
         )
     }
     Readout("SRF", if (onSurface && telemetry.surfaceSpeed < 10.0) "${telemetry.surfaceSpeed.format(1)} m/s" else "${telemetry.surfaceSpeed.roundToInt()} m/s")
-    // Climb or sink, and which way the nose points on the compass.
     if (!onSurface) Readout(
         "VS",
         (if (telemetry.verticalSpeed >= 0) "+" else "\u2212") + "${kotlin.math.abs(telemetry.verticalSpeed).roundToInt()} m/s",
         colour = if (telemetry.verticalSpeed < -10.0 && telemetry.heightAboveGround < 500.0) ApogeeColors.Caution else ApogeeColors.Data,
     )
     Readout("HDG", "%03d\u00b0".format(telemetry.heading.roundToInt() % 360))
-    // Through the air, and the air itself, only where there is some.
+    // Only where there's air.
     if (telemetry.inAir) {
         if (!onSurface) Readout("AIR", "${telemetry.airspeed.roundToInt()} m/s")
         val windColour = if (telemetry.windSpeed > 15.0) ApogeeColors.Caution else ApogeeColors.Data
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("WIND", style = TelemetryTextStyle, color = Color.White.alpha(ApogeeAlpha.SUBTITLE))
             Spacer(Modifier.width(10.dp))
-            // The way it blows, as seen on screen. It turns smoothly instead of snapping to eight
-            // points, so it lines up with the windsock.
+            // The way it blows on screen. Turns smoothly, so it lines up with the windsock.
             if (telemetry.windSpeed >= 0.5) {
                 androidx.compose.material3.Icon(
                     androidx.compose.material.icons.Icons.Filled.ArrowUpward,
@@ -345,7 +334,7 @@ private fun SurfaceReadouts(telemetry: FlightTelemetry, onSurface: Boolean = fal
     }
 }
 
-/** The orbit, the moon's window, the target and the load of air. [onSurface], only the target. */
+/** The orbit, the moon's window, the target and the air load. With [onSurface], only the target. */
 @Composable
 private fun OrbitReadouts(telemetry: FlightTelemetry, onSurface: Boolean = false) {
     if (!onSurface) OrbitNumbers(telemetry)
@@ -381,8 +370,7 @@ private fun OrbitNumbers(telemetry: FlightTelemetry) {
     )
     Readout(
         "PE",
-        // A periapsis underground isn't a number, it's a warning. It means the current path ends in
-        // the ground.
+        // A periapsis underground means the path ends in the ground.
         if (telemetry.periapsisAltitude < 0) "suborbital"
         else formatDistance(telemetry.periapsisAltitude),
         colour = if (telemetry.periapsisAltitude < 0) ApogeeColors.Caution
@@ -391,8 +379,7 @@ private fun OrbitNumbers(telemetry: FlightTelemetry) {
     if (telemetry.timeToApoapsis.isFinite() && telemetry.apoapsisAltitude > 1_000) {
         Readout("T-AP", formatDuration(telemetry.timeToApoapsis))
     }
-    // Waiting on the pad: when to go for the moon, so a launch due east then flies straight into
-    // its plane.
+    // On the pad: when a launch due east goes straight into the moon's plane.
     if (telemetry.lunaWindow.isFinite() && telemetry.heightAboveGround < 50.0 && telemetry.surfaceSpeed < 5.0) {
         Spacer(Modifier.height(4.dp))
         val open = telemetry.lunaWindow <= com.rm.apogee.game.GameSession.MOON_WINDOW_OPEN
@@ -417,11 +404,7 @@ private fun Readout(label: String, value: String, colour: Color = ApogeeColors.D
     }
 }
 
-/** Metres below a kilometre, and kilometres above it. */
-/**
- * The wind's speed and an arrow for the way it blows as seen on screen: up is away from you, into
- * the view. Calm, just the speed.
- */
+/** The wind's speed and an arrow for the way it blows on screen (up is into the view). */
 internal fun windReading(t: FlightTelemetry): String {
     val speed = "${t.windSpeed.roundToInt()}"
     if (t.windSpeed < 0.5) return speed
@@ -436,9 +419,10 @@ internal fun compassPoint(bearing: Float): String {
     return points[(((bearing % 360f + 360f) % 360f + 22.5f) / 45f).toInt() % 8]
 }
 
-/** The current's field, the sea's own blue-green. */
+/** The current's field, the sea's blue-green. */
 private val CURRENT_COLOUR = Color(0xFF59E0D0)
 
+/** Metres below a kilometre, kilometres above, and megametres past a thousand of those. */
 internal fun formatDistance(metres: Double): String {
     val magnitude = abs(metres)
     return when {
@@ -448,7 +432,7 @@ internal fun formatDistance(metres: Double): String {
     }
 }
 
-/** Seconds as m:ss, which is how you actually read a burn countdown. */
+/** Seconds as m:ss, or h:mm:ss. */
 internal fun formatDuration(seconds: Double): String {
     if (!seconds.isFinite() || seconds < 0) return "--"
     val total = seconds.roundToInt()

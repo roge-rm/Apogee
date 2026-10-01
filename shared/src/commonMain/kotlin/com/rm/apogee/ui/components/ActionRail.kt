@@ -71,13 +71,9 @@ class RailActions(
 private class RailSwitch(val icon: ImageVector, val caption: String, val tint: Color, val on: Boolean, val onTap: () -> Unit)
 
 /**
- * The craft's switches, beside the throttle: brakes and reverse on something with wheels, flaps,
- * the thrusters, sun wings and dishes, drills and converters, the keeper core holding station,
- * ballast to dive, rise and hold a depth (or ballonets to sink, rise and hold a height aloft), the action groups the craft uses, the winch once it's hooked on, and on EVA, jumping and
- * planting a flag. Only the ones the craft has are shown. Each is a small
- * picture with its word under it, lit while on. It's green when working, amber when on but not
- * getting anywhere (with the reason in place of the word), and grey when off. Past [perColumn] they
- * go two across.
+ * The craft's switches beside the throttle. Only the ones the craft has are shown. Green when
+ * working, amber when on but stuck (the reason replaces the word), grey when off. Past
+ * [perColumn] they go two across.
  */
 @Composable
 fun ActionRail(

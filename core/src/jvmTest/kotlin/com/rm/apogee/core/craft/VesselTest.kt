@@ -36,8 +36,7 @@ class VesselTest {
         val lowerAvailable = vessel.amountInGroupOf(mainEngine, ResourceType.PROPELLANT)
         val upperAvailable = vessel.amountInGroupOf(upperEngine, ResourceType.PROPELLANT)
 
-        // This is the bug the first headless ascent found. Without crossfeed groups the first stage
-        // drinks the upper stage dry and staging is pure loss.
+        // Without crossfeed groups the first stage drinks the upper stage dry.
         assertEquals("first stage should reach only its own three tanks", 1_200.0, lowerAvailable, 1e-9)
         assertEquals("upper stage should reach only its own tank", 400.0, upperAvailable, 1e-9)
     }

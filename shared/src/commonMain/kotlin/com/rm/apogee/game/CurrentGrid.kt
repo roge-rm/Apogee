@@ -7,15 +7,14 @@ import com.rm.apogee.core.sea.Sea
 import com.rm.apogee.core.math.Math
 
 /**
- * A world's sea currents, sampled on a latitude-longitude grid for the map. Like [RichnessGrid] it's
- * worked out once, on its own thread, since it's thousands of samples. The currents don't change
- * with time, only with the world's seed, so it's kept per world and seed.
+ * A world's sea currents on a latitude-longitude grid, for the map. Built once on its own thread,
+ * like [RichnessGrid]. Currents change only with the world's seed, so it's kept per world and seed.
  */
 object CurrentGrid {
 
     /**
-     * The points with a current worth an arrow: a body-fixed unit direction x, y, z, then the
-     * current there, body-fixed, in m/s, six floats each.
+     * The points with a current worth an arrow: body-fixed unit direction x, y, z, then the current
+     * there, body-fixed, in m/s. Six floats each.
      */
     class Points(val data: FloatArray) {
         val count: Int get() = data.size / 6
@@ -31,7 +30,7 @@ object CurrentGrid {
         ready[key]?.let { return it }
         if (body.ocean == null || body.terrain == null) return null
         if (asked.add(key)) worker.execute {
-            // A sea of its own, since a sea's caches aren't for sharing across threads.
+            // Its own sea, since a sea's caches aren't thread safe.
             val sea = Sea(body, moon, null, seed)
             val out = ArrayList<Float>()
             val velocity = Vec3()

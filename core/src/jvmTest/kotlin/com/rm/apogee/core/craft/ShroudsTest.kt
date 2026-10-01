@@ -38,8 +38,7 @@ class ShroudsTest {
         // The upper stage: no shell of its own now.
         assertTrue(craft.design.parts.any { it.partId == "engine-vesper" })
         assertTrue("the upper stage still has a shell", Shrouds.of(craft.design, catalog).all { it == null })
-        // The dropped stage: its ring records the shell it shed, to be drawn falling away, and
-        // doesn't wear it any more.
+        // The dropped stage's ring records the shell it shed, to draw it falling away.
         val dropped = world.vessels.first { v -> v !== craft && v.design.parts.firstOrNull()?.partId == "decoupler-ring" }
         assertNotNull("the dropped ring's shed shell", dropped.design.parts[0].shroud)
         assertNull(Shrouds.of(dropped.design, catalog)[0])

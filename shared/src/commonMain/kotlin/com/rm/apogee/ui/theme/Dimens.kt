@@ -2,23 +2,13 @@ package com.rm.apogee.ui.theme
 
 import androidx.compose.ui.unit.dp
 
-/**
- * Layout constants, with the dependent ones *worked out* from the others instead of written out
- * again.
- *
- * This pattern is worth keeping strictly. When a control's size changes, every measurement that
- * should follow it changes with it, instead of drifting apart until someone notices the HUD doesn't
- * line up any more.
- */
+/** Layout constants. Dependent ones are worked out from the others, so they change together. */
 object Dimens {
     // --- screen scaffolding -------------------------------------------------
     val ScreenPaddingH = 32.dp
     val ScreenPaddingV = 24.dp
 
-    /**
-     * Content is capped instead of stretched. A landscape phone is about 2340 px wide, and a
-     * full-width button at that size is just a bar of colour.
-     */
+    /** Content is capped, not stretched across a wide landscape phone. */
     val MenuContentMaxWidth = 340.dp
     val PanelContentMaxWidth = 560.dp
 
@@ -39,7 +29,7 @@ object Dimens {
     val CornerTight = 6.dp
 
     // --- motion -------------------------------------------------------------
-    /** Position and size changes. Short enough not to feel laggy under a thumb. */
+    /** Position and size changes. Short so it doesn't feel laggy. */
     const val MOTION_FAST_MS = 180
 
     /** Fades for readouts and flashes. */

@@ -8,12 +8,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * Thrusters, and what they're for.
- *
- * A base is built by landing modules and pushing them together, and a main engine can't do the
- * pushing, because it points one way and delivers tonnes. These are about the nudge.
- */
+/** Thrusters: the small nudges that push landed modules together into a base. */
 class RcsTest {
 
     private val catalog = StockParts.catalog
@@ -22,7 +17,7 @@ class RcsTest {
 
     private fun world() = World.default(catalog)
 
-    /** Ground-relative velocity, which is the only kind that means anything here. */
+    /** Ground-relative velocity. */
     private fun driftOf(world: World, vessel: com.rm.apogee.core.craft.Vessel): Vec3 {
         val surface = world.attractorFor(vessel)
             .surfaceVelocityAt(vessel.body.position, Vec3())
@@ -30,10 +25,8 @@ class RcsTest {
     }
 
     /**
-     * Where modules get walked into place: on Luna, whose sixth of a g lets four thrusters break a
-     * landed tug's grip. Lifting a little and pushing, it slides across and stays on its feet. (On
-     * Terra they barely out-push its grip, and pushing at the centre of mass mostly rocks it. The
-     * thrusters make sure it doesn't go over. See below.)
+     * On Luna's sixth of a g, four thrusters can break a landed tug's grip. Lifting a little and
+     * pushing, it slides across on its feet. On Terra they barely beat the grip.
      */
     @Test
     fun `a landed module can be walked sideways on Luna, lifting and pushing`() {
@@ -72,10 +65,7 @@ class RcsTest {
         assertTrue("and it stayed on its feet (leaned $worst deg)", worst < 20.0)
     }
 
-    /**
-     * Thrusters fire at their own offsets, so a symmetric set has to cancel its own torque. If it
-     * doesn't, moving turns into tumbling and the whole point is lost.
-     */
+    /** Thrusters fire at their own offsets, so a symmetric set must cancel its own torque. */
     @Test
     fun `a symmetric thruster set translates without spinning`() {
         val world = world()
@@ -107,8 +97,7 @@ class RcsTest {
 
         val fuelBefore = lander.amountOf(ResourceType.MONOPROPELLANT)
         world.apply(Command.SetTranslation(lander.id.raw, 1.0, 0.0, 0.0))
-        // Long enough to settle again. The command itself wakes the craft, whether or not the
-        // thrusters are switched on.
+        // Long enough to settle again, since the command wakes the craft either way.
         repeat(400) { world.step(dt) }
 
         assertEquals(
@@ -151,10 +140,7 @@ class RcsTest {
         return tug
     }
 
-    /**
-     * How fast it's turning after a second of full pitch, in rad/s, with the thrusters [armed] or
-     * not.
-     */
+    /** Turn rate (rad/s) and propellant used after a second of full pitch, [armed] or not. */
     private fun pitchRate(armed: Boolean): Pair<Double, Double> {
         val world = world()
         val tug = tugInOrbit(world)
@@ -191,8 +177,7 @@ class RcsTest {
             assertEquals(0.0, f[b * 3 + 2], 1e-9)
         }
 
-        // Rolling (about the craft's +y): each one pushes across, round the axis, with opposite
-        // blocks going opposite ways, and with no slide, nothing along it.
+        // Rolling about the craft's +y: each block pushes round the axis, opposites opposite ways.
         world.apply(Command.SetTranslation(tug.id.raw, 0.0, 0.0, 0.0))
         world.apply(Command.SetAttitude(tug.id.raw, 0.0, 0.0, 1.0))
         world.step(dt)
@@ -242,10 +227,7 @@ class RcsTest {
         assertEquals(4, blocks)
     }
 
-    /**
-     * How far from upright a landed tug ends up, in degrees, after a full slide for [seconds] with
-     * SAS [sas].
-     */
+    /** The most a landed tug leans from upright, in degrees, during a slide of [seconds]. */
     private fun tiltAfterFullSlide(sas: Boolean, seconds: Double = 4.0, amount: Double = 1.0): Double {
         val world = world()
         val tug = world.spawnOnSurface(StockCraft.moduleTug(catalog), site)
@@ -264,11 +246,7 @@ class RcsTest {
         return worst
     }
 
-    /**
-     * Pushed flat out along the ground, a landed tug rocks on its legs. The thrusters ease off as
-     * it does, and it stays on its feet. It went over at anything past a third of their thrust, SAS
-     * or not.
-     */
+    /** A landed tug pushed flat out rocks on its legs. The thrusters ease off, so it stays up. */
     @Test
     fun `a flat-out slide along the ground doesn't tip it over`() {
         for (sas in listOf(false, true)) {
@@ -278,9 +256,8 @@ class RcsTest {
     }
 
     /**
-     * A tool, not a test. RCS_PROBE=1 prints how far a landed tug on Terra goes, and how far it
-     * leans, for a few pushes, for tuning the thrusters' ease-off (Forces.ROCK_ALLOWED /
-     * ROCK_SPAN).
+     * A tool. RCS_PROBE=1 prints how far a landed tug on Terra moves and leans for a few
+     * pushes, for tuning Forces.ROCK_ALLOWED and ROCK_SPAN.
      */
     @Test
     fun probeWalking() {

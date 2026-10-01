@@ -5,12 +5,9 @@ import com.rm.apogee.render.gl.GlData
 import com.rm.apogee.platform.Log
 
 /**
- * A compiled and linked GLES program, with uniform locations cached the first time they're looked
- * up.
- *
- * The GLSL is careful on purpose: `#version 300 es` only, no compute, no storage buffers, and no
- * `gl_FragDepth` tricks. minSdk 27 means Adreno 5xx and Mali-T8xx drivers are in the test matrix,
- * and those are exactly the drivers that quietly miscompile anything clever.
+ * A compiled and linked GLES program, with uniform locations cached. Keep the GLSL plain:
+ * `#version 300 es`, no compute, no storage buffers, no `gl_FragDepth`. minSdk 27 means old Adreno
+ * and Mali drivers that miscompile anything clever.
  */
 class ShaderProgram(vertexSource: String, fragmentSource: String, private val name: String) {
 
@@ -43,7 +40,7 @@ class ShaderProgram(vertexSource: String, fragmentSource: String, private val na
     fun uniform(uniformName: String): Int = uniformLocations.getOrPut(uniformName) {
         val location = GLES30.glGetUniformLocation(handle, uniformName)
         if (location < 0) {
-            // Not fatal. A uniform the compiler proved unused is quite rightly missing.
+            // Not fatal: the compiler drops unused uniforms.
             Log.w(TAG, "uniform '$uniformName' not found in program '$name' (optimised out?)")
         }
         location

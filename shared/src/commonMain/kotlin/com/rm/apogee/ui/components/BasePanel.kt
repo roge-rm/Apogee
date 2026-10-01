@@ -33,9 +33,8 @@ import kotlin.math.roundToInt
 import com.rm.apogee.platform.format
 
 /**
- * A base, on the HUD: the one being flown, or the nearest founded one, with its power and its
- * stores. It also shows what the flown craft can do with it (be filled from it, empty its ore and
- * water into it, be founded where it stands, or let go) and switches its refinery on or off.
+ * The flown or nearest founded base on the HUD, with its power and stores, its refinery switch,
+ * and what the flown craft can do with it: refuel, unload, found or let go.
  */
 @Composable
 fun BasePanel(
@@ -54,7 +53,7 @@ fun BasePanel(
     Column(modifier, horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         if (base != null) {
             BaseCard(base)
-            // The refinery runs while nobody's there, and it gets switched here, from nearby.
+            // The refinery runs while nobody's there. It's switched here, from nearby.
             if (base.hasRefinery) {
                 if (base.refining) Chip("REFINING", "STOP", ApogeeColors.Prograde) { onRefine(base, false) }
                 else Chip("REFINE", "ORE · WATER", ApogeeColors.Accent) { onRefine(base, true) }

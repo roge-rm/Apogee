@@ -10,12 +10,9 @@ import com.rm.apogee.platform.System
 import kotlin.concurrent.Volatile
 
 /**
- * Everything the in-world overlay shows, as one observable holder.
- *
- * It's a plain class on purpose, instead of state hoisted up through composables. The writers are
- * the frame-clock loop, the game session and the touch handlers, and all of them are ordinary
- * non-composable Kotlin that needs a plain reference to write into. Compose watches it, and the
- * game doesn't have to become Compose to talk to it.
+ * Everything the in-world overlay shows, as one observable holder. A plain class so the frame loop,
+ * game session and touch handlers (all non-composable) can write straight into it while Compose
+ * watches.
  */
 class HudState {
     // --- diagnostics --------------------------------------------------------
@@ -26,9 +23,9 @@ class HudState {
 
     // --- flight -------------------------------------------------------------
     /**
-     * The readouts, brought up to date ten times a second, which is as fast as anyone reads a
-     * number, and straight away when something they show changes outright. Every frame, it had the
-     * whole flight screen recomposed sixty times a second, most of the phone's main thread.
+     * The readouts, updated ten times a second (as fast as anyone reads a number) and at once when
+     * something they show changes outright. Every frame would recompose the whole flight screen at
+     * 60 Hz, which ate most of a phone's main thread.
      */
     var telemetry: FlightTelemetry by mutableStateOf(FlightTelemetry.EMPTY)
 
@@ -45,14 +42,14 @@ class HudState {
     var statusOpen: String? by mutableStateOf(null)
 
     /**
-     * A feat just earned, or a launch the career refused, shown for a few seconds in the prompt
-     * slot. [good] is true for a feat and false for a refusal.
+     * A feat just earned (good) or a launch the career refused, shown for a few seconds in the
+     * prompt slot.
      */
     data class Banner(val title: String, val detail: String, val good: Boolean, val id: Long)
     var banner: Banner? by mutableStateOf(null)
 
     /**
-     * This player's career in the world being flown in, as its server keeps it (the host's, when
+     * This player's career in the world being flown (as its server keeps it, the host's when
      * joined), and that world's firsts. Null in a sandbox. Also whether the program is open over
      * the flight.
      */
@@ -72,9 +69,8 @@ class HudState {
     var connectionError: String? by mutableStateOf(null)
 
     /**
-     * Whether there's ground under the craft yet. It's separate from [connecting] because the two
-     * wait on different things and tell the player different things. One is the server, and the
-     * other is this device.
+     * Whether there's ground under the craft yet. Separate from [connecting]: one waits on the
+     * server, the other on this device.
      */
     var surfaceReady: Boolean by mutableStateOf(false)
 
@@ -88,9 +84,8 @@ class HudState {
     var hasWheels: Boolean by mutableStateOf(false)
 
     /**
-     * Thrusters: whether the craft has any (otherwise the RCS control hides itself), whether
-     * they're armed, whether the stick slides the craft instead of turning it, and the
-     * monopropellant left (0..1, or null).
+     * Thrusters: whether it has any (else the RCS control hides), whether they're armed, whether
+     * the stick slides instead of turns, and monopropellant left (0..1, or null).
      */
     var hasRcs: Boolean by mutableStateOf(false)
     var rcsArmed: Boolean by mutableStateOf(false)
@@ -107,8 +102,8 @@ class HudState {
     var dock: com.rm.apogee.game.GameSession.DockReadout? by mutableStateOf(null)
     var joints: List<com.rm.apogee.game.GameSession.Joint> by mutableStateOf(emptyList())
     /**
-     * Shared with [sharedWith] (their name): who flies it ("me", "them" or "both"), or null when it
-     * isn't shared.
+     * Shared with [sharedWith] (their name): who flies it ("me", "them" or "both"), or null when
+     * not shared.
      */
     var sharedWith: String? by mutableStateOf(null)
     var sharedPilot: String by mutableStateOf("both")
@@ -118,17 +113,16 @@ class HudState {
     var burn: com.rm.apogee.game.GameSession.BurnReadout? by mutableStateOf(null)
     var landing: com.rm.apogee.game.GameSession.LandingReadout? by mutableStateOf(null)
 
-    /** On the map, whether the path shown is one to plan burns on, or a course over the ground. */
+    /**
+     * On the map, whether the path shown can take planned burns, or is a course over the ground.
+     */
     var mapPlannable: Boolean by mutableStateOf(true)
     var window: com.rm.apogee.game.GameSession.WindowReadout? by mutableStateOf(null)
     var autopilotNote: String by mutableStateOf("")
 
     /**
-     * Whether another craft is close enough and still enough to weld to.
-     *
-     * The client decides this from the craft it already knows about, so the button shows up exactly
-     * when pressing it would do something. The server checks the same things again before acting.
-     * This is for the UI, not for authority.
+     * Whether another craft is close and still enough to weld to. Decided here from known craft so
+     * the button shows exactly when it would work; the server checks again before acting.
      */
     var canJoin: Boolean by mutableStateOf(false)
 
@@ -145,8 +139,8 @@ class HudState {
     var hasFoldouts: Boolean by mutableStateOf(false)
 
     /**
-     * Whether the body being flown around is surveyed, and what the map shows of it: "ORE", "H2O"
-     * or "OFF".
+     * Whether the body flown around is surveyed, and what the map shows of it: "ORE", "H2O" or
+     * "OFF".
      */
     var surveyedHere: Boolean by mutableStateOf(false)
     var mapResource: String by mutableStateOf("ORE")
@@ -154,7 +148,7 @@ class HudState {
     /** Whether the world here has sea currents, for the map's CURRENTS layer. */
     var currentsHere: Boolean by mutableStateOf(false)
 
-    /** The player's crew who were lost with the craft that was just lost, by name. */
+    /** The player's crew lost with the craft just lost, by name. */
     var crewLost: List<String> by mutableStateOf(emptyList())
 
     /** Whether the craft being flown is someone out on EVA. */
@@ -164,7 +158,10 @@ class HudState {
     var crew: List<CrewSeat> by mutableStateOf(emptyList())
     var crewSeats: Int by mutableIntStateOf(0)
 
-    /** Someone aboard: their [name], where they sit, whether they're the player's, and whether there's another free seat for them. */
+    /**
+     * Someone aboard: [name], where they sit, whether they're the player's, and whether there's
+     * another free seat.
+     */
     data class CrewSeat(val id: Long, val name: String, val where: String, val mine: Boolean, val canMove: Boolean)
 
     /** Whether it has drills and converters, so their controls can hide themselves. */
@@ -198,9 +195,9 @@ class HudState {
     var groupsUsed: List<Int> by mutableStateOf(emptyList())
 
     /**
-     * Whether this flight can be rewound (a save point taken, loaded, or the flight reverted to its
-     * launch): only in your own world, with nobody else on it. And when the save point was taken,
-     * in words, or null with none, and whether there's a launch to revert to.
+     * Whether this flight can be rewound (save point taken or loaded, or reverted to launch): only
+     * in your own world with nobody else on it. Also when the save point was taken, in words (null
+     * for none), and whether there's a launch to revert to.
      */
     var canRewind: Boolean by mutableStateOf(false)
     var savePoint: String? by mutableStateOf(null)
@@ -209,15 +206,17 @@ class HudState {
     /** The runway approach cue, while coming in to land on it, or null. */
     var approach: com.rm.apogee.core.world.Approach.Cue? by mutableStateOf(null)
 
-    /** The current the craft is floating in, over the ground: speed in m/s and where it's going, in compass degrees. */
+    /**
+     * The current the craft floats in, over the ground: speed in m/s and heading in compass
+     * degrees.
+     */
     var currentSpeed: Float by mutableStateOf(0f)
     var currentBearing: Float by mutableStateOf(0f)
 
     /**
-     * A craft's power and link home, for the HUD: charge and what it holds, the net rate per
-     * second, whether it has power, whether it needs a signal (a probe) and which one it has,
-     * through how many relays, whether it can be flown right now, and whether its fold-outs have
-     * been told to come out.
+     * A craft's power and link home, for the HUD: charge and capacity, net rate per second, whether
+     * it's powered, whether it needs a signal (a probe) and which it has, through how many relays,
+     * whether it can be flown now, and whether its fold-outs are told to come out.
      */
     data class PowerReadout(
         val charge: Float,
@@ -246,7 +245,7 @@ class HudState {
         val boardable: String = "",
         val canGrab: Boolean = false,
         val onLadder: Boolean = false,
-        /** In the water: a craft they could climb out onto, or empty; swimming; and how cold, 0..1. */
+        /** In the water: a craft they could climb onto (or empty), swimming, and how cold, 0..1. */
         val climbOnto: String = "",
         val swimming: Boolean = false,
         val chill: Float = 0f,
@@ -255,8 +254,8 @@ class HudState {
         /** Aboard someone else's craft. */
         val passenger: Boolean = false,
         /**
-         * Its ballast, 0..1 full, or below 0 with no tanks. Flooding is 1, blowing -1, or 0. The
-         * depth held in metres, or below 0.
+         * Ballast 0..1 full, or below 0 with no tanks. Mode: flooding 1, blowing -1, else 0. Depth
+         * held in metres, or below 0.
          */
         val ballast: Float = -1f,
         val ballastMode: Int = 0,
@@ -264,20 +263,20 @@ class HudState {
         /** How close the sea is to crushing it. 1 is its limit. */
         val crush: Float = 0f,
         /**
-         * From its sonar: the floor below in metres, and the nearest thing not found yet, with
-         * bearing and range. Below 0 for none.
+         * From its sonar: the floor below in metres, and the nearest unfound thing's bearing and
+         * range. Below 0 for none.
          */
         val seabed: Float = -1f,
         val findBearing: Float = 0f,
         val findRange: Float = -1f,
-        /** Holding height and heading: the height, or below 0 when not, and whether it can at all. */
+        /** Holding height and heading: the height, or below 0 when not, and whether it can. */
         val cruiseHeight: Float = -1f,
         val mayCruise: Boolean = true,
         /** Its action groups' states, by group number: 0 left alone, 1 on, -1 off. */
         val groups: List<Int> = emptyList(),
         /**
-         * Its winch: whether it has one, what it could hook now (blank for nothing), whether it's
-         * hooked, which way it's winding (1 in, -1 out, 0 holding), and whether the line is pulling.
+         * Its winch: whether it has one, what it could hook now (blank for nothing), whether
+         * hooked, winding (1 in, -1 out, 0 holding), and whether the line is pulling.
          */
         val hasWinch: Boolean = false,
         val canHook: String = "",
@@ -340,7 +339,7 @@ class HudState {
     var warp: Double by mutableStateOf(1.0)
     var warpRequested: Double by mutableStateOf(1.0)
 
-    /** How fast the world is really going under physics warp, or NaN when that isn't measured. */
+    /** How fast the world really goes under physics warp, or NaN when not measured. */
     var warpActual: Double by mutableStateOf(Double.NaN)
     var warpAllowed: Boolean by mutableStateOf(false)
 
@@ -354,8 +353,8 @@ class HudState {
     var exitMenuOpen: Boolean by mutableStateOf(false)
 
     /**
-     * Whether a controller's flying the craft, so the touch stick can step aside, until a touch
-     * says otherwise. And how far a held A has got toward staging, for the STAGE button's fill.
+     * Whether a controller's flying the craft, so the touch stick steps aside until a touch says
+     * otherwise. And how far a held A has got toward staging, for the STAGE button's fill.
      */
     var padActive: Boolean by mutableStateOf(false)
     var stageHold: Float by mutableFloatStateOf(0f)
@@ -459,9 +458,8 @@ class HudState {
 }
 
 /**
- * When the flight controls fade back to let the view through: [IDLE_NANOS] after the last thing
- * that wanted them (a touch anywhere, a new warning or prompt, or the engines running), and back
- * straight away on the next one.
+ * When the flight controls fade to let the view through: [IDLE_NANOS] after the last thing that
+ * wanted them (a touch, a new warning or prompt, engines running), and back at once on the next.
  */
 class HudFade {
     @Volatile private var lastWake = System.nanoTime()

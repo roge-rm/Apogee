@@ -18,10 +18,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlin.math.abs
 
-/**
- * Someone in the sea: swimming, diving and walking on the bottom, the cold, what their suit can
- * take, and getting back aboard.
- */
+/** Someone in the sea: swimming, diving, walking the bottom, the cold, suit depth, getting aboard. */
 class SwimmingTest {
     private val catalog = StockParts.catalog
     private val dt = 1.0 / 60.0
@@ -47,8 +44,8 @@ class SwimmingTest {
     }
 
     /**
-     * Someone out of a Coaster and over her side, [off] metres from her middle, settled in the
-     * water there. Going outside puts them on her deck.
+     * Someone out of a Coaster, over her side [off] metres from her middle and settled in the
+     * water. Going outside puts them on her deck first.
      */
     private fun overboard(world: World, ship: Vessel = launch(world, StockCraft.coaster(catalog)), off: Double = 8.0): Pair<Vessel, Vessel> {
         run(world, 10.0)
@@ -148,8 +145,7 @@ class SwimmingTest {
         val limit = world.suitDeepest(world.attractorFor(suit))
         assertTrue("dived to ${world.depthOf(suit)} m, past $limit", world.depthOf(suit) < limit)
         assertTrue("crushed", suit.broken.none { it })
-        // Carried down, well past it, though clear of the floor sixty metres down, and left there.
-        // Still diving, they'd swim back up to where it's safe.
+        // Carried well past it but clear of the 60 m floor. Still diving, they'd swim back up.
         world.apply(Command.SetBallast(suit.id.raw, 0))
         val member = suit.crew[0].first()
         suit.body.position.addScaledInPlace(suit.body.position.normalized(), -(50.0 - world.depthOf(suit)))
@@ -215,8 +211,7 @@ class SwimmingTest {
 
     @Test
     fun `in a swell, a ship's side still can't be climbed without her ladder`() {
-        // Rolled a little by the swell, her side leans out over the water, and going down it from
-        // the air the climb found her side halfway and called it somewhere to stand.
+        // Rolled by the swell, her side leans out, and must not count as somewhere to stand.
         val world = World.default(catalog).also { it.weatherConfig = WeatherConfig(intensity = WeatherIntensity.NORMAL) }
         val (_, suit) = overboard(world, off = 2.9)
         var spin = 0.0
@@ -264,7 +259,7 @@ class SwimmingTest {
             assertNotNull("$weather: nowhere to climb out", spot)
             world.apply(Command.ClimbOut(suit.id.raw))
             run(world, 0.5)
-            // Stood up on it, the little thing rolls them off, so they sit straight in its saddle.
+            // Standing on it rolls them off, so they sit in its saddle.
             assertTrue("$weather: not aboard it", ski.crew.any { member in it })
         }
     }

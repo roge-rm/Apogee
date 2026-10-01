@@ -20,9 +20,8 @@ class StagingTest {
     private val dt = 1.0 / 60.0
 
     /**
-     * After the upper stage separates, the chute is still next, and still stage 2, the number the
-     * player saw it by in the builder and on the stack. The lower stage's entry stays in the
-     * sequence, empty.
+     * After separation the chute keeps the stage number the builder showed. The lower stage's entry
+     * stays in the sequence, empty.
      */
     @Test
     fun `the chute still fires after the stages below it are gone`() {
@@ -67,10 +66,7 @@ class StagingTest {
         assertEquals(CraftOrientation.HORIZONTAL, craft.design.orientation)
     }
 
-    /**
-     * The flight HUD's figures. Burning brings the current stage's fuel and delta-v down from what
-     * the builder promised, and the stages above still read full.
-     */
+    /** HUD stage figures: burning lowers this stage's fuel and delta-v. Stages above stay full. */
     @Test
     fun `live stage figures follow the burn`() {
         val design = StockCraft.starterRocket(catalog)
@@ -90,7 +86,7 @@ class StagingTest {
         assertEquals("the upper stage is untouched", 1.0, upper.fuelFraction, 1e-9)
     }
 
-    /** A jet's figures, which read zero when only vacuum was quoted. */
+    /** A jet's figures, which read zero if only vacuum figures are used. */
     @Test
     fun `an air-breathing stage has delta-v`() {
         val stats = CraftStats.analyze(StockCraft.sparrow(catalog), catalog)
@@ -119,11 +115,7 @@ class StagingTest {
         return Triple(world, rocket, spent)
     }
 
-    /**
-     * Let go of while coasting, the halves drift apart on the ring's push alone, and keep drifting.
-     * The spent half was once placed at the whole rocket's centre, inside the stage above it, and
-     * the two locked together as soon as they stopped ignoring each other.
-     */
+    /** Let go while coasting, the halves drift apart on the ring's push and keep drifting. */
     @Test
     fun `coasting halves drift apart and stay apart`() {
         val (world, rocket, spent) = separatedInSpace()
@@ -147,11 +139,7 @@ class StagingTest {
         assertTrue(rocket.amountOf(com.rm.apogee.core.part.ResourceType.PROPELLANT) > 0.0)
     }
 
-    /**
-     * A stage let go of while its engine is burning keeps on burning. Its control module is gone,
-     * but nothing told the engine to stop, so it burns at the throttle it had until its tanks run
-     * dry. That's how I wanted it.
-     */
+    /** A stage dropped while burning keeps its throttle and burns until its tanks run dry. */
     @Test
     fun `a stage dropped while burning burns on until it is dry`() {
         val world = World.default(catalog)
@@ -180,10 +168,7 @@ class StagingTest {
         }
     }
 
-    /**
-     * Staged with the stage below still burning. It's solid, so it shoves the craft above along
-     * instead of flying through it, which is what I asked for.
-     */
+    /** A stage dropped while burning is solid: it shoves the craft above along. */
     @Test
     fun `a stage let go while burning pushes the craft above, and doesn't pass through it`() {
         val world = World.default(catalog)
@@ -215,11 +200,7 @@ class StagingTest {
         assertTrue("the upper stage was pushed along ($pushed m/s)", pushed > 2.0)
     }
 
-    /**
-     * A stage let go with its engine burning pushes the one above, and pushes it straight. Taken at
-     * the touching points around the decoupler, it spun the upper stage past a radian a second,
-     * which at 4x warp was a craft flickering all over the screen.
-     */
+    /** A burning stage below pushes the one above straight, without spinning it. */
     @Test
     fun `a burning stage below pushes the upper one without spinning it`() {
         val world = World.default(catalog)

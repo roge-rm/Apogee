@@ -57,8 +57,7 @@ class MoonshotTest {
 
         // Up, with the Shroud thrown open once it's out of the air.
         val ascent = AscentScenario(
-            // A stiffer climb than the Starter's. It leaves the pad at two and a half times its
-            // weight, and pitches over sooner.
+            // It leaves the pad at 2.5 times its weight, so it pitches over sooner.
             turnEndAltitude = 22_000.0,
             design = { StockCraft.moonshot(it) },
             launchAt = window,
@@ -76,9 +75,8 @@ class MoonshotTest {
         // Hands off the stick, like a player's are when the autopilot flies.
         craft.control.pitch = 0.0; craft.control.yaw = 0.0; craft.control.roll = 0.0
 
-        // A transfer: the Hohmann speed, at whichever point of the orbit sends it past Luna at a
-        // height worth braking at, the way a player drags the burn along the path until the map
-        // shows it.
+        // A transfer: the Hohmann speed, at whichever point of the orbit passes Luna at a height
+        // worth braking at.
         val orbit = world.orbitOf(craft)
         val r1 = orbit.position.length
         val a = 0.5 * (r1 + luna.orbit!!.semiMajorAxis)
@@ -100,8 +98,7 @@ class MoonshotTest {
         world.apply(Command.PlanBurns(craft.id.raw, listOf(plan!!)))
         autoBurn(world, craft, "transfer")
 
-        // A burn that's flown is never quite the burn that was planned, so there's a correction on
-        // the way if the map shows it missing, the smallest one that meets Luna.
+        // A flown burn is never exact, so make the smallest correction that meets Luna if needed.
         fun meetsWell(o: com.rm.apogee.core.orbit.Orbit, at: Double): Boolean {
             val there = Trajectory.predict(system, "terra", o.position, o.velocity, at).about("luna") ?: return false
             return there.orbit.periapsis - luna.radius in 30_000.0..400_000.0
@@ -155,8 +152,7 @@ class MoonshotTest {
             world.apply(Command.PlanBurns(craft.id.raw, listOf(PlannedBurn(world.time + 120.0, prograde = want - speed))))
             autoBurn(world, craft, "deorbit")
         }
-        // The fall on rails, the way a player would warp it, down to where there's still room to
-        // brake from orbital speed. The rest is flown.
+        // Fall on rails to where there's still room to brake from orbital speed, then fly the rest.
         val lunaBody = world.attractorFor(craft)
         fun high(): Double = lunaBody.heightAboveTerrain(craft.body.position,
             lunaBody.toBodyFixed(craft.body.position, lunaBody.rotationAt(world.time)).normalizeInPlace())

@@ -4,12 +4,8 @@ import com.rm.apogee.render.gl.GLES30
 import com.rm.apogee.render.gl.GlData
 
 /**
- * A polyline in GPU memory, uploaded again as it changes.
- *
- * It's separate from [Mesh] because the two have nothing in common at the GL level. This one has
- * one attribute instead of two, streams instead of sitting still, and draws as a line strip instead
- * of indexed triangles. An orbit is worked out again every frame as the craft moves, so the buffer
- * is `GL_DYNAMIC_DRAW` and only grows when a longer path arrives.
+ * A polyline in GPU memory, uploaded again as it changes. One attribute, drawn as a line strip.
+ * Orbits change every frame, so the buffer is `GL_DYNAMIC_DRAW` and only grows when it must.
  */
 class LineMesh {
 
@@ -40,8 +36,7 @@ class LineMesh {
         val buffer = GlData(points.size * Float.SIZE_BYTES).apply { putFloats(points) }
 
         if (points.size > capacityFloats) {
-            // Grow, and reallocate instead of orphaning. A partial update into a smaller buffer is
-            // undefined, not just wrong.
+            // Reallocate to grow. A partial update past the end of a buffer is undefined.
             GLES30.glBufferData(
                 GLES30.GL_ARRAY_BUFFER,
                 points.size * Float.SIZE_BYTES,

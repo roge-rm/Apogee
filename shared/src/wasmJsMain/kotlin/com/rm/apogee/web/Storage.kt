@@ -8,8 +8,8 @@ import kotlin.js.ExperimentalWasmJsInterop
 import kotlinx.browser.localStorage
 
 /*
- * The page keeps everything in the browser's local storage: settings, saved craft and the worlds,
- * each file under a key of its own, with the time it was written beside it.
+ * Everything is kept in the browser's local storage: settings, craft and worlds, a key per file
+ * with its write time beside it.
  */
 
 private const val FILES = "apogee:"

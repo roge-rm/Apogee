@@ -85,15 +85,11 @@ import com.rm.apogee.platform.System
 import com.rm.apogee.platform.format
 
 /**
- * The overlay drawn on top of the rendered world.
+ * The overlay drawn over the world. It's transparent (a ComposeView above the GLSurfaceView), so
+ * every panel has its own scrim.
  *
- * It's transparent by nature (it sits in a ComposeView above the GLSurfaceView), so every panel has
- * its own scrim to stay readable against whatever the camera happens to be pointing at.
- *
- * The layout is anchored to the four corners and the two side edges, with nothing in the middle.
- * The craft is what the player is looking at, and a control that drifts into the middle of the
- * screen is a control in the way. Throttle and attitude sit on opposite edges so the two thumbs
- * never cross, and they swap sides together when left-hand mode is on.
+ * Everything sits in the corners and along the sides, leaving the middle for the craft. Throttle
+ * and attitude are on opposite edges so the thumbs never cross, and they swap in left-hand mode.
  */
 @Composable
 fun FlightScreen(
@@ -178,20 +174,15 @@ fun FlightScreen(
     /** Planning burns, and the autopilots. */
     burnActions: com.rm.apogee.ui.components.BurnActions = com.rm.apogee.ui.components.BurnActions(),
     crewActions: com.rm.apogee.ui.components.CrewActions = com.rm.apogee.ui.components.CrewActions(),
-    /**
-     * This player's id, for the program's firsts, and spending insight there: null if it went
-     * through, or the reason it didn't.
-     */
+    /** This player's id, for the program's firsts. [onUnlock] gives null or why it failed. */
     me: String = "",
     onUnlock: (String) -> String? = { null },
 ) {
-    // BoxWithConstraints instead of the configuration's orientation. This is a question about the
-    // space that's really available, and the answer has to be right in a resized window and in
-    // multi-window as well as after a rotation. Asking the layout is asking the thing that decides.
+    // BoxWithConstraints, not the configuration's orientation, so it's right in a resized window
+    // and in multi-window too.
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val portrait = maxWidth < maxHeight
-        // Remembered, so the same holders go to the rail, the status row and the prompts each time
-        // the screen recomposes, and those can skip. Made afresh each time, none of them could.
+        // Remembered, so the rail, status row and prompts get the same holders and can skip.
         val sas = remember(onToggleSas, onSasMode, targetChoices, onTarget, onStickMode, onCruise, onSteering, burnActions) {
             SasActions(onToggleSas, onSasMode, targetChoices, onTarget, onStickMode, onCruise, onSteering, burnActions.onAutoLand)
         }
@@ -214,8 +205,7 @@ fun FlightScreen(
             ConnectionProblem(hud.connectionError!!, onExit)
             return@BoxWithConstraints
         }
-        // The program, over the flight. In a world someone else hosts, it's the only place a
-        // player's career there can be seen and spent.
+        // The program, over the flight. In someone else's world it's the only way to see it.
         val career = hud.career
         if (hud.programOpen && career != null) {
             com.rm.apogee.ui.BackHandler { hud.programOpen = false }
@@ -223,10 +213,8 @@ fun FlightScreen(
             return@BoxWithConstraints
         }
         if (hud.connecting || !hud.surfaceReady) {
-            // Opaque, with nothing drawn over it. The GL surface behind this is live, and until the
-            // terrain patch lands it shows a craft hanging over a globe too coarse to have the
-            // ground under it, which looks like a broken world instead of one still loading. A
-            // spinner floating over that picture doesn't help. Covering it does.
+            // Opaque. Until the terrain patch lands, the live GL view behind shows the craft over
+            // a globe too coarse to have ground under it, and that looks broken.
             Box(
                 Modifier
                     .fillMaxSize()
@@ -250,12 +238,11 @@ fun FlightScreen(
 
         // --- fading when idle -----------------------------------------------
         //
-        // A few seconds with nothing touched and the controls fade back to let the view through.
-        // Any touch, a new warning or prompt, or the engines running brings them straight back.
+        // A few seconds untouched and the controls fade. A touch, a new warning or prompt, or the
+        // engines running brings them back.
         var idle by remember { mutableStateOf(false) }
-        // Worked out in their own scopes, so the readouts they read changing ten times a second
-        // doesn't recompose the whole screen, only these, and only when the keys themselves change
-        // does anything else hear of it.
+        // Derived, so readouts changing ten times a second only recompose these, and the rest
+        // hears only when a key changes.
         val statusKey by remember(hud) { derivedStateOf { statusKey(hud) } }
         val promptKey by remember(hud) { derivedStateOf { promptKey(hud) } }
         LaunchedEffect(statusKey, promptKey) { hud.touched() }
@@ -277,12 +264,9 @@ fun FlightScreen(
 
         // --- top left: exit, map, craft, warp, and the craft's name ----------
         //
-        // Only the *horizontal* cutout inset, so these sit right up against the top edge. Padding
-        // for the full cutout pushes them a notch's height down the screen to clear something that
-        // only one button is under, if any. The horizontal inset still applies, which is what
-        // matters in landscape, where the cutout is down one side and really is in the way. A hole
-        // in the top edge, in the middle or a corner, the buttons step round: one that would be
-        // under it goes past it, and the rest follow on.
+        // Only the horizontal cutout inset, so these sit hard against the top edge. That's the one
+        // that matters in landscape. A hole in the top edge the buttons step round: the one that
+        // would be under it goes past, and the rest follow.
         Column(
             modifier = Modifier
                 .align(Alignment.TopStart)
@@ -294,8 +278,7 @@ fun FlightScreen(
                 spacing = Dimens.HudGroupGap,
             ) {
                 FilledTonalIconButton(
-                    // Alone in your own world, it's a menu, with the save points in it. Otherwise
-                    // it just leaves.
+                    // Alone in your own world it opens a menu with save points. Otherwise it leaves.
                     onClick = { if (hud.canRewind) hud.exitMenuOpen = true else onExit() },
                     modifier = Modifier.size(Dimens.HudIconSize),
                 ) {
@@ -315,7 +298,7 @@ fun FlightScreen(
                 ) {
                     Icon(Icons.Filled.Public, contentDescription = "Map view")
                 }
-                // How the camera follows the craft, with the new way's name shown for a moment.
+                // Camera mode, with its name shown for a moment.
                 if (!hud.mapMode) CameraButton(hud.cameraMode, onCameraMode, Dimens.HudIconSize)
                 // The list of craft, and retiring this one.
                 if (hud.ownedCraft > 0) {
@@ -351,9 +334,7 @@ fun FlightScreen(
                         Icon(Icons.Filled.AccountTree, contentDescription = "Program")
                     }
                 }
-                // The craft name is the first thing to go when the screen is narrow. The flight
-                // strip opposite isn't optional, and the two meet in the middle on a portrait
-                // phone.
+                // The name is the first to go on a narrow screen, where it'd meet the flight strip.
                 if (!portrait && hud.telemetry.craftName.isNotEmpty()) {
                     Text(
                         hud.telemetry.craftName,
@@ -371,7 +352,7 @@ fun FlightScreen(
             }
         }
 
-        // Gone, so there are no controls to fly it with, only what happened to it.
+        // Gone, so no controls, only what happened to it.
         hud.telemetry.destroyed?.let { report ->
             CrashCard(
                 name = hud.telemetry.craftName,
@@ -379,9 +360,9 @@ fun FlightScreen(
                 lost = hud.telemetry.lost,
                 crewLost = hud.crewLost,
                 onLeave = onExit,
-                // Opens the craft list, from the button at the top, to choose which.
+                // Opens the craft list at the top.
                 onFlyAnother = if (hud.ownedCraft > 0) ({ hud.craftListOpen = true }) else null,
-                // Low, where the controls were, because the wreck is in the middle of the view.
+                // Low, because the wreck is in the middle of the view.
                 modifier = Modifier.align(Alignment.BottomCenter)
                     .windowInsetsPadding(WindowInsets.navigationBars)
                     .padding(bottom = 16.dp),
@@ -391,10 +372,8 @@ fun FlightScreen(
 
         // --- top right: the flight strip, and the status chips under it ------
         //
-        // Along the edge, out of the view: a few numbers, tapped open for the rest, then the
-        // craft's state in small chips, each tapped open for what's behind it. In portrait it's a
-        // row below the buttons, not beside them, because there's no room beside them, and a wide
-        // number ("suborbital") pushed the strip over the warp button.
+        // A few numbers, tapped open for the rest, then the craft's state in chips. In portrait
+        // it goes below the buttons, since there's no room beside them.
         Column(
             modifier = Modifier
                 .align(Alignment.TopEnd)
@@ -432,10 +411,7 @@ fun FlightScreen(
 
         // --- the bottom corners: throttle and switches, stick, navball, stage -
         //
-        // Throttle and attitude on opposite edges so the two thumbs never cross, swapping sides
-        // together in left-hand mode. The switches go on the throttle's inner side, and the navball
-        // and the STAGE button sit low in the middle between them. Nothing is higher than it has to
-        // be.
+        // Switches on the throttle's inner side, and the navball and STAGE low in the middle.
         val throttleGroup: @Composable () -> Unit = {
             Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 val rail: @Composable () -> Unit = {
@@ -487,8 +463,7 @@ fun FlightScreen(
                 verticalAlignment = Alignment.Bottom,
             ) {
                 if (leftHandMode) attitude() else throttleGroup()
-                // The ball above the button, because side by side they're wider than a portrait
-                // phone has between the thumbs.
+                // Stacked, since side by side they don't fit between the thumbs in portrait.
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     navball()
                     Spacer(Modifier.height(8.dp))
@@ -585,9 +560,8 @@ class RewindActions(
 )
 
 /**
- * The X button's menu, alone in your own world: take a save point, go back to it, start the flight
- * again from its launch, or leave. Going back asks first, since whatever's happened since is lost,
- * feats and all.
+ * The X button's menu in your own world: save point, load it, revert to launch, or leave. Going
+ * back asks first, since everything since is lost, feats too.
  */
 @Composable
 private fun ExitMenu(hud: HudState, rewind: RewindActions, onExit: () -> Unit, onClose: () -> Unit) {
@@ -600,8 +574,8 @@ private fun ExitMenu(hud: HudState, rewind: RewindActions, onExit: () -> Unit, o
             title = { Text(if (loading) "Load the save point?" else "Revert to the launch?") },
             text = {
                 Text(
-                    (if (loading) "Everything goes back to how it was at ${hud.savePoint}." else "Everything goes back to just before this launch.") +
-                        if (hud.career != null) " Feats earned since then are taken back too." else "",
+                    (if (loading) "Back to ${hud.savePoint}." else "Back to just before this launch.") +
+                        if (hud.career != null) " Feats since then are lost." else "",
                 )
             },
             confirmButton = {
@@ -619,18 +593,17 @@ private fun ExitMenu(hud: HudState, rewind: RewindActions, onExit: () -> Unit, o
         title = { Text(hud.telemetry.craftName.ifBlank { "Paused" }) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                // Save points are only for a world of your own. Anywhere else, Start and Back still
-                // bring this up, with only Leave in it.
-                if (hud.canRewind) MenuRow("Save point", hud.savePoint?.let { "Last taken at $it" } ?: "Take one now, to come back to") {
+                // Save points only in your own world. Elsewhere Start and Back show just Leave.
+                if (hud.canRewind) MenuRow("Save point", hud.savePoint?.let { "Last at $it" }) {
                     rewind.onSavePoint(); onClose()
                 }
-                if (hud.canRewind) MenuRow("Load save point", hud.savePoint?.let { "Back to $it" } ?: "None taken yet", enabled = hud.savePoint != null) {
+                if (hud.canRewind) MenuRow("Load save point", enabled = hud.savePoint != null) {
                     confirm = "load"
                 }
-                if (hud.canRewind) MenuRow("Revert to launch", if (hud.canRevert) "Start again from the launch" else "Not launched this time", enabled = hud.canRevert) {
+                if (hud.canRewind) MenuRow("Revert to launch", enabled = hud.canRevert) {
                     confirm = "revert"
                 }
-                MenuRow("Leave", "Back to the menu") { onClose(); onExit() }
+                MenuRow("Leave") { onClose(); onExit() }
             }
         },
         confirmButton = { androidx.compose.material3.TextButton(onClick = onClose) { Text(hud.going.keep) } },
@@ -638,7 +611,7 @@ private fun ExitMenu(hud: HudState, rewind: RewindActions, onExit: () -> Unit, o
 }
 
 @Composable
-private fun MenuRow(title: String, detail: String, enabled: Boolean = true, onClick: () -> Unit) {
+private fun MenuRow(title: String, detail: String? = null, enabled: Boolean = true, onClick: () -> Unit) {
     Column(
         Modifier
             .fillMaxWidth()
@@ -648,7 +621,7 @@ private fun MenuRow(title: String, detail: String, enabled: Boolean = true, onCl
             .padding(horizontal = 8.dp, vertical = 10.dp),
     ) {
         Text(title, style = MaterialTheme.typography.titleSmall, color = if (enabled) Color.White else Color.White.alpha(ApogeeAlpha.BORDER))
-        Text(detail, style = MaterialTheme.typography.bodySmall, color = Color.White.alpha(if (enabled) ApogeeAlpha.SUBTITLE else ApogeeAlpha.BORDER))
+        if (detail != null) Text(detail, style = MaterialTheme.typography.bodySmall, color = Color.White.alpha(if (enabled) ApogeeAlpha.SUBTITLE else ApogeeAlpha.BORDER))
     }
 }
 
@@ -689,8 +662,7 @@ private fun AttitudeCluster(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (touchStick) HoldButton(if (sliding) "▼" else "↺", { held -> onRoll(if (held) -1f else 0f) }, size = 40.dp)
-            // Stability assist lives with the attitude controls, not with staging, because it's the
-            // thing that holds an attitude for you.
+            // SAS sits with the attitude controls since it holds an attitude for you.
             com.rm.apogee.ui.components.SasButton(
                 enabled = hud.sasEnabled,
                 mode = hud.telemetry.sasMode,
@@ -723,17 +695,15 @@ private fun AttitudeCluster(
         } else if (deaf != null) {
             Text(deaf, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = ApogeeColors.Danger)
         }
-        // What the stick does, right under it: read by the craft's nose or by the screen, or
-        // sliding while the thrusters are armed.
+        // What the stick does, right under it.
         Spacer(Modifier.height(8.dp))
         StickModeChip(sliding, hud.steerByScreen, hud.rcsArmed, sas.onStickMode, sas.onSteering)
     }
 }
 
 /**
- * NOSE | SCREEN, and SLIDE while the thrusters are armed: what the stick does. By the nose it
- * works the craft's own controls. By the screen it points where you want to go as you see it.
- * Sliding, it moves the craft on its thrusters.
+ * NOSE | SCREEN, and SLIDE with the thrusters armed. NOSE works the craft's own controls, SCREEN
+ * points where you see you want to go, and SLIDE moves the craft on its thrusters.
  */
 @Composable
 private fun StickModeChip(
@@ -836,10 +806,7 @@ private const val THROTTLE_SNAP = 0.07f
 private const val OUT_OF_TOUCH_ALPHA = 0.35f
 private val STICK_SIZE = 132.dp
 
-/**
- * How far the stick is kept in from its corner, beyond the screen's own margin. Tucked right into
- * the corner, it was too close to control easily, and my thumb had to bend back to reach it.
- */
+/** How far the stick sits in from its corner, past the margin. Any closer and it's awkward to reach. */
 private val STICK_INSET = 40.dp
 
 /** How tall a status chip's detail can grow in landscape before it scrolls, clear of the stage button. */
@@ -848,40 +815,30 @@ private val LANDSCAPE_DETAIL_HEIGHT = 150.dp
 /** Numbers per line on the flight strip. */
 private const val PORTRAIT_STRIP_PER_LINE = 5
 
-/**
- * Under this height a rover's readouts are a car's, in metres. Off a cliff or thrown clear of a
- * crest, height and climb matter again.
- */
+/** Under this height in metres, a rover's readouts are a car's. Higher, height and climb matter. */
 private const val DRIVING_HEIGHT = 20.0
 private const val LANDSCAPE_STRIP_PER_LINE = 5
 
-/**
- * Where the prompts start down from the top: under the buttons, the strip and the chips in
- * portrait, and the top row in landscape.
- */
+/** Where the prompts start: under the buttons, strip and chips in portrait, the top row in landscape. */
 private val PORTRAIT_PROMPT_TOP = 150.dp
 private val LANDSCAPE_PROMPT_TOP = 58.dp
 
-/**
- * Switches per column of the rail, before a second one. Portrait has the height, and landscape
- * doesn't.
- */
+/** Switches per rail column before a second one. Portrait has more height. */
 private const val PORTRAIT_RAIL_PER_COLUMN = 6
 private const val LANDSCAPE_RAIL_PER_COLUMN = 4
 
-/** How often the idle fade is checked, in ms, and how fast the controls come back, in ms. */
+/** How often the idle fade is checked, and how fast the controls come back, in ms. */
 private const val FADE_POLL_MS = 200L
 private const val FADE_BACK_MS = 150
 
 private val PORTRAIT_STICK_INSET = 14.dp
 
-/** Keeps the stick [inset] in from the screen edge it sits against (the left in left-hand mode) and up from the bottom. */
+/** Keeps the stick [inset] in from its side edge (left in left-hand mode) and up from the bottom. */
 private fun Modifier.cornerInset(leftHand: Boolean, inset: Dp): Modifier =
     padding(start = if (leftHand) inset else 0.dp, end = if (leftHand) 0.dp else inset, bottom = inset * 0.5f)
 private val NAVBALL_SIZE = 112.dp
 
-// Portrait is short of width and generous with height, so the throttle takes the height. A longer
-// throttle is a finer throttle, over the same 0-100%.
+// Portrait has height to spare, so the throttle's longer there, and finer.
 private val PORTRAIT_THROTTLE_HEIGHT = 150.dp
 private val PORTRAIT_STICK_SIZE = 122.dp
 private val PORTRAIT_NAVBALL_SIZE = 100.dp
@@ -920,7 +877,7 @@ private fun CrashCard(
                     color = Color.White.alpha(ApogeeAlpha.SECONDARY),
                 )
             }
-            // Who went with it, and who's on the memorial now.
+            // Who went with it.
             if (crewLost.isNotEmpty()) {
                 Spacer(Modifier.height(8.dp))
                 Text(
@@ -931,7 +888,7 @@ private fun CrashCard(
                 )
             }
             Spacer(Modifier.height(14.dp))
-            // One over the other, full width, so they're the same size whatever they say.
+            // Stacked full width, so they're the same size.
             if (onFlyAnother != null) ApogeeButton("Pick another craft", onClick = onFlyAnother)
             ApogeeButton("Leave", onClick = onLeave)
         }
@@ -952,8 +909,7 @@ private fun MapNames(labels: (Float, Float) -> List<com.rm.apogee.game.GameSessi
     Box(Modifier.fillMaxSize().onSizeChanged { size = it }) {
         for (label in shown) {
             if (label.place) {
-                // A found place is a small dot on the world, nothing more. Its name is in the
-                // Program.
+                // A found place is just a dot. Its name is in the Program.
                 Box(
                     Modifier
                         .offset { androidx.compose.ui.unit.IntOffset(label.x.toInt(), label.y.toInt()) }
@@ -979,7 +935,7 @@ private fun MapNames(labels: (Float, Float) -> List<com.rm.apogee.game.GameSessi
 /** How big a found place's dot is on the map. */
 private val PLACE_DOT = 6.dp
 
-/** Goes to the camera's next way of following the craft, and says which it is for a moment. */
+/** Steps to the next camera mode and shows its name for a moment. */
 @Composable
 private fun CameraButton(mode: com.rm.apogee.game.CameraMode, onNext: () -> Unit, size: androidx.compose.ui.unit.Dp) {
     var shownFor by remember { mutableStateOf<com.rm.apogee.game.CameraMode?>(null) }
@@ -990,7 +946,7 @@ private fun CameraButton(mode: com.rm.apogee.game.CameraMode, onNext: () -> Unit
         kotlinx.coroutines.delay(1_500)
         shownFor = null
     }
-    // The button's own size, whatever the name under it, so the buttons beside it stay put.
+    // The button's own size whatever the name, so its neighbours stay put.
     Box(Modifier.size(size)) {
         FilledTonalIconButton(onClick = onNext, modifier = Modifier.size(size)) {
             Icon(Icons.Filled.Videocam, contentDescription = "Camera: ${mode.label}")

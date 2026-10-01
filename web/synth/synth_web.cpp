@@ -1,7 +1,6 @@
-// The synth for a web page: the phone's synth (app/src/main/cpp/synth) with a plain C face, built
-// as a WebAssembly module of its own that runs inside the page's AudioWorklet (synth-worklet.js).
-// Everything happens on the worklet's one thread. The page sends the scene and the one-shots over
-// as messages, the worklet writes them in here, and render() mixes a block.
+// The phone's synth (app/src/main/cpp/synth) with a plain C face, built as WebAssembly for the
+// page's AudioWorklet (synth-worklet.js). Everything runs on the worklet's one thread: it writes
+// the page's messages in here and synth_render() mixes a block.
 #include <emscripten/emscripten.h>
 
 #include <memory>
@@ -12,7 +11,7 @@ namespace {
 
 std::unique_ptr<apogee::Synth> synth;
 
-// Where the worklet writes what it's handing over, and where a block is mixed to.
+// Where the worklet writes its input, and where a block is mixed to.
 int keys[apogee::kMaxSceneEntries];
 int recipes[apogee::kMaxSceneEntries];
 int flags[apogee::kMaxSceneEntries];

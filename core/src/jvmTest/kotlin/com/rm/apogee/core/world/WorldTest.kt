@@ -24,9 +24,8 @@ class WorldTest {
         val vessel = world.spawnOnSurface(StockCraft.starterRocket(catalog), World.launchSites.first())
         val terra = world.attractorFor(vessel)
 
-        // Against the ground, not the datum. The launch complex sits most of a kilometre above sea
-        // level, so measuring clearance from the datum would call a craft parked on the pad
-        // "floating".
+        // Against the ground, not the datum: the launch complex is most of a kilometre above sea
+        // level.
         val rotation = terra.rotationAt(world.time)
         val bodyFixed = Vec3()
 
@@ -61,9 +60,8 @@ class WorldTest {
 
     @Test
     fun `terrain turns with the planet`() {
-        // Terrain is carved into a body that rotates. Sampled in the inertial frame it scrolls
-        // under a parked craft at 175 m/s, which had the stock rocket climbing steadily off its own
-        // pad.
+        // Terrain turns with the body. Sampled inertially it would scroll under a parked craft at
+        // 175 m/s.
         val world = world()
         val terra = world.system.body("terra")
         val field = terra.terrain!!
@@ -71,8 +69,7 @@ class WorldTest {
         val bodyFixed = Vec3(1.0, 0.0, 0.0)
         val atStart = field.surfaceRadius(bodyFixed)
 
-        // A quarter of a rotation later, the same patch of ground is somewhere else in inertial
-        // space, but it's still the same ground.
+        // A quarter turn later the same ground is elsewhere in inertial space, but still the same.
         val later = terra.rotationAt(terra.rotationPeriod / 4.0)
         val inertial = later.rotate(bodyFixed)
         val backToBodyFixed = terra.toBodyFixed(inertial, later)
@@ -96,8 +93,7 @@ class WorldTest {
         val terra = world.attractorFor(vessel)
 
         val surfaceVelocity = terra.surfaceVelocityAt(vessel.body.position)
-        // Spawned at rest in the inertial frame, it would be dragged off the pad at a couple of
-        // hundred m/s the moment friction applied.
+        // At rest inertially, friction would drag it off the pad at a couple of hundred m/s.
         assertTrue(
             "should match surface velocity, got ${vessel.body.linearVelocity} vs $surfaceVelocity",
             vessel.body.linearVelocity.approxEquals(surfaceVelocity, 1e-6),
@@ -187,8 +183,7 @@ class WorldTest {
         repeat(steps) { world.step(dt) }
         val after = world.orbitOf(vessel)
 
-        // The integrator is first-order, so some drift is expected. What mustn't happen is the
-        // orbit shrinking or growing noticeably.
+        // The integrator is first-order, so some drift is fine, but not visible shrink or growth.
         assertEquals(
             "semi-major axis drifted ${after.semiMajorAxis - before.semiMajorAxis}m",
             before.semiMajorAxis,
@@ -222,8 +217,7 @@ class WorldTest {
     @Test
     fun `commands addressed to a missing vessel are ignored instead of fatal`() {
         val world = world()
-        // A stale command for a vessel that was destroyed is completely normal over a network, and
-        // it mustn't take the server down.
+        // A stale command for a destroyed vessel is normal over a network and mustn't crash anything.
         world.apply(Command.SetThrottle(9_999L, 1.0))
         world.apply(Command.Stage(9_999L))
         world.step(dt)

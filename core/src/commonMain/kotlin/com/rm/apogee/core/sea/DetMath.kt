@@ -4,13 +4,9 @@ import com.rm.apogee.core.math.Math
 import com.rm.apogee.core.math.StrictMath
 
 /**
- * Sine, cosine and exp that give the same bits on every machine.
- *
- * The server and every client each work out the sea for themselves, the same as terrain and
- * weather, and a boat floats on what its own machine works out. So the wave sums have to agree to
- * the last bit. [Math.sin] might not, and [StrictMath.sin] is far too slow for the tens of
- * thousands of terms a frame needs. These are range reduction and a fixed polynomial, nothing but
- * IEEE add and multiply, which every platform does the same way.
+ * Sine, cosine and exp that give the same bits on every machine, since each machine works out the
+ * sea itself and wave sums must agree exactly. Range reduction and a fixed polynomial using only
+ * IEEE add and multiply. [StrictMath] is too slow for tens of thousands of terms a frame.
  */
 internal object DetMath {
 
@@ -34,14 +30,11 @@ internal object DetMath {
 
     fun cos(x: Double): Double = sin(x + HALF_PI)
 
-    /**
-     * The sine and cosine of [x] together, into [sinOut] and [cosOut] ([SinCos]), with one
-     * reduction for both.
-     */
+    /** The sine and cosine of [x] together into [out], with one range reduction for both. */
     fun sinCos(x: Double, out: SinCos) {
         val k = Math.floor(x * INV_TWO_PI + 0.5)
         val r = (x - k * TWO_PI_HI) - k * TWO_PI_LO   // -pi..pi
-        // Fold into -pi/2..pi/2 for the sine. The cosine changes sign along with it.
+        // Fold into -pi/2..pi/2 for the sine. The cosine flips sign with it.
         var a = r
         var sign = 1.0
         if (a > HALF_PI) { a = PI - a; sign = -1.0 } else if (a < -HALF_PI) { a = -PI - a; sign = -1.0 }
@@ -68,7 +61,7 @@ internal object DetMath {
         val n = Math.floor(x * INV_LN2 + 0.5)
         val r = (x - n * LN2_HI) - n * LN2_LO
         val p = 1.0 + r * (1.0 + r * (E2 + r * (E3 + r * (E4 + r * (E5 + r * (E6 + r * (E7 + r * (E8 + r * (E9 + r * (E10 + r * (E11 + r * E12)))))))))))
-        // Times 2^n, made from its bits, so it's exact, as scalb is. n is within the normal range here.
+        // Times 2^n built from its bits, so it's exact. n is in the normal range here.
         return p * Double.fromBits((n.toLong() + 1023L) shl 52)
     }
 

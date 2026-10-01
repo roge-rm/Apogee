@@ -45,9 +45,8 @@ import kotlin.math.roundToInt
 import com.rm.apogee.platform.format
 
 /**
- * Stability assist. Tap to turn it on and off. Press and hold to choose what it holds (the attitude
- * when you let go, any navball marker, or on a plane in the air, its height and heading) and a
- * target to steer by. The button shows what it's holding.
+ * Stability assist. Tap to toggle. Hold to choose what it holds and a target. The button shows
+ * what it's holding.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -145,8 +144,7 @@ private fun Picker(
         ) {
             Text("HOLD", style = TelemetryTextStyle, color = Color.White.alpha(ApogeeAlpha.SUBTITLE))
             Spacer(Modifier.height(6.dp))
-            // A plane's height and heading, flown for you. The stick still steers, and it holds
-            // wherever you let go.
+            // Holds a plane's height and heading. The stick still steers; it holds where you let go.
             if (canCruise || cruising) {
                 Chip(
                     if (cruising) "ALT + HDG · off" else "ALT + HDG", ApogeeColors.Prograde,
@@ -154,8 +152,7 @@ private fun Picker(
                 ) { onCruise(!cruising) }
                 Spacer(Modifier.height(6.dp))
             }
-            // Down where it is, the way it flies: a plane glides in and flares, a helicopter or
-            // an airship comes straight down.
+            // Lands here: a plane glides in and flares, a helicopter or airship comes straight down.
             if (canLand || landing) {
                 Chip(
                     if (landing) "LAND · off" else "LAND", ApogeeColors.Prograde,

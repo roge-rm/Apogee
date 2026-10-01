@@ -9,9 +9,8 @@ import androidx.compose.runtime.remember
 import kotlin.js.ExperimentalWasmJsInterop
 
 /**
- * Back on a web page: Esc, or the browser's own back button. The screens have no back arrows of
- * their own, since a phone has one, so both of these have to reach them. The latest handler that's
- * on gets it, as on a phone.
+ * Back on a web page: Esc or the browser's back button, since the screens have no back arrows.
+ * The latest enabled handler gets it, as on a phone.
  */
 @Composable
 actual fun BackHandler(enabled: Boolean, onBack: () -> Unit) {
@@ -41,11 +40,9 @@ private fun goBack(): Boolean {
 }
 
 /**
- * Hooks Esc and the browser's back button up to the handlers. The page keeps an extra entry in the
- * browser's history, so the back button comes here first. When there's nothing left to go back from
- * (the main menu), it goes on back out of the page, as it would anywhere else. Esc is caught on its
- * way in, before the screens have it. If a dialog saw it first and closed itself, back would find
- * nothing open, and in flight it would open the flight menu again straight away.
+ * Hooks Esc and the browser's back button up to the handlers. An extra history entry makes back
+ * come here first; with nothing left to go back from, it leaves the page. Esc is caught before the
+ * screens see it, or a dialog closing itself would let back reopen the flight menu.
  */
 fun installBack() {
     pushEntry()

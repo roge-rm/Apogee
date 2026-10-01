@@ -3,8 +3,8 @@ package com.rm.apogee.core.math
 import kotlin.math.pow
 
 /**
- * The parts of `java.lang.Math` the simulation uses, for every platform. The conversions use the
- * same constants the JVM's do, so its answers are the same to the last bit.
+ * The parts of `java.lang.Math` the simulation uses, on every platform. Conversions use the JVM's
+ * constants, so results match to the bit.
  */
 object Math {
     const val PI: Double = kotlin.math.PI
@@ -22,7 +22,7 @@ object Math {
     fun floorDiv(x: Int, y: Int): Int = x.floorDiv(y)
     fun floorDiv(x: Long, y: Long): Long = x.floorDiv(y)
 
-    /** The nearest whole number, halves up, as the JVM rounds. */
+    /** Nearest whole number, halves up, as the JVM rounds. */
     fun round(x: Double): Long = if (x.isNaN()) 0L else kotlin.math.floor(x + 0.5).toLong()
     fun round(x: Float): Int = if (x.isNaN()) 0 else kotlin.math.floor(x + 0.5f).toInt()
 

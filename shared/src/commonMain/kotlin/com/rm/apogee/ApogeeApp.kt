@@ -42,13 +42,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
 /**
- * The whole app, the same on a phone and in a browser: which screen is up, the worlds and craft on
- * this device, starting and leaving flights and the assembly building, the flight controls, save
- * points, and the HUD's values each frame. What only the platform can do comes from [host].
- *
- * It's kept thin on purpose. The simulation lives in :core, the session wiring in [GameSession],
- * the render path in [GlRenderer], and observable UI state in [HudState]. This class only connects
- * them and decides which screen is up.
+ * The whole app, on a phone or in a browser: which screen is up, the worlds and craft on this
+ * device, flights and the assembly building, controls, save points and the HUD each frame.
+ * Platform work goes through [host]. The simulation is in :core, sessions in [GameSession],
+ * drawing in [GlRenderer] and UI state in [HudState]; this only connects them.
  */
 class ApogeeApp(private val host: AppHost) {
 
@@ -58,11 +55,11 @@ class ApogeeApp(private val host: AppHost) {
     val hudState = HudState()
     private val frameBus = FrameBus()
 
-    /** The designs saved in free play, and in a career. A career starts from scratch, with none of the stock ones. */
+    /** Saved designs for free play and for a career. A career gets no stock ones. */
     private val sandboxCraft = CraftStore(host.folder("craft"))
     private val careerCraft = CraftStore(host.folder("craft-career"))
     private val craftStore: CraftStore get() = if (careerMode) careerCraft else sandboxCraft
-    /** The two worlds on this device: the sandbox, with everything unlocked, and the career. */
+    /** The two worlds on this device: the sandbox and the career. */
     private val worldFolder = host.folder("world")
     private val sandboxStore = WorldStore(worldFolder, "solo.json")
     private val careerStore = WorldStore(worldFolder, "career.json")
@@ -71,16 +68,13 @@ class ApogeeApp(private val host: AppHost) {
     /** Whether the Play screen is on the career world, as the player last chose. */
     private var careerMode by mutableStateOf(false)
 
-    /** The player's career in it, for the Play and Program screens. Null in the sandbox. */
+    /** The player's career, for the Play and Program screens. Null in the sandbox. */
     private var careerState by mutableStateOf<com.rm.apogee.core.career.CareerState?>(null)
     private var worldFirsts by mutableStateOf(emptyList<com.rm.apogee.core.career.WorldFirst>())
 
     /**
-     * The single-player world, held across flights.
-     *
-     * It's null until something needs it. It's loaded from disk once and written back when the
-     * player leaves, so landing a module and coming back with the next one is the same world, not a
-     * new one.
+     * The single-player world, held across flights. Null until something needs it, loaded once
+     * and written back when the player leaves.
      */
     private var soloWorld: World? = null
 
@@ -90,14 +84,14 @@ class ApogeeApp(private val host: AppHost) {
     var builderSession: BuilderSession? = null
         private set
 
-    /** The drawer's part pictures, drawn by the renderer once and kept. */
+    /** Part pictures, drawn once by the renderer and kept. */
     private val partThumbnails by lazy { com.rm.apogee.render.PartThumbnails(host.pictures) }
 
-    /** Set by the builder's Launch button, and used up when flight starts. */
+    /** Set by the builder's Launch button, used up when flight starts. */
     private var pendingLaunchDesign: CraftDesign? = null
     private var pendingLaunchSite: String? = null
 
-    /** A launch that clears away the craft flown last time, as Quick Launch's do. */
+    /** A launch that clears away the craft flown last time (Quick Launch). */
     private var pendingFresh = false
 
     /** The saved craft for Quick Launch, read when it opens. Empty until then. */
@@ -107,27 +101,23 @@ class ApogeeApp(private val host: AppHost) {
     private var pendingResume: Long? = null
 
     /**
-     * A save point: the whole world as it was (careers and all), the craft that was being flown,
-     * and when it was taken, by the clock. There's one for each world, the sandbox and the career,
-     * kept on disk beside it.
+     * A save point: the whole world, the craft being flown, and the clock time it was taken. One
+     * per world, kept on disk beside it.
      */
     private class SavePoint(val save: com.rm.apogee.core.world.WorldSave, val vessel: Long?, val at: String)
     private val savePoints = HashMap<Boolean, SavePoint?>()
 
-    /**
-     * The world just before this flight's launch, and what was launched from where, to revert to.
-     * Null when the flight wasn't a launch (Resume Flight), or it's not a solo flight.
-     */
+    /** The world just before this launch, and what launched from where. Null if not a solo launch. */
     private class LaunchPoint(val save: com.rm.apogee.core.world.WorldSave, val design: CraftDesign?, val site: String?)
     private var launchPoint: LaunchPoint? = null
 
-    /** Whether the flight up is solo, in this device's own world, and a rewind is starting it. */
+    /** Whether the flight is solo in this device's world, and whether a rewind is starting it. */
     private var flyingSolo = false
     private var rewinding = false
     private var resumeCraft by mutableStateOf(emptyList<com.rm.apogee.ui.screens.CraftSummary>())
     private var crewList by mutableStateOf(emptyList<com.rm.apogee.ui.screens.CrewSummary>())
 
-    /** The solo world's crew for the Crew screen: the living in the order they joined, then the lost. */
+    /** The solo world's crew for the Crew screen: the living in joining order, then the lost. */
     private fun refreshCrew() {
         val world = openSoloWorld()
         val me = settings.clientId
@@ -152,8 +142,7 @@ class ApogeeApp(private val host: AppHost) {
     private var perfHints: PerfHints? = null
     private var rendererTerrainSource: com.rm.apogee.render.TerrainSource? = null
 
-    // Held between updates, because pitch/yaw and roll come from different controls but get sent as
-    // one command.
+    // Pitch/yaw and roll come from different controls but go out as one command.
     private var commandedPitch = 0f
     private var commandedYaw = 0f
     private var commandedRoll = 0f
@@ -165,17 +154,14 @@ class ApogeeApp(private val host: AppHost) {
     private var joinError by mutableStateOf<String?>(null)
     private var connectingTo by mutableStateOf<String?>(null)
 
-    /**
-     * What's typed in the join screen's address box. It starts with the last address that worked,
-     * so going back to a server is one tap.
-     */
+    /** The join screen's address box. It starts with the last address that worked. */
     private var manualAddress by mutableStateOf("")
     private var serverName by mutableStateOf("")
 
     private var appScreen by mutableStateOf(AppScreen.MENU)
     private var detectedTier by mutableStateOf<QualityTier?>(null)
 
-    /** Every touch, wherever it lands (the view, a control, a dialog), wakes the flight controls. */
+    /** Any touch, anywhere, wakes the flight controls. */
     fun touched() {
         hudState.touched()
         // A touch brings the touch stick back.
@@ -184,7 +170,7 @@ class ApogeeApp(private val host: AppHost) {
 
     // --- a controller ----------------------------------------------------------
 
-    /** The controller's name, from the host, for the settings. Null with none connected. */
+    /** The controller's name, for the settings. Null with none connected. */
     var controllerName: String? by mutableStateOf(null)
 
     private var padConfigText: String? = null
@@ -206,8 +192,8 @@ class ApogeeApp(private val host: AppHost) {
     }
 
     /**
-     * Where the controller goes now: the craft, the Vehicle Assembly's camera, or the menus. A
-     * panel open over the flight has it too, so the D-pad and A work the panel.
+     * Where the controller goes: the craft, the Vehicle Assembly's camera, or the menus. A panel
+     * open over the flight counts as menus, so the D-pad and A work it.
      */
     fun padMode(): com.rm.apogee.input.PadMode = when {
         appScreen == AppScreen.FLIGHT && session != null && !hudState.panelOpen && hudState.surfaceReady ->
@@ -280,7 +266,7 @@ class ApogeeApp(private val host: AppHost) {
                 power.onLadder -> scope.launch { current.grab(false) }
                 power.canGrab -> scope.launch { current.grab(true) }
             }
-            // In the water with no seat in reach, the same button climbs out onto a deck.
+            // With no seat in reach, the same button climbs out onto a deck.
             com.rm.apogee.input.PadAction.BOARD -> when {
                 !hudState.isSuit || power == null -> Unit
                 power.boardable.isNotEmpty() -> scope.launch { current.board() }
@@ -300,13 +286,12 @@ class ApogeeApp(private val host: AppHost) {
 
     init {
         careerMode = settings.careerMode
-        // So there's something to fly, and something to land, before the player has built anything,
-        // in free play. A career's designs are all its own.
+        // Stock designs in free play only, so there's something to fly before building anything.
         sandboxCraft.seedStockDesigns(StockParts.catalog)
         serverName = "${settings.playerName}'s Game"
         detectedTier = settings.lastDetectedTier
 
-        // Sound: as many voices at once as the device's tier can carry.
+        // As many sound voices as the device's tier can carry.
         com.rm.apogee.audio.AudioEngine.start(
             when (settings.effectiveTier) {
                 com.rm.apogee.render.QualityTier.LOW -> 16
@@ -322,15 +307,16 @@ class ApogeeApp(private val host: AppHost) {
     fun Content() {
             LaunchedEffect(Unit) { if (host.fullscreenMenus) host.fullscreen(true) }
             ApogeeTheme {
-                // Back is wired by hand from AppScreen.parent. Flight swallows it on purpose, so a
-                // stray gesture can't throw away a flight.
+                // Back follows AppScreen.parent. Flight has no parent, so a stray gesture can't
+                // throw away a flight.
                 BackHandler(enabled = appScreen.parent != null) {
                     navigateTo(appScreen.parent ?: AppScreen.MENU)
                 }
-                // In flight, Back (the device's, or B on a controller over a panel) closes what's
-                // open, or brings up the flight menu, which has Leave in it.
+                // In flight, Back closes what's open, or brings up the flight menu.
                 BackHandler(enabled = appScreen == AppScreen.FLIGHT) { if (session != null) flightBack() }
-                // The HUD's values, each frame the display shows, while there's a world.
+                // The HUD's values each display frame, while there's a world. withFrameNanos needs
+                // the frame clock LaunchedEffect carries. Screen-space values (labels, markers,
+                // the map cursor) update here so they don't trail the camera.
                 if (appScreen.needsWorldSurface) {
                     LaunchedEffect(Unit) {
                         while (true) {
@@ -369,7 +355,7 @@ class ApogeeApp(private val host: AppHost) {
                     AppScreen.RESUME_FLIGHT -> com.rm.apogee.ui.screens.ResumeFlightScreen(
                         craft = resumeCraft,
                         onFly = { id ->
-                            // Claimed, if an older save had it under another name.
+                            // Claimed, in case an older save had it under another owner.
                             val world = openSoloWorld()
                             world.vessel(com.rm.apogee.core.craft.VesselId(id))?.let {
                                 world.claim(it, settings.clientId)
@@ -488,8 +474,7 @@ class ApogeeApp(private val host: AppHost) {
                         onWarp = { rate -> session?.let { s -> scope.launch { s.setWarp(rate) } } },
                         me = settings.clientId,
                         onUnlock = { id ->
-                            // Checked here, so the answer is instant, and asked of the server,
-                            // whose career it is.
+                            // Checked here for an instant answer, then asked of the server.
                             val state = hudState.career
                             val node = com.rm.apogee.core.career.TechTree.stock.node(id)
                             val why = when {
@@ -565,9 +550,8 @@ class ApogeeApp(private val host: AppHost) {
     }
 
     /**
-     * A renderer with nothing to show, under Quick Launch's list, there only to draw the craft
-     * pictures. They're drawn by GL, which the menus don't otherwise run, so a craft that hadn't
-     * been drawn in the Vehicle Assembly or in flight had an empty square. The menu covers it.
+     * An empty renderer under Quick Launch's list, only there to draw the craft pictures, since
+     * the menus don't otherwise run GL. The menu covers it.
      */
     private var pictureRenderer: GlRenderer? = null
 
@@ -599,8 +583,7 @@ class ApogeeApp(private val host: AppHost) {
         if (target == AppScreen.QUICK_LAUNCH) refreshQuickLaunch()
         if (target == AppScreen.PLAY || target == AppScreen.PROGRAM) refreshProgram()
 
-        // Discovery holds a multicast lock and a socket, so it only runs while the browser is
-        // actually on screen.
+        // Discovery holds a multicast lock and a socket, so it only runs while the browser is up.
         if (target == AppScreen.JOIN_GAME) {
             joinError = null
             if (manualAddress.isEmpty()) manualAddress = settings.lastServerAddress
@@ -610,9 +593,8 @@ class ApogeeApp(private val host: AppHost) {
         }
 
         when {
-            // Builder and flight both want the surface but different sessions, so moving between
-            // them tears one down and builds the other, instead of trying to hand one session's
-            // state to the other.
+            // Builder and flight use different sessions, so moving between them tears one down
+            // and builds the other.
             target.needsWorldSurface && wasInWorld -> {
                 leaveWorld()
                 enterWorld(target)
@@ -637,12 +619,11 @@ class ApogeeApp(private val host: AppHost) {
     }
 
     /**
-     * A craft file someone shared, as [text], or null when it couldn't be read: checked, saved with
-     * the player's own craft under a free name, and opened in the builder. One with parts this
-     * version doesn't have is refused, with why.
+     * Opens a shared craft file ([text], or null if it couldn't be read): checked, saved under a
+     * free name and opened in the builder. Unknown parts get it refused, with why.
      */
     fun importCraft(text: String?) {
-        // Not in the middle of a flight. It waits in the builder for next time.
+        // Not mid-flight.
         if (session != null) {
             host.toast("Go back to the menu to open a shared craft")
             return
@@ -662,7 +643,7 @@ class ApogeeApp(private val host: AppHost) {
         }
     }
 
-    /** Reads the saved craft for Quick Launch, off the main thread, choosing the last one again. */
+    /** Reads the saved craft for Quick Launch off the main thread, choosing the last one again. */
     private fun refreshQuickLaunch() {
         quickSite = settings.quickSite.ifBlank { null }
         val store = craftStore
@@ -694,22 +675,13 @@ class ApogeeApp(private val host: AppHost) {
     }
 
     /**
-     * Connects to a discovered host, then goes into flight.
-     *
-     * The connection is made *before* navigating, so a host that has gone away shows an error on
-     * the list where the player can pick another one, instead of dropping them into an empty world
-     * to work it out for themselves.
+     * Connects to a discovered host, then goes into flight. It connects first, so a host that's
+     * gone shows an error on the list.
      */
     private fun joinServer(server: DiscoveredServer) =
         connectTo(server.beacon.serverName, server.beacon.address, server.beacon.port)
 
-    /**
-     * Connects to an address the player typed.
-     *
-     * It's only remembered once the connection works. An address that failed is as likely to be a
-     * typo as a server that's down, and offering it back as the default next time would keep the
-     * typo alive.
-     */
+    /** Connects to a typed address. It's only remembered once it works, so a typo isn't kept. */
     private fun joinAddress(address: ServerAddress) {
         connectTo(address.label(GameSession.DEFAULT_PORT), address.host, address.port) {
             settings.lastServerAddress = manualAddress.trim()
@@ -758,16 +730,12 @@ class ApogeeApp(private val host: AppHost) {
     }
 
     /**
-     * Attitude input.
-     *
-     * Pitch and yaw come from the stick and roll from its buttons, but they travel as one command.
-     * The server takes all three axes together, and splitting them would let a stick update arrive
-     * between a roll press and its release and quietly cancel it.
+     * Attitude input. Pitch and yaw come from the stick, roll from its buttons, but all three go
+     * as one command, or a stick update could cancel a held roll.
      */
     private fun onAttitude(pitch: Float, yaw: Float) {
         if (sliding()) {
-            // Thrusters armed and the stick set to slide: up is away from the camera, and right is
-            // its right.
+            // Sliding on thrusters: up is away from the camera, right is its right.
             slideRight = yaw; slideAway = pitch
             sendSlide()
             return
@@ -779,8 +747,8 @@ class ApogeeApp(private val host: AppHost) {
 
     private fun onRoll(roll: Float) {
         if (sliding()) {
-            // The roll buttons become down (left) and up (right), gently. A button has no halfway,
-            // and full thrust was metres a second in the time it took to tap it.
+            // The roll buttons become down (left) and up (right), gently, since a button has no
+            // halfway.
             slideLift = roll * LIFT_BUTTON
             sendSlide()
             return
@@ -826,8 +794,8 @@ class ApogeeApp(private val host: AppHost) {
     private fun sendAttitude() {
         val current = session ?: return
         if (current.steerByScreen) {
-            // Read by the screen: up is up the screen, whatever the craft. Only a nose pointed
-            // toward it keeps the pitch style, as it always has on a rocket.
+            // By the screen: up is up the screen. Only a nose pointed into the screen keeps the
+            // pitch style.
             val reversed = !current.screenTilts && settings.pitchStyle.reverses(current.controlledOrientation)
             val pitch = commandedPitch.toDouble() * if (reversed) -1.0 else 1.0
             val yaw = commandedYaw.toDouble()
@@ -835,13 +803,11 @@ class ApogeeApp(private val host: AppHost) {
             scope.launch { current.setAttitude(pitch, yaw, roll) }
             return
         }
-        // Read per command instead of cached, so switching to another craft or changing the setting
-        // mid-flight takes effect on the next nudge.
+        // Read per command, so a craft switch or setting change applies at once.
         val reversed = settings.pitchStyle.reverses(current.controlledOrientation)
         val pitch = commandedPitch.toDouble() * if (reversed) -1.0 else 1.0
-        // Positive yaw is about the design's +Z, which on a craft built lying down is the sky. It
-        // turns anticlockwise seen from above, which is left, while the stick gives positive to the
-        // right. It's flipped so stick left turns a plane, boat or rover left.
+        // On a craft built lying down, positive yaw (about the design's +Z, the sky) turns left,
+        // so it's flipped to make stick left turn left.
         val flat = current.controlledOrientation == com.rm.apogee.core.craft.CraftOrientation.HORIZONTAL
         val yaw = commandedYaw.toDouble() * if (flat) -1.0 else 1.0
         val roll = commandedRoll.toDouble()
@@ -854,11 +820,9 @@ class ApogeeApp(private val host: AppHost) {
     private var throttleKeysAt = 0L
 
     /**
-     * A key [down] or up, by its code ("KeyW", "Space", "ShiftLeft"), for a host with a keyboard.
-     * In flight, W and S pitch, A and D yaw, Q and E roll (the same as the stick, so a rover or a
-     * boat steers with them too), Shift and Ctrl open and close the throttle, Z and X set it full
-     * or off, Space stages, and M, T, R, B, G and F are the map, stability, thrusters, brakes, gear
-     * and flaps. True if it was used.
+     * A key [down] or up, by code ("KeyW", "Space", "ShiftLeft"). In flight: W/S pitch, A/D yaw,
+     * Q/E roll, Shift/Ctrl throttle up and down, Z/X full or off, Space stages, and M, T, R, B, G
+     * and F are map, stability, thrusters, brakes, gear and flaps. True if it was used.
      */
     fun key(code: String, down: Boolean): Boolean {
         if (appScreen != AppScreen.FLIGHT || session == null) {
@@ -892,17 +856,17 @@ class ApogeeApp(private val host: AppHost) {
         return true
     }
 
-    /** Every key let go: the window lost the keyboard, and their key-ups won't come. */
+    /** Lets go of every key, when the window loses the keyboard and key-ups won't come. */
     fun releaseKeys() {
         for (code in keysDown.toList()) key(code, false)
         keysDown.clear()
     }
 
-    /** +1, -1 or 0, from which of the keys for each way are down. */
+    /** +1, -1 or 0, from which keys are down. */
     private fun axis(plus: String, plus2: String, minus: String, minus2: String): Float =
         (if (plus in keysDown || plus2 in keysDown) 1f else 0f) - (if (minus in keysDown || minus2 in keysDown) 1f else 0f)
 
-    /** Shift and Ctrl held move the throttle, all the way in a second and a half. */
+    /** Shift and Ctrl held move the throttle, end to end in [THROTTLE_KEY_SECONDS]. */
     private fun throttleKeys(nowNanos: Long) {
         val up = "ShiftLeft" in keysDown || "ShiftRight" in keysDown
         val down = "ControlLeft" in keysDown || "ControlRight" in keysDown
@@ -915,7 +879,7 @@ class ApogeeApp(private val host: AppHost) {
         throttleKeysAt = nowNanos
     }
 
-    /** The camera's next way of following the craft, kept for the next flight too. */
+    /** The next camera mode, kept for the next flight too. */
     private fun onCameraMode() {
         val current = session ?: return
         val next = current.camera.mode.next()
@@ -950,8 +914,8 @@ class ApogeeApp(private val host: AppHost) {
     }
 
     /**
-     * Takes the craft being flown out of the world and goes back to the menu, once the server has
-     * done it, or the world saved on the way out would still have it.
+     * Removes the flown craft and goes back to the menu, only once the server has done it, or the
+     * saved world would still have it.
      */
     private fun onRetire() {
         val current = session ?: return
@@ -975,7 +939,7 @@ class ApogeeApp(private val host: AppHost) {
         scope.launch { current.setIndustry(power.drilling, !power.refining) }
     }
 
-    /** Floods the tanks ([mode] 1) or blows them (-1), or stops if it's tapped again. */
+    /** Floods the tanks ([mode] 1) or blows them (-1); tapped again, it stops. */
     private fun onBallast(mode: Int) {
         val power = hudState.power ?: return
         val next = if (power.ballastMode == mode) 0 else mode
@@ -999,7 +963,7 @@ class ApogeeApp(private val host: AppHost) {
         scope.launch { current.setFlaps(down) }
     }
 
-    /** The winch: winding in if it's holding, holding if it's winding in. */
+    /** Toggles the winch between holding and winding in. */
     private fun onWinch() {
         val power = hudState.power ?: return
         val mode = if (power.reel > 0) 0 else 1
@@ -1008,7 +972,7 @@ class ApogeeApp(private val host: AppHost) {
         scope.launch { current.reel(mode) }
     }
 
-    /** The keeper core: holding still where it is, or letting go. */
+    /** Toggles the keeper core holding station. */
     private fun onStationKeep() {
         val power = hudState.power ?: return
         val on = !power.keeping
@@ -1061,8 +1025,7 @@ class ApogeeApp(private val host: AppHost) {
         slideRight = 0f; slideAway = 0f; slideLift = 0f
 
         val glRenderer = GlRenderer({ host.detectTier() }, frameBus) { tier ->
-            // This arrives on the GL thread. The terrain builder needs the tier to know how finely
-            // to sample, so it's created here instead of guessed at earlier.
+            // On the GL thread. The terrain needs the tier to know how finely to sample.
             settings.lastDetectedTier = tier
             host.runOnMain {
                 detectedTier = tier
@@ -1079,9 +1042,9 @@ class ApogeeApp(private val host: AppHost) {
                 frameBus, StockParts.catalog, craftStore,
                 com.rm.apogee.core.craft.AssemblyStore(host.folder(if (careerMode) "assemblies-career" else "assemblies")),
             )
-            // Somewhere of the player's own to launch from, as well as the Cape.
+            // The player's bases to launch from, as well as the Cape.
             builder.baseSites = runCatching { openSoloWorld().baseSites(settings.clientId) }.getOrDefault(emptyList())
-            // In a career, only what the player has unlocked, and no more than their pad can take.
+            // In a career, only unlocked parts, and no more than the pad can take.
             builder.career = openSoloWorld().program?.careerOf(settings.clientId)
             partThumbnails.request(StockParts.catalog)
             builder.thumbnails = partThumbnails
@@ -1092,8 +1055,8 @@ class ApogeeApp(private val host: AppHost) {
         } else {
             flyingSolo = pendingMode is SessionMode.Solo
             if (flyingSolo && !rewinding) {
-                // A launch (not a resume) can be reverted to, so the world is kept as it was just
-                // before it. Nothing's running yet, so it's safe to take here.
+                // A launch can be reverted, so keep the world as it is now. Nothing's running yet,
+                // so it's safe to take here.
                 launchPoint = if (pendingResume == null) LaunchPoint(openSoloWorld().save(), pendingLaunchDesign, pendingLaunchSite) else null
             }
             if (!flyingSolo) launchPoint = null
@@ -1109,9 +1072,8 @@ class ApogeeApp(private val host: AppHost) {
                     scope = scope,
                     world = openSoloWorld(),
                     siteId = pendingLaunchSite,
-                    // Quick Launch is a new flight: the craft flown last time gets cleared away
-                    // and the chosen one put on its site. A launch from the builder adds its craft
-                    // to the world, and Out There names the one to fly.
+                    // Quick Launch clears away the craft flown last time. A builder launch adds
+                    // its craft, and Out There names the one to fly.
                     freshFlight = (pendingLaunchDesign == null || pendingFresh) && pendingResume == null,
                     resumeVessel = pendingResume,
                     weather = settings.weatherIntensity,
@@ -1130,12 +1092,11 @@ class ApogeeApp(private val host: AppHost) {
                     scope = scope,
                     weather = settings.weatherIntensity,
                     clouds = settings.cloudCover,
-                    // The chosen world, as solo play uses it. The others join it.
+                    // The chosen solo world. The others join it.
                     world = openSoloWorld(),
                 )
 
-                // Already connected. Joining happens before navigating so a failure can be shown on
-                // the browser instead of in an empty world.
+                // Already connected, so a failure showed on the browser.
                 is SessionMode.Joined -> mode.session
             }
             pendingLaunchDesign = null
@@ -1153,8 +1114,7 @@ class ApogeeApp(private val host: AppHost) {
             session = newSession
         }
 
-        // The builder picks and pans in pixels, so the gestures give it the surface's size from the
-        // start, not only once a finger has touched it.
+        // The builder works in pixels, so the gestures need the surface's size from the start.
         host.showSurface(glRenderer, gestures)
     }
 
@@ -1168,12 +1128,8 @@ class ApogeeApp(private val host: AppHost) {
     }
 
     /**
-     * The single-player world, restored from disk the first time it's asked for and kept in memory
-     * after that.
-     *
-     * A save written against a different part catalogue gets reported instead of thrown away. The
-     * craft that still work are loaded, and the ones that don't are named. Losing a base to a parts
-     * update would be far worse than losing one craft out of it.
+     * The single-player world, loaded from disk the first time and kept in memory. A save from a
+     * different part catalogue still loads; craft that don't work are logged, not the world lost.
      */
     private fun openSoloWorld(): World {
         soloWorld?.let { return it }
@@ -1185,7 +1141,7 @@ class ApogeeApp(private val host: AppHost) {
         }
         // A career world that's new to this device starts its program here.
         if (careerMode && world.program == null) world.program = com.rm.apogee.core.career.Program()
-        // The Cape's buildings and Luna's test base, before anything asks where it can launch from.
+        // The Cape's buildings and Luna's test base, before anything asks for launch sites.
         world.ensureStructures()
         soloWorld = world
         return world
@@ -1195,19 +1151,17 @@ class ApogeeApp(private val host: AppHost) {
     private fun refreshResumeCraft() {
         val world = openSoloWorld()
         val me = settings.clientId
-        // The solo world is only ever played from this install (a hosted game starts a world of its
-        // own), so every crewed craft in it is the player's, whatever an older save recorded as its
-        // owner. Not debris, because spent stages have no one aboard.
+        // The solo world is only played from this install, so every crewed craft in it is the
+        // player's, whatever an older save says. Spent stages have no crew, so they're left out.
         resumeCraft = world.vessels.filter { vessel ->
             vessel.owner != com.rm.apogee.core.world.World.WORLD_OWNER &&
                 (vessel.owner == me || vessel.defs.any { it.hasModule<com.rm.apogee.core.part.Command>() }) ||
-                // Flags stay, whoever's they are. They're listed so they can be taken down.
+                // Flags are listed, whoever's they are, so they can be taken down.
                 vessel.design.parts.singleOrNull()?.partId == com.rm.apogee.core.world.World.FLAG_PART
         }.sortedWith(compareBy({ !it.anchored }, { it.name })).map { vessel ->
             val body = world.attractorFor(vessel)
             val bodyFixed = body.toBodyFixed(vessel.body.position, body.rotationAt(world.time))
-            // From its lowest reach, not its centre, because a rocket on the pad has its centre
-            // eight metres up.
+            // From its lowest point, since a rocket's centre can be metres up.
             val above = (body.heightAboveTerrain(vessel.body.position, bodyFixed) - vessel.contactRadius)
                 .coerceAtLeast(0.0)
             val orbit = com.rm.apogee.core.orbit.Orbit(
@@ -1220,18 +1174,16 @@ class ApogeeApp(private val host: AppHost) {
             val flag = only == com.rm.apogee.core.world.World.FLAG_PART
             val depth = world.depthOf(vessel)
             val deck = if (flag || vessel.anchored) null else world.deckUnder(vessel)
-            // On the sea, measured from the waves where it is, not the sea's level. On a crest a
-            // jet ski was two metres up and "Flying".
+            // At sea is measured from the local waves, not sea level, so a crest isn't "Flying".
             val atSea = body.terrain?.isOcean(bodyFixed) == true && depth > -(vessel.contactRadius + AT_SEA_CLEARANCE)
             val swimming = suit && deck == null && atSea
             val situation = when {
-                // Parked on another craft, a plane on a carrier or a buggy on a barge, or someone
-                // out on a ship's deck.
+                // Parked or standing on another craft's deck.
                 deck != null -> "On ${deck.name}'s deck"
                 swimming -> "Swimming off ${body.displayName}"
                 suit -> "On EVA on ${body.displayName}"
                 flag -> "Planted on ${body.displayName}"
-                // A base: where it is, and how it's keeping, with its power and stores.
+                // A base: where it is, its power and its pads.
                 vessel.anchored -> {
                     world.settlePower(vessel)
                     val pads = vessel.defs.count { it.hasModule<com.rm.apogee.core.part.LaunchPad>() }
@@ -1264,9 +1216,8 @@ class ApogeeApp(private val host: AppHost) {
     }
 
     /**
-     * Career or sandbox: the world on the Play and Host screens. The one that's open gets saved and
-     * put away first (never mid-flight), and the other one is opened the next time something asks
-     * for it.
+     * Switches the Play and Host screens between career and sandbox. Saves the open world first
+     * (never mid-flight); the other opens when next asked for.
      */
     private fun switchMode(career: Boolean) {
         if (career == careerMode || session != null) return
@@ -1290,10 +1241,10 @@ class ApogeeApp(private val host: AppHost) {
             .onFailure { Log.w(TAG, "Could not save the world: ${it.message}") }
     }
 
-    /** Held while the solo world is written, so two saves never write the same file at once. */
+    /** Held while the solo world is written, so two saves never overlap. */
     private val saving = Any()
 
-    /** This world's save point, and the craft and time beside it. */
+    /** This world's save point file, and the note with its craft and time. */
     private fun savePointStore(): WorldStore = WorldStore(worldFolder, if (careerMode) "career-savepoint.json" else "solo-savepoint.json")
     private fun savePointNote(): String = if (careerMode) "career-savepoint.txt" else "solo-savepoint.txt"
 
@@ -1331,8 +1282,8 @@ class ApogeeApp(private val host: AppHost) {
     }
 
     /**
-     * Puts the world back as it was in [save] and flies again: [resume] if it names a craft, or else
-     * [design] launched from [site], or a fresh craft on the pad when there's neither.
+     * Restores [save] and flies again: [resume] if it names a craft, else [design] from [site], or
+     * a fresh craft on the pad.
      */
     private fun rewindTo(save: com.rm.apogee.core.world.WorldSave, resume: Long?, design: CraftDesign?, site: String?) {
         leaveWorld()
@@ -1361,7 +1312,7 @@ class ApogeeApp(private val host: AppHost) {
     }
 
     private fun leaveWorld() {
-        // Before tearing the session down, while the world still hangs together.
+        // Before tearing the session down.
         if (session != null) saveSoloWorld()
 
         session?.stop(); session = null
@@ -1378,19 +1329,9 @@ class ApogeeApp(private val host: AppHost) {
     }
 
     /**
-     * A display-rate loop for overlay values that mustn't lag behind the world.
-     *
-     * It uses [AndroidUiDispatcher.CurrentThread] specifically, because that dispatcher carries the
-     * MonotonicFrameClock that [withFrameNanos] needs, and a plain main-thread scope throws.
-     * Anything in screen space (projected labels, attach-node markers, the map cursor) has to be
-     * refreshed here instead of at the simulation's slower pace, or it visibly trails the camera
-     * whenever the view moves.
-     */
-    /**
-     * Debug switches, as files in the app's own storage so adb can flip them mid-flight.
-     * `debug-no-sea` builds and draws no sea, and `debug-perf` logs frame rate and build times
-     * every five seconds under "ApogeePerf". `debug-sound` logs the sounds playing every two seconds
-     * under "ApogeeSound".
+     * Debug switches, as files in the app's storage so adb can flip them mid-flight. `debug-no-sea`
+     * hides the sea, `debug-perf` logs frame rate and build times every five seconds under
+     * "ApogeePerf", and `debug-sound` logs sounds every two seconds under "ApogeeSound".
      */
     private fun debugPerformance(glRenderer: com.rm.apogee.render.GlRenderer, current: GameSession) {
         val now = System.nanoTime()
@@ -1443,7 +1384,7 @@ class ApogeeApp(private val host: AppHost) {
         return true
     }
 
-    /** The navball's every frame, and the readouts' at their own pace (see [HudState.telemetry]). */
+    /** Telemetry for the navball each frame, and readouts at their pace ([HudState.telemetry]). */
     private fun showTelemetry(latest: com.rm.apogee.game.FlightTelemetry) {
         hudState.liveTelemetry = latest
         val shown = hudState.telemetry
@@ -1462,8 +1403,8 @@ class ApogeeApp(private val host: AppHost) {
     private var resolutionFor: GameSession? = null
 
     /**
-     * The 3D view drawn at the resolution chosen in Settings, or, on Automatic, at what keeps a
-     * flight's frame rate up. Out of a flight, Automatic is full resolution.
+     * Sets the 3D view's resolution from Settings. Automatic keeps a flight's frame rate up, and
+     * is full resolution outside a flight.
      */
     private fun applyResolution(glRenderer: com.rm.apogee.render.GlRenderer, current: GameSession?) {
         if (!host.canScaleRender) return
@@ -1502,27 +1443,24 @@ class ApogeeApp(private val host: AppHost) {
                     debugPerformance(glRenderer, current)
                     hudState.frameBuildMillis = current.lastFrameBuildNanos.get() / 1_000_000f
                     showTelemetry(current.telemetry)
-                    // The readouts built afresh each frame go at the readouts' pace too, since each
-                    // new one is a change to whatever shows it.
+                    // Readouts built afresh each frame go at the readouts' pace, since each new one
+                    // recomposes whatever shows it.
                     val readoutsDue = readoutsDueAt(System.nanoTime())
                     hudState.going = current.controlledGoing
-                    // Only when it changes. A new list every frame would recompose the stack sixty
-                    // times a second for nothing.
+                    // Only when it changes, or the stack recomposes every frame.
                     if (hudState.stages !== current.stageCards) hudState.stages = current.stageCards
                     hudState.connecting = !current.connected && current.rejectionReason == null
                     hudState.surfaceReady = current.surfaceReady
                     hudState.connectionError = current.rejectionReason
                     hudState.canJoin = current.joinable
-                    // Only when it's changed, because new messages arrive each second, not each
-                    // frame.
+                    // Only when changed; new messages come each second, not each frame.
                     current.baseService.let { if (it != hudState.baseService) hudState.baseService = it }
                     current.nearestBase.let { if (it != hudState.nearBase) hudState.nearBase = it }
                     if (readoutsDue) hudState.chute = current.chuteState
                     if (readoutsDue) hudState.burn = current.burnReadout
-                    // When it's flying itself (the autopilot, or the keeper core holding station),
-                    // it has the throttle, so show where it has it.
+                    // When the autopilot or keeper core has the throttle, show where it is.
                     if (current.localAutoBurn || current.localAutoLand || hudState.power?.keeping == true) {
-                        // To the half percent, so it only changes when it shows.
+                        // To the half percent, so it only changes when the display would.
                         val shown = kotlin.math.round(current.telemetry.throttle * 200.0).toFloat() / 200f
                         if (shown != hudState.throttle) hudState.throttle = shown
                     }
@@ -1545,7 +1483,7 @@ class ApogeeApp(private val host: AppHost) {
                     if (shared == null) {
                         hudState.sharedWith = null
                     } else {
-                        // Newly shared, so open the card and the two of them can choose.
+                        // Newly shared, so open the card for them to choose a pilot.
                         if (hudState.sharedWith == null) hudState.statusOpen = HudState.STATUS_SHARED
                         hudState.sharedWith = shared.other
                         hudState.sharedPilot = when (shared.pilot) {
@@ -1588,7 +1526,7 @@ class ApogeeApp(private val host: AppHost) {
                         hudState.currentBearing = it?.second ?: 0f
                     }
                     if (readoutsDue) hudState.power = current.powerReadout
-                    // The session decides, because switching craft stands the thrusters down.
+                    // The session decides, since switching craft stands the thrusters down.
                     hudState.rcsArmed = current.rcsArmed
                     if (!hudState.rcsArmed) hudState.rcsSlide = false
                     if (readoutsDue) hudState.rcsLeft = if (hudState.hasRcs) current.rcsLeft else null
@@ -1604,13 +1542,12 @@ class ApogeeApp(private val host: AppHost) {
                         hudState.warpRequested = clock.warpRequested
                         hudState.warpAllowed = clock.warpAllowed
                     }
-                    // A tenth at a time, so it doesn't flicker with every measure.
+                    // To a tenth, so it doesn't flicker.
                     current.worldRateNow.let { r ->
                         val shown = if (r.isNaN()) Double.NaN else kotlin.math.round(r * 10.0) / 10.0
                         if (!(shown == hudState.warpActual || (shown.isNaN() && hudState.warpActual.isNaN()))) hudState.warpActual = shown
                     }
-                    // Rewinding is only for your own world with nobody else in it, the same as
-                    // warp.
+                    // Rewinding is only for your own world with nobody else in it, like warp.
                     hudState.canRewind = flyingSolo && hudState.warpAllowed
                     hudState.savePoint = currentSavePoint()?.at
                     hudState.canRevert = launchPoint != null
@@ -1630,18 +1567,14 @@ class ApogeeApp(private val host: AppHost) {
     }
 
     /**
-     * Saves the solo world whenever the app goes out of sight, not only when leaving a flight
-     * through the menu. Android can end a backgrounded app without another word, and a closed tab is
-     * gone, and everything flown since the last save would go with it. It's taken on the server's
-     * tick thread, between steps, since the world is still running.
+     * Saves the solo world whenever the app goes out of sight, since Android can kill a
+     * backgrounded app and a closed tab is gone. In flight it's taken between ticks.
      */
     fun hidden() {
         val world = soloWorld ?: return
         val running = session
-        // In a flight the server is still stepping it, and otherwise it's idle. Joined to someone
-        // else's game, there's no solo world running.
-        // Taken between ticks, and written from elsewhere. Encoded and written on the game's own
-        // thread, the whole world held the game still until it was done.
+        // In flight the server is still stepping it, so it's taken between ticks and written off
+        // the game's thread so the game doesn't stall.
         if (running == null) saveSoloWorld()
         else running.betweenTicks {
             val save = world.save()
@@ -1655,8 +1588,7 @@ class ApogeeApp(private val host: AppHost) {
     /** Back from the background. */
     fun resume() {
         com.rm.apogee.audio.AudioEngine.pause(false)
-        // On a phone, full screen everywhere, menus too, as ScorchDroid is. The system bars come
-        // back with a swipe and go again by themselves.
+        // On a phone, full screen everywhere, menus too. The system bars come back with a swipe.
         if (host.fullscreenMenus || appScreen.needsWorldSurface) host.fullscreen(true)
     }
 
@@ -1677,18 +1609,15 @@ class ApogeeApp(private val host: AppHost) {
         /** How often the HUD's readouts change: ten times a second. */
         const val TELEMETRY_EVERY_NANOS = 100_000_000L
 
-        /** How far, in metres, a craft's lowest reach can ride above the waves and still be afloat. */
+        /** How far a craft's lowest point can ride above the waves and still be afloat, in metres. */
         const val AT_SEA_CLEARANCE = 1.0
-        /**
-         * The slide from the up and down buttons, before the stick's cubed response: about a third
-         * of a metre a second squared on a tug.
-         */
+        /** The up/down buttons' slide, before the stick's cubed response: about 0.35 m/s² on a tug. */
         const val LIFT_BUTTON = 0.35f
 
         /** How long Shift or Ctrl takes to move the throttle from off to full, in seconds. */
         const val THROTTLE_KEY_SECONDS = 1.5f
 
-        /** The time warps a controller steps through, the same as the warp picker's. */
+        /** The warps a controller steps through, matching the warp picker. */
         val WARP_STEPS: List<Double> = listOf(0.0, 1.0, 2.0, 4.0) + World.WARP_RATES.filter { it > World.PHYSICS_WARP }
 
         const val TAG = "Apogee"

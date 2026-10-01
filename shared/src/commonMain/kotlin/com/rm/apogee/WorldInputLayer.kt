@@ -17,21 +17,19 @@ import androidx.compose.ui.layout.onSizeChanged
 import kotlin.time.TimeSource
 
 /**
- * The world's touches and mouse, taken in Compose, for a host whose screens are drawn over the
- * world's surface and take every pointer event (a web page). It sits under the screens, so the
- * HUD's own controls get theirs first, and what's left goes to [gestures]. A mouse wheel zooms.
+ * The world's touches and mouse, taken in Compose, for a host whose screens sit over the world and
+ * take every pointer event (a web page). It's under the screens, so HUD controls get theirs first
+ * and the rest go to [gestures]. A mouse wheel zooms.
  *
- * It also clears its patch of the screens' canvas to see-through. Compose on a web page paints its
- * canvas white before each frame, which covered the world completely.
+ * It also clears its patch of the canvas, since Compose on the web paints it white every frame.
  *
- * A mouse has no second finger, so a drag with the right button acts as two fingers moving
- * together: in the assembly building, that pans.
+ * A right-button drag acts as two fingers moving together, which pans in the assembly building.
  */
 @Composable
 fun WorldInputLayer(gestures: WorldGestures) {
     val held = remember { Held() }
-    // A long press has to fire with the pointer held still, when no events come, so time is
-    // handed on every frame while it's down, on the events' own clock.
+    // A long press has to fire while the pointer's still and no events come, so time is passed on
+    // every frame while it's down, on the events' clock.
     LaunchedEffect(gestures) {
         while (true) {
             withFrameMillis { held.now()?.let(gestures::tick) }
@@ -108,7 +106,7 @@ fun WorldInputLayer(gestures: WorldGestures) {
 /** How far apart the two make-believe fingers of a right-button drag are, in pixels. */
 private const val TWIN = 60f
 
-/** Whether a pointer's down, and the time on the pointer events' clock since it went down. */
+/** Whether a pointer's down, and the time since then on the pointer events' clock. */
 private class Held {
     private var at = 0L
     private var since: TimeSource.Monotonic.ValueTimeMark? = null

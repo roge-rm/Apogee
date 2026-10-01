@@ -67,7 +67,7 @@ class WorldSaveTest {
         craft.damage(3, 0.4, Vec3(0.0, -1.0, 0.0))
         val engine = craft.defs.indexOfFirst { it.id == "engine-ember" }
         val hot = craft.temperature[engine]
-        // Ten seconds at full power, in the thick air at sea level, so clearly warm.
+        // Ten seconds at full power at sea level, so clearly warm.
         assertTrue("a ten-second burn should have warmed the Ember: $hot", hot > Vessel.AMBIENT_TEMPERATURE + 30.0)
 
         val restored = World.default(catalog)
@@ -149,8 +149,7 @@ class WorldSaveTest {
         assertEquals(0.75, after.throttle, 1e-9)
         assertTrue("stability assist is a mode too", after.sasEnabled)
 
-        // A stick is being held. Resuming it would have the craft rotating on its own with nobody
-        // touching the controls.
+        // A stick is held, so resuming it would turn the craft with nobody touching it.
         assertEquals("pitch", 0.0, after.pitch, 0.0)
         assertEquals("yaw", 0.0, after.yaw, 0.0)
         assertEquals("roll", 0.0, after.roll, 0.0)
@@ -252,8 +251,7 @@ class WorldSaveTest {
             "Alice",
             world.vesselOwnedBy("install-alice")?.ownerName,
         )
-        // Exact, because an id isn't a name, and folding case on one could only ever hand a craft
-        // to the wrong install.
+        // Exact: an id isn't a name, and folding case could hand a craft to the wrong install.
         assertNull(world.vesselOwnedBy("INSTALL-ALICE"))
         assertNull("a name is not an identity", world.vesselOwnedBy("Alice"))
         assertNull(world.vesselOwnedBy("install-bob"))
@@ -261,8 +259,8 @@ class WorldSaveTest {
     }
 
     /**
-     * Format 1 wrote a display name where the id now goes. Keeping it as an id would mean the first
-     * person to type "Alice" inherits Alice's base.
+     * Format 1 wrote a display name where the id goes. Kept as an id, anyone typing "Alice" would
+     * inherit Alice's base.
      */
     @Test
     fun `a format 1 save keeps the label but drops the claim`() {
@@ -303,8 +301,7 @@ class WorldSaveTest {
 
     @Test
     fun `resource slots are stored positionally in a pinned order`() {
-        // The save format writes resource levels by position. Reordering the enum would quietly
-        // turn every saved craft's fuel into something else, so the order is part of the format.
+        // Saves write resource levels by position, so the enum order is part of the format.
         assertEquals(
             listOf("PROPELLANT", "MONOPROPELLANT", "ELECTRIC_CHARGE", "ABLATOR", "ORE", "WATER"),
             ResourceType.entries.map { it.name },

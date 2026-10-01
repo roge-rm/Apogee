@@ -5,11 +5,7 @@ import com.rm.apogee.core.part.StockParts
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * A propeller turns on its own shaft, wherever it is on its part. The outboard's, turned about the
- * part's origin instead, went round in a circle a metre across, out of the water and back, as it
- * spun.
- */
+/** A propeller turns on its own shaft, not about its part's origin. */
 class SpinningPartsTest {
 
     @Test

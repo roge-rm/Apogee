@@ -10,16 +10,10 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * An aeroplane leaving the ground under its own power.
- *
- * It's flown the way a player would: nose level on the roll, full back stick from sixty metres a
- * second until the nose is at the climb attitude (which the aircraft answers when it's fast enough
- * to, about a hundred at this wing loading), and then hands off, with SAS holding it there.
- *
- * Height is measured above the terrain underneath, not above the pad. The first version of this
- * measured from the pad and passed. The aircraft had rolled off the end of the level ground into
- * rising country and been shoved up the hillside by the contact solver with its wheels on the
- * grass.
+ * An aeroplane taking off under its own power, flown as a player would: nose level on the roll,
+ * full back stick from 60 m/s until the nose reaches climb attitude (about 100 m/s at this wing
+ * loading), then hands off with SAS holding it. Height is above the terrain underneath, not the
+ * pad, so a craft shoved up a hillside on its wheels doesn't pass.
  */
 class TakeoffTest {
 

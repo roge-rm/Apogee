@@ -8,10 +8,10 @@ import android.provider.MediaStore
 import java.io.File
 
 /**
- * The perf build's setup, for timing a phone nobody can reach with adb. On its first start it puts
- * the scene from its assets in place as the free play world, with the player it was made for, and
- * switches on the "debug-perf" log, with each part of building a frame timed. From then on it copies every "ApogeePerf" line into
- * a new Download/apogee-perf-<when>.txt each run, under what the phone is, so the file can simply be sent back.
+ * The perf build's setup, for timing a phone I can't reach with adb. On first start it seeds the
+ * scene from its assets as the free play world, with its player, and turns on the "debug-perf" log.
+ * Each run copies every "ApogeePerf" line into a new Download/apogee-perf-<when>.txt, headed with
+ * the phone's details, so the file can just be sent back.
  */
 object PerfKit {
     private const val SCENE = "perf-scene.json"
@@ -48,7 +48,7 @@ object PerfKit {
                 val logcat = ProcessBuilder("logcat", "-v", "time", "--pid=${android.os.Process.myPid()}", "-s", "ApogeePerf:I", "ApogeePerfHints:I").redirectErrorStream(true).start()
                 var saidQuality = false
                 logcat.inputStream.bufferedReader().forEachLine { line ->
-                    // What it's drawing at, once the game has settled that, which it hasn't when this starts.
+                    // The quality tier, once the game has settled it.
                     if (!saidQuality && "ApogeePerf" in line) {
                         writer.write("quality ${settings.getString("quality_tier", null) ?: "auto"} (detected ${settings.getString("detected_quality_tier", "?")}), shadows ${settings.getString("shadow_quality", null) ?: "auto"}\n")
                         saidQuality = true

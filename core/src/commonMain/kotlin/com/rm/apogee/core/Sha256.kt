@@ -1,9 +1,8 @@
 package com.rm.apogee.core
 
 /**
- * SHA-256, for the part catalogue's and the solar system's content hashes. They're what a client
- * and a server compare to know they have the same game, so this gives exactly what
- * `java.security.MessageDigest` does (a test holds the two together), on every platform.
+ * SHA-256 for the part catalogue's and solar system's content hashes, which client and server
+ * compare. Must match `java.security.MessageDigest` exactly (a test checks).
  */
 object Sha256 {
     fun digest(input: ByteArray): ByteArray {

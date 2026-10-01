@@ -9,17 +9,17 @@ import com.rm.apogee.core.part.PartCatalog
 import com.rm.apogee.platform.format
 
 /**
- * The saved craft, read and described, for the lists that offer them: loading one into the Vehicle
- * Assembly, and picking one for Quick Launch.
+ * The saved craft, read and described for the lists that offer them: Vehicle Assembly and Quick
+ * Launch.
  */
 object CraftShelf {
 
-    /** A saved craft: its design, its kind, a line or two saying what it's like, and the name its picture goes by. */
+    /** A saved craft: its design, kind, a line or two about it, and its picture's name. */
     class Entry(val saved: SavedCraft, val design: CraftDesign, val kind: CraftKind, val summary: String, val picture: String)
 
     /**
-     * Every craft in [list], read from [store], in the same order. It reads every design in the
-     * store, so it's for a background thread. It asks [thumbnails] for the pictures of any not drawn yet.
+     * Every craft in [list], read from [store], in order. It reads every design, so it's for a
+     * background thread. Asks [thumbnails] for any pictures not drawn yet.
      */
     fun read(list: List<SavedCraft>, store: CraftStore, catalog: PartCatalog, thumbnails: com.rm.apogee.render.PartThumbnails?): List<Entry> =
         list.mapNotNull { saved ->

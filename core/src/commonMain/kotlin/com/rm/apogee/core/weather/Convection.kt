@@ -12,14 +12,11 @@ import com.rm.apogee.core.lruMapOf
 /**
  * Thermals, and the cumulus that caps each one.
  *
- * There's one chance of a thermal per cell of [CELL] and per [CYCLE], with each cell on its own
- * phase so they don't all pop up at once. Whether one forms depends on the ground. Rock, sand and
- * dry dirt heat up and send air up, while water, snow and forest hardly do. A thermal stays over
- * the ground that feeds it and leans downwind as it rises, swells, peaks and fades, with a ring of
- * sinking air around it. Its cloud grows on top once it has been going for a while, so a pilot can
- * find the lift by the cumulus above it, the way glider pilots do. (Letting it drift over its whole
- * life carried it three cells from its own, out of reach of any search cheap enough to run every
- * tick.)
+ * One chance of a thermal per [CELL] and per [CYCLE], each cell on its own phase. Rock, sand and
+ * dry dirt make them; water, snow and forest hardly do. A thermal stays over its ground and leans
+ * downwind as it rises, swells, peaks and fades, with sinking air round it. Its cloud grows on top
+ * after a while, so you can find the lift by the cumulus. It doesn't drift over its life, since
+ * that carried it out of reach of a search cheap enough to run every tick.
  */
 internal class Convection(
     private val weather: Weather,
@@ -71,16 +68,13 @@ internal class Convection(
             .addScaledInPlace(th.north, (Noise.hash(seed + 13, cx, cy, c) - 0.5) * 0.7 * CELL / bodyRadius)
             .normalizeInPlace()
         frame(th.origin, th.east, th.north)
-        // One sample of the ground, not the wind's nine-sample description. On a fresh flight none
-        // of those are cached, and listing the sky's thermals took ten seconds.
+        // One ground sample, not the wind's nine-sample description, which made a fresh sky slow.
         val terrain = weather.body.terrain
         val elevation = terrain?.elevation(th.origin) ?: 0.0
         val heat = if (terrain == null || terrain.hasOcean && elevation < 0.0) 0.0
             else TerrainWind.heat(terrain.material(th.origin, elevation, 0.0))
-        // Cumulus gather into fields of them where the air is ripe for it, with clear sky between,
-        // instead of one here and there across the whole map, which is what an even chance per cell
-        // gave. They were far too spread out. The field is tens of kilometres across and drifts
-        // over hours, and the cloud cover setting makes it busier or quieter.
+        // Cumulus gather into fields with clear sky between. A field is tens of kilometres
+        // across, drifts over hours, and the cloud cover setting scales it.
         val field = fieldAt(th.origin, time)
         val chance = (heat * intensity.thermals * climate.thermals * (0.06 + 1.15 * field) * weather.config.clouds.pockets).coerceAtMost(0.95)
         th.exists = heat > 0.0 && Noise.hash(seed + 14, cx, cy, c) < chance
@@ -96,8 +90,8 @@ internal class Convection(
             th.drift.mulInPlace(0.8)
             // A heap of rounded lobes, widest at the base.
             val width = th.radius * 2.5 + 200.0 + th.depth * 0.3
-            // Lots of smaller lobes around a broad core, heaped higher toward the middle. A few big
-            // ones look like solid lumps floating on their own.
+        // Many smaller lobes round a broad core, higher toward the middle. A few big ones look like
+        // floating lumps.
             th.lobeCount = 4 + (Noise.hash(seed + 19, cx, cy, c) * (LOBES - 3)).toInt().coerceAtMost(LOBES - 4)
             for (l in 0 until th.lobeCount) {
                 val a = Noise.hash(seed + 20 + l, cx, cy, c) * 2.0 * Math.PI
@@ -117,10 +111,7 @@ internal class Convection(
         return th
     }
 
-    /**
-     * How ripe the air is for cumulus around unit [at], 0..1: a slow, broad pattern, with most of
-     * the map getting a little and some of it a lot.
-     */
+    /** How ripe the air is for cumulus round unit [at], 0..1: a slow broad pattern. */
     private fun fieldAt(at: Vec3, time: Double): Double {
         val k = bodyRadius / FIELD_SCALE
         val drift = time / FIELD_DRIFT_SECONDS
@@ -130,9 +121,8 @@ internal class Convection(
     }
 
     /**
-     * Where [th]'s column stands [height] metres above its ground, as a unit direction into [out].
-     * It's over its source at the bottom, leaning downwind by as far as the wind carries the air
-     * while it climbs to there.
+     * Where [th]'s column stands [height] metres above its ground, as a unit direction into [out]:
+     * over its source at the bottom, leaning downwind as far as the wind carries the rising air.
      */
     fun columnAt(th: Thermal, height: Double, out: Vec3): Vec3 {
         val speed = th.drift.length
@@ -234,10 +224,7 @@ internal class Convection(
         /** Roughly how long the fields take to drift their own width, in seconds. */
         const val FIELD_DRIFT_SECONDS = 4.0 * 3_600.0
 
-        /**
-         * The furthest a column leans from its source, in metres, which keeps it within reach of a
-         * 5x5 search.
-         */
+        /** The furthest a column leans from its source, in metres, to stay within a 5x5 search. */
         const val MAX_LEAN = 2_000.0
     }
 }

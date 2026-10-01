@@ -7,9 +7,8 @@ import com.rm.apogee.core.part.PartCategory
 import com.rm.apogee.core.world.World
 
 /**
- * How a craft gets about, for the words the game uses about it. You fly a plane, but you drive a
- * rover, sail a boat, dive a sub, walk in a suit or swim in the sea, and visit a base, and a button that says FLY on
- * all of them reads wrong.
+ * How a craft gets about, for the words the game uses: you fly a plane, drive a rover, sail a boat,
+ * dive a sub, walk or swim in a suit, and visit a base.
  */
 enum class Going(val verb: String, val doing: String, val keep: String) {
     FLY("Fly", "Flying", "Keep flying"),
@@ -22,10 +21,9 @@ enum class Going(val verb: String, val doing: String, val keep: String) {
 
     companion object {
         /**
-         * How [design] gets about: a founded base ([anchored]) is visited and someone in a suit
-         * walks, or swims if they're in the sea ([swimming]), and anything else goes by its [CraftKind]. Something carrying a base that isn't
-         * founded yet goes by what's carrying it, so a hauler is driven, a lander flown and a sea
-         * platform sailed.
+         * How [design] gets about. A founded base ([anchored]) is visited, a suit walks or swims
+         * ([swimming]), and the rest go by [CraftKind]. A base not founded yet goes by what carries
+         * it, so a hauler is driven, a lander flown and a sea platform sailed.
          */
         fun of(design: CraftDesign, catalog: PartCatalog, anchored: Boolean, swimming: Boolean = false): Going = when {
             anchored -> VISIT

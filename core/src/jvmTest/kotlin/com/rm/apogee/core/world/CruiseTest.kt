@@ -82,8 +82,8 @@ class CruiseTest {
         world.apply(Command.SetCruise(plane.id.raw, true))
         repeat(1_200) { world.step(dt) }
         val before = plane.control.cruiseHeading
-        // Rolled into a bank with a flick of left stick, then pulled round the turn for a few
-        // seconds. Held over for four seconds, the stick rolled it right round and back.
+        // A short flick of left stick into a bank, then pulled round the turn for a few seconds.
+        // Held longer, the stick rolls it right round.
         world.apply(Command.SetAttitude(plane.id.raw, 0.0, 0.0, -0.6))
         repeat(25) { world.step(dt) }
         world.apply(Command.SetAttitude(plane.id.raw, 0.15, 0.0, 0.0))

@@ -8,16 +8,12 @@ import com.rm.apogee.core.guarded
 import com.rm.apogee.core.math.Math
 
 /**
- * Built tiles, kept while they're being used.
+ * Built tiles, kept while they're in use.
  *
- * There's one per [Terrain], shared by everything that touches that ground: every craft in a
- * server's world, the client's prediction replica, and the mesh builder's workers. It's thread-safe
- * because those run on different threads. Tiles never change once built, so the worst a race can do
- * is build one twice.
- *
- * It has a size limit and throws out the least recently used first. A tile is about twenty
- * kilobytes and a craft on the ground uses a handful, so the limit is far above any real working
- * set and far below anything a phone would notice.
+ * One per [Terrain], shared by every craft in a server's world, the client's prediction replica and
+ * the mesh builder's workers, so it's thread-safe. Tiles never change once built, so a race can at
+ * worst build one twice. Least recently used tiles go first past the limit. A tile is about 20 kB
+ * and a grounded craft uses a handful.
  */
 class TerrainTileCache(
     private val terrain: Terrain,
@@ -69,22 +65,16 @@ class TerrainTileCache(
     private val queued: MutableSet<Long> = concurrentSetOf()
 
     /**
-     * One background thread per terrain, building tiles before anything stands on them.
-     *
-     * Without it, a craft rolling onto ground that hasn't been sampled pays for the whole tile in
-     * the tick it arrives. That's several milliseconds on a desktop and tens on a phone, and on the
-     * client it's a visible hitch in the predicted craft. Building ahead changes when the work gets
-     * done and nothing about the result. A tile is the same whichever thread samples it, so the
-     * simulation still gives the same answer everywhere.
+     * One background thread per terrain, building tiles before anything stands on them, so a craft
+     * rolling onto new ground doesn't hitch. A tile is the same whichever thread builds it, so the
+     * result doesn't change.
      */
     private val builder by lazy { com.rm.apogee.core.Background("terrain-tiles") }
 
     /**
-     * Queues every tile within [radiusMetres] of body-fixed [direction] that isn't already built or
-     * queued. It's cheap when there's nothing to do, so it can be asked every tick.
-     *
-     * It stays on one cube face. The rare craft sitting across a face edge builds the other face's
-     * tile itself, like it always could.
+     * Queues every tile within [radiusMetres] of body-fixed [direction] that isn't built or queued.
+     * Cheap when there's nothing to do, so call it every tick. It stays on one cube face; a craft
+     * across a face edge builds the other face's tile itself.
      */
     fun prefetch(direction: Vec3, radiusMetres: Double, scratch: Lookup) {
         val unit = scratch.unit.setTo(direction).normalizeInPlace()
@@ -111,7 +101,7 @@ class TerrainTileCache(
     }
 
     private fun evict() {
-        // Drop the oldest quarter in one go, instead of one tile per insert.
+        // Drop the oldest quarter in one go.
         guarded(this) {
             if (tiles.size <= capacity) return
             val ordered = tiles.entries.sortedBy { it.value.lastUsed }

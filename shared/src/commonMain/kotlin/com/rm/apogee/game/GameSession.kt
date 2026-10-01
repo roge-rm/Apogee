@@ -60,10 +60,8 @@ import kotlin.concurrent.Volatile
 /**
  * One play session: a server, a client, and the bridge to the renderer.
  *
- * Single player is a one-player server. The client here talks over a [LoopbackTransportPair], but
- * through exactly the same [GameClient] and protocol a networked client uses, so the multiplayer
- * path gets used every time anyone plays solo, not only when two devices are in the room. Joining a
- * remote host is the same code with a socket transport in place of the loopback.
+ * Single player is a one-player server, reached over a [LoopbackTransportPair] through the same
+ * [GameClient] and protocol as a networked client. Joining a remote host swaps in a socket.
  */
 class GameSession private constructor(
     private val frameBus: FrameBus,
@@ -74,11 +72,8 @@ class GameSession private constructor(
     private val client: GameClient,
     private val transport: Transport,
     /**
-     * A craft to put on the pad once connected, or null to fly what's already there.
-     *
-     * It's sent as a command instead of handed to the server as its "starter craft", because in a
-     * persistent world the player usually already owns something. The starter is only for an empty
-     * world, and a launch has to work either way.
+     * A craft to put on the pad once connected, or null to fly what's already there. Sent as a
+     * command, since in a persistent world the player usually owns something already.
      */
     private val launchDesign: CraftDesign? = null,
     /** Where to put [launchDesign], or null to let the design decide. */
@@ -87,19 +82,14 @@ class GameSession private constructor(
     val camera = CameraController()
 
     /**
-     * A second camera for map view, with its own distance range.
-     *
-     * It's separate instead of a mode flag on one camera, because the two want completely different
-     * things. The flight camera frames a 14 m rocket from tens of metres, and the map camera frames
-     * a 700 km orbit from thousands of kilometres. Sharing one would mean a zoom range spanning six
-     * orders of magnitude, and the player's pinch would be useless at both ends.
+     * A second camera for map view, with its own distance range. One zoom range from tens of metres
+     * to thousands of kilometres would be useless at both ends.
      */
     val mapCamera = CameraController(
         upReference = UpReference.FIXED,
         // Close enough to see a rover's course across a few kilometres of ground.
         minDistance = 2_000.0,
-        // Out to the whole system, because Ultima's orbit is five hundred million kilometres
-        // across.
+        // Out to the whole system: Ultima's orbit is five hundred million kilometres across.
         maxDistance = 3.0e13,
     )
 
@@ -107,11 +97,8 @@ class GameSession private constructor(
     @Volatile var mapMode: Boolean = false
 
     /**
-     * Local physics for the craft this client is flying.
-     *
-     * The server stays in charge. Every snapshot resets this and simulates forward again. It's here
-     * so the throttle responds on the frame you move it, instead of after a round trip and up to a
-     * snapshot interval.
+     * Local physics for the flown craft, so the throttle responds on the same frame. The server
+     * stays in charge: every snapshot resets it and it simulates forward again.
      */
     private val prediction = ClientPrediction(catalog)
 
@@ -156,10 +143,7 @@ class GameSession private constructor(
     /** How long the last sea build took, in ms, for the debug performance log. */
     val seaBuildMillis: Double get() = seaScene?.lastBuildMillis ?: 0.0
 
-    /**
-     * How long the last cloud listing took, in ms, and how many cloud lobes are in view, for the
-     * debug performance log.
-     */
+    /** How long the last cloud listing took, in ms, for the debug performance log. */
     val cloudListMillis: Double get() = cloudScene?.lastListMillis ?: 0.0
     val framesPublished = AtomicLong(0)
 
@@ -180,7 +164,7 @@ class GameSession private constructor(
     val hostedPlayerCount: Int get() = hostedServer?.playerCount ?: 0
 
     /**
-     * Runs [task] on the hosted server's tick thread, between steps. Not at all when joined to
+     * Runs [task] on the hosted server's tick thread, between steps. Does nothing when joined to
      * someone else's game.
      */
     fun betweenTicks(task: () -> Unit): Boolean {
@@ -203,10 +187,8 @@ class GameSession private constructor(
     private val bodyFixedCamera = Vec3()
 
     /**
-     * Builds terrain geometry from the simulation's own height field.
-     *
-     * It's created once a quality tier is known, because how finely to sample is the one thing
-     * about terrain that depends on the device.
+     * Builds terrain geometry from the simulation's height field. Made once the quality tier is
+     * known.
      */
     private var terrainBuilder: TerrainBuilder? = null
     private var drawFarSurface = true
@@ -217,10 +199,7 @@ class GameSession private constructor(
     /** How far a design reaches from its centre of mass, in metres, cached per design. */
     private val radii = com.rm.apogee.platform.identityMapOf<CraftDesign, Double>()
 
-    /**
-     * Where the pilot sits in [design]: its crewed command part, or a probe core if it has no
-     * crew, by part index. -1 for neither.
-     */
+    /** The pilot's part in [design]: its crewed command part, else a probe core. -1 for neither. */
     private fun seatOf(design: CraftDesign): Int = seats.getOrPut(design) {
         val commands = design.parts.indices.filter { catalog[design.parts[it].partId]?.module<com.rm.apogee.core.part.Command>() != null }
         commands.firstOrNull { (catalog[design.parts[it].partId]?.module<com.rm.apogee.core.part.Command>()?.crewCapacity ?: 0) > 0 }
@@ -248,7 +227,9 @@ class GameSession private constructor(
     private var seaRough = 0.0
     private var seaStorm = 0.0
 
-    /** Each hull's bow height over the water last frame, by craft and part, for hearing it slap into a wave. */
+    /**
+     * Each hull's bow height over the water last frame, by craft and part, to hear it slap a wave.
+     */
     private val bowGaps = HashMap<Long, Double>()
     private val slapSample = com.rm.apogee.core.sea.SeaSample()
 
@@ -259,12 +240,7 @@ class GameSession private constructor(
 
     private val cloudCamera = Vec3()
 
-    /**
-     * The solar system, built once.
-     *
-     * It used to be rebuilt on every frame: three bodies, their orbits and their terrain fields,
-     * sixty times a second, thrown away each time. Nothing about it changes.
-     */
+    /** The solar system, built once. Nothing about it changes. */
     private val system = SolarSystem.defaultSystem()
 
     val connected: Boolean get() = client.connected
@@ -274,25 +250,21 @@ class GameSession private constructor(
     private lateinit var terrainScope: CoroutineScope
 
     /**
-     * Supplies the renderer's terrain hand-off and the device's quality tier.
-     *
-     * It's called once the GL thread has judged the device. Until then there's no sensible answer
-     * to how finely to sample.
+     * Supplies the renderer's terrain hand-off and the device's quality tier. Set once the GL
+     * thread has judged the device.
      */
     private var scatterStreamer: ScatterStreamer? = null
 
     fun attachTerrain(source: com.rm.apogee.render.TerrainSource, quality: QualityTier) {
-        // Called again whenever the GL surface is recreated. The builder already knows the GPU lost
-        // its chunks (the renderer tells it), and rebuilds just those. Replacing it threw away
-        // everything built and left the old one's workers running, publishing draw lists of their
-        // own into the same source.
+        // Called again whenever the GL surface is recreated. The builder already rebuilds the
+        // chunks the GPU lost, so keep it; a new one would leave the old workers publishing into
+        // the same source.
         if (terrainBuilder != null && terrainQuality == quality) return
         terrainBuilder?.let {
             Log.i("ApogeeTerrain", "builder replaced: $terrainQuality -> $quality")
             it.stop()
-            // What the old builder left in the source, the new one would never know it had, and it
-            // would wait on it forever behind the loading screen. A tier detected differently from
-            // the one remembered did exactly that.
+            // Release what the old builder left in the source, or the new one waits on it forever
+            // behind the loading screen.
             source.releaseAllChunks()
         }
         terrainQuality = quality
@@ -303,10 +275,8 @@ class GameSession private constructor(
     private var terrainQuality: QualityTier? = null
 
     /**
-     * Whether the world is fit to be shown, meaning the craft has ground under it.
-     *
-     * It's false until the first terrain patch is built, which is why the flight view holds back
-     * instead of showing a craft hanging over a globe that hasn't caught up with it yet.
+     * Whether the craft has ground under it yet. False until the first terrain patch is built, so
+     * the flight view waits for it.
      */
     val surfaceReady: Boolean
         get() = terrainBuilder?.patchReady ?: false
@@ -315,9 +285,8 @@ class GameSession private constructor(
         terrainScope = scope
         serverJob = hostedServer?.start(scope, SERVER_THREAD)
         clientJob = client.connect(scope)
-        // Once the handshake lands, put the launched craft on the pad. It waits for `connected`
-        // instead of sending straight away, because the server refuses anything before the
-        // handshake is done.
+        // Once the handshake lands, put the launched craft on the pad. The server refuses anything
+        // before the handshake.
         scope.launch(Dispatchers.Default) {
             while (isActive && !client.connected && client.rejectionReason == null) {
                 delay(16)
@@ -338,9 +307,8 @@ class GameSession private constructor(
 
     fun stop() {
         presentJob?.cancel(); presentJob = null
-        // Everything held lets go, for good. Cancelling doesn't wait for a frame that's already
-        // being built, and one finishing after this would put its scene back. The sea went on
-        // playing over the menu, which I heard.
+        // Everything held lets go for good. Cancelling doesn't wait for a frame already being
+        // built, so stop sound here or a late frame puts its scene back.
         synchronized(soundLock) {
             soundStopped = true
             AudioEngine.scene(0, IntArray(0), IntArray(0), IntArray(0), FloatArray(0))
@@ -359,11 +327,8 @@ class GameSession private constructor(
     }
 
     /**
-     * Opens this session's server to the network and announces it.
-     *
-     * This only means anything when hosting. The host's own client stays on the loopback transport
-     * instead of looping back through a socket. There's no reason to serialise and checksum its own
-     * commands, and keeping it in-process means a host with no network can still play.
+     * Opens this session's server to the network and announces it. The host's own client stays on
+     * the loopback, so it can play with no network.
      */
     private fun openToLan(server: GameServer, scope: CoroutineScope, serverName: String) {
         val opened = openToNetwork(server, scope, serverName, catalog.contentHash) ?: return
@@ -398,7 +363,8 @@ class GameSession private constructor(
 
     suspend fun setAttitude(pitch: Double, yaw: Double, roll: Double) {
         stickUp = pitch; stickRight = yaw; stickRoll = roll
-        // Someone on foot: up walks on, and right turns them about their own height, their roll.
+        // Someone on foot: up walks forward, and right turns them about their own height (their
+        // roll).
         if (controlledIsSuit) {
             sendAttitude(pitch, 0.0, yaw + roll)
             return
@@ -436,7 +402,7 @@ class GameSession private constructor(
 
     /**
      * Whether reading by the screen tips the craft toward the stick (anything that flies level, and
-     * every rotorcraft) instead of pointing its nose there (a craft built standing up).
+     * all rotorcraft) instead of pointing its nose there (a craft built standing up).
      */
     val screenTilts: Boolean
         get() = controlledOrientation != CraftOrientation.VERTICAL || controlledKind == com.rm.apogee.core.craft.CraftKind.ROTORCRAFT
@@ -456,9 +422,9 @@ class GameSession private constructor(
     @Volatile private var kind: com.rm.apogee.core.craft.CraftKind? = null
 
     /**
-     * The stick read by the screen, as the craft's pitch, yaw and roll. A craft that tips leans
-     * toward it, with the roll buttons turning it about its up. One built standing up turns its
-     * nose toward it. Null before there's a view or a craft.
+     * The stick read by the screen, as pitch, yaw and roll. A craft that tips leans toward it, with
+     * roll turning it about its up; one built standing up points its nose there. Null before
+     * there's a view or a craft.
      */
     private fun screenCommand(up: Double, right: Double, roll: Double): Triple<Double, Double, Double>? {
         if (!screenTilts) {
@@ -487,11 +453,9 @@ class GameSession private constructor(
     @Volatile private var lastAttitudeNanos = 0L
 
     /**
-     * The stick, read by the screen, as the craft's own pitch and yaw. Right tips the nose toward
-     * the screen's right, and up tips it away from the camera, as if your thumb were holding the
-     * craft itself. A rocket is round and the camera starts wherever it starts, so turning it about
-     * its own axes went a different way on screen every time. On a symmetrical rocket I couldn't
-     * tell which control went which way until I tested them. Null before there's a view or a craft.
+     * The stick read by the screen, as pitch and yaw: right tips the nose to the screen's right and
+     * up tips it away from the camera, as if your thumb held the craft. Null before there's a view
+     * or a craft.
      */
     private fun screenAttitude(up: Double, right: Double): Pair<Double, Double>? {
         val craft = prediction.replica?.body?.orientation ?: return null
@@ -499,8 +463,8 @@ class GameSession private constructor(
     }
 
     /**
-     * Keeps a held stick meaning the same thing on screen as the craft turns under it and the
-     * camera moves round it. It gets sent again when it has drifted.
+     * Keeps a held stick meaning the same thing on screen as the craft and camera turn. Resent when
+     * it has drifted.
      */
     private fun refreshScreenAttitude() {
         if (stickUp == 0.0 && stickRight == 0.0 && stickRoll == 0.0) return
@@ -533,8 +497,8 @@ class GameSession private constructor(
     }
 
     /**
-     * Arms the thrusters, or stands them down (and stops any slide). It takes effect here straight
-     * away (the button shows it on the next frame) and is sent on its way.
+     * Arms the thrusters, or stands them down and stops any slide. Takes effect here at once and is
+     * sent on.
      */
     fun setRcs(armed: Boolean) {
         localRcs = armed
@@ -549,9 +513,8 @@ class GameSession private constructor(
     }
 
     /**
-     * What the player's thumbs ask the thrusters to slide: [right] and [away] from the camera, and
-     * [lift] up from the planet, each -1..1. It's turned into the craft's axes every frame, as the
-     * camera and the craft turn.
+     * What the thumbs ask the thrusters to slide, each -1..1: [right] and [away] from the camera,
+     * [lift] up from the planet. Turned into craft axes every frame.
      */
     fun setSlide(right: Double, away: Double, lift: Double) {
         slideRight = right; slideAway = away; slideLift = lift
@@ -578,14 +541,12 @@ class GameSession private constructor(
         }
 
     /**
-     * Keeps the thrusters' slide pointing where the thumbs mean as the camera and craft turn. It's
-     * worked out each frame, and sent when it has moved enough, at most ten times a second, and
-     * straight away when it stops.
+     * Keeps the thrusters' slide where the thumbs mean as camera and craft turn. Sent when it moves
+     * enough, at most ten times a second, and at once when it stops.
      */
     private fun updateSlide(focusId: Long, craftRotation: Quat, focusPosition: Vec3) {
         if (rcsFor != focusId) {
-            // Another craft in hand, so its thrusters start stood down, on the server too, where
-            // they might have been left armed.
+            // Another craft in hand: its thrusters start stood down, on the server too.
             rcsFor = focusId
             localRcs = false
             slideRight = 0.0; slideAway = 0.0; slideLift = 0.0
@@ -598,15 +559,13 @@ class GameSession private constructor(
         }
         if (!localRcs) return
         val up = focusPosition.normalized()
-        // Fine near the middle of the stick, and full at its edge: cubed. Linear, the lightest
-        // touch was metres a second in orbit, because the thrusters are sized to walk a landed
-        // module, not to dock.
+        // Cubed, for fine control near the middle. The thrusters are sized to walk a landed module,
+        // so linear is far too strong for docking.
         fun fine(x: Double) = x * x * x
         val grounded = telemetry.heightAboveGround < SLIDE_GROUNDED_BELOW
         val wanted = SlideControl.command(cameraRotation, craftRotation, up, fine(slideRight), fine(slideAway), fine(slideLift), Vec3(), grounded)
         // Lining up to dock, hands off: the thrusters take out drift across the line to the other
-        // port, and leave the closing speed alone. Nudge it toward the port, let go, and it coasts
-        // in on the line.
+        // port and leave the closing speed alone.
         val readout = dockReadout
         if (!grounded && wanted.lengthSq < 1e-12 && readout != null && readout.line.lengthSq > 0.5) {
             val across = Vec3().setTo(readout.relative).addScaledInPlace(readout.line, -(readout.relative dot readout.line))
@@ -626,11 +585,7 @@ class GameSession private constructor(
         terrainScope.launch { client.send(Command.SetTranslation(focusId, x, y, z)) }
     }
 
-    /** Whether the craft being flown has any wheels to brake. */
-    /**
-     * The flight HUD's stage cards, refreshed a few times a second from the replica: what's
-     * burning, and what each stage still to fire will do.
-     */
+    /** The HUD's stage cards, refreshed a few times a second from the replica. */
     @Volatile var stageCards: List<StageCard> = emptyList()
         private set
     private var stageCardsNanos = 0L
@@ -784,7 +739,7 @@ class GameSession private constructor(
                 held = prediction.replica?.let { local ->
                     val ore = com.rm.apogee.core.part.ResourceType.ORE
                     val water = com.rm.apogee.core.part.ResourceType.WATER
-                    // A list, which compares by what's in it, so the same amounts aren't a change.
+                    // A list compares by contents, so the same amounts aren't a change.
                     listOf(
                         local.amountOf(ore).toFloat(), local.capacityOf(ore).toFloat(),
                         local.amountOf(water).toFloat(), local.capacityOf(water).toFloat(),
@@ -793,9 +748,7 @@ class GameSession private constructor(
             )
         }
 
-    /**
-     * Floods the flown craft's ballast tanks ([mode] 1), blows them (-1), or leaves them alone (0).
-     */
+    /** Floods the flown craft's ballast tanks ([mode] 1), blows them (-1), or leaves them (0). */
     suspend fun setBallast(mode: Int) {
         withControlledVessel { client.send(Command.SetBallast(it, mode)) }
     }
@@ -805,7 +758,7 @@ class GameSession private constructor(
         withControlledVessel { client.send(Command.HoldDepth(it, on)) }
     }
 
-    /** Whether the craft being flown has wings with flaps. */
+    /** Whether the craft being flown has sails, and wings with flaps. */
     val controlledHasSails: Boolean get() = controlledHas { it.hasModule<com.rm.apogee.core.part.Sail>() }
 
     val controlledHasFlaps: Boolean get() = controlledHas { (it.module<com.rm.apogee.core.part.AeroSurface>()?.flapLift ?: 0.0) > 0.0 }
@@ -821,10 +774,8 @@ class GameSession private constructor(
         }
 
     /**
-     * Whether the craft being flown is riding on the water, so its readouts are a boat's: speed,
-     * heading and the wind, not height, depth or orbit. It holds for a moment after the last time
-     * the water held it up, so a boat thrown off a crest doesn't flick over to a plane's for a
-     * second.
+     * Whether the flown craft is riding the water, so its readouts are a boat's. Holds a moment
+     * after the water last held it up, so a boat thrown off a crest doesn't flick to a plane's.
      */
     val controlledAfloat: Boolean
         get() {
@@ -839,9 +790,8 @@ class GameSession private constructor(
     private var afloatAt: kotlin.time.TimeSource.Monotonic.ValueTimeMark? = null
 
     /**
-     * Whether the craft being flown can be handed to the auto-land here the way it flies: a plane,
-     * a rotorcraft or an airship, up in air. A rocket's comes up by itself as it falls, from the
-     * impact readout.
+     * Whether the flown craft can hand itself to auto land as it flies: a plane, rotorcraft or
+     * airship in air. A rocket gets it from the impact readout.
      */
     val controlledCanLand: Boolean
         get() {
@@ -870,10 +820,10 @@ class GameSession private constructor(
         withControlledVessel { client.send(Command.SetFlaps(it, down)) }
     }
 
-    /** Holds the flown craft's height and heading as they are now, or lets go. */
     /** Holds the craft still where it is with its keeper core, or stops. */
     suspend fun setStationKeep(on: Boolean) = withControlledVessel { client.send(Command.SetStationKeep(it, on)) }
 
+    /** Holds the flown craft's height and heading as they are now, or lets go. */
     suspend fun setCruise(on: Boolean) {
         withControlledVessel { client.send(Command.SetCruise(it, on)) }
     }
@@ -896,6 +846,7 @@ class GameSession private constructor(
         withControlledVessel { client.send(Command.Deploy(it, deployed)) }
     }
 
+    /** Whether the craft being flown has any wheels to brake. */
     val controlledHasWheels: Boolean
         get() {
             val id = client.controlledVessel ?: return false
@@ -961,8 +912,8 @@ class GameSession private constructor(
     // --- planned burns and the autopilots -------------------------------------------
 
     /**
-     * The flown craft's burns as edited here, ahead of the server's word, so the path redraws under
-     * your finger. Null to follow the server's.
+     * The flown craft's burns as edited here, ahead of the server, so the path redraws under your
+     * finger. Null to follow the server's.
      */
     @Volatile private var editedBurns: List<com.rm.apogee.core.world.PlannedBurn>? = null
     @Volatile private var editedNanos = 0L
@@ -1026,7 +977,7 @@ class GameSession private constructor(
         moveBurn(burn.time + seconds)
     }
 
-    /** Sends what's being edited now, not in a moment, because a finger lifted. */
+    /** Sends what's being edited now, because a finger lifted. */
     suspend fun burnEdited() = sendBurns(now = true)
 
     /** The next burn is gone. */
@@ -1055,14 +1006,12 @@ class GameSession private constructor(
     }
 
     /**
-     * Puts the plan onto the replica: the burns, the target body, and the autopilots. They're
-     * pushed when asked for here, and otherwise read back, so one that finishes by itself (a burn
-     * done, a landing made) shows as off.
+     * Puts the plan onto the replica: burns, target body and autopilots. Read back unless changed
+     * here, so one that finishes by itself shows as off.
      */
     private fun syncPlan(focus: ClientVessel) {
         val replica = prediction.replica ?: return
-        // The server has taken an edit now, or it was replaced long ago, so follow the server
-        // again.
+        // Follow the server again once it has taken the edit, or the edit is old.
         editedBurns?.let { edited -> if (edited == focus.burns || System.nanoTime() - editedNanos > BURN_EDIT_HOLD_NANOS) editedBurns = null }
         val autoBurn = if (localAutoBurn != pushedAutoBurn) localAutoBurn else replica.control.autoBurn
         val autoLand = if (localAutoLand != pushedAutoLand) localAutoLand else replica.control.autoLand
@@ -1080,15 +1029,12 @@ class GameSession private constructor(
         val left: Double,
         /** At full throttle, in seconds. */
         val duration: Double,
-        /**
-         * After it: its high and low points above the ground, in metres (+inf for none, when
-         * escaping).
-         */
+        /** After it: high and low points above the ground, in metres (+inf when escaping). */
         val apoapsis: Double,
         val periapsis: Double,
         /**
-         * A moon it meets afterwards, and how low it passes it, in metres above the ground. Null
-         * for none.
+         * A moon it meets afterwards and how low it passes, in metres above the ground. Null for
+         * none.
          */
         val meets: String?,
         val meetsAt: Double,
@@ -1118,22 +1064,21 @@ class GameSession private constructor(
     @Volatile var windowReadout: WindowReadout? = null
 
     /**
-     * The next feat or visit the career credited, or a career refusal, to show once. Null when
-     * there's none.
+     * The next feat or visit the career credited, or a career refusal, to show once. Null for none.
      */
     fun nextFeat(): com.rm.apogee.core.world.ServerMessage.Feat? = client.feats.poll()
     fun nextRefusal(): String? = client.refusals.poll()
 
     /**
-     * This player's career in the world being flown in, as its server keeps it, and the world's
-     * firsts. Null in a sandbox.
+     * This player's career in this world, as its server keeps it, and the world's firsts. Null in a
+     * sandbox.
      */
     val career: com.rm.apogee.core.career.CareerState? get() = client.career
     val worldFirsts: List<com.rm.apogee.core.career.WorldFirst> get() = client.firsts
 
     /**
-     * Spends insight on a node, in the career of whichever world this is (the host's, when joined).
-     * Null if it was asked for, or the reason it can't be yet.
+     * Spends insight on a node in this world's career (the host's, when joined). Null if asked for,
+     * or the reason it can't be yet.
      */
     suspend fun unlock(nodeId: String): String? {
         val state = client.career ?: return "Not a career"
@@ -1147,7 +1092,7 @@ class GameSession private constructor(
     val careerWorld: Boolean get() = client.mode == com.rm.apogee.core.world.WorldSave.MODE_CAREER
 
     /**
-     * Whether there's an autopilot to fly burns and landings. In a career, only once the Flight
+     * Whether there's an autopilot for burns and landings. In a career, only once the Flight
      * Computer is unlocked.
      */
     val autopilotAllowed: Boolean get() = !careerWorld ||
@@ -1164,7 +1109,10 @@ class GameSession private constructor(
     @Volatile var approachReadout: com.rm.apogee.core.world.Approach.Cue? = null
         private set
 
-    /** The current the flown craft is floating in: speed in m/s and compass bearing it runs toward. Null for none. */
+    /**
+     * The current the flown craft floats in: speed in m/s and the bearing it runs toward. Null for
+     * none.
+     */
     @Volatile var currentReadout: Pair<Float, Float>? = null
         private set
 
@@ -1224,10 +1172,8 @@ class GameSession private constructor(
         approachReadout = replica?.let { approachFor(it, attractor, time) }
         currentReadout = replica?.let { currentFor(it, attractor) }
         val impact = plan?.impact
-        // Not for anything the water's holding up. A boat riding the waves drops into every trough,
-        // and it was being offered IMPACT and AUTO LAND each time. Nor for a plane, a rotorcraft or
-        // an airship in air: the impact is worked out as a fall, with nothing holding it up, so an
-        // airship sinking at a metre a second was told it would hit at thirty. They have LAND.
+        // Not for anything the water holds up, nor for a plane, rotorcraft or airship in air, since
+        // the impact assumes a free fall. They have LAND.
         val flies = replica != null && attractor.atmosphere != null && when (controlledKind) {
             com.rm.apogee.core.craft.CraftKind.PLANE, com.rm.apogee.core.craft.CraftKind.ROTORCRAFT,
             com.rm.apogee.core.craft.CraftKind.AIRSHIP -> true
@@ -1243,8 +1189,8 @@ class GameSession private constructor(
             val thrust = replicaThrust(replica, attractor)
             val most = thrust / replica.body.mass
             val speed = velocity.length
-            // Stopping from here on most of the engine takes this much height, so start with that
-            // much before the ground.
+            // Stopping on most of the engine from here takes this much height, so start that far
+            // above the ground.
             val stopping = if (most * 0.9 > g) speed * speed / (2.0 * (most * 0.9 - g)) else Double.POSITIVE_INFINITY
             val falling = -(velocity dot up)
             val height = (impact.time - time) * falling.coerceAtLeast(1.0)
@@ -1288,8 +1234,8 @@ class GameSession private constructor(
     private fun lineKey(vessel: Long, part: Int): Long = vessel * 65_536L + part
 
     /**
-     * The winch lines: a thin dark cable from each drum to what it's hooked on, straight when it's
-     * pulling and sagging when there's slack, in a few pieces.
+     * The winch lines: a thin dark cable from each drum to its hook, straight when pulling and
+     * sagging when slack, in a few pieces.
      */
     private fun appendLines(out: MutableList<RenderItem>, attractor: CelestialBody) {
         for ((k, line) in frameLines.withIndex()) {
@@ -1306,7 +1252,7 @@ class GameSession private constructor(
             }
             val span = to.distanceTo(from)
             if (span < 0.05) continue
-            // Slack hangs down in the middle, about as far as a rope that long between those ends.
+            // Slack sags in the middle about as far as a rope that long between those ends.
             val slack = (line.length - span).coerceAtLeast(0.0)
             val sag = if (line.taut) 0.0 else kotlin.math.sqrt(slack * (line.length + span)) / 2.0
             val down = Vec3().setTo(from).addInPlace(to).mulInPlace(0.5).normalizeInPlace().negateInPlace()
@@ -1364,8 +1310,8 @@ class GameSession private constructor(
     }
 
     /**
-     * Every craft of the player's, for the craft list: where each one is, in words, and how high.
-     * The one being flown comes first.
+     * Every craft of the player's for the craft list: where each is, in words, and how high. The
+     * one being flown comes first.
      */
     fun myCraft(): List<com.rm.apogee.ui.screens.CraftSummary> {
         val current = client.controlledVessel
@@ -1383,8 +1329,7 @@ class GameSession private constructor(
                 val floor = body.radius + body.atmosphereHeight + (body.terrain?.maxElevation ?: 0.0)
                 val only = vessel.design.parts.singleOrNull()?.partId
                 val flag = only == com.rm.apogee.core.world.World.FLAG_PART
-                // Under the sea, so below its datum, near enough, because the tide is only a metre
-                // or two.
+                // Under the sea, so below its datum, near enough (the tide is only a metre or two).
                 val depth = if (body.terrain?.isOcean(bodyFixed) == true) -body.altitudeOf(state.position) else 0.0
                 val situation = when {
                     flag -> "Planted on ${body.displayName}"
@@ -1407,9 +1352,7 @@ class GameSession private constructor(
     /** The craft being flown, if there is one. */
     val controlledCraft: Long? get() = client.controlledVessel
 
-    /**
-     * Removes the craft being flown, and waits (a second at most) for the server to say it's gone.
-     */
+    /** Removes the craft being flown and waits up to a second for the server to say it's gone. */
     suspend fun retire() {
         val id = client.controlledVessel ?: return
         client.send(Command.RemoveVessel(id))
@@ -1434,30 +1377,23 @@ class GameSession private constructor(
     }
 
     /**
-     * Welds the controlled craft to whatever it's resting against.
-     *
-     * It isn't predicted locally, unlike staging. A merge rewrites both craft's structure and
-     * destroys one of them, and guessing wrong about that would leave the client showing a craft
-     * the server still has. Staging only flips a flag, which is cheap to get wrong for one
-     * snapshot.
+     * Welds the controlled craft to whatever it's resting against. Not predicted locally, since a
+     * merge rewrites both craft and destroys one.
      */
     suspend fun join() {
         withControlledVessel { client.send(Command.Join(it)) }
     }
 
     suspend fun stage() {
-        // Staged locally as well, so the button responds straight away. The server's own staging
-        // arrives in the next structure update and overwrites this. It's staged locally on the
-        // frame thread, though, not this one. Staging splits the replica, and splitting it mid-step
-        // (the frame thread stepping it through its parts as they changed) ran off the end of its
-        // part list and crashed the game.
+        // Staged locally too, so the button responds at once; the server's staging overwrites it.
+        // Done on the frame thread, since splitting the replica mid-step crashes.
         pendingLocalStages.incrementAndGet()
         withControlledVessel { client.send(Command.Stage(it)) }
     }
 
     /**
-     * Craft close enough to the one being flown to touch it soon (a stage just dropped, a ring
-     * being docked with), for the replica to meet the way the server does.
+     * Craft close enough to touch the flown one soon (a dropped stage, a docking ring), so the
+     * replica meets them as the server does.
      */
     private fun neighboursOf(focus: ClientVessel, state: com.rm.apogee.core.world.VesselKinematics, time: Double): List<ClientPrediction.Neighbour> {
         val reach = designReach(focus.design)
@@ -1466,11 +1402,9 @@ class GameSession private constructor(
             if (other.id == focus.id) continue
             val seen = other.observed ?: continue
             if (seen.kinematics.referenceBodyId != state.referenceBodyId) continue
-            // Measured at the same moment. A snapshot apart in orbit is tens of metres, and a stage
-            // pressed against us came and went from the replica frame to frame, so the craft jumped
-            // about at 4x.
+            // Measured at the same moment. A snapshot apart is tens of metres in orbit.
             val there = if (seen.kinematics.asleep && stillOnGround(seen.kinematics, system.body(seen.kinematics.referenceBodyId))) {
-                // Asleep, perhaps last heard of a while ago, so turned with its world from then.
+                // Asleep, maybe last heard of a while ago, so turned with its world from then.
                 val body = system.body(seen.kinematics.referenceBodyId)
                 body.rotationAt(time).rotate(body.toBodyFixed(seen.kinematics.position, body.rotationAt(seen.time), Vec3()), Vec3())
             } else Vec3().setTo(seen.kinematics.position).addScaledInPlace(seen.kinematics.velocity, time - seen.time)
@@ -1499,13 +1433,6 @@ class GameSession private constructor(
     // --- presentation --------------------------------------------------------
 
     /**
-     * Builds one render frame from the client's view of the world.
-     *
-     * It's called at roughly display pace instead of the simulation's. The server streams 20 motion
-     * samples a second and the renderer interpolates between the last two, so publishing faster
-     * than the data changes would just hand the GL thread the same numbers over and over.
-     */
-    /**
      * Debug: time each part of building a frame, as [BUILD_PARTS] says. Read by [takeBuildReport]
      * for the "debug-perf-build" switch.
      */
@@ -1524,12 +1451,12 @@ class GameSession private constructor(
         buildMark = now
     }
 
-    /** Adds [nanos] to part [part] of the frame build's timing, for something timed inside another part. */
+    /** Adds [nanos] to part [part] of the build timing, for something timed inside another part. */
     private fun addBuildTime(part: Int, nanos: Long) {
         if (timeBuild) synchronized(buildNanos) { buildNanos[part] += nanos }
     }
 
-    /** What each part of building a frame took on average since the last call, as a line, or null. */
+    /** Each part of building a frame, averaged since the last call, as a line, or null. */
     fun takeBuildReport(): String? = synchronized(buildNanos) {
         if (buildFrames == 0) return null
         val line = BUILD_PARTS.indices.joinToString(" ") { "%s %.1f".format(BUILD_PARTS[it], buildNanos[it] / 1e6 / buildFrames) } + " ms"
@@ -1537,11 +1464,15 @@ class GameSession private constructor(
         line
     }
 
+    /**
+     * Builds one render frame from the client's view of the world, at about display pace. The
+     * server sends 20 motion samples a second and the renderer interpolates between the last two.
+     */
     private fun buildFrame(timestampNanos: Long) {
         if (timeBuild) buildMark = System.nanoTime()
         val focusId = client.controlledVessel ?: return
-        // Gone, smashed or burnt up whole. The view stays where it went, on a stand-in with no
-        // parts, so the wreckage, the fire and the smoke are still there to see.
+        // Smashed or burnt up whole. The view stays on a stand-in with no parts where it went, so
+        // the wreck, fire and smoke are still there to see.
         val live = client.vessel(focusId)?.takeIf { it.latest != null }
         val wrecked = live == null
         wreckedId = if (wrecked) focusId else null
@@ -1557,22 +1488,18 @@ class GameSession private constructor(
         frameEmitters.clear()
         lampCount = 0
 
-        // The one time this frame is drawn at. It's snapshot time plus how long ago it arrived,
-        // unless the controlled craft is being predicted, in which case it's the craft's own time.
-        // The ground, the craft on it and everything else have to be shown at the same instant,
-        // because at the equator a few milliseconds of disagreement is a visible slide.
+        // The one time this frame is drawn at: snapshot time plus its age, or the craft's own time
+        // when predicted. Everything must share it; at the equator a few ms of difference is a
+        // visible slide.
         val snapshotTime = client.latestSnapshot?.time ?: 0.0
         val snapshotAge = if (client.latestSnapshotNanos == 0L) 0.0
             else (System.nanoTime() - client.latestSnapshotNanos) / 1e9
         // The world's clock runs at the warp rate, and not at all while paused.
         val warp = client.latestSnapshot?.warp ?: 1.0
         val warping = warp != 1.0
-        // Warped, the snapshots' own time is too jumpy to draw by, because a few milliseconds of
-        // arrival jitter is four times as much world time at 4x. So a clock of our own runs at the
-        // warp rate and gets eased toward it.
-        // Under physics warp, at the rate the world is really going: asked for 4x, a phone busy with
-        // a rough sea managed under 2x, and a clock at 4x ran seconds past the newest snapshot, with
-        // a boat carried on from it as if it were falling, metres under the waves.
+        // Warped, snapshot time is too jumpy to draw by, so our own clock runs at the warp rate and
+        // eases toward it. Under physics warp it runs at the rate the world really manages, or it
+        // runs past the newest snapshot.
         val rate = if (warping && warp <= World.PHYSICS_WARP) worldRate(snapshotTime, warp) else warp
         var renderTime = if (warping) warpClock(snapshotTime + snapshotAge * rate, rate, snapshotTime, warp)
             else { warpClockTime = Double.NaN; rateSince = Double.NaN; snapshotTime + snapshotAge }
@@ -1580,8 +1507,8 @@ class GameSession private constructor(
         val animationNow = System.nanoTime()
         animationDt = if (lastAnimationNanos == 0L || warp == 0.0) 0.0 else ((animationNow - lastAnimationNanos) / 1e9).coerceAtMost(0.1)
         lastAnimationNanos = animationNow
-        // Where the focused craft is drawn this frame (the prediction, not the last snapshot),
-        // which is what the ground's detail follows.
+        // Where the focused craft is drawn this frame, from the prediction. The ground's detail
+        // follows it.
         lap(0)
         var focusDrawn: Vec3 = focusState.position
 
@@ -1591,13 +1518,13 @@ class GameSession private constructor(
                 velocity = focusState.velocity,
                 mu = attractor.gravitationalParameter,
             )
-            // A hop that comes down before it gets anywhere, with no burn planned, goes by the fall
-            // over the real ground: the planner's path is cut short at the datum, and in a basin
-            // below it, like Luna's mare, that's before it's even started.
+            // A hop with no burn planned that comes down before it gets anywhere goes by the fall
+            // over the real ground. The planner cuts its path at the datum, which in a basin
+            // (Luna's mare) is too soon.
             val highest = attractor.radius + maxOf(attractor.terrain?.maxElevation ?: 0.0, 0.0)
             val plan = planner.plan?.takeIf { it.bodyId == attractor.id && (it.burn != null || orbit.periapsis > highest) }
-            // Where it's going: falling free, the path predicted for it (with any burns planned) or
-            // its orbit, and driving, sailing or flying in the air, its course over the ground.
+            // Where it's going: falling free, the predicted path (with planned burns) or its orbit;
+            // driving, sailing or flying in air, its course over the ground.
             val free = fallingFree(attractor, focusState, renderTime, rocket = focus.design.let { d ->
                 if (d !== mapKindDesign) { mapKindDesign = d; mapRocket = com.rm.apogee.core.craft.CraftKind.of(d, catalog) == com.rm.apogee.core.craft.CraftKind.ROCKET }
                 mapRocket
@@ -1608,8 +1535,8 @@ class GameSession private constructor(
             val fall = if (plan == null && free) fallLine(attractor, orbit, renderTime) else null
             val craft = focusState.position
             if (mapFramedFor != focusId) {
-                // Opened over the craft, looking straight down on it, with where it's going in view.
-                // After that the view is the player's, to pinch and turn.
+                // Opens looking straight down on the craft with where it's going in view. After
+                // that the view is the player's.
                 mapFramedFor = focusId
                 var span = 0.0
                 for (line in drawn + listOfNotNull(course?.first, fall?.first)) for (p in line.points) span = maxOf(span, p.distanceTo(craft))
@@ -1619,13 +1546,13 @@ class GameSession private constructor(
                 mapCamera.frameExactly(if (!free) maxOf(span, MAP_LOCAL) else span)
             }
             mapCamera.solve(craft, cameraPosition, cameraRotation)
-            // How much the view takes in, which the markers are sized to.
+            // How much the view takes in. The markers are sized to it.
             val reach = mapCamera.distance / 2.4
 
             when {
                 !free -> if (course != null) {
                     lines.addAll(thick(course.first, reach * COURSE_WIDTH))
-                    // No bigger than a third of the way to the next, so they never run together.
+                    // No bigger than a third of the gap to the next, so they never run together.
                     val ticks = course.second
                     val gap = if (ticks.size > 1) ticks[0].distanceTo(ticks[1]) else Double.MAX_VALUE
                     for (tick in ticks) lines.add(dot(tick, minOf(reach * TICK_FRACTION, gap / 3.0), COURSE_COLOR))
@@ -1646,8 +1573,7 @@ class GameSession private constructor(
             }
             keepMapView(plan?.takeIf { free }, attractor, renderTime, cameraPosition, cameraRotation, reach)
             moonLines(attractor, renderTime, lines)
-            // The worlds in view, each one marked, because past the giants a planet is far less
-            // than a pixel.
+            // Mark every world in view, since past the giants a planet is far less than a pixel.
             val here = system.positionOf(attractor.id, renderTime)
             for (b in targetBodies) {
                 if (b.id == attractor.id) continue
@@ -1666,7 +1592,7 @@ class GameSession private constructor(
                 if (seen.referenceBodyId != focusState.referenceBodyId) continue
                 lines.add(marker(seen.position, reach, BASE_COLOR))
             }
-            // Flags planted on this world, anyone's, because someone was here.
+            // Flags planted on this world, anyone's.
             for (other in client.vessels) {
                 if (other.design.parts.singleOrNull()?.partId != com.rm.apogee.core.world.World.FLAG_PART) continue
                 val seen = other.latest ?: continue
@@ -1676,25 +1602,23 @@ class GameSession private constructor(
         } else {
             // Next time the map opens, it opens over the craft again.
             mapFramedFor = Long.MIN_VALUE
-            // Much smaller than it was, with the rest of it smashed or torn away, so come in to see
+            // Much smaller than it was, with the rest smashed or torn away, so come in to see
             // what's left.
             if (!wrecked && focus.design.parts.size < framedParts && framedFor == focusId) {
                 camera.frameShrunk(designRadius(focus.design, designCentreOfMass(focus.design)))
             }
-            // Taken up afresh, stand back far enough to see all of it. A Flat Top is a hundred and
-            // sixty metres long, and the camera's usual thirty put it inside her deck. Someone who's
-            // just gone over her side was a speck at that distance, so for a person it comes in.
+            // Taken up afresh, stand back far enough to see all of it (a Flat Top is 160 m long).
+            // For a person, come in.
             if (!wrecked && framedFor != focusId) {
                 val radius = designRadius(focus.design, designCentreOfMass(focus.design))
                 if (focus.design.parts.singleOrNull()?.partId == World.SUIT_PART) camera.frameFor(radius) else camera.frameAtLeast(radius)
             }
             if (!wrecked) { framedParts = focus.design.parts.size; framedFor = focusId }
-            // Lost, so stand back far enough to take in the wreckage, instead of staying tucked in
-            // where the craft was, which was sometimes inside a piece of it.
+            // Lost, so stand back far enough to take in the wreckage, rather than sitting where the
+            // craft was.
             if (wrecked && framedFor != -focusId) { camera.frameAtLeast(WRECK_VIEW); framedFor = -focusId }
-            // Warped, the replica can't keep up with the server's clock. It isn't stepped or drawn,
-            // only kept in step with the server's staging and fuel for the gauges, and adopted
-            // afresh back at real time.
+            // Warped, the replica can't keep up. It isn't stepped or drawn, only kept in step with
+            // staging and fuel for the gauges, and adopted afresh back at real time.
             if (warping) {
                 if (prediction.needsAdopting(focus.design)) prediction.adopt(focus.design, focusState, snapshotTime, client.weather)
                 prediction.sync(focus.currentStage, focus.activatedParts, focus.fuel)
@@ -1725,10 +1649,8 @@ class GameSession private constructor(
             camera.solve(focusPosition, focusRotation, focus.design.orientation.forward, focus.design.orientation.up, seat, cameraPosition, cameraRotation)
             if (camera.mode != CameraMode.COCKPIT) keepCameraAboveGround(attractor, focusPosition, renderTime)
             if (!wrecked) updateSlide(focusId, prediction.replica?.body?.orientation ?: focusState.rotation, focusPosition)
-            // Turn the planet to the frame's time before the craft are laid out, because their
-            // lamps, dust and flames go into its frame by it. Left at the last frame's, they were a
-            // frame's turn out (metres at the Cape), and a submarine's lamps lit the sea floor ten
-            // metres off to one side.
+            // Turn the planet to the frame's time before laying out the craft, since their lamps,
+            // dust and flames are placed in its frame.
             attractor.rotationAt(renderTime, bodyRotation)
             // The parts winch lines run between, so the craft loop can say where they're drawn.
             lineEnds.clear()
@@ -1736,10 +1658,9 @@ class GameSession private constructor(
             lap(13)
             for (vessel in client.vessels) {
                 if (vessel.id == focusId && !warping) {
-                    // Staged here and not heard back yet, so draw the replica's own shape, and what
-                    // it let go of. Otherwise the whole old stack gets drawn around the new,
-                    // smaller craft's centre, a stage length out of place, until the server catches
-                    // up.
+                    // Staged here and not heard back yet, so draw the replica's shape and what it
+                    // let go of, or the old stack is drawn a stage length out until the server
+                    // catches up.
                     val replica = prediction.replica?.takeIf { prediction.isReady && it.defs.size != vessel.design.parts.size }
                     if (replica != null) {
                         val shape = ClientVessel(vessel.id, replica.design, vessel.name, replica.currentStage)
@@ -1796,39 +1717,32 @@ class GameSession private constructor(
             lap(18)
         }
 
-        // Terrain turns with the planet, so the patch follows the craft's position in the body's
-        // frame instead of its inertial one, at the frame's own time, the same one the craft is
-        // drawn at.
+        // Terrain turns with the planet, so the patch follows the craft's body-fixed position at
+        // the frame's time.
         lap(1)
         attractor.rotationAt(renderTime, bodyRotation)
         // Toward the star, this frame: seasons at the Cape, and faint light among the giants.
         system.sunDirection(attractor.id, focusDrawn, renderTime, frameSun)
-        // How big the star looks from here, and how bright: a disc at home, and a spark past the
-        // giants.
+        // How big and bright the star looks from here: a disc at home, a spark past the giants.
         frameSunStrength = system.sunStrength(attractor.id, focusDrawn, renderTime)
         frameSunSize = system.bodies[SolarSystem.STAR_ID]?.let { sol ->
             val d = SystemData.AU / kotlin.math.sqrt(frameSunStrength)
             kotlin.math.asin((sol.radius / d).coerceIn(0.0, 1.0))
         } ?: 0.0
-        // The drawn position at the frame's time. The snapshot's position with the frame's rotation
-        // could be up to 50 ms apart, which was metres of wobble in where the ground's detail was
-        // centred, enough to flip a chunk at its split distance between parent and children every
-        // other frame.
+        // The drawn position at the frame's time. Mixing the snapshot's position with this frame's
+        // rotation wobbles by metres and flips chunks at their split distance.
         attractor.toBodyFixed(focusDrawn, bodyRotation, bodyFixedCamera)
         terrainBuilder?.let { builder ->
-            // The patch first, then the globe. Both are queued onto the same dispatcher, and the
-            // globe is the bigger job by some way. Asking for it first leaves the ground the craft
-            // is standing on waiting behind scenery, which is most of why there's a visible gap
-            // before the world looks right.
+            // The patch first, then the globe. They share a dispatcher, and the much bigger globe
+            // would hold up the ground under the craft.
             builder.collect()
             if (client.felledRevision != seenFelledRevision) {
                 seenFelledRevision = client.felledRevision
                 prediction.felled(client.felledScatter)
             }
             if (mapMode) {
-                // On the map, the ground's detail goes where the map is looking from, the way it
-                // would for a craft that high. Left around the craft, a rover's map was the coarse
-                // globe everywhere but a few kilometres round it.
+                // On the map, the ground's detail follows the map's camera, as it would for a craft
+                // that high.
                 attractor.toBodyFixed(cameraPosition, bodyRotation, mapTerrainCamera)
                 builder.followCraft(attractor, mapTerrainCamera, attractor.heightAboveTerrain(cameraPosition, mapTerrainCamera), terrainScope)
             } else builder.followCraft(
@@ -1859,12 +1773,11 @@ class GameSession private constructor(
         // The local vertical in world axes: the craft's own position direction.
         scratchUp.setTo(focusState.position).normalizeInPlace()
         if (!wrecked) peakParts[focusId] = maxOf(peakParts[focusId] ?: 0, focus.design.parts.size)
-        // What it had when it was last seen whole, minus what it had lost by then. Lost outright,
-        // that's what went with it, not the stages it dropped on the way up, which were never lost.
+        // What it had when last seen whole, plus what it had lost by then. Stages dropped on the
+        // way up aren't lost.
         if (!wrecked) lastParts[focusId] = focus.design.parts.size + (lostParts[focusId] ?: 0)
-        // Never more than it ever had. A part torn off and then smashed is one part, however many
-        // reports it made. Lost outright, every part it had is gone from it, whatever the count of
-        // reports, because the pieces lying about are wreckage, not craft.
+        // Never more than it ever had: a part torn off then smashed is one. Lost outright, every
+        // part it had is gone.
         val lost = if (wrecked) lastParts[focusId] ?: (lostParts[focusId] ?: 0)
             else minOf(lostParts[focusId] ?: 0, peakParts[focusId] ?: Int.MAX_VALUE)
         telemetry = if (wrecked) FlightTelemetry.lost(focus.name, crashReport(focusId), lost) else FlightTelemetry.from(
@@ -1902,9 +1815,8 @@ class GameSession private constructor(
         if (cameraAboveGround < nearest) nearest = cameraAboveGround
 
         lap(4)
-        // The weather: clouds to draw, and the air the camera is in. This comes after the
-        // near-plane search, which is about the craft and the ground, because a cloud a kilometre
-        // across isn't a reason to pull the near plane in.
+        // The weather: clouds to draw, and the air the camera is in. After the near-plane search,
+        // so a big cloud doesn't pull the near plane in.
         val weatherConfig = client.weather
         val clouds = if (weatherConfig != null && attractor.atmosphere != null) {
             cloudScene?.takeIf { it.body === attractor && it.config == weatherConfig }
@@ -1926,8 +1838,8 @@ class GameSession private constructor(
             }
         }
 
-        // The sea around the craft, from the same waves it floats on, out to the scene's reach.
-        // Beyond that the terrain draws flat water.
+        // The sea around the craft, from the same waves it floats on, out to the scene's reach. The
+        // terrain draws flat water beyond.
         lap(5)
         val ocean = attractor.ocean
         val sea = if (ocean != null && !mapMode) {
@@ -1946,8 +1858,8 @@ class GameSession private constructor(
         seaHeard = 0.0; seaRough = 0.0; seaStorm = 0.0
         if (sea != null) {
             if (!debugHideSea && attractor.altitudeOf(cameraPosition) < sea.reach) {
-                // Built less often while the world can't keep up, which leaves more of the phone
-                // for the server.
+                // Built less often while the world can't keep up, leaving more of the phone for the
+                // server.
                 sea.update(bodyFixedCamera, renderTime, rate, behind = warping && rate < warp * BEHIND_SHARE)
                 seaSurface = sea.latest
                 if (seaSurface != null) seaReach = sea.reach
@@ -1996,9 +1908,8 @@ class GameSession private constructor(
         // ground.
         while (true) {
             val event = client.partEvents.poll() ?: break
-            // Lost means destroyed. A part torn off isn't gone. It might get smashed later, and be
-            // counted then, or be lying there whole. Both used to be counted, and a part torn off
-            // then smashed was two.
+            // Lost means destroyed. A part torn off isn't gone; it's counted if it's smashed later,
+            // so it's never counted twice.
             if (event.kind == PartEventKind.DESTROYED) {
                 lostParts[event.vessel] = (lostParts[event.vessel] ?: 0) + 1
             }
@@ -2080,14 +1991,12 @@ class GameSession private constructor(
                     maxElevation = attractor.terrain?.maxElevation ?: 1.0,
                     drawFarSurface = drawFarSurface,
                     chunkRange = chunkRange,
-                    // Under the water, a murk a few tens of metres deep, closer where a storm stirs
-                    // up the shallows, with its colour fading with the light as the camera goes
-                    // down.
+                    // Under water, a murk a few tens of metres deep, thicker in stormy shallows,
+                    // darkening with depth.
                     fogDistance = if (underwater) underwaterFog(cameraDepth) else if (mapMode || clouds == null) WorldView.CLEAR_FOG else clouds.fogDistance,
                     fogColor = if (underwater) underwaterColour(attractor.id, cameraDepth, daylight, clouds?.lightScale ?: 1f) else clouds?.fogColor ?: floatArrayOf(0.75f, 0.77f, 0.8f),
                     skyFog = if (mapMode) 0f else if (underwater) 1f else clouds?.skyFog ?: 0f,
-                    // Lightning is its own light, not extra sun. Sun is nothing at night, and so
-                    // was the flash.
+                    // Lightning is its own light, since the sun is nothing at night.
                     lightScale = if (mapMode) 1f else (clouds?.lightScale ?: 1f),
                     flash = flash,
                     cloudShadow = if (mapMode) null else clouds?.shadowGrid,
@@ -2111,8 +2020,7 @@ class GameSession private constructor(
                 particleShapes = particleShapes,
                 farItems = farItems,
                 farGlobes = farGlobes.toList(),
-                // On the map, as far as the view reaches: the whole system, if that's what it
-                // shows.
+                // On the map, as far as the view reaches, up to the whole system.
                 farReach = if (mapMode) maxOf(com.rm.apogee.render.RenderFrame.FAR_REACH, mapCamera.distance * 4.0) else com.rm.apogee.render.RenderFrame.FAR_REACH,
                 shadowFocus = if (mapMode) null else focusDrawn.copy(),
                 shadowRadius = shadowReach,
@@ -2145,7 +2053,8 @@ class GameSession private constructor(
         val camera: Vec3,
         val rotation: Quat,
         /**
-         * Along the path from now: times, and where (around the attractor), [MAP_SAMPLES] of each.
+         * Along the path from now: times, and positions around the attractor, [MAP_SAMPLES] of
+         * each.
          */
         val times: DoubleArray,
         val points: Array<Vec3>,
@@ -2159,8 +2068,8 @@ class GameSession private constructor(
     )
 
     /**
-     * A world's name on the map, where it is on a [width] x [height] screen, or with [place], a
-     * named place on the world below.
+     * A world's name on the map, placed on a [width] x [height] screen, or with [place], a named
+     * place on the world below.
      */
     class MapLabel(val name: String, val x: Float, val y: Float, val place: Boolean = false)
 
@@ -2182,7 +2091,7 @@ class GameSession private constructor(
         val out = ArrayList<MapLabel>()
         val at = FloatArray(2)
         for ((name, where) in view.places) {
-            // On the side turned to the camera, not behind the world.
+            // Only on the side turned to the camera.
             if ((view.camera - where) dot where <= 0.0) continue
             if (!onScreen(view, where, width, height, at)) continue
             if (at[0] < 0f || at[1] < 0f || at[0] > width || at[1] > height) continue
@@ -2193,8 +2102,8 @@ class GameSession private constructor(
     }
 
     /**
-     * The sea's named places on [attractor] that this player has found, and where each one is now.
-     * The rest stay hidden, in free play too.
+     * The sea's named places on [attractor] this player has found, and where each is now. The rest
+     * stay hidden, in free play too.
      */
     private fun foundPlaces(attractor: CelestialBody, time: Double): List<Pair<String, Vec3>> {
         val found = client.wondersFound
@@ -2242,25 +2151,24 @@ class GameSession private constructor(
     private var mapFramedFor = Long.MIN_VALUE
 
     /**
-     * Whether the craft in [state] is falling freely, so its orbit is where it's going: off the
-     * ground and out of the water, and above the air, or where there's none, or near enough orbital
-     * speed that the air hardly bends its path. Anything else (driving, sailing, flying on wings or
-     * rotors) goes where it's steered, and gets its course over the ground drawn instead.
+     * Whether [state] is falling freely, so its orbit is where it's going: off the ground and
+     * water, and above the air (or there's none, or it's near orbital speed). Anything else gets a
+     * course over the ground.
      */
     private fun fallingFree(attractor: CelestialBody, state: com.rm.apogee.core.world.VesselKinematics, time: Double, rocket: Boolean): Boolean {
         val position = state.position
         val fixed = attractor.toBodyFixed(position, attractor.rotationAt(time))
         if (attractor.heightAboveTerrain(position, fixed) < GROUNDED || afloat(attractor, position)) return false
-        // A rocket off the ground is on its way up or down, and its path is what matters.
+        // A rocket off the ground is going up or down, and its path is what matters.
         if (rocket || attractor.atmosphere == null || attractor.altitudeOf(position) > attractor.atmosphereHeight) return true
         val over = attractor.surfaceVelocityAt(position, Vec3()).negateInPlace().addInPlace(state.velocity).length
         return over > kotlin.math.sqrt(attractor.gravitationalParameter / position.length) * NEAR_ORBITAL
     }
 
     /**
-     * The craft's course over the ground for the next [COURSE_SECONDS] at the speed it's going now,
-     * along a great circle, on the ground (or, flying, at its height), with a point at each minute.
-     * Null when it's hardly moving.
+     * The course over the ground for the next [COURSE_SECONDS] at current speed, along a great
+     * circle at ground level (or its height when flying), marked each minute. Null when hardly
+     * moving.
      */
     private fun courseLine(attractor: CelestialBody, state: com.rm.apogee.core.world.VesselKinematics, time: Double): Pair<RenderLine, List<Vec3>>? {
         val position = state.position
@@ -2292,8 +2200,8 @@ class GameSession private constructor(
     }
 
     /**
-     * [line] drawn [width] wide, as copies of it either side along the ground, because a line on
-     * its own is a single pixel and a course across the ground got lost in it.
+     * [line] drawn [width] wide as copies either side along the ground, since a single line is one
+     * pixel and gets lost.
      */
     private fun thick(line: RenderLine, width: Double): List<RenderLine> {
         val points = line.points
@@ -2308,8 +2216,8 @@ class GameSession private constructor(
     }
 
     /**
-     * The craft's path through space: the whole orbit, or, if it comes down, the arc until it meets
-     * the ground, and where.
+     * The craft's path through space: the whole orbit, or if it comes down, the arc to the ground
+     * and where it meets it.
      */
     private fun fallLine(attractor: CelestialBody, orbit: Orbit, time: Double): Pair<RenderLine, Vec3?> {
         val highest = attractor.radius + maxOf(attractor.terrain?.maxElevation ?: 0.0, 0.0)
@@ -2369,7 +2277,7 @@ class GameSession private constructor(
         return draggingBurn
     }
 
-    /** The finger holding the burn moved, so move the burn to where it now is on the path. */
+    /** The finger holding the burn moved, so move the burn to match on the path. */
     fun mapDrag(x: Float, y: Float, width: Float, height: Float) {
         if (!draggingBurn) return
         val view = mapView ?: return
@@ -2385,8 +2293,8 @@ class GameSession private constructor(
     }
 
     /**
-     * A tap on the map: a world, to target it, or the path, to plan a burn there or move the one
-     * planned. True if it meant something.
+     * A tap on the map: a world to target it, or the path to plan a burn there or move the planned
+     * one. True if it meant something.
      */
     fun mapTap(x: Float, y: Float, width: Float, height: Float): Boolean {
         val view = mapView ?: return false
@@ -2407,8 +2315,8 @@ class GameSession private constructor(
     }
 
     /**
-     * The window to the targeted planet from the one the craft is at (or whose moon it's at), or
-     * null when the target isn't a planet, or is this one.
+     * The window to the targeted planet from the one the craft is at (or whose moon it's at). Null
+     * when the target isn't another planet.
      */
     private fun windowFor(attractor: CelestialBody, position: Vec3?, time: Double): WindowReadout? {
         val targetId = localTargetBody.takeIf { it.isNotEmpty() } ?: return null
@@ -2432,9 +2340,7 @@ class GameSession private constructor(
     @Volatile var localTargetBody: String = ""
         private set
 
-    /**
-     * Has the path worked out afresh from where the craft is, going by the replica when it has one.
-     */
+    /** Works out the path afresh from where the craft is, using the replica when it has one. */
     private fun askPlan(focus: ClientVessel, state: VesselKinematics, renderTime: Double, warping: Boolean) {
         val replica = prediction.replica?.takeIf { prediction.isReady && !warping }
         val bodyId = replica?.referenceBodyId ?: state.referenceBodyId
@@ -2457,9 +2363,9 @@ class GameSession private constructor(
     private val dragForces = com.rm.apogee.core.world.Forces()
 
     /**
-     * [plan] as lines around body [aboutId]. Each leg is in its body's colour, with a moon's leg
-     * drawn round the moon as it will be when the craft gets there. The coasting path only goes as
-     * far as the planned burn, and the path after the burn is in the burn's own colour.
+     * [plan] as lines around body [aboutId], each leg in its body's colour, a moon's leg drawn
+     * round the moon as it will be then. The coast stops at the planned burn; after it, the burn's
+     * colour.
      */
     private fun planLines(plan: PathPlanner.Plan, aboutId: String): List<RenderLine> {
         val out = ArrayList<RenderLine>()
@@ -2495,7 +2401,7 @@ class GameSession private constructor(
         }
         plan.burnPoint?.let { lines.add(marker(it, reach, BURN_COLOR)) }
         for (segment in path.segments.drop(1)) {
-            // The moon it meets, where it will be then: its outline, and its reach.
+            // The moon it meets, where it will be then: its outline and its reach.
             val met = system.body(segment.bodyId)
             if (segment.bodyId != aboutId && met.parentId == aboutId) {
                 val centre = system.positionOf(met.id, segment.start).subInPlace(system.positionOf(aboutId, segment.start))
@@ -2521,9 +2427,7 @@ class GameSession private constructor(
         }, colour)
     }
 
-    /**
-     * The moons of [attractor]: where each one goes round, and how far its pull reaches, at [time].
-     */
+    /** Works out each craft's link home, for the map's signal lines. */
     private val comms = com.rm.apogee.core.world.Comms(system)
 
     /** What the map shows of a surveyed body's ground: ore, water, or nothing. */
@@ -2569,9 +2473,8 @@ class GameSession private constructor(
     }
 
     /**
-     * [attractor]'s sea currents as arrows on the water, longer and brighter the faster, on the
-     * side facing [camera] only. The lines aren't hidden by the globe, and the far side's showed
-     * through it.
+     * [attractor]'s sea currents as arrows on the water, longer and brighter the faster. Only on
+     * the side facing [camera], since lines aren't hidden by the globe.
      */
     private fun currentArrows(attractor: CelestialBody, time: Double, camera: Vec3, lines: MutableList<RenderLine>) {
         val points = CurrentGrid.points(attractor, null, client.weather?.seed ?: 0) ?: return
@@ -2608,8 +2511,8 @@ class GameSession private constructor(
     }
 
     /**
-     * The ground stations, and a probe's link home: from the craft at [craft] through its relays to
-     * the station it reaches, all in [attractor]'s frame.
+     * The ground stations, and a probe's link home from [craft] through its relays to the station
+     * it reaches, in [attractor]'s frame.
      */
     private fun signalLines(focusId: Long, craft: Vec3, attractor: CelestialBody, time: Double, reach: Double, lines: MutableList<RenderLine>) {
         val here = system.positionOf(attractor.id, time)
@@ -2638,14 +2541,12 @@ class GameSession private constructor(
     }
 
     /**
-     * The other worlds, seen from around [attractor]: a moon in the sky, the planet from its moon,
-     * and on the map. Each is drawn where it really is, in the far pass, where the globe hides
-     * whatever is behind it.
+     * The other worlds seen from around [attractor], in the sky and on the map, drawn where they
+     * really are in the far pass, where the globe hides what's behind it.
      */
     private fun appendBodies(farItems: MutableList<RenderItem>, attractor: CelestialBody, time: Double, camera: Vec3) {
         val here = system.positionOf(attractor.id, time)
-        // The world here: a giant's rings around it, and the veil that hides a clouded world's
-        // ground from above.
+        // This world: a giant's rings, and the veil that hides a clouded world's ground from above.
         val turned = attractor.rotationAt(time)
         com.rm.apogee.render.GiantLook.rings(attractor, Vec3(), turned, { RenderItem.partKey(BODY_KEY - 1, 0, it) }, farItems)
         com.rm.apogee.core.weather.Climate.of(attractor.id)?.takeIf { it.veil > 0.0 }?.let { climate ->
@@ -2666,7 +2567,7 @@ class GameSession private constructor(
             if (body.id == attractor.id || body.parentId == null) continue
             val at = system.positionOf(body.id, time).subInPlace(here)
             com.rm.apogee.render.GiantLook.rings(body, at, body.rotationAt(time), { RenderItem.partKey(BODY_KEY, k, 1 + it) }, farItems)
-            // Big enough in the sky to be more than a dot: drawn as itself, once its globe is built.
+            // Big enough in the sky to be more than a dot: drawn as itself once its globe is built.
             if (body.radius / at.distanceTo(camera).coerceAtLeast(1.0) > FAR_GLOBE_FROM) {
                 globeOf(body)?.let { globe ->
                     farGlobes.add(
@@ -2692,9 +2593,8 @@ class GameSession private constructor(
     }
 
     /**
-     * A piece of an engine's shell falling away after its stage dropped: turning over outward
-     * about its foot as it goes, and falling, for a few seconds. Where [pivot] is, [foot] is in
-     * the piece's own space, in the frame of the world [bodyId].
+     * A piece of an engine's shell falling away after its stage dropped, toppling outward about its
+     * foot. [foot] is in the piece's space at [pivot], in world [bodyId]'s frame.
      */
     private class ShroudPanel(
         val shape: com.rm.apogee.core.part.ModelSpec.Lathe,
@@ -2715,16 +2615,15 @@ class GameSession private constructor(
     private val shedShells = HashSet<Long>()
 
     /**
-     * When this session started drawing, in ns. A stage dropped before then, lying where it fell
-     * in a saved world, is already in pieces, so its shell doesn't split again every time it's
-     * loaded.
+     * When this session started drawing, in ns. A stage dropped before then is already in pieces,
+     * so its shell doesn't split again on load.
      */
     private val shellsSince = System.nanoTime()
 
     /**
      * Splits the shell [shroud] that part [index] of craft [vesselId] shed into [SHROUD_PIECES]
-     * curved panels, where it stood on the part at [position] turned [rotation], thrown outward
-     * from the stage's own [velocity].
+     * curved panels, where it stood at [position] turned [rotation], thrown out from the stage's
+     * [velocity].
      */
     private fun shedShroud(
         vesselId: Long, index: Int, def: com.rm.apogee.core.part.PartDef, shroud: com.rm.apogee.core.craft.Shroud,
@@ -2736,7 +2635,7 @@ class GameSession private constructor(
         if (node.size <= 0) return
         val bottom = com.rm.apogee.core.craft.Shrouds.nodeRadius(node.size) + 0.012
         val top = shroud.radius
-        // A shell with some thickness, so it shows from inside too as it turns over.
+        // A shell with some thickness, so it shows from inside as it turns over.
         val profile = listOf(
             listOf(bottom, 0.0), listOf(top, shroud.height), listOf(top - SHROUD_THICKNESS, shroud.height),
             listOf(bottom - SHROUD_THICKNESS, 0.0), listOf(bottom, 0.0),
@@ -2789,10 +2688,8 @@ class GameSession private constructor(
     }
 
     /**
-     * The other worlds' globes, for seeing them across space, built once each in the background
-     * the first time one is big enough in the sky, and kept. They used to be plain balls of one
-     * colour, so Terra from Luna had no land or sea, and a giant was a checkerboard of two colours
-     * with none of its storms. A world under a cloud veil has none, since the veil is all you'd see.
+     * The other worlds' globes, each built once in the background the first time it's big enough in
+     * the sky, then kept. A world under a cloud veil has none.
      */
     private val farGlobeCache = HashMap<String, com.rm.apogee.render.PlanetMesh.Data>()
     private val farGlobesBuilding = HashSet<String>()
@@ -2815,15 +2712,12 @@ class GameSession private constructor(
     }
 
     /**
-     * A small diamond around a point, for apsis and craft markers.
-     *
-     * It's sized as a fraction of the view instead of in metres, so a marker stays the same size on
-     * screen whether the orbit is 100 km or 10,000 km across.
+     * A small diamond around a point, for apsis and craft markers, sized as a fraction of the view
+     * so it stays the same size on screen.
      */
     private fun marker(at: Vec3, viewScale: Double, color: FloatArray): RenderLine {
         val size = viewScale * MARKER_FRACTION
-        // Any two axes at right angles to the radius put the diamond face-on to the planet, which
-        // is the way it gets read.
+        // Any two axes square to the radius put the diamond face-on to the planet.
         val radial = at.normalized()
         val a = (if (kotlin.math.abs(radial.y) < 0.9) Vec3.unitY() else Vec3.unitX())
             .cross(radial).normalizeInPlace()
@@ -2848,9 +2742,8 @@ class GameSession private constructor(
     private fun updatePrediction(focus: ClientVessel, state: VesselKinematics): Vec3 {
         val now = System.nanoTime()
         val snapshot = client.latestSnapshot
-        // How old the server's word is by the time we act on it. It's measured against the server's
-        // clock as followed over many snapshots, not this one's arrival alone, whose jitter moved
-        // the present, and the craft drawn at it, by metres at orbital speed.
+        // How old the server's word is when we act on it, against the server's clock as followed
+        // over many snapshots. One snapshot's jitter is metres at orbital speed.
         if (snapshot != null && snapshot.tick != clockSampledTick) {
             clockSampledTick = snapshot.tick
             serverClock.sample(snapshot.time, client.latestSnapshotNanos / 1e9)
@@ -2858,9 +2751,8 @@ class GameSession private constructor(
         val present = serverClock.now(now / 1e9)
         val age = present?.let { (it - (snapshot?.time ?: it)).coerceIn(0.0, MAX_SNAPSHOT_AGE) }
             ?: ((now - client.latestSnapshotNanos) / 1e9)
-        // Rebuilt (staging, a part lost), so the replica starts again from the server's word. Where
-        // the craft was drawn gets carried over and eased away, not jumped from (7.6 m at a staging
-        // in orbit).
+        // Rebuilt (staging, a part lost), so the replica starts again from the server. Where the
+        // craft was drawn is carried over and eased away.
         val carryFrom = if (prediction.needsAdopting(focus.design) && prediction.isReady && lastAdvanceNanos != 0L)
             predictedPosition.copy().addScaledInPlace(prediction.velocity() ?: Vec3(), (now - lastAdvanceNanos) / 1e9) else null
         if (prediction.needsAdopting(focus.design)) {
@@ -2872,13 +2764,9 @@ class GameSession private constructor(
 
         repeat(pendingLocalStages.getAndSet(0)) { prediction.stage() }
 
-        // Move on first, then reconcile, so both are measured to the same moment. The other way
-        // round spends the time since the last frame twice. It goes by the server's clock as
-        // followed (the same present every other craft is drawn at), not the local one. Stepped by
-        // the local clock, the flown craft drifted off the present the rest were drawn at by a
-        // millisecond or so between snapshots, and each snapshot pulled it back. At a thousand
-        // metres a second it shook by a metre a frame against a stage just let go of, which itself
-        // ran smoothly.
+        // Move on first, then reconcile, so both measure to the same moment. Step by the server's
+        // clock as followed, the present every other craft is drawn at; the local clock drifts a
+        // metre of shake at orbital speed.
         if (lastAdvanceNanos != 0L) {
             val elapsed = if (present != null && !lastPresent.isNaN()) (present - lastPresent).coerceAtLeast(0.0)
                 else (now - lastAdvanceNanos) / 1e9
@@ -2910,8 +2798,8 @@ class GameSession private constructor(
     }
 
     /**
-     * What each craft's moving parts are doing, kept between frames: the pose being eased towards
-     * the latest one received, and each wheel's and propeller's turn so far.
+     * Each craft's moving parts, kept between frames: the pose being eased toward the latest
+     * received, and each wheel's and propeller's turn so far.
      */
     private class VesselAnimation {
         val target = VesselPose.Values()
@@ -2934,8 +2822,7 @@ class GameSession private constructor(
     /** The most parts each craft has had, since launch. */
     private val peakParts = HashMap<Long, Int>()
     /**
-     * Each craft's parts when it was last seen, plus the ones it had lost before, which is what a
-     * total loss loses.
+     * Each craft's parts when last seen, plus those it had lost before: what a total loss loses.
      */
     private val lastParts = HashMap<Long, Int>()
 
@@ -2949,22 +2836,18 @@ class GameSession private constructor(
     private var framedParts = 0
 
     /**
-     * A camera swung round a craft on a hillside can end up inside the hill, looking at the back of
-     * the ground. It gets lifted clear, and turned back to look at the craft. The ground is all
-     * that stops it. Water doesn't, so you can swing down under a boat to see its keel, or follow a
-     * submarine anywhere above the sea floor. It used to be kept above the waves unless the craft
-     * had gone well under, and that took away half the angles at sea. I didn't want that.
+     * Lifts a camera that has swung into the ground back clear and turns it to the craft. Water
+     * doesn't stop it, so you can look under a boat or follow a submarine.
      */
     private fun keepCameraAboveGround(attractor: com.rm.apogee.core.orbit.CelestialBody, focus: Vec3, time: Double) {
         val terrain = attractor.terrain ?: return
         val rotation = attractor.rotationAt(time)
         attractor.toBodyFixed(cameraPosition, rotation, scratchCameraClear)
-        // The solid ground, sea floor and all, not the sea's surface over it.
+        // The solid ground, sea floor included.
         var above = cameraPosition.length - terrain.solidRadius(scratchCameraClear.normalizeInPlace())
         var clearance = CAMERA_CLEARANCE
-        // And out of the sea too, while what's being flown is at its surface: a boat, or someone
-        // treading water. Framed close on a swimmer, the camera went under the next crest and half
-        // the screen went black. Under water it goes where the craft goes.
+        // Also out of the sea while the flown craft is at its surface (a boat, a swimmer), or the
+        // camera goes under the next crest. Under water it goes where the craft goes.
         attractor.ocean?.let { ocean ->
             attractor.toBodyFixed(focus, rotation, scratchFocusClear)
             val focusDepth = attractor.radius + ocean.surfaceHeight(scratchFocusClear, time) - focus.length
@@ -2984,10 +2867,6 @@ class GameSession private constructor(
 
     private val scratchCameraClear = Vec3()
 
-    /**
-     * A craft's attitude at [time], turned on from its snapshot by its spin, so a tumbling spent
-     * stage turns smoothly, not in twenty steps a second.
-     */
     private val scratchCarryTurn = Quat.identity()
 
     /** The flown rotor's tilt, from upright to its disc, and its hub, for the part being laid out. */
@@ -2996,16 +2875,20 @@ class GameSession private constructor(
     private val scratchStill = Vec3()
 
     /**
-     * Whether [state] is a craft at rest on its world's ground, moving only as the ground does. One
-     * asleep on the sea is still riding the waves, and is sent every snapshot to be drawn by.
+     * Whether [state] is at rest on its world's ground. One asleep on the sea still rides the waves
+     * and is sent every snapshot.
      */
     private fun stillOnGround(state: com.rm.apogee.core.world.VesselKinematics, body: com.rm.apogee.core.orbit.CelestialBody): Boolean =
         body.surfaceVelocityAt(state.position, scratchStill).distanceTo(state.velocity) < STILL_SPEED
 
 
+    /**
+     * A craft's attitude at [time], turned on from its snapshot by its spin, so a tumbling stage
+     * turns smoothly between snapshots.
+     */
     private fun spunOn(observed: ClientVessel.Observation, time: Double): Quat {
         val state = observed.kinematics
-        // Asleep, it turns with its world, from however long ago it was last heard of.
+        // Asleep, it turns with its world from whenever it was last heard of.
         if (state.asleep) {
             val body = system.bodies[state.referenceBodyId]
             if (body != null && stillOnGround(state, body)) {
@@ -3029,11 +2912,8 @@ class GameSession private constructor(
     private val drawn = HashMap<Long, Drawn>()
 
     /**
-     * Eases [position] and [rotation] (where a craft would be drawn from its newest snapshot) out
-     * of any jump from where it was drawn a frame ago. When a snapshot lands that disagrees with
-     * the guess carried from the one before, the difference gets kept as an offset and let go over
-     * a tenth of a second, instead of the craft hopping. A big difference is a real jump, and isn't
-     * smoothed.
+     * Eases [position] and [rotation] (from the newest snapshot) out of any jump since last frame.
+     * The difference decays over a tenth of a second. A big one is a real jump and isn't smoothed.
      */
     private fun smoothed(id: Long, observedAt: Double, renderTime: Double, position: Vec3, rotation: Quat, velocity: Vec3) {
         val now = System.nanoTime()
@@ -3044,9 +2924,8 @@ class GameSession private constructor(
         }
         val dt = ((now - last.nanos) / 1e9).coerceIn(0.0, 0.1)
         if (observedAt != last.observedAt) {
-            // Where it would have been, carried on from last frame by the frame's own clock, which
-            // is what the ground moved by, not the wall clock. The two drift apart by tens of
-            // milliseconds, and at the ground's speed that looks like a jump to be eased.
+            // Where it would have been, carried by the frame's clock (what the ground moved by).
+            // The wall clock drifts tens of ms from it, which looks like a jump.
             val step = (renderTime - last.renderTime).coerceIn(-0.5, 0.5)
             val expected = last.position.copy().addScaledInPlace(velocity, step)
             val jump = expected.subInPlace(position)
@@ -3081,21 +2960,15 @@ class GameSession private constructor(
     /** Each craft making a sound this frame. */
     private val soundCrafts = LinkedHashMap<Long, SoundScene.Craft>()
 
-    /** How close the camera is to waves breaking, 0..1, eased and checked four times a second. */
+    /** How close the camera is to breaking waves, 0..1, eased, and checked four times a second. */
     private var shore = 0.0
     private var shoreTarget = 0.0
     private var shoreLookedNanos = 0L
     private var shoreEasedNanos = 0L
 
     /**
-     * Surf: loud where land and sea meet within a couple of hundred metres of the camera, low down,
-     * and nothing over open water, inland or from high up. It's a ring of points around the spot
-     * below the camera, checked for land and for sea.
-     */
-    /**
-     * How near [camera] (body-fixed) is to the Cape's [place] (a body-fixed unit direction) to hear
-     * it: 1 within [CAPE_HEARD_FULL] m of it and low down, and nothing by [CAPE_HEARD_UNTIL] or
-     * high above it. Terra's Cape only.
+     * How near [camera] (body-fixed) is to the Cape's [place] (body-fixed unit direction) to hear
+     * it: 1 within [CAPE_HEARD_FULL] m and low, 0 by [CAPE_HEARD_UNTIL] or high above. Terra only.
      */
     private fun nearCape(attractor: CelestialBody, camera: Vec3, place: Vec3): Double {
         if (attractor.id != com.rm.apogee.core.orbit.SolarSystem.HOMEWORLD_ID) return 0.0
@@ -3110,8 +2983,8 @@ class GameSession private constructor(
     private val pavingAsked = com.rm.apogee.core.concurrentSetOf<String>()
 
     /**
-     * The Cape's paving, laid on the turning ground at [time], when the camera is near enough to
-     * see it. It's built once, off the frame thread, the first time it's wanted.
+     * The Cape's paving on the turning ground at [time], when the camera is near enough. Built once
+     * off the frame thread.
      */
     private fun appendPaving(items: MutableList<RenderItem>, attractor: CelestialBody, time: Double, camera: Vec3) {
         val field = attractor.terrain as? com.rm.apogee.core.terrain.TerrainField ?: return
@@ -3142,9 +3015,8 @@ class GameSession private constructor(
     }
 
     /**
-     * The runway's approach lights, body-fixed: four beside each end, where the glide slope comes
-     * down, to the left of it as you come in, with the lowest setting outermost. Null until worked
-     * out, and empty away from Terra.
+     * The runway's approach lights, body-fixed: four beside each end where the glide slope lands,
+     * on the left coming in, lowest setting outermost. Empty away from Terra.
      */
     private val approachLights: List<Pair<Vec3, Double>> by lazy {
         val terra = system.body("terra")
@@ -3164,8 +3036,8 @@ class GameSession private constructor(
     }
 
     /**
-     * The approach lights, lit white or red by the angle they're seen from, here from the camera,
-     * the way a pilot sees them. Far off, they're drawn bigger, the way a light's glare is.
+     * The approach lights, white or red by the angle they're seen from the camera, as a pilot sees
+     * them. Drawn bigger far off, like a light's glare.
      */
     private fun appendApproachLights(items: MutableList<RenderItem>, attractor: CelestialBody, time: Double, camera: Vec3) {
         if (attractor.id != "terra" || mapMode) return
@@ -3194,6 +3066,10 @@ class GameSession private constructor(
     private val scratchCape = Vec3()
     private val scratchEar = Vec3()
 
+    /**
+     * Surf: loud where land and sea meet within a couple of hundred metres of the camera, low down;
+     * nothing over open water, inland or high up. Checks a ring of points below the camera.
+     */
     private fun shoreNear(attractor: CelestialBody, cameraPosition: Vec3, bodyRotation: Quat): Double {
         val now = System.nanoTime()
         val terrain = attractor.terrain
@@ -3247,9 +3123,7 @@ class GameSession private constructor(
     private val hullSettling = com.rm.apogee.audio.HullSettling()
     private var settlingFor = -1L
 
-    /**
-     * The flown craft as it was last heard, to catch it staging, lighting up and opening a chute.
-     */
+    /** The flown craft as last heard, to catch it staging, lighting up and opening a chute. */
     private var heardFor = -1L
     private var heardStage = 0
     private var heardBurning = false
@@ -3285,8 +3159,8 @@ class GameSession private constructor(
     }
 
     /**
-     * The ground under a craft at [position], as its wheels hear it: how much it crunches, and how
-     * soft it is (0 rock to 1 sand or snow). Checked a few times a second.
+     * The ground under a craft at [position], as its wheels hear it: crunch, and softness (0 rock
+     * to 1 sand or snow). Checked a few times a second.
      */
     private fun groundUnderWheels(attractor: CelestialBody, position: Vec3): Pair<Double, Double> {
         val now = System.nanoTime()
@@ -3353,7 +3227,7 @@ class GameSession private constructor(
                 pumping = baseService?.refuelling == true,
             )
         }
-        // Paused, the world is still, and so is everything in it.
+        // Paused, everything is still.
         if ((client.latestSnapshot?.warp ?: 1.0) <= 0.0) {
             synchronized(soundLock) { if (!soundStopped) AudioEngine.scene(0, sound.keys, sound.recipes, sound.flags, sound.params) }
             return
@@ -3428,12 +3302,15 @@ class GameSession private constructor(
 
     // --- docking ----------------------------------------------------------------
 
-    /** Lining up to dock: how far, how fast, how far off square, and whether the magnets would take it now. */
+    /**
+     * Lining up to dock: distance, closing speed, angle off square, and whether the magnets would
+     * take it.
+     */
     data class DockReadout(
         val distance: Double, val closing: Double, val angle: Double, val ready: Boolean, val partner: String,
         /** Our velocity relative to theirs, and the unit line from our port to theirs, inertial. */
         val relative: Vec3 = Vec3(), val line: Vec3 = Vec3(),
-        /** Coming in faster than the magnets will take, and near enough for it to matter. */
+        /** Coming in faster than the magnets will take, and near enough to matter. */
         val tooFast: Boolean = false,
     )
 
@@ -3539,7 +3416,7 @@ class GameSession private constructor(
             if (other.id == focus.id) continue
             if (localTarget >= 0 && other.id != localTarget) continue
             // Brought to the same moment as ours. Another craft's last word can be a few snapshots
-            // older, and at orbital speed each one is a hundred metres.
+            // older.
             val seen = other.observed ?: continue
             val ours = focus.observed?.time ?: seen.time
             val theirs = seen.kinematics.let { k ->
@@ -3596,10 +3473,9 @@ class GameSession private constructor(
     private var warpClockNanos = 0L
 
     /**
-     * The world time to draw a warped frame at: a clock that runs at [rate] times real time and
-     * eases toward [target] (the snapshots' time), instead of jumping with every one. Under physics
-     * warp it runs a snapshot and a half behind, and never past [newest], so every craft has a
-     * snapshot either side of it to be drawn between.
+     * The world time to draw a warped frame at: a clock running at [rate] that eases toward
+     * [target] (the snapshots' time). Under physics warp it runs a snapshot and a half behind and
+     * never past [newest], so every craft has snapshots either side.
      */
     private fun warpClock(target: Double, rate: Double, newest: Double, warp: Double): Double {
         val now = System.nanoTime()
@@ -3612,9 +3488,8 @@ class GameSession private constructor(
     }
 
     /**
-     * How fast the world's time is really going under physics warp, as a multiple of real time,
-     * from how far the snapshots' time has come over the last half second or so. It's [warp] when
-     * the host keeps up, and less when it can't, which a phone in a rough sea at 4x doesn't.
+     * How fast world time really goes under physics warp, as a multiple of real time, from the
+     * snapshots over the last half second. [warp] when the host keeps up.
      */
     private fun worldRate(snapshotTime: Double, warp: Double): Double {
         val now = client.latestSnapshotNanos
@@ -3632,8 +3507,7 @@ class GameSession private constructor(
     }
 
     /**
-     * How fast the world is really going under physics warp, as last measured, or NaN when it
-     * isn't being measured (real time, or warped on rails).
+     * The physics-warp rate as last measured, or NaN when not measured (real time, or on rails).
      */
     val worldRateNow: Double get() = if (rateSince.isNaN()) Double.NaN else measuredRate
 
@@ -3643,10 +3517,9 @@ class GameSession private constructor(
     private var measuredRate = 1.0
 
     /**
-     * Where [vessel] is, and how it's turned, at [time], into [position] and [rotation]. Under
-     * physics warp it's between its last two snapshots, on a curve through both positions with both
-     * velocities, and the turn between the two attitudes, so it glides instead of stepping at the
-     * snapshot rate. On rails, it's along its orbit from the latest one.
+     * Where [vessel] is and how it's turned at [time], into [position] and [rotation]. Under
+     * physics warp, on a curve between its last two snapshots matching both positions and
+     * velocities. On rails, along its orbit from the latest.
      */
     private fun sampled(
         vessel: ClientVessel,
@@ -3657,7 +3530,7 @@ class GameSession private constructor(
         rotation: Quat,
     ): Boolean {
         // The two either side of the frame's time. The frame is drawn behind the newest snapshot,
-        // and often before the one under it too.
+        // often before the one under it too.
         val (a, b) = vessel.around(time) ?: return false
         val newest = vessel.observed ?: b
         if (warp <= World.PHYSICS_WARP && a != null && b.time > a.time && time <= b.time &&
@@ -3680,7 +3553,7 @@ class GameSession private constructor(
             Quat.slerp(a.kinematics.rotation, b.kinematics.rotation, s, rotation)
             return true
         }
-        // Before everything kept, or past the newest, so it's carried from the nearest.
+        // Before everything kept, or past the newest, so carried from the nearest.
         val from = if (time < b.time && warp <= World.PHYSICS_WARP) b else newest
         position.setTo(carried(from, time, attractor, warp) ?: return false)
         rotation.setTo(from.kinematics.rotation)
@@ -3688,10 +3561,8 @@ class GameSession private constructor(
     }
 
     /**
-     * Where a craft last seen at [observed] is at [renderTime]. At real time that's along its
-     * velocity for the fraction of a second between snapshots. Warped, when a snapshot can be most
-     * of an orbit apart, it's exactly along its orbit, or round with the ground if it's sitting on
-     * it.
+     * Where a craft last seen at [observed] is at [renderTime]: along its velocity at real time;
+     * warped, along its orbit, or round with the ground if it's sitting on it.
      */
     private fun carried(
         observed: ClientVessel.Observation?,
@@ -3701,16 +3572,14 @@ class GameSession private constructor(
     ): Vec3? {
         observed ?: return null
         val state = observed.kinematics
-        // Asleep on the ground, it's where it was, turning with its world, however long ago that
-        // was: the server only says so every couple of seconds (see World.snapshot).
+        // Asleep on the ground, it's where it was, turning with its world. The server only sends it
+        // every couple of seconds (see World.snapshot).
         if (state.asleep && stillOnGround(state, attractor)) {
             val bodyFixed = attractor.toBodyFixed(state.position, attractor.rotationAt(observed.time, scratchCarryTurn), Vec3())
             return attractor.rotationAt(renderTime, scratchCarryTurn).rotate(bodyFixed, Vec3())
         }
-        // Backward as well as forward. The frame's time can sit a little behind the newest snapshot
-        // (the flown craft's replica sets it), and a craft left where the snapshot put it, while
-        // the ground under it is drawn a few hundredths of a second earlier, stands metres off, and
-        // hops back each time the two clocks cross.
+        // Backward as well as forward, since the frame's time can sit a little behind the newest
+        // snapshot.
         val carry = (renderTime - observed.time)
             .coerceIn(-MAX_EXTRAPOLATION_SECONDS, MAX_EXTRAPOLATION_SECONDS * maxOf(warp, 1.0))
         if (carry < 0.5) return Vec3().setTo(state.position).addScaledInPlace(state.velocity, carry)
@@ -3729,31 +3598,28 @@ class GameSession private constructor(
     private val wreckSite = HashMap<Long, Vec3>()
     private val wreckTime = HashMap<Long, Double>()
 
-    /** Where the craft being flown was last drawn, body-fixed. */
     /** Each lost craft's wreckage, and where the camera is looking among it (body-fixed). */
     private val wreckPieces = HashMap<Long, Set<Long>>()
     private val wreckLook = HashMap<Long, Vec3>()
 
+    /** Where the craft being flown was last drawn, body-fixed. */
     private class LastSeen(val id: Long, val bodyId: String, val bodyFixed: Vec3, val name: String)
     private var lastSeen: LastSeen? = null
 
     /**
-     * A craft with no parts standing where the flown one was last seen, moving with the ground.
-     * It's something for the camera to keep looking at once the real one is gone. Null if it was
-     * never seen, or it's somewhere else.
+     * A craft with no parts where the flown one was last seen, moving with the ground, for the
+     * camera to keep looking at once it's gone. Null if never seen, or elsewhere.
      */
     private fun wreckStandIn(id: Long): ClientVessel? {
         val seen = lastSeen?.takeIf { it.id == id } ?: return null
         val body = system.bodies[seen.bodyId] ?: return null
         val time = (client.latestSnapshot?.time ?: 0.0) +
             if (client.latestSnapshotNanos == 0L) 0.0 else (System.nanoTime() - client.latestSnapshotNanos) / 1e9
-        // Where it came apart, if that's known, and otherwise where it was last seen. It was lost
-        // at speed, and the last frame it was drawn in was well short of where it hit.
+        // Where it came apart if known, otherwise where it was last seen (well short of where a
+        // fast craft hit).
         val lost = wreckSite[id]?.copy() ?: seen.bodyFixed.copy()
-        // Its wreckage, once it has any: the pieces that were beside it when it went, followed as
-        // they tumble on. The camera used to watch the spot where the last part died, often dug
-        // into the ground, while what was left skidded off out of sight, which I didn't like. It
-        // keeps looking until some turn up, because they can arrive a snapshot after the loss.
+        // Its wreckage: the pieces beside it when it went, followed as they tumble. Keeps looking
+        // until some turn up, since they can arrive a snapshot late.
         val pieces = wreckPieces[id] ?: client.vessels.filter { v ->
             val at = v.latest?.let { body.toBodyFixed(it.position, body.rotationAt(time), Vec3()) }
             at != null && at.distanceTo(lost) < WRECK_PIECE_REACH
@@ -3766,10 +3632,10 @@ class GameSession private constructor(
             count++
         }
         if (count > 0) target.mulInPlace(1.0 / count) else target.setTo(lost)
-        // Never inside the ground, but a couple of metres above it.
+        // Never inside the ground; a couple of metres above it.
         val over = body.heightAboveTerrain(body.rotationAt(time).rotate(target, Vec3()), target)
         if (over < 2.0) target.mulInPlace((target.length - over + 2.0) / target.length)
-        // Eased from where it looked last, not jumped.
+        // Eased from where it looked last.
         val site = wreckLook[id]?.let { last -> last.addScaledInPlace(target.subInPlace(last), WRECK_EASE) } ?: target
         wreckLook[id] = site.copy()
         val position = body.rotationAt(time).rotate(site, Vec3())
@@ -3785,19 +3651,16 @@ class GameSession private constructor(
         }
     }
 
-    /** What happened, in a line: the first blow and what it did, or whatever else took it. */
-    /**
-     * The player's crew who were aboard craft [id] when it was lost, by name: the ones the roster
-     * now remembers as last aboard it.
-     */
     @Volatile private var wreckedId: Long? = null
 
+    /** The player's crew lost with craft [wreckedId], as the roster remembers them, by name. */
     val crewLostWith: List<String>
         get() {
             val id = wreckedId ?: return emptyList()
             return client.roster.filter { it.status == com.rm.apogee.core.crew.CrewStatus.LOST && it.lastVessel == id }.map { it.name }
         }
 
+    /** What happened, in a line: the first blow and what it did, or whatever else took it. */
     private fun crashReport(id: Long): String {
         val blow = firstBlow[id]
         val cause = lastCause[id]
@@ -3824,9 +3687,8 @@ class GameSession private constructor(
     private var animationDt = 0.0
 
     /**
-     * The wake and bow spray of a craft drawn at [position] near the camera, moving at [velocity]
-     * (one wake from its hull as a whole, sternmost to foremost), and the slap of each hull's bow
-     * into a wave.
+     * Wake and bow spray of a craft at [position] near the camera, moving at [velocity] (one wake
+     * per hull, sternmost to foremost), and each bow's slap into a wave.
      */
     private fun wakes(id: Long, design: CraftDesign, centreOfMass: Vec3, position: Vec3, rotation: Quat, velocity: Vec3, attractor: CelestialBody) {
         val fx = effects ?: return
@@ -3873,9 +3735,8 @@ class GameSession private constructor(
     private var lastListener: SoundScene.Listener? = null
 
     /**
-     * Seconds to the next window for the moon of the body the craft is on, negative while one is
-     * open, or NaN with no moon to go to. It's worked out afresh now and then, not every frame,
-     * because it only moves as the craft does.
+     * Seconds to the next window for the moon of the body the craft is on, negative while open, NaN
+     * with no moon. Redone now and then.
      */
     private fun moonWindowIn(attractor: com.rm.apogee.core.orbit.CelestialBody, position: Vec3, bodyRotation: Quat, time: Double): Double {
         val moon = system.bodies.values.firstOrNull { it.parentId == attractor.id } ?: return Double.NaN
@@ -3894,7 +3755,10 @@ class GameSession private constructor(
     private var moonWindowFrom = Double.NaN
     private var moonWindowBody = ""
 
-    /** Held between publishing a sound scene and [stop] silencing them all, so one can't undo the other. */
+    /**
+     * Held between publishing a sound scene and [stop] silencing them all, so neither undoes the
+     * other.
+     */
     private val soundLock = Any()
     @Volatile private var soundStopped = false
 
@@ -3906,17 +3770,16 @@ class GameSession private constructor(
     private val scratchLamp = Vec3()
     private val scratchGlow = Vec3()
 
-    /** Lit lamps that light what's around them this frame: body-fixed x, y, z and reach, four per lamp. */
+    /**
+     * Lamps lit this frame that light their surroundings: body-fixed x, y, z and reach, four per
+     * lamp.
+     */
     private var lamps = DoubleArray(4 * 16)
     private var lampCount = 0
 
     /**
-     * The lamps nearest [camera] (body-fixed) whose light could reach anything in view, nearest
-     * first. As many as the renderer takes, and fewer on a low tier.
-     */
-    /**
-     * How far the camera sees under the sea [depth] m down: murkier in the stirred-up shallows of a
-     * storm, and a little in the deep.
+     * How far the camera sees under the sea [depth] m down: murkier in a storm's stirred-up
+     * shallows, and a little in the deep.
      */
     private fun underwaterFog(depth: Double): Double =
         UNDERWATER_FOG_DEEP + (UNDERWATER_FOG - UNDERWATER_FOG_DEEP) * kotlin.math.exp(-depth / UNDERWATER_FOG_FALL) -
@@ -3926,8 +3789,8 @@ class GameSession private constructor(
         if (bodyId == "aurantia") com.rm.apogee.render.WorldView.AURANTIA_WATER else com.rm.apogee.render.WorldView.TERRA_WATER
 
     /**
-     * The murk's colour [depth] m down in [bodyId]'s sea: its water lit by whatever daylight is
-     * left there, and black in the deep.
+     * The murk's colour [depth] m down in [bodyId]'s sea: its water lit by the daylight left there,
+     * black in the deep.
      */
     private fun underwaterColour(bodyId: String, depth: Double, daylight: Float, lightScale: Float): FloatArray {
         val water = waterOf(bodyId)
@@ -3936,6 +3799,10 @@ class GameSession private constructor(
         return FloatArray(3) { tint[it] * light * kotlin.math.exp(-depth.coerceAtLeast(0.0) / water[it]).toFloat() }
     }
 
+    /**
+     * The lamps nearest [camera] (body-fixed) whose light could reach anything in view, nearest
+     * first. As many as the renderer takes, fewer on a low tier.
+     */
     private fun nearestLamps(camera: Vec3): DoubleArray {
         if (lampCount == 0 || mapMode) return com.rm.apogee.render.WorldView.NO_LAMPS
         val most = if (terrainQuality == QualityTier.LOW) LOW_TIER_LAMPS else com.rm.apogee.render.WorldView.MAX_LAMPS
@@ -3949,9 +3816,8 @@ class GameSession private constructor(
     }
 
     /**
-     * Which way a windsock at [at] hangs, in world axes: out downwind (the wind the flown craft is
-     * in, which is near enough the same across an airfield), and lower the lighter it blows, limp
-     * in a calm.
+     * Which way a windsock at [at] hangs, in world axes: downwind of the flown craft's wind, lower
+     * the lighter it blows.
      */
     private fun windsockHang(at: Vec3, bodyRotation: Quat): Vec3 {
         val up = at.copy().normalizeInPlace()
@@ -3978,16 +3844,15 @@ class GameSession private constructor(
         val state = stateOverride ?: vessel.latest ?: return
         val design = vessel.design
 
-        // The server sends the vessel's centre of mass, and part positions in the design are
-        // relative to the design origin, so the offset between them has to be rebuilt here.
+        // The server sends the centre of mass, and design part positions are relative to the design
+        // origin, so rebuild the offset here.
         val centreOfMass = designCentreOfMass(design)
         val position = overridePosition ?: state.position
         val rotation = overrideRotation ?: state.rotation
         wakes(vessel.id, design, centreOfMass, position, rotation, state.velocity, attractor)
 
-        // The moving parts. For the craft being flown they come from the replica, so a surface
-        // moves on the same frame the stick does. For everyone else's they come from the server's
-        // pose, eased between snapshots.
+        // The moving parts: the flown craft's from the replica, so a surface moves with the stick,
+        // everyone else's from the server's pose, eased between snapshots.
         val animation = animations.getOrPut(vessel.id) { VesselAnimation() }
         if (animation.defsFor !== design) {
             animation.defs = design.parts.map { catalog[it.partId] }
@@ -3996,9 +3861,8 @@ class GameSession private constructor(
         }
         val defs = animation.defs
         val n = design.parts.size
-        // And only if it fits the design being drawn. Staging splits the replica straight away, and
-        // until the server's new structure arrives it has fewer parts than the craft on screen.
-        // Reading its pose by this design's parts ran off the end of it and crashed the game.
+        // Only if it fits the design being drawn. After staging the replica has fewer parts until
+        // the server's new structure arrives.
         val fresh = (if (predicted) prediction.pose(animation.target)
             else if (state.pose === animation.decodedFrom) true
             else (defs.all { it != null } && VesselPose.decode(defs.map { it!! }, state.pose, animation.target)).also { if (it) animation.decodedFrom = state.pose }) &&
@@ -4016,8 +3880,8 @@ class GameSession private constructor(
                 sh.gimbalPitch[i] += (t.gimbalPitch[i] - sh.gimbalPitch[i]) * ease
                 sh.gimbalYaw[i] += (t.gimbalYaw[i] - sh.gimbalYaw[i]) * ease
                 sh.flap[i] += (t.flap[i] - sh.flap[i]) * ease
-                // How hard each engine and rotor is going. Never copied across before, so rotors
-                // read nothing: they never turned, blew no dust and weren't heard.
+                // How hard each engine and rotor is going. Without this rotors never turned, blew
+                // dust or were heard.
                 sh.output[i] += (t.output[i] - sh.output[i]) * ease
                 // The shorter way round, so a sail gybing across doesn't spin the long way.
                 var swing = t.sailAngle[i] - sh.sailAngle[i]
@@ -4029,8 +3893,8 @@ class GameSession private constructor(
             animation.initialised = true
         }
 
-        // Wheels roll with the ground going by: angular velocity up x v / r, in the craft's own
-        // axes. Off the ground they coast to a stop.
+        // Wheels roll with the ground going by: angular velocity up x v / r, in craft axes. Off the
+        // ground they coast to a stop.
         attractor.surfaceVelocityAt(position, scratchGroundVelocity)
         scratchGroundVelocity.mulInPlace(-1.0).addInPlace(state.velocity)
         rotation.inverseRotate(scratchGroundVelocity, scratchGroundVelocity)
@@ -4045,13 +3909,13 @@ class GameSession private constructor(
         // How hurt, hot and dented it is, as the server last said.
         val condition = conditions.getOrPut(vessel.id) { VesselCondition.Values() }
         VesselCondition.decode(n, state.condition, condition)
-        // Joints near their limit: the parts beyond them shudder about the seam, and the seam
-        // throws sparks, for everyone watching.
+        // Joints near their limit: the parts beyond shudder about the seam, and the seam throws
+        // sparks, for everyone watching.
         val strain = strains.getOrPut(vessel.id) { com.rm.apogee.render.StrainLook() }
         val flexing = condition.any && !mapMode &&
             strain.compute(design, defs, condition.load, lastRenderTime, vessel.id.toInt())
-        // What comes off the craft (sparks off a seam, a thruster's puff) leaves with it, in the
-        // ground's frame.
+        // What comes off the craft (sparks, a thruster's puff) leaves with it, in the ground's
+        // frame.
         attractor.surfaceVelocityAt(position, scratchDrift)
         scratchDrift.mulInPlace(-1.0).addInPlace(state.velocity)
         bodyRotation.inverseRotate(scratchDrift, scratchDrift)
@@ -4060,8 +3924,8 @@ class GameSession private constructor(
         val chuteTrail = Vec3().setTo(state.velocity).subInPlace(attractor.surfaceVelocityAt(position, Vec3()))
         if (predicted) prediction.replica?.air?.let { air -> chuteTrail.subInPlace(bodyRotation.rotate(air.wind, Vec3())) }
         if (chuteTrail.length > 0.5) chuteTrail.normalizeInPlace().negateInPlace() else chuteTrail.setTo(position).normalizeInPlace()
-        // Lamps: lit after dusk where it stands, or down in the dark of the sea, while it has the
-        // power. The Cape's own always have it.
+        // Lamps: lit after dusk where it stands, or deep in the sea, while it has power. The Cape's
+        // always have it.
         val dark = (scratchLamp.setTo(position).normalizeInPlace() dot frameSun) < World.LAMP_DUSK ||
             (attractor.ocean != null && attractor.altitudeOf(position) < -World.LAMP_DEPTH)
         val lampsLit = dark &&
@@ -4120,8 +3984,8 @@ class GameSession private constructor(
                     effects?.wheelDust(contact, scratchGroundVelocity.length, attractor, bodyRotation, animationDt, (vessel.id * 131 + index).toInt())
                 }
             } else if (def.module<com.rm.apogee.core.part.Engine>() != null) {
-                // A propeller turns as fast as its engine is actually turning it, and an air
-                // propeller with its engine off windmills a little in the wind of its flight.
+                // A propeller turns as fast as its engine actually drives it, and an air propeller
+                // with its engine off windmills a little.
                 val engine = def.module<com.rm.apogee.core.part.Engine>()!!
                 var turning = animation.shown.output.getOrElse(index) { 0.0 }
                 if (engine.exhaustKind == com.rm.apogee.core.part.Exhaust.PROP && inAir) {
@@ -4132,8 +3996,8 @@ class GameSession private constructor(
                     if (!mapMode) bladeDisc(out, vessel.id, index, blades, scratch, rotation * placedRotation, null, turning)
                 }
             } else if (fresh) def.module<com.rm.apogee.core.part.Rotor>()?.let { rotor ->
-                // A rotor turns as fast as it's actually turning, which is what it's lifting, and
-                // close over the ground its downwash blows up dust, and it's heard.
+                // A rotor turns as fast as it actually is. Close over the ground its downwash
+                // raises dust, and it's heard.
                 val speed = animation.shown.output.getOrElse(index) { 0.0 }
                 val blades = PartModels.blades(def)
                 if (speed > 0.0 && blades != null) {
@@ -4144,8 +4008,7 @@ class GameSession private constructor(
                             prediction.replica?.rotorTilt?.takeIf { index * 3 + 2 < it.size && (it[index * 3] != 0.0 || it[index * 3 + 1] != 0.0 || it[index * 3 + 2] != 0.0) }
                                 ?.let { t -> rotation.rotate(Vec3(t[index * 3], t[index * 3 + 1], t[index * 3 + 2])).normalizeInPlace() }
                         } else null
-                        // The blades tip with it, about the hub, so they turn in the disc drawn
-                        // round them. Drawn upright under a tilted disc, they cut across it.
+                        // The blades tip with it about the hub so they turn inside the tilted disc.
                         if (tilt != null) {
                             val partTurn = rotation * placedRotation
                             val upright = partTurn.rotate(blades.axis).normalizeInPlace()
@@ -4169,9 +4032,8 @@ class GameSession private constructor(
                     soundCraft(vessel.id, position, state.velocity, attractor).rotor(speed, rotor.diameter)
                 }
             }
-            // A thruster block firing: puffs come out of it, opposite its push, and there's a chuff
-            // in the sound. The push is in the craft's axes, from the replica for the craft being
-            // flown and from the server for the rest.
+            // A thruster block firing: puffs come out opposite its push, with a chuff. The push is
+            // in craft axes, from the replica for the flown craft, else the server.
             if (fresh && def.module<com.rm.apogee.core.part.Rcs>() != null) {
                 val base = index * 3
                 val push = animation.target.rcs
@@ -4192,11 +4054,9 @@ class GameSession private constructor(
             }
             // A lit engine leaves a flame and smoke behind it.
             def.module<com.rm.apogee.core.part.Engine>()?.let { engine ->
-                // The replica's parts are only this design's while their counts agree. Staging
-                // splits it straight away, before the server's new structure arrives, and indexing
-                // it by this design's parts then ran off the end. What it's actually putting out
-                // (nothing once its tank is dry, however far the throttle is open) comes from the
-                // replica for the craft being flown, and the server's pose for the rest.
+                // The replica matches this design only while the part counts agree. Actual output
+                // (none when dry) comes from the replica for the flown craft, else the server's
+                // pose.
                 val output = if (fresh) animation.target.output.getOrElse(index) { 0.0 } else 0.0
                 if (output > 0.01) {
                     soundCraft(vessel.id, position, state.velocity, attractor).engine(
@@ -4243,7 +4103,7 @@ class GameSession private constructor(
                         framedChute = true
                         camera.frameAtLeast(chuteRadius * 3.0)
                     }
-                    // Its size by its drag: a small drogue, then the full canopy.
+                    // Sized by its drag: a small drogue, then the full canopy.
                     com.rm.apogee.render.ChuteLook.append(
                         scratch, chuteTrail, kotlin.math.sqrt(com.rm.apogee.core.part.Parachute.dragShare(open.coerceAtMost(1.0))),
                         com.rm.apogee.render.ChuteLook.radius(parachute.deployedDragCoefficient * def.referenceArea),
@@ -4252,12 +4112,12 @@ class GameSession private constructor(
                 }
             }
 
-            // A sail that's set (the throttle's the sheet) with the wind gone out of it flogs, and
-            // a big one louder than a small one.
+            // A set sail (the throttle is the sheet) with the wind gone out of it flogs, louder the
+            // bigger.
             def.module<com.rm.apogee.core.part.Sail>()?.let { sail ->
                 if (fresh && !mapMode && state.throttle > SAIL_SET) {
-                    // How full it is for how far the sheet lets it out, so a reefed sail drawing well
-                    // is quiet.
+                    // How full it is for how far the sheet lets it out, so a reefed sail drawing
+                    // well is quiet.
                     val empty = 1.0 - (animation.shown.sailFill.getOrElse(index) { 1.0 } / state.throttle).coerceIn(0.0, 1.0)
                     val flog = empty * (sail.area / SAIL_BIG).coerceAtMost(1.0)
                     soundCraft(vessel.id, position, state.velocity, attractor).let { it.luff = maxOf(it.luff, flog) }
@@ -4270,10 +4130,8 @@ class GameSession private constructor(
             PartModels.expand(def, caps[index], anim, leaves)
             val shroud = shrouds.getOrNull(index)
             shroud?.let { com.rm.apogee.render.ShroudLook.leaf(def, placed, it)?.let(leaves::add) }
-            // A shell shed as this part's stage dropped: it splits and falls away, once. A stage
-            // dropped here and drawn before the server hears of it keeps the shell whole for that
-            // moment, since where that copy's drawn is only a guess, and pieces thrown from there
-            // were metres out.
+            // A shell shed as this part's stage dropped splits and falls away, once. Not for a
+            // locally staged copy the server hasn't confirmed, since its place is a guess.
             val shed = placed.shroud
             if (shroud == null && shed != null && !mapMode) {
                 if (vessel.id < 0) com.rm.apogee.render.ShroudLook.leaf(def, placed, shed)?.let(leaves::add)
@@ -4282,7 +4140,7 @@ class GameSession private constructor(
             val health = if (condition.any) condition.health[index] else 1f
             val heat = if (condition.any) condition.temperature[index] else 0f
             val dent = if (condition.any) ConditionLook.dent(condition.crumple, index * 3) else null
-            // Badly hurt, it burns, in air. In vacuum there's nothing to burn in.
+            // Badly hurt, it burns, in air only.
             if (health < BURNING_HEALTH && !mapMode && attractor.atmosphere != null &&
                 attractor.altitudeOf(scratch) < attractor.atmosphereHeight * 0.6
             ) {
@@ -4322,8 +4180,7 @@ class GameSession private constructor(
                     leafRotation = tipped * leafRotation
                 }
                 if (sock && piece == WINDSOCK_PIECE) {
-                    // Blown out downwind from the top of the mast, hanging lower the lighter the
-                    // wind.
+                    // Blown out downwind from the top of the mast, hanging lower in a lighter wind.
                     val pivot = partRotation.rotate(WINDSOCK_PIVOT.copy()).addInPlace(scratch)
                     val axis = leafRotation.rotate(Vec3.unitY(), Vec3())
                     val hang = windsockHang(position, bodyRotation)
@@ -4350,7 +4207,7 @@ class GameSession private constructor(
             }
             if (glows > 0) {
                 scratchGlow.mulInPlace(1.0 / glows)
-                // Aimed, so the light stands out in front, over the middle of the pool it throws.
+                // Aimed, so the light stands out in front over the middle of the pool it throws.
                 val aim = lampModule?.aim ?: 0.0
                 if (aim > 0.0) {
                     val front = partRotation.rotate(Vec3.unitZ())
@@ -4372,11 +4229,8 @@ class GameSession private constructor(
         if (!mapMode) {
             val throughAir = Vec3().setTo(state.velocity).subInPlace(attractor.surfaceVelocityAt(position, Vec3()))
             if (predicted) prediction.replica?.air?.let { air -> throughAir.subInPlace(bodyRotation.rotate(air.wind, Vec3())) }
-            // Where the craft meets the air first, and how thick it is there. The vapour collar and
-            // the shock sit on the nose, not around the whole craft. Before, it matched neither the
-            // nose nor the drag, which I spotted. The tip is the leading part's own end, on its own
-            // axis. Found along the line of flight through the middle, it sat metres to the side
-            // whenever the craft wasn't flying dead straight.
+            // Where the craft meets the air first and how thick it is there, for the vapour collar
+            // and shock on the nose. The tip is the leading part's end on its own axis.
             val nose = Vec3().setTo(position)
             val back = Vec3()
             var girth = 0.5
@@ -4414,11 +4268,7 @@ class GameSession private constructor(
         }
     }
 
-    /**
-     * Which part this is, in a way staging doesn't change: its kind and where it sits in the
-     * design. Its index moves when the parts before it go, and a part keyed by index got eased from
-     * another part's place.
-     */
+    /** Which part this is, in a way staging doesn't change: its kind and place in the design. */
     private fun partIdentity(placed: com.rm.apogee.core.craft.PlacedPart): Int {
         val p = placed.position
         var h = placed.partId.hashCode()
@@ -4429,24 +4279,9 @@ class GameSession private constructor(
     }
 
     /**
-     * The mass-weighted centre of the design, using dry masses.
-     *
-     * It's an approximation. The server knows the true centre including propellant, and doesn't
-     * send it at the moment. The error shifts a craft by tens of centimetres along its axis, which
-     * you can't see at flight camera distances. It's a real gap, though, and the fix is a field on
-     * the kinematics message, not better guessing here.
-     */
-    /**
-     * How far the craft's lowest point sits below its centre, in metres.
-     *
-     * It's negative, and measured along [up] in world axes so it follows the craft as it tips. The
-     * height readout is taken from here instead of from the centre of mass, because a player reads
-     * "AGL" as the gap between their craft and the ground, and a thirteen-metre rocket parked on
-     * the pad showed seven metres. That looks exactly like a bug in the terrain, even though the
-     * craft is sitting on it.
-     *
-     * It's measured against the same centre the renderer places parts around, so the number and the
-     * picture can't disagree.
+     * How far the craft's lowest point is below its centre, in metres: negative, along [up] in
+     * world axes. The height readout uses it so AGL is the gap under the craft. Uses the renderer's
+     * centre so number and picture agree.
      */
     private fun lowestPointOffset(design: CraftDesign, rotation: Quat, up: Vec3): Double {
         val centre = designCentreOfMass(design)
@@ -4470,11 +4305,8 @@ class GameSession private constructor(
     private val scratchPosition = Vec3()
 
     /**
-     * Whether another craft is close enough and still enough to weld to.
-     *
-     * It's answered from the craft the client already has, so the button shows up exactly when
-     * pressing it would do something. The server checks again before acting. This decides what to
-     * draw, not what's allowed.
+     * Whether another craft is close and still enough to weld to, from the client's view. The
+     * server checks again.
      */
     @Volatile
     var joinable: Boolean = false
@@ -4492,16 +4324,14 @@ class GameSession private constructor(
     ): Boolean {
         val reach = designReach(focus.design)
         val now = System.nanoTime()
-        // A different craft in hand (a stage dropped, a ring undocked, a switch) starts afresh.
-        // Whatever is beside it now was just parted from it, or is where it was left.
+        // A different craft in hand (dropped stage, undocked ring, switch) starts afresh. Whatever
+        // is beside it now was just parted from it, or left there.
         if (joinFocus != focus.id || joinParts != focus.design.parts.size) {
             joinFocus = focus.id; joinParts = focus.design.parts.size
             firstSeenNear.clear()
         }
         val hitched = client.latestSnapshot?.hitches.orEmpty()
-        // What it's standing on, a plane on a carrier or a buggy on a barge, isn't something it's
-        // pressed against to be welded to. Offered, one tap would have made them one craft.
-        // Nor, flying the deck, what's standing on it.
+        // Not what it stands on (a plane on a carrier) or, flying the deck, what stands on it.
         val systems = client.systems?.takeIf { it.vessel == focus.id }
         val deck = systems?.standingOn ?: -1L
         val riders = systems?.riders.orEmpty()
@@ -4510,23 +4340,20 @@ class GameSession private constructor(
             if (other.id == deck || other.id in riders) continue
             // The Cape's own buildings are nobody's to weld to.
             if (other.owner == World.WORLD_OWNER) continue
-            // Brought to the same moment as ours, the same as for docking. A snapshot apart at
-            // orbital speed, a stage pressed against us read 43 m off one frame and 10 m the next.
+            // Brought to the same moment as ours, as for docking. A snapshot apart at orbital speed
+            // is tens of metres.
             val seen = other.observed ?: continue
             val theirs = seen.kinematics
             val lag = (focus.observed?.time ?: seen.time) - seen.time
             val theirPosition = scratchPosition.setTo(theirs.position).addScaledInPlace(theirs.velocity, lag)
             // Towed or towing, so it's joined already, by the hitch.
             if (hitched.any { (it.vesselA == focus.id && it.vesselB == other.id) || (it.vesselB == focus.id && it.vesselA == other.id) }) continue
-            // A stage that was just let go of isn't something to join back onto. Drifting off at a
-            // metre a second, it met the rule, and the button blinked on and off as it went, which
-            // I noticed.
+            // Not a stage just let go of, or the button would blink while it drifts off.
             val born = firstSeenNear.getOrPut(other.id) {
                 if (theirPosition.distanceTo(state.position) < reach + designReach(other.design) + 20.0) now else 0L
             }
             if (born != 0L && now - born < JUST_PARTED_NANOS) continue
-            // Nor a stage let go of that's still burning, pushing the flown one for as long as its
-            // tanks last. Joining it back isn't on offer.
+            // Nor one let go of that's still burning, pushing the flown one while its tanks last.
             if (born != 0L && theirs.throttle > 0.0) continue
             scratchNeighbour.setTo(state.position).subInPlace(theirPosition)
             if (scratchNeighbour.length > reach + designReach(other.design)) continue
@@ -4550,6 +4377,11 @@ class GameSession private constructor(
         return furthest
     }
 
+    /**
+     * The design's centre of mass from dry masses. The server doesn't send the true centre with
+     * propellant, so this can be tens of centimetres off along the axis. The real fix is a
+     * kinematics field.
+     */
     private fun designCentreOfMass(design: CraftDesign): Vec3 {
         val centre = Vec3.zero()
         var total = 0.0
@@ -4565,16 +4397,14 @@ class GameSession private constructor(
 
 
     /**
-     * How fast blades [radius] metres long are drawn turning at full speed, in radians a second.
-     * Slower than the real thing, which on a screen strobes into blades standing still or turning
-     * backwards. Big ones turn slower, the way they look to.
+     * How fast blades [radius] metres long are drawn turning at full speed, in rad/s. Slower than
+     * real, which strobes on a screen. Big ones turn slower.
      */
     private fun bladeRate(radius: Double): Double = (BLADE_RATE_SCALE / (radius + 1.0)).coerceIn(BLADE_RATE_LEAST, BLADE_RATE_MOST)
 
     /**
-     * The blur of blades turning fast, as a see-through disc over them, coming in as they pass a
-     * third of full speed [speed]. It faces along [tilt] where given (a main rotor's lift, tilted by
-     * the stick), or along the blades' own axis.
+     * The blur of fast blades as a see-through disc, fading in past a third of full [speed]. Faces
+     * along [tilt] when given (a main rotor's lift), else the blades' axis.
      */
     private fun bladeDisc(
         out: MutableList<RenderItem>, vesselId: Long, index: Int, blades: PartModels.Blades,
@@ -4616,23 +4446,20 @@ class GameSession private constructor(
         const val BODY_TARGET = -100L
 
         /**
-         * Edited burns get sent at most this often, and followed over the server's for this long
-         * afterwards.
+         * Edited burns are sent at most this often, and followed over the server's for this long
+         * after.
          */
         private const val BURN_SEND_NANOS = 200_000_000L
         private const val BURN_EDIT_HOLD_NANOS = 3_000_000_000L
-        /**
-         * Warping to a burn stops this long before it starts, in seconds, to give time to turn onto
-         * it.
-         */
+        /** Warping to a burn stops this many seconds before it, to turn onto it. */
         private const val BURN_WARP_LEAD = 45.0
 
         /** Coming down means falling faster than this, in m/s. */
         private const val LANDING_FALLING = 1.0
 
         /**
-         * The approach lights: metres out from the runway's edge to the first, between them, and
-         * up off the ground; how much bigger they're drawn per metre away; their look; draw key.
+         * The approach lights: metres out from the runway's edge to the first, between them, and up
+         * off the ground; how much bigger they're drawn per metre away; their look; draw key.
          */
         private const val PAPI_CLEAR = 15.0
         private const val PAPI_SPACING = 9.0
@@ -4644,8 +4471,8 @@ class GameSession private constructor(
         private const val PAPI_KEY = -78L
 
         /**
-         * The map's current arrows: their colour, how far off the datum, the longest as a share of
-         * the gap to the next, and the speed, in m/s, that's drawn longest and brightest.
+         * The map's current arrows: colour, lift off the datum, longest as a share of the gap to
+         * the next, and the speed in m/s drawn longest and brightest.
          */
         private val CURRENT_COLOR = floatArrayOf(0.35f, 0.88f, 0.82f, 1f)
         private const val CURRENT_LIFT = 1.0005
@@ -4666,8 +4493,8 @@ class GameSession private constructor(
         private const val APPROACH_HIGHEST = 3_000.0
 
         /**
-         * The weakest current shown, in m/s, and the most above the datum, in metres, a craft can
-         * be and still be floating in it.
+         * The weakest current shown, in m/s, and the most a craft can be above the datum, in
+         * metres, and still float in it.
          */
         private const val CURRENT_SHOWN = 0.3
         private const val CURRENT_ABOVE = 5.0
@@ -4694,12 +4521,13 @@ class GameSession private constructor(
         private const val CAPE_HEARD_FULL = 120.0
         private const val CAPE_HEARD_UNTIL = 450.0
 
-        /**
-         * Lamps lighting the ground at once on a low tier. Each one costs a little more per pixel.
-         */
+        /** Lamps lighting the ground at once on a low tier. Each costs a little more per pixel. */
         const val LOW_TIER_LAMPS = 4
 
-        /** The windsock: which part, which of its pieces is the sock, where it hangs from and how far out its middle is. */
+        /**
+         * The windsock: its part, which piece is the sock, where it hangs from and how far out its
+         * middle is.
+         */
         const val WINDSOCK_PART = "struct-windsock"
         const val WINDSOCK_PIECE = 1
         val WINDSOCK_PIVOT = Vec3(0.0, 3.2, 0.1)
@@ -4740,20 +4568,17 @@ class GameSession private constructor(
         private const val CAUTION_SPACING_NANOS = 4_000_000_000L
 
         /**
-         * The slide is sent again when it has moved this much on an axis-length scale, at most this
-         * often.
-         */
-        /**
-         * Holding hands-off drift while lining up: ignored below this, in m/s, the command per m/s,
-         * and the most it asks for.
+         * Holding hands-off drift while lining up: deadband in m/s, command per m/s, and the most
+         * it asks.
          */
         private const val DRIFT_DEADBAND = 0.02
         private const val DRIFT_GAIN = 0.4
         private const val DRIFT_MOST = 0.15
 
         /**
-         * Below this height, in metres, the stick slides along the ground. Above it, by the
-         * camera's own axes.
+         * Below this height, in metres, the stick slides along the ground; above it, by the
+         * camera's axes. The slide is resent when it moves this much on an axis-length scale, at
+         * most this often.
          */
         private const val SLIDE_GROUNDED_BELOW = 500.0
         private const val SLIDE_RESEND = 0.01
@@ -4769,26 +4594,23 @@ class GameSession private constructor(
         private const val WAKE_REACH = 600.0
 
         /**
-         * How far the camera sees under the water, in metres: near the top, and in the deep, and
-         * how deep the change takes.
+         * How far the camera sees under water, in metres: near the top, in the deep, and the depth
+         * the change takes.
          */
         private const val UNDERWATER_FOG = 55.0
 
         /**
-         * Deeper than this, in metres, a craft is under the sea instead of afloat on it, in the
-         * craft lists.
+         * Deeper than this, in metres, a craft is under the sea rather than afloat, in the craft
+         * lists.
          */
         const val UNDER_SEA = 3.0
 
-        /**
-         * When named places on the map are closer together than this on screen, in px, only the
-         * first shows.
-         */
+        /** Named places on the map closer than this on screen, in px, show only the first. */
         private const val MAP_PLACE_GAP = 60f
         private const val UNDERWATER_FOG_DEEP = 45.0
         private const val UNDERWATER_FOG_FALL = 100.0
 
-        /** Taken off it by a storm stirring the water, in metres, over about this depth. */
+        /** How much a storm stirring the water takes off, in metres, and over about what depth. */
         private const val UNDERWATER_STIRRED = 30.0
         private const val UNDERWATER_STIRRED_DEPTH = 20.0
 
@@ -4809,8 +4631,7 @@ class GameSession private constructor(
         private const val WRECK_VIEW = 25.0
 
         /**
-         * Craft within this distance of touching ours, in metres, are in its replica too, at most
-         * this many.
+         * Craft within this many metres of touching ours are in its replica too, at most this many.
          */
         private const val NEIGHBOUR_MARGIN = 30.0
         private const val MAX_NEIGHBOURS = 4
@@ -4824,8 +4645,8 @@ class GameSession private constructor(
         private const val LEG_END = 0.995
 
         /**
-         * Surf: checked this often, full at the water's edge up to [SHORE_FULL_BELOW] m, and gone
-         * by [SHORE_SILENT_ABOVE].
+         * Surf: checked this often, full at the water's edge up to [SHORE_FULL_BELOW] m, gone by
+         * [SHORE_SILENT_ABOVE].
          */
         private const val SHORE_LOOK_NANOS = 250_000_000L
         private const val SHORE_FULL_BELOW = 25.0
@@ -4837,8 +4658,8 @@ class GameSession private constructor(
         private const val CAMERA_CLEARANCE = 2.0
 
         /**
-         * How far above the waves the camera is kept, in metres, while what's being flown is at
-         * the surface: less deep than this, in metres.
+         * How far above the waves the camera is kept, in metres, while the flown craft is at the
+         * surface (less deep than the second value, in metres).
          */
         private const val CAMERA_SEA_CLEARANCE = 2.0
         private const val CAMERA_SEA_FOCUS = 2.0
@@ -4847,9 +4668,8 @@ class GameSession private constructor(
         private const val AFLOAT_HOLD_MS = 2_000L
 
         /**
-         * A launch window is called open this long either side of its moment, in seconds. Two
-         * minutes off, a launch due east is still within a degree of the moon's plane. It's worked
-         * out again at least this often, in seconds.
+         * A launch window is open this many seconds either side of its moment (still within a
+         * degree of the moon's plane due east). Redone at least this often, in seconds.
          */
         const val MOON_WINDOW_OPEN = 120.0
         private const val MOON_WINDOW_REFRESH = 30.0
@@ -4863,13 +4683,12 @@ class GameSession private constructor(
         /** About 60 Hz. The server streams slower, and the renderer interpolates. */
         private const val PRESENT_INTERVAL_MILLIS = 16L
 
-        /** Stage cards at 5 Hz. They're gauges, read at a glance, not animated. */
+        /** Stage cards at 5 Hz, plenty for gauges. */
         private const val STAGE_CARD_INTERVAL_NANOS = 200_000_000L
 
         /**
-         * The furthest another craft is carried past its last snapshot. It's a few snapshot
-         * intervals: enough to cover a late one, but not enough to fly a craft on through a stalled
-         * connection.
+         * The furthest another craft is carried past its last snapshot: enough to cover a late one,
+         * short enough to stop on a stalled connection.
          */
         private const val MAX_EXTRAPOLATION_SECONDS = 0.25
 
@@ -4885,8 +4704,10 @@ class GameSession private constructor(
         /** Wheels turn with the ground below this height, and above it they coast. */
         private const val WHEEL_SPIN_HEIGHT = 1.5
 
-        /** A propeller's turn at full throttle, in radians per second. */
-        /** Another world gets its own globe once it's this big in the sky, in radians: a fifth of a degree. */
+        /**
+         * Another world gets its own globe once it's this big in the sky, in radians (a fifth of a
+         * degree).
+         */
         private const val FAR_GLOBE_FROM = 0.0035
 
         /** How finely other worlds' globes are built: rings pole to pole, and twice as many round. */
@@ -4899,9 +4720,8 @@ class GameSession private constructor(
         private val SERVER_THREAD by lazy { serverThread() }
 
         /**
-         * A shed shell: how many pieces it splits into, how thick they are in metres, how fast
-         * they're thrown out in m/s, how fast they turn over in rad/s, and how long they're
-         * drawn falling, in seconds.
+         * A shed shell: pieces, thickness in metres, throw speed in m/s, tumble in rad/s, and how
+         * long it's drawn falling, in seconds.
          */
         private const val SHROUD_PIECES = 4
         private const val SHROUD_THICKNESS = 0.04
@@ -4935,14 +4755,6 @@ class GameSession private constructor(
         private const val WINDMILL_MOST = 0.3
 
 
-        /**
-         * The direction to the star, in the planet's frame.
-         *
-         * It's fixed, and on purpose not straight down any axis. A sun exactly overhead the launch
-         * site makes the terminator invisible and the planet look flat. It gets replaced by real
-         * system geometry when the map view needs the star's true position.
-         */
-
         /** The surface normal at the launch complex (latitude 0, longitude 0). */
         private val HOME_DIRECTION = com.rm.apogee.core.orbit.SolarSystem.surfaceDirection(
             com.rm.apogee.core.orbit.SolarSystem.PAD_LATITUDE, com.rm.apogee.core.orbit.SolarSystem.PAD_LONGITUDE,
@@ -4963,7 +4775,10 @@ class GameSession private constructor(
         /** Where a falling craft comes down. */
         private val IMPACT_COLOR = floatArrayOf(1.0f, 0.45f, 0.35f, 1f)
 
-        /** How far ahead the course over the ground goes, in seconds, and at most, in radians of the world. */
+        /**
+         * How far ahead the course over the ground goes, in seconds, and at most in radians of the
+         * world.
+         */
         private const val COURSE_SECONDS = 600.0
         private const val COURSE_MOST = 1.0
         private const val COURSE_STEPS = 64
@@ -4979,7 +4794,10 @@ class GameSession private constructor(
         /** In the air, this share of orbital speed and up, it's falling, not flying. */
         private const val NEAR_ORBITAL = 0.5
 
-        /** How long ahead an escaping path is looked along for the ground, in seconds, and in how many steps. */
+        /**
+         * How far ahead an escaping path is searched for the ground, in seconds, and in how many
+         * steps.
+         */
         private const val FALL_LONGEST = 3_600.0
         private const val FALL_STEPS = 240
 
@@ -4999,7 +4817,9 @@ class GameSession private constructor(
         /** A planted flag on the map. */
         private val FLAG_COLOR = floatArrayOf(1.0f, 0.4f, 0.55f, 1f)
         private val SIGNAL_COLOR = floatArrayOf(0.45f, 1.0f, 0.55f, 1f)
-        /** A surveyed body's ore and water on the map, and how big each dot is, as a share of its radius. */
+        /**
+         * A surveyed body's ore and water on the map, and each dot's size as a share of its radius.
+         */
         private val ORE_COLOR = floatArrayOf(1.0f, 0.62f, 0.25f, 1f)
         private val WATER_COLOR = floatArrayOf(0.35f, 0.8f, 1.0f, 1f)
         private const val DOT_FRACTION = 0.012
@@ -5041,11 +4861,8 @@ class GameSession private constructor(
         const val DEFAULT_PORT = 45_678
 
         /**
-         * Starts a game others can join over the local network.
-         *
-         * It's the same as [hostLocal] except that the server also listens on a socket and
-         * announces itself, which is the whole point of building single player as a one-player
-         * server in the first place. Nothing in the gameplay path knows the difference.
+         * Starts a game others can join over the local network: [hostLocal] plus a listening socket
+         * and an announcement.
          */
         fun hostLan(
             frameBus: FrameBus,
@@ -5065,9 +4882,8 @@ class GameSession private constructor(
         ): GameSession {
             val session = hostLocal(
                 frameBus, perfHints, playerName, clientId, stripe, design, catalog, scope,
-                // The name has to reach the server config, not just the beacon. It's what the
-                // welcome message reports, so a joining player sees the name they picked in the
-                // browser.
+                // The name goes to the server config as well as the beacon, since the welcome
+                // message reports it.
                 serverName = serverName,
                 weather = weather,
                 clouds = clouds,
@@ -5078,10 +4894,8 @@ class GameSession private constructor(
         }
 
         /**
-         * Joins a game hosted somewhere else.
-         *
-         * It returns a failure if the socket won't open, because a host that has gone away between
-         * being found and being tapped is completely normal.
+         * Joins a game hosted somewhere else. Returns a failure if the socket won't open, which is
+         * normal when the host has gone.
          */
         suspend fun join(
             frameBus: FrameBus,
@@ -5104,9 +4918,7 @@ class GameSession private constructor(
             )
         }
 
-        /**
-         * Starts a solo game: a server in this process, reached over loopback.
-         */
+        /** Starts a solo game: a server in this process, reached over loopback. */
         fun hostLocal(
             frameBus: FrameBus,
             perfHints: PerfHints?,
@@ -5119,15 +4931,7 @@ class GameSession private constructor(
             catalog: PartCatalog = StockParts.catalog,
             scope: CoroutineScope,
             serverName: String = "Local Game",
-            /**
-             * The world to play in.
-             *
-             * It's passed in instead of made here, because single player isn't a series of
-             * disconnected sandboxes. A craft landed on a hillside has to still be there when the
-             * player comes back with the next module. Building one here is what made every launch a
-             * fresh universe, and made the whole business of landing modules and welding them
-             * together impossible to reach from inside the game.
-             */
+            /** The world to play in, passed in so single player is one persistent world. */
             world: World = World.default(catalog),
             /** The launch site for [design]. Null lets the design choose. */
             siteId: String? = null,
@@ -5142,9 +4946,8 @@ class GameSession private constructor(
             /** When in the day to launch. The clock moves on to it first. Not for Resume Flight. */
             launchTime: com.rm.apogee.core.world.LaunchTime = com.rm.apogee.core.world.LaunchTime.NOW,
         ): GameSession {
-            // A launch at a chosen time of day: the clock moves on to the next one at the site
-            // before anyone joins. It's the player's own world, so nobody else's day gets changed
-            // under them.
+            // A launch at a chosen time of day moves the clock on to it at the site before anyone
+            // joins.
             if (launchTime != com.rm.apogee.core.world.LaunchTime.NOW && resumeVessel == null) {
                 val site = siteId?.let { id -> World.launchSites.firstOrNull { it.id == id } }
                     ?: World.launchSiteFor(design ?: StockCraft.starterRocket(catalog), catalog)
@@ -5161,14 +4964,13 @@ class GameSession private constructor(
                 config = ServerConfig(
                     name = serverName,
                     starterCraft = { StockCraft.starterRocket(it) },
-                    // A design of their own is coming, so don't hand them a stock rocket as well to
-                    // leave standing on the pad.
+                    // A design of their own is coming, so no stock rocket as well.
                     assignCraftOnJoin = design == null,
                     freshFlight = freshFlight && resumeVessel == null,
                     resumeVessel = resumeVessel,
                     weatherIntensity = weather,
                     cloudCover = clouds,
-                    // The phone's own game: pause and warp, while nobody else is in it.
+                    // The phone's own game: pause and warp while nobody else is in it.
                     allowWarp = true,
                 ),
             )
@@ -5190,12 +4992,7 @@ class GameSession private constructor(
 class FlightTelemetry(
     /** Above the datum, which is what orbital mechanics and the atmosphere use. */
     val altitude: Double,
-    /**
-     * Above the ground directly below.
-     *
-     * It's quite different from [altitude] over a mountain range, and it's the one a pilot wants
-     * when landing.
-     */
+    /** Above the ground directly below. The one a pilot wants when landing. */
     val heightAboveGround: Double,
     val surfaceSpeed: Double,
     val orbitalSpeed: Double,
@@ -5206,7 +5003,7 @@ class FlightTelemetry(
     val stage: Int,
     val inOrbit: Boolean,
     val craftName: String,
-    /** Dynamic pressure, in Pa. The number that decides whether a craft survives the climb. */
+    /** Dynamic pressure, in Pa. */
     val dynamicPressure: Double,
     /** The craft's orientation, for the navball. */
     val rotation: Quat,
@@ -5219,9 +5016,8 @@ class FlightTelemetry(
     /** The wind's speed across the ground, in m/s. */
     val windSpeed: Double = 0.0,
     /**
-     * Where the wind comes from, in degrees, relative to the way the view looks across the ground,
-     * so the arrow turns with the screen, the same as the windsock in view does. 0 is from straight
-     * ahead into the screen, 90 from the right, and 180 from behind the camera.
+     * Where the wind comes from, in degrees, relative to the view across the ground, so the arrow
+     * turns with the screen: 0 from straight ahead, 90 from the right, 180 from behind.
      */
     val windFrom: Double = 0.0,
     /** The compass bearing the wind comes from, in degrees clockwise from north. */
@@ -5233,14 +5029,14 @@ class FlightTelemetry(
     /** Under the sea, how far above its floor, in metres. NaN out of it. */
     val belowFloor: Double = Double.NaN,
     /**
-     * Seconds to the next launch window for the moon (a launch due east then flies into its plane),
-     * negative while one is open, and NaN for none.
+     * Seconds to the next launch window for the moon (due east then flies into its plane), negative
+     * while one is open, NaN for none.
      */
     val lunaWindow: Double = Double.NaN,
     /** Whose window [lunaWindow] is: the first moon of the world the craft is on. */
     val moonName: String = "",
     /**
-     * The navball's frame as it stands ([com.rm.apogee.core.world.NavFrame.AUTO] resolved) and as
+     * The navball's frame in effect ([com.rm.apogee.core.world.NavFrame.AUTO] resolved) and as
      * chosen. [prograde] and the markers below are in it.
      */
     val frame: com.rm.apogee.core.world.NavFrame = com.rm.apogee.core.world.NavFrame.SURFACE,
@@ -5293,11 +5089,8 @@ class FlightTelemetry(
 
     companion object {
         /**
-         * Pascals at which the HUD starts warning.
-         *
-         * It isn't a structural limit, because nothing breaks yet. It's the point where a player
-         * steering hard is wasting thrust fighting the air, which is the lesson the readout is
-         * there to teach.
+         * Pascals at which the HUD starts warning. Not a structural limit; it's where steering hard
+         * starts wasting thrust against the air.
          */
         const val MAX_Q_WARNING = 25_000.0
 
@@ -5336,14 +5129,9 @@ class FlightTelemetry(
             air: com.rm.apogee.core.weather.AirSample? = null,
             /** The body's rotation now, to turn the wind into the world's frame. */
             bodyRotation: Quat? = null,
-            /**
-             * The craft's forward, as a design axis, for which way the wind comes from without a
-             * view.
-             */
+            /** The craft's forward as a design axis, for the wind's direction without a view. */
             forwardAxis: Vec3 = Vec3.unitY(),
-            /**
-             * How the camera is turned, because the wind is read against the view, not the nose.
-             */
+            /** How the camera is turned, since the wind is read against the view. */
             viewRotation: Quat? = null,
             navFrame: com.rm.apogee.core.world.NavFrame = com.rm.apogee.core.world.NavFrame.AUTO,
             /** The target's last state, or null for none. */
@@ -5359,8 +5147,7 @@ class FlightTelemetry(
             /** How many parts it has lost. */
             lost: Int = 0,
             /**
-             * Seconds to the next launch window for the moon, negative while it's open, and NaN for
-             * none.
+             * Seconds to the next launch window for the moon, negative while open, NaN for none.
              */
             lunaWindow: Double = Double.NaN,
             /** That moon's name. */
@@ -5386,8 +5173,8 @@ class FlightTelemetry(
             val wind = if (air != null && bodyRotation != null) bodyRotation.rotate(air.wind, Vec3()) else Vec3()
             val throughAir = relative - wind
 
-            // The navball's markers, worked out exactly the way stability assist works out what it
-            // holds. It's the same function on both sides.
+            // The navball's markers, from the same function stability assist uses for what it
+            // holds.
             val nav = com.rm.apogee.core.world.Navigation.compute(
                 state.position, state.velocity, attractor, navFrame,
                 target?.position, target?.velocity, com.rm.apogee.core.world.NavDirections(),
@@ -5397,8 +5184,8 @@ class FlightTelemetry(
             // Our motion toward it. Positive while the gap is shrinking.
             val closing = if (target != null && nav.hasTarget) (state.velocity - target.velocity) dot nav.toTarget else 0.0
             val horizontalWind = wind.copy().addScaledInPlace(up, -(wind dot up))
-            // Ahead is into the screen, along the ground. Looking straight down, it's the screen's
-            // top edge. Without a view, it's the nose.
+            // Ahead is into the screen along the ground; looking straight down, the screen's top
+            // edge. Without a view, the nose.
             val heading = if (viewRotation != null) viewRotation.rotate(Vec3(0.0, 0.0, -1.0), Vec3())
                 else state.rotation.rotate(forwardAxis, Vec3())
             heading.addScaledInPlace(up, -(heading dot up))
@@ -5435,8 +5222,8 @@ class FlightTelemetry(
                 dynamicPressure = 0.5 * density * relative.lengthSq,
                 rotation = state.rotation.copy(),
                 up = state.position.normalized(),
-                // Below walking pace the direction of travel is noise, and a prograde marker
-                // jittering around the navball is worse than none at all.
+                // Below walking pace the direction of travel is noise, and a jittering marker is
+                // worse than none.
                 prograde = if (moving) nav.prograde.copy() else null,
                 frame = nav.frame,
                 frameChosen = navFrame,
@@ -5475,7 +5262,7 @@ class FlightTelemetry(
             val parts = defs.indices.mapNotNull { i ->
                 val def = defs[i] ?: return@mapNotNull null
                 val health = hot?.health?.get(i)?.toDouble() ?: 1.0
-                // From a mild day's warmth to what it fails at. At ambient, nothing.
+                // From a mild day's warmth (nothing) to what it fails at.
                 val ambient = com.rm.apogee.core.craft.Vessel.AMBIENT_TEMPERATURE
                 val share = hot?.let { ((it.temperature[i] - ambient) / (def.heatLimit - ambient)).coerceAtLeast(0.0) } ?: 0.0
                 val load = loads?.get(i)?.toDouble() ?: 0.0

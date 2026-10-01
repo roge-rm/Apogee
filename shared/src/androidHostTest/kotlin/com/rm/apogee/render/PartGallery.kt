@@ -21,9 +21,8 @@ import kotlin.math.min
  * Pictures of every part and stock craft, rendered off the device.
  *
  * `GALLERY=1 ./gradlew :app:testDebugUnitTest --tests '*PartGallery*'` writes PNGs to
- * app/build/part-gallery, each from three angles, flat-shaded the way the game draws them, through
- * the same [PartModels] and [ModelShapes] code. It's for judging looks without a phone, a pinch and
- * a screenshot every time.
+ * app/build/part-gallery, three angles each, flat-shaded through the game's own [PartModels] and
+ * [ModelShapes].
  */
 class PartGallery {
 
@@ -112,7 +111,7 @@ class PartGallery {
         )
         val size = 420
         val image = BufferedImage(size * views.size, size, BufferedImage.TYPE_INT_RGB)
-        // Frame everything the same way in every view, by the bounding sphere.
+        // Framed by the bounding sphere, the same in every view.
         val centre = Vec3.zero()
         for (t in tris) { centre.addInPlace(t.a) }
         centre.mulInPlace(1.0 / max(1, tris.size))

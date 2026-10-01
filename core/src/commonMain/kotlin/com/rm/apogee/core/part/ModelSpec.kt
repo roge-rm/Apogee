@@ -5,33 +5,25 @@ import com.rm.apogee.core.math.Vec3
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
-/**
- * Something the renderer can turn into a mesh: a physics primitive ([MeshSpec]) or a leaf of a
- * part's [ModelSpec].
- */
+/** Something the renderer can mesh: a physics primitive ([MeshSpec]) or a leaf of a [ModelSpec]. */
 interface Shape
 
 /**
- * What a part looks like, as opposed to [MeshSpec], which is the shape the physics uses for it.
+ * What a part looks like, separate from [MeshSpec], the physics shape. The physics shape drives
+ * inertia, contacts, collisions and stack joints, so detailed looks can't change how a craft flies;
+ * physics tests guard that.
  *
- * These are kept apart on purpose. The physics shape feeds inertia, contact points, craft-to-craft
- * collision and the joints between stacked parts. A nose cone drawn as a proper ogive instead of a
- * straight cone mustn't quietly change how a rocket flies. So a part can look as detailed as it
- * likes and still collide exactly like it always did, and every physics test guards that.
- *
- * It uses the same conventions as [MeshSpec]: metres, centred on the part's origin, with +Y as the
- * stack axis. Surface-mounted parts like fins, wings, legs and wheels are rooted at -X and reach
- * out along +X, with their chord along Y and their thickness along Z, matching their attach nodes.
+ * Same conventions as [MeshSpec]: metres, centred on the part origin, +Y the stack axis. Surface
+ * parts (fins, wings, legs, wheels) are rooted at -X and reach along +X, chord along Y, thickness
+ * along Z, matching their attach nodes.
  */
 @Serializable
 sealed interface ModelSpec : Shape {
 
     /**
-     * A surface of revolution around +Y. [profile] is `[radius, y]` pairs from bottom to top. This
-     * is the workhorse for tanks, nose cones, engine bells, pods, fuselages, spinners and rings.
-     *
-     * An end with a radius above zero gets closed with a flat cap, unless the part is in a stack
-     * and something covers it. See StackCaps.
+     * A surface of revolution about +Y. [profile] is `[radius, y]` pairs, bottom to top. For tanks,
+     * cones, bells, pods, fuselages, spinners and rings. Ends with radius above zero get a flat cap
+     * unless a stacked part covers them (see StackCaps).
      */
     @Serializable
     @SerialName("lathe")
@@ -39,17 +31,16 @@ sealed interface ModelSpec : Shape {
         val profile: List<List<Double>>,
         val segments: Int = 20,
         /**
-         * How far round it goes, in degrees, from [from] (0 at +X, turning toward +Z). All the way
-         * for a tank, half for a fairing's shell. A partial turn isn't capped.
+         * Degrees round from [from] (0 at +X, toward +Z): 360 for a tank, 180 for a fairing shell.
+         * Partial sweeps aren't capped.
          */
         val sweep: Double = 360.0,
         val from: Double = 0.0,
     ) : ModelSpec
 
     /**
-     * An ogive nose cone: tangent to a cylinder of [radius] at its base, running to a point
-     * [length] above it, and blunted by [bluntness] of the radius at the tip. Centred on its
-     * middle, like the cone it replaces.
+     * An ogive nose cone: tangent to a cylinder of [radius] at the base, to a point [length] above,
+     * blunted by [bluntness] of the radius. Centred on its middle, like the cone it replaces.
      */
     @Serializable
     @SerialName("noseCone")
@@ -61,9 +52,8 @@ sealed interface ModelSpec : Shape {
     ) : ModelSpec
 
     /**
-     * A tank: a cylinder with its ends chamfered in slightly, so a stack of them looks like
-     * separate vessels bolted together instead of one long tube, with [bands] raised rings around
-     * the middle.
+     * A tank: a cylinder with slightly chamfered ends, so a stack reads as separate tanks, with
+     * [bands] raised rings round the middle.
      */
     @Serializable
     @SerialName("tank")
@@ -76,13 +66,10 @@ sealed interface ModelSpec : Shape {
     ) : ModelSpec
 
     /**
-     * A flying surface: a trapezoid [span] long along +X from its root at -X/2, [rootChord] along Y
-     * at the root narrowing to [tipChord] at the tip, with its leading edge swept back by [sweep]
-     * metres over the span. [thickness] is at the root and thins toward the tip, with a diamond
-     * section, so the leading and trailing edges are sharp.
-     *
-     * The chord is centred on Y = 0 at the root. A control surface is a Fin piece of its own,
-     * hinged along its leading edge.
+     * A flying surface: a trapezoid [span] along +X from its root at -X/2, [rootChord] along Y at
+     * the root narrowing to [tipChord], leading edge swept back [sweep] metres over the span.
+     * [thickness] at the root thins toward the tip, diamond section, sharp edges. Chord centred on
+     * Y = 0 at the root. A control surface is its own Fin piece hinged at its leading edge.
      */
     @Serializable
     @SerialName("fin")
@@ -95,18 +82,17 @@ sealed interface ModelSpec : Shape {
     ) : ModelSpec
 
     /**
-     * A body lofted through cross-sections along +Y. Each section is a rounded rectangle
-     * [Section.halfWidth] across and from [Section.bottom] to [Section.top] in Z, with its lower
-     * edge drawn in by [Section.vee] to make a V. Used for hulls, rover bodies and cockpit
-     * canopies.
+     * A body lofted through sections along +Y. Each is a rounded rectangle [Section.halfWidth]
+     * across, from [Section.bottom] to [Section.top] in Z, its lower edge drawn in by
+     * [Section.vee]. For hulls, rover bodies and canopies.
      */
     @Serializable
     @SerialName("loft")
     data class Loft(
         val sections: List<Section>,
-        /** Points around each section. More is rounder. */
+        /** Points round each section. More is rounder. */
         val around: Int = 12,
-        /** Close the first and last sections with flat faces. */
+        /** Close the end sections with flat faces. */
         val capped: Boolean = true,
     ) : ModelSpec {
         @Serializable
@@ -115,17 +101,14 @@ sealed interface ModelSpec : Shape {
             val halfWidth: Double,
             val top: Double,
             val bottom: Double,
-            /** 0 is flat-bottomed and 1 is a sharp V down the middle. */
+            /** 0 flat-bottomed, 1 a sharp V. */
             val vee: Double = 0.0,
-            /** 0 is square corners and 1 is fully round. */
+            /** 0 square corners, 1 fully round. */
             val round: Double = 0.4,
         )
     }
 
-    /**
-     * A tire around the X axis, [radius] outside and [width] across, with [lugs] tread blocks
-     * around it.
-     */
+    /** A tire about the X axis, [radius] outside, [width] across, with [lugs] tread blocks. */
     @Serializable
     @SerialName("tyre")
     data class Tyre(
@@ -135,7 +118,7 @@ sealed interface ModelSpec : Shape {
         val lugDepth: Double = 0.04,
     ) : ModelSpec
 
-    /** A propeller with [blades] around +Y, [radius] out to the tips. */
+    /** A propeller with [blades] about +Y, [radius] to the tips. */
     @Serializable
     @SerialName("prop")
     data class Prop(
@@ -145,7 +128,7 @@ sealed interface ModelSpec : Shape {
         val pitchDegrees: Double = 20.0,
     ) : ModelSpec
 
-    /** A plain [MeshSpec] shape, for the odd bracket or block. */
+    /** A plain [MeshSpec] shape, for a bracket or block. */
     @Serializable
     @SerialName("primitive")
     data class Primitive(val mesh: MeshSpec) : ModelSpec
@@ -156,11 +139,8 @@ sealed interface ModelSpec : Shape {
     data class Compound(val pieces: List<Piece>) : ModelSpec
 
     /**
-     * One piece of a [Compound].
-     *
-     * [offset] and [rotation] (degrees around X, then Y, then Z) place it in the part. [role] says
-     * what moves it, around [axis] through [pivot], both in part space. A hinged elevon turns with
-     * its control deflection, a wheel spins as the ground goes by, and a leg folds as it deploys.
+     * One piece of a [Compound]. [offset] and [rotation] (degrees about X, then Y, then Z) place it
+     * in the part. [role] says what moves it, about [axis] through [pivot], both in part space.
      */
     @Serializable
     data class Piece(
@@ -172,20 +152,19 @@ sealed interface ModelSpec : Shape {
         val axis: SerialVec3 = Vec3(1.0, 0.0, 0.0),
         val pivot: SerialVec3 = Vec3(0.0, 0.0, 0.0),
         /**
-         * How far the role moves it at full travel: degrees folded away when stowed for
-         * [PieceRole.DEPLOY], or metres of stroke for [PieceRole.SUSPENSION]. The piece is made in
-         * its deployed, uncompressed pose.
+         * Full travel of the role: degrees folded when stowed for [PieceRole.DEPLOY], or metres of
+         * stroke for [PieceRole.SUSPENSION]. Modelled deployed and uncompressed.
          */
         val travel: Double = 0.0,
         /**
          * Whether this piece's ends are the part's stack ends, so a joint covered by the next part
-         * in the stack is left open.
+         * is left open.
          */
         val stackEnds: Boolean = false,
     )
 }
 
-/** What colour a piece takes: the part's own, or one from a small palette. */
+/** A piece's colour: the part's own or one from a small palette. */
 @Serializable
 enum class Tint {
     /** The part's category colour. */
@@ -196,7 +175,7 @@ enum class Tint {
     @SerialName("glass") GLASS,
     @SerialName("accent") ACCENT,
     @SerialName("light") LIGHT,
-    /** The colour of a rocket's stack, whatever part it's on. An engine's shroud is. */
+    /** The rocket stack's colour on any part, like an engine's shroud. */
     @SerialName("stack") STACK,
 }
 
@@ -204,24 +183,24 @@ enum class Tint {
 @Serializable
 enum class PieceRole {
     @SerialName("fixed") FIXED,
-    /** Turns with the part's control deflection, up to its maximum deflection. */
+    /** Turns with the part's control deflection, up to its maximum. */
     @SerialName("hinged") HINGED,
     /** Spins, like a wheel with the ground or a propeller with the throttle. */
     @SerialName("spin") SPIN,
-    /** Turns with the steering, around [ModelSpec.Piece.axis]. */
+    /** Turns with steering, about [ModelSpec.Piece.axis]. */
     @SerialName("steer") STEER,
-    /** Steers, and a wheel on it also spins. This is the tire of a steered wheel. */
+    /** Steers and spins: a steered wheel's tire. */
     @SerialName("steerSpin") STEER_SPIN,
     /** Folds from stowed to deployed as the leg deploys. */
     @SerialName("deploy") DEPLOY,
     /** Slides along [ModelSpec.Piece.axis] as the suspension compresses. */
     @SerialName("suspension") SUSPENSION,
-    /** Swings with the engine's gimbal, around [ModelSpec.Piece.pivot]. Used for a nozzle. */
+    /** Swings with the engine gimbal about [ModelSpec.Piece.pivot]. For nozzles. */
     @SerialName("gimbal") GIMBAL,
-    /** Gone once the part is staged, like a fairing's shell once it opens. */
+    /** Gone once the part is staged, like a fairing's shell. */
     @SerialName("jettison") JETTISON,
-    /** Swings down around [ModelSpec.Piece.pivot] as the wing's flaps run out. */
+    /** Swings down about [ModelSpec.Piece.pivot] as the flaps run out. */
     @SerialName("flap") FLAP,
-    /** A sail: swings around the mast ([ModelSpec.Piece.axis] through the pivot) to its angle. */
+    /** A sail: swings about the mast ([ModelSpec.Piece.axis] through the pivot) to its angle. */
     @SerialName("sail") SAIL,
 }

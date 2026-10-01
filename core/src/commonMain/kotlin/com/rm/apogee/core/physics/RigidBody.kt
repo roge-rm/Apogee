@@ -6,16 +6,9 @@ import com.rm.apogee.core.math.Vec3
 import com.rm.apogee.core.fixed
 
 /**
- * A single body with six degrees of freedom.
- *
- * One of these stands for a whole vessel. Every part of a craft is welded into one rigid body
- * instead of joined by springs, and that's a considered trade. A model with a spring per joint
- * makes long stacks flex and wobble, costs a solver pass per joint per tick, and on a phone just
- * isn't affordable. Decoupling a stage splits one body into two instead of releasing a joint, which
- * gives the same gameplay without the instability.
- *
- * All the state is double precision and changed in place, because this gets stepped 60 times a
- * second for every vessel in range and mustn't allocate.
+ * A single six-degree-of-freedom body standing for a whole vessel. Parts are welded into one rigid
+ * body, not sprung joints, which is stable and cheap on a phone; staging splits it in two. Double
+ * precision, changed in place, and stepped 60 times a second, so it mustn't allocate.
  */
 class RigidBody {
 
@@ -40,9 +33,8 @@ class RigidBody {
         private set
 
     /**
-     * Can't be moved, like an anchored base. Its mass and inertia are kept, but it answers every
-     * push as if it were infinitely heavy. No impulse moves it and no contact shares a correction
-     * with it, so everything that meets it works as normal, against something that doesn't give.
+     * Can't be moved, like an anchored base. Mass and inertia are kept, but it answers every push as
+     * if infinitely heavy, so whatever meets it works normally against something that doesn't give.
      * Whoever sets this poses the body themselves.
      */
     var fixed: Boolean = false
@@ -55,17 +47,17 @@ class RigidBody {
     /** The inertia tensor around the centre of mass, in body-local axes. */
     val inertiaLocal: Mat3 = Mat3.identity()
 
-    /** The inverse of [inertiaLocal]. It's worked out again by [setInertia]. */
+    /** The inverse of [inertiaLocal], worked out by [setInertia]. */
     val inverseInertiaLocal: Mat3 = Mat3.identity()
 
     /** Scratch: [inverseInertiaLocal] in world axes. */
     private val inverseInertiaWorld: Mat3 = Mat3.identity()
 
-    /** Added up over a tick, and cleared by [clearAccumulators]. */
+    /** Summed over a tick and cleared by [clearAccumulators]. */
     val force = Vec3()
     val torque = Vec3()
 
-    // Scratch space made up front for the integration step.
+    // Scratch for the integration step.
     private val scratchA = Vec3()
     private val scratchB = Vec3()
 
@@ -85,10 +77,8 @@ class RigidBody {
     }
 
     /**
-     * Adds a force at [worldOffset] from the centre of mass, which makes both linear acceleration
-     * and torque.
-     *
-     * This is how an off-axis engine turns a craft, and how a gimbal steers one.
+     * Adds a force at [worldOffset] from the centre of mass, giving both acceleration and torque.
+     * How an off-axis engine or a gimbal turns a craft.
      */
     fun applyForceAtOffset(worldForce: Vec3, worldOffset: Vec3) {
         force.addInPlace(worldForce)
@@ -131,16 +121,9 @@ class RigidBody {
     }
 
     /**
-     * Moves forward one fixed step, with semi-implicit Euler.
-     *
-     * Velocity is updated before position (that's the "semi-implicit" part), which costs nothing
-     * and is far more stable than the explicit order for things that oscillate, like a craft on its
-     * landing legs.
-     *
-     * The gyroscopic term (`omega x (I omega)`) is left out on purpose. It matters for a body
-     * tumbling freely around its middle axis, and leaving it out does lose a real effect. But
-     * including it with an explicit integrator at 60 Hz adds energy and makes long stacks blow up,
-     * which is a much worse failure. Worth looking at again alongside a proper implicit solver.
+     * One step of semi-implicit Euler (velocity before position), which is stable for things that
+     * oscillate, like a craft on its legs. The gyroscopic term `omega x (I omega)` is left out: with
+     * an explicit integrator at 60 Hz it adds energy and blows up long stacks.
      */
     fun integrate(dt: Double) {
         if (inverseMass > 0.0) {

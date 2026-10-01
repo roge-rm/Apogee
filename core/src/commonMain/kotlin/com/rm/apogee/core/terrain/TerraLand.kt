@@ -7,37 +7,23 @@ import kotlin.math.sqrt
 import com.rm.apogee.core.math.StrictMath
 
 /**
- * The shape of Terra's land: everything above the sea that makes one place different from another.
+ * The shape of Terra's land. The continents come from [TerrainField]; this adds, in layers:
  *
- * The continents come first, from [TerrainField], and they fix the coastlines. This adds what
- * stands on them, in layers:
+ * 1. Regions: broad warped fields saying how mountainous, hilly, plateau, wet and warm a place is.
+ * 2. Landforms weighted by region: ridged ranges, rolling hills, terraced plateaus, mesas, dunes,
+ *    volcanoes. Their blends are the land in between.
+ * 3. Carving: dry valleys and canyons along the zero lines of a warped noise field.
+ * 4. Detail: bumps a wheel can feel, and outcrops.
  *
- * 1. **Regions**: broad fields, tens to hundreds of kilometres across, that say what kind of
- *    country a place is. How mountainous, how hilly, whether it's plateau, how wet and how warm.
- *    They're domain-warped so their edges wander instead of following the noise lattice.
- * 2. **Landforms**: a height profile for each kind of country, weighted by the regions. Ridged
- *    ranges along mountain belts, rolling hills, plateaus cut into terraces, mesas, dunes running
- *    across the wind, and volcanic cones. The weights blend smoothly, and the blends are the land
- *    in between. Foothills are what a mountain belt's weight looks like as it fades out.
- * 3. **Carving**: river valleys and canyons along the zero crossings of a warped noise field,
- *    shaped by where they run. They're V-cut in the mountains, flat-floored in the lowlands, and
- *    slot canyons through plateau country. They're dry for now. Water comes with the sea's own
- *    milestone.
- * 4. **Detail**: small bumps a wheel can feel, and rock outcrops on the hills.
- *
- * Then [material] reads the same fields to decide what the ground is made of.
- *
- * Everything is worked out from local values, with no objects and no shared scratch, because this
- * gets called by the collider's tile thread, the renderer's chunk workers and the simulation all at
- * once, tens of thousands of times a second. Allocating here turned into garbage collections that
- * stalled the tick.
+ * [material] reads the same fields. Everything uses locals only: several threads call this tens of
+ * thousands of times a second, and allocating causes GC stalls.
  */
 internal class TerraLand(
     seed: Int,
     private val radius: Double,
     homeX: Double, homeY: Double, homeZ: Double,
     /**
-     * Where the launch complex stands now, if it's not at home, so the country around it is calm
+     * Where the launch complex stands now, if it's moved from home, so the country round it is calm
      * too.
      */
     padX: Double = homeX, padY: Double = homeY, padZ: Double = homeZ,
@@ -71,8 +57,8 @@ internal class TerraLand(
     private val padEastZ: Double
 
     /**
-     * The runway's heading: east at home, the way the planet's spin around +Y carries the ground.
-     * The basin is stretched out this way.
+     * The runway's heading: east at home, the way the spin about +Y carries the ground. The basin is
+     * stretched this way.
      */
     private val eastX: Double
     private val eastZ: Double
@@ -91,19 +77,18 @@ internal class TerraLand(
 
     // --- regions --------------------------------------------------------------
 
-    /** Warp offsets only apply to region lookups, which gives natural-looking borders cheaply. */
+    /** Warp offsets for region lookups only, which gives natural borders cheaply. */
     private fun warp(seed: Int, x: Double, y: Double, z: Double): Double =
         simplex(seed, x * WARP_FREQUENCY, y * WARP_FREQUENCY, z * WARP_FREQUENCY) * WARP_METRES
 
     /**
-     * Mountain belts, 0..1: long ranges along the zero lines of a very broad field, like the
-     * crumple zones where plates meet. It's 1 on the crest line and fades out over tens of
-     * kilometres into foothills.
+     * Mountain belts, 0..1: long ranges along the zero lines of a very broad field, like crumple
+     * zones where plates meet. 1 on the crest line, fading over tens of kilometres into foothills.
      */
     private fun mountains(qx: Double, qy: Double, qz: Double, base: Double): Double {
         val belt = 1.0 - abs(simplex(beltSeed, qx * BELT_FREQUENCY, qy * BELT_FREQUENCY, qz * BELT_FREQUENCY))
-        // Higher ground is more often mountain ground, so the continents' own uplands carry the
-        // ranges instead of the coastal plains.
+        // Higher ground is more often mountain, so ranges sit on the continents' uplands, not
+        // coastal plains.
         val lift = (base / 2_500.0).coerceIn(0.0, 0.25)
         return Noise.smoothstep(((belt + lift - 0.72) / 0.22).coerceIn(0.0, 1.0))
     }
@@ -115,9 +100,8 @@ internal class TerraLand(
         Noise.smoothstep(((simplex(plateauSeed, qx * PLATEAU_FREQUENCY, qy * PLATEAU_FREQUENCY, qz * PLATEAU_FREQUENCY) - 0.25) / 0.3).coerceIn(0.0, 1.0))
 
     /**
-     * Moisture, 0..1. Broad weather noise, wetter near coasts, and drier in the subtropical belts
-     * around 25 degrees either side of the equator. That's where Earth keeps its great deserts, for
-     * the same reason.
+     * Moisture, 0..1: broad weather noise, wetter near coasts, and drier in the subtropical belts
+     * about 25 degrees either side of the equator, where deserts sit.
      */
     private fun moisture(qx: Double, qy: Double, qz: Double, sinLatitude: Double, landness: Double): Double {
         val weather = simplex(wetSeed, qx * WET_FREQUENCY, qy * WET_FREQUENCY, qz * WET_FREQUENCY) * 0.5 + 0.5 +
@@ -136,21 +120,16 @@ internal class TerraLand(
     }
 
     /**
-     * A few kilometres of noise on a climate field, so the boundaries between kinds of country
-     * interleave and wander. Without it they followed latitude and height lines, and looked like
-     * they'd been drawn with a ruler.
+     * A few kilometres of noise on a climate field, so boundaries between kinds of country wander
+     * instead of following latitude and height lines.
      */
     private fun edge(seed: Int, qx: Double, qy: Double, qz: Double): Double =
         simplex(seed, qx * EDGE_FREQUENCY, qy * EDGE_FREQUENCY, qz * EDGE_FREQUENCY) * 0.07 +
             simplex(seed + 1, qx * EDGE_FREQUENCY * 3.3, qy * EDGE_FREQUENCY * 3.3, qz * EDGE_FREQUENCY * 3.3) * 0.03
 
     /**
-     * 0 at the launch complex, rising to 1 by [HOME_BASIN_OUTER] away.
-     *
-     * This uses true distance, so the basin stays centred on the pad, with its radius wobbling by
-     * several kilometres so the edge wanders like any other. A plain radius drew a perfect circle
-     * through everything that depended on it, and measuring in warped coordinates moved the whole
-     * basin off the pad.
+     * 0 at the launch complex, rising to 1 by [HOME_BASIN_OUTER] away. True distance, so the basin
+     * stays centred on the pad, with the radius wobbled by a few kilometres so the edge wanders.
      */
     private fun homeCalm(px: Double, py: Double, pz: Double): Double =
         kotlin.math.min(calmAround(px, py, pz, hx, hy, hz, eastX, eastZ), calmAround(px, py, pz, this.px, this.py, this.pz, padEastX, padEastZ))
@@ -158,9 +137,7 @@ internal class TerraLand(
     /** [homeCalm] around one centre, with its runway running along [eastX], [eastZ]. */
     private fun calmAround(px: Double, py: Double, pz: Double, hx: Double, hy: Double, hz: Double, eastX: Double, eastZ: Double): Double {
         val dx = px - hx; val dy = py - hy; val dz = pz - hz
-        // Stretched out ahead of the runway. A plane climbing out of the Cape should have open
-        // country in front of it, not a mountain range fifteen kilometres off the end of the
-        // tarmac.
+        // Stretched out ahead of the runway, so a plane climbing out has open country ahead.
         val along = dx * eastX + dz * eastZ
         val stretched = if (along > 0.0) along * (1.0 / RUNWAY_STRETCH - 1.0) else 0.0
         val sx = dx + eastX * stretched
@@ -173,8 +150,8 @@ internal class TerraLand(
     // --- landforms --------------------------------------------------------------
 
     /**
-     * The height of the land at a point, given the continents' [base] and how far inland it is
-     * ([landness], 0 on the shore). [nx], [ny], [nz] is the unit direction.
+     * The height of the land at unit direction [nx], [ny], [nz], given the continents' [base] and how
+     * far inland it is ([landness], 0 on the shore).
      */
     fun height(nx: Double, ny: Double, nz: Double, base: Double, landness: Double): Double {
         val px = nx * radius; val py = ny * radius; val pz = nz * radius
@@ -182,67 +159,57 @@ internal class TerraLand(
         val qy = py + warp(warpSeedY, px, py, pz)
         val qz = pz + warp(warpSeedZ, px, py, pz)
 
-        // The launch complex sits in a broad basin of gentle country. The high ground rises beyond
-        // it, where it makes a horizon, instead of all around it, where it made a pit with the
-        // runway running into a wall.
+        // The launch complex sits in a broad basin of gentle country, with the high ground beyond it
+        // as a horizon.
         val calm = homeCalm(px, py, pz)
         val mountain = mountains(qx, qy, qz, base) * landness * calm
         val hills = hilliness(qx, qy, qz) * (0.6 + 0.4 * calm)
-        // Every landform fades in from the shore. Anything added at full strength right up to the
-        // coast ends there in a cliff when the continents drop below the sea. Plateaus did, by two
-        // hundred metres.
+        // Every landform fades in from the shore, or it ends in a cliff where the continents drop
+        // below the sea.
         val plateau = plateau(qx, qy, qz) * (1.0 - mountain) * calm * landness
         val wet = moisture(qx, qy, qz, ny, landness)
         val dry = Noise.smoothstep(((0.42 - wet) / 0.2).coerceIn(0.0, 1.0))
 
         var h = base
 
-        // Rolling hills everywhere, stronger where the region says hilly. The lowlands keep a
-        // gentle swell even at the minimum, which is what makes height and drift readable from the
-        // ground.
+        // Rolling hills everywhere, stronger where the region is hilly. Lowlands keep a gentle swell,
+        // which makes height and drift readable from the ground.
         h += fbm(rollSeed, px, py, pz, ROLL_FREQUENCY, 4) * (35.0 + 140.0 * hills) * landness
 
-        // Mountains: ridged noise, with each octave weighted by the one above it, so crests are
-        // sharp and the valleys between them stay smooth. That's the difference between a mountain
-        // range and a field of bumps.
+        // Mountains: ridged noise with each octave weighted by the one above, so crests are sharp
+        // and valleys smooth.
         //
-        // Every skip below is at exactly zero weight. Skipping at "small", meaning anything above
-        // zero, leaves a step the size of the weight times the amplitude wherever the test flips,
-        // and a mountain range at a thousandth of full strength is still two and a half metres
-        // high.
+        // Every skip below is at exactly zero weight. Skipping at "small" leaves a step wherever
+        // the test flips; a range at a thousandth of strength is still metres high.
         if (mountain > 0.0) {
-            // A light warp of its own, not the regions' big one. Ridged noise on perfectly straight
-            // coordinates lays some crests out in long parallel lines. On the regions' twenty-five
-            // kilometre warp it got sheared into streaks like brushed cloth. A couple of kilometres
-            // bends the crests without dragging them.
+            // A light warp of its own. Unwarped, ridged noise lays crests in long parallel lines;
+            // the regions' big warp shears them into streaks. A couple of kilometres just bends them.
             val fine = simplex(ridgeSeed + 17, px * RIDGE_WARP_FREQUENCY, py * RIDGE_WARP_FREQUENCY, pz * RIDGE_WARP_FREQUENCY) * RIDGE_WARP_METRES
             h += ridged(ridgeSeed, px + fine, py - fine, pz + fine, RIDGE_FREQUENCY, 6) * MOUNTAIN_METRES * mountain
         }
 
-        // Plateaus: the ground raised and cut into terraces, so it climbs in steps with cliffs
-        // between them. Mesas stand out on their own in dry plateau country.
+        // Plateaus: raised ground cut into terraces, climbing in steps with cliffs between. Mesas
+        // stand alone in dry plateau country.
         if (plateau > 0.0) {
             h += 220.0 * plateau
-            // The step height changes from place to place, and the steps are cut into a wobbled
-            // copy of the ground. Terraces cut straight into a smoothly tilted plain follow its
-            // contours, and those are dead straight lines tens of kilometres long.
+            // Step height varies by place, and steps are cut into a wobbled copy of the ground, or
+            // they follow a tilted plain's contours in dead straight lines.
             val step = TERRACE_METRES * (0.7 + 0.6 * (simplex(mesaSeed + 2, qx * TERRACE_VARY_FREQUENCY, qy * TERRACE_VARY_FREQUENCY, qz * TERRACE_VARY_FREQUENCY) * 0.5 + 0.5))
             val wobble = simplex(mesaSeed + 3, px * TERRACE_WOBBLE_FREQUENCY, py * TERRACE_WOBBLE_FREQUENCY, pz * TERRACE_WOBBLE_FREQUENCY) * step * 0.35
             val t = (h + wobble) / step
             val f = t - floor(t)
-            // Flat for most of each step, then a steep rise, like the tread and riser of a
-            // staircase instead of a ramp.
+            // Flat for most of each step, then a steep rise, like stair treads and risers.
             val terraced = (floor(t) + Noise.smoothstep(((f - 0.72) / 0.28).coerceIn(0.0, 1.0))) * step - wobble
             h += (terraced - h) * plateau
             val mesa = simplex(mesaSeed, px * MESA_FREQUENCY, py * MESA_FREQUENCY, pz * MESA_FREQUENCY)
             h += Noise.smoothstep(((mesa - 0.45) / 0.08).coerceIn(0.0, 1.0)) * 140.0 * plateau * dry
         }
 
-        // Dunes where it's dry, low and flat: ridges running across the prevailing wind, which
-        // blows from the west, so they're long north to south and closely spaced east to west.
+        // Dunes where it's dry, low and flat: ridges across the west wind, so long north to south
+        // and closely spaced east to west.
         val duneWeight = dry * (1.0 - mountain) * (1.0 - plateau) * landness
         if (duneWeight > 0.0) {
-            // Along the wind means along a parallel, so longitude, in metres.
+            // Along the wind is along a parallel: longitude, in metres.
             val ring = sqrt(px * px + pz * pz)
             val along = StrictMath.atan2(pz, px) * ring
             val d = simplex(duneSeed, along * DUNE_ALONG, py * DUNE_ACROSS, 0.5)
@@ -252,17 +219,14 @@ internal class TerraLand(
 
         h += volcanoes(px, py, pz, landness)  // already kept clear of home
 
-        // Valleys and canyons, carved last so they cut through everything above. Never below a few
-        // metres above the sea, or the coast would fill up with inlets that are dry and below sea
-        // level.
+        // Valleys and canyons, carved last to cut through everything. Never below a few metres above
+        // the sea, or the coast fills with dry inlets below sea level.
         val carve = valley(px, py, pz, mountain, plateau, dry, landness) * (0.6 + 0.4 * calm)
         if (carve > 0.0) h = kotlin.math.max(h - carve, kotlin.math.min(h, SHORE_FLOOR_METRES))
 
-        // Small bumps a wheel can feel, and outcrops on the high ground. Half a metre in the
-        // lowlands, and more only in the mountains. At 1.8 m on a forty-five metre wavelength, a
-        // rover at twenty metres a second hit a bump every two seconds with more than a g of heave
-        // in it, got thrown into the air on every crest, and rolled over within half a kilometre of
-        // the pad. Rough going belongs in rough country.
+        // Small bumps a wheel can feel, and outcrops on high ground. Half a metre in the lowlands,
+        // more only in mountains, or a fast rover gets thrown on every crest and rolls. Rough going
+        // belongs in rough country.
         h += fbm(detailSeed, px, py, pz, DETAIL_FREQUENCY, 2) * (0.5 + 1.0 * mountain) * landness
         val outcrops = Noise.smoothstep(((mountain + hills * 0.35 - 0.1) / 0.3).coerceIn(0.0, 1.0))
         if (outcrops > 0.0) {
@@ -272,11 +236,9 @@ internal class TerraLand(
     }
 
     /**
-     * How deep a valley is cut here, in metres.
-     *
-     * Channels follow the zero lines of a warped noise field, which wander and branch like real
-     * drainage without having to simulate it. Their profile depends on the country: V-shaped and
-     * deep in mountains, broad and flat-floored in the lowlands, and slot canyons in dry plateau.
+     * How deep a valley is cut here, in metres. Channels follow the zero lines of a warped noise
+     * field, wandering and branching like drainage. V-shaped and deep in mountains, broad and
+     * flat-floored in lowlands, slot canyons in dry plateau.
      */
     private fun valley(
         px: Double, py: Double, pz: Double,
@@ -295,8 +257,8 @@ internal class TerraLand(
     private fun channel(px: Double, py: Double, pz: Double): Double {
         val w = simplex(riverWarpSeed, px * RIVER_WARP_FREQUENCY, py * RIVER_WARP_FREQUENCY, pz * RIVER_WARP_FREQUENCY) * RIVER_WARP_METRES
         val x = px + w; val y = py - w; val z = pz + w
-        // Two octaves, with the second on a turned lattice. One octave alone ran some valleys dead
-        // straight for ten kilometres. See [ridged].
+        // Two octaves, the second on a turned lattice, or some valleys run dead straight for
+        // kilometres. See [ridged].
         val broad = simplex(riverSeed, x * RIVER_FREQUENCY, y * RIVER_FREQUENCY, z * RIVER_FREQUENCY)
         val rx = R00 * x + R01 * y + R02 * z
         val ry = R10 * x + R11 * y + R12 * z
@@ -306,8 +268,8 @@ internal class TerraLand(
     }
 
     /**
-     * Volcanic cones, one or none per sixty kilometre cell: a cone with a crater at the top.
-     * They're kept away from the launch complex, which shouldn't be on a volcano.
+     * Volcanic cones with summit craters, one or none per 60 km cell, kept away from the launch
+     * complex.
      */
     private fun volcanoes(px: Double, py: Double, pz: Double, landness: Double): Double {
         if (landness <= 0.0) return 0.0
@@ -321,10 +283,9 @@ internal class TerraLand(
             val vx = (x + Noise.hash(volcanoSeed + 1, x, y, z)) * VOLCANO_CELL
             val vy = (y + Noise.hash(volcanoSeed + 2, x, y, z)) * VOLCANO_CELL
             val vz = (z + Noise.hash(volcanoSeed + 3, x, y, z)) * VOLCANO_CELL
-            // Cell centres float off the surface, so project them onto it by normalising. Only from
-            // cells near the surface, though. A cell centred deep in the planet projects its
-            // volcano somewhere far from itself, where some neighbouring cells see it and others
-            // don't, and the ground steps wherever the set of neighbours changes.
+            // Project cell centres onto the surface, from cells near the surface only. A deep cell
+            // projects its volcano where some neighbours see it and others don't, and the ground
+            // steps.
             val vl = sqrt(vx * vx + vy * vy + vz * vz)
             if (abs(vl - radius) > VOLCANO_CELL * 0.4) continue
             val sx = vx / vl * radius; val sy = vy / vl * radius; val sz = vz / vl * radius
@@ -347,22 +308,17 @@ internal class TerraLand(
     // --- material ---------------------------------------------------------------
 
     /**
-     * What the ground is made of, from the same fields that shaped it. Steep ground is rock, high
-     * and cold is snow, dry dunes are sand, badlands are clay, wet valley floors are mud, and
-     * forests have their own floor.
+     * What the ground is made of, from the same fields that shaped it: steep is rock, high and cold
+     * is snow, dry dunes are sand, badlands clay, wet valley floors mud, and forests their own floor.
      */
-    /**
-     * What the ground is made of. [watered], 0..1, pulls the country's moisture toward grassland's,
-     * for somewhere kept green.
-     */
+    /** [watered], 0..1, pulls the country's moisture toward grassland's, for somewhere kept green. */
     fun material(nx: Double, ny: Double, nz: Double, elevation: Double, slope: Double, landness: Double, watered: Double = 0.0): SurfaceMaterial {
         val px = nx * radius; val py = ny * radius; val pz = nz * radius
         val qx = px + warp(warpSeedX, px, py, pz)
         val qy = py + warp(warpSeedY, px, py, pz)
         val qz = pz + warp(warpSeedZ, px, py, pz)
         val warm = warmth(qx, qy, qz, ny, elevation)
-        // Watered country gets pulled toward grassland's moisture, up from dry and down from bog,
-        // so it's green instead of sand or mud.
+        // Watered country is pulled toward grassland's moisture, so it's green, not sand or mud.
         val soaked = moisture(qx, qy, qz, ny, landness)
         val wet = soaked + (GRASSLAND_MOISTURE - soaked) * watered
 
@@ -371,9 +327,8 @@ internal class TerraLand(
         if (elevation > snowLine) return if (slope > 0.35) SurfaceMaterial.ROCK else SurfaceMaterial.SNOW
         if (slope > 0.30) return SurfaceMaterial.ROCK
 
-        // Not calmed near home, because what the ground is made of shouldn't know about the launch
-        // complex. Calming the classification drew the basin's outline straight through the
-        // badlands.
+        // Not calmed near home: the ground's material shouldn't know about the launch complex, or
+        // the basin's outline shows through the badlands.
         val mountain = mountains(qx, qy, qz, elevation)
         val plateau = plateau(qx, qy, qz)
         val dry = wet < 0.32 && warm > 0.4
@@ -387,18 +342,16 @@ internal class TerraLand(
         if (elevation < BEACH_METRES && landness < 0.35) return SurfaceMaterial.SAND
         if (dry) return if (plateau > 0.35) SurfaceMaterial.CLAY else SurfaceMaterial.SAND
 
-        // Wet, flat and low, or the floor of a valley in wet country: mud. It's kept to properly
-        // wet places. As a lowland default it covered two fifths of whole regions.
+        // Wet, flat and low, or a valley floor in wet country: mud. Only properly wet places.
         val valleyFloor = channel(px, py, pz) < 0.02
         if (slope < 0.04 && ((wet > 0.68 && elevation < 60.0) || (wet > 0.58 && valleyFloor))) {
             return SurfaceMaterial.MUD
         }
         if (warm < 0.28) return SurfaceMaterial.DIRT
 
-        // A patchwork within each kind of country (copses, clearings, bare ground, rocky patches) a
-        // few kilometres across, so driving in a straight line crosses several instead of one green
-        // sheet. It's warped and uses two octaves, so the patches have ragged edges and come in
-        // lots of sizes. One octave of plain noise made polka dots.
+        // A patchwork in each kind of country (copses, clearings, bare ground, rocky patches) a few
+        // kilometres across, so a straight drive crosses several. Warped, two octaves, for ragged
+        // edges and many sizes.
         val pw = simplex(patchSeed + 7, px * PATCH_FREQUENCY * 1.7, py * PATCH_FREQUENCY * 1.7, pz * PATCH_FREQUENCY * 1.7) * PATCH_WARP_METRES
         val patch = simplex(patchSeed, (px + pw) * PATCH_FREQUENCY, (py - pw) * PATCH_FREQUENCY, (pz + pw) * PATCH_FREQUENCY) * 0.7 +
             simplex(patchSeed + 1, px * PATCH_FREQUENCY * 3.1, py * PATCH_FREQUENCY * 3.1, pz * PATCH_FREQUENCY * 3.1) * 0.3
@@ -432,13 +385,9 @@ internal class TerraLand(
     }
 
     /**
-     * Ridged multifractal, 0..~1: sharp crests, each octave gated by the one before.
-     *
-     * The coordinates get turned by a fixed, irrational-looking rotation between octaves. Simplex
-     * noise is nearly linear across parts of its lattice, so the crease `1 - |n|` makes along a
-     * zero crossing can come out dead straight for kilometres, and with every octave on the same
-     * lattice those straight bits line up. Rotating each octave's lattice away from the last breaks
-     * that up.
+     * Ridged multifractal, 0..~1: sharp crests, each octave gated by the one before. Coordinates
+     * turn between octaves, since simplex can crease dead straight for kilometres and on a shared
+     * lattice those straight bits line up.
      */
     private fun ridged(seed: Int, x0: Double, y0: Double, z0: Double, frequency: Double, octaves: Int): Double {
         var x = x0; var y = y0; var z = z0
@@ -514,10 +463,7 @@ internal class TerraLand(
 
         const val BEACH_METRES = 10.0
 
-        /**
-         * The moisture of grass country: wet enough not to be sand, but not so wet it becomes
-         * forest.
-         */
+        /** The moisture of grass country: wet enough not to be sand, not so wet it's forest. */
         const val GRASSLAND_MOISTURE = 0.5
         const val PATCH_FREQUENCY = 1.0 / 3_500.0
         const val EDGE_FREQUENCY = 1.0 / 6_000.0
@@ -529,7 +475,7 @@ internal class TerraLand(
         const val BASIN_EDGE_FREQUENCY = 1.0 / 25_000.0
         const val BASIN_EDGE_METRES = 9_000.0
 
-        /** How much further the basin reaches ahead of the runway than out to either side. */
+        /** How much further the basin reaches ahead of the runway than to either side. */
         const val RUNWAY_STRETCH = 2.5
     }
 }

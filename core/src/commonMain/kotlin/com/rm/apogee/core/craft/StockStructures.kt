@@ -8,31 +8,29 @@ import com.rm.apogee.core.part.StockParts
 import com.rm.apogee.core.math.Math
 
 /**
- * The Cape's own buildings: the launch complex around the pads, the airfield at the west end of the
- * runway, and the harbour on the west shore of the bay. Each is a founded base belonging to the
- * world, built from real parts. They're solid and they can be broken by things hitting them, and
- * they get rebuilt from these designs once nobody is nearby (see `World.repairStructures`).
+ * The Cape's buildings: the launch complex, the airfield at the runway's west end, and the harbour
+ * on the bay's west shore. Each is a world-owned founded base of real parts, solid and breakable,
+ * rebuilt from these designs when nobody's near (see `World.repairStructures`).
  *
- * They're placed in metres east and north of the pad, on the Cape's levelled ground (see
+ * Positions are metres east and north of the pad, on the Cape's levelled ground (see
  * `TerrainField`). Each complex stands on ground flattened to one height, so one rigid craft can
  * hold it.
  */
 object StockStructures {
 
     /**
-     * One building: part [partId], with its middle [east] and [north] of the pad, its front (+Z)
-     * facing [facing] degrees round from south toward east, and set [lift] m above where it would
-     * stand on the ground.
+     * One building: part [partId], centred [east] and [north] of the pad, its front (+Z) facing
+     * [facing] degrees from south toward east, raised [lift] m off the ground.
      */
     class Placement(val partId: String, val east: Double, val north: Double, val facing: Double = 0.0, val lift: Double = 0.0)
 
-    /** A complex: its buildings, standing on ground at [east], [north] of the pad. */
+    /** A complex: its buildings, on ground at [east], [north] of the pad. */
     class Complex(val name: String, val east: Double, val north: Double, val placements: List<Placement>)
 
     val launchComplex = Complex(
         "Cape Launch Complex", 0.0, 0.0,
         buildList {
-            // Next to pad 0, north of the row of pads, with its arms reaching south toward it.
+            // Beside pad 0, north of the pads, arms reaching south.
             add(Placement("struct-launch-tower", 0.0, 17.0))
             // Lightning masts around the pads, clear of the row.
             for ((e, n) in listOf(-30.0 to 30.0, 30.0 to 30.0, -30.0 to -30.0, 30.0 to -30.0)) add(Placement("struct-lightning-mast", e, n))
@@ -76,8 +74,7 @@ object StockStructures {
     val harbour = Complex(
         "Cape Harbour", 2_570.0, 350.0,
         buildList {
-            // The jetty runs out from the front of the quay into the berth, with its deck level
-            // with the quay.
+            // The jetty runs from the quay into the berth, deck level with the quay.
             for (k in 0 until 13) add(Placement("struct-jetty", 2_620.0 + k * 10.0, 350.0, facing = 90.0, lift = -12.0))
             add(Placement("struct-boathouse", 2_560.0, 300.0, facing = 90.0))
             add(Placement("struct-crane", 2_605.0, 367.0, facing = 90.0))
@@ -86,20 +83,18 @@ object StockStructures {
 
     val complexes = listOf(launchComplex, airfield, harbour)
 
-    /**
-     * How far runway paint stands off the ground, in metres. It sits on the paving laid over it,
-     * which is drawn 4 cm up.
-     */
+    /** Runway paint height in metres, over the paving that's drawn 4 cm up. */
     private const val PAINT_LIFT = 0.06
 
-    /** The [Placement.facing] that turns a building at [east], [north] to look at [toEast], [toNorth]. */
+    /**
+     * The [Placement.facing] that turns a building at [east], [north] toward [toEast], [toNorth].
+     */
     fun facingToward(east: Double, north: Double, toEast: Double, toNorth: Double): Double =
         Math.toDegrees(kotlin.math.atan2(toEast - east, -(toNorth - north)))
 
     /**
-     * [complex] as a craft design. It's upright, with its origin on the ground at the complex's
-     * position, +X east, +Y up and +Z south. Each building stands on the ground where it's placed,
-     * turned to face the right way.
+     * [complex] as an upright craft design, origin on the ground at the complex, +X east, +Y up, +Z
+     * south. Each building stands on the ground, turned to face its way.
      */
     fun design(complex: Complex, catalog: PartCatalog = StockParts.catalog): CraftDesign {
         val parts = complex.placements.mapIndexed { i, p ->

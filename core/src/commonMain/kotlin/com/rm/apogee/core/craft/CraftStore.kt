@@ -14,15 +14,8 @@ class SavedCraft(
 )
 
 /**
- * Craft designs on disk, stored as JSON.
- *
- * It's JSON rather than the protobuf the network uses, from the same `@Serializable` definition. A
- * save file is something a person might open, compare, edit by hand or paste into a bug report, and
- * a network packet isn't. One schema, two encodings, and no second format to keep in step.
- *
- * It takes a [Folder] instead of finding one itself, because :core doesn't depend on any platform.
- * The app passes its files directory, the browser its storage, the dedicated server a path from its
- * config, and tests a temporary folder.
+ * Craft designs on disk as JSON, from the same `@Serializable` schema the network sends as protobuf,
+ * so people can read and edit a save. The platform supplies the [Folder].
  */
 class CraftStore(private val directory: Folder) {
 
@@ -36,8 +29,7 @@ class CraftStore(private val directory: Folder) {
     fun list(): List<SavedCraft> =
         directory.names().filter { it.endsWith(".$EXTENSION") }
             .mapNotNull { name ->
-                // A broken or half-written file mustn't take the whole list down with it. You
-                // should still see your other craft.
+                // Skip a broken file rather than lose the whole list.
                 runCatching {
                     val design = format.decodeFromString<CraftDesign>(directory.read(name)!!)
                     SavedCraft(design.name, name, design.parts.size, directory.lastModified(name), design.parts.map { it.partId }.toSet())
@@ -63,8 +55,8 @@ class CraftStore(private val directory: Folder) {
     fun encode(design: CraftDesign): String = format.encodeToString(design)
 
     /**
-     * A design from the text of a shared craft file. It's refused, with the reason, if it isn't a
-     * craft file, or if it's made of parts [catalog] doesn't have, say from a newer version.
+     * A design from a shared craft file. Fails with the reason if it isn't one, or uses parts
+     * [catalog] doesn't have.
      */
     fun decode(text: String, catalog: com.rm.apogee.core.part.PartCatalog): Result<CraftDesign> = runCatching {
         val design = runCatching { format.decodeFromString<CraftDesign>(text) }
@@ -85,21 +77,15 @@ class CraftStore(private val directory: Folder) {
     }
 
     /**
-     * Writes any reference craft into the store that it hasn't been given before.
-     *
-     * Each stock design is only offered once, ever, and remembered in a small ledger next to the
-     * saves. If you deleted one you meant to, and having it come back on every launch is the kind
-     * of small betrayal that makes a tool feel untrustworthy. A stock design added in a later
-     * version still arrives, though. The old rule, "only into an empty store", meant nobody who had
-     * ever opened the game would see a new one.
+     * Writes each stock design the store hasn't been offered yet. A ledger next to the saves records
+     * what's been offered, so a deleted design stays deleted but new ones still arrive.
      */
     fun seedStockDesigns(catalog: com.rm.apogee.core.part.PartCatalog) {
         val ledger = directory.read(SEEDED_LEDGER)
         val offered = if (ledger != null) {
             ledger.lines().map { it.trim() }.filter { it.isNotEmpty() }.toMutableSet()
         } else if (list().isNotEmpty()) {
-            // Seeded before the ledger existed, under the empty-store rule, which offered exactly
-            // these. Any of them that are missing now were deleted on purpose.
+            // Seeded before the ledger existed, which offered just these. Missing ones were deleted.
             LEGACY_STOCK.toMutableSet()
         } else {
             mutableSetOf()
@@ -107,7 +93,7 @@ class CraftStore(private val directory: Folder) {
 
         val stock = listOf(
             StockCraft.starterRocket(catalog),
-            // The first rocket you'd build in a career: nothing but the starting kit.
+            // The career's first rocket: just the starting kit.
             StockCraft.sounder(catalog),
             StockCraft.moteProbe(catalog),
             StockCraft.lander(catalog),
@@ -160,7 +146,7 @@ class CraftStore(private val directory: Folder) {
         )
         for (design in stock) {
             if (design.name in offered) continue
-            // Never over one of your own craft that happens to have the same name.
+            // Never over your own craft of the same name.
             if (!exists(design.name)) save(design)
             offered.add(design.name)
         }
@@ -168,8 +154,7 @@ class CraftStore(private val directory: Folder) {
     }
 
     private fun fileNameFor(name: String): String {
-        // Anything that isn't obviously safe becomes an underscore. A craft name is free text and
-        // sooner or later it will have a slash in it.
+        // Anything not obviously safe (a slash, say) becomes an underscore.
         val sanitised = name.trim()
             .map { if (it.isLetterOrDigit() || it == '-' || it == ' ') it else '_' }
             .joinToString("")
@@ -183,7 +168,7 @@ class CraftStore(private val directory: Folder) {
         const val EXTENSION = "craft"
         const val SEEDED_LEDGER = "stock-offered.txt"
 
-        /** What the empty-store rule seeded, before the ledger existed. */
+        /** What was seeded before the ledger existed. */
         val LEGACY_STOCK = setOf("Starter I", "Stilt Lander", "Stilt Tug")
     }
 }

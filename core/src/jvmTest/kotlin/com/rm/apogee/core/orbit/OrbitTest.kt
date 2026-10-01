@@ -142,8 +142,7 @@ class OrbitTest {
 
     @Test
     fun `near-parabolic trajectories propagate without a discontinuity`() {
-        // Straddle escape velocity. The classical formulation needs a different equation on each
-        // side of this line, and this one mustn't notice.
+        // Straddle escape velocity, where the classical form switches equations.
         val r = bodyRadius + 100_000.0
         val escapeSpeed = sqrt(2.0 * mu / r)
 

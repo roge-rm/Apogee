@@ -20,13 +20,10 @@ class ClientVessel(
     @Volatile var name: String,
     @Volatile var currentStage: Int = 0,
     @Volatile var activatedParts: List<Int> = emptyList(),
-    /**
-     * Its tanks, as [ServerMessage.FuelLevels] last gave them. Null until the server has said, and
-     * only the craft this client flies gets them.
-     */
+    /** Tanks from [ServerMessage.FuelLevels]. Null until sent; only the flown craft has them. */
     @Volatile var fuel: List<Float>? = null,
 
-    /** Blank for debris, and other players' craft have their own name. */
+    /** The owner's name. Blank for debris. */
     @Volatile var owner: String = "",
     /** Founded: pinned to the ground and can't be moved. */
     @Volatile var anchored: Boolean = false,
@@ -38,7 +35,7 @@ class ClientVessel(
     @Volatile var stripe: Int = -1,
     @Volatile var visor: Int = -1,
 ) {
-    /** The two most recent snapshots, kept so the renderer can interpolate. */
+    /** The two most recent snapshots, for the renderer to interpolate. */
     @Volatile var previous: VesselKinematics? = null
         private set
 
@@ -49,10 +46,8 @@ class ClientVessel(
     class Observation(val kinematics: VesselKinematics, val time: Double)
 
     /**
-     * The latest state paired with its own snapshot's time, in one reference, so they can't be read
-     * half updated. The client's latest-snapshot time is set before each craft's state is, and a
-     * frame built in between paired the new time with the old state. That's 50 ms of error, or nine
-     * metres for a parked craft carried along the equator, for a frame.
+     * The latest state with its own snapshot's time, in one reference so they can't be read half
+     * updated. The client's snapshot time changes before each craft's state does.
      */
     @Volatile var observed: Observation? = null
         private set
@@ -63,9 +58,8 @@ class ClientVessel(
 
     /**
      * The last few observations, oldest first, replaced as a whole so a frame reads one consistent
-     * list. Under warp the frame is drawn a snapshot and a half behind the newest (before the older
-     * of just two), and a snapshot landing mid-frame left one craft between one pair and the next
-     * craft between the next pair. That drew a stage 50 m away from its neighbour.
+     * list. Under warp the frame is drawn about a snapshot and a half behind the newest, so two
+     * aren't enough.
      */
     @Volatile var recent: List<Observation> = emptyList()
         private set
@@ -94,31 +88,20 @@ class ClientVessel(
     }
 
     private companion object {
-        /** Observations kept: enough to cover the warp clock's lag and a late snapshot. */
+        /** Enough to cover the warp clock's lag and a late snapshot. */
         const val RECENT = 5
     }
 }
 
 /**
- * The client's view of a server's world.
- *
- * It holds structure and motion separately, matching how they arrive. A craft's part list gets
- * pushed when it changes, and its motion streams all the time. The two most recent motion samples
- * are kept because the server sends 20 a second and the display wants 60 or more. Without something
- * to interpolate between, a perfectly smooth simulation looks like a stutter.
- *
- * Client-side prediction of the craft you're flying is M4 work. For now even the local player
- * watches interpolated server state, which is honest about the latency the networked build will
- * have, instead of hiding it behind a code path that only exists in single player.
+ * The client's view of a server's world. Structure and motion are held apart, as they arrive: parts
+ * when they change, motion at 20 Hz. Recent motion is kept so a 60 Hz display can interpolate.
  */
 class GameClient(
     private val transport: Transport,
     val playerName: String,
     private val catalogHash: String,
-    /**
-     * This install's identity. It's opaque and the player never types it. The server hangs craft
-     * ownership off it instead of off [playerName].
-     */
+    /** This install's opaque identity. The server ties craft ownership to it, not [playerName]. */
     val clientId: String,
     /** The ground this build simulates. Only a test would pass anything else. */
     private val terrainGeneration: Int = com.rm.apogee.core.terrain.TerrainField.GENERATION,
@@ -145,16 +128,11 @@ class GameClient(
     @Volatile var latestSnapshot: Snapshot? = null
         private set
 
-    /**
-     * When the newest snapshot arrived, by [com.rm.apogee.core.nanoTime].
-     *
-     * Prediction needs to know how old the server's state is, not just what it said, because a
-     * snapshot describes the world as it was when it was sent.
-     */
+    /** Newest snapshot's arrival, by [com.rm.apogee.core.nanoTime]. Prediction needs its age. */
     @Volatile var latestSnapshotNanos: Long = 0L
         private set
 
-    /** Chat lines, newest last. There's a limit so a long session can't grow forever. */
+    /** Chat lines, newest last, capped. */
     private val chatLines = ArrayDeque<String>()
 
     val vessels: Collection<ClientVessel> get() = vesselsById.values
@@ -246,9 +224,8 @@ class GameClient(
     }
 
     /**
-     * Scatter the server says has been knocked down. It's shared with the prediction replica, so
-     * the local craft doesn't hit a tree that's already down, and the renderer reads it to leave it
-     * out.
+     * Scatter the server says is knocked down. Shared with the prediction replica so you don't hit
+     * a felled tree, and read by the renderer to leave it out.
      */
     val felledScatter: MutableSet<Long> = com.rm.apogee.core.concurrentSetOf()
 
@@ -337,9 +314,8 @@ class GameClient(
                 latestSnapshot = snapshot
                 latestSnapshotNanos = com.rm.apogee.core.nanoTime()
                 for (kinematics in snapshot.vessels) {
-                    // Motion can really arrive before structure, because the snapshot for a craft
-                    // that just spawned can overtake its structure message. Dropping it is right,
-                    // since the next snapshot after the structure lands will carry it again.
+                    // A new craft's snapshot can beat its structure here. Drop it; the next one
+                    // carries it again.
                     vesselsById[kinematics.vessel]?.observe(kinematics, snapshot.time)
                 }
             }
@@ -350,8 +326,7 @@ class GameClient(
 
             is ServerMessage.PartEvent -> {
                 partEvents.add(message)
-                // If nobody's draining it (a headless client, or a test), it mustn't grow without
-                // end.
+                // Capped in case nobody drains it (a headless client or a test).
                 while (partEvents.size > MAX_PART_EVENTS) partEvents.poll()
             }
 

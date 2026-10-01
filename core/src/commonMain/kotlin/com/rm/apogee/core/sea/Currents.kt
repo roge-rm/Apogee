@@ -9,33 +9,25 @@ import kotlin.math.sin
 import com.rm.apogee.core.math.Math
 
 /**
- * The sea's currents: slow, broad flows across the open ocean that carry whatever floats in them.
+ * The sea's currents: slow, broad flows that carry whatever floats. A stream function gives bands
+ * by latitude (westward near the equator, eastward further out) with meanders for gyres and eddies.
  *
- * They come from a stream function, so the flow runs along its contours and never piles up in
- * the open sea. It's made of broad bands by latitude (westward near the equator and eastward further
- * out, the way the trade winds and the westerlies drive the real oceans), with slow meanders laid
- * over them for gyres, eddies and a few faster streams.
- *
- * Then it's scaled by how much the water there is open sea: nothing at the shore, in the shallows,
- * in a bay or harbour cut off from the ocean, or in a protected place like a launch site at sea, a
- * base someone has founded there, or one of the sea's named places. Near a coast the part of the flow heading into it or away from it
- * is taken out, so a current runs along the shore instead. The currents fall away with depth, so a
- * submarine near the surface feels them and the deep floor is still.
- *
- * It's a pure function of place, like the tides, so every device works out the same water.
+ * Scaled by how open the sea is: none at the shore, in shallows, enclosed bays or calm places.
+ * Near a coast the flow runs along it. Currents fade with depth. A pure function of place, so every
+ * device agrees.
  */
 internal class Currents(
     private val body: CelestialBody,
-    /** How strong, as a share of Terra's: less for a sea under thick air and a weak sun. */
+    /** Strength as a share of Terra's: less under thick air and a weak sun. */
     private val strength: Double,
     private val seed: Int,
-    /** How open the sea is at unit direction [d], 0..1, and how deep in metres: see [Sea]. */
+    /** How open the sea is at unit direction [d], 0..1, and how deep in metres. See [Sea]. */
     private val water: (d: Vec3, out: DoubleArray) -> Unit,
-    /** Just how deep the sea is at unit direction [d], in metres, which is much quicker. */
+    /** Just the sea's depth at unit direction [d], in metres. Much quicker. */
     private val depth: (d: Vec3) -> Double,
     /** Places kept calm, as unit directions and radii in metres. */
     private val calm: List<Pair<Vec3, Double>>,
-    /** More places kept calm that come and go with the world, like founded bases. */
+    /** Calm places that come and go with the world, like founded bases. */
     private val moreCalm: () -> List<Pair<Vec3, Double>> = { emptyList() },
 ) {
     private val radius = body.radius
@@ -52,13 +44,8 @@ internal class Currents(
     private val north = Vec3()
 
     /**
-     * The current at body-fixed unit [direction], [below] metres under the surface, in m/s along
-     * the ground (body-fixed), into [out].
-     *
-     * [rough] is for a map of a whole world. It goes by depth alone, not by how enclosed the water
-     * is, and doesn't turn the flow along the coast, which takes rays cast across the ground and is
-     * far too slow for thousands of places at once. Out in the open sea, where the map's arrows are,
-     * it's the same.
+     * The current at body-fixed unit [direction], [below] metres down, in m/s along the ground, into
+     * [out]. [rough] skips enclosure and coast-turning, for a whole-world map; same in open sea.
      */
     fun velocity(direction: Vec3, below: Double, out: Vec3, rough: Boolean = false): Vec3 {
         out.setZero()
@@ -67,20 +54,20 @@ internal class Currents(
         if (fade < 0.01) return out
         val share = (if (rough) smooth(SHALLOW, DEEP, depth(direction)) else share(direction)) * calmness(direction)
         if (share <= 0.0) return out
-        // East and north here, as the spin about +Y defines them.
+        // East and north here, from the spin about +Y.
         east.setTo(direction.z, 0.0, -direction.x)
         if (east.lengthSq < 1e-12) east.setTo(1.0, 0.0, 0.0)
         east.normalizeInPlace()
         north.setTo(direction).crossInPlace(east)
-        // The stream function's slope, from either side, and the flow along its contours: up x
-        // grad, which is east by -dNorth and north by +dEast.
+        // The stream function's slope, central difference, and the flow along its contours:
+        // up x grad, so east is -dNorth and north is +dEast.
         val step = STEP / radius
         val dEast = (stream(direction, east, step) - stream(direction, east, -step)) / (2.0 * STEP)
         val dNorth = (stream(direction, north, step) - stream(direction, north, -step)) / (2.0 * STEP)
         var flowEast = -dNorth
         var flowNorth = dEast
-        // Near a coast, only along it: the part heading toward the open sea or away from it (the
-        // way the share changes fastest) goes, more of it the nearer the shore.
+        // Near a coast, only along it: remove the part running toward or away from open sea (the
+        // way the share changes fastest), more of it nearer the shore.
         val gEast = if (rough) 0.0 else shareAlong(direction, east, step)
         val gNorth = if (rough) 0.0 else shareAlong(direction, north, step)
         val g = kotlin.math.sqrt(gEast * gEast + gNorth * gNorth)
@@ -122,12 +109,12 @@ internal class Currents(
         return kept
     }
 
-    /** The stream function at [direction] moved [by] (in radians of the body) along [axis], in m²/s. */
+    /** The stream function at [direction] moved [by] radians along [axis], in m²/s. */
     private fun stream(direction: Vec3, axis: Vec3, by: Double): Double {
         point.setTo(direction).addScaledInPlace(axis, by).normalizeInPlace()
         val latitude = asin(point.y.coerceIn(-1.0, 1.0))
-        // Bands: -dpsi/dnorth is the eastward flow, -cos(3 lat) of BAND_SPEED, so westward at the
-        // equator and eastward past thirty degrees.
+        // Bands: the eastward flow is -dpsi/dnorth = -cos(3 lat) times BAND_SPEED, so westward at
+        // the equator and eastward past thirty degrees.
         val bands = BAND_SPEED * radius * sin(3.0 * latitude) / 3.0
         val x = point.x * radius; val y = point.y * radius; val z = point.z * radius
         val meanders = BROAD_SPEED * BROAD / (2.0 * Math.PI) * Noise.simplex(seed, x / BROAD, y / BROAD, z / BROAD) +
@@ -141,7 +128,7 @@ internal class Currents(
     }
 
     companion object {
-        /** Corners of the open-sea share, in metres apart, and how many are kept. */
+        /** Spacing of the open-sea lattice, in metres, and how many corners are kept. */
         const val SPACING = 3_000.0
         const val CAPACITY = 60_000
 
@@ -160,8 +147,8 @@ internal class Currents(
         const val DEEP = 150.0
 
         /**
-         * How open to the sea water has to be to have currents at all, and to have them fully, as
-         * the share of directions it's open to.
+         * How open water has to be, as the share of directions open to sea, to have any current and
+         * to have it fully.
          */
         const val ENCLOSED = 0.35
         const val OPEN = 0.7

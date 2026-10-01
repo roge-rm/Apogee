@@ -16,10 +16,7 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * Bases on the sea floor: a Sea Floor Base floated out on its Base Float, let down onto the bottom
- * and founded there, and what happens to a base that isn't held down.
- */
+/** Sea Floor Bases: floated out, let down onto the bottom and founded, or left loose. */
 class SeaFloorBaseTest {
     private val catalog = StockParts.catalog
     private val dt = 1.0 / 60.0
@@ -62,7 +59,7 @@ class SeaFloorBaseTest {
         val world = world()
         val base = launch(world, StockCraft.baseCore(catalog))
         val terra = world.attractorFor(base)
-        // Put it on the floor, upright, the way the probe that found this did.
+        // Put it on the floor, upright.
         val up = base.body.position.normalized()
         val fixedUp = terra.toBodyFixed(base.body.position, terra.rotationAt(world.time), Vec3()).normalizeInPlace()
         base.body.position.setTo(up).mulInPlace(terra.solidRadiusInBodyFrame(fixedUp) + 3.0)
@@ -177,8 +174,7 @@ class SeaFloorBaseTest {
         world.seatCrew(sub)
         val mine = com.rm.apogee.core.physics.PortRef(sub, subPort, sub.defs[subPort].module<com.rm.apogee.core.part.DockingPort>()!!).update()
         sub.body.position.addInPlace(target.copy().subInPlace(mine.face))
-        // Dived and trimmed to hang where she is, the way she'd have come alongside: her tanks half
-        // full and holding her depth.
+        // Trimmed to hang where she is: tanks half full, holding her depth.
         for (i in sub.defs.indices) sub.defs[i].module<com.rm.apogee.core.part.Ballast>()?.let { sub.flooded[i] = it.volume * 1025.0 * 0.5 }
         sub.recomputeMass()
         world.apply(Command.HoldDepth(sub.id.raw, true))

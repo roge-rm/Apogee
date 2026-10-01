@@ -27,8 +27,7 @@ class BurnTest {
         val after = Burns.after(PlannedBurn(0.0, prograde = 200.0), orbit)
         assertEquals(r, after.periapsis, 1.0)
         assertTrue("apoapsis ${after.apoapsis}", after.apoapsis > r + 250_000.0)
-        // Normal tips the plane and radial swings the line of apsides, and neither changes the
-        // speed much.
+        // Normal tips the plane and radial swings the apsides, and neither changes the speed much.
         val tipped = Burns.after(PlannedBurn(0.0, normal = 100.0), orbit)
         assertTrue("normal did not tip the plane", tipped.inclination - orbit.inclination > 0.01 || orbit.inclination - tipped.inclination > 0.01)
     }

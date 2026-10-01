@@ -1,8 +1,8 @@
 package com.rm.apogee.core.math
 
 /**
- * The strict maths the terrain and the sea are made with, so the same world comes out on every JVM.
- * On the JVM it's `java.lang.StrictMath` itself. A browser plays alone, so its own maths is enough.
+ * Strict maths for terrain and sea, so every JVM makes the same world. `java.lang.StrictMath` on
+ * the JVM; a browser plays alone, so its own maths is fine.
  */
 expect object StrictMath {
     fun sin(x: Double): Double

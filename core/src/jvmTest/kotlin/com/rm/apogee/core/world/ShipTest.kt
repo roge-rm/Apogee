@@ -11,10 +11,7 @@ import com.rm.apogee.core.weather.WeatherIntensity
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * Ships: hulls four and a half metres across, driven by an inboard diesel or an electric drive and
- * steered on a ship's rudder. The Coaster is the stock one.
- */
+/** Ships: 4.5 m hulls with a diesel or electric drive and a ship's rudder, like the Coaster. */
 class ShipTest {
     private val catalog = StockParts.catalog
     private val dt = 1.0 / 60.0
@@ -128,8 +125,7 @@ class ShipTest {
 
     @Test
     fun `the Schooner sails in a fresh breeze, keeps her masts, and doesn't lie over`() {
-        // On the beam, and dead astern, where she's slower: running, the wind over her deck is
-        // the wind less her own speed.
+        // On the beam, and dead astern, where she's slower since the wind over her deck is less.
         for ((wind, least) in listOf(Vec3(0.0, 7.0, 0.0) to 3.0, Vec3(7.0, 0.0, 0.0) to 2.5)) {
             val world = World.default(catalog)
             world.steadyWind = wind

@@ -1,5 +1,4 @@
-// AGP 9 supplies Kotlin support itself, so there's no kotlin-android plugin here, only the separate
-// Compose compiler plugin.
+// AGP 9 brings Kotlin support itself, so only the Compose compiler plugin is added here.
 import java.util.Properties
 
 plugins {
@@ -7,9 +6,8 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
-// Release signing comes from ../Keys/apogee-keystore.properties, beside the project rather than in
-// it (the same layout as my other apps), so neither the keystore nor its passwords can ever be
-// committed. Without that file, on a fresh clone say, the release build is just unsigned.
+// Release signing comes from ../Keys/apogee-keystore.properties, outside the repo so the keys can't
+// be committed. Without it the release build is unsigned.
 val signingProperties: Properties? = rootProject.file("../Keys/apogee-keystore.properties")
     .takeIf { it.exists() }
     ?.let { f -> Properties().apply { f.inputStream().use { load(it) } } }
@@ -23,16 +21,13 @@ android {
 
     defaultConfig {
         applicationId = "com.rm.apogee"
-        // Held at 27 on purpose. The API level gates none of the rendering we need (GLES 3.1/3.2
-        // are a driver capability, queried at runtime), and the modern performance APIs can all be
-        // reached behind SDK_INT checks (see platform/PerfHints.kt). The price is that we have to
-        // keep a real low-end quality tier. See render/QualityTier.kt.
+        // Held at 27 on purpose. GLES 3.1/3.2 is queried at runtime and newer perf APIs sit behind
+        // SDK_INT checks (platform/PerfHints.kt). It means keeping a low-end tier
+        // (render/QualityTier.kt).
         minSdk = 27
         targetSdk = 37
-        // Bumped when a build is worth keeping and telling apart from the last one, not on every
-        // change. Note that this isn't what decides whether a client can join a server.
-        // Protocol.VERSION and the part catalogue's content hash do that, and they move on their
-        // own.
+        // Bumped for builds worth telling apart. Joining a server is decided by Protocol.VERSION
+        // and the part catalogue's hash, which move on their own.
         versionCode = 38
         versionName = "0.8.12"
 
@@ -83,10 +78,9 @@ android {
         debug {
             buildConfigField("boolean", "PERF", "false")
         }
-        // For timing a phone I can't reach with adb: the release build under its own name, so it
-        // sits beside the real one without touching its saves, and signed with the debug key. On
-        // its first start it puts the scene in src/perf/assets in place and logs its frame times
-        // to a file in Download (see PerfKit).
+        // For timing a phone I can't reach with adb: release under its own id, so its saves are
+        // separate, signed with the debug key. It seeds the scene in src/perf/assets and logs frame
+        // times to Download (see PerfKit).
         create("perf") {
             initWith(getByName("release"))
             applicationIdSuffix = ".perf"
@@ -134,11 +128,8 @@ dependencies {
 }
 
 /**
- * Drops the debug APK where I collect builds to install: `./gradlew :app:dropDebugApk`.
- *
- * That directory holds debug builds from several apps side by side, so this writes exactly one file
- * under a stable name that says it's Apogee, and clears out any older Apogee APK instead of piling
- * up versions.
+ * Copies the debug APK to where I collect builds: `./gradlew :app:dropDebugApk`. That folder is
+ * shared with other apps, so it keeps one Apogee APK under a fixed name and deletes older ones.
  */
 tasks.register("dropDebugApk") {
     group = "build"
@@ -168,9 +159,9 @@ tasks.register("dropDebugApk") {
 }
 
 /**
- * Renders every sound in the game to WAV, on this machine, through the same synth the phone runs:
- * `./gradlew :app:soundGallery` -> a WAV per sound in app/build/sound-gallery, with each one's peak
- * and loudness printed. `-Praw` measures with the limiter off, for setting levels.
+ * Renders every sound to WAV on this machine with the phone's synth: `./gradlew :app:soundGallery`
+ * writes app/build/sound-gallery and prints peak and loudness. `-Praw` turns the limiter off, for
+ * setting levels.
  */
 tasks.register<Exec>("soundGallery") {
     group = "verification"

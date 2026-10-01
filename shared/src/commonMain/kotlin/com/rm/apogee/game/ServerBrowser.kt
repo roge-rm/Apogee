@@ -25,9 +25,8 @@ class DiscoveredServer(
 }
 
 /**
- * Games found on the local network, for the Join a Game screen: the list, and whether it's still
- * looking. On Android it listens for beacons; in a browser there's nothing to listen with, so the
- * list stays empty.
+ * Games found on the local network, for Join a Game. Android listens for beacons; a browser can't,
+ * so its list stays empty.
  */
 interface ServerBrowser {
     val servers: List<DiscoveredServer>

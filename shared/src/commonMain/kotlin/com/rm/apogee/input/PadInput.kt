@@ -5,15 +5,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 
 /**
- * Where a controller's input goes: into the craft, into the Vehicle Assembly's camera, or nowhere,
- * because a menu or a panel over the flight has it.
+ * Where controller input goes: the craft, the Vehicle Assembly's camera, or nowhere (a menu or
+ * panel has it).
  */
 enum class PadMode { FLIGHT, BUILDER, MENU }
 
 /**
- * A controller as it is right now: how far each button is pressed (0 or 1, and anywhere between on
- * a trigger) and where the sticks are, -1 to 1, with down and right positive. The host keeps one
- * and fills it in from its own events.
+ * A controller right now: how far each button is pressed (0 or 1, between on a trigger) and the
+ * sticks, -1 to 1, down and right positive. The host keeps one and fills it from its events.
  */
 class PadState {
     val buttons = FloatArray(PadButton.entries.size)
@@ -57,15 +56,14 @@ data class PadConfig(
 /**
  * A controller turned into flying.
  *
- * The host hands over the controller's state with [update] each time it changes, and [tick] runs
- * once a frame. A button that does something once does it as it goes down, even if it was up again
- * before the frame. A held one (throttle, roll, zoom) works each frame it's down. The sticks have a
- * dead zone and a gentle curve, so small moves are fine ones, and what they steer is only sent when
- * it changes, the way the keys are.
+ * The host passes the state to [update] whenever it changes, and [tick] runs once a frame. A
+ * one-shot button fires on press, even if released before the frame. A held one (throttle, roll,
+ * zoom) works every frame it's down. Sticks have a dead zone and a gentle curve, and steering is
+ * only sent when it changes, like the keys.
  */
 class PadInput(private val config: () -> PadConfig) {
 
-    /** The last button pressed, anywhere, so the settings page can show which is which. */
+    /** The last button pressed, anywhere, so settings can show which is which. */
     var lastPressed: PadButton? by mutableStateOf(null)
         private set
 
@@ -150,7 +148,7 @@ class PadInput(private val config: () -> PadConfig) {
         val steerStick = bindings.stickFor(layer, StickUse.STEER)
         if (steerStick != null) {
             stick(steerStick, setup.deadZone)
-            // Up the stick is pitch up, the same as W. (0 - y, not -y, so centred is 0 and not -0.)
+            // Stick up is pitch up, like W. (0 - y, not -y, so centred is 0, not -0.)
             val pitch = 0f - shaped[1]
             val yaw = shaped[0]
             if (changed(pitch, sentPitch) || changed(yaw, sentYaw)) {

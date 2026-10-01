@@ -4,11 +4,8 @@ import com.rm.apogee.core.math.Vec3
 import kotlin.math.max
 
 /**
- * A body's solid surface: one function, worked out wherever anyone asks.
- *
- * It's an interface so the collider and renderer can be pointed at something other than a whole
- * generated planet. A test needs a cliff exactly where it wants one, not wherever the noise happens
- * to put one.
+ * A body's solid surface: one function, worked out wherever anyone asks. An interface so tests can
+ * point the collider and renderer at a cliff exactly where they want one.
  */
 interface Terrain {
     /** Radius of the datum surface, in metres. */
@@ -18,9 +15,8 @@ interface Terrain {
     val maxElevation: Double
 
     /**
-     * Which version of the generator this is. It goes up whenever the ground a given seed makes
-     * changes, so saves and servers can tell that craft left on the old surface need setting down
-     * on the new one.
+     * The generator version. It goes up whenever a seed's ground changes, so saves and servers know
+     * to set craft left on the old surface down on the new one.
      */
     val generation: Int
 
@@ -28,15 +24,14 @@ interface Terrain {
     fun elevation(direction: Vec3): Double
 
     /**
-     * What the ground is made of, given what the tile builder already knows about the point: its
-     * height and how steep it is (0 flat, 1 a wall).
+     * What the ground is made of, given what the tile builder knows: height and slope (0 flat, 1 a
+     * wall).
      */
     fun material(direction: Vec3, elevation: Double, slope: Double): SurfaceMaterial
 
     /**
-     * What the ground looks like where something is laid over it and drawn separately, meaning the
-     * land's own material under any paving. It's the same as [material] wherever there's nothing on
-     * top.
+     * The land's own material under anything laid over it and drawn separately, like paving. Same
+     * as [material] where nothing's on top.
      */
     fun groundMaterial(direction: Vec3, elevation: Double, slope: Double): SurfaceMaterial = material(direction, elevation, slope)
 
@@ -49,12 +44,12 @@ interface Terrain {
     /** Lifeless: only rocks are scattered on it, never Terra's trees and scrub. */
     val barren: Boolean get() = false
 
-    /** Which world's ground this is, which decides the colours it's drawn in. */
+    /** Which world's ground this is, which picks its colours. */
     val world: String get() = "terra"
 
     /**
-     * Ground kept clear for the launch complex (the pad, the runway, and the blends around them),
-     * where nothing can grow or lie.
+     * Ground kept clear for the launch complex (pad, runway and the blends round them). Nothing
+     * grows or lies there.
      */
     fun isLaunchComplex(direction: Vec3): Boolean = false
 
@@ -67,7 +62,7 @@ interface Terrain {
      */
     val hasOcean: Boolean get() = true
 
-    /** The top of whatever is there, either ground or the calm sea over it. */
+    /** The top of whatever is there: ground, or the calm sea over it. */
     fun surfaceRadius(direction: Vec3): Double {
         val e = elevation(direction)
         return bodyRadius + if (hasOcean) max(e, 0.0) else e

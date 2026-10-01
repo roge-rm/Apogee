@@ -19,10 +19,9 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        // The browser build's toolchain (see the browser build). The Kotlin plugin would add
-        // these itself, but project-level repositories are refused above, so they're declared
-        // here, each limited to the one tool it serves; the plugin is told not to add its own in
-        // the root build.gradle.kts.
+        // The browser build's toolchain. Project repositories are refused above, so these live
+        // here, each limited to its one tool. The root build tells the Kotlin plugin not to add
+        // its own.
         exclusiveContent {
             forRepository {
                 ivy("https://nodejs.org/dist") {
@@ -58,19 +57,16 @@ dependencyResolutionManagement {
 
 rootProject.name = "Apogee"
 
-// :app -> :server -> :net -> :core, and nothing points back up. :core and :net are pure Kotlin/JVM
-// with no Android dependencies, so the same simulation runs on a phone and on a headless dedicated
-// server, and physics can be unit-tested in milliseconds instead of through installDebug.
+// :app -> :server -> :net -> :core, never back up. :core and :net are pure Kotlin with no Android,
+// so the same simulation runs on a phone or a headless server and tests run fast on the JVM.
 include(":core")
 include(":net")
 include(":server")
 // The standalone server. :app doesn't use it. See its build file.
 include(":dedicated")
 
-// :app needs the Android SDK, and a server build has neither the SDK nor any use for it. The Docker
-// image that builds :dedicated is a plain JDK container, and including :app there fails at
-// *configuration* time, before any task runs, because the Android plugin looks for an SDK it will
-// never find.
+// The Docker image that builds :dedicated is a plain JDK with no Android SDK, and including :app
+// there fails at configuration time. So the Android modules are only included when there's an SDK.
 val hasAndroidSdk = file("local.properties").exists() ||
     System.getenv("ANDROID_HOME") != null ||
     System.getenv("ANDROID_SDK_ROOT") != null

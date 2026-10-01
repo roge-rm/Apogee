@@ -5,15 +5,10 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Winding checks for every hand-built primitive.
+ * Winding checks for every hand-built primitive. A wrongly wound shape still looks roughly right,
+ * because culling just keeps the far side, so it needs a test.
  *
- * A triangle wound the wrong way doesn't vanish and doesn't throw. Back-face culling just keeps the
- * surface on the far side of the shape instead of the near one. The outline doesn't change and the
- * shading is only mirrored, so a whole rocket can be inside out and still look roughly like a
- * rocket. Every cylinder, cone and cap in the game was, until this test.
- *
- * The check: for each triangle, the normal from the cross product of its edges has to agree with
- * the outward normals stored on its own vertices.
+ * Each triangle's cross-product normal has to agree with the normals stored on its vertices.
  */
 class MeshShapesTest {
 
@@ -83,13 +78,11 @@ class MeshShapesTest {
                 e1[0] * e2[1] - e1[1] * e2[0],
             )
 
-            // A sphere's polar triangles are degenerate. They draw nothing either way, so there's
-            // no winding to be wrong about.
+            // A sphere's polar triangles are degenerate and have no winding.
             val area = face[0] * face[0] + face[1] * face[1] + face[2] * face[2]
             if (area < 1e-12f) continue
 
-            // Against the average of the three stored normals, because on a cone the side normals
-            // tilt, so no single vertex speaks for the facet.
+            // Against the average of the three normals, since a cone's side normals tilt.
             var nx = 0f; var ny = 0f; var nz = 0f
             for (v in intArrayOf(i0, i1, i2)) {
                 nx += mesh.vertices[v + 3]; ny += mesh.vertices[v + 4]; nz += mesh.vertices[v + 5]

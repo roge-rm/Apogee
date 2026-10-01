@@ -18,8 +18,7 @@ class CraftStatsTest {
         assertEquals(15, stats.partCount)
         assertEquals("two engine stages, the pod's release and the chute", 4, stats.stages.size)
 
-        // The stages after the second still have the upper engine lit behind them, with nothing
-        // left to feed it, so only two burn.
+        // Later stages keep the upper engine lit with nothing to feed it, so only two burn.
         val burning = stats.burns
         assertEquals(2, burning.size)
         assertTrue("first stage should out-thrust the second",
@@ -37,11 +36,8 @@ class CraftStatsTest {
     }
 
     /**
-     * The number the builder quotes has to be the number the craft delivers.
-     *
-     * A delta-v readout that disagrees with the simulation is worse than none at all, because it
-     * teaches the player not to trust the builder. This compares the prediction against the real
-     * flight, allowing for the gravity and drag losses an ideal rocket equation can't know about.
+     * The builder's delta-v has to match what the craft delivers in flight, allowing for gravity
+     * and drag losses the rocket equation can't know about.
      */
     @Test
     fun `predicted delta-v is consistent with what the rocket actually achieves`() {
@@ -126,8 +122,7 @@ class CraftStatsTest {
             "should warn about thrust-to-weight: ${stats.warnings}",
             stats.warnings.any { it.contains("Thrust-to-weight") },
         )
-        // A warning, not a refusal. Landers have a thrust-to-weight below one by design and still
-        // have to be placeable.
+        // Only a warning: landers have thrust-to-weight below one and must still be placeable.
         assertTrue("and it should still be placeable", stats.isFlyable)
     }
 
@@ -156,7 +151,7 @@ class CraftStatsTest {
 
     @Test
     fun `a helicopter without a tail rotor is warned, and one with it isn't`() {
-        val tailRotor = "Its rotor will turn it round and round. Give it a tail rotor, or a second rotor turning the other way"
+        val tailRotor = "Its rotor will spin it. Add a tail rotor, or a second rotor turning the other way"
         assertFalse(tailRotor in CraftStats.analyze(StockCraft.hummingbird(catalog), catalog).warnings)
         assertFalse("a quad's rotors cancel", tailRotor in CraftStats.analyze(StockCraft.quad(catalog), catalog).warnings)
         // The Hummingbird with a fin where its tail rotor was.

@@ -4,16 +4,11 @@ import com.rm.apogee.render.gl.GLES30
 import com.rm.apogee.render.gl.GlData
 
 /**
- * An indexed triangle mesh living in GPU memory.
+ * An indexed triangle mesh in GPU memory. Vertices are position(3) + normal(3) floats,
+ * interleaved, matching the attribute locations in [Shaders.VESSEL_VERTEX].
  *
- * The vertex layout is position(3) + normal(3) interleaved, both float, matching the attribute
- * locations declared in [Shaders.VESSEL_VERTEX].
- *
- * Part meshes are procedural for now. A part definition names a shape and dimensions instead of a
- * model file, so every mesh in the game is built by [MeshBuilder] at load time. That keeps the
- * whole asset pipeline out of the early milestones without painting us into a corner. The part
- * schema's mesh field is a tagged spec, so a `gltf:` variant can be added later without touching
- * any existing part.
+ * Every mesh is procedural, built by [MeshBuilder] at load time. The part schema's mesh field is a
+ * tagged spec, so a `gltf:` variant could be added later.
  */
 class Mesh(vertices: FloatArray, indices: IntArray) {
 
@@ -65,18 +60,16 @@ class Mesh(vertices: FloatArray, indices: IntArray) {
     }
 
     /**
-     * [count] copies in one call, each placed by its instance in [instances] (a buffer of
-     * [INSTANCE_FLOATS] floats per instance, starting at instance [first]): model matrix,
-     * 1/scale^2, colour, and ambient. See [Shaders.CLOUD_INSTANCED_VERTEX]. The instance attributes
-     * get taken off again afterwards, so the mesh draws the same as before for everything else.
+     * Draws [count] copies in one call, from instance [first] of [instances], a buffer of
+     * [INSTANCE_FLOATS] floats each: model matrix, 1/scale^2, colour and ambient. See
+     * [Shaders.CLOUD_INSTANCED_VERTEX]. The instance attributes are switched off again afterwards.
      */
     fun drawInstanced(instances: Int, first: Int, count: Int) {
         GLES30.glBindVertexArray(vao[0])
         GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, instances)
         val stride = INSTANCE_FLOATS * Float.SIZE_BYTES
         val base = first * stride
-        // A divisor belongs to the attribute, and is ignored while it's off. Setting it once saves
-        // a call each way on every draw.
+        // A divisor stays with the attribute and is ignored while it's off, so set it once.
         if (!divisorsSet) {
             for (location in ATTR_MODEL until ATTR_MODEL + INSTANCE_ATTRIBUTES) GLES30.glVertexAttribDivisor(location, 1)
             divisorsSet = true
@@ -112,12 +105,7 @@ class Mesh(vertices: FloatArray, indices: IntArray) {
     }
 }
 
-/**
- * Uploads the procedural primitives to the GPU.
- *
- * The geometry itself is built by [MeshShapes], which doesn't need a GL context and so can be
- * tested. This is only the upload step.
- */
+/** Uploads the primitives built by [MeshShapes], which needs no GL context and can be tested. */
 object MeshBuilder {
 
     fun box(halfExtentX: Float, halfExtentY: Float, halfExtentZ: Float): Mesh =

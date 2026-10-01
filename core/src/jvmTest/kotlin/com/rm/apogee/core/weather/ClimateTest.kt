@@ -13,7 +13,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** Each world's own weather, with Terra's exactly as it always was. */
+/** Each world's own weather. Terra's stays bit for bit the same. */
 class ClimateTest {
     private val system = SolarSystem.defaultSystem()
     private val catalog = StockParts.catalog
@@ -62,11 +62,7 @@ class ClimateTest {
                 mix(weather.overcastAbove(d, 500.0, t))
             }
         }
-        // Worked out by the weather as it stood at 0.8.1, before climates, and pinned again at
-        // 0.8.3, when the sea floor was reshaped and the wind stopped feeling it through the water,
-        // and at 0.8.7, when a squall line's towers closed up into one wall and its anvil moved to
-        // the middle of the line, where it's drawn, and after 0.8.11, when a deck's air started
-        // thickening and thinning over each half minute with its drawn puffs.
+        // A hash of Terra's weather. Re-pin it only when Terra's weather is meant to change.
         assertEquals("190c822707ecc955", java.lang.Long.toHexString(h))
     }
 

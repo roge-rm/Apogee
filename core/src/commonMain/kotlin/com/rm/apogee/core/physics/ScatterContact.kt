@@ -9,16 +9,9 @@ import com.rm.apogee.core.terrain.ScatterKind
 import kotlin.math.sqrt
 
 /**
- * Craft against the things on the ground: boulders, trunks and shrubs.
- *
- * Boulders are spheres sitting partly buried, and everything that grows is an upright capsule along
- * its trunk. A craft's hull contact points (the same ones it rests on the ground with) get pushed
- * out of them along the surface they touch, with friction, and an arrival faster than a part can
- * take breaks the part, the same as the ground does.
- *
- * Things that grow can give way. A blow harder than a tree can take knocks it down. The tree is
- * gone, the craft keeps the part of the impulse it took to break it, and [onFelled] is told so the
- * world can remember. A felled tree stays down, for everyone, across restarts.
+ * Craft against boulders (part-buried spheres) and plants (upright capsules), using the hull
+ * contact points as on the ground. A blow harder than a plant can take fells it: the craft keeps
+ * only the impulse it took to break, and [onFelled] lets the world remember it for good.
  */
 class ScatterContact {
 
@@ -47,7 +40,10 @@ class ScatterContact {
         time: Double,
         report: ContactReport,
         removed: Set<Long>,
-        /** The ground under the craft this tick, if the caller has it, and how far the craft can move in it. */
+        /**
+         * The ground under the craft this tick, if the caller has it, and how far the craft can
+         * move.
+         */
         groundBelowAtTick: Double = Double.NaN,
         tickSlack: Double = 0.0,
         onFelled: (Long) -> Unit,
@@ -56,12 +52,10 @@ class ScatterContact {
         val field = terrain.scatter ?: return
         val body = vessel.body
         if (body.inverseMass <= 0.0) return
-        // Above the highest ground there is, there's nothing standing to hit. Without this, every
-        // craft round a world with trees on it worked out the ground under it every tick, in orbit
-        // too.
+        // Above the highest ground there's nothing to hit, so orbiting craft skip the ground lookup.
         if (body.position.length - vessel.contactRadius > attractor.radius + terrain.maxElevation + REACH_ABOVE_GROUND) return
 
-        // Only near the ground, since nothing grows taller than a tall tree.
+        // Only near the ground: nothing grows taller than a tall tree.
         attractor.rotationAt(time, bodyRotation)
         attractor.toBodyFixed(body.position, bodyRotation, bodyFixed)
         val ground = if (groundBelowAtTick.isNaN()) attractor.solidRadiusInBodyFrame(bodyFixed) else groundBelowAtTick + tickSlack
@@ -74,7 +68,7 @@ class ScatterContact {
                 val dy = block.y[k] - bodyFixed.y
                 val dz = block.z[k] - bodyFixed.z
                 if (dx * dx + dy * dy + dz * dz > reach * reach) continue
-                // Only for what's in reach: the set's keys are boxed, and most of a block isn't.
+                // Look up only what's in reach, since the set's keys are boxed.
                 val id = block.ids[k]
                 if (removed.isNotEmpty() && id in removed) continue
                 val kind = ScatterKind.of(block.kinds[k].toInt())
@@ -108,7 +102,7 @@ class ScatterContact {
 
                 // The nearest point of the object's collider to this contact.
                 if (kind.isBoulder) {
-                    // It sits a little buried, with its centre just above the ground.
+                    // Partly buried, with its centre just above the ground.
                     centre.setTo(bx + ux * radius * 0.55, by + uy * radius * 0.55, bz + uz * radius * 0.55)
                 } else {
                     // A trunk: the nearest point on its axis, from base to crown.
@@ -122,9 +116,8 @@ class ScatterContact {
                 if (penetration <= 0.0 || distance < 1e-6) continue
                 normalFixed.mulInPlace(1.0 / distance)
                 if (!kind.isBoulder) {
-                    // Plants only push sideways. The rounded top of a shrub's collider faces up,
-                    // and a wheel meeting it got launched like it was going off a ramp. No shrub
-                    // ever threw a vehicle into the air. It gets flattened under one.
+                    // Plants only push sideways, or a shrub's rounded top launches a wheel like a
+                    // ramp. A shrub gets flattened under a vehicle.
                     val upward = normalFixed.x * ux + normalFixed.y * uy + normalFixed.z * uz
                     normalFixed.x -= ux * upward; normalFixed.y -= uy * upward; normalFixed.z -= uz * upward
                     val sideways = normalFixed.length
@@ -140,15 +133,13 @@ class ScatterContact {
                 val approach = velocity dot normal
                 report.contactCount++
 
-                // Push the point out, a fraction each tick, the same as the ground does.
+                // Push the point out a fraction each tick, as the ground does.
                 body.position.addScaledInPlace(normal, penetration * POSITION_CORRECTION)
                 if (approach >= 0.0) continue
 
                 var j = solveImpulse(body, normal, approach)
-                // What the craft actually feels. Against rock, it's the whole arrival. Against
-                // something that gives way, it's only the impulse it took to break it. Judging a
-                // rover by its full closing speed when a tree snapped in front of it wrote off
-                // craft that should have come away with a dent.
+                // What the craft feels: against rock, the whole arrival; against something that
+                // breaks, only the impulse it took to break it.
                 var impact = -approach
                 if (kind.breakable && j > kind.breakImpulse * size) {
                     val full = j
@@ -180,10 +171,7 @@ class ScatterContact {
         return felled
     }
 
-    /**
-     * The impulse along unit [direction] that cancels [speed] along it at [offset], for a rigid
-     * body.
-     */
+    /** The impulse along unit [direction] that cancels [speed] along it at [offset]. */
     private fun solveImpulse(body: RigidBody, direction: Vec3, speed: Double): Double {
         inverseInertia.setRotated(body.inverseInertiaLocal, body.orientation)
         scratch.setTo(offset).crossInPlace(direction)
@@ -197,7 +185,7 @@ class ScatterContact {
         const val POSITION_CORRECTION = 0.35
         const val RESTITUTION = 0.1
         const val FRICTION = 0.5
-        /** How many metres above the ground a craft can still reach anything: the tallest tree. */
+        /** How many metres above the ground a craft can still hit anything: the tallest tree. */
         const val REACH_ABOVE_GROUND = 14.0
         /** How far past a craft's own reach an object can still touch it. */
         const val MAX_OBJECT_REACH = 6.0

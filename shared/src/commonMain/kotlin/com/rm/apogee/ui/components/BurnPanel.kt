@@ -62,12 +62,9 @@ class BurnActions(
 )
 
 /**
- * Planned burns and landings, on the HUD. On the map it's the next burn's editor: prograde, normal
- * and radial by rate sliders and nudges, its time by nudges (and by dragging its marker along the
- * path on the map), what it does to the orbit, and delete, warp-to and the auto-burn. With none
- * planned, it says how to plan one. In flight it's a chip counting down to the burn and saying when
- * to burn and when to cut, and coming down, one saying when it hits and when to brake, with the
- * auto-land.
+ * Planned burns and landings on the HUD. On the map it edits the next burn and shows its effect
+ * on the orbit. In flight it's a countdown chip for the burn, and an impact chip with auto land
+ * when coming down.
  */
 @Composable
 fun BurnPanel(
@@ -87,8 +84,8 @@ fun BurnPanel(
             window?.let { WindowChip(it) }
             when {
                 burn != null -> BurnEditor(burn, actions)
-                plannable -> Hint("Tap your path for a burn, or a world to target")
-                else -> Hint("Your course for the next ten minutes, a dot a minute")
+                plannable -> Hint("Tap your path or a world")
+                else -> Hint("A dot a minute")
             }
         } else {
             burn?.let { BurnChip(it, actions) }
@@ -127,7 +124,7 @@ private fun Hint(text: String) {
 
 @Composable
 private fun BurnEditor(burn: GameSession.BurnReadout, actions: BurnActions) {
-    // Folded to its first line, out of the way of the map, with a tap on it.
+    // A tap folds it to its first line.
     var open by remember { mutableStateOf(true) }
     Card {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { open = !open }) {
@@ -162,9 +159,7 @@ private fun BurnEditor(burn: GameSession.BurnReadout, actions: BurnActions) {
     }
 }
 
-/**
- * One axis of the burn: a slider that springs back (further means faster), and a nudge each way.
- */
+/** One axis of the burn: a spring-back rate slider and a nudge each way. */
 @Composable
 private fun Axis(label: String, colour: Color, value: Double, onChange: (Double) -> Unit, onDone: () -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -180,10 +175,7 @@ private fun Axis(label: String, colour: Color, value: Double, onChange: (Double)
     }
 }
 
-/**
- * Held off the middle, it changes the burn, slowly near the middle and fast at the ends, and it
- * springs back to the middle when you let go.
- */
+/** Held off centre, it changes the burn, faster towards the ends. Springs back on release. */
 @Composable
 private fun RateSlider(colour: Color, onChange: (Double) -> Unit, onDone: () -> Unit) {
     var widthPx by remember { mutableFloatStateOf(1f) }
@@ -290,7 +282,7 @@ private fun long(seconds: Double): String {
     return if (h >= 48) "${h / 24} d ${h % 24} h" else duration(seconds)
 }
 
-/** Within this many seconds of the window, it's open. A day either side is near enough. */
+/** Within a day of the window, it's open. */
 private const val WINDOW_OPEN = 86_400.0
 
 @Composable
@@ -301,7 +293,7 @@ private fun LandingChip(landing: GameSession.LandingReadout, actions: BurnAction
             Spacer(Modifier.width(8.dp))
             Text("${duration(landing.impactIn)} · ${landing.impactSpeed.roundToInt()} m/s", style = TelemetryTextStyle, color = Color.White, maxLines = 1)
         }
-        // When to brake, for a pilot flying it, while there's still speed to lose.
+        // When to brake, when flying by hand with speed still to lose.
         if (!landing.auto && !landing.brakeIn.isNaN() && landing.impactSpeed > 5.0) {
             val now = landing.brakeIn <= 0.0
             Text(

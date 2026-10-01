@@ -11,11 +11,8 @@ import kotlin.math.max
 import kotlin.math.sqrt
 
 /**
- * Shaded maps of the terrain, for judging the generator by eye.
- *
- * `./gradlew :core:terrainAtlas` writes PNGs: the ground coloured by material, lit from the
- * north-west so the relief shows, and water by depth. The palette here is only close to the game's
- * own, because it's for a tool, not the game.
+ * Shaded terrain maps for judging the generator by eye: `./gradlew :core:terrainAtlas`. Ground by
+ * material, lit from the north-west, water by depth. The palette only roughly matches the game's.
  */
 fun main(args: Array<String>) {
     val out = File(args.firstOrNull() ?: "build/terrain-atlas").apply { mkdirs() }
@@ -97,8 +94,7 @@ private fun map(terrain: Terrain, centre: Vec3, widthMetres: Double, pixels: Int
             val t = (-h / 900.0).coerceIn(0.0, 1.0)
             rgb = Triple(0.10 - 0.08 * t, 0.30 - 0.21 * t, 0.46 - 0.24 * t)
         } else if (SHAPE_ONLY) {
-            // Shape alone, in grey, tinted by height: the landforms without the materials, which
-            // otherwise make it hard to judge either.
+            // Shape alone, grey tinted by height, so the landforms are easier to judge.
             val tone = 0.45 + ((h - floor.coerceAtLeast(-2_000.0)) / 4_000.0).coerceIn(0.0, 1.0) * 0.4
             rgb = Triple(tone * light, tone * light, tone * light)
         } else {

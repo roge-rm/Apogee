@@ -4,7 +4,7 @@
     "title": "Launch Tower",
     "category": "structure",
     "dryMass": 180000.0,
-    "description": "A forty-metre service tower beside the pad, with its arms swung out toward the rocket.",
+    "description": "A 40 m service tower beside the pad.",
     "crashTolerance": 40.0,
     "dragCoefficient": 1.0,
     "mesh": {
@@ -1142,7 +1142,7 @@
     "title": "Lightning Mast",
     "category": "structure",
     "dryMass": 12000.0,
-    "description": "A fifty-metre mast to take the lightning before a rocket does.",
+    "description": "A 50 m mast that takes lightning before a rocket does.",
     "crashTolerance": 40.0,
     "dragCoefficient": 1.0,
     "mesh": {
@@ -1232,7 +1232,7 @@
     "title": "Assembly Building",
     "category": "structure",
     "dryMass": 2000000.0,
-    "description": "Where rockets are stacked: a hall fifty metres high, with doors to match.",
+    "description": "A 50 m hall where rockets are stacked.",
     "crashTolerance": 40.0,
     "dragCoefficient": 1.0,
     "mesh": {
@@ -1421,7 +1421,7 @@
     "title": "Control Centre",
     "category": "structure",
     "dryMass": 400000.0,
-    "description": "Where launches are watched from: a long low building with windows all along its front and dishes on the roof.",
+    "description": "A long, low building where launches are watched from.",
     "crashTolerance": 40.0,
     "dragCoefficient": 1.0,
     "mesh": {
@@ -1951,7 +1951,7 @@
     "title": "Floodlight Tower",
     "category": "structure",
     "dryMass": 8000.0,
-    "description": "A twenty-metre tower of lamps, lighting the pads at night.",
+    "description": "A 20 m lamp tower that lights the pads at night.",
     "crashTolerance": 40.0,
     "dragCoefficient": 1.0,
     "mesh": {
@@ -2138,7 +2138,7 @@
     "title": "Hangar",
     "category": "structure",
     "dryMass": 500000.0,
-    "description": "Room for a few aeroplanes out of the weather, with walls on three sides and open to the apron.",
+    "description": "An open-fronted shed for a few aircraft.",
     "crashTolerance": 40.0,
     "dragCoefficient": 1.0,
     "mesh": {
@@ -2394,7 +2394,7 @@
     "title": "Control Tower",
     "category": "structure",
     "dryMass": 250000.0,
-    "description": "A cab twenty-four metres up, with windows all round, looking down the runway.",
+    "description": "A 24 m tower looking down the runway.",
     "crashTolerance": 40.0,
     "dragCoefficient": 1.0,
     "mesh": {
@@ -2828,7 +2828,7 @@
     "title": "Jetty Section",
     "category": "structure",
     "dryMass": 60000.0,
-    "description": "Ten metres of jetty: a deck on piles, with bollards to tie up to.",
+    "description": "Ten metres of jetty with bollards to tie up to.",
     "crashTolerance": 40.0,
     "dragCoefficient": 1.0,
     "mesh": {
@@ -3217,7 +3217,7 @@
     "title": "Harbour Crane",
     "category": "structure",
     "dryMass": 90000.0,
-    "description": "A crane at the head of the jetty, with its jib out over the berth.",
+    "description": "A crane at the end of the jetty, over the berth.",
     "crashTolerance": 40.0,
     "dragCoefficient": 1.0,
     "mesh": {

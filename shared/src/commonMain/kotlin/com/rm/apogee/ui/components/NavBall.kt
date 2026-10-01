@@ -31,21 +31,17 @@ import com.rm.apogee.core.math.Math
 /**
  * The attitude instrument: a sphere fixed to the local horizon, seen from the craft.
  *
- * Everything is worked out in the *craft's own frame*, which gets rid of a whole class of
- * confusion. The ball's centre is the direction the nose points, so the nose never moves, and the
- * world rotates behind it, exactly like a real attitude indicator. Screen right is the craft's +X,
- * screen up is its +Z, and depth is +Y (the nose axis), so a direction is on the visible half
- * exactly when its local Y is positive.
+ * Worked out in the craft's own frame. The centre is where the nose points, so the nose stays put
+ * and the world turns behind it. Screen right is the craft's +X, screen up is +Z, and depth is +Y
+ * (the nose), so a direction is on the visible half when its local Y is positive.
  *
- * It's drawn on a Compose Canvas instead of in GL. It's a flat instrument in screen space, the
- * projection is a dozen lines of orthographic maths, and keeping it here means it can be tested and
- * restyled without touching a shader.
+ * Drawn on a Compose Canvas, not in GL, so it's easy to test and restyle.
  */
 @Composable
 fun NavBall(
     /**
-     * What it shows, read only as it's drawn: a new attitude every frame redraws the ball without
-     * recomposing anything. Read where it's called, it recomposed sixty times a second.
+     * What it shows, read only while drawing, so a new attitude each frame redraws the ball
+     * without recomposing anything.
      */
     live: () -> com.rm.apogee.game.FlightTelemetry,
     modifier: Modifier = Modifier,
@@ -62,9 +58,7 @@ fun NavBall(
     Canvas(Modifier.size(size)) {
         val radius = kotlin.math.min(this.size.width, this.size.height) * 0.5f - 4f
         val centre = Offset(this.size.width / 2f, this.size.height / 2f)
-        // The craft's orientation, the local vertical, and the markers: travel (null when it
-        // isn't moving), the orbit's normal and radial, the target, travel through the air when
-        // that's different, and what's left of the next planned burn.
+        // Attitude, local up, and the markers. Prograde is null when it isn't moving.
         val now = live()
         val rotation = now.rotation
         val worldUp = now.up
@@ -83,8 +77,7 @@ fun NavBall(
         val radialLocal = local(radialOut)
         val targetLocal = local(toTarget)
         val airLocal = local(throughAir)
-        // Compass north and east on the horizon, about the body's own axis, +Y, whatever frame the
-        // craft is in.
+        // Compass north and east on the horizon, about the body's own +Y axis, whatever the frame.
         val worldEast = Vec3(worldUp.z, 0.0, -worldUp.x).let { if (it.lengthSq < 1e-12) Vec3(1.0, 0.0, 0.0) else it.normalizeInPlace() }
         val worldNorth = worldUp.cross(worldEast).normalizeInPlace()
         val northLocal = rotation.inverseRotate(worldNorth).normalizeInPlace()
@@ -94,7 +87,7 @@ fun NavBall(
         val a = perpendicularTo(up)
         val b = up.cross(a).normalizeInPlace()
 
-        // Once, for the ground's fill and the line along it.
+        // Sampled once, for the ground's fill and the horizon line.
         val horizon = horizonPoints(up, a, b)
         drawSphere(centre, radius, up, horizon)
         drawPitchLadder(centre, radius, up, a, b)
@@ -106,8 +99,7 @@ fun NavBall(
         airLocal?.let { project(centre, radius, it) }?.let { flightPathMarker(it, radius * 0.09f) }
         drawReticle(centre, radius)
     }
-        // Which frame the markers are in. Tap for the next one. It's bright when chosen by hand,
-        // and dim when left on automatic.
+        // The markers' frame. Tap for the next. Bright when chosen by hand, dim on automatic.
         val tagColour = when (frame) {
             com.rm.apogee.core.world.NavFrame.ORBIT -> ApogeeColors.Prograde
             com.rm.apogee.core.world.NavFrame.TARGET -> TARGET
@@ -118,8 +110,7 @@ fun NavBall(
             style = TAG_STYLE,
             color = tagColour.alpha(if (frameManual) 1f else 0.75f),
             modifier = Modifier
-                // In the corner, outside the ball. At the bottom of it, the tag sat on the compass
-                // letters.
+                // In the corner, clear of the compass letters.
                 .align(androidx.compose.ui.Alignment.BottomEnd)
                 .padding(end = 0.dp, bottom = 0.dp)
                 .then(if (onCycleFrame != null) Modifier.clickable(onClick = onCycleFrame) else Modifier)
@@ -134,12 +125,7 @@ private fun perpendicularTo(v: Vec3): Vec3 {
     return v.cross(axis).normalizeInPlace()
 }
 
-/**
- * Orthographic projection of a local-space direction onto the ball.
- *
- * It returns null when the direction is on the far half, which is what makes the ball look like a
- * sphere and not a disc.
- */
+/** Orthographic projection of a local direction onto the ball, or null on the far half. */
 private fun project(centre: Offset, radius: Float, direction: Vec3): Offset? {
     if (direction.y <= 0.0) return null
     return Offset(
@@ -156,11 +142,8 @@ private fun projectUnclipped(centre: Offset, radius: Float, direction: Vec3): Of
     )
 
 /**
- * Fills the sky and ground halves.
- *
- * The ground is bounded by two arcs: the visible half of the horizon great circle, and the piece of
- * the ball's outline below it. They meet exactly where the horizon plane crosses the outline, which
- * is `±(nose × up)`, so those points are worked out directly instead of searched for.
+ * Fills the sky and ground halves. The ground is bounded by the visible horizon arc and the piece
+ * of the outline below it, which meet at `±(nose × up)`.
  */
 private fun DrawScope.drawSphere(centre: Offset, radius: Float, up: Vec3, horizon: List<Vec3>) {
     drawCircle(SKY, radius, centre)
@@ -211,15 +194,13 @@ private fun horizonPoints(up: Vec3, a: Vec3, b: Vec3): List<Vec3> =
         Vec3(a.x * c + b.x * s, a.y * c + b.y * s, a.z * c + b.z * s)
     }
 
-/** The cosines and sines round a sampled circle, worked out once instead of every frame. */
+/** Cosines and sines round a sampled circle, worked out once. */
 private val RING_COS = DoubleArray(HORIZON_SAMPLES) { cos(2.0 * PI * it / HORIZON_SAMPLES) }
 private val RING_SIN = DoubleArray(HORIZON_SAMPLES) { sin(2.0 * PI * it / HORIZON_SAMPLES) }
 
 /**
- * Rotates a sampled circle so its visible run is all in one piece, then returns it.
- *
- * Sampling starts at any point on the circle, so the visible arc is usually split across the ends
- * of the list. Walking it in that order would draw a line straight across the ball.
+ * The visible run of a sampled circle in one piece. Otherwise it's often split across the ends of
+ * the list, and walking it would draw a line across the ball.
  */
 private fun orderArc(points: List<Vec3>): List<Vec3> {
     val n = points.size
@@ -281,7 +262,7 @@ private fun DrawScope.drawHorizon(centre: Offset, radius: Float, horizon: List<V
     drawCircle(OUTLINE, radius, centre, style = OUTLINE_STROKE)
 }
 
-/** Rings of constant pitch, so you can read the attitude instead of guessing it. */
+/** Rings of constant pitch. */
 private fun DrawScope.drawPitchLadder(
     centre: Offset,
     radius: Float,
@@ -315,7 +296,7 @@ private fun DrawScope.strokeCircle(
     colour: Color,
     stroke: Stroke,
 ) {
-    // One path for the whole visible run, drawn once, instead of a line for every sample.
+    // One path for the whole visible run, not a line per sample.
     val path = Path()
     var drawing = false
     for (k in 0..points.size) {
@@ -330,13 +311,12 @@ private fun DrawScope.strokeCircle(
 }
 
 /**
- * The six markers, in the shapes pilots know them by:
+ * The six markers:
  * - prograde: a ring with three spurs. Retrograde: the same, crossed through.
  * - normal: a triangle pointing out. Anti-normal: a triangle pointing back.
  * - radial out: a ring with four spurs outward. Radial in: four spurs inward.
  *
- * Each pair shares a colour, and a marker on the far side of the ball isn't drawn, because its
- * opposite is on this side instead.
+ * Each pair shares a colour. One on the far side isn't drawn, since its opposite is on this side.
  */
 private fun DrawScope.drawMarkers(centre: Offset, radius: Float, prograde: Vec3?, normal: Vec3?, radial: Vec3?) {
     val size = radius * 0.09f
@@ -380,7 +360,7 @@ private fun DrawScope.triangle(point: Offset, size: Float, pointingUp: Boolean, 
     drawPath(path, colour, style = Stroke(2f))
     if (filledDot) drawCircle(colour, size * 0.22f, point)
     else {
-        // Anti-normal: three short lines from the corners inward.
+        // Anti-normal: a short line in from the tip.
         val tip = Offset(point.x, point.y + s * size * 1.2f)
         drawLine(colour, tip, tip + (point - tip) * 0.5f, strokeWidth = 2f)
     }
@@ -400,8 +380,7 @@ private fun DrawScope.radialMarker(point: Offset, size: Float, outward: Boolean)
     if (outward) drawCircle(RADIAL, size * 0.22f, point)
 }
 
-/** Target: a ring with a dot and four ticks. Anti-target: crossed. Magenta, as usual. */
-/** The next burn: a blue ring with a notch each side, showing the way to point to fly it. */
+/** The next burn: a blue ring with a notch each side, where to point to fly it. */
 private fun DrawScope.drawBurnMarker(centre: Offset, radius: Float, burn: Vec3?) {
     if (burn == null) return
     val size = radius * 0.11f
@@ -415,6 +394,7 @@ private fun DrawScope.drawBurnMarker(centre: Offset, radius: Float, burn: Vec3?)
 
 private val BURN = Color(0xFF4FA3FF)
 
+/** Target: a ring with a dot and four ticks. Anti-target: crossed. */
 private fun DrawScope.drawTargetMarkers(centre: Offset, radius: Float, target: Vec3?) {
     if (target == null) return
     val size = radius * 0.1f
@@ -436,8 +416,8 @@ private fun DrawScope.drawTargetMarkers(centre: Offset, radius: Float, target: V
 }
 
 /**
- * Where the craft is going through the air: a small aircraft symbol. Compared with prograde, it
- * shows the crosswind a plane is crabbing into and the angle of attack it's holding.
+ * Where the craft's going through the air, as a small plane. Against prograde it shows crab and
+ * angle of attack.
  */
 private fun DrawScope.flightPathMarker(point: Offset, size: Float) {
     val colour = AIR
@@ -455,8 +435,7 @@ private fun DrawScope.drawCompass(
     east: Vec3,
     measurer: androidx.compose.ui.text.TextMeasurer,
 ) {
-    // North and east are on the horizon. Tilt them back onto the sphere's surface if the local
-    // vertical isn't quite at right angles to them.
+    // Normalised, in case up isn't quite at right angles to north and east.
     for (k in 0 until 12) {
         val angle = k * PI / 6.0
         val d = Vec3(
@@ -476,7 +455,7 @@ private fun DrawScope.drawCompass(
     }
 }
 
-/** The fixed nose marker at the centre. It never moves, and the world moves behind it. */
+/** The fixed nose marker at the centre. */
 private fun DrawScope.drawReticle(centre: Offset, radius: Float) {
     val arm = radius * 0.22f
     val gap = radius * 0.06f

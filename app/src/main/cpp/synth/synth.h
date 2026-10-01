@@ -1,9 +1,9 @@
-// The whole sound engine short of the device: voices, mixer and room.
+// The sound engine short of the device: voices, mixer and room.
 //
-// Two threads meet here and never lock. The game thread, once a frame, publishes the scene (every
-// held sound, with its parameters) through a triple buffer, and pushes one-shots into a
-// single-producer ring. The audio thread takes the newest scene when it next renders, eases each
-// voice toward it, starts the one-shots, and mixes. Nothing on the audio thread allocates.
+// Two threads, no locks. Once a frame the game thread publishes the scene (every held sound and its
+// parameters) through a triple buffer and pushes one-shots into a single-producer ring. The audio
+// thread takes the newest scene, eases voices toward it, starts one-shots and mixes. Nothing on the
+// audio thread allocates.
 #pragma once
 
 #include <atomic>
@@ -21,16 +21,13 @@ constexpr int kMaxSceneEntries = 64;
 constexpr int kEventSlots = 128;
 
 /**
- * Parameters every voice shares after its recipe's own: loudness (distance and the mix, where 0
- * means 1), pan, the distance filter's cutoff (0 for none), and the Doppler pitch.
+ * Shared parameters after the recipe's own: loudness (0 means 1), pan, distance filter cutoff
+ * (0 for none) and Doppler pitch.
  */
 constexpr int P_GAIN = 5;
 constexpr int P_PAN = 6;
 constexpr int P_LOWPASS = 7;
-/**
- * Doppler: the frequency factor for a source moving relative to the listener (0 means 1). Engines
- * and wheels only.
- */
+/** Doppler frequency factor (0 means 1). Engines and wheels only. */
 constexpr int P_PITCH = 8;
 
 /** One held sound, as the game describes it. */
@@ -81,8 +78,7 @@ struct Voice {
     OnePole hullLow;
     DcBlock dc;
     float state[8] = {};     // recipe scratch: timers, glides, sweeps
-    // Worked out at control rate, not every sample: where it sits left to right, a rocket's
-    // shaped output, and a splash's bubbling.
+    // Worked out at control rate: pan, a rocket's shaped output, a splash's bubbling.
     float panLeft = 0.7071f, panRight = 0.7071f;
     float shaped = 0;
     float bubbling = 0;
@@ -101,7 +97,7 @@ public:
     /** Game thread: loudness per bus, 0..1 each. */
     void setBusGains(const float* gains);
 
-    /** Game thread: how much room there is, more inside a hull and a little outdoors. */
+    /** Game thread: how much reverb, more inside a hull. */
     void setRoom(float amount) { roomTarget_.store(amount); }
 
     /** Audio thread: [frames] stereo frames, interleaved, into [out]. */
@@ -127,9 +123,9 @@ private:
     int voiceBudget_;
     Voice voices_[kMaxVoices];
 
-    // Triple buffer. The writer fills one and publishes it by swapping it into [ready_] with the
-    // fresh bit (4) set, and the reader, seeing the bit, swaps its own old one in. The index and
-    // bit are in one atomic, so neither side can see a half-made swap.
+    // Triple buffer. The writer swaps its filled buffer into [ready_] with the fresh bit (4) set;
+    // the reader, seeing the bit, swaps its old one in. Index and bit share one atomic, so neither
+    // side sees a half-made swap.
     Scene buffers_[3];
     int writing_ = 0;
     int reading_ = 1;

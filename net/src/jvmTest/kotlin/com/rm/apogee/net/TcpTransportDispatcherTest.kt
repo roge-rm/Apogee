@@ -12,16 +12,9 @@ import java.net.Socket
 import java.util.concurrent.Executors
 
 /**
- * Where a send actually runs.
- *
- * Writing to a socket blocks, and the client sends control commands from the UI's own coroutine
- * scope, which on Android is the main thread, where a blocking write is a fatal
- * NetworkOnMainThreadException. Single player never hits this, because its transport is
- * [LoopbackTransport], an in-memory queue with no socket to block on. So nothing caught it until a
- * real device joined a real server and touched the throttle.
- *
- * So the contract belongs to the transport, not the caller: send has to get itself off whatever
- * thread it was called on.
+ * Where a send runs. The client sends from the UI's scope, which on Android is the main thread,
+ * where a blocking socket write throws NetworkOnMainThreadException. So send must get itself off
+ * the calling thread. [LoopbackTransport] has no socket, so single player never shows this.
  */
 class TcpTransportDispatcherTest {
 
@@ -36,10 +29,8 @@ class TcpTransportDispatcherTest {
         val callingThread: Thread
         try {
             callingThread = runBlocking(caller.asCoroutineDispatcher()) {
-                // The thread itself, not its name. kotlinx decorates thread names with "
-                // @coroutine#n" while debugging is on, so a name comparison quietly never matches
-                // and the test passes whether or not the dispatcher is right. This one failed that
-                // way the first time.
+                // Compare the thread itself: kotlinx adds " @coroutine#n" to names while
+                // debugging, so a name comparison never matches.
                 val here = Thread.currentThread()
                 transport.send(Packet(Channel.CONTROL, byteArrayOf(1, 2, 3)))
                 here
@@ -61,8 +52,7 @@ class TcpTransportDispatcherTest {
         val stream = RecordingStream()
         override fun getOutputStream(): OutputStream = stream
 
-        // The transport starts a reader over this. An empty stream reads as an immediate
-        // disconnect, which is all this test needs from it.
+        // An empty stream reads as an immediate disconnect, which is all this needs.
         override fun getInputStream(): InputStream = ByteArrayInputStream(ByteArray(0))
         override fun close() = Unit
     }

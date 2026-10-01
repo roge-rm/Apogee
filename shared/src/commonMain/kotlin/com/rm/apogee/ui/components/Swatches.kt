@@ -23,10 +23,7 @@ import com.rm.apogee.render.SuitColours
 import com.rm.apogee.ui.theme.ApogeeAlpha
 import com.rm.apogee.ui.theme.alpha
 
-/**
- * A row of colour dots to pick one from, the picked one ringed. With [autoLabel], a first dot
- * stands for letting the game pick, and it's index -1.
- */
+/** A row of colour dots, the picked one ringed. With [autoLabel], a first dot means auto (-1). */
 @Composable
 fun Swatches(
     choices: List<SuitColours.Choice>,

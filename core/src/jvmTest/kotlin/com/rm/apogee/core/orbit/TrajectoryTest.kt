@@ -17,9 +17,8 @@ class TrajectoryTest {
     private val luna = system.body("luna")
 
     /**
-     * A craft in a 100 km orbit around Terra, in Luna's plane, just given a Hohmann transfer's
-     * worth of speed toward where Luna will be when it gets there, with its high point [wide]
-     * metres further out than Luna's orbit, and how long the transfer takes.
+     * A craft in a 100 km orbit round Terra in Luna's plane, just given a Hohmann transfer to meet
+     * Luna, its high point [wide] metres past Luna's orbit. Also returns the transfer time.
      */
     private fun transfer(t0: Double, wide: Double = 0.0): Triple<Vec3, Vec3, Double> {
         val r1 = terra.radius + 100_000.0
@@ -43,8 +42,8 @@ class TrajectoryTest {
         val first = path.segments.first()
         assertEquals(Trajectory.Ending.ENCOUNTER, first.ending)
         assertEquals("luna", first.nextBodyId)
-        // Into its reach well before it arrives at its orbit. The reach is a fifth of the orbit's
-        // size, and near the top the craft is slow.
+        // Into Luna's reach well before the high point: the reach is a fifth of the orbit's size
+        // and the craft is slow up there.
         assertTrue("met at ${first.end - t0} s of $flight", first.end - t0 in (0.6 * flight)..flight)
         val second = path.segments[1]
         assertEquals("luna", second.bodyId)

@@ -5,12 +5,7 @@ import kotlin.math.PI
 import com.rm.apogee.core.concurrentMapOf
 import com.rm.apogee.core.math.Math
 
-/**
- * The tree of celestial bodies, and the questions the simulation asks about it.
- *
- * Bodies are never integrated. Their positions just depend on time, so this is really an exact
- * description of the universe the craft move through.
- */
+/** The tree of celestial bodies. Bodies aren't integrated: their positions are a function of time. */
 class SolarSystem(
     bodies: List<CelestialBody>,
     val rootId: String,
@@ -18,9 +13,8 @@ class SolarSystem(
     val bodies: Map<String, CelestialBody> = bodies.associateBy { it.id }
 
     /**
-     * What the system is, boiled down: every world's size, pull, spin, tilt, orbit, air, weather,
-     * rings and ground, hashed. Two builds whose worlds differ in any of that can't share a game,
-     * because each would fly craft through its own idea of where the planets are.
+     * A hash of every world's size, pull, spin, tilt, orbit, air, weather, rings and ground. Builds
+     * that differ can't share a game.
      */
     val contentHash: String by lazy {
         val text = StringBuilder()
@@ -31,8 +25,7 @@ class SolarSystem(
             text.append(b.id).append(':').append(b.parentId).append(':')
             d(b.gravitationalParameter); d(b.radius); d(b.rotationPeriod); v(b.spinAxis); d(b.sphereOfInfluence)
             b.orbit?.let { v(it.position); v(it.velocity); d(it.mu); d(it.epoch) }
-            // Numbers by their bits, never as decimal text, because two platforms can print a
-            // double differently.
+            // Doubles by their bits, since platforms can print them differently.
             b.atmosphere?.let {
                 d(it.seaLevelDensity); d(it.seaLevelPressure); d(it.scaleHeight); d(it.height)
                 d(it.surfaceTemperature); d(it.lapseRate); d(it.tropopause); text.append(it.deep)
@@ -84,9 +77,8 @@ class SolarSystem(
     }
 
     /**
-     * Each body's last position and velocity asked for, and when. A tick asks for the same few
-     * bodies at the same moment over and over (for sunlight, heat, the shade of a moon), and each
-     * time was a Kepler solve, all the way up to the star.
+     * Each body's last position and velocity, and when. A tick asks for the same bodies at the same
+     * time over and over, and each is a Kepler solve up to the star.
      */
     private class Fix(val time: Double, val x: Double, val y: Double, val z: Double)
 
@@ -94,23 +86,17 @@ class SolarSystem(
     private val lastVelocity = concurrentMapOf<String, Fix>()
 
     /**
-     * The direction toward the star from [position] (relative to body [bodyId]'s centre) at [time],
-     * inertial and unit length, written into [out]. The world's light and its seasons come from
-     * here.
+     * The unit direction to the star from [position] (relative to [bodyId]'s centre) at [time],
+     * inertial, written into [out].
      */
     fun sunDirection(bodyId: String, position: Vec3, time: Double, out: Vec3 = Vec3()): Vec3 {
-        // A world with no star at its centre, like a test's lone planet, gets lit from a fixed
-        // direction.
+        // A system with no star at its root, like a test's lone planet, has fixed light.
         if (rootId != STAR_ID) return out.setTo(FIXED_SUN)
         if (bodyId == rootId) return out.setTo(position).mulInPlace(-1.0).normalizeInPlace()
         return out.setTo(positionOf(bodyId, time)).addInPlace(position).mulInPlace(-1.0).normalizeInPlace()
     }
 
-    /**
-     * How strong the sunlight is at [position] (relative to [bodyId]) as a share of what it is at
-     * Terra. It's the inverse square of the distance, so a panel at Magna makes a twenty-seventh of
-     * what it made at home.
-     */
+    /** Sunlight at [position] (relative to [bodyId]) as a share of Terra's, by inverse square. */
     fun sunStrength(bodyId: String, position: Vec3, time: Double): Double {
         if (rootId != STAR_ID) return 1.0
         val d = if (bodyId == rootId) position.length else positionOf(bodyId, time).addInPlace(position).length
@@ -124,11 +110,7 @@ class SolarSystem(
 
     private val children = concurrentMapOf<String, List<CelestialBody>>()
 
-    /**
-     * Moves [position] and [velocity] from being relative to body [from]'s centre to being relative
-     * to body [to]'s at [time], in place. It's the same point and motion, just measured from
-     * somewhere else. Nothing moves.
-     */
+    /** Makes [position] and [velocity] relative to [to]'s centre instead of [from]'s, in place. */
     fun rebase(position: Vec3, velocity: Vec3, from: String, to: String, time: Double) {
         if (from == to) return
         position.addInPlace(positionOf(from, time)).subInPlace(positionOf(to, time))
@@ -136,10 +118,8 @@ class SolarSystem(
     }
 
     /**
-     * The body whose pull governs a craft at [position] (relative to [current]'s centre) at [time].
-     * Most of the time that's [current] itself. It's cheap when nothing can have changed, meaning
-     * well inside [current]'s sphere of influence and nowhere near a moon's, and otherwise it uses
-     * [dominantBody].
+     * The body governing a craft at [position] (relative to [current]'s centre) at [time]. Cheap when
+     * it's well inside [current]'s SOI and clear of its moons; otherwise uses [dominantBody].
      */
     fun governing(current: CelestialBody, position: Vec3, time: Double): CelestialBody {
         val r = position.length
@@ -147,7 +127,7 @@ class SolarSystem(
         if (!near) {
             for (child in childrenOf(current.id)) {
                 val orbit = child.orbit ?: continue
-                // Closer to the parent than the moon's orbit ever comes, minus its reach.
+                // Inside the moon's periapsis less its SOI is safe.
                 if (r >= orbit.periapsis - child.sphereOfInfluence) { near = true; break }
             }
         }
@@ -168,11 +148,8 @@ class SolarSystem(
     }
 
     /**
-     * Which body's sphere of influence [absolutePosition] falls in at [time].
-     *
-     * It works down from the root, preferring the deepest body whose SOI contains the point, so a
-     * craft near a moon is governed by the moon and not the planet it orbits. This is the
-     * patched-conic decision, made once per tick per vessel.
+     * The deepest body whose sphere of influence holds [absolutePosition] at [time], so a moon beats
+     * its planet. The patched-conic choice.
      */
     fun dominantBody(absolutePosition: Vec3, time: Double): CelestialBody {
         var best = body(rootId)
@@ -193,27 +170,19 @@ class SolarSystem(
     }
 
     companion object {
-        /**
-         * The [contentHash] of the [defaultSystem], which is what this build's client offers a
-         * server.
-         */
+        /** The [defaultSystem]'s [contentHash], which this build offers a server. */
         val DEFAULT_HASH: String by lazy { defaultSystem().contentHash }
 
         /**
-         * The terrains, made once and shared by every world in the process.
-         *
-         * A solo game runs a server world, the client's prediction replica and the renderer's mesh
-         * builder side by side. If each built its own, each would keep its own cache of sampled
-         * tiles of the same ground, three copies of the same data, each paid for in full. The
-         * terrain never changes and its cache is thread-safe, so one is enough.
+         * Terrains made once and shared by every world in the process (server, client replica,
+         * renderer), so there's one tile cache. It never changes and its cache is thread-safe.
          */
         private val terraTerrain by lazy {
             com.rm.apogee.core.terrain.TerrainField(
                 bodyRadius = 600_000.0,
                 maxElevation = 6_000.0,
                 oceanDepth = 3_000.0,
-                // The continent is raised around latitude 0, longitude 0, where the launch complex
-                // first stood, so its surface normal, +X, keeps every coastline where it was.
+                // The continent is centred on lat 0, lon 0 (+X). Moving it would move every coast.
                 homeDirection = Vec3(1.0, 0.0, 0.0),
                 padDirection = surfaceDirection(PAD_LATITUDE, PAD_LONGITUDE),
                 harbourDirection = surfaceDirection(HARBOUR_LATITUDE, HARBOUR_LONGITUDE),
@@ -231,12 +200,8 @@ class SolarSystem(
         }
 
         /**
-         * The v1 system: a star, a homeworld and its moon.
-         *
-         * It's scaled down roughly ten times from reality, which is the convention this kind of
-         * game settled on for good reason. A full-scale Earth needs ~9400 m/s to reach orbit and
-         * half an hour of burning, while this needs ~3400 m/s and a couple of minutes. The physics
-         * is the same. Only the numbers are picked to fit a play session instead of a whole career.
+         * The system: a star, Terra, Luna and the other worlds. Scaled down about ten times, so orbit
+         * takes ~3400 m/s and a couple of minutes.
          */
         fun defaultSystem(): SolarSystem {
             val sol = CelestialBody(
@@ -264,8 +229,7 @@ class SolarSystem(
                 terrain = terraTerrain,
                 ocean = com.rm.apogee.core.terrain.Ocean(),
                 parentId = "sol",
-                // In the ecliptic, where the sun at time zero stands about where the old fixed one
-                // did.
+                // In the ecliptic, phased so the sun at time zero is near where the old fixed one was.
                 orbit = SystemData.terraOrbit(sol.gravitationalParameter),
                 sphereOfInfluence = 84_159_286.0,
             )
@@ -279,14 +243,11 @@ class SolarSystem(
                 radius = lunaRadius,
                 rotationPeriod = 138_984.0,
                 atmosphere = null,
-                // Airless and battered, with no oceans, so the whole surface is relief instead of
-                // just the top half of it.
+                // No oceans, so the whole range is relief.
                 terrain = lunaTerrain,
                 parentId = "terra",
-                // Tilted to the Cape's latitude, rising through Terra's equator at +X. Once every
-                // Terra day the Cape is carried round to the top of Luna's plane, and a rocket
-                // launched due east then flies straight into it. That's a launch window, the same
-                // as real ones.
+                // Tilted to the Cape's latitude, ascending node at +X, so once a Terra day a rocket
+                // launched due east flies straight into Luna's plane.
                 orbit = Orbit.circular(lunaOrbitRadius, terra.gravitationalParameter, inclination = LUNA_INCLINATION),
                 sphereOfInfluence = 2_429_559.0,
             )
@@ -294,10 +255,7 @@ class SolarSystem(
             return SolarSystem(listOf(sol, terra, luna) + otherWorlds(sol), rootId = "sol")
         }
 
-        /**
-         * Every world except Terra and Luna, at [SystemData]'s scale. Their ground comes from
-         * [worldTerrain], and their air from whatever each one has.
-         */
+        /** Every world except Terra and Luna, at [SystemData]'s scale. */
         private fun otherWorlds(sol: CelestialBody): List<CelestialBody> {
             val solMu = sol.gravitationalParameter
             val north = SystemData.ECLIPTIC_NORTH
@@ -310,7 +268,7 @@ class SolarSystem(
                 val mu = SystemData.mu(g, r)
                 val body = CelestialBody(
                     id = id, displayName = name, gravitationalParameter = mu, radius = r,
-                    // A quarter of the real day, the same as Terra's.
+                    // A quarter of the real day, like Terra's.
                     rotationPeriod = dayHours * 3_600.0 / 4.0,
                     atmosphere = atmosphere, terrain = worldTerrain(id, r), ocean = worldOcean(id),
                     parentId = "sol", orbit = orbit,
@@ -328,7 +286,7 @@ class SolarSystem(
                 val r = radiusKm * 1_000.0
                 val mu = SystemData.mu(g, r)
                 val orbit = SystemData.moonOrbit(parent, radii, iDegrees, anomaly, e)
-                // Always facing its planet, so its day is its month, around the pole of its orbit.
+                // Tidally locked: its day is its month, around its orbit's pole.
                 val pole = orbit.angularMomentum.normalized()
                 val body = CelestialBody(
                     id = id, displayName = name, gravitationalParameter = mu, radius = r,
@@ -344,7 +302,7 @@ class SolarSystem(
             fun air(density: Double, pressure: Double, scaleKm: Double, surfaceK: Double, lapse: Double, tropopause: Double, deep: Boolean = false) =
                 Atmosphere(
                     seaLevelDensity = density, seaLevelPressure = pressure, scaleHeight = scaleKm * 1_000.0,
-                    // Where it thins out to what Terra's air is at its edge.
+                    // Where it thins to Terra's edge density.
                     height = scaleKm * 1_000.0 * kotlin.math.ln(density / AIR_EDGE_DENSITY),
                     surfaceTemperature = surfaceK, lapseRate = lapse, tropopause = tropopause, deep = deep,
                 )
@@ -358,8 +316,7 @@ class SolarSystem(
             val rubra = planet("rubra", "Rubra", 319.0, 3.72, 24.62, 25.2, 110.0,
                 SystemData.planetOrbit(1.524, 0.0934, 1.85, 49.6, 336.0, 250.0, solMu),
                 atmosphere = air(0.020, 600.0, 7.3, 210.0, 0.0025, 150.0))
-            // Too small to have a sphere of influence of their own at their real mass, so they're
-            // heavier than they should be and a little further out, so a craft can orbit them.
+            // Heavier and further out than real, or their SOI would be too small to orbit in.
             moon("timor", "Timor", rubra, 3.0, 0.15, 4.0, 1.1, 30.0)
             moon("pavor", "Pavor", rubra, 2.0, 0.10, 6.9, 1.8, 200.0)
 
@@ -376,8 +333,7 @@ class SolarSystem(
                 atmosphere = air(0.19, 1e5, 39.0, 134.0, 0.001, 82.0, deep = true), rings = Rings(1.24, 2.27))
             moon("aurantia", "Aurantia", aurea, 243.0, 1.352, 10.2, 0.35, 60.0,
                 atmosphere = air(5.3, 146_700.0, 14.0, 94.0, 0.001, 70.0))
-            // Half its real distance would put it inside the rings' reach with no room to orbit, so
-            // it's out at four radii.
+            // Out at four radii; half its real distance leaves no room to orbit inside the rings.
             moon("fons", "Fons", aurea, 24.0, 0.113, 4.0, 0.02, 150.0)
             planet("obliqua", "Obliqua", 2_389.0, 8.69, 17.24, 97.8, 20.0,
                 SystemData.planetOrbit(19.19, 0.0473, 0.77, 74.0, 170.9, 120.0, solMu),
@@ -397,16 +353,10 @@ class SolarSystem(
             return out
         }
 
-        /**
-         * The density, in kg/m³, at which an atmosphere counts as ending. It's what Terra's has at
-         * its edge.
-         */
+        /** Density where an atmosphere ends, in kg/m³: Terra's at its edge. */
         private const val AIR_EDGE_DENSITY = 3e-6
 
-        /**
-         * The ground of world [id] with radius [radius]. See [com.rm.apogee.core.terrain.Worlds].
-         * Null for a gas giant.
-         */
+        /** World [id]'s ground, or null for a gas giant. See [com.rm.apogee.core.terrain.Worlds]. */
         private fun worldTerrain(id: String, radius: Double): com.rm.apogee.core.terrain.Terrain? =
             com.rm.apogee.core.terrain.Worlds.terrain(id, radius)
 
@@ -423,40 +373,32 @@ class SolarSystem(
         const val HOMEWORLD_ID = "terra"
 
         /**
-         * The launch complex, in radians. It's on the north-west coast of the home continent, a
-         * kilometre and a half in from the sea, with its runway running east and ending just short
-         * of the harbour's bay, so a plane climbs out over the water.
+         * The launch complex, in radians: on the home continent's north-west coast, with the runway
+         * running east to end short of the harbour's bay.
          */
         const val PAD_LATITUDE = 0.09723497956796738
         const val PAD_LONGITUDE = 0.09754727774390243
 
         /**
-         * The harbour, in radians. It's in a broad bay five kilometres east of the pad (east as the
-         * planet turns, so the lower longitude), calm inside, and reached from the sea by a winding
-         * inlet.
+         * The harbour, in radians: a bay five kilometres east of the pad (east as the planet turns,
+         * so lower longitude), reached by a winding inlet.
          */
         const val HARBOUR_LATITUDE = 0.097227372495131
         const val HARBOUR_LONGITUDE = 0.0888403538376949
 
-        /**
-         * The ground stations craft talk to: the Cape's, and two around Terra's equator a third of
-         * the way round on either side, so a craft in orbit is rarely out of contact for long.
-         */
+        /** The Cape's station, and two on Terra's equator a third of the way round each side. */
         val groundStations: List<GroundStation> = listOf(
             GroundStation("Cape Station", HOMEWORLD_ID, PAD_LATITUDE, PAD_LONGITUDE),
             GroundStation("Eastern Station", HOMEWORLD_ID, 0.0, PAD_LONGITUDE - 2 * PI / 3),
             GroundStation("Western Station", HOMEWORLD_ID, 0.0, PAD_LONGITUDE + 2 * PI / 3),
         )
 
-        /**
-         * The tilt of Luna's orbit to Terra's equator, in radians, which is the Cape's latitude.
-         * See [PAD_LATITUDE].
-         */
+        /** Luna's orbit tilt to Terra's equator, in radians: the Cape's latitude ([PAD_LATITUDE]). */
         const val LUNA_INCLINATION = PAD_LATITUDE
 
         /**
-         * The spot [east] and [north] metres from the pad, body-fixed and unit length. Everything
-         * at the Cape is laid out with this. See `TerrainField`'s works and `StockStructures`.
+         * The body-fixed unit direction [east] and [north] metres from the pad. The Cape is laid out
+         * with this. See `TerrainField`'s works and `StockStructures`.
          */
         fun capeDirection(east: Double, north: Double, radius: Double = 600_000.0): Vec3 {
             val pad = surfaceDirection(PAD_LATITUDE, PAD_LONGITUDE)
@@ -481,9 +423,8 @@ class SolarSystem(
 }
 
 /**
- * A dish on the ground that craft talk home to, body-fixed on [bodyId] at [latitude] and
- * [longitude] in radians. It hears an antenna within whichever is shorter, [range] or the antenna's
- * own range.
+ * A dish craft talk home to, body-fixed on [bodyId] at [latitude] and [longitude] in radians. It
+ * hears an antenna within the shorter of [range] and the antenna's range.
  */
 data class GroundStation(
     val name: String,

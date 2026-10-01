@@ -16,9 +16,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Docking, flown: craft brought together with the same controls a player has (thrusters sliding
- * them), and the rings, clamps and hitches doing the rest. In orbit, on the ground and on the
- * water.
+ * Docking, flown with the player's controls: thrusters slide the craft in, and the rings, clamps
+ * and hitches do the rest. In orbit, on the ground and on the water.
  */
 class DockingTest {
 
@@ -33,17 +32,14 @@ class DockingTest {
 
     private fun ref(v: Vessel, part: Int) = PortRef(v, part, v.defs[part].module<DockingPort>()!!).update()
 
-    /**
-     * Places [design] so its docking part [part] faces [target]'s part [targetPart] squarely, [gap]
-     * metres away, moving the way the target is.
-     */
+    /** Places [design] with [part] squarely facing [target]'s [targetPart], [gap] m off, at its velocity. */
     private fun placeFacing(world: World, design: CraftDesign, part: Int, target: Vessel, targetPart: Int, gap: Double, turnAbout: Vec3 = Vec3.unitY()): Vessel {
         val t = ref(target, targetPart)
         val v = world.spawnAt(design, target.referenceBodyId, target.body.position.copy(), target.body.linearVelocity.copy(), target.body.orientation.copy())
         // Turn it so its part faces back along the target's.
         val own = ref(v, part)
         val turn = com.rm.apogee.core.math.quatFromTo(own.axis, Vec3().setTo(t.axis).mulInPlace(-1.0))
-        // Exactly opposite (a half turn) has no single answer, so turn about the given axis.
+        // A half turn has no single answer, so turn about the given axis.
         val q = if ((own.axis dot t.axis) > 0.999) Quat.fromAxisAngle(target.body.orientation.rotate(turnAbout, Vec3()), Math.PI, Quat()) else turn
         v.body.orientation.setTo(q * v.body.orientation).normalizeInPlace()
         val placed = ref(v, part)
@@ -52,9 +48,8 @@ class DockingTest {
     }
 
     /**
-     * The docking pilot: slides [mover]'s part [part] toward [target]'s part [targetPart] on its
-     * thrusters, slowing as it closes, which is what a player does with RCS in SLIDE. True once the
-     * two have become one craft.
+     * Slides [mover]'s [part] toward [target]'s [targetPart] on RCS, slowing as it closes, as a
+     * player does in SLIDE. True once the two are one craft.
      */
     private fun approach(world: World, mover: Vessel, part: Int, target: Vessel, targetPart: Int, seconds: Double, speed: Double = 0.3): Boolean {
         world.apply(Command.SetRcs(mover.id.raw, true))
@@ -114,7 +109,7 @@ class DockingTest {
         assertEquals("latched to each other", rings[1], station.design.parts[rings[0]].dockedTo)
         assertEquals(rings[0], station.design.parts[rings[1]].dockedTo)
         assertNotNull("the one that came knows what it was", rings.firstNotNullOfOrNull { station.design.parts[it].dockedFrom })
-        // And it holds together as one under thrust, because it's one body now.
+        // And it holds together under thrust.
         world.apply(Command.SetThrottle(station.id.raw, 1.0))
         world.stage(station)
         repeat(120) { world.step(dt) }
@@ -149,9 +144,7 @@ class DockingTest {
         assertEquals(1, world.vessels.size)
     }
 
-    /**
-     * A station put together from three craft and taken apart again, each one given back as itself.
-     */
+    /** A station of three craft, assembled and taken apart, each given back as itself. */
     @Test
     fun `a station of three, assembled and taken apart`() {
         val (world, a, b) = dockInOrbit()
@@ -248,7 +241,7 @@ class DockingTest {
 
     // --- on the ground ------------------------------------------------------
 
-    /** The base-building case: two tugs landed on Luna, walked together on their thrusters, ring to ring. */
+    /** Base building: two tugs landed on Luna, walked together on their thrusters, ring to ring. */
     @Test
     fun `two tugs landed on Luna are walked together and dock`() {
         val world = World.default(catalog)
@@ -309,8 +302,7 @@ class DockingTest {
         assertTrue("held at the hitch ($joint m)", joint < 0.15)
         assertTrue("on its wheels ($tilt deg)", tilt < 25.0)
 
-        // Round a bend: steering hard one way, then the other. The cart swings behind about the
-        // ball, stays coupled and stays on its wheels.
+        // Hard one way, then the other. The cart swings about the ball, coupled and upright.
         var worstTilt = 0.0
         for (yaw in listOf(1.0, -1.0)) {
             world.apply(Command.SetAttitude(buggy.id.raw, 0.0, yaw, 0.0))
@@ -334,9 +326,7 @@ class DockingTest {
 
     // --- on the water ---------------------------------------------------------
 
-    /**
-     * Two skiffs drift alongside, clamp together and raft up, and under power the raft goes as one.
-     */
+    /** Two skiffs drift alongside, clamp and raft up, and the raft goes as one under power. */
     @Test
     fun `two skiffs come alongside and raft up`() {
         val world = World.default(catalog)
@@ -385,7 +375,7 @@ class DockingTest {
         assertEquals(2, world.vessels.size)
     }
 
-    /** Two rings that met a little askew and came to rest face on face. The guides take them in. */
+    /** Rings resting face on face a little askew. The guides draw them in. */
     @Test
     fun `rings resting together twenty degrees askew still draw in and latch`() {
         val (world, a, b) = dockInOrbit()
@@ -398,7 +388,7 @@ class DockingTest {
         assertEquals("latched", 1, world.vessels.size)
     }
 
-    /** The real way to hitch up: back the buggy slowly onto the cart until the coupling takes. */
+    /** Back the buggy slowly onto the cart until the coupling takes. */
     @Test
     fun `a buggy reverses onto a cart and couples`() {
         val world = World.default(catalog)

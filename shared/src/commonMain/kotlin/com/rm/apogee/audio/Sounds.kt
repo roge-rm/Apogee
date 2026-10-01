@@ -1,9 +1,6 @@
 package com.rm.apogee.audio
 
-/**
- * The interface's own small sounds. They're quiet, short, and silenced by the interface sound
- * setting.
- */
+/** The interface's small sounds: short, quiet, and off with the interface sound setting. */
 object Sounds {
     private val params = FloatArray(SharedParams.COUNT)
     private var seed = 0

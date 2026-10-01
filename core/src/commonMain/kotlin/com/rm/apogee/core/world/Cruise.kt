@@ -12,14 +12,12 @@ import kotlin.math.sqrt
 import com.rm.apogee.core.math.Math
 
 /**
- * Altitude and heading hold for an aircraft: it keeps the height above the datum and the heading it
- * was given, and leaves the throttle to the pilot.
+ * Altitude and heading hold for an aircraft. Holds the height above datum and the heading it was
+ * given; the throttle is left to the pilot.
  *
- * It flies the way a pilot does, through stability assist. Toward the heading it banks into the
- * turn, as much as the turn needs up to [MAX_BANK]. For the height it holds the nose a few degrees
- * above the way it's going, more to climb and less to sink, in proportion to how far off it is.
- * What it works out is the attitude for stability assist to hold, so the same elevons, rudder and
- * wheels do the flying that your thumb would.
+ * It works through stability assist like a pilot: banks into the turn up to [MAX_BANK], and holds
+ * the nose a few degrees above the flight path, more to climb and less to sink. So the same
+ * elevons, rudder and wheels do the flying your thumb would.
  */
 internal class Cruise {
     private val up = Vec3()
@@ -49,8 +47,7 @@ internal class Cruise {
     }
 
     /**
-     * Sets [vessel]'s held attitude to fly its cruise height and heading, for a tick of [dt]
-     * seconds.
+     * Sets [vessel]'s held attitude for its cruise height and heading, over a tick of [dt] seconds.
      */
     fun fly(vessel: Vessel, attractor: CelestialBody, dt: Double) {
         frame(vessel, attractor)
@@ -65,8 +62,8 @@ internal class Cruise {
         val bank = (turn * TURN_BANK).coerceIn(-MAX_BANK, MAX_BANK)
         val height = attractor.altitudeOf(vessel.body.position)
         val climbWanted = ((control.cruiseHeight - height) / HEIGHT_PACE).coerceIn(-MAX_CLIMB, MAX_CLIMB)
-        // The trim creeps toward whatever holds it level, the way a pilot trims out a steady pull,
-        // so it settles on the height instead of a little under it.
+        // The trim creeps toward whatever holds it level, as a pilot trims out a steady pull, so it
+        // settles on the height and not a little under it.
         control.cruiseTrim = (control.cruiseTrim + (climbWanted - climb) * TRIM_RATE * dt).coerceIn(-MAX_ATTACK, MAX_ATTACK)
         val attack = (control.cruiseTrim + (climbWanted - climb) * CLIMB_GAIN).coerceIn(-MAX_ATTACK, MAX_ATTACK)
         hold(vessel, path + attack, track + (turn * 0.3).coerceIn(-5.0, 5.0), bank)
@@ -74,7 +71,7 @@ internal class Cruise {
 
     /**
      * Holds the nose [noseUp] degrees above the horizon, on [heading] degrees north of east, banked
-     * [bank] degrees, positive into a turn to the left.
+     * [bank] degrees, positive into a left turn.
      */
     private fun hold(vessel: Vessel, noseUp: Double, heading: Double, bank: Double) {
         val t = Math.toRadians(noseUp)
@@ -93,7 +90,9 @@ internal class Cruise {
         vessel.assistHolding = true
     }
 
-    /** Up, east and north where [vessel] is, and its velocity over the ground, all and flattened. */
+    /**
+     * Up, east and north where [vessel] is, and its velocity over the ground, all and flattened.
+     */
     private fun frame(vessel: Vessel, attractor: CelestialBody) {
         up.setTo(vessel.body.position).normalizeInPlace()
         // East is the way the ground turns under it. North is up x east.
@@ -123,7 +122,7 @@ internal class Cruise {
 
         /**
          * Degrees of nose over the flight path per m/s of climb wanted, degrees a second the trim
-         * moves per m/s, and the most either goes.
+         * moves per m/s, and the most for either.
          */
         const val CLIMB_GAIN = 0.3
         const val TRIM_RATE = 0.05

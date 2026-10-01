@@ -19,17 +19,9 @@ import java.nio.channels.SocketChannel
 import java.nio.file.Files
 
 /**
- * The admin control channel: a Unix domain socket that takes one line in and gives one line of JSON
- * out.
- *
- * I chose a Unix socket instead of an HTTP port on purpose. The admin channel can stop the server,
- * kick players and rewrite the world. Putting it on the network would mean it needs logging in, and
- * the only thing between an open port and a stranger would be a password someone left at the
- * default. A socket in a directory has filesystem permissions instead, and the web admin reaches it
- * by sharing a volume instead of by being trusted.
- *
- * Requests are tab-separated so a person can drive it with `socat` while debugging. Replies are
- * JSON because a program reads them.
+ * The admin control channel: a Unix domain socket, one tab-separated line in and one line of JSON
+ * out. It's a socket so filesystem permissions guard it instead of a network password; the web
+ * admin reaches it through a shared volume. Tabs so you can drive it with `socat`.
  */
 class ControlServer(
     private val socketFile: java.io.File,
@@ -50,8 +42,7 @@ class ControlServer(
     private var channel: ServerSocketChannel? = null
 
     fun start(scope: CoroutineScope): Job {
-        // A socket file left behind by a crash would make bind fail, and nothing else can properly
-        // own this path.
+        // A socket file left by a crash would make bind fail.
         Files.deleteIfExists(socketFile.toPath())
         socketFile.parentFile?.mkdirs()
 
@@ -65,8 +56,7 @@ class ControlServer(
             try {
                 while (isActive) {
                     val client = server.accept()
-                    // Serve inline. Requests are a single short line and the admin page makes them
-                    // one at a time, so a thread per connection would be machinery for no traffic.
+                    // Served inline: requests are one short line, one at a time.
                     runCatching { serve(client) }
                     runCatching { client.close() }
                 }
@@ -88,8 +78,7 @@ class ControlServer(
 
         val line = reader.readLine() ?: return
         val reply = runCatching { dispatch(line) }.getOrElse { failure ->
-            // A bad request mustn't take the channel down. The admin page will show the message and
-            // carry on.
+            // A bad request answers with an error and doesn't take the channel down.
             error(failure.message ?: failure::class.simpleName ?: "unknown error")
         }
         writer.write(reply)

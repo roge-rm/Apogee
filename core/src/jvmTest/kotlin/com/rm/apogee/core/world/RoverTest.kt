@@ -7,11 +7,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Rovers: the claim that a vehicle class is a bag of modules, not a system.
- *
- * Nothing here adds a code path to the step loop. A wheel is a landing leg whose friction is split
- * along its rolling axis and which can be driven, and driving is the throttle already in
- * [com.rm.apogee.core.craft.ControlState].
+ * Rovers are just modules. A wheel is a driven landing leg with its friction split along the
+ * rolling axis, and driving is the throttle in [com.rm.apogee.core.craft.ControlState].
  */
 class RoverTest {
 
@@ -21,7 +18,7 @@ class RoverTest {
     private fun worldWithRover(): Pair<World, com.rm.apogee.core.craft.Vessel> {
         val world = World.default(catalog)
         val rover = world.spawnOnSurface(StockCraft.rover(catalog), World.launchSites.first())
-        // Let it settle onto its suspension before anything is asked of it.
+        // Let it settle onto its suspension.
         repeat(120) { world.step(dt) }
         return world to rover
     }
@@ -53,18 +50,14 @@ class RoverTest {
 
         val speed = groundSpeed(world, rover)
         assertTrue("the rover never got moving (${speed} m/s)", speed > 8.0)
-        // The motor fades out near its top speed, so a rover has one. Without that it just keeps
-        // speeding up, which is a sled, not a vehicle.
+        // The motor fades out near top speed, so there is one.
         assertTrue(
             "a rover doing ${speed} m/s has no top speed",
             speed < 25.0,
         )
     }
 
-    /**
-     * The point of the friction split. The same craft on landing legs can't be driven at all,
-     * because ordinary ground friction pins it.
-     */
+    /** On plain landing legs, ground friction pins a craft. The friction split lets it roll. */
     @Test
     fun `wheels are what make it drivable`() {
         val (world, rover) = worldWithRover()
@@ -83,7 +76,7 @@ class RoverTest {
         assertTrue("wheels should move and legs should not", onWheels > groundSpeed(legWorld, onLegs) + 2.0)
     }
 
-    /** Heading over the ground, which is the only frame a driver cares about. */
+    /** Velocity over the ground. */
     private fun groundVelocity(
         world: World,
         vessel: com.rm.apogee.core.craft.Vessel,
@@ -101,9 +94,8 @@ class RoverTest {
         rover.control.throttle = 1.0
         repeat(240) { world.step(dt) }
 
-        // Ground-relative, not inertial. The surface moves at 175 m/s at the equator, so an
-        // inertial heading is almost all the planet's rotation, and a rover turning hard barely
-        // shows up in it. That's exactly how this test first claimed steering did nothing.
+        // Ground-relative: at the equator the surface moves at 175 m/s, which swamps a turn in an
+        // inertial heading.
         val before = groundVelocity(world, rover, com.rm.apogee.core.math.Vec3())
         rover.control.yaw = 1.0
         repeat(360) { world.step(dt) }
@@ -128,7 +120,7 @@ class RoverTest {
         )
     }
 
-    /** And it stays on its wheels doing it. Full-friction brakes flipped it. */
+    /** And it stays on its wheels doing it. */
     @Test
     fun `brakes stop it`() {
         val (world, rover) = worldWithRover()
@@ -138,8 +130,7 @@ class RoverTest {
 
         rover.control.throttle = 0.0
         rover.control.brakes = true
-        // Brake friction of 0.35 is about three and a half metres a second every second, so six
-        // seconds from top speed, and eight is a stop with room to spare.
+        // Brake friction 0.35 is about 3.5 m/s per second: six seconds from top speed.
         repeat(480) { world.step(dt) }
         assertTrue(
             "from $cruising m/s, still doing ${groundSpeed(world, rover)} after eight seconds of brakes",
@@ -150,7 +141,7 @@ class RoverTest {
         assertTrue("it went over braking", (mast dot up) > 0.9)
     }
 
-    /** Coasting, on the other hand, goes a long way, which is what a wheel is for. */
+    /** Coasting goes a long way. */
     @Test
     fun `without brakes it coasts`() {
         val (world, rover) = worldWithRover()
@@ -170,12 +161,7 @@ class RoverTest {
         assertTrue("it drove through its brakes", groundSpeed(world, rover) < 0.5)
     }
 
-    /**
-     * Out into the real country, flat out, for a minute: about a kilometre, off the levelled pad
-     * and over the basin's hills. It has to still be on its wheels at the end. Ground rough enough
-     * to throw a rover over at speed isn't fun to drive, and the first cut of this terrain was like
-     * that.
-     */
+    /** Flat out for a minute, about a kilometre over the hills past the pad, and still upright. */
     @Test
     fun `a rover can cross the country around the Cape`() {
         val (world, rover) = worldWithRover()
@@ -189,10 +175,7 @@ class RoverTest {
         assertTrue("stopped moving: $travelled m/s", travelled > 3.0)
     }
 
-    /**
-     * Flat out along the runway and hard over. Its steering gives less lock the faster it goes, and
-     * it stays on its wheels. At full lock at eleven metres a second, the Trundler once rolled.
-     */
+    /** Flat out and hard over. Steering gives less lock at speed, so it stays on its wheels. */
     @Test
     fun `hard over at top speed, it turns and stays on its wheels`() {
         val world = World.default(catalog)

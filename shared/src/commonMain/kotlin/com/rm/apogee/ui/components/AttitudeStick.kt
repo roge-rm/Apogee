@@ -29,14 +29,8 @@ import kotlin.math.hypot
 import kotlin.math.roundToInt
 
 /**
- * A self-centring two-axis stick for pitch and yaw.
- *
- * It springs back to neutral when you let go, because a rocket left with a held deflection will
- * happily keep rotating until it's pointing at the ground, and a player has no reason to expect
- * lifting a thumb to mean "keep turning".
- *
- * The touch target is the whole box, not the knob. Chasing a small knob with a thumb is exactly
- * what makes touch flight controls feel broken.
+ * A self-centring two-axis stick for pitch and yaw. It springs back when you let go, so lifting a
+ * thumb stops the turn. The whole box is the touch target, so you never chase the knob.
  */
 @Composable
 fun AttitudeStick(
@@ -59,8 +53,7 @@ fun AttitudeStick(
             dy /= magnitude
         }
         knob = Offset(dx, dy)
-        // Screen +Y is down, and pulling the stick back should pitch the nose up, so the vertical
-        // axis is flipped here, like on an aircraft stick.
+        // Screen +Y is down. Flipped so pulling back pitches the nose up, like an aircraft stick.
         onChange(-dy, dx)
     }
 
@@ -86,7 +79,7 @@ fun AttitudeStick(
                 }
             },
     ) {
-        // A neutral marker, so you can see the centre when the stick is let go.
+        // Marks the centre.
         Box(
             Modifier
                 .align(androidx.compose.ui.Alignment.Center)
@@ -111,10 +104,7 @@ fun AttitudeStick(
 }
 
 /**
- * A momentary button that reports held and released, for roll.
- *
- * Roll gets buttons instead of a third stick axis. A twist gesture would fight with the camera
- * drag, and roll is used in separate small corrections, not all the time.
+ * A button that reports held and released, for roll. A twist gesture would fight the camera drag.
  */
 @Composable
 fun HoldButton(
@@ -137,8 +127,7 @@ fun HoldButton(
                     awaitFirstDown()
                     held = true
                     onHold(true)
-                    // Wait for every pointer to lift. A drag that wanders off the button still has
-                    // to release it, or roll sticks on with nothing to show why.
+                    // Wait for every pointer to lift, so a drag that wanders off still releases.
                     do {
                         val event = awaitPointerEvent()
                     } while (event.changes.any { it.pressed })

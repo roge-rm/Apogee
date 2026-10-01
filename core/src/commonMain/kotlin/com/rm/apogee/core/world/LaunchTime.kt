@@ -23,8 +23,7 @@ enum class LaunchTime(val label: String, /** The sun's hour angle at the site, i
         val target = hourAngle ?: return from
         val period = body.rotationPeriod
         if (period <= 0.0) return from
-        // The site's hour angle now: how far round it is from facing the sun, measured around the
-        // spin axis, in the direction the ground turns.
+        // The site's hour angle now, round the spin axis in the direction the ground turns.
         val now = hourAngleAt(body, site, sun, from)
         var wait = (target - now) / (2 * Math.PI) * period
         wait = ((wait % period) + period) % period

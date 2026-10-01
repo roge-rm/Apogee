@@ -127,7 +127,7 @@ async function refresh() {
 el("save").onclick = () => post("/api/save");
 
 el("stop").onclick = () => {
-  if (!confirm("Stop the server? It saves the world on the way down.")) return;
+  if (!confirm("Stop the server? It saves first.")) return;
   post("/api/stop");
 };
 

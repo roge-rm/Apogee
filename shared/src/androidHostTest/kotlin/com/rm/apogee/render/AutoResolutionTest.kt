@@ -14,8 +14,7 @@ class AutoResolutionTest {
         }
     }
 
-    // The mid-range phone the Flat Top was timed on: 26 fps at full resolution, 41 at two thirds,
-    // 51 at half, near enough in proportion to the pixels drawn.
+    // A mid-range phone with the Flat Top: 26 fps at full resolution, 41 at two thirds, 51 at half.
     private val phone: (Double) -> Double = { scale -> (26.0 / (0.42 + 0.58 * scale * scale)).coerceAtMost(60.0) }
 
     @Test

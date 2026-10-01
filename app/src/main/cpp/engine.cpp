@@ -1,5 +1,4 @@
-// The device end of the sound engine: an Oboe output stream feeding the synth, and the JNI the
-// Kotlin side drives it through.
+// The device end of the sound engine: an Oboe stream feeding the synth, and the JNI Kotlin calls.
 #include <jni.h>
 #include <android/log.h>
 #include <oboe/Oboe.h>
@@ -43,7 +42,7 @@ public:
         return oboe::DataCallbackResult::Continue;
     }
 
-    // Headphones in or out, or a Bluetooth device gone, so open a new stream.
+    // The device changed (headphones, Bluetooth), so open a new stream.
     void onErrorAfterClose(oboe::AudioStream*, oboe::Result error) override {
         __android_log_print(ANDROID_LOG_INFO, kTag, "stream closed (%s), reopening", oboe::convertToText(error));
         std::lock_guard<std::mutex> lock(mutex_);
@@ -68,11 +67,10 @@ private:
             __android_log_print(ANDROID_LOG_WARN, kTag, "could not open a stream: %s", oboe::convertToText(result));
             return false;
         }
-        // Made once, at the first stream's rate, and kept, because the game thread holds on to it
-        // across device changes.
+        // Made once at the first stream's rate and kept: the game thread holds it across device
+        // changes.
         if (!synth_) synth_ = std::make_unique<apogee::Synth>(static_cast<float>(stream_->getSampleRate()), budget_);
-        // Four bursts of slack. A game's frames can stall the phone for a moment, and running dry
-        // sounds like crackle. A few milliseconds more latency isn't heard at all.
+        // Four bursts of slack, so a stalled frame doesn't run the buffer dry and crackle.
         stream_->setBufferSizeInFrames(stream_->getFramesPerBurst() * 4);
         result = stream_->requestStart();
         __android_log_print(ANDROID_LOG_INFO, kTag, "stream %d Hz, burst %d, %s", stream_->getSampleRate(),
@@ -114,8 +112,7 @@ Java_com_rm_apogee_audio_Synth_nativeScene(JNIEnv* env, jobject, jint count, jin
     if (!engine || !engine->synth()) return;
     apogee::Scene scene;
     scene.count = std::min(static_cast<int>(count), apogee::kMaxSceneEntries);
-    // Only the entries in use, straight into the stack. Taking the arrays' elements copied every
-    // one of them, the whole budget, and freed them again, every frame.
+    // Copy only the entries in use onto the stack, not the whole arrays.
     jint k[apogee::kMaxSceneEntries];
     jint r[apogee::kMaxSceneEntries];
     jint f[apogee::kMaxSceneEntries];

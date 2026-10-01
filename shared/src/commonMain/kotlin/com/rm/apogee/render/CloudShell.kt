@@ -8,10 +8,9 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 /**
- * A planet's cloud as you see it from far off: a thin veil over the whole globe, a little above the
- * ground. It's white where the decks are thick, faint where they thin out, and clear in between,
- * which is what cloud cover looks like from orbit. It's one sheet with the opacity at each vertex,
- * not a scatter of puffs, because from a distance those look like plates laid on the planet.
+ * A planet's cloud seen from far off: one thin veil a little above the ground, white where decks
+ * are thick, faint where they thin and clear between. Opacity is per vertex; puffs would look like
+ * plates laid on the planet from this far.
  *
  * Vertices are in body radii, like the globe's: x, y, z, then r, g, b, a.
  */
@@ -23,13 +22,12 @@ class CloudShell(val vertices: FloatArray, val indices: IntArray, val revision: 
         /** Latitude divisions. Longitude gets twice as many. */
         const val RINGS = 64
 
-        /** The most the veil floats up, as a share of the body's radius: over the mountains, and under nothing. */
+        /** The most the veil lifts, as a share of the body's radius. */
         private const val LIFT = 0.012
 
         /**
-         * The veil for a body of [radius] m at [height] m up. The cover at each vertex comes from
-         * [cover] (0..1, given a unit body-fixed direction), and its shade from [shade] (1 is
-         * white, lower for a storm's grey).
+         * The veil for a body of [radius] m at [height] m up. [cover] gives the cover at each unit
+         * body-fixed direction (0..1) and [shade] its shade (1 is white, lower for storm grey).
          */
         fun build(
             radius: Double,
@@ -53,8 +51,8 @@ class CloudShell(val vertices: FloatArray, val indices: IntArray, val revision: 
                     val theta = 2.0 * PI * segment / segments
                     direction.setTo(across * cos(theta), y, across * sin(theta))
                     val amount = cover(direction)
-                    // Nothing below a fifth (a clear sky), and nearly white where it's thick, so
-                    // the sea and land show in between.
+                    // Clear below a fifth and nearly white where thick, so sea and land show
+                    // between.
                     val t = ((amount - 0.2) / 0.75).coerceIn(0.0, 1.0)
                     val alpha = t * t * (3.0 - 2.0 * t) * 0.85
                     val grey = shade(direction).coerceIn(0.4, 1.0)
@@ -72,8 +70,8 @@ class CloudShell(val vertices: FloatArray, val indices: IntArray, val revision: 
             for (ring in 0 until rings) for (segment in 0 until segments) {
                 val a = ring * (segments + 1) + segment
                 val b = a + segments + 1
-                // Either way round is fine. It's drawn from both sides, and the globe in front
-                // hides the far half.
+                // Winding doesn't matter: it's drawn from both sides and the globe hides the far
+                // half.
                 indices[k++] = a; indices[k++] = a + 1; indices[k++] = b
                 indices[k++] = a + 1; indices[k++] = b + 1; indices[k++] = b
             }

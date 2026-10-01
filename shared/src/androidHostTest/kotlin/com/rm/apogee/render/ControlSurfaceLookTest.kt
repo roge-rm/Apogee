@@ -11,9 +11,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * A control surface is drawn deflecting the way that makes the force the physics applies. Its
- * trailing edge goes one way, and the air pushes the surface the other. Drawn backwards, an elevon
- * would visibly contradict what the plane then does.
+ * A control surface is drawn deflecting to match the physics: the trailing edge moves against the
+ * force the air puts on it.
  */
 class ControlSurfaceLookTest {
 
@@ -35,14 +34,12 @@ class ControlSurfaceLookTest {
                 val d = plane.surfaceDeflection[i]
                 if (!surface.controllable || kotlin.math.abs(d) < 1e-3) continue
                 val placed = plane.design.parts[i]
-                // The force the physics applies: across the fuselage (+Y) and the mounting radius,
-                // signed by the deflection.
+                // The physics' force: across the fuselage (+Y) and the radius, signed by deflection.
                 val offset = Vec3().setTo(placed.position).subInPlace(centre)
                 val radial = Vec3(offset.x, 0.0, offset.z).normalizeInPlace()
                 val force = Vec3(0.0, 1.0, 0.0).cross(radial).normalizeInPlace().mulInPlace(Math.signum(d))
 
-                // Where the drawn trailing edge moves: the hinged piece's trailing edge, posed at
-                // rest and at this deflection.
+                // The hinged piece's trailing edge, at rest and at this deflection.
                 val model = def.model as ModelSpec.Compound
                 val hinged = model.pieces.first { it.role == PieceRole.HINGED }
                 check(hinged.model is ModelSpec.Fin)

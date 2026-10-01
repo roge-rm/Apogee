@@ -55,22 +55,13 @@ fun HostGameScreen(
 ) {
     Backdrop(maxContentWidth = Dimens.PanelContentMaxWidth) { contentModifier ->
         Text("Host a Game", style = MaterialTheme.typography.titleLarge, color = Color.White)
-        Spacer(Modifier.height(8.dp))
-        Text(
-            "Others on the same network will see this game in their list.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = Color.White.alpha(ApogeeAlpha.BODY),
-            textAlign = TextAlign.Center,
-            modifier = contentModifier,
-        )
 
-        // The world on this phone that the others join: the career, where each player who joins has
-        // a career of their own, or the sandbox.
+        // Which world on this phone the others join.
         SectionHeading("World", contentModifier)
         PillRow(listOf("Career" to true, "Sandbox" to false), career, onCareer)
         Spacer(Modifier.height(6.dp))
         Text(
-            if (career) "Your career world. Everyone who joins starts a career of their own in it." else "Your sandbox: everything unlocked, for everyone.",
+            if (career) "Everyone who joins starts their own career" else "Everything unlocked, for everyone",
             style = MaterialTheme.typography.bodySmall,
             color = Color.White.alpha(ApogeeAlpha.SECONDARY),
             textAlign = TextAlign.Center,
@@ -90,7 +81,6 @@ fun HostGameScreen(
             "Start hosting",
             onStartHosting,
             contentModifier,
-            subtitle = "You'll play while others join",
         )
         Spacer(Modifier.height(12.dp))
         com.rm.apogee.ui.components.BackButton(onBack)
@@ -135,11 +125,9 @@ fun JoinGameScreen(
                 }
                 Spacer(Modifier.height(12.dp))
                 Text(
-                    // Naming the usual causes matters. Discovery is a UDP broadcast, and a VPN, a
-                    // guest network or a server on another subnet all swallow it without a word,
-                    // while the game itself can still be reached perfectly well by address.
-                    "Games announce themselves over Wi\u2011Fi. A VPN or a guest " +
-                        "network will hide them, so type the address instead.",
+                    // Discovery is a UDP broadcast, which a VPN, guest network or other subnet
+                    // drops silently. The game is still reachable by address.
+                    "A VPN or a guest network hides games, so type the address instead.",
                     style = MaterialTheme.typography.bodySmall,
                     color = Color.White.alpha(ApogeeAlpha.SUBTITLE),
                     textAlign = TextAlign.Center,
@@ -176,13 +164,7 @@ fun JoinGameScreen(
     }
 }
 
-/**
- * Connecting to a typed address.
- *
- * It's always on screen, not hidden behind a "having trouble?" link. For anyone on a VPN, or
- * joining a server that isn't on their own network, this isn't the fallback path, it's the only
- * path.
- */
+/** Connecting to a typed address. Always shown: on a VPN or another network it's the only way. */
 @Composable
 private fun ManualAddressEntry(
     address: String,
@@ -204,8 +186,7 @@ private fun ManualAddressEntry(
                 color = Color.White.alpha(ApogeeAlpha.SUBTITLE),
             )
         },
-        // A URI keyboard puts the dots and digits on the first page and, just as important, doesn't
-        // capitalise or autocorrect what you type.
+        // A URI keyboard has dots and digits up front and doesn't capitalise or autocorrect.
         keyboardOptions = KeyboardOptions(
             keyboardType = KeyboardType.Uri,
             imeAction = ImeAction.Go,
@@ -215,7 +196,7 @@ private fun ManualAddressEntry(
     )
     Spacer(Modifier.height(4.dp))
     Text(
-        "Port $defaultPort unless you add one, as in 10.0.0.233:$defaultPort.",
+        "Port $defaultPort unless you add one",
         style = MaterialTheme.typography.labelSmall,
         color = Color.White.alpha(ApogeeAlpha.SUBTITLE),
         textAlign = TextAlign.Center,
@@ -258,8 +239,7 @@ private fun ServerRow(
                 color = if (joinable) Color.White else Color.White.alpha(ApogeeAlpha.BORDER),
             )
             Text(
-                // Naming the reason matters. "Different parts" is something you can act on, and a
-                // greyed-out row that says nothing isn't.
+                // Says why a game can't be joined.
                 incompatibility ?: "${server.beacon.address}  ·  " +
                     "${server.beacon.players} playing",
                 style = MaterialTheme.typography.labelSmall,

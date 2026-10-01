@@ -8,15 +8,14 @@ import com.rm.apogee.core.terrain.Deposits
 import com.rm.apogee.core.math.Math
 
 /**
- * A surveyed body's ore or water, sampled on a latitude-longitude grid for the map. It's worked out
- * once per body and resource on its own thread (a few thousand terrain samples, too many for a
- * frame) and kept for as long as the app runs, since the ground is the same in every world.
+ * A surveyed body's ore or water on a latitude-longitude grid, for the map. Built once per body and
+ * resource on its own thread (thousands of terrain samples) and kept while the app runs, since the
+ * ground is the same in every world.
  */
 object RichnessGrid {
 
     /**
-     * The points worth drawing: a body-fixed unit direction x, y, z, then richness, four floats
-     * each.
+     * The points worth drawing: body-fixed unit direction x, y, z, then richness. Four floats each.
      */
     class Points(val data: FloatArray) {
         val count: Int get() = data.size / 4

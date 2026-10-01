@@ -3,12 +3,7 @@ package com.rm.apogee.render
 import com.rm.apogee.render.gl.GLES30
 import com.rm.apogee.render.gl.GlData
 
-/**
- * An index buffer uploaded once and bound by many meshes.
- *
- * Every terrain chunk has the same topology (only its vertices are different), so there's one copy
- * of the triangle list on the GPU instead of several hundred identical ones.
- */
+/** An index buffer uploaded once and shared by every terrain chunk, which all have the same topology. */
 class SharedIndexBuffer(indices: ShortArray) {
     val id: Int
     val count: Int = indices.size
@@ -28,13 +23,9 @@ class SharedIndexBuffer(indices: ShortArray) {
 }
 
 /**
- * A terrain mesh on the GPU: position, normal, colour and wetness.
+ * A terrain mesh on the GPU: position, normal, colour (from [TerrainPalette]) and wetness.
  *
- * The colour arrives already decided, from [TerrainPalette] on the CPU, so the shader only lights
- * it. Wetness marks water, which the shader gives a glint.
- *
- * @param shared the index buffer to draw with. Null for a mesh with its own triangle list, which is
- *     the globe.
+ * @param shared the index buffer to draw with. Null for the globe, which has its own.
  */
 class TerrainMesh(private val shared: SharedIndexBuffer? = null) {
 
@@ -103,17 +94,13 @@ class TerrainMesh(private val shared: SharedIndexBuffer? = null) {
     fun draw() {
         if (!isReady) return
         GLES30.glBindVertexArray(vao[0])
-        // A mesh with its own indices is the globe, numbered in 32 bits. Chunks share a 16-bit
-        // list.
+        // The globe's own indices are 32-bit; chunks share a 16-bit list.
         val type = if (shared == null) GLES30.GL_UNSIGNED_INT else GLES30.GL_UNSIGNED_SHORT
         GLES30.glDrawElements(GLES30.GL_TRIANGLES, indexCount, type, 0)
         GLES30.glBindVertexArray(0)
     }
 
-    /**
-     * Draws only the quarters in [mask] of a chunk drawn with the shared, quarter-by-quarter index
-     * buffer. See [TerrainChunk.indices].
-     */
+    /** Draws only the quarters in [mask] of a chunk. See [TerrainChunk.indices]. */
     fun drawQuadrants(mask: Int) {
         if (mask == DrawEntry.ALL_QUADRANTS) return draw()
         if (!isReady) return
@@ -133,11 +120,7 @@ class TerrainMesh(private val shared: SharedIndexBuffer? = null) {
     }
 
     private companion object {
-        /**
-         * One buffer to stage every upload through, grown as needed. GL thread only. A fresh direct
-         * buffer for each chunk was native memory the collector had to finalise, a dozen a frame in
-         * flight.
-         */
+        /** One staging buffer for every upload, grown as needed, so chunks don't churn native memory. GL thread only. */
         private var stagingBuffer: GlData? = null
 
         fun staging(bytes: Int): GlData {

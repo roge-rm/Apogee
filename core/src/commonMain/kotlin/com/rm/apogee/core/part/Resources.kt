@@ -4,12 +4,8 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 /**
- * Things a craft carries and uses up.
- *
- * This is deliberately a small fixed set instead of a fully data-driven resource system. The v1
- * catalogue needed two of these, and an enum keeps tank plumbing and the delta-v calculation honest
- * at compile time. Widening it later is a simple change, whereas untangling a resource graph held
- * together with strings isn't.
+ * Things a craft carries and uses up. A small fixed enum, so tank plumbing and delta-v are checked
+ * at compile time.
  */
 @Serializable
 enum class ResourceType(
@@ -17,19 +13,14 @@ enum class ResourceType(
     val densityPerUnit: Double,
     val displayName: String,
 ) {
-    /**
-     * Bipropellant, modelled as one substance. Splitting fuel and oxidiser into separate resources
-     * adds mixture-ratio plumbing to every tank and engine, and gains nothing for getting a rocket
-     * to orbit. The two can be separated later without touching anything outside this file and the
-     * catalogue.
-     */
+    /** Fuel and oxidiser as one substance. No mixture ratios to track. */
     @SerialName("propellant")
     PROPELLANT(densityPerUnit = 5.0, displayName = "Propellant"),
 
     @SerialName("monopropellant")
     MONOPROPELLANT(densityPerUnit = 4.0, displayName = "Monopropellant"),
 
-    /** Massless by convention, the same as most games like this. */
+    /** Massless. */
     @SerialName("electricCharge")
     ELECTRIC_CHARGE(densityPerUnit = 0.0, displayName = "Electric Charge"),
 

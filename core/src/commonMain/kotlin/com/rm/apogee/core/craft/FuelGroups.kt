@@ -4,23 +4,17 @@ import com.rm.apogee.core.part.Decoupler
 import com.rm.apogee.core.part.PartDef
 
 /**
- * Which parts share propellant.
+ * Which parts share propellant: those connected without a non-feeding decoupler between. Without
+ * this an engine would drain every tank and staging would mean nothing.
  *
- * Parts are in the same group when they're connected without a decoupler in between, because the
- * decoupler is where the plumbing stops. This rule is what makes staging mean anything. Without it
- * an engine draws from every tank on the craft, so a first stage quietly burns the upper stage's
- * propellant and separating gets you nothing except lost mass.
- *
- * Both the live simulation ([Vessel]) and the builder's delta-v analysis ([CraftStats]) use this on
- * purpose. Two versions of the rule would eventually disagree, and the builder would confidently
- * predict a flight the simulation couldn't fly.
+ * The simulation ([Vessel]) and the builder's delta-v ([CraftStats]) both use this, so they can't
+ * disagree.
  */
 object FuelGroups {
 
     /**
-     * @param members the part indices to consider. Others are treated as not there. The builder
-     *     uses this to analyse a craft part way through its staging sequence, with earlier stages
-     *     already thrown away.
+     * @param members the part indices to consider; others are treated as absent. The builder uses
+     * this to analyse a craft part way through staging.
      * @return the group id for each part index, or -1 for parts not in [members].
      */
     fun compute(
@@ -52,7 +46,7 @@ object FuelGroups {
 
             while (queue.isNotEmpty()) {
                 val current = queue.removeFirst()
-                // A decoupler joins nothing. It's where the plumbing stops.
+                // A decoupler joins nothing.
                 if (blocks(current)) continue
 
                 val neighbours = ArrayList<Int>(children[current].size + 1)
@@ -73,10 +67,9 @@ object FuelGroups {
     }
 
     /**
-     * Which tanks are drunk first: each part's feed tier, the number of feeding decouplers between
-     * it and the root it hangs from. A side booster on a feed clamp is 1, one on a booster is 2,
-     * and the core is 0. The highest tier with anything in it is drawn from first, so the boosters
-     * run dry in order, outside in, and the core stays full until they've gone.
+     * Which tanks drain first: each part's feed tier, the number of feeding decouplers between it
+     * and the root. Core is 0, a booster on a feed clamp 1, one on a booster 2. The highest tier
+     * with anything left drains first, so boosters empty outside in and the core stays full.
      */
     fun tiers(design: CraftDesign, defs: List<PartDef>): IntArray {
         val count = design.parts.size

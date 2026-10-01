@@ -14,12 +14,9 @@ import kotlin.math.sin
 import com.rm.apogee.core.math.Math
 
 /**
- * How the giants look: banded by latitude, torn along the bands' edges, each with its own mark
- * (Magna's great red storm, Aurea's hexagon round its north pole, Caerula's dark spot), and their
- * rings.
- *
- * [colour] is per vertex of the giant's globe, both when it's the world a craft is at and when it's
- * seen across space from its moons.
+ * How the giants look: bands by latitude, torn at the edges, each giant's own mark (Magna's red
+ * storm, Aurea's polar hexagon, Caerula's dark spot), and rings. [colour] is per vertex of the
+ * globe, both up close and seen from its moons.
  */
 object GiantLook {
 
@@ -32,8 +29,8 @@ object GiantLook {
         /** How torn the bands' edges are, 0..1. */
         val turbulence: Double,
         /**
-         * The storm: latitude, longitude (degrees), half-width and half-height (rad), and colour,
-         * or null.
+         * The storm: lat, lon (degrees), half-width and half-height (rad) and colour. Null for
+         * none.
          */
         val spot: Spot?,
         val hexagon: Boolean = false,
@@ -78,7 +75,7 @@ object GiantLook {
         val look = LOOKS[bodyId] ?: return
         val lat = asin(d.y.coerceIn(-1.0, 1.0))
         val lon = atan2(d.z, d.x)
-        // The bands' edges wander and tear, more on a stormy giant.
+        // Band edges wander and tear, more on a stormy giant.
         val wobble = look.turbulence * 0.06 * Noise.simplex(bodyId.hashCode(), d.x * 6.0, d.y * 2.0, d.z * 6.0)
         val c = band(look, lat + wobble)
         var r = c[0]; var g = c[1]; var b = c[2]

@@ -1,9 +1,8 @@
 package com.rm.apogee.input
 
 /**
- * A controller's buttons, by the names Android and the browser's standard gamepad give them. A is
- * the bottom face button, B the right, X the left and Y the top, whatever's printed on them. L2 and
- * R2 are triggers, and read how far they're pressed.
+ * A controller's buttons, by their Android and standard-gamepad names. A is the bottom face
+ * button, B right, X left, Y top, whatever's printed on them. L2 and R2 are analog triggers.
  */
 enum class PadButton(val id: String, val label: String) {
     A("a", "A"),
@@ -48,8 +47,8 @@ enum class PadLayer(val id: String, val label: String) {
 }
 
 /**
- * What a button can do. A [held] one works for as long as it's down (and on a trigger, as hard as
- * it's pressed). The rest happen once, as it goes down.
+ * What a button can do. A [held] one works while it's down (a trigger by how hard); the rest fire
+ * once on press.
  */
 enum class PadGroup(val label: String) {
     FLYING("Flying"),
@@ -113,9 +112,8 @@ enum class PadAction(val id: String, val label: String, val group: PadGroup, val
 /**
  * Which button does what, and what each stick does, flying and on foot.
  *
- * It's saved as a short line of text ("f.a=stage;f.ls=steer;e.a=jump…"). Anything that line
- * doesn't mention, or mentions by a name this version doesn't know, is taken from [RETROID_MINI],
- * so a layout saved before a new action existed still loads, with the new one where it belongs.
+ * Saved as a short line ("f.a=stage;f.ls=steer;e.a=jump…"). Anything missing or unknown comes from
+ * [RETROID_MINI], so an older layout still loads with new actions where they belong.
  */
 class PadBindings private constructor(
     private val buttons: Map<PadLayer, Map<PadButton, PadAction>>,
@@ -151,11 +149,10 @@ class PadBindings private constructor(
 
     companion object {
         /**
-         * The layout for the Retroid Pocket Mini V2, and the default: the left stick steers and
-         * the right one looks, the triggers work the throttle, the shoulders roll, A stages (held),
-         * B brakes, X is SAS, Y the map, the D-pad zooms and warps, the stick clicks are thrusters
-         * and camera mode, Select is gear and legs, and Start the flight menu. On foot, A jumps,
-         * B grabs a ladder, X boards and Select plants a flag.
+         * The Retroid Pocket Mini V2 layout, and the default: left stick steers, right looks,
+         * triggers throttle, shoulders roll, A stages, B brakes, X is SAS, Y the map, D-pad zooms
+         * and warps, stick clicks are thrusters and camera mode, Select gear and legs, Start the
+         * flight menu. On foot, A jumps, B grabs a ladder, X boards and Select plants a flag.
          */
         val RETROID_MINI: PadBindings = run {
             val flying = mapOf(
@@ -181,7 +178,7 @@ class PadBindings private constructor(
                 PadButton.B to PadAction.GRAB,
                 PadButton.X to PadAction.BOARD,
                 PadButton.SELECT to PadAction.FLAG,
-                // The triggers work the throttle flying, and there's none on foot.
+                // The triggers swim on foot, since there's no throttle.
                 PadButton.L2 to PadAction.SWIM_DOWN,
                 PadButton.R2 to PadAction.SWIM_UP,
             )

@@ -7,11 +7,8 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 /**
- * Something a player asks the world to do.
- *
- * Commands go from client to server and get applied at a tick boundary, never in the middle of a
- * step. Applying them mid-step would make the result depend on where in the vessel loop the command
- * landed, which is exactly the kind of ordering problem that makes a replay stop matching.
+ * Something a player asks the world to do. Applied at a tick boundary, never mid-step, so the
+ * result doesn't depend on where in the vessel loop it landed.
  */
 @Serializable
 sealed interface Command {
@@ -200,38 +197,28 @@ sealed interface Command {
     @SerialName("spawnCraft")
     data class SpawnCraft(val design: CraftDesign, val siteId: String) : Command
 
-    /**
-     * Welds this craft to whatever it's resting against.
-     *
-     * With no target, the world picks the nearest craft that's actually touching. A player pushing
-     * one module up against another shouldn't also have to point out which one, and on a touch
-     * screen there's nothing sensible to tap.
-     */
+    /** Welds this craft to the nearest craft it's touching. */
     @Serializable
     @SerialName("join")
     data class Join(val vessel: Long) : Command
 
     /**
      * Pins this craft to the ground where it rests, founding a base, or with [anchored] false, lets
-     * it go again. Only a craft with a working foundation, at rest. The world checks.
+     * it go. The world checks it has a working foundation and is at rest.
      */
     @Serializable
     @SerialName("anchor")
     data class Anchor(val vessel: Long, val anchored: Boolean) : Command
 
     /**
-     * Fill this craft from the base whose pad it stands on, or that it's docked to: propellant,
-     * monopropellant and charge, as far as the base has them and has the power to pump. Or with
-     * [active] false, stop.
+     * Fill this craft's propellant, monopropellant and charge from the base it stands on or is
+     * docked to, as far as the base has them and the power to pump. [active] false stops.
      */
     @Serializable
     @SerialName("refuel")
     data class Refuel(val vessel: Long, val active: Boolean) : Command
 
-    /**
-     * Two players' craft are docked, and this says who flies the combined craft [vessel]. [pilot]
-     * is a player's client id, or empty for either of them.
-     */
+    /** Who flies two players' docked craft [vessel]: a client id, or empty for either. */
     @Serializable
     @SerialName("setDockPilot")
     data class SetDockPilot(val vessel: Long, val pilot: String) : Command
@@ -241,13 +228,7 @@ sealed interface Command {
     @SerialName("undock")
     data class Undock(val vessel: Long, val part: Int) : Command
 
-    /**
-     * Fly a different craft.
-     *
-     * This is the partner to launching. In a world you leave things in, the craft you want is
-     * usually not the one you're in. Only craft the player owns can be switched to, and the server
-     * checks that.
-     */
+    /** Fly a different craft. Only your own; the server checks. */
     @Serializable
     @SerialName("switchVessel")
     data class SwitchVessel(val vessel: Long) : Command
@@ -257,26 +238,19 @@ sealed interface Command {
     data class Chat(val text: String) : Command
 
     /**
-     * How fast the world runs, as a multiple of real time, with 0 to pause. It's only honoured by a
-     * server that allows it, with nobody else on it, because one player can't stop or speed up
-     * everyone else's world.
+     * How fast the world runs, times real time, with 0 to pause. Only honoured by a server that
+     * allows it with nobody else on it.
      */
     @Serializable
     @SerialName("setWarp")
     data class SetWarp(val rate: Double) : Command
 
-    /**
-     * As fast as the world allows until universe [time], then back to real time, for example to
-     * reach a planned burn. Honoured wherever [SetWarp] is.
-     */
+    /** As fast as allowed until universe [time], then real time. Honoured wherever [SetWarp] is. */
     @Serializable
     @SerialName("warpTo")
     data class WarpTo(val time: Double) : Command
 
-    /**
-     * Takes one of the player's own craft out of the world for good, either from the craft list or
-     * by retiring the one being flown.
-     */
+    /** Takes one of the player's own craft out of the world for good. */
     @Serializable
     @SerialName("removeVessel")
     data class RemoveVessel(val vessel: Long) : Command
@@ -288,12 +262,8 @@ sealed interface Command {
 }
 
 /**
- * One vessel's motion at a tick.
- *
- * It's small and sent constantly (20 Hz for each vessel in range), which is why it only carries
- * what changes all the time. Structure travels separately as [StructureUpdate], because a craft's
- * part list changes a handful of times per flight, and repeating it 20 times a second would eat the
- * bandwidth for no reason.
+ * One vessel's motion at a tick, sent at 20 Hz for each vessel in range, so it only carries what
+ * changes all the time. Structure goes separately as [StructureUpdate].
  */
 @Serializable
 data class VesselKinematics(
@@ -313,14 +283,12 @@ data class VesselKinematics(
      */
     val condition: ByteArray = ByteArray(0),
     /**
-     * Asleep on the server: parked on the ground, or riding the sea. A client's replica of it then
-     * needn't work out its physics, which for a ship asleep on the water it can't tell from how she
-     * moves.
+     * Asleep on the server: parked on the ground, or riding the sea. The client's replica then
+     * skips its physics, since it can't tell a ship asleep on the water from how she moves.
      */
     val asleep: Boolean = false,
 ) {
-    // Compared by content, because an array compares by identity, and two snapshots of the same
-    // craft are equal whether or not they share one.
+    // By content, since arrays compare by identity.
     override fun equals(other: Any?): Boolean =
         other is VesselKinematics && vessel == other.vessel && referenceBodyId == other.referenceBodyId &&
             position == other.position && rotation == other.rotation && velocity == other.velocity &&
@@ -349,9 +317,8 @@ data class Snapshot(
 )
 
 /**
- * A vessel's structure appearing, changing or going away.
- *
- * Sent on spawn, on decouple, and on destruction. [design] is null when the vessel is just gone.
+ * A vessel's structure appearing, changing or going away: sent on spawn, decouple and destruction.
+ * [design] is null when the vessel is gone.
  */
 @Serializable
 data class StructureUpdate(
@@ -361,21 +328,13 @@ data class StructureUpdate(
     /** Which stage the craft is on, so a client joining sees the right state. */
     val currentStage: Int = 0,
     val activatedParts: List<Int> = emptyList(),
-    /**
-     * Who this craft belongs to, or blank for debris.
-     *
-     * It's sent so the client can tell which craft are the player's own, and offer to switch
-     * between them without asking the server first.
-     */
+    /** Who this craft belongs to, or blank for debris. */
     val owner: String = "",
     /** The owner's display name, for labels and chat. Never matched on. */
     val ownerName: String = "",
     /**
-     * Parts that have failed, like a collapsed leg or a torn chute.
-     *
-     * It's carried alongside [activatedParts] instead of removing them from it, because they really
-     * are different states. A torn parachute is staged *and* useless, and mustn't look un-staged,
-     * or the client would show it as still available to deploy.
+     * Parts that have failed, like a collapsed leg or a torn chute. Kept apart from
+     * [activatedParts]: a torn chute is staged and useless, and mustn't look ready to deploy.
      */
     val brokenParts: List<Int> = emptyList(),
     /** Founded: pinned to the ground and immovable. See [World.anchor]. */
@@ -403,10 +362,7 @@ sealed interface ServerMessage {
         val serverName: String,
         /** The vessel this client controls, or -1 if there isn't one yet. */
         val controlledVessel: Long = -1,
-        /**
-         * What the world's weather is made from. That's all the client needs to work out the same
-         * wind for its replica and the same sky to draw. Null for still air.
-         */
+        /** What the weather is made from, so clients get the same wind and sky. Null for still air. */
         val weather: com.rm.apogee.core.weather.WeatherConfig? = null,
         /** [WorldSave.MODE_CAREER] or [WorldSave.MODE_SANDBOX]. */
         val mode: String = WorldSave.MODE_SANDBOX,
@@ -421,9 +377,8 @@ sealed interface ServerMessage {
     data class SnapshotMessage(val snapshot: Snapshot) : ServerMessage
 
     /**
-     * Your craft docked with another player's, and [vessel] is both of them now. [other] is their
-     * name, and [pilot] is who flies it, a client id, or empty for either of you. Sent again
-     * whenever that changes.
+     * Your craft docked with another player's into [vessel]. [other] is their name, and [pilot] who
+     * flies it, a client id, or empty for either. Sent again whenever that changes.
      */
     @Serializable
     @SerialName("dockedWith")
@@ -433,14 +388,7 @@ sealed interface ServerMessage {
     @SerialName("structure")
     data class StructureMessage(val update: StructureUpdate) : ServerMessage
 
-    /**
-     * The craft this client is flying now.
-     *
-     * Control gets settled once at the handshake in [Welcome], but it moves afterwards, when you
-     * launch a new craft or switch to one that's already parked. Without this the client would keep
-     * sending commands naming a craft the server no longer links to it, and every one would be
-     * refused.
-     */
+    /** The craft this client flies now, after a launch or a switch. [Welcome] sets the first. */
     @Serializable
     @SerialName("controlChanged")
     data class ControlChanged(val vessel: Long) : ServerMessage
@@ -449,32 +397,23 @@ sealed interface ServerMessage {
     @SerialName("chat")
     data class ChatMessage(val from: String, val text: String) : ServerMessage
 
-    /**
-     * Scatter that got knocked down. It's sent as it happens, and in full to anyone joining, so
-     * every player's forest has the same gaps in it.
-     */
+    /** Scatter that got knocked down: as it happens, and in full to anyone joining. */
     @Serializable
     @SerialName("scatterFelled")
     data class ScatterFelled(val ids: List<Long>) : ServerMessage
 
     /**
-     * What's left in the tanks of the craft this client flies: for each part in order, one amount
-     * per [com.rm.apogee.core.part.ResourceType].
-     *
-     * It's sent a few times a second, and only to the pilot, because nobody else's HUD shows
-     * another craft's fuel. Without it the client's replica started every rebuild with full tanks,
-     * so a craft resumed half empty read full and predicted thrust the server's craft didn't have
-     * any more.
+     * What's left in the pilot's tanks: for each part in order, one amount per
+     * [com.rm.apogee.core.part.ResourceType]. Sent a few times a second, only to the pilot, so the
+     * replica doesn't rebuild with full tanks.
      */
     @Serializable
     @SerialName("fuel")
     data class FuelLevels(val vessel: Long, val amounts: List<Float>) : ServerMessage
 
     /**
-     * The pilot's craft's power and link home, sent with its tanks: its charge and how much it
-     * holds, in units; the net rate, in units a second; whether it has power; its [signal] and the
-     * relays carrying it, nearest first; whether it can be flown at all; and whether its fold-outs
-     * have been told to come out.
+     * The pilot's craft's systems, sent with its tanks: charge and capacity in units, net rate in
+     * units a second, [signal] and its relays nearest first, and whether it can be flown.
      */
     @Serializable
     @SerialName("systems")
@@ -491,10 +430,7 @@ sealed interface ServerMessage {
         val blocked: String = "",
         val needsSignal: Boolean,
         val deployed: Boolean,
-        /**
-         * Someone on EVA: the craft with a free seat in reach (blank for none), whether a ladder is
-         * in reach, and whether they're holding one.
-         */
+        /** On EVA: the craft with a free seat in reach (or blank), and a ladder in reach or held. */
         val boardable: String = "",
         val canGrab: Boolean = false,
         val onLadder: Boolean = false,
@@ -506,31 +442,25 @@ sealed interface ServerMessage {
         val drillState: DrillState = DrillState.OFF,
         /** Its survey of the body it orbits, 0..1, or -1 with no scanner aboard. */
         val survey: Float = -1f,
-        /**
-         * What the ground right below holds, 0..1, read by a scanner that's low enough. -1 when
-         * there's no reading.
-         */
+        /** What the ground right below holds, 0..1, from a scanner low enough, or -1. */
         val ore: Float = -1f,
         val water: Float = -1f,
-        /**
-         * Its ballast, 0..1 full, or -1 with no tanks, what the tanks are doing, and the depth
-         * being held in metres, or -1.
-         */
+        /** Ballast 0..1 full (-1 with no tanks), what the tanks are doing, and depth held (m) or -1. */
         val ballast: Float = -1f,
         val ballastMode: Int = 0,
         val holdingDepth: Float = -1f,
         /** How close the sea is to crushing its weakest hollow part. 1 is its limit. */
         val crush: Float = 0f,
         /**
-         * Its sonar's reading: the sea floor below in metres, or -1, and the nearest place that
-         * hasn't been found yet, as a bearing (degrees) and range (metres), with range -1 for none.
+         * Sonar: sea floor below in metres or -1, and the nearest place not yet found as a bearing
+         * (degrees) and range (metres, -1 for none).
          */
         val seabed: Float = -1f,
         val findBearing: Float = 0f,
         val findRange: Float = -1f,
         /**
-         * Holding its height and heading: the height above the datum in metres, and the heading in
-         * degrees north of east. Height below 0 means it isn't. And whether it's allowed to at all.
+         * Cruise: height above the datum in metres (below 0 when off), heading in degrees north of
+         * east, and whether it's allowed.
          */
         val cruiseHeight: Float = -1f,
         val cruiseHeading: Float = 0f,
@@ -538,9 +468,8 @@ sealed interface ServerMessage {
         /** Its action groups' states, by group number: 0 left alone, 1 on, -1 off. */
         val groups: List<Int> = emptyList(),
         /**
-         * Its winch, if it has one: what it would hook onto now ("ground", a craft's name, or blank
-         * for nothing in reach), whether it's hooked, which way it's winding (1 in, -1 out, 0
-         * holding), and whether the line is pulling.
+         * Winch: what it would hook now ("ground", a craft's name, or blank), whether hooked, which
+         * way it's winding (1 in, -1 out, 0 holding), and whether the line is pulling.
          */
         val hasWinch: Boolean = false,
         val canHook: String = "",
@@ -568,22 +497,16 @@ sealed interface ServerMessage {
         val swimming: Boolean = false,
         /** How cold someone in the water has got, 0..1. At 1 it's killed them. */
         val chill: Float = 0f,
-        /** Why nobody can go outside from it right now, like too deep under the sea for a suit, or empty. */
+        /** Why nobody can go outside right now, like too deep for a suit, or empty. */
         val evaBlocked: String = "",
     ) : ServerMessage
 
-    /**
-     * A player's crew (at home, aboard, and on the memorial), sent to them when they join and
-     * whenever it changes.
-     */
+    /** A player's crew (home, aboard, memorial), sent on joining and whenever it changes. */
     @Serializable
     @SerialName("roster")
     data class Roster(val members: List<com.rm.apogee.core.crew.CrewMember>) : ServerMessage
 
-    /**
-     * A player's career, sent to them when they join and whenever it changes, plus the world
-     * firsts, which belong to everyone.
-     */
+    /** A player's career, sent on joining and whenever it changes, plus everyone's world firsts. */
     @Serializable
     @SerialName("career")
     data class Career(
@@ -606,18 +529,14 @@ sealed interface ServerMessage {
     @SerialName("careerRefused")
     data class CareerRefused(val reason: String) : ServerMessage
 
-    /**
-     * The bodies surveyed for ore and water: all of them, whenever the list grows, and when
-     * joining.
-     */
+    /** Every body surveyed for ore and water, sent on joining and whenever the list grows. */
     @Serializable
     @SerialName("surveyed")
     data class Surveyed(val bodies: List<String>) : ServerMessage
 
     /**
-     * What the pilot's craft can do with a base right now, sent with its tanks: be founded where it
-     * rests, or let go if it already is, and be filled from the base it stands on or is docked to,
-     * plus whether it is being filled, or why it last stopped.
+     * What the pilot's craft can do with a base, sent with its tanks: be founded or let go, be
+     * filled, whether it's filling, and why it last stopped.
      */
     @Serializable
     @SerialName("service")
@@ -628,10 +547,7 @@ sealed interface ServerMessage {
         val canRefuel: Boolean,
         val refuelling: Boolean,
         val stopped: String = "",
-        /**
-         * Whether it has ore or water to empty into whatever it's docked to or standing on, and
-         * whether it's doing so.
-         */
+        /** Whether it has ore or water to empty into what it's docked to or standing on, and is. */
         val canUnload: Boolean = false,
         val unloading: Boolean = false,
     ) : ServerMessage
@@ -666,18 +582,17 @@ sealed interface ServerMessage {
     ) : ServerMessage
 
     /**
-     * Lightning struck [vessel], knocking out [partIndex] (or nothing, -1). Strikes that hit
-     * nothing aren't sent, because every client works those out from the weather itself.
+     * Lightning struck [vessel], knocking out [partIndex] (or -1). Strikes that hit nothing aren't
+     * sent; clients work those out from the weather.
      */
     @Serializable
     @SerialName("lightning")
     data class Lightning(val strikeId: Long, val vessel: Long, val partIndex: Int) : ServerMessage
 
     /**
-     * Something happened to a part that's worth seeing and hearing: a blow, a part destroyed or
-     * torn off, or a tank going up. It goes by part id and position instead of just the index,
-     * because by the time it arrives the craft it happened to might already be a different shape.
-     * [amount] is the impact speed in m/s for an impact, and the propellant in kg for an explosion.
+     * Something worth seeing and hearing happened to a part. Sent by part id and position, since the
+     * craft may have changed shape by the time it arrives. [amount] is impact speed in m/s, or
+     * propellant in kg for an explosion.
      */
     @Serializable
     @SerialName("partEvent")
@@ -689,7 +604,7 @@ sealed interface ServerMessage {
         val position: SerialVec3,
         val amount: Double = 0.0,
         val cause: String = "",
-        /** The universe time it happened, which says which way the planet was turned. */
+        /** Universe time it happened, for which way the planet was turned. */
         val time: Double = 0.0,
     ) : ServerMessage
 }
@@ -721,20 +636,16 @@ sealed interface ClientMessage {
         val catalogHash: String,
         /** Cosmetic: what to show next to this player's craft and in chat. */
         val playerName: String,
-        /**
-         * Stable and opaque, generated once per install and never typed by anyone. This is what
-         * decides which craft belong to whom. [playerName] decides nothing.
-         */
+        /** Generated once per install. Decides which craft are whose; [playerName] doesn't. */
         val clientId: String,
         /**
-         * [com.rm.apogee.core.terrain.TerrainField.GENERATION]. Two builds with different ground
-         * can't share a world, because each would collide craft against its own idea of the
-         * surface.
+         * [com.rm.apogee.core.terrain.TerrainField.GENERATION]. Builds with different ground can't
+         * share a world.
          */
         val terrainGeneration: Int = 0,
         /**
-         * [com.rm.apogee.core.orbit.SolarSystem.contentHash]: the worlds, their orbits, air and
-         * weather. Two builds with different worlds can't share a game.
+         * [com.rm.apogee.core.orbit.SolarSystem.contentHash]. Builds with different worlds can't
+         * share a game.
          */
         val systemHash: String = "",
         /** The stripe this player's crew wear, or -1 to leave it to the server. See [com.rm.apogee.core.crew.Crew.stripeFor]. */
@@ -748,10 +659,8 @@ sealed interface ClientMessage {
 
 object Protocol {
     /**
-     * Goes up whenever the network format changes in a way older builds can't read. It's checked
-     * alongside the part catalogue hash during the handshake, because the two can drift apart
-     * separately. A matching protocol with a mismatched catalogue is just as broken, and much
-     * harder to track down from the symptoms.
+     * Goes up whenever the network format changes in a way older builds can't read. Checked in the
+     * handshake alongside the part catalogue hash, which can drift on its own.
      */
     // 3: CraftDesign.orientation, Command.SetBrakes.
     // 4: ServerMessage.ScatterFelled, Hello.terrainGeneration.
@@ -760,25 +669,25 @@ object Protocol {
     // 7: Welcome.weather, ServerMessage.Lightning.
     // 8: VesselKinematics.condition, ServerMessage.PartEvent, the ablator,
     //    engine output in the pose, time warp, removing craft.
-    // 9: docking - Undock, SetDockPilot, DockedWith, Snapshot.hitches.
+    // 9: docking: Undock, SetDockPilot, DockedWith, Snapshot.hitches.
     // 10: PlacedPart.turn.
-    // 11: the sea - flooding in VesselCondition, open hulls.
-    // 12: bases - Anchor, Refuel, StructureUpdate.anchored, Service, BaseStatus, launching from base pads.
-    // 13: navigation - PlanBurns, SetAutopilot, WarpTo, targeting bodies.
-    // 14: craft systems - Deploy, CraftSystems.
-    // 15: resources - SetIndustry, Unload, Surveyed, CraftSystems industry and readings, BaseStatus stores.
-    // 16: crew - Roster, seats in StructureUpdate, EVA and boarding commands.
-    // 17: the wider system - Hello.systemHash; every world, tilted, round a real sun.
-    // 18: career - Welcome.mode, Career, Feat, CareerRefused, Command.Unlock, feats watched per player.
-    // 19: play comfort - SetFlaps, SetCruise, ToggleGroup, the winch, PlacedPart.group, sails and
+    // 11: the sea: flooding in VesselCondition, open hulls.
+    // 12: bases: Anchor, Refuel, StructureUpdate.anchored, Service, BaseStatus, launching from base pads.
+    // 13: navigation: PlanBurns, SetAutopilot, WarpTo, targeting bodies.
+    // 14: craft systems: Deploy, CraftSystems.
+    // 15: resources: SetIndustry, Unload, Surveyed, CraftSystems industry and readings, BaseStatus stores.
+    // 16: crew: Roster, seats in StructureUpdate, EVA and boarding commands.
+    // 17: the wider system: Hello.systemHash; every world, tilted, round a real sun.
+    // 18: career: Welcome.mode, Career, Feat, CareerRefused, Command.Unlock, feats watched per player.
+    // 19: play comfort: SetFlaps, SetCruise, ToggleGroup, the winch, PlacedPart.group, sails and
     //     flaps in the pose, winch lines in the snapshot, the new CraftSystems fields.
-    // 20: rotors and lighter than air - SetStationKeep, the keeper, lift and ballonet in
+    // 20: rotors and lighter than air: SetStationKeep, the keeper, lift and ballonet in
     //     CraftSystems.
-    // 21: suit colours - Hello.stripe, StructureUpdate.stripe and visor.
+    // 21: suit colours: Hello.stripe, StructureUpdate.stripe and visor.
     // 22: rotor speeds in the pose.
     // 23: PlacedPart.shroud; new parts (side chutes and decouplers, 3.75 m, the structural kit).
-    // 24: righting a capsized craft - RightCraft, CraftSystems.canRight, standingOn and riders.
-    // 25: crew in the water - ClimbOut, CraftSystems.climbOnto, swimming, chill and evaBlocked.
-    // 26: VesselKinematics.asleep, so a replica of a craft asleep afloat isn't simulated.
+    // 24: righting a capsized craft: RightCraft, CraftSystems.canRight, standingOn and riders.
+    // 25: crew in the water: ClimbOut, CraftSystems.climbOnto, swimming, chill and evaBlocked.
+    // 26: VesselKinematics.asleep.
     const val VERSION = 26
 }

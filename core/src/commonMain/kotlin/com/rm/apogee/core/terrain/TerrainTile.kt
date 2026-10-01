@@ -8,23 +8,17 @@ import kotlin.concurrent.Volatile
 class GroundPoint {
     /** The distance from the body's centre to the surface along the query direction. */
     var radius: Double = 0.0
-    /** The outward surface normal, body-fixed. It's the face's normal, not the radial direction. */
+    /** The outward surface normal, body-fixed. The face's normal, not radial. */
     val normal = Vec3()
     var material: SurfaceMaterial = SurfaceMaterial.GRASS
 }
 
 /**
- * A square of sampled ground: heights and materials on a grid, built once.
+ * A square of sampled ground: heights and materials on a grid, built once and read by the collider
+ * instead of the height field. Contacts meet the same flat triangles the finest mesh draws.
  *
- * The collider reads these instead of evaluating the height field under every contact point every
- * tick. That's what makes a richer field affordable, because a tile costs a few thousand samples
- * once and then gets used for as long as anything is on it. It also makes the surface a craft
- * touches exactly the one that's drawn: flat triangles between the same samples the finest mesh
- * uses, instead of the smooth function the mesh only approximates.
- *
- * Tiles are addressed on the [CubeSphere] by [face], and by [i], [j] out of [tilesPerFace] tiles
- * along each side. Samples run 0..[CELLS] inclusive on each axis, so neighbouring tiles share their
- * edge samples and the surface has no seams.
+ * Addressed on the [CubeSphere] by [face] and [i], [j] of [tilesPerFace]. Samples run 0..[CELLS]
+ * inclusive, so neighbours share edges and there are no seams.
  */
 class TerrainTile(
     val face: Int,
@@ -55,12 +49,9 @@ class TerrainTile(
     }
 
     /**
-     * The ground along [direction], which has to lie on this tile.
-     *
-     * It's found by intersecting the ray from the centre with the flat triangle the point falls in,
-     * the same triangle a mesh built from these samples draws. So the height is the drawn height
-     * and the normal is the face's. The normal is what lets a cliff push a craft back instead of
-     * up. A radial normal treats a wall as a floor that happens to be very high.
+     * The ground along [direction], which must lie on this tile. The ray from the centre is
+     * intersected with the flat triangle the mesh draws there, so the height is the drawn height and
+     * the normal is the face's, which lets a cliff push a craft back instead of up.
      *
      * @param fx, fy position within the tile in cells, 0..CELLS.
      */
@@ -122,18 +113,15 @@ class TerrainTile(
         const val CELLS = 64
         const val STRIDE = CELLS + 1
 
-        /**
-         * The target tile width, in metres. The actual width is the closest one that tiles a face
-         * in a power of two.
-         */
+    /**
+     * The target tile width, in metres. The real width is the nearest that tiles a face in a power
+     * of two.
+     */
         const val TARGET_TILE_METRES = 128.0
 
         /**
-         * Samples [terrain] into the tile at ([face], [i], [j]).
-         *
-         * It samples a one-cell border beyond the tile as well, only to measure the slope at its
-         * edge samples the same way the neighbouring tile does. Otherwise a material boundary could
-         * jump at every tile seam.
+         * Samples [terrain] into the tile at ([face], [i], [j]). It also samples a one-cell border,
+         * only so edge slopes match the neighbouring tile's and materials don't jump at seams.
          */
         fun build(terrain: Terrain, face: Int, i: Int, j: Int, tilesPerFace: Int): TerrainTile {
             val bordered = CELLS + 3
@@ -146,10 +134,8 @@ class TerrainTile(
             }
 
             val radius = terrain.bodyRadius
-            // Flat arrays, not a Vec3 per sample. A tile is four and a half thousand samples, built
-            // on a background thread while the game runs, and objects per sample turned into
-            // garbage collections long enough to stall the very simulation tick they were meant to
-            // spare.
+            // Flat arrays, not a Vec3 per sample. Tiles are built on a background thread while the
+            // game runs, and per-sample garbage caused GC pauses that stalled the tick.
             val count = bordered * bordered
             val dx = DoubleArray(count); val dy = DoubleArray(count); val dz = DoubleArray(count)
             val heights = DoubleArray(count)
@@ -179,7 +165,7 @@ class TerrainTile(
                 val cz = ex * ny0 - ey * nx0
                 val length = kotlin.math.sqrt(cx * cx + cy * cy + cz * cz)
                 val cosine = if (length > 0.0) (cx * dx[index] + cy * dy[index] + cz * dz[index]) / length else 1.0
-                // 0 on flat ground, 1 on a wall. The same measure the renderer uses.
+                // 0 on flat ground, 1 on a wall, as the renderer measures it.
                 val slope = (1.0 - kotlin.math.abs(cosine)).coerceIn(0.0, 1.0)
                 val height = heights[index]
                 direction.setTo(dx[index], dy[index], dz[index])
@@ -194,7 +180,7 @@ class TerrainTile(
         }
 
         /**
-         * Tiles along a face's side for a body of [radius], so tiles come out close to
+         * Tiles along a face's side for a body of [radius], so tiles come out near
          * [TARGET_TILE_METRES].
          */
         fun tilesPerFace(radius: Double): Int {

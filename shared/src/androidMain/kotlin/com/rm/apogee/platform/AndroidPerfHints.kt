@@ -6,33 +6,23 @@ import android.os.PerformanceHintManager
 import android.util.Log
 
 /**
- * Every "make the scheduler treat us like a game" API, behind one front.
+ * The Android performance hint APIs behind one front, with the version checks kept here so callers
+ * can call every frame. On old devices it does nothing.
  *
- * minSdk is 27, so none of these can be taken for granted. Keeping the version checks here means
- * the simulation and render paths stay free of `SDK_INT` branches. They call
- * [reportActualWorkDuration] every time, and it does nothing on old devices.
- *
- * The one that matters is [PerformanceHintManager] (API 31+). Telling the kernel how long a frame
- * of simulation work is *supposed* to take keeps the physics thread on a big core instead of being
- * moved onto a little one mid-frame, which is the biggest single cause of frame-time jitter on
- * mobile.
+ * The one that matters is [PerformanceHintManager] (API 31+). Telling the kernel a frame's target
+ * keeps the physics thread on a big core, which cuts frame-time jitter.
  */
 class AndroidPerfHints private constructor(
     private var session: PerformanceHintManager.Session?,
 ) : PerfHints {
 
     /**
-     * Held for every call on [session]. The frame loop reports from a worker thread while leaving a
-     * flight closes the session from the main one, and a report reaching the native session after
-     * it's closed is a segfault, not an exception [runCatching] could catch. It crashed the game
-     * when leaving a flight.
+     * Held for every call on [session]. Reports come from a worker thread and [close] from the main
+     * one, and a report on a closed native session segfaults, which [runCatching] can't catch.
      */
     private val lock = Any()
 
-    /**
-     * Reports how long the last simulation step really took, so the scheduler can adjust. It's safe
-     * to call every tick, and does nothing where it isn't supported.
-     */
+    /** Reports how long the last simulation step took. Safe to call every tick. */
     override fun reportActualWorkDuration(nanos: Long) {
         if (nanos <= 0) return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -40,9 +30,7 @@ class AndroidPerfHints private constructor(
         }
     }
 
-    /**
-     * Call this when the simulation's per-tick budget changes (a display rate change, for example).
-     */
+    /** Call when the per-tick budget changes, such as a new display rate. */
     override fun updateTargetWorkDuration(nanos: Long) {
         if (nanos <= 0) return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -63,10 +51,7 @@ class AndroidPerfHints private constructor(
     companion object {
         private const val TAG = "ApogeePerfHints"
 
-        /**
-         * @param threadIds the threads doing the per-frame work: the simulation thread and the GL
-         *     thread. They have to be real OS tids, not Java thread ids.
-         */
+        /** @param threadIds the simulation and GL threads, as OS tids (not Java thread ids). */
         fun create(context: Context, threadIds: IntArray, targetWorkNanos: Long): AndroidPerfHints {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
                 Log.i(TAG, "ADPF unavailable on API ${Build.VERSION.SDK_INT}; running unhinted")
@@ -78,7 +63,7 @@ class AndroidPerfHints private constructor(
             }.getOrNull()
 
             if (session == null) {
-                // This is documented: the device might just not implement it.
+                // Allowed: a device needn't implement it.
                 Log.i(TAG, "ADPF hint session unavailable on this device; running unhinted")
             }
             return AndroidPerfHints(session)

@@ -15,9 +15,9 @@ import com.rm.apogee.platform.System
 import kotlin.concurrent.Volatile
 
 /**
- * Where the flown craft is going, worked out off the frame thread a few times a second: the path it
- * coasts on, the path after its next planned burn, where it comes down if it's coming down, and how
- * near it passes its target. The map draws it, and the HUD reads it.
+ * Where the flown craft is going, worked out off the frame thread a few times a second: its coast
+ * path, the path after its next planned burn, where it comes down, and how near it passes its
+ * target. The map draws it and the HUD reads it.
  */
 class PathPlanner(private val system: SolarSystem) {
 
@@ -97,13 +97,13 @@ class PathPlanner(private val system: SolarSystem) {
     /** How near [path] comes to the craft's target, in the target's own body's frame. */
     private fun approachOf(path: Trajectory, ask: Ask): Trajectory.Approach? {
         if (ask.targetBody.isNotEmpty() && ask.targetBody in system.bodies) {
-            // If it meets it, as near as its low point there.
+            // If it meets the target, its low point there.
             path.about(ask.targetBody)?.let { there ->
                 val o = there.orbit
                 val speed = kotlin.math.sqrt((o.mu * (2.0 / o.periapsis - 1.0 / o.semiMajorAxis)).coerceAtLeast(0.0))
                 return Trajectory.Approach(there.start + o.timeToPeriapsis.coerceAtMost(there.end - there.start), o.periapsis, speed)
             }
-            // Otherwise as near as it comes along the leg around the target's parent.
+            // Otherwise its closest pass on the leg round the target's parent.
             val parent = system.body(ask.targetBody).parentId ?: return null
             val leg = path.segments.firstOrNull { it.bodyId == parent } ?: return null
             return Trajectory.closestApproach(leg) { t, out ->
@@ -118,9 +118,8 @@ class PathPlanner(private val system: SolarSystem) {
     }
 
     /**
-     * Where a point [point] on [segment] (relative to the segment's body) is drawn around body
-     * [aboutId], into [out]. A moon's leg is drawn round the moon as it will be when the craft gets
-     * there.
+     * Where [point] on [segment] (relative to its body) is drawn around [aboutId], into [out]. A
+     * moon's leg is drawn round the moon where it'll be when the craft gets there.
      */
     fun drawnAbout(segment: Trajectory.Segment, point: Vec3, aboutId: String, out: Vec3): Vec3 {
         out.setTo(point)

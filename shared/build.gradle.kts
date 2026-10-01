@@ -1,10 +1,8 @@
 import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
 
-// Everything the Android app and the browser build have in common: the game session, the renderer,
-// the sound scene and the Compose screens. The few platform pieces sit behind expect/actual
-// declarations: OpenGL ES on Android and WebGL2 in a browser behind the same GLES30, the native
-// synth or none, settings in SharedPreferences or the browser's storage. The Android app (:app)
-// depends on this; the browser build is this module's wasmJs executable.
+// What the Android app and the browser share: game session, renderer, sound and Compose screens.
+// Platform pieces (GL, synth, settings storage) sit behind expect/actual. :app depends on this;
+// the browser build is its wasmJs executable.
 plugins {
     alias(libs.plugins.kotlin.multiplatform)
     alias(libs.plugins.android.kotlin.multiplatform.library)
@@ -102,8 +100,7 @@ kotlin {
     }
 }
 
-// Binaryen (wasm-opt) is set up per project; its download repository is declared in
-// settings.gradle.kts, which refuses plugin-added ones.
+// Binaryen's download repository is declared in settings.gradle.kts, which refuses plugin ones.
 plugins.withType<org.jetbrains.kotlin.gradle.targets.wasm.binaryen.BinaryenPlugin> {
     the<org.jetbrains.kotlin.gradle.targets.wasm.binaryen.BinaryenEnvSpec>().downloadBaseUrl.set(null as String?)
 }

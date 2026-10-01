@@ -19,9 +19,7 @@ class DeepTest {
 
     private fun run(world: World, seconds: Double, each: () -> Unit = {}) = repeat((seconds / dt).toInt()) { each(); world.step(dt) }
 
-    /**
-     * [design] afloat off the Cape, [east] and [north] metres from the pad, with its crew aboard.
-     */
+    /** [design] afloat off the Cape, [east] and [north] metres from the pad, crewed. */
     private fun afloat(world: World, design: CraftDesign, east: Double = -8_000.0, north: Double = 12_000.0): Vessel {
         val d = SolarSystem.capeDirection(east, north)
         val sub = world.spawnOnSurface(design, LaunchSite("sea", "Sea", "terra", SolarSystem.latitudeOf(d), SolarSystem.longitudeOf(d)))
@@ -150,11 +148,7 @@ class DeepTest {
     /** How far [v]'s nose is above the horizontal, in degrees. Negative below it. */
     private fun pitch(v: Vessel): Double = Math.toDegrees(kotlin.math.asin((v.forward() dot v.body.position.normalized()).coerceIn(-1.0, 1.0)))
 
-    /**
-     * Level afloat, nose a little down when diving the way a submarine goes down, and level again
-     * when held at a depth. Never stood on end, the way the first ones were, with nothing low down
-     * to hold them upright.
-     */
+    /** Level afloat and when held at a depth, nose a little down when diving, never on end. */
     @Test
     fun `each submarine lies level afloat and held, and dives nose a little down`() {
         for (design in listOf(StockCraft.minnow(catalog), StockCraft.nautilus(catalog), StockCraft.abyss(catalog))) {

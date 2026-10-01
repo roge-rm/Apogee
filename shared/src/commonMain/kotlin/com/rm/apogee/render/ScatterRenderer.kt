@@ -8,10 +8,8 @@ import com.rm.apogee.core.math.Vec3
 import com.rm.apogee.core.terrain.ScatterKind
 
 /**
- * Draws scatter, instanced: one mesh per kind, and one instance buffer per block.
- *
- * GL thread only. Every GL name in here dies with the context, so the whole thing gets rebuilt in
- * [GlRenderer.onSurfaceCreated].
+ * Draws scatter, instanced: one mesh per kind, one instance buffer per block. GL thread only;
+ * rebuilt in [GlRenderer.onSurfaceCreated] since its GL names die with the context.
  */
 class ScatterRenderer {
 
@@ -98,8 +96,7 @@ class ScatterRenderer {
         program.setFloat("uTime", (world.time % 10_000.0).toFloat())
         shadows?.invoke(program)
         val wind = world.surfaceWind
-        // Faceted meshes built by hand, so they're drawn both sides instead of trusting every
-        // triangle's winding.
+        // Hand-built meshes, so draw both sides rather than trust the winding.
         GLES30.glDisable(GLES30.GL_CULL_FACE)
 
         var uploads = 0
@@ -157,9 +154,8 @@ class ScatterRenderer {
     }
 
     /**
-     * Draws what's already uploaded within [reach] of [focus] (absolute) into a shadow map with
-     * [viewProjection]. Casters only, and nothing new gets uploaded, so a block not on the GPU yet
-     * casts from the next frame.
+     * Draws what's uploaded within [reach] of [focus] (absolute) into a shadow map. Uploads nothing,
+     * so a new block casts from the next frame.
      */
     fun drawDepth(
         list: List<ScatterDraw>,

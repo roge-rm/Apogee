@@ -9,9 +9,8 @@ plugins {
     alias(libs.plugins.kotlin.serialization) apply false
 }
 
-// The browser build's toolchain (Node.js, Yarn) is downloaded from the repositories declared in
-// settings.gradle.kts, since this build refuses repositories added by plugins, so the Kotlin plugin
-// is told not to add its own. Binaryen's is per project; see core/build.gradle.kts.
+// This build refuses repositories added by plugins, so Node.js and Yarn for the browser build come
+// from the ones in settings.gradle.kts. Binaryen's is set per project in core/build.gradle.kts.
 plugins.withType<org.jetbrains.kotlin.gradle.targets.wasm.nodejs.WasmNodeJsPlugin> {
     the<org.jetbrains.kotlin.gradle.targets.wasm.nodejs.WasmNodeJsEnvSpec>().downloadBaseUrl.set(null as String?)
 }

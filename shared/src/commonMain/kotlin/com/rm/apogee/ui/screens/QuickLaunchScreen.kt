@@ -45,9 +45,8 @@ import com.rm.apogee.ui.theme.Dimens
 import com.rm.apogee.ui.theme.alpha
 
 /**
- * Quick Launch: pick a craft and where to launch it from, then go. It goes in place of the craft
- * you flew last, so the world doesn't fill up with half-flown ones. It used to put the stock rocket
- * on the Cape's pad every time, and anything else meant a trip through the Vehicle Assembly.
+ * Quick Launch: pick a craft and a site, then go. It replaces the craft you flew last, so the world
+ * doesn't fill up with half-flown ones.
  */
 @Composable
 fun QuickLaunchScreen(
@@ -68,7 +67,7 @@ fun QuickLaunchScreen(
 ) {
     var pickingSite by remember { mutableStateOf(false) }
     Backdrop(title = "Quick Launch", onBack = onBack, fillHeight = true) { contentModifier ->
-        // The list takes whatever height the picker and the buttons leave.
+        // The list takes the height the picker and buttons leave.
         Column(contentModifier.fillMaxWidth().weight(1f)) {
             if (entries.isEmpty()) {
                 Text("Reading your craft…", color = Color.White.alpha(ApogeeAlpha.SUBTITLE))
@@ -84,7 +83,7 @@ fun QuickLaunchScreen(
                 )
                 val shown = if (kind == null) entries else entries.filter { it.kind == kind }
                 val list = rememberLazyListState()
-                // Opened on the craft chosen last time, wherever it is in the list.
+                // Scrolled to last time's choice.
                 androidx.compose.runtime.LaunchedEffect(entries) {
                     val at = shown.indexOfFirst { it.saved.fileName == chosen }
                     if (at > 0) list.scrollToItem(at)
@@ -101,15 +100,14 @@ fun QuickLaunchScreen(
             "From: " + (site?.let { id -> (com.rm.apogee.core.world.World.launchSites + bases).firstOrNull { it.id == id }?.displayName } ?: "Automatic · $automatic"),
             { pickingSite = true },
             contentModifier,
-            subtitle = "Where it's launched from",
         )
+        val chosenName = entries.firstOrNull { it.saved.fileName == chosen }?.saved?.name
         ApogeeButton(
-            "Launch",
+            chosenName?.let { "Launch $it" } ?: "Launch",
             onLaunch,
             contentModifier,
-            subtitle = entries.firstOrNull { it.saved.fileName == chosen }?.saved?.name?.let { "$it, in place of your last craft" }
-                ?: "Pick a craft first",
-            enabled = entries.any { it.saved.fileName == chosen },
+            subtitle = chosenName?.let { "Replaces your last craft" },
+            enabled = chosenName != null,
         )
     }
     if (pickingSite) {
@@ -123,7 +121,7 @@ fun QuickLaunchScreen(
     }
 }
 
-/** One craft in the list, lit when it's the one chosen. */
+/** One craft in the list, lit when chosen. */
 @Composable
 private fun CraftRow(entry: CraftShelf.Entry, picture: ImageBitmap?, chosen: Boolean, onClick: () -> Unit) {
     Row(

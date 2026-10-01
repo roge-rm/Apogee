@@ -3,12 +3,8 @@ package com.rm.apogee.dedicated
 import java.io.File
 
 /**
- * Everything the standalone server reads when it starts.
- *
- * I use environment variables instead of a config file. The server is meant to live in a container,
- * where the environment is how settings arrive, and a file would need a volume of its own just to
- * set a port. Anything that really builds up over time (the world, the craft) lives in
- * [stateDirectory] and is written by the server, not edited by hand.
+ * The standalone server's settings, read from environment variables since it's meant to run in a
+ * container. The world and craft live in [stateDirectory], written by the server.
  */
 class ServerSettings(
     val serverName: String,
@@ -51,8 +47,7 @@ class ServerSettings(
                 serverName = text("APOGEE_SERVER_NAME", "Apogee Server"),
                 port = number("APOGEE_PORT", DEFAULT_PORT),
                 stateDirectory = stateDirectory,
-                // Missing means no control channel at all, which is the right default for someone
-                // running this from a terminal.
+                // Unset means no control channel, the right default from a terminal.
                 controlSocket = socketPath.takeIf { it.isNotBlank() }?.let { File(it) },
                 autosaveSeconds = number("APOGEE_AUTOSAVE_SECONDS", 60),
                 lanDiscovery = flag("APOGEE_LAN_DISCOVERY", true),

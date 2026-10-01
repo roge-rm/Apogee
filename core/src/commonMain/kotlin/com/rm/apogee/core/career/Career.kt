@@ -19,13 +19,10 @@ enum class Branch(val title: String) {
     CREW("Crew"),
 }
 
-/** How well a feat was done, from just doing it to doing it cleverly. */
+/** How well a feat was done. */
 enum class Grade(val title: String) { BRONZE("Bronze"), SILVER("Silver"), GOLD("Gold") }
 
-/**
- * What a graded feat is measured by, and which way is better, like a lighter rocket, a longer drive
- * or a closer landing.
- */
+/** What a graded feat is measured by, and which way is better. */
 enum class Metric(val label: String, val unit: String, val lowerIsBetter: Boolean) {
     LAUNCH_MASS("launch mass", "t", true),
     DISTANCE("distance", "km", false),
@@ -36,9 +33,8 @@ enum class Metric(val label: String, val unit: String, val lowerIsBetter: Boolea
 }
 
 /**
- * Something a craft can be seen to pull off. It's never a task handed out, because how you do it is
- * up to you. Graded feats pay more when you do them cleverly, and [silver] and [gold] are the
- * thresholds for the [metric], in its unit.
+ * Something a craft pulls off, however you choose to do it. [silver] and [gold] are thresholds for
+ * the [metric], in its unit.
  */
 enum class Feat(
     val id: String,
@@ -131,10 +127,7 @@ object Insight {
     }
 }
 
-/**
- * Going somewhere new: into orbit around a world, down onto it, and back home from it with the
- * crew.
- */
+/** Going somewhere new: orbiting a world, landing on it, and bringing the crew home from it. */
 enum class Visit(val id: String, val title: String, val multiplier: Int) {
     ORBIT("orbit", "Orbit", 1),
     LAND("land", "Landing", 2),
@@ -218,10 +211,7 @@ data class TechTree(
 @Serializable
 data class WorldFirst(val bodyId: String, val visit: String, val owner: String, val ownerName: String, val time: Double)
 
-/**
- * One player's career: the insight they can spend, what they've unlocked, the feats they've done
- * and how well, and where they've been.
- */
+/** One player's career: insight, unlocked nodes, feats and where they've been. */
 @Serializable
 data class CareerState(
     val owner: String,
@@ -261,9 +251,7 @@ enum class Facility(val title: String) { PAD("Launch Pad"), HANGAR("Hangar"), HA
 
 /** Whether a design can launch in a career, and if not, why not. */
 object CareerRules {
-    /**
-     * The sites a career can launch from: the Cape's three, plus the pads on a player's own bases.
-     */
+    /** The Cape's three career sites. Pads on a player's own bases count too. */
     val CAREER_SITES = setOf("cape", "airfield", "harbour")
 
     fun facilityFor(siteId: String): Facility = when (siteId) {
@@ -272,7 +260,7 @@ object CareerRules {
         else -> Facility.PAD
     }
 
-    /** The limits [state] has at [facility], or null when it has none there at all. */
+    /** The limits [state] has at [facility], or null when it has no such facility. */
     fun limits(tree: TechTree, state: CareerState, facility: Facility): FacilityLevel? {
         val (level, table) = when (facility) {
             Facility.PAD -> state.padLevel(tree) to tree.facilities.pad
@@ -294,9 +282,8 @@ object CareerRules {
         design.parts.sumOf { placed -> catalog[placed.partId]?.wetMass ?: 0.0 }
 
     /**
-     * Why [design] can't launch from [siteId] in [state]'s career, or null if it can. It might use
-     * parts that aren't unlocked yet, a site a career can't use, or be more than the facility there
-     * can take.
+     * Why [design] can't launch from [siteId] in [state]'s career (locked parts, wrong site, too big
+     * for the facility), or null if it can.
      */
     fun refusal(tree: TechTree, state: CareerState, design: CraftDesign, siteId: String, catalog: PartCatalog): String? {
         val locked = lockedParts(tree, state, design, catalog)

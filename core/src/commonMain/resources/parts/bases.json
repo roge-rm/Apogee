@@ -4,7 +4,7 @@
     "title": "Foundation",
     "category": "base",
     "dryMass": 900.0,
-    "description": "Levelling feet for a base. Set it down on ground no steeper than ten degrees, found the base, and its jacks reach down to hold it level. A founded base can't be pushed or tipped, though whatever hits it can still break it.",
+    "description": "Levelling feet for a base. Set it on ground no steeper than ten degrees and found the base to fix it in place.",
     "crashTolerance": 22.0,
     "dragCoefficient": 1.0,
     "mesh": {
@@ -343,7 +343,7 @@
     "title": "Base Core",
     "category": "base",
     "dryMass": 3200.0,
-    "description": "The heart of a base: control, a little power in reserve, a few panels on the roof, and room for four. Set it down on a foundation, found it, and build out from its connectors.",
+    "description": "The heart of a base, with room for four. Set it on a foundation, found it, and build out from its connectors.",
     "crashTolerance": 16.0,
     "dragCoefficient": 1.0,
     "mesh": {
@@ -677,7 +677,7 @@
     "title": "Habitat Module",
     "category": "base",
     "dryMass": 2600.0,
-    "description": "Living space for six: bunks, a galley, and a window on the world outside. It's brought in on a flatbed and joined at a connector.",
+    "description": "Living space for six. Bring it in on a flatbed and join it at a connector.",
     "crashTolerance": 16.0,
     "dragCoefficient": 1.0,
     "mesh": {
@@ -907,7 +907,7 @@
     "title": "Propellant Depot",
     "category": "base",
     "dryMass": 1800.0,
-    "description": "Twelve tonnes of propellant in store. It's what a base fills its craft from, and what a tanker tops up.",
+    "description": "Stores 12 tonnes of propellant to fill craft from.",
     "crashTolerance": 14.0,
     "dragCoefficient": 1.0,
     "mesh": {
@@ -1143,7 +1143,7 @@
     "title": "Monopropellant Depot",
     "category": "base",
     "dryMass": 1200.0,
-    "description": "Monopropellant for thrusters, kept in four spheres.",
+    "description": "Stores monopropellant for thrusters.",
     "crashTolerance": 14.0,
     "dragCoefficient": 1.0,
     "mesh": {
@@ -1397,7 +1397,7 @@
     "title": "Refinery",
     "category": "base",
     "dryMass": 6000.0,
-    "description": "Refines the base's ore and water into propellant and monopropellant, eight times as fast as a craft's converter, for thirty units of charge a second while it runs. Switch it on from the base card.",
+    "description": "Turns the base's ore and water into propellant and monopropellant eight times faster than a converter, using 30 charge a second. Switch it on from the base card.",
     "crashTolerance": 14.0,
     "dragCoefficient": 1.0,
     "mesh": {
@@ -1620,7 +1620,7 @@
     "title": "Ore Silo",
     "category": "base",
     "dryMass": 1600.0,
-    "description": "Three thousand units of ore in store (thirty tonnes), for the refinery, or for a tanker to take away.",
+    "description": "Stores 3000 units of ore (30 tonnes).",
     "crashTolerance": 14.0,
     "dragCoefficient": 1.0,
     "mesh": {
@@ -1745,7 +1745,7 @@
     "title": "Water Cistern",
     "category": "base",
     "dryMass": 1400.0,
-    "description": "Three thousand units of water in store, for the refinery.",
+    "description": "Stores 3000 units of water for the refinery.",
     "crashTolerance": 14.0,
     "dragCoefficient": 1.0,
     "mesh": {
@@ -1883,7 +1883,7 @@
     "title": "Power Module",
     "category": "base",
     "dryMass": 2200.0,
-    "description": "Batteries racked floor to ceiling. They keep a base's lamps lit and its pumps running through the night.",
+    "description": "Batteries that keep a base running through the night.",
     "crashTolerance": 14.0,
     "dragCoefficient": 1.0,
     "mesh": {
@@ -2127,7 +2127,7 @@
     "title": "Solar Array",
     "category": "base",
     "dryMass": 450.0,
-    "description": "Two wings of solar cells on a mast, for the top of a module. You get power by day and none by night, so a base wants batteries too.",
+    "description": "Solar wings for the top of a module. They make nothing at night, so add batteries.",
     "crashTolerance": 10.0,
     "dragCoefficient": 1.2,
     "mesh": {
@@ -2246,7 +2246,7 @@
     "title": "Base Connector",
     "category": "base",
     "dryMass": 300.0,
-    "description": "A wide hatch for the side of a base module. Bring another module's connector up to it, near enough lined up, and they draw together and join into one base.",
+    "description": "A hatch for joining modules. Bring two connectors together, roughly lined up, and they join.",
     "crashTolerance": 14.0,
     "dragCoefficient": 1.0,
     "mesh": {
@@ -2553,7 +2553,7 @@
     "title": "Pad Deck",
     "category": "base",
     "dryMass": 24000.0,
-    "description": "A twelve-metre slab to launch from and land on. Founded on its own or joined to a base, it's a launch site. Craft set down on it fill up from the base's stores, and a craft standing on it can be refuelled.",
+    "description": "A 12 m pad to launch from and land on. Craft on it can refuel from the base.",
     "crashTolerance": 25.0,
     "dragCoefficient": 1.0,
     "mesh": {
@@ -2853,7 +2853,7 @@
     "title": "Floodlight Mast",
     "category": "base",
     "dryMass": 180.0,
-    "description": "A six-metre mast with a lamp head, lit at night while the base has power.",
+    "description": "A 6 m lamp mast, lit at night while the base has power.",
     "crashTolerance": 10.0,
     "dragCoefficient": 1.0,
     "mesh": {
@@ -2974,7 +2974,7 @@
     "title": "Flatbed",
     "category": "base",
     "dryMass": 1400.0,
-    "description": "A long low deck on eight wheel mounts, for carrying a module, with a cab at the front and a release clamp in the middle to hold the load and set it down.",
+    "description": "A long, low truck for carrying a module, with a release clamp to set it down.",
     "crashTolerance": 16.0,
     "dragCoefficient": 1.0,
     "mesh": {
@@ -3281,7 +3281,7 @@
     "title": "Release Clamp",
     "category": "base",
     "dryMass": 180.0,
-    "description": "Holds a load on a flatbed. Stage it and it lets go, staying on the flatbed while the load drops free on its own feet.",
+    "description": "Holds a load on a flatbed. Stage it to set the load down.",
     "crashTolerance": 16.0,
     "dragCoefficient": 1.0,
     "mesh": {
@@ -3425,7 +3425,7 @@
     "title": "Sky Deck",
     "category": "base",
     "dryMass": 1100.0,
-    "description": "A twenty-metre deck over a hull of light gas, that floats in the air. With lift fans under its corners and a keeper core, it holds itself where you put it, and founded, it's a base in the sky with a pad on top. Aloft on Caligo, where the ground crushes everything, it's the one place to live.",
+    "description": "A 20 m deck that floats on light gas. With lift fans and a keeper core it holds station, and founded it's a base in the sky.",
     "crashTolerance": 12.0,
     "dragCoefficient": 0.9,
     "mesh": {
@@ -3680,7 +3680,7 @@
     "title": "Sea Deck",
     "category": "base",
     "dryMass": 4000.0,
-    "description": "A sixteen-metre deck to stand on four pontoons, for a base afloat, with a pad on top for whatever you fly off it.",
+    "description": "A 16 m deck on four pontoons, for a base afloat with a pad on top.",
     "crashTolerance": 15.0,
     "dragCoefficient": 1.0,
     "mesh": {
@@ -3882,7 +3882,7 @@
     "title": "Sea Footing",
     "category": "base",
     "dryMass": 115000.0,
-    "description": "A slab of iron and concrete to hold a base down on the sea floor. A base floats otherwise, because its modules are full of air. Set it down on a floor no steeper than ten degrees and found the base. They stack, for a bigger base.",
+    "description": "A heavy footing that holds a base on the sea floor. Set it on a floor no steeper than ten degrees and found the base.",
     "crashTolerance": 30.0,
     "dragCoefficient": 1.0,
     "mesh": {
@@ -4042,7 +4042,7 @@
     "title": "Base Float",
     "category": "base",
     "dryMass": 3000.0,
-    "description": "A tank the size of a base module, to float a sea floor base out to where it's going. Blown, it floats the base on its footing so a tug can tow it. Flood it with DIVE and the base goes down to the bottom, to be founded there. RISE blows it out again.",
+    "description": "Floats a sea floor base so a tug can tow it. DIVE floods it to sink the base, and RISE blows it out.",
     "crashTolerance": 16.0,
     "dragCoefficient": 1.0,
     "maxPressure": 2000000.0,

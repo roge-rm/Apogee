@@ -4,14 +4,9 @@ import com.rm.apogee.render.gl.GLES30
 import com.rm.apogee.render.gl.GlData
 
 /**
- * A depth texture drawn from the light's side, and the framebuffer that draws it. Whatever's
- * nearest the light at each texel is what casts a shadow there.
- *
- * It's set up for comparison, so the shaders read it through `sampler2DShadow` and the GPU does the
- * test. With linear filtering it blends the four nearest results, which softens the edge by a texel
- * for free.
- *
- * GL thread only. It dies with the context.
+ * A depth texture drawn from the light's side, and its framebuffer. Set up for comparison, so the
+ * shaders read it through `sampler2DShadow`; linear filtering softens edges by a texel for free.
+ * GL thread only; dies with the context.
  */
 class ShadowMap(val size: Int) {
     private val names = IntArray(1)
@@ -42,10 +37,8 @@ class ShadowMap(val size: Int) {
     }
 
     /**
-     * Starts drawing into it. It's cleared to far, the craft's thin single-sided fins and wings are
-     * drawn both ways, and everything is pushed back a touch so a surface doesn't shade itself: by
-     * [slope] times its steepness as the light sees it, plus [units] of the depth buffer's smallest
-     * step.
+     * Starts drawing into it: cleared to far, no culling (fins and wings are single-sided), and
+     * pushed back by [slope] times steepness plus [units] depth steps so surfaces don't self-shade.
      */
     fun begin(slope: Float = 2f, units: Float = 4f) {
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, fbo[0])

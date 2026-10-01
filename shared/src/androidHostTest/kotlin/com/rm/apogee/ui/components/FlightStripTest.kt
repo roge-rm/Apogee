@@ -64,7 +64,7 @@ class FlightStripTest {
 
     @Test
     fun `riding on the water it's speed, the wind and the heading, never height or depth`() {
-        // A boat down in a trough, a couple of metres under the mean sea, moving at a fair clip.
+        // A boat in a trough, a couple of metres under the mean sea.
         val boat = telemetry(agl = 0.0, srf = 14.0, inAir = true, wind = 4.0, windFrom = 0.0, depth = 2.5)
         assertEquals(listOf("SRF", "WIND", "HDG"), stripFields(boat, onSurface = true).map { it.label })
         assertEquals("14", stripFields(boat, onSurface = true)[0].value)
@@ -76,7 +76,7 @@ class FlightStripTest {
 
     @Test
     fun `driving it's speed and heading, never height or climb`() {
-        // A rover bowling along at a fair clip on a world with air.
+        // A rover on a world with air.
         val rover = telemetry(agl = 0.3, srf = 12.0, inAir = true, wind = 3.0)
         assertEquals(listOf("SRF", "WIND", "HDG"), stripFields(rover, onSurface = true).map { it.label })
         // The same speed, not driving, reads like something flying low.

@@ -11,14 +11,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * Arriving, as opposed to leaving.
- *
- * The ascent scenario proves a craft can get off the ground. Nothing proved it could come back down
- * onto it, and until terrain landed, the only surface anything had ever touched was a pad we made
- * dead level on purpose. These drop a lander from a known height at a known speed and ask what
- * survived.
- */
+/** Landings: drop a lander from a known height at a known speed and see what survives. */
 class LandingTest {
 
     private val catalog = StockParts.catalog
@@ -27,11 +20,8 @@ class LandingTest {
     private fun world() = World.default(catalog)
 
     /**
-     * Puts a lander [height] metres over the pad, falling at [descentRate], with [gearDown]
-     * deciding whether the legs are deployed.
-     *
-     * It's dropped instead of flown, because a scripted descent would test the autopilot as much as
-     * the contact solver, and it's the contact solver on trial.
+     * Puts a lander [height] metres over the pad, falling at [descentRate], legs out if [gearDown].
+     * It's dropped so only the contact solver is under test.
      */
     private fun drop(
         world: World,
@@ -41,17 +31,14 @@ class LandingTest {
         lateralDrift: Double = 0.0,
     ): Vessel {
         val vessel = world.spawnOnSurface(StockCraft.lander(catalog), World.launchSites.first())
-        // Stage 0 lights the engine, 1 pops the chute, and 2 drops the gear. Only the gear matters
-        // here, so skip straight to it, but only if it's meant to be down.
+        // Stage 0 lights the engine, 1 the chute, 2 the gear. Only the gear matters here.
         if (gearDown) world.gearDown(vessel)
         vessel.control.throttle = 0.0
 
         val up = Vec3().setTo(vessel.body.position).normalizeInPlace()
         vessel.body.position.addScaledInPlace(up, height)
 
-        // Start on the surface's own velocity, then add the descent, so the craft is falling
-        // relative to the ground instead of relative to an inertial frame the ground is moving
-        // through at 175 m/s.
+        // Start at the ground's own velocity (it moves at 175 m/s), then add the descent.
         val attractor = world.attractorFor(vessel)
         attractor.surfaceVelocityAt(vessel.body.position, vessel.body.linearVelocity)
         vessel.body.linearVelocity.addScaledInPlace(up, -descentRate)
@@ -103,9 +90,8 @@ class LandingTest {
     }
 
     /**
-     * The control for the test above. The gear has to be what makes the difference, not the descent
-     * rate being harmless anyway. On its engine bell the same touchdown damages the engine, and
-     * only the engine and what it jolts. The pod on top is spared, and the craft is still there.
+     * Control for the test above: on its engine bell the same touchdown damages the engine, spares
+     * the pod, and the craft survives.
      */
     @Test
     fun `the same touchdown with the gear up damages the engine`() {
@@ -123,11 +109,7 @@ class LandingTest {
         assertTrue("it says what was hit", world.drainEvents().any { it is WorldEvent.Impact && it.id == id })
     }
 
-    /**
-     * Legs still swinging out aren't on their springs yet, so the same 6 m/s touchdown that
-     * deployed legs soak up breaks something when it arrives halfway through the deploy. Too late
-     * isn't the same as down.
-     */
+    /** Legs still swinging out aren't on their springs, so a 6 m/s touchdown mid-deploy hurts. */
     @Test
     fun `touching down while the legs are still deploying is a hard landing`() {
         val world = world()
@@ -147,9 +129,8 @@ class LandingTest {
     @Test
     fun `a leg collapses instead of the craft exploding when it's hit too hard`() {
         val world = world()
-        // Just past the leg's 18 m/s tolerance. That's fast enough to break the gear, and slow
-        // enough that what's left of the craft survives the drop onto its engine bell once the legs
-        // have given way.
+        // Just past the leg's 18 m/s tolerance: breaks the gear, but the craft survives the drop
+        // onto its engine bell.
         val vessel = drop(world, height = 1.0, descentRate = 19.0, gearDown = true)
         val id = vessel.id
         val events = ArrayList<WorldEvent>()
@@ -167,28 +148,17 @@ class LandingTest {
             "and it should be the legs that gave way, not the airframe",
             failures.all { vessel.defs[it.partIndex].id == "leg-stilt" },
         )
-        // Giving up the gear is the gear doing its job. The craft is a write-off either way, but
-        // it's a write-off standing on the ground, not a crater.
         assertNotNull("the craft should have survived on collapsed legs", world.vessel(id))
     }
 
     /**
-     * The tunnelling regression.
-     *
-     * A tick is a sixtieth of a second, so a craft arriving at sixty metres a second covers a full
-     * metre in one. The lander's feet reach 0.6 m below its engine bell, and with a single contact
-     * sample per tick that whole margin gets stepped over. The first thing the solver sees is the
-     * legs *and* the engine already buried, both in the same tick, and the gear never gets a chance
-     * to be the thing that arrives first.
-     *
-     * It's measured as separation in ticks instead of as who failed, because the gear always shows
-     * up in the failure list either way. What tunnelling destroys is the *order*, and with it any
-     * chance of the suspension doing its job before the airframe reaches the ground.
+     * Tunnelling. At 60 m/s a tick covers a metre, more than the 0.6 m the feet reach below the
+     * bell, so one contact sample per tick buries legs and engine together. Checked as tick order,
+     * since the gear shows up in the failure list either way.
      */
     @Test
     fun `gear touches down a measurable moment before the airframe does`() {
-        // Fast enough that one tick of travel is more than the legs' reach below the bell, which is
-        // where a single sample per tick fails.
+        // One tick of travel is more than the legs' reach below the bell.
         for (descentRate in listOf(45.0, 60.0)) {
             val world = world()
             val vessel = drop(world, height = 2.0, descentRate = descentRate, gearDown = true)
@@ -208,10 +178,8 @@ class LandingTest {
             }
 
             assertTrue("at $descentRate m/s the gear never registered", gearTick >= 0)
-            // Whether the craft survives in the end isn't the point. The gear might soak up the
-            // whole arrival, which is a fine outcome. What must never happen is the airframe being
-            // written off in the same tick the gear first touches, because that means the solver
-            // stepped straight past the six hundred millimetres between them.
+            // Surviving is fine either way. The airframe mustn't be written off in the tick the
+            // gear first touches, which would mean the 0.6 m between them was stepped over.
             assertTrue(
                 "at $descentRate m/s the airframe was written off in the same " +
                     "tick the gear touched ($gearTick): the legs were stepped over",
@@ -227,10 +195,7 @@ class LandingTest {
         }
     }
 
-    /**
-     * The thing the pad could never test. Terrain is levelled for 200 m around the launch complex,
-     * so a landing on real ground has to happen somewhere else.
-     */
+    /** The pad is levelled for 200 m, so this lands on real ground elsewhere. */
     @Test
     fun `a lander settles on sloping ground without sliding away`() {
         val world = world()
@@ -238,8 +203,7 @@ class LandingTest {
         repeat(3) { world.stage(vessel) }
         vessel.control.throttle = 0.0
 
-        // Move it well clear of the levelled pad, onto ground with real relief, and seat it on the
-        // surface again there.
+        // Move it clear of the levelled pad and seat it on the ground there.
         val attractor = world.attractorFor(vessel)
         val field = attractor.terrain!!
         val rotation = attractor.rotationAt(world.time)
@@ -247,11 +211,8 @@ class LandingTest {
         val east = Vec3.unitY().cross(up).normalizeInPlace()
         val north = up.cross(east).normalizeInPlace()
 
-        // Found, not assumed: a patch of really sloping ground (four to eight degrees, the kind of
-        // hillside a lander would pick) somewhere out past the levelled pad. Assuming "eight
-        // kilometres east" is a hillside stopped being true the day the terrain grew cliffs.
-        // Steeper is a different claim. At eleven degrees this tall, narrow lander survives the
-        // drop, bounces, and topples, which is physics, not a collider fault.
+        // Search for a 4 to 8 degree hillside past the pad. At 11 degrees this tall, narrow lander
+        // topples, which is fair physics.
         val terrainField = field as com.rm.apogee.core.terrain.TerrainField
         var moved: Vec3? = null
         search@ for (ring in 4..30) for (step in 0 until 24) {
@@ -264,10 +225,8 @@ class LandingTest {
             val normal = terrainField.surfaceNormal(bf, sample = 6.0)
             val slope = Math.toDegrees(kotlin.math.acos((normal dot bf.normalized()).coerceIn(-1.0, 1.0)))
             if (slope !in 4.0..8.0) continue
-            // And smooth under the legs, the way a pilot would choose it. The ground has
-            // metre-scale relief now, and this lander (with its centre of mass 2.6 m above feet
-            // that reach 0.8 m to its tipping edge) goes over at about seventeen degrees, which a
-            // bumpy six-degree hillside can reach under one leg.
+            // And smooth under the legs. The lander (centre of mass 2.6 m up, 0.8 m to its tipping
+            // edge) goes over at about 17 degrees, which a bumpy hillside can reach under one leg.
             val footprintEast = Vec3.unitY().cross(bf.normalized()).normalizeInPlace()
             val footprintNorth = bf.normalized().cross(footprintEast)
             val ground = com.rm.apogee.core.terrain.GroundPoint()
@@ -287,10 +246,7 @@ class LandingTest {
 
         val bodyFixed = attractor.toBodyFixed(moved, rotation)
         val ground = field.surfaceRadius(bodyFixed)
-        // Two metres, a set-down instead of a drop. The ground has metre-scale relief now (facets
-        // under the legs of up to ten degrees on a six-degree hillside), and falling six metres
-        // onto one leg spun this tall, narrow lander over. That's a fair result for a bad landing,
-        // but it's not what this test is about.
+        // Set down from 2 m. Falling 6 m onto one leg on bumpy ground tips it over.
         vessel.body.position.setTo(moved).mulInPlace(ground + 2.0)
         attractor.surfaceVelocityAt(vessel.body.position, vessel.body.linearVelocity)
         vessel.body.angularVelocity.setTo(Vec3.zero())
@@ -388,9 +344,8 @@ class LandingTest {
     }
 
     /**
-     * My fall: a Starter I's pod on its own, from high up, with its chute armed. It fell so fast
-     * (400 m/s a kilometre up) that the chute, waiting for a safe speed, only opened on the ground.
-     * A blunt body falls slower, and the chute has to be full well before the ground.
+     * A Starter I's pod alone from high up, chute armed. A blunt body falls slowly enough that the
+     * chute is full well before the ground.
      */
     @Test
     fun `a pod falling from high up has its chute open well before the ground`() {
@@ -407,8 +362,7 @@ class LandingTest {
         val vessel = world.spawnAt(pod, "terra", position, velocity, com.rm.apogee.core.math.quatFromTo(Vec3.unitY(), up))
         world.stage(vessel)
         val chute = chuteOf(vessel)
-        // What I wanted: a couple of minutes under the chute, not many, with the drogue high up and
-        // the main low down for the last ten to twenty seconds.
+        // A couple of minutes under the chute: drogue high, main for the last 10 to 20 seconds.
         val ground = kotlin.math.max(terra.terrain!!.elevation(up), 0.0)
         var drogueAt = Double.NaN; var drogueTime = Double.NaN
         var mainAt = Double.NaN; var mainTime = Double.NaN

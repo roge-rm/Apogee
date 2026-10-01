@@ -59,12 +59,8 @@ import com.rm.apogee.ui.theme.alpha
 import kotlin.math.roundToInt
 
 /**
- * Which controller button does what, flying and on foot, and how the sticks feel.
- *
- * Press any button on the controller and its row lights up (and comes into view), so you can
- * find which is which on any controller, whatever's printed on the buttons. Pick a row to choose
- * what it does. The menus themselves always work the same way (the D-pad or left stick moves, A
- * picks and B goes back), so they can't be lost by remapping.
+ * Controller bindings, flying and on foot, and stick feel. Pressing a button lights and scrolls
+ * to its row. Menus always use D-pad or left stick, A and B, so remapping can't lock you out.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -91,8 +87,7 @@ fun ControllerScreen(
     Backdrop(maxContentWidth = Dimens.PanelContentMaxWidth, title = "Controller", onBack = onBack) { contentModifier ->
         Column(contentModifier) {
             Text(
-                controllerName?.let { "Connected: $it. Press a button to find its row." }
-                    ?: "No controller found. Connect one, or use the ones built in to a handheld.",
+                controllerName?.let { "Connected: $it" } ?: "No controller found",
                 style = MaterialTheme.typography.bodySmall,
                 color = Color.White.alpha(ApogeeAlpha.SUBTITLE),
             )
@@ -130,35 +125,26 @@ fun ControllerScreen(
             )
             SwitchRow(
                 title = "Hold A to stage",
-                subtitle = "Staging waits for the button to be held a moment",
                 checked = settings.padHoldToStage,
                 onCheckedChange = { settings.padHoldToStage = it },
             )
             SwitchRow(
-                title = "Hide the touch stick",
-                subtitle = "While a controller's flying, until the screen's touched",
+                title = "Hide the touch stick with a controller",
                 checked = settings.padHideTouch,
                 onCheckedChange = { settings.padHideTouch = it },
             )
 
             Spacer(Modifier.height(12.dp))
             ApogeeButton(
-                "Reset to the Retroid Pocket Mini layout",
+                "Reset to Retroid Pocket Mini",
                 { settings.padBindings = "" },
-                subtitle = "Both layers, flying and on foot",
                 enabled = bindings != PadBindings.RETROID_MINI,
             )
-            Text(
-                "In the menus and over a panel in flight, the D-pad or left stick moves, A picks and B goes back. " +
-                    "In the Vehicle Assembly the right stick turns the view and the triggers zoom.",
-                style = MaterialTheme.typography.labelSmall,
-                color = Color.White.alpha(ApogeeAlpha.SUBTITLE),
-                modifier = Modifier.padding(top = 8.dp, bottom = 16.dp),
-            )
+            Spacer(Modifier.height(16.dp))
         }
     }
 
-    // Back (or B) closes a list that's open, not the page under it.
+    // Back closes an open list, not the page.
     com.rm.apogee.ui.BackHandler(enabled = picking != null || pickingStick != null) {
         picking = null
         pickingStick = null
@@ -262,10 +248,7 @@ private fun BindingRow(control: String, does: String, lit: Boolean, onClick: () 
     }
 }
 
-/**
- * Every action a button can take, in groups, with the one it has now lit. On foot, the on-foot
- * ones come first.
- */
+/** Every action a button can take, grouped, the current one lit. On foot, on-foot ones come first. */
 @Composable
 private fun ActionPicker(
     title: String,
@@ -322,12 +305,6 @@ private fun StickPicker(title: String, current: StickUse, onPick: (StickUse) -> 
         text = {
             Column {
                 for (use in StickUse.entries) ChoiceRow(use.label, use == current) { onPick(use) }
-                Text(
-                    "Steering works the craft the way the touch stick does, and walks on foot. Looking turns the camera, or the map.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color.White.alpha(ApogeeAlpha.SUBTITLE),
-                    modifier = Modifier.padding(top = 8.dp),
-                )
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },

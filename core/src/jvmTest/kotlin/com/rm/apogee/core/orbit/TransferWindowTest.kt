@@ -45,7 +45,7 @@ class TransferWindowTest {
 
     @Test
     fun `a path leaving Terra for good is followed out among the planets`() {
-        // Hyperbolic out of a low orbit, past the old limit of a few days.
+        // Hyperbolic out of a low orbit, followed well past a few days.
         val r = terra.radius + 200_000.0
         val speed = kotlin.math.sqrt(2.0 * terra.gravitationalParameter / r) + 1_200.0
         val path = Trajectory.predict(system, "terra", com.rm.apogee.core.math.Vec3(r, 0.0, 0.0), com.rm.apogee.core.math.Vec3(0.0, 0.0, speed), 0.0)

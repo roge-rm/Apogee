@@ -1,10 +1,8 @@
 package com.rm.apogee.core
 
 /*
- * The few things the simulation needs that only a platform can give it: its resource files,
- * maps and counters that can be shared between threads, and a thread to build things on. On the
- * JVM (the app and the servers) they're the real thing; in a browser there's one thread, so they're
- * the plain single-threaded equivalents.
+ * What the simulation needs from a platform: resource files, thread-safe maps and counters, and a
+ * background thread. Real on the JVM; single-threaded equivalents in a browser.
  */
 
 /** A resource file's text, by its path from the resources root ("/parts/stock.json"), or null. */
@@ -27,15 +25,15 @@ expect class PerThread<T>(initial: () -> T) {
     fun get(): T
 }
 
-/** Runs [block] holding [lock], so no other thread holding it runs at the same time. */
+/** Runs [block] holding [lock]. */
 expect inline fun <T> guarded(lock: Any, block: () -> T): T
 
 /** [value] with [decimals] places after the point, the way `"%.Nf".format` writes it. */
 expect fun fixed(value: Double, decimals: Int): String
 
 /**
- * Somewhere to run jobs in the background, in the order they're given. On the JVM it's one thread
- * of its own, named [name]. In a browser they wait until [runBackgroundWork] is given the time.
+ * Runs jobs in the background in order. On the JVM, one thread named [name]. In a browser they wait
+ * for [runBackgroundWork].
  */
 expect class Background(name: String) {
     fun execute(task: () -> Unit)
@@ -43,7 +41,7 @@ expect class Background(name: String) {
 
 /**
  * Runs waiting [Background] jobs for up to [budgetMillis]. A browser calls it each frame; on the
- * JVM the jobs run on their own threads and this does nothing.
+ * JVM it does nothing.
  */
 expect fun runBackgroundWork(budgetMillis: Double)
 
@@ -57,15 +55,12 @@ fun hex(bytes: ByteArray): String = buildString(bytes.size * 2) {
 
 private const val HEX = "0123456789abcdef"
 
-/**
- * A map that holds at most [maxSize] entries and throws out the least recently used first, for
- * caches.
- */
+/** A map of at most [maxSize] entries that drops the least recently used first, for caches. */
 expect fun <K, V> lruMapOf(initialCapacity: Int, maxSize: Int): MutableMap<K, V>
 
 /**
- * Puts [value] at [key] unless something's there already, and returns what was there, or null.
- * On a [concurrentMapOf] map it's atomic, so two threads racing get the same one.
+ * Puts [value] at [key] unless something's there, and returns what was there or null. Atomic on a
+ * [concurrentMapOf] map.
  */
 expect fun <K, V> MutableMap<K, V>.putIfAbsentShared(key: K, value: V): V?
 
@@ -81,5 +76,5 @@ expect class ConcurrentQueue<E>() : MutableCollection<E> {
 /** A list for reading far more than changing, safe to walk while another thread changes it. */
 expect fun <T> copyOnWriteListOf(): MutableList<T>
 
-/** A clock in nanoseconds for measuring time between two moments, from no set start. */
+/** A monotonic nanosecond clock for measuring intervals. */
 expect fun nanoTime(): Long

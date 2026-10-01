@@ -9,12 +9,11 @@ import com.rm.apogee.core.part.Tailhook
 import kotlin.math.abs
 
 /**
- * A carrier's deck gear: arresting wires that catch a plane's tailhook and stop it short, and
+ * A carrier's deck gear: arresting wires that catch a tailhook and stop the plane short, and
  * catapults that throw a plane off the deck at flying speed.
  *
- * Neither is a rope or a piston. A caught plane is slowed evenly against the deck it landed on, the
- * way the wire paying out under the deck does it, and a launched one is pushed evenly along the
- * track. Each pushes the deck back as hard, so a light platform feels it.
+ * Neither is a rope or piston. A caught plane is slowed evenly against its deck and a launched one
+ * pushed evenly along the track. Each pushes the deck back as hard, so a light platform feels it.
  */
 internal class DeckGear {
     /** A plane caught on a wire of [deck]'s part [part], being slowed at [decel] m/s². */
@@ -52,10 +51,7 @@ internal class DeckGear {
 
     // --- the wires -------------------------------------------------------------------------
 
-    /**
-     * A lowered hook crossing a wire, over it and moving across it, catches it. The hook is lowered
-     * with the gear.
-     */
+    /** A lowered hook (it lowers with the gear) crossing over a wire catches it. */
     private fun catchHooks(vessels: Map<VesselId, Vessel>, dt: Double) {
         for (plane in vessels.values) {
             if (plane.dormant || !plane.control.deployed || caught(plane.id)) continue
@@ -72,7 +68,7 @@ internal class DeckGear {
                         deck.worldToPartLocal(g, tip, local)
                         if (abs(local.x) > gear.span / 2.0 || local.z < LOWEST || local.z > HIGHEST) continue
                         relativeVelocity(plane, deck, tip, velocity)
-                        // Into the wires' own frame, to see which way it's going across them.
+                        // Into the wires' frame, to see which way it's crossing them.
                         deck.body.orientation.inverseRotate(velocity, axis)
                         deck.design.parts[g].rotation.inverseRotate(axis, axis)
                         if (abs(axis.y) < LEAST_CATCH_SPEED) continue
@@ -83,7 +79,7 @@ internal class DeckGear {
                         arrests.add(Arrest(plane.id, deck.id, g, decel))
                         plane.control.autopilotNote = "Caught a wire"
                         if (!deck.anchored) deck.wake()
-                        // One catch a tick is plenty. Anyone else is looked for next tick.
+                        // One catch a tick; anyone else is looked for next tick.
                         return
                     }
                 }
@@ -120,9 +116,9 @@ internal class DeckGear {
     // --- the catapults ---------------------------------------------------------------------
 
     /**
-     * A craft on a catapult's near end, at full throttle with its brakes off, is ready, and held
-     * there by the holdback against its own push. Held for [HOLD] seconds, it goes. Waiting for it to
-     * sit still at full power, it never did: it was already rolling.
+     * A craft on a catapult's near end at full throttle, brakes off, is ready and held there by the
+     * holdback. After [HOLD] seconds it goes. It doesn't wait to sit still, since at full power it
+     * never quite does.
      */
     private fun armCatapults(vessels: Map<VesselId, Vessel>, dt: Double) {
         for (craft in vessels.values) {
@@ -150,8 +146,8 @@ internal class DeckGear {
             val catapult = deck.defs[on].module<Catapult>()!!
             launches.add(Launch(craft.id, deck.id, on, catapult.endSpeed * catapult.endSpeed / (2.0 * catapult.stroke), catapult.endSpeed))
             craft.control.autopilotNote = "Catapult"
-            // Hands off, a plane thrown off the bow with nothing holding it noses into the sea.
-            // So the shot turns on its SAS, holding the way it's pointing, if it wasn't on already.
+            // Left alone, a plane thrown off the bow noses into the sea, so the shot turns on SAS
+            // holding the way it's pointing, if it wasn't on already.
             if (!craft.control.sasEnabled) {
                 craft.control.sasEnabled = true
                 craft.control.sasMode = SasMode.HOLD
@@ -161,7 +157,9 @@ internal class DeckGear {
         }
     }
 
-    /** Pushes each launched craft along its track until it's at speed, off the end, or off the deck. */
+    /**
+     * Pushes each launched craft along its track until it's at speed, off the end, or off the deck.
+     */
     private fun throwLaunched(vessels: Map<VesselId, Vessel>, dt: Double) {
         val iterator = launches.iterator()
         while (iterator.hasNext()) {
@@ -223,10 +221,15 @@ internal class DeckGear {
         /** The slowest a hook can cross a wire and catch it, in m/s. */
         const val LEAST_CATCH_SPEED = 3.0
 
-        /** Slower than this across the deck, in m/s, a caught plane is let go, held on its brakes. */
+        /**
+         * Slower than this across the deck, in m/s, a caught plane is let go, held on its brakes.
+         */
         const val STOPPED = 0.5
 
-        /** Further than this from the wires, in metres, a caught plane is let go whatever it's doing. */
+        /**
+         * Further than this from the wires, in metres, a caught plane is let go whatever it's
+         * doing.
+         */
         const val LET_GO = 150.0
 
         /** The throttle, as a share, that counts as full on a catapult. */
@@ -235,7 +238,10 @@ internal class DeckGear {
         /** How far from the near end of a catapult, in metres, a craft counts as on it. */
         const val START = 8.0
 
-        /** How still a craft has to sit on a catapult, in m/s, and for how long, in seconds, before it goes. */
+        /**
+         * How still a craft must sit on a catapult in m/s, and for how long in seconds, before it
+         * goes.
+         */
         const val SITTING = 1.0
         const val HOLD = 1.5
     }

@@ -9,7 +9,7 @@ import org.junit.Test
 
 /**
  * Staging arranged by hand in the builder. Moved parts stay moved, symmetry partners move together,
- * and more building fits into the arrangement instead of throwing it away.
+ * and more building keeps the arrangement.
  */
 class StageEditingTest {
 
@@ -96,8 +96,7 @@ class StageEditingTest {
         builder.symmetry = SymmetryMode.QUAD
         val surface = builder.openNodes().first { it.partIndex == tank && it.kind == AttachNodeKind.SURFACE }
         builder.attach("leg-stilt", surface)
-        // Automatically, legs fire after everything. Nothing of theirs has a stage, so they get one
-        // of their own, last.
+        // Legs fire after everything, in a stage of their own, last.
         assertEquals(listOf("chute-canopy"), ids(builder, 0))
         assertEquals(listOf("engine-ember"), ids(builder, 1))
         assertEquals(List(4) { "leg-stilt" }, ids(builder, 2))

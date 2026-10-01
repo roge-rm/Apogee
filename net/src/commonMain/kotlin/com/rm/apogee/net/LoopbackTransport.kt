@@ -5,12 +5,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.receiveAsFlow
 
 /**
- * A [Transport] pair joined in memory, with no socket involved.
- *
- * This is what makes "single player is a one-player server" actually true. The client talks to a
- * server through exactly the same interface whether that server is in this process or on someone
- * else's phone, so the networked build isn't a separate code path that only gets used when two
- * devices are in the room.
+ * A [Transport] pair joined in memory. Single player is a one-player server over this, so the
+ * client uses the same path with or without a socket.
  */
 class LoopbackTransportPair(
     capacity: Int = 256,
@@ -38,8 +34,7 @@ class LoopbackTransportPair(
         override val incoming: Flow<Packet> = incomingChannel.receiveAsFlow()
 
         override suspend fun send(packet: Packet) {
-            // A closed channel means the other end has gone. Over a real socket that's an ordinary
-            // disconnect, not an error, so it mustn't turn into one here either.
+            // A closed channel means the other end has gone. That's a disconnect, so don't throw.
             runCatching { outgoing.send(packet) }
         }
 

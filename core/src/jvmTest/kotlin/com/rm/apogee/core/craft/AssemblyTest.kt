@@ -9,9 +9,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * Lifting pieces off a craft, putting them back on somewhere else, copying them and turning them.
- */
+/** Lifting pieces off a craft, putting them back elsewhere, copying and turning them. */
 class AssemblyTest {
 
     private val catalog = StockParts.catalog
@@ -58,8 +56,8 @@ class AssemblyTest {
         val engine = b.design.parts[4]
         val before = relative(tank, engine)
         val lifted = b.lift(3)!!
-        // Onto the side of the pod's tank, as a booster now, hung by one of its own side nodes,
-        // because the bottom one is the engine's.
+        // Onto the side of the pod's tank as a booster, hung by a side node since the bottom one is
+        // the engine's.
         val side = nodeOn(lifted.rest, 1, "surface-0")
         val added = b.move(3, side)
         assertEquals(2, added.size)
@@ -103,8 +101,7 @@ class AssemblyTest {
     fun `a copied booster is the same shape as the one it copied`() {
         val b = rocket()
         val copy = b.duplicate(3)!!
-        // A second tank-and-engine under the engine is silly but allowed. The copy goes on where it
-        // fits and keeps its own shape.
+        // A second tank-and-engine under the engine is silly but allowed. The copy keeps its shape.
         val added = b.attachAssembly(copy, nodeOn(b.design, 4, "bottom"))
         assertEquals(2, added.size)
         val a = relative(b.design.parts[3], b.design.parts[4])

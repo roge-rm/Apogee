@@ -11,10 +11,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * Water jets: the Jet Boat and the Jet Ski are quick on open water, turn hard on their nozzles,
- * and stay the right way up doing it.
- */
+/** Water jets: the Jet Boat and Jet Ski are quick, turn hard on their nozzles, and stay upright. */
 class WaterJetTest {
     private val catalog = StockParts.catalog
     private val dt = 1.0 / 60.0

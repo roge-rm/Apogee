@@ -12,11 +12,8 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 
 /**
- * Properties of the height function that the game depends on.
- *
- * These aren't "does it look nice" tests. Each one pins down something that something else assumes:
- * that a craft can be placed on the pad, that the renderer's mesh is sampling the same surface the
- * collider is, and that two machines in a multiplayer session agree about where the ground is.
+ * What the rest of the game assumes about the height function: a level pad, the mesh and collider
+ * on the same surface, and the same ground wherever it's worked out.
  */
 class TerrainFieldTest {
 
@@ -39,10 +36,7 @@ class TerrainFieldTest {
         ).normalizeInPlace()
     }
 
-    /**
-     * Multiplayer rests on this. The server and every client work out the field on their own and
-     * have to agree to the metre, or craft sink into ground that isn't there on the other machine.
-     */
+    /** Every copy of the field has to agree exactly about where the ground is. */
     @Test
     fun `two fields with the same seed describe the same planet`() {
         val a = field()
@@ -56,10 +50,7 @@ class TerrainFieldTest {
         }
     }
 
-    /**
-     * A rocket stands on the pad. If the ground under its footprint isn't level it topples, or the
-     * contact solver fights itself forever trying to settle it.
-     */
+    /** Uneven ground under a rocket topples it or keeps the contact solver from settling. */
     @Test
     fun `the launch pad is level`() {
         val f = field()
@@ -80,10 +71,7 @@ class TerrainFieldTest {
         )
     }
 
-    /**
-     * The pad is levelled by blending the real field toward one height. A blend that doesn't close
-     * leaves a cliff at its edge, which you can't see in a screenshot but a rover can drive off.
-     */
+    /** The pad is a blend toward one height. A blend that doesn't close leaves a cliff at its edge. */
     @Test
     fun `there is no step where the levelled pad rejoins the terrain`() {
         val f = field()
@@ -104,9 +92,8 @@ class TerrainFieldTest {
     }
 
     /**
-     * Hills are added in metres after the shaping curve, which risks taking a patch of land back
-     * below the waterline and speckling coastlines with ponds. The fade that stops it is only right
-     * while it's wider than the hills are tall.
+     * Hills go on after the shaping curve, so they could dig land below the waterline and leave
+     * ponds. The fade that stops it only works while it's wider than the hills are tall.
      */
     @Test
     fun `hills never dig land back below the waterline`() {
@@ -122,9 +109,7 @@ class TerrainFieldTest {
             val e = f.elevation(d)
             if (e < 0.0) ocean++ else land++
 
-            // Whatever the height, the surface a craft rests on is never below the datum. The
-            // renderer clamps its water to exactly this, and would otherwise draw sea over dry
-            // ground.
+            // The surface is never below the datum. The renderer clamps its water to it.
             assertTrue(f.surfaceRadius(d) >= radius)
         }
         val oceanFraction = ocean.toDouble() / (land + ocean)
@@ -135,9 +120,8 @@ class TerrainFieldTest {
     }
 
     /**
-     * The renderer builds its mesh from [TerrainField.surfaceRadius], and the collider asks
-     * [com.rm.apogee.core.orbit.CelestialBody] for the same thing. If those two ever disagree, a
-     * craft lands on a mountain that's drawn somewhere else.
+     * The mesh comes from [TerrainField.surfaceRadius] and the collider asks
+     * [com.rm.apogee.core.orbit.CelestialBody]. They have to agree.
      */
     @Test
     fun `the body reports the same surface the field does`() {

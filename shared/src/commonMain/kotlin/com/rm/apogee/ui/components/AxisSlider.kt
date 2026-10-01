@@ -35,11 +35,8 @@ import com.rm.apogee.ui.theme.alpha
 import kotlin.math.roundToInt
 
 /**
- * A vertical slider built by hand instead of from Material's.
- *
- * Material's slider is horizontal, and rotating it rotates the touch target too. The hit area ends
- * up a wide, short band where the control looks tall and thin, which is maddening under a thumb.
- * Here the whole box is the drag area, which is what a throttle needs.
+ * A hand-built vertical slider. A rotated Material slider keeps a wide, short hit area. Here the
+ * whole box is the drag area.
  */
 @Composable
 fun VerticalAxisSlider(
@@ -48,16 +45,12 @@ fun VerticalAxisSlider(
     modifier: Modifier = Modifier,
     trackWidth: androidx.compose.ui.unit.Dp = 6.dp,
     thumbSize: androidx.compose.ui.unit.Dp = 22.dp,
-    /**
-     * Anything at or below this reads as zero. The bottom of the track is a target for "off", not
-     * for "a sliver of power" a thumb can't help leaving on. Zero for none.
-     */
+    /** Anything at or below this reads as zero, so the bottom means off. Zero for none. */
     snapToZero: Float = 0f,
 ) {
     var heightPx by remember { mutableFloatStateOf(1f) }
     val thumbPx = with(androidx.compose.ui.platform.LocalDensity.current) { thumbSize.toPx() }
-    // Along the same travel the thumb is drawn on, so a touch on the thumb reads as where the thumb
-    // is: at the bottom, zero.
+    // Same travel the thumb is drawn on, so touching the thumb reads its own value.
     fun at(y: Float): Float {
         val travel = (heightPx - thumbPx).coerceAtLeast(1f)
         val v = (1f - (y - thumbPx / 2f) / travel).coerceIn(0f, 1f)
@@ -67,8 +60,7 @@ fun VerticalAxisSlider(
     Box(
         modifier = modifier
             .onSizeChanged { heightPx = it.height.toFloat().coerceAtLeast(1f) }
-            // A tap sets it as well as a drag, because tapping the bottom is how you cut the power
-            // in a hurry.
+            // A tap sets it too, so tapping the bottom cuts the power.
             .pointerInput(Unit) {
                 detectTapGestures { offset -> onValueChange(at(offset.y)) }
             }
@@ -111,16 +103,12 @@ fun VerticalAxisSlider(
     }
 }
 
-/**
- * A small step button for the end of a slider. A tap is one step, and holding it repeats, faster
- * the longer you hold, so a big change takes no hammering and a small one stays exact.
- */
+/** A step button for the end of a slider. A tap is one step. Holding repeats, speeding up. */
 @Composable
 fun NudgeButton(label: String, onNudge: () -> Unit, modifier: Modifier = Modifier) {
     var pressed by remember { mutableStateOf(false) }
     val nudge by rememberUpdatedState(onNudge)
-    // Only the repeat. The first step fires on the press itself, or a quick tap could come and go
-    // inside one composition and do nothing.
+    // Only the repeat. The first step fires on the press, or a quick tap could be missed.
     LaunchedEffect(pressed) {
         if (!pressed) return@LaunchedEffect
         delay(400)

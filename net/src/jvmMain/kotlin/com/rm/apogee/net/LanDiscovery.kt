@@ -16,17 +16,10 @@ import java.net.NetworkInterface
 import java.net.SocketTimeoutException
 
 /**
- * Finding games on the local network, without a lobby server.
- *
- * A host broadcasts a small JSON beacon once a second, and clients listen. I chose this over
- * mDNS/NSD because it behaves the same on Android and on a desktop JVM (the dedicated server can
- * announce itself with exactly this code), and because the payload can carry the protocol version
- * and catalogue hash. That way a client can grey out a game it can't join in the list, instead of
- * finding out only after trying to join.
- *
- * It's JSON instead of the protobuf the game uses. A beacon is a handful of fields sent once a
- * second, and being able to read one with tcpdump while working out why two devices can't see each
- * other is worth more than the bytes.
+ * Finds games on the local network with no lobby server. A host broadcasts a small JSON beacon once
+ * a second and clients listen. It works the same on Android and the dedicated server, and the
+ * beacon carries the protocol version and catalogue hash so the list can grey out games you can't
+ * join. JSON so a beacon can be read in tcpdump.
  */
 object LanDiscovery {
 
@@ -38,10 +31,8 @@ object LanDiscovery {
     private const val MAGIC = "APOGEE1"
 
     /**
-     * Broadcasts [beacon] until the scope is cancelled.
-     *
-     * It sends to every broadcast address the device has, not just 255.255.255.255. On Android that
-     * global address often gets dropped, while the per-interface broadcast address gets through.
+     * Broadcasts [beacon] until the scope is cancelled, to every interface's broadcast address as
+     * well as 255.255.255.255, which Android often drops.
      */
     fun announce(beacon: ServerBeacon, scope: CoroutineScope): Job =
         scope.launch(Dispatchers.IO) {
@@ -64,10 +55,8 @@ object LanDiscovery {
         }
 
     /**
-     * Listens for beacons, calling [onFound] for each one.
-     *
-     * The caller has to remove the duplicates. A host announces once a second forever, and on a
-     * device with several interfaces the same beacon can arrive more than once per round.
+     * Listens for beacons, calling [onFound] for each one. The caller removes duplicates: hosts
+     * repeat every second, and a beacon can arrive once per interface.
      */
     fun listen(scope: CoroutineScope, onFound: (ServerBeacon) -> Unit): Job =
         scope.launch(Dispatchers.IO) {
@@ -88,8 +77,7 @@ object LanDiscovery {
                     val text = String(packet.data, packet.offset, packet.length)
                     if (!text.startsWith(MAGIC)) continue
 
-                    // A malformed beacon isn't worth taking the browser down for. An older build on
-                    // the network will send one.
+                    // Skip malformed beacons; an older build may send them.
                     val beacon = runCatching {
                         format.decodeFromString<ServerBeacon>(text.removePrefix(MAGIC))
                     }.getOrNull() ?: continue

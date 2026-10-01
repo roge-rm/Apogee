@@ -1,12 +1,9 @@
 package com.rm.apogee.core.weather
 
 /**
- * What kind of weather a world has: the shape of its winds, what its storms are made of, what falls
- * from them, what hangs in its air, and the colours all of that is drawn in.
- *
- * [Weather] reads every number it used to keep as a constant from here. Terra's are exactly those
- * constants, so its air is what it always was. Each other world with air gets its own, and a world
- * with none has no climate at all.
+ * A world's kind of weather: its wind pattern, what its storms are made of and drop, what hangs in
+ * its air, and the colours they're drawn in. [Weather] reads all its tuning from here. Terra's are
+ * the defaults. A world with no air has no climate.
  */
 data class Climate(
     // --- circulation -------------------------------------------------------------
@@ -16,23 +13,18 @@ data class Climate(
     val windScale: Double = 1.0,
     /** For [Circulation.BANDED]: how many jets there are from pole to pole. */
     val bands: Int = 0,
-    /**
-     * For [Circulation.BANDED]: the equatorial jet's speed in m/s. Negative runs against the spin.
-     */
+    /** For [Circulation.BANDED]: the equatorial jet in m/s. Negative runs against the spin. */
     val bandSpeed: Double = 0.0,
     /** The peak jet stream speed in m/s, and its height in metres. */
     val jet: Double = 22.0,
     val jetHeight: Double = 10_000.0,
     /**
-     * The wind the whole upper air carries around the world, faster than the world turns, in m/s,
-     * reached at [superRotationHeight]. Caligo's clouds lap it in days while its ground air barely
-     * moves.
+     * The upper air's wind round the world, faster than the world turns, in m/s, reached at
+     * [superRotationHeight]. Caligo's clouds lap it in days while its ground air barely moves.
      */
     val superRotation: Double = 0.0,
     val superRotationHeight: Double = 1.0,
-    /**
-     * Where the weather starts to fade with height, and above which the air is still, in metres.
-     */
+    /** Where the weather starts to fade with height, and where the air goes still, in metres. */
     val fadeFrom: Double = 18_000.0,
     val ceiling: Double = 30_000.0,
     /** False for a giant, which has no ground under the air to slow the wind. */
@@ -41,7 +33,7 @@ data class Climate(
     // --- what forms in it --------------------------------------------------------
     /** Scales how many thermals there are and how hard they lift. */
     val thermals: Double = 1.0,
-    /** Whether a thermal's top condenses into cumulus. Not in dry air, where it only lifts dust. */
+    /** Whether a thermal's top condenses into cumulus. Not in dry air. */
     val cumulus: Boolean = true,
     /** Stratus, altostratus and cirrus decks. */
     val layers: Boolean = true,
@@ -58,10 +50,7 @@ data class Climate(
     val lightning: Boolean = true,
 
     // --- the permanent deck ------------------------------------------------------
-    /**
-     * A cloud layer all the way around the world that never breaks, in metres above datum. None if
-     * top <= base.
-     */
+    /** A layer round the whole world that never breaks, metres above datum. None if top <= base. */
     val deckBase: Double = 0.0,
     val deckTop: Double = 0.0,
     val deckDensity: Double = 0.0,
@@ -71,15 +60,10 @@ data class Climate(
     // --- haze and light ----------------------------------------------------------
     /** How far you can see in clear air near the ground, in metres. */
     val haze: Double = AirSample.CLEAR_VISIBILITY,
-    /**
-     * The share of the sunlight that never reaches the ground, 0..1, fading off to nothing at
-     * [gloomTop].
-     */
+    /** The share of sunlight that never reaches the ground, 0..1, fading out at [gloomTop]. */
     val gloom: Double = 0.0,
     val gloomTop: Double = 1.0,
-    /**
-     * The share of the sunlight a storm's cloud takes at full density, 0..1. Dust darkens panels.
-     */
+    /** The share of sunlight a storm's cloud takes at full density, 0..1. Dust darkens panels. */
     val stormShade: Double = 0.0,
 
     // --- colours, for drawing (0xRRGGBB, as the sky shader mixes them) ---------
@@ -95,8 +79,8 @@ data class Climate(
     /** How much of a sky the air makes, 0..1. A thin air's sky is black with a glow at the rim. */
     val skyDepth: Double = 1.0,
     /**
-     * The height of the cloud or haze that hides the ground from above, in metres, or 0 where the
-     * ground can be seen. From orbit Caligo is a blank cream ball.
+     * Height in metres of the cloud or haze that hides the ground from above, or 0 if the ground
+     * shows. From orbit Caligo is a blank cream ball.
      */
     val veil: Double = 0.0,
 ) {
@@ -114,10 +98,7 @@ data class Climate(
     /** Whether there's a permanent deck. */
     val hasDeck: Boolean get() = deckTop > deckBase
 
-    /**
-     * How much of the sun reaches [altitude] through the gloom, 0..1. It's 1 above it and on a
-     * clear world.
-     */
+    /** How much sun reaches [altitude] through the gloom, 0..1; 1 above it and on a clear world. */
     fun sunThrough(altitude: Double): Double =
         if (gloom <= 0.0) 1.0 else 1.0 - gloom * (1.0 - smooth(0.0, gloomTop, altitude))
 
@@ -133,7 +114,7 @@ data class Climate(
     enum class Precipitation { RAIN, METHANE, NONE }
 
     companion object {
-        /** Terra's own, which are the numbers the weather has always used. */
+        /** Terra's, the defaults. */
         val TERRA = Climate()
 
         /** The climate of the world [bodyId], or null where there's no weather at all. */

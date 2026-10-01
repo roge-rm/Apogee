@@ -10,11 +10,8 @@ import kotlin.math.abs
 import kotlin.math.asin
 
 /**
- * Letting go of the stick.
- *
- * An aircraft here weathervanes to zero angle of attack and so to zero lift, whatever its layout,
- * so the nose drops the moment nothing holds it up. SAS holds it. It's measured against the same
- * flight with SAS off, so the test shows the difference and not just a number that happens to pass.
+ * Letting go of the stick. An aircraft weathervanes to zero angle of attack and zero lift, so the
+ * nose drops unless SAS holds it. Compared against the same flight with SAS off.
  */
 class StabilityAssistTest {
 
@@ -42,11 +39,8 @@ class StabilityAssistTest {
         val up = Vec3()
         val east = Vec3()
         val surface = Vec3()
-        // Off the runway the way a player does it, the same way as TakeoffTest: level on the roll,
-        // full back stick from sixty metres a second to a ten-degree climb, then SAS holds it
-        // there. A proportional test pilot asking for six degrees only ever gave half elevator, and
-        // on the day the pad moved up sixty metres into thinner air, that stopped being enough to
-        // rotate.
+        // As in TakeoffTest: level on the roll, full back stick from 60 m/s to a ten-degree
+        // climb, then SAS holds it. Half elevator isn't enough to rotate at the pad's height.
         plane.control.sasEnabled = true
         var rotated = false
         while (world.time < 45.0) {

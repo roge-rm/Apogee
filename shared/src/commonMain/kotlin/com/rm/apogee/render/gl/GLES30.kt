@@ -1,10 +1,8 @@
 package com.rm.apogee.render.gl
 
 /**
- * OpenGL ES 3.0, as much of it as the renderer uses, with the same names and constants as
- * `android.opengl.GLES30`, so the renderer reads the same on every platform. On Android it is that;
- * in a browser it is WebGL2, which is OpenGL ES 3.0 for the web. Where Android takes a `java.nio`
- * buffer, these take a [GlData].
+ * The OpenGL ES 3.0 the renderer uses, named as in `android.opengl.GLES30`. On Android it's that;
+ * in a browser it's WebGL2. Where Android takes a `java.nio` buffer, these take a [GlData].
  */
 expect object GLES30 : GlConstants {
     fun glActiveTexture(texture: Int)
@@ -130,10 +128,7 @@ interface GlConstants {
     val GL_VERTEX_SHADER: Int get() = 0x8B31
 }
 
-/**
- * Bytes to hand to OpenGL: a direct buffer on Android, a typed array in a browser. Each fill writes
- * from the start, the way every upload here does, and [size] says how much of it is used.
- */
+/** Bytes for OpenGL: a direct buffer on Android, a typed array in a browser. Fills write from the start. */
 expect class GlData(bytes: Int) {
     /** Room, in bytes. */
     val capacity: Int

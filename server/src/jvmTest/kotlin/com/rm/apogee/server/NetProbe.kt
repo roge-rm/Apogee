@@ -14,14 +14,11 @@ import kotlinx.coroutines.runBlocking
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Connects to a running host as a real client and reports what it sees.
+ * Joins a running host as a real client over a real socket and reports what it sees, for checking
+ * a game hosted on a phone.
  *
  * `./gradlew :server:netProbe --args="<host> <port>"`, or with no arguments it browses the network
  * first.
- *
- * It's here to close the loop no unit test can: a game hosted from a real phone, joined from a real
- * second process, over a real socket. The integration tests prove the protocol and the framing, and
- * this proves the thing the player will do.
  */
 fun main(args: Array<String>) = runBlocking {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)

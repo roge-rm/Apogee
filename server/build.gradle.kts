@@ -1,9 +1,7 @@
 import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
-// The game server, the same one whether a phone hosts, a dedicated server runs it, or a browser
-// plays alone against its own copy. It's all common code: the sockets it's reached through are
-// :net's.
+// The game server, used by a hosting phone, a dedicated server and a solo browser. Sockets are :net's.
 plugins {
     alias(libs.plugins.kotlin.multiplatform)
     alias(libs.plugins.kotlin.serialization)
@@ -35,12 +33,7 @@ plugins.withType<org.jetbrains.kotlin.gradle.targets.wasm.binaryen.BinaryenPlugi
     the<org.jetbrains.kotlin.gradle.targets.wasm.binaryen.BinaryenEnvSpec>().downloadBaseUrl.set(null as String?)
 }
 
-/**
- * Connects to a running host as a real client: `./gradlew :server:netProbe`.
- *
- * It closes the loop no unit test can: a game hosted from a real device, joined from a real second
- * process, over a real socket.
- */
+/** Joins a running host over a real socket as a client: `./gradlew :server:netProbe`. */
 tasks.register<JavaExec>("netProbe") {
     group = "verification"
     description = "Joins a running Apogee host and reports what it sees."
@@ -51,8 +44,7 @@ tasks.register<JavaExec>("netProbe") {
     mainClass.set("com.rm.apogee.server.NetProbeKt")
 }
 
-// The tests run on the JVM, as jvmTest; `test` is kept as the name for them, as before it was
-// multiplatform.
+// `test` runs jvmTest.
 tasks.register("test") {
     group = "verification"
     description = "Runs the tests (on the JVM)."

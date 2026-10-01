@@ -5,26 +5,25 @@ import com.rm.apogee.core.math.Vec3
 import kotlin.math.abs
 
 /**
- * The stick read by the screen, for a craft built standing up. A rocket is round, and when the
- * stick turned it about its own axes, it went a different way on screen every flight. On a
- * symmetrical rocket I couldn't tell which control went which way until I tested them.
+ * The stick read by the screen, for a craft built standing up. A round rocket has no obvious
+ * axes, so turning it by its own made the stick go a different way on screen every flight.
  *
- * Right tips the nose toward the screen's right, from wherever it points. Up tips it as if your
- * thumb were holding the craft itself, so a nose standing up the screen goes away from the camera,
- * and one pointing into the screen goes down.
+ * Right tips the nose toward the screen's right, wherever it points. Up tips it as if your thumb
+ * held the craft: a nose pointing up the screen goes away from the camera, one pointing into the
+ * screen goes down.
  */
 object ScreenStick {
 
     /**
-     * [up] and [right] from the stick, -1..1, as the craft's own pitch (about its X) and yaw (about
-     * its Z), for a camera turned [camera] and a craft turned [craft], both in the same frame.
-     * They're scaled back together, not clipped separately, when one would go past 1.
+     * [up] and [right] from the stick, -1..1, as the craft's pitch (about X) and yaw (about Z), for
+     * rotations [camera] and [craft] in the same frame. Scaled back together, not clipped
+     * separately, when one would pass 1.
      */
     fun attitude(camera: Quat, craft: Quat, up: Double, right: Double): Pair<Double, Double> {
         val screenRight = camera.rotate(Vec3.unitX(), Vec3())
         val nose = craft.rotate(Vec3.unitY(), Vec3())
-        // Up turns about the camera's left, and right about nose x right, which carries the nose
-        // toward the screen's right and only fades as the nose itself comes to point right.
+        // Up turns about the camera's left, right about nose x right, which carries the nose toward
+        // the screen's right and fades only as the nose comes to point right.
         val turn = Vec3().addScaledInPlace(screenRight, -up)
             .addScaledInPlace(Vec3().setTo(nose).crossInPlace(screenRight), right)
         val body = craft.inverseRotate(turn, Vec3())
@@ -36,19 +35,18 @@ object ScreenStick {
     }
 
     /**
-     * The stick read by the screen for a craft that flies level, a helicopter or a drone: it tips
-     * over toward where the stick points, and flies that way. Up is away from the camera along the
-     * ground and right is the camera's right, whichever way the craft is facing. [turn] (the roll
-     * buttons) turns it about its own up, right for positive. The answer is the turn in the
-     * craft's own axes, x pitch, y roll and z yaw, into [out], for a camera turned [camera], a craft
-     * turned [craft] with [craftUp] its up in its own axes, and [worldUp] the way up from the
-     * planet (unit), all in the same frame.
+     * The stick read by the screen for a craft that flies level (helicopter, drone): it tips toward
+     * where the stick points and flies that way. Up is away from the camera along the ground, right
+     * is the camera's right, whichever way the craft faces. [turn] (the roll buttons) turns it
+     * about its own up, positive right. The answer is the turn in craft axes (x pitch, y roll, z
+     * yaw) into [out]. [craftUp] is its up in its own axes and [worldUp] the unit up from the
+     * planet; all else is in one frame.
      */
     fun tilt(camera: Quat, craft: Quat, worldUp: Vec3, craftUp: Vec3, up: Double, right: Double, turn: Double, out: Vec3): Vec3 {
         val side = camera.rotate(Vec3.unitX(), Vec3())
         side.addScaledInPlace(worldUp, -(side dot worldUp))
-        // The camera's forward flattened onto the ground. Looking straight down there isn't one,
-        // and its top edge stands in for it.
+        // The camera's forward flattened onto the ground. Looking straight down, its top edge
+        // stands in.
         val ahead = camera.rotate(Vec3(0.0, 0.0, -1.0), Vec3())
         ahead.addScaledInPlace(worldUp, -(ahead dot worldUp))
         if (ahead.lengthSq < 0.01) {

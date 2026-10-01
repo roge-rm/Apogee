@@ -16,9 +16,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * The sea that's drawn is the sea the boats float on. Around the craft, where hull meets water,
- * every vertex is the physics' own surface. And it's laid out on the ground, not around the craft,
- * so moving the craft doesn't move the facets.
+ * The drawn sea is the one boats float on: near the craft every vertex is the physics' surface.
+ * The grid is laid out on the ground, so moving the craft doesn't move the facets.
  */
 class SeaSceneTest {
 
@@ -56,7 +55,7 @@ class SeaSceneTest {
             val east = Vec3(0.0, 1.0, 0.0).crossInPlace(at).normalizeInPlace()
             val here = at.copy().mulInPlace(terra.radius)
             val there = here.copy().addScaledInPlace(east, 3.3)
-            // Both for the same moment, so a point on the ground has the same wave on it.
+            // Same moment, so the same point has the same wave.
             val a = builtAt(SeaScene(terra, system.body("luna"), config, QualityTier.LOW, scope), here, 5_000.0)
             val b = builtAt(SeaScene(terra, system.body("luna"), config, QualityTier.LOW, scope), there, 5_000.0)
             fun points(s: SeaSurface) = (0 until s.vertexCount).map { v ->
@@ -95,7 +94,7 @@ class SeaSceneTest {
                 if (terra.terrain!!.elevation(at) < -500.0) break
             }
             val centre = at.copy().mulInPlace(terra.radius)
-            // Something to draw straight away (flat water) while the sea is worked out.
+            // Flat water to draw straight away while the sea is built.
             scene.update(centre, 5_000.0)
             assertTrue("nothing to draw on the first frame", scene.latest != null)
             val deadline = System.currentTimeMillis() + 30_000
@@ -113,7 +112,7 @@ class SeaSceneTest {
                 val p = Vec3(
                     built.origin.x + built.vertices[o], built.origin.y + built.vertices[o + 1], built.origin.z + built.vertices[o + 2],
                 )
-                // The hull's neighbourhood. Every wave train is in these.
+                // Near the hull, where every wave train is included.
                 if (p.distanceTo(centre) > 8.0) continue
                 val drawn = p.length - terra.radius
                 worst = maxOf(worst, kotlin.math.abs(drawn - truth.height(p, built.time)))

@@ -1,22 +1,13 @@
 package com.rm.apogee.core.terrain
 
 /**
- * The noise every terrain layer is built from.
- *
- * It has to give the same answer on every machine, and that's the whole constraint. The server (a
- * JVM) and every client (ART, on a phone) work out the same ground on their own, and a craft
- * resting on a hill that the server thinks is a centimetre lower than the client does is a craft
- * that jitters. So nothing here uses anything except integer maths and IEEE-754 `+ - * /`, which
- * every conforming platform has to round the same way. No tables, no library trig, and no fused
- * multiply-add the compiler might decide to emit.
+ * The noise every terrain layer is built from. Server (JVM) and clients (ART) work out the ground
+ * separately and must agree to the bit, or resting craft jitter. So only integer maths and IEEE
+ * `+ - * /`: no tables, no library trig, nothing that could become a fused multiply-add.
  */
 object Noise {
 
-    /**
-     * An integer hash to a value in 0..1.
-     *
-     * It wraps around on purpose, so the result depends on nothing but the inputs.
-     */
+    /** An integer hash to 0..1. It wraps on purpose, so it depends only on the inputs. */
     fun hash(seed: Int, x: Int, y: Int, z: Int): Double = (hashInt(seed, x, y, z) ushr 8) / UNSIGNED_24_BIT
 
     fun hashInt(seed: Int, x: Int, y: Int, z: Int): Int {
@@ -33,10 +24,8 @@ object Noise {
     }
 
     /**
-     * Value noise on an integer lattice, 0..1.
-     *
-     * It's kept exactly as it was for the continents, because changing it would move every
-     * coastline, including the harbour. New layers use [simplex].
+     * Value noise on an integer lattice, 0..1. Kept exactly as is for the continents, since changing
+     * it would move every coastline. New layers use [simplex].
      */
     fun value(seed: Int, x: Double, y: Double, z: Double): Double {
         val xi = kotlin.math.floor(x).toInt()
@@ -56,12 +45,9 @@ object Noise {
     }
 
     /**
-     * 3D simplex noise, about -1..1.
-     *
-     * Everything new uses gradient noise instead of value noise. Value noise shows its lattice as
-     * faint creases along the axes and makes soft, blobby ridges, and ridged mountains, canyons and
-     * dunes all need crisp ones. The gradients come from the integer hash, so there's still no
-     * permutation table to ship or keep in step.
+     * 3D simplex noise, about -1..1. Used for everything new: value noise shows lattice creases and
+     * makes blobby ridges, and mountains, canyons and dunes need crisp ones. Gradients come from the
+     * integer hash, so there's no permutation table.
      */
     fun simplex(seed: Int, x: Double, y: Double, z: Double): Double {
         val s = (x + y + z) * F3
@@ -100,10 +86,8 @@ object Noise {
     }
 
     private fun corner(seed: Int, i: Int, j: Int, k: Int, x: Double, y: Double, z: Double): Double {
-        // 0.5, not the 0.6 of the widely copied reference version. At 0.6 a corner's influence
-        // reaches past the edge of the simplex it belongs to and gets cut off there, so the noise
-        // has small steps in it. They're invisible in a texture, but they become cliffs a few
-        // metres high across a landscape built from it.
+        // 0.5, not the usual 0.6. At 0.6 a corner's reach is cut off at its simplex's edge, leaving
+        // small steps that become metre-high cliffs in terrain.
         var t = 0.5 - x * x - y * y - z * z
         if (t <= 0.0) return 0.0
         t *= t
