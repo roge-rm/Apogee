@@ -9,6 +9,7 @@ import com.rm.apogee.core.part.PartDef
 import com.rm.apogee.core.part.PieceRole
 import com.rm.apogee.core.part.Shape
 import com.rm.apogee.core.part.Tint
+import com.rm.apogee.platform.synchronized
 import kotlin.math.hypot
 import kotlin.math.max
 import com.rm.apogee.core.math.Math
@@ -99,6 +100,35 @@ object PartModels {
     }
 
     fun expand(def: PartDef, caps: Int, anim: PartAnim?, out: MutableList<Leaf>) {
+        // A part with nothing on it that moves is the same pieces every time, so they're made once
+        // for each way its ends can be capped. The launch complex alone is hundreds of pieces, all
+        // rebuilt every frame, each with a dozen new vectors and turns.
+        if (caps in 0..StackCaps.BOTH && isStill(def)) {
+            val made = synchronized(stillLeaves) {
+                stillLeaves.getOrPut(def) { arrayOfNulls(StackCaps.BOTH + 1) }.let { byCaps ->
+                    byCaps[caps] ?: ArrayList<Leaf>().also { expandAfresh(def, caps, null, it); byCaps[caps] = it }
+                }
+            }
+            out.addAll(made)
+            return
+        }
+        expandAfresh(def, caps, anim, out)
+    }
+
+    /** Parts by whether nothing in their model ever moves. */
+    private val still = com.rm.apogee.platform.identityMapOf<PartDef, Boolean>()
+    private val stillLeaves = com.rm.apogee.platform.identityMapOf<PartDef, Array<List<Leaf>?>>()
+
+    private fun isStill(def: PartDef): Boolean = synchronized(still) {
+        still.getOrPut(def) { def.model?.let(::stillModel) ?: true }
+    }
+
+    private fun stillModel(model: ModelSpec): Boolean = when (model) {
+        is ModelSpec.Compound -> model.pieces.all { it.role == PieceRole.FIXED && stillModel(it.model) }
+        else -> true
+    }
+
+    private fun expandAfresh(def: PartDef, caps: Int, anim: PartAnim?, out: MutableList<Leaf>) {
         val model = def.model
         if (model == null) {
             out.add(Leaf(def.mesh, Vec3.zero(), Quat.identity(), Tint.BODY, caps))
@@ -280,7 +310,16 @@ object PartModels {
      * A part's own colour, by family. Kit parts of one vehicle class share a scheme, so a craft
      * looks like one machine instead of a parts bin.
      */
-    fun bodyColour(partId: String): FloatArray = when {
+    /**
+     * A part's colour by the start of its name, worked out once per name. Every part asked for it
+     * every frame, down a chain of seventeen string comparisons, with a new array each time. The
+     * arrays are shared, so they're only ever read.
+     */
+    fun bodyColour(partId: String): FloatArray = synchronized(bodyColours) { bodyColours.getOrPut(partId) { bodyColourOf(partId) } }
+
+    private val bodyColours = HashMap<String, FloatArray>()
+
+    private fun bodyColourOf(partId: String): FloatArray = when {
         partId.startsWith("engine") -> floatArrayOf(0.45f, 0.45f, 0.50f, 1f)
         partId.startsWith("tank") -> floatArrayOf(0.82f, 0.82f, 0.86f, 1f)
         partId.startsWith("pod") -> floatArrayOf(0.70f, 0.62f, 1.00f, 1f)
@@ -302,12 +341,20 @@ object PartModels {
     /** The small palette pieces are tinted from. [Tint.BODY] takes the part's colour. */
     fun colour(tint: Tint, body: FloatArray): FloatArray = when (tint) {
         Tint.BODY -> body
-        Tint.DARK -> floatArrayOf(0.20f, 0.20f, 0.23f, 1f)
-        Tint.METAL -> floatArrayOf(0.62f, 0.63f, 0.66f, 1f)
-        Tint.RUBBER -> floatArrayOf(0.10f, 0.10f, 0.11f, 1f)
-        Tint.GLASS -> floatArrayOf(0.30f, 0.48f, 0.66f, 1f)
-        Tint.ACCENT -> floatArrayOf(0.88f, 0.56f, 0.16f, 1f)
-        Tint.LIGHT -> floatArrayOf(0.92f, 0.92f, 0.90f, 1f)
+        Tint.DARK -> DARK
+        Tint.METAL -> METAL
+        Tint.RUBBER -> RUBBER
+        Tint.GLASS -> GLASS
+        Tint.ACCENT -> ACCENT
+        Tint.LIGHT -> LIGHT
         Tint.STACK -> bodyColour("tank")
     }
+
+    // Shared, and only ever read.
+    private val DARK = floatArrayOf(0.20f, 0.20f, 0.23f, 1f)
+    private val METAL = floatArrayOf(0.62f, 0.63f, 0.66f, 1f)
+    private val RUBBER = floatArrayOf(0.10f, 0.10f, 0.11f, 1f)
+    private val GLASS = floatArrayOf(0.30f, 0.48f, 0.66f, 1f)
+    private val ACCENT = floatArrayOf(0.88f, 0.56f, 0.16f, 1f)
+    private val LIGHT = floatArrayOf(0.92f, 0.92f, 0.90f, 1f)
 }

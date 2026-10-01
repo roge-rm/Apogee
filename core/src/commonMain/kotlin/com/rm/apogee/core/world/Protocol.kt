@@ -312,13 +312,19 @@ data class VesselKinematics(
      * and cool.
      */
     val condition: ByteArray = ByteArray(0),
+    /**
+     * Asleep on the server: parked on the ground, or riding the sea. A client's replica of it then
+     * needn't work out its physics, which for a ship asleep on the water it can't tell from how she
+     * moves.
+     */
+    val asleep: Boolean = false,
 ) {
     // Compared by content, because an array compares by identity, and two snapshots of the same
     // craft are equal whether or not they share one.
     override fun equals(other: Any?): Boolean =
         other is VesselKinematics && vessel == other.vessel && referenceBodyId == other.referenceBodyId &&
             position == other.position && rotation == other.rotation && velocity == other.velocity &&
-            angularVelocity == other.angularVelocity && throttle == other.throttle &&
+            angularVelocity == other.angularVelocity && throttle == other.throttle && asleep == other.asleep &&
             pose.contentEquals(other.pose) && condition.contentEquals(other.condition)
 
     override fun hashCode(): Int =
@@ -773,5 +779,6 @@ object Protocol {
     // 23: PlacedPart.shroud; new parts (side chutes and decouplers, 3.75 m, the structural kit).
     // 24: righting a capsized craft - RightCraft, CraftSystems.canRight, standingOn and riders.
     // 25: crew in the water - ClimbOut, CraftSystems.climbOnto, swimming, chill and evaBlocked.
-    const val VERSION = 25
+    // 26: VesselKinematics.asleep, so a replica of a craft asleep afloat isn't simulated.
+    const val VERSION = 26
 }

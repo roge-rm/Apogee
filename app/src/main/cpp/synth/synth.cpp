@@ -147,6 +147,7 @@ float materialGain(int m) {
 
 Synth::Synth(float sampleRate, int voiceBudget)
     : sampleRate_(sampleRate), voiceBudget_(std::min(voiceBudget, kMaxVoices)) {
+    tearDecay_ = std::pow(600.0f / 3200.0f, (1.0f / sampleRate) / 0.5f);
     for (int b = 0; b < bus::COUNT; ++b) {
         busTarget_[b].store(1.0f);
         bus_[b].setTime(0.05f, sampleRate);
@@ -374,6 +375,7 @@ void Synth::renderVoice(Voice& v, float& left, float& right) {
             // higher, softer roar.
             float vac = clampf(p[4], 0, 1);
             if (control) {
+                v.shaped = std::pow(out, 0.7f);
                 v.f[0].set(lerpf(350, 2600, press) * (1.2f - 0.5f * size) * pf, 0.6f, sr);
                 v.f[1].set(lerpf(900, 1600, press) * (1.1f - 0.4f * size) * pf, 1.2f, sr);
                 v.f[2].set((55.0f + 40.0f * (1.0f - size)) * pf, 0.7f, sr);
@@ -389,7 +391,7 @@ void Synth::renderVoice(Voice& v, float& left, float& right) {
             float rough = crack * (1.0f - 0.75f * vac);
             float c = v.crackle.next(rng, (40.0f + 160.0f * rough) * pf, sr) * rough * press;
             s = (v.f[0].low * 0.7f + v.f[3].band * (2.2f + 0.8f * vac) + v.f[1].band * 0.9f * (0.3f + 0.7f * press) + c * 0.8f
-                 + v.f[2].low * (0.5f + 0.6f * size) * (1.0f - 0.5f * vac)) * std::pow(out, 0.7f)
+                 + v.f[2].low * (0.5f + 0.6f * size) * (1.0f - 0.5f * vac)) * v.shaped
                 * (1.0f - 0.4f * vac);  // a different sound, not a louder one
             break;
         }
@@ -826,7 +828,7 @@ void Synth::renderVoice(Voice& v, float& left, float& right) {
             break;
         }
         case recipe::TEAR: {
-            v.state[0] *= std::pow(600.0f / 3200.0f, dt / 0.5f);
+            v.state[0] *= tearDecay_;
             if (v.state[0] < 600.0f) v.state[0] = 600.0f;
             if (control) v.f[0].set(v.state[0], 6.0f, sr);
             v.f[0].process(v.pink.next(rng.white()) + v.osc[0].saw(v.state[0] / 8.0f, sr) * 0.3f);
@@ -861,7 +863,8 @@ void Synth::renderVoice(Voice& v, float& left, float& right) {
             v.f[0].process(rng.white() * v.env[0].next());
             float burst = v.f[0].band * 1.5f;
             // Bubbles: short rising notes, thinning out.
-            if (rng.uniform() < 40.0f * p[0] * std::exp(-v.age * 2.0f) * dt) {
+            if (control) v.bubbling = std::exp(-v.age * 2.0f);
+            if (rng.uniform() < 40.0f * p[0] * v.bubbling * dt) {
                 v.state[0] = 400.0f + 1100.0f * rng.uniform();
                 v.env[1].trigger(0.001f, 0.03f, sr);
             }
@@ -945,10 +948,11 @@ void Synth::renderVoice(Voice& v, float& left, float& right) {
     bool isContinuous = continuous(v.recipe);
     float fade = v.fade.next(!isContinuous || v.held ? 1.0f : 0.0f);
     s *= fade * trim(v.recipe) * (p[P_GAIN] > 0 ? p[P_GAIN] : 1.0f);
-    float lg, rg;
-    panGains((v.flags & flag::HULL) ? 0.0f : p[P_PAN], lg, rg);
-    left = s * lg;
-    right = s * rg;
+    // Where it sits, at control rate: two trig calls a sample for every voice was most of the
+    // synth's maths. The pan itself is smoothed, so the steps between can't be heard.
+    if (control) panGains((v.flags & flag::HULL) ? 0.0f : p[P_PAN], v.panLeft, v.panRight);
+    left = s * v.panLeft;
+    right = s * v.panRight;
     v.loudness = v.loudness * 0.999f + std::fabs(s) * 0.001f;
     v.age += dt;
 

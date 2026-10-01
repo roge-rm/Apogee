@@ -81,6 +81,11 @@ struct Voice {
     OnePole hullLow;
     DcBlock dc;
     float state[8] = {};     // recipe scratch: timers, glides, sweeps
+    // Worked out at control rate, not every sample: where it sits left to right, a rocket's
+    // shaped output, and a splash's bubbling.
+    float panLeft = 0.7071f, panRight = 0.7071f;
+    float shaped = 0;
+    float bubbling = 0;
 };
 
 class Synth {
@@ -117,6 +122,8 @@ private:
     float reverb(float in, int channel);
 
     float sampleRate_;
+
+    float tearDecay_ = 1.0f;  // a tear's sweep down, per sample, worked out once
     int voiceBudget_;
     Voice voices_[kMaxVoices];
 

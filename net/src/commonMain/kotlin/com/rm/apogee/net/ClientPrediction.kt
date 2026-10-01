@@ -73,6 +73,7 @@ class ClientPrediction(
         val replica = World.default(catalog)
         neighbours.clear()
         neighbourDesigns.clear()
+        neighbourPinned.clear()
         // A new replica has no plan yet. The next sync gives it the server's.
         syncedBurns = null
         replica.weatherConfig = weather
@@ -284,16 +285,64 @@ class ClientPrediction(
         if (!heard) return
         val replica = world ?: return
         val local = vessel ?: return
+        if (parked) unpark()
         local.wake()
         replica.stage(local)
     }
 
+    /**
+     * Back to stepping, from where it's been drawn: the server's last word carried on to now, so
+     * taking the controls doesn't jump it back to the last snapshot.
+     */
+    private fun unpark() {
+        parked = false
+        val replica = world ?: return
+        val local = vessel ?: return
+        local.wake()
+        local.body.position.addScaledInPlace(local.body.linearVelocity, accumulator)
+        spin(local.body.orientation, local.body.angularVelocity, accumulator)
+        replica.syncClock(replica.time + accumulator)
+        accumulator = 0.0
+    }
+
+    /** Turns [q] on by [spin], in radians a second, over [seconds]. */
+    private fun spin(q: Quat, spin: Vec3, seconds: Double) {
+        val angle = spin.length * seconds
+        if (angle < 1e-12) return
+        scratchSpinAxis.setTo(spin).mulInPlace(1.0 / spin.length)
+        Quat.fromAxisAngle(scratchSpinAxis, angle, scratchSpinTurn)
+        q.setTo(scratchSpinTurn.times(q)).normalizeInPlace()
+    }
+
+    private val scratchSpinAxis = Vec3()
+    private val scratchSpinTurn = Quat.identity()
+
+    /**
+     * Asleep on the server, with nobody at the controls, so the replica isn't stepped at all. It's
+     * drawn carried on from the server's last word instead. A Flat Top asleep at sea, riding the
+     * waves, was worked out afloat in full every frame here, which on a phone was most of the time
+     * it took to build one.
+     */
+    private var parked = false
+
+    /** How many steps [advance] has taken the replica through, for tests. */
+    var stepsTaken = 0L
+        private set
+
     /** Moves the replica on by the real time that's passed, in fixed steps. */
     fun advance(elapsedSeconds: Double) {
         val replica = world ?: return
+        val local = vessel
+        if (parked && local != null && inputsNeutral(local.control)) {
+            accumulator += elapsedSeconds.coerceAtMost(MAX_CATCHUP_SECONDS)
+            renderOffset.mulInPlace(OFFSET_DECAY)
+            return
+        }
+        if (parked) unpark()
         accumulator += elapsedSeconds.coerceAtMost(MAX_CATCHUP_SECONDS)
         while (accumulator >= DT) {
             replica.step(DT)
+            stepsTaken++
             accumulator -= DT
         }
         // Bleed off any correction that's left.
@@ -325,7 +374,9 @@ class ClientPrediction(
 
     /** The replica's copies of the craft near ours, by their ids on the server. */
     private val neighbours = HashMap<Long, Vessel>()
-    private val neighbourDesigns = HashMap<Long, Int>()
+    /** The design each copy was made from, and whether it was pinned, to tell when it must be made again. */
+    private val neighbourDesigns = HashMap<Long, CraftDesign>()
+    private val neighbourPinned = HashMap<Long, Boolean>()
 
     /**
      * Keeps copies of [near] in the replica, at [time]: added, moved to where the server says they
@@ -339,12 +390,19 @@ class ClientPrediction(
         for (id in gone) {
             neighbours.remove(id)?.let { replica.destroy(it.id, "out of reach") }
             neighbourDesigns.remove(id)
+            neighbourPinned.remove(id)
         }
         for (n in near) {
-            val position = n.state.position.copy().addScaledInPlace(n.state.velocity, time - n.time)
+            val position = if (n.state.asleep && serverHasItAsleep(n.state)) {
+                // Asleep, so turned with its world since it was last heard of, which may have been
+                // a couple of seconds ago.
+                val body = system.body(n.state.referenceBodyId)
+                body.rotationAt(time).rotate(body.toBodyFixed(n.state.position, body.rotationAt(n.time), scratchVelocity), Vec3())
+            } else n.state.position.copy().addScaledInPlace(n.state.velocity, time - n.time)
             var copy = neighbours[n.id]
-            val key = n.design.hashCode() * 31 + if (n.anchored) 1 else 0
-            if (copy != null && neighbourDesigns[n.id] != key) {
+            // The same design object, not an equal one: hashing a launch complex's every part twenty
+            // times a second to find it hadn't changed cost more than rebuilding it ever would.
+            if (copy != null && (neighbourDesigns[n.id] !== n.design || neighbourPinned[n.id] != n.anchored)) {
                 replica.destroy(copy.id, "rebuilt")
                 copy = null
             }
@@ -357,17 +415,23 @@ class ClientPrediction(
                 if (stand) continue
                 copy = replica.spawnAt(n.design, n.state.referenceBodyId, position, n.state.velocity.copy(), n.state.rotation.copy(), n.state.angularVelocity.copy())
                 neighbours[n.id] = copy
-                neighbourDesigns[n.id] = key
+                neighbourDesigns[n.id] = n.design
+                neighbourPinned[n.id] = n.anchored
                 // A founded base doesn't give. It's where the server has it, for good.
                 if (n.anchored) replica.pin(copy)
                 // First seen already beside us, so it probably just came away from us.
                 vessel?.let { replica.graceBetween(it.id, copy.id, NEIGHBOUR_GRACE) }
+                if (!n.anchored && n.state.asleep) copy.sleep(system.body(n.state.referenceBodyId).rotationAt(time, scratchRotation))
             } else if (!copy.anchored) {
                 copy.wake()
                 copy.body.position.setTo(position)
                 copy.body.linearVelocity.setTo(n.state.velocity)
                 copy.body.orientation.setTo(n.state.rotation)
                 copy.body.angularVelocity.setTo(n.state.angularVelocity)
+                // Asleep on the server, so asleep here, where the server has it, until the next
+                // snapshot. Woken, a ship asleep beside us was worked out afloat in full every step,
+                // and a carrier under a plane parked on her deck most of all.
+                if (n.state.asleep) copy.sleep(system.body(n.state.referenceBodyId).rotationAt(time, scratchRotation))
             }
             copy.restoreStaging(n.stage, n.activated, copy.brokenIndices())
             copy.control.throttle = n.state.throttle
@@ -448,10 +512,20 @@ class ClientPrediction(
         // legs for the three frames until the next snapshot resets it. That's a few centimetres of
         // bounce, which with the camera following the craft looks like the ground jittering under
         // it.
+        parked = !anchored && state.asleep && inputsNeutral(local.control)
         if (anchored) {
             replica.pin(local)
         } else if (serverHasItAsleep(state) && inputsNeutral(local.control)) {
             local.sleep(system.body(state.referenceBodyId).rotationAt(describes, scratchRotation))
+        }
+        if (parked) {
+            // Nothing to catch up: it's drawn from here, carried on.
+            accumulator = ageSeconds.coerceIn(0.0, MAX_CATCHUP_SECONDS)
+            val after = local.body.position.copy().addScaledInPlace(local.body.linearVelocity, accumulator)
+            toGround(local, after, replica.time + accumulator)
+            renderOffset.addInPlace(before).subInPlace(after)
+            if (renderOffset.length > MAX_SMOOTHED_ERROR) renderOffset.setZero()
+            return
         }
 
         val catchUp = (ageSeconds / DT).toInt().coerceIn(0, MAX_CATCHUP_TICKS)
@@ -571,7 +645,11 @@ class ClientPrediction(
 
     fun renderRotation(out: Quat = Quat()): Quat? {
         val local = vessel ?: return null
-        return out.setTo(local.body.orientation)
+        out.setTo(local.body.orientation)
+        // Parked, it's carried on from the server's last word, turning as well as moving, or a ship
+        // asleep on the water would rock only as often as snapshots come.
+        if (parked) spin(out, local.body.angularVelocity, accumulator)
+        return out
     }
 
     /**
@@ -606,6 +684,7 @@ class ClientPrediction(
         vessel = null
         neighbours.clear()
         neighbourDesigns.clear()
+        neighbourPinned.clear()
         designHash = 0
         renderOffset.setZero()
     }

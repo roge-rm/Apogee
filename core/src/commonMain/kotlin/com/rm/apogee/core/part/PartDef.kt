@@ -194,10 +194,25 @@ data class PartDef(
      */
     val solid: Boolean = true,
 ) {
-    /** Shortcut: the first module of a given type, or null. */
-    inline fun <reified T : PartModule> module(): T? = modules.filterIsInstance<T>().firstOrNull()
+    /**
+     * Shortcut: the first module of a given type, or null. It's asked for all through the physics
+     * and the drawing, many times a part a tick, so it looks without making anything. Filtering
+     * into a new list each time, as it did, had a phone collecting garbage for much of every frame.
+     */
+    inline fun <reified T : PartModule> module(): T? {
+        val all = modules
+        for (i in all.indices) {
+            val m = all[i]
+            if (m is T) return m
+        }
+        return null
+    }
 
-    inline fun <reified T : PartModule> hasModule(): Boolean = modules.any { it is T }
+    inline fun <reified T : PartModule> hasModule(): Boolean {
+        val all = modules
+        for (i in all.indices) if (all[i] is T) return true
+        return false
+    }
 
     /** Its radius across the stack, in metres, which is how wide a joint to it is. */
     val jointRadius: Double

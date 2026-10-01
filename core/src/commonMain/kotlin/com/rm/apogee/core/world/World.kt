@@ -1130,6 +1130,10 @@ class World(
 
     private val scatterContacts = com.rm.apogee.core.physics.ScatterContact()
 
+    /** The ground under the craft being stepped, from [contactSubsteps], and how far it can move this tick. NaN when it wasn't worked out. */
+    private var tickGroundBelow = Double.NaN
+    private var tickGroundSlack = 0.0
+
     /**
      * Scatter knocked down (trees, shrubs, cacti), by id. It's world state, so it's saved, sent to
      * every client, and never grows back. Everything else about scatter is decided by the terrain
@@ -3539,7 +3543,7 @@ class World(
                 // at the equator. A substep behind, it stood 2.9 m back along the turn, which
                 // changes nothing on flat ground but is metres up or down on a steep slope. A pod
                 // landed on a mountainside came to rest two metres inside it.
-                contacts.resolve(vessel, attractor, h, time + (substep + 1) * h, substep > 0)
+                contacts.resolve(vessel, attractor, h, time + (substep + 1) * h, substep > 0, tickGroundBelow, tickGroundSlack)
                 // A deck stepped before this craft is already at the end of the tick, and one
                 // stepped after it is still at the start. This craft is (substep + 1) * h in.
                 contacts.resolveOnCraft(vessel, attractor, decks, h, tick, dt, (substep + 1) * h)
@@ -3549,7 +3553,7 @@ class World(
             contacts.deckUnder?.wake()
             // Boulders and trunks go into the same report, so a craft wrecked on a rock is judged
             // the same way as one wrecked on the ground.
-            scatterContacts.resolve(vessel, attractor, time + dt, contacts.report, felledScatter) { fell(it) }
+            scatterContacts.resolve(vessel, attractor, time + dt, contacts.report, felledScatter, tickGroundBelow, tickGroundSlack) { fell(it) }
             val report = contacts.report
             vessel.touchingGround = report.hadContact
             if (!vessel.rightingStart.isNaN()) stepRighting(vessel, attractor)
@@ -4314,6 +4318,7 @@ class World(
      */
     private fun contactSubsteps(vessel: Vessel, attractor: CelestialBody, dt: Double): Int {
         val body = vessel.body
+        tickGroundBelow = Double.NaN
         val ceiling = (attractor.terrain?.maxElevation ?: 0.0) + SUBSTEP_CEILING_METRES
         if (attractor.altitudeOf(body.position) > ceiling) return 1
 
@@ -4323,18 +4328,24 @@ class World(
         attractor.rotationAt(time, scratchRotation)
         attractor.toBodyFixed(body.position, scratchRotation, scratchBodyFixedUp)
         val groundBelow = attractor.solidRadiusInBodyFrame(scratchBodyFixedUp)
-        if (body.position.length - vessel.contactRadius >
-            groundBelow + vessel.contactRadius + SUBSTEP_PROXIMITY_MARGIN
-        ) {
-            return 1
-        }
-
         attractor.surfaceVelocityAt(body.position, scratchSurfaceVelocity)
         scratchRelativeVelocity.setTo(body.linearVelocity).subInPlace(scratchSurfaceVelocity)
         // The ends of a rotating craft sweep faster than its centre.
         val sweep = scratchRelativeVelocity.length +
             body.angularVelocity.length * vessel.contactRadius
         val distance = sweep * dt
+        // Kept for the ground and the scatter to rule themselves out by, this tick: the ground
+        // under the craft is fifteen octaves of noise, and each worked it out again, the ground
+        // once a substep. However far the craft gets this tick, the ground under it can't have
+        // come up by more than that, short of a cliff.
+        tickGroundBelow = groundBelow
+        tickGroundSlack = distance
+        if (body.position.length - vessel.contactRadius >
+            groundBelow + vessel.contactRadius + SUBSTEP_PROXIMITY_MARGIN
+        ) {
+            return 1
+        }
+
         if (distance <= MAX_SUBSTEP_DISTANCE) return 1
         return kotlin.math.ceil(distance / MAX_SUBSTEP_DISTANCE).toInt()
             .coerceAtMost(MAX_CONTACT_SUBSTEPS)
@@ -4910,12 +4921,35 @@ class World(
         SavedLine(it.a.raw, it.partA, it.b?.raw ?: -1L, it.partB, it.hook.copy(), it.ground.copy(), it.bodyId, it.length, it.reel, it.taut)
     }
 
-    fun snapshot(): Snapshot = Snapshot(
+    /**
+     * The world's motion now, for sending. With [quietEvery] above nothing, a craft asleep on the
+     * ground (not afloat, not riding a deck) is only in one snapshot in that many ticks: it's where
+     * it was, turning with its world, and a client draws it so from its last word. Sent twenty
+     * times a second, every base and landmark in the system went out each time, from worlds nobody
+     * was anywhere near. Waking puts it back in the very next one.
+     */
+    fun snapshot(
+        quietEvery: Long = 0L,
+        /**
+         * Craft that go in every snapshot, quiet or not: the ones being flown. A client draws its
+         * own craft, and times the whole frame, by its own craft's last word, and only hearing of
+         * it every couple of seconds while it sat on the pad, the frame's clock stuck and jumped.
+         */
+        always: Set<Long> = emptySet(),
+    ): Snapshot = Snapshot(
         tick = tick,
         time = time,
         hitches = links.map { SavedLink(it.a.raw, it.partA, it.b.raw, it.partB) },
         lines = savedLines(),
-        vessels = vesselsById.values.map { vessel ->
+        vessels = vesselsById.values.mapNotNull { vessel ->
+            val quiet = quietEvery > 0L && vessel.dormant && !vessel.afloat && vessel.ridingOn == null && vessel.id.raw !in always
+            if (!quiet) {
+                quietSentAt.remove(vessel.id.raw)
+            } else {
+                val sent = quietSentAt[vessel.id.raw]
+                if (sent != null && tick - sent < quietEvery) return@mapNotNull null
+                quietSentAt[vessel.id.raw] = tick
+            }
             VesselKinematics(
                 vessel = vessel.id.raw,
                 referenceBodyId = vessel.referenceBodyId,
@@ -4926,9 +4960,18 @@ class World(
                 throttle = vessel.control.throttle,
                 pose = VesselPose.encode(vessel),
                 condition = VesselCondition.encode(vessel),
+                asleep = vessel.dormant,
             )
         },
-    )
+    ).also { if (quietSentAt.size > vesselsById.size * 2 + 16) quietSentAt.keys.retainAll { VesselId(it) in vesselsById } }
+
+    /** When each quiet craft was last in a snapshot, by tick. See [snapshot]. */
+    private val quietSentAt = HashMap<Long, Long>()
+
+    /** Puts every craft in the next snapshot, quiet or not: for someone who's just arrived. */
+    fun sendEverythingNext() {
+        quietSentAt.clear()
+    }
 
     fun structureUpdateFor(vessel: Vessel) = StructureUpdate(
         vessel = vessel.id.raw,

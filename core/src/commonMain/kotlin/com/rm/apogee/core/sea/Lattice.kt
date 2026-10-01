@@ -84,8 +84,13 @@ internal class Lattice(
     private var lastE = Long.MIN_VALUE
 
     private fun node(i: Int, j: Int, k: Int, e: Long): DoubleArray {
-        val key = ((i + 32_768).toLong() shl 48) or ((j + 32_768).toLong() shl 32) or
+        val packed = ((i + 32_768).toLong() shl 48) or ((j + 32_768).toLong() shl 32) or
             ((k + 32_768).toLong() shl 16) or (e and 0xFFFF)
+        // Stirred, one to one, so nearby corners don't share a hash. A Long hashes as its two
+        // halves XORed, and corners side by side kept landing together, slowing every lookup in a
+        // sea build to a search through a tree.
+        var key = packed * -7_046_029_254_386_353_131L
+        key = key xor (key ushr 29)
         val kept = cache[key]
         // The low bits of the epoch are in the key, and the whole thing is kept with the values, so
         // a corner from long ago never gets mistaken for now.

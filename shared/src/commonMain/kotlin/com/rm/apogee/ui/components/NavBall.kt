@@ -43,36 +43,37 @@ import com.rm.apogee.core.math.Math
  */
 @Composable
 fun NavBall(
-    /** The craft's orientation. */
-    rotation: Quat,
-    /** The local vertical, in the same frame the craft's position is in. */
-    worldUp: Vec3,
-    /** The direction of travel, in the navball's frame, or null when it isn't moving. */
-    prograde: Vec3?,
+    /**
+     * What it shows, read only as it's drawn: a new attitude every frame redraws the ball without
+     * recomposing anything. Read where it's called, it recomposed sixty times a second.
+     */
+    live: () -> com.rm.apogee.game.FlightTelemetry,
     modifier: Modifier = Modifier,
     size: Dp = 170.dp,
-    /** The orbit normal, in the same frame. Null hides normal and anti-normal. */
-    normal: Vec3? = null,
-    /** Radial out. Null hides radial out and in. */
-    radialOut: Vec3? = null,
     /** The frame the markers are in, for the tag. */
     frame: com.rm.apogee.core.world.NavFrame = com.rm.apogee.core.world.NavFrame.SURFACE,
     /** Whether the frame was chosen by hand instead of left on automatic. */
     frameManual: Boolean = false,
     /** Tapping the tag gives the next frame. */
     onCycleFrame: (() -> Unit)? = null,
-    /** Toward the target. Null hides target and anti-target. */
-    toTarget: Vec3? = null,
-    /** The direction of travel through the air, when it's different from over the ground. */
-    throughAir: Vec3? = null,
-    /** Along what's left of the next planned burn. Null hides it. */
-    burn: Vec3? = null,
 ) {
     val textMeasurer = androidx.compose.ui.text.rememberTextMeasurer()
     androidx.compose.foundation.layout.Box(modifier.size(size)) {
     Canvas(Modifier.size(size)) {
         val radius = kotlin.math.min(this.size.width, this.size.height) * 0.5f - 4f
         val centre = Offset(this.size.width / 2f, this.size.height / 2f)
+        // The craft's orientation, the local vertical, and the markers: travel (null when it
+        // isn't moving), the orbit's normal and radial, the target, travel through the air when
+        // that's different, and what's left of the next planned burn.
+        val now = live()
+        val rotation = now.rotation
+        val worldUp = now.up
+        val prograde = now.prograde
+        val normal = now.normal
+        val radialOut = now.radialOut
+        val toTarget = now.toTarget
+        val throughAir = now.throughAir
+        val burn = now.burn
 
         // Local-frame versions of the world directions we care about.
         val up = rotation.inverseRotate(worldUp).normalizeInPlace()
@@ -93,9 +94,11 @@ fun NavBall(
         val a = perpendicularTo(up)
         val b = up.cross(a).normalizeInPlace()
 
-        drawSphere(centre, radius, up, a, b)
+        // Once, for the ground's fill and the line along it.
+        val horizon = horizonPoints(up, a, b)
+        drawSphere(centre, radius, up, horizon)
         drawPitchLadder(centre, radius, up, a, b)
-        drawHorizon(centre, radius, up, a, b)
+        drawHorizon(centre, radius, horizon)
         drawCompass(centre, radius, northLocal, eastLocal, textMeasurer)
         drawMarkers(centre, radius, progradeLocal, normalLocal, radialLocal)
         drawTargetMarkers(centre, radius, targetLocal)
@@ -112,7 +115,7 @@ fun NavBall(
         }
         androidx.compose.material3.Text(
             frame.label + if (frameManual) "" else " \u00b7",
-            style = com.rm.apogee.ui.theme.TelemetryTextStyle.copy(fontSize = androidx.compose.ui.unit.TextUnit(10f, androidx.compose.ui.unit.TextUnitType.Sp)),
+            style = TAG_STYLE,
             color = tagColour.alpha(if (frameManual) 1f else 0.75f),
             modifier = Modifier
                 // In the corner, outside the ball. At the bottom of it, the tag sat on the compass
@@ -159,17 +162,16 @@ private fun projectUnclipped(centre: Offset, radius: Float, direction: Vec3): Of
  * the ball's outline below it. They meet exactly where the horizon plane crosses the outline, which
  * is `±(nose × up)`, so those points are worked out directly instead of searched for.
  */
-private fun DrawScope.drawSphere(centre: Offset, radius: Float, up: Vec3, a: Vec3, b: Vec3) {
+private fun DrawScope.drawSphere(centre: Offset, radius: Float, up: Vec3, horizon: List<Vec3>) {
     drawCircle(SKY, radius, centre)
 
-    val horizon = horizonPoints(up, a, b)
-    val visible = horizon.filter { it.y > 0.0 }
-    if (visible.isEmpty()) {
+    val visible = horizon.count { it.y > 0.0 }
+    if (visible == 0) {
         // Looking straight down, the whole visible half is ground.
         if (up.y < 0.0) drawCircle(GROUND, radius, centre)
         return
     }
-    if (visible.size == horizon.size) return // entirely sky
+    if (visible == horizon.size) return // entirely sky
 
     val ordered = orderArc(horizon)
     val path = Path()
@@ -203,14 +205,15 @@ private fun DrawScope.drawSphere(centre: Offset, radius: Float, up: Vec3, a: Vec
 
 /** Samples the horizon great circle. */
 private fun horizonPoints(up: Vec3, a: Vec3, b: Vec3): List<Vec3> =
-    (0 until HORIZON_SAMPLES).map { i ->
-        val t = 2.0 * PI * i / HORIZON_SAMPLES
-        Vec3(
-            a.x * cos(t) + b.x * sin(t),
-            a.y * cos(t) + b.y * sin(t),
-            a.z * cos(t) + b.z * sin(t),
-        )
+    List(HORIZON_SAMPLES) { i ->
+        val c = RING_COS[i]
+        val s = RING_SIN[i]
+        Vec3(a.x * c + b.x * s, a.y * c + b.y * s, a.z * c + b.z * s)
     }
+
+/** The cosines and sines round a sampled circle, worked out once instead of every frame. */
+private val RING_COS = DoubleArray(HORIZON_SAMPLES) { cos(2.0 * PI * it / HORIZON_SAMPLES) }
+private val RING_SIN = DoubleArray(HORIZON_SAMPLES) { sin(2.0 * PI * it / HORIZON_SAMPLES) }
 
 /**
  * Rotates a sampled circle so its visible run is all in one piece, then returns it.
@@ -272,10 +275,10 @@ private fun appendRimArc(
     )
 }
 
-private fun DrawScope.drawHorizon(centre: Offset, radius: Float, up: Vec3, a: Vec3, b: Vec3) {
-    strokeCircle(centre, radius, horizonPoints(up, a, b), HORIZON_LINE, 2.5f)
+private fun DrawScope.drawHorizon(centre: Offset, radius: Float, horizon: List<Vec3>) {
+    strokeCircle(centre, radius, horizon, HORIZON_LINE, HORIZON_STROKE)
     // The ball's own outline.
-    drawCircle(Color.White.alpha(ApogeeAlpha.BORDER), radius, centre, style = Stroke(1.5f))
+    drawCircle(OUTLINE, radius, centre, style = OUTLINE_STROKE)
 }
 
 /** Rings of constant pitch, so you can read the attitude instead of guessing it. */
@@ -290,16 +293,17 @@ private fun DrawScope.drawPitchLadder(
         val fromUp = PI / 2.0 - Math.toRadians(pitchDegrees.toDouble())
         val ringRadius = sin(fromUp)
         val height = cos(fromUp)
-        val points = (0 until HORIZON_SAMPLES).map { i ->
-            val t = 2.0 * PI * i / HORIZON_SAMPLES
+        val points = List(HORIZON_SAMPLES) { i ->
+            val c = RING_COS[i]
+            val s = RING_SIN[i]
             Vec3(
-                up.x * height + (a.x * cos(t) + b.x * sin(t)) * ringRadius,
-                up.y * height + (a.y * cos(t) + b.y * sin(t)) * ringRadius,
-                up.z * height + (a.z * cos(t) + b.z * sin(t)) * ringRadius,
+                up.x * height + (a.x * c + b.x * s) * ringRadius,
+                up.y * height + (a.y * c + b.y * s) * ringRadius,
+                up.z * height + (a.z * c + b.z * s) * ringRadius,
             )
         }
         val colour = if (pitchDegrees > 0) SKY_LINE else GROUND_LINE
-        strokeCircle(centre, radius, points, colour, 1f)
+        strokeCircle(centre, radius, points, colour, LADDER_STROKE)
     }
 }
 
@@ -309,16 +313,20 @@ private fun DrawScope.strokeCircle(
     radius: Float,
     points: List<Vec3>,
     colour: Color,
-    width: Float,
+    stroke: Stroke,
 ) {
-    var previous: Offset? = null
-    for (direction in points + points.first()) {
-        val projected = project(centre, radius, direction)
-        if (projected != null && previous != null) {
-            drawLine(colour, previous, projected, strokeWidth = width)
-        }
-        previous = projected
+    // One path for the whole visible run, drawn once, instead of a line for every sample.
+    val path = Path()
+    var drawing = false
+    for (k in 0..points.size) {
+        val direction = points[k % points.size]
+        if (direction.y <= 0.0) { drawing = false; continue }
+        val x = centre.x + radius * direction.x.toFloat()
+        val y = centre.y - radius * direction.z.toFloat()
+        if (drawing) path.lineTo(x, y) else path.moveTo(x, y)
+        drawing = true
     }
+    drawPath(path, colour, style = stroke)
 }
 
 /**
@@ -461,14 +469,8 @@ private fun DrawScope.drawCompass(
         val tick = radius * (if (cardinal) 0.07f else 0.04f)
         drawLine(HORIZON_LINE, p + Offset(0f, -tick), p + Offset(0f, tick), strokeWidth = if (cardinal) 2f else 1.2f)
         if (cardinal) {
-            val label = arrayOf("N", "E", "S", "W")[k / 3]
-            val layout = measurer.measure(
-                label,
-                androidx.compose.ui.text.TextStyle(
-                    color = if (label == "N") ApogeeColors.Caution else HORIZON_LINE,
-                    fontSize = androidx.compose.ui.unit.TextUnit(9f, androidx.compose.ui.unit.TextUnitType.Sp),
-                ),
-            )
+            val label = CARDINALS[k / 3]
+            val layout = measurer.measure(label, if (k == 0) NORTH_STYLE else CARDINAL_STYLE)
             drawText(layout, topLeft = p + Offset(-layout.size.width / 2f, -tick - layout.size.height))
         }
     }
@@ -487,6 +489,7 @@ private fun DrawScope.drawReticle(centre: Offset, radius: Float) {
 
 private const val HORIZON_SAMPLES = 96
 
+
 private val SKY = Color(0xFF2C5A8C)
 private val GROUND = Color(0xFF6B4A2A)
 private val SKY_LINE = Color(0x66D6E8FF)
@@ -496,3 +499,12 @@ private val NORMAL = Color(0xFFD27CFF)
 private val RADIAL = Color(0xFF6FE3FF)
 private val TARGET = Color(0xFFFF5FD2)
 private val AIR = Color(0xFFFFE08A)
+
+private val HORIZON_STROKE = Stroke(2.5f)
+private val LADDER_STROKE = Stroke(1f)
+private val OUTLINE_STROKE = Stroke(1.5f)
+private val OUTLINE = Color.White.alpha(ApogeeAlpha.BORDER)
+private val CARDINALS = arrayOf("N", "E", "S", "W")
+private val NORTH_STYLE = androidx.compose.ui.text.TextStyle(color = ApogeeColors.Caution, fontSize = androidx.compose.ui.unit.TextUnit(9f, androidx.compose.ui.unit.TextUnitType.Sp))
+private val CARDINAL_STYLE = androidx.compose.ui.text.TextStyle(color = HORIZON_LINE, fontSize = androidx.compose.ui.unit.TextUnit(9f, androidx.compose.ui.unit.TextUnitType.Sp))
+private val TAG_STYLE = com.rm.apogee.ui.theme.TelemetryTextStyle.copy(fontSize = androidx.compose.ui.unit.TextUnit(10f, androidx.compose.ui.unit.TextUnitType.Sp))

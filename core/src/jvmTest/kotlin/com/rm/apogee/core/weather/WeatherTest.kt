@@ -265,6 +265,8 @@ class WeatherTest {
                 // Only puffs well inside what was listed. Beside one at the edge, a "gap" can be
                 // under a puff of a cell that was never listed.
                 if (lobe.centre.copy().normalizeInPlace().distanceTo(dir) * w.body.radius > 2_500.0) continue
+                // Nor one only just growing in, too small yet to see or to fly into.
+                if (lobe.horizontal < 20.0) continue
                 // Its heart is cloud of its own kind.
                 w.sample(lobe.centre, 3_000.0, s)
                 assertTrue("no cloud at the heart of a drawn ${shape.type} puff", s.cloudDensity > 0.0)
@@ -322,6 +324,75 @@ class WeatherTest {
         val curtain = s.rain.first()
         val bottom = curtain.centre.length - terra.radius - curtain.vertical
         assertTrue("the curtain reaches down to the ground: $bottom m", bottom < 2_500.0)
+    }
+
+    @Test
+    fun `a storm drawn carried on by its drift is where the next listing puts it`() {
+        val weather = Weather(terra, WeatherConfig(intensity = WeatherIntensity.WILD))
+        var found: Pair<Vec3, Double>? = null
+        for (t in listOf(1_200.0, 5_000.0, 9_000.0, 14_000.0)) {
+            val all = ArrayList<CloudShape>()
+            weather.globalCover(400_000.0, t, all)
+            val big = all.firstOrNull { it.type == CloudType.CUMULONIMBUS && it.amount > 0.6 } ?: continue
+            found = big.lobes.last().centre.copy().normalizeInPlace() to t
+            break
+        }
+        val (at, t) = found ?: throw AssertionError("no storm found in a wild sky")
+        fun storm(time: Double) = ArrayList<CloudShape>().also { weather.clouds(at, 30_000.0, time, it) }
+            .firstOrNull { it.type == CloudType.CUMULONIMBUS } ?: throw AssertionError("the storm went")
+        val before = storm(t)
+        val after = storm(t + 5.0)
+        assertTrue("a storm should be moving: ${before.drift.length} m/s", before.drift.length > 1.0)
+        fun nearest(p: Vec3) = after.lobes.minOf { it.centre.distanceTo(p) }
+        val lobes = before.lobes.take(40)
+        val carried = lobes.map { nearest(it.centre.copy().addScaledInPlace(before.drift, 5.0)) }.average()
+        val left = lobes.map { nearest(it.centre) }.average()
+        assertTrue("carried on, its lobes are $carried m off, against $left m left where they were", carried < left * 0.5)
+    }
+
+    @Test
+    fun `a deck's puffs change a little at a time, not all at once every half minute`() {
+        val weather = weather()
+        var worst = 0.0
+        var seen = 0
+        for (k in 0 until 40) {
+            val at = direction(Noise.hash(7, k, 0, 0) * 1.2 - 0.6, Noise.hash(7, k, 1, 0) * 6.28)
+            // Either side of the moment the decks are built afresh.
+            val t = 30.0 * (100 + k) - 0.5
+            fun deck(time: Double) = ArrayList<CloudShape>().also { weather.clouds(at, 5_000.0, time, it) }
+                .filter { it.type == CloudType.STRATUS || it.type == CloudType.ALTOSTRATUS || it.type == CloudType.CIRRUS }
+                .sumOf { shape -> shape.lobes.sumOf { it.horizontal } }
+            val a = deck(t)
+            val b = deck(t + 1.0)
+            if (a < 1_000.0) continue
+            seen++
+            worst = maxOf(worst, kotlin.math.abs(b - a) / a)
+        }
+        assertTrue("no decks to look at", seen >= 3)
+        assertTrue("the deck changed by ${worst * 100} % in a second", worst < 0.05)
+    }
+
+    @Test
+    fun `a deck's puffs carried on by how fast they're changing are what the next listing gives`() {
+        val weather = weather()
+        var seen = 0
+        var worst = 0.0
+        for (k in 0 until 40) {
+            val at = direction(Noise.hash(9, k, 0, 0) * 1.2 - 0.6, Noise.hash(9, k, 1, 0) * 6.28)
+            // Five seconds apart, within one epoch, the way the far sky is listed.
+            val t = 30.0 * (200 + k) + 10.0
+            fun decks(time: Double) = ArrayList<CloudShape>().also { weather.clouds(at, 5_000.0, time, it) }
+                .filter { it.type == CloudType.STRATUS || it.type == CloudType.ALTOSTRATUS || it.type == CloudType.CIRRUS }
+            val now = decks(t)
+            val later = decks(t + 5.0)
+            val carried = now.sumOf { shape -> shape.lobes.sumOf { (it.horizontal + it.horizontalRate * 5.0).coerceAtLeast(0.0) } }
+            val listed = later.sumOf { shape -> shape.lobes.sumOf { it.horizontal } }
+            if (listed < 1_000.0) continue
+            seen++
+            worst = maxOf(worst, kotlin.math.abs(carried - listed) / listed)
+        }
+        assertTrue("no decks to look at", seen >= 3)
+        assertTrue("carried on, the deck was ${worst * 100} % off what was listed", worst < 0.01)
     }
 
     /** Every storm a wild sky has over a stretch of the planet, at its best. */

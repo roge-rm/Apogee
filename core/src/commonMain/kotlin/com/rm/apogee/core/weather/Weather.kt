@@ -331,7 +331,9 @@ class Weather(
             val spacing = LAYER_SPACING[type.ordinal]
             val count = cells.around(up, east, north, spacing / radius, layerKeys, reach = 1)
             for (k in 0 until count) {
-                val shape = deck(type, layerKeys[k], time) ?: continue
+                // The same blend that's drawn, so what's drawn is what a craft flies into, a puff
+                // thickening in over the half minute instead of all at once.
+                val shape = blendedDeck(type, layerKeys[k], time, far = false) ?: continue
                 for (lobe in shape.lobes) {
                     val density = inside(lobe, up, altitude)
                     if (density > 0.0) addCloud(out, (density * 2.0).coerceAtMost(1.0) * LAYER_DENSITY[type.ordinal] * shape.amount, type)
@@ -504,7 +506,7 @@ class Weather(
                 away < 45_000.0 -> 0.6
                 else -> 0.35
             }
-            out.add(stormShapes.build(s, time, stormDetail * near) { terrain?.elevation(it) ?: 0.0 })
+            out.add(stormShapes.build(s, time, stormDetail * near) { terrain?.elevation(it) ?: 0.0 }.also { it.drift.setTo(s.steer) })
         }
         // Layer cloud: the deck's puffs, cell by cell. They're the same puffs the air is sampled
         // from, so what's drawn is what a craft flies into. Close up it's the puffs themselves. Far
@@ -518,7 +520,7 @@ class Weather(
             val keys = LongArray(((2 * (nearReach / spacing).toInt() + 3) * (2 * (nearReach / spacing).toInt() + 3)) * 2 + 16)
             val count = cells.around(direction, e, n, spacing / radius, keys, reach = kotlin.math.ceil(nearReach / spacing).toInt())
             for (k in 0 until count) {
-                deck(type, keys[k], time)?.let { out.add(it) }
+                blendedDeck(type, keys[k], time, far = false)?.let { out.add(it) }
             }
             if (reach <= NEAR_DECK) continue
             val farSpacing = spacing * FAR_DECK_FACTOR
@@ -530,7 +532,7 @@ class Weather(
             // was twice as thick inside twelve kilometres as outside: a great pale ring round the
             // craft.
             for (k in 0 until farCount) {
-                farDeck(type, farKeys[k], time)?.let { out.add(it) }
+                blendedDeck(type, farKeys[k], time, far = true)?.let { out.add(it) }
             }
         }
     }
@@ -552,23 +554,71 @@ class Weather(
      * neighbours' clouds every time.
      */
     /** [deck], roughly, for far away. Cached the same way. */
-    private fun farDeck(type: CloudType, key: Long, time: Double): CloudShape? {
-        val epoch = kotlin.math.floor(time / DECK_EPOCH).toLong()
-        val cacheKey = DeckKey(type.ordinal + 100, key, epoch)
+    /** A deck's cell as built for [epoch], from the cache. */
+    private fun deckAt(type: CloudType, key: Long, epoch: Long, far: Boolean): CloudShape? {
+        val cacheKey = DeckKey(type.ordinal + if (far) 100 else 0, key, epoch)
         if (decks.containsKey(cacheKey)) return decks[cacheKey]
-        val shape = buildDeck(type, key, epoch * DECK_EPOCH, far = true)
+        val shape = buildDeck(type, key, epoch * DECK_EPOCH, far = far)
         decks[cacheKey] = shape
         return shape
     }
 
-    private fun deck(type: CloudType, key: Long, time: Double): CloudShape? {
-        val epoch = kotlin.math.floor(time / DECK_EPOCH).toLong()
-        val cacheKey = DeckKey(type.ordinal, key, epoch)
-        if (decks.containsKey(cacheKey)) return decks[cacheKey]
-        val shape = buildDeck(type, key, epoch * DECK_EPOCH)
-        decks[cacheKey] = shape
-        return shape
+    /**
+     * A deck's cell for drawing at [time]: its puffs part way from what they were at the start of
+     * this [DECK_EPOCH] to what they'll be at the next, growing, shrinking, coming and going over
+     * the whole of it. A puff is in the same place in both, so only its size and height change.
+     * Built afresh at each, the sky's puffs all changed at once every half minute, which looked
+     * like the clouds jumping. The air is still sampled from [deck], a step at a time.
+     *
+     * The blend goes evenly, so how fast each puff is changing holds for the rest of the epoch,
+     * and drawing carries it on by that between listings, which come only every few seconds far
+     * away.
+     */
+    private fun blendedDeck(type: CloudType, key: Long, time: Double, far: Boolean): CloudShape? {
+        // The air is sampled many times a tick, all at the same moment, so each blend is kept for
+        // the moment it was made.
+        val keptKey = DeckKey(type.ordinal + if (far) 100 else 0, key, 0L)
+        blends[keptKey]?.let { if (it.time == time) return it.shape }
+        return blendedDeckAfresh(type, key, time, far).also { blends[keptKey] = Blend(time, it) }
     }
+
+    private class Blend(val time: Double, val shape: CloudShape?)
+    private val blends = com.rm.apogee.core.lruMapOf<DeckKey, Blend>(256, 2_000)
+
+    private fun blendedDeckAfresh(type: CloudType, key: Long, time: Double, far: Boolean): CloudShape? {
+        val u = time / DECK_EPOCH
+        val epoch = kotlin.math.floor(u).toLong()
+        val f = u - epoch
+        val until = (epoch + 1) * DECK_EPOCH
+        val a = deckAt(type, key, epoch, far)
+        val b = deckAt(type, key, epoch + 1, far)
+        if (a == null && b == null) return null
+        val shape = CloudShape(type, (a?.amount ?: 0.0) * (1.0 - f) + (b?.amount ?: 0.0) * f, far = far)
+        shape.amountRate = ((b?.amount ?: 0.0) - (a?.amount ?: 0.0)) / DECK_EPOCH
+        val count = max(a?.lobes?.size ?: 0, b?.lobes?.size ?: 0)
+        for (p in 0 until count) {
+            val la = a?.lobes?.getOrNull(p)
+            val lb = b?.lobes?.getOrNull(p)
+            val one = la ?: lb!!
+            val centre = if (la != null && lb != null) Vec3().setTo(la.centre).mulInPlace(1.0 - f).addScaledInPlace(lb.centre, f) else one.centre
+            val horizontal = (la?.horizontal ?: 0.0) * (1.0 - f) + (lb?.horizontal ?: 0.0) * f
+            val vertical = (la?.vertical ?: 0.0) * (1.0 - f) + (lb?.vertical ?: 0.0) * f
+            val shade = (la?.shade ?: one.shade) * (1.0 - f) + (lb?.shade ?: one.shade) * f
+            val horizontalRate = ((lb?.horizontal ?: 0.0) - (la?.horizontal ?: 0.0)) / DECK_EPOCH
+            // Too small to see, and not growing.
+            if (horizontal < 1.0 && horizontalRate <= 0.0) continue
+            shape.lobes.add(
+                CloudLobe(centre, horizontal, vertical, shade, one.flat).also { lobe ->
+                    lobe.horizontalRate = horizontalRate
+                    lobe.verticalRate = ((lb?.vertical ?: 0.0) - (la?.vertical ?: 0.0)) / DECK_EPOCH
+                    if (la != null && lb != null) lobe.centreRate = Vec3().setTo(lb.centre).subInPlace(la.centre).mulInPlace(1.0 / DECK_EPOCH)
+                    lobe.changingUntil = until
+                },
+            )
+        }
+        return if (shape.lobes.isEmpty()) null else shape
+    }
+
 
     /**
      * How much of the sky over unit [up] a deck above [altitude] closes off, 0..1, for how grey the

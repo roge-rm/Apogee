@@ -227,6 +227,14 @@ class GlRenderer(
     private val nearFrustum = ShadowFrustum()
     private val farFrustum = ShadowFrustum()
     private var vesselDepth: ShaderProgram? = null
+
+    /** The shadow pass's solid items many to a call, as the main pass draws them. See [drawShadowBatches]. */
+    private var vesselDepthInstanced: ShaderProgram? = null
+    private val shadowBuffer = IntArray(1)
+    private val shadowGroups = LinkedHashMap<com.rm.apogee.core.part.Shape, Array<IntList?>>()
+    private val shadowCommands = IntList()
+    private val shadowShapes = ArrayList<com.rm.apogee.core.part.Shape>()
+    private val shadowCaps = IntList()
     private var seaProgram: ShaderProgram? = null
     private var seaMesh: SeaMesh? = null
     private val seaOrigin = Vec3()
@@ -276,6 +284,8 @@ class GlRenderer(
         scatterRenderer = ScatterRenderer().also { it.shadows = { program -> applyShadowUniforms(program, true); applyLamps(program, true) } }
         particleRenderer = ParticleRenderer()
         vesselDepth = ShaderProgram(Shaders.VESSEL_VERTEX, Shaders.DEPTH_FRAGMENT, "vessel-depth")
+        vesselDepthInstanced = ShaderProgram(Shaders.CLOUD_INSTANCED_VERTEX, Shaders.DEPTH_FRAGMENT, "vessel-depth-instanced")
+        GLES30.glGenBuffers(1, shadowBuffer, 0)
         seaProgram = ShaderProgram(Shaders.SEA_VERTEX, Shaders.SEA_FRAGMENT, "sea")
         terrainDepth = ShaderProgram(Shaders.TERRAIN_VERTEX, Shaders.DEPTH_FRAGMENT, "terrain-depth")
 
@@ -869,12 +879,54 @@ class GlRenderer(
     }
 
     /**
+     * The shadow pass's solid items, grouped in [shadowGroups]: one alone drawn by [shader] as it
+     * always was, and more of a shape drawn all at once.
+     */
+    private fun drawShadowBatches(items: List<RenderItem>, alpha: Double, cameraPos: Vec3, shader: ShaderProgram) {
+        val instanced = vesselDepthInstanced ?: return
+        shadowCommands.size = 0
+        shadowCaps.size = 0
+        shadowShapes.clear()
+        var floats = 0
+        for ((shape, byCaps) in shadowGroups) {
+            for (caps in byCaps.indices) {
+                val group = byCaps[caps] ?: continue
+                if (group.size == 0) continue
+                if (group.size == 1) {
+                    val index = group.values[0]
+                    placeItem(items[index], shadowMatcher.partners[index], alpha, cameraPos, shader)
+                    meshFor(shape, caps).draw()
+                } else {
+                    shadowCommands.add(floats / Mesh.INSTANCE_FLOATS); shadowCommands.add(group.size)
+                    shadowShapes.add(shape); shadowCaps.add(caps)
+                    for (k in 0 until group.size) {
+                        val index = group.values[k]
+                        floats = writeInstanceOf(items[index], shadowMatcher.partners[index], alpha, cameraPos, floats)
+                    }
+                }
+                group.size = 0
+            }
+        }
+        if (shadowShapes.isEmpty()) return
+        uploadInstances(shadowBuffer[0], floats)
+        instanced.use()
+        instanced.setMat4("uViewProjection", nearFrustum.viewProjection)
+        for (k in shadowShapes.indices) {
+            meshFor(shadowShapes[k], shadowCaps.values[k]).drawInstanced(shadowBuffer[0], shadowCommands.values[2 * k], shadowCommands.values[2 * k + 1])
+        }
+        shader.use()
+    }
+
+    /**
      * Item [index]'s instance (model matrix, 1/scale^2, glow, colour) into [instanceData] at
      * [floats]. Returns the floats after it.
      */
-    private fun writeInstance(items: List<RenderItem>, index: Int, alpha: Double, cameraPos: Vec3, floats: Int): Int {
-        val item = items[index]
-        modelOf(item, partners[index], alpha, cameraPos)
+    private fun writeInstance(items: List<RenderItem>, index: Int, alpha: Double, cameraPos: Vec3, floats: Int): Int =
+        writeInstanceOf(items[index], partners[index], alpha, cameraPos, floats)
+
+    /** [item]'s instance, eased from [previous], into [instanceData] at [floats]. Returns the floats after it. */
+    private fun writeInstanceOf(item: RenderItem, previous: RenderItem?, alpha: Double, cameraPos: Vec3, floats: Int): Int {
+        modelOf(item, previous, alpha, cameraPos)
         val at = ensureInstanceRoom(floats)
         modelMatrix.m.copyInto(instanceData, at, 0, 0 + 16)
         instanceData[at + 16] = invScale[0]; instanceData[at + 17] = invScale[1]; instanceData[at + 18] = invScale[2]
@@ -1164,13 +1216,22 @@ class GlRenderer(
         shader.use()
         shader.setMat4("uViewProjection", nearFrustum.viewProjection)
         shadowMatcher.match(latest.items, previous?.items)
+        // By shape, many to a call where there's more than one, as the main pass draws them. One
+        // call each, the launch complex alone was eight hundred calls a frame here.
+        val batching = vesselDepthInstanced != null && shadowBuffer[0] != 0
         for ((index, item) in latest.items.withIndex()) {
             // Solid, lit things cast shadows, not cloud, flame, vapour or rain.
             if (item.color[3] < 0.999f || item.ambient >= 1f || item.wrap || item.shape is CloudPuff || item.decal > 0) continue
             if (item.position.distanceTo(focus) > reach * 1.5 + 30.0) continue
-            placeItem(item, shadowMatcher.partners[index], alpha, cameraPos, shader)
-            meshFor(item.shape, item.caps).draw()
+            if (batching) {
+                val byCaps = shadowGroups.getOrPut(item.shape) { arrayOfNulls(4) }
+                (byCaps[item.caps] ?: IntList().also { byCaps[item.caps] = it }).add(index)
+            } else {
+                placeItem(item, shadowMatcher.partners[index], alpha, cameraPos, shader)
+                meshFor(item.shape, item.caps).draw()
+            }
         }
+        if (batching) drawShadowBatches(latest.items, alpha, cameraPos, shader)
         scatterRenderer?.drawDepth(
             terrainSource.scatter.drawList(), interpolatedBodyRotation, cameraPos,
             nearFrustum.viewProjection, world, focus, reach,
@@ -1481,6 +1542,8 @@ class GlRenderer(
         nearMap?.release(); nearMap = null
         farMap?.release(); farMap = null
         vesselDepth?.release(); vesselDepth = null
+        vesselDepthInstanced?.release(); vesselDepthInstanced = null
+        if (shadowBuffer[0] != 0) { GLES30.glDeleteBuffers(1, shadowBuffer, 0); shadowBuffer[0] = 0 }
         seaProgram?.release(); seaProgram = null
         seaMesh = null
         terrainDepth?.release(); terrainDepth = null

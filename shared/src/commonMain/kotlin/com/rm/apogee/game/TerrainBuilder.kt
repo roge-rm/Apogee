@@ -152,6 +152,12 @@ class TerrainBuilder(
     private var nearestWaiting = Double.MAX_VALUE
     private val camera = Vec3()
     private val scratch = Vec3()
+
+    /** What the last choice of chunks was made from, to tell when it needn't be made again. */
+    private var lastComplete = false
+    private var lastField: com.rm.apogee.core.terrain.Terrain? = null
+    private var lastChanges = -1
+    private var lastRange = 0.0
     private val requests = ArrayList<Pair<Double, ChunkKey>>()
 
     /**
@@ -208,6 +214,17 @@ class TerrainBuilder(
             return
         }
 
+        // Nothing to choose again: hardly moved, nothing built, uploaded or let go since, and the
+        // last choice had everything it wanted. Chosen afresh anyway, every frame, the whole tree
+        // was walked from the top on a phone's frame thread to come to the same answer.
+        val changes = source.changes.get()
+        if (lastComplete && field === lastField && changes == lastChanges &&
+            camera.distanceTo(bodyFixedPosition) < RESELECT_METRES && kotlin.math.abs(range - lastRange) < range * RESELECT_RANGE
+        ) return
+        lastField = field
+        lastChanges = changes
+        lastRange = range
+
         camera.setTo(bodyFixedPosition)
         val maxLevel = TerrainChunk.finestLevel(field.tiles.tilesPerFace) - detailOffset
 
@@ -244,6 +261,7 @@ class TerrainBuilder(
         // Anything that isn't stuck any more is forgotten.
         if (stuckSince.isNotEmpty()) stuckSince.keys.retainAll(stuckSeen)
         stuckSeen.clear()
+        lastComplete = complete && requests.isEmpty()
         if (!complete) chunkRange = 0.0
         if (complete && nearestWaiting > READY_RADIUS_METRES &&
             (requests.isEmpty() || requests.first().first > READY_RADIUS_METRES)
@@ -494,6 +512,11 @@ class TerrainBuilder(
         val nextGlobeRevision = com.rm.apogee.platform.AtomicInteger()
 
         /** A little past the horizon, so the edge of the chunks is never on screen. */
+        /** Moved less than this, in metres, with nothing new built, the chunks chosen stand. */
+        const val RESELECT_METRES = 1.0
+        /** Or the range changed by less than this share of itself. */
+        const val RESELECT_RANGE = 0.01
+
         const val HORIZON_MARGIN = 1.3
 
         const val MIN_RANGE_METRES = 4_000.0

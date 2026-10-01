@@ -171,6 +171,12 @@ class GroundContact {
         dt: Double,
         time: Double,
         accumulate: Boolean = false,
+        /**
+         * The ground under the craft as the tick began, if the caller has it, and how far the craft
+         * can move during the tick. Not worked out again each substep.
+         */
+        groundBelowAtTick: Double = Double.NaN,
+        tickSlack: Double = 0.0,
     ): ContactReport {
         if (!accumulate) { report.reset(); deckUnder = null }
         compressionCleared = false
@@ -203,7 +209,7 @@ class GroundContact {
         // craft isn't the ground under its centre, and terrain here reaches slopes steeper than
         // forty-five degrees.
         attractor.toBodyFixed(body.position, bodyRotation, bodyFixedDirection)
-        val groundBelow = attractor.solidRadiusInBodyFrame(bodyFixedDirection)
+        val groundBelow = if (groundBelowAtTick.isNaN()) attractor.solidRadiusInBodyFrame(bodyFixedDirection) else groundBelowAtTick + tickSlack
         val lowestPossible = body.position.length - vessel.contactRadius
         if (lowestPossible > groundBelow + vessel.contactRadius + TERRAIN_PROXIMITY_MARGIN) {
             return report

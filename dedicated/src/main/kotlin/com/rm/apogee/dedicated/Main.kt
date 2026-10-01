@@ -113,8 +113,19 @@ fun main(): Unit = runBlocking {
     //
     // A world nobody saved is a world nobody keeps. The interval is a trade. Too long and a crash
     // costs real play, and too short and a large world spends all its time serialising.
+    // Taken between ticks, never during one. Read from another thread mid-tick, the craft could be
+    // half moved, or the list of them changing under it as it was walked. Once ticking has stopped
+    // there's nothing to wait for, so it's taken straight away.
+    fun worldNow(): com.rm.apogee.core.world.WorldSave {
+        val taken = java.util.concurrent.atomic.AtomicReference<com.rm.apogee.core.world.WorldSave?>(null)
+        val done = CountDownLatch(1)
+        server.runBetweenTicks { taken.set(runCatching { world.save() }.getOrNull()); done.countDown() }
+        if (!done.await(SAVE_WAIT_SECONDS, java.util.concurrent.TimeUnit.SECONDS)) return world.save()
+        return taken.get() ?: world.save()
+    }
+
     fun saveWorld(reason: String): Result<Unit> =
-        store.save(world.save())
+        store.save(worldNow())
             .onSuccess {
                 log.info(
                     "Saved ${world.vessels.size} craft to ${store.path} " +
@@ -222,3 +233,6 @@ fun main(): Unit = runBlocking {
     scope.cancel()
     log.info("Stopped")
 }
+
+/** How long a save waits for a gap between ticks, in seconds, before taking the world as it is. */
+private const val SAVE_WAIT_SECONDS = 2L

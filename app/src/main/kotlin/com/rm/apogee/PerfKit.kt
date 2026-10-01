@@ -10,7 +10,7 @@ import java.io.File
 /**
  * The perf build's setup, for timing a phone nobody can reach with adb. On its first start it puts
  * the scene from its assets in place as the free play world, with the player it was made for, and
- * switches on the "debug-perf" log. From then on it copies every "ApogeePerf" line into
+ * switches on the "debug-perf" log, with each part of building a frame timed. From then on it copies every "ApogeePerf" line into
  * a new Download/apogee-perf-<when>.txt each run, under what the phone is, so the file can simply be sent back.
  */
 object PerfKit {
@@ -29,6 +29,7 @@ object PerfKit {
             seeded.writeText("1")
         }
         File(context.filesDir, "debug-perf").writeText("1")
+        File(context.filesDir, "debug-perf-build").writeText("1")
         Thread({ copyLog(context) }, "perf-log").apply { isDaemon = true }.start()
         File(context.filesDir, "debug-no-sea").delete()
         File(context.filesDir, "debug-perf-passes").delete()

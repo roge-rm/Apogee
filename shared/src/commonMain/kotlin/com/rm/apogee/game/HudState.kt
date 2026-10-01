@@ -25,7 +25,15 @@ class HudState {
     var drawnItems: Int by mutableIntStateOf(0)
 
     // --- flight -------------------------------------------------------------
+    /**
+     * The readouts, brought up to date ten times a second, which is as fast as anyone reads a
+     * number, and straight away when something they show changes outright. Every frame, it had the
+     * whole flight screen recomposed sixty times a second, most of the phone's main thread.
+     */
     var telemetry: FlightTelemetry by mutableStateOf(FlightTelemetry.EMPTY)
+
+    /** The same, every frame, for what has to move smoothly: the navball. */
+    var liveTelemetry: FlightTelemetry by mutableStateOf(FlightTelemetry.EMPTY)
 
     /** How the craft being flown gets about, for the words about it: "Keep sailing". */
     var going: Going by mutableStateOf(Going.FLY)
@@ -231,7 +239,7 @@ class HudState {
         val ore: Float = -1f,
         val water: Float = -1f,
         /** What it holds of ore and of water, and has room for: four numbers, or null for none known. */
-        val held: FloatArray? = null,
+        val held: List<Float>? = null,
         /** Why it can't be flown, or blank. */
         val blocked: String = "",
         /** On EVA: a craft with a free seat in reach, a ladder in reach, and holding one. */
@@ -377,6 +385,7 @@ class HudState {
         simTick = 0L
         drawnItems = 0
         telemetry = FlightTelemetry.EMPTY
+        liveTelemetry = FlightTelemetry.EMPTY
         connecting = true
         connectionError = null
         surfaceReady = false

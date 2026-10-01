@@ -110,6 +110,16 @@ class CloudShape(
     val lobes = ArrayList<CloudLobe>(6)
 
     /**
+     * How fast it's moving, body-fixed, in m/s: a storm along its steering wind. Zero for cloud
+     * that stays where it is, as a deck's puffs do. Drawing carries its lobes on by this between
+     * listings, which it otherwise jumped by every time the sky was listed again.
+     */
+    val drift = com.rm.apogee.core.math.Vec3()
+
+    /** How fast [amount] is changing, per second, until its lobes' [CloudLobe.changingUntil]. */
+    var amountRate = 0.0
+
+    /**
      * Rain falling out of it, as curtains from its base to the ground, which is what you see from
      * far away.
      */
@@ -125,4 +135,13 @@ class CloudLobe(
     val centre: Vec3, val horizontal: Double, val vertical: Double, val shade: Double,
     /** Spread thin and flat, like an anvil or a storm's base. */
     val flat: Boolean = false,
-)
+) {
+    /**
+     * How fast it's changing, per second, until [changingUntil]: a deck's puff growing, shrinking
+     * or rising as its deck changes. Drawing carries it on by these between listings.
+     */
+    var horizontalRate = 0.0
+    var verticalRate = 0.0
+    var centreRate: Vec3? = null
+    var changingUntil = Double.NEGATIVE_INFINITY
+}

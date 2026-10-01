@@ -104,7 +104,7 @@ android {
 
     buildFeatures {
         compose = true
-        // For BuildConfig.DEBUG, which gates the on-screen frame/sim timing overlay.
+        // For BuildConfig.PERF, which sets up the perf build (see PerfKit).
         buildConfig = true
         // Oboe comes as a prefab package.
         prefab = true

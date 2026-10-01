@@ -20,7 +20,15 @@ enum class Channel {
     KINEMATICS,
 }
 
-data class Packet(val channel: Channel, val bytes: ByteArray) {
+data class Packet(
+    val channel: Channel,
+    val bytes: ByteArray,
+    /**
+     * The message itself, on a transport that [Transport.passesObjects], with [bytes] left empty.
+     * Within one process there's nobody to encode it for.
+     */
+    val message: Any? = null,
+) {
     override fun equals(other: Any?): Boolean =
         this === other || (other is Packet && channel == other.channel && bytes.contentEquals(other.bytes))
 
@@ -37,6 +45,14 @@ data class Packet(val channel: Channel, val bytes: ByteArray) {
  */
 interface Transport {
     val incoming: Flow<Packet>
+
+    /**
+     * Whether both ends are in this process, so messages can go across as they are, unencoded. A
+     * phone's own game encoded every snapshot to bytes on one thread and decoded it again on the
+     * next.
+     */
+    val passesObjects: Boolean get() = false
+
     suspend fun send(packet: Packet)
     fun close()
 }

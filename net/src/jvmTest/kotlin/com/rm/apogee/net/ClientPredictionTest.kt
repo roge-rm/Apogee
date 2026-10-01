@@ -113,6 +113,80 @@ class ClientPredictionTest {
         return worst
     }
 
+    /** A Jet Ski left at sea off the Cape until she's asleep, riding the swell. */
+    private fun asleepAtSea(): Pair<World, VesselId> {
+        val world = World.default(catalog)
+        world.weatherConfig = com.rm.apogee.core.weather.WeatherConfig(intensity = com.rm.apogee.core.weather.WeatherIntensity.CALM)
+        world.syncClock(10_000.0)
+        val d = com.rm.apogee.core.orbit.SolarSystem.capeDirection(-3_000.0, 2_000.0)
+        val ski = world.spawnOnSurface(
+            StockCraft.jetSki(catalog),
+            com.rm.apogee.core.world.LaunchSite("sea", "Sea", "terra", com.rm.apogee.core.orbit.SolarSystem.latitudeOf(d), com.rm.apogee.core.orbit.SolarSystem.longitudeOf(d)),
+        )
+        repeat(1200) { world.step(1.0 / 60.0) }
+        assertTrue("the Jet Ski should be asleep on the water by now", ski.dormant && ski.buoyed)
+        return world to ski.id
+    }
+
+    private fun snapshotOf(world: World, id: VesselId): VesselKinematics = world.snapshot().vessels.first { it.vessel == id.raw }
+
+    /**
+     * Asleep afloat on the server, the replica isn't stepped, only carried on from each snapshot,
+     * and it's still drawn where the server has it as she rides the waves.
+     */
+    @Test
+    fun `a craft asleep at sea is drawn riding the waves without being simulated`() {
+        val (world, id) = asleepAtSea()
+        val ski = world.vessel(id)!!
+        val prediction = ClientPrediction(catalog)
+        val first = snapshotOf(world, id)
+        assertTrue("the snapshot should say she's asleep", first.asleep)
+        prediction.adopt(ski.design, first, world.time)
+        prediction.reconcile(first, 0.0, world.time)
+        var snapshot = first to world.time
+        var reconciled = snapshot.second
+        val start = world.time
+        var worst = 0.0
+        for (frame in 1..270) {
+            val now = start + frame / 90.0
+            while (world.time + 1.0 / 60.0 <= now + 1e-9) {
+                world.step(1.0 / 60.0)
+                if (world.tick % 3 == 0L) snapshot = snapshotOf(world, id) to world.time
+            }
+            prediction.advance(1.0 / 90.0)
+            if (snapshot.second != reconciled) {
+                reconciled = snapshot.second
+                prediction.reconcile(snapshot.first, now - snapshot.second, snapshot.second)
+            }
+            // On the ground, each at its own time, since that's what the eye compares.
+            val terra = world.system.body("terra")
+            val drawn = terra.toBodyFixed(prediction.renderPosition()!!, terra.rotationAt(prediction.renderTime()!!, com.rm.apogee.core.math.Quat.identity()))
+            val there = terra.toBodyFixed(ski.body.position, terra.rotationAt(world.time, com.rm.apogee.core.math.Quat.identity()))
+            worst = maxOf(worst, drawn.distanceTo(there))
+        }
+        assertTrue("drawn $worst m from where the server has her", worst < 0.05)
+        assertTrue("the replica was stepped while she slept", prediction.stepsTaken == 0L)
+    }
+
+    /** Opening the throttle on a craft that's asleep afloat gets the replica stepping straight away. */
+    @Test
+    fun `taking the controls of a craft asleep at sea wakes the replica at once`() {
+        val (world, id) = asleepAtSea()
+        val ski = world.vessel(id)!!
+        val prediction = ClientPrediction(catalog)
+        val first = snapshotOf(world, id)
+        prediction.adopt(ski.design, first, world.time)
+        prediction.reconcile(first, 0.0, world.time)
+        prediction.advance(0.5)
+        val parkedAt = prediction.renderPosition()!!.copy()
+        prediction.stage()
+        prediction.applyControl(1.0, 0.0, 0.0, 0.0, sas = false)
+        repeat(120) { prediction.advance(1.0 / 60.0) }
+        assertTrue("the replica never stepped", prediction.stepsTaken > 0L)
+        val moved = prediction.renderPosition()!!.distanceTo(parkedAt)
+        assertTrue("she only moved $moved m in two seconds at full throttle", moved > 2.0)
+    }
+
     /**
      * Drawn between steps, the predicted craft is carried along its velocity. At the equator a
      * parked craft moves at 175 m/s with the ground, and drawn only at its 60 Hz steps it would

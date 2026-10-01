@@ -40,6 +40,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -189,15 +190,25 @@ fun FlightScreen(
     // multi-window as well as after a rotation. Asking the layout is asking the thing that decides.
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val portrait = maxWidth < maxHeight
-        val sas = SasActions(onToggleSas, onSasMode, targetChoices, onTarget, onStickMode, onCruise, onSteering, burnActions.onAutoLand)
-        val railActions = RailActions(
-            onBrakes = onToggleBrakes, onReverse = onToggleReverse, onRcs = onToggleRcs, onDeploy = onToggleDeploy,
-            onDrill = onToggleDrill, onRefine = onToggleRefine, onJump = crewActions.onJump, onFlag = crewActions.onFlag,
-            onDive = onDive, onRise = onRise, onHold = onHoldDepth,
-            onFlaps = onToggleFlaps, onGroup = onGroup, onWinch = onWinch, onStationKeep = onStationKeep,
-        )
-        val statusActions = StatusActions(crewActions, onUndock, onFound, onRefuel, onUnload, onRefine, onDockPilot)
-        val promptActions = PromptActions(onJoin, onFound, crewActions.onBoard, crewActions.onGrab, onHook, onReleaseLine, onRightCraft, crewActions.onClimbOut)
+        // Remembered, so the same holders go to the rail, the status row and the prompts each time
+        // the screen recomposes, and those can skip. Made afresh each time, none of them could.
+        val sas = remember(onToggleSas, onSasMode, targetChoices, onTarget, onStickMode, onCruise, onSteering, burnActions) {
+            SasActions(onToggleSas, onSasMode, targetChoices, onTarget, onStickMode, onCruise, onSteering, burnActions.onAutoLand)
+        }
+        val railActions = remember(onToggleBrakes, onToggleReverse, onToggleRcs, onToggleDeploy, onToggleDrill, onToggleRefine, crewActions, onDive, onRise, onHoldDepth, onToggleFlaps, onGroup, onWinch, onStationKeep) {
+            RailActions(
+                onBrakes = onToggleBrakes, onReverse = onToggleReverse, onRcs = onToggleRcs, onDeploy = onToggleDeploy,
+                onDrill = onToggleDrill, onRefine = onToggleRefine, onJump = crewActions.onJump, onFlag = crewActions.onFlag,
+                onDive = onDive, onRise = onRise, onHold = onHoldDepth,
+                onFlaps = onToggleFlaps, onGroup = onGroup, onWinch = onWinch, onStationKeep = onStationKeep,
+            )
+        }
+        val statusActions = remember(crewActions, onUndock, onFound, onRefuel, onUnload, onRefine, onDockPilot) {
+            StatusActions(crewActions, onUndock, onFound, onRefuel, onUnload, onRefine, onDockPilot)
+        }
+        val promptActions = remember(onJoin, onFound, crewActions, onHook, onReleaseLine, onRightCraft) {
+            PromptActions(onJoin, onFound, crewActions.onBoard, crewActions.onGrab, onHook, onReleaseLine, onRightCraft, crewActions.onClimbOut)
+        }
 
         if (hud.connectionError != null) {
             ConnectionProblem(hud.connectionError!!, onExit)
@@ -242,8 +253,11 @@ fun FlightScreen(
         // A few seconds with nothing touched and the controls fade back to let the view through.
         // Any touch, a new warning or prompt, or the engines running brings them straight back.
         var idle by remember { mutableStateOf(false) }
-        val statusKey = statusKey(hud)
-        val promptKey = promptKey(hud)
+        // Worked out in their own scopes, so the readouts they read changing ten times a second
+        // doesn't recompose the whole screen, only these, and only when the keys themselves change
+        // does anything else hear of it.
+        val statusKey by remember(hud) { derivedStateOf { statusKey(hud) } }
+        val promptKey by remember(hud) { derivedStateOf { promptKey(hud) } }
         LaunchedEffect(statusKey, promptKey) { hud.touched() }
         LaunchedEffect(fadeWhenIdle) {
             while (true) {
@@ -442,18 +456,12 @@ fun FlightScreen(
         }
         val navball: @Composable () -> Unit = {
             NavBall(
-                rotation = hud.telemetry.rotation,
-                worldUp = hud.telemetry.up,
-                prograde = hud.telemetry.prograde,
+                // Read as it's drawn, so a new attitude each frame only redraws the ball.
+                live = { hud.liveTelemetry },
                 size = if (portrait) PORTRAIT_NAVBALL_SIZE else NAVBALL_SIZE,
-                normal = hud.telemetry.normal,
-                radialOut = hud.telemetry.radialOut,
                 frame = hud.telemetry.frame,
                 frameManual = hud.telemetry.frameChosen != com.rm.apogee.core.world.NavFrame.AUTO,
                 onCycleFrame = onCycleFrame,
-                toTarget = hud.telemetry.toTarget,
-                throughAir = hud.telemetry.throughAir,
-                burn = hud.telemetry.burn,
             )
         }
         // Someone on EVA has nothing to stage.

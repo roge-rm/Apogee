@@ -52,7 +52,11 @@ class TerrainSource {
     fun globe(alreadyUploaded: Int): PendingGlobe? =
         globeRef.get()?.takeIf { it.revision != alreadyUploaded }
 
+    /** Counts every chunk built, uploaded, let go or lost, so the builder can tell when nothing has. */
+    val changes = com.rm.apogee.platform.AtomicInteger()
+
     fun publishChunk(data: ChunkData) {
+        changes.incrementAndGet()
         pendingChunks[data.key] = data
         available += data.key
         uploadOrder.add(data.key)
@@ -85,6 +89,7 @@ class TerrainSource {
      * frames, every few seconds, while climbing.
      */
     fun release(key: ChunkKey) {
+        changes.incrementAndGet()
         available -= key
         uploaded -= key
         pendingChunks.remove(key)
@@ -106,11 +111,13 @@ class TerrainSource {
 
     /** The GL thread has [key] on the GPU. */
     fun markUploaded(key: ChunkKey) {
+        changes.incrementAndGet()
         uploaded += key
     }
 
     /** The GL thread dropped [key] from the GPU, so it has to be built again to be drawn. */
     fun discarded(key: ChunkKey) {
+        changes.incrementAndGet()
         available -= key
         uploaded -= key
         pendingChunks.remove(key)

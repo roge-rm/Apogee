@@ -126,6 +126,16 @@ class Hydrostatics {
         val ocean = attractor.ocean ?: run { vessel.wet = null; return }
         val body = vessel.body
 
+        // Far above any sea there could be, it's clear of it without asking the sea anything.
+        // Asked anyway, every craft in flight round a world with a sea had its waves worked out
+        // every few ticks, a rocket fifty kilometres up included.
+        if (attractor.altitudeOf(body.position) - vessel.contactRadius > CLEAR_ABOVE) {
+            seaHeight = 0.0
+            val n = vessel.defs.size
+            (vessel.wet?.takeIf { it.size == n } ?: BooleanArray(n).also { vessel.wet = it }).fill(false)
+            return
+        }
+
         // The sea where the craft is: its tide, and how big its waves are.
         attractor.rotationAt(time, rotation)
         attractor.toBodyFixed(body.position, rotation, bodyFixed)
@@ -694,6 +704,9 @@ class Hydrostatics {
         const val ROUGHNESS = 0.0004
 
         /** How long a craft's waves are carried on before they're built again, in seconds, and how far it can go meanwhile, in metres. */
+        /** Higher than this over the datum, in metres, no tide or crest could reach a craft. */
+        const val CLEAR_ABOVE = 500.0
+
         const val PATCH_KEEP = 0.05
         const val PATCH_MOVE = 50.0
 

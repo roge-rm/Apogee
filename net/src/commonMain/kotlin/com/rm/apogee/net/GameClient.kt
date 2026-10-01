@@ -208,7 +208,7 @@ class GameClient(
     fun connect(scope: CoroutineScope): Job = scope.launch(Dispatchers.Default) {
         val reader = launch {
             transport.incoming.collect { packet ->
-                val message = runCatching { Codec.decodeServerMessage(packet.bytes) }.getOrNull()
+                val message = packet.message as? ServerMessage ?: runCatching { Codec.decodeServerMessage(packet.bytes) }.getOrNull()
                 if (message != null) handle(message)
             }
         }
@@ -232,9 +232,12 @@ class GameClient(
     }
 
     suspend fun send(command: Command) {
-        transport.send(
-            Packet(Channel.CONTROL, Codec.encode(ClientMessage.CommandMessage(command)))
-        )
+        sendMessage(ClientMessage.CommandMessage(command))
+    }
+
+    /** [message] to the server, encoded unless it's in this process. */
+    private suspend fun sendMessage(message: ClientMessage) {
+        transport.send(if (transport.passesObjects) Packet(Channel.CONTROL, NO_BYTES, message) else Packet(Channel.CONTROL, Codec.encode(message)))
     }
 
     fun close() {
@@ -396,3 +399,6 @@ class GameClient(
         const val BASE_STALE_NANOS = 3_000_000_000L
     }
 }
+
+/** The bytes of a packet that carries its message as it is. */
+private val NO_BYTES = ByteArray(0)

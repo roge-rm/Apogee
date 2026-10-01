@@ -56,7 +56,20 @@ class CloudScene(
         val rain: Boolean = false,
         /** Part of a storm, so it's drawn before anything else. */
         val storm: Boolean = false,
+        /** How fast it's moving, body-fixed, in m/s, and when it was where [centre] says. */
+        val drift: Vec3 = NO_DRIFT,
+        val listedAt: Double = 0.0,
+        /**
+         * How fast it's changing, per second, until [changingUntil]: moving, growing and thinning
+         * as its deck does. Null and 0 for none.
+         */
+        val centreRate: Vec3? = null,
+        val scaleRate: Vec3? = null,
+        val alphaRate: Float = 0f,
+        val changingUntil: Double = Double.NEGATIVE_INFINITY,
     ) {
+        /** Faded by its place in the budget, 0..1. See [budgeted]. */
+        @Volatile var budgetFade = 1f
         /**
          * Close puffs get the finest mesh, with small facets that look like billows instead of
          * slabs, and further out each step has a quarter of the facets. It's one step finer at
@@ -132,6 +145,18 @@ class CloudScene(
             overcast = weather.overcastAbove(direction, camera.length - body.radius, time)
         }
         if (listing) return
+        // Between listings, the shadow follows its storms.
+        val storms = shadowShapes
+        if (time - shadowCastAt >= SHADOW_EVERY && storms.any { it.drift.lengthSq > 0.0 } &&
+            time - listedAt < RELIST_SECONDS && camera.distanceTo(listedFrom) < RELIST_DISTANCE
+        ) {
+            shadowCastAt = time
+            listing = true
+            scope.launch(LIST) {
+                try { recastShadow(time) } finally { listing = false }
+            }
+            return
+        }
         val farDue = farLobes == null || time - farListedAt >= FAR_RELIST_SECONDS || camera.distanceTo(farListedFrom) >= FAR_RELIST_DISTANCE
         if (!farDue && time - listedAt < RELIST_SECONDS && camera.distanceTo(listedFrom) < RELIST_DISTANCE) return
         listedAt = time
@@ -183,9 +208,23 @@ class CloudScene(
             if (lobe.centre.distanceTo(camera) - lobe.scale.x < nearReach) continue
             if (lobe.rain) curtains.add(lobe) else all.add(lobe)
         }
-        all.sortWith(compareBy<Lobe>({ !it.storm }, { it.distance }))
-        val kept = if (all.size > maxLobes) all.subList(0, maxLobes).toMutableList() else all
+        val kept = budgeted(all)
         kept.addAll(curtains)
+        return kept
+    }
+
+    /**
+     * [lobes] cut to the budget: storms first, then nearest first, with none too faint to see
+     * taking a place. The last of them fade out by their place in the line, so a puff pushed out
+     * by others coming in thins away instead of vanishing. With the cut sharp, a cumulus forming
+     * pushed puffs out all over the sky at once.
+     */
+    private fun budgeted(lobes: MutableList<Lobe>): MutableList<Lobe> {
+        lobes.removeAll { it.colour[3] < VISIBLE_ALPHA && it.alphaRate <= 0f }
+        lobes.sortWith(compareBy<Lobe>({ !it.storm }, { it.distance }))
+        val kept = if (lobes.size > maxLobes) lobes.subList(0, maxLobes).toMutableList() else lobes
+        val fadeFrom = (maxLobes * (1.0 - BUDGET_FADE)).toInt()
+        for (r in kept.indices) kept[r].budgetFade = if (r < fadeFrom) 1f else ((maxLobes - r).toFloat() / (maxLobes - fadeFrom)).coerceIn(0f, 1f)
         return kept
     }
 
@@ -202,22 +241,28 @@ class CloudScene(
                 if (distance > far || distance < inner) continue
                 val weight = deckWeight(shape, lobe, camera)
                 if (weight < 0.01) continue
-                if (shape.type == CloudType.CIRRUS) cirrusStreaks(shape.amount, lobe, distance, far, weight, list)
-                else list.add(lobeFor(shape.type, shape.amount, lobe, distance, fadeAt = far, weight = weight))
+                if (shape.type == CloudType.CIRRUS) cirrusStreaks(shape.amount, lobe, distance, far, weight, list, time, shape.amountRate)
+                else list.add(lobeFor(shape.type, shape.amount, lobe, distance, fadeAt = far, weight = weight, drift = shape.drift, listedAt = time, amountRate = shape.amountRate))
             }
             for (lobe in shape.rain) {
                 val distance = lobe.centre.distanceTo(camera) - lobe.horizontal
                 if (distance > far || distance < inner) continue
-                curtains.add(curtainFor(lobe, distance, far))
+                curtains.add(curtainFor(lobe, distance, far, shape.drift, time, forming(shape.type, shape.amount)))
             }
         }
-        if (withShadow) buildShadow(camera, time)
+        if (withShadow) {
+            buildShadow(shapes, camera, time)
+            // Kept, for the shadow to be cast again as storms move, between listings.
+            shadowShapes = ArrayList(shapes)
+            shadowFrom.setTo(camera)
+            shadowListedAt = time
+            shadowCastAt = time
+        }
         // Storms first, whatever their distance. They're a few dozen lobes each, and what a pilot
         // most needs to see coming. With nearest first alone, a busy day's cumulus filled the
         // budget within twenty kilometres and a storm beyond them was never drawn. Then the rest,
         // nearest first, as many as the device can draw, and the rain as well.
-        list.sortWith(compareBy<Lobe>({ !it.storm }, { it.distance }))
-        val kept = if (list.size > maxLobes) list.subList(0, maxLobes).toMutableList() else list
+        val kept = budgeted(list)
         kept.addAll(curtains)
         return kept
     }
@@ -233,7 +278,30 @@ class CloudScene(
      * Casts the clouds just listed onto the ground around [camera] (body-fixed), by the sun, or
      * more faintly by the moon at night.
      */
-    private fun buildShadow(camera: Vec3, time: Double) {
+    /** The near sky as last listed, where it was listed from, and when, to cast the shadow again from. */
+    @Volatile private var shadowShapes: List<com.rm.apogee.core.weather.CloudShape> = emptyList()
+    private val shadowFrom = Vec3()
+    @Volatile private var shadowListedAt = 0.0
+    @Volatile private var shadowCastAt = Double.NEGATIVE_INFINITY
+
+    /**
+     * The shadow cast again from the last listing with its storms moved on to [time]. Cast only
+     * once a listing, a storm's shadow stepped along the ground by its drift every second.
+     */
+    private fun recastShadow(time: Double) {
+        val since = time - shadowListedAt
+        val moved = shadowShapes.map { shape ->
+            if (shape.drift.lengthSq == 0.0) shape
+            else com.rm.apogee.core.weather.CloudShape(shape.type, shape.amount, shape.far).also { copy ->
+                for (lobe in shape.lobes) {
+                    copy.lobes.add(com.rm.apogee.core.weather.CloudLobe(Vec3().setTo(lobe.centre).addScaledInPlace(shape.drift, since), lobe.horizontal, lobe.vertical, lobe.shade, lobe.flat))
+                }
+            }
+        }
+        buildShadow(moved, shadowFrom, time)
+    }
+
+    private fun buildShadow(shapes: List<com.rm.apogee.core.weather.CloudShape>, camera: Vec3, time: Double) {
         val up = camera.copy().normalizeInPlace()
         val sun = body.rotationAt(time).inverseRotate(sunAt(time), Vec3())
         val (light, strength) = if ((sun dot up) > 0.08) sun to 0.6f else sun.copy().mulInPlace(-1.0) to 0.35f
@@ -246,15 +314,15 @@ class CloudScene(
     }
 
     /** A storm's rain seen from outside it: a grey curtain from its base to the ground. */
-    private fun curtainFor(lobe: com.rm.apogee.core.weather.CloudLobe, distance: Double, reach: Double): Lobe {
+    private fun curtainFor(lobe: com.rm.apogee.core.weather.CloudLobe, distance: Double, reach: Double, drift: Vec3, listedAt: Double, formed: Double = 1.0): Lobe {
         val up = Vec3().setTo(lobe.centre).normalizeInPlace()
         // Dark and nearly solid. Pale, it vanished against the sky behind it, and at 55% it still
         // did beside the darker storms, which I didn't like.
-        val alpha = 0.8 * lobe.shade * (1.0 - smooth(0.65 * reach, reach, distance))
+        val alpha = 0.8 * lobe.shade * (1.0 - smooth(0.65 * reach, reach, distance)) * formed
         return Lobe(
             lobe.centre, quatFromTo(Vec3.unitY(), up), Vec3(lobe.horizontal, lobe.vertical, lobe.horizontal),
             floatArrayOf(0.22f, 0.24f, 0.29f, alpha.toFloat()), variant = 0, flat = false, distance = distance, tier = tier,
-            rain = true,
+            rain = true, drift = drift, listedAt = listedAt,
         )
     }
 
@@ -281,13 +349,19 @@ class CloudScene(
         fadeAt: Double = reach,
         /** How much of it to draw, from [deckWeight]. */
         weight: Double = 1.0,
+        drift: Vec3 = NO_DRIFT,
+        listedAt: Double = 0.0,
+        /** How fast its shape's [CloudShape.amount] is changing, per second. */
+        amountRate: Double = 0.0,
     ): Lobe {
         val up = Vec3().setTo(lobe.centre).normalizeInPlace()
         // Each puff is turned its own way about the vertical, and its shape is picked from where it
         // is. When they were all turned the same and handed out in order, neighbours were copies of
-        // each other.
+        // each other. Where it is on the ground below, before it drifted, so a storm's puffs keep
+        // their shapes as it goes, and a puff whose height changes keeps its own.
+        val home = homeOf(lobe.centre, drift, listedAt)
         val hash = com.rm.apogee.core.terrain.Noise.hashInt(
-            0xC10D, (lobe.centre.x * 0.01).toInt(), (lobe.centre.y * 0.01).toInt(), (lobe.centre.z * 0.01).toInt(),
+            0xC10D, (home.x * 0.01).toInt(), (home.y * 0.01).toInt(), (home.z * 0.01).toInt(),
         )
         val yaw = ((hash ushr 8) and 0xFFFF) / 65_536.0 * 2.0 * Math.PI
         val orient = quatFromTo(Vec3.unitY(), up) * Quat.fromAxisAngle(Vec3.unitY(), yaw)
@@ -295,8 +369,9 @@ class CloudScene(
         // How solid, by kind and by how much of it there is (a thin deck or a young cumulus lets
         // the sky through), fading out toward the edge of the draw distance instead of popping in
         // there.
-        colour[3] = (OPACITY[type.ordinal] * (0.55 + 0.45 * amount.coerceIn(0.0, 1.0)) *
-            (1.0 - smooth(0.65 * fadeAt, fadeAt, distance)) * weight).toFloat()
+        val fade = (1.0 - smooth(0.65 * fadeAt, fadeAt, distance)) * weight * forming(type, amount)
+        colour[3] = (OPACITY[type.ordinal] * (0.55 + 0.45 * amount.coerceIn(0.0, 1.0)) * fade).toFloat()
+        val changing = lobe.changingUntil > listedAt
         return Lobe(
             lobe.centre, orient,
             Vec3(lobe.horizontal, lobe.vertical, lobe.horizontal),
@@ -306,8 +381,29 @@ class CloudScene(
             distance = distance,
             tier = tier,
             storm = type == CloudType.CUMULONIMBUS || type == CloudType.DUST,
+            drift = drift,
+            listedAt = listedAt,
+            centreRate = if (changing) lobe.centreRate else null,
+            scaleRate = if (changing) Vec3(lobe.horizontalRate, lobe.verticalRate, lobe.horizontalRate) else null,
+            alphaRate = if (changing && amount in 0.0..1.0) (OPACITY[type.ordinal] * 0.45 * amountRate * fade).toFloat() else 0f,
+            changingUntil = lobe.changingUntil,
         )
     }
+
+    /**
+     * How far along a cumulus or a storm is in forming, 0..1, by how much of it there is: it
+     * thickens into view as it forms and thins out as it dies. Listed from the moment there was
+     * any of it, at over half its opacity, a new cumulus popped into the sky whole.
+     */
+    private fun forming(type: CloudType, amount: Double): Double = when (type) {
+        CloudType.CUMULUS -> smooth(0.02, 0.15, amount)
+        CloudType.CUMULONIMBUS, CloudType.DUST -> smooth(0.05, 0.2, amount)
+        else -> 1.0
+    }
+
+    /** Where [centre] was before it drifted, on the ground below it, for its looks to be picked by. */
+    private fun homeOf(centre: Vec3, drift: Vec3, listedAt: Double): Vec3 =
+        Vec3().setTo(centre).addScaledInPlace(drift, -listedAt).normalizeInPlace().mulInPlace(body.radius)
 
     /**
      * Cirrus, as streaks: three long thin wisps lying side by side inside the puff's round
@@ -323,10 +419,13 @@ class CloudScene(
         fadeAt: Double,
         weight: Double,
         out: MutableList<Lobe>,
+        listedAt: Double = 0.0,
+        amountRate: Double = 0.0,
     ) {
         val up = Vec3().setTo(lobe.centre).normalizeInPlace()
+        val home = homeOf(lobe.centre, NO_DRIFT, 0.0)
         val hash = com.rm.apogee.core.terrain.Noise.hashInt(
-            0xC1A5, (lobe.centre.x * 0.01).toInt(), (lobe.centre.y * 0.01).toInt(), (lobe.centre.z * 0.01).toInt(),
+            0xC1A5, (home.x * 0.01).toInt(), (home.y * 0.01).toInt(), (home.z * 0.01).toInt(),
         )
         val c = lobe.centre
         val yaw = Math.PI * com.rm.apogee.core.terrain.Noise.simplex(0xC1A6, c.x / CIRRUS_TURN, c.y / CIRRUS_TURN, c.z / CIRRUS_TURN) +
@@ -334,8 +433,11 @@ class CloudScene(
         val orient = quatFromTo(Vec3.unitY(), up) * Quat.fromAxisAngle(Vec3.unitY(), yaw)
         // Across the streaks, in the puff's own frame: its local x, turned by the yaw.
         val across = orient.rotate(Vec3(0.0, 0.0, 1.0), Vec3())
-        val alpha = (CIRRUS_OPACITY * (0.55 + 0.45 * amount.coerceIn(0.0, 1.0)) *
-            (1.0 - smooth(0.65 * fadeAt, fadeAt, distance)) * weight).toFloat()
+        val fade = (1.0 - smooth(0.65 * fadeAt, fadeAt, distance)) * weight
+        val alpha = (CIRRUS_OPACITY * (0.55 + 0.45 * amount.coerceIn(0.0, 1.0)) * fade).toFloat()
+        val changing = lobe.changingUntil > listedAt
+        // Its streaks grow in step with it.
+        val growth = if (lobe.horizontal > 1.0) lobe.horizontalRate / lobe.horizontal else 0.0
         for (k in 0 until 3) {
             // The middle one longest, the outer ones shorter, as they'd have to be to stay inside
             // the circle.
@@ -353,22 +455,47 @@ class CloudScene(
                     flat = true,
                     distance = distance,
                     tier = tier,
+                    listedAt = listedAt,
+                    centreRate = if (changing) Vec3().setTo(lobe.centreRate ?: NO_DRIFT).addScaledInPlace(across, offset * lobe.horizontalRate) else null,
+                    scaleRate = if (changing) Vec3(length * growth, lobe.verticalRate * 0.35, lobe.horizontalRate * CIRRUS_WIDTH) else null,
+                    alphaRate = if (changing && amount in 0.0..1.0) (CIRRUS_OPACITY * 0.45 * amountRate * fade).toFloat() else 0f,
+                    changingUntil = lobe.changingUntil,
                 ),
             )
         }
     }
 
     private val turned = Vec3()
+    private val drifted = Vec3()
 
     /** Appends the clouds, turned to where the planet is at [bodyRotation], to [out]. */
-    fun append(bodyRotation: Quat, out: MutableList<RenderItem>) {
+    fun append(bodyRotation: Quat, time: Double, out: MutableList<RenderItem>) {
         for (lobe in lobes) {
-            bodyRotation.rotate(lobe.centre, turned)
+            // Carried on along its drift from when it was listed, so a moving storm moves smoothly
+            // instead of a step at every listing, and a deck's puff goes on growing or thinning.
+            val since = time - lobe.listedAt
+            val changed = (kotlin.math.min(time, lobe.changingUntil) - lobe.listedAt).coerceAtLeast(0.0)
+            if (lobe.drift === NO_DRIFT && (lobe.centreRate == null || changed == 0.0)) bodyRotation.rotate(lobe.centre, turned)
+            else {
+                drifted.setTo(lobe.centre).addScaledInPlace(lobe.drift, since)
+                lobe.centreRate?.let { drifted.addScaledInPlace(it, changed) }
+                bodyRotation.rotate(drifted, turned)
+            }
+            val scale = lobe.scaleRate?.takeIf { changed > 0.0 }?.let { rate ->
+                Vec3(
+                    (lobe.scale.x + rate.x * changed).coerceAtLeast(0.0),
+                    (lobe.scale.y + rate.y * changed).coerceAtLeast(0.0),
+                    (lobe.scale.z + rate.z * changed).coerceAtLeast(0.0),
+                )
+            } ?: lobe.scale
+            val colour = if ((lobe.alphaRate != 0f && changed > 0.0) || lobe.budgetFade < 1f) lobe.colour.copyOf().also {
+                it[3] = ((it[3] + lobe.alphaRate * changed.toFloat()) * lobe.budgetFade).coerceIn(0f, 1f)
+            } else lobe.colour
             if (lobe.rain) {
                 out.add(
                     RenderItem(
                         shape = RAIN_CURTAIN, position = turned.copy(), rotation = bodyRotation * lobe.up,
-                        color = lobe.colour, caps = 0, scale = lobe.scale, ambient = 0.5f,
+                        color = colour, caps = 0, scale = scale, ambient = 0.5f,
                     ),
                 )
                 continue
@@ -378,8 +505,8 @@ class CloudScene(
                     shape = CloudPuff(lobe.variant, lobe.flat, lobe.detail),
                     position = turned.copy(),
                     rotation = bodyRotation * lobe.up,
-                    color = lobe.colour,
-                    scale = lobe.scale,
+                    color = colour,
+                    scale = scale,
                     ambient = 0.42f,
                 ),
             )
@@ -596,6 +723,11 @@ class CloudScene(
     }
 
     private companion object {
+
+        /** No drift at all, shared. */
+
+        val NO_DRIFT = Vec3()
+
         /** The opacity of each kind at its thickest, by ordinal. */
         val OPACITY = doubleArrayOf(0.85, 0.55, 0.45, 0.25, 1.0, 0.95, 0.9)
 
@@ -656,6 +788,15 @@ class CloudScene(
         }
 
         const val RELIST_SECONDS = 1.0
+
+        /** Fainter than this, a lobe isn't drawn, and takes no place in the budget. */
+        const val VISIBLE_ALPHA = 0.01f
+
+        /** The last share of the budget, faded out by place. */
+        const val BUDGET_FADE = 0.15
+
+        /** How often a storm's shadow is cast again as it moves, in seconds. */
+        const val SHADOW_EVERY = 0.25
         const val RELIST_DISTANCE = 1_000.0
 
         /**

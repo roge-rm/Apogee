@@ -69,17 +69,29 @@ class SolarSystem(
     fun positionOf(id: String, time: Double): Vec3 {
         val body = body(id)
         val parentId = body.parentId ?: return Vec3.zero()
+        lastPosition[id]?.let { if (it.time == time) return Vec3(it.x, it.y, it.z) }
         val local = body.orbit!!.stateAt(time).position
-        return positionOf(parentId, time).addInPlace(local)
+        return positionOf(parentId, time).addInPlace(local).also { lastPosition[id] = Fix(time, it.x, it.y, it.z) }
     }
 
     /** The absolute velocity of [id] at [time], relative to the root of the system. */
     fun velocityOf(id: String, time: Double): Vec3 {
         val body = body(id)
         val parentId = body.parentId ?: return Vec3.zero()
+        lastVelocity[id]?.let { if (it.time == time) return Vec3(it.x, it.y, it.z) }
         val local = body.orbit!!.stateAt(time).velocity
-        return velocityOf(parentId, time).addInPlace(local)
+        return velocityOf(parentId, time).addInPlace(local).also { lastVelocity[id] = Fix(time, it.x, it.y, it.z) }
     }
+
+    /**
+     * Each body's last position and velocity asked for, and when. A tick asks for the same few
+     * bodies at the same moment over and over (for sunlight, heat, the shade of a moon), and each
+     * time was a Kepler solve, all the way up to the star.
+     */
+    private class Fix(val time: Double, val x: Double, val y: Double, val z: Double)
+
+    private val lastPosition = concurrentMapOf<String, Fix>()
+    private val lastVelocity = concurrentMapOf<String, Fix>()
 
     /**
      * The direction toward the star from [position] (relative to body [bodyId]'s centre) at [time],

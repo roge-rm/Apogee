@@ -47,27 +47,36 @@ class ScatterContact {
         time: Double,
         report: ContactReport,
         removed: Set<Long>,
+        /** The ground under the craft this tick, if the caller has it, and how far the craft can move in it. */
+        groundBelowAtTick: Double = Double.NaN,
+        tickSlack: Double = 0.0,
         onFelled: (Long) -> Unit,
     ) {
-        val field = attractor.terrain?.scatter ?: return
+        val terrain = attractor.terrain ?: return
+        val field = terrain.scatter ?: return
         val body = vessel.body
         if (body.inverseMass <= 0.0) return
+        // Above the highest ground there is, there's nothing standing to hit. Without this, every
+        // craft round a world with trees on it worked out the ground under it every tick, in orbit
+        // too.
+        if (body.position.length - vessel.contactRadius > attractor.radius + terrain.maxElevation + REACH_ABOVE_GROUND) return
 
         // Only near the ground, since nothing grows taller than a tall tree.
         attractor.rotationAt(time, bodyRotation)
         attractor.toBodyFixed(body.position, bodyRotation, bodyFixed)
-        val ground = attractor.solidRadiusInBodyFrame(bodyFixed)
+        val ground = if (groundBelowAtTick.isNaN()) attractor.solidRadiusInBodyFrame(bodyFixed) else groundBelowAtTick + tickSlack
         if (body.position.length - vessel.contactRadius > ground + REACH_ABOVE_GROUND) return
 
         val reach = vessel.contactRadius + MAX_OBJECT_REACH
         field.forEachBlockNear(bodyFixed, reach, scratch) { block ->
             for (k in 0 until block.count) {
-                val id = block.ids[k]
-                if (id in removed) continue
                 val dx = block.x[k] - bodyFixed.x
                 val dy = block.y[k] - bodyFixed.y
                 val dz = block.z[k] - bodyFixed.z
                 if (dx * dx + dy * dy + dz * dz > reach * reach) continue
+                // Only for what's in reach: the set's keys are boxed, and most of a block isn't.
+                val id = block.ids[k]
+                if (removed.isNotEmpty() && id in removed) continue
                 val kind = ScatterKind.of(block.kinds[k].toInt())
                 val felled = collide(vessel, attractor, report, block.x[k], block.y[k], block.z[k], kind, block.sizes[k].toDouble())
                 if (felled) onFelled(id)

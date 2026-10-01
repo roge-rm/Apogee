@@ -127,7 +127,7 @@ class PlayerSession internal constructor(
 
     suspend fun send(message: ServerMessage, channel: Channel) {
         if (!connected) return
-        transport.send(Packet(channel, Codec.encode(message)))
+        transport.send(if (transport.passesObjects) Packet(channel, NO_BYTES, message) else Packet(channel, Codec.encode(message)))
     }
 }
 
@@ -194,7 +194,7 @@ class GameServer(
         scope.launch(Dispatchers.Default) {
             try {
                 transport.incoming.collect { packet ->
-                    val message = runCatching { Codec.decodeClientMessage(packet.bytes) }.getOrNull()
+                    val message = packet.message as? ClientMessage ?: runCatching { Codec.decodeClientMessage(packet.bytes) }.getOrNull()
                     // A packet that won't decode is a protocol error, not a reason to take the
                     // server down.
                     if (message != null) inbox.add(session to message)
@@ -486,6 +486,8 @@ class GameServer(
             }
         }
         session.handshakeComplete = true
+        // Everything in the next snapshot, so they see the craft asleep on the ground too, at once.
+        world.sendEverythingNext()
 
         // A returning player gets their craft back, wherever they left it. That's what "persistent
         // world" means from the seat: log off in orbit, come back, and still be in orbit.
@@ -803,7 +805,8 @@ class GameServer(
         if (sessions.isEmpty()) return
         // A second player arriving ends any pause or warp, because it's their world too.
         if (!warpAllowed) requestedWarp = 1.0
-        val snapshot = world.snapshot().copy(
+        val flown = sessions.mapNotNullTo(HashSet()) { it.controlledVessel?.raw }
+        val snapshot = world.snapshot(quietEvery = QUIET_EVERY_TICKS, always = flown).copy(
             warp = effectiveWarp(),
             warpRequested = requestedWarp,
             warpAllowed = warpAllowed,
@@ -945,3 +948,12 @@ class GameServer(
             GameServer(World.default(catalog), config)
     }
 }
+
+/** The bytes of a packet that carries its message as it is. */
+private val NO_BYTES = ByteArray(0)
+
+/**
+ * How often, in ticks, a craft asleep on the ground is in a snapshot anyway: every two seconds, so
+ * a client that missed one still finds it.
+ */
+private const val QUIET_EVERY_TICKS = 120L

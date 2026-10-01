@@ -37,6 +37,7 @@ import com.rm.apogee.ui.screens.MainMenuScreen
 import com.rm.apogee.ui.screens.PlayScreen
 import com.rm.apogee.ui.screens.SettingsScreen
 import com.rm.apogee.ui.theme.ApogeeTheme
+import com.rm.apogee.platform.synchronized
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
@@ -1285,9 +1286,12 @@ class ApogeeApp(private val host: AppHost) {
 
     private fun saveSoloWorld() {
         val world = soloWorld ?: return
-        soloWorldStore.save(world.save())
+        synchronized(saving) { soloWorldStore.save(world.save()) }
             .onFailure { Log.w(TAG, "Could not save the world: ${it.message}") }
     }
+
+    /** Held while the solo world is written, so two saves never write the same file at once. */
+    private val saving = Any()
 
     /** This world's save point, and the craft and time beside it. */
     private fun savePointStore(): WorldStore = WorldStore(worldFolder, if (careerMode) "career-savepoint.json" else "solo-savepoint.json")
@@ -1395,6 +1399,7 @@ class ApogeeApp(private val host: AppHost) {
             current.debugHideSea = host.debugSwitch("debug-no-sea")
             perfLogging = host.debugSwitch("debug-perf")
             glRenderer.timePasses = host.debugSwitch("debug-perf-passes")
+            current.timeBuild = host.debugSwitch("debug-perf-build")
             com.rm.apogee.audio.AudioEngine.logging = host.debugSwitch("debug-sound")
         }
         if (!perfLogging) { perfSince = 0L; return }
@@ -1416,6 +1421,7 @@ class ApogeeApp(private val host: AppHost) {
                 ),
             )
             glRenderer.takePassReport()?.let { Log.i("ApogeePerf", "passes $it") }
+            current.takeBuildReport()?.let { Log.i("ApogeePerf", "build $it") }
             perfSince = now; perfFrames = glRenderer.framesDrawn.get(); perfBuild = 0.0; perfSea = 0.0; perfSamples = 0
         }
     }
@@ -1427,6 +1433,29 @@ class ApogeeApp(private val host: AppHost) {
     private var perfBuild = 0.0
     private var perfSea = 0.0
     private var perfSamples = 0
+
+    private var telemetryShownNanos = 0L
+    private var readoutsShownNanos = 0L
+
+    private fun readoutsDueAt(now: Long): Boolean {
+        if (now - readoutsShownNanos < TELEMETRY_EVERY_NANOS) return false
+        readoutsShownNanos = now
+        return true
+    }
+
+    /** The navball's every frame, and the readouts' at their own pace (see [HudState.telemetry]). */
+    private fun showTelemetry(latest: com.rm.apogee.game.FlightTelemetry) {
+        hudState.liveTelemetry = latest
+        val shown = hudState.telemetry
+        val now = System.nanoTime()
+        val changed = latest.craftName != shown.craftName || latest.destroyed != shown.destroyed ||
+            latest.stage != shown.stage || latest.sasMode != shown.sasMode || latest.targetName != shown.targetName ||
+            latest.frameChosen != shown.frameChosen || latest.frame != shown.frame || latest.lost != shown.lost
+        if (changed || now - telemetryShownNanos >= TELEMETRY_EVERY_NANOS) {
+            hudState.telemetry = latest
+            telemetryShownNanos = now
+        }
+    }
 
     private val autoResolution = com.rm.apogee.render.AutoResolution()
     private var renderScale = 1.0
@@ -1472,7 +1501,10 @@ class ApogeeApp(private val host: AppHost) {
                     hudState.steerByScreen = current.steerByScreen
                     debugPerformance(glRenderer, current)
                     hudState.frameBuildMillis = current.lastFrameBuildNanos.get() / 1_000_000f
-                    hudState.telemetry = current.telemetry
+                    showTelemetry(current.telemetry)
+                    // The readouts built afresh each frame go at the readouts' pace too, since each
+                    // new one is a change to whatever shows it.
+                    val readoutsDue = readoutsDueAt(System.nanoTime())
                     hudState.going = current.controlledGoing
                     // Only when it changes. A new list every frame would recompose the stack sixty
                     // times a second for nothing.
@@ -1485,12 +1517,16 @@ class ApogeeApp(private val host: AppHost) {
                     // frame.
                     current.baseService.let { if (it != hudState.baseService) hudState.baseService = it }
                     current.nearestBase.let { if (it != hudState.nearBase) hudState.nearBase = it }
-                    hudState.chute = current.chuteState
-                    hudState.burn = current.burnReadout
+                    if (readoutsDue) hudState.chute = current.chuteState
+                    if (readoutsDue) hudState.burn = current.burnReadout
                     // When it's flying itself (the autopilot, or the keeper core holding station),
                     // it has the throttle, so show where it has it.
-                    if (current.localAutoBurn || current.localAutoLand || hudState.power?.keeping == true) hudState.throttle = current.telemetry.throttle.toFloat()
-                    hudState.landing = current.landingReadout
+                    if (current.localAutoBurn || current.localAutoLand || hudState.power?.keeping == true) {
+                        // To the half percent, so it only changes when it shows.
+                        val shown = kotlin.math.round(current.telemetry.throttle * 200.0).toFloat() / 200f
+                        if (shown != hudState.throttle) hudState.throttle = shown
+                    }
+                    if (readoutsDue) hudState.landing = current.landingReadout
                     if (hudState.mapPlannable != current.mapPlannable) hudState.mapPlannable = current.mapPlannable
                     // The career's news, one at a time, each for a few seconds.
                     if (hudState.banner == null) {
@@ -1501,10 +1537,10 @@ class ApogeeApp(private val host: AppHost) {
                             hudState.banner = HudState.Banner("NOT ALLOWED", reason, good = false, id = System.nanoTime())
                         }
                     }
-                    hudState.window = current.windowReadout
+                    if (readoutsDue) hudState.window = current.windowReadout
                     hudState.autopilotNote = current.autopilotNote
-                    hudState.dock = current.dockReadout
-                    hudState.joints = current.joints
+                    if (readoutsDue) hudState.dock = current.dockReadout
+                    if (readoutsDue) hudState.joints = current.joints
                     val shared = current.sharedWith
                     if (shared == null) {
                         hudState.sharedWith = null
@@ -1527,8 +1563,8 @@ class ApogeeApp(private val host: AppHost) {
                     hudState.hasDrill = current.controlledHasDrill
                     hudState.isSuit = current.controlledIsSuit
                     hudState.crewLost = current.crewLostWith
-                    hudState.crew = current.crewCard
-                    hudState.crewSeats = current.controlledSeats
+                    if (readoutsDue) hudState.crew = current.crewCard
+                    if (readoutsDue) hudState.crewSeats = current.controlledSeats
                     hudState.surveyedHere = current.surveyedHere
                     hudState.currentsHere = current.currentsHere
                     current.mapCurrents = hudState.mapResource == "CURRENTS"
@@ -1546,16 +1582,16 @@ class ApogeeApp(private val host: AppHost) {
                     hudState.canLand = current.controlledCanLand
                     hudState.autoLanding = current.localAutoLand
                     current.controlledGroups.let { if (it != hudState.groupsUsed) hudState.groupsUsed = it }
-                    hudState.approach = current.approachReadout
-                    current.currentReadout.let {
+                    if (readoutsDue) hudState.approach = current.approachReadout
+                    if (readoutsDue) current.currentReadout.let {
                         hudState.currentSpeed = it?.first ?: 0f
                         hudState.currentBearing = it?.second ?: 0f
                     }
-                    hudState.power = current.powerReadout
+                    if (readoutsDue) hudState.power = current.powerReadout
                     // The session decides, because switching craft stands the thrusters down.
                     hudState.rcsArmed = current.rcsArmed
                     if (!hudState.rcsArmed) hudState.rcsSlide = false
-                    hudState.rcsLeft = if (hudState.hasRcs) current.rcsLeft else null
+                    if (readoutsDue) hudState.rcsLeft = if (hudState.hasRcs) current.rcsLeft else null
                     if (settings.showDebugOverlay) hudState.voices = com.rm.apogee.audio.AudioEngine.activeVoices
                     // The mix follows the settings as they're moved.
                     val gains = settings.busGains()
@@ -1604,8 +1640,16 @@ class ApogeeApp(private val host: AppHost) {
         val running = session
         // In a flight the server is still stepping it, and otherwise it's idle. Joined to someone
         // else's game, there's no solo world running.
+        // Taken between ticks, and written from elsewhere. Encoded and written on the game's own
+        // thread, the whole world held the game still until it was done.
         if (running == null) saveSoloWorld()
-        else running.betweenTicks { soloWorldStore.save(world.save()) }
+        else running.betweenTicks {
+            val save = world.save()
+            scope.launch(kotlinx.coroutines.Dispatchers.Default) {
+                synchronized(saving) { soloWorldStore.save(save) }
+                    .onFailure { Log.w(TAG, "Could not save the world: ${it.message}") }
+            }
+        }
     }
 
     /** Back from the background. */
@@ -1630,6 +1674,9 @@ class ApogeeApp(private val host: AppHost) {
     }
 
     private companion object {
+        /** How often the HUD's readouts change: ten times a second. */
+        const val TELEMETRY_EVERY_NANOS = 100_000_000L
+
         /** How far, in metres, a craft's lowest reach can ride above the waves and still be afloat. */
         const val AT_SEA_CLEARANCE = 1.0
         /**
