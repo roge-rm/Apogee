@@ -279,19 +279,19 @@ fun FlightScreen(
         //
         // Only the *horizontal* cutout inset, so these sit right up against the top edge. Padding
         // for the full cutout pushes them a notch's height down the screen to clear something that
-        // isn't above them. A punch-hole or a notch is in the middle of the top edge, and both of
-        // these corners are beside it, not under it. The horizontal inset still applies, which is
-        // what matters in landscape, where the cutout is down one side and really is in the way.
+        // only one button is under, if any. The horizontal inset still applies, which is what
+        // matters in landscape, where the cutout is down one side and really is in the way. A hole
+        // in the top edge, in the middle or a corner, the buttons step round: one that would be
+        // under it goes past it, and the rest follow on.
         Column(
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Horizontal))
                 .padding(horizontal = 12.dp, vertical = 6.dp),
         ) {
-            Row(
+            com.rm.apogee.ui.components.CutoutRow(
                 modifier = Modifier.alpha(alpha),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(Dimens.HudGroupGap),
+                spacing = Dimens.HudGroupGap,
             ) {
                 FilledTonalIconButton(
                     // Alone in your own world, it's a menu, with the save points in it. Otherwise

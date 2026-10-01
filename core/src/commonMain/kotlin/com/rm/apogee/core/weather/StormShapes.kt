@@ -317,7 +317,12 @@ internal class StormShapes(
             val ground = max(groundAt(foot), 0.0)
             val top = s.base + 100.0
             if (top <= ground + 200.0) return
-            shape.rain.add(CloudLobe(foot.mulInPlace(radius + (ground + top) * 0.5), width, (top - ground) * 0.5, shade = shade))
+            // Down into the ground, which hides the rest. Its ground is only found under the
+            // middle, and a shaft a few kilometres wide over hills, or carried on with its storm
+            // over lower ground, stood clear of it with a gap of sky underneath. Over the sea it's
+            // level, and only the waves need covering.
+            val bottom = if (groundAt(foot) > 0.0) ground - CURTAIN_SINK else -CURTAIN_SINK_SEA
+            shape.rain.add(CloudLobe(foot.mulInPlace(radius + (bottom + top) * 0.5), width, (top - bottom) * 0.5, shade = shade))
         }
         for (i in 0 until s.cellCount) {
             val life = storms.cellLife(s, i, time)
@@ -333,5 +338,13 @@ internal class StormShapes(
                 curtain(along, across, min(s.halfAlong, s.halfAcross) * 0.35, 0.45 * s.stratiform * envelope)
             }
         }
+    }
+
+    private companion object {
+        /** Metres a rain curtain reaches below the ground under its middle. */
+        const val CURTAIN_SINK = 400.0
+
+        /** And below the sea. */
+        const val CURTAIN_SINK_SEA = 30.0
     }
 }

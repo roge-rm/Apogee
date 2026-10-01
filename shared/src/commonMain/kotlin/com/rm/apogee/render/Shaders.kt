@@ -29,6 +29,15 @@ object Shaders {
         // Twilight: with the sun around the horizon, the sky itself glows and lights everything
         // from above, a little warm.
         vec3 duskGlow(float daylight) { return vec3(0.17, 0.15, 0.18) * 4.0 * daylight * (1.0 - daylight); }
+        // What distant things fade into: the air's colour, greyed and darkened under a storm the
+        // way the sky is (see SKY_FRAGMENT). Left bright, the far ground under a storm was a pale
+        // strip between the dark sky and the rain falling onto it, and the rain looked as though
+        // it stopped short of the ground.
+        vec3 airHaze(float daylight, float lightScale) {
+            float light = NIGHT_AIR + (1.0 - NIGHT_AIR) * daylight;
+            vec3 overcast = vec3(0.42, 0.45, 0.50) * (0.4 + 0.6 * lightScale) * light;
+            return mix(uHaze * light, overcast, 1.0 - lightScale);
+        }
         // Lamps lit after dark: a floodlight's pool on the concrete, or a hangar's light on its
         // floor. Camera-relative position and reach, for the nearest few. They're warm, fade to
         // nothing at the reach, and only light what faces them, so the outside of a roof over one
@@ -160,6 +169,11 @@ object Shaders {
         flat out vec3 vNormal;
         out float vDistance;
         out vec3 vToCamera;
+        // Straight out from the shape's axis, smoothly from vertex to vertex, and how far up the
+        // shape this is (-1 to 1). Only a rain curtain uses them.
+        out vec3 vRound;
+        out float vHeight;
+        out vec3 vAxis;
 
         void main() {
             // The model matrix is already camera-relative (floating origin), so there's no separate
@@ -169,6 +183,9 @@ object Shaders {
             // The model matrix is R*S. R*S^-1*n is the normal, and that's R*S times n/S^2, which is
             // exact for a stretched cloud lobe, and for a part (unit scale) just the rotation.
             vNormal = mat3(uModel) * (aNormal * uInvScaleSq);
+            vRound = mat3(uModel) * (vec3(aPosition.x, 0.0, aPosition.z) * uInvScaleSq);
+            vHeight = aPosition.y;
+            vAxis = mat3(uModel) * vec3(0.0, 1.0, 0.0);
             vDistance = length(worldPos.xyz);
             gl_Position = uViewProjection * worldPos;
         }
@@ -195,11 +212,18 @@ object Shaders {
         out vec3 vToCamera;
         flat out vec4 vColor;
         flat out float vAmbient;
+        // Unused by a lobe, but the fragment shader it shares with a curtain reads them.
+        out vec3 vRound;
+        out float vHeight;
+        out vec3 vAxis;
 
         void main() {
             vec4 worldPos = iModel * vec4(aPosition, 1.0);
             vToCamera = -worldPos.xyz;
             vNormal = mat3(iModel) * (aNormal * iInvScaleSq.xyz);
+            vRound = vNormal;
+            vHeight = 0.0;
+            vAxis = vNormal;
             vDistance = length(worldPos.xyz);
             vColor = iColor;
             vAmbient = iInvScaleSq.w;
@@ -227,6 +251,9 @@ object Shaders {
         flat in vec3 vNormal;
         in float vDistance;
         in vec3 vToCamera;
+        in vec3 vRound;
+        in float vHeight;
+        in vec3 vAxis;
 
         uniform vec4 uColor;
         uniform vec3 uLightDirection;
@@ -250,6 +277,8 @@ object Shaders {
         uniform float uReceivesShadow;
         // 1 for another world, seen across space: no haze, no fog, no moon.
         uniform float uSkyBody;
+        // 1 for a rain curtain. See RenderItem.curtain.
+        uniform float uCurtain;
 
         out vec4 fragColor;
 
@@ -282,12 +311,23 @@ object Shaders {
                 return;
             }
             float haze = (1.0 - exp(-vDistance / max(uHazeDistance, 1.0))) * uAtmosphereFactor;
-            lit = mix(lit, uHaze * (NIGHT_AIR + (1.0 - NIGHT_AIR) * uDaylight), clamp(haze, 0.0, 1.0));
+            lit = mix(lit, airHaze(uDaylight, uLightScale), clamp(haze, 0.0, 1.0));
             float fog = 1.0 - exp(-vDistance / max(uFogDistance, 1.0));
             // A cloud thins toward its outline. Facets seen edge-on let the sky through, so it ends
             // softly instead of in a hard cut-out.
             float alpha = uColor.a;
-            if (uWrap > 0.5) {
+            if (uCurtain > 0.5) {
+                // Rain is thickest through the middle of a shaft and thins to nothing at its sides,
+                // so it fades by how squarely its round side faces the camera, not by each facet.
+                // It thins into the cloud at its top too, rather than stopping in a line.
+                // Measured across the shaft only, so looking down on one from above doesn't fade
+                // the whole of it.
+                vec3 axis = normalize(vAxis);
+                vec3 toCamera = normalize(vToCamera);
+                vec3 level = toCamera - axis * dot(axis, toCamera);
+                float faceOn = abs(dot(normalize(vRound), level)) / max(length(level), 1e-3);
+                alpha *= smoothstep(0.0, 0.75, faceOn) * (1.0 - smoothstep(0.45, 1.0, vHeight));
+            } else if (uWrap > 0.5) {
                 float faceOn = abs(dot(n, normalize(vToCamera)));
                 alpha *= mix(0.25, 1.0, smoothstep(0.05, 0.6, faceOn));
             }
@@ -574,7 +614,7 @@ object Shaders {
             lit += vColour * FLASH * uFlash * sea;
             if (uLampCount > 0) lit += vColour * lampLight(vPosition, n);
             float haze = (1.0 - exp(-vDistance / max(uHazeDistance, 1.0))) * uAtmosphereFactor;
-            vec3 hazeColor = uHaze * (NIGHT_AIR + (1.0 - NIGHT_AIR) * uDaylight);
+            vec3 hazeColor = airHaze(uDaylight, uLightScale);
             lit = mix(lit, hazeColor, clamp(haze, 0.0, 1.0));
             float fog = 1.0 - exp(-vDistance / max(uFogDistance, 1.0));
             fragColor = vec4(mix(lit, uFogColor, clamp(fog, 0.0, 1.0)), 1.0);
@@ -729,7 +769,7 @@ object Shaders {
             // air in between, which is what makes a horizon look far away instead of like a painted
             // edge.
             float haze = (1.0 - exp(-vDistance / max(uHazeDistance, 1.0))) * uAtmosphereFactor;
-            vec3 hazeColor = uHaze * (NIGHT_AIR + (1.0 - NIGHT_AIR) * daylight);
+            vec3 hazeColor = airHaze(daylight, uLightScale);
             lit = mix(lit, hazeColor, clamp(haze, 0.0, 1.0));
 
             // Seen from outside, a planet's edge glows because the line of sight skims a long
@@ -865,7 +905,7 @@ object Shaders {
             lit += vec3(1.0, 0.96, 0.88) * glint * daylight * direct * 1.6 * uLightScale * (1.0 - foam);
 
             float haze = (1.0 - exp(-vDistance / max(uHazeDistance, 1.0))) * uAtmosphereFactor;
-            lit = mix(lit, uHaze * (NIGHT_AIR + (1.0 - NIGHT_AIR) * daylight), clamp(haze, 0.0, 1.0));
+            lit = mix(lit, airHaze(daylight, uLightScale), clamp(haze, 0.0, 1.0));
             float fog = 1.0 - exp(-vDistance / max(uFogDistance, 1.0));
             lit = mix(lit, uFogColor, clamp(fog, 0.0, 1.0));
 

@@ -1090,6 +1090,7 @@ class GlRenderer(
         // A part gets shaded by what's between it and the light, and a cloud or a flame doesn't.
         shader.setFloat("uReceivesShadow", if (item.wrap || item.ambient >= 1f || item.sky) 0f else 1f)
         shader.setFloat("uSkyBody", if (item.sky) 1f else 0f)
+        shader.setFloat("uCurtain", if (item.curtain) 1f else 0f)
         if (item.decal > 0) {
             // Paving: over the ground it lies on, with later layers over earlier ones.
             GLES30.glEnable(GLES30.GL_POLYGON_OFFSET_FILL)

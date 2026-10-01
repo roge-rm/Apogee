@@ -52,6 +52,12 @@ class RenderItem(
      * away with distance the way the ground is, only paled a little by a daytime sky.
      */
     val sky: Boolean = false,
+    /**
+     * A column of rain seen from afar. It thins toward its outline by its round shape rather than
+     * by its facets, so its sides are soft instead of twelve hard strips, and it fades out into the
+     * cloud at its top.
+     */
+    val curtain: Boolean = false,
 ) {
     companion object {
         /** A piece of a craft's part. */

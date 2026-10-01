@@ -495,7 +495,7 @@ class CloudScene(
                 out.add(
                     RenderItem(
                         shape = RAIN_CURTAIN, position = turned.copy(), rotation = bodyRotation * lobe.up,
-                        color = colour, caps = 0, scale = scale, ambient = 0.5f,
+                        color = colour, caps = 0, scale = scale, ambient = 0.5f, curtain = true,
                     ),
                 )
                 continue
