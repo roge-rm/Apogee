@@ -16632,6 +16632,7 @@
     "dryMass": 380.0,
     "description": "A helicopter's main rotor on its mast: four long blades on an engine that burns propellant. The throttle is the collective, and the stick tilts its lift to fly it about. It twists the craft the other way as it turns, so it wants a tail rotor to hold the heading.",
     "crashTolerance": 9.0,
+    "strength": 250000.0,
     "dragCoefficient": 0.3,
     "mesh": {
       "type": "cylinder",
@@ -16775,6 +16776,7 @@
     "dryMass": 60.0,
     "description": "A small rotor that pushes sideways at the end of a tail boom. It holds the heading against the main rotor's twist, and the stick turns the craft with it.",
     "crashTolerance": 8.0,
+    "strength": 60000.0,
     "dragCoefficient": 0.3,
     "mesh": {
       "type": "cylinder",
@@ -17232,6 +17234,7 @@
     "dryMass": 80.0,
     "description": "A slim boom to carry a tail rotor well back from the main one.",
     "crashTolerance": 8.0,
+    "strength": 200000.0,
     "dragCoefficient": 0.3,
     "mesh": {
       "type": "cylinder",

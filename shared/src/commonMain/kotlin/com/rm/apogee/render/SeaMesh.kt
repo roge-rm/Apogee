@@ -60,6 +60,9 @@ class SeaMesh {
             layout = next.layout
         }
         GLES30.glBindVertexArray(0)
+        // The last one's vertices are done with: they're on the GPU no longer, and nothing else
+        // reads them. They go back to be built into again.
+        surface?.let { old -> old.giveBack?.invoke(old.vertices) }
         surface = next
     }
 

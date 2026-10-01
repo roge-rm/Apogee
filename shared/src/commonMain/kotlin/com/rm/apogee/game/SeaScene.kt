@@ -381,10 +381,25 @@ class SeaScene(
         for (times in preparedTime) times.fill(Double.NaN)
     }
 
+    /**
+     * Vertex arrays the GPU is done with, to build into again. A new one ten times a second was
+     * the better part of a megabyte, all of it for the collector.
+     */
+    private val spare = com.rm.apogee.core.ConcurrentQueue<FloatArray>()
+    private val giveBack: (FloatArray) -> Unit = { if (spare.size < SPARES) spare.add(it) }
+
+    /** An array of [size] floats, all zero: a spare one if there's one that fits, or a new one. */
+    private fun vertexArray(size: Int): FloatArray {
+        while (true) {
+            val kept = spare.poll() ?: return FloatArray(size)
+            if (kept.size == size) return kept.also { it.fill(0f) }
+        }
+    }
+
     private suspend fun build(scope: kotlinx.coroutines.CoroutineScope, centre: Vec3, time: Double): SeaSurface {
         val layout = Layout(centre)
         val origin = layout.origin
-        val vertices = FloatArray(layout.count * SeaSurface.STRIDE)
+        val vertices = vertexArray(layout.count * SeaSurface.STRIDE)
         val cameraUp = centre.copy().normalizeInPlace()
         builders[0].let { b ->
             b.sea.prepare(cameraUp, time, spacing(layout.first), Sea.Prepared()).let { p -> b.sea.surface(cameraUp, time, p, b.sample, spacing(layout.first)) }
@@ -434,7 +449,7 @@ class SeaScene(
             }
         }
         val (indices, number) = triangles(layout)
-        return SeaSurface(origin, vertices, layout.count, indices, number, time)
+        return SeaSurface(origin, vertices, layout.count, indices, number, time, giveBack)
     }
 
     /** Vertex [into] as the average of vertices [a] and [b] (which can be the same). */
@@ -519,6 +534,11 @@ class SeaScene(
     }
 
     private companion object {
+
+        /** Spare vertex arrays kept for building into. */
+
+        const val SPARES = 3
+
         /** Workers sharing a build. */
         const val WORKERS = 2
 

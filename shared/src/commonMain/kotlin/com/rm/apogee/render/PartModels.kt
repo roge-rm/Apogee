@@ -81,6 +81,8 @@ object PartModels {
         val rotation: Quat,
         val tint: Tint,
         val caps: Int,
+        /** Part of spinning blades, which tip with their disc as a rotor pulls. */
+        val spinning: Boolean = false,
     )
 
     /** A part's spinning blades, in its own space: their middle, the axis they turn on, and how far they reach. */
@@ -139,7 +141,7 @@ object PartModels {
             ?: def.module<com.rm.apogee.core.part.Walker>()?.swing ?: 0.0
         gimbalRange = Math.toRadians(def.module<com.rm.apogee.core.part.Engine>()?.gimbalRange ?: 0.0)
         leg = def.module<com.rm.apogee.core.part.LandingLeg>()
-        expand(model, Vec3.zero(), Quat.identity(), Tint.BODY, caps, anim, maxDeflection, out)
+        expand(model, Vec3.zero(), Quat.identity(), Tint.BODY, caps, anim, maxDeflection, out, spinning = false)
     }
 
     private fun expand(
@@ -151,6 +153,7 @@ object PartModels {
         anim: PartAnim?,
         maxDeflection: Double,
         out: MutableList<Leaf>,
+        spinning: Boolean,
     ) {
         when (model) {
             is ModelSpec.Compound -> for (piece in model.pieces) {
@@ -179,10 +182,10 @@ object PartModels {
                 val childRotation = rotation * placedRotation
                 val childTint = if (piece.tint == Tint.BODY) tint else piece.tint
                 val childCaps = if (piece.stackEnds) caps else StackCaps.BOTH
-                expand(piece.model, childPosition, childRotation, childTint, childCaps, anim, maxDeflection, out)
+                expand(piece.model, childPosition, childRotation, childTint, childCaps, anim, maxDeflection, out, spinning || piece.role == PieceRole.SPIN)
             }
-            is ModelSpec.Primitive -> out.add(Leaf(model.mesh, position, rotation, tint, caps))
-            else -> out.add(Leaf(model, position, rotation, tint, caps))
+            is ModelSpec.Primitive -> out.add(Leaf(model.mesh, position, rotation, tint, caps, spinning))
+            else -> out.add(Leaf(model, position, rotation, tint, caps, spinning))
         }
     }
 

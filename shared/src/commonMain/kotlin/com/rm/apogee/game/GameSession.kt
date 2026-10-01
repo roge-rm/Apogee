@@ -2989,6 +2989,10 @@ class GameSession private constructor(
      * stage turns smoothly, not in twenty steps a second.
      */
     private val scratchCarryTurn = Quat.identity()
+
+    /** The flown rotor's tilt, from upright to its disc, and its hub, for the part being laid out. */
+    private var bladeTilt: Quat? = null
+    private val bladeHub = Vec3()
     private val scratchStill = Vec3()
 
     /**
@@ -4140,6 +4144,14 @@ class GameSession private constructor(
                             prediction.replica?.rotorTilt?.takeIf { index * 3 + 2 < it.size && (it[index * 3] != 0.0 || it[index * 3 + 1] != 0.0 || it[index * 3 + 2] != 0.0) }
                                 ?.let { t -> rotation.rotate(Vec3(t[index * 3], t[index * 3 + 1], t[index * 3 + 2])).normalizeInPlace() }
                         } else null
+                        // The blades tip with it, about the hub, so they turn in the disc drawn
+                        // round them. Drawn upright under a tilted disc, they cut across it.
+                        if (tilt != null) {
+                            val partTurn = rotation * placedRotation
+                            val upright = partTurn.rotate(blades.axis).normalizeInPlace()
+                            bladeTilt = com.rm.apogee.core.math.quatFromTo(upright, tilt)
+                            bladeHub.setTo(partTurn.rotate(blades.centre)).addInPlace(scratch)
+                        }
                         bladeDisc(out, vessel.id, index, blades, scratch, rotation * placedRotation, tilt, speed)
                     }
                 }
@@ -4286,6 +4298,8 @@ class GameSession private constructor(
             var glows = 0
             scratchGlow.setTo(0.0, 0.0, 0.0)
             val sock = placed.partId == WINDSOCK_PART
+            val tipped = bladeTilt
+            bladeTilt = null
             // The same for every piece of the part.
             val identity = partIdentity(placed)
             val decal = if (placed.partId.startsWith(PAINT_PART)) PAINT_DECAL else 0
@@ -4303,6 +4317,10 @@ class GameSession private constructor(
                     else Vec3(leaf.position.x * dent.x, leaf.position.y * dent.y, leaf.position.z * dent.z)
                 var leafWorld = partRotation.rotate(leafPosition).addInPlace(scratch)
                 var leafRotation = partRotation * leaf.rotation
+                if (tipped != null && leaf.spinning) {
+                    leafWorld = tipped.rotate(leafWorld.subInPlace(bladeHub)).addInPlace(bladeHub)
+                    leafRotation = tipped * leafRotation
+                }
                 if (sock && piece == WINDSOCK_PIECE) {
                     // Blown out downwind from the top of the mast, hanging lower the lighter the
                     // wind.

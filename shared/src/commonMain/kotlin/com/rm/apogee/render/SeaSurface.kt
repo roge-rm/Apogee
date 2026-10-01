@@ -25,6 +25,11 @@ class SeaSurface(
     val layout: Int,
     /** The universe time it was built for. */
     val time: Double,
+    /**
+     * Where [vertices] goes back to be used again once it's on the GPU and a newer surface has
+     * taken its place. Null for nowhere.
+     */
+    val giveBack: ((FloatArray) -> Unit)? = null,
 ) {
     companion object {
         /** Position(3), up(3), colour(4), rise(1). */

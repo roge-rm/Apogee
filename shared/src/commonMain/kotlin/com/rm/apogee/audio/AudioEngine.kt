@@ -27,6 +27,8 @@ object AudioEngine {
     fun start(voiceBudget: Int) {
         if (!available || running) return
         running = Synth.nativeStart(voiceBudget)
+        // A new engine hasn't heard the room yet.
+        lastRoom = Float.NaN
     }
 
     fun stop() {
@@ -80,8 +82,11 @@ object AudioEngine {
 
     /** How much room the mix is in: close and boxy inside a hull, open outdoors. */
     fun room(amount: Float) {
-        if (running) Synth.nativeRoom(amount)
+        // Only when it changes. It's one of two values nearly always, and it was sent every frame.
+        if (running && amount != lastRoom) { lastRoom = amount; Synth.nativeRoom(amount) }
     }
+
+    private var lastRoom = Float.NaN
 
     /** Voices sounding now, for the diagnostics overlay. */
     val activeVoices: Int get() = if (running) Synth.nativeActiveVoices() else 0

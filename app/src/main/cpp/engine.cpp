@@ -114,20 +114,24 @@ Java_com_rm_apogee_audio_Synth_nativeScene(JNIEnv* env, jobject, jint count, jin
     if (!engine || !engine->synth()) return;
     apogee::Scene scene;
     scene.count = std::min(static_cast<int>(count), apogee::kMaxSceneEntries);
-    jint* k = env->GetIntArrayElements(keys, nullptr);
-    jint* r = env->GetIntArrayElements(recipes, nullptr);
-    jint* f = env->GetIntArrayElements(flags, nullptr);
-    jfloat* p = env->GetFloatArrayElements(params, nullptr);
+    // Only the entries in use, straight into the stack. Taking the arrays' elements copied every
+    // one of them, the whole budget, and freed them again, every frame.
+    jint k[apogee::kMaxSceneEntries];
+    jint r[apogee::kMaxSceneEntries];
+    jint f[apogee::kMaxSceneEntries];
+    jfloat p[apogee::kMaxSceneEntries * apogee::kParams];
+    if (scene.count > 0) {
+        env->GetIntArrayRegion(keys, 0, scene.count, k);
+        env->GetIntArrayRegion(recipes, 0, scene.count, r);
+        env->GetIntArrayRegion(flags, 0, scene.count, f);
+        env->GetFloatArrayRegion(params, 0, scene.count * apogee::kParams, p);
+    }
     for (int i = 0; i < scene.count; ++i) {
         scene.entries[i].key = k[i];
         scene.entries[i].recipe = r[i];
         scene.entries[i].flags = f[i];
         for (int j = 0; j < apogee::kParams; ++j) scene.entries[i].p[j] = p[i * apogee::kParams + j];
     }
-    env->ReleaseIntArrayElements(keys, k, JNI_ABORT);
-    env->ReleaseIntArrayElements(recipes, r, JNI_ABORT);
-    env->ReleaseIntArrayElements(flags, f, JNI_ABORT);
-    env->ReleaseFloatArrayElements(params, p, JNI_ABORT);
     engine->synth()->publishScene(scene);
 }
 
