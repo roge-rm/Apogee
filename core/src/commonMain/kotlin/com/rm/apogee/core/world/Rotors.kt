@@ -201,11 +201,12 @@ class Rotors {
         val placed = vessel.design.parts[i]
         placed.rotation.rotate(rotor.liftDirection, lift).normalizeInPlace()
         offset.setTo(placed.position).subInPlace(middle)
-        // Forward flight and the ground help it, and climbing through its own wash costs it.
+        // Forward flight and the ground help it, and climbing through its own wash costs it. Not a
+        // tail rotor, whose pitch is set for exactly the push it needs.
         vessel.body.orientation.rotate(lift, world)
         val through = airVelocity.length
         val climbing = (airVelocity dot world).coerceAtLeast(0.0)
-        val boost = (1.0 + TRANSLATIONAL * (through / TRANSLATIONAL_SPEED).coerceAtMost(1.0)) *
+        val boost = if (rotor.tail) 1.0 else (1.0 + TRANSLATIONAL * (through / TRANSLATIONAL_SPEED).coerceAtMost(1.0)) *
             (1.0 + GROUND_EFFECT * (1.0 - height / rotor.diameter.coerceAtLeast(0.1)).coerceIn(0.0, 1.0)) *
             (1.0 - climbing / INFLOW).coerceIn(MOST_LOST, 1.0)
         // Lift from its speed now. Spooled up, speed squared equals what was asked.
@@ -231,7 +232,7 @@ class Rotors {
         if (feed <= 0.0 || thrust == 0.0) { recordTilt(vessel, i); return }
         thrust *= feed
 
-        if (cyclic) hang(vessel, rotor, thrust, dt)
+        val hangs = cyclic && hang(vessel, rotor, thrust)
         if (cyclic) {
             // Tilt toward (command across the axis) x axis, reversed for a rotor below the middle.
             tilt.setTo(command).addScaledInPlace(lift, -(command dot lift))
@@ -250,8 +251,14 @@ class Rotors {
         recordTilt(vessel, i)
         vessel.body.orientation.rotate(lift, world)
         force.setTo(world).mulInPlace(thrust)
+        // A hanging craft's lift goes through its middle, or the head's offset would tip it over. A
+        // tail rotor only turns the craft: the main rotor is rigged to lean against its sideways push.
         vessel.body.orientation.rotate(offset, scratch)
-        vessel.body.applyForceAtOffset(force, scratch)
+        when {
+            hangs -> vessel.body.applyCentralForce(force)
+            rotor.tail && geared != null -> vessel.body.applyTorque(scratch.crossInPlace(force))
+            else -> vessel.body.applyForceAtOffset(force, scratch)
+        }
         vessel.recordForce(i, force)
         // Turning the blades one way turns the craft the other.
         if (spin != 0 && rotor.torque > 0.0) {
@@ -260,33 +267,28 @@ class Rotors {
         }
     }
 
-    private val hanging = Vec3()
+    private val mast = Vec3()
     private val spin = Vec3()
     private val levelling = Vec3()
 
     /**
-     * A helicopter hangs under its rotor. Lift points from the craft's middle through the rotor
-     * head, so it doesn't pitch the craft over, and as the craft tips the rotor pulls the head back
-     * over the middle, damped. Let go of the stick and it levels. [lift] and [offset] are set for
-     * the rotor on entry, and [lift] comes back turned.
+     * A helicopter hangs under its rotor: as the craft tips, the rotor pulls the mast back upright,
+     * damped. The stick's push on the head tips it against that, so the body leans the way it's
+     * flying. [lift] and [offset] are set for the rotor on entry. False if the rotor isn't over the
+     * craft, as one below would tip it over.
      */
-    private fun hang(vessel: Vessel, rotor: Rotor, thrust: Double, dt: Double) {
+    private fun hang(vessel: Vessel, rotor: Rotor, thrust: Double): Boolean {
         val reach = offset.length
-        // Only a rotor over the craft hangs it. One below would tip it over.
-        if (reach < HANG_LEAST || (offset dot lift) <= 0.0) return
-        hanging.setTo(offset).mulInPlace(1.0 / reach)
-        // Turned toward the head, by no more than a rotor head can lean.
-        val most = Math.toRadians(HANG_MOST_DEGREES)
-        val angle = kotlin.math.acos((hanging dot lift).coerceIn(-1.0, 1.0))
-        if (angle <= most) lift.setTo(hanging)
-        else lift.addScaledInPlace(hanging, kotlin.math.tan(most) / kotlin.math.sin(angle).coerceAtLeast(1e-6)).normalizeInPlace()
-        // Levelling: the head pulled back over the middle, turning about hanging x up.
-        levelling.setTo(hanging).crossInPlace(up).mulInPlace(HANG_STIFFNESS * kotlin.math.abs(thrust) * reach)
+        if (reach < HANG_LEAST || (offset dot lift) <= 0.0) return false
+        mast.setTo(lift)
+        // Levelling: the mast pulled back upright, turning about mast x up.
+        levelling.setTo(mast).crossInPlace(up).mulInPlace(HANG_STIFFNESS * kotlin.math.abs(thrust) * reach)
         // Damped by the rotor, against tipping only, not turning about its own axis.
         vessel.body.orientation.inverseRotate(vessel.body.angularVelocity, spin)
-        spin.addScaledInPlace(hanging, -(spin dot hanging))
+        spin.addScaledInPlace(mast, -(spin dot mast))
         levelling.addScaledInPlace(spin, -HANG_DAMPING * kotlin.math.abs(thrust) * rotor.diameter)
         vessel.body.applyTorque(vessel.body.orientation.rotate(levelling, scratch))
+        return true
     }
 
     /** Which way rotor [i]'s lift points now, [lift] in the craft's axes, for drawing its disc. */
@@ -329,13 +331,12 @@ class Rotors {
         const val MIN_TAIL_GRIP = 1e-3
 
         /**
-         * Hanging under a rotor: the most the lift leans, the pull back over the middle (per newton
-         * of lift per metre to the head), the damping (per newton per metre of rotor), and the least
-         * middle-to-head distance it works at.
+         * Hanging under a rotor: the pull back upright (per newton of lift per metre to the head),
+         * the damping (per newton per metre of rotor), and the least middle-to-head distance it
+         * works at.
          */
-        const val HANG_MOST_DEGREES = 15.0
-        const val HANG_STIFFNESS = 1.0
-        const val HANG_DAMPING = 0.07
+        const val HANG_STIFFNESS = 1.6
+        const val HANG_DAMPING = 0.09
         const val HANG_LEAST = 0.1
 
         /** How far, as a share of the collective, the stick can move one mixed rotor. */

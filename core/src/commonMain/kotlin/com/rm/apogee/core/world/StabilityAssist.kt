@@ -21,7 +21,7 @@ import com.rm.apogee.core.math.Math
  * tear the craft apart.
  *
  * Afloat it's a helmsman: it holds the heading, brings the hull level after a turn, and leaves the
- * pitch to the sea.
+ * pitch to the sea. A helicopter it levels too, holding the heading.
  */
 class StabilityAssist(
     private val proportionalGain: Double = 5.0,
@@ -70,7 +70,7 @@ class StabilityAssist(
             vessel.assistIntegral.setZero()
             vessel.assistHolding = true
         }
-        if (afloat) levelled(vessel)
+        if (afloat || (direction == null && hangs(vessel))) levelled(vessel)
         if (direction != null) {
             // Turn the nose onto the marker the shortest way, keeping the craft's roll.
             vessel.forward(nose)
@@ -136,6 +136,10 @@ class StabilityAssist(
         val swing = if ((nose dot heading) < -0.999999) Quat.fromAxisAngle(up, Math.PI) else com.rm.apogee.core.math.quatFromTo(nose, heading)
         vessel.assistHeld.setTo(swing).mulInPlace(level)
     }
+
+    /** Whether [vessel] flies on a main rotor with cyclic, a helicopter. */
+    private fun hangs(vessel: Vessel): Boolean =
+        vessel.defs.any { def -> def.module<com.rm.apogee.core.part.Rotor>()?.let { !it.tail && it.cyclic > 0.0 } == true }
 
     /** Holds nothing and commands nothing, because there's no power to hold with. */
     fun idle(vessel: Vessel) = release(vessel)

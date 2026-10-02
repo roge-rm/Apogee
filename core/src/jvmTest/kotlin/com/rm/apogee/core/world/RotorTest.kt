@@ -34,6 +34,37 @@ class RotorTest {
     }
 
     @Test
+    fun `the Hummingbird hovers in place, pitches nose down to fly forward, and levels on SAS when let go`() {
+        val world = World.default(catalog)
+        val heli = Aloft.spawn(world, StockCraft.hummingbird(catalog), 300.0)
+        world.apply(Command.SetSas(heli.id.raw, true))
+        world.apply(Command.SetThrottle(heli.id.raw, 0.7))
+        Aloft.spinUp(heli, 0.7)
+        fun ahead(): Double {
+            val v = heli.body.linearVelocity.copy().subInPlace(world.attractorFor(heli).surfaceVelocityAt(heli.body.position, com.rm.apogee.core.math.Vec3()))
+            return v dot heli.body.orientation.rotate(heli.design.orientation.forward)
+        }
+        fun sideways(): Double {
+            val v = heli.body.linearVelocity.copy().subInPlace(world.attractorFor(heli).surfaceVelocityAt(heli.body.position, com.rm.apogee.core.math.Vec3()))
+            return v dot heli.body.orientation.rotate(heli.design.orientation.forward).crossInPlace(heli.body.position.normalized())
+        }
+        Aloft.run(world, 10.0)
+        // Hands off it stays put, not walked sideways by its tail rotor.
+        assertTrue("drifting ${ahead()} m/s ahead and ${sideways()} m/s sideways", kotlin.math.abs(ahead()) < 0.5 && kotlin.math.abs(sideways()) < 0.5)
+        fun pitch(): Double {
+            val nose = heli.body.orientation.rotate(heli.design.orientation.forward)
+            return Math.toDegrees(kotlin.math.asin((nose dot heli.body.position.normalized()).coerceIn(-1.0, 1.0)))
+        }
+        world.apply(Command.SetAttitude(heli.id.raw, -0.6, 0.0, 0.0))
+        Aloft.run(world, 10.0)
+        assertTrue("nose at ${pitch()} degrees", pitch() in -20.0..-6.0)
+        assertTrue("only ${ahead()} m/s ahead", ahead() > 15.0)
+        world.apply(Command.SetAttitude(heli.id.raw, 0.0, 0.0, 0.0))
+        Aloft.run(world, 5.0)
+        assertTrue("nose at ${pitch()} degrees after letting go", kotlin.math.abs(pitch()) < 3.0)
+    }
+
+    @Test
     fun `the Hummingbird stands still on its skids on the airfield, in a breeze or a gale`() {
         for (weather in listOf(com.rm.apogee.core.weather.WeatherIntensity.NORMAL, com.rm.apogee.core.weather.WeatherIntensity.WILD)) {
             val world = World.default(catalog)
