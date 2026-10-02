@@ -686,6 +686,7 @@ class GlRenderer(
         shader.setVec3("uBodyCentre", (-cameraPos.x).toFloat(), (-cameraPos.y).toFloat(), (-cameraPos.z).toFloat())
         shader.setFloat("uSeaReach", if (world.sea != null) world.seaReach.toFloat() else 0f)
         shader.setFloat("uTide", world.tide.toFloat())
+        world.sky.seaSky.let { shader.setVec3("uSeaSky", it[0], it[1], it[2]) }
     }
 
     /** Whether this frame's far pass set up the lines to be drawn at its end. */

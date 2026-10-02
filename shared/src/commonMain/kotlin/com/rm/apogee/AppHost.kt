@@ -85,4 +85,10 @@ interface AppHost {
 
     /** Whether games can be hosted and joined: not from a web page, which can't open sockets. */
     val networked: Boolean get() = true
+
+    /** Whether the app can close itself. A web page can't. */
+    val canQuit: Boolean get() = false
+
+    /** Closes the app. The world saves as it goes out of sight. */
+    fun quit() {}
 }

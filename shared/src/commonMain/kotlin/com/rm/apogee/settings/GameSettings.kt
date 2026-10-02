@@ -35,6 +35,15 @@ class GameSettings(private val prefs: Preferences) {
     /** The last address typed into the join screen, for servers discovery can't find. */
     var lastServerAddress: String by stringPref(KEY_LAST_SERVER, "")
 
+    /** The tutorials finished on this device, by id, comma separated. */
+    var tutorialsDone: String by stringPref(KEY_TUTORIALS_DONE, "")
+
+    fun isTutorialDone(id: String): Boolean = id in tutorialsDone.split(',')
+
+    fun markTutorialDone(id: String) {
+        if (!isTutorialDone(id)) tutorialsDone = (tutorialsDone.split(',').filter { it.isNotEmpty() } + id).joinToString(",")
+    }
+
     /** Opacity of the flight controls. The floor is well above zero so the HUD never looks broken. */
     var controlOpacity: Float by floatPref(KEY_CONTROL_OPACITY, 1.0f, 0.3f..1.0f)
 
@@ -237,6 +246,7 @@ class GameSettings(private val prefs: Preferences) {
         const val KEY_SUIT_STRIPE = "suit_stripe"
         const val KEY_CLIENT_ID = "client_id"
         const val KEY_LAST_SERVER = "last_server_address"
+        const val KEY_TUTORIALS_DONE = "tutorials_done"
         const val KEY_CONTROL_OPACITY = "control_opacity"
         const val KEY_LEFT_HAND = "left_hand_mode"
         const val KEY_FADE_IDLE = "fade_when_idle"

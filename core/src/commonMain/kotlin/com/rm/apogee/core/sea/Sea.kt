@@ -510,6 +510,9 @@ class Sea(
 
     private var motion = true
 
+    /** Whether this evaluation is for drawing, which fades short trains out (see [surface]). */
+    private var soft = false
+
     /** The waves over a craft at body-fixed [position], at [time], into [out]. See [WavePatch]. */
     fun patch(position: Vec3, time: Double, out: WavePatch): WavePatch {
         patching = out
@@ -560,14 +563,19 @@ class Sea(
         return into
     }
 
-    /** Same as [surface], from a [Prepared] made nearby a little while ago. */
+    /**
+     * Same as [surface], from a [Prepared] made nearby a little while ago. Drawn, the shortest
+     * trains fade out toward [spacing] instead of stopping at it, so grids side by side match.
+     */
     fun surface(position: Vec3, time: Double, prepared: Prepared, out: SeaSample, spacing: Double): SeaSample {
         motion = false
+        soft = true
         try {
             u.setTo(position).normalizeInPlace()
             waves(prepared, time, out, 0.0, spacing)
         } finally {
             motion = true
+            soft = false
         }
         return out
     }
@@ -702,10 +710,14 @@ class Sea(
         var steep = 0.0
         var rise = 0.0
         for (i in 0 until COMPONENTS) {
-            val a = amplitude[i] * scale
+            var a = amplitude[i] * scale
             if (a < least) continue
             val ki = k[i]
             if (spacing > 0.0 && ki * spacing > Math.PI) continue
+            if (soft && ki * spacing > SOFT_FROM) {
+                val t = (ki * spacing - SOFT_FROM) / (Math.PI - SOFT_FROM)
+                a *= 1.0 - t * t * (3.0 - 2.0 * t)
+            }
             val phase = ki * (px * dx[i] + py * dy[i] + pz * dz[i]) - omega[i] * time + phase0[i]
             if (patch != null) {
                 val m = patch.n++
@@ -859,6 +871,9 @@ class Sea(
         /** Coarse bed corner spacing in metres, and the sample spacing beyond which it's used. */
         const val COARSE_DEPTH_SPACING = 1_000.0
         const val COARSE_BED_SPACING = 150.0
+
+        /** Where drawn trains start to fade, in wavenumber times spacing. Gone by pi. */
+        const val SOFT_FROM = Math.PI * 0.4
         private const val DEPTH_CAPACITY = 60_000
         private const val DEFAULT_DEPTH = 1_000.0
 

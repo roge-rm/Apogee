@@ -67,6 +67,10 @@ class SeaScene(
     private val side = cells + 1
     private val perLevel = side * side
 
+    /** Under the camera, and the finest grid drawn, for this build's wave filter. See [Builder.vertex]. */
+    private val filterUp = Vec3()
+    @kotlin.concurrent.Volatile private var filterFinest = 1.0
+
     /** The finest grid's spacing, in metres. */
     private val finest = if (tier == QualityTier.LOW) 1.0 else 0.5
 
@@ -183,7 +187,7 @@ class SeaScene(
          */
         fun vertex(
             out: FloatArray, index: Int, origin: Vec3, level: Int, gi: Int, gj: Int, time: Double,
-            near: Boolean = true, deadline: Long = 0L, tide: Double = 0.0,
+            near: Boolean = true, deadline: Long = 0L, tide: Double = 0.0, depths: FloatArray? = null,
         ) {
             val spacing = spacing(level)
             val h = step(level)
@@ -203,10 +207,38 @@ class SeaScene(
                     times[slot] = time
                 } else if (!mine) {
                     flat(out, index, origin, tide)
+                    depths?.set(index, Float.MAX_VALUE)
                     return
                 }
             }
-            sea.surface(direction, time, p, sample, spacing)
+            finish(out, index, origin, spacing, p, time, depths)
+        }
+
+        /**
+         * A point of a coast cell, [SUB_SHIFT] grids finer than the cell's own, at lattice point
+         * ([gi], [gj]) of grid [level]. Its sea state is kept apart from the grids', by position.
+         */
+        fun refinedVertex(out: FloatArray, index: Int, origin: Vec3, level: Int, gi: Int, gj: Int, time: Double) {
+            val spacing = spacing(level)
+            point(gi, gj, step(level), direction)
+            val key = (level.toLong() shl 58) xor ((gi.toLong() and 0x1FFFFFFFL) shl 29) xor (gj.toLong() and 0x1FFFFFFFL)
+            val kept = refinedPrepared[key]
+            val p = if (kept != null && time - kept.time in 0.0..REPREPARE_SECONDS) kept.prepared else {
+                val fresh = kept?.prepared ?: Sea.Prepared()
+                sea.prepare(direction, time, spacing, fresh)
+                if (refinedPrepared.size > REFINED_KEEP) refinedPrepared.clear()
+                refinedPrepared[key] = Stamped(fresh, time)
+                fresh
+            }
+            finish(out, index, origin, spacing, p, time, null)
+        }
+
+        /** Vertex [index] of [out] at [direction], from its sea state [p]. */
+        private fun finish(out: FloatArray, index: Int, origin: Vec3, spacing: Double, p: Sea.Prepared, time: Double, depths: FloatArray?) {
+            // The waves drawn, and the foam, go by how far out this is, not by its grid, so a point on
+            // the edge between two grids looks the same from both. It's never finer than the grid.
+            val shown = kotlin.math.max(filterFinest, direction.distanceTo(filterUp) * body.radius * FILTER_SHARE / cells)
+            sea.surface(direction, time, p, sample, shown)
             // Over dry land, sunk under it. At tide height the coarse far water and coarse ground
             // cross facet by facet along low coasts and speckle from high up; sunk, the coast is
             // where they cross.
@@ -219,8 +251,9 @@ class SeaScene(
             out[o + 1] = (direction.y * radius - origin.y).toFloat()
             out[o + 2] = (direction.z * radius - origin.z).toFloat()
             out[o + 3] = direction.x.toFloat(); out[o + 4] = direction.y.toFloat(); out[o + 5] = direction.z.toFloat()
-            colour(sample, direction, out, o + 6, spacing)
+            colour(sample, direction, out, o + 6, shown)
             out[o + 10] = sample.rise.toFloat()
+            depths?.set(index, sample.depth.toFloat())
         }
 
         /** Vertex [index] as open water, flat at [tide], until there's time to work it out. */
@@ -389,8 +422,12 @@ class SeaScene(
     private suspend fun build(scope: kotlinx.coroutines.CoroutineScope, centre: Vec3, time: Double): SeaSurface {
         val layout = Layout(centre)
         val origin = layout.origin
-        val vertices = vertexArray(layout.count * SeaSurface.STRIDE)
+        // Room for the coast's finer cells after the grids.
+        val vertices = vertexArray((layout.count + MAX_REFINED * SUB_SIDE * SUB_SIDE) * SeaSurface.STRIDE)
+        val depths = FloatArray(layout.count)
         val cameraUp = centre.copy().normalizeInPlace()
+        filterUp.setTo(cameraUp)
+        filterFinest = spacing(layout.first)
         builders[0].let { b ->
             b.sea.prepare(cameraUp, time, spacing(layout.first), Sea.Prepared()).let { p -> b.sea.surface(cameraUp, time, p, b.sample, spacing(layout.first)) }
         }
@@ -415,7 +452,7 @@ class SeaScene(
                         val di = (si + i - layout.middleI[layout.first]) * h
                         val dj = (sj + j - layout.middleJ[layout.first]) * h
                         val near = di * di + dj * dj <= NEAR_REACH * NEAR_REACH
-                        builder.vertex(vertices, layout.index(level, i, j), origin, level, si + i, sj + j, time, near, deadline, tide)
+                        builder.vertex(vertices, layout.index(level, i, j), origin, level, si + i, sj + j, time, near, deadline, tide, depths)
                     }
                     r += builders.size
                 }
@@ -433,12 +470,139 @@ class SeaScene(
                 val i0 = Math.floorDiv(gi, 2) - ci; val j0 = Math.floorDiv(gj, 2) - cj
                 val i1 = if (gi % 2 != 0) i0 + 1 else i0
                 val j1 = if (gj % 2 != 0) j0 + 1 else j0
-                blend(vertices, layout.index(level, i, j), layout.index(level + 1, i0, j0), layout.index(level + 1, i1, j1))
+                val a = layout.index(level + 1, i0, j0); val b = layout.index(level + 1, i1, j1)
+                blend(vertices, layout.index(level, i, j), a, b)
+                depths[layout.index(level, i, j)] = 0.5f * (depths[a] + depths[b])
             }
         }
-        val (indices, number) = triangles(layout)
-        return SeaSurface(origin, vertices, layout.count, indices, number, time, giveBack)
+        val coast = coast(scope, layout, vertices, depths, origin, time)
+        if (coast.isEmpty()) {
+            val (indices, number) = triangles(layout)
+            return SeaSurface(origin, vertices, layout.count, indices, number, time, giveBack)
+        }
+        val indices = coastTriangles(layout, coast)
+        val number = synchronized(this) { ++lastLayout }
+        return SeaSurface(origin, vertices, layout.count + coast.size * SUB_SIDE * SUB_SIDE, indices, number, time, giveBack)
     }
+
+    /**
+     * The coast, finer: each drawn cell with water and dry land among its corners is split
+     * [SUB] by [SUB], on the lattice [SUB_SHIFT] grids finer, so the sea meets the ground in
+     * triangles near its own size instead of the grid's. The open sea isn't touched. Returns those
+     * cells, packed as [packCell], with their points written after the grids'.
+     */
+    private suspend fun coast(
+        scope: kotlinx.coroutines.CoroutineScope, layout: Layout, vertices: FloatArray, depths: FloatArray, origin: Vec3, time: Double,
+    ): List<Int> {
+        val found = ArrayList<Int>()
+        search@ for (level in kotlin.math.max(layout.first, SUB_SHIFT) until levels) {
+            for (j in 0 until cells) for (i in 0 until cells) {
+                if (!layout.drawn(level, i, j)) continue
+                val d0 = depths[layout.index(level, i, j)]; val d1 = depths[layout.index(level, i + 1, j)]
+                val d2 = depths[layout.index(level, i, j + 1)]; val d3 = depths[layout.index(level, i + 1, j + 1)]
+                val lo = minOf(minOf(d0, d1), minOf(d2, d3)); val hi = maxOf(maxOf(d0, d1), maxOf(d2, d3))
+                if (lo <= 0f && hi > 0f && hi < Float.MAX_VALUE) {
+                    found.add(packCell(level, i, j))
+                    if (found.size >= MAX_REFINED) break@search
+                }
+            }
+        }
+        if (found.isEmpty()) return found
+        val set = BooleanArray(levels * cells * cells).also { s -> for (c in found) s[c] = true }
+        val jobs = builders.mapIndexed { w, builder ->
+            scope.async(BUILD) {
+                var k = w
+                while (k < found.size) {
+                    val cell = found[k]
+                    val level = cellLevel(cell); val i = cellI(cell); val j = cellJ(cell)
+                    val sub = level - SUB_SHIFT
+                    val gi0 = (layout.startI(level) + i) * SUB; val gj0 = (layout.startJ(level) + j) * SUB
+                    val base = layout.count + k * SUB_SIDE * SUB_SIDE
+                    for (b in 0..SUB) for (a in 0..SUB) {
+                        val corner = (a == 0 || a == SUB) && (b == 0 || b == SUB)
+                        if (corner) continue
+                        val into = base + b * SUB_SIDE + a
+                        // On a side shared with a cell that isn't split, on the straight line between
+                        // its corners, so the two meet with no crack.
+                        val across = when {
+                            a == 0 -> packCellOrNull(level, i - 1, j)
+                            a == SUB -> packCellOrNull(level, i + 1, j)
+                            b == 0 -> packCellOrNull(level, i, j - 1)
+                            b == SUB -> packCellOrNull(level, i, j + 1)
+                            else -> null
+                        }
+                        val onSide = a == 0 || a == SUB || b == 0 || b == SUB
+                        if (onSide && (across == null || !set[across])) {
+                            val (p, q, t) = if (a == 0 || a == SUB) {
+                                val ii = if (a == 0) i else i + 1
+                                Triple(layout.index(level, ii, j), layout.index(level, ii, j + 1), b / SUB.toFloat())
+                            } else {
+                                val jj = if (b == 0) j else j + 1
+                                Triple(layout.index(level, i, jj), layout.index(level, i + 1, jj), a / SUB.toFloat())
+                            }
+                            mix(vertices, into, p, q, t)
+                        } else {
+                            builder.refinedVertex(vertices, into, origin, sub, gi0 + a, gj0 + b, time)
+                        }
+                    }
+                    k += builders.size
+                }
+            }
+        }
+        jobs.forEach { it.await() }
+        return found
+    }
+
+    /** The grids' triangles without the coast's cells, and the coast's own instead. */
+    private fun coastTriangles(layout: Layout, coast: List<Int>): IntArray {
+        val split = BooleanArray(levels * cells * cells).also { s -> for (c in coast) s[c] = true }
+        val list = IntArray((levels - layout.first) * cells * cells * 6 + coast.size * SUB * SUB * 6)
+        var n = 0
+        fun add(a: Int, b: Int, c: Int) { list[n++] = a; list[n++] = b; list[n++] = c }
+        for (level in layout.first until levels) for (j in 0 until cells) for (i in 0 until cells) {
+            if (!layout.drawn(level, i, j) || split[packCell(level, i, j)]) continue
+            val a = layout.index(level, i, j); val b = layout.index(level, i + 1, j)
+            val c = layout.index(level, i, j + 1); val d = layout.index(level, i + 1, j + 1)
+            add(a, b, c); add(d, c, b)
+        }
+        for ((k, cell) in coast.withIndex()) {
+            val level = cellLevel(cell); val i = cellI(cell); val j = cellJ(cell)
+            val base = layout.count + k * SUB_SIDE * SUB_SIDE
+            fun at(a: Int, b: Int): Int = when {
+                a == 0 && b == 0 -> layout.index(level, i, j)
+                a == SUB && b == 0 -> layout.index(level, i + 1, j)
+                a == 0 && b == SUB -> layout.index(level, i, j + 1)
+                a == SUB && b == SUB -> layout.index(level, i + 1, j + 1)
+                else -> base + b * SUB_SIDE + a
+            }
+            for (b in 0 until SUB) for (a in 0 until SUB) {
+                val p = at(a, b); val q = at(a + 1, b); val r = at(a, b + 1); val s = at(a + 1, b + 1)
+                add(p, q, r); add(s, r, q)
+            }
+        }
+        return list.copyOf(n)
+    }
+
+    private fun packCell(level: Int, i: Int, j: Int): Int = (level * cells + j) * cells + i
+    private fun packCellOrNull(level: Int, i: Int, j: Int): Int? = if (i in 0 until cells && j in 0 until cells) packCell(level, i, j) else null
+    private fun cellLevel(cell: Int): Int = cell / (cells * cells)
+    private fun cellI(cell: Int): Int = cell % cells
+    private fun cellJ(cell: Int): Int = cell / cells % cells
+
+    /** Vertex [into] as [a] blended toward [b] by [t]. */
+    private fun mix(vertices: FloatArray, into: Int, a: Int, b: Int, t: Float) {
+        val o = into * SeaSurface.STRIDE; val pa = a * SeaSurface.STRIDE; val pb = b * SeaSurface.STRIDE
+        for (n in 0 until SeaSurface.STRIDE) vertices[o + n] = vertices[pa + n] + (vertices[pb + n] - vertices[pa + n]) * t
+        val x = vertices[o + 3]; val y = vertices[o + 4]; val z = vertices[o + 5]
+        val l = kotlin.math.sqrt(x * x + y * y + z * z).coerceAtLeast(1e-6f)
+        vertices[o + 3] = x / l; vertices[o + 4] = y / l; vertices[o + 5] = z / l
+    }
+
+    /** A coast point's sea state and when it was worked out. */
+    private class Stamped(val prepared: Sea.Prepared, val time: Double)
+
+    /** The coast's sea state, by lattice point, apart from the grids' tables. */
+    private val refinedPrepared = com.rm.apogee.core.concurrentMapOf<Long, Stamped>()
 
     /** Vertex [into] as the average of vertices [a] and [b] (which can be the same). */
     private fun blend(vertices: FloatArray, into: Int, a: Int, b: Int) {
@@ -523,6 +687,21 @@ class SeaScene(
         /** Spare vertex arrays kept for building into. */
 
         const val SPARES = 3
+
+        /** A coast cell is split this many ways each way, which is [SUB_SHIFT] grids finer. */
+        const val SUB = 4
+        const val SUB_SHIFT = 2
+        const val SUB_SIDE = SUB + 1
+
+        /** The most coast cells split in one build, and coast points kept between builds. */
+        const val MAX_REFINED = 1_500
+        const val REFINED_KEEP = 80_000
+
+        /**
+         * The drawn waves' spacing, as distance over cells times this. 4 makes it the grid's own at
+         * the inner edge of each grid and twice it at the outer edge, the same on both sides of one.
+         */
+        const val FILTER_SHARE = 4.0
 
         /** Workers sharing a build. */
         const val WORKERS = 2

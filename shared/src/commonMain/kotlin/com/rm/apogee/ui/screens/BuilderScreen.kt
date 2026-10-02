@@ -112,6 +112,8 @@ fun BuilderScreen(
     /** Send the craft to someone, and open one someone sent. */
     onShare: () -> Unit = {},
     onOpenShared: () -> Unit = {},
+    /** The tutorial step on screen, in the Building tutorial. */
+    tutorialLine: com.rm.apogee.game.tutorial.TutorialLine? = null,
 ) {
     // Reading `revision` subscribes this to the builder model, which isn't observable itself.
     @Suppress("UNUSED_EXPRESSION") session.revision
@@ -306,6 +308,10 @@ fun BuilderScreen(
                 .padding(bottom = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
+            tutorialLine?.let {
+                com.rm.apogee.ui.components.TutorialStepLine(it)
+                Spacer(Modifier.height(8.dp))
+            }
             session.statusMessage?.let { message ->
                 Surface(
                     shape = RoundedCornerShape(Dimens.CornerSmall),

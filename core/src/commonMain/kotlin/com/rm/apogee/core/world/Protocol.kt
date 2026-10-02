@@ -287,6 +287,11 @@ data class VesselKinematics(
      * skips its physics, since it can't tell a ship asleep on the water from how she moves.
      */
     val asleep: Boolean = false,
+    /**
+     * Where in the design its centre of mass is now, with fuel burnt, so parts are drawn round
+     * [position] where they really are. Null where it isn't known.
+     */
+    val centreOfMass: SerialVec3? = null,
 ) {
     // By content, since arrays compare by identity.
     override fun equals(other: Any?): Boolean =
@@ -689,5 +694,6 @@ object Protocol {
     // 24: righting a capsized craft: RightCraft, CraftSystems.canRight, standingOn and riders.
     // 25: crew in the water: ClimbOut, CraftSystems.climbOnto, swimming, chill and evaBlocked.
     // 26: VesselKinematics.asleep.
-    const val VERSION = 26
+    // 27: VesselKinematics.centreOfMass.
+    const val VERSION = 27
 }

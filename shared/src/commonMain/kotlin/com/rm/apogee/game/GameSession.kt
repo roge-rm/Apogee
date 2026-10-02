@@ -789,6 +789,12 @@ class GameSession private constructor(
 
     private var afloatAt: kotlin.time.TimeSource.Monotonic.ValueTimeMark? = null
 
+    /** Whether the flown craft is resting on the ground. */
+    val controlledGrounded: Boolean get() = prediction.replica?.touchingGround == true
+
+    /** Whether the flown craft is a founded base. */
+    val controlledAnchored: Boolean get() = client.controlledVessel?.let { client.vessel(it) }?.anchored == true
+
     /**
      * Whether the flown craft can hand itself to auto land as it flies: a plane, rotorcraft or
      * airship in air. A rocket gets it from the impact readout.
@@ -1324,7 +1330,7 @@ class GameSession private constructor(
                 val bodyFixed = body.toBodyFixed(state.position, body.rotationAt(client.latestSnapshot?.time ?: 0.0))
                 val up = state.position.normalized()
                 val above = (body.heightAboveTerrain(state.position, bodyFixed) +
-                    lowestPointOffset(vessel.design, state.rotation, up)).coerceAtLeast(0.0)
+                    lowestPointOffset(vessel.design, state.rotation, up, liveCentreOfMass(vessel.id, vessel.design, state))).coerceAtLeast(0.0)
                 val orbit = com.rm.apogee.core.orbit.Orbit(state.position, state.velocity, body.gravitationalParameter)
                 val floor = body.radius + body.atmosphereHeight + (body.terrain?.maxElevation ?: 0.0)
                 val only = vessel.design.parts.singleOrNull()?.partId
@@ -1641,7 +1647,7 @@ class GameSession private constructor(
             val focusRotation = if (!wrecked && (warping || prediction.isReady)) predictedRotation else focusState.rotation
             val seat = seatOf(focus.design).takeIf { it >= 0 && !wrecked }?.let { i ->
                 val design = focus.design
-                val local = Vec3().setTo(design.parts[i].position).subInPlace(designCentreOfMass(design))
+                val local = Vec3().setTo(design.parts[i].position).subInPlace(liveCentreOfMass(focus.id, design, focus.latest))
                     .addScaledInPlace(design.orientation.up, SEAT_RISE)
                 focusRotation.rotate(local).addInPlace(focusPosition)
             }
@@ -1672,6 +1678,7 @@ class GameSession private constructor(
                                 position = at, rotation = piece.body.orientation.copy(),
                                 velocity = piece.body.linearVelocity.copy(), angularVelocity = piece.body.angularVelocity.copy(),
                                 pose = VesselPose.encode(piece),
+                                centreOfMass = piece.centerOfMass(),
                             )
                             appendVessel(
                                 ClientVessel(id, piece.design, piece.name), items, attractor, at,
@@ -1782,7 +1789,7 @@ class GameSession private constructor(
             else minOf(lostParts[focusId] ?: 0, peakParts[focusId] ?: Int.MAX_VALUE)
         telemetry = if (wrecked) FlightTelemetry.lost(focus.name, crashReport(focusId), lost) else FlightTelemetry.from(
             focus, attractor, focusState.throttle, bodyFixedCamera,
-            lowestPointOffset = lowestPointOffset(focus.design, focusState.rotation, scratchUp),
+            lowestPointOffset = lowestPointOffset(focus.design, focusState.rotation, scratchUp, liveCentreOfMass(focus.id, focus.design, focusState)),
             seaHeight = attractor.ocean?.surfaceHeight(bodyFixedCamera, renderTime) ?: 0.0,
             air = prediction.replica?.air,
             bodyRotation = bodyRotation,
@@ -2752,9 +2759,13 @@ class GameSession private constructor(
         val age = present?.let { (it - (snapshot?.time ?: it)).coerceIn(0.0, MAX_SNAPSHOT_AGE) }
             ?: ((now - client.latestSnapshotNanos) / 1e9)
         // Rebuilt (staging, a part lost), so the replica starts again from the server. Where the
-        // craft was drawn is carried over and eased away.
+        // craft was drawn is carried over and eased away. Measured at the design's origin, not the
+        // centre of mass, which jumps when a stage drops; eased, the pod was drawn inside the
+        // stage it left and slid up out of it.
         val carryFrom = if (prediction.needsAdopting(focus.design) && prediction.isReady && lastAdvanceNanos != 0L)
-            predictedPosition.copy().addScaledInPlace(prediction.velocity() ?: Vec3(), (now - lastAdvanceNanos) / 1e9) else null
+            predictedPosition.copy().addScaledInPlace(prediction.velocity() ?: Vec3(), (now - lastAdvanceNanos) / 1e9)
+                .subInPlace(predictedRotation.rotate(prediction.replica?.centerOfMass() ?: Vec3()))
+        else null
         if (prediction.needsAdopting(focus.design)) {
             // On the server's clock. See ClientPrediction.adopt.
             prediction.adopt(focus.design, state, snapshot?.time ?: 0.0, client.weather)
@@ -2790,7 +2801,9 @@ class GameSession private constructor(
 
         prediction.renderPosition(predictedPosition, state.referenceBodyId)
         if (carryFrom != null && prediction.isReady) {
-            prediction.carryOffset(carryFrom.subInPlace(predictedPosition))
+            val turned = prediction.renderRotation(Quat()) ?: predictedRotation
+            val origin = predictedPosition.copy().subInPlace(turned.rotate(prediction.replica?.centerOfMass() ?: Vec3()))
+            prediction.carryOffset(carryFrom.subInPlace(origin))
             prediction.renderPosition(predictedPosition, state.referenceBodyId)
         }
         prediction.renderRotation(predictedRotation)
@@ -3383,7 +3396,7 @@ class GameSession private constructor(
     private fun portFace(design: CraftDesign, state: com.rm.apogee.core.world.VesselKinematics, part: Int, port: com.rm.apogee.core.part.DockingPort): Pair<Vec3, Vec3> {
         val placed = design.parts[part]
         val axis = state.rotation.rotate(placed.rotation.rotate(Vec3.unitY(), Vec3()), Vec3()).normalizeInPlace()
-        val at = Vec3().setTo(placed.position).subInPlace(designCentreOfMass(design))
+        val at = Vec3().setTo(placed.position).subInPlace(state.centreOfMass ?: designCentreOfMass(design))
         state.rotation.rotate(at, at).addInPlace(state.position).addScaledInPlace(axis, port.faceOffset)
         return at to axis
     }
@@ -3845,8 +3858,8 @@ class GameSession private constructor(
         val design = vessel.design
 
         // The server sends the centre of mass, and design part positions are relative to the design
-        // origin, so rebuild the offset here.
-        val centreOfMass = designCentreOfMass(design)
+        // origin, so offset by where the centre is in the design.
+        val centreOfMass = liveCentreOfMass(vessel.id, design, state)
         val position = overridePosition ?: state.position
         val rotation = overrideRotation ?: state.rotation
         wakes(vessel.id, design, centreOfMass, position, rotation, state.velocity, attractor)
@@ -3920,9 +3933,12 @@ class GameSession private constructor(
         scratchDrift.mulInPlace(-1.0).addInPlace(state.velocity)
         bodyRotation.inverseRotate(scratchDrift, scratchDrift)
         val inAir = attractor.atmosphere != null && attractor.altitudeOf(position) < attractor.atmosphereHeight
+        // The wind where the flown craft is, from its replica, also while warp draws it from
+        // snapshots. Without it a chute drifting with the wind leaned downwind under warp.
+        val windHere = if (predicted || vessel.id == client.controlledVessel) prediction.replica?.air?.let { bodyRotation.rotate(it.wind, Vec3()) } else null
         // Which way an open chute streams: away from the motion through the air.
         val chuteTrail = Vec3().setTo(state.velocity).subInPlace(attractor.surfaceVelocityAt(position, Vec3()))
-        if (predicted) prediction.replica?.air?.let { air -> chuteTrail.subInPlace(bodyRotation.rotate(air.wind, Vec3())) }
+        windHere?.let { chuteTrail.subInPlace(it) }
         if (chuteTrail.length > 0.5) chuteTrail.normalizeInPlace().negateInPlace() else chuteTrail.setTo(position).normalizeInPlace()
         // Lamps: lit after dusk where it stands, or deep in the sea, while it has power. The Cape's
         // always have it.
@@ -4228,7 +4244,7 @@ class GameSession private constructor(
         // The air it pushes through, made visible: vapour and re-entry glow.
         if (!mapMode) {
             val throughAir = Vec3().setTo(state.velocity).subInPlace(attractor.surfaceVelocityAt(position, Vec3()))
-            if (predicted) prediction.replica?.air?.let { air -> throughAir.subInPlace(bodyRotation.rotate(air.wind, Vec3())) }
+            windHere?.let { throughAir.subInPlace(it) }
             // Where the craft meets the air first and how thick it is there, for the vapour collar
             // and shock on the nose. The tip is the leading part's end on its own axis.
             val nose = Vec3().setTo(position)
@@ -4283,8 +4299,7 @@ class GameSession private constructor(
      * world axes. The height readout uses it so AGL is the gap under the craft. Uses the renderer's
      * centre so number and picture agree.
      */
-    private fun lowestPointOffset(design: CraftDesign, rotation: Quat, up: Vec3): Double {
-        val centre = designCentreOfMass(design)
+    private fun lowestPointOffset(design: CraftDesign, rotation: Quat, up: Vec3, centre: Vec3 = designCentreOfMass(design)): Double {
         var lowest = 0.0
         for (placed in design.parts) {
             val def = catalog[placed.partId] ?: continue
@@ -4382,6 +4397,18 @@ class GameSession private constructor(
      * propellant, so this can be tens of centimetres off along the axis. The real fix is a
      * kinematics field.
      */
+    /**
+     * Where [design]'s centre of mass is now, for craft [id] in [state]: the replica's for the craft
+     * being flown, the server's for the rest. Worked out with full tanks, a stage that had burnt its
+     * fuel was drawn metres off where it really was.
+     */
+    private fun liveCentreOfMass(id: Long, design: CraftDesign, state: VesselKinematics?): Vec3 {
+        if (id == client.controlledVessel) {
+            prediction.replica?.takeIf { prediction.isReady && it.defs.size == design.parts.size }?.let { return it.centerOfMass() }
+        }
+        return state?.centreOfMass?.copy() ?: designCentreOfMass(design)
+    }
+
     private fun designCentreOfMass(design: CraftDesign): Vec3 {
         val centre = Vec3.zero()
         var total = 0.0

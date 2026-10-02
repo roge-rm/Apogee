@@ -317,6 +317,9 @@ class HudState {
         }
     }
 
+    /** The tutorial step on screen, or null outside a tutorial. */
+    var tutorial: com.rm.apogee.game.tutorial.TutorialLine? by mutableStateOf(null)
+
     /** The flown craft's parachute: "ARMED", "OPEN", or null for none staged. */
     var chute: String? by mutableStateOf(null)
 
@@ -379,6 +382,7 @@ class HudState {
 
     /** Clears passing state when leaving the world, so a new flight starts clean. */
     fun reset() {
+        tutorial = null
         frameTimeMillis = 0f
         frameBuildMillis = 0f
         simTick = 0L

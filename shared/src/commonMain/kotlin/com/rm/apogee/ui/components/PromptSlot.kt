@@ -13,6 +13,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.filled.Anchor
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Upgrade
 import androidx.compose.material.icons.filled.Link
@@ -52,6 +54,9 @@ class PromptActions(
     val onRight: () -> Unit = {},
     /** Climb out of the water, or off the top of a ladder, onto a deck. */
     val onClimbOut: () -> Unit = {},
+    /** A tutorial finished: keep flying, or back to the list. */
+    val onTutorialKeep: () -> Unit = {},
+    val onTutorials: () -> Unit = {},
 )
 
 /**
@@ -67,6 +72,17 @@ fun PromptSlot(
     modifier: Modifier = Modifier,
 ) {
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        hud.tutorial?.let { line ->
+            if (line.finished) {
+                Banner(HudState.Banner("TUTORIAL DONE", line.text, good = true, id = 0L))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Prompt(Icons.Filled.Check, "KEEP FLYING", ApogeeColors.Prograde, actions.onTutorialKeep)
+                    Prompt(Icons.AutoMirrored.Filled.List, "TUTORIALS", ApogeeColors.Accent, actions.onTutorials)
+                }
+            } else {
+                TutorialStepLine(line)
+            }
+        }
         hud.banner?.let { banner ->
             // A few seconds, then gone.
             androidx.compose.runtime.LaunchedEffect(banner.id) {
@@ -229,6 +245,7 @@ private fun SurveyToggle(hud: HudState) {
 
 /** What's showing in the slot, as a key. When it changes, the controls wake up. */
 fun promptKey(hud: HudState): String = buildString {
+    hud.tutorial?.let { append("T").append(it.number).append(it.finished) }
     hud.burn?.let { append("burn").append(if (it.startsIn <= 0.0) "now" else "") }
     hud.landing?.let { append("land") }
     if (hud.approach != null) append("approach")

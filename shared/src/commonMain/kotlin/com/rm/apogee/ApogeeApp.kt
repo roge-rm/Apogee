@@ -151,6 +151,18 @@ class ApogeeApp(private val host: AppHost) {
 
     /** How the next flight should be started. */
     private var pendingMode: SessionMode = SessionMode.Solo
+
+    /** The tutorial being flown, or null. */
+    private var tutorialRun: com.rm.apogee.game.tutorial.TutorialRun? = null
+
+    /** Whether the flight is in a tutorial's world, which is never saved. */
+    private var tutorialFlight = false
+
+    /** Whether the Vehicle Assembly is the Building tutorial's, with its own empty shelf. */
+    private var tutorialBuild = false
+
+    /** The Building tutorial's step, while in the Vehicle Assembly. */
+    private var builderTutorialLine: com.rm.apogee.game.tutorial.TutorialLine? by mutableStateOf(null)
     private var joinError by mutableStateOf<String?>(null)
     private var connectingTo by mutableStateOf<String?>(null)
 
@@ -329,7 +341,7 @@ class ApogeeApp(private val host: AppHost) {
                 if (appScreen.needsWorldSurface && host.worldInputInCompose) WorldInputLayer(gestures)
 
                 when (appScreen) {
-                    AppScreen.MENU -> MainMenuScreen(::navigateTo)
+                    AppScreen.MENU -> MainMenuScreen(::navigateTo, onQuit = if (host.canQuit) host::quit else null)
                     AppScreen.PLAY -> PlayScreen(
                         ::navigateTo, settings.launchTime, { settings.launchTime = it },
                         career = careerMode,
@@ -388,6 +400,12 @@ class ApogeeApp(private val host: AppHost) {
                         bases = runCatching { openSoloWorld().baseSites(settings.clientId) }.getOrDefault(emptyList()),
                         onSite = { quickSite = it; settings.quickSite = it ?: "" },
                         onLaunch = ::quickLaunch,
+                        onBack = ::goBack,
+                    )
+                    AppScreen.TUTORIALS -> com.rm.apogee.ui.screens.TutorialsScreen(
+                        tutorials = com.rm.apogee.game.tutorial.Tutorials.all,
+                        isDone = { settings.isTutorialDone(it) },
+                        onStart = ::startTutorial,
                         onBack = ::goBack,
                     )
                     AppScreen.CREW -> com.rm.apogee.ui.screens.CrewScreen(
@@ -465,7 +483,9 @@ class ApogeeApp(private val host: AppHost) {
                         onCameraMode = ::onCameraMode,
                         onToggleMap = ::onToggleMap,
                         onJoin = ::onJoin,
-                        onExit = { navigateTo(AppScreen.PLAY) },
+                        onExit = { navigateTo(if (tutorialFlight) AppScreen.TUTORIALS else AppScreen.PLAY) },
+                        onTutorialKeep = { tutorialRun = null; hudState.tutorial = null },
+                        onTutorials = { navigateTo(AppScreen.TUTORIALS) },
                         rewind = com.rm.apogee.ui.screens.RewindActions(
                             onSavePoint = ::takeSavePoint,
                             onLoadSavePoint = ::loadSavePoint,
@@ -510,12 +530,29 @@ class ApogeeApp(private val host: AppHost) {
                         onRetire = ::onRetire,
                     )
                     AppScreen.BUILDER -> builderSession?.let { builder ->
+                        // The Building tutorial looks at what's built a few times a second.
+                        val run = tutorialRun
+                        if (run != null && tutorialBuild) {
+                            androidx.compose.runtime.LaunchedEffect(builder, run) {
+                                var staged = false
+                                while (true) {
+                                    staged = staged || builder.stagingMode
+                                    val view = com.rm.apogee.game.tutorial.TutorialView(
+                                        builder = com.rm.apogee.game.tutorial.BuilderView.of(builder.builder.design, StockParts.catalog, staged),
+                                    )
+                                    run.tick(view, System.nanoTime() / 1e9)
+                                    builderTutorialLine = run.line
+                                    kotlinx.coroutines.delay(200)
+                                }
+                            }
+                        }
                         BuilderScreen(
                             session = builder,
                             catalog = StockParts.catalog,
                             settings = settings,
                             pictures = partThumbnails.pictures,
-                            onExit = { navigateTo(AppScreen.PLAY) },
+                            onExit = { navigateTo(if (tutorialBuild) AppScreen.TUTORIALS else AppScreen.PLAY) },
+                            tutorialLine = if (tutorialBuild) builderTutorialLine else null,
                             onLaunch = ::launchFromBuilder,
                             onShare = ::shareCraft,
                             onOpenShared = { host.pickSharedCraft() },
@@ -602,6 +639,36 @@ class ApogeeApp(private val host: AppHost) {
             target.needsWorldSurface -> enterWorld(target)
             wasInWorld -> leaveWorld()
         }
+        if (!target.needsWorldSurface) {
+            tutorialRun = null
+            tutorialFlight = false
+            tutorialBuild = false
+            builderTutorialLine = null
+        }
+    }
+
+    /** Starts [tutorial] in a world of its own. */
+    private fun startTutorial(tutorial: com.rm.apogee.game.tutorial.Tutorial) {
+        val catalog = StockParts.catalog
+        when (val start = tutorial.start) {
+            is com.rm.apogee.game.tutorial.TutorialStart.OnSite -> {
+                pendingLaunchDesign = start.craft(catalog)
+                pendingLaunchSite = start.siteId
+                pendingMode = SessionMode.Tutorial(com.rm.apogee.game.tutorial.TutorialWorld.fresh(catalog), null)
+            }
+            is com.rm.apogee.game.tutorial.TutorialStart.InOrbit -> {
+                val (world, craft) = com.rm.apogee.game.tutorial.TutorialWorld.inOrbit(start, catalog, settings.clientId)
+                pendingMode = SessionMode.Tutorial(world, craft)
+            }
+            com.rm.apogee.game.tutorial.TutorialStart.Builder -> {
+                tutorialRun = com.rm.apogee.game.tutorial.TutorialRun(tutorial)
+                tutorialBuild = true
+                navigateTo(AppScreen.BUILDER)
+                return
+            }
+        }
+        tutorialRun = com.rm.apogee.game.tutorial.TutorialRun(tutorial)
+        navigateTo(AppScreen.FLIGHT)
     }
 
     // --- sharing craft ------------------------------------------------------------
@@ -671,6 +738,13 @@ class ApogeeApp(private val host: AppHost) {
         pendingLaunchDesign = builderSession?.designForLaunch() ?: return
         pendingLaunchSite = builderSession?.launchSiteId
         pendingMode = SessionMode.Solo
+        if (tutorialBuild) {
+            // On into the tutorial's own flight, from the Cape.
+            tutorialBuild = false
+            builderTutorialLine = null
+            pendingLaunchSite = "cape"
+            pendingMode = SessionMode.Tutorial(com.rm.apogee.game.tutorial.TutorialWorld.fresh(StockParts.catalog), null)
+        }
         navigateTo(AppScreen.FLIGHT)
     }
 
@@ -1038,22 +1112,28 @@ class ApogeeApp(private val host: AppHost) {
         perfHints = host.perfHints()
 
         if (screen == AppScreen.BUILDER) {
+            // The Building tutorial keeps what it makes apart from your own craft.
             val builder = BuilderSession(
-                frameBus, StockParts.catalog, craftStore,
-                com.rm.apogee.core.craft.AssemblyStore(host.folder(if (careerMode) "assemblies-career" else "assemblies")),
+                frameBus, StockParts.catalog,
+                if (tutorialBuild) CraftStore(host.folder("tutorial-craft")) else craftStore,
+                com.rm.apogee.core.craft.AssemblyStore(host.folder(if (tutorialBuild) "tutorial-assemblies" else if (careerMode) "assemblies-career" else "assemblies")),
             )
-            // The player's bases to launch from, as well as the Cape.
-            builder.baseSites = runCatching { openSoloWorld().baseSites(settings.clientId) }.getOrDefault(emptyList())
-            // In a career, only unlocked parts, and no more than the pad can take.
-            builder.career = openSoloWorld().program?.careerOf(settings.clientId)
+            if (!tutorialBuild) {
+                // The player's bases to launch from, as well as the Cape.
+                builder.baseSites = runCatching { openSoloWorld().baseSites(settings.clientId) }.getOrDefault(emptyList())
+                // In a career, only unlocked parts, and no more than the pad can take.
+                builder.career = openSoloWorld().program?.careerOf(settings.clientId)
+            }
             partThumbnails.request(StockParts.catalog)
             builder.thumbnails = partThumbnails
             builder.start(scope)
             builderSession = builder
-            pendingShared?.let { builder.openShared(it) }
+            if (tutorialBuild) builder.clear()
+            else pendingShared?.let { builder.openShared(it) }
             pendingShared = null
         } else {
             flyingSolo = pendingMode is SessionMode.Solo
+            tutorialFlight = pendingMode is SessionMode.Tutorial
             if (flyingSolo && !rewinding) {
                 // A launch can be reverted, so keep the world as it is now. Nothing's running yet,
                 // so it's safe to take here.
@@ -1098,6 +1178,23 @@ class ApogeeApp(private val host: AppHost) {
 
                 // Already connected, so a failure showed on the browser.
                 is SessionMode.Joined -> mode.session
+
+                is SessionMode.Tutorial -> GameSession.hostLocal(
+                    frameBus = frameBus,
+                    perfHints = perfHints,
+                    playerName = settings.playerName,
+                    clientId = settings.clientId,
+                    stripe = settings.suitStripe,
+                    design = pendingLaunchDesign,
+                    scope = scope,
+                    world = mode.world,
+                    siteId = pendingLaunchSite,
+                    freshFlight = mode.vessel == null,
+                    resumeVessel = mode.vessel,
+                    weather = com.rm.apogee.core.weather.WeatherIntensity.CALM,
+                    clouds = com.rm.apogee.core.weather.CloudCover.LIGHT,
+                    launchTime = tutorialRun?.tutorial?.launchTime ?: settings.launchTime,
+                )
             }
             pendingLaunchDesign = null
             pendingLaunchSite = null
@@ -1312,8 +1409,8 @@ class ApogeeApp(private val host: AppHost) {
     }
 
     private fun leaveWorld() {
-        // Before tearing the session down.
-        if (session != null) saveSoloWorld()
+        // Before tearing the session down. A tutorial's world isn't kept.
+        if (session != null && !tutorialFlight) saveSoloWorld()
 
         session?.stop(); session = null
         builderSession?.stop(); builderSession = null
@@ -1447,6 +1544,13 @@ class ApogeeApp(private val host: AppHost) {
                     // recomposes whatever shows it.
                     val readoutsDue = readoutsDueAt(System.nanoTime())
                     hudState.going = current.controlledGoing
+                    tutorialRun?.let { run ->
+                        if (readoutsDue) {
+                            run.tick(com.rm.apogee.game.tutorial.TutorialView.of(hudState, current), System.nanoTime() / 1e9)
+                            hudState.tutorial = run.line
+                            if (run.finished) settings.markTutorialDone(run.tutorial.id)
+                        }
+                    }
                     // Only when it changes, or the stack recomposes every frame.
                     if (hudState.stages !== current.stageCards) hudState.stages = current.stageCards
                     hudState.connecting = !current.connected && current.rejectionReason == null
@@ -1571,6 +1675,7 @@ class ApogeeApp(private val host: AppHost) {
      * backgrounded app and a closed tab is gone. In flight it's taken between ticks.
      */
     fun hidden() {
+        if (tutorialFlight && session != null) return
         val world = soloWorld ?: return
         val running = session
         // In flight the server is still stepping it, so it's taken between ticks and written off
@@ -1601,6 +1706,8 @@ class ApogeeApp(private val host: AppHost) {
     /** How the next flight should be started. */
     private sealed interface SessionMode {
         data object Solo : SessionMode
+        /** A tutorial's own world, flying [vessel] in it, or a fresh craft when null. */
+        class Tutorial(val world: World, val vessel: Long?) : SessionMode
         data class Host(val name: String) : SessionMode
         data class Joined(val session: GameSession) : SessionMode
     }

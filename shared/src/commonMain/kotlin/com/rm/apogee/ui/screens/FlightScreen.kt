@@ -159,6 +159,9 @@ fun FlightScreen(
     onToggleMap: () -> Unit,
     onJoin: () -> Unit,
     onExit: () -> Unit,
+    /** A tutorial finished: keep flying, or back to the list. */
+    onTutorialKeep: () -> Unit = {},
+    onTutorials: () -> Unit = {},
     /** Taking a save point, going back to it, and reverting to the launch. */
     rewind: RewindActions = RewindActions(),
     /** Run the world at this many times real time. 0 pauses it. */
@@ -197,8 +200,11 @@ fun FlightScreen(
         val statusActions = remember(crewActions, onUndock, onFound, onRefuel, onUnload, onRefine, onDockPilot) {
             StatusActions(crewActions, onUndock, onFound, onRefuel, onUnload, onRefine, onDockPilot)
         }
-        val promptActions = remember(onJoin, onFound, crewActions, onHook, onReleaseLine, onRightCraft) {
-            PromptActions(onJoin, onFound, crewActions.onBoard, crewActions.onGrab, onHook, onReleaseLine, onRightCraft, crewActions.onClimbOut)
+        val promptActions = remember(onJoin, onFound, crewActions, onHook, onReleaseLine, onRightCraft, onTutorialKeep, onTutorials) {
+            PromptActions(
+                onJoin, onFound, crewActions.onBoard, crewActions.onGrab, onHook, onReleaseLine, onRightCraft, crewActions.onClimbOut,
+                onTutorialKeep = onTutorialKeep, onTutorials = onTutorials,
+            )
         }
 
         if (hud.connectionError != null) {

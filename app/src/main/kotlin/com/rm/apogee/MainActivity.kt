@@ -321,6 +321,10 @@ class MainActivity : ComponentActivity(), AppHost {
 
     override val fullscreenMenus: Boolean get() = true
 
+    override val canQuit: Boolean get() = true
+
+    override fun quit() = finishAndRemoveTask()
+
     private fun hideSystemBars() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         // Let the window into the display cutout too, or the scene stops short and the gap is

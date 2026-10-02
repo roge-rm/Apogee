@@ -32,7 +32,7 @@ import com.rm.apogee.ui.theme.ApogeeColors
 import com.rm.apogee.ui.theme.alpha
 
 @Composable
-fun MainMenuScreen(onNavigate: (AppScreen) -> Unit) {
+fun MainMenuScreen(onNavigate: (AppScreen) -> Unit, onQuit: (() -> Unit)? = null) {
     Backdrop { contentModifier ->
         Text(
             "APOGEE",
@@ -50,6 +50,7 @@ fun MainMenuScreen(onNavigate: (AppScreen) -> Unit) {
         ApogeeButton("Play", { onNavigate(AppScreen.PLAY) }, contentModifier)
         ApogeeButton("Settings", { onNavigate(AppScreen.SETTINGS) }, contentModifier)
         ApogeeButton("About", { onNavigate(AppScreen.ABOUT) }, contentModifier)
+        if (onQuit != null) ApogeeButton("Quit", onQuit, contentModifier)
     }
 }
 
@@ -78,6 +79,7 @@ fun PlayScreen(
         // Career or sandbox: two separate worlds.
         PillRow(listOf("Career" to true, "Sandbox" to false), career, onCareer)
         Spacer(Modifier.height(20.dp))
+        ApogeeButton("Tutorials", { onNavigate(AppScreen.TUTORIALS) }, contentModifier)
         if (career) {
             ApogeeButton(
                 "Program",

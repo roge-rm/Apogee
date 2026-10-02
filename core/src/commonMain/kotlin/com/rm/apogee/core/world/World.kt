@@ -4619,6 +4619,7 @@ class World(
                 pose = VesselPose.encode(vessel),
                 condition = VesselCondition.encode(vessel),
                 asleep = vessel.dormant,
+                centreOfMass = vessel.centerOfMass(),
             )
         },
     ).also { if (quietSentAt.size > vesselsById.size * 2 + 16) quietSentAt.keys.retainAll { VesselId(it) in vesselsById } }
