@@ -4019,10 +4019,19 @@ class GameSession private constructor(
                 if (speed > 0.0 && blades != null) {
                     animation.spin[index] += speed * bladeRate(blades.radius) * animationDt
                     if (!mapMode) {
-                        // The flown craft's main rotor tilts its disc the way it's pulling.
+                        // The flown craft's main rotor tilts its disc the way it's pulling, but only part
+                        // of the way. The lift leans over 20 degrees off the mast while the body stays
+                        // level, and a real disc leans a few degrees while the body pitches.
                         val tilt = if (predicted && rotor.cyclic > 0.0) {
                             prediction.replica?.rotorTilt?.takeIf { index * 3 + 2 < it.size && (it[index * 3] != 0.0 || it[index * 3 + 1] != 0.0 || it[index * 3 + 2] != 0.0) }
-                                ?.let { t -> rotation.rotate(Vec3(t[index * 3], t[index * 3 + 1], t[index * 3 + 2])).normalizeInPlace() }
+                                ?.let { t ->
+                                    val pull = rotation.rotate(Vec3(t[index * 3], t[index * 3 + 1], t[index * 3 + 2])).normalizeInPlace()
+                                    val mast = (rotation * placedRotation).rotate(blades.axis).normalizeInPlace()
+                                    val lean = kotlin.math.acos((mast dot pull).coerceIn(-1.0, 1.0))
+                                    val about = mast.copy().crossInPlace(pull)
+                                    if (about.length < 1e-6) mast
+                                    else Quat.fromAxisAngle(about.normalizeInPlace(), minOf(lean * DISC_LEAN_SHARE, Math.toRadians(DISC_LEAN_MOST))).rotate(mast, Vec3())
+                                }
                         } else null
                         // The blades tip with it about the hub so they turn inside the tilted disc.
                         if (tilt != null) {
@@ -4455,6 +4464,10 @@ class GameSession private constructor(
     private fun smooth01(x: Double): Double { val t = x.coerceIn(0.0, 1.0); return t * t * (3 - 2 * t) }
 
     companion object {
+        /** How far a drawn rotor disc leans toward its lift, as a share, and at most, in degrees. */
+        const val DISC_LEAN_SHARE = 0.35
+        const val DISC_LEAN_MOST = 6.0
+
         /** A lamp's light, lit: warm white, and drawn this much larger for its glare. */
         val LAMP_COLOUR = floatArrayOf(1.0f, 0.9f, 0.62f, 1.0f)
         val LAMP_GLARE = Vec3(2.0, 2.0, 2.0)
