@@ -527,7 +527,7 @@ class BaseTest {
         world.ensureStructures()
         world.lunaBase()!!.name = WorldBases.OLD_LUNA_NAME
         val restored = World(world.system, catalog).also { it.restore(world.save()); it.ensureStructures() }
-        assertEquals(1, restored.vessels.count { it.referenceBodyId == "luna" && it.owner == World.WORLD_OWNER })
+        assertEquals(1, restored.worldBases().count { it.referenceBodyId == "luna" })
         assertEquals("Riccioli Base", restored.lunaBase()?.name)
     }
 

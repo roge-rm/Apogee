@@ -204,7 +204,7 @@ class CareerBalanceTest {
                     log.append("[${node.id} -> ${state.insight}] ")
                 }
                 is Found -> {
-                    val wonder = com.rm.apogee.core.world.SeaWonders.byId(step.wonder)!!
+                    val wonder = com.rm.apogee.core.world.Wonders.byId(step.wonder)!!
                     state = state.copy(insight = state.insight + wonder.insight, visits = state.visits + "wonder:${wonder.id}")
                     log.append("${wonder.id} ")
                 }

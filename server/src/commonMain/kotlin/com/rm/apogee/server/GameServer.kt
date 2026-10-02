@@ -466,10 +466,11 @@ class GameServer(
         // What's been knocked down, so their forest matches everyone else's.
         if (world.felledScatter.isNotEmpty()) {
             session.send(ServerMessage.ScatterFelled(world.felledScatter.toList()), Channel.STRUCTURE)
-            session.send(ServerMessage.Surveyed(world.surveyed.sorted()), Channel.STRUCTURE)
-            session.rosterRevision = world.crewRevision
-            session.send(ServerMessage.Roster(world.crewOf(session.clientId)), Channel.STRUCTURE)
         }
+        // What's been surveyed, and their crew.
+        session.send(ServerMessage.Surveyed(world.surveyed.sorted()), Channel.STRUCTURE)
+        session.rosterRevision = world.crewRevision
+        session.send(ServerMessage.Roster(world.crewOf(session.clientId)), Channel.STRUCTURE)
 
         // Every craft's structure, or other players stay invisible until they change.
         for (existing in world.vessels) {

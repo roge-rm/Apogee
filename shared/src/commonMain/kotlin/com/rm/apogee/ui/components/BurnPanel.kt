@@ -84,7 +84,7 @@ fun BurnPanel(
             window?.let { WindowChip(it) }
             when {
                 burn != null -> BurnEditor(burn, actions)
-                plannable -> Hint("Tap your path or a world")
+                plannable -> Hint("Tap your path, a world or a place")
                 else -> Hint("A dot a minute")
             }
         } else {

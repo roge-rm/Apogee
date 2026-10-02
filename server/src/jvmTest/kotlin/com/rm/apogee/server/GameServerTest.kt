@@ -362,6 +362,14 @@ class GameServerTest {
         assertTrue(late.felledRevision > 0)
     }
 
+    @Test
+    fun `a player joining is told what's been surveyed, with nothing knocked down`() = runTest {
+        val server = GameServer.default(catalog)
+        server.world.surveyed += "rubra"
+        val client = joinClient(server, backgroundScope, "Alice")
+        pumpUntil(server, "the survey to reach Alice") { "rubra" in client.surveyed }
+    }
+
     /** A player watching someone else's aircraft sees its control surfaces where the server has them. */
     @Test
     fun `another player sees the same control surface deflection`() = runTest {

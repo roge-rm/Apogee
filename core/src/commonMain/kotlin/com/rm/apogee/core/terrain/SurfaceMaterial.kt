@@ -70,7 +70,31 @@ enum class SurfaceMaterial(
     NODULES(friction = 0.5, rollingDrag = 2.0, softness = 0.06, bog = 1.2),
 
     /** Around a vent: rock crusted rust and black with what the hot water leaves behind. */
-    VENT_CRUST(friction = 0.7, rollingDrag = 1.2, softness = 0.0, bog = 0.0);
+    VENT_CRUST(friction = 0.7, rollingDrag = 1.2, softness = 0.0, bog = 0.0),
+
+    /** A thin bright skin of frost over the ground, a little slick. */
+    FROST(friction = 0.35, rollingDrag = 1.2, softness = 0.01, bog = 0.3),
+
+    /** Bright rubble thrown out of a young crater, or fresh from a slide. */
+    EJECTA(friction = 0.55, rollingDrag = 1.8, softness = 0.04, bog = 1.2),
+
+    /** Dark sand: dunes and streaks of it, and what's left lying in hollows. */
+    DARK_SAND(friction = 0.45, rollingDrag = 3.0, softness = 0.06, bog = 2.0),
+
+    /** Rock laid down in layers, banded where a cliff cuts through it. */
+    LAYERED_ROCK(friction = 0.75, rollingDrag = 0.9, softness = 0.0, bog = 0.0),
+
+    /** A fresh lava flow, cold now: blocky dark rock, hard going on wheels. */
+    FLOW_ROCK(friction = 0.8, rollingDrag = 2.2, softness = 0.0, bog = 0.0),
+
+    /** Red sulfur, round a hot vent. */
+    RED_SULFUR(friction = 0.6, rollingDrag = 1.1, softness = 0.01, bog = 0.3),
+
+    /** Coarse bluish ice, frozen out of a vent's spray. */
+    VENT_ICE(friction = 0.12, rollingDrag = 0.7, softness = 0.0, bog = 0.0),
+
+    /** A pale crust of salt, left where water dried up. */
+    SALT(friction = 0.6, rollingDrag = 1.0, softness = 0.01, bog = 0.4);
 
     companion object {
         private val all = entries.toTypedArray()

@@ -46,6 +46,9 @@ class TerrainField(
 
     private val luna: LunaLand? = if (profile == Profile.LUNA) LunaLand(seed, bodyRadius) else null
 
+    /** Where Luna's close-up relief stays out. See [Quiet]. */
+    private val lunaQuiet: Quiet? = if (luna != null) Quiet(Worlds.spots("luna"), bodyRadius) else null
+
     override val hasOcean: Boolean get() = profile == Profile.TERRA
 
     override val barren: Boolean get() = profile != Profile.TERRA
@@ -57,6 +60,18 @@ class TerrainField(
 
     private val scatterField: ScatterField by lazy { ScatterField(this) }
     override val scatter: ScatterField? get() = scatterField
+
+    /** Luna's height without the close-up relief, for tests. */
+    internal fun lunaWithoutDetail(direction: Vec3): Double {
+        val length = sqrt(direction.x * direction.x + direction.y * direction.y + direction.z * direction.z)
+        return luna!!.height(direction.x / length, direction.y / length, direction.z / length)
+    }
+
+    override fun isKeptClear(direction: Vec3): Boolean {
+        val quiet = lunaQuiet ?: return isLaunchComplex(direction)
+        val length = sqrt(direction.x * direction.x + direction.y * direction.y + direction.z * direction.z)
+        return quiet.near(direction.x / length, direction.y / length, direction.z / length, Worlds.KEPT_CLEAR)
+    }
 
     override fun isLaunchComplex(direction: Vec3): Boolean {
         val home = padUnit ?: return false
@@ -121,7 +136,11 @@ class TerrainField(
         if (length < 0.7) return 0.0
         val nx = direction.x / length; val ny = direction.y / length; val nz = direction.z / length
 
-        luna?.let { return it.height(nx, ny, nz) }
+        luna?.let {
+            val base = it.height(nx, ny, nz)
+            val q = lunaQuiet!!.at(nx, ny, nz)
+            return if (q > 0.0) base + q * it.detail(nx, ny, nz, base) else base
+        }
         val shaped = shapedElevation(nx, ny, nz)
         val home = padUnit ?: return shaped
 
@@ -504,7 +523,7 @@ class TerrainField(
         const val DEFAULT_SEED = 0x4A06EE
 
         /** See [Terrain.generation]. 1 is the terrain every save before M7 was made on. */
-        const val GENERATION = 8
+        const val GENERATION = 9
 
         /** The slope (0 flat, 1 wall) past which ground is bare rock, about 39 degrees. */
         private const val STEEP_SLOPE = 0.22

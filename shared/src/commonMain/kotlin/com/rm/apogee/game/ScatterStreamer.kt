@@ -148,7 +148,7 @@ class ScatterStreamer(
         )
         return ScatterDraw(
             key(block.face, block.i, block.j), revision, centre, basis,
-            bound + ScatterKind.CONIFER.height * 1.5, instances, offsets, counts,
+            bound + ScatterKind.CONIFER.height * 1.5, instances, offsets, counts, field?.world ?: "",
         )
     }
 

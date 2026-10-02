@@ -906,6 +906,15 @@ class GameSession private constructor(
         withControlledVessel { client.send(Command.SetTarget(it, localTarget, localTargetBody)) }
     }
 
+    /** Steer by the named place [id], or by nothing if it's the target already. */
+    suspend fun setPlaceTarget(id: String) {
+        val wanted = com.rm.apogee.core.world.Wonders.TARGET_PREFIX + id
+        localTarget = -1L
+        localTargetBody = if (localTargetBody == wanted) "" else wanted
+        pushControlsToPrediction()
+        withControlledVessel { client.send(Command.SetTarget(it, localTarget, localTargetBody)) }
+    }
+
     /** The body a target id stands for (see [BODY_TARGET]), or null for a craft, or none. */
     private fun bodyOfTarget(target: Long): String? {
         if (target > BODY_TARGET) return null
@@ -1798,7 +1807,7 @@ class GameSession private constructor(
             navFrame = localNavFrame,
             target = client.vessel(localTarget)?.latest?.takeIf { it.referenceBodyId == focusState.referenceBodyId }
                 ?: bodyTarget(attractor, renderTime),
-            targetName = client.vessel(localTarget)?.name ?: system.bodies[localTargetBody]?.displayName,
+            targetName = client.vessel(localTarget)?.name ?: system.bodies[localTargetBody]?.displayName ?: placeTargetName(),
             sasMode = if (localSas) localSasMode else null,
             condition = conditions[focus.id],
             defs = focus.design.parts.map { catalog[it.partId] },
@@ -2037,12 +2046,23 @@ class GameSession private constructor(
         lap(12)
     }
 
+    /** The targeted place's name if found, or what the map marks it with if not. */
+    private fun placeTargetName(): String? {
+        val place = com.rm.apogee.core.world.Wonders.targeted(localTargetBody) ?: return null
+        return if (place.id in client.wondersFound) place.name else UNFOUND_MARK
+    }
+
     /** Where the flown craft is going. See [PathPlanner]. */
     private val planner = PathPlanner(system)
 
     /** The target body, as a craft to steer by, relative to [attractor] at [time]. Null for none. */
     private fun bodyTarget(attractor: CelestialBody, time: Double): VesselKinematics? {
         val id = localTargetBody
+        com.rm.apogee.core.world.Wonders.targeted(id)?.let { place ->
+            val position = Vec3(); val velocity = Vec3()
+            if (!com.rm.apogee.core.world.Wonders.locate(place, system, attractor, time, position, velocity)) return null
+            return VesselKinematics(vessel = -1L, referenceBodyId = attractor.id, position = position, rotation = Quat.identity(), velocity = velocity, angularVelocity = Vec3())
+        }
         if (id.isEmpty() || id == attractor.id || id !in system.bodies) return null
         return VesselKinematics(
             vessel = -1L, referenceBodyId = attractor.id,
@@ -2070,8 +2090,8 @@ class GameSession private constructor(
         val bodies: List<Triple<String, Vec3, Double>>,
         /** How far out the map shows, in metres. */
         val reach: Double = 0.0,
-        /** The sea's named places on the world below that have been found: name and where. */
-        val places: List<Pair<String, Vec3>> = emptyList(),
+        /** The named places on the world below the map shows: id, name and where. */
+        val places: List<Triple<String, String, Vec3>> = emptyList(),
     )
 
     /**
@@ -2097,7 +2117,7 @@ class GameSession private constructor(
     private fun placeLabels(view: MapView, width: Float, height: Float): List<MapLabel> {
         val out = ArrayList<MapLabel>()
         val at = FloatArray(2)
-        for ((name, where) in view.places) {
+        for ((_, name, where) in view.places) {
             // Only on the side turned to the camera.
             if ((view.camera - where) dot where <= 0.0) continue
             if (!onScreen(view, where, width, height, at)) continue
@@ -2109,16 +2129,19 @@ class GameSession private constructor(
     }
 
     /**
-     * The sea's named places on [attractor] this player has found, and where each is now. The rest
+     * The named places on [attractor] and where each is now: by name the ones this player has
+     * found, and a mark at the rest on land once the world's been surveyed. Under the sea the rest
      * stay hidden, in free play too.
      */
-    private fun foundPlaces(attractor: CelestialBody, time: Double): List<Pair<String, Vec3>> {
+    private fun foundPlaces(attractor: CelestialBody, time: Double): List<Triple<String, String, Vec3>> {
         val found = client.wondersFound
-        val wonders = com.rm.apogee.core.world.SeaWonders.all.filter { it.bodyId == attractor.id && it.id in found }
-        if (wonders.isEmpty()) return emptyList()
+        val surveyed = attractor.id in client.surveyed
+        val wonders = com.rm.apogee.core.world.Wonders.byBody[attractor.id]?.filter { it.id in found || (surveyed && it.onLand) }
+        if (wonders.isNullOrEmpty()) return emptyList()
         val rotation = attractor.rotationAt(time, Quat())
-        return wonders.map {
-            it.name to rotation.rotate(Vec3().setTo(it.direction).mulInPlace(attractor.radius), Vec3())
+        // Found ones first, so a mark never crowds out a name.
+        return wonders.sortedBy { it.id !in found }.map {
+            Triple(it.id, if (it.id in found) it.name else UNFOUND_MARK, rotation.rotate(Vec3().setTo(it.direction).mulInPlace(attractor.radius), Vec3()))
         }
     }
 
@@ -2300,12 +2323,20 @@ class GameSession private constructor(
     }
 
     /**
-     * A tap on the map: a world to target it, or the path to plan a burn there or move the planned
-     * one. True if it meant something.
+     * A tap on the map: a world or a place to target it, or the path to plan a burn there or move
+     * the planned one. True if it meant something.
      */
     fun mapTap(x: Float, y: Float, width: Float, height: Float): Boolean {
         val view = mapView ?: return false
         val at = FloatArray(2)
+        for ((id, _, where) in view.places) {
+            if ((view.camera - where) dot where <= 0.0) continue
+            if (!onScreen(view, where, width, height, at)) continue
+            if (kotlin.math.hypot(at[0] - x, at[1] - y) < MAP_GRAB_PIXELS) {
+                terrainScope.launch { setPlaceTarget(id) }
+                return true
+            }
+        }
         for ((id, centre, radius) in view.bodies) {
             if (!onScreen(view, centre, width, height, at)) continue
             if (kotlin.math.hypot(at[0] - x, at[1] - y) < MAP_GRAB_PIXELS) {
@@ -2709,7 +2740,7 @@ class GameSession private constructor(
             if (!farGlobesBuilding.add(body.id)) return null
         }
         terrainScope.launch(FAR_GLOBES) {
-            val globe = com.rm.apogee.render.PlanetMesh.buildGlobe(body.terrain, body.radius, FAR_GLOBE_RINGS, body.id)
+            val globe = com.rm.apogee.render.PlanetMesh.buildGlobe(body.terrain, body.radius, if (com.rm.apogee.render.GiantLook.isGiant(body.id)) FAR_GIANT_RINGS else FAR_GLOBE_RINGS, body.id, blend = true)
             synchronized(farGlobeCache) {
                 farGlobeCache[body.id] = globe
                 farGlobesBuilding.remove(body.id)
@@ -3201,8 +3232,11 @@ class GameSession private constructor(
         val material = terrain.material(direction, terrain.elevation(direction), 0.0)
         return when (material) {
             com.rm.apogee.core.terrain.SurfaceMaterial.ROCK, com.rm.apogee.core.terrain.SurfaceMaterial.BASALT,
-            com.rm.apogee.core.terrain.SurfaceMaterial.ICE, com.rm.apogee.core.terrain.SurfaceMaterial.SCREE -> Materials.ROCK
-            com.rm.apogee.core.terrain.SurfaceMaterial.SAND, com.rm.apogee.core.terrain.SurfaceMaterial.REGOLITH -> Materials.SAND
+            com.rm.apogee.core.terrain.SurfaceMaterial.ICE, com.rm.apogee.core.terrain.SurfaceMaterial.SCREE,
+            com.rm.apogee.core.terrain.SurfaceMaterial.LAYERED_ROCK, com.rm.apogee.core.terrain.SurfaceMaterial.FLOW_ROCK,
+            com.rm.apogee.core.terrain.SurfaceMaterial.VENT_ICE -> Materials.ROCK
+            com.rm.apogee.core.terrain.SurfaceMaterial.SAND, com.rm.apogee.core.terrain.SurfaceMaterial.REGOLITH,
+            com.rm.apogee.core.terrain.SurfaceMaterial.DARK_SAND, com.rm.apogee.core.terrain.SurfaceMaterial.EJECTA -> Materials.SAND
             com.rm.apogee.core.terrain.SurfaceMaterial.SNOW -> Materials.SNOW
             com.rm.apogee.core.terrain.SurfaceMaterial.FOREST -> Materials.WOOD
             else -> Materials.EARTH
@@ -4739,6 +4773,12 @@ class GameSession private constructor(
 
         /** How finely other worlds' globes are built: rings pole to pole, and twice as many round. */
         private const val FAR_GLOBE_RINGS = 48
+
+        /** What the map shows at a place not yet found. */
+        private const val UNFOUND_MARK = "?"
+
+        /** A giant's, which fills the sky over its moons. */
+        private const val FAR_GIANT_RINGS = 128
 
         /** The one thread other worlds' globes are built on, one after another. */
         private val FAR_GLOBES = workerPool("far-globes", 1)

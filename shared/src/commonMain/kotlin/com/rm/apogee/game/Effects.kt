@@ -151,6 +151,7 @@ class Effects(tier: QualityTier) {
         seaSpray(dt, time, body)
         plumes(dt, body, cameraBodyFixed)
         seaVents(dt, body, cameraBodyFixed)
+        groundVents(dt, body, cameraBodyFixed)
         advance(dt, body)
         if (weather != null) lightning(time, weather, cameraBodyFixed, body)
         flash = (flash * exp(-dt / 0.12).toFloat()).coerceAtLeast(0f)
@@ -211,6 +212,72 @@ class Effects(tier: QualityTier) {
                     life = 0.8 + 0.6 * rand(k), startSize = 0.5, endSize = 1.1,
                     r = 0.55f, g = 0.22f, b = 0.08f, a = 0.25f, grip = 0.0, rise = 0.0, glow = true,
                 )
+            }
+        }
+    }
+
+    /** The geysers and fumaroles near the camera, as body-fixed mouths, and which each is. */
+    private val groundMouths = ArrayList<Vec3>()
+    private val groundGeysers = ArrayList<Boolean>()
+    private val groundLookedFrom = Vec3()
+    private var groundBody = ""
+
+    /**
+     * Geysers spraying and fumaroles fuming near the camera, on dry ground. A geyser throws a
+     * narrow column of frost that falls back round it; a fumarole puffs pale gas.
+     */
+    private fun groundVents(dt: Double, body: CelestialBody, camera: Vec3) {
+        val scatter = body.terrain?.scatter
+        val height = camera.length - body.radius
+        if (scatter == null || !body.terrain!!.barren || height > GROUND_VENT_REACH + body.terrain!!.maxElevation) {
+            groundMouths.clear(); groundGeysers.clear(); groundBody = ""; return
+        }
+        if (groundBody != body.id || groundLookedFrom.distanceTo(camera) > GROUND_VENT_LOOK_AGAIN) {
+            groundMouths.clear(); groundGeysers.clear()
+            groundBody = body.id
+            groundLookedFrom.setTo(camera)
+            scatter.forEachBlockNear(camera, GROUND_VENT_REACH, scratch2) { block ->
+                for (k in 0 until block.count) {
+                    val kind = com.rm.apogee.core.terrain.ScatterKind.of(block.kinds[k].toInt())
+                    val geyser = kind == com.rm.apogee.core.terrain.ScatterKind.GEYSER
+                    if (!geyser && kind != com.rm.apogee.core.terrain.ScatterKind.FUMAROLE) continue
+                    val at = Vec3(block.x[k], block.y[k], block.z[k])
+                    if (at.distanceTo(camera) > GROUND_VENT_REACH) continue
+                    groundMouths += at.addScaledInPlace(at.copy().normalizeInPlace(), kind.height * block.sizes[k])
+                    groundGeysers += geyser
+                }
+            }
+        }
+        val g = body.surfaceGravity
+        // Aversa's jets are dark with the dust they carry.
+        val dark = body.id == "aversa"
+        for ((n, mouth) in groundMouths.withIndex()) {
+            up.setTo(mouth).normalizeInPlace()
+            if (groundGeysers[n]) {
+                val speed = kotlin.math.sqrt(2.0 * g * GEYSER_HEIGHT)
+                val count = poisson(GEYSER_RATE * rateScale * dt, 0x6E75 + n)
+                for (k in 0 until count) {
+                    val v = speed * (0.7 + 0.3 * rand(k))
+                    val shade = 0.85f + 0.15f * rand(k + 1)
+                    val (r, gg, b) = if (dark) Triple(0.22f, 0.20f, 0.19f) else Triple(0.92f, 0.95f, 0.98f)
+                    spawn(
+                        x = mouth.x, y = mouth.y, z = mouth.z,
+                        vx = up.x * v + jitter(k, 4) * 0.6, vy = up.y * v + jitter(k, 5) * 0.6, vz = up.z * v + jitter(k, 6) * 0.6,
+                        life = 2.0 * v / g, startSize = 0.4, endSize = 1.6,
+                        r = r * shade, g = gg * shade, b = b * shade, a = 0.6f, grip = 0.0, rise = 0.0, fall = true,
+                    )
+                }
+            } else {
+                val count = poisson(FUMAROLE_RATE * rateScale * dt, 0x6E76 + n)
+                for (k in 0 until count) {
+                    val rise = 0.5 + 0.4 * rand(k)
+                    spawn(
+                        x = mouth.x + jitter(k, 1) * 0.2, y = mouth.y + jitter(k, 2) * 0.2, z = mouth.z + jitter(k, 3) * 0.2,
+                        vx = up.x * rise + jitter(k, 4) * 0.1, vy = up.y * rise + jitter(k, 5) * 0.1, vz = up.z * rise + jitter(k, 6) * 0.1,
+                        life = 5.0 + 3.0 * rand(k + 1), startSize = 0.5, endSize = 3.5,
+                        r = 0.88f, g = 0.86f, b = 0.74f, a = 0.35f, grip = 0.0, rise = 0.0,
+                    )
+                }
             }
         }
     }
@@ -617,7 +684,8 @@ class Effects(tier: QualityTier) {
         for (e in emitters) {
             if (e.throttle <= 0.01) continue
             val altitude = e.nozzle.length - body.radius
-            val pressure = body.atmosphere?.pressureRatioAt(altitude) ?: 0.0
+            // Air thicker than Terra's sea level, as on Caligo, gives the same flame.
+            val pressure = body.atmosphere?.pressureRatioAt(altitude)?.coerceIn(0.0, 1.0) ?: 0.0
             val flicker = 0.9 + 0.1 * Noise.simplex(e.seed, time * 13.0, 0.0, 0.0)
             val orient = quatFromTo(Vec3(0.0, -1.0, 0.0), e.out)
             when (e.kind) {
@@ -659,6 +727,9 @@ class Effects(tier: QualityTier) {
             com.rm.apogee.core.terrain.SurfaceMaterial.DIRT, com.rm.apogee.core.terrain.SurfaceMaterial.CLAY -> floatArrayOf(0.62f, 0.52f, 0.40f)
             com.rm.apogee.core.terrain.SurfaceMaterial.SCREE -> floatArrayOf(0.6f, 0.58f, 0.55f)
             com.rm.apogee.core.terrain.SurfaceMaterial.REGOLITH -> floatArrayOf(0.62f, 0.62f, 0.6f)
+            com.rm.apogee.core.terrain.SurfaceMaterial.DARK_SAND -> floatArrayOf(0.32f, 0.30f, 0.28f)
+            com.rm.apogee.core.terrain.SurfaceMaterial.EJECTA -> floatArrayOf(0.74f, 0.72f, 0.68f)
+            com.rm.apogee.core.terrain.SurfaceMaterial.SALT -> floatArrayOf(0.86f, 0.84f, 0.78f)
             else -> return
         }
         val n = poisson(speed * 1.2 * rateScale * dt, seed)
@@ -1129,6 +1200,16 @@ class Effects(tier: QualityTier) {
          * goes before they're looked for again.
          */
         private const val VENT_REACH = 150.0
+
+        /**
+         * Geysers and fumaroles: how near they're seen, how far the camera moves before looking
+         * again, how high a geyser throws, and puffs a second from each.
+         */
+        private const val GROUND_VENT_REACH = 300.0
+        private const val GROUND_VENT_LOOK_AGAIN = 50.0
+        private const val GEYSER_HEIGHT = 25.0
+        private const val GEYSER_RATE = 14.0
+        private const val FUMAROLE_RATE = 2.0
         private const val VENT_LOOK_AGAIN = 25.0
 
         /** A sea-floor vent's smoke and shimmer, a second each. */

@@ -59,7 +59,9 @@ class TerrainWind(private val terrain: Terrain, private val bodyRadius: Double) 
             SurfaceMaterial.DIRT -> 0.03
             SurfaceMaterial.MUD -> 0.02
             SurfaceMaterial.SAND, SurfaceMaterial.REGOLITH -> 0.01
-            SurfaceMaterial.SNOW, SurfaceMaterial.ICE -> 0.002
+            SurfaceMaterial.SNOW, SurfaceMaterial.ICE, SurfaceMaterial.FROST, SurfaceMaterial.VENT_ICE -> 0.002
+            SurfaceMaterial.DARK_SAND -> 0.01
+            SurfaceMaterial.SALT -> 0.005
             SurfaceMaterial.CONCRETE, SurfaceMaterial.ASPHALT -> 0.005
             else -> 0.05
         }
@@ -78,7 +80,11 @@ class TerrainWind(private val terrain: Terrain, private val bodyRadius: Double) 
             SurfaceMaterial.CONCRETE, SurfaceMaterial.ASPHALT -> 0.85
             SurfaceMaterial.RED_DUST, SurfaceMaterial.TESSERA -> 0.9
             SurfaceMaterial.SULFUR, SurfaceMaterial.LAVA -> 1.0
-            SurfaceMaterial.ORGANIC_SAND, SurfaceMaterial.THOLIN -> 0.6
+            SurfaceMaterial.ORGANIC_SAND, SurfaceMaterial.THOLIN, SurfaceMaterial.EJECTA -> 0.6
+            SurfaceMaterial.DARK_SAND, SurfaceMaterial.RED_SULFUR -> 1.0
+            SurfaceMaterial.LAYERED_ROCK, SurfaceMaterial.FLOW_ROCK -> 0.9
+            SurfaceMaterial.SALT -> 0.5
+            SurfaceMaterial.FROST -> 0.05
             else -> 0.0
         }
 

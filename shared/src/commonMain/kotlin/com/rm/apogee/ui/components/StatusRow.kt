@@ -19,6 +19,7 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Compress
 import androidx.compose.material.icons.filled.Paragliding
+import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Radar
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.SignalWifiOff
@@ -111,7 +112,9 @@ fun StatusRow(
                 side > 0 -> "R$side\u00b0"
                 else -> "L${-side}\u00b0"
             }
-            add(StatusChip("sonar", Icons.Filled.Radar, "${formatDistance(power.findRange.toDouble())} $way", ApogeeColors.Accent, false, null))
+            // The sonar under the sea, the finder on land.
+            val icon = if (power.seabed >= 0f) Icons.Filled.Radar else Icons.Filled.Explore
+            add(StatusChip("sonar", icon, "${formatDistance(power.findRange.toDouble())} $way", ApogeeColors.Accent, false, null))
         }
         if (chute != null) add(StatusChip("chute", Icons.Filled.Paragliding, chute, if (chute == "ARMED") ApogeeColors.Data else ApogeeColors.Prograde, false, null))
         if (telemetry.overheating) {

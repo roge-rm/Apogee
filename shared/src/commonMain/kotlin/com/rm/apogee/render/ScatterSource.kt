@@ -19,6 +19,8 @@ class ScatterDraw(
     @Volatile var instances: FloatArray?,
     val offsets: IntArray,
     val counts: IntArray,
+    /** Whose ground it lies on, for its colour. See [ScatterTints]. */
+    val world: String = "",
 ) {
     companion object {
         const val INSTANCE_FLOATS = 5

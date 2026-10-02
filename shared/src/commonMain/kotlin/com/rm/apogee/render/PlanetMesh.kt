@@ -17,8 +17,12 @@ object PlanetMesh {
     /** Indices are 32-bit: at 256 rings there are more vertices than a short can count. */
     class Data(val vertices: FloatArray, val indices: IntArray)
 
-    /** @param rings latitude divisions. Longitude gets twice as many. */
-    fun buildGlobe(field: Terrain?, bodyRadius: Double, rings: Int, world: String = "terra"): Data {
+    /**
+     * @param rings latitude divisions. Longitude gets twice as many.
+     * @param blend for a globe seen from far off: each point's ground colour is the average over its
+     *     own cell, so detail smaller than a cell doesn't show as single-cell specks.
+     */
+    fun buildGlobe(field: Terrain?, bodyRadius: Double, rings: Int, world: String = "terra", blend: Boolean = false): Data {
         val segments = rings * 2
         val stride = TerrainChunk.STRIDE_FLOATS
         val vertices = FloatArray((rings + 1) * (segments + 1) * stride)
@@ -58,8 +62,8 @@ object PlanetMesh {
                     TerrainPalette.water(-elevation, vertices, v + 6, field?.world ?: "terra")
                     vertices[v + 9] = if (field == null) 0f else (1.0 - drawn / 1_000.0).toFloat()
                 } else {
-                    val material = field.groundMaterial(direction, elevation, 0.0)
-                    TerrainPalette.colour(material, elevation, ring * 7919 + segment, vertices, v + 6, field.world)
+                    TerrainPalette.colour(field.groundMaterial(direction, elevation, 0.0), elevation, ring * 7919 + segment, vertices, v + 6, field.world)
+                    if (blend) blended(field, phi, theta, PI / rings, ring * 7919 + segment, vertices, v + 6)
                     vertices[v + 9] = 0f
                 }
                 v += stride
@@ -79,4 +83,30 @@ object PlanetMesh {
         }
         return Data(vertices, indices)
     }
+
+    /**
+     * The ground's average colour over a cell [step] radians across round [phi], [theta], into [out]
+     * at [o]. Sea in the cell is left out, since the shader colours the sea itself, and with no
+     * ground but the point itself [out] keeps its colour.
+     */
+    private fun blended(field: Terrain, phi: Double, theta: Double, step: Double, key: Int, out: FloatArray, o: Int) {
+        val sample = FloatArray(3)
+        val at = Vec3()
+        var r = 0f; var g = 0f; var b = 0f; var n = 0
+        for (i in 0 until BLEND) for (j in 0 until BLEND) {
+            val p = (phi + step * ((i + 0.5) / BLEND - 0.5)).coerceIn(0.0, PI)
+            // Twice as many cells round as pole to pole, so the same angle across.
+            val t = theta + step * ((j + 0.5) / BLEND - 0.5)
+            at.setTo(sin(p) * cos(t), cos(p), sin(p) * sin(t))
+            val elevation = field.elevation(at)
+            if (field.hasOcean && elevation < 0.0) continue
+            TerrainPalette.colour(field.groundMaterial(at, elevation, 0.0), elevation, key * BLEND * BLEND + i * BLEND + j, sample, 0, field.world)
+            r += sample[0]; g += sample[1]; b += sample[2]; n++
+        }
+        if (n == 0) return
+        out[o] = r / n; out[o + 1] = g / n; out[o + 2] = b / n
+    }
+
+    /** Samples a side of a far globe's cell, for [blended]. */
+    private const val BLEND = 3
 }

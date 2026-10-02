@@ -22,7 +22,13 @@ object TerrainPalette {
     ) {
         var r: Float; var g: Float; var b: Float
         val own = WORLD_COLOURS[world]?.get(material)
-        if (own != null) {
+        if (material == SurfaceMaterial.LAYERED_ROCK) {
+            // Bands by height, so a cliff shows its layers, each facet one colour.
+            val tones = BANDS[world] ?: BANDS.getValue("")
+            val band = kotlin.math.floor(elevation / (BAND_HEIGHT[world] ?: 30.0)).toInt()
+            val t = tones[(Noise.hashInt(JITTER_SEED + 3, band, 0, 0) ushr 4) % tones.size]
+            r = t[0]; g = t[1]; b = t[2]
+        } else if (own != null) {
             r = own[0]; g = own[1]; b = own[2]
         } else when (material) {
             SurfaceMaterial.GRASS -> {
@@ -66,6 +72,14 @@ object TerrainPalette {
                 val t = Noise.hash(JITTER_SEED + 2, jitterKey, 0, 0).toFloat()
                 r = 0.45f - 0.28f * t; g = 0.24f - 0.14f * t; b = 0.14f - 0.07f * t
             }
+            SurfaceMaterial.FROST -> { r = 0.86f; g = 0.88f; b = 0.92f }
+            SurfaceMaterial.EJECTA -> { r = 0.74f; g = 0.73f; b = 0.70f }
+            SurfaceMaterial.DARK_SAND -> { r = 0.20f; g = 0.19f; b = 0.18f }
+            SurfaceMaterial.LAYERED_ROCK -> { r = 0.50f; g = 0.44f; b = 0.36f }
+            SurfaceMaterial.FLOW_ROCK -> { r = 0.20f; g = 0.19f; b = 0.20f }
+            SurfaceMaterial.RED_SULFUR -> { r = 0.70f; g = 0.26f; b = 0.12f }
+            SurfaceMaterial.VENT_ICE -> { r = 0.70f; g = 0.84f; b = 0.95f }
+            SurfaceMaterial.SALT -> { r = 0.80f; g = 0.78f; b = 0.72f }
         }
         // +-6% brightness per vertex, hashed so it's the same every build.
         val jitter = 0.94f + 0.12f * Noise.hash(JITTER_SEED, jitterKey, 0, 0).toFloat()
@@ -93,19 +107,36 @@ object TerrainPalette {
 
     private fun rgb(r: Float, g: Float, b: Float) = floatArrayOf(r, g, b)
 
+    /** Layered rock's bands, by world. "" is for any world without its own. */
+    private val BANDS: Map<String, Array<FloatArray>> = mapOf(
+        "" to arrayOf(rgb(0.50f, 0.44f, 0.36f), rgb(0.40f, 0.34f, 0.27f), rgb(0.58f, 0.52f, 0.42f)),
+        "rubra" to arrayOf(rgb(0.56f, 0.30f, 0.18f), rgb(0.44f, 0.24f, 0.15f), rgb(0.66f, 0.42f, 0.28f), rgb(0.50f, 0.34f, 0.24f)),
+        "fornax" to arrayOf(rgb(0.78f, 0.62f, 0.26f), rgb(0.52f, 0.34f, 0.16f), rgb(0.30f, 0.22f, 0.14f), rgb(0.86f, 0.74f, 0.36f)),
+        "portitor" to arrayOf(rgb(0.46f, 0.46f, 0.46f), rgb(0.36f, 0.35f, 0.35f), rgb(0.54f, 0.53f, 0.52f)),
+    )
+
+    /** How tall each band of layered rock is, in metres, by world. */
+    private val BAND_HEIGHT: Map<String, Double> = mapOf("fornax" to 20.0, "portitor" to 40.0)
+
     /** Worlds whose ground differs in colour from Terra's and Luna's. */
     private val WORLD_COLOURS: Map<String, Map<SurfaceMaterial, FloatArray>> = mapOf(
         "celer" to mapOf(
+            SurfaceMaterial.EJECTA to rgb(0.62f, 0.64f, 0.70f),
             SurfaceMaterial.REGOLITH to rgb(0.42f, 0.40f, 0.38f),
             SurfaceMaterial.ROCK to rgb(0.34f, 0.32f, 0.30f),
             SurfaceMaterial.BASALT to rgb(0.30f, 0.29f, 0.28f),
         ),
         "caligo" to mapOf(
+            SurfaceMaterial.FLOW_ROCK to rgb(0.22f, 0.17f, 0.13f),
+            SurfaceMaterial.FROST to rgb(0.70f, 0.70f, 0.72f),
+            SurfaceMaterial.DARK_SAND to rgb(0.26f, 0.20f, 0.14f),
             SurfaceMaterial.BASALT to rgb(0.36f, 0.28f, 0.20f),
             SurfaceMaterial.ROCK to rgb(0.42f, 0.34f, 0.24f),
             SurfaceMaterial.REGOLITH to rgb(0.48f, 0.38f, 0.26f),
         ),
         "rubra" to mapOf(
+            SurfaceMaterial.DARK_SAND to rgb(0.30f, 0.20f, 0.16f),
+            SurfaceMaterial.SALT to rgb(0.78f, 0.70f, 0.62f),
             SurfaceMaterial.ROCK to rgb(0.45f, 0.25f, 0.15f),
             SurfaceMaterial.SCREE to rgb(0.55f, 0.32f, 0.20f),
             SurfaceMaterial.BASALT to rgb(0.30f, 0.20f, 0.16f),
@@ -122,43 +153,56 @@ object TerrainPalette {
             SurfaceMaterial.ROCK to rgb(0.27f, 0.25f, 0.23f),
         ),
         "fornax" to mapOf(
+            SurfaceMaterial.FROST to rgb(0.92f, 0.90f, 0.82f),
+            SurfaceMaterial.FLOW_ROCK to rgb(0.12f, 0.10f, 0.08f),
             SurfaceMaterial.BASALT to rgb(0.18f, 0.14f, 0.10f),
             SurfaceMaterial.ROCK to rgb(0.55f, 0.40f, 0.22f),
         ),
         "crusta" to mapOf(
+            SurfaceMaterial.SALT to rgb(0.66f, 0.70f, 0.74f),
             SurfaceMaterial.ICE to rgb(0.86f, 0.84f, 0.78f),
             SurfaceMaterial.SNOW to rgb(0.93f, 0.92f, 0.88f),
         ),
         "maxima" to mapOf(
+            SurfaceMaterial.DARK_SAND to rgb(0.26f, 0.24f, 0.21f),
+            SurfaceMaterial.EJECTA to rgb(0.80f, 0.79f, 0.76f),
             SurfaceMaterial.REGOLITH to rgb(0.40f, 0.37f, 0.33f),
             SurfaceMaterial.ICE to rgb(0.72f, 0.70f, 0.66f),
         ),
         "cicatrix" to mapOf(
+            SurfaceMaterial.DARK_SAND to rgb(0.14f, 0.13f, 0.12f),
+            SurfaceMaterial.FROST to rgb(0.80f, 0.80f, 0.80f),
             SurfaceMaterial.REGOLITH to rgb(0.26f, 0.24f, 0.22f),
             SurfaceMaterial.ROCK to rgb(0.28f, 0.26f, 0.24f),
             SurfaceMaterial.SNOW to rgb(0.62f, 0.62f, 0.60f),
             SurfaceMaterial.ICE to rgb(0.70f, 0.70f, 0.68f),
         ),
         "aurantia" to mapOf(
+            SurfaceMaterial.SALT to rgb(0.62f, 0.50f, 0.32f),
             SurfaceMaterial.ROCK to rgb(0.40f, 0.30f, 0.18f),
             SurfaceMaterial.REGOLITH to rgb(0.45f, 0.36f, 0.22f),
             SurfaceMaterial.ICE to rgb(0.55f, 0.45f, 0.30f),
             SurfaceMaterial.SNOW to rgb(0.62f, 0.52f, 0.36f),
         ),
         "fons" to mapOf(
+            SurfaceMaterial.VENT_ICE to rgb(0.78f, 0.90f, 1.0f),
             SurfaceMaterial.ICE to rgb(0.96f, 0.97f, 0.99f),
             SurfaceMaterial.SNOW to rgb(0.98f, 0.98f, 1.0f),
         ),
         "aversa" to mapOf(
+            SurfaceMaterial.VENT_ICE to rgb(0.76f, 0.80f, 0.86f),
+            SurfaceMaterial.FROST to rgb(0.96f, 0.90f, 0.90f),
             SurfaceMaterial.NITROGEN_ICE to rgb(0.88f, 0.78f, 0.76f),
             SurfaceMaterial.ICE to rgb(0.70f, 0.68f, 0.66f),
             SurfaceMaterial.ROCK to rgb(0.42f, 0.40f, 0.40f),
         ),
         "ultima" to mapOf(
+            SurfaceMaterial.FROST to rgb(0.94f, 0.94f, 0.95f),
             SurfaceMaterial.ICE to rgb(0.80f, 0.76f, 0.70f),
             SurfaceMaterial.ROCK to rgb(0.52f, 0.44f, 0.38f),
         ),
         "portitor" to mapOf(
+            SurfaceMaterial.EJECTA to rgb(0.76f, 0.76f, 0.78f),
             SurfaceMaterial.REGOLITH to rgb(0.44f, 0.44f, 0.44f),
             SurfaceMaterial.THOLIN to rgb(0.36f, 0.14f, 0.10f),
         ),

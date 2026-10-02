@@ -3,6 +3,7 @@ package com.rm.apogee.ui.screens
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -915,7 +916,8 @@ private fun MapNames(labels: (Float, Float) -> List<com.rm.apogee.game.GameSessi
     Box(Modifier.fillMaxSize().onSizeChanged { size = it }) {
         for (label in shown) {
             if (label.place) {
-                // A found place is just a dot. Its name is in the Program.
+                // A found place is just a dot, its name in the Program. One still to find is a ring.
+                val found = label.name != "?"
                 Box(
                     Modifier
                         .offset { androidx.compose.ui.unit.IntOffset(label.x.toInt(), label.y.toInt()) }
@@ -923,7 +925,10 @@ private fun MapNames(labels: (Float, Float) -> List<com.rm.apogee.game.GameSessi
                         .size(PLACE_DOT)
                         .background(Color.Black.alpha(0.6f), androidx.compose.foundation.shape.CircleShape)
                         .padding(1.dp)
-                        .background(ApogeeColors.Accent, androidx.compose.foundation.shape.CircleShape),
+                        .then(
+                            if (found) Modifier.background(ApogeeColors.Accent, androidx.compose.foundation.shape.CircleShape)
+                            else Modifier.border(1.5.dp, ApogeeColors.Accent, androidx.compose.foundation.shape.CircleShape),
+                        ),
                 )
                 continue
             }
@@ -939,7 +944,7 @@ private fun MapNames(labels: (Float, Float) -> List<com.rm.apogee.game.GameSessi
 }
 
 /** How big a found place's dot is on the map. */
-private val PLACE_DOT = 6.dp
+private val PLACE_DOT = 8.dp
 
 /** Steps to the next camera mode and shows its name for a moment. */
 @Composable

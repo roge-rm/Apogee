@@ -8,7 +8,7 @@ import com.rm.apogee.core.orbit.CelestialBody
 import com.rm.apogee.core.orbit.SolarSystem
 import com.rm.apogee.core.part.PartCatalog
 import com.rm.apogee.core.terrain.SurfaceMaterial
-import com.rm.apogee.core.world.SeaWonders
+import com.rm.apogee.core.world.Wonders
 import com.rm.apogee.core.world.World
 import com.rm.apogee.core.world.WorldEvent
 import kotlin.math.abs
@@ -391,7 +391,7 @@ class Program(val tree: TechTree = TechTree.stock) {
      * [vessel]'s owner reached [wonder]. Pays the first time, and is a world first if nobody found
      * it yet.
      */
-    internal fun found(world: World, vessel: Vessel, wonder: SeaWonders.Wonder) {
+    internal fun found(world: World, vessel: Vessel, wonder: Wonders.Wonder) {
         val owner = vessel.owner
         if (owner.isBlank() || owner == World.WORLD_OWNER) return
         val state = careerOf(owner)

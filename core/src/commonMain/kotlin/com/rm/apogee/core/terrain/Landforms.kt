@@ -276,10 +276,16 @@ internal class Craters(private val seed: Int, private val radius: Double, privat
 
     class CraterClass(val cell: Double, val chance: Double, val minRadius: Double, val maxRadius: Double)
 
-    /** Every crater near the point summed, keeping [keep] of them, so younger ground has fewer. */
+    /**
+     * Every crater near the point summed, keeping [keep] of them, so younger ground has fewer. The
+     * ones on the edge of being kept are faded, or a crater would pop in whole as [keep] changes.
+     */
     fun height(px: Double, py: Double, pz: Double, keep: Double): Double {
         var total = 0.0
-        for (c in classes.indices) forEach(px, py, pz, c, keep) { x01, r, age -> total += profile(x01, r) * age }
+        for (c in classes.indices) forEach(px, py, pz, c, keep, EJECTA_REACH) { x01, r, age, _, _, _, drawn ->
+            val fade = Landforms.smooth((classes[c].chance * keep - drawn) / (classes[c].chance * KEEP_FADE))
+            if (fade > 0.0) total += profile(x01, r) * age * fade
+        }
         return total
     }
 
@@ -306,14 +312,42 @@ internal class Craters(private val seed: Int, private val radius: Double, privat
         return false
     }
 
-    private inline fun forEach(px: Double, py: Double, pz: Double, c: Int, keep: Double, action: (Double, Double, Double) -> Unit) {
+    /**
+     * Whether the point lies on a ray of bright rubble thrown out by a fresh crater of class [upTo]
+     * or bigger, out to [reach] radii. Rays run straight out from the middle.
+     */
+    fun onRay(px: Double, py: Double, pz: Double, keep: Double = 1.0, upTo: Int = 1, reach: Double = 4.5, from: Int = 0): Boolean {
+        for (c in from..minOf(upTo, classes.size - 1)) {
+            var rayed = false
+            forEach(px, py, pz, c, keep, reach, fresh = RAYED_AGE) { x01, _, _, ux, uy, uz, _ ->
+                if (!rayed && x01 > 1.15) {
+                    val streak = abs(Noise.simplex(seed + 31 + c, ux * 30.0, uy * 30.0, uz * 30.0))
+                    if (streak > 0.58 + 0.06 * (x01 - 1.15)) rayed = true
+                }
+            }
+            if (rayed) return true
+        }
+        return false
+    }
+
+    private inline fun forEach(px: Double, py: Double, pz: Double, c: Int, keep: Double, action: (Double, Double, Double) -> Unit) =
+        forEach(px, py, pz, c, keep, EJECTA_REACH) { x01, r, age, _, _, _, _ -> action(x01, r, age) }
+
+    /** As the other, out to [reach] radii, also giving the unit way out from the crater's middle. */
+    private inline fun forEach(
+        px: Double, py: Double, pz: Double, c: Int, keep: Double, reach: Double, fresh: Double = 0.0,
+        action: (Double, Double, Double, Double, Double, Double, Double) -> Unit,
+    ) {
         val cls = classes[c]
         val cell = cls.cell
         val cx = floor(px / cell).toInt(); val cy = floor(py / cell).toInt(); val cz = floor(pz / cell).toInt()
         val s = seed + c * 977
         for (i in -1..1) for (j in -1..1) for (k in -1..1) {
             val x = cx + i; val y = cy + j; val z = cz + k
-            if (Noise.hash(s, x, y, z) > cls.chance * keep) continue
+            val drawn = Noise.hash(s, x, y, z)
+            if (drawn > cls.chance * keep) continue
+            val age = 0.35 + 0.65 * Noise.hash(s + 5, x, y, z)
+            if (age < fresh) continue
             val vx = (x + Noise.hash(s + 1, x, y, z)) * cell
             val vy = (y + Noise.hash(s + 2, x, y, z)) * cell
             val vz = (z + Noise.hash(s + 3, x, y, z)) * cell
@@ -324,33 +358,45 @@ internal class Craters(private val seed: Int, private val radius: Double, privat
             val d = sqrt(dx * dx + dy * dy + dz * dz)
             val r = cls.minRadius + (cls.maxRadius - cls.minRadius) * Noise.hash(s + 4, x, y, z)
             val x01 = d / r
-            if (x01 >= EJECTA_REACH) continue
-            action(x01, r, 0.35 + 0.65 * Noise.hash(s + 5, x, y, z))
+            if (x01 >= reach) continue
+            val inv = if (d > 1e-9) 1.0 / d else 0.0
+            action(x01, r, age, dx * inv, dy * inv, dz * inv, drawn)
         }
     }
 
-    /** A crater's height at [x] radii from its middle. See [LunaLand]'s. */
-    private fun profile(x: Double, r: Double): Double {
-        val complex = r > complexRadius
-        val depth = r * (if (complex) 0.1 else 0.2)
-        val rim = depth * 0.25
-        if (x < 1.0) {
-            val s = if (complex) Noise.smoothstep(((x - 0.7) / 0.3).coerceIn(0.0, 1.0)) else { val q = 1.0 - x * x; 1.0 - q * q }
-            var h = -depth + (depth + rim) * s
-            if (complex) h += depth * 0.55 * exp(-(x / 0.13) * (x / 0.13))
-            return h
-        }
-        val e = (x - 1.0) / 0.3
-        val h = rim * (0.6 * exp(-e * e) + 0.4 / (1.0 + 4.0 * (x - 1.0) * (x - 1.0)))
-        if (x < 1.4) return h
-        return h * Noise.smoothstep(((EJECTA_REACH - x) / (EJECTA_REACH - 1.4)).coerceIn(0.0, 1.0))
-    }
+    private fun profile(x: Double, r: Double): Double = bowl(x, r, complexRadius)
 
     /** Past this radius (a fiftieth of the world's) a crater has a flat floor and a central peak. */
     private val complexRadius = radius / 50.0
 
     companion object {
         const val EJECTA_REACH = 2.6
+
+        /** How much of a crater class's chance its craters fade across as [height]'s keep changes. */
+        const val KEEP_FADE = 0.15
+
+        /** Only craters younger than this, by their 0.35..1 age, still show rays. */
+        const val RAYED_AGE = 0.92
+
+        /**
+         * A crater's height at [x] radii from its middle, [r] in radius, with a flat floor and a
+         * central peak past [complexRadius]. See [LunaLand]'s.
+         */
+        fun bowl(x: Double, r: Double, complexRadius: Double): Double {
+            val complex = r > complexRadius
+            val depth = r * (if (complex) 0.1 else 0.2)
+            val rim = depth * 0.25
+            if (x < 1.0) {
+                val s = if (complex) Noise.smoothstep(((x - 0.7) / 0.3).coerceIn(0.0, 1.0)) else { val q = 1.0 - x * x; 1.0 - q * q }
+                var h = -depth + (depth + rim) * s
+                if (complex) h += depth * 0.55 * exp(-(x / 0.13) * (x / 0.13))
+                return h
+            }
+            val e = (x - 1.0) / 0.3
+            val h = rim * (0.6 * exp(-e * e) + 0.4 / (1.0 + 4.0 * (x - 1.0) * (x - 1.0)))
+            if (x < 1.4) return h
+            return h * Noise.smoothstep(((EJECTA_REACH - x) / (EJECTA_REACH - 1.4)).coerceIn(0.0, 1.0))
+        }
 
         /** Luna's crater classes scaled to a world of [radius]. */
         fun scaledFrom(radius: Double, density: Double = 1.0): List<CraterClass> {
@@ -373,6 +419,9 @@ internal interface WorldLand {
     fun height(nx: Double, ny: Double, nz: Double): Double
     /** What the ground is at that place, [elevation] up and [slope] steep (0 flat, 1 a wall). */
     fun material(nx: Double, ny: Double, nz: Double, elevation: Double, slope: Double): SurfaceMaterial
+
+    /** The close-up relief over [base], the [height] there, in metres: what you drive on. */
+    fun detail(nx: Double, ny: Double, nz: Double, base: Double): Double = 0.0
 }
 
 /**
@@ -393,6 +442,14 @@ class WorldField internal constructor(
     private val scatterField: ScatterField by lazy { ScatterField(this) }
     override val scatter: ScatterField? get() = scatterField
 
+    /** Where the close-up relief stays out. */
+    private val quiet = Quiet(Worlds.spots(world), bodyRadius)
+
+    override fun isKeptClear(direction: Vec3): Boolean {
+        val l = sqrt(direction.x * direction.x + direction.y * direction.y + direction.z * direction.z)
+        return quiet.near(direction.x / l, direction.y / l, direction.z / l, Worlds.KEPT_CLEAR)
+    }
+
     override fun ventField(direction: Vec3): Double {
         val s = seabed ?: return 0.0
         val l = sqrt(direction.x * direction.x + direction.y * direction.y + direction.z * direction.z)
@@ -403,6 +460,16 @@ class WorldField internal constructor(
     private val seabed: Seabed? = if (hasSea) Seabed(world.hashCode(), bodyRadius) else null
 
     override fun elevation(direction: Vec3): Double {
+        val l = sqrt(direction.x * direction.x + direction.y * direction.y + direction.z * direction.z)
+        val nx = direction.x / l; val ny = direction.y / l; val nz = direction.z / l
+        val base = land.height(nx, ny, nz)
+        val q = quiet.at(nx, ny, nz)
+        val h = if (q > 0.0) base + q * land.detail(nx, ny, nz, base) else base
+        return if (seabed != null && h < 0.0) seabed.global(nx, ny, nz, h) else h
+    }
+
+    /** The height without the close-up relief, for tests. */
+    internal fun withoutDetail(direction: Vec3): Double {
         val l = sqrt(direction.x * direction.x + direction.y * direction.y + direction.z * direction.z)
         val nx = direction.x / l; val ny = direction.y / l; val nz = direction.z / l
         val h = land.height(nx, ny, nz)

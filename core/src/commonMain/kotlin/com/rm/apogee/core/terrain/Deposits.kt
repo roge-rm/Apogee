@@ -83,6 +83,14 @@ object Deposits {
             SurfaceMaterial.VENT_CRUST -> 0.75 to 1.0
             SurfaceMaterial.NODULES -> 0.55 to 0.85
             SurfaceMaterial.OOZE -> 0.02 to 0.08
+            SurfaceMaterial.FROST -> 0.02 to 0.06
+            SurfaceMaterial.EJECTA -> 0.25 to 0.5
+            SurfaceMaterial.DARK_SAND -> 0.2 to 0.4
+            SurfaceMaterial.LAYERED_ROCK -> 0.45 to 0.8
+            SurfaceMaterial.FLOW_ROCK -> 0.4 to 0.7
+            SurfaceMaterial.RED_SULFUR -> 0.6 to 0.9
+            SurfaceMaterial.VENT_ICE -> 0.0 to 0.0
+            SurfaceMaterial.SALT -> 0.1 to 0.2
         }
     }
 
@@ -93,6 +101,9 @@ object Deposits {
             SurfaceMaterial.SNOW -> 0.3 to 0.5
             SurfaceMaterial.NITROGEN_ICE -> 0.5 to 0.7
             SurfaceMaterial.THOLIN -> 0.05 to 0.15
+            SurfaceMaterial.FROST -> 0.25 to 0.45
+            SurfaceMaterial.VENT_ICE -> 0.9 to 1.0
+            SurfaceMaterial.SALT -> 0.1 to 0.2
             else -> 0.0 to 0.0
         }
     }

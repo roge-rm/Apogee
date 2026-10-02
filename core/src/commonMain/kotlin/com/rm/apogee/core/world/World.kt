@@ -299,11 +299,12 @@ class World(
     private val targetVelocity = Vec3()
 
     /**
-     * Where [vessel]'s target body is relative to [attractor] at [at], into [position] and
-     * [velocity]. False if it has no target body other than the one it's in.
+     * Where [vessel]'s target body or place is relative to [attractor] at [at], into [position] and
+     * [velocity]. False if it has none, or only the world it's at.
      */
     fun targetBodyFor(vessel: Vessel, attractor: CelestialBody, at: Double, position: Vec3, velocity: Vec3): Boolean {
         val id = vessel.control.targetBody
+        Wonders.targeted(id)?.let { return Wonders.locate(it, system, attractor, at, position, velocity) }
         if (id.isEmpty() || id == attractor.id || id !in system.bodies) return false
         position.setTo(system.positionOf(id, at)).subInPlace(system.positionOf(attractor.id, at))
         velocity.setTo(system.velocityOf(id, at)).subInPlace(system.velocityOf(attractor.id, at))
@@ -1119,23 +1120,29 @@ class World(
     fun wondersFoundBy(owner: String): Set<String> = wondersFound[owner]?.toSet().orEmpty()
 
     /**
-     * Checks every craft under the sea for named places it has reached (close by and nearly as
-     * deep). The first time for its owner it's a find: paid in a career, a banner in free play.
+     * Checks every craft for named places it has reached: under the sea close by and nearly as
+     * deep, on land close by and on or near the ground. The first time for its owner it's a find:
+     * paid in a career, a banner in free play.
      */
     private fun lookForWonders() {
         for (vessel in vesselsById.values) {
             if (vessel.anchored || vessel.owner.isBlank() || vessel.owner == WORLD_OWNER) continue
             val attractor = attractorFor(vessel)
-            if (attractor.ocean == null) continue
+            val wonders = Wonders.byBody[attractor.id] ?: continue
             val terrain = attractor.terrain ?: continue
-            val depth = depthOf(vessel)
-            if (depth <= WONDER_LOOK_DEPTH) continue
+            val depth = if (attractor.ocean != null) depthOf(vessel) else 0.0
             attractor.rotationAt(time, scratchRotation)
             val here = attractor.toBodyFixed(vessel.body.position, scratchRotation, scratchWonder).normalizeInPlace()
-            for (wonder in SeaWonders.all) {
-                if (wonder.bodyId != attractor.id) continue
-                if (here.distanceTo(wonder.direction) * attractor.radius > SeaWonders.REACH) continue
-                if (depth < -terrain.elevation(wonder.direction) * SeaWonders.DEPTH_SHARE) continue
+            // How high over the ground, for the ones on land.
+            val over = if (depth > 0.0) Double.MAX_VALUE else attractor.altitudeOf(vessel.body.position) - terrain.elevation(here)
+            for (wonder in wonders) {
+                if (here.distanceTo(wonder.direction) * attractor.radius > wonder.reach) continue
+                if (wonder.onLand) {
+                    if (over > Wonders.NEAR_GROUND) continue
+                } else {
+                    if (depth <= WONDER_LOOK_DEPTH) continue
+                    if (depth < -terrain.elevation(wonder.direction) * Wonders.DEPTH_SHARE) continue
+                }
                 if (!wondersFound.getOrPut(vessel.owner) { concurrentSetOf() }.add(wonder.id)) continue
                 wondersRevision++
                 val program = program
@@ -1622,7 +1629,7 @@ class World(
 
             is Command.SetTarget -> waken(command.vessel)?.control?.let {
                 it.target = if (command.target == command.vessel) -1L else command.target
-                it.targetBody = if (command.body in system.bodies) command.body else ""
+                it.targetBody = if (command.body in system.bodies || Wonders.targeted(command.body) != null) command.body else ""
             }
 
             is Command.PlanBurns -> heard(command.vessel)?.let { vessel ->
@@ -2193,8 +2200,8 @@ class World(
         // Renames Luna's base from its old name.
         vesselsById.values.firstOrNull { it.owner == WORLD_OWNER && it.name == WorldBases.OLD_LUNA_NAME }
             ?.let { it.name = WorldBases.all.first { b -> b.bodyId == "luna" }.name }
-        // What lies on the sea floor to be found: an arch and wrecks.
-        for (wonder in SeaWonders.all) if (wonder.landmark.isNotEmpty() && landmark(wonder) == null) raiseLandmark(wonder)
+        // What lies about to be found: arches and wrecks.
+        for (wonder in Wonders.all) if (wonder.landmark.isNotEmpty() && landmark(wonder) == null) raiseLandmark(wonder)
         if (program == null) {
             for (base in WorldBases.all) if (worldBase(base.bodyId) == null) raiseWorldBase(base)
         } else {
@@ -2215,24 +2222,20 @@ class World(
     }
 
     /** What stands at [wonder] to be found, if it's there. */
-    fun landmark(wonder: SeaWonders.Wonder): Vessel? =
+    fun landmark(wonder: Wonders.Wonder): Vessel? =
         vesselsById.values.firstOrNull { it.owner == WORLD_OWNER && it.name == wonder.landmark && it.anchored }
 
     /**
-     * Puts [wonder]'s landmark on the sea floor: the Great Arch, or a wreck lying tipped over,
-     * pinned and owned by the world.
+     * Puts [wonder]'s landmark on the ground or the sea floor: an arch, or a wreck lying tipped
+     * over, pinned and owned by the world.
      */
-    private fun raiseLandmark(wonder: SeaWonders.Wonder): Vessel? {
+    private fun raiseLandmark(wonder: Wonders.Wonder): Vessel? {
         if (wonder.bodyId !in system.bodies) return null
         val body = system.body(wonder.bodyId)
         val terrain = body.terrain ?: return null
-        val (design, tip) = when (wonder.landmark) {
-            SeaWonders.GREAT_ARCH -> CraftDesign("Rock Arch", listOf(com.rm.apogee.core.craft.PlacedPart("rock-arch", Vec3.zero())), catalogHash = catalog.contentHash) to 0.0
-            SeaWonders.LOST_SOUNDER -> com.rm.apogee.core.craft.StockCraft.sounder(catalog) to Math.toRadians(84.0)
-            SeaWonders.CANYON_WRECK -> com.rm.apogee.core.craft.StockCraft.trawler(catalog) to Math.toRadians(22.0)
-            SeaWonders.PLAIN_ROCKET -> com.rm.apogee.core.craft.StockCraft.starterRocket(catalog) to Math.toRadians(88.0)
-            else -> return null
-        }
+        val prop = Wonders.props[wonder.landmark] ?: return null
+        val design = prop.design(catalog)
+        val tip = prop.tip
         val up = wonder.direction.normalized()
         val ground = body.radius + terrain.elevation(up)
         val east = Vec3(0.0, 1.0, 0.0).crossInPlace(up).normalizeInPlace()
@@ -3892,7 +3895,7 @@ class World(
             canRight = canRight(vessel),
             standingOn = vessel.standingOn?.id?.raw ?: -1L,
             riders = vesselsById.values.filter { onDeckOf(it, vessel) }.map { it.id.raw },
-        ).let { sonar(vessel, it) }
+        ).let { sonar(vessel, it) }.let { finder(vessel, it) }
     }
 
     /**
@@ -3971,9 +3974,9 @@ class World(
         val here = attractor.toBodyFixed(vessel.body.position, scratchRotation, Vec3()).normalizeInPlace()
         val floor = attractor.altitudeOf(vessel.body.position) - terrain.elevation(here)
         val found = wondersFound[vessel.owner]
-        var best: SeaWonders.Wonder? = null
+        var best: Wonders.Wonder? = null
         var bestRange = range
-        for (wonder in SeaWonders.all) {
+        for (wonder in Wonders.sea) {
             if (wonder.bodyId != attractor.id || found?.contains(wonder.id) == true) continue
             val far = here.distanceTo(wonder.direction) * attractor.radius
             if (far < bestRange) { best = wonder; bestRange = far }
@@ -3984,6 +3987,38 @@ class World(
         val relative = Navigation.heading(here, nearest.direction.copy().subInPlace(here)) - Navigation.heading(here, nose)
         return systems.copy(
             seabed = floor.toFloat(),
+            findBearing = (((relative % 360.0) + 540.0) % 360.0 - 180.0).toFloat(),
+            findRange = bestRange.toFloat(),
+        )
+    }
+
+    /**
+     * [systems] plus the nearest unfound named place on land, for a powered craft near the ground of
+     * a world surveyed from orbit or with a scanner of its own: its distance and bearing from the
+     * nose in degrees (right positive). Under the sea it's the sonar's job.
+     */
+    private fun finder(vessel: Vessel, systems: ServerMessage.CraftSystems): ServerMessage.CraftSystems {
+        if (!vessel.powered || systems.findRange >= 0f) return systems
+        val attractor = attractorFor(vessel)
+        val places = Wonders.byBody[attractor.id] ?: return systems
+        if (attractor.id !in surveyed && !hasScanner(vessel)) return systems
+        val terrain = attractor.terrain ?: return systems
+        attractor.rotationAt(time, scratchRotation)
+        val here = attractor.toBodyFixed(vessel.body.position, scratchRotation, Vec3()).normalizeInPlace()
+        if (attractor.altitudeOf(vessel.body.position) - terrain.elevation(here) > READING_HEIGHT) return systems
+        if (attractor.ocean != null && depthOf(vessel) > 0.0) return systems
+        val found = wondersFound[vessel.owner]
+        var best: Wonders.Wonder? = null
+        var bestRange = LAND_FIND_RANGE
+        for (wonder in places) {
+            if (!wonder.onLand || found?.contains(wonder.id) == true) continue
+            val far = here.distanceTo(wonder.direction) * attractor.radius
+            if (far < bestRange) { best = wonder; bestRange = far }
+        }
+        val nearest = best ?: return systems
+        val nose = attractor.toBodyFixed(vessel.forward(), scratchRotation, Vec3())
+        val relative = Navigation.heading(here, nearest.direction.copy().subInPlace(here)) - Navigation.heading(here, nose)
+        return systems.copy(
             findBearing = (((relative % 360.0) + 540.0) % 360.0 - 180.0).toFloat(),
             findRange = bestRange.toFloat(),
         )
@@ -4893,7 +4928,7 @@ class World(
             vessel.control.sasMode = saved.sasMode
             vessel.control.navFrame = saved.navFrame
             vessel.control.target = saved.target
-            vessel.control.targetBody = saved.targetBody.takeIf { it in system.bodies } ?: ""
+            vessel.control.targetBody = saved.targetBody.takeIf { it in system.bodies || Wonders.targeted(it) != null } ?: ""
             vessel.plannedBurns.addAll(saved.burns)
             vessel.burnDuration = if (saved.burns.isEmpty()) 0.0 else Burns.duration(vessel, saved.burns.first().deltaV)
             vessel.control.brakes = saved.brakes
@@ -6220,6 +6255,9 @@ class World(
         /** Shallower than this, in metres, a craft isn't checked for the sea's named places. */
         const val WONDER_LOOK_DEPTH = 5.0
 
+        /** How far the finder points to a place on land, in metres. */
+        const val LAND_FIND_RANGE = 5_000.0
+
         /** Charge units short of full that count as topped up at a pad. */
         const val CHARGE_TOPPED = 1.0
 
@@ -6388,41 +6426,7 @@ class World(
                 latitude = Math.toRadians(-17.2),
                 longitude = Math.toRadians(-138.3),
             ),
-            // For testing: on Luna's mare, where the ground under all the pads slopes under one in a
-            // hundred.
-            LaunchSite(
-                id = "luna-mare",
-                displayName = "Luna Mare (test)",
-                bodyId = "luna",
-                latitude = 0.131822,
-                longitude = 0.131733,
-            ),
-        ) + worldSites()
-
-        /** For testing, like Luna Mare: straight onto each world's landmark without flying there. */
-        private fun worldSites(): List<LaunchSite> {
-            fun site(id: String, name: String, body: String, lat: Double, lon: Double) =
-                LaunchSite(id, "$name (test)", body, Math.toRadians(lat), Math.toRadians(lon))
-            // Each one on a flat patch near its landmark, found by looking.
-            return listOf(
-                site("celer-basin", "Celer Great Basin", "celer", 28.0, 165.0),
-                site("caligo-ishtar", "Caligo Ishtar", "caligo", 63.25, 21.85),
-                site("rubra-rift", "Rubra Rift", "rubra", -9.0, -74.55),
-                site("rubra-mount", "Rubra Great Mount foot", "rubra", 17.1, -120.3),
-                site("timor", "Timor", "timor", 0.0, 20.0),
-                site("pavor", "Pavor", "pavor", 0.0, 0.0),
-                site("fornax-lake", "Fornax lava lake shore", "fornax", -12.0, 58.0),
-                site("crusta-lineae", "Crusta crossing", "crusta", 5.0, 0.0),
-                site("maxima-grooves", "Maxima grooves", "maxima", 10.0, 35.0),
-                site("cicatrix-scar", "Cicatrix Great Scar", "cicatrix", 15.0, -60.0),
-                site("aurantia-dunes", "Aurantia dunes", "aurantia", 4.1, -39.55),
-                site("aurantia-sea", "Aurantia north sea", "aurantia", 82.0, 20.0),
-                site("fons-stripes", "Fons Stripes", "fons", -84.0, 0.0),
-                site("aversa-cap", "Aversa polar cap", "aversa", -50.0, 30.0),
-                site("ultima-heart", "Ultima Heart", "ultima", 14.4, 177.9),
-                site("portitor-belt", "Portitor Belt", "portitor", -0.45, 0.75),
-            )
-        }
+        ) + com.rm.apogee.core.terrain.Worlds.SITES.map { LaunchSite(it.id, it.name, it.bodyId, it.latitude, it.longitude) }
 
         /**
          * Where a design launches from: the harbour for hulls, the airfield for planes, else the

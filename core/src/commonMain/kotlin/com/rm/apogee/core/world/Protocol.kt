@@ -53,7 +53,7 @@ sealed interface Command {
     @SerialName("setNavFrame")
     data class SetNavFrame(val vessel: Long, val frame: NavFrame) : Command
 
-    /** Another craft to steer by, or -1 to clear. */
+    /** Another craft to steer by, or -1 to clear. [body] is a world, or a place (see [Wonders.TARGET_PREFIX]). */
     @Serializable
     @SerialName("setTarget")
     data class SetTarget(val vessel: Long, val target: Long, val body: String = "") : Command
@@ -695,5 +695,6 @@ object Protocol {
     // 25: crew in the water: ClimbOut, CraftSystems.climbOnto, swimming, chill and evaBlocked.
     // 26: VesselKinematics.asleep.
     // 27: VesselKinematics.centreOfMass.
-    const val VERSION = 27
+    // 28: places as targets, SetTarget's body "place:" and an id.
+    const val VERSION = 28
 }

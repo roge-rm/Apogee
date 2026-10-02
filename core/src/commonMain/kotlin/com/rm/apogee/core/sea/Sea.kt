@@ -808,7 +808,7 @@ class Sea(
             if ((terrain?.elevation(d) ?: 0.0) < 0.0) places.add(d to CALM_SITE)
         }
         // And every named place under the sea.
-        for (wonder in com.rm.apogee.core.world.SeaWonders.all) {
+        for (wonder in com.rm.apogee.core.world.Wonders.sea) {
             if (wonder.bodyId == body.id) places.add(wonder.direction.copy() to CALM_WONDER)
         }
         return places

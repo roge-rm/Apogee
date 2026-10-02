@@ -76,9 +76,13 @@ object GiantLook {
         val lat = asin(d.y.coerceIn(-1.0, 1.0))
         val lon = atan2(d.z, d.x)
         // Band edges wander and tear, more on a stormy giant.
-        val wobble = look.turbulence * 0.06 * Noise.simplex(bodyId.hashCode(), d.x * 6.0, d.y * 2.0, d.z * 6.0)
-        val c = band(look, lat + wobble)
-        var r = c[0]; var g = c[1]; var b = c[2]
+        val seed = bodyId.hashCode()
+        val wobble = look.turbulence * 0.06 * Noise.simplex(seed, d.x * 6.0, d.y * 2.0, d.z * 6.0)
+        val mixed = FloatArray(3)
+        band(look, lat + wobble, mixed)
+        // Streaks drawn out along the bands.
+        val streak = (1.0 + STREAKS * Noise.simplex(seed + 1, d.x * 3.0, d.y * 40.0, d.z * 3.0)).toFloat()
+        var r = mixed[0] * streak; var g = mixed[1] * streak; var b = mixed[2] * streak
         look.spot?.let { s ->
             val dl = (lat - Math.toRadians(s.lat)) / s.tall
             var dn = lon - Math.toRadians(s.lon)
@@ -99,12 +103,50 @@ object GiantLook {
         out[o] = r; out[o + 1] = g; out[o + 2] = b
     }
 
-    private fun band(look: Look, lat: Double): FloatArray {
-        val a = abs(lat)
-        if (a > Math.toRadians(72.0)) return look.pole
-        val k = ((lat + PI / 2) / PI * look.bands).toInt()
-        return if (k % 2 == 0) look.light else look.dark
+    /**
+     * The bands' colour at [lat] into [out]: each band its own shade, light zones and dark belts,
+     * eased into the next band at its edges, and into the pole's colour toward the pole.
+     */
+    private fun band(look: Look, lat: Double, out: FloatArray) {
+        val u = (lat + PI / 2) / PI * look.bands
+        val k = kotlin.math.floor(u).toInt()
+        val f = u - k
+        shade(look, k, out)
+        // Right on the edge it's half each band's.
+        val other = FloatArray(3)
+        val near = when {
+            f < EDGE -> { shade(look, k - 1, other); 1.0 - f / EDGE }
+            f > 1.0 - EDGE -> { shade(look, k + 1, other); 1.0 - (1.0 - f) / EDGE }
+            else -> 0.0
+        }
+        mix(out, other, 0.5 * near * near * (3 - 2 * near))
+        val pole = ((abs(lat) - Math.toRadians(POLE_FROM)) / Math.toRadians(POLE_TO - POLE_FROM)).coerceIn(0.0, 1.0)
+        mix(out, look.pole, pole * pole * (3 - 2 * pole))
     }
+
+    /** Band [k]'s own colour into [out]: somewhere between light and dark, by its own number. */
+    private fun shade(look: Look, k: Int, out: FloatArray) {
+        val h = ((k * 0x9E3779B1.toInt()) ushr 8 and 0xFFFF) / 65535.0
+        val t = if (k and 1 == 0) h * ZONE_SPREAD else 1.0 - h * BELT_SPREAD
+        for (c in 0..2) out[c] = (look.light[c] + (look.dark[c] - look.light[c]) * t).toFloat()
+    }
+
+    private fun mix(into: FloatArray, toward: FloatArray, by: Double) {
+        if (by <= 0.0) return
+        for (c in 0..2) into[c] += ((toward[c] - into[c]) * by).toFloat()
+    }
+
+    /**
+     * How far into a band its edge eases, as a share of the band; how far a zone darkens and a belt
+     * lightens, by band; how much the streaks brighten and darken; and where the pole's colour
+     * starts and is full, in degrees.
+     */
+    private const val EDGE = 0.25
+    private const val ZONE_SPREAD = 0.35
+    private const val BELT_SPREAD = 0.4
+    private const val STREAKS = 0.06
+    private const val POLE_FROM = 64.0
+    private const val POLE_TO = 76.0
 
     /** Rings: flat and thin, in the equator, with a gap where the giant has one. */
     fun rings(body: CelestialBody, position: Vec3, rotation: Quat, key: (Int) -> Long, out: MutableList<RenderItem>) {

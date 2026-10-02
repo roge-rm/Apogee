@@ -52,18 +52,18 @@ class DeepTest {
             "nodule-plain" to (1_550.0..3_000.0), "terra-deep" to (6_500.0..7_100.0),
             "kraken-deep" to (500.0..1_200.0), "ligeia-spires" to (150.0..600.0),
         )
-        for (wonder in SeaWonders.all) {
+        for (wonder in Wonders.sea) {
             val depth = -system.body(wonder.bodyId).terrain!!.elevation(wonder.direction)
             assertTrue("${wonder.name} is $depth m down", depth in bands.getValue(wonder.id))
         }
         // The Cape's, all within a submarine's reach of the harbour.
-        for (wonder in SeaWonders.all.filter { it.bodyId == "terra" }) {
+        for (wonder in Wonders.sea.filter { it.bodyId == "terra" }) {
             val far = wonder.direction.distanceTo(SolarSystem.capeDirection(0.0, 0.0)) * 600_000.0
             assertTrue("${wonder.name} is $far m off", far < 25_000.0)
         }
         // Nowhere on a sweep round the Cape is deeper than the Deep.
         val terra = system.body("terra").terrain!!
-        val deep = terra.elevation(SeaWonders.byId("terra-deep")!!.direction)
+        val deep = terra.elevation(Wonders.byId("terra-deep")!!.direction)
         for (i in -30..30) for (j in -30..30) {
             assertTrue(terra.elevation(SolarSystem.capeDirection(i * 1_000.0, j * 1_000.0)) >= deep - 50.0)
         }
@@ -72,9 +72,9 @@ class DeepTest {
     @Test
     fun `the vents and the nodules are rich in ore, and their chimneys stand there`() {
         val terra = SolarSystem.defaultSystem().body("terra").terrain!!
-        val chimneys = SeaWonders.byId("chimneys")!!.direction
+        val chimneys = Wonders.byId("chimneys")!!.direction
         assertTrue(Deposits.richness(terra, chimneys, ResourceType.ORE) > 0.7)
-        assertTrue(Deposits.richness(terra, SeaWonders.byId("nodule-plain")!!.direction, ResourceType.ORE) > 0.5)
+        assertTrue(Deposits.richness(terra, Wonders.byId("nodule-plain")!!.direction, ResourceType.ORE) > 0.5)
         var vents = 0
         terra.scatter!!.forEachBlockNear(chimneys, 300.0, Vec3()) { block ->
             for (k in 0 until block.count) if (com.rm.apogee.core.terrain.ScatterKind.of(block.kinds[k].toInt()) == com.rm.apogee.core.terrain.ScatterKind.VENT) vents++
@@ -86,7 +86,7 @@ class DeepTest {
     fun `the Great Arch and the wrecks lie where they were left`() {
         val world = World.default(catalog)
         world.ensureStructures()
-        for (wonder in SeaWonders.all.filter { it.landmark.isNotEmpty() }) {
+        for (wonder in Wonders.all.filter { it.landmark.isNotEmpty() }) {
             val mark = world.landmark(wonder)
             assertTrue("no ${wonder.landmark}", mark != null && mark.anchored)
             val body = world.attractorFor(mark!!)
@@ -94,7 +94,7 @@ class DeepTest {
             assertTrue("${wonder.landmark} is ${at.distanceTo(wonder.direction) * body.radius} m off", at.distanceTo(wonder.direction) * body.radius < 30.0)
         }
         run(world, 30.0)
-        for (wonder in SeaWonders.all.filter { it.landmark.isNotEmpty() }) {
+        for (wonder in Wonders.all.filter { it.landmark.isNotEmpty() }) {
             val mark = world.landmark(wonder)!!
             assertTrue("${wonder.landmark} was broken up", mark.broken.none { it })
         }
@@ -186,7 +186,7 @@ class DeepTest {
     fun `the Nautilus's sonar hears the floor below and points the way to what isn't found yet`() {
         val world = World.default(catalog)
         // Down near the Canyon Wreck, a few hundred metres short of it.
-        val wreck = SeaWonders.byId("canyon-wreck")!!
+        val wreck = Wonders.byId("canyon-wreck")!!
         val sub = afloat(world, StockCraft.nautilus(catalog), -1_500.0, 9_700.0)
         downTo(world, sub, 200.0)
         run(world, 5.0)

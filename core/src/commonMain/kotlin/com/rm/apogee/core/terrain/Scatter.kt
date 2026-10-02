@@ -40,7 +40,22 @@ enum class ScatterKind(
     VENT(radius = 0.9, height = 6.0, breakImpulse = 40_000.0),
 
     /** A lump of metal lying on the ooze, fist-sized and bigger. */
-    NODULE(radius = 0.2, height = 0.0, breakImpulse = Double.POSITIVE_INFINITY);
+    NODULE(radius = 0.2, height = 0.0, breakImpulse = Double.POSITIVE_INFINITY),
+
+    /** A blade of ice, taller than a person, left where the sun wore the ice away round it. */
+    ICE_SPIRE(radius = 0.5, height = 4.0, breakImpulse = 8_000.0),
+
+    /** A block of ice broken off the crust. */
+    ICE_BLOCK(radius = 1.4, height = 0.0, breakImpulse = Double.POSITIVE_INFINITY),
+
+    /** A geyser's low cone, round the hole it sprays from. */
+    GEYSER(radius = 1.2, height = 1.5, breakImpulse = Double.POSITIVE_INFINITY),
+
+    /** A crusted cone of sulfur round a hot vent. */
+    FUMAROLE(radius = 0.8, height = 2.0, breakImpulse = 20_000.0);
+
+    /** Whether it grows, so only on a world with life. */
+    val lives: Boolean get() = this == CONIFER || this == BROADLEAF || this == DEAD_TREE || this == SHRUB || this == CACTUS
 
     val breakable: Boolean get() = breakImpulse.isFinite()
     val isBoulder: Boolean get() = height == 0.0
@@ -82,6 +97,9 @@ class ScatterBlock(
  * distance is cheap.
  */
 class ScatterField(private val terrain: Terrain) {
+
+    /** Whose ground it is. */
+    val world: String get() = terrain.world
 
     val tilesPerFace: Int = TerrainTile.tilesPerFace(terrain.bodyRadius)
     private val blocks = concurrentMapOf<Long, ScatterBlock>()
@@ -139,7 +157,7 @@ class ScatterField(private val terrain: Terrain) {
             val s = -1.0 + 2.0 * (i + (ci + u) / CELLS) / tilesPerFace
             val t = -1.0 + 2.0 * (j + (cj + v) / CELLS) / tilesPerFace
             CubeSphere.direction(face, s, t, d)
-            if (terrain.isLaunchComplex(d)) continue
+            if (terrain.isKeptClear(d)) continue
             val h = terrain.elevation(d)
             // On the sea floor, only what lies there, and nothing in the swash.
             val underwater = terrain.hasOcean && h < 1.0
@@ -151,9 +169,10 @@ class ScatterField(private val terrain: Terrain) {
             val dhy = terrain.elevation(f) - h
             val gradient = kotlin.math.sqrt(dhx * dhx + dhy * dhy)
             val slope = 1.0 - 1.0 / kotlin.math.sqrt(1.0 + gradient * gradient)
-            val kind = (if (underwater) seaKindFor(terrain.material(d, h, slope), roll) else kindFor(terrain.material(d, h, slope), h, slope, roll))
-                // Nothing grows off Terra: only rocks, plus the sea floor's spires and chimneys.
-                ?.takeIf { !terrain.barren || it.isBoulder || underwater } ?: continue
+            val material = terrain.material(d, h, slope)
+            val kind = (if (underwater) seaKindFor(material, roll) else worldKindFor(terrain.world, material, slope, roll) ?: kindFor(material, h, slope, roll))
+                // Nothing grows off Terra.
+                ?.takeIf { !terrain.barren || !it.lives } ?: continue
 
             ids[n] = base + cell
             kinds[n] = kind.ordinal.toByte()
@@ -184,6 +203,17 @@ class ScatterField(private val terrain: Terrain) {
         SurfaceMaterial.OOZE -> if (roll < 0.0015) ScatterKind.PINNACLE else if (roll < 0.004) ScatterKind.BOULDER_SMALL else null
         SurfaceMaterial.SAND -> if (roll < 0.004) ScatterKind.BOULDER_SMALL else null
         else -> null
+    }
+
+    /**
+     * A world's own scatter on [material], before the usual: stacked bands of [roll], each the top
+     * of a kind's share. Null where the world has nothing of its own there.
+     */
+    private fun worldKindFor(world: String, material: SurfaceMaterial, slope: Double, roll: Double): ScatterKind? {
+        if (slope > 0.45) return null
+        val bands = WORLD_SCATTER[world]?.get(material) ?: return null
+        for ((top, kind) in bands) if (roll < top) return kind
+        return null
     }
 
     private fun kindFor(material: SurfaceMaterial, elevation: Double, slope: Double, roll: Double): ScatterKind? {
@@ -259,6 +289,26 @@ class ScatterField(private val terrain: Terrain) {
                 else -> null
             }
             SurfaceMaterial.ORGANIC_SAND, SurfaceMaterial.NITROGEN_ICE, SurfaceMaterial.LAVA -> null
+            SurfaceMaterial.FROST -> if (roll < 0.01) ScatterKind.BOULDER_SMALL else null
+            // Fresh rubble: rocks everywhere.
+            SurfaceMaterial.EJECTA -> when {
+                roll < 0.04 -> ScatterKind.BOULDER_SMALL
+                roll < 0.048 -> ScatterKind.BOULDER_LARGE
+                else -> null
+            }
+            SurfaceMaterial.DARK_SAND -> if (roll < 0.004) ScatterKind.BOULDER_SMALL else null
+            SurfaceMaterial.LAYERED_ROCK -> when {
+                roll < 0.04 -> ScatterKind.BOULDER_SMALL
+                roll < 0.06 -> ScatterKind.BOULDER_LARGE
+                else -> null
+            }
+            SurfaceMaterial.FLOW_ROCK -> when {
+                roll < 0.10 -> ScatterKind.BOULDER_SMALL
+                roll < 0.14 -> ScatterKind.BOULDER_LARGE
+                else -> null
+            }
+            SurfaceMaterial.RED_SULFUR -> if (roll < 0.02) ScatterKind.BOULDER_SMALL else null
+            SurfaceMaterial.VENT_ICE, SurfaceMaterial.SALT -> null
         }
     }
 
@@ -279,5 +329,39 @@ class ScatterField(private val terrain: Terrain) {
         const val SWASH = 4.0
         const val CAPACITY = 2_048
         private const val SEED = 0x5CA77E
+
+        /**
+         * Each world's own scatter, by ground: the top of each kind's band of the cell's roll.
+         * Ground left out takes the usual rocks.
+         */
+        private val WORLD_SCATTER: Map<String, Map<SurfaceMaterial, List<Pair<Double, ScatterKind>>>> = mapOf(
+            // Hoodoos standing off the layered walls.
+            "rubra" to mapOf(SurfaceMaterial.LAYERED_ROCK to listOf(0.006 to ScatterKind.PINNACLE, 0.05 to ScatterKind.BOULDER_SMALL, 0.07 to ScatterKind.BOULDER_LARGE)),
+            "portitor" to mapOf(SurfaceMaterial.LAYERED_ROCK to listOf(0.004 to ScatterKind.PINNACLE, 0.05 to ScatterKind.BOULDER_SMALL)),
+            // Fumaroles in the red sulfur.
+            "fornax" to mapOf(SurfaceMaterial.RED_SULFUR to listOf(0.0015 to ScatterKind.FUMAROLE, 0.02 to ScatterKind.BOULDER_SMALL)),
+            // A field of ice blades in the Spires, ice blocks in the chaos.
+            "crusta" to mapOf(
+                SurfaceMaterial.SNOW to listOf(0.14 to ScatterKind.ICE_SPIRE),
+                SurfaceMaterial.THOLIN to listOf(0.04 to ScatterKind.ICE_BLOCK),
+                SurfaceMaterial.ICE to listOf(0.002 to ScatterKind.ICE_SPIRE),
+            ),
+            "cicatrix" to mapOf(SurfaceMaterial.FROST to listOf(0.01 to ScatterKind.ICE_SPIRE, 0.04 to ScatterKind.BOULDER_LARGE)),
+            // Geysers along the vents, few, and ice thrown out round them.
+            "fons" to mapOf(
+                SurfaceMaterial.VENT_ICE to listOf(0.0004 to ScatterKind.GEYSER, 0.03 to ScatterKind.ICE_BLOCK),
+                SurfaceMaterial.SNOW to listOf(0.003 to ScatterKind.ICE_BLOCK),
+            ),
+            "aversa" to mapOf(SurfaceMaterial.VENT_ICE to listOf(0.0006 to ScatterKind.GEYSER, 0.02 to ScatterKind.ICE_BLOCK)),
+            "ultima" to mapOf(
+                SurfaceMaterial.NITROGEN_ICE to listOf(0.006 to ScatterKind.ICE_BLOCK),
+                SurfaceMaterial.ICE to listOf(0.03 to ScatterKind.ICE_SPIRE),
+            ),
+            // Pebbles of ice on the flats between the dunes.
+            "aurantia" to mapOf(
+                SurfaceMaterial.SALT to listOf(0.012 to ScatterKind.BOULDER_SMALL),
+                SurfaceMaterial.ICE to listOf(0.01 to ScatterKind.ICE_BLOCK),
+            ),
+        )
     }
 }

@@ -140,6 +140,31 @@ object ScatterMeshes {
                 val r = kind.radius.toFloat()
                 b.rock(kind.ordinal * 31 + 11, r * 0.4f, r, 0.6f, 0.20f, 0.19f, 0.18f)
             }
+            ScatterKind.ICE_SPIRE -> {
+                // A four-sided blade in two pieces, leaning a little, bluish white.
+                val h = kind.height.toFloat()
+                val r = kind.radius.toFloat()
+                b.lathe(listOf(-0.4f to r * 1.4f, h * 0.45f to r * 0.8f, h * 0.7f to r * 0.45f), 4, 0.80f, 0.88f, 0.96f)
+                b.lathe(listOf(h * 0.65f to r * 0.5f, h to 0f), 4, 0.86f, 0.92f, 0.98f, twist = 0.5f)
+            }
+            ScatterKind.ICE_BLOCK -> {
+                val r = kind.radius.toFloat()
+                b.rock(kind.ordinal * 31 + 13, r * 0.4f, r, 0.6f, 0.80f, 0.86f, 0.92f)
+            }
+            ScatterKind.GEYSER -> {
+                // A low cone of frost round a dark hole.
+                val h = kind.height.toFloat()
+                val r = kind.radius.toFloat()
+                b.lathe(listOf(-0.3f to r * 1.8f, h * 0.6f to r * 1.0f, h to r * 0.55f), 7, 0.84f, 0.88f, 0.92f)
+                b.lathe(listOf(h to r * 0.55f, h + 0.02f to r * 0.3f, h - 0.4f to 0f), 7, 0.08f, 0.09f, 0.11f)
+            }
+            ScatterKind.FUMAROLE -> {
+                // A lumpy yellow cone, black at the mouth.
+                val h = kind.height.toFloat()
+                val r = kind.radius.toFloat()
+                b.lathe(listOf(-0.4f to r * 1.5f, h * 0.4f to r * 0.95f, h * 0.7f to r * 0.8f), 6, 0.86f, 0.74f, 0.26f)
+                b.lathe(listOf(h * 0.68f to r * 0.82f, h to r * 0.45f, h + 0.05f to 0f), 6, 0.12f, 0.10f, 0.06f, twist = 0.5f)
+            }
         }
         return b.build()
     }

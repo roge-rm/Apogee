@@ -53,6 +53,9 @@ interface Terrain {
      */
     fun isLaunchComplex(direction: Vec3): Boolean = false
 
+    /** Whether nothing is scattered at [direction]: a launch complex, a test site or a prop. */
+    fun isKeptClear(direction: Vec3): Boolean = isLaunchComplex(direction)
+
     /** How much vent field there is on the sea floor at [direction], 0..1. See [Seabed.ventField]. */
     fun ventField(direction: Vec3): Double = 0.0
 

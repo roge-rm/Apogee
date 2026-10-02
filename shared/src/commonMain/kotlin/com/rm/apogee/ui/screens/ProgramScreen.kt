@@ -264,20 +264,32 @@ private fun WorldsTab(state: CareerState, tree: TechTree, firsts: List<WorldFirs
             }
         }
     }
-    UnderTheSea(state, firsts, me)
+    Places("Under the sea", com.rm.apogee.core.world.Wonders.sea, state, firsts, me) { wonder ->
+        val depth = -(system.bodies[wonder.bodyId]?.terrain?.elevation(wonder.direction) ?: 0.0)
+        "${system.bodies[wonder.bodyId]?.displayName ?: wonder.bodyId} · ${"%,d".format(depth.toInt())} m down"
+    }
+    Places("Out there", com.rm.apogee.core.world.Wonders.land, state, firsts, me) { wonder ->
+        system.bodies[wonder.bodyId]?.displayName ?: wonder.bodyId
+    }
 }
 
 /**
- * The sea's named places: world, depth, what finding one pays, and who found it first. What it is
- * shows only once found.
+ * Named places: where each is, what finding it pays, and who found it first. What it is shows only
+ * once found.
  */
 @Composable
-private fun UnderTheSea(state: CareerState, firsts: List<WorldFirst>, me: String) {
-    val system = remember { SolarSystem.defaultSystem() }
-    Heading("Under the sea")
-    for (wonder in com.rm.apogee.core.world.SeaWonders.all) {
+private fun Places(
+    title: String,
+    wonders: List<com.rm.apogee.core.world.Wonders.Wonder>,
+    state: CareerState,
+    firsts: List<WorldFirst>,
+    me: String,
+    where: (com.rm.apogee.core.world.Wonders.Wonder) -> String,
+) {
+    Heading(title)
+    for (wonder in wonders) {
         val found = "${com.rm.apogee.core.career.Program.WONDER}:${wonder.id}" in state.visits
-        val depth = remember(wonder.id) { -(system.bodies[wonder.bodyId]?.terrain?.elevation(wonder.direction) ?: 0.0) }
+        val place = remember(wonder.id) { where(wonder) }
         Card(highlight = false) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(wonder.name, style = MaterialTheme.typography.titleSmall, color = Color.White, modifier = Modifier.weight(1f))
@@ -289,7 +301,7 @@ private fun UnderTheSea(state: CareerState, firsts: List<WorldFirst>, me: String
             }
             Spacer(Modifier.height(2.dp))
             Text(
-                "${system.bodies[wonder.bodyId]?.displayName ?: wonder.bodyId} · ${"%,d".format(depth.toInt())} m down",
+                place,
                 style = MaterialTheme.typography.labelSmall,
                 color = Color.White.alpha(ApogeeAlpha.SECONDARY),
             )

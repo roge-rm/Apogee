@@ -496,6 +496,8 @@ object Shaders {
         // The wind at the block, in the same east, up and north axes, in m/s.
         uniform vec3 uWind;
         uniform float uTime;
+        // Each world's own colour for the kind, multiplied in.
+        uniform vec3 uTint;
 
         flat out vec3 vNormal;
         flat out vec3 vColour;
@@ -518,7 +520,7 @@ object Shaders {
             vec3 n = vec3(c * aNormal.x - s * aNormal.z, aNormal.y, s * aNormal.x + c * aNormal.z);
             vec4 world = uModel * vec4(uBasis * turned + aInstance.xyz, 1.0);
             vNormal = normalize(mat3(uModel) * (uBasis * n));
-            vColour = aColour;
+            vColour = aColour * uTint;
             vDistance = length(world.xyz);
             vPosition = world.xyz;
             gl_Position = uViewProjection * world;

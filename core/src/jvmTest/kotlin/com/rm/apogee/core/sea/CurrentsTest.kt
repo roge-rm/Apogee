@@ -6,7 +6,7 @@ import com.rm.apogee.core.orbit.SolarSystem
 import com.rm.apogee.core.part.StockParts
 import com.rm.apogee.core.world.Command
 import com.rm.apogee.core.world.LaunchSite
-import com.rm.apogee.core.world.SeaWonders
+import com.rm.apogee.core.world.Wonders
 import com.rm.apogee.core.world.World
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -62,7 +62,7 @@ class CurrentsTest {
             val d = SolarSystem.surfaceDirection(site.latitude, site.longitude)
             assertEquals("at ${site.id}", 0.0, speedAt(sea, d), 0.02)
         }
-        for (wonder in SeaWonders.all.filter { it.bodyId == "terra" }) {
+        for (wonder in Wonders.all.filter { it.bodyId == "terra" }) {
             assertEquals("at ${wonder.id}", 0.0, speedAt(sea, wonder.direction, below = 0.0), 0.02)
         }
         // The broad bay beside the Cape.

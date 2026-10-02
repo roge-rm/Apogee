@@ -189,4 +189,20 @@ class EffectsTest {
         val off = fx.centroid(Vec3()).distanceTo(seam)
         assertTrue("with the seam ($off m)", off < 3.0)
     }
+
+    @Test
+    fun `a flame in air thicker than Terra's, on Caligo, points out the bell like one at sea level`() {
+        fun plume(body: com.rm.apogee.core.orbit.CelestialBody): com.rm.apogee.render.RenderItem {
+            val up = Vec3(1.0, 0.0, 0.0)
+            val nozzle = up.copy().mulInPlace(body.radius + maxOf(body.terrain?.elevation(up) ?: 0.0, 0.0) + 2.0)
+            val emitter = EngineEmitter(nozzle = nozzle, out = up.copy().mulInPlace(-1.0), radius = 0.5, kind = Exhaust.ROCKET, throttle = 1.0, velocity = Vec3(), seed = 1)
+            val out = ArrayList<com.rm.apogee.render.RenderItem>()
+            Effects(QualityTier.MEDIUM).flames(listOf(emitter), body, 0.0, out)
+            return out.first()
+        }
+        val caligo = SolarSystem.defaultSystem().body("caligo")!!
+        val thick = plume(caligo).scale!!.y
+        val sea = plume(terra).scale!!.y
+        assertTrue("$thick m on Caligo, $sea m at sea level", thick > 0.0 && kotlin.math.abs(thick - sea) < 0.25 * sea)
+    }
 }

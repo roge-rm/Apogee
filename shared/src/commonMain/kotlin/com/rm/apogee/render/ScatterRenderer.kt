@@ -138,6 +138,7 @@ class ScatterRenderer {
             for (k in 0 until ScatterDraw.KINDS) {
                 val count = block.counts[k]
                 if (count == 0) continue
+                ScatterTints.of(block.world, k).let { program.setVec3("uTint", it[0], it[1], it[2]) }
                 GLES30.glBindVertexArray(kindVao[k])
                 GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, buffer.first)
                 val base = block.offsets[k] * stride

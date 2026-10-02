@@ -24,7 +24,7 @@ class TerrainFoundationTest {
      */
     @Test
     fun `terrain is bit-for-bit what it was`() {
-        assertEquals("regenerate these goldens deliberately", 8, TerrainField.GENERATION)
+        assertEquals("regenerate these goldens deliberately", 9, TerrainField.GENERATION)
         val golden = longArrayOf(
             -4578718847118141824, 4633304516215518119, -4576145650195994558,
             -4606504763289932561, 4640841390928657255, 4651358863925320039,

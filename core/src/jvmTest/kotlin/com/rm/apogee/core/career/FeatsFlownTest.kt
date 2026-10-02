@@ -479,7 +479,7 @@ class FeatsFlownTest {
     fun `the Minnow flooded down onto the floor beside the Great Arch and blown back up is Dive, Seafloor, and the Arch found`() {
         val world = careerWorld()
         world.ensureStructures()
-        val arch = com.rm.apogee.core.world.SeaWonders.byId("great-arch")!!
+        val arch = com.rm.apogee.core.world.Wonders.byId("great-arch")!!
         val minnow = afloatAt(world, StockCraft.minnow(catalog), "terra", beside(arch.direction, 60.0, 30.0))
         repeat((5.0 / dt).toInt()) { world.step(dt) }
         world.apply(Command.SetBallast(minnow.id.raw, 1))
@@ -501,7 +501,7 @@ class FeatsFlownTest {
     @Test
     fun `the Nautilus taken down to Farrow's flank finds the Chimneys and their vents`() {
         val world = careerWorld()
-        val chimneys = com.rm.apogee.core.world.SeaWonders.byId("chimneys")!!
+        val chimneys = com.rm.apogee.core.world.Wonders.byId("chimneys")!!
         // Upstream, since the planet's turn carries it 100 m or more east on the way down.
         val sub = afloatAt(world, StockCraft.nautilus(catalog), "terra", beside(chimneys.direction, -130.0, 0.0))
         repeat((5.0 / dt).toInt()) { world.step(dt) }
@@ -517,7 +517,7 @@ class FeatsFlownTest {
     @Test
     fun `a submarine under Aurantia's sea is an Alien Deep`() {
         val world = careerWorld()
-        val site = com.rm.apogee.core.orbit.SolarSystem.surfaceDirection(Math.toRadians(com.rm.apogee.core.world.SeaWonders.KRAKEN_LAT), Math.toRadians(com.rm.apogee.core.world.SeaWonders.KRAKEN_LON))
+        val site = com.rm.apogee.core.orbit.SolarSystem.surfaceDirection(Math.toRadians(com.rm.apogee.core.world.Wonders.KRAKEN_LAT), Math.toRadians(com.rm.apogee.core.world.Wonders.KRAKEN_LON))
         val sub = afloatAt(world, StockCraft.minnow(catalog), "aurantia", site)
         world.apply(Command.SetBallast(sub.id.raw, 1))
         var t = 0.0

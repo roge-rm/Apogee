@@ -146,4 +146,12 @@ private fun swatch(material: SurfaceMaterial, h: Double): Triple<Double, Double,
     SurfaceMaterial.OOZE -> Triple(0.58, 0.56, 0.50)
     SurfaceMaterial.NODULES -> Triple(0.30, 0.28, 0.26)
     SurfaceMaterial.VENT_CRUST -> Triple(0.45, 0.24, 0.14)
+    SurfaceMaterial.FROST -> Triple(0.86, 0.88, 0.92)
+    SurfaceMaterial.EJECTA -> Triple(0.72, 0.71, 0.68)
+    SurfaceMaterial.DARK_SAND -> Triple(0.20, 0.19, 0.18)
+    SurfaceMaterial.LAYERED_ROCK -> Triple(0.50, 0.44, 0.36)
+    SurfaceMaterial.FLOW_ROCK -> Triple(0.20, 0.19, 0.20)
+    SurfaceMaterial.RED_SULFUR -> Triple(0.70, 0.26, 0.12)
+    SurfaceMaterial.VENT_ICE -> Triple(0.70, 0.84, 0.95)
+    SurfaceMaterial.SALT -> Triple(0.80, 0.78, 0.72)
 }
