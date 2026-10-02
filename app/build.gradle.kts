@@ -28,8 +28,8 @@ android {
         targetSdk = 37
         // Bumped for builds worth telling apart. Joining a server is decided by Protocol.VERSION
         // and the part catalogue's hash, which move on their own.
-        versionCode = 40
-        versionName = "0.8.14"
+        versionCode = 41
+        versionName = "0.8.15"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
