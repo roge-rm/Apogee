@@ -32,7 +32,8 @@ fun main() {
     val canvas = document.getElementById("world") as HTMLCanvasElement
     webGl = context(canvas)
     if (webGl == null) {
-        document.getElementById("nogl")?.setAttribute("style", "display: block")
+        document.getElementById("loading")?.remove()
+        document.getElementById("nogl")?.setAttribute("style", "display: flex")
         return
     }
     val host = WebHost(canvas)

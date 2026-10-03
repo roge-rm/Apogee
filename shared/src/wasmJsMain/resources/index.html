@@ -15,6 +15,9 @@
       justify-content: center; gap: 12px; text-align: center; padding: 24px; }
     #nogl { display: none; }
     #loading img { width: 96px; height: 96px; border-radius: 22px; }
+    #loading-bar { width: min(320px, 100%); height: 4px; border-radius: 2px; overflow: hidden; visibility: hidden; background: rgba(255, 255, 255, 0.12); }
+    #loading-fill { width: 0; height: 100%; transition: width 0.2s; background: #b39dff; }
+    #loading-amount { font-size: 13px; opacity: 0.7; font-variant-numeric: tabular-nums; min-height: 1.5em; }
     #toast { position: fixed; left: 50%; bottom: 32px; transform: translateX(-50%); padding: 10px 16px;
       border-radius: 12px; background: rgba(20, 22, 40, 0.92); opacity: 0; transition: opacity 0.3s;
       pointer-events: none; max-width: 80vw; text-align: center; }
@@ -23,16 +26,86 @@
 <body>
   <canvas id="world"></canvas>
   <div id="screens"></div>
-  <div id="loading"><img src="icon.png" alt=""><div>Loading Apogee…</div></div>
+  <div id="loading">
+    <img src="icon.png" alt="">
+    <div id="loading-text">Loading Apogee…</div>
+    <div id="loading-bar"><div id="loading-fill"></div></div>
+    <div id="loading-amount"></div>
+  </div>
   <div id="nogl"><div>Apogee needs WebGL 2, and this browser doesn't have it.</div>
     <div>Try a recent Chrome, Edge, Firefox or Safari.</div></div>
   <div id="toast"></div>
+  <script>
+    // How much of the download has come, while it comes: the app's WebAssembly
+    // and script, against the sizes the build wrote beside the page
+    // (load-sizes.json, shared/build.gradle.kts). The WebAssembly loaders ask
+    // through fetch, so each answer is counted as it streams in on its way to
+    // them; the app's script counts when it has loaded. The app removes
+    // #loading when it starts.
+    window.loadProgress = (() => {
+      const seen = {};
+      const finished = new Set();
+      let sizes = null;
+      let drawing = false;
+      const mb = (n) => (n / 1048576).toFixed(1);
+      const draw = () => {
+        drawing = false;
+        const text = document.getElementById('loading-text');
+        if (!text) return;
+        let have = 0, total = 0;
+        if (sizes) {
+          for (const [name, size] of Object.entries(sizes)) {
+            total += size;
+            have += finished.has(name) ? size : Math.min(seen[name] || 0, size);
+          }
+        } else {
+          for (const name in seen) have += seen[name];
+        }
+        if (have === 0) return;
+        const amount = document.getElementById('loading-amount');
+        if (total > 0) {
+          document.getElementById('loading-bar').style.visibility = 'visible';
+          document.getElementById('loading-fill').style.width = (100 * have / total).toFixed(1) + '%';
+          amount.textContent = have >= total ? mb(total) + ' MB' : mb(have) + ' of ' + mb(total) + ' MB';
+          // All here: what is left is the browser compiling it, and the app starting.
+          if (have >= total) text.textContent = 'Starting Apogee…';
+        } else {
+          amount.textContent = mb(have) + ' MB';
+        }
+      };
+      const redraw = () => { if (!drawing) { drawing = true; requestAnimationFrame(draw); } };
+      const realFetch = window.fetch.bind(window);
+      realFetch('load-sizes.json', { cache: 'no-cache' })
+        .then((r) => (r.ok ? r.json() : null)).catch(() => null)
+        .then((s) => { sizes = s; redraw(); });
+      window.fetch = async (input, init) => {
+        const response = await realFetch(input, init);
+        const name = new URL(typeof input === 'string' ? input : (input.url || String(input)), location.href)
+          .pathname.split('/').pop();
+        if (!/\.(wasm|js)$/.test(name) || !response.ok || !response.body || finished.has(name)) return response;
+        const counted = response.body.pipeThrough(new TransformStream({
+          transform(chunk, out) {
+            seen[name] = (seen[name] || 0) + chunk.byteLength;
+            redraw();
+            out.enqueue(chunk);
+          },
+          flush() {
+            finished.add(name);
+            redraw();
+          },
+        }));
+        return new Response(counted, { status: response.status, statusText: response.statusText, headers: response.headers });
+      };
+      return { done(name) { finished.add(name); redraw(); } };
+    })();
+  </script>
   <script>
     // The game is WebAssembly with garbage collection. This is a module with one GC struct type in
     // it, which only a browser that has it can read. Without it the page would say "Loading" for ever.
     if (typeof WebAssembly === 'object' && WebAssembly.validate(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0, 1, 5, 1, 95, 1, 120, 0]))) {
       const script = document.createElement('script');
       script.src = 'apogee.js';
+      script.onload = () => loadProgress.done('apogee.js');
       document.body.appendChild(script);
     } else {
       document.getElementById('loading').remove();
