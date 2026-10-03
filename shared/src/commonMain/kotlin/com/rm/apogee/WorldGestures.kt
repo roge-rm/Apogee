@@ -28,6 +28,11 @@ class WorldGestures(private val app: ApogeeApp) {
     /** A finger holding the planned burn on the map, dragging it along the path. */
     private var holdingBurn = false
 
+    /** The last tap on the map, for telling a double tap. */
+    private var lastTapTime = Long.MIN_VALUE / 2
+    private var lastTapX = 0f
+    private var lastTapY = 0f
+
     /** Two fingers apart, for a pinch the host doesn't measure itself. */
     private var spread = 0f
 
@@ -119,7 +124,14 @@ class WorldGestures(private val app: ApogeeApp) {
             holdingBurn = false
             app.session?.mapRelease()
         } else if (!multiTouch && travelled < TAP_SLOP_PIXELS && duration < TAP_TIMEOUT_MILLIS && app.session?.mapMode == true) {
-            app.session?.mapTap(x, y, width, height)
+            // Two taps quick and close together: the second is a double tap.
+            if (time - lastTapTime < DOUBLE_TAP_MILLIS && kotlin.math.hypot(x - lastTapX, y - lastTapY) < DOUBLE_TAP_PIXELS) {
+                lastTapTime = Long.MIN_VALUE / 2
+                app.session?.mapDoubleTap(x, y, width, height)
+            } else {
+                lastTapTime = time; lastTapX = x; lastTapY = y
+                app.session?.mapTap(x, y, width, height)
+            }
         } else if (!multiTouch && travelled < TAP_SLOP_PIXELS && duration < TAP_TIMEOUT_MILLIS) {
             app.builderSession?.tap(x, y, width, height)
         }
@@ -148,5 +160,7 @@ class WorldGestures(private val app: ApogeeApp) {
         /** How far a touch can travel and still count as a tap. */
         const val TAP_SLOP_PIXELS = 28f
         const val TAP_TIMEOUT_MILLIS = 400L
+        const val DOUBLE_TAP_MILLIS = 300L
+        const val DOUBLE_TAP_PIXELS = 60f
     }
 }

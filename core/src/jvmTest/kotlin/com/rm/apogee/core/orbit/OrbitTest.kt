@@ -186,4 +186,45 @@ class OrbitTest {
         val expectedRadius = bodyRadius + 100_000.0
         points.forEach { assertEquals(expectedRadius, it.length, 1e-3) }
     }
+
+    @Test
+    fun `the time to a direction is the time to get there`() {
+        // An ellipse caught on its way up, and a hyperbola on its way in.
+        val ellipse = Orbit(Vec3(bodyRadius + 90_000.0, 0.0, 0.0), Vec3(0.0, 300.0, 2_500.0), mu)
+        assertEquals(ellipse.timeToApoapsis, ellipse.timeToDirection(ellipse.eccentricityVector.copy().negateInPlace()), 0.01)
+        assertEquals(ellipse.timeToPeriapsis, ellipse.timeToDirection(ellipse.eccentricityVector), 0.01)
+        val hyperbola = Orbit(Vec3(4.0e6, 0.0, 0.0), Vec3(-2_000.0, 0.0, 600.0), mu)
+        assertEquals(hyperbola.timeToPeriapsis, hyperbola.timeToDirection(hyperbola.eccentricityVector), 0.01)
+        // Any direction: it's over it then.
+        val way = Vec3(-0.3, 0.2, 1.0).normalizeInPlace()
+        val t = ellipse.timeToDirection(way)
+        val there = ellipse.propagate(t).position
+        val inPlane = way.copy().addScaledInPlace(ellipse.angularMomentum.normalized(), -(way dot ellipse.angularMomentum.normalized())).normalizeInPlace()
+        assertTrue("off by ${there.normalized().distanceTo(inPlane)}", there.normalized().distanceTo(inPlane) < 1e-6)
+    }
+
+    @Test
+    fun `the nodes are where it crosses the other plane, up and then down`() {
+        val orbit = Orbit.circular(bodyRadius + 100_000.0, mu, inclination = 0.4).let { Orbit(it.propagate(500.0).position, it.propagate(500.0).velocity, mu) }
+        val (up, down) = orbit.nodesWith(Vec3.unitY())!!
+        assertEquals(orbit.period / 2.0, abs(up - down), 0.01)
+        for ((t, rising) in listOf(up to true, down to false)) {
+            val s = orbit.propagate(t)
+            assertEquals(0.0, s.position.y, 1.0)
+            assertEquals(rising, s.velocity.y > 0.0)
+        }
+        assertEquals(0.4, orbit.relativeInclination(Vec3.unitY()), 1e-9)
+        assertTrue(Orbit.circular(bodyRadius + 100_000.0, mu).nodesWith(Vec3.unitY()) == null)
+    }
+
+    @Test
+    fun `coming down through a height is timed to it, and an orbit above it never is`() {
+        val orbit = Orbit(Vec3(bodyRadius + 90_000.0, 0.0, 0.0), Vec3(0.0, 0.0, 2_100.0), mu)
+        val air = bodyRadius + 70_000.0
+        val t = orbit.timeToRadiusDown(air)
+        val s = orbit.propagate(t)
+        assertEquals(air, s.position.length, 1.0)
+        assertTrue((s.position dot s.velocity) < 0.0)
+        assertTrue(Orbit.circular(bodyRadius + 100_000.0, mu).timeToRadiusDown(air).isNaN())
+    }
 }

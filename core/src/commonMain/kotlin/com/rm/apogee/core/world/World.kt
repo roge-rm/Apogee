@@ -449,6 +449,28 @@ class World(
     }
 
     /** How high [vessel] is above the ground under it, or the sea, in metres. */
+    /**
+     * A plane or rotorcraft that took off with its gear down folds it up once it's climbing past
+     * [GEAR_UP] over the ground. Touching down again arms it; the player's switch disarms it.
+     */
+    private fun raiseGearAfterTakeoff(vessel: Vessel, attractor: CelestialBody) {
+        if (!vessel.control.gear) return
+        if (vessel.touchingGround) {
+            if (!vessel.gearRaiseArmed && vessel.gearFolds) vessel.gearRaiseArmed = true
+            return
+        }
+        if (!vessel.gearRaiseArmed || vessel.control.autoLand) return
+        val up = scratchGearUp.setTo(vessel.body.position).normalizeInPlace()
+        val climb = (vessel.body.linearVelocity dot up) - (attractor.surfaceVelocityAt(vessel.body.position, scratchGearGround) dot up)
+        if (climb <= 0.0 || groundClearance(vessel, attractor) < GEAR_UP) return
+        vessel.gearRaiseArmed = false
+        val kind = com.rm.apogee.core.craft.CraftKind.of(vessel.design, catalog)
+        if (kind == com.rm.apogee.core.craft.CraftKind.PLANE || kind == com.rm.apogee.core.craft.CraftKind.ROTORCRAFT) vessel.control.gear = false
+    }
+
+    private val scratchGearUp = Vec3()
+    private val scratchGearGround = Vec3()
+
     private fun groundClearance(vessel: Vessel, attractor: CelestialBody): Double {
         val altitude = attractor.altitudeOf(vessel.body.position)
         val terrain = attractor.terrain ?: return altitude
@@ -924,15 +946,13 @@ class World(
         return centre - below
     }
 
-    /** Fires the next stage if it's only legs and gear, so it has something to stand on. */
+    /** Puts the gear down, so it has something to stand on. */
     private fun lowerLegs(vessel: Vessel) {
-        val next = vessel.design.stages.getOrNull(vessel.currentStage) ?: return
-        if (next.activatedParts.isEmpty()) return
-        val gear = next.activatedParts.all { i ->
-            val def = vessel.defs.getOrNull(i) ?: return@all false
-            def.module<com.rm.apogee.core.part.LandingLeg>() != null || def.module<com.rm.apogee.core.part.Wheel>() != null
+        if (!vessel.control.gear) {
+            vessel.control.gear = true
+            vessel.gearRaiseArmed = false
+            vessel.wake()
         }
-        if (gear) stage(vessel)
     }
 
     /** The thrust the lit engines can give at the craft's air pressure, in N. */
@@ -1392,6 +1412,11 @@ class World(
 
         // On legs on land, and on a base's pad, even one afloat: a deck is something to stand on.
         if (legsOut && (sea == null || groundRadius > sea || site.onBase)) standOnLegs(vessel, up)
+        else if (!legsOut && vessel.defs.any { it.hasModule<LandingLeg>() }) {
+            // Set down with its legs folded: the gear's up.
+            vessel.control.gear = false
+            for (i in vessel.defs.indices) if (vessel.defs[i].fold != null) vessel.setLegDeploy(i, 0.0)
+        }
 
         // Lift the craft until its lowest part just touches the ground.
         val clearance = lowestExtentAlong(vessel, up)
@@ -1542,22 +1567,27 @@ class World(
     }
 
     /**
-     * A player's launch stands on its landing legs if their feet reach the bottom; a lander high up
-     * a stack keeps its legs folded. Their stage still fires in turn and changes nothing.
+     * A player's launch stands on its landing legs if any of their feet reach the bottom, with the
+     * gear down; a lander high up a stack starts with its gear up.
      */
     private fun standOnLegs(vessel: Vessel, up: Vec3) {
         val legs = vessel.defs.indices.filter { vessel.defs[it].hasModule<LandingLeg>() }
         if (legs.isEmpty()) return
+        val gear = vessel.defs.indices.filter { vessel.defs[it].fold != null }
+        for (i in gear) vessel.setLegDeploy(i, 0.0)
         val folded = lowestExtentAlong(vessel, up)
-        for (i in legs) vessel.setLegDeploy(i, 1.0)
+        for (i in gear) vessel.setLegDeploy(i, 1.0)
         val out = lowestExtentAlong(vessel, up)
         val offset = Vec3()
-        for (i in legs) {
+        val stands = legs.any { i ->
             var reach = Double.MAX_VALUE
             for (p in vessel.defs[i].contactPoints.indices) reach = minOf(reach, vessel.contactOffsetWorld(i, p, offset) dot up)
-            val feetDown = out > folded + LEGS_REACH && -reach > out - LEGS_REACH
-            if (feetDown) vessel.activated[i] = true else vessel.setLegDeploy(i, 0.0)
+            out > folded + LEGS_REACH && -reach > out - LEGS_REACH
         }
+        // Legs that don't fold always reach, so they stand it whatever.
+        val fixed = legs.any { (vessel.defs[it].fold?.stowedAngle ?: 0.0) == 0.0 }
+        vessel.control.gear = stands || fixed
+        if (!vessel.control.gear) for (i in gear) vessel.setLegDeploy(i, 0.0)
     }
 
     /**
@@ -1694,6 +1724,12 @@ class World(
             is Command.ReleaseLine -> heard(command.vessel)?.let { releaseLine(it) }
             is Command.Deploy ->
                 heard(command.vessel)?.control?.deployed = command.deployed
+            is Command.SetGear -> heard(command.vessel)?.let {
+                it.wake()
+                it.control.gear = command.down
+                // The player's say goes: no raising it again by itself until it next touches down.
+                it.gearRaiseArmed = false
+            }
             is Command.SetBallast -> heard(command.vessel)?.let {
                 it.wake()
                 it.control.ballast = command.mode.coerceIn(-1, 1)
@@ -3291,6 +3327,7 @@ class World(
             val cruising = (vessel.control.cruise || vessel.control.keeping || landingItself) && landing == null
             if (vessel.powered) stabilityAssist.update(vessel, dt, landing ?: if (cruising) null else holdDirection(vessel, attractor))
             else stabilityAssist.idle(vessel)
+            raiseGearAfterTakeoff(vessel, attractor)
             updatePose(vessel, dt)
             // Someone on foot: kept upright, the stick walks them.
             val walker = walking.walkerOf(vessel)
@@ -3810,11 +3847,11 @@ class World(
                     Math.toRadians(wheel.steeringRange * yaw * lock) * end
                 }
             }
-            val leg = def.module<LandingLeg>()
-            val unfolds = leg == null && foldsOut(def)
-            if (leg != null || unfolds) {
-                val target = if (if (unfolds) unfolded(vessel, i) else vessel.isWorking(i)) 1.0 else 0.0
-                val step = dt / (leg?.deployTime ?: UNFOLD_TIME).coerceAtLeast(1e-3)
+            val fold = def.fold
+            val unfolds = fold == null && foldsOut(def)
+            if (fold != null || unfolds) {
+                val target = if (if (unfolds) unfolded(vessel, i) else vessel.gearDown(i)) 1.0 else 0.0
+                val step = dt / (fold?.time ?: UNFOLD_TIME).coerceAtLeast(1e-3)
                 val now = vessel.legDeploy[i]
                 vessel.legDeploy[i] = if (now < target) minOf(target, now + step) else maxOf(target, now - step)
             }
@@ -3833,11 +3870,12 @@ class World(
         return vessel.running(i, vessel.control.deployed || (i < vessel.activated.size && vessel.activated[i]))
     }
 
-    private fun legsMoving(vessel: Vessel): Boolean {
+    /** Whether [vessel]'s gear, legs, wings or dishes are still on their way out or in. */
+    fun legsMoving(vessel: Vessel): Boolean {
         for (i in vessel.defs.indices) {
             val def = vessel.defs[i]
             val target = when {
-                def.module<LandingLeg>() != null -> if (vessel.isWorking(i)) 1.0 else 0.0
+                def.fold != null -> if (vessel.gearDown(i)) 1.0 else 0.0
                 foldsOut(def) -> if (unfolded(vessel, i)) 1.0 else 0.0
                 else -> continue
             }
@@ -3891,6 +3929,8 @@ class World(
             blocked = whyNotControllable(vessel),
             needsSignal = Comms.needsSignal(vessel),
             deployed = vessel.control.deployed,
+            gear = vessel.control.gear,
+            gearFolds = vessel.gearFolds,
             boardable = if (walking.walkerOf(vessel) != null) seatInReach(vessel)?.first?.name.orEmpty() else "",
             climbOnto = if (walking.walkerOf(vessel) != null) climbSpot(vessel)?.first?.name.orEmpty() else "",
             swimming = inSea(vessel),
@@ -4823,6 +4863,7 @@ class World(
                 brakes = vessel.control.brakes,
                 lights = vessel.control.lights,
                 deployed = vessel.control.deployed,
+                gear = vessel.control.gear,
                 fuelCellsOn = vessel.fuelCellsOn,
                 drilling = vessel.control.drilling,
                 refining = vessel.control.refining,
@@ -4971,6 +5012,7 @@ class World(
             vessel.control.brakes = saved.brakes
             vessel.control.lights = saved.lights
             vessel.control.deployed = saved.deployed
+            vessel.control.gear = saved.gear
             vessel.fuelCellsOn = saved.fuelCellsOn
             vessel.control.drilling = saved.drilling
             saved.groups.forEachIndexed { k, state -> if (k < vessel.groupStates.size) vessel.groupStates[k] = state }
@@ -6029,6 +6071,9 @@ class World(
 
         /** How far, in metres, a leg's feet have to reach below the rest to be stood on at launch. */
         private const val LEGS_REACH = 0.05
+
+        /** Climbing past this over the ground, in metres, gear that took off down folds up. */
+        const val GEAR_UP = 100.0
 
         /** Owner of the world's own buildings and bases. */
         const val WORLD_OWNER = "world"

@@ -108,11 +108,13 @@ class ClientPrediction(
     fun syncSystems(systems: com.rm.apogee.core.world.ServerMessage.CraftSystems) {
         heard = systems.controllable
         val local = vessel ?: return
-        if (local.control.deployed != systems.deployed || local.control.drilling != systems.drilling) {
+        if (local.control.deployed != systems.deployed || local.control.drilling != systems.drilling || local.control.gear != systems.gear) {
             local.control.deployed = systems.deployed
             local.control.drilling = systems.drilling
-            // A sleeping craft never steps its wings or drill.
+            local.control.gear = systems.gear
+            // A sleeping craft never steps its wings, drill or gear, and nor does a parked one.
             local.wake()
+            if (parked) unpark()
         }
         local.control.refining = systems.refining
         // Cruise hold and action groups as the server has them.
@@ -451,7 +453,8 @@ class ClientPrediction(
         parked = !anchored && state.asleep && inputsNeutral(local.control)
         if (anchored) {
             replica.pin(local)
-        } else if (serverHasItAsleep(state) && inputsNeutral(local.control)) {
+        } else if (serverHasItAsleep(state) && inputsNeutral(local.control) && !replica.legsMoving(local)) {
+            // Still, but not while its gear or wings swing: asleep, they'd stop half way.
             local.sleep(system.body(state.referenceBodyId).rotationAt(describes, scratchRotation))
         }
         if (parked) {

@@ -193,7 +193,6 @@ object StockCraft {
             stages = listOf(
                 Stage(listOf(engine)),
                 Stage(listOf(chute)),
-                Stage(parts.indices.filter { parts[it].partId == "leg-stilt" }),
             ),
             catalogHash = catalog.contentHash,
         )
@@ -256,8 +255,6 @@ object StockCraft {
         val stages = listOf(
             Stage(listOf(engine)),
             Stage(listOf(chute)),
-            // Gear last.
-            Stage(parts.indices.filter { catalog[parts[it].partId]?.id == "leg-stilt" }),
         )
 
         faceOutward(parts, catalog)
@@ -990,7 +987,7 @@ object StockCraft {
         return CraftDesign(
             name = "Port Tug",
             parts = parts,
-            stages = listOf(Stage(listOf(engine)), Stage(legs)),
+            stages = listOf(Stage(listOf(engine))),
             catalogHash = catalog.contentHash,
         )
     }
@@ -1085,7 +1082,7 @@ object StockCraft {
             name = "Base Core Lander",
             parts = parts,
             orientation = CraftOrientation.VERTICAL,
-            stages = listOf(Stage(engines), Stage(legs)),
+            stages = listOf(Stage(engines)),
             catalogHash = catalog.contentHash,
         )
     }

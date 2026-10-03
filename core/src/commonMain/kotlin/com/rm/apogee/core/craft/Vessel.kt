@@ -106,6 +106,9 @@ class ControlState {
     /** Fold-out sun wings and dishes, out or folded away. */
     var deployed: Boolean = false
 
+    /** Landing gear and legs down, or folded up. */
+    var gear: Boolean = true
+
     /** Whether its drills are switched on. See `World`'s industry. */
     var drilling: Boolean = false
 
@@ -302,9 +305,10 @@ class Vessel(
         flapPosition = DoubleArray(n)
         sailAngle = DoubleArray(n)
         sailFill = DoubleArray(n)
-        // Staged legs start down. A staged chute starts packed and opens by itself when it's safe.
+        // Gear starts as the switch is. A staged chute starts packed and opens by itself when it's safe.
         legDeploy = DoubleArray(n) {
-            if (it < activated.size && isWorking(it) && defs[it].module<com.rm.apogee.core.part.Parachute>() == null) 1.0 else 0.0
+            if (defs[it].fold != null) { if (gearDown(it)) 1.0 else 0.0 }
+            else if (it < activated.size && isWorking(it) && defs[it].module<com.rm.apogee.core.part.Parachute>() == null) 1.0 else 0.0
         }
     }
 
@@ -342,6 +346,12 @@ class Vessel(
 
     val body = RigidBody()
     val control = ControlState()
+
+    /**
+     * Set when it touches down with its gear down, so the gear folds up by itself once it's
+     * climbed away. Not saved.
+     */
+    var gearRaiseArmed = false
 
     var name: String = design.name
 
@@ -598,6 +608,11 @@ class Vessel(
      */
     var broken: BooleanArray = BooleanArray(design.parts.size)
         private set
+
+    init {
+        // Made with its gear down, as the switch starts.
+        for (i in defs.indices) if (defs[i].fold != null && i < legDeploy.size) legDeploy[i] = 1.0
+    }
 
     /**
      * The air it's in this tick: wind, cloud, rain, roughness. Sampled before forces. Not saved,
@@ -1176,15 +1191,15 @@ class Vessel(
      */
     fun posedContactPoint(index: Int, pointIndex: Int, out: Vec3): Vec3 {
         out.setTo(defs[index].contactPoints[pointIndex])
-        val leg = defs[index].module<com.rm.apogee.core.part.LandingLeg>() ?: return out
-        if (leg.stowedAngle == 0.0) return out
+        val fold = defs[index].fold ?: return out
+        if (fold.stowedAngle == 0.0) return out
         val deploy = legDeploy.getOrElse(index) { 1.0 }
         if (deploy >= 1.0) return out
-        val angle = Math.toRadians(leg.stowedAngle) * (1.0 - deploy)
-        com.rm.apogee.core.math.Quat.fromAxisAngle(leg.foldAxis.normalized(), angle, poseFold)
-        out.subInPlace(leg.hinge)
+        val angle = Math.toRadians(fold.stowedAngle) * (1.0 - deploy)
+        com.rm.apogee.core.math.Quat.fromAxisAngle(fold.axis, angle, poseFold)
+        out.subInPlace(fold.hinge)
         poseFold.rotate(out, out)
-        return out.addInPlace(leg.hinge)
+        return out.addInPlace(fold.hinge)
     }
 
     private val poseFold = com.rm.apogee.core.math.Quat.identity()
@@ -1243,6 +1258,15 @@ class Vessel(
     // --- staging ------------------------------------------------------------
 
     fun isActivated(index: Int): Boolean = activated[index]
+
+    /** Whether gear part [index] (see [com.rm.apogee.core.part.PartDef.fold]) should be down: the gear is, and it isn't broken. */
+    fun gearDown(index: Int): Boolean = control.gear && !broken[index]
+
+    /** Whether any part goes up and down with the gear. */
+    val hasGear: Boolean get() = defs.any { it.fold != null }
+
+    /** Whether any of its gear folds away, so the switch does something you'd see. */
+    val gearFolds: Boolean get() = defs.any { (it.fold?.stowedAngle ?: 0.0) != 0.0 }
 
     /** Whether part [index] is working, meaning it's staged and hasn't failed since. */
     fun isWorking(index: Int): Boolean = activated[index] && !broken[index] && groupState(index) >= 0

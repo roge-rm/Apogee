@@ -248,11 +248,13 @@ class DockingTest {
         val mare = World.launchSites.first { it.id == "luna-mare" }
         val tug = StockCraft.portTug(catalog)
         val a = world.spawnOnSurface(tug, mare)
-        repeat(2) { world.stage(a) }
+        world.stage(a)
+        world.apply(Command.SetGear(a.id.raw, true))
         repeat(600) { world.step(dt) }
         val port = a.defs.indices.first { a.defs[it].id == "dock-port" }
         val b = placeFacing(world, tug, port, a, port, gap = 3.0, turnAbout = Vec3.unitY())
-        repeat(2) { world.stage(b) }
+        world.stage(b)
+        world.apply(Command.SetGear(b.id.raw, true))
         repeat(600) { world.step(dt) }
         moverParts = b.design.parts.size; targetParts = a.design.parts.size
         val gap0 = ref(a, port).face.distanceTo(ref(b, port).face)

@@ -248,7 +248,7 @@ class ApogeeApp(private val host: AppHost) {
                     scope.launch { current.setAutopilot(current.localAutoBurn, !current.localAutoLand) }
                 }
             com.rm.apogee.input.PadAction.BRAKES -> onToggleBrakes()
-            com.rm.apogee.input.PadAction.DEPLOY -> onToggleDeploy()
+            com.rm.apogee.input.PadAction.DEPLOY -> onToggleGear()
             com.rm.apogee.input.PadAction.FLAPS -> if (hudState.hasFlaps) onToggleFlaps()
             com.rm.apogee.input.PadAction.REVERSE -> onToggleReverse()
             com.rm.apogee.input.PadAction.GROUP_1 -> scope.launch { current.toggleGroup(1) }
@@ -449,11 +449,13 @@ class ApogeeApp(private val host: AppHost) {
                         },
                         targetChoices = { session?.targetChoices() ?: emptyList() },
                         mapLabels = { w, h -> session?.mapLabels(w, h) ?: emptyList() },
+                        onWarpToMark = { time -> session?.let { s -> scope.launch { s.warpTo(time) } } },
                         onTarget = { id -> session?.let { s -> scope.launch { s.setTarget(id) } } },
                         onToggleBrakes = ::onToggleBrakes,
                         onToggleRcs = ::onToggleRcs,
                         onToggleReverse = ::onToggleReverse,
                         onToggleDeploy = ::onToggleDeploy,
+                        onToggleGear = ::onToggleGear,
                         onUndock = { part -> session?.let { s -> scope.launch { s.undock(part) } } },
                         onFound = { founded -> session?.let { s -> scope.launch { s.found(founded) } } },
                         onRefuel = { on -> session?.let { s -> scope.launch { s.refuel(on) } } },
@@ -926,7 +928,7 @@ class ApogeeApp(private val host: AppHost) {
             "KeyT" -> if (pressed) onToggleSas()
             "KeyR" -> if (pressed) onToggleRcs()
             "KeyB" -> if (pressed) onToggleBrakes()
-            "KeyG" -> if (pressed) onToggleDeploy()
+            "KeyG" -> if (pressed) onToggleGear()
             "KeyF" -> if (pressed) onToggleFlaps()
             else -> return false
         }
@@ -1063,6 +1065,14 @@ class ApogeeApp(private val host: AppHost) {
         if (on) hudState.sasEnabled = true
         val current = session ?: return
         scope.launch { current.setCruise(on) }
+    }
+
+    private fun onToggleGear() {
+        val power = hudState.power ?: return
+        if (!power.gearFolds) return
+        hudState.power = power.copy(gear = !power.gear)
+        val current = session ?: return
+        scope.launch { current.setGear(!power.gear) }
     }
 
     private fun onToggleDeploy() {

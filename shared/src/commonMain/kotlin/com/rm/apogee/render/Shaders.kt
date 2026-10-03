@@ -66,10 +66,11 @@ object Shaders {
     """
 
     /**
-     * Where the waves fade into the ground's flat water, as a share of the waves' reach, and how
-     * far under the waves that water starts, in metres.
+     * Where the ground's flat water rises from the bed and the waves fade into it, as shares of the
+     * waves' reach, and how far under the waves that water starts, in metres.
      */
     private const val SEA_EDGE = """
+        const float SEA_RISE = 0.6;
         const float SEA_BLEND = 0.8;
         const float SEA_BLEND_SINK = 12.0;
     """
@@ -589,6 +590,7 @@ object Shaders {
         uniform float uSeaReach;
         uniform float uTide;
         uniform vec3 uBodyCentre;
+        uniform float uMethane;  // 1 for a sea of liquid methane
         $SEA_EDGE
 
         // Flat: each triangle takes one vertex's colour. The normal comes per triangle in the
@@ -598,6 +600,8 @@ object Shaders {
         // Far water: the bed under it, and how much of the water's own colour hides it.
         flat out vec3 vBed;
         flat out float vSee;
+        flat out float vDepth;
+        flat out float vRise;
         out vec3 vViewDir;
         out float vDistance;
         out vec3 vPosition;
@@ -613,22 +617,32 @@ object Shaders {
             vWet = 0.0;
             vBed = aColour;
             vSee = 1.0;
+            vDepth = 0.0;
+            vRise = 0.0;
             float away = length(worldPos.xyz);
-            if (code >= 0.5 && away > uSeaReach * SEA_BLEND) {
-                // Past the waves: flat water at the tide, blue by depth. It starts a little under
-                // the waves inside their edge, so there's no line between them.
+            if (code >= 0.5 && away > uSeaReach * SEA_RISE) {
+                // Past the waves: flat water at the tide, blue by depth. Under the waves it rises
+                // from the bed to a little below them, so no triangle stands from bed to surface
+                // where it starts, and there's no line where the waves fade into it.
                 float depth = (code - 1.0) * 1000.0;
                 vec3 up = normalize(worldPos.xyz - uBodyCentre);
-                float under = SEA_BLEND_SINK * (1.0 - smoothstep(uSeaReach * SEA_BLEND, uSeaReach, away));
-                worldPos.xyz += up * (depth + uTide - under);
+                // (smoothstep's edges can't be equal, so no waves is its own case.)
+                bool waves = uSeaReach > 0.0;
+                float rise = waves ? smoothstep(uSeaReach * SEA_RISE, uSeaReach * SEA_BLEND, away) : 1.0;
+                float under = waves ? SEA_BLEND_SINK * (1.0 - smoothstep(uSeaReach * SEA_BLEND, uSeaReach, away)) : 0.0;
+                worldPos.xyz += up * (depth + uTide - under) * rise;
                 // The waves' own colours by depth (see SeaScene.colour), over the bed as the waves
                 // let it show through, so the two meet unseen.
                 float shallow = 1.0 - smoothstep(1.0, 14.0, depth);
                 float mid = 1.0 - smoothstep(10.0, 60.0, depth);
                 vec3 water = vec3(0.03, 0.20, 0.42) + (vec3(0.05, 0.40, 0.60) - vec3(0.03, 0.20, 0.42)) * mid
                     + (vec3(0.14, 0.72, 0.70) - vec3(0.05, 0.40, 0.60)) * shallow;
+                // Liquid methane, as SeaScene has it.
+                if (uMethane > 0.5) water = vec3(0.06, 0.045, 0.025) + vec3(0.10, 0.07, 0.03) * shallow;
                 vColour = water;
                 vSee = 0.35 + 0.57 * smoothstep(0.5, 20.0, depth);
+                vDepth = depth;
+                vRise = rise;
                 vWet = 1.0;
             }
             vPosition = worldPos.xyz;
@@ -652,6 +666,8 @@ object Shaders {
         flat in float vWet;
         flat in vec3 vBed;
         flat in float vSee;
+        flat in float vDepth;
+        flat in float vRise;
         in vec3 vViewDir;
         in float vDistance;
         in vec3 vPosition;
@@ -716,18 +732,21 @@ object Shaders {
             if (wet > 0.5) {
                 // Flat water past the waves, lit the way the waves are (see SEA_FRAGMENT), so there's
                 // no ring where one meets the other.
-                // The bed lit like ground, under water lit like water and as clear as the waves.
-                vec3 bed = vBed * (night * moonLeft(uDaylight) + duskGlow(uDaylight) + (0.06 + lambert * 1.10 * uLightScale) * daylight);
+                // The bed lit like ground and darkened by the water over it, as the bed under the
+                // waves is (underSea), under water lit like water and as clear as the waves.
+                vec3 bed = vBed * (night * moonLeft(uDaylight) + duskGlow(uDaylight) + (0.06 + lambert * 1.10 * uLightScale) * daylight)
+                    * exp(-vDepth / uWater);
                 float shade = 0.22 + 1.25 * pow(lambert, 0.8) * uLightScale;
                 vec3 water = surface * (night * moonLeft(uDaylight) + duskGlow(uDaylight) + shade * daylight) + surface * FLASH * uFlash;
                 float facing = max(dot(n, vViewDir), 0.0);
                 float reflected = 0.03 + 0.97 * pow(1.0 - facing, 5.0);
                 vec3 sky = mix(uHaze, uSeaSky, 0.5) * (NIGHT_AIR + (1.0 - NIGHT_AIR) * daylight) * (0.5 + 0.5 * uLightScale);
                 water = mix(water, sky, reflected * 0.5);
-                lit = mix(bed, water, mix(vSee, 1.0, reflected));
+                // Still rising under the waves, it's more bed than water.
+                lit = mix(bed, water, mix(vSee, 1.0, reflected) * vRise);
                 // The waves scatter the sun into sparkle. Flat, it's a broad dim sheen instead, about
                 // as bright on the whole.
-                lit += vec3(1.0, 0.96, 0.88) * pow(max(dot(n, halfway), 0.0), 40.0) * daylight * direct * 0.35 * uLightScale;
+                lit += vec3(1.0, 0.96, 0.88) * pow(max(dot(n, halfway), 0.0), 40.0) * daylight * direct * 0.35 * uLightScale * vRise;
             } else {
                 // A glint off wet ground.
                 float glint = pow(max(dot(n, halfway), 0.0), 90.0);
@@ -855,8 +874,12 @@ object Shaders {
             vec3 sky = mix(uHaze, uSeaSky, 0.5) * (NIGHT_AIR + (1.0 - NIGHT_AIR) * daylight) * (0.5 + 0.5 * uLightScale);
             lit = mix(lit, sky, fresnel * 0.5 * (1.0 - foam));
             vec3 halfway = normalize(uSunDirection + vViewDir);
-            float glint = pow(max(dot(n, halfway), 0.0), 140.0);
-            lit += vec3(1.0, 0.96, 0.88) * glint * daylight * direct * 1.6 * uLightScale * (1.0 - foam);
+            float facingSun = max(dot(n, halfway), 0.0);
+            // Sparkle near, and further out the flat water's broad sheen (TERRAIN_FRAGMENT), which
+            // it has become by the time it fades into it.
+            float sheen = smoothstep(uSeaReach * 0.3, uSeaReach * SEA_BLEND, vDistance);
+            float glint = mix(pow(facingSun, 140.0) * 1.6 * (1.0 - foam), pow(facingSun, 40.0) * 0.35, sheen);
+            lit += vec3(1.0, 0.96, 0.88) * glint * daylight * direct * uLightScale;
 
             float haze = (1.0 - exp(-vDistance / max(uHazeDistance, 1.0))) * uAtmosphereFactor;
             lit = mix(lit, airHaze(daylight, uLightScale), clamp(haze, 0.0, 1.0));

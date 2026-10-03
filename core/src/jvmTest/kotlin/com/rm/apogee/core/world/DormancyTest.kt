@@ -197,8 +197,8 @@ class DormancyTest {
     fun `a craft resting on deployed legs sleeps too`() {
         val world = world()
         val vessel = world.spawnOnSurface(StockCraft.lander(catalog), site)
-        repeat(3) { world.stage(vessel) }
-        assertTrue("the gear should be down", vessel.isActivated(vessel.defs.indices.first {
+        world.gearDown(vessel, stages = 0)
+        assertTrue("the gear should be down", vessel.gearDown(vessel.defs.indices.first {
             vessel.defs[it].id == "leg-stilt"
         }))
 

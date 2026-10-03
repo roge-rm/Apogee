@@ -203,4 +203,10 @@ enum class PieceRole {
     @SerialName("flap") FLAP,
     /** A sail: swings about the mast ([ModelSpec.Piece.axis] through the pivot) to its angle. */
     @SerialName("sail") SAIL,
+    /**
+     * A gear door: modelled shut, it swings [ModelSpec.Piece.travel] degrees about the axis through
+     * the pivot to open. Open while the gear is out or on its way; it stays on the body as the gear
+     * folds.
+     */
+    @SerialName("door") DOOR,
 }

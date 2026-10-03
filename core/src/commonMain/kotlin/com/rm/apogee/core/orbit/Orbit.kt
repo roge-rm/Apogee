@@ -242,6 +242,70 @@ class Orbit(
     /** The state at absolute universe time [time]. */
     fun stateAt(time: Double): StateVector = propagate(time - epoch)
 
+    /** Unit vectors in the plane of the orbit: toward periapsis (now, on a circle), and 90° on. */
+    private val towardPeriapsis: Vec3 by lazy {
+        if (eccentricity < 1e-9) position.normalized() else eccentricityVector.normalized()
+    }
+    private val aheadOfPeriapsis: Vec3 by lazy { angularMomentum.normalized().cross(towardPeriapsis) }
+
+    /** The true anomaly now, in (-pi, pi]. */
+    private val anomalyNow: Double get() = if (trueAnomaly > PI) trueAnomaly - 2.0 * PI else trueAnomaly
+
+    /**
+     * Seconds from periapsis to true anomaly [nu] (in (-pi, pi]): negative before it. NaN where a
+     * hyperbola never goes.
+     */
+    private fun sincePeriapsis(nu: Double): Double {
+        val e = eccentricity
+        if (isBound) {
+            val half = sqrt((1.0 - e) / (1.0 + e)) * kotlin.math.tan(nu / 2.0)
+            val ecc = 2.0 * kotlin.math.atan(half)
+            return (ecc - e * kotlin.math.sin(ecc)) * period / (2.0 * PI)
+        }
+        if (e <= 1.0 + 1e-9) return Double.NaN
+        val cosNu = kotlin.math.cos(nu)
+        if (1.0 + e * cosNu <= 1e-9) return Double.NaN
+        val coshF = (e + cosNu) / (1.0 + e * cosNu)
+        val f = ln(coshF + sqrt((coshF * coshF - 1.0).coerceAtLeast(0.0))) * if (nu < 0.0) -1.0 else 1.0
+        val a = -semiMajorAxis
+        return (e * kotlin.math.sinh(f) - f) / sqrt(mu / (a * a * a))
+    }
+
+    /** Seconds until true anomaly [nu]: within a period on an orbit, NaN once a hyperbola's past it. */
+    private fun timeToAnomaly(nu: Double): Double {
+        val wrapped = kotlin.math.atan2(kotlin.math.sin(nu), kotlin.math.cos(nu))
+        val dt = sincePeriapsis(wrapped) - sincePeriapsis(anomalyNow)
+        if (dt.isNaN()) return Double.NaN
+        if (isBound) return ((dt % period) + period) % period
+        return if (dt >= 0.0) dt else Double.NaN
+    }
+
+    /** Seconds until the craft is over [direction] (from the centre), as seen in its orbit's plane. */
+    fun timeToDirection(direction: Vec3): Double =
+        timeToAnomaly(kotlin.math.atan2(direction dot aheadOfPeriapsis, direction dot towardPeriapsis))
+
+    /** Seconds until it next comes down through [radius] from the centre, or NaN if it doesn't. */
+    fun timeToRadiusDown(radius: Double): Double {
+        if (radius <= periapsis || (isBound && radius >= apoapsis) || eccentricity < 1e-9) return Double.NaN
+        val p = (angularMomentum dot angularMomentum) / mu
+        val cosNu = ((p / radius - 1.0) / eccentricity).coerceIn(-1.0, 1.0)
+        return timeToAnomaly(-acos(cosNu))
+    }
+
+    /** The angle between this orbit's plane and the plane with [normal], in radians. */
+    fun relativeInclination(normal: Vec3): Double =
+        acos((angularMomentum.normalized() dot normal.normalized()).coerceIn(-1.0, 1.0))
+
+    /**
+     * Seconds until it crosses the plane with [normal] going up through it, and going down. Null
+     * when the planes are as good as the same.
+     */
+    fun nodesWith(normal: Vec3): Pair<Double, Double>? {
+        if (relativeInclination(normal) < NODE_PLANES_SAME) return null
+        val ascending = normal.normalized().cross(angularMomentum)
+        return timeToDirection(ascending) to timeToDirection(ascending.copy().negateInPlace())
+    }
+
     /**
      * Samples [count] points along the trajectory for the map. A bound orbit covers one period so
      * it closes; an escape covers a window either side of now.
@@ -332,6 +396,9 @@ class Orbit(
         private const val MAX_ITERATIONS = 64
         private const val CONVERGENCE_TOLERANCE = 1e-10
         private const val ESCAPE_SAMPLE_WINDOW_SECONDS = 6.0 * 3600.0
+
+        /** Planes closer than this (0.05°) have no nodes worth marking. */
+        private const val NODE_PLANES_SAME = 0.05 * PI / 180.0
 
         /**
          * An orbit from elements: semi-major axis [a], eccentricity [e], inclination [i], ascending

@@ -228,6 +228,9 @@ class HudState {
         val relays: Int,
         val controllable: Boolean,
         val deployed: Boolean,
+        /** The gear switch, and whether it has gear that folds. */
+        val gear: Boolean = true,
+        val gearFolds: Boolean = false,
         /** Drills and converters switched on, and what the drills are doing. */
         val drilling: Boolean = false,
         val refining: Boolean = false,

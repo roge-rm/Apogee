@@ -1587,7 +1587,7 @@
     "title": "Stilt Landing Leg",
     "category": "ground",
     "dryMass": 120.0,
-    "description": "A sprung landing leg with 0.4 m of travel. Deploy it before you touch down.",
+    "description": "A sprung landing leg with 0.4 m of travel. Comes down with the gear.",
     "crashTolerance": 18.0,
     "dragCoefficient": 0.4,
     "mesh": {
@@ -1928,6 +1928,62 @@
           },
           "tint": "metal",
           "role": "steer"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.03,
+              "height": 1.06,
+              "depth": 0.22
+            }
+          },
+          "offset": {
+            "x": -0.285,
+            "y": -0.41,
+            "z": 0.11
+          },
+          "role": "door",
+          "axis": {
+            "x": 0.0,
+            "y": 1.0,
+            "z": 0.0
+          },
+          "pivot": {
+            "x": -0.285,
+            "y": 0.0,
+            "z": 0.22
+          },
+          "travel": -90.0
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.03,
+              "height": 1.06,
+              "depth": 0.22
+            }
+          },
+          "offset": {
+            "x": -0.285,
+            "y": -0.41,
+            "z": -0.11
+          },
+          "role": "door",
+          "axis": {
+            "x": 0.0,
+            "y": 1.0,
+            "z": 0.0
+          },
+          "pivot": {
+            "x": -0.285,
+            "y": 0.0,
+            "z": -0.22
+          },
+          "travel": 90.0
         }
       ]
     },
@@ -1959,7 +2015,19 @@
         "suspensionTravel": 0.2,
         "springRate": 250000.0,
         "damping": 20000.0,
-        "brakeFriction": 0.4
+        "brakeFriction": 0.4,
+        "stowedAngle": -90.0,
+        "hinge": {
+          "x": -0.64,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "foldAxis": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 1.0
+        },
+        "deployTime": 2.5
       }
     ]
   },
@@ -3888,6 +3956,62 @@
             "z": 0.0
           },
           "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.03,
+              "height": 2.13,
+              "depth": 0.22
+            }
+          },
+          "offset": {
+            "x": -1.165,
+            "y": -0.915,
+            "z": 0.11
+          },
+          "role": "door",
+          "axis": {
+            "x": 0.0,
+            "y": 1.0,
+            "z": 0.0
+          },
+          "pivot": {
+            "x": -1.165,
+            "y": 0.0,
+            "z": 0.22
+          },
+          "travel": -90.0
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.03,
+              "height": 2.13,
+              "depth": 0.22
+            }
+          },
+          "offset": {
+            "x": -1.165,
+            "y": -0.915,
+            "z": -0.11
+          },
+          "role": "door",
+          "axis": {
+            "x": 0.0,
+            "y": 1.0,
+            "z": 0.0
+          },
+          "pivot": {
+            "x": -1.165,
+            "y": 0.0,
+            "z": -0.22
+          },
+          "travel": 90.0
         }
       ]
     },
@@ -3919,7 +4043,19 @@
         "suspensionTravel": 0.25,
         "springRate": 300000.0,
         "damping": 26000.0,
-        "brakeFriction": 0.45
+        "brakeFriction": 0.45,
+        "stowedAngle": -90.0,
+        "hinge": {
+          "x": -1.6,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "foldAxis": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 1.0
+        },
+        "deployTime": 2.5
       }
     ]
   },
@@ -4055,6 +4191,62 @@
             "z": 0.0
           },
           "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.03,
+              "height": 1.98,
+              "depth": 0.18
+            }
+          },
+          "offset": {
+            "x": -1.215,
+            "y": -0.84,
+            "z": 0.09
+          },
+          "role": "door",
+          "axis": {
+            "x": 0.0,
+            "y": 1.0,
+            "z": 0.0
+          },
+          "pivot": {
+            "x": -1.215,
+            "y": 0.0,
+            "z": 0.18
+          },
+          "travel": -90.0
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.03,
+              "height": 1.98,
+              "depth": 0.18
+            }
+          },
+          "offset": {
+            "x": -1.215,
+            "y": -0.84,
+            "z": -0.09
+          },
+          "role": "door",
+          "axis": {
+            "x": 0.0,
+            "y": 1.0,
+            "z": 0.0
+          },
+          "pivot": {
+            "x": -1.215,
+            "y": 0.0,
+            "z": -0.18
+          },
+          "travel": 90.0
         }
       ]
     },
@@ -4086,7 +4278,19 @@
         "suspensionTravel": 0.25,
         "springRate": 160000.0,
         "damping": 15000.0,
-        "brakeFriction": 0.3
+        "brakeFriction": 0.3,
+        "stowedAngle": -90.0,
+        "hinge": {
+          "x": -1.55,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "foldAxis": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 1.0
+        },
+        "deployTime": 2.5
       }
     ]
   },
@@ -4222,6 +4426,62 @@
             "z": 0.0
           },
           "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.03,
+              "height": 0.82,
+              "depth": 0.12
+            }
+          },
+          "offset": {
+            "x": -0.345,
+            "y": -0.31,
+            "z": 0.06
+          },
+          "role": "door",
+          "axis": {
+            "x": 0.0,
+            "y": 1.0,
+            "z": 0.0
+          },
+          "pivot": {
+            "x": -0.345,
+            "y": 0.0,
+            "z": 0.12
+          },
+          "travel": -90.0
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.03,
+              "height": 0.82,
+              "depth": 0.12
+            }
+          },
+          "offset": {
+            "x": -0.345,
+            "y": -0.31,
+            "z": -0.06
+          },
+          "role": "door",
+          "axis": {
+            "x": 0.0,
+            "y": 1.0,
+            "z": 0.0
+          },
+          "pivot": {
+            "x": -0.345,
+            "y": 0.0,
+            "z": -0.12
+          },
+          "travel": 90.0
         }
       ]
     },
@@ -4253,7 +4513,19 @@
         "suspensionTravel": 0.25,
         "springRate": 90000.0,
         "damping": 8000.0,
-        "brakeFriction": 0.2
+        "brakeFriction": 0.2,
+        "stowedAngle": -90.0,
+        "hinge": {
+          "x": -0.56,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "foldAxis": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 1.0
+        },
+        "deployTime": 2.5
       }
     ]
   },

@@ -574,6 +574,10 @@ class Forces {
             } else {
                 def.referenceArea * def.dragCoefficient * bodyScale
             }
+            // Gear that folds drags on top of its share of the body while it's down, and not up.
+            def.fold?.let { fold ->
+                if (fold.stowedAngle != 0.0) cdA += def.referenceArea * GEAR_DOWN_CD * vessel.legDeploy.getOrElse(i) { 1.0 }.coerceIn(0.0, 1.0)
+            }
             def.module<Parachute>()?.let { parachute ->
                 // Once staged it's armed and opens itself when safe. It's done here since this is
                 // the only place a part's airspeed is known.
@@ -1055,6 +1059,9 @@ class Forces {
 
         /** The drag coefficient of a fin edge-on to the airflow. Small, on purpose. */
         const val FIN_PARASITIC_CD = 0.03
+
+        /** The drag coefficient gear that folds adds while it's down, on its own area. */
+        const val GEAR_DOWN_CD = 0.25
     }
 }
 

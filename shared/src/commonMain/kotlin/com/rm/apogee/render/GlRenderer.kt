@@ -551,6 +551,7 @@ class GlRenderer(
             shader.setVec3("uBodyCentre", farGlobeCentre.x.toFloat(), farGlobeCentre.y.toFloat(), farGlobeCentre.z.toFloat())
             shader.setFloat("uSeaReach", 0f)
             shader.setFloat("uTide", 0f)
+            shader.setFloat("uMethane", if (far.id == "aurantia") 1f else 0f)
             shader.setFloat("uHasAtmosphere", if (far.hasAir) 1f else 0f)
             shader.setFloat("uDiscardNearer", 0f)
             shader.setFloat("uSkyBody", 1f)
@@ -687,6 +688,7 @@ class GlRenderer(
         shader.setVec3("uBodyCentre", (-cameraPos.x).toFloat(), (-cameraPos.y).toFloat(), (-cameraPos.z).toFloat())
         shader.setFloat("uSeaReach", if (world.sea != null) world.seaReach.toFloat() else 0f)
         shader.setFloat("uTide", world.tide.toFloat())
+        shader.setFloat("uMethane", if (world.water === WorldView.AURANTIA_WATER) 1f else 0f)
         world.sky.seaSky.let { shader.setVec3("uSeaSky", it[0], it[1], it[2]) }
     }
 

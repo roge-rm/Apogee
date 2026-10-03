@@ -416,8 +416,8 @@ data class Buoyancy(
 
 /**
  * A landing leg: a contact point on a spring. A rigid contact stops a craft in one tick, in a
- * single impulse; a spring spreads it over its travel. Deploys when its stage fires. A stowed leg's
- * foot touches nothing, so landing gear-up is a crash.
+ * single impulse; a spring spreads it over its travel. Comes down and goes up with the gear. A
+ * stowed leg's foot is rigid, so landing gear-up is a crash.
  */
 @Serializable
 @SerialName("landingLeg")
@@ -493,6 +493,15 @@ data class Wheel(
     val suspensionTravel: Double = 0.25,
     val springRate: Double = 60_000.0,
     val damping: Double = 6_000.0,
+    /**
+     * Gear that folds up: turned [stowedAngle] degrees about [foldAxis] through [hinge] (part
+     * space) when up, taking [deployTime] seconds. Zero for a wheel that's always down. Folded up, it
+     * touches nothing.
+     */
+    val stowedAngle: Double = 0.0,
+    val hinge: SerialVec3 = Vec3(0.0, 0.0, 0.0),
+    val foldAxis: SerialVec3 = Vec3(0.0, 0.0, 1.0),
+    val deployTime: Double = 2.0,
 ) : PartModule
 
 /**

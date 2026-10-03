@@ -537,6 +537,7 @@ class GameServer(
         is Command.Reel -> flies(session, command.vessel)
         is Command.ReleaseLine -> flies(session, command.vessel)
         is Command.Deploy -> flies(session, command.vessel)
+        is Command.SetGear -> flies(session, command.vessel)
         // Only for your own crew, from the craft you're in.
         is Command.Eva -> session.controlledVessel?.raw == command.vessel && world.crew[command.crew]?.owner == session.clientId
         is Command.TransferCrew -> session.controlledVessel?.raw == command.vessel && world.crew[command.crew]?.owner == session.clientId

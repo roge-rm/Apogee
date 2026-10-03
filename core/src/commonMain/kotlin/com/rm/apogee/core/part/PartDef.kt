@@ -307,6 +307,15 @@ data class PartDef(
     val foot: Boolean by lazy { module<Wheel>() != null || module<LandingLeg>() != null || module<Walker>() != null || module<Skid>() != null }
 
     /**
+     * How this part goes up and down with the gear, if it does: every landing leg (one that doesn't
+     * fold has no angle), and a wheel made to fold.
+     */
+    val fold: GearFold? by lazy {
+        module<LandingLeg>()?.let { GearFold(it.hinge, it.foldAxis.normalized(), it.stowedAngle, it.deployTime, wheel = false) }
+            ?: module<Wheel>()?.takeIf { it.stowedAngle != 0.0 }?.let { GearFold(it.hinge, it.foldAxis.normalized(), it.stowedAngle, it.deployTime, wheel = true) }
+    }
+
+    /**
      * Mesh volume in m³: what any part displaces under water, so a sealed tank or a downed rocket
      * floats. [Buoyancy] overrides it where the mesh doesn't describe what's enclosed, and
      * [displaces] where the mesh is only an outline.
@@ -419,4 +428,24 @@ data class PartDef(
             val h = boundsHalfExtents
             return Math.PI * h.x * h.z
         }
+}
+
+/**
+ * Gear folding up: [stowedAngle] degrees about [axis] through [hinge] (part space) when up, taking
+ * [time] seconds. A [wheel] folded up, or on its way, touches nothing; a leg's foot stays rigid.
+ */
+class GearFold(val hinge: Vec3, val axis: Vec3, val stowedAngle: Double, val time: Double, val wheel: Boolean) {
+    companion object {
+        /**
+         * The share of a wheel's fold its doors take: going up, the wheel is in by this far from
+         * the end and the doors shut after it; coming down, they open first.
+         */
+        const val DOOR_SHARE = 0.25
+
+        /** How far open a wheel's doors are at deploy progress [deploy], 0 shut to 1 open. */
+        fun doorOpen(deploy: Double): Double = (deploy / DOOR_SHARE).coerceIn(0.0, 1.0)
+
+        /** How far down the wheel itself is at deploy progress [deploy], 0 in to 1 out. */
+        fun wheelOut(deploy: Double): Double = ((deploy - DOOR_SHARE) / (1.0 - DOOR_SHARE)).coerceIn(0.0, 1.0)
+    }
 }

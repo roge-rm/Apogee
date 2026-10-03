@@ -37,6 +37,10 @@ class PathPlanner(private val system: SolarSystem) {
         val impact: Descent.Impact?,
         /** How near it passes its target, coasting, or after the burn if there is one. */
         val approach: Trajectory.Approach?,
+        /** The targeted body, by id, or blank. */
+        val targetBody: String = "",
+        /** The targeted craft's orbit around [bodyId], or null. */
+        val targetOrbit: Orbit? = null,
     )
 
     /** What's known about the craft now. See [ask]. */
@@ -91,7 +95,10 @@ class PathPlanner(private val system: SolarSystem) {
         }
         val impact = if (ask.mass > 0.0) Descent.predict(body, ask.position, ask.velocity, ask.time, ask.mass, ask.dragArea) else null
         val approach = approachOf(planned ?: current, ask)
-        return Plan(ask.bodyId, ask.time, current, burn, burnPoint, planned, impact, approach)
+        val targetOrbit = if (ask.targetPosition != null && ask.targetVelocity != null) {
+            Orbit(ask.targetPosition.copy(), ask.targetVelocity.copy(), body.gravitationalParameter, ask.time)
+        } else null
+        return Plan(ask.bodyId, ask.time, current, burn, burnPoint, planned, impact, approach, ask.targetBody.takeIf { it in system.bodies } ?: "", targetOrbit)
     }
 
     /** How near [path] comes to the craft's target, in the target's own body's frame. */

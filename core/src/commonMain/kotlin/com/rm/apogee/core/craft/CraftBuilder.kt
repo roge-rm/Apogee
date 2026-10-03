@@ -311,8 +311,7 @@ class CraftBuilder(
         /** Parts a stage can fire. */
         fun stageable(def: PartDef): Boolean =
             def.module<Engine>() != null || def.module<Decoupler>() != null ||
-                def.module<Parachute>() != null || def.module<LandingLeg>() != null ||
-                def.module<com.rm.apogee.core.part.Fairing>() != null
+                def.module<Parachute>() != null || def.module<com.rm.apogee.core.part.Fairing>() != null
 
         /**
          * A hand-arranged sequence fitted to the design as it is now. Missing or unstageable parts
@@ -373,9 +372,6 @@ class CraftBuilder(
             fun isParachute(index: Int) =
                 catalog[design.parts[index].partId]?.module<Parachute>() != null
 
-            fun isLeg(index: Int) =
-                catalog[design.parts[index].partId]?.module<LandingLeg>() != null
-
             // Each part's separation group: the decouplers between it and the root. Higher is
             // dropped sooner.
             val separation = IntArray(design.parts.size) { -1 }
@@ -416,12 +412,9 @@ class CraftBuilder(
                 }
             }
 
+            // Legs aren't staged: they go up and down with the gear.
             val parachutes = design.parts.indices.filter { isParachute(it) }
             if (parachutes.isNotEmpty()) stages.add(Stage(parachutes))
-
-            // Legs go last, after the chute, so they don't drag through the ascent.
-            val legs = design.parts.indices.filter { isLeg(it) }
-            if (legs.isNotEmpty()) stages.add(Stage(legs))
 
             return stages
         }

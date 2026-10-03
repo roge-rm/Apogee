@@ -34,6 +34,9 @@ class CruiseTest {
         world.assignOwner(plane, "p1")
         world.seatCrew(plane)
         plane.activated.fill(true)
+        // Cruising, with its gear up.
+        plane.control.gear = false
+        for (i in plane.defs.indices) if (plane.defs[i].fold != null) plane.setLegDeploy(i, 0.0)
         world.apply(Command.SetSas(plane.id.raw, true))
         world.apply(Command.SetThrottle(plane.id.raw, 0.7))
         return plane

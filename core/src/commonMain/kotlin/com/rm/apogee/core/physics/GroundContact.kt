@@ -215,9 +215,11 @@ class GroundContact {
             // no foot.
             val leg = def.module<LandingLeg>()
             if (leg != null && vessel.broken[partIndex]) continue
-            val sprung = leg == null || (vessel.isWorking(partIndex) && vessel.legDeploy.getOrElse(partIndex) { 1.0 } >= 1.0)
+            val sprung = leg == null || (vessel.gearDown(partIndex) && vessel.legDeploy.getOrElse(partIndex) { 1.0 } >= 1.0)
             // A leg that doesn't fold has no stowed pose to touch with. Stowed, it isn't there.
-            if (leg != null && leg.stowedAngle == 0.0 && !vessel.isWorking(partIndex)) continue
+            if (leg != null && leg.stowedAngle == 0.0 && !vessel.gearDown(partIndex)) continue
+            // A wheel folded up, or on its way, is tucked in and touches nothing.
+            if (tucked(vessel, def, partIndex)) continue
 
             // A wheel is a leg that rolls, so it borrows the leg's suspension.
             val wheel = def.module<Wheel>()
@@ -315,8 +317,9 @@ class GroundContact {
             // The same feet as on the ground. See [resolve].
             val leg = def.module<LandingLeg>()
             if (leg != null && vessel.broken[partIndex]) continue
-            val sprung = leg == null || (vessel.isWorking(partIndex) && vessel.legDeploy.getOrElse(partIndex) { 1.0 } >= 1.0)
-            if (leg != null && leg.stowedAngle == 0.0 && !vessel.isWorking(partIndex)) continue
+            val sprung = leg == null || (vessel.gearDown(partIndex) && vessel.legDeploy.getOrElse(partIndex) { 1.0 } >= 1.0)
+            if (leg != null && leg.stowedAngle == 0.0 && !vessel.gearDown(partIndex)) continue
+            if (tucked(vessel, def, partIndex)) continue
             val wheel = def.module<Wheel>()
             val walker = def.module<com.rm.apogee.core.part.Walker>() != null
             // Skids flex a little. See [resolve].
@@ -825,3 +828,9 @@ class GroundContact {
 
 /** Whether [def] is something a craft stands on: a wheel, a landing leg, or a foot. */
 fun isFoot(def: com.rm.apogee.core.part.PartDef): Boolean = def.foot
+
+/** Whether [vessel]'s part [index] is a wheel folded up or on its way, which touches nothing. */
+internal fun tucked(vessel: Vessel, def: com.rm.apogee.core.part.PartDef, index: Int): Boolean {
+    val fold = def.fold ?: return false
+    return fold.wheel && vessel.legDeploy.getOrElse(index) { 1.0 } < 1.0
+}

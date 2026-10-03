@@ -131,6 +131,17 @@ object PartModels {
             ?: def.module<com.rm.apogee.core.part.Walker>()?.swing ?: 0.0
         gimbalRange = Math.toRadians(def.module<com.rm.apogee.core.part.Engine>()?.gimbalRange ?: 0.0)
         leg = def.module<com.rm.apogee.core.part.LandingLeg>()
+        // A wheel that folds turns about its hinge into the body, its doors staying where they are.
+        val fold = def.fold?.takeIf { it.wheel && anim != null && anim.deploy < 1.0 }
+        if (fold != null && model is ModelSpec.Compound) {
+            val (doors, rest) = split(def, model)
+            val out01 = com.rm.apogee.core.part.GearFold.wheelOut(anim!!.deploy)
+            val turn = Quat.fromAxisAngle(fold.axis, Math.toRadians(fold.stowedAngle) * (1.0 - out01))
+            val at = turn.rotate(fold.hinge.copy().mulInPlace(-1.0)).addInPlace(fold.hinge)
+            expand(rest, at, turn, Tint.BODY, caps, anim, maxDeflection, out, spinning = false)
+            expand(doors, Vec3.zero(), Quat.identity(), Tint.BODY, caps, anim, maxDeflection, out, spinning = false)
+            return
+        }
         expand(model, Vec3.zero(), Quat.identity(), Tint.BODY, caps, anim, maxDeflection, out, spinning = false)
     }
 
@@ -177,8 +188,19 @@ object PartModels {
         }
     }
 
+    /** A folding wheel's model split into its doors and the rest, made once per part. */
+    private fun split(def: PartDef, model: ModelSpec.Compound): Pair<ModelSpec.Compound, ModelSpec.Compound> = synchronized(splits) {
+        splits.getOrPut(def) {
+            val (doors, rest) = model.pieces.partition { it.role == PieceRole.DOOR }
+            ModelSpec.Compound(doors) to ModelSpec.Compound(rest)
+        }
+    }
+
+    private val splits = com.rm.apogee.platform.identityMapOf<PartDef, Pair<ModelSpec.Compound, ModelSpec.Compound>>()
+
     private fun motion(piece: ModelSpec.Piece, anim: PartAnim?, maxDeflection: Double): Quat {
-        if (anim == null) return Quat.identity()
+        // Unposed, as in the builder, the gear is out and its doors open.
+        if (anim == null) return if (piece.role == PieceRole.DOOR) Quat.fromAxisAngle(piece.axis.normalized(), Math.toRadians(piece.travel)) else Quat.identity()
         val axis = piece.axis.normalized()
         return when (piece.role) {
             PieceRole.FIXED, PieceRole.SUSPENSION, PieceRole.JETTISON -> Quat.identity()
@@ -204,6 +226,7 @@ object PartModels {
                 Quat.fromAxisAngle(steerAxis, anim.steer) * (anim.wheelAlign ?: Quat.identity()) *
                     Quat.fromAxisAngle(Vec3(1.0, 0.0, 0.0), anim.spin)
             }
+            PieceRole.DOOR -> Quat.fromAxisAngle(axis, Math.toRadians(piece.travel) * com.rm.apogee.core.part.GearFold.doorOpen(anim.deploy))
             PieceRole.DEPLOY -> {
                 val l = leg
                 if (l != null) Quat.fromAxisAngle(l.foldAxis.normalized(), Math.toRadians(l.stowedAngle) * (1.0 - anim.deploy))

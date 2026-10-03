@@ -82,6 +82,11 @@ sealed interface Command {
     @SerialName("deploy")
     data class Deploy(val vessel: Long, val deployed: Boolean) : Command
 
+    /** Puts [vessel]'s landing gear and legs down, or folds them up. */
+    @Serializable
+    @SerialName("setGear")
+    data class SetGear(val vessel: Long, val down: Boolean) : Command
+
     /** Crew member [crew] climbs out of [vessel] on EVA. */
     @Serializable
     @SerialName("eva")
@@ -442,6 +447,9 @@ sealed interface ServerMessage {
         val blocked: String = "",
         val needsSignal: Boolean,
         val deployed: Boolean,
+        /** The gear switch, and whether it has gear that folds. */
+        val gear: Boolean = true,
+        val gearFolds: Boolean = false,
         /** On EVA: the craft with a free seat in reach (or blank), and a ladder in reach or held. */
         val boardable: String = "",
         val canGrab: Boolean = false,
@@ -707,5 +715,6 @@ object Protocol {
     // 27: VesselKinematics.centreOfMass.
     // 28: places as targets, SetTarget's body "place:" and an id.
     // 29: the light switch: SetLights, CraftSystems.lights and lamps, VesselKinematics.lit.
-    const val VERSION = 29
+    // 30: the gear switch: SetGear, CraftSystems.gear and gearFolds; legs no longer stage.
+    const val VERSION = 30
 }

@@ -2,7 +2,6 @@ package com.rm.apogee.core.world
 
 import com.rm.apogee.core.craft.Vessel
 import com.rm.apogee.core.part.AeroSurface
-import com.rm.apogee.core.part.LandingLeg
 import com.rm.apogee.core.part.PartDef
 import com.rm.apogee.core.part.Wheel
 import kotlin.math.roundToInt
@@ -31,9 +30,9 @@ object VesselPose {
     private fun engine(def: PartDef): Boolean =
         def.module<com.rm.apogee.core.part.Engine>() != null || def.module<com.rm.apogee.core.part.Rotor>() != null
 
-    /** A leg swinging down, or a chute filling (below 0 means cut away). */
+    /** Gear swinging down or up, or a chute filling (below 0 means cut away). */
     private fun deploys(def: PartDef): Boolean =
-        def.module<LandingLeg>() != null || def.module<com.rm.apogee.core.part.Parachute>() != null || foldsOut(def)
+        def.fold != null || def.module<com.rm.apogee.core.part.Parachute>() != null || foldsOut(def)
 
     /** A sun wing, dish or drill: folds out by itself, its progress kept where a leg's is. */
     fun foldsOut(def: PartDef): Boolean =

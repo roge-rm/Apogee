@@ -20,7 +20,7 @@ class StandOnLegsTest {
         val world = World.default(catalog)
         val lander = world.spawnOnSurface(StockCraft.prospector(catalog), luna, legsOut = true)
         for (i in legs(lander)) {
-            assertTrue("leg $i is working", lander.isWorking(i))
+            assertTrue("leg $i is down", lander.gearDown(i))
             assertEquals(1.0, lander.legDeploy[i], 1e-9)
         }
         val up = lander.body.position.normalized()
@@ -36,7 +36,7 @@ class StandOnLegsTest {
     fun `set down for anything else it keeps its legs folded`() {
         val world = World.default(catalog)
         val lander = world.spawnOnSurface(StockCraft.prospector(catalog), luna)
-        for (i in legs(lander)) assertTrue("leg $i was put out", !lander.isWorking(i))
+        for (i in legs(lander)) assertTrue("leg $i was put out", !lander.gearDown(i) && lander.legDeploy[i] == 0.0)
     }
 
     @Test
@@ -44,7 +44,7 @@ class StandOnLegsTest {
         val world = World.default(catalog)
         val rocket = world.spawnOnSurface(StockCraft.moonshot(catalog), World.launchSites.first { it.id == "cape" }, legsOut = true)
         for (i in legs(rocket)) {
-            assertTrue("leg $i was put out", !rocket.isWorking(i))
+            assertTrue("leg $i was put out", !rocket.gearDown(i))
             assertEquals(0.0, rocket.legDeploy[i], 1e-9)
         }
     }

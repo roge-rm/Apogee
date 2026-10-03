@@ -50,6 +50,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
@@ -117,6 +118,8 @@ fun FlightScreen(
     onTarget: (Long) -> Unit = {},
     /** The worlds' names on the map, placed on a screen this wide and high. */
     mapLabels: (Float, Float) -> List<com.rm.apogee.game.GameSession.MapLabel> = { _, _ -> emptyList() },
+    /** Warp to a mark on the map, by universe time. */
+    onWarpToMark: (Double) -> Unit = {},
     onToggleBrakes: () -> Unit,
     /** Arm the thrusters, or stand them down. */
     onToggleRcs: () -> Unit = {},
@@ -124,6 +127,8 @@ fun FlightScreen(
     onToggleReverse: () -> Unit = {},
     /** Fold the sun wings and dishes out, or away. */
     onToggleDeploy: () -> Unit = {},
+    /** Put the gear down, or fold it up. */
+    onToggleGear: () -> Unit = {},
     /** Switch the drills, and the converters. */
     onToggleDrill: () -> Unit = {},
     onToggleRefine: () -> Unit = {},
@@ -193,9 +198,9 @@ fun FlightScreen(
         val sas = remember(onToggleSas, onSasMode, targetChoices, onTarget, onStickMode, onCruise, onSteering, burnActions) {
             SasActions(onToggleSas, onSasMode, targetChoices, onTarget, onStickMode, onCruise, onSteering, burnActions.onAutoLand)
         }
-        val railActions = remember(onToggleBrakes, onToggleReverse, onToggleRcs, onToggleDeploy, onToggleDrill, onToggleRefine, crewActions, onDive, onRise, onHoldDepth, onToggleFlaps, onGroup, onWinch, onStationKeep, onLights, onLightMode) {
+        val railActions = remember(onToggleBrakes, onToggleReverse, onToggleRcs, onToggleDeploy, onToggleGear, onToggleDrill, onToggleRefine, crewActions, onDive, onRise, onHoldDepth, onToggleFlaps, onGroup, onWinch, onStationKeep, onLights, onLightMode) {
             RailActions(
-                onBrakes = onToggleBrakes, onReverse = onToggleReverse, onRcs = onToggleRcs, onDeploy = onToggleDeploy,
+                onBrakes = onToggleBrakes, onReverse = onToggleReverse, onRcs = onToggleRcs, onDeploy = onToggleDeploy, onGear = onToggleGear,
                 onDrill = onToggleDrill, onRefine = onToggleRefine, onJump = crewActions.onJump, onFlag = crewActions.onFlag,
                 onDive = onDive, onRise = onRise, onHold = onHoldDepth,
                 onFlaps = onToggleFlaps, onGroup = onGroup, onWinch = onWinch, onStationKeep = onStationKeep,
@@ -271,7 +276,7 @@ fun FlightScreen(
             label = "hud fade",
         )
 
-        if (hud.mapMode) MapNames(mapLabels)
+        if (hud.mapMode) MapNames(mapLabels, onWarpToMark)
 
         // --- top left: exit, map, craft, warp, and the craft's name ----------
         //
@@ -908,7 +913,7 @@ private fun CrashCard(
 
 /** The worlds' names next to their marks on the map, placed afresh ten times a second. */
 @Composable
-private fun MapNames(labels: (Float, Float) -> List<com.rm.apogee.game.GameSession.MapLabel>) {
+private fun MapNames(labels: (Float, Float) -> List<com.rm.apogee.game.GameSession.MapLabel>, onWarpTo: (Double) -> Unit) {
     var size by remember { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
     var shown by remember { mutableStateOf(emptyList<com.rm.apogee.game.GameSession.MapLabel>()) }
     LaunchedEffect(size) {
@@ -936,6 +941,10 @@ private fun MapNames(labels: (Float, Float) -> List<com.rm.apogee.game.GameSessi
                 )
                 continue
             }
+            label.mark?.let { mark ->
+                MarkTag(label, mark, onWarpTo)
+                continue
+            }
             Text(
                 label.name.uppercase(),
                 style = MaterialTheme.typography.labelSmall,
@@ -944,6 +953,68 @@ private fun MapNames(labels: (Float, Float) -> List<com.rm.apogee.game.GameSessi
                 modifier = Modifier.offset { androidx.compose.ui.unit.IntOffset(label.x.toInt() + 10, label.y.toInt() - 20) },
             )
         }
+    }
+}
+
+/** A mark on the path: its tag, and picked, what it says and a warp to it. */
+@Composable
+private fun MarkTag(label: com.rm.apogee.game.GameSession.MapLabel, mark: com.rm.apogee.game.PathMark, onWarpTo: (Double) -> Unit) {
+    val rgb = com.rm.apogee.game.GameSession.markColour(mark.kind)
+    val colour = Color(rgb[0], rgb[1], rgb[2])
+    val offset = Modifier.offset { androidx.compose.ui.unit.IntOffset(label.x.toInt() + 10, label.y.toInt() - 20) }
+    if (!label.picked) {
+        Text(label.name, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = colour, maxLines = 1, modifier = offset)
+        return
+    }
+    Row(
+        Modifier
+            .keptOnScreen(label.x.toInt() + 10, label.y.toInt() - 20)
+            .clip(RoundedCornerShape(Dimens.CornerTight))
+            .background(Color.Black.alpha(0.7f))
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(markSays(label, mark), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = colour, maxLines = 1)
+        Text(com.rm.apogee.ui.components.formatDuration(label.inSeconds), style = MaterialTheme.typography.labelSmall, color = ApogeeColors.Data, maxLines = 1)
+        if (label.inSeconds > 60.0) {
+            Text(
+                "WARP TO",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                color = Color.White,
+                maxLines = 1,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(Dimens.CornerTight))
+                    .background(Color.White.alpha(ApogeeAlpha.CONTROL_FILL))
+                    .clickable { onWarpTo(mark.time) }
+                    .padding(horizontal = 10.dp, vertical = 7.dp),
+            )
+        }
+    }
+}
+
+/** Placed at [x], [y] in its parent, moved in from the edges so all of it shows. */
+private fun Modifier.keptOnScreen(x: Int, y: Int) = layout { measurable, constraints ->
+    val placed = measurable.measure(constraints.copy(minWidth = 0, minHeight = 0))
+    val width = if (constraints.hasBoundedWidth) constraints.maxWidth else placed.width
+    val height = if (constraints.hasBoundedHeight) constraints.maxHeight else placed.height
+    layout(width, height) {
+        placed.place(x.coerceIn(0, maxOf(0, width - placed.width)), y.coerceIn(0, maxOf(0, height - placed.height)))
+    }
+}
+
+/** What a picked mark says, after its [tag]: a height, a distance, a speed or an angle. */
+private fun markSays(label: com.rm.apogee.game.GameSession.MapLabel, mark: com.rm.apogee.game.PathMark): String {
+    val tag = label.name
+    return tag + when (mark.kind) {
+        com.rm.apogee.game.MarkKind.AP, com.rm.apogee.game.MarkKind.PE ->
+            if (mark.height < 0.0) " under ground" else " " + com.rm.apogee.ui.components.formatDistance(mark.height)
+        com.rm.apogee.game.MarkKind.ENTER, com.rm.apogee.game.MarkKind.LEAVE -> " " + label.world.uppercase()
+        com.rm.apogee.game.MarkKind.NEAR -> " " + com.rm.apogee.ui.components.formatDistance(mark.extra)
+        com.rm.apogee.game.MarkKind.LAND -> if (mark.extra.isNaN()) "" else " ${mark.extra.roundToInt()} m/s"
+        com.rm.apogee.game.MarkKind.AN, com.rm.apogee.game.MarkKind.DN -> " %.1f°".format(mark.extra * 180.0 / kotlin.math.PI)
+        com.rm.apogee.game.MarkKind.BURN, com.rm.apogee.game.MarkKind.AIR -> ""
     }
 }
 

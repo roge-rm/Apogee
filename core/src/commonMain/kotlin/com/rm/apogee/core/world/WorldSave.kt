@@ -48,6 +48,8 @@ class VesselSave(
     val lights: com.rm.apogee.core.part.LightMode = com.rm.apogee.core.part.LightMode.OFF,
     /** Sun wings and dishes told to fold out. */
     val deployed: Boolean = false,
+    /** The gear switch. */
+    val gear: Boolean = true,
     /** Fuel cells running. They cut out once it's well charged. */
     val fuelCellsOn: Boolean = false,
     /** Drills and converters switched on, so a base mines and refines while nobody's there. */

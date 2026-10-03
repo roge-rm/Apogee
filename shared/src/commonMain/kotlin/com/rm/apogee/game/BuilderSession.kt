@@ -409,7 +409,7 @@ class BuilderSession(
 
     private fun tapToStage(x: Float, y: Float, width: Float, height: Float) {
         val index = pickPart(x, y, width, height, stageableOnly = true) ?: run {
-            statusMessage = "Only engines, decouplers, chutes and legs are staged"
+            statusMessage = "Only engines, decouplers, chutes and shrouds are staged"
             return
         }
         val target = selectedStage

@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.TireRepair
 import androidx.compose.material.icons.filled.Air
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
@@ -56,6 +57,7 @@ class RailActions(
     val onReverse: () -> Unit = {},
     val onRcs: () -> Unit = {},
     val onDeploy: () -> Unit = {},
+    val onGear: () -> Unit = {},
     val onDrill: () -> Unit = {},
     val onRefine: () -> Unit = {},
     val onJump: () -> Unit = {},
@@ -117,6 +119,10 @@ fun ActionRail(
             add(RailSwitch(Icons.Filled.Air, caption, tint, hud.rcsArmed, actions.onRcs))
         }
         val power = hud.power
+        if (power != null && power.gearFolds) {
+            val down = power.gear
+            add(RailSwitch(Icons.Filled.TireRepair, if (down) "GEAR" else "GEAR UP", if (down) ApogeeColors.Prograde else idle, down, actions.onGear))
+        }
         if (hud.hasFoldouts) {
             val out = power?.deployed == true
             add(RailSwitch(Icons.Filled.SolarPower, "DEPLOY", if (out) ApogeeColors.Prograde else idle, out, actions.onDeploy))

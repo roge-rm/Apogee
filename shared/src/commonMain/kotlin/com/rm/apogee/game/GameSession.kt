@@ -702,6 +702,8 @@ class GameSession private constructor(
                 relays = systems.relays.size,
                 controllable = systems.controllable,
                 deployed = systems.deployed,
+                gear = systems.gear,
+                gearFolds = systems.gearFolds,
                 drilling = systems.drilling,
                 refining = systems.refining,
                 drillState = systems.drillState,
@@ -865,6 +867,11 @@ class GameSession private constructor(
         withControlledVessel { client.send(Command.Deploy(it, deployed)) }
     }
 
+    /** Puts the gear down, or folds it up. */
+    suspend fun setGear(down: Boolean) {
+        withControlledVessel { client.send(Command.SetGear(it, down)) }
+    }
+
     /** Whether the craft being flown has any wheels to brake. */
     val controlledHasWheels: Boolean
         get() {
@@ -1021,9 +1028,14 @@ class GameSession private constructor(
         val focus = client.controlledVessel?.let { client.vessel(it) } ?: return
         val burn = burnsOf(focus).firstOrNull() ?: return
         val duration = prediction.replica?.let { com.rm.apogee.core.world.Burns.duration(it, burn.deltaV) } ?: 0.0
-        val start = com.rm.apogee.core.world.Burns.startOf(burn, duration)
-        val until = start - BURN_WARP_LEAD
+        warpTo(com.rm.apogee.core.world.Burns.startOf(burn, duration))
+    }
+
+    /** Warps to a little before universe time [time], if that's far enough off. */
+    suspend fun warpTo(time: Double) {
+        val until = time - BURN_WARP_LEAD
         if (until > lastRenderTime + 5.0) client.send(Command.WarpTo(until))
+        mapPicked = null
     }
 
     /** Turns the autopilots on or off. */
@@ -1573,10 +1585,18 @@ class GameSession private constructor(
                 mapCamera.yaw = kotlin.math.atan2(down.x, down.z)
                 mapCamera.frameExactly(if (!free) maxOf(span, MAP_LOCAL) else span)
             }
-            mapCamera.solve(craft, cameraPosition, cameraRotation)
+            // Looking at another world: round it, framed to its reach when first looked at.
+            val looked = mapLooksAt?.let { system.bodies[it] }?.takeIf { it.id != attractor.id }
+            val pivot = if (looked != null) system.positionOf(looked.id, renderTime).subInPlace(system.positionOf(attractor.id, renderTime)) else craft
+            if (looked?.id != mapFramedLook) {
+                mapFramedLook = looked?.id
+                if (looked != null) mapCamera.frameExactly(minOf(looked.sphereOfInfluence, looked.radius * MAP_LOOK_RADII))
+            }
+            mapCamera.solve(pivot, cameraPosition, cameraRotation)
             // How much the view takes in. The markers are sized to it.
             val reach = mapCamera.distance / 2.4
 
+            var marks: List<PathMark> = emptyList()
             when {
                 !free -> if (course != null) {
                     lines.addAll(thick(course.first, reach * COURSE_WIDTH))
@@ -1587,26 +1607,27 @@ class GameSession private constructor(
                 }
                 plan != null -> {
                     lines.addAll(drawn)
-                    planMarkers(plan, attractor.id, reach, lines)
+                    planMoons(plan, attractor.id, lines)
+                    marks = pathMarks.of(plan, attractor.id)
                 }
                 fall != null -> {
                     lines.addAll(thick(fall.first, reach * COURSE_WIDTH))
-                    val lands = fall.second
-                    if (lands != null) lines.add(marker(lands, reach, IMPACT_COLOR))
-                    else if (orbit.isBound) {
-                        lines.add(marker(orbit.propagate(orbit.timeToApoapsis).position, reach, APOAPSIS_COLOR))
-                        lines.add(marker(orbit.propagate(orbit.timeToPeriapsis).position, reach, PERIAPSIS_COLOR))
-                    }
+                    val landing = planner.plan?.takeIf { it.bodyId == attractor.id }?.impact
+                    marks = pathMarks.ofOrbit(orbit, attractor.id, renderTime, fall.second, fall.third, landing)
                 }
             }
-            keepMapView(plan?.takeIf { free }, attractor, renderTime, cameraPosition, cameraRotation, reach)
+            for (m in marks) {
+                lines.add(marker(m.at, reach, markColour(m.kind)))
+                m.ghost?.let { lines.add(ring(it, it.normalized(), reach * MARKER_FRACTION * 1.6, NEAR_COLOR)) }
+            }
+            keepMapView(plan?.takeIf { free }, attractor, renderTime, cameraPosition, cameraRotation, reach, if (free) marks else emptyList(), pivot, craft)
             moonLines(attractor, renderTime, lines)
             // Mark every world in view, since past the giants a planet is far less than a pixel.
             val here = system.positionOf(attractor.id, renderTime)
             for (b in targetBodies) {
                 if (b.id == attractor.id) continue
                 val at = system.positionOf(b.id, renderTime).subInPlace(here)
-                if (at.length < reach * MAP_LABEL_REACH) lines.add(marker(at, reach, BODY_MARKER_COLOR))
+                if (at.distanceTo(pivot) < reach * MAP_LABEL_REACH) lines.add(marker(at, reach, BODY_MARKER_COLOR))
             }
             lines.add(marker(focusState.position, reach, CRAFT_COLOR))
             signalLines(focusId, focusState.position, attractor, renderTime, reach, lines)
@@ -1630,6 +1651,8 @@ class GameSession private constructor(
         } else {
             // Next time the map opens, it opens over the craft again.
             mapFramedFor = Long.MIN_VALUE
+            mapLooksAt = null
+            mapFramedLook = null
             // Much smaller than it was, with the rest smashed or torn away, so come in to see
             // what's left.
             if (!wrecked && focus.design.parts.size < framedParts && framedFor == focusId) {
@@ -2067,6 +2090,7 @@ class GameSession private constructor(
 
     /** Where the flown craft is going. See [PathPlanner]. */
     private val planner = PathPlanner(system)
+    private val pathMarks = PathMarks(system)
 
     /** The target body, as a craft to steer by, relative to [attractor] at [time]. Null for none. */
     private fun bodyTarget(attractor: CelestialBody, time: Double): VesselKinematics? {
@@ -2105,26 +2129,82 @@ class GameSession private constructor(
         val reach: Double = 0.0,
         /** The named places on the world below the map shows: id, name and where. */
         val places: List<Triple<String, String, Vec3>> = emptyList(),
+        /** The marks along the path, and the universe time they were worked out at. */
+        val marks: List<PathMark> = emptyList(),
+        val time: Double = 0.0,
+        /** The radius of the world the map is drawn round, which hides what's behind it. */
+        val radius: Double = 0.0,
+        /** What the view turns round, and where the craft is. */
+        val pivot: Vec3 = Vec3(),
+        val craft: Vec3 = Vec3(),
     )
 
     /**
      * A world's name on the map, placed on a [width] x [height] screen, or with [place], a named
      * place on the world below.
      */
-    class MapLabel(val name: String, val x: Float, val y: Float, val place: Boolean = false)
+    class MapLabel(
+        val name: String, val x: Float, val y: Float, val place: Boolean = false,
+        /** A mark on the path, and whether it's the one picked to show what it says. */
+        val mark: PathMark? = null,
+        val picked: Boolean = false,
+        /** Seconds from now to [mark]. */
+        val inSeconds: Double = Double.NaN,
+        /** The name of the world [mark] is about. */
+        val world: String = "",
+    )
 
     /** The names of the worlds the map shows, placed on a [width] x [height] screen. */
     fun mapLabels(width: Float, height: Float): List<MapLabel> {
         if (!mapMode) return emptyList()
         val view = mapView ?: return emptyList()
         val at = FloatArray(2)
-        return view.bodies.mapNotNull { (id, centre, _) ->
-            if (centre.length > view.reach * MAP_LABEL_REACH) return@mapNotNull null
+        val names = view.bodies.mapNotNull { (id, centre, _) ->
+            if (centre.distanceTo(view.pivot) > view.reach * MAP_LABEL_REACH) return@mapNotNull null
             if (!onScreen(view, centre, width, height, at)) return@mapNotNull null
             if (at[0] < 0f || at[1] < 0f || at[0] > width || at[1] > height) return@mapNotNull null
             MapLabel(system.body(id).displayName, at[0], at[1])
-        } + placeLabels(view, width, height)
+        }
+        return names + placeLabels(view, width, height) + markLabels(view, width, height, names)
     }
+
+    /** The marks on the path, on screen and not behind the world, each clear of the ones before it. */
+    private fun markLabels(view: MapView, width: Float, height: Float, names: List<MapLabel>): List<MapLabel> {
+        val out = ArrayList<MapLabel>()
+        val at = FloatArray(2)
+        val picked = mapPicked
+        val radius = view.radius
+        for (m in view.marks.sortedBy { if (picked != null && it.kind == picked.kind && kotlin.math.abs(it.time - picked.time) < MARK_SAME_SECONDS) -1 else it.kind.ordinal }) {
+            if (hidden(view.camera, m.at, radius)) continue
+            if (!onScreen(view, m.at, width, height, at)) continue
+            if (at[0] < 0f || at[1] < 0f || at[0] > width || at[1] > height) continue
+            if (out.any { kotlin.math.hypot(it.x - at[0], it.y - at[1]) < MAP_PLACE_GAP }) continue
+            // Nor on a world's name. The name is drawn to the right of its mark.
+            if (names.any { kotlin.math.abs(it.y - at[1]) < MAP_PLACE_GAP / 2 && at[0] - it.x in -MAP_PLACE_GAP / 2..MAP_NAME_WIDTH }) continue
+            val chosen = picked != null && m.kind == picked.kind && kotlin.math.abs(m.time - picked.time) < MARK_SAME_SECONDS
+            out += MapLabel(m.kind.tag, at[0], at[1], mark = m, picked = chosen, inSeconds = m.time - lastRenderTime, world = system.bodies[m.bodyId]?.displayName ?: "")
+        }
+        // A picked mark that's gone (passed, or the path changed) lets go.
+        if (picked != null && out.none { it.picked }) mapPicked = null
+        return out
+    }
+
+    /** Whether the world of [radius] round the centre stands between [camera] and [point]. */
+    private fun hidden(camera: Vec3, point: Vec3, radius: Double): Boolean {
+        if (radius <= 0.0) return false
+        val d = Vec3().setTo(point).subInPlace(camera)
+        val length = d.length
+        if (length < 1e-6) return false
+        d.mulInPlace(1.0 / length)
+        // Nearest the centre along the sight line, short of the point.
+        val along = -(camera dot d)
+        if (along <= 0.0 || along >= length) return false
+        val near = Vec3().setTo(camera).addScaledInPlace(d, along)
+        return near.length < radius * 0.999
+    }
+
+    /** The mark picked on the map, to show what it says: its kind and time. */
+    @Volatile private var mapPicked: PathMark? = null
 
     /** The found places on the world below, on its near side, each clear of the ones before it. */
     private fun placeLabels(view: MapView, width: Float, height: Float): List<MapLabel> {
@@ -2161,11 +2241,16 @@ class GameSession private constructor(
     @Volatile private var mapView: MapView? = null
     private var draggingBurn = false
 
-    private fun keepMapView(plan: PathPlanner.Plan?, attractor: CelestialBody, time: Double, camera: Vec3, rotation: Quat, reach: Double) {
-        val leg = plan?.current?.segments?.firstOrNull() ?: return
-        val times = DoubleArray(MAP_SAMPLES)
-        val points = Array(MAP_SAMPLES) { k ->
-            val t = leg.start + (leg.end - leg.start) * k / (MAP_SAMPLES - 1)
+    private fun keepMapView(
+        plan: PathPlanner.Plan?, attractor: CelestialBody, time: Double, camera: Vec3, rotation: Quat, reach: Double,
+        marks: List<PathMark>, pivot: Vec3, craft: Vec3,
+    ) {
+        // Burns go on a planned path's first leg only. Off it, the marks, the worlds and the places.
+        val leg = plan?.current?.segments?.firstOrNull()
+        val count = if (leg != null) MAP_SAMPLES else 0
+        val times = DoubleArray(count)
+        val points = Array(count) { k ->
+            val t = leg!!.start + (leg.end - leg.start) * k / (MAP_SAMPLES - 1)
             times[k] = t
             leg.stateAt(t).position
         }
@@ -2173,7 +2258,7 @@ class GameSession private constructor(
         val bodies = targetBodies.filter { it.id != attractor.id }.map { b ->
             Triple(b.id, system.positionOf(b.id, time).subInPlace(here), b.radius)
         }
-        mapView = MapView(camera.copy(), rotation.copy(), times, points, plan.burnPoint?.copy(), bodies, reach, foundPlaces(attractor, time))
+        mapView = MapView(camera.copy(), rotation.copy(), times, points, plan?.burnPoint?.copy(), bodies, reach, foundPlaces(attractor, time), marks, time, attractor.radius, pivot.copy(), craft.copy())
     }
 
     private val mapTerrainCamera = Vec3()
@@ -2192,6 +2277,13 @@ class GameSession private constructor(
 
     /** Which craft the map view was last opened over, so it only frames itself once. */
     private var mapFramedFor = Long.MIN_VALUE
+
+    /** The target before the last tap on a world, craft and body, to undo it on a double tap. */
+    private var targetBeforeTap: Pair<Long, String>? = null
+
+    /** The world the map is turned round instead of the craft, by id, or null; and the one last framed. */
+    @Volatile private var mapLooksAt: String? = null
+    private var mapFramedLook: String? = null
 
     /**
      * Whether [state] is falling freely, so its orbit is where it's going: off the ground and
@@ -2262,9 +2354,9 @@ class GameSession private constructor(
      * The craft's path through space: the whole orbit, or if it comes down, the arc to the ground
      * and where it meets it.
      */
-    private fun fallLine(attractor: CelestialBody, orbit: Orbit, time: Double): Pair<RenderLine, Vec3?> {
+    private fun fallLine(attractor: CelestialBody, orbit: Orbit, time: Double): Triple<RenderLine, Vec3?, Double> {
         val highest = attractor.radius + maxOf(attractor.terrain?.maxElevation ?: 0.0, 0.0)
-        if (orbit.periapsis > highest) return RenderLine(orbit.sample(192), ORBIT_COLOR) to null
+        if (orbit.periapsis > highest) return Triple(RenderLine(orbit.sample(192), ORBIT_COLOR), null, Double.NaN)
         val span = if (orbit.isBound) orbit.period else FALL_LONGEST
         val sea = attractor.ocean != null
         val points = ArrayList<Vec3>(FALL_STEPS + 1)
@@ -2276,11 +2368,11 @@ class GameSession private constructor(
             val elevation = attractor.terrain?.elevation(fixed)?.let { if (sea) maxOf(it, 0.0) else it } ?: 0.0
             if (p.length <= attractor.radius + elevation) {
                 points.add(p)
-                return RenderLine(points, ORBIT_COLOR) to p
+                return Triple(RenderLine(points, ORBIT_COLOR), p, time + t)
             }
             points.add(p)
         }
-        return RenderLine(points, ORBIT_COLOR) to null
+        return Triple(RenderLine(points, ORBIT_COLOR), null, Double.NaN)
     }
 
     /**
@@ -2308,6 +2400,39 @@ class GameSession private constructor(
             if (d < bestDistance) { bestDistance = d; best = k }
         }
         return if (best < 0) null else view.times[best] to bestDistance
+    }
+
+    /**
+     * A second tap on the map, straight after one at much the same spot. On a world, the view turns
+     * round it (and the first tap's change of target is undone); on the craft or the world it's at,
+     * back round the craft.
+     */
+    fun mapDoubleTap(x: Float, y: Float, width: Float, height: Float) {
+        val view = mapView ?: return
+        val at = FloatArray(2)
+        // The craft, or the world it's at: back round the craft.
+        val home = listOf(view.craft, Vec3()).any { onScreen(view, it, width, height, at) && kotlin.math.hypot(at[0] - x, at[1] - y) < MAP_GRAB_PIXELS }
+        if (home) {
+            mapLooksAt = null
+            mapFramedFor = Long.MIN_VALUE
+            return
+        }
+        for ((id, centre, _) in view.bodies) {
+            if (!onScreen(view, centre, width, height, at)) continue
+            if (kotlin.math.hypot(at[0] - x, at[1] - y) < MAP_GRAB_PIXELS) {
+                // The first tap changed the target. Put it back as it was.
+                targetBeforeTap?.let { (craft, body) ->
+                    terrainScope.launch {
+                        localTarget = craft
+                        localTargetBody = body
+                        pushControlsToPrediction()
+                        withControlledVessel { client.send(Command.SetTarget(it, craft, body)) }
+                    }
+                }
+                mapLooksAt = id
+                return
+            }
+        }
     }
 
     /** A finger down on the map. True if it took hold of the burn, to drag it along the path. */
@@ -2342,6 +2467,18 @@ class GameSession private constructor(
     fun mapTap(x: Float, y: Float, width: Float, height: Float): Boolean {
         val view = mapView ?: return false
         val at = FloatArray(2)
+        // A mark: shows what it says, or hides it again.
+        val was = mapPicked
+        mapPicked = null
+        val radius = view.radius
+        val hit = view.marks.filter { !hidden(view.camera, it.at, radius) && onScreen(view, it.at, width, height, at) && kotlin.math.hypot(at[0] - x, at[1] - y) < MAP_GRAB_PIXELS }
+            .minByOrNull { onScreen(view, it.at, width, height, at); kotlin.math.hypot(at[0] - x, at[1] - y) }
+        if (hit != null) {
+            val same = was != null && was.kind == hit.kind && kotlin.math.abs(was.time - hit.time) < MARK_SAME_SECONDS
+            if (!same) mapPicked = hit
+            return true
+        }
+        if (was != null) return true
         for ((id, _, where) in view.places) {
             if ((view.camera - where) dot where <= 0.0) continue
             if (!onScreen(view, where, width, height, at)) continue
@@ -2354,6 +2491,8 @@ class GameSession private constructor(
             if (!onScreen(view, centre, width, height, at)) continue
             if (kotlin.math.hypot(at[0] - x, at[1] - y) < MAP_GRAB_PIXELS) {
                 val index = targetBodies.indexOfFirst { it.id == id }
+                // Kept, in case this turns out to be the first of a double tap.
+                targetBeforeTap = localTarget to localTargetBody
                 terrainScope.launch { setTarget(if (localTargetBody == id) -1L else BODY_TARGET - index) }
                 return true
             }
@@ -2439,31 +2578,16 @@ class GameSession private constructor(
         return out
     }
 
-    /** The plan's landmarks: its high and low points, the burn, meeting a moon, and coming down. */
-    private fun planMarkers(plan: PathPlanner.Plan, aboutId: String, reach: Double, lines: MutableList<RenderLine>) {
+    /** The moons [plan] meets, where each will be then: its outline and its reach. Its marks come from [PathMarks]. */
+    private fun planMoons(plan: PathPlanner.Plan, aboutId: String, lines: MutableList<RenderLine>) {
         val path = plan.planned ?: plan.current
-        val first = path.segments.first()
-        val o = first.orbit
-        if (o.isBound && o.apoapsis < system.body(first.bodyId).sphereOfInfluence) {
-            lines.add(marker(first.stateAt(first.start + o.timeToApoapsis).position, reach, APOAPSIS_COLOR))
-        }
-        if (o.timeToPeriapsis.isFinite() && first.start + o.timeToPeriapsis <= first.end) {
-            lines.add(marker(first.stateAt(first.start + o.timeToPeriapsis).position, reach, PERIAPSIS_COLOR))
-        }
-        plan.burnPoint?.let { lines.add(marker(it, reach, BURN_COLOR)) }
         for (segment in path.segments.drop(1)) {
-            // The moon it meets, where it will be then: its outline and its reach.
             val met = system.body(segment.bodyId)
             if (segment.bodyId != aboutId && met.parentId == aboutId) {
                 val centre = system.positionOf(met.id, segment.start).subInPlace(system.positionOf(aboutId, segment.start))
                 val normal = met.orbit?.angularMomentum?.normalized() ?: Vec3.unitY()
                 lines.add(ring(centre, normal, met.radius, MOON_PATH_COLOR))
                 lines.add(ring(centre, normal, met.sphereOfInfluence, REACH_COLOR))
-            }
-            // Its low point around the moon it meets.
-            val low = segment.orbit.timeToPeriapsis
-            if (low.isFinite() && segment.start + low <= segment.end) {
-                lines.add(marker(planner.drawnAbout(segment, segment.stateAt(segment.start + low).position, aboutId, Vec3()), reach, PERIAPSIS_COLOR))
             }
         }
     }
@@ -4727,6 +4851,12 @@ class GameSession private constructor(
 
         /** Named places on the map closer than this on screen, in px, show only the first. */
         private const val MAP_PLACE_GAP = 60f
+
+        /** Two marks of a kind this close in time are the same one, worked out again. */
+        private const val MARK_SAME_SECONDS = 30.0
+
+        /** About how wide a world's name is on the map, in pixels, for keeping tags off it. */
+        private const val MAP_NAME_WIDTH = 200f
         private const val UNDERWATER_FOG_DEEP = 45.0
         private const val UNDERWATER_FOG_FALL = 100.0
 
@@ -4936,6 +5066,9 @@ class GameSession private constructor(
 
         /** Worlds within this many of the map's reach get marked and named. */
         private const val MAP_LABEL_REACH = 1.6
+
+        /** How much a world looked at on the map takes in, in its radii, at most its reach. */
+        private const val MAP_LOOK_RADII = 8.0
         /** A founded base on the map. */
         private val BASE_COLOR = floatArrayOf(0.55f, 0.85f, 1.0f, 1f)
         /** Ground stations, and a probe's link home through its relays. */
@@ -4956,6 +5089,22 @@ class GameSession private constructor(
         private val MOON_PATH_COLOR = floatArrayOf(0.85f, 0.85f, 0.88f, 1f)
         private val BURN_PATH_COLOR = floatArrayOf(1.0f, 0.62f, 0.25f, 1f)
         private val BURN_COLOR = floatArrayOf(0.31f, 0.64f, 1.0f, 1f)
+        private val ARRIVE_COLOR = floatArrayOf(0.85f, 0.85f, 0.88f, 1f)
+        private val AIR_COLOR = floatArrayOf(0.55f, 0.90f, 0.95f, 1f)
+        private val NEAR_COLOR = floatArrayOf(1.0f, 0.55f, 0.85f, 1f)
+        private val NODE_COLOR = floatArrayOf(0.75f, 0.70f, 1.0f, 1f)
+
+        /** Each kind of mark's colour on the map, its tag's too. */
+        fun markColour(kind: MarkKind): FloatArray = when (kind) {
+            MarkKind.AP -> APOAPSIS_COLOR
+            MarkKind.PE -> PERIAPSIS_COLOR
+            MarkKind.BURN -> BURN_COLOR
+            MarkKind.ENTER, MarkKind.LEAVE -> ARRIVE_COLOR
+            MarkKind.AIR -> AIR_COLOR
+            MarkKind.LAND -> IMPACT_COLOR
+            MarkKind.NEAR -> NEAR_COLOR
+            MarkKind.AN, MarkKind.DN -> NODE_COLOR
+        }
         private val MOON_ORBIT_COLOR = floatArrayOf(0.45f, 0.45f, 0.5f, 1f)
         private val REACH_COLOR = floatArrayOf(0.3f, 0.3f, 0.36f, 1f)
         private const val PLAN_POINTS = 160
