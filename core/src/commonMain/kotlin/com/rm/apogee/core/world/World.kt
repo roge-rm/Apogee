@@ -298,6 +298,33 @@ class World(
     private val targetPosition = Vec3()
     private val targetVelocity = Vec3()
 
+    private val lampScratch = Vec3()
+
+    /** Whether it's dark where [vessel] is: after dusk, or deep enough in the sea. */
+    fun darkAt(vessel: Vessel): Boolean {
+        val attractor = attractorFor(vessel)
+        val sun = system.sunDirection(attractor.id, vessel.body.position, time, lampScratch)
+        return (vessel.body.position.normalized() dot sun) < LAMP_DUSK ||
+            (attractor.ocean != null && attractor.altitudeOf(vessel.body.position) < -LAMP_DEPTH)
+    }
+
+    /**
+     * Which of [vessel]'s lamps are lit now, by part index: switched on, whole, and with power.
+     * Null for none.
+     */
+    fun litLamps(vessel: Vessel): List<Int>? {
+        var dark: Boolean? = null
+        var lit: ArrayList<Int>? = null
+        for (i in vessel.defs.indices) {
+            val lamp = vessel.defs[i].module<com.rm.apogee.core.part.Lamp>() ?: continue
+            if (vessel.isBroken(i)) continue
+            // An isotope glows whatever the switch and the battery say.
+            val on = lamp.self || (vessel.powered && vessel.lampOn(i, dark ?: darkAt(vessel).also { dark = it }))
+            if (on) (lit ?: ArrayList<Int>().also { lit = it }).add(i)
+        }
+        return lit
+    }
+
     /**
      * Where [vessel]'s target body or place is relative to [attractor] at [at], into [position] and
      * [velocity]. False if it has none, or only the world it's at.
@@ -1658,6 +1685,7 @@ class World(
                 heard(command.vessel)?.control?.flaps = command.down
             is Command.SetCruise -> heard(command.vessel)?.let { setCruise(it, command.on) }
             is Command.ToggleGroup -> heard(command.vessel)?.let { toggleGroup(it, command.group) }
+            is Command.SetLights -> heard(command.vessel)?.control?.lights = command.mode
             is Command.Hook -> heard(command.vessel)?.let { hook(it) }
             is Command.Reel -> heard(command.vessel)?.let { vessel ->
                 lineOf(vessel)?.reel = command.mode.coerceIn(-1, 1)
@@ -1877,6 +1905,8 @@ class World(
         // Not a base on the sea floor, which is in the water too.
         val onSea = !vessel.touchingGround && !vessel.submerged && (if (vessel.dormant) vessel.afloat else vessel.buoyed)
         vessel.anchor(anchorRotation)
+        // A base's lights come on by themselves after dark.
+        vessel.control.lights = com.rm.apogee.core.part.LightMode.AUTO
         // Founded on the sea, it rides the swell.
         if (onSea) settleAfloat(vessel, attractor)
         vessel.powerSettledAt = tickEnd
@@ -2480,6 +2510,7 @@ class World(
         var solar = 0.0
         var upkeep = 0.0
         var lamps = 0.0
+        var always = 0.0
         var cells = 0.0
         var cellMono = 0.0
         var anyCell = -1
@@ -2496,11 +2527,13 @@ class World(
                 is com.rm.apogee.core.part.Antenna -> if (!module.deployable || Power.deployed(vessel, i)) upkeep += module.draw
                 is com.rm.apogee.core.part.Scanner -> upkeep += module.draw
                 is com.rm.apogee.core.part.Generator -> upkeep -= module.rate
-                is com.rm.apogee.core.part.Lamp -> lamps += module.draw
+                // Switched on all the time, or only after dark.
+                is com.rm.apogee.core.part.Lamp -> if (module.self) Unit else if (vessel.lampOn(i, false)) always += module.draw else if (vessel.lampOn(i, true)) lamps += module.draw
                 is com.rm.apogee.core.part.FuelCell -> { cells += module.rate; cellMono += module.rate * module.monoPerCharge; anyCell = i }
                 else -> Unit
             }
         }
+        upkeep += always
         val site = vessel.sleepDirection(powerSite)
         // What the air lets through at ground level (a tenth under Caligo's deck), and the sea for a
         // base on its floor.
@@ -3882,6 +3915,8 @@ class World(
             cruiseHeading = vessel.control.cruiseHeading.toFloat(),
             mayCruise = mayCruise(vessel),
             groups = if (vessel.groupStates.any { it != 0 }) vessel.groupStates.toList() else emptyList(),
+            lights = vessel.control.lights,
+            lamps = vessel.defs.any { d -> d.module<com.rm.apogee.core.part.Lamp>()?.let { !it.self } == true },
             hasWinch = winchOf(vessel) != null,
             canHook = hookTarget(vessel)?.let { it.craft?.name ?: "ground" }.orEmpty(),
             hooked = lineOf(vessel) != null,
@@ -4655,6 +4690,7 @@ class World(
                 condition = VesselCondition.encode(vessel),
                 asleep = vessel.dormant,
                 centreOfMass = vessel.centerOfMass(),
+                lit = litLamps(vessel),
             )
         },
     ).also { if (quietSentAt.size > vesselsById.size * 2 + 16) quietSentAt.keys.retainAll { VesselId(it) in vesselsById } }
@@ -4785,6 +4821,7 @@ class World(
                 targetBody = vessel.control.targetBody,
                 burns = vessel.plannedBurns.toList(),
                 brakes = vessel.control.brakes,
+                lights = vessel.control.lights,
                 deployed = vessel.control.deployed,
                 fuelCellsOn = vessel.fuelCellsOn,
                 drilling = vessel.control.drilling,
@@ -4932,6 +4969,7 @@ class World(
             vessel.plannedBurns.addAll(saved.burns)
             vessel.burnDuration = if (saved.burns.isEmpty()) 0.0 else Burns.duration(vessel, saved.burns.first().deltaV)
             vessel.control.brakes = saved.brakes
+            vessel.control.lights = saved.lights
             vessel.control.deployed = saved.deployed
             vessel.fuelCellsOn = saved.fuelCellsOn
             vessel.control.drilling = saved.drilling

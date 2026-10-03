@@ -254,6 +254,7 @@ class ApogeeApp(private val host: AppHost) {
             com.rm.apogee.input.PadAction.GROUP_1 -> scope.launch { current.toggleGroup(1) }
             com.rm.apogee.input.PadAction.GROUP_2 -> scope.launch { current.toggleGroup(2) }
             com.rm.apogee.input.PadAction.GROUP_3 -> scope.launch { current.toggleGroup(3) }
+            com.rm.apogee.input.PadAction.LIGHTS -> scope.launch { current.toggleLights() }
             com.rm.apogee.input.PadAction.HOOK -> when {
                 power == null || !power.hasWinch -> Unit
                 power.hooked -> scope.launch { current.releaseLine() }
@@ -467,6 +468,8 @@ class ApogeeApp(private val host: AppHost) {
                         onGroup = { group -> session?.let { s -> scope.launch { s.toggleGroup(group) } } },
                         onWinch = ::onWinch,
                         onStationKeep = ::onStationKeep,
+                        onLights = { session?.let { s -> scope.launch { s.toggleLights() } } },
+                        onLightMode = { mode -> session?.let { s -> scope.launch { s.setLights(mode) } } },
                         onHook = { session?.let { s -> scope.launch { s.hook() } } },
                         onReleaseLine = { session?.let { s -> scope.launch { s.releaseLine() } } },
                         onRightCraft = { session?.let { s -> scope.launch { s.rightCraft() } } },

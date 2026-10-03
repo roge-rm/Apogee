@@ -41,6 +41,8 @@ class PartTabsTest {
             "panel-glint", "wing-kite", "battery-hoard", "cell-spark", "antenna-reed", "dish-beacon", "dish-great", "generator-glow",
             "drill-auger", "converter-small", "scanner-survey", "ladder-rung",
             "battery-deep", "battery-abyss", "lamp-deep", "sonar-array", "battery-ship",
+            "lamp-head", "lamp-spot", "lamp-landing", "lamp-ring", "lamp-port", "lamp-starboard", "lamp-strobe", "lamp-beacon",
+            "lamp-mast", "lamp-flood", "glow-marker", "glow-stake",
         ),
         PartTab.AIR to setOf("rotor-main", "rotor-tail", "rotor-drone", "fan-lift", "balloon-small", "cell-gas", "envelope-airship"),
         PartTab.BASE to setOf(

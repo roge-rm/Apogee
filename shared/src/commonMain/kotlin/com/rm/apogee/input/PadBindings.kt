@@ -77,7 +77,9 @@ enum class PadAction(val id: String, val label: String, val group: PadGroup, val
     AUTO_LAND("auto-land", "Auto land on or off", PadGroup.FLYING),
 
     BRAKES("brakes", "Brakes", PadGroup.CRAFT),
-    DEPLOY("deploy", "Gear and legs", PadGroup.CRAFT),
+    /** Held for half a second, the lights instead. See [PadInput]. */
+    DEPLOY("deploy", "Gear and legs, held for lights", PadGroup.CRAFT),
+    LIGHTS("lights", "Lights on or off", PadGroup.CRAFT),
     FLAPS("flaps", "Flaps", PadGroup.CRAFT),
     REVERSE("reverse", "Reverse", PadGroup.CRAFT),
     GROUP_1("group-1", "Group 1", PadGroup.CRAFT),
@@ -151,8 +153,8 @@ class PadBindings private constructor(
         /**
          * The Retroid Pocket Mini V2 layout, and the default: left stick steers, right looks,
          * triggers throttle, shoulders roll, A stages, B brakes, X is SAS, Y the map, D-pad zooms
-         * and warps, stick clicks are thrusters and camera mode, Select gear and legs, Start the
-         * flight menu. On foot, A jumps, B grabs a ladder, X boards and Select plants a flag.
+         * and warps, stick clicks are thrusters and camera mode, Select gear and legs (held,
+         * lights), Start the flight menu. On foot, A jumps, B grabs a ladder, X boards and Select plants a flag.
          */
         val RETROID_MINI: PadBindings = run {
             val flying = mapOf(

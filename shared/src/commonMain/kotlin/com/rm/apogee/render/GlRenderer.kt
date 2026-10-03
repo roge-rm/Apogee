@@ -90,6 +90,7 @@ class GlRenderer(
 
     /** This frame's lamps, camera-relative x, y, z and reach. See [WorldView.lamps]. */
     private val frameLamps = FloatArray(4 * WorldView.MAX_LAMPS)
+    private val frameBeams = FloatArray(4 * WorldView.MAX_LAMPS)
     private var frameLampCount = 0
 
     /**
@@ -1294,14 +1295,22 @@ class GlRenderer(
      * pool stays put.
      */
     private fun placeLamps(world: WorldView, cameraPos: Vec3): Int {
-        val count = minOf(world.lamps.size / 4, WorldView.MAX_LAMPS)
+        val count = minOf(world.lamps.size / WorldView.LAMP_FLOATS, WorldView.MAX_LAMPS)
         for (k in 0 until count) {
-            scratchLamp.setTo(world.lamps[4 * k], world.lamps[4 * k + 1], world.lamps[4 * k + 2])
+            val o = WorldView.LAMP_FLOATS * k
+            scratchLamp.setTo(world.lamps[o], world.lamps[o + 1], world.lamps[o + 2])
             interpolatedBodyRotation.rotate(scratchLamp, scratchLamp).subInPlace(cameraPos)
             frameLamps[4 * k] = scratchLamp.x.toFloat()
             frameLamps[4 * k + 1] = scratchLamp.y.toFloat()
             frameLamps[4 * k + 2] = scratchLamp.z.toFloat()
-            frameLamps[4 * k + 3] = world.lamps[4 * k + 3].toFloat()
+            frameLamps[4 * k + 3] = world.lamps[o + 3].toFloat()
+            // The beam turned with the ground, and its edge.
+            scratchLamp.setTo(world.lamps[o + 4], world.lamps[o + 5], world.lamps[o + 6])
+            interpolatedBodyRotation.rotate(scratchLamp, scratchLamp)
+            frameBeams[4 * k] = scratchLamp.x.toFloat()
+            frameBeams[4 * k + 1] = scratchLamp.y.toFloat()
+            frameBeams[4 * k + 2] = scratchLamp.z.toFloat()
+            frameBeams[4 * k + 3] = world.lamps[o + 7].toFloat()
         }
         return count
     }
@@ -1310,7 +1319,10 @@ class GlRenderer(
     private fun applyLamps(shader: ShaderProgram, lit: Boolean) {
         val count = if (lit) frameLampCount else 0
         shader.setInt("uLampCount", count)
-        if (count > 0) shader.setVec4Array("uLamps", frameLamps, count)
+        if (count > 0) {
+            shader.setVec4Array("uLamps", frameLamps, count)
+            shader.setVec4Array("uLampBeams", frameBeams, count)
+        }
         // The sea's dark goes with the lamps: wherever they light, it does too.
         shader.setVec4("uSea", if (lit) frameSea else NO_SEA)
         shader.setVec3("uWater", frameWater[0], frameWater[1], frameWater[2])

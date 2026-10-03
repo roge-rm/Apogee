@@ -31,10 +31,12 @@ object Shaders {
             return mix(uHaze * light, overcast, 1.0 - lightScale);
         }
         // Lamps after dark: camera-relative position and reach, nearest few. Warm, fading to nothing
-        // at the reach, and only lighting what faces them.
+        // at the reach, and only lighting what faces them. A beam's way and the cosine of its edge
+        // are in uLampBeams; an edge past -1 lights all round.
         const int LAMPS = 8;
         const vec3 LAMP = vec3(1.0, 0.9, 0.62) * 2.2;
         uniform vec4 uLamps[LAMPS];
+        uniform vec4 uLampBeams[LAMPS];
         uniform int uLampCount;
         vec3 lampLight(vec3 p, vec3 n) {
             vec3 sum = vec3(0.0);
@@ -42,8 +44,12 @@ object Shaders {
                 if (i >= uLampCount) break;
                 vec3 d = uLamps[i].xyz - p;
                 float r = length(d);
+                vec3 toward = d / max(r, 0.01);
                 float f = clamp(1.0 - r / uLamps[i].w, 0.0, 1.0);
-                sum += f * f * max(dot(n, d / max(r, 0.01)), 0.0);
+                // Soft at the beam's edge.
+                float edge = uLampBeams[i].w;
+                float inBeam = edge < -1.0 ? 1.0 : smoothstep(edge, edge + 0.08, dot(-toward, uLampBeams[i].xyz));
+                sum += f * f * inBeam * max(dot(n, toward), 0.0);
             }
             return LAMP * sum;
         }

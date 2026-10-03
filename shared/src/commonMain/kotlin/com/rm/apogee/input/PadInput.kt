@@ -81,6 +81,10 @@ class PadInput(private val config: () -> PadConfig) {
     private var sentYaw = 0f
     private var sentRoll = 0f
 
+    /** The gear button just pressed, and when, until it's let go (gear) or held (lights). */
+    private var deployButton: PadButton? = null
+    private var deploySince = 0L
+
     /** The button held to stage, when it went down, and whether it's staged already this hold. */
     private var stageButton: PadButton? = null
     private var stageSince = 0L
@@ -197,7 +201,18 @@ class PadInput(private val config: () -> PadConfig) {
                 action == PadAction.STAGE && setup.holdToStage -> {
                     stageButton = button; stageSince = nanos; staged = false
                 }
+                // Gear on a tap, lights on a hold: wait to see which.
+                action == PadAction.DEPLOY -> { deployButton = button; deploySince = nanos }
                 else -> target.act(action)
+            }
+        }
+
+        // Gear and legs let go of quickly, or the lights once held long enough.
+        deployButton?.let { button ->
+            when {
+                bindings.action(layer, button) != PadAction.DEPLOY -> deployButton = null
+                !down[button.ordinal] -> { deployButton = null; target.act(PadAction.DEPLOY) }
+                nanos - deploySince >= LIGHTS_HOLD_NANOS -> { deployButton = null; target.act(PadAction.LIGHTS) }
             }
         }
 
@@ -233,6 +248,7 @@ class PadInput(private val config: () -> PadConfig) {
             target.roll(0f)
         }
         stageButton = null
+        deployButton = null
         if (shownHold != 0f) {
             shownHold = 0f
             target.stageHold(0f)
@@ -280,6 +296,9 @@ class PadInput(private val config: () -> PadConfig) {
         const val LOOK_RADIANS_PER_SECOND = 2.4
         /** How long A has to be held to stage. */
         const val STAGE_HOLD_NANOS = 300_000_000f
+
+        /** How long the gear button is held to switch the lights instead, in nanoseconds. */
+        const val LIGHTS_HOLD_NANOS = 500_000_000L
         /** How much the stick has to move before it's sent again. */
         const val SEND_STEP = 0.02f
         const val MAX_STEP = 0.1

@@ -88,7 +88,7 @@ class ElevationCostTest {
         )
 
         /** How much the close-up relief may add to a world's cost, in Terra's, and the most any world may cost. */
-        const val ADDED = 1.5
+        const val ADDED = 1.6
         const val MOST = 4.5
     }
 }

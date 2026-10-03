@@ -92,6 +92,7 @@ object PartTabs {
     /** Parts the rules can't place, mostly ones with no module to say what they are. */
     private val OVERRIDES = mapOf(
         "light-bar" to PartTab.UTILITY,
+        "glow-stake" to PartTab.UTILITY,
         "float-foam" to PartTab.WATER,
         "keel-lead" to PartTab.WATER,
         "knees-push" to PartTab.WATER,

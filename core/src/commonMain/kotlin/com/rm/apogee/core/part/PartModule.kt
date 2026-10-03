@@ -533,15 +533,15 @@ data class Pump(
     val draw: Double = 2.0,
 ) : PartModule
 
-/** A light, lit at night while there's power. */
+/** A light, lit by the craft's light switch while there's power. See [LightMode]. */
 @Serializable
 @SerialName("lamp")
 data class Lamp(
     /** Charge drawn while lit, units a second. */
     val draw: Double = 0.2,
     /**
-     * Reach of its pool of light on the ground, in metres. 0 for a lamp that's seen but lights
-     * nothing.
+     * Reach of its light on the ground, in metres. 0 for a lamp that's seen but lights nothing,
+     * like a navigation light.
      */
     val reach: Double = 0.0,
     /**
@@ -549,7 +549,40 @@ data class Lamp(
      * floodlight. 0 for all round.
      */
     val aim: Double = 0.0,
+    /** Half the width of its beam, in degrees. 0 for light all round. */
+    val cone: Double = 0.0,
+    /** Which way its beam points, in the part's axes. Out of its face, +Z, unless set. */
+    val beam: SerialVec3? = null,
+    /** What colour it glows. See [LampGlow]. */
+    val glow: LampGlow = LampGlow.WARM,
+    /** Seconds between flashes for a strobe or beacon. 0 for a steady light. */
+    val blink: Double = 0.0,
+    /**
+     * Glows by itself, from an isotope: always, with no power and no switch, for longer than anyone
+     * will be around to see it fade.
+     */
+    val self: Boolean = false,
 ) : PartModule
+
+/** A craft's light switch. Off to start, since lamps left on drain the battery. */
+@Serializable
+enum class LightMode {
+    @SerialName("off") OFF,
+    @SerialName("on") ON,
+    /** On after dusk and deep in the sea, off by day. */
+    @SerialName("auto") AUTO,
+}
+
+/** A lamp's colour. Only warm and white light anything; red and green only glow. */
+@Serializable
+enum class LampGlow {
+    @SerialName("warm") WARM,
+    @SerialName("white") WHITE,
+    @SerialName("red") RED,
+    @SerialName("green") GREEN,
+    /** An isotope's pale green-yellow. */
+    @SerialName("isotope") ISOTOPE,
+}
 
 /**
  * A fairing base: a closed shell of [radius] standing [height] above the part's top face round

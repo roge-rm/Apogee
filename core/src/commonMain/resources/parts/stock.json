@@ -5699,8 +5699,8 @@
     "id": "light-bar",
     "title": "Light Bar",
     "category": "utility",
-    "dryMass": 15.0,
-    "description": "A row of lamps for a rover.",
+    "dryMass": 5.0,
+    "description": "A row of lamps throwing a wide beam ahead, for a rover.",
     "crashTolerance": 10.0,
     "dragCoefficient": 0.4,
     "mesh": {
@@ -5794,7 +5794,20 @@
         "kind": "surface"
       }
     ],
-    "modules": []
+    "modules": [
+      {
+        "type": "lamp",
+        "draw": 0.08,
+        "reach": 25.0,
+        "aim": 0.0,
+        "cone": 45.0,
+        "beam": {
+          "x": 0.0,
+          "y": 0.97,
+          "z": -0.25
+        }
+      }
+    ]
   },
   {
     "id": "ladder-rung",
@@ -16546,7 +16559,7 @@
     "modules": [
       {
         "type": "lamp",
-        "draw": 0.03,
+        "draw": 0.1,
         "reach": 35.0,
         "aim": 0.0
       }
@@ -24333,6 +24346,1135 @@
         "stroke": 70.0,
         "endSpeed": 60.0,
         "width": 3.0
+      }
+    ]
+  },
+  {
+    "id": "lamp-head",
+    "title": "Headlamp",
+    "category": "utility",
+    "dryMass": 3.0,
+    "description": "A small lamp throwing a beam ahead.",
+    "crashTolerance": 10.0,
+    "dragCoefficient": 0.3,
+    "mesh": {
+      "type": "box",
+      "width": 0.16,
+      "height": 0.16,
+      "depth": 0.12
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.16,
+              "height": 0.16,
+              "depth": 0.1
+            }
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.12,
+              "height": 0.12,
+              "depth": 0.02
+            }
+          },
+          "tint": "light",
+          "offset": {
+            "x": 0,
+            "y": 0,
+            "z": 0.055
+          }
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "base",
+        "position": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -0.06
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "lamp",
+        "draw": 0.05,
+        "reach": 40.0,
+        "aim": 0.0,
+        "cone": 25.0
+      }
+    ]
+  },
+  {
+    "id": "lamp-spot",
+    "title": "Spotlight",
+    "category": "utility",
+    "dryMass": 12.0,
+    "description": "A narrow beam that reaches a long way.",
+    "crashTolerance": 10.0,
+    "dragCoefficient": 0.3,
+    "mesh": {
+      "type": "box",
+      "width": 0.3,
+      "height": 0.3,
+      "depth": 0.36
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.3,
+              "height": 0.3,
+              "depth": 0.32
+            }
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.24,
+              "height": 0.24,
+              "depth": 0.03
+            }
+          },
+          "tint": "light",
+          "offset": {
+            "x": 0,
+            "y": 0,
+            "z": 0.17
+          }
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.34,
+              "height": 0.34,
+              "depth": 0.04
+            }
+          },
+          "tint": "metal",
+          "offset": {
+            "x": 0,
+            "y": 0,
+            "z": 0.15
+          }
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "base",
+        "position": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -0.18
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "lamp",
+        "draw": 0.3,
+        "reach": 80.0,
+        "aim": 0.0,
+        "cone": 12.0
+      }
+    ]
+  },
+  {
+    "id": "lamp-landing",
+    "title": "Landing Light",
+    "category": "utility",
+    "dryMass": 6.0,
+    "description": "A wide beam for setting down in the dark. Fit it facing the ground.",
+    "crashTolerance": 10.0,
+    "dragCoefficient": 0.3,
+    "mesh": {
+      "type": "box",
+      "width": 0.36,
+      "height": 0.36,
+      "depth": 0.1
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.36,
+              "height": 0.36,
+              "depth": 0.08
+            }
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.3,
+              "height": 0.3,
+              "depth": 0.02
+            }
+          },
+          "tint": "light",
+          "offset": {
+            "x": 0,
+            "y": 0,
+            "z": 0.045
+          }
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "base",
+        "position": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -0.05
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "lamp",
+        "draw": 0.15,
+        "reach": 60.0,
+        "aim": 0.0,
+        "cone": 35.0
+      }
+    ]
+  },
+  {
+    "id": "lamp-ring",
+    "title": "Lamp Ring",
+    "category": "utility",
+    "dryMass": 40.0,
+    "description": "A ring of lamps between two 1.25 m parts, lighting the ground below.",
+    "crashTolerance": 12.0,
+    "dragCoefficient": 0.2,
+    "mesh": {
+      "type": "cylinder",
+      "radius": 0.625,
+      "height": 0.2
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.625,
+              "height": 0.2
+            }
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.16,
+              "height": 0.03,
+              "depth": 0.08
+            }
+          },
+          "tint": "light",
+          "offset": {
+            "x": 0.56,
+            "y": -0.1,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": 0,
+            "y": -0.0,
+            "z": 0
+          }
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.16,
+              "height": 0.03,
+              "depth": 0.08
+            }
+          },
+          "tint": "light",
+          "offset": {
+            "x": 0.396,
+            "y": -0.1,
+            "z": 0.396
+          },
+          "rotation": {
+            "x": 0,
+            "y": -45.0,
+            "z": 0
+          }
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.16,
+              "height": 0.03,
+              "depth": 0.08
+            }
+          },
+          "tint": "light",
+          "offset": {
+            "x": 0.0,
+            "y": -0.1,
+            "z": 0.56
+          },
+          "rotation": {
+            "x": 0,
+            "y": -90.0,
+            "z": 0
+          }
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.16,
+              "height": 0.03,
+              "depth": 0.08
+            }
+          },
+          "tint": "light",
+          "offset": {
+            "x": -0.396,
+            "y": -0.1,
+            "z": 0.396
+          },
+          "rotation": {
+            "x": 0,
+            "y": -135.0,
+            "z": 0
+          }
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.16,
+              "height": 0.03,
+              "depth": 0.08
+            }
+          },
+          "tint": "light",
+          "offset": {
+            "x": -0.56,
+            "y": -0.1,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": 0,
+            "y": -180.0,
+            "z": 0
+          }
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.16,
+              "height": 0.03,
+              "depth": 0.08
+            }
+          },
+          "tint": "light",
+          "offset": {
+            "x": -0.396,
+            "y": -0.1,
+            "z": -0.396
+          },
+          "rotation": {
+            "x": 0,
+            "y": -225.0,
+            "z": 0
+          }
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.16,
+              "height": 0.03,
+              "depth": 0.08
+            }
+          },
+          "tint": "light",
+          "offset": {
+            "x": -0.0,
+            "y": -0.1,
+            "z": -0.56
+          },
+          "rotation": {
+            "x": 0,
+            "y": -270.0,
+            "z": 0
+          }
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.16,
+              "height": 0.03,
+              "depth": 0.08
+            }
+          },
+          "tint": "light",
+          "offset": {
+            "x": 0.396,
+            "y": -0.1,
+            "z": -0.396
+          },
+          "rotation": {
+            "x": 0,
+            "y": -315.0,
+            "z": 0
+          }
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "top",
+        "position": {
+          "x": 0.0,
+          "y": 0.1,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "size": 1
+      },
+      {
+        "id": "bottom",
+        "position": {
+          "x": 0.0,
+          "y": -0.1,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 1
+      }
+    ],
+    "modules": [
+      {
+        "type": "lamp",
+        "draw": 0.15,
+        "reach": 30.0,
+        "aim": 0.0,
+        "cone": 55.0,
+        "beam": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        }
+      }
+    ]
+  },
+  {
+    "id": "lamp-port",
+    "title": "Port Light",
+    "category": "utility",
+    "dryMass": 1.0,
+    "description": "A red glow for the left side, so others can tell which way you're going.",
+    "crashTolerance": 10.0,
+    "dragCoefficient": 0.3,
+    "mesh": {
+      "type": "box",
+      "width": 0.1,
+      "height": 0.1,
+      "depth": 0.08
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.1,
+              "height": 0.1,
+              "depth": 0.06
+            }
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.07,
+              "height": 0.07,
+              "depth": 0.03
+            }
+          },
+          "tint": "light",
+          "offset": {
+            "x": 0,
+            "y": 0,
+            "z": 0.04
+          }
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "base",
+        "position": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -0.04
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "lamp",
+        "draw": 0.01,
+        "reach": 0.0,
+        "aim": 0.0,
+        "glow": "red"
+      }
+    ]
+  },
+  {
+    "id": "lamp-starboard",
+    "title": "Starboard Light",
+    "category": "utility",
+    "dryMass": 1.0,
+    "description": "A green glow for the right side, so others can tell which way you're going.",
+    "crashTolerance": 10.0,
+    "dragCoefficient": 0.3,
+    "mesh": {
+      "type": "box",
+      "width": 0.1,
+      "height": 0.1,
+      "depth": 0.08
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.1,
+              "height": 0.1,
+              "depth": 0.06
+            }
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.07,
+              "height": 0.07,
+              "depth": 0.03
+            }
+          },
+          "tint": "light",
+          "offset": {
+            "x": 0,
+            "y": 0,
+            "z": 0.04
+          }
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "base",
+        "position": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -0.04
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "lamp",
+        "draw": 0.01,
+        "reach": 0.0,
+        "aim": 0.0,
+        "glow": "green"
+      }
+    ]
+  },
+  {
+    "id": "lamp-strobe",
+    "title": "Strobe",
+    "category": "utility",
+    "dryMass": 1.0,
+    "description": "A white flash every second or so, to be seen from far off.",
+    "crashTolerance": 10.0,
+    "dragCoefficient": 0.3,
+    "mesh": {
+      "type": "box",
+      "width": 0.1,
+      "height": 0.1,
+      "depth": 0.1
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.1,
+              "height": 0.1,
+              "depth": 0.05
+            }
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "sphere",
+              "radius": 0.045
+            }
+          },
+          "tint": "light",
+          "offset": {
+            "x": 0,
+            "y": 0,
+            "z": 0.05
+          }
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "base",
+        "position": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -0.03
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "lamp",
+        "draw": 0.02,
+        "reach": 0.0,
+        "aim": 0.0,
+        "glow": "white",
+        "blink": 1.2
+      }
+    ]
+  },
+  {
+    "id": "lamp-beacon",
+    "title": "Beacon",
+    "category": "utility",
+    "dryMass": 2.0,
+    "description": "A slow red flash on top, so nothing flies into you.",
+    "crashTolerance": 10.0,
+    "dragCoefficient": 0.3,
+    "mesh": {
+      "type": "box",
+      "width": 0.14,
+      "height": 0.14,
+      "depth": 0.14
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.14,
+              "height": 0.14,
+              "depth": 0.05
+            }
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "sphere",
+              "radius": 0.06
+            }
+          },
+          "tint": "light",
+          "offset": {
+            "x": 0,
+            "y": 0,
+            "z": 0.06
+          }
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "base",
+        "position": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -0.03
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "lamp",
+        "draw": 0.02,
+        "reach": 0.0,
+        "aim": 0.0,
+        "glow": "red",
+        "blink": 1.6
+      }
+    ]
+  },
+  {
+    "id": "lamp-mast",
+    "title": "Mast Light",
+    "category": "utility",
+    "dryMass": 4.0,
+    "description": "A white light on a short pole, seen all round.",
+    "crashTolerance": 10.0,
+    "dragCoefficient": 0.3,
+    "mesh": {
+      "type": "box",
+      "width": 0.12,
+      "height": 0.12,
+      "depth": 0.7
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.12,
+              "height": 0.12,
+              "depth": 0.04
+            }
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.02,
+              "height": 0.6
+            }
+          },
+          "tint": "metal",
+          "offset": {
+            "x": 0,
+            "y": 0,
+            "z": 0.32
+          },
+          "rotation": {
+            "x": 90,
+            "y": 0,
+            "z": 0
+          }
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "sphere",
+              "radius": 0.05
+            }
+          },
+          "tint": "light",
+          "offset": {
+            "x": 0,
+            "y": 0,
+            "z": 0.65
+          }
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "base",
+        "position": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -0.02
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "lamp",
+        "draw": 0.01,
+        "reach": 0.0,
+        "aim": 0.0,
+        "glow": "white"
+      }
+    ]
+  },
+  {
+    "id": "glow-marker",
+    "title": "Glow Marker",
+    "category": "utility",
+    "dryMass": 2.0,
+    "description": "Isotope paint in a sealed capsule. It glows by itself, with no power, for a hundred years.",
+    "crashTolerance": 10.0,
+    "dragCoefficient": 0.3,
+    "mesh": {
+      "type": "box",
+      "width": 0.12,
+      "height": 0.12,
+      "depth": 0.08
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.12,
+              "height": 0.12,
+              "depth": 0.04
+            }
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.09,
+              "height": 0.09,
+              "depth": 0.03
+            }
+          },
+          "tint": "light",
+          "offset": {
+            "x": 0,
+            "y": 0,
+            "z": 0.035
+          }
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "base",
+        "position": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -0.04
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "lamp",
+        "draw": 0.0,
+        "reach": 0.0,
+        "aim": 0.0,
+        "glow": "isotope",
+        "self": true
+      }
+    ]
+  },
+  {
+    "id": "glow-stake",
+    "title": "Glow Stake",
+    "category": "structural",
+    "dryMass": 8.0,
+    "description": "A stake with an isotope lamp on top, to mark a spot. It glows for a hundred years with no power.",
+    "crashTolerance": 6.0,
+    "dragCoefficient": 0.4,
+    "mesh": {
+      "type": "box",
+      "width": 0.3,
+      "height": 1.4,
+      "depth": 0.3
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.3,
+              "height": 0.04,
+              "depth": 0.3
+            }
+          },
+          "tint": "dark",
+          "offset": {
+            "x": 0,
+            "y": -0.68,
+            "z": 0
+          }
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "cylinder",
+              "radius": 0.02,
+              "height": 1.3
+            }
+          },
+          "tint": "metal"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "sphere",
+              "radius": 0.07
+            }
+          },
+          "tint": "light",
+          "offset": {
+            "x": 0,
+            "y": 0.7,
+            "z": 0
+          }
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "bottom",
+        "position": {
+          "x": 0.0,
+          "y": -0.7,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 0
+      }
+    ],
+    "modules": [
+      {
+        "type": "lamp",
+        "draw": 0.0,
+        "reach": 0.0,
+        "aim": 0.0,
+        "glow": "isotope",
+        "self": true
+      }
+    ]
+  },
+  {
+    "id": "lamp-flood",
+    "title": "Floodlamp",
+    "category": "utility",
+    "dryMass": 8.0,
+    "description": "Lights the ground below it. Fit it on a side: a lander's tank, a base or a hull.",
+    "crashTolerance": 10.0,
+    "dragCoefficient": 0.3,
+    "mesh": {
+      "type": "box",
+      "width": 0.3,
+      "height": 0.2,
+      "depth": 0.16
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.3,
+              "height": 0.2,
+              "depth": 0.12
+            }
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "primitive",
+            "mesh": {
+              "type": "box",
+              "width": 0.26,
+              "height": 0.03,
+              "depth": 0.1
+            }
+          },
+          "offset": {
+            "x": 0.0,
+            "y": -0.1,
+            "z": 0.02
+          },
+          "tint": "light"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "base",
+        "position": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -0.08
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -1.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "lamp",
+        "draw": 0.12,
+        "reach": 30.0,
+        "aim": 0.0,
+        "cone": 50.0,
+        "beam": {
+          "x": 0.0,
+          "y": -0.8,
+          "z": 0.6
+        }
       }
     ]
   }

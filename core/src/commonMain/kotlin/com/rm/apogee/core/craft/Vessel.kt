@@ -43,6 +43,9 @@ class ControlState {
     /** Whether the thrusters are switched on at all. */
     var rcsEnabled: Boolean = false
 
+    /** The light switch: off, on, or on by itself after dark and deep in the sea. */
+    var lights: com.rm.apogee.core.part.LightMode = com.rm.apogee.core.part.LightMode.OFF
+
     /**
      * Stability assist. In the air with the stick centred it holds the attitude you let go at;
      * otherwise it damps rotation. See [com.rm.apogee.core.world.StabilityAssist].
@@ -1264,6 +1267,19 @@ class Vessel(
         -1 -> false
         else -> normal
     }
+
+    /**
+     * Whether lamp [index] is switched on, by the light switch (see
+     * [com.rm.apogee.core.part.LightMode]) or its group, when it's [dark] where the craft is.
+     */
+    fun lampOn(index: Int, dark: Boolean): Boolean = running(
+        index,
+        when (control.lights) {
+            com.rm.apogee.core.part.LightMode.OFF -> false
+            com.rm.apogee.core.part.LightMode.ON -> true
+            com.rm.apogee.core.part.LightMode.AUTO -> dark
+        },
+    )
 
     fun isBroken(index: Int): Boolean = broken[index]
 

@@ -727,6 +727,8 @@ class GameSession private constructor(
                 cruiseHeight = systems.cruiseHeight,
                 mayCruise = systems.mayCruise,
                 groups = systems.groups,
+                lights = systems.lights,
+                lamps = systems.lamps,
                 hasWinch = systems.hasWinch,
                 canHook = systems.canHook,
                 hooked = systems.hooked,
@@ -832,6 +834,17 @@ class GameSession private constructor(
     /** Holds the flown craft's height and heading as they are now, or lets go. */
     suspend fun setCruise(on: Boolean) {
         withControlledVessel { client.send(Command.SetCruise(it, on)) }
+    }
+
+    /** Sets the flown craft's light switch. */
+    suspend fun setLights(mode: com.rm.apogee.core.part.LightMode) {
+        withControlledVessel { client.send(Command.SetLights(it, mode)) }
+    }
+
+    /** Lights on, or off if they're on. Auto counts as off, since it may be dark either way. */
+    suspend fun toggleLights() {
+        val now = powerReadout?.lights ?: com.rm.apogee.core.part.LightMode.OFF
+        setLights(if (now == com.rm.apogee.core.part.LightMode.ON) com.rm.apogee.core.part.LightMode.OFF else com.rm.apogee.core.part.LightMode.ON)
     }
 
     /** Switches action group [group] on, or off if it's on. */
@@ -3818,11 +3831,29 @@ class GameSession private constructor(
     private val scratchGlow = Vec3()
 
     /**
-     * Lamps lit this frame that light their surroundings: body-fixed x, y, z and reach, four per
-     * lamp.
+     * Lamps lit this frame that light their surroundings, [LAMP_FLOATS] each: body-fixed x, y, z
+     * and reach, then the beam's way and the cosine of its edge.
      */
-    private var lamps = DoubleArray(4 * 16)
+    private var lamps = DoubleArray(LAMP_FLOATS * 16)
     private var lampCount = 0
+    private val scratchBeam = Vec3()
+
+    /** Whether a lamp flashing every [period] seconds is in a flash now, each lamp its own beat. */
+    private fun flashOn(period: Double, seed: Long): Boolean {
+        val phase = (lampClock / period + (seed and 0xFF) / 256.0) % 1.0
+        return phase < FLASH_SHARE
+    }
+
+    /** Real seconds, for lamps flashing. */
+    private val lampClock: Double get() = com.rm.apogee.platform.System.nanoTime() / 1e9
+
+    private fun lampColour(glow: com.rm.apogee.core.part.LampGlow): FloatArray = when (glow) {
+        com.rm.apogee.core.part.LampGlow.WARM -> LAMP_COLOUR
+        com.rm.apogee.core.part.LampGlow.WHITE -> LAMP_WHITE
+        com.rm.apogee.core.part.LampGlow.RED -> LAMP_RED
+        com.rm.apogee.core.part.LampGlow.GREEN -> LAMP_GREEN
+        com.rm.apogee.core.part.LampGlow.ISOTOPE -> LAMP_ISOTOPE
+    }
 
     /**
      * How far the camera sees under the sea [depth] m down: murkier in a storm's stirred-up
@@ -3853,12 +3884,15 @@ class GameSession private constructor(
     private fun nearestLamps(camera: Vec3): DoubleArray {
         if (lampCount == 0 || mapMode) return com.rm.apogee.render.WorldView.NO_LAMPS
         val most = if (terrainQuality == QualityTier.LOW) LOW_TIER_LAMPS else com.rm.apogee.render.WorldView.MAX_LAMPS
-        val order = (0 until lampCount).sortedBy { k ->
-            val dx = lamps[4 * k] - camera.x; val dy = lamps[4 * k + 1] - camera.y; val dz = lamps[4 * k + 2] - camera.z
-            kotlin.math.sqrt(dx * dx + dy * dy + dz * dz) - lamps[4 * k + 3]
+        // Only the ones that light something: a glow alone costs nothing to draw.
+        val order = (0 until lampCount).filter { lamps[LAMP_FLOATS * it + 3] > 0.0 }.sortedBy { k ->
+            val o = LAMP_FLOATS * k
+            val dx = lamps[o] - camera.x; val dy = lamps[o + 1] - camera.y; val dz = lamps[o + 2] - camera.z
+            kotlin.math.sqrt(dx * dx + dy * dy + dz * dz) - lamps[o + 3]
         }.take(most)
-        val out = DoubleArray(4 * order.size)
-        for ((i, k) in order.withIndex()) lamps.copyInto(out, 4 * i, 4 * k, 4 * k + 4)
+        if (order.isEmpty()) return com.rm.apogee.render.WorldView.NO_LAMPS
+        val out = DoubleArray(LAMP_FLOATS * order.size)
+        for ((i, k) in order.withIndex()) lamps.copyInto(out, LAMP_FLOATS * i, LAMP_FLOATS * k, LAMP_FLOATS * k + LAMP_FLOATS)
         return out
     }
 
@@ -3974,12 +4008,12 @@ class GameSession private constructor(
         val chuteTrail = Vec3().setTo(state.velocity).subInPlace(attractor.surfaceVelocityAt(position, Vec3()))
         windHere?.let { chuteTrail.subInPlace(it) }
         if (chuteTrail.length > 0.5) chuteTrail.normalizeInPlace().negateInPlace() else chuteTrail.setTo(position).normalizeInPlace()
-        // Lamps: lit after dusk where it stands, or deep in the sea, while it has power. The Cape's
-        // always have it.
-        val dark = (scratchLamp.setTo(position).normalizeInPlace() dot frameSun) < World.LAMP_DUSK ||
-            (attractor.ocean != null && attractor.altitudeOf(position) < -World.LAMP_DEPTH)
-        val lampsLit = dark &&
-            (vessel.owner == World.WORLD_OWNER || client.nearestBase?.takeIf { it.vessel == vessel.id }?.powered != false)
+        // Lamps: the Cape's lit after dusk, everything else's as the server says: switched on,
+        // whole and powered.
+        val worldLamps = vessel.owner == World.WORLD_OWNER && (
+            (scratchLamp.setTo(position).normalizeInPlace() dot frameSun) < World.LAMP_DUSK ||
+                (attractor.ocean != null && attractor.altitudeOf(position) < -World.LAMP_DEPTH))
+        val litParts = if (vessel.owner == World.WORLD_OWNER) null else vessel.latest?.lit
         for ((index, placed) in design.parts.withIndex()) {
             val def = defs[index] ?: continue
             // From the cockpit, the cockpit itself would fill the view.
@@ -4198,11 +4232,13 @@ class GameSession private constructor(
                 effects?.burn(scratchBurn, 2.0 * def.jointRadius, animationDt, (vessel.id * 53 + index).toInt())
                 soundCraft(vessel.id, position, state.velocity, attractor).burning++
             }
-            // A lamp's lights, lit at night while it has power.
-            val lamp = lampsLit && def.hasModule<com.rm.apogee.core.part.Lamp>()
-            // One that lights the ground around it, from where its lights are.
-            val lampModule = if (lamp) def.module<com.rm.apogee.core.part.Lamp>() else null
-            val reach = lampModule?.reach ?: 0.0
+            // A lamp's lights, when lit, and flashing if it's a strobe.
+            val lampModule = def.module<com.rm.apogee.core.part.Lamp>()?.takeIf { worldLamps || litParts?.contains(index) == true }
+                ?.takeIf { it.blink <= 0.0 || flashOn(it.blink, vessel.id * 31 + index) }
+            val lamp = lampModule != null
+            // Only warm and white light anything round them; the rest only glow.
+            val reach = lampModule?.takeIf { it.glow == com.rm.apogee.core.part.LampGlow.WARM || it.glow == com.rm.apogee.core.part.LampGlow.WHITE }?.reach ?: 0.0
+            val glowColour = lampModule?.let { lampColour(it.glow) } ?: LAMP_COLOUR
             var glows = 0
             scratchGlow.setTo(0.0, 0.0, 0.0)
             val sock = placed.partId == WINDSOCK_PART
@@ -4215,7 +4251,7 @@ class GameSession private constructor(
                 val leaf = leaves[piece]
                 val lit = lamp && leaf.tint == com.rm.apogee.core.part.Tint.LIGHT
                 val base = when {
-                    lit -> LAMP_COLOUR
+                    lit -> glowColour
                     // Someone in a suit wears their player's stripe and their own visor.
                     vessel.stripe >= 0 && leaf.tint == com.rm.apogee.core.part.Tint.ACCENT -> com.rm.apogee.render.SuitColours.stripe(vessel.stripe)
                     vessel.visor >= 0 && leaf.tint == com.rm.apogee.core.part.Tint.GLASS -> com.rm.apogee.render.SuitColours.visor(vessel.visor)
@@ -4266,11 +4302,24 @@ class GameSession private constructor(
                     if (front.length > 1e-3) scratchGlow.addScaledInPlace(front.normalizeInPlace(), aim)
                 }
                 attractor.toBodyFixed(scratchGlow, bodyRotation, scratchGlow)
-                if (4 * lampCount + 4 > lamps.size) lamps = lamps.copyOf(lamps.size * 2)
-                lamps[4 * lampCount] = scratchGlow.x
-                lamps[4 * lampCount + 1] = scratchGlow.y
-                lamps[4 * lampCount + 2] = scratchGlow.z
-                lamps[4 * lampCount + 3] = reach
+                // A beam: which way, body-fixed, and how wide.
+                val cone = lampModule?.cone ?: 0.0
+                val beam = if (cone > 0.0) {
+                    val local = lampModule?.beam?.let { Vec3(it.x, it.y, it.z) } ?: Vec3.unitZ()
+                    val world = partRotation.rotate(local).normalizeInPlace()
+                    bodyRotation.inverseRotate(world, scratchBeam)
+                } else null
+                if (LAMP_FLOATS * lampCount + LAMP_FLOATS > lamps.size) lamps = lamps.copyOf(lamps.size * 2)
+                val o = LAMP_FLOATS * lampCount
+                lamps[o] = scratchGlow.x
+                lamps[o + 1] = scratchGlow.y
+                lamps[o + 2] = scratchGlow.z
+                lamps[o + 3] = reach
+                lamps[o + 4] = beam?.x ?: 0.0
+                lamps[o + 5] = beam?.y ?: 0.0
+                lamps[o + 6] = beam?.z ?: 0.0
+                // The cosine of the beam's edge; past -1 lights all round.
+                lamps[o + 7] = if (beam != null) kotlin.math.cos(Math.toRadians(cone)) else -2.0
                 lampCount++
             }
         }
@@ -4491,6 +4540,16 @@ class GameSession private constructor(
     companion object {
         /** A lamp's light, lit: warm white, and drawn this much larger for its glare. */
         val LAMP_COLOUR = floatArrayOf(1.0f, 0.9f, 0.62f, 1.0f)
+        val LAMP_WHITE = floatArrayOf(0.95f, 0.97f, 1.0f, 1.0f)
+        val LAMP_RED = floatArrayOf(1.0f, 0.12f, 0.08f, 1.0f)
+        val LAMP_GREEN = floatArrayOf(0.15f, 1.0f, 0.3f, 1.0f)
+        val LAMP_ISOTOPE = floatArrayOf(0.62f, 1.0f, 0.35f, 1.0f)
+
+        /** Floats a lamp takes in the lamps list. See [WorldView.lamps]. */
+        const val LAMP_FLOATS = com.rm.apogee.render.WorldView.LAMP_FLOATS
+
+        /** How much of each beat a strobe or beacon is lit. */
+        const val FLASH_SHARE = 0.12
         val LAMP_GLARE = Vec3(2.0, 2.0, 2.0)
 
         /**

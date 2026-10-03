@@ -136,6 +136,9 @@ fun FlightScreen(
     onWinch: () -> Unit = {},
     /** The keeper core holding the craft still, or not. */
     onStationKeep: () -> Unit = {},
+    /** Lights on or off, and set to off, on or by themselves. */
+    onLights: () -> Unit = {},
+    onLightMode: (com.rm.apogee.core.part.LightMode) -> Unit = {},
     /** The winch's line hooked on, or let go. */
     onHook: () -> Unit = {},
     onReleaseLine: () -> Unit = {},
@@ -190,12 +193,13 @@ fun FlightScreen(
         val sas = remember(onToggleSas, onSasMode, targetChoices, onTarget, onStickMode, onCruise, onSteering, burnActions) {
             SasActions(onToggleSas, onSasMode, targetChoices, onTarget, onStickMode, onCruise, onSteering, burnActions.onAutoLand)
         }
-        val railActions = remember(onToggleBrakes, onToggleReverse, onToggleRcs, onToggleDeploy, onToggleDrill, onToggleRefine, crewActions, onDive, onRise, onHoldDepth, onToggleFlaps, onGroup, onWinch, onStationKeep) {
+        val railActions = remember(onToggleBrakes, onToggleReverse, onToggleRcs, onToggleDeploy, onToggleDrill, onToggleRefine, crewActions, onDive, onRise, onHoldDepth, onToggleFlaps, onGroup, onWinch, onStationKeep, onLights, onLightMode) {
             RailActions(
                 onBrakes = onToggleBrakes, onReverse = onToggleReverse, onRcs = onToggleRcs, onDeploy = onToggleDeploy,
                 onDrill = onToggleDrill, onRefine = onToggleRefine, onJump = crewActions.onJump, onFlag = crewActions.onFlag,
                 onDive = onDive, onRise = onRise, onHold = onHoldDepth,
                 onFlaps = onToggleFlaps, onGroup = onGroup, onWinch = onWinch, onStationKeep = onStationKeep,
+                onLights = onLights, onLightMode = onLightMode,
             )
         }
         val statusActions = remember(crewActions, onUndock, onFound, onRefuel, onUnload, onRefine, onDockPilot) {

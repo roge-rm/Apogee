@@ -182,7 +182,10 @@ class WorldView(
     val seaRadius: Double = 0.0,
     /** How far each of red, green and blue light gets through the sea, in metres per e-fold. */
     val water: FloatArray = TERRA_WATER,
-    /** Lit lamps, nearest the camera first: body-fixed x, y, z and reach, at most [MAX_LAMPS]. */
+    /**
+     * Lit lamps, nearest the camera first, at most [MAX_LAMPS], [LAMP_FLOATS] each: body-fixed x,
+     * y, z and reach, then the beam's way and the cosine of its edge (past -1 for all round).
+     */
     val lamps: DoubleArray = NO_LAMPS,
     /** The colours of this world's air. */
     val sky: SkyColours = SkyColours.TERRA,
@@ -203,6 +206,7 @@ class WorldView(
 
         /** Lamps the renderer can light with at once: the shaders' LAMPS. */
         const val MAX_LAMPS = 8
+        const val LAMP_FLOATS = 8
     }
 }
 

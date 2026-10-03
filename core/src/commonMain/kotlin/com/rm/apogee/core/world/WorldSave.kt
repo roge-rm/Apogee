@@ -44,6 +44,8 @@ class VesselSave(
     val burns: List<PlannedBurn> = emptyList(),
     /** Wheel brakes, so a parked rover stays parked. */
     val brakes: Boolean = false,
+    /** The light switch. */
+    val lights: com.rm.apogee.core.part.LightMode = com.rm.apogee.core.part.LightMode.OFF,
     /** Sun wings and dishes told to fold out. */
     val deployed: Boolean = false,
     /** Fuel cells running. They cut out once it's well charged. */

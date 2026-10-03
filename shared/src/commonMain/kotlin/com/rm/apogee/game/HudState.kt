@@ -274,6 +274,9 @@ class HudState {
         val mayCruise: Boolean = true,
         /** Its action groups' states, by group number: 0 left alone, 1 on, -1 off. */
         val groups: List<Int> = emptyList(),
+        /** Its light switch, and whether it has lamps to switch. */
+        val lights: com.rm.apogee.core.part.LightMode = com.rm.apogee.core.part.LightMode.OFF,
+        val lamps: Boolean = false,
         /**
          * Its winch: whether it has one, what it could hook now (blank for nothing), whether
          * hooked, winding (1 in, -1 out, 0 holding), and whether the line is pulling.

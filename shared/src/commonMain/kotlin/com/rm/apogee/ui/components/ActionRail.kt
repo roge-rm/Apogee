@@ -2,6 +2,7 @@ package com.rm.apogee.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -16,6 +17,7 @@ import androidx.compose.material.icons.filled.Cable
 import androidx.compose.material.icons.filled.FlightLand
 import androidx.compose.material.icons.filled.GpsFixed
 import androidx.compose.material.icons.filled.Looks3
+import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.LooksOne
 import androidx.compose.material.icons.filled.LooksTwo
 import androidx.compose.material.icons.filled.Flag
@@ -26,9 +28,12 @@ import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.SolarPower
 import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.filled.VerticalAlignCenter
+import androidx.compose.material.icons.outlined.Lightbulb
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -65,10 +70,16 @@ class RailActions(
     val onWinch: () -> Unit = {},
     /** Hold the craft still where it is with its keeper core, or stop. */
     val onStationKeep: () -> Unit = {},
+    /** Lights on or off, and set to off, on or by themselves. */
+    val onLights: () -> Unit = {},
+    val onLightMode: (com.rm.apogee.core.part.LightMode) -> Unit = {},
 )
 
-/** One switch on the rail: its picture, its word, and how it's set. */
-private class RailSwitch(val icon: ImageVector, val caption: String, val tint: Color, val on: Boolean, val onTap: () -> Unit)
+/** One switch on the rail: its picture, its word, how it's set, and what a long press does. */
+private class RailSwitch(
+    val icon: ImageVector, val caption: String, val tint: Color, val on: Boolean, val onTap: () -> Unit,
+    val onLongPress: (() -> Unit)? = null,
+)
 
 /**
  * The craft's switches beside the throttle. Only the ones the craft has are shown. Green when
@@ -85,6 +96,7 @@ fun ActionRail(
     groundedBelow: Double = 3.0,
 ) {
     val idle = Color.White.alpha(ApogeeAlpha.SECONDARY)
+    var lightPicker by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
     val switches = buildList {
         if (hud.hasWheels) {
             add(RailSwitch(Icons.Filled.SwapVert, "REV", if (hud.reverse) ApogeeColors.Caution else idle, hud.reverse, actions.onReverse))
@@ -123,6 +135,20 @@ fun ActionRail(
             val on = power?.refining == true
             add(RailSwitch(Icons.Filled.Science, "REFINE", if (on) ApogeeColors.Prograde else idle, on, actions.onRefine))
         }
+        if (power != null && power.lamps) {
+            val mode = power.lights
+            val lit = mode != com.rm.apogee.core.part.LightMode.OFF
+            add(RailSwitch(
+                if (lit) Icons.Filled.Lightbulb else Icons.Outlined.Lightbulb,
+                when (mode) {
+                    com.rm.apogee.core.part.LightMode.OFF -> "LIGHTS"
+                    com.rm.apogee.core.part.LightMode.ON -> "LIGHTS ON"
+                    com.rm.apogee.core.part.LightMode.AUTO -> "AUTO"
+                },
+                if (lit) ApogeeColors.Accent else idle, lit, actions.onLights,
+                onLongPress = { lightPicker = true },
+            ))
+        }
         if (power != null && power.hasKeeper) {
             val keeping = power.keeping
             add(RailSwitch(Icons.Filled.GpsFixed, if (keeping) "HOLDING" else "STATION", if (keeping) ApogeeColors.Prograde else idle, keeping, actions.onStationKeep))
@@ -148,7 +174,7 @@ fun ActionRail(
             // Left alone or switched on, its parts run as they would. Switched off, they don't.
             val off = power?.group(group) == -1
             val icon = when (group) { 1 -> Icons.Filled.LooksOne; 2 -> Icons.Filled.LooksTwo; else -> Icons.Filled.Looks3 }
-            add(RailSwitch(icon, if (off) "$group OFF" else "GROUP $group", if (off) idle else ApogeeColors.Prograde, !off) { actions.onGroup(group) })
+            add(RailSwitch(icon, if (off) "$group OFF" else "GROUP $group", if (off) idle else ApogeeColors.Prograde, !off, { actions.onGroup(group) }))
         }
         if (power != null && power.hooked) {
             val reeling = power.reel > 0
@@ -166,6 +192,7 @@ fun ActionRail(
         }
     }
     if (switches.isEmpty()) return
+    if (lightPicker) LightPicker(hud.power?.lights, onPick = { actions.onLightMode(it); lightPicker = false }, onDismiss = { lightPicker = false })
     val columns = switches.chunked(perColumn.coerceAtLeast(1))
     Row(modifier, horizontalArrangement = Arrangement.spacedBy(RAIL_GAP), verticalAlignment = Alignment.Bottom) {
         for (column in columns) {
@@ -176,6 +203,42 @@ fun ActionRail(
     }
 }
 
+/** The light switch's three settings, from a long press. */
+@Composable
+private fun LightPicker(current: com.rm.apogee.core.part.LightMode?, onPick: (com.rm.apogee.core.part.LightMode) -> Unit, onDismiss: () -> Unit) {
+    androidx.compose.ui.window.Popup(
+        alignment = Alignment.BottomStart,
+        offset = androidx.compose.ui.unit.IntOffset(0, -260),
+        onDismissRequest = onDismiss,
+        properties = androidx.compose.ui.window.PopupProperties(focusable = true),
+    ) {
+        Row(
+            Modifier.clip(RoundedCornerShape(Dimens.CornerSmall)).background(Color.Black.alpha(ApogeeAlpha.SCRIM)).padding(6.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            for ((mode, word) in listOf(
+                com.rm.apogee.core.part.LightMode.OFF to "OFF",
+                com.rm.apogee.core.part.LightMode.ON to "ON",
+                com.rm.apogee.core.part.LightMode.AUTO to "AUTO",
+            )) {
+                val picked = mode == current
+                Text(
+                    word,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = if (picked) ApogeeColors.Accent else Color.White,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(Dimens.CornerSmall))
+                        .background(if (picked) ApogeeColors.Accent.alpha(0.28f) else Color.Transparent)
+                        .clickable { onPick(mode) }
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                )
+            }
+        }
+    }
+}
+
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun RailButton(s: RailSwitch) {
     Column(
@@ -183,7 +246,10 @@ private fun RailButton(s: RailSwitch) {
             .size(RAIL_BUTTON)
             .clip(RoundedCornerShape(Dimens.CornerSmall))
             .background(if (s.on) s.tint.alpha(0.28f) else Color.Black.alpha(ApogeeAlpha.SCRIM))
-            .clickable(onClick = s.onTap)
+            .then(
+                if (s.onLongPress != null) Modifier.combinedClickable(onClick = s.onTap, onLongClick = s.onLongPress)
+                else Modifier.clickable(onClick = s.onTap),
+            )
             .padding(top = 5.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {

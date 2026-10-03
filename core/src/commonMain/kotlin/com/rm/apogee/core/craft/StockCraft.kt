@@ -248,6 +248,10 @@ object StockCraft {
         // Between two legs, from near the ground up to the pod.
         val ladderOut = LADDER_RADIUS / kotlin.math.sqrt(2.0)
         add("ladder-rung", 1.5, tank, x = -ladderOut, z = ladderOut)
+        // Floodlamps on the tank, lighting the ground below to land on.
+        val lampOut = 0.705 / kotlin.math.sqrt(2.0)
+        add("lamp-flood", 2.0, tank, x = lampOut, z = lampOut)
+        add("lamp-flood", 2.0, tank, x = -lampOut, z = -lampOut)
 
         val stages = listOf(
             Stage(listOf(engine)),
@@ -360,6 +364,8 @@ object StockCraft {
         val chassis = a.root("chassis-small")
         a.on(chassis, "deck-front", "cab-open")
         for (k in 1..4) a.on(chassis, "wheel-$k", "wheel-tread")
+        // A light bar behind the seat, beaming ahead.
+        a.on(chassis, "deck", "light-bar")
         return a.design()
     }
 
@@ -541,6 +547,9 @@ object StockCraft {
         // Main wheels just behind the balance point, close enough for the tail to lift the nose.
         a.on(aft, "belly-right-2", "wheel-gear-main")
         a.on(aft, "belly-left-2", "wheel-gear-main")
+        // Red and green lights each side.
+        a.on(forward, "side-left", "lamp-port")
+        a.on(forward, "side-right", "lamp-starboard")
         return a.design()
     }
 
@@ -563,6 +572,9 @@ object StockCraft {
         a.on(cockpit, "surface-3", "wheel-gear-nose")
         a.on(aft, "belly-right-2", "wheel-gear-main")
         a.on(aft, "belly-left-2", "wheel-gear-main")
+        a.on(forward, "side-left", "lamp-port")
+        a.on(forward, "side-right", "lamp-starboard")
+        a.on(forward, "spine", "lamp-beacon")
         return a.design()
     }
 
@@ -573,6 +585,7 @@ object StockCraft {
         a.on(chassis, "deck-front", "cab-rover")
         a.on(chassis, "deck-rear", "rack-cargo")
         for (k in 1..4) a.on(chassis, "wheel-$k", "wheel-tread")
+        a.on(chassis, "deck", "light-bar")
         return a.design()
     }
 
@@ -599,6 +612,7 @@ object StockCraft {
         a.on(hull, "transom", "motor-outboard")
         a.on(hull, "side-right", "mooring-clamp")
         a.on(hull, "side-left", "mooring-clamp")
+        a.on(hull, "mast", "lamp-mast")
         return a.design()
     }
 
@@ -622,6 +636,8 @@ object StockCraft {
         val hull = a.root("hull-jetski")
         a.on(hull, "deck", "seat-saddle")
         a.on(hull, "transom", "jet-pump")
+        a.on(hull, "side-left", "lamp-port")
+        a.on(hull, "side-right", "lamp-starboard")
         return a.design()
     }
 
@@ -654,6 +670,10 @@ object StockCraft {
         val boom = a.on(tank, "bottom", "boom-tail")
         a.on(boom, "tail-side", "rotor-tail")
         a.on(boom, "tail-fin", "tail-rudder")
+        // Lights: red and green each side, and a red beacon on top.
+        a.on(tank, "side-left", "lamp-port")
+        a.on(tank, "side-right", "lamp-starboard")
+        a.on(tank, "spine", "lamp-beacon")
         return a.design()
     }
 
@@ -693,6 +713,11 @@ object StockCraft {
         a.on(tank, "side-left", "battery-hoard")
         a.on(envelope, "tail-right", "tail-stabilator")
         a.on(envelope, "tail-left", "tail-stabilator")
+        // Red and green on the power car, a beacon, and a light to land by.
+        a.on(tank, "side-left-fore", "lamp-port")
+        a.on(tank, "side-right-fore", "lamp-starboard")
+        a.on(tank, "belly", "lamp-landing")
+        a.on(tank, "spine-rear", "lamp-beacon")
         return a.design()
     }
 
@@ -705,6 +730,9 @@ object StockCraft {
         a.on(deck, "side-1", "battery-hoard")
         a.on(deck, "side-2", "battery-hoard")
         check(core > 0)
+        // Beacons on its edges, so nothing flies into it.
+        a.on(deck, "side-3", "lamp-beacon")
+        a.on(deck, "side-4", "lamp-beacon")
         return a.design()
     }
 
@@ -714,6 +742,8 @@ object StockCraft {
         val deck = a.root("deck-sea")
         for (k in 1..4) a.on(deck, "pontoon-$k", "pontoon")
         a.on(deck, "equipment", "core-keeper")
+        a.on(deck, "side-1", "lamp-beacon")
+        a.on(deck, "side-2", "lamp-beacon")
         return a.design()
     }
 
@@ -773,6 +803,7 @@ object StockCraft {
         a.on(hull, "transom", "motor-outboard")
         a.on(hull, "side-right", "mooring-clamp")
         a.on(hull, "side-left", "mooring-clamp")
+        a.on(hull, "deck-front", "lamp-mast")
         return a.design()
     }
 
@@ -791,6 +822,12 @@ object StockCraft {
         a.on(stern, "transom", "motor-outboard")
         a.on(mid, "side-right", "mooring-clamp")
         a.on(mid, "side-left", "mooring-clamp")
+        // A mast light forward, red and green on the bow, and floodlamps over the side to work by.
+        a.on(bow, "deck", "lamp-mast")
+        a.on(bow, "side-left", "lamp-port")
+        a.on(bow, "side-right", "lamp-starboard")
+        a.on(fore, "side-right", "lamp-flood")
+        a.on(fore, "side-left", "lamp-flood")
         return a.design()
     }
 
@@ -818,6 +855,9 @@ object StockCraft {
         a.on(mid, "side-right", "mooring-clamp")
         a.on(mid, "side-left", "mooring-clamp")
         a.ladder(aft, "side-right")
+        a.on(bow, "deck", "lamp-mast")
+        a.on(bow, "side-left", "lamp-port")
+        a.on(bow, "side-right", "lamp-starboard")
         return a.design()
     }
 
@@ -840,6 +880,9 @@ object StockCraft {
         a.on(mid, "side-right", "mooring-clamp")
         a.on(mid, "side-left", "mooring-clamp")
         a.ladder(aft, "side-right")
+        a.on(bow, "deck", "lamp-mast")
+        a.on(bow, "side-left", "lamp-port")
+        a.on(bow, "side-right", "lamp-starboard")
         return a.design()
     }
 
@@ -855,6 +898,9 @@ object StockCraft {
         a.on(fore, "side-right", "mooring-clamp")
         a.on(fore, "side-left", "mooring-clamp")
         a.ladder(aft, "side-right")
+        a.on(fore, "deck", "lamp-mast")
+        a.on(bow, "side-left", "lamp-port")
+        a.on(bow, "side-right", "lamp-starboard")
         return a.design()
     }
 
@@ -888,6 +934,9 @@ object StockCraft {
         a.on(aft, "drive-left", "engine-diesel")
         a.on(aft, "keel-aft", "rudder-ship")
         a.ladder(aft, "side-right")
+        a.on(fore, "side-left", "lamp-port")
+        a.on(fore, "side-right", "lamp-starboard")
+        a.on(fore, "deck-left", "lamp-beacon")
         return a.design()
     }
 
@@ -908,6 +957,8 @@ object StockCraft {
         a.on(tiles[7], "drive-left", "engine-diesel")
         a.on(tiles[7], "keel-aft", "rudder-ship")
         a.ladder(tiles[5], "side-right")
+        a.on(tiles[0], "side-left", "lamp-port")
+        a.on(tiles[0], "side-right", "lamp-starboard")
         return a.design()
     }
 
@@ -964,6 +1015,7 @@ object StockCraft {
         a.on(chassis, "deck-rear", "rack-cargo")
         for (k in 1..4) a.on(chassis, "wheel-$k", "wheel-tread")
         a.on(chassis, "back", "hitch-ball")
+        a.on(chassis, "deck", "light-bar")
         return a.design()
     }
 
@@ -987,6 +1039,9 @@ object StockCraft {
         a.on(core, "surface-0", "base-connector")
         a.on(core, "surface-2", "base-connector")
         a.on(core, "top", "base-solar")
+        // Floodlamps lighting the ground round it.
+        a.on(core, "surface-1", "lamp-flood")
+        a.on(core, "surface-3", "lamp-flood")
         return a.design()
     }
 
@@ -1096,6 +1151,8 @@ object StockCraft {
         a.on(core, "surface-0", "base-connector")
         a.on(core, "surface-2", "base-connector")
         a.on(core, "top", "base-battery")
+        a.on(core, "surface-1", "lamp-flood")
+        a.on(core, "surface-3", "lamp-flood")
         return a.design()
     }
 

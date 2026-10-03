@@ -94,7 +94,7 @@ class Power(private val system: SolarSystem) {
                 is com.rm.apogee.core.part.Generator -> made += module.rate
                 is Command -> used += module.idleDraw
                 is Antenna -> if (!module.deployable || deployed(vessel, i)) used += module.draw
-                is Lamp -> if (vessel.running(i, night)) used += module.draw
+                is Lamp -> if (!module.self && vessel.lampOn(i, night)) used += module.draw
                 is FuelCell -> { cells += module.rate; cellMono += module.rate * module.monoPerCharge; anyCell = i }
                 is com.rm.apogee.core.part.Scanner -> used += module.draw
                 is com.rm.apogee.core.part.Sonar -> used += module.draw

@@ -53,6 +53,11 @@ sealed interface Command {
     @SerialName("setNavFrame")
     data class SetNavFrame(val vessel: Long, val frame: NavFrame) : Command
 
+    /** [vessel]'s light switch. */
+    @Serializable
+    @SerialName("setLights")
+    data class SetLights(val vessel: Long, val mode: com.rm.apogee.core.part.LightMode) : Command
+
     /** Another craft to steer by, or -1 to clear. [body] is a world, or a place (see [Wonders.TARGET_PREFIX]). */
     @Serializable
     @SerialName("setTarget")
@@ -292,12 +297,14 @@ data class VesselKinematics(
      * [position] where they really are. Null where it isn't known.
      */
     val centreOfMass: SerialVec3? = null,
+    /** Its lamps lit now, by part index. Null for none. */
+    val lit: List<Int>? = null,
 ) {
     // By content, since arrays compare by identity.
     override fun equals(other: Any?): Boolean =
         other is VesselKinematics && vessel == other.vessel && referenceBodyId == other.referenceBodyId &&
             position == other.position && rotation == other.rotation && velocity == other.velocity &&
-            angularVelocity == other.angularVelocity && throttle == other.throttle && asleep == other.asleep &&
+            angularVelocity == other.angularVelocity && throttle == other.throttle && asleep == other.asleep && lit == other.lit &&
             pose.contentEquals(other.pose) && condition.contentEquals(other.condition)
 
     override fun hashCode(): Int =
@@ -472,6 +479,9 @@ sealed interface ServerMessage {
         val mayCruise: Boolean = true,
         /** Its action groups' states, by group number: 0 left alone, 1 on, -1 off. */
         val groups: List<Int> = emptyList(),
+        /** Its light switch, and whether it has any lamps to switch. */
+        val lights: com.rm.apogee.core.part.LightMode = com.rm.apogee.core.part.LightMode.OFF,
+        val lamps: Boolean = false,
         /**
          * Winch: what it would hook now ("ground", a craft's name, or blank), whether hooked, which
          * way it's winding (1 in, -1 out, 0 holding), and whether the line is pulling.
@@ -696,5 +706,6 @@ object Protocol {
     // 26: VesselKinematics.asleep.
     // 27: VesselKinematics.centreOfMass.
     // 28: places as targets, SetTarget's body "place:" and an id.
-    const val VERSION = 28
+    // 29: the light switch: SetLights, CraftSystems.lights and lamps, VesselKinematics.lit.
+    const val VERSION = 29
 }

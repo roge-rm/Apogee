@@ -114,6 +114,22 @@ class PadInputTest {
     }
 
     @Test
+    fun `Select tapped works the gear, and held switches the lights`() {
+        frame()
+        press(PadButton.SELECT, true)
+        frame()
+        press(PadButton.SELECT, false)
+        frame()
+        assertEquals(listOf(PadAction.DEPLOY), target.actions)
+        target.actions.clear()
+        press(PadButton.SELECT, true)
+        repeat(8) { frame(millis = 100) }
+        press(PadButton.SELECT, false)
+        frame()
+        assertEquals(listOf(PadAction.LIGHTS), target.actions)
+    }
+
+    @Test
     fun `A has to be held a moment to stage, and a tap doesn't`() {
         frame()
         press(PadButton.A, true)
