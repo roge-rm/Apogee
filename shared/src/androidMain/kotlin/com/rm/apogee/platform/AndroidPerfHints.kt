@@ -10,31 +10,52 @@ import android.util.Log
  * can call every frame. On old devices it does nothing.
  *
  * The one that matters is [PerformanceHintManager] (API 31+). Telling the kernel a frame's target
- * keeps the physics thread on a big core, which cuts frame-time jitter.
+ * keeps the game server, frame build and GL threads on big cores, which cuts frame-time jitter.
  */
 class AndroidPerfHints private constructor(
-    private var session: PerformanceHintManager.Session?,
+    private val manager: PerformanceHintManager?,
+    private var targetNanos: Long,
 ) : PerfHints {
 
+    /** The session, over the threads it was made with. Remade when another one starts. */
+    private var session: PerformanceHintManager.Session? = null
+    private var threads = IntArray(0)
+
     /**
-     * Held for every call on [session]. Reports come from a worker thread and [close] from the main
+     * Held for every call on [session]. Reports come from the frame thread and [close] from the main
      * one, and a report on a closed native session segfaults, which [runCatching] can't catch.
      */
     private val lock = Any()
+    private var closed = false
 
-    /** Reports how long the last simulation step took. Safe to call every tick. */
+    /**
+     * Reports how long the last frame's work took. Safe to call every frame. The first report, and
+     * the first after a hinted thread starts or is replaced, makes the session over all of them.
+     */
     override fun reportActualWorkDuration(nanos: Long) {
         if (nanos <= 0) return
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            synchronized(lock) { runCatching { session?.reportActualWorkDuration(nanos) } }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
+        synchronized(lock) {
+            if (closed || manager == null) return
+            val now = HintedThreads.all()
+            if (!now.contentEquals(threads)) {
+                runCatching { session?.close() }
+                session = runCatching { manager?.createHintSession(now, targetNanos) }.getOrNull()
+                threads = now
+                Log.i(TAG, if (session != null) "Hinting ${now.size} threads" else "ADPF hint session unavailable on this device; running unhinted")
+            }
+            runCatching { session?.reportActualWorkDuration(nanos) }
         }
     }
 
-    /** Call when the per-tick budget changes, such as a new display rate. */
+    /** Call when the per-frame budget changes, such as a new display rate. */
     override fun updateTargetWorkDuration(nanos: Long) {
         if (nanos <= 0) return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            synchronized(lock) { runCatching { session?.updateTargetWorkDuration(nanos) } }
+            synchronized(lock) {
+                targetNanos = nanos
+                runCatching { session?.updateTargetWorkDuration(nanos) }
+            }
         }
     }
 
@@ -44,6 +65,7 @@ class AndroidPerfHints private constructor(
             synchronized(lock) {
                 runCatching { session?.close() }
                 session = null
+                closed = true
             }
         }
     }
@@ -51,22 +73,14 @@ class AndroidPerfHints private constructor(
     companion object {
         private const val TAG = "ApogeePerfHints"
 
-        /** @param threadIds the simulation and GL threads, as OS tids (not Java thread ids). */
-        fun create(context: Context, threadIds: IntArray, targetWorkNanos: Long): AndroidPerfHints {
+        /** A front for hints over [HintedThreads], aiming each frame's work at [targetWorkNanos]. */
+        fun create(context: Context, targetWorkNanos: Long): AndroidPerfHints {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
                 Log.i(TAG, "ADPF unavailable on API ${Build.VERSION.SDK_INT}; running unhinted")
-                return AndroidPerfHints(null)
+                return AndroidPerfHints(null, targetWorkNanos)
             }
-            val session = runCatching {
-                val manager = context.getSystemService(PerformanceHintManager::class.java)
-                manager?.createHintSession(threadIds, targetWorkNanos)
-            }.getOrNull()
-
-            if (session == null) {
-                // Allowed: a device needn't implement it.
-                Log.i(TAG, "ADPF hint session unavailable on this device; running unhinted")
-            }
-            return AndroidPerfHints(session)
+            val manager = runCatching { context.getSystemService(PerformanceHintManager::class.java) }.getOrNull()
+            return AndroidPerfHints(manager, targetWorkNanos)
         }
     }
 }

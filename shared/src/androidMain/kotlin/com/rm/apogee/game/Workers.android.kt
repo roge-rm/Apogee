@@ -18,13 +18,24 @@ actual fun workerPool(name: String, threads: Int): kotlinx.coroutines.CoroutineD
         }, name).apply { isDaemon = true }
     }.asCoroutineDispatcher()
 
-actual fun serverThread(): kotlinx.coroutines.CoroutineDispatcher =
+actual fun serverThread(): kotlinx.coroutines.CoroutineDispatcher = displayThread("game-server")
+
+actual fun frameThread(): kotlinx.coroutines.CoroutineDispatcher = displayThread("frame-build")
+
+/**
+ * A thread named [name] up with the display's own, and in the performance hint session (see
+ * [com.rm.apogee.platform.HintedThreads]).
+ */
+private fun displayThread(name: String): kotlinx.coroutines.CoroutineDispatcher =
     java.util.concurrent.Executors.newSingleThreadExecutor { r ->
         Thread({
-            // Up with the display's own threads. Stubbed out off the device, in unit tests.
-            runCatching { android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_DISPLAY) }
+            // Stubbed out off the device, in unit tests.
+            runCatching {
+                android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_DISPLAY)
+                com.rm.apogee.platform.HintedThreads.set(name, android.os.Process.myTid())
+            }
             r.run()
-        }, "game-server").apply { isDaemon = true }
+        }, name).apply { isDaemon = true }
     }.asCoroutineDispatcher()
 
 actual class Worker actual constructor(name: String) {

@@ -55,6 +55,9 @@ class Stress {
         val inverseMass = if (body.mass > 0.0) 1.0 / body.mass else 0.0
         val ax = fx * inverseMass; val ay = fy * inverseMass; val az = fz * inverseMass
         val w = body.angularVelocity
+        // And how fast it's spinning up: a part out from the middle needs pushing to turn with it,
+        // so a roll from the wings mostly spins the craft rather than twisting its joints.
+        val alpha = body.angularAcceleration(scratchAlpha)
 
         // Each part's own share: what pushes it, minus what it takes to keep up.
         val offset = scratch
@@ -65,9 +68,10 @@ class Stress {
             val cx = w.y * offset.z - w.z * offset.y
             val cy = w.z * offset.x - w.x * offset.z
             val cz = w.x * offset.y - w.y * offset.x
-            val px = w.y * cz - w.z * cy
-            val py = w.z * cx - w.x * cz
-            val pz = w.x * cy - w.y * cx
+            // And alpha x r.
+            val px = w.y * cz - w.z * cy + (alpha.y * offset.z - alpha.z * offset.y)
+            val py = w.z * cx - w.x * cz + (alpha.z * offset.x - alpha.x * offset.z)
+            val pz = w.x * cy - w.y * cx + (alpha.x * offset.y - alpha.y * offset.x)
             val m = vessel.partMass(i)
             forces[i * 3] = recorded[i * 3] - m * (ax + px)
             forces[i * 3 + 1] = recorded[i * 3 + 1] - m * (ay + py)
@@ -136,6 +140,7 @@ class Stress {
     }
 
     private val scratch = com.rm.apogee.core.math.Vec3()
+    private val scratchAlpha = com.rm.apogee.core.math.Vec3()
 
     private fun ensure(n: Int) {
         if (n <= capacity) return

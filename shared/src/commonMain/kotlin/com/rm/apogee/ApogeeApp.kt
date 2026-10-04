@@ -264,6 +264,8 @@ class ApogeeApp(private val host: AppHost) {
             com.rm.apogee.input.PadAction.DOCK -> if (hudState.canJoin) onJoin()
             com.rm.apogee.input.PadAction.RIGHT -> if (power?.canRight == true) scope.launch { current.rightCraft() }
             com.rm.apogee.input.PadAction.MAP -> onToggleMap()
+            com.rm.apogee.input.PadAction.MAP_FOCUS -> onMapFocus()
+            com.rm.apogee.input.PadAction.MAP_PICK -> session?.let { s -> s.mapPickCentre(gestures.width, gestures.height) }
             com.rm.apogee.input.PadAction.CAMERA_MODE -> if (!hudState.mapMode) onCameraMode()
             com.rm.apogee.input.PadAction.WARP_FASTER, com.rm.apogee.input.PadAction.WARP_SLOWER -> {
                 if (!hudState.warpAllowed) return
@@ -492,6 +494,7 @@ class ApogeeApp(private val host: AppHost) {
                         onSteering = ::onSteering,
                         onCameraMode = ::onCameraMode,
                         onToggleMap = ::onToggleMap,
+                        onMapFocus = ::onMapFocus,
                         onJoin = ::onJoin,
                         onExit = { navigateTo(if (tutorialFlight) AppScreen.TUTORIALS else AppScreen.PLAY) },
                         onTutorialKeep = { tutorialRun = null; hudState.tutorial = null },
@@ -980,6 +983,13 @@ class ApogeeApp(private val host: AppHost) {
         hudState.steerByScreen = byScreen
     }
 
+    private fun onMapFocus() {
+        val current = session ?: return
+        if (!current.mapMode) return
+        current.cycleMapFocus()
+        hudState.mapFocus = current.mapFocusName
+    }
+
     private fun onToggleMap() {
         val current = session ?: return
         val enabled = !hudState.mapMode
@@ -1237,7 +1247,7 @@ class ApogeeApp(private val host: AppHost) {
     val gestures = WorldGestures(this)
 
     /** Whichever camera the current view is looking through. */
-    fun activeCamera(): com.rm.apogee.game.CameraController? {
+    fun activeCamera(): com.rm.apogee.game.OrbitControls? {
         session?.let { return if (it.mapMode) it.mapCamera else it.camera }
         return builderSession?.camera
     }
@@ -1552,7 +1562,11 @@ class ApogeeApp(private val host: AppHost) {
                 if (keysDown.isNotEmpty()) throttleKeys(System.nanoTime())
                 pad.tick(
                     System.nanoTime(), padMode(),
-                    if (hudState.isSuit) com.rm.apogee.input.PadLayer.ON_FOOT else com.rm.apogee.input.PadLayer.FLYING,
+                    when {
+                        hudState.mapMode -> com.rm.apogee.input.PadLayer.MAP
+                        hudState.isSuit -> com.rm.apogee.input.PadLayer.ON_FOOT
+                        else -> com.rm.apogee.input.PadLayer.FLYING
+                    },
                     padTarget,
                 )
                 session?.let { current ->

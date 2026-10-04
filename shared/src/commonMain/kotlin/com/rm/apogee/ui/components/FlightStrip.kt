@@ -2,6 +2,9 @@ package com.rm.apogee.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -130,7 +133,17 @@ fun stripFields(
         if (out.size >= MAX_FIELDS) out.removeAt(out.lastIndex)
         out += StripField("DST", formatDistance(t.targetDistance), TARGET_COLOUR)
     }
-    if (t.highDynamicPressure) out.add(0, StripField("Q", "${"%.1f".format(t.dynamicPressure / 1000)} kPa", ApogeeColors.Danger))
+    // The air's push, while it's pushing: amber as it builds, red where parts start to strain.
+    if (t.inAir && !onSurface && t.dynamicPressure > Q_SHOWN) {
+        val q = t.dynamicPressure
+        val colour = when {
+            t.highDynamicPressure -> ApogeeColors.Danger
+            q > Q_CAUTION -> ApogeeColors.Caution
+            else -> ApogeeColors.Data
+        }
+        if (out.size >= MAX_FIELDS) out.removeAt(out.lastIndex)
+        out.add(0, StripField("Q", "${"%.1f".format(q / 1000)} kPa", colour))
+    }
     return out
 }
 
@@ -163,6 +176,10 @@ fun FlightStrip(
                 .padding(start = 10.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            if (!telemetry.airDepth.isNaN()) {
+                AirGauge(telemetry.airDepth.toFloat())
+                Spacer(Modifier.width(8.dp))
+            }
             Column(verticalArrangement = Arrangement.spacedBy(3.dp), horizontalAlignment = Alignment.End) {
                 for (line in stripFields(telemetry, current, sailing, lift, onSurface).chunked(perLine.coerceAtLeast(1))) {
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -183,6 +200,31 @@ fun FlightStrip(
         }
     }
 }
+
+/**
+ * How deep in the air the craft is: an empty bar with a tick at its top above the air, filling
+ * toward sea level as it goes down.
+ */
+@Composable
+private fun AirGauge(depth: Float) {
+    Box(
+        Modifier.size(width = 6.dp, height = 26.dp)
+            .clip(RoundedCornerShape(3.dp))
+            .background(Color.White.alpha(0.15f)),
+        contentAlignment = Alignment.BottomCenter,
+    ) {
+        Box(Modifier.fillMaxWidth().fillMaxHeight(depth.coerceIn(0f, 1f)).background(AIR_COLOUR))
+        // The top of the air.
+        Box(Modifier.align(Alignment.TopCenter).fillMaxWidth().height(1.5.dp).background(AIR_COLOUR))
+    }
+}
+
+/** The air gauge's sky blue. */
+private val AIR_COLOUR = Color(0xFF7CC6F2)
+
+/** Q shows past this in Pa, and turns amber past this. */
+private const val Q_SHOWN = 500.0
+private const val Q_CAUTION = 15_000.0
 
 /** One number, with its name small above it to keep the line narrow. */
 @Composable

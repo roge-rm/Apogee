@@ -10,8 +10,10 @@ import com.rm.apogee.game.BuilderGestures
  */
 class WorldGestures(private val app: ApogeeApp) {
 
-    private var width = 1f
-    private var height = 1f
+    var width = 1f
+        private set
+    var height = 1f
+        private set
 
     private var lastX = 0f
     private var lastY = 0f

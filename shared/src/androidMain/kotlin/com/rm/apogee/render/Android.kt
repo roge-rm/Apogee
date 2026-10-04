@@ -16,7 +16,10 @@ import javax.microedition.khronos.opengles.GL10
 
 /** [renderer] on a GLSurfaceView's own thread. */
 class GlSurfaceRenderer(val renderer: GlRenderer) : GLSurfaceView.Renderer {
-    override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) = renderer.onSurfaceCreated()
+    override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
+        com.rm.apogee.platform.HintedThreads.set("gl", android.os.Process.myTid())
+        renderer.onSurfaceCreated()
+    }
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) = renderer.onSurfaceChanged(width, height)
     override fun onDrawFrame(gl: GL10?) = renderer.onDrawFrame()
 }

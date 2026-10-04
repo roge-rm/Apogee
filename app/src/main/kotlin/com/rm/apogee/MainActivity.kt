@@ -227,11 +227,7 @@ class MainActivity : ComponentActivity(), AppHost {
 
     override fun detectTier(): QualityTier = QualityTier.detect(this)
 
-    override fun perfHints(): PerfHints = AndroidPerfHints.create(
-        context = this,
-        threadIds = intArrayOf(android.os.Process.myTid()),
-        targetWorkNanos = TARGET_FRAME_NANOS,
-    )
+    override fun perfHints(): PerfHints = AndroidPerfHints.create(context = this, targetWorkNanos = TARGET_FRAME_NANOS)
 
     // --- sharing craft ------------------------------------------------------------
 

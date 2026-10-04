@@ -44,6 +44,7 @@ enum class StickUse(val id: String, val label: String) {
 enum class PadLayer(val id: String, val label: String) {
     FLYING("f", "Flying"),
     ON_FOOT("e", "On foot"),
+    MAP("m", "On the map"),
 }
 
 /**
@@ -91,6 +92,8 @@ enum class PadAction(val id: String, val label: String, val group: PadGroup, val
     RIGHT("right", "Roll upright", PadGroup.CRAFT),
 
     MAP("map", "Map view", PadGroup.VIEW),
+    MAP_FOCUS("map-focus", "Map: look at the next", PadGroup.VIEW),
+    MAP_PICK("map-pick", "Map: pick what's in the middle", PadGroup.VIEW),
     CAMERA_MODE("camera", "Camera mode", PadGroup.VIEW),
     ZOOM_IN("zoom-in", "Zoom in", PadGroup.VIEW, held = true),
     ZOOM_OUT("zoom-out", "Zoom out", PadGroup.VIEW, held = true),
@@ -184,10 +187,26 @@ class PadBindings private constructor(
                 PadButton.L2 to PadAction.SWIM_DOWN,
                 PadButton.R2 to PadAction.SWIM_UP,
             )
+            // On the map both sticks turn the view, the triggers zoom, A picks what's in the
+            // middle, X looks at the next thing, and B or Y go back to flying. The rest fly.
+            val onMap = flying + mapOf(
+                PadButton.A to PadAction.MAP_PICK,
+                PadButton.B to PadAction.MAP,
+                PadButton.X to PadAction.MAP_FOCUS,
+                PadButton.Y to PadAction.MAP,
+                PadButton.L2 to PadAction.ZOOM_OUT,
+                PadButton.R2 to PadAction.ZOOM_IN,
+                PadButton.UP to PadAction.ZOOM_IN,
+                PadButton.DOWN to PadAction.ZOOM_OUT,
+                PadButton.LEFT to PadAction.WARP_SLOWER,
+                PadButton.RIGHT to PadAction.WARP_FASTER,
+                PadButton.START to PadAction.FLIGHT_MENU,
+            )
             val sticks = mapOf(PadStick.LEFT to StickUse.STEER, PadStick.RIGHT to StickUse.LOOK)
+            val mapSticks = mapOf(PadStick.LEFT to StickUse.LOOK, PadStick.RIGHT to StickUse.LOOK)
             PadBindings(
-                mapOf(PadLayer.FLYING to flying, PadLayer.ON_FOOT to onFoot),
-                mapOf(PadLayer.FLYING to sticks, PadLayer.ON_FOOT to sticks),
+                mapOf(PadLayer.FLYING to flying, PadLayer.ON_FOOT to onFoot, PadLayer.MAP to onMap),
+                mapOf(PadLayer.FLYING to sticks, PadLayer.ON_FOOT to sticks, PadLayer.MAP to mapSticks),
             )
         }
 

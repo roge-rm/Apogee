@@ -163,7 +163,8 @@ class PadInput(private val config: () -> PadConfig) {
             sentPitch = 0f; sentYaw = 0f
             target.steer(0f, 0f)
         }
-        look(bindings.stickFor(layer, StickUse.LOOK), setup, dt, target)
+        // Every stick that looks, so on the map either thumb turns the view.
+        for (s in PadStick.entries) if (bindings.stick(layer, s) == StickUse.LOOK) look(s, setup, dt, target)
 
         // What's held: throttle, roll and zoom, as hard as each is pressed.
         var throttle = 0f; var roll = 0f; var zoom = 0f

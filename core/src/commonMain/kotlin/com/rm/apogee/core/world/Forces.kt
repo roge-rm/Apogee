@@ -649,11 +649,13 @@ class Forces {
                     val speed = kotlin.math.sqrt(crossSpeed * crossSpeed + along * along)
                     0.5 * density * speed * speed * surface.area * normalCoefficient(attack, surface.liftCoefficient, slopeAt(speed / soundSpeed))
                 } else 0.0
+                scratchAirLoad.setZero()
                 if (crossSpeed > 1e-6) {
                     scratchForce.setTo(scratchCrossFlow)
                         .mulInPlace(-normalForce / crossSpeed)
                     vessel.body.applyForceAtOffset(scratchForce, scratchOffset)
                     vessel.recordForce(i, scratchForce)
+                    scratchAirLoad.addInPlace(scratchForce)
                 }
 
                 val flapForce = flaps(vessel, i, surface, density)
@@ -662,8 +664,10 @@ class Forces {
                     deflect(vessel, i, surface, density, localSpeed)
                 } else 0.0
 
-                // How hard it's working, for the stress pass.
-                val airLoad = abs(normalForce) + abs(controlForce) + flapForce
+                // How hard it's working, for the stress pass: its own lift and its control push
+                // together, as forces. Rolling, the two often push against each other.
+                if (controlForce != 0.0) scratchAirLoad.addInPlace(scratchForce)
+                val airLoad = scratchAirLoad.length + flapForce
                 if (i < vessel.surfaceLoad.size) vessel.surfaceLoad[i] = (airLoad / surface.loadLimit).toFloat()
                 // Past what it was built for, as in a gust at speed or a hard pull in rough air, it
                 // snaps off and the world tears it away.
@@ -912,6 +916,7 @@ class Forces {
         return (pitch * poseTorque.x + roll * poseTorque.y + yaw * poseTorque.z).coerceIn(-1.0, 1.0)
     }
 
+    private val scratchAirLoad = Vec3()
     private val poseOffset = Vec3()
     private val poseRadial = Vec3()
     private val poseNormal = Vec3()

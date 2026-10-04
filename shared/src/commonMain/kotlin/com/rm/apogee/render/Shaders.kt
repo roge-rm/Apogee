@@ -969,12 +969,31 @@ object Shaders {
     val LINE_VERTEX = """
         #version 300 es
         layout(location = 0) in vec3 aPosition;
+        layout(location = 1) in vec3 aOther;
+        layout(location = 2) in float aSide;
 
         uniform mat4 uViewProjection;
         uniform mat4 uModel;
+        // Half the screen's width and height in pixels, then half the ribbon's width in pixels.
+        uniform vec4 uScreen;
+
+        out float vSide;
 
         void main() {
-            gl_Position = uViewProjection * uModel * vec4(aPosition, 1.0);
+            vec4 here = uViewProjection * uModel * vec4(aPosition, 1.0);
+            vec4 there = uViewProjection * uModel * vec4(aOther, 1.0);
+            vSide = aSide;
+            // Behind the camera: dropped.
+            if (here.w <= 1e-6 || there.w <= 1e-6) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
+            vec2 halfScreen = uScreen.xy;
+            vec2 a = here.xy / here.w * halfScreen;
+            vec2 b = there.xy / there.w * halfScreen;
+            vec2 along = b - a;
+            float span = max(1e-6, sqrt(dot(along, along)));
+            vec2 across = vec2(-along.y, along.x) / span;
+            // Out to the side in pixels, back into clip space at this end's depth.
+            here.xy += across * aSide * uScreen.z / halfScreen * here.w;
+            gl_Position = here;
         }
     """.trimIndent()
 
@@ -982,9 +1001,12 @@ object Shaders {
         #version 300 es
         precision mediump float;
         uniform vec4 uColor;
+        in float vSide;
         out vec4 fragColor;
         void main() {
-            fragColor = uColor;
+            // Soft edges, a pixel or so wide.
+            float edge = 1.0 - smoothstep(0.55, 1.0, abs(vSide));
+            fragColor = vec4(uColor.rgb, uColor.a * edge);
         }
     """.trimIndent()
 }

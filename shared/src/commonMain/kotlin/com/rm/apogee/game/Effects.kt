@@ -801,8 +801,9 @@ class Effects(tier: QualityTier) {
         }
 
         // Re-entry glow: air heated to plasma. It's decided by the recovery temperature, v²/2cp, as
-        // in the heat model: an orbital return passes 2,500 K, while a 1 km/s dive low down stays
-        // under 800. The air must be thick enough to glow, but past that thickness hardly matters.
+        // in the heat model: an orbital return passes 2,500 K, and a fast dive at about Mach 3.5
+        // starts it, pale and thin with few sparks. The air must be thick enough to glow, but past
+        // that thickness hardly matters.
         val recovery = speed * speed / (2.0 * 1_005.0)
         val glow = smoothstep(GLOW_FROM, GLOW_FULL, recovery) * smoothstep(1e-6, 1e-4, density)
         if (glow > 0.02) {
@@ -1275,7 +1276,7 @@ class Effects(tier: QualityTier) {
         /**
          * The recovery temperature rise where the plasma starts to show, and where it's full, in K.
          */
-        const val GLOW_FROM = 1_400.0
+        const val GLOW_FROM = 700.0
         const val GLOW_FULL = 2_600.0
 
         /** A cone of condensed vapour, open at the back, around the craft. */

@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountTree
+import androidx.compose.material.icons.filled.CenterFocusStrong
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Videocam
@@ -50,6 +51,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onSizeChanged
@@ -166,6 +168,8 @@ fun FlightScreen(
     /** Shared with another player: who flies it ("me", "them" or "both"). */
     onDockPilot: (String) -> Unit = {},
     onToggleMap: () -> Unit,
+    /** On the map, look at the next thing: the craft, its world, the target, the worlds round it. */
+    onMapFocus: () -> Unit = {},
     onJoin: () -> Unit,
     onExit: () -> Unit,
     /** A tutorial finished: keep flying, or back to the list. */
@@ -277,6 +281,19 @@ fun FlightScreen(
         )
 
         if (hud.mapMode) MapNames(mapLabels, onWarpToMark)
+        // With a controller, where A picks.
+        if (hud.mapMode && hud.padActive) {
+            androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
+                val c = center
+                val r = 9.dp.toPx()
+                val w = 1.5.dp.toPx()
+                val tint = Color.White.alpha(0.7f)
+                drawLine(tint, c.copy(x = c.x - r * 2), c.copy(x = c.x - r * 0.6f), w)
+                drawLine(tint, c.copy(x = c.x + r * 0.6f), c.copy(x = c.x + r * 2), w)
+                drawLine(tint, c.copy(y = c.y - r * 2), c.copy(y = c.y - r * 0.6f), w)
+                drawLine(tint, c.copy(y = c.y + r * 0.6f), c.copy(y = c.y + r * 2), w)
+            }
+        }
 
         // --- top left: exit, map, craft, warp, and the craft's name ----------
         //
@@ -316,6 +333,7 @@ fun FlightScreen(
                 }
                 // Camera mode, with its name shown for a moment.
                 if (!hud.mapMode) CameraButton(hud.cameraMode, onCameraMode, Dimens.HudIconSize)
+                else FocusButton(hud.mapFocus, onMapFocus, Dimens.HudIconSize)
                 // The list of craft, and retiring this one.
                 if (hud.ownedCraft > 0) {
                     CraftSwitcher(
@@ -917,13 +935,16 @@ private fun MapNames(labels: (Float, Float) -> List<com.rm.apogee.game.GameSessi
     var size by remember { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
     var shown by remember { mutableStateOf(emptyList<com.rm.apogee.game.GameSession.MapLabel>()) }
     LaunchedEffect(size) {
+        // Every frame, so they stay on what they mark as the view turns.
         while (true) {
+            androidx.compose.runtime.withFrameNanos { }
             if (size.width > 0) shown = labels(size.width.toFloat(), size.height.toFloat())
-            kotlinx.coroutines.delay(100)
         }
     }
     Box(Modifier.fillMaxSize().onSizeChanged { size = it }) {
+        MapIcons(shown)
         for (label in shown) {
+            if (label.icon != null) continue
             if (label.place) {
                 // A found place is just a dot, its name in the Program. One still to find is a ring.
                 val found = label.name != "?"
@@ -955,6 +976,58 @@ private fun MapNames(labels: (Float, Float) -> List<com.rm.apogee.game.GameSessi
         }
     }
 }
+
+/** The map's icons, one size on the screen wherever they are: worlds, the craft, bases and marks. */
+@Composable
+private fun MapIcons(labels: List<com.rm.apogee.game.GameSession.MapLabel>) {
+    androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
+        val r = MAP_ICON.toPx() / 2
+        val stroke = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.6.dp.toPx())
+        val shadow = Color.Black.alpha(0.55f)
+        for (label in labels) {
+            val kind = label.icon ?: continue
+            val rgb = label.colour ?: floatArrayOf(1f, 1f, 1f)
+            val colour = Color(rgb[0], rgb[1], rgb[2])
+            val c = androidx.compose.ui.geometry.Offset(label.x, label.y)
+            fun poly(vararg p: Pair<Float, Float>, fill: Boolean) {
+                val path = androidx.compose.ui.graphics.Path().apply {
+                    moveTo(c.x + p[0].first * r, c.y + p[0].second * r)
+                    for (q in p.drop(1)) lineTo(c.x + q.first * r, c.y + q.second * r)
+                    close()
+                }
+                drawPath(path, shadow, style = androidx.compose.ui.graphics.drawscope.Stroke(width = stroke.width + 2.dp.toPx()))
+                if (fill) drawPath(path, colour) else drawPath(path, colour, style = stroke)
+            }
+            when (kind) {
+                com.rm.apogee.game.GameSession.IconKind.WORLD -> { drawCircle(shadow, r * 0.8f + 1.dp.toPx(), c); drawCircle(colour, r * 0.8f, c, style = stroke) }
+                com.rm.apogee.game.GameSession.IconKind.GHOST -> drawCircle(colour, r * 1.1f, c, style = stroke)
+                com.rm.apogee.game.GameSession.IconKind.STAR -> { drawCircle(shadow, r * 0.75f + 1.dp.toPx(), c); drawCircle(colour, r * 0.75f, c) }
+                com.rm.apogee.game.GameSession.IconKind.OTHER -> rotate(label.angle, c) { poly(0.7f to 0f, -0.5f to -0.5f, -0.5f to 0.5f, fill = false) }
+                com.rm.apogee.game.GameSession.IconKind.TARGET -> {
+                    rotate(label.angle, c) { poly(0.9f to 0f, -0.6f to -0.65f, -0.3f to 0f, -0.6f to 0.65f, fill = false) }
+                    drawCircle(colour, r * 1.15f, c, style = stroke)
+                }
+                com.rm.apogee.game.GameSession.IconKind.STATION -> poly(0f to -0.8f, 0.7f to 0.6f, -0.7f to 0.6f, fill = false)
+                com.rm.apogee.game.GameSession.IconKind.BASE -> poly(-0.65f to -0.65f, 0.65f to -0.65f, 0.65f to 0.65f, -0.65f to 0.65f, fill = true)
+                com.rm.apogee.game.GameSession.IconKind.FLAG -> poly(-0.5f to -0.8f, 0.7f to -0.45f, -0.5f to -0.1f, fill = true)
+                com.rm.apogee.game.GameSession.IconKind.CRAFT -> {
+                    // A chevron pointing the way it's going.
+                    rotate(label.angle, c) { poly(1f to 0f, -0.7f to -0.75f, -0.35f to 0f, -0.7f to 0.75f, fill = true) }
+                }
+                com.rm.apogee.game.GameSession.IconKind.MARK -> when (label.mark?.kind) {
+                    com.rm.apogee.game.MarkKind.AP -> poly(0f to -0.75f, 0.7f to 0.5f, -0.7f to 0.5f, fill = true)
+                    com.rm.apogee.game.MarkKind.PE -> poly(0f to 0.75f, 0.7f to -0.5f, -0.7f to -0.5f, fill = true)
+                    com.rm.apogee.game.MarkKind.BURN -> { drawCircle(shadow, r * 0.7f + 1.dp.toPx(), c, style = stroke); drawCircle(colour, r * 0.7f, c, style = stroke); drawCircle(colour, r * 0.25f, c) }
+                    com.rm.apogee.game.MarkKind.AN, com.rm.apogee.game.MarkKind.DN -> poly(0f to -0.7f, 0.7f to 0f, 0f to 0.7f, -0.7f to 0f, fill = false)
+                    else -> poly(0f to -0.7f, 0.7f to 0f, 0f to 0.7f, -0.7f to 0f, fill = true)
+                }
+            }
+        }
+    }
+}
+
+/** How big a map icon is on screen. */
+private val MAP_ICON = 14.dp
 
 /** A mark on the path: its tag, and picked, what it says and a warp to it. */
 @Composable
@@ -1020,6 +1093,41 @@ private fun markSays(label: com.rm.apogee.game.GameSession.MapLabel, mark: com.r
 
 /** How big a found place's dot is on the map. */
 private val PLACE_DOT = 8.dp
+
+/** On the map, steps to the next thing to look at, and shows its name for a moment. */
+@Composable
+private fun FocusButton(focus: String, onNext: () -> Unit, size: androidx.compose.ui.unit.Dp) {
+    var shownFor by remember { mutableStateOf<String?>(null) }
+    var tapped by remember { mutableStateOf(0) }
+    LaunchedEffect(tapped) {
+        if (tapped == 0) return@LaunchedEffect
+        shownFor = focus
+        kotlinx.coroutines.delay(1_500)
+        shownFor = null
+    }
+    LaunchedEffect(focus) { if (shownFor != null) shownFor = focus }
+    Box(Modifier.size(size)) {
+        FilledTonalIconButton(onClick = { onNext(); tapped++ }, modifier = Modifier.size(size)) {
+            Icon(androidx.compose.material.icons.Icons.Filled.CenterFocusStrong, contentDescription = "Look at the next")
+        }
+        shownFor?.let { shown ->
+            Text(
+                shown,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = Color.White,
+                softWrap = false,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .wrapContentSize(unbounded = true)
+                    .offset(y = 26.dp)
+                    .clip(RoundedCornerShape(Dimens.CornerSmall))
+                    .background(Color.Black.alpha(ApogeeAlpha.SCRIM))
+                    .padding(horizontal = 8.dp, vertical = 3.dp),
+            )
+        }
+    }
+}
 
 /** Steps to the next camera mode and shows its name for a moment. */
 @Composable

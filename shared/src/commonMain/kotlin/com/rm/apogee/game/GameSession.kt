@@ -85,8 +85,7 @@ class GameSession private constructor(
      * A second camera for map view, with its own distance range. One zoom range from tens of metres
      * to thousands of kilometres would be useless at both ends.
      */
-    val mapCamera = CameraController(
-        upReference = UpReference.FIXED,
+    val mapCamera = MapCamera(
         // Close enough to see a rover's course across a few kilometres of ground.
         minDistance = 2_000.0,
         // Out to the whole system: Ultima's orbit is five hundred million kilometres across.
@@ -293,7 +292,7 @@ class GameSession private constructor(
             }
             if (client.connected) launchPendingDesign()
         }
-        presentJob = scope.launch(Dispatchers.Default) {
+        presentJob = scope.launch(FRAME_THREAD) {
             while (isActive) {
                 val started = System.nanoTime()
                 buildFrame(started)
@@ -1575,23 +1574,39 @@ class GameSession private constructor(
             val fall = if (plan == null && free) fallLine(attractor, orbit, renderTime) else null
             val craft = focusState.position
             if (mapFramedFor != focusId) {
-                // Opens looking straight down on the craft with where it's going in view. After
-                // that the view is the player's.
+                // Opens looking straight down on the craft with where it's going in view, north up the
+                // screen. After that the view is the player's.
                 mapFramedFor = focusId
+                mapFocus = MapFocus.CRAFT
                 var span = 0.0
                 for (line in drawn + listOfNotNull(course?.first, fall?.first)) for (p in line.points) span = maxOf(span, p.distanceTo(craft))
-                val down = craft.normalized()
-                mapCamera.pitch = kotlin.math.asin(down.y.coerceIn(-1.0, 1.0))
-                mapCamera.yaw = kotlin.math.atan2(down.x, down.z)
-                mapCamera.frameExactly(if (!free) maxOf(span, MAP_LOCAL) else span)
+                mapCraftSpan = if (!free) maxOf(span, MAP_LOCAL) else span
+                mapCamera.setNorth(northOf(attractor, renderTime))
+                // In orbit, from over the orbit's plane and a little to the craft's side, so the path
+                // shows as a ring; on or near the ground, straight down on the craft.
+                val from = if (free) Vec3().setTo(orbit.angularMomentum).normalizeInPlace().mulInPlace(0.85).addScaledInPlace(craft.normalized(), 0.5)
+                    else craft.normalized()
+                mapCamera.lookFrom(from, northOf(attractor, renderTime))
+                mapCamera.frame(mapCraftSpan * 2.4, now = true)
+                mapCamera.settle()
+                mapLastPivot = null
             }
-            // Looking at another world: round it, framed to its reach when first looked at.
-            val looked = mapLooksAt?.let { system.bodies[it] }?.takeIf { it.id != attractor.id }
-            val pivot = if (looked != null) system.positionOf(looked.id, renderTime).subInPlace(system.positionOf(attractor.id, renderTime)) else craft
-            if (looked?.id != mapFramedLook) {
-                mapFramedLook = looked?.id
-                if (looked != null) mapCamera.frameExactly(minOf(looked.sphereOfInfluence, looked.radius * MAP_LOOK_RADII))
+            // The world it's at changed under the view: the last pivot, said from the new world, so
+            // the view carries on from where it was.
+            mapLastAttractor?.takeIf { it != attractor.id }?.let { old ->
+                mapLastPivot?.addInPlace(system.positionOf(old, renderTime))?.subInPlace(system.positionOf(attractor.id, renderTime))
             }
+            mapLastAttractor = attractor.id
+            val focusNow = mapFocus.takeIf { valid(it, attractor) } ?: MapFocus.CRAFT.also { mapFocus = it }
+            val pivot = pivotOf(focusNow, attractor, craft, renderTime)
+            if (focusNow != mapFramedFocus) {
+                // A new thing to look at: eased to from where the view was, framed to its size.
+                mapFramedFocus = focusNow
+                mapLastPivot?.let { mapCamera.moveFocus(it, pivot) }
+                mapCamera.frame(framingOf(focusNow, attractor))
+            }
+            mapLastPivot = pivot.copy()
+            mapCamera.setNorth(focusNorth(focusNow, attractor, renderTime))
             mapCamera.solve(pivot, cameraPosition, cameraRotation)
             // How much the view takes in. The markers are sized to it.
             val reach = mapCamera.distance / 2.4
@@ -1616,21 +1631,21 @@ class GameSession private constructor(
                     marks = pathMarks.ofOrbit(orbit, attractor.id, renderTime, fall.second, fall.third, landing)
                 }
             }
-            for (m in marks) {
-                lines.add(marker(m.at, reach, markColour(m.kind)))
-                m.ghost?.let { lines.add(ring(it, it.normalized(), reach * MARKER_FRACTION * 1.6, NEAR_COLOR)) }
-            }
-            keepMapView(plan?.takeIf { free }, attractor, renderTime, cameraPosition, cameraRotation, reach, if (free) marks else emptyList(), pivot, craft)
+            // Icons, drawn flat on the screen at one size whatever the distance. See MapIcon.
+            val icons = ArrayList<MapIcon>()
+            for (m in marks) m.ghost?.let { icons += MapIcon(IconKind.GHOST, it, NEAR_COLOR) }
             moonLines(attractor, renderTime, lines)
-            // Mark every world in view, since past the giants a planet is far less than a pixel.
+            // Every world in view, since past the giants a planet is far less than a pixel.
             val here = system.positionOf(attractor.id, renderTime)
             for (b in targetBodies) {
                 if (b.id == attractor.id) continue
                 val at = system.positionOf(b.id, renderTime).subInPlace(here)
-                if (at.distanceTo(pivot) < reach * MAP_LABEL_REACH) lines.add(marker(at, reach, BODY_MARKER_COLOR))
+                if (at.distanceTo(pivot) < reach * MAP_LABEL_REACH) icons += MapIcon(IconKind.WORLD, at, BODY_MARKER_COLOR)
             }
-            lines.add(marker(focusState.position, reach, CRAFT_COLOR))
-            signalLines(focusId, focusState.position, attractor, renderTime, reach, lines)
+            otherCraft(focusId, attractor, renderTime, lines, icons)
+            systemOrbits(attractor, renderTime, pivot, reach, lines, icons)
+            icons += MapIcon(IconKind.CRAFT, focusState.position.copy(), CRAFT_COLOR, heading = Vec3().setTo(focusState.velocity).subInPlace(attractor.surfaceVelocityAt(focusState.position, Vec3()).takeIf { !free } ?: Vec3()))
+            signalLines(focusId, focusState.position, attractor, renderTime, reach, lines, icons)
             richnessDots(attractor, renderTime, lines)
             if (mapCurrents) currentArrows(attractor, renderTime, cameraPosition, lines)
             // Founded bases on this world (the player's own and the Cape's), where they stand.
@@ -1639,20 +1654,21 @@ class GameSession private constructor(
                 if (other.owner != World.WORLD_OWNER && other.owner != client.clientId) continue
                 val seen = other.latest ?: continue
                 if (seen.referenceBodyId != focusState.referenceBodyId) continue
-                lines.add(marker(seen.position, reach, BASE_COLOR))
+                icons += MapIcon(IconKind.BASE, seen.position.copy(), BASE_COLOR)
             }
             // Flags planted on this world, anyone's.
             for (other in client.vessels) {
                 if (other.design.parts.singleOrNull()?.partId != com.rm.apogee.core.world.World.FLAG_PART) continue
                 val seen = other.latest ?: continue
                 if (seen.referenceBodyId != focusState.referenceBodyId) continue
-                lines.add(marker(seen.position, reach * 0.6, FLAG_COLOR))
+                icons += MapIcon(IconKind.FLAG, seen.position.copy(), FLAG_COLOR)
             }
+            keepMapView(plan?.takeIf { free }, attractor, renderTime, cameraPosition, cameraRotation, reach, if (free) marks else emptyList(), pivot, craft, icons)
         } else {
             // Next time the map opens, it opens over the craft again.
             mapFramedFor = Long.MIN_VALUE
-            mapLooksAt = null
-            mapFramedLook = null
+            mapFocus = MapFocus.CRAFT
+            mapFramedFocus = null
             // Much smaller than it was, with the rest smashed or torn away, so come in to see
             // what's left.
             if (!wrecked && focus.design.parts.size < framedParts && framedFor == focusId) {
@@ -1716,7 +1732,10 @@ class GameSession private constructor(
                     if (replica != null) {
                         val shape = ClientVessel(vessel.id, replica.design, vessel.name, replica.currentStage)
                         appendVessel(shape, items, attractor, predictedPosition, predictedRotation, stateOverride = vessel.latest, predicted = true)
+                        droppedNanos = System.nanoTime()
+                        dropped.clear()
                         prediction.droppedPieces().forEachIndexed { k, (piece, at) ->
+                            dropped += DroppedPiece(piece.design.parts.firstOrNull()?.partId ?: "", at.copy(), piece.body.orientation.copy())
                             val id = -1L - k
                             val kinematics = VesselKinematics(
                                 vessel = id, referenceBodyId = piece.referenceBodyId,
@@ -1750,7 +1769,7 @@ class GameSession private constructor(
                     val position = carried(observed, renderTime, own, warp) ?: continue
                     if (own !== attractor) system.rebase(position, Vec3(), own.id, attractor.id, renderTime)
                     val rotation = spunOn(observed, renderTime)
-                    smoothed(vessel.id, observed.time, renderTime, position, rotation, observed.kinematics.velocity)
+                    smoothed(vessel.id, observed.time, renderTime, position, rotation, observed.kinematics.velocity, vessel.design.parts.firstOrNull()?.partId)
                     appendVessel(vessel, items, attractor, position, rotation, stateOverride = observed.kinematics)
                 }
             }
@@ -2031,6 +2050,7 @@ class GameSession private constructor(
                 fovYRadians = Math.toRadians(55.0),
                 items = items,
                 lines = lines,
+                occluders = if (mapMode) mapOccluders(attractor, renderTime) else DoubleArray(0),
                 world = WorldView(
                     radius = attractor.radius,
                     atmosphereHeight = attractor.atmosphereHeight,
@@ -2073,7 +2093,7 @@ class GameSession private constructor(
                 farItems = farItems,
                 farGlobes = farGlobes.toList(),
                 // On the map, as far as the view reaches, up to the whole system.
-                farReach = if (mapMode) maxOf(com.rm.apogee.render.RenderFrame.FAR_REACH, mapCamera.distance * 4.0) else com.rm.apogee.render.RenderFrame.FAR_REACH,
+                farReach = if (mapMode) maxOf(com.rm.apogee.render.RenderFrame.FAR_REACH, mapCamera.distance * 4.0, cameraPosition.length * 1.5) else com.rm.apogee.render.RenderFrame.FAR_REACH,
                 shadowFocus = if (mapMode) null else focusDrawn.copy(),
                 shadowRadius = shadowReach,
             )
@@ -2137,7 +2157,17 @@ class GameSession private constructor(
         /** What the view turns round, and where the craft is. */
         val pivot: Vec3 = Vec3(),
         val craft: Vec3 = Vec3(),
+        val icons: List<MapIcon> = emptyList(),
     )
+
+    /** What a map icon stands for, which decides its shape. */
+    enum class IconKind { CRAFT, WORLD, BASE, FLAG, STATION, GHOST, MARK, TARGET, OTHER, STAR }
+
+    /**
+     * A thing shown on the map as an icon: what it is, where (around the attractor), its colour, and
+     * for the craft, which way it's going. Drawn flat on the screen, one size at any distance.
+     */
+    class MapIcon(val kind: IconKind, val at: Vec3, val colour: FloatArray, val heading: Vec3? = null)
 
     /**
      * A world's name on the map, placed on a [width] x [height] screen, or with [place], a named
@@ -2152,6 +2182,10 @@ class GameSession private constructor(
         val inSeconds: Double = Double.NaN,
         /** The name of the world [mark] is about. */
         val world: String = "",
+        /** An icon to draw here, its colour, and the angle on screen it points, in degrees. */
+        val icon: IconKind? = null,
+        val colour: FloatArray? = null,
+        val angle: Float = 0f,
     )
 
     /** The names of the worlds the map shows, placed on a [width] x [height] screen. */
@@ -2161,11 +2195,40 @@ class GameSession private constructor(
         val at = FloatArray(2)
         val names = view.bodies.mapNotNull { (id, centre, _) ->
             if (centre.distanceTo(view.pivot) > view.reach * MAP_LABEL_REACH) return@mapNotNull null
+            if (hidden(view.camera, centre, view.radius)) return@mapNotNull null
             if (!onScreen(view, centre, width, height, at)) return@mapNotNull null
             if (at[0] < 0f || at[1] < 0f || at[0] > width || at[1] > height) return@mapNotNull null
             MapLabel(system.body(id).displayName, at[0], at[1])
         }
-        return names + placeLabels(view, width, height) + markLabels(view, width, height, names)
+        return iconLabels(view, width, height) + names + placeLabels(view, width, height) + markLabels(view, width, height, names)
+    }
+
+    /** The map's icons on screen, not behind the world, the craft's turned the way it's going. */
+    private fun iconLabels(view: MapView, width: Float, height: Float): List<MapLabel> {
+        val out = ArrayList<MapLabel>()
+        val at = FloatArray(2)
+        val ahead = FloatArray(2)
+        for (icon in view.icons) {
+            if (hidden(view.camera, icon.at, view.radius)) continue
+            if (!onScreen(view, icon.at, width, height, at)) continue
+            if (at[0] < -40f || at[1] < -40f || at[0] > width + 40f || at[1] > height + 40f) continue
+            var angle = 0f
+            icon.heading?.takeIf { it.length > 1e-3 }?.let { h ->
+                // A little way along the heading, on screen, gives the way it points.
+                val step = Vec3().setTo(h).normalizeInPlace().mulInPlace(view.reach * 0.05).addInPlace(icon.at)
+                if (onScreen(view, step, width, height, ahead)) {
+                    angle = (kotlin.math.atan2((ahead[1] - at[1]).toDouble(), (ahead[0] - at[0]).toDouble()) * 180.0 / kotlin.math.PI).toFloat()
+                }
+            }
+            out += MapLabel("", at[0], at[1], icon = icon.kind, colour = icon.colour, angle = angle)
+        }
+        // Every mark gets its icon, even where its tag gives way to another's.
+        for (m in view.marks) {
+            if (hidden(view.camera, m.at, view.radius)) continue
+            if (!onScreen(view, m.at, width, height, at)) continue
+            out += MapLabel("", at[0], at[1], mark = m, icon = IconKind.MARK, colour = markColour(m.kind))
+        }
+        return out
     }
 
     /** The marks on the path, on screen and not behind the world, each clear of the ones before it. */
@@ -2243,7 +2306,7 @@ class GameSession private constructor(
 
     private fun keepMapView(
         plan: PathPlanner.Plan?, attractor: CelestialBody, time: Double, camera: Vec3, rotation: Quat, reach: Double,
-        marks: List<PathMark>, pivot: Vec3, craft: Vec3,
+        marks: List<PathMark>, pivot: Vec3, craft: Vec3, icons: List<MapIcon>,
     ) {
         // Burns go on a planned path's first leg only. Off it, the marks, the worlds and the places.
         val leg = plan?.current?.segments?.firstOrNull()
@@ -2255,10 +2318,10 @@ class GameSession private constructor(
             leg.stateAt(t).position
         }
         val here = system.positionOf(attractor.id, time)
-        val bodies = targetBodies.filter { it.id != attractor.id }.map { b ->
+        val bodies = (targetBodies + system.bodies.values.filter { it.parentId == null }).filter { it.id != attractor.id }.map { b ->
             Triple(b.id, system.positionOf(b.id, time).subInPlace(here), b.radius)
         }
-        mapView = MapView(camera.copy(), rotation.copy(), times, points, plan?.burnPoint?.copy(), bodies, reach, foundPlaces(attractor, time), marks, time, attractor.radius, pivot.copy(), craft.copy())
+        mapView = MapView(camera.copy(), rotation.copy(), times, points, plan?.burnPoint?.copy(), bodies, reach, foundPlaces(attractor, time), marks, time, attractor.radius, pivot.copy(), craft.copy(), icons)
     }
 
     private val mapTerrainCamera = Vec3()
@@ -2281,9 +2344,104 @@ class GameSession private constructor(
     /** The target before the last tap on a world, craft and body, to undo it on a double tap. */
     private var targetBeforeTap: Pair<Long, String>? = null
 
-    /** The world the map is turned round instead of the craft, by id, or null; and the one last framed. */
-    @Volatile private var mapLooksAt: String? = null
-    private var mapFramedLook: String? = null
+    /** What the map turns round: the craft, a world, or the target. */
+    data class MapFocus(val kind: FocusKind, val bodyId: String = "") {
+        companion object {
+            val CRAFT = MapFocus(FocusKind.CRAFT)
+            val TARGET = MapFocus(FocusKind.TARGET)
+        }
+    }
+
+    enum class FocusKind { CRAFT, WORLD, TARGET }
+
+    @Volatile var mapFocus: MapFocus = MapFocus.CRAFT
+        private set
+    private var mapFramedFocus: MapFocus? = null
+    private var mapLastPivot: Vec3? = null
+    private var mapLastAttractor: String? = null
+    /** How far round the craft its path reaches, for framing the craft. */
+    private var mapCraftSpan = MAP_LOCAL
+
+    /** The map's next focus: the craft, its world, the target, the world that's round, then the star. */
+    fun cycleMapFocus() {
+        val attractor = system.bodies[client.controlledVessel?.let { client.vessel(it) }?.latest?.referenceBodyId ?: return] ?: return
+        val order = buildList {
+            add(MapFocus.CRAFT)
+            add(MapFocus(FocusKind.WORLD, attractor.id))
+            if (hasTarget()) add(MapFocus.TARGET)
+            var up = attractor.parentId
+            while (up != null) { add(MapFocus(FocusKind.WORLD, up)); up = system.bodies[up]?.parentId }
+        }
+        val at = order.indexOf(mapFocus)
+        mapFocus = order[(at + 1) % order.size]
+    }
+
+    /** What the map's turned round, in words, for the focus button. */
+    val mapFocusName: String
+        get() = when (mapFocus.kind) {
+            FocusKind.CRAFT -> client.controlledVessel?.let { client.vessel(it) }?.name ?: "Craft"
+            FocusKind.WORLD -> system.bodies[mapFocus.bodyId]?.displayName ?: mapFocus.bodyId
+            FocusKind.TARGET -> client.vessel(localTarget)?.name ?: targetNameOf(localTargetBody)
+        }
+
+    private fun targetNameOf(body: String): String =
+        com.rm.apogee.core.world.Wonders.targeted(body)?.name ?: system.bodies[body]?.displayName ?: "Target"
+
+    private fun hasTarget(): Boolean = localTarget >= 0 || localTargetBody.isNotEmpty()
+
+    /** Whether [focus] can still be looked at round [attractor]: its world exists, its target is set. */
+    private fun valid(focus: MapFocus, attractor: CelestialBody): Boolean = when (focus.kind) {
+        FocusKind.CRAFT -> true
+        FocusKind.WORLD -> focus.bodyId in system.bodies
+        FocusKind.TARGET -> hasTarget()
+    }
+
+    /** Where [focus] is now, around [attractor]. */
+    private fun pivotOf(focus: MapFocus, attractor: CelestialBody, craft: Vec3, time: Double): Vec3 = when (focus.kind) {
+        FocusKind.CRAFT -> craft.copy()
+        FocusKind.WORLD ->
+            if (focus.bodyId == attractor.id) Vec3()
+            else system.positionOf(focus.bodyId, time).subInPlace(system.positionOf(attractor.id, time))
+        FocusKind.TARGET -> {
+            val vessel = client.vessel(localTarget)?.latest
+            when {
+                vessel != null -> vessel.position.copy().also {
+                    if (vessel.referenceBodyId != attractor.id) it.addInPlace(system.positionOf(vessel.referenceBodyId, time)).subInPlace(system.positionOf(attractor.id, time))
+                }
+                com.rm.apogee.core.world.Wonders.targeted(localTargetBody) != null -> {
+                    val place = com.rm.apogee.core.world.Wonders.targeted(localTargetBody)!!
+                    val body = system.body(place.bodyId)
+                    body.rotationAt(time).rotate(Vec3().setTo(place.direction).mulInPlace(body.radius))
+                        .addInPlace(system.positionOf(body.id, time)).subInPlace(system.positionOf(attractor.id, time))
+                }
+                localTargetBody in system.bodies -> system.positionOf(localTargetBody, time).subInPlace(system.positionOf(attractor.id, time))
+                else -> craft.copy()
+            }
+        }
+    }
+
+    /** How far out to look at [focus] from, in metres. */
+    private fun framingOf(focus: MapFocus, attractor: CelestialBody): Double = when (focus.kind) {
+        FocusKind.CRAFT -> mapCraftSpan * 2.4
+        FocusKind.TARGET -> MAP_LOCAL * 2.4
+        FocusKind.WORLD -> {
+            val body = system.body(focus.bodyId)
+            if (body.parentId == null) {
+                // The star: the whole system.
+                (system.bodies.values.maxOfOrNull { it.orbit?.semiMajorAxis?.takeIf { _ -> it.parentId == body.id } ?: 0.0 } ?: 1e11) * 2.6
+            } else if (body.id == attractor.id) body.radius * 7.2
+            else minOf(body.sphereOfInfluence, body.radius * MAP_LOOK_RADII) * 2.4
+        }
+    }
+
+    /** Which way is north while looking at [focus]: its world's spin axis, the star's the system's. */
+    private fun focusNorth(focus: MapFocus, attractor: CelestialBody, time: Double): Vec3 {
+        val body = if (focus.kind == FocusKind.WORLD) system.body(focus.bodyId) else attractor
+        if (body.parentId == null) return com.rm.apogee.core.orbit.SystemData.ECLIPTIC_NORTH.copy()
+        return northOf(body, time)
+    }
+
+    private fun northOf(body: CelestialBody, time: Double): Vec3 = body.rotationAt(time).rotate(Vec3.unitY())
 
     /**
      * Whether [state] is falling freely, so its orbit is where it's going: off the ground and
@@ -2338,16 +2496,24 @@ class GameSession private constructor(
      * [line] drawn [width] wide as copies either side along the ground, since a single line is one
      * pixel and gets lost.
      */
-    private fun thick(line: RenderLine, width: Double): List<RenderLine> {
-        val points = line.points
-        if (points.size < 2) return listOf(line)
-        val sides = points.indices.map { i ->
-            val along = points[minOf(i + 1, points.size - 1)] - points[maxOf(i - 1, 0)]
-            points[i].cross(along).normalizeInPlace()
+    /** [line] as it's drawn: the renderer gives every path the same width now. */
+    @Suppress("UNUSED_PARAMETER")
+    private fun thick(line: RenderLine, width: Double): List<RenderLine> = listOf(line)
+
+    /**
+     * The worlds that hide paths behind them on the map: [attractor] at the centre, and every other
+     * world near it, where it is at [time]. Centre x, y, z and radius, four to a world.
+     */
+    private fun mapOccluders(attractor: CelestialBody, time: Double): DoubleArray {
+        val here = system.positionOf(attractor.id, time)
+        val near = targetBodies.filter { it.id != attractor.id && (it.parentId == attractor.id || it.id == attractor.parentId) }
+        val out = DoubleArray(4 * (1 + near.size))
+        out[3] = attractor.radius
+        near.forEachIndexed { k, b ->
+            val at = system.positionOf(b.id, time).subInPlace(here)
+            out[4 * k + 4] = at.x; out[4 * k + 5] = at.y; out[4 * k + 6] = at.z; out[4 * k + 7] = b.radius
         }
-        return listOf(-1.0, -0.5, 0.0, 0.5, 1.0).map { k ->
-            RenderLine(points.indices.map { i -> points[i] + sides[i] * (k * width) }, line.color)
-        }
+        return out
     }
 
     /**
@@ -2413,8 +2579,7 @@ class GameSession private constructor(
         // The craft, or the world it's at: back round the craft.
         val home = listOf(view.craft, Vec3()).any { onScreen(view, it, width, height, at) && kotlin.math.hypot(at[0] - x, at[1] - y) < MAP_GRAB_PIXELS }
         if (home) {
-            mapLooksAt = null
-            mapFramedFor = Long.MIN_VALUE
+            mapFocus = MapFocus.CRAFT
             return
         }
         for ((id, centre, _) in view.bodies) {
@@ -2429,10 +2594,15 @@ class GameSession private constructor(
                         withControlledVessel { client.send(Command.SetTarget(it, craft, body)) }
                     }
                 }
-                mapLooksAt = id
+                mapFocus = MapFocus(FocusKind.WORLD, id)
                 return
             }
         }
+    }
+
+    /** A controller's pick: as a tap in the middle of a [width] x [height] screen. */
+    fun mapPickCentre(width: Float, height: Float) {
+        mapTap(width / 2f, height / 2f, width, height)
     }
 
     /** A finger down on the map. True if it took hold of the burn, to drag it along the path. */
@@ -2491,6 +2661,8 @@ class GameSession private constructor(
             if (!onScreen(view, centre, width, height, at)) continue
             if (kotlin.math.hypot(at[0] - x, at[1] - y) < MAP_GRAB_PIXELS) {
                 val index = targetBodies.indexOfFirst { it.id == id }
+                // The star can be looked at, not steered by.
+                if (index < 0) return true
                 // Kept, in case this turns out to be the first of a double tap.
                 targetBeforeTap = localTarget to localTargetBody
                 terrainScope.launch { setTarget(if (localTargetBody == id) -1L else BODY_TARGET - index) }
@@ -2689,9 +2861,9 @@ class GameSession private constructor(
      * The ground stations, and a probe's link home from [craft] through its relays to the station
      * it reaches, in [attractor]'s frame.
      */
-    private fun signalLines(focusId: Long, craft: Vec3, attractor: CelestialBody, time: Double, reach: Double, lines: MutableList<RenderLine>) {
+    private fun signalLines(focusId: Long, craft: Vec3, attractor: CelestialBody, time: Double, reach: Double, lines: MutableList<RenderLine>, icons: MutableList<MapIcon>) {
         val here = system.positionOf(attractor.id, time)
-        for (station in comms.stationPositions(time)) lines.add(marker(station.subInPlace(here), reach, STATION_COLOR))
+        for (station in comms.stationPositions(time)) icons += MapIcon(IconKind.STATION, station.subInPlace(here), STATION_COLOR)
         val systems = client.systems?.takeIf { it.vessel == focusId && it.needsSignal } ?: return
         if (systems.signal == com.rm.apogee.core.world.Signal.NONE) return
         val path = ArrayList<Vec3>()
@@ -2705,6 +2877,43 @@ class GameSession private constructor(
         val station = comms.stationInSight(last, time) ?: return
         path.add(station.subInPlace(here))
         lines.add(RenderLine(path, SIGNAL_COLOR))
+    }
+
+    /**
+     * Other craft round [attractor] as small icons, and the target's orbit too, so a meeting can be
+     * planned by eye.
+     */
+    private fun otherCraft(focusId: Long, attractor: CelestialBody, time: Double, lines: MutableList<RenderLine>, icons: MutableList<MapIcon>) {
+        var shown = 0
+        for (other in client.vessels) {
+            if (other.id == focusId || other.anchored) continue
+            if (other.design.parts.singleOrNull()?.partId == World.FLAG_PART) continue
+            val seen = other.latest ?: continue
+            if (seen.referenceBodyId != attractor.id) continue
+            val target = other.id == localTarget
+            if (!target && ++shown > MAP_OTHER_CRAFT) continue
+            icons += MapIcon(if (target) IconKind.TARGET else IconKind.OTHER, seen.position.copy(), if (target) NEAR_COLOR else OTHER_CRAFT_COLOR, heading = seen.velocity.copy())
+            if (target) {
+                val orbit = Orbit(seen.position.copy(), seen.velocity.copy(), attractor.gravitationalParameter, time)
+                if (orbit.isBound && orbit.periapsis > attractor.radius) lines.add(RenderLine(orbit.sample(160), TARGET_ORBIT_COLOR))
+            }
+        }
+    }
+
+    /**
+     * Zoomed out past the world's own neighbourhood, the planets' orbits round the star, faint, and
+     * the star itself.
+     */
+    private fun systemOrbits(attractor: CelestialBody, time: Double, pivot: Vec3, reach: Double, lines: MutableList<RenderLine>, icons: MutableList<MapIcon>) {
+        val star = system.bodies.values.firstOrNull { it.parentId == null } ?: return
+        val here = system.positionOf(attractor.id, time)
+        val starAt = system.positionOf(star.id, time).subInPlace(here)
+        if (starAt.distanceTo(pivot) < reach * MAP_LABEL_REACH) icons += MapIcon(IconKind.STAR, starAt, STAR_COLOR)
+        if (reach < MAP_SYSTEM_REACH) return
+        for (planet in system.childrenOf(star.id)) {
+            val orbit = planet.orbit ?: continue
+            lines.add(RenderLine(orbit.sample(200).map { it.addInPlace(starAt) }, PLANET_ORBIT_COLOR))
+        }
     }
 
     private fun moonLines(attractor: CelestialBody, time: Double, lines: MutableList<RenderLine>) {
@@ -3089,18 +3298,51 @@ class GameSession private constructor(
         val offset = Vec3()
         var renderTime = 0.0
         val turn = Quat.identity()
+        /** Until when (nanos) it's easing in from a dropped piece, more slowly and from further. */
+        var handedUntil = 0L
     }
     private val drawn = HashMap<Long, Drawn>()
+
+    /** A piece the replica let go of, as it was last drawn. */
+    private class DroppedPiece(val partId: String, val at: Vec3, val rotation: Quat) { var taken = false }
+
+    /** The replica's dropped pieces as last drawn, and when. */
+    private val dropped = ArrayList<DroppedPiece>()
+    private var droppedNanos = 0L
+
+    /**
+     * The dropped piece a craft new from the server is: the same part, the nearest to [position],
+     * within [HANDOVER_REACH], drawn in the last [HANDOVER_NANOS]. Each is taken once.
+     */
+    private fun handedOver(partId: String?, position: Vec3, now: Long): DroppedPiece? {
+        if (partId == null || dropped.isEmpty() || now - droppedNanos > HANDOVER_NANOS) return null
+        val piece = dropped.filter { !it.taken && it.partId == partId && it.at.distanceTo(position) < HANDOVER_REACH }
+            .minByOrNull { it.at.distanceTo(position) } ?: return null
+        piece.taken = true
+        return piece
+    }
 
     /**
      * Eases [position] and [rotation] (from the newest snapshot) out of any jump since last frame.
      * The difference decays over a tenth of a second. A big one is a real jump and isn't smoothed.
      */
-    private fun smoothed(id: Long, observedAt: Double, renderTime: Double, position: Vec3, rotation: Quat, velocity: Vec3) {
+    private fun smoothed(id: Long, observedAt: Double, renderTime: Double, position: Vec3, rotation: Quat, velocity: Vec3, partId: String? = null) {
         val now = System.nanoTime()
         val last = drawn[id]
         if (last == null) {
-            drawn[id] = Drawn(position.copy(), rotation.copy(), observedAt, now).also { it.renderTime = renderTime }
+            val fresh = Drawn(position.copy(), rotation.copy(), observedAt, now).also { it.renderTime = renderTime }
+            drawn[id] = fresh
+            // Just let go of and drawn from the replica until now: carried on from where it was
+            // drawn, and eased to where the server has it, so it doesn't jump at the hand-over.
+            val piece = handedOver(partId, position, now)
+            if (piece != null) {
+                fresh.handedUntil = now + HANDOVER_NANOS
+                fresh.offset.setTo(piece.at).subInPlace(position)
+                fresh.turn.setTo(piece.rotation * rotation.conjugate())
+                position.setTo(piece.at)
+                rotation.setTo(piece.rotation)
+                fresh.position.setTo(position); fresh.rotation.setTo(rotation)
+            }
             return
         }
         val dt = ((now - last.nanos) / 1e9).coerceIn(0.0, 0.1)
@@ -3110,11 +3352,12 @@ class GameSession private constructor(
             val step = (renderTime - last.renderTime).coerceIn(-0.5, 0.5)
             val expected = last.position.copy().addScaledInPlace(velocity, step)
             val jump = expected.subInPlace(position)
-            if (jump.length < SMOOTH_LIMIT) last.offset.setTo(jump) else last.offset.setZero()
+            val limit = if (now < last.handedUntil) HANDOVER_REACH else SMOOTH_LIMIT
+            if (jump.length < limit) last.offset.setTo(jump) else last.offset.setZero()
             last.turn.setTo(last.rotation * rotation.conjugate())
             last.observedAt = observedAt
         }
-        val keep = kotlin.math.exp(-dt / SMOOTH_SECONDS)
+        val keep = kotlin.math.exp(-dt / (if (now < last.handedUntil) HANDOVER_EASE else SMOOTH_SECONDS))
         last.offset.mulInPlace(keep)
         Quat.slerp(Quat.identity(), last.turn, keep, last.turn)
         position.addInPlace(last.offset)
@@ -4975,6 +5218,9 @@ class GameSession private constructor(
         /** The one thread every hosted game's server ticks on, kept for the app's life. */
         private val SERVER_THREAD by lazy { serverThread() }
 
+        /** One for the app's life, like the server's. See [frameThread]. */
+        private val FRAME_THREAD by lazy { frameThread() }
+
         /**
          * A shed shell: pieces, thickness in metres, throw speed in m/s, tumble in rad/s, and how
          * long it's drawn falling, in seconds.
@@ -5067,6 +5313,19 @@ class GameSession private constructor(
         /** Worlds within this many of the map's reach get marked and named. */
         private const val MAP_LABEL_REACH = 1.6
 
+        /** How near and how lately a dropped piece is drawn for the server's craft to take its place. */
+        private const val HANDOVER_REACH = 500.0
+        private const val HANDOVER_NANOS = 1_000_000_000L
+
+        /** How long a handed-over piece takes to ease to the server's place, in seconds. */
+        private const val HANDOVER_EASE = 0.3
+
+        /** At most this many other craft get icons on the map, besides the target. */
+        private const val MAP_OTHER_CRAFT = 30
+
+        /** Seeing this far (metres) or more, the planets' orbits show. */
+        private const val MAP_SYSTEM_REACH = 2.0e9
+
         /** How much a world looked at on the map takes in, in its radii, at most its reach. */
         private const val MAP_LOOK_RADII = 8.0
         /** A founded base on the map. */
@@ -5090,6 +5349,10 @@ class GameSession private constructor(
         private val BURN_PATH_COLOR = floatArrayOf(1.0f, 0.62f, 0.25f, 1f)
         private val BURN_COLOR = floatArrayOf(0.31f, 0.64f, 1.0f, 1f)
         private val ARRIVE_COLOR = floatArrayOf(0.85f, 0.85f, 0.88f, 1f)
+        private val OTHER_CRAFT_COLOR = floatArrayOf(0.75f, 0.78f, 0.85f, 1f)
+        private val TARGET_ORBIT_COLOR = floatArrayOf(1.0f, 0.55f, 0.85f, 0.55f)
+        private val PLANET_ORBIT_COLOR = floatArrayOf(0.55f, 0.58f, 0.68f, 0.45f)
+        private val STAR_COLOR = floatArrayOf(1.0f, 0.86f, 0.45f, 1f)
         private val AIR_COLOR = floatArrayOf(0.55f, 0.90f, 0.95f, 1f)
         private val NEAR_COLOR = floatArrayOf(1.0f, 0.55f, 0.85f, 1f)
         private val NODE_COLOR = floatArrayOf(0.75f, 0.70f, 1.0f, 1f)
@@ -5298,6 +5561,8 @@ class FlightTelemetry(
     /** The compass bearing the wind comes from, in degrees clockwise from north. */
     val windBearing: Double = 0.0,
     /** Whether there's any air to speak of. The wind readouts are hidden in space. */
+    /** How deep in the air it is: 0 at the top of the air, 1 at sea level. NaN with no air near. */
+    val airDepth: Double = Double.NaN,
     val inAir: Boolean = false,
     /** How far under the sea the craft is, in metres. 0 or less out of it, or with no sea. */
     val depth: Double = 0.0,
@@ -5517,6 +5782,7 @@ class FlightTelemetry(
                 windFrom = windFrom,
                 windBearing = windBearing,
                 inAir = density > 1e-3,
+                airDepth = attractor.atmosphere?.takeIf { altitude < it.height * 2.0 }?.let { (1.0 - altitude / it.height).coerceIn(0.0, 1.0) } ?: Double.NaN,
                 depth = depth,
                 belowFloor = if (depth > 0.0) belowFloor else Double.NaN,
                 lunaWindow = lunaWindow,
@@ -5551,7 +5817,7 @@ class FlightTelemetry(
                 orbitalSpeed = orbitalSpeed, apoapsisAltitude = apoapsisAltitude, periapsisAltitude = periapsisAltitude,
                 timeToApoapsis = timeToApoapsis, throttle = throttle, stage = stage, inOrbit = inOrbit,
                 craftName = craftName, dynamicPressure = dynamicPressure, rotation = rotation, up = up,
-                prograde = prograde, airspeed = airspeed, windSpeed = windSpeed, windFrom = windFrom, windBearing = windBearing, inAir = inAir,
+                prograde = prograde, airspeed = airspeed, windSpeed = windSpeed, windFrom = windFrom, windBearing = windBearing, inAir = inAir, airDepth = airDepth,
                 frame = frame, frameChosen = frameChosen, normal = normal, radialOut = radialOut, toTarget = toTarget,
                 targetName = targetName, targetDistance = targetDistance, closingSpeed = closingSpeed,
                 throughAir = throughAir, heading = heading, verticalSpeed = verticalSpeed, sasMode = sasMode,

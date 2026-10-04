@@ -13,7 +13,8 @@ class TerrainSource {
     /** Scatter travels alongside the ground it stands on. */
     val scatter = ScatterSource()
 
-    class PendingGlobe(val revision: Int, val data: PlanetMesh.Data)
+    /** A globe built for a world of [radius] metres. */
+    class PendingGlobe(val revision: Int, val data: PlanetMesh.Data, val radius: Double = 0.0)
 
     private val globeRef = AtomicReference<PendingGlobe?>(null)
 
@@ -31,8 +32,8 @@ class TerrainSource {
 
     private val drawListRef = AtomicReference<List<DrawEntry>>(emptyList())
 
-    fun publishGlobe(revision: Int, data: PlanetMesh.Data) {
-        globeRef.set(PendingGlobe(revision, data))
+    fun publishGlobe(revision: Int, data: PlanetMesh.Data, radius: Double = 0.0) {
+        globeRef.set(PendingGlobe(revision, data, radius))
     }
 
     fun globe(alreadyUploaded: Int): PendingGlobe? =

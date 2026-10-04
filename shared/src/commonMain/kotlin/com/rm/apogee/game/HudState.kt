@@ -108,6 +108,8 @@ class HudState {
     var sharedWith: String? by mutableStateOf(null)
     var sharedPilot: String by mutableStateOf("both")
     var mapMode: Boolean by mutableStateOf(false)
+    /** What the map turns round, in words. */
+    var mapFocus: String by mutableStateOf("")
 
     /** The next planned burn, and coming down. See [com.rm.apogee.ui.components.BurnPanel]. */
     var burn: com.rm.apogee.game.GameSession.BurnReadout? by mutableStateOf(null)

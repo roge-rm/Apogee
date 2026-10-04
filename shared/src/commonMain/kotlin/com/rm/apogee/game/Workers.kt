@@ -17,6 +17,12 @@ expect fun workerPool(name: String, threads: Int): CoroutineDispatcher
  */
 expect fun serverThread(): CoroutineDispatcher
 
+/**
+ * The thread frames are built on, and the flown craft's own physics with them. Like the server's,
+ * it's its own and up with the display, so the frame never waits in the shared pool.
+ */
+expect fun frameThread(): CoroutineDispatcher
+
 /** One background thread named [name], for jobs run one after another. */
 expect class Worker(name: String) {
     fun execute(task: () -> Unit)

@@ -25,14 +25,21 @@ actual fun fixed(value: Double, decimals: Int): String = "%.${decimals}f".format
 actual class Background actual constructor(name: String) {
     private val executor by lazy {
         java.util.concurrent.Executors.newSingleThreadExecutor { runnable ->
-            Thread(runnable, name).apply {
-                isDaemon = true
-                priority = Thread.NORM_PRIORITY - 1
-            }
+            // Just below normal. Not Thread.NORM_PRIORITY - 1: Android runs that as a background
+            // thread with a tenth of the CPU. Android's own call is reached by reflection, since
+            // core doesn't know it's on Android.
+            Thread({ lessFavourable(); runnable.run() }, name).apply { isDaemon = true }
         }
     }
 
     actual fun execute(task: () -> Unit) = executor.execute(task)
+}
+
+/** Lowers the calling thread just below normal on Android (THREAD_PRIORITY_LESS_FAVORABLE). Elsewhere, nothing. */
+private fun lessFavourable() {
+    runCatching {
+        Class.forName("android.os.Process").getMethod("setThreadPriority", Int::class.javaPrimitiveType).invoke(null, 1)
+    }
 }
 
 actual fun runBackgroundWork(budgetMillis: Double) {}

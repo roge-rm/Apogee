@@ -47,7 +47,7 @@ class CameraController(
     private val upReference: UpReference = UpReference.RADIAL,
     private val minDistance: Double = 5.0,
     private val maxDistance: Double = 2_000.0,
-) {
+) : OrbitControls {
 
     /** Which way is up under [UpReference.FIXED]. */
     val fixedUp = Vec3.unitY()
@@ -74,12 +74,12 @@ class CameraController(
     private val offset = Vec3()
 
     /** Changes the distance by a pinch factor. From the cockpit there's nothing to zoom. */
-    fun zoomBy(factor: Double) {
+    override fun zoomBy(factor: Double) {
         if (mode == CameraMode.COCKPIT) return
         distance /= factor
     }
 
-    fun orbitBy(deltaYaw: Double, deltaPitch: Double) {
+    override fun orbitBy(deltaYaw: Double, deltaPitch: Double) {
         when (mode) {
             CameraMode.FREE, CameraMode.LOCKED -> { yaw += deltaYaw; pitch += deltaPitch }
             // Looking round from behind; it swings back once you let go.

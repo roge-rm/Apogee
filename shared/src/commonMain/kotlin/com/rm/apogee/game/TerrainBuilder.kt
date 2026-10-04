@@ -166,7 +166,7 @@ class TerrainBuilder(
         globeBody = body
         val revision = nextGlobeRevision.incrementAndGet()
         scope.launch(Dispatchers.Default) {
-            source.publishGlobe(revision, PlanetMesh.buildGlobe(body.terrain, body.radius, globeRings, body.id))
+            source.publishGlobe(revision, PlanetMesh.buildGlobe(body.terrain, body.radius, globeRings, body.id), body.radius)
         }
     }
 

@@ -10,6 +10,8 @@ actual fun workerPool(name: String, threads: Int): CoroutineDispatcher = Dispatc
 
 actual fun serverThread(): CoroutineDispatcher = Dispatchers.Default
 
+actual fun frameThread(): CoroutineDispatcher = Dispatchers.Default
+
 actual class Worker actual constructor(name: String) {
     private val background = com.rm.apogee.core.Background(name)
     actual fun execute(task: () -> Unit) = background.execute(task)

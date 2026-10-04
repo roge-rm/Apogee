@@ -109,6 +109,8 @@ class GlRenderer(
      */
     val terrainSource = TerrainSource()
     private var globeMesh: TerrainMesh? = null
+    /** The radius the uploaded globe was built for, in metres; 0 for unknown. */
+    private var uploadedGlobeRadius = 0.0
     private var particleRenderer: ParticleRenderer? = null
     private var uploadedGlobe = 0
 
@@ -496,6 +498,7 @@ class GlRenderer(
         terrainSource.globe(uploadedGlobe)?.let { pending ->
             globeMesh?.upload(pending.data.vertices, pending.data.indices)
             uploadedGlobe = pending.revision
+            uploadedGlobeRadius = pending.radius
         }
     }
 
@@ -567,6 +570,8 @@ class GlRenderer(
         val shader = terrainProgram ?: return
         val mesh = globeMesh ?: return
         if (!mesh.isReady || !world.drawFarSurface) return
+        // Just into another world's pull, the last world's globe isn't drawn at this one's size.
+        if (uploadedGlobeRadius > 0.0 && kotlin.math.abs(uploadedGlobeRadius - world.radius) > 1.0) return
 
         shader.use()
         // Globe vertices are in body radii, so the model matrix scales them, and rotates them since
@@ -696,8 +701,9 @@ class GlRenderer(
     private var linesDue = false
 
     /**
-     * Draws path polylines, with depth writes off so an orbit passing behind the planet stays one
-     * continuous path.
+     * Draws path polylines as ribbons a few pixels wide, over everything. The parts behind a world
+     * in [RenderFrame.occluders] are drawn dim and broken, so a path still reads as one loop without
+     * showing through the planet.
      */
     private fun drawLines(frame: RenderFrame, cameraPos: Vec3) {
         if (frame.lines.isEmpty()) return
@@ -706,26 +712,77 @@ class GlRenderer(
         shader.setMat4("uViewProjection", farViewProjection.m)
         modelMatrix.setIdentity()
         shader.setMat4("uModel", modelMatrix.m)
+        GLES30.glUniform4f(
+            shader.uniform("uScreen"), viewportWidth * 0.5f, viewportHeight * 0.5f,
+            maxOf(1.2f, minOf(viewportWidth, viewportHeight) / LINE_WIDTH_SHARE), 0f,
+        )
         GLES30.glDepthMask(false)
+        GLES30.glEnable(GLES30.GL_BLEND)
+        GLES30.glBlendFunc(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA)
+        // A ribbon's quads face either way, depending on which way the path runs on screen.
+        GLES30.glDisable(GLES30.GL_CULL_FACE)
 
-        while (lineMeshes.size < frame.lines.size) lineMeshes.add(LineMesh())
-
-        frame.lines.forEachIndexed { index, line ->
-            val needed = line.points.size * 3
+        val occluders = frame.occluders
+        var meshes = 0
+        frame.lines.forEach { line ->
+            val count = line.points.size
+            val needed = count * 3
             if (lineScratch.size < needed) lineScratch = FloatArray(needed)
+            if (lineHidden.size < count) lineHidden = BooleanArray(count)
             line.points.forEachIndexed { i, point ->
                 // Camera-relative, subtracted in double before narrowing.
                 lineScratch[i * 3] = (point.x - cameraPos.x).toFloat()
                 lineScratch[i * 3 + 1] = (point.y - cameraPos.y).toFloat()
                 lineScratch[i * 3 + 2] = (point.z - cameraPos.z).toFloat()
+                lineHidden[i] = occluders.isNotEmpty() && behindAWorld(point, cameraPos, occluders)
             }
-            val mesh = lineMeshes[index]
-            mesh.upload(lineScratch.copyOf(needed))
-            shader.setVec4("uColor", line.color)
-            mesh.draw()
+            val hidden = lineHidden
+            val anyHidden = (0 until count).any { hidden[it] }
+            // In view, then behind: every other segment, dimmed.
+            for (pass in 0..(if (anyHidden) 1 else 0)) {
+                if (lineMeshes.size <= meshes) lineMeshes.add(LineMesh())
+                val mesh = lineMeshes[meshes++]
+                if (pass == 0) mesh.upload(lineScratch, count) { k -> !(hidden[k] && hidden[k + 1]) }
+                else mesh.upload(lineScratch, count) { k -> hidden[k] && hidden[k + 1] && (k / HIDDEN_DASH) % 2 == 0 }
+                val c = line.color
+                lineColour[0] = c[0]; lineColour[1] = c[1]; lineColour[2] = c[2]
+                lineColour[3] = (if (c.size > 3) c[3] else 1f) * (if (pass == 0) 1f else HIDDEN_ALPHA)
+                shader.setVec4("uColor", lineColour)
+                mesh.draw()
+            }
         }
 
+        GLES30.glDisable(GLES30.GL_BLEND)
+        GLES30.glEnable(GLES30.GL_CULL_FACE)
         GLES30.glDepthMask(true)
+    }
+
+    private var lineHidden = BooleanArray(0)
+    private val lineColour = FloatArray(4)
+
+    /**
+     * Whether [point] is behind one of [occluders] (x, y, z, radius) from [camera]: the sight line
+     * meets the sphere before it reaches the point.
+     */
+    private fun behindAWorld(point: Vec3, camera: Vec3, occluders: DoubleArray): Boolean {
+        val dx = point.x - camera.x; val dy = point.y - camera.y; val dz = point.z - camera.z
+        val length = kotlin.math.sqrt(dx * dx + dy * dy + dz * dz)
+        if (length < 1e-6) return false
+        val ux = dx / length; val uy = dy / length; val uz = dz / length
+        var k = 0
+        while (k + 3 < occluders.size) {
+            val ox = occluders[k] - camera.x; val oy = occluders[k + 1] - camera.y; val oz = occluders[k + 2] - camera.z
+            val r = occluders[k + 3]
+            k += 4
+            val along = ox * ux + oy * uy + oz * uz
+            if (along <= 0.0) continue
+            val closest2 = ox * ox + oy * oy + oz * oz - along * along
+            if (closest2 >= r * r) continue
+            // Where the sight line first enters the sphere: the point's behind it if it's further.
+            val entry = along - kotlin.math.sqrt(r * r - closest2)
+            if (length > entry + r * 0.002) return true
+        }
+        return false
     }
 
     private fun drawVessels(
@@ -1386,7 +1443,8 @@ class GlRenderer(
     }
 
     private fun interpolateCamera(previous: RenderFrame?, latest: RenderFrame, alpha: Double): Vec3 {
-        if (previous == null) {
+        // Across a change of world the two frames' positions are round different centres.
+        if (previous == null || previous.world?.radius != latest.world?.radius) {
             interpolatedCameraRot.setTo(latest.cameraRotation)
             return interpolatedCameraPos.setTo(latest.cameraPosition)
         }
@@ -1552,6 +1610,13 @@ class GlRenderer(
 
         /** Part pictures are drawn at this size, in pixels, and halved. */
         const val THUMB_RENDER = PartThumbnails.LARGE * 2
+
+        /** A path ribbon's half width is the screen's short side over this, in pixels. */
+        const val LINE_WIDTH_SHARE = 420f
+
+        /** Behind a world, a path is drawn this bright, in dashes this many segments long. */
+        const val HIDDEN_ALPHA = 0.3f
+        const val HIDDEN_DASH = 3
         const val THUMBS_PER_FRAME = 3
 
         /** The most the sea is carried on from when it was built, in seconds. */

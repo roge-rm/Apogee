@@ -4,6 +4,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.padding
@@ -70,6 +74,8 @@ private class StatusChip(
     val colour: Color,
     val danger: Boolean,
     val opens: String?,
+    /** A bar after the text, 0..1, or null for none. */
+    val bar: Float? = null,
 )
 
 /**
@@ -91,6 +97,11 @@ fun StatusRow(
     val power = hud.power
     val base = hud.nearBase
     val service = hud.baseService
+    // Heat shows from a quarter of a part's limit, and stays a moment after it cools under that.
+    var heatUntil by androidx.compose.runtime.remember { androidx.compose.runtime.mutableLongStateOf(0L) }
+    val nowMillis = com.rm.apogee.platform.System.nanoTime() / 1_000_000
+    if (telemetry.heat >= HEAT_SHOWN) heatUntil = nowMillis + HEAT_HOLD_MILLIS
+    val showHeat = telemetry.heat >= HEAT_SHOWN || nowMillis < heatUntil
     val chips = buildList {
         if (power != null) {
             if (!power.powered) add(StatusChip("power", Icons.Filled.BatteryAlert, "NO POWER", ApogeeColors.Danger, true, null))
@@ -117,8 +128,14 @@ fun StatusRow(
             add(StatusChip("sonar", icon, "${formatDistance(power.findRange.toDouble())} $way", ApogeeColors.Accent, false, null))
         }
         if (chute != null) add(StatusChip("chute", Icons.Filled.Paragliding, chute, if (chute == "ARMED") ApogeeColors.Data else ApogeeColors.Prograde, false, null))
-        if (telemetry.overheating) {
-            add(StatusChip("heat", Icons.Filled.Whatshot, percent(telemetry.heat), severity(telemetry.heat), telemetry.heat >= 0.9, HudState.STATUS_PARTS))
+        if (showHeat) {
+            val h = telemetry.heat
+            val colour = when {
+                h >= 0.9 -> ApogeeColors.Danger
+                h >= 0.75 -> ApogeeColors.Caution
+                else -> ApogeeColors.Data
+            }
+            add(StatusChip("heat", Icons.Filled.Whatshot, "HEAT", colour, h >= 0.95, HudState.STATUS_PARTS, bar = h.toFloat().coerceIn(0f, 1f)))
         }
         if (telemetry.straining) {
             add(StatusChip("load", Icons.Filled.Warning, percent(telemetry.structure), severity(telemetry.structure), telemetry.structure >= 0.9, HudState.STATUS_PARTS))
@@ -198,6 +215,16 @@ private fun Chip(chip: StatusChip, alpha: Float, onTap: () -> Unit) {
         Icon(chip.icon, contentDescription = chip.key, tint = chip.colour, modifier = Modifier.size(15.dp))
         Spacer(Modifier.width(4.dp))
         Text(chip.text, style = TelemetryTextStyle, color = chip.colour, maxLines = 1)
+        chip.bar?.let { fill ->
+            Spacer(Modifier.width(6.dp))
+            Box(
+                Modifier.size(width = BAR_WIDTH, height = 6.dp)
+                    .clip(RoundedCornerShape(3.dp))
+                    .background(Color.White.alpha(0.15f)),
+            ) {
+                Box(Modifier.fillMaxHeight().fillMaxWidth(fill).background(chip.colour))
+            }
+        }
     }
 }
 
@@ -217,3 +244,10 @@ private val PART_LIST_WIDTH = 260.dp
 
 /** Base name length on its chip. */
 private const val BASE_NAME = 12
+
+/** The heat bar shows from this share of a part's limit, and for this long after it drops under it. */
+private const val HEAT_SHOWN = 0.25
+private const val HEAT_HOLD_MILLIS = 3_000L
+
+/** How long a chip's bar is. */
+private val BAR_WIDTH = 44.dp

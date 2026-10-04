@@ -8,15 +8,18 @@ import org.junit.Test
 class PadBindingsTest {
 
     @Test
-    fun `the Retroid layout gives every button and stick something to do, flying and on foot`() {
+    fun `the Retroid layout gives every button and stick something to do, flying, on foot and on the map`() {
         val bindings = PadBindings.RETROID_MINI
         for (layer in PadLayer.entries) {
             for (button in PadButton.entries) {
                 assertTrue("$layer $button", bindings.action(layer, button) != PadAction.NONE)
             }
-            assertEquals(StickUse.STEER, bindings.stick(layer, PadStick.LEFT))
+            // On the map both sticks turn the view.
+            assertEquals(if (layer == PadLayer.MAP) StickUse.LOOK else StickUse.STEER, bindings.stick(layer, PadStick.LEFT))
             assertEquals(StickUse.LOOK, bindings.stick(layer, PadStick.RIGHT))
         }
+        assertEquals(PadAction.MAP_PICK, bindings.action(PadLayer.MAP, PadButton.A))
+        assertEquals(PadAction.MAP_FOCUS, bindings.action(PadLayer.MAP, PadButton.X))
         assertEquals(PadAction.STAGE, bindings.action(PadLayer.FLYING, PadButton.A))
         assertEquals(PadAction.JUMP, bindings.action(PadLayer.ON_FOOT, PadButton.A))
         // On foot the triggers swim up and down, since there's no throttle to work.

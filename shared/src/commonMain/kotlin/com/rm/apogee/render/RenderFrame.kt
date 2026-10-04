@@ -78,6 +78,11 @@ class RenderFrame(
     /** Paths to draw, in the attractor's frame. Map view only. */
     val lines: List<RenderLine> = emptyList(),
     /**
+     * Worlds that hide the parts of [lines] behind them, as centre x, y, z and radius, in the same
+     * frame. The hidden parts are drawn dim and broken.
+     */
+    val occluders: DoubleArray = DoubleArray(0),
+    /**
      * Metres to the nearest thing in view (a part, or the ground below), or 0 if unknown. The near
      * plane goes at half of it to keep depth precision for distant ground, where a fixed close
      * near plane made chunk seams flicker.
