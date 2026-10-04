@@ -64,50 +64,47 @@ fun QuickLaunchScreen(
     onSite: (String?) -> Unit,
     onLaunch: () -> Unit,
     onBack: () -> Unit = {},
+    /** Asks for the craft's large picture, by file name. */
+    onShow: (String) -> Unit = {},
 ) {
     var pickingSite by remember { mutableStateOf(false) }
-    Backdrop(title = "Quick Launch", onBack = onBack, fillHeight = true) { contentModifier ->
-        // The list takes the height the picker and buttons leave.
-        Column(contentModifier.fillMaxWidth().weight(1f)) {
-            if (entries.isEmpty()) {
-                Text("Reading your craft…", color = Color.White.alpha(ApogeeAlpha.SUBTITLE))
-            } else {
-                val kinds = CraftKind.entries.filter { k -> entries.any { it.kind == k } }
-                var shownKind by rememberSaveable { mutableStateOf<String?>(null) }
-                val kind = kinds.firstOrNull { it.name == shownKind }
-                com.rm.apogee.ui.components.KindPicker(
-                    kinds, kind,
-                    count = { k -> if (k == null) entries.size else entries.count { it.kind == k } },
-                    onSelect = { shownKind = it?.name },
-                    modifier = Modifier.padding(bottom = 10.dp),
-                )
-                val shown = if (kind == null) entries else entries.filter { it.kind == kind }
-                val list = rememberLazyListState()
-                // Scrolled to last time's choice.
-                androidx.compose.runtime.LaunchedEffect(entries) {
-                    val at = shown.indexOfFirst { it.saved.fileName == chosen }
-                    if (at > 0) list.scrollToItem(at)
-                }
-                LazyColumn(Modifier.weight(1f).verticalScrollbar(list), state = list) {
-                    items(shown, key = { it.saved.fileName }) { entry ->
-                        CraftRow(entry, pictures[entry.picture], entry.saved.fileName == chosen) { onChoose(entry.saved.fileName) }
-                    }
-                }
-            }
+    Backdrop(title = "Quick Launch", onBack = onBack, fillHeight = true, maxContentWidth = Dimens.WideContentMaxWidth) { contentModifier ->
+        if (entries.isEmpty()) {
+            Text("Reading your craft…", color = Color.White.alpha(ApogeeAlpha.SUBTITLE), modifier = contentModifier)
+            return@Backdrop
         }
-        Spacer(Modifier.height(16.dp))
-        ApogeeButton(
-            "From: " + (site?.let { id -> (com.rm.apogee.core.world.World.launchSites + bases).firstOrNull { it.id == id }?.displayName } ?: "Automatic · $automatic"),
-            { pickingSite = true },
-            contentModifier,
-        )
-        val chosenName = entries.firstOrNull { it.saved.fileName == chosen }?.saved?.name
-        ApogeeButton(
-            chosenName?.let { "Launch $it" } ?: "Launch",
-            onLaunch,
-            contentModifier,
-            subtitle = chosenName?.let { "Replaces your last craft" },
-            enabled = chosenName != null,
+        val items = entries.map { entry ->
+            com.rm.apogee.ui.components.ShowcaseItem(
+                key = entry.saved.fileName,
+                name = entry.saved.name,
+                line = entry.summary.substringBefore('\n'),
+                kind = entry.kind,
+                picture = pictures[entry.picture],
+                largePicture = pictures[entry.picture + LARGE_SUFFIX],
+            )
+        }
+        com.rm.apogee.ui.components.CraftShowcase(
+            items, chosen, onChoose,
+            modifier = contentModifier.weight(1f),
+            onShow = onShow,
+            details = { item ->
+                val entry = entries.first { it.saved.fileName == item.key }
+                Text(entry.summary, color = Color.White.alpha(ApogeeAlpha.SUBTITLE))
+            },
+            actions = { item, each ->
+                ApogeeButton(
+                    "From: " + (site?.let { id -> (com.rm.apogee.core.world.World.launchSites + bases).firstOrNull { it.id == id }?.displayName } ?: automatic),
+                    { pickingSite = true },
+                    each,
+                )
+                ApogeeButton(
+                    item?.let { "Launch ${it.name}" } ?: "Launch",
+                    onLaunch,
+                    each,
+                    subtitle = item?.let { "Replaces your last craft" },
+                    enabled = item != null,
+                )
+            },
         )
     }
     if (pickingSite) {
@@ -121,40 +118,5 @@ fun QuickLaunchScreen(
     }
 }
 
-/** One craft in the list, lit when chosen. */
-@Composable
-private fun CraftRow(entry: CraftShelf.Entry, picture: ImageBitmap?, chosen: Boolean, onClick: () -> Unit) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(Dimens.CornerTight))
-            .background(if (chosen) ApogeeColors.Accent.alpha(0.22f) else Color.Transparent)
-            .padFocus()
-            .clickable(onClick = onClick)
-            .padding(6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(
-            Modifier
-                .size(48.dp)
-                .clip(RoundedCornerShape(Dimens.CornerTight))
-                .background(Color.White.alpha(ApogeeAlpha.FILL_FAINT)),
-            contentAlignment = Alignment.Center,
-        ) {
-            picture?.let { Image(it, contentDescription = null, modifier = Modifier.size(48.dp)) }
-        }
-        Spacer(Modifier.width(10.dp))
-        Column(Modifier.weight(1f)) {
-            Text(
-                entry.saved.name,
-                style = MaterialTheme.typography.bodyMedium,
-                color = if (chosen) ApogeeColors.Accent else Color.White,
-                maxLines = 1, overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                entry.summary, style = MaterialTheme.typography.labelSmall,
-                color = Color.White.alpha(ApogeeAlpha.SUBTITLE), maxLines = 2, overflow = TextOverflow.Ellipsis,
-            )
-        }
-    }
-}
+/** Added to a craft's picture key for its large picture (see PartThumbnails.largeCraftKey). */
+internal const val LARGE_SUFFIX = "-large"

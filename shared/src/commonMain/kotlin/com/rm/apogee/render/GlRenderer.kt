@@ -1435,23 +1435,25 @@ class GlRenderer(
             thumbTarget = true
         }
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, thumbFbo[0])
-        GLES30.glViewport(0, 0, THUMB_RENDER, THUMB_RENDER)
         GLES30.glClearColor(0f, 0f, 0f, 0f)
         val near = nearOn; val far = farOn; val cloud = cloudOn
         nearOn = false; farOn = false; cloudOn = 0f
         frameDaylight = 1f
         nightDim(CLEAR_FOG_COLOR, 1f, frameFog)
         while (true) {
+            // Drawn at twice the picture's size, in the corner of a target big enough for the largest.
+            val render = job.size * 2
+            GLES30.glViewport(0, 0, render, render)
             GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT or GLES30.GL_DEPTH_BUFFER_BIT)
             viewMatrix.setViewFromCameraRotation(job.cameraRotation)
             thumbProjection.setPerspective(job.fovY, 1.0, 0.02, 200.0)
             thumbViewProjection.setMultiplied(thumbProjection, viewMatrix)
             val frame = RenderFrame(0, 0, job.cameraPosition, job.cameraRotation, job.fovY, job.items)
             drawItems(job.items, null, frame, 1.0, job.cameraPosition, thumbViewProjection.m)
-            GLES30.glReadPixels(0, 0, THUMB_RENDER, THUMB_RENDER, GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, thumbPixels)
-            thumbPixels.getBytes(thumbBytes)
+            GLES30.glReadPixels(0, 0, render, render, GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, thumbPixels)
+            thumbPixels.getBytes(thumbBytes, render * render * 4)
             // Read bottom row first, so flipped, and halved for smooth edges.
-            source.done(job.key, halved(thumbBytes, THUMB_RENDER))
+            source.done(job.key, halved(thumbBytes, render), job.size)
             // Only taken off the queue once there's time to draw it.
             if (++drawn >= THUMBS_PER_FRAME) break
             job = source.next() ?: break
@@ -1549,7 +1551,7 @@ class GlRenderer(
         val CLEAR_FOG_COLOR = floatArrayOf(0.75f, 0.77f, 0.8f)
 
         /** Part pictures are drawn at this size, in pixels, and halved. */
-        const val THUMB_RENDER = PartThumbnails.SIZE * 2
+        const val THUMB_RENDER = PartThumbnails.LARGE * 2
         const val THUMBS_PER_FRAME = 3
 
         /** The most the sea is carried on from when it was built, in seconds. */

@@ -85,12 +85,17 @@ fun Backdrop(
             ) {
                 content(Modifier.widthIn(max = maxContentWidth))
             }
-        } else {
+        } else androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+            // A short screen, like a handheld's, gets narrower margins.
+            val short = maxHeight < SHORT_SCREEN
             Column(
                 Modifier
                     .widthIn(max = maxContentWidth)
                     .fillMaxSize()
-                    .padding(horizontal = Dimens.ScreenPaddingH, vertical = Dimens.ScreenPaddingV),
+                    .padding(
+                        horizontal = if (short) Dimens.ScreenPaddingH / 2 else Dimens.ScreenPaddingH,
+                        vertical = if (short) Dimens.ScreenPaddingV / 2 else Dimens.ScreenPaddingV,
+                    ),
             ) {
                 TitleRow(title, onBack)
                 Spacer(Modifier.height(8.dp))
@@ -104,6 +109,9 @@ fun Backdrop(
         }
     }
 }
+
+/** Shorter than this, a page's margins are halved. */
+private val SHORT_SCREEN = 480.dp
 
 /** A page's title, and Back at the other end of the same row. */
 @Composable

@@ -12,6 +12,9 @@ object Dimens {
     val MenuContentMaxWidth = 340.dp
     val PanelContentMaxWidth = 560.dp
 
+    /** Pages that show craft large, wide enough to use a landscape screen. */
+    val WideContentMaxWidth = 1100.dp
+
     // --- HUD control strip --------------------------------------------------
     val HudIconSize = 44.dp
     val HudIconSidePadding = 2.dp

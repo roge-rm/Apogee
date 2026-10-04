@@ -54,6 +54,9 @@ class CraftSummary(
     val canFly: Boolean = true,
     /** Its button's verb: FLY, DRIVE, SAIL and so on. */
     val going: com.rm.apogee.game.Going = com.rm.apogee.game.Going.FLY,
+    /** Its kind, for the tabs, and its picture's key. */
+    val kind: com.rm.apogee.core.craft.CraftKind? = null,
+    val picture: String = "",
 )
 
 /** Out There: your craft in the solo world, to fly, reset to the launch site, or remove. */
@@ -64,11 +67,14 @@ fun ResumeFlightScreen(
     onReset: (Long) -> Unit,
     onRemove: (Long) -> Unit,
     onBack: () -> Unit = {},
+    pictures: Map<String, androidx.compose.ui.graphics.ImageBitmap> = emptyMap(),
+    /** Asks for a craft's large picture, by id. */
+    onShow: (Long) -> Unit = {},
 ) {
     var confirmRemove by remember { mutableStateOf<CraftSummary?>(null) }
     var confirmReset by remember { mutableStateOf<CraftSummary?>(null) }
 
-    Backdrop(maxContentWidth = Dimens.PanelContentMaxWidth, title = "Out There", onBack = onBack, fillHeight = true) { contentModifier ->
+    Backdrop(maxContentWidth = Dimens.WideContentMaxWidth, title = "Out There", onBack = onBack, fillHeight = true) { contentModifier ->
         if (craft.isEmpty()) {
             Text(
                 "Nothing out there yet",
@@ -78,17 +84,40 @@ fun ResumeFlightScreen(
                 modifier = contentModifier,
             )
         } else {
-            val list = rememberLazyListState()
-            LazyColumn(contentModifier.weight(1f).verticalScrollbar(list), state = list) {
-                items(craft, key = { it.id }) { summary ->
-                    CraftRow(
-                        summary,
-                        onFly = { onFly(summary.id) },
-                        onReset = { confirmReset = summary },
-                        onRemove = { confirmRemove = summary },
-                    )
-                }
+            var chosen by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
+            val items = craft.map { summary ->
+                com.rm.apogee.ui.components.ShowcaseItem(
+                    key = summary.id.toString(),
+                    name = summary.name,
+                    line = summary.situation,
+                    kind = summary.kind,
+                    picture = pictures[summary.picture],
+                    largePicture = pictures[summary.picture + LARGE_SUFFIX],
+                )
             }
+            com.rm.apogee.ui.components.CraftShowcase(
+                items, chosen, { chosen = it },
+                modifier = contentModifier.weight(1f),
+                onShow = { key -> key.toLongOrNull()?.let(onShow) },
+                details = { item ->
+                    val summary = craft.first { it.id.toString() == item.key }
+                    Text(summary.situation, color = Color.White.alpha(ApogeeAlpha.SUBTITLE))
+                    Text(summary.height, color = Color.White.alpha(ApogeeAlpha.SUBTITLE))
+                },
+                actions = { item, each ->
+                    val summary = item?.let { i -> craft.firstOrNull { it.id.toString() == i.key } }
+                    com.rm.apogee.ui.components.ApogeeButton("Remove", { summary?.let { confirmRemove = it } }, each, enabled = summary != null)
+                    if (summary?.canReset != false) {
+                        com.rm.apogee.ui.components.ApogeeButton("Reset", { summary?.let { confirmReset = it } }, each, enabled = summary != null)
+                    }
+                    com.rm.apogee.ui.components.ApogeeButton(
+                        summary?.going?.verb?.replaceFirstChar { it.uppercase() } ?: "Fly",
+                        { summary?.let { onFly(it.id) } },
+                        each,
+                        enabled = summary?.canFly == true,
+                    )
+                },
+            )
         }
     }
 
@@ -121,50 +150,4 @@ fun ResumeFlightScreen(
             dismissButton = { TextButton(onClick = { confirmReset = null }) { Text("Cancel") } },
         )
     }
-}
-
-@Composable
-private fun CraftRow(summary: CraftSummary, onFly: () -> Unit, onReset: () -> Unit, onRemove: () -> Unit) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp)
-            .clip(RoundedCornerShape(Dimens.CornerSmall))
-            .background(Color.White.alpha(ApogeeAlpha.FILL_FAINT))
-            .padding(horizontal = 14.dp, vertical = 10.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(summary.name, style = MaterialTheme.typography.bodyLarge, color = Color.White)
-            Text(
-                "${summary.situation}  ·  ${summary.height}",
-                style = MaterialTheme.typography.labelSmall,
-                color = Color.White.alpha(ApogeeAlpha.SUBTITLE),
-            )
-        }
-        if (summary.canReset) {
-            RowAction("RESET", ApogeeColors.Caution, onReset)
-            Spacer(Modifier.width(4.dp))
-        }
-        RowAction("REMOVE", ApogeeColors.Danger, onRemove)
-        if (summary.canFly) {
-            Spacer(Modifier.width(4.dp))
-            RowAction(summary.going.verb.uppercase(), ApogeeColors.Accent, onFly)
-        }
-    }
-}
-
-@Composable
-private fun RowAction(label: String, colour: Color, onClick: () -> Unit) {
-    Text(
-        label,
-        style = TelemetryTextStyle,
-        color = colour,
-        modifier = Modifier
-            .clip(RoundedCornerShape(Dimens.CornerSmall))
-            .padFocus(RoundedCornerShape(Dimens.CornerSmall))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 10.dp),
-    )
 }

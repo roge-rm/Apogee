@@ -52,6 +52,8 @@ fun KindPicker(
     count: (CraftKind?) -> Int,
     onSelect: (CraftKind?) -> Unit,
     modifier: Modifier = Modifier,
+    /** The chosen kind's name and count underneath. Left off where height is short. */
+    showCount: Boolean = true,
 ) {
     Column(modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -60,6 +62,7 @@ fun KindPicker(
                 KindIcon(iconOf(kind), kind.label, kind == selected, Modifier.weight(1f)) { onSelect(kind) }
             }
         }
+        if (!showCount) return@Column
         Spacer(Modifier.height(6.dp))
         val n = count(selected)
         Text(

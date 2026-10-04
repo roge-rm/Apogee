@@ -92,7 +92,9 @@ private val Thumb = Color.White.copy(alpha = 0.45f)
 private fun DrawScope.drawBar(viewFraction: Float, position: Float, width: Float, inset: Float, alpha: Float) {
     val x = size.width - width - inset
     val trackLength = size.height - inset * 2
-    val thumbLength = (trackLength * viewFraction).coerceIn(width * 6, trackLength)
+    // A list squeezed shorter than a thumb gets no bar.
+    if (trackLength <= width) return
+    val thumbLength = (trackLength * viewFraction).coerceIn(minOf(width * 6, trackLength), trackLength)
     val thumbTop = inset + (trackLength - thumbLength) * position.coerceIn(0f, 1f)
     val corner = CornerRadius(width / 2, width / 2)
     drawRoundRect(Track, Offset(x, inset), Size(width, trackLength), corner, alpha = alpha)

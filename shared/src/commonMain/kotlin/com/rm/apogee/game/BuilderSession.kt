@@ -681,6 +681,11 @@ class BuilderSession(
     var loadEntries: List<CraftShelf.Entry> by mutableStateOf(emptyList())
         private set
 
+    /** Asks for [entry]'s large picture, for the load list. */
+    fun showLarge(entry: CraftShelf.Entry) {
+        thumbnails?.requestLargeCraft(entry.design, catalog)
+    }
+
     private var loadJob: Job? = null
 
     /**

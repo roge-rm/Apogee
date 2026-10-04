@@ -59,6 +59,7 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.FileOpen
 import androidx.compose.material.icons.filled.Undo
 import androidx.compose.material3.AlertDialog
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -397,6 +398,15 @@ fun BuilderScreen(
                 }
             }
         }
+
+        // Over everything, the cut-out corners too.
+        if (showLoadDialog) {
+            LoadDialog(
+                session = session,
+                pictures = pictures,
+                onDismiss = { showLoadDialog = false },
+            )
+        }
     }
 
     if (showNameDialog) {
@@ -441,13 +451,6 @@ fun BuilderScreen(
         )
     }
 
-    if (showLoadDialog) {
-        LoadDialog(
-            session = session,
-            pictures = pictures,
-            onDismiss = { showLoadDialog = false },
-        )
-    }
 }
 
 /** Save, save as, load and new: the file things, out of the way. */
@@ -851,75 +854,62 @@ private fun LoadDialog(session: BuilderSession, pictures: Map<String, ImageBitma
         )
     }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Load craft") },
-        text = {
+    com.rm.apogee.ui.BackHandler { onDismiss() }
+    // A page over the building, taking every touch so nothing reaches the parts behind.
+    androidx.compose.foundation.layout.Box(
+        Modifier
+            .fillMaxSize()
+            .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent().changes.forEach { it.consume() } } },
+    ) {
+        com.rm.apogee.ui.components.Backdrop(
+            title = "Load craft", onBack = onDismiss, fillHeight = true, maxContentWidth = Dimens.WideContentMaxWidth,
+        ) { contentModifier ->
             val entries = session.loadEntries
             if (session.savedCraft.isEmpty()) {
-                Text("No saved craft yet.")
-            } else if (entries.isEmpty()) {
-                Text("Reading your craft…", color = Color.White.alpha(ApogeeAlpha.SUBTITLE))
-            } else {
-                // Tabs for the kinds there are, and All. Newest first within each.
-                val kinds = com.rm.apogee.core.craft.CraftKind.entries.filter { k -> entries.any { it.kind == k } }
-                var chosen by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
-                val kind = kinds.firstOrNull { it.name == chosen }
-                Column {
-                    com.rm.apogee.ui.components.KindPicker(
-                        kinds, kind,
-                        count = { k -> if (k == null) entries.size else entries.count { it.kind == k } },
-                        onSelect = { chosen = it?.name },
-                        modifier = Modifier.padding(bottom = 10.dp),
-                    )
-                    val shown = if (kind == null) entries else entries.filter { it.kind == kind }
-                    val list = rememberLazyListState()
-                    LazyColumn(Modifier.heightIn(max = 460.dp).verticalScrollbar(list), state = list) {
-                        items(shown, key = { it.saved.fileName }) { entry ->
-                            val saved = entry.saved
-                            Row(
-                                Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(Dimens.CornerTight))
-                                    .clickable {
-                                        session.load(saved)
-                                        onDismiss()
-                                    }
-                                    .padding(vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Box(
-                                    Modifier
-                                        .size(56.dp)
-                                        .clip(RoundedCornerShape(Dimens.CornerTight))
-                                        .background(Color.White.alpha(ApogeeAlpha.FILL_FAINT)),
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    pictures[entry.picture]?.let { androidx.compose.foundation.Image(it, contentDescription = null, modifier = Modifier.size(56.dp)) }
-                                }
-                                Spacer(Modifier.width(10.dp))
-                                Column(Modifier.weight(1f)) {
-                                    Text(saved.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-                                    Text(entry.summary, style = MaterialTheme.typography.labelSmall, color = Color.White.alpha(ApogeeAlpha.SUBTITLE), maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-                                    // In a career, what it's waiting on.
-                                    val waiting = session.lockedParts().filterKeys { it in saved.partIds }.values.toSet()
-                                    if (waiting.isNotEmpty()) {
-                                        Text(
-                                            "Needs ${waiting.joinToString(", ")}",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = ApogeeColors.Caution,
-                                        )
-                                    }
-                                }
-                                TextButton(onClick = { confirmDelete = saved }) { Text("Delete") }
-                            }
-                        }
-                    }
-                }
+                Text("No saved craft yet.", modifier = contentModifier)
+                return@Backdrop
             }
-        },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
-    )
+            if (entries.isEmpty()) {
+                Text("Reading your craft…", color = Color.White.alpha(ApogeeAlpha.SUBTITLE), modifier = contentModifier)
+                return@Backdrop
+            }
+            var chosen by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
+            val items = entries.map { entry ->
+                com.rm.apogee.ui.components.ShowcaseItem(
+                    key = entry.saved.fileName,
+                    name = entry.saved.name,
+                    line = entry.summary.substringBefore('\n'),
+                    kind = entry.kind,
+                    picture = pictures[entry.picture],
+                    largePicture = pictures[entry.picture + LARGE_SUFFIX],
+                )
+            }
+            com.rm.apogee.ui.components.CraftShowcase(
+                items, chosen, { chosen = it },
+                modifier = contentModifier.weight(1f),
+                onShow = { key -> entries.firstOrNull { it.saved.fileName == key }?.let(session::showLarge) },
+                details = { item ->
+                    val entry = entries.first { it.saved.fileName == item.key }
+                    Text(entry.summary, color = Color.White.alpha(ApogeeAlpha.SUBTITLE))
+                    // In a career, what it's waiting on.
+                    val waiting = session.lockedParts().filterKeys { it in entry.saved.partIds }.values.toSet()
+                    if (waiting.isNotEmpty()) {
+                        Text("Needs ${waiting.joinToString(", ")}", color = ApogeeColors.Caution)
+                    }
+                },
+                actions = { item, each ->
+                    val saved = item?.let { i -> entries.firstOrNull { it.saved.fileName == i.key }?.saved }
+                    com.rm.apogee.ui.components.ApogeeButton("Delete", { saved?.let { confirmDelete = it } }, each, enabled = saved != null)
+                    com.rm.apogee.ui.components.ApogeeButton(
+                        item?.let { "Load ${it.name}" } ?: "Load",
+                        { saved?.let { session.load(it); onDismiss() } },
+                        each,
+                        enabled = saved != null,
+                    )
+                },
+            )
+        }
+    }
 }
 
 @Composable

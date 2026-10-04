@@ -389,6 +389,10 @@ class ApogeeApp(private val host: AppHost) {
                             refreshResumeCraft()
                         },
                         onBack = ::goBack,
+                        pictures = partThumbnails.pictures,
+                        onShow = { id ->
+                            openSoloWorld().vessel(com.rm.apogee.core.craft.VesselId(id))?.let { partThumbnails.requestLargeCraft(it.design, StockParts.catalog) }
+                        },
                     )
                     AppScreen.QUICK_LAUNCH -> com.rm.apogee.ui.screens.QuickLaunchScreen(
                         entries = quickEntries,
@@ -402,6 +406,7 @@ class ApogeeApp(private val host: AppHost) {
                         onSite = { quickSite = it; settings.quickSite = it ?: "" },
                         onLaunch = ::quickLaunch,
                         onBack = ::goBack,
+                        onShow = { file -> quickEntries.firstOrNull { it.saved.fileName == file }?.let { partThumbnails.requestLargeCraft(it.design, StockParts.catalog) } },
                     )
                     AppScreen.TUTORIALS -> com.rm.apogee.ui.screens.TutorialsScreen(
                         tutorials = com.rm.apogee.game.tutorial.Tutorials.all,
@@ -1317,10 +1322,13 @@ class ApogeeApp(private val host: AppHost) {
                 world.recoverable(vessel) -> "Its crew of $aboard come${if (aboard == 1) "s" else ""} home."
                 else -> "Its crew of $aboard ${if (aboard == 1) "is" else "are"} lost with it."
             }
+            partThumbnails.requestCraft(vessel.design, StockParts.catalog)
             com.rm.apogee.ui.screens.CraftSummary(
                 vessel.id.raw, vessel.name, situation, height, crewNote,
                 canReset = !suit && !flag, canFly = !flag,
                 going = com.rm.apogee.game.Going.of(vessel.design, StockParts.catalog, vessel.anchored, swimming),
+                kind = com.rm.apogee.core.craft.CraftKind.of(vessel.design, StockParts.catalog),
+                picture = partThumbnails.craftKey(vessel.design),
             )
         }
     }
