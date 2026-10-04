@@ -89,8 +89,9 @@ class CareerBalanceTest {
     private fun go(vararg wonders: String) = wonders.map { Found(it.removePrefix("wonder:")) }
 
     /**
-     * A career the way a player might play it, every graded feat at bronze, from the Sounder out to
-     * the planets. Every unlock must be affordable and every craft allowed when it comes.
+     * A career the way a player might play it, every graded feat at bronze and half of each landed
+     * world's places found, from the Sounder out to the planets. Every unlock must be affordable and
+     * every craft allowed when it comes.
      */
     private val path: List<Step> = buildList {
         add(Fly(StockCraft.sounder(catalog), "cape")); addAll(earn(Feat.HOP, Feat.STAGING))
@@ -196,6 +197,14 @@ class CareerBalanceTest {
                 is Go -> {
                     state = state.copy(insight = state.insight + tree.worlds.getValue(step.body) * step.visit.multiplier, visits = state.visits + "${step.body}:${step.visit.id}")
                     log.append("${step.body}:${step.visit.id} ")
+                    // Landed, a player finds about half the world's places.
+                    if (step.visit == Visit.LAND) {
+                        val places = com.rm.apogee.core.world.Wonders.land.filter { it.bodyId == step.body }
+                        for (wonder in places.take((places.size + 1) / 2)) {
+                            state = state.copy(insight = state.insight + wonder.insight, visits = state.visits + "wonder:${wonder.id}")
+                            log.append("${wonder.id} ")
+                        }
+                    }
                 }
                 is Buy -> {
                     val node = tree.node(step.node)!!
