@@ -61,7 +61,7 @@ Dan
 
 The easiest way to install Apogee and keep it up to date is through my F-Droid repo:
 
-[https://roge-rm.gitlab.io/repo](https://roge-rm.gitlab.io/repo?fingerprint=80438B253C257BCCE05CDCB9E3AC9B6174C2250659962B14FCBE7F32FD42D53E)
+[https://hunke.ws/fdroid/repo](https://hunke.ws/fdroid/repo?fingerprint=80438B253C257BCCE05CDCB9E3AC9B6174C2250659962B14FCBE7F32FD42D53E)
 
 Then search for Apogee in F-Droid. When a new version comes out, F-Droid will offer it as an update.
 
@@ -69,7 +69,7 @@ You can also download the APK from the [Releases](https://github.com/roge-rm/Apo
 
 ## Playing in a browser
 
-You can play it at [roge-rm.gitlab.io/play/apogee](https://roge-rm.gitlab.io/play/apogee/). It's the same game, solo only, and your worlds and craft are kept in the browser. It needs WebGL 2 and WebAssembly GC (Chrome or Edge 119, Firefox 120, Safari 18.2 or newer).
+You can play it at [hunke.ws/fdroid/play/apogee](https://hunke.ws/fdroid/play/apogee/). It's the same game, solo only, and your worlds and craft are kept in the browser. It needs WebGL 2 and WebAssembly GC (Chrome or Edge 119, Firefox 120, Safari 18.2 or newer).
 
 Drag to look around, use the wheel to zoom, and right-drag to pan in the Vehicle Assembly. On a keyboard:
 
