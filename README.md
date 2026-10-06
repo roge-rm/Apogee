@@ -15,8 +15,6 @@ The game is complete enough to play and test so I am opening it up to the world 
 Join me in the #apogee channel **[on my discord](https://discord.gg/9Wun47jGC6)** to discuss the game or report any bugs.
 <br>You can also add an issue here for me to look at.
 
-Disclaimer: I am not a great programmer and this was made using Claude Opus 5.0/5.5
-
 Enjoy!
 Dan
 
@@ -161,3 +159,5 @@ The server runs every world. The app predicts the craft you're flying to hide la
 Apogee is free software under the **GNU General Public License, version 3 or later**. See [LICENSE](LICENSE).
 
 Copyright © 2026 Dan Hunke.
+
+Disclaimer: I am not a great programmer and this was made using Claude Opus 5.0/5.5
