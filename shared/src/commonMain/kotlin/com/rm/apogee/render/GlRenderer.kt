@@ -242,6 +242,12 @@ class GlRenderer(
     private val shadowMatcher = ItemMatcher()
     private val cloudTexture = IntArray(1)
     private var cloudRevision = -1
+
+    /**
+     * 1 by 1 stand-ins for the shadow maps and cloud shadow, bound while they're off: a shadow
+     * sampler on an empty unit is undefined, and one desktop driver crashes on it.
+     */
+    private val standIns = IntArray(2)
     private val cloudMatrix = FloatArray(16)
     private var cloudOn = 0f
     private val scratchShadow = Vec3()
@@ -282,6 +288,7 @@ class GlRenderer(
 
         // The sky shader makes its own vertices, but GLES still needs a bound VAO to draw.
         GLES30.glGenVertexArrays(1, emptyVao, 0)
+        makeStandIns()
     }
 
     fun onSurfaceChanged(width: Int, height: Int) {
@@ -1248,12 +1255,38 @@ class GlRenderer(
             cloudOn = grid.strength * (1f - smooth01(((height - CLOUD_SHADOW_HIGH) / CLOUD_SHADOW_HIGH).toFloat()))
         }
         GLES30.glActiveTexture(GLES30.GL_TEXTURE1)
-        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, if (nearOn) nearMap?.texture ?: 0 else 0)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, nearMap?.texture?.takeIf { nearOn } ?: standIns[0])
         GLES30.glActiveTexture(GLES30.GL_TEXTURE2)
-        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, if (farOn) farMap?.texture ?: 0 else 0)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, farMap?.texture?.takeIf { farOn } ?: standIns[0])
         GLES30.glActiveTexture(GLES30.GL_TEXTURE3)
-        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, if (cloudOn > 0f) cloudTexture[0] else 0)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, if (cloudOn > 0f) cloudTexture[0] else standIns[1])
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
+    }
+
+    /** Makes [standIns] and binds them to units 1, 2 and 3. */
+    private fun makeStandIns() {
+        GLES30.glGenTextures(2, standIns, 0)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, standIns[0])
+        GLES30.glTexImage2D(
+            GLES30.GL_TEXTURE_2D, 0, GLES30.GL_DEPTH_COMPONENT24, 1, 1, 0,
+            GLES30.GL_DEPTH_COMPONENT, GLES30.GL_UNSIGNED_INT, null,
+        )
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_NEAREST)
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_NEAREST)
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_COMPARE_MODE, GLES30.GL_COMPARE_REF_TO_TEXTURE)
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_COMPARE_FUNC, GLES30.GL_LEQUAL)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, standIns[1])
+        GLES30.glPixelStorei(GLES30.GL_UNPACK_ALIGNMENT, 1)
+        GLES30.glTexImage2D(GLES30.GL_TEXTURE_2D, 0, GLES30.GL_RG8, 1, 1, 0, GLES30.GL_RG, GLES30.GL_UNSIGNED_BYTE, null)
+        GLES30.glPixelStorei(GLES30.GL_UNPACK_ALIGNMENT, 4)
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_NEAREST)
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_NEAREST)
+        for ((unit, texture) in listOf(GLES30.GL_TEXTURE1 to standIns[0], GLES30.GL_TEXTURE2 to standIns[0], GLES30.GL_TEXTURE3 to standIns[1])) {
+            GLES30.glActiveTexture(unit)
+            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, texture)
+        }
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, 0)
     }
 
     /** The craft, and the trees and rocks around it, from the light's side. */
@@ -1565,6 +1598,21 @@ class GlRenderer(
         return out
     }
 
+    /**
+     * Frees its GL objects, for a host that keeps the context for the next renderer. On the GL
+     * thread.
+     */
+    fun release() {
+        releaseGlObjects()
+        if (thumbFbo[0] != 0) {
+            GLES30.glDeleteFramebuffers(1, thumbFbo, 0)
+            GLES30.glDeleteRenderbuffers(1, thumbColour, 0)
+            GLES30.glDeleteRenderbuffers(1, thumbDepth, 0)
+            thumbFbo[0] = 0; thumbColour[0] = 0; thumbDepth[0] = 0
+        }
+        if (emptyVao[0] != 0) { GLES30.glDeleteVertexArrays(1, emptyVao, 0); emptyVao[0] = 0 }
+    }
+
     private fun releaseGlObjects() {
         // Names from a lost context are gone with it, and made again when next needed.
         thumbTarget = false
@@ -1606,6 +1654,8 @@ class GlRenderer(
         if (cloudTexture[0] != 0) GLES30.glDeleteTextures(1, cloudTexture, 0)
         cloudTexture[0] = 0
         cloudRevision = -1
+        if (standIns[0] != 0) GLES30.glDeleteTextures(2, standIns, 0)
+        standIns.fill(0)
     }
 
     private fun lerp(a: Double, b: Double, t: Double) = a + (b - a) * t

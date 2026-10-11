@@ -6,6 +6,7 @@ find_package(oboe REQUIRED CONFIG)
 
 add_library(apogee_audio SHARED
         engine.cpp
+        jni.cpp
         synth/synth.cpp)
 
 target_include_directories(apogee_audio PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

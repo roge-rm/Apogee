@@ -1,0 +1,16 @@
+Package: apogee
+Version: @VERSION@
+Architecture: @ARCH@
+Maintainer: Dan Hunke <14335001+roge-rm@users.noreply.github.com>
+Installed-Size: @SIZE@
+Depends: openjdk-21-jre | java21-runtime, libgl1
+Recommends: libpulse0, libasound2t64
+Section: games
+Priority: optional
+Homepage: https://github.com/roge-rm/Apogee
+Description: spaceflight game: build craft and fly them
+ Build rockets, planes, rotorcraft, rovers, boats and submarines from parts,
+ then fly them around a small solar system, alone or with friends on the
+ same network.
+ .
+ The desktop build of the Android app. It needs OpenGL 3.3.

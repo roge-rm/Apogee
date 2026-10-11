@@ -21,6 +21,7 @@ actual object GLES30 : GlConstants {
     actual fun glCullFace(mode: Int) = Gl.glCullFace(mode)
     actual fun glDeleteBuffers(n: Int, buffers: IntArray, offset: Int) = Gl.glDeleteBuffers(n, buffers, offset)
     actual fun glDeleteFramebuffers(n: Int, framebuffers: IntArray, offset: Int) = Gl.glDeleteFramebuffers(n, framebuffers, offset)
+    actual fun glDeleteRenderbuffers(n: Int, renderbuffers: IntArray, offset: Int) = Gl.glDeleteRenderbuffers(n, renderbuffers, offset)
     actual fun glDeleteProgram(program: Int) = Gl.glDeleteProgram(program)
     actual fun glDeleteShader(shader: Int) = Gl.glDeleteShader(shader)
     actual fun glDeleteTextures(n: Int, textures: IntArray, offset: Int) = Gl.glDeleteTextures(n, textures, offset)

@@ -103,6 +103,7 @@ actual object GLES30 : GlConstants {
     actual fun glCullFace(mode: Int) = jsCallI(gl(), "cullFace", mode)
     actual fun glDeleteBuffers(n: Int, buffers: IntArray, offset: Int) { for (k in 0 until n) { val i = buffers[offset + k]; jsWithObject(gl(), "deleteBuffer", obj(i)); forget(i) } }
     actual fun glDeleteFramebuffers(n: Int, framebuffers: IntArray, offset: Int) { for (k in 0 until n) { val i = framebuffers[offset + k]; jsWithObject(gl(), "deleteFramebuffer", obj(i)); forget(i) } }
+    actual fun glDeleteRenderbuffers(n: Int, renderbuffers: IntArray, offset: Int) { for (k in 0 until n) { val i = renderbuffers[offset + k]; jsWithObject(gl(), "deleteRenderbuffer", obj(i)); forget(i) } }
     actual fun glDeleteProgram(program: Int) { jsWithObject(gl(), "deleteProgram", obj(program)); forget(program) }
     actual fun glDeleteShader(shader: Int) { jsWithObject(gl(), "deleteShader", obj(shader)); forget(shader) }
     actual fun glDeleteTextures(n: Int, textures: IntArray, offset: Int) { for (k in 0 until n) { val i = textures[offset + k]; jsWithObject(gl(), "deleteTexture", obj(i)); forget(i) } }

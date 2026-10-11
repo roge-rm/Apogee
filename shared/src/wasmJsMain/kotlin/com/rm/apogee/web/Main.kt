@@ -298,60 +298,13 @@ private class WebHost(private val canvas: HTMLCanvasElement) : AppHost {
             hadGamepad = true
             app.controllerName = parts.getOrNull(2)
         }
-        if (app.padMode() != com.rm.apogee.input.PadMode.FLIGHT) workScreens(time) else heading = null
-        wasA = gamepad[com.rm.apogee.input.PadButton.A] > 0.5f
-        wasB = gamepad[com.rm.apogee.input.PadButton.B] > 0.5f
+        if (app.padMode() != com.rm.apogee.input.PadMode.FLIGHT) menus.update(gamepad, time) else menus.idle(gamepad)
     }
 
-    // The way the D-pad or stick is held in the menus, and when it next moves again on its own.
-    private var heading: com.rm.apogee.input.PadButton? = null
-    private var nextStep = 0.0
-    private var wasA = false
-    private var wasB = false
-
-    /** The D-pad or left stick moves between things, A presses the one it's on, and B goes back. */
-    private fun workScreens(time: Double) {
-        val way = when {
-            gamepad[com.rm.apogee.input.PadButton.UP] > 0.5f || gamepad.leftY < -STICK_STEP -> com.rm.apogee.input.PadButton.UP
-            gamepad[com.rm.apogee.input.PadButton.DOWN] > 0.5f || gamepad.leftY > STICK_STEP -> com.rm.apogee.input.PadButton.DOWN
-            gamepad[com.rm.apogee.input.PadButton.LEFT] > 0.5f || gamepad.leftX < -STICK_STEP -> com.rm.apogee.input.PadButton.LEFT
-            gamepad[com.rm.apogee.input.PadButton.RIGHT] > 0.5f || gamepad.leftX > STICK_STEP -> com.rm.apogee.input.PadButton.RIGHT
-            else -> null
-        }
-        if (way == null) {
-            heading = null
-        } else if (way != heading) {
-            heading = way
-            nextStep = time + FIRST_REPEAT_MS
-            step(way)
-        } else if (time >= nextStep) {
-            nextStep = time + REPEAT_MS
-            step(way)
-        }
-        if (gamepad[com.rm.apogee.input.PadButton.A] > 0.5f && !wasA) screensKey("Enter", false)
-        if (gamepad[com.rm.apogee.input.PadButton.B] > 0.5f && !wasB) screensKey("Escape", false)
-    }
-
-    /**
-     * One step [way]. Up and down are Shift-Tab and Tab, since arrows would scroll the page. Left
-     * and right go as arrows first (for a slider), then Tab or Shift-Tab if unused.
-     */
-    private fun step(way: com.rm.apogee.input.PadButton) {
-        when (way) {
-            com.rm.apogee.input.PadButton.UP -> screensKey("Tab", true)
-            com.rm.apogee.input.PadButton.DOWN -> screensKey("Tab", false)
-            com.rm.apogee.input.PadButton.LEFT -> if (!screensKey("ArrowLeft", false)) screensKey("Tab", true)
-            else -> if (!screensKey("ArrowRight", false)) screensKey("Tab", false)
-        }
-    }
+    private val menus = com.rm.apogee.input.MenuPad(::screensKey)
 
     private companion object {
         const val BACKGROUND_MILLIS = 6.0
-
-        /** How far the stick goes to move in a menu, and how soon a held one moves again, in ms. */
-        const val STICK_STEP = 0.6f
-        const val FIRST_REPEAT_MS = 400.0
-        const val REPEAT_MS = 150.0
 
         /** The standard gamepad's buttons, by their place in its list. */
         val STANDARD_BUTTONS = listOf(

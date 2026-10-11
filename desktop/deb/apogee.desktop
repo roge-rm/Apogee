@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Apogee
+GenericName=Spaceflight game
+Comment=Build rockets, planes, rovers and boats, and fly them
+Exec=apogee
+Icon=apogee
+Terminal=false
+Categories=Game;Simulation;
+Keywords=rocket;space;flight;simulator;
+StartupWMClass=com-rm-apogee-desktop-MainKt

@@ -21,6 +21,13 @@ heavy build ./gradlew :shared:wasmJsBrowserDistribution
 rm -rf "${OUT:?}/web"
 cp -r shared/build/dist/wasmJs/productionExecutable "$OUT/web"
 
+# The desktop builds: Debian packages and AppImages for x86-64 and arm64, and Windows' installer
+# and portable zip. Docker does the cross builds.
+heavy build ./gradlew :desktop:debAmd64 :desktop:debArm64 :desktop:appImageAmd64 :desktop:appImageArm64 :desktop:windowsX64
+cp desktop/build/deb/apogee_${V}_amd64.deb desktop/build/deb/apogee_${V}_arm64.deb "$OUT/"
+cp desktop/build/appimage/apogee-$V-x86_64.AppImage desktop/build/appimage/apogee-$V-aarch64.AppImage "$OUT/"
+cp desktop/build/windows/apogee-$V-setup.exe desktop/build/windows/apogee-$V-windows-x64.zip "$OUT/"
+
 # Each APK's version, code and key, against what the release should be.
 TOOLS=$(ls -d "$HOME"/Android/Sdk/build-tools/*/ | sort -V | tail -1)
 CERT=1d4f11b03252fbdcd8867c799341416b0a9741509991708fac639d9807e93b11
@@ -30,7 +37,8 @@ for f in "$OUT/apogee-$V.apk" "$OUT/apogee-$V-32bit.apk"; do
 done
 
 cd "$OUT"
-sha256sum "apogee-$V.apk" "apogee-$V-32bit.apk" > SHA256SUMS
+sha256sum "apogee-$V.apk" "apogee-$V-32bit.apk" "apogee_${V}_amd64.deb" "apogee_${V}_arm64.deb" \
+    "apogee-$V-x86_64.AppImage" "apogee-$V-aarch64.AppImage" "apogee-$V-setup.exe" "apogee-$V-windows-x64.zip" > SHA256SUMS
 cat SHA256SUMS
 
 # Only the newest release folder is kept.

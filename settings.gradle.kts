@@ -74,6 +74,7 @@ val hasAndroidSdk = file("local.properties").exists() ||
 if (hasAndroidSdk) {
     include(":shared")
     include(":app")
+    include(":desktop")
 } else {
     logger.lifecycle("No Android SDK found - building server modules only, without :app.")
 }

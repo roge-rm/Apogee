@@ -1,6 +1,6 @@
 # Apogee
 
-Apogee is a physics sim for Android 8.1+, and you can play it in a browser too.
+Apogee is a physics sim for Android 8.1+. It also runs on Linux, on Windows and in a browser.
 
 Build vehicles out of a variety of parts and take them wherever you want - on land, in the air, in space, in (and under) the sea.
 Make rovers, planes, rockets, drones, balloons and airships, ships and submarines. Build bases on land, in the air, and on the water.
@@ -65,11 +65,38 @@ Then search for Apogee in F-Droid. When a new version comes out, F-Droid will of
 
 You can also download the APK from the [Releases](https://github.com/roge-rm/Apogee/releases) page and sideload it.
 
+### Linux
+
+On Debian 13 (Trixie), Ubuntu 24.04 and newer, and Raspberry Pi OS (64-bit), the easiest way is my apt repo, so it updates with the rest of the system. Add it once:
+
+```
+sudo curl -fsSLo /etc/apt/keyrings/hunke.asc https://hunke.ws/apt/hunke.asc
+echo "deb [signed-by=/etc/apt/keyrings/hunke.asc] https://hunke.ws/apt stable main" | sudo tee /etc/apt/sources.list.d/hunke.list
+sudo apt update
+```
+
+Then `sudo apt install apogee`. It brings Java 21 with it.
+
+Or from the [Releases](https://github.com/roge-rm/Apogee/releases) page:
+
+- **Debian and Raspberry Pi OS:** the `.deb` for your machine, amd64 or arm64. Install it with `sudo apt install ./apogee_*.deb`.
+- **Anything else** (Ubuntu 22.04 and newer, Fedora, Arch, the Steam Deck): the AppImage, x86_64 or aarch64. It has its own Java, so just make it executable and run it.
+
+It needs OpenGL 3.3. F11 goes full screen.
+
+### Steam Deck
+
+Use the x86_64 AppImage. In Desktop Mode, download it, right-click it and turn on **Is executable** under **Properties › Permissions**. Then add it to Steam with **Add a Non-Steam Game** so it's in your library in Game Mode. It runs full screen there, with the Deck's controls working like any gamepad.
+
+### Windows
+
+Windows 10 or 11, 64-bit. From the [Releases](https://github.com/roge-rm/Apogee/releases) page, run `apogee-*-setup.exe`, or unzip `apogee-*-windows-x64.zip` anywhere and run `Apogee.exe`. They aren't signed, so Windows will warn you: choose **More info** and then **Run anyway**.
+
 ## Playing in a browser
 
 You can play it at [hunke.ws/fdroid/play/apogee](https://hunke.ws/fdroid/play/apogee/). It's the same game, solo only, and your worlds and craft are kept in the browser. It needs WebGL 2 and WebAssembly GC (Chrome or Edge 119, Firefox 120, Safari 18.2 or newer).
 
-Drag to look around, use the wheel to zoom, and right-drag to pan in the Vehicle Assembly. On a keyboard:
+Drag to look around, use the wheel to zoom, and right-drag to pan in the Vehicle Assembly. On a keyboard, here and on the desktop:
 
 | | |
 |---|---|
@@ -91,7 +118,7 @@ Drag to look around, use the wheel to zoom, and right-drag to pan in the Vehicle
 
 ## Playing with a controller
 
-Any gamepad works on Android and in a browser, including a handheld's built-in controls. I laid it out for the Retroid Pocket Mini:
+Any gamepad works on Android, on the desktop and in a browser, including a handheld's built-in controls. I laid it out for the Retroid Pocket Mini:
 
 | | |
 |---|---|
@@ -120,7 +147,13 @@ You need JDK 17 or newer, and the Android SDK for the app.
 ./gradlew :app:assembleDebug                   # the debug APK, in app/build/outputs/apk/debug/
 ./gradlew :app:assembleRelease                 # the release APK, in app/build/outputs/apk/release/
 ./gradlew :shared:wasmJsBrowserDistribution    # the web page, in shared/build/dist/wasmJs/productionExecutable/
+./gradlew :desktop:run                          # the desktop version, on this machine
+./gradlew :desktop:debAmd64                     # a .deb (debArm64 too)
+./gradlew :desktop:appImageAmd64                # an AppImage (appImageArm64 too)
+./gradlew :desktop:windowsX64                   # the Windows installer and zip
 ```
+
+The desktop version needs JDK 21 and CMake. Its packages other than the amd64 `.deb` are cross-built in Docker.
 
 The web page's sound needs [Emscripten](https://emscripten.org) in `~/.local/share/emsdk` (or wherever `EMSDK` says). Without it the page is silent.
 

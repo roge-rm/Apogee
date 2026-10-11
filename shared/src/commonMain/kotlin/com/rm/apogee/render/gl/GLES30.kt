@@ -23,6 +23,7 @@ expect object GLES30 : GlConstants {
     fun glCullFace(mode: Int)
     fun glDeleteBuffers(n: Int, buffers: IntArray, offset: Int)
     fun glDeleteFramebuffers(n: Int, framebuffers: IntArray, offset: Int)
+    fun glDeleteRenderbuffers(n: Int, renderbuffers: IntArray, offset: Int)
     fun glDeleteProgram(program: Int)
     fun glDeleteShader(shader: Int)
     fun glDeleteTextures(n: Int, textures: IntArray, offset: Int)
@@ -95,6 +96,7 @@ interface GlConstants {
     val GL_FRAMEBUFFER: Int get() = 0x8D40
     val GL_LEQUAL: Int get() = 0x0203
     val GL_LINEAR: Int get() = 0x2601
+    val GL_NEAREST: Int get() = 0x2600
     val GL_LINE_STRIP: Int get() = 0x0003
     val GL_LINK_STATUS: Int get() = 0x8B82
     val GL_NONE: Int get() = 0

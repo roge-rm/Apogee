@@ -1,6 +1,6 @@
 import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
 
-// What the Android app and the browser share: game session, renderer, sound and Compose screens.
+// What the Android app, the desktop build and the browser share: game session, renderer, sound and Compose screens.
 // Platform pieces (GL, synth, settings storage) sit behind expect/actual. :app depends on this;
 // the browser build is its wasmJs executable.
 plugins {
@@ -15,7 +15,8 @@ plugins {
 val buildInfoDir = layout.buildDirectory.dir("generated/buildInfo")
 val appBuild = rootProject.file("app/build.gradle.kts").readText()
 val appVersionName = Regex("versionName = \"([^\"]+)\"").find(appBuild)!!.groupValues[1]
-val appVersionCode = Regex("versionCode = (\\d+)").find(appBuild)!!.groupValues[1]
+// The 64-bit build's code: versionCode is written there as release * 10 + 2 (1 for 32-bit).
+val appVersionCode = (Regex("versionCode = (\\d+) \\* 10").find(appBuild)!!.groupValues[1].toInt() * 10 + 2).toString()
 val generateBuildInfo by tasks.registering {
     // Copied into locals so doLast captures values, not the build script (configuration cache).
     val outDir = buildInfoDir
@@ -58,6 +59,11 @@ kotlin {
         withHostTestBuilder {}
     }
 
+    // The desktop build (:desktop), on Java 21 with the world drawn through LWJGL.
+    jvm("desktop") {
+        compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21) }
+    }
+
     @OptIn(ExperimentalWasmDsl::class)
     wasmJs {
         outputModuleName = "apogee"
@@ -90,6 +96,11 @@ kotlin {
         getByName("androidHostTest").dependencies {
             implementation(libs.junit)
             implementation(libs.kotlinx.coroutines.test)
+        }
+        getByName("desktopMain").dependencies {
+            api(libs.lwjgl)
+            api(libs.lwjgl.opengl)
+            api(libs.lwjgl.glfw)
         }
         wasmJsMain.dependencies {
             implementation(libs.kotlinx.browser)

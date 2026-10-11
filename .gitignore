@@ -6,6 +6,8 @@
 build/
 !gradle/wrapper/gradle-wrapper.jar
 !src/**/build/
+# The desktop sound engine's builds for each platform (desktop/build.gradle.kts).
+desktop/native/build-*/
 
 # --- Local configuration (never committed) ----------------------------------
 # Holds this machine's SDK path.

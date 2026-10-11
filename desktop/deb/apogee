@@ -1,0 +1,15 @@
+#!/bin/sh
+# Apogee, from its Debian package: the app's jars on the system's Java, with the sound engine
+# beside them.
+#
+# The splash shows the icon from the moment Java starts until the window opens.
+# If the JVM crashes (in a driver, say) its report goes in the app's data folder, crashes/.
+crashes="${XDG_DATA_HOME:-$HOME/.local/share}/apogee/crashes"
+mkdir -p "$crashes"
+exec java \
+    -splash:/usr/lib/apogee/splash.png \
+    -XX:ErrorFile="$crashes/hs_err_%p.log" \
+    -Djava.library.path=/usr/lib/apogee/native \
+    --enable-native-access=ALL-UNNAMED \
+    -cp '/usr/lib/apogee/lib/*' \
+    com.rm.apogee.desktop.MainKt "$@"
