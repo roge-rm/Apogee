@@ -405,7 +405,7 @@ fun FlightScreen(
             }
         }
         if (hud.chatOpen) com.rm.apogee.ui.components.ChatWindow(hud, onSendChat, onKick)
-        if (hud.linkLost) LinkLost(hud.linkGone, onExit)
+        if (hud.linkLost) LinkLost(hud.linkGone, hud.hostMaybeGone, onExit)
 
         // Gone, so no controls, only what happened to it.
         hud.telemetry.destroyed?.let { report ->
@@ -880,14 +880,18 @@ private fun ConnectionProblem(message: String, onExit: () -> Unit, onPassword: (
 
 /** The link to the game has gone: trying to get back in, or given up, and a way out. */
 @Composable
-private fun LinkLost(gaveUp: Boolean, onExit: () -> Unit) {
+private fun LinkLost(gaveUp: Boolean, hostMaybeGone: Boolean, onExit: () -> Unit) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Surface(shape = RoundedCornerShape(Dimens.CornerPanel), color = Color.Black.alpha(ApogeeAlpha.SCRIM_HEAVY)) {
             Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text("Lost the game", style = MaterialTheme.typography.titleMedium, color = ApogeeColors.Caution)
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    if (gaveUp) "Couldn't get back in" else "Trying to get back in…",
+                    when {
+                        gaveUp -> "Couldn't get back in"
+                        hostMaybeGone -> "The host may have closed the game. Waiting for it to come back…"
+                        else -> "Trying to get back in…"
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = Color.White.alpha(ApogeeAlpha.BODY),
                 )

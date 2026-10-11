@@ -53,6 +53,17 @@ class GameSettings(private val prefs: Preferences) {
     /** Whether the Play screen is on the career world instead of the sandbox. */
     var careerMode: Boolean by booleanPref(KEY_CAREER_MODE, false)
 
+    /** Which world of each kind is played, by its file's base name (see WorldSlots). */
+    var sandboxWorld: String by stringPref(KEY_SANDBOX_WORLD, "solo")
+
+    /** Text bigger than the device's own size by this much, and signal colours told apart by colour blindness. */
+    var textScale: Float by floatPref(KEY_TEXT_SCALE, 1f, 1f..1.5f)
+    var colourBlind: Boolean by booleanPref(KEY_COLOUR_BLIND, false)
+
+    /** The welcome on first start has been seen. */
+    var welcomed: Boolean by booleanPref(KEY_WELCOMED, false)
+    var careerWorld: String by stringPref(KEY_CAREER_WORLD, "career")
+
     /** Lets the flight controls fade back when nothing has touched them for a few seconds. */
     var fadeWhenIdle: Boolean by booleanPref(KEY_FADE_IDLE, true)
 
@@ -266,6 +277,11 @@ class GameSettings(private val prefs: Preferences) {
         const val KEY_QUICK_CRAFT = "quick_craft"
         const val KEY_QUICK_SITE = "quick_site"
         const val KEY_HOST_SITE = "host_site"
+        const val KEY_SANDBOX_WORLD = "sandbox_world"
+        const val KEY_WELCOMED = "welcomed"
+        const val KEY_TEXT_SCALE = "text_scale"
+        const val KEY_COLOUR_BLIND = "colour_blind"
+        const val KEY_CAREER_WORLD = "career_world"
         const val KEY_HOST_WARP = "host_warp"
         const val KEY_WEATHER = "weather_intensity"
         const val KEY_CLOUDS = "cloud_cover"

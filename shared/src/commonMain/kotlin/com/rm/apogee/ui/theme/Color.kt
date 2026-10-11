@@ -1,5 +1,8 @@
 package com.rm.apogee.ui.theme
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
 
 /** Apogee's palette. Reference these, never copy them. */
@@ -18,19 +21,23 @@ object ApogeeColors {
 
     // --- flight signal colours ---------------------------------------------
     //
-    // The only colours that carry meaning, and never alone: an icon or label changes too.
+    // The only colours that carry meaning, and never alone: an icon or label changes too. With
+    // [colourBlind] they're from the Okabe-Ito set, told apart without red against green.
+
+    /** Signal colours told apart by most colour blindness. A setting; screens follow as it changes. */
+    var colourBlind by mutableStateOf(false)
 
     /** Prograde / nominal / go. */
-    val Prograde = Color(0xFF7CFFB2)
+    val Prograde get() = if (colourBlind) Color(0xFF7CC4FF) else Color(0xFF7CFFB2)
 
     /** Retrograde / inverted reference. */
-    val Retrograde = Color(0xFFFF9E80)
+    val Retrograde get() = if (colourBlind) Color(0xFFF0A330) else Color(0xFFFF9E80)
 
     /** Caution: low fuel, high dynamic pressure, getting near limits. */
-    val Caution = Color(0xFFFFD37F)
+    val Caution get() = if (colourBlind) Color(0xFFF0E442) else Color(0xFFFFD37F)
 
     /** Danger: overheating, structural failure, a collision about to happen. */
-    val Danger = Color(0xFFFF6B6B)
+    val Danger get() = if (colourBlind) Color(0xFFE8642A) else Color(0xFFFF6B6B)
 
     /** Number readouts and telemetry. */
     val Data = Color(0xFF7FD8FF)

@@ -740,6 +740,19 @@ class GameServer(
             return
         }
 
+        // The same player again: their old link is dead but not noticed yet (a dropped Wi-Fi link
+        // can take minutes to time out), so it goes, and they come back to their craft at once.
+        // Never the host's own.
+        val returning = hello.clientId.take(64)
+        for (old in sessions.filter { it !== session && it.clientId == returning && it.handshakeComplete }) {
+            if (old.isHost) {
+                session.send(ServerMessage.Rejected("You're already in this game"), Channel.CONTROL)
+                disconnect(session)
+                return
+            }
+            disconnect(old)
+        }
+
         session.playerName = uniqueName(session, hello.playerName.trim().take(32).ifBlank { "Pilot" })
         session.clientId = hello.clientId.take(64)
         if (session.clientId.isBlank()) {

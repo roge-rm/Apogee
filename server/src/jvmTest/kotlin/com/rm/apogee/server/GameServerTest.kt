@@ -350,6 +350,19 @@ class GameServerTest {
         pumpUntil(server, "lost") { client.lost }
     }
 
+    @Test
+    fun `a player back on a new link takes over from their old one at once`() = runTest {
+        val (server, host, guest) = twoPlayers()
+        pumpUntil(server, "the guest's craft") { guest.controlledVessel != null }
+        val craft = guest.controlledVessel!!
+        // The old link is never closed, as when Wi-Fi drops.
+        val back = joinClient(server, backgroundScope, "Guest")
+        pumpUntil(server, "back in") { back.controlledVessel != null }
+        assertEquals("their own craft", craft, back.controlledVessel)
+        assertEquals("not as a second player", 2, server.playerCount)
+        assertEquals("nor renamed", 1, host.latestSnapshot!!.players.count { it.name == "Guest" })
+    }
+
     /** Two players in, the host first. */
     private suspend fun kotlinx.coroutines.test.TestScope.twoPlayers(
         policy: WarpPolicy = WarpPolicy.TOGETHER,

@@ -268,6 +268,19 @@ private fun ControlsTab(settings: GameSettings, controllerName: String?, onContr
 
 @Composable
 private fun DisplayTab(settings: GameSettings, detectedTier: QualityTier?, canScaleRender: Boolean) {
+    SliderRow(
+        title = "Text size",
+        value = settings.textScale,
+        onValueChange = { settings.textScale = (kotlin.math.round(it * 20f) / 20f) },
+        valueLabel = "${(settings.textScale * 100).roundToInt()}%",
+        range = 1f..1.5f,
+    )
+    SwitchRow(
+        title = "Colour-blind colours",
+        checked = settings.colourBlind,
+        onCheckedChange = { settings.colourBlind = it },
+    )
+
     SectionHeading("Performance")
     Text(
         text = detectedTier?.let {

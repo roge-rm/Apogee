@@ -387,6 +387,9 @@ class HudState {
     var linkLost: Boolean by mutableStateOf(false)
     var linkGone: Boolean by mutableStateOf(false)
 
+    /** Trying to get back in a while: the host may have closed the game. */
+    var hostMaybeGone: Boolean by mutableStateOf(false)
+
     /** Turned away for a missing or wrong password, or sent out of the game after being in it. */
     var needsPassword: Boolean by mutableStateOf(false)
     var sentOut: Boolean by mutableStateOf(false)
@@ -433,6 +436,7 @@ class HudState {
         tutorial = null
         linkLost = false
         linkGone = false
+        hostMaybeGone = false
         needsPassword = false
         sentOut = false
         players = emptyList()

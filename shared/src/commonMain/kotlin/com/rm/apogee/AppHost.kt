@@ -73,6 +73,12 @@ interface AppHost {
     /** The time now, the short way the device shows it, for a save point. */
     fun timeNow(): String
 
+    /** A day and time, [epochMillis] since 1970, the short way the device shows it. */
+    fun dateTime(epochMillis: Long): String = ""
+
+    /** Sends a world's save somewhere: the share sheet, or a download. */
+    fun shareWorld(name: String, text: String) = shareCraft(name, text)
+
     /** Runs [block] on the main thread. */
     fun runOnMain(block: () -> Unit)
 

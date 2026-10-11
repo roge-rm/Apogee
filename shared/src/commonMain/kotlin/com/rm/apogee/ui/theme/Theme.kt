@@ -65,10 +65,19 @@ val TelemetryTextStyle = TextStyle(
 )
 
 @Composable
-fun ApogeeTheme(content: @Composable () -> Unit) {
-    MaterialTheme(
-        colorScheme = ApogeeColorScheme,
-        typography = ApogeeTypography,
-        content = content,
-    )
+fun ApogeeTheme(
+    /** Text bigger than the device's own setting by this much: 1 for as it is. */
+    textScale: Float = 1f,
+    content: @Composable () -> Unit,
+) {
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    androidx.compose.runtime.CompositionLocalProvider(
+        androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(density.density, density.fontScale * textScale),
+    ) {
+        MaterialTheme(
+            colorScheme = ApogeeColorScheme,
+            typography = ApogeeTypography,
+            content = content,
+        )
+    }
 }

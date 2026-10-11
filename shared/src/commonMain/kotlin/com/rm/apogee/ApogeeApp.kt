@@ -61,9 +61,18 @@ class ApogeeApp(private val host: AppHost) {
     private val craftStore: CraftStore get() = if (careerMode) careerCraft else sandboxCraft
     /** The two worlds on this device: the sandbox and the career. */
     private val worldFolder = host.folder("world")
-    private val sandboxStore = WorldStore(worldFolder, "solo.json")
-    private val careerStore = WorldStore(worldFolder, "career.json")
-    private val soloWorldStore: WorldStore get() = if (careerMode) careerStore else sandboxStore
+    /** Whether the first-start welcome has been seen, and the name typed into it. */
+    private var welcomed by mutableStateOf(true)
+    private var welcomeName by mutableStateOf("")
+
+    private val sandboxSlots = com.rm.apogee.core.world.WorldSlots(worldFolder, "solo")
+    private val careerSlots = com.rm.apogee.core.world.WorldSlots(worldFolder, "career")
+    private val worldSlots get() = if (careerMode) careerSlots else sandboxSlots
+
+    /** The world being played, of the kind chosen. */
+    private val currentSlot: com.rm.apogee.core.world.WorldSlots.Slot
+        get() = worldSlots.find(if (careerMode) settings.careerWorld else settings.sandboxWorld)
+    private val soloWorldStore: WorldStore get() = worldSlots.store(currentSlot)
 
     /** Whether the Play screen is on the career world, as the player last chose. */
     private var careerMode by mutableStateOf(false)
@@ -105,7 +114,8 @@ class ApogeeApp(private val host: AppHost) {
      * per world, kept on disk beside it.
      */
     private class SavePoint(val save: com.rm.apogee.core.world.WorldSave, val vessel: Long?, val at: String)
-    private val savePoints = HashMap<Boolean, SavePoint?>()
+    /** Each world's save point, by its slot id, once read. */
+    private val savePoints = HashMap<String, SavePoint?>()
 
     /** The world just before this launch, and what launched from where. Null if not a solo launch. */
     private class LaunchPoint(val save: com.rm.apogee.core.world.WorldSave, val design: CraftDesign?, val site: String?)
@@ -308,6 +318,12 @@ class ApogeeApp(private val host: AppHost) {
         sandboxCraft.seedStockDesigns(StockParts.catalog)
         serverName = "${settings.playerName}'s Game"
         detectedTier = settings.lastDetectedTier
+        // Someone who has played already has seen enough not to be welcomed.
+        if (!settings.welcomed && (sandboxSlots.list().any { it.lastSaved != 0L } || careerSlots.list().any { it.lastSaved != 0L } || settings.isTutorialDone("first-flight"))) {
+            settings.welcomed = true
+        }
+        welcomed = settings.welcomed
+        welcomeName = settings.playerName.takeIf { it != "Pilot" } ?: ""
 
         // As many sound voices as the device's tier can carry.
         com.rm.apogee.audio.AudioEngine.start(
@@ -324,7 +340,8 @@ class ApogeeApp(private val host: AppHost) {
     @Composable
     fun Content() {
             LaunchedEffect(Unit) { if (host.fullscreenMenus) host.fullscreen(true) }
-            ApogeeTheme {
+            com.rm.apogee.ui.theme.ApogeeColors.colourBlind = settings.colourBlind
+            ApogeeTheme(textScale = settings.textScale) {
                 // Back follows AppScreen.parent. Flight has no parent, so a stray gesture can't
                 // throw away a flight.
                 BackHandler(enabled = appScreen.parent != null) {
@@ -347,13 +364,42 @@ class ApogeeApp(private val host: AppHost) {
                 if (appScreen.needsWorldSurface && host.worldInputInCompose) WorldInputLayer(gestures)
 
                 when (appScreen) {
-                    AppScreen.MENU -> MainMenuScreen(::navigateTo, onQuit = if (host.canQuit) host::quit else null)
+                    AppScreen.MENU -> {
+                        MainMenuScreen(::navigateTo, onQuit = if (host.canQuit) host::quit else null)
+                        if (!welcomed) com.rm.apogee.ui.screens.WelcomeDialog(
+                            name = welcomeName,
+                            onName = { welcomeName = it },
+                            onFirstFlight = {
+                                endWelcome()
+                                if (careerMode) switchMode(false)
+                                com.rm.apogee.game.tutorial.Tutorials.all.first().let(::startTutorial)
+                            },
+                            onSandbox = { endWelcome(); switchMode(false); navigateTo(AppScreen.PLAY) },
+                            onCareer = { endWelcome(); switchMode(true); navigateTo(AppScreen.PLAY) },
+                        )
+                    }
                     AppScreen.PLAY -> PlayScreen(
                         ::navigateTo, settings.launchTime, { settings.launchTime = it },
                         career = careerMode,
                         onCareer = ::switchMode,
                         insight = careerState?.insight,
                         networked = host.networked,
+                        worldName = worldsShown.firstOrNull { it.id == currentSlot.id }?.name ?: currentSlot.name,
+                        onBack = ::goBack,
+                    )
+                    AppScreen.WORLDS -> com.rm.apogee.ui.screens.WorldsScreen(
+                        worlds = worldsShown,
+                        current = currentSlot.id,
+                        career = careerMode,
+                        actions = com.rm.apogee.ui.screens.WorldActions(
+                            onPlay = ::playWorld,
+                            onNew = { name -> playWorld(worldSlots.create(name)) },
+                            onRename = { slot, name -> worldSlots.rename(slot, name); refreshWorlds() },
+                            onDelete = ::deleteWorld,
+                            onExport = ::exportWorld,
+                            onImport = { host.pickSharedCraft() },
+                        ),
+                        whenSaved = { host.dateTime(it) },
                         onBack = ::goBack,
                     )
                     AppScreen.PROGRAM -> careerState?.let { state ->
@@ -665,6 +711,7 @@ class ApogeeApp(private val host: AppHost) {
         if (target == AppScreen.CREW) refreshCrew()
         if (target == AppScreen.QUICK_LAUNCH) refreshQuickLaunch()
         if (target == AppScreen.PLAY || target == AppScreen.PROGRAM) refreshProgram()
+        if (target == AppScreen.PLAY || target == AppScreen.WORLDS) refreshWorlds()
 
         // Discovery holds a multicast lock and a socket, so it only runs while the browser is up.
         if (target == AppScreen.JOIN_GAME) {
@@ -735,6 +782,69 @@ class ApogeeApp(private val host: AppHost) {
      * Opens a shared craft file ([text], or null if it couldn't be read): checked, saved under a
      * free name and opened in the builder. Unknown parts get it refused, with why.
      */
+    private fun endWelcome() {
+        settings.playerName = welcomeName.trim().ifBlank { "Pilot" }
+        serverName = "${settings.playerName}'s Game"
+        settings.welcomed = true
+        welcomed = true
+    }
+
+    /** The worlds of the kind being played, for the Play and Worlds screens. */
+    private var worldsShown by mutableStateOf(emptyList<com.rm.apogee.core.world.WorldSlots.Slot>())
+
+    private fun refreshWorlds() {
+        worldsShown = worldSlots.list()
+    }
+
+    /** Plays [slot] from now on: the world being played is saved and let go. */
+    private fun playWorld(slot: com.rm.apogee.core.world.WorldSlots.Slot) {
+        if (session != null) return
+        saveSoloWorld()
+        soloWorld = null
+        if (careerMode) settings.careerWorld = slot.id else settings.sandboxWorld = slot.id
+        refreshProgram()
+        refreshWorlds()
+    }
+
+    private fun deleteWorld(slot: com.rm.apogee.core.world.WorldSlots.Slot) {
+        if (session != null) return
+        val playing = slot.id == currentSlot.id
+        if (playing) soloWorld = null
+        worldSlots.delete(slot)
+        savePoints.remove(slot.id)
+        // Gone, so back to the first, which a delete only empties.
+        if (playing) playWorld(worldSlots.list().first()) else refreshWorlds()
+    }
+
+    /** Sends [slot]'s save, the world being played saved first. */
+    private fun exportWorld(slot: com.rm.apogee.core.world.WorldSlots.Slot) {
+        if (slot.id == currentSlot.id) saveSoloWorld()
+        val text = worldFolder.read(slot.file) ?: return host.toast("Nothing saved in ${slot.name} yet")
+        host.shareWorld(slot.name, text)
+    }
+
+    /**
+     * A file sent or opened from outside: a world's save becomes a new world of its kind, played
+     * from then on, and anything else is read as a craft.
+     */
+    fun importFile(text: String?) {
+        if (text != null && text.contains("\"universeTime\"")) importWorld(text) else importCraft(text)
+    }
+
+    private fun importWorld(text: String) {
+        if (session != null) return host.toast("Go back to the menu to open a world")
+        val save = runCatching { com.rm.apogee.core.world.WorldStore.decode(text) }.getOrElse {
+            return host.toast("That isn't a world Apogee can read")
+        }
+        val career = save.mode == com.rm.apogee.core.world.WorldSave.MODE_CAREER
+        if (career != careerMode) switchMode(career)
+        val slot = worldSlots.create(if (career) "Opened career" else "Opened world")
+        worldSlots.store(slot).save(save).onFailure { return host.toast("Couldn't keep that world: ${it.message}") }
+        playWorld(slot)
+        navigateTo(AppScreen.WORLDS)
+        host.toast("Opened as ${slot.name}")
+    }
+
     fun importCraft(text: String?) {
         // Not mid-flight.
         if (session != null) {
@@ -868,6 +978,7 @@ class ApogeeApp(private val host: AppHost) {
             val started = System.nanoTime()
             while ((System.nanoTime() - started) / 1_000_000L < REJOIN_MILLIS) {
                 kotlinx.coroutines.delay(REJOIN_EVERY_MILLIS)
+                if ((System.nanoTime() - started) / 1_000_000L > HOST_MAYBE_GONE_MILLIS) hudState.hostMaybeGone = true
                 if (appScreen != AppScreen.FLIGHT) return@launch
                 val back = GameSession.join(
                     frameBus = frameBus, perfHints = null, playerName = settings.playerName,
@@ -1546,6 +1657,7 @@ class ApogeeApp(private val host: AppHost) {
         careerMode = career
         settings.careerMode = career
         refreshProgram()
+        refreshWorlds()
     }
 
     /** The player's career in the open world, for the Play and Program screens. */
@@ -1565,18 +1677,19 @@ class ApogeeApp(private val host: AppHost) {
     private val saving = Any()
 
     /** This world's save point file, and the note with its craft and time. */
-    private fun savePointStore(): WorldStore = WorldStore(worldFolder, if (careerMode) "career-savepoint.json" else "solo-savepoint.json")
-    private fun savePointNote(): String = if (careerMode) "career-savepoint.txt" else "solo-savepoint.txt"
+    private fun savePointStore(): WorldStore = worldSlots.savePointStore(currentSlot)
+    private fun savePointNote(): String = worldSlots.savePointNote(currentSlot)
 
     /** This world's save point, read from disk the first time it's asked for. */
     private fun currentSavePoint(): SavePoint? {
-        if (savePoints.containsKey(careerMode)) return savePoints[careerMode]
+        val slot = currentSlot.id
+        if (savePoints.containsKey(slot)) return savePoints[slot]
         val point = runCatching {
             val save = savePointStore().load().getOrThrow()
             val note = (worldFolder.read(savePointNote()) ?: "").lines()
             SavePoint(save, note.getOrNull(0)?.toLongOrNull(), note.getOrNull(1) ?: "")
         }.getOrNull()
-        savePoints[careerMode] = point
+        savePoints[slot] = point
         return point
     }
 
@@ -1585,12 +1698,12 @@ class ApogeeApp(private val host: AppHost) {
         val running = session ?: return
         val world = soloWorld ?: return
         val vessel = running.controlledId
-        val career = careerMode
+        val slot = currentSlot.id
         running.betweenTicks {
             val save = world.save()
             val at = host.timeNow()
             host.runOnMain {
-                savePoints[career] = SavePoint(save, vessel, at)
+                savePoints[slot] = SavePoint(save, vessel, at)
                 hudState.banner = HudState.Banner("SAVE POINT", "Taken at $at", good = true, id = System.nanoTime())
             }
             scope.launch(kotlinx.coroutines.Dispatchers.Default) {
@@ -1995,7 +2108,10 @@ class ApogeeApp(private val host: AppHost) {
         const val BACKGROUND_REFRESH_MILLIS = 10_000L
 
         /** How long to keep trying to get back into a game after the link drops, and how often, in ms. */
-        const val REJOIN_MILLIS = 120_000L
+        const val REJOIN_MILLIS = 600_000L
+
+        /** After this long trying to get back in, it says the host may have left, in ms. */
+        const val HOST_MAYBE_GONE_MILLIS = 30_000L
 
         /** How long the craft picker waits for the host's craft before it stops saying so. */
         const val OFFER_WAIT_NANOS = 5_000_000_000L

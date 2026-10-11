@@ -10,6 +10,13 @@ import kotlinx.serialization.json.Json
  */
 class WorldStore(private val folder: Folder, private val name: String) {
 
+    companion object {
+        private val reader = Json { classDiscriminator = "type"; ignoreUnknownKeys = true }
+
+        /** A save's text, read as a world, or a failure saying why not. */
+        fun decode(text: String): WorldSave = reader.decodeFromString(text)
+    }
+
     private val format = Json {
         prettyPrint = true
         prettyPrintIndent = "  "

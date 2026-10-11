@@ -247,7 +247,7 @@ class MainActivity : ComponentActivity(), AppHost {
 
     /** The system's file picker, for a craft file someone sent. */
     private val openShared = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        uri?.let { app.importCraft(read(it)) }
+        uri?.let { app.importFile(read(it)) }
     }
 
     override fun pickSharedCraft() {
@@ -265,7 +265,7 @@ class MainActivity : ComponentActivity(), AppHost {
             Intent.ACTION_SEND -> IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)
             else -> null
         } ?: return
-        app.importCraft(read(uri))
+        app.importFile(read(uri))
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -283,6 +283,23 @@ class MainActivity : ComponentActivity(), AppHost {
     override fun timeNow(): String = java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT).format(java.util.Date())
 
     override fun runOnMain(block: () -> Unit) = runOnUiThread(block)
+
+    override fun dateTime(epochMillis: Long): String =
+        java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.MEDIUM, java.text.DateFormat.SHORT).format(java.util.Date(epochMillis))
+
+    override fun shareWorld(name: String, text: String) {
+        val folder = File(cacheDir, "shared").apply { mkdirs() }
+        val safe = name.map { if (it.isLetterOrDigit() || it == '-') it else '-' }.joinToString("").trim('-').ifBlank { "world" }
+        val file = File(folder, "$safe.apogee-world.json")
+        file.writeText(text)
+        val uri = FileProvider.getUriForFile(this, "$packageName.files", file)
+        val send = Intent(Intent.ACTION_SEND)
+            .setType("application/json")
+            .putExtra(Intent.EXTRA_STREAM, uri)
+            .putExtra(Intent.EXTRA_SUBJECT, "$name, an Apogee world")
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        startActivity(Intent.createChooser(send, "Send $name"))
+    }
 
     override fun hostingInBackground(title: String?, text: String) = HostingService.show(this, title, text)
 

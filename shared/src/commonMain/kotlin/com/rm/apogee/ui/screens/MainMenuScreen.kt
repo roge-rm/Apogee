@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
@@ -66,6 +67,8 @@ fun PlayScreen(
     insight: Int? = null,
     /** Whether games can be hosted and joined. A web page can't open sockets. */
     networked: Boolean = true,
+    /** The name of the world being played, of the kind chosen. */
+    worldName: String = "",
     onBack: () -> Unit = {},
 ) {
     var chosen by remember { mutableStateOf(launchTime) }
@@ -79,6 +82,7 @@ fun PlayScreen(
         // Career or sandbox: two separate worlds.
         PillRow(listOf("Career" to true, "Sandbox" to false), career, onCareer)
         Spacer(Modifier.height(20.dp))
+        ApogeeButton((if (career) "Career: " else "World: ") + worldName, { onNavigate(AppScreen.WORLDS) }, contentModifier)
         ApogeeButton("Tutorials", { onNavigate(AppScreen.TUTORIALS) }, contentModifier)
         if (career) {
             ApogeeButton(
@@ -151,6 +155,8 @@ internal fun <T> PillRow(options: List<Pair<String, T>>, selected: T, onSelect: 
             ) {
                 Text(
                     label,
+                    maxLines = 1,
+                    softWrap = false,
                     style = MaterialTheme.typography.labelLarge,
                     color = if (on) ApogeeColors.Surface else Color.White.alpha(ApogeeAlpha.BODY),
                 )
@@ -160,6 +166,7 @@ internal fun <T> PillRow(options: List<Pair<String, T>>, selected: T, onSelect: 
 }
 
 /** Launch now, or at the next dawn, noon, dusk or midnight at the pad. */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 internal fun LaunchTimeRow(selected: LaunchTime, modifier: Modifier, onSelect: (LaunchTime) -> Unit) {
     Column(modifier.padding(bottom = 10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -169,7 +176,10 @@ internal fun LaunchTimeRow(selected: LaunchTime, modifier: Modifier, onSelect: (
             color = Color.White.alpha(ApogeeAlpha.SUBTITLE),
         )
         Spacer(Modifier.height(6.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        androidx.compose.foundation.layout.FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
             for (option in LaunchTime.entries) {
                 val on = option == selected
                 Box(
@@ -182,6 +192,8 @@ internal fun LaunchTimeRow(selected: LaunchTime, modifier: Modifier, onSelect: (
                 ) {
                     Text(
                         option.label,
+                        maxLines = 1,
+                        softWrap = false,
                         style = MaterialTheme.typography.labelMedium,
                         color = if (on) ApogeeColors.Surface else Color.White.alpha(ApogeeAlpha.BODY),
                     )
@@ -189,4 +201,34 @@ internal fun LaunchTimeRow(selected: LaunchTime, modifier: Modifier, onSelect: (
             }
         }
     }
+}
+
+/** The first time Apogee starts: a name, and where to begin. */
+@Composable
+fun WelcomeDialog(
+    name: String,
+    onName: (String) -> Unit,
+    onFirstFlight: () -> Unit,
+    onSandbox: () -> Unit,
+    onCareer: () -> Unit,
+) {
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = {},
+        title = { Text("Welcome to Apogee") },
+        text = {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                androidx.compose.material3.OutlinedTextField(
+                    value = name,
+                    onValueChange = { onName(it.take(32)) },
+                    singleLine = true,
+                    label = { Text("Your name") },
+                )
+                Spacer(Modifier.height(16.dp))
+                ApogeeButton("First flight", onFirstFlight, Modifier.fillMaxWidth())
+                ApogeeButton("Sandbox", onSandbox, Modifier.fillMaxWidth())
+                ApogeeButton("Career", onCareer, Modifier.fillMaxWidth())
+            }
+        },
+        confirmButton = {},
+    )
 }

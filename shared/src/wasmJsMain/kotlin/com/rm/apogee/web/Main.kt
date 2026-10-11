@@ -109,6 +109,8 @@ private fun showToast(message: String): Unit = js("""{
 
 private fun shortTime(): String = js("new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })")
 
+private fun dateText(epochMillis: Double): String = js("new Date(epochMillis).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })")
+
 private fun fullscreenOn(on: Boolean): Unit = js("""{
     try {
         if (on && !document.fullscreenElement && matchMedia('(pointer: coarse)').matches) document.documentElement.requestFullscreen().catch(() => {});
@@ -236,7 +238,14 @@ private class WebHost(private val canvas: HTMLCanvasElement) : AppHost {
         download("$safe.apogee.json", text)
     }
 
-    override fun pickSharedCraft() = pickFile { text -> app.importCraft(text) }
+    override fun pickSharedCraft() = pickFile { text -> app.importFile(text) }
+
+    override fun dateTime(epochMillis: Long): String = dateText(epochMillis.toDouble())
+
+    override fun shareWorld(name: String, text: String) {
+        val safe = name.map { if (it.isLetterOrDigit() || it == '-') it else '-' }.joinToString("").trim('-').ifBlank { "world" }
+        download("$safe.apogee-world.json", text)
+    }
 
     override fun toast(message: String) = showToast(message)
 

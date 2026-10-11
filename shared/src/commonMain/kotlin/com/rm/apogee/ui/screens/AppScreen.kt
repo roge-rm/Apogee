@@ -30,6 +30,9 @@ enum class AppScreen {
     /** The guided flights. */
     TUTORIALS,
 
+    /** The worlds of the kind being played, and which one is. */
+    WORLDS,
+
     /** Which controller button does what. */
     CONTROLLER,
 
@@ -42,7 +45,7 @@ enum class AppScreen {
             MENU -> null
             PLAY, SETTINGS, ABOUT -> MENU
             HOST_GAME, JOIN_GAME -> PLAY
-            BUILDER, QUICK_LAUNCH, RESUME_FLIGHT, CREW, PROGRAM, TUTORIALS -> PLAY
+            BUILDER, QUICK_LAUNCH, RESUME_FLIGHT, CREW, PROGRAM, TUTORIALS, WORLDS -> PLAY
             CONTROLLER -> SETTINGS
             // Flight asks before leaving, so a stray back can't end a flight.
             FLIGHT -> null
