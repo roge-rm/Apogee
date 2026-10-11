@@ -1,5 +1,7 @@
 package com.rm.apogee.server
 
+import com.rm.apogee.core.craft.StockCraft
+
 import com.rm.apogee.core.craft.VesselId
 import com.rm.apogee.core.part.StockParts
 import com.rm.apogee.core.world.Command
@@ -55,15 +57,132 @@ class GameServerTest {
         terrainGeneration: Int = com.rm.apogee.core.terrain.TerrainField.GENERATION,
         systemHash: String = com.rm.apogee.core.orbit.SolarSystem.DEFAULT_HASH,
         stripe: Int = -1,
+        host: Boolean = false,
     ): GameClient {
         val link = LoopbackTransportPair()
-        server.accept(link.serverSide, scope)
+        server.accept(link.serverSide, scope, host = host)
         val client = GameClient(link.clientSide, name, catalogHash, clientId, terrainGeneration, systemHash, stripe)
         client.connect(scope)
         pumpUntil(server, "$name's handshake to resolve") {
             client.connected || client.rejectionReason != null
         }
         return client
+    }
+
+    @Test
+    fun `a player choosing their craft gets none handed out, is offered the host's, and flies what they pick`() = runTest {
+        val world = World.default(catalog)
+        val offer = listOf(StockCraft.starterRocket(catalog), StockCraft.sparrow(catalog))
+        val server = GameServer(world, ServerConfig(offeredCraft = { offer }, starterSite = "cape"))
+        val link = LoopbackTransportPair()
+        server.accept(link.serverSide, backgroundScope)
+        val client = GameClient(link.clientSide, "Guest", catalog.contentHash, "install-Guest", choosing = true)
+        client.connect(backgroundScope)
+        pumpUntil(server, "the offer") { client.connected && client.offered.size == offer.size }
+        assertEquals(offer.size, client.offeredCount)
+        assertEquals("cape", client.offeredSite)
+        assertEquals("no rocket handed out", null, client.controlledVessel)
+        assertTrue(world.vessels.none { it.owner == "install-Guest" })
+        // Their pick, a plane, goes where planes go.
+        client.send(com.rm.apogee.core.world.Command.SpawnCraft(client.offered[1], "airfield"))
+        pumpUntil(server, "the plane") { client.controlledVessel != null }
+        assertEquals("Sparrow", world.vessel(VesselId(client.controlledVessel!!))!!.design.name)
+        assertEquals("airfield", nearestSite(world.vessel(VesselId(client.controlledVessel!!))!!.body.position))
+    }
+
+    @Test
+    fun `in own time, a player far from everyone warps alone and comes back onto everyone's time`() = runTest {
+        val (server, host, guest) = twoPlayers(WarpPolicy.BUBBLES)
+        val world = server.world
+        // The guest's craft up in a high orbit, far from the host on the pad.
+        val craft = world.vessel(VesselId(guest.controlledVessel!!))!!
+        val mu = world.system.body("terra").gravitationalParameter
+        val orbit = com.rm.apogee.core.orbit.Orbit.circular(2_000_000.0, mu)
+        craft.body.position.setTo(orbit.position)
+        craft.body.linearVelocity.setTo(orbit.velocity)
+        craft.wake()
+        repeat(5) { server.stepOnce(); repeat(SETTLE_YIELDS) { yield() } }
+
+        guest.send(Command.SetWarp(1_000.0))
+        pumpUntil(server, "the guest ahead") { world.leadOf(craft) > 100.0 }
+        assertNull("nobody was asked", host.latestSnapshot?.vote)
+        assertEquals("the world itself at real time", 1.0, server.effectiveWarp(), 0.0)
+        pumpUntil(server, "the guest told they're ahead") { (guest.latestSnapshot?.vessels?.firstOrNull { it.vessel == craft.id.raw }?.lead ?: 0.0) > 100.0 }
+        assertTrue("and their view runs ahead", guest.viewLead > 100.0)
+
+        guest.send(Command.SetWarp(1.0))
+        pumpUntil(server, "back on everyone's time") { world.bubbles.isEmpty() }
+        assertEquals(0.0, world.leadOf(craft), 0.0)
+        assertTrue("still in orbit round Terra", craft.body.position.length > 1_900_000.0)
+    }
+
+    @Test
+    fun `in own time, near someone else it's asked of everyone`() = runTest {
+        val (server, host, guest) = twoPlayers(WarpPolicy.BUBBLES)
+        guest.send(Command.SetWarp(1_000.0))
+        pumpUntil(server, "the host asked") { host.latestSnapshot?.vote != null }
+        assertTrue("no bubble on the pad beside the host", server.world.bubbles.isEmpty())
+    }
+
+    /** A player whose link has stopped: says hello, then never takes another byte. */
+    private class StalledTransport(hello: com.rm.apogee.core.world.ClientMessage.Hello) : com.rm.apogee.net.Transport {
+        override val incoming = kotlinx.coroutines.flow.flow {
+            emit(com.rm.apogee.net.Packet(com.rm.apogee.net.Channel.CONTROL, com.rm.apogee.net.Codec.encode(hello)))
+            kotlinx.coroutines.awaitCancellation()
+        }
+        override suspend fun send(packet: com.rm.apogee.net.Packet) = kotlinx.coroutines.awaitCancellation()
+        override fun close() {}
+    }
+
+    @Test
+    fun `a player on a link that's stopped doesn't hold up the world for everyone else`() = runTest {
+        val world = World.default(catalog)
+        val server = GameServer(world, ServerConfig())
+        server.accept(
+            StalledTransport(com.rm.apogee.core.world.ClientMessage.Hello(
+                com.rm.apogee.core.world.Protocol.VERSION, catalog.contentHash, "Stuck", "install-Stuck",
+                terrainGeneration = com.rm.apogee.core.terrain.TerrainField.GENERATION,
+                systemHash = com.rm.apogee.core.orbit.SolarSystem.DEFAULT_HASH,
+            )),
+            backgroundScope,
+        )
+        val bob = joinClient(server, backgroundScope, "Bob")
+        pumpUntil(server, "Bob's craft") { bob.controlledVessel != null }
+        val before = world.tick
+        val seen = bob.latestSnapshot?.tick ?: 0L
+        repeat(120) { server.stepOnce(); repeat(SETTLE_YIELDS) { yield() } }
+        assertTrue("the world went on", world.tick >= before + 120)
+        pumpUntil(server, "Bob to keep getting snapshots") { (bob.latestSnapshot?.tick ?: 0L) > seen + 60 }
+    }
+
+    /** Which launch site [position] (Terra-centred) is nearest. */
+    private fun nearestSite(position: com.rm.apogee.core.math.Vec3): String {
+        val out = position.copy().normalizeInPlace()
+        return World.launchSites.filter { it.bodyId == "terra" }.maxBy { site ->
+            val up = com.rm.apogee.core.math.Vec3(
+                kotlin.math.cos(site.latitude) * kotlin.math.cos(site.longitude),
+                kotlin.math.sin(site.latitude),
+                kotlin.math.cos(site.latitude) * kotlin.math.sin(site.longitude),
+            )
+            out dot up
+        }.id
+    }
+
+    @Test
+    fun `a host picking a site starts there afresh, and joiners start there but keep their own craft`() = runTest {
+        val world = World.default(catalog)
+        val server = GameServer(world, ServerConfig(freshFlightFor = "install-Host", starterSite = "airfield"))
+        val host = joinClient(server, backgroundScope, "Host")
+        pumpUntil(server, "the host's craft") { host.controlledVessel != null }
+        val guest = joinClient(server, backgroundScope, "Guest")
+        pumpUntil(server, "the guest's craft") { guest.controlledVessel != null }
+        val guestCraft = guest.controlledVessel!!
+        assertEquals("airfield", nearestSite(world.vessel(VesselId(host.controlledVessel!!))!!.body.position))
+        assertEquals("airfield", nearestSite(world.vessel(VesselId(guestCraft))!!.body.position))
+        // The guest comes back to the same craft.
+        val again = joinClient(server, backgroundScope, "Guest")
+        pumpUntil(server, "the guest's craft again") { again.controlledVessel != null }
+        assertEquals(guestCraft, again.controlledVessel)
     }
 
     /**
@@ -128,30 +247,230 @@ class GameServerTest {
 
     /** Pause and warp belong to the solo player; once anyone else is on, time is everyone's. */
     @Test
-    fun `pause and warp only while alone`() = runTest {
+    fun `alone a player pauses and warps at once`() = runTest {
         val world = World.default(catalog)
         val server = GameServer(world, ServerConfig(allowWarp = true))
         val first = joinClient(server, backgroundScope, "Solo", clientId = "install-solo")
         pumpUntil(server, "a craft") { first.controlledVessel != null }
         first.send(Command.SetWarp(0.0))
-        pumpUntil(server, "the pause") { server.requestedWarp == 0.0 }
+        pumpUntil(server, "the pause") { server.paused }
         val paused = world.time
         repeat(10) { server.stepOnce(); repeat(SETTLE_YIELDS) { yield() } }
         assertEquals("paused, the clock stands still", paused, world.time, 0.0)
 
         first.send(Command.SetWarp(4.0))
-        pumpUntil(server, "the warp") { server.requestedWarp == 4.0 }
+        pumpUntil(server, "the warp") { server.requestedWarp == 4.0 && !server.paused }
         val before = world.time
         server.stepOnce()
         assertEquals("four steps a tick", before + 4.0 / 60.0, world.time, 1e-9)
 
+        // Someone arriving ends it.
         joinClient(server, backgroundScope, "Guest", clientId = "install-guest")
         repeat(3) { server.stepOnce(); repeat(SETTLE_YIELDS) { yield() } }
-        assertFalse("not with someone else here", server.warpAllowed)
-        assertEquals("and back to real time", 1.0, server.effectiveWarp(), 0.0)
-        first.send(Command.SetWarp(4.0))
-        repeat(3) { server.stepOnce(); repeat(SETTLE_YIELDS) { yield() } }
-        assertEquals("a request now is refused", 1.0, server.requestedWarp, 0.0)
+        assertEquals("back to real time", 1.0, server.requestedWarp, 0.0)
+    }
+
+    @Test
+    fun `held while out of sight, a game stands still and carries on as it was`() = runTest {
+        val world = World.default(catalog)
+        val server = GameServer(world, ServerConfig(allowWarp = true))
+        val solo = joinClient(server, backgroundScope, "Solo", host = true)
+        pumpUntil(server, "a craft") { solo.controlledVessel != null }
+        server.held = true
+        val at = world.time
+        repeat(30) { server.stepOnce(); repeat(SETTLE_YIELDS) { yield() } }
+        assertEquals("the clock stands still", at, world.time, 0.0)
+        server.held = false
+        repeat(30) { server.stepOnce(); repeat(SETTLE_YIELDS) { yield() } }
+        assertTrue("and goes on", world.time > at)
+        // The player's own pause isn't the hold's to undo.
+        solo.send(Command.SetWarp(0.0))
+        pumpUntil(server, "paused") { server.paused }
+        server.held = true
+        server.held = false
+        assertTrue(server.paused)
+    }
+
+    @Test
+    fun `two players of the same name are told apart`() = runTest {
+        val server = GameServer(World.default(catalog), ServerConfig())
+        joinClient(server, backgroundScope, "Pilot", clientId = "install-a")
+        joinClient(server, backgroundScope, "Pilot", clientId = "install-b")
+        pumpUntil(server, "both in") { server.playerCount == 2 }
+        assertNotNull(server.sessionNamed("Pilot"))
+        assertNotNull(server.sessionNamed("Pilot 2"))
+    }
+
+    @Test
+    fun `a game with a password lets in only those who have it`() = runTest {
+        val server = GameServer(World.default(catalog), ServerConfig(password = "luna"))
+        val host = joinClient(server, backgroundScope, "Host", host = true)
+        pumpUntil(server, "the host in, no password asked") { host.connected }
+        fun guest(password: String): GameClient {
+            val link = LoopbackTransportPair()
+            server.accept(link.serverSide, backgroundScope)
+            return GameClient(link.clientSide, "Guest", catalog.contentHash, "install-guest", password = password).also { it.connect(backgroundScope) }
+        }
+        val without = guest("")
+        pumpUntil(server, "turned away") { without.rejectionReason != null }
+        assertTrue(without.needsPassword)
+        val wrong = guest("terra")
+        pumpUntil(server, "turned away again") { wrong.rejectionReason != null }
+        assertTrue(wrong.needsPassword)
+        val right = guest("luna")
+        pumpUntil(server, "let in") { right.connected }
+    }
+
+    @Test
+    fun `the host can send a player out, and they stay out`() = runTest {
+        val (server, host, guest) = twoPlayers()
+        pumpUntil(server, "both listed") { host.latestSnapshot?.players?.size == 2 }
+        assertTrue("the host marked", host.latestSnapshot!!.players.single { it.name == "Host" }.host)
+        // A guest can't send anyone out.
+        guest.send(Command.Kick("install-Host"))
+        repeat(10) { server.stepOnce(); repeat(SETTLE_YIELDS) { yield() } }
+        assertEquals(2, server.playerCount)
+        host.send(Command.Kick("install-Guest"))
+        pumpUntil(server, "sent out") { guest.rejectionReason != null && server.playerCount == 1 }
+        val again = joinClient(server, backgroundScope, "Guest")
+        assertNotNull("and kept out", again.rejectionReason)
+    }
+
+    @Test
+    fun `a client whose link drops knows it's lost`() = runTest {
+        val server = GameServer(World.default(catalog), ServerConfig())
+        val link = LoopbackTransportPair()
+        val session = server.accept(link.serverSide, backgroundScope)
+        val client = GameClient(link.clientSide, "Guest", catalog.contentHash, "install-guest")
+        client.connect(backgroundScope)
+        pumpUntil(server, "in") { client.connected }
+        assertFalse(client.lost)
+        server.disconnect(session)
+        link.clientSide.close()
+        pumpUntil(server, "lost") { client.lost }
+    }
+
+    /** Two players in, the host first. */
+    private suspend fun kotlinx.coroutines.test.TestScope.twoPlayers(
+        policy: WarpPolicy = WarpPolicy.TOGETHER,
+        guestCraft: Boolean = true,
+    ): Triple<GameServer, GameClient, GameClient> {
+        val server = GameServer(World.default(catalog), ServerConfig(allowWarp = true, warp = policy))
+        val host = joinClient(server, backgroundScope, "Host", host = true)
+        pumpUntil(server, "the host's craft") { host.controlledVessel != null }
+        val guest = if (guestCraft) joinClient(server, backgroundScope, "Guest") else {
+            // With nothing to fly: away from the start.
+            val link = LoopbackTransportPair()
+            server.accept(link.serverSide, backgroundScope)
+            GameClient(link.clientSide, "Guest", catalog.contentHash, "install-Guest", choosing = true).also { it.connect(backgroundScope) }
+        }
+        pumpUntil(server, "the guest in") { guest.connected && server.playerCount == 2 }
+        return Triple(server, host, guest)
+    }
+
+    @Test
+    fun `with others in, warp waits until everyone allows`() = runTest {
+        val (server, host, guest) = twoPlayers()
+        host.send(Command.SetWarp(100.0))
+        pumpUntil(server, "the guest to be asked") { guest.latestSnapshot?.vote?.waiting?.contains("install-Guest") == true }
+        assertEquals("not yet", 1.0, server.requestedWarp, 0.0)
+        assertTrue("and told", guest.chatHistory().any { it.from.isEmpty() && "asks to warp" in it.text })
+        guest.send(Command.AnswerWarp(guest.latestSnapshot!!.vote!!.id, true))
+        pumpUntil(server, "the warp") { server.requestedWarp == 100.0 }
+        pumpUntil(server, "the vote gone") { guest.latestSnapshot?.vote == null }
+
+        // Anyone can stop it, without asking.
+        guest.send(Command.SetWarp(1.0))
+        pumpUntil(server, "stopped") { server.requestedWarp == 1.0 }
+        assertTrue(host.chatHistory().any { "stopped warp" in it.text })
+    }
+
+    @Test
+    fun `one no and there's no warp`() = runTest {
+        val (server, host, guest) = twoPlayers()
+        host.send(Command.WarpTo(1e6, "Luna arrival"))
+        pumpUntil(server, "the guest to be asked") { guest.latestSnapshot?.vote != null }
+        assertEquals("Luna arrival", guest.latestSnapshot!!.vote!!.label)
+        guest.send(Command.AnswerWarp(guest.latestSnapshot!!.vote!!.id, false))
+        pumpUntil(server, "the vote gone") { host.latestSnapshot?.vote == null }
+        repeat(10) { server.stepOnce(); repeat(SETTLE_YIELDS) { yield() } }
+        assertEquals(1.0, server.requestedWarp, 0.0)
+        assertTrue(host.chatHistory().any { "said no" in it.text })
+    }
+
+    @Test
+    fun `a player away counts as allowing after a moment`() = runTest {
+        val (server, host, _) = twoPlayers(guestCraft = false)
+        host.send(Command.SetWarp(100.0))
+        repeat(60) { server.stepOnce(); repeat(SETTLE_YIELDS) { yield() } }
+        assertEquals("not straight away", 1.0, server.requestedWarp, 0.0)
+        pumpUntil(server, "the warp, five seconds on") { server.requestedWarp == 100.0 }
+    }
+
+    @Test
+    fun `only the host pauses a shared game`() = runTest {
+        val (server, host, guest) = twoPlayers()
+        guest.send(Command.SetWarp(0.0))
+        repeat(10) { server.stepOnce(); repeat(SETTLE_YIELDS) { yield() } }
+        assertFalse("the guest can't", server.paused)
+        host.send(Command.SetWarp(0.0))
+        pumpUntil(server, "the host can") { server.paused }
+        assertEquals(0.0, server.effectiveWarp(), 0.0)
+        host.send(Command.SetWarp(1.0))
+        pumpUntil(server, "and carry on") { !server.paused }
+    }
+
+    @Test
+    fun `with the host's say, only the host warps, and at once`() = runTest {
+        val (server, host, guest) = twoPlayers(WarpPolicy.HOST)
+        guest.send(Command.SetWarp(100.0))
+        repeat(10) { server.stepOnce(); repeat(SETTLE_YIELDS) { yield() } }
+        assertEquals("the guest can't", 1.0, server.requestedWarp, 0.0)
+        assertNull(guest.latestSnapshot?.vote)
+        host.send(Command.SetWarp(100.0))
+        pumpUntil(server, "the host can, without asking") { server.requestedWarp == 100.0 }
+    }
+
+    @Test
+    fun `someone arriving or the asker leaving ends a vote`() = runTest {
+        val (server, host, guest) = twoPlayers()
+        host.send(Command.SetWarp(100.0))
+        pumpUntil(server, "asked") { guest.latestSnapshot?.vote != null }
+        joinClient(server, backgroundScope, "Third")
+        pumpUntil(server, "called off by the arrival") { guest.latestSnapshot?.vote == null }
+
+        guest.send(Command.SetWarp(100.0))
+        pumpUntil(server, "asked again") { host.latestSnapshot?.vote != null }
+        server.sessionNamed("Guest")?.let { server.disconnect(it) }
+        pumpUntil(server, "dropped with the asker") { host.latestSnapshot?.vote == null }
+    }
+
+    @Test
+    fun `with others in, craft standing on the ground let an agreed warp run at physics warp`() = runTest {
+        val (server, host, guest) = twoPlayers()
+        host.send(Command.SetWarp(100.0))
+        pumpUntil(server, "asked") { guest.latestSnapshot?.vote != null }
+        guest.send(Command.AnswerWarp(guest.latestSnapshot!!.vote!!.id, true))
+        pumpUntil(server, "agreed") { server.requestedWarp == 100.0 }
+        pumpUntil(server, "running") { server.effectiveWarp() > 1.0 }
+        assertEquals("", host.latestSnapshot?.heldBy)
+    }
+
+    @Test
+    fun `with others in, a craft in the air holds an agreed warp to real time`() = runTest {
+        val (server, host, guest) = twoPlayers()
+        host.send(Command.SetWarp(100.0))
+        pumpUntil(server, "asked") { guest.latestSnapshot?.vote != null }
+        guest.send(Command.AnswerWarp(guest.latestSnapshot!!.vote!!.id, true))
+        pumpUntil(server, "agreed") { server.requestedWarp == 100.0 }
+        // The guest lifts off, so their craft wants physics time.
+        val craft = server.world.vessel(VesselId(guest.controlledVessel!!))!!
+        craft.wake()
+        guest.send(Command.Stage(craft.id.raw))
+        guest.send(Command.SetThrottle(craft.id.raw, 1.0))
+        pumpUntil(server, "off the pad and held") { !server.world.resting(craft) && server.world.maxWarp() <= World.PHYSICS_WARP }
+        assertEquals(1.0, server.effectiveWarp(), 0.0)
+        pumpUntil(server, "and who for") { host.latestSnapshot?.heldBy == "Guest" }
     }
 
     @Test
@@ -475,11 +794,11 @@ class GameServerTest {
             endAltitude > startAltitude + 5.0,
         )
 
-        // Bob gets it without ever having asked.
-        assertNotNull(
-            "Bob should have motion for Alice's craft",
-            bob.vessel(aliceVessel)?.latest,
-        )
+        // Bob gets it without ever having asked, and sees it climb.
+        pumpUntil(server, "Bob to see Alice's craft climb") {
+            (bob.vessel(aliceVessel)?.latest?.position?.length ?: 0.0) > startAltitude + 5.0
+        }
+        assertTrue("and not asleep", bob.vessel(aliceVessel)?.latest?.asleep == false)
     }
 
     /** Out on EVA into another player's empty seat, so aboard and along for the ride. */
@@ -714,8 +1033,28 @@ class GameServerTest {
 
         alice.send(Command.Chat("hello from the pad"))
         pumpUntil(server, "the chat line to reach Bob") {
-            bob.chatHistory().any { it.contains("hello from the pad") }
+            bob.chatHistory().any { it.text == "hello from the pad" }
         }
+        val line = bob.chatHistory().last()
+        assertEquals("Alice", line.from)
+        assertEquals("in Alice's colour", com.rm.apogee.core.crew.Crew.stripeFor("install-Alice", null), line.stripe)
+        // A blank line isn't passed on.
+        alice.send(Command.Chat("   "))
+        repeat(20) { server.stepOnce(); repeat(SETTLE_YIELDS) { yield() } }
+        assertEquals(1L, bob.chatCount)
+    }
+
+    @Test
+    fun `each player's craft carry their name and colour`() = runTest {
+        val server = GameServer.default(catalog)
+        val alice = joinClient(server, backgroundScope, "Alice")
+        val bob = joinClient(server, backgroundScope, "Bob")
+        pumpUntil(server, "Bob to see Alice's craft") {
+            alice.controlledVessel?.let { bob.vessel(it) } != null
+        }
+        val hers = bob.vessel(alice.controlledVessel!!)!!
+        assertEquals("Alice", hers.ownerName)
+        assertEquals(com.rm.apogee.core.crew.Crew.stripeFor("install-Alice", null), hers.ownerStripe)
     }
 
     private companion object {

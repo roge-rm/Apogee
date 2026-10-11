@@ -284,6 +284,14 @@ class MainActivity : ComponentActivity(), AppHost {
 
     override fun runOnMain(block: () -> Unit) = runOnUiThread(block)
 
+    override fun hostingInBackground(title: String?, text: String) = HostingService.show(this, title, text)
+
+    override fun askForNotices() {
+        if (android.os.Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), NOTICE_REQUEST)
+    }
+
     // --- lifecycle -----------------------------------------------------------
 
     override fun onPause() {
@@ -356,6 +364,9 @@ class MainActivity : ComponentActivity(), AppHost {
     private companion object {
         /** The 60 fps budget, for the ADPF hint. */
         const val TARGET_FRAME_NANOS = 16_666_667L
+
+        /** The request code asking to show notices. */
+        const val NOTICE_REQUEST = 7
     }
 }
 

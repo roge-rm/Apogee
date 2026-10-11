@@ -39,6 +39,9 @@ interface Transport {
     /** Both ends are in this process, so messages go across unencoded. */
     val passesObjects: Boolean get() = false
 
+    /** Both ends are in this process, so a send never waits on a network. See [passesObjects]. */
+    val inProcess: Boolean get() = passesObjects
+
     suspend fun send(packet: Packet)
     fun close()
 }

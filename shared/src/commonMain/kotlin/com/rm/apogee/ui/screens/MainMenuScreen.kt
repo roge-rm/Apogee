@@ -131,10 +131,14 @@ fun PlayScreen(
     }
 }
 
-/** A row of pills to pick one from, the chosen one lit. */
+/** A row of pills to pick one from, the chosen one lit, going onto a second line if they don't fit. */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 internal fun <T> PillRow(options: List<Pair<String, T>>, selected: T, onSelect: (T) -> Unit) {
-    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+    androidx.compose.foundation.layout.FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
         for ((label, value) in options) {
             val on = value == selected
             Box(
@@ -157,7 +161,7 @@ internal fun <T> PillRow(options: List<Pair<String, T>>, selected: T, onSelect: 
 
 /** Launch now, or at the next dawn, noon, dusk or midnight at the pad. */
 @Composable
-private fun LaunchTimeRow(selected: LaunchTime, modifier: Modifier, onSelect: (LaunchTime) -> Unit) {
+internal fun LaunchTimeRow(selected: LaunchTime, modifier: Modifier, onSelect: (LaunchTime) -> Unit) {
     Column(modifier.padding(bottom = 10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
             "Launch at",

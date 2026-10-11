@@ -10,6 +10,8 @@ data class ServerBeacon(
     val players: Int,
     val protocolVersion: Int,
     val catalogHash: String,
+    /** It asks for a password. */
+    val locked: Boolean = false,
 ) {
     /** Filled in by the listener from where the packet came from. */
     @kotlinx.serialization.Transient

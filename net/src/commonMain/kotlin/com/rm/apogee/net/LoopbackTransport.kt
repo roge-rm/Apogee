@@ -30,6 +30,8 @@ class LoopbackTransportPair(
         private val incomingChannel: CoroutineChannel<Packet>,
         override val passesObjects: Boolean,
     ) : Transport {
+        override val inProcess: Boolean get() = true
+
 
         override val incoming: Flow<Packet> = incomingChannel.receiveAsFlow()
 

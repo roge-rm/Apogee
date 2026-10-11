@@ -724,12 +724,33 @@ class GlRenderer(
 
         val occluders = frame.occluders
         var meshes = 0
+        // Long segments are cut short, so one passing behind a world from one side of it to the
+        // other is hidden in the middle rather than drawn across it.
+        var shortest = Double.MAX_VALUE
+        var k = 3
+        while (k < occluders.size) { shortest = minOf(shortest, occluders[k]); k += 4 }
+        val step = if (shortest < Double.MAX_VALUE) shortest * LINE_STEP_SHARE else Double.MAX_VALUE
         frame.lines.forEach { line ->
-            val count = line.points.size
+            val points = line.points
+            linePoints.clear()
+            // At most so many points a line, whatever its length.
+            val most = (LINE_MOST_POINTS / maxOf(1, points.size)).coerceIn(1, LINE_MAX_PIECES)
+            for (i in points.indices) {
+                if (i > 0) {
+                    val a = points[i - 1]; val p = points[i]
+                    val pieces = (a.distanceTo(p) / step).toInt().coerceIn(1, most)
+                    for (j in 1 until pieces) {
+                        val t = j.toDouble() / pieces
+                        linePoints.add(Vec3(a.x + (p.x - a.x) * t, a.y + (p.y - a.y) * t, a.z + (p.z - a.z) * t))
+                    }
+                }
+                linePoints.add(points[i])
+            }
+            val count = linePoints.size
             val needed = count * 3
             if (lineScratch.size < needed) lineScratch = FloatArray(needed)
             if (lineHidden.size < count) lineHidden = BooleanArray(count)
-            line.points.forEachIndexed { i, point ->
+            linePoints.forEachIndexed { i, point ->
                 // Camera-relative, subtracted in double before narrowing.
                 lineScratch[i * 3] = (point.x - cameraPos.x).toFloat()
                 lineScratch[i * 3 + 1] = (point.y - cameraPos.y).toFloat()
@@ -758,6 +779,7 @@ class GlRenderer(
     }
 
     private var lineHidden = BooleanArray(0)
+    private val linePoints = ArrayList<Vec3>()
     private val lineColour = FloatArray(4)
 
     /**
@@ -1617,6 +1639,11 @@ class GlRenderer(
         /** Behind a world, a path is drawn this bright, in dashes this many segments long. */
         const val HIDDEN_ALPHA = 0.3f
         const val HIDDEN_DASH = 3
+
+        /** Path segments are cut to this share of the smallest hiding world's radius, in at most this many pieces. */
+        const val LINE_STEP_SHARE = 0.1
+        const val LINE_MAX_PIECES = 200
+        const val LINE_MOST_POINTS = 6_000
         const val THUMBS_PER_FRAME = 3
 
         /** The most the sea is carried on from when it was built, in seconds. */

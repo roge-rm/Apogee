@@ -35,7 +35,7 @@ class NetworkHost(val port: Int, val stop: () -> Unit)
  * Opens [server] to the network and announces it as [serverName], or null where there's no network
  * to open it to (a browser).
  */
-expect fun openToNetwork(server: GameServer, scope: CoroutineScope, serverName: String, catalogHash: String): NetworkHost?
+expect fun openToNetwork(server: GameServer, scope: CoroutineScope, serverName: String, catalogHash: String, locked: Boolean = false): NetworkHost?
 
 /** A connection to a game hosted at [host]:[port], or a failure (always, in a browser). */
 expect suspend fun connectTo(host: String, port: Int): Result<Transport>

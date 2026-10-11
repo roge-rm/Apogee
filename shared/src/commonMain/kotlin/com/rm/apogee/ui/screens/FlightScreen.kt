@@ -49,6 +49,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.boundsInParent
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.drawscope.rotate
@@ -121,7 +123,9 @@ fun FlightScreen(
     /** The worlds' names on the map, placed on a screen this wide and high. */
     mapLabels: (Float, Float) -> List<com.rm.apogee.game.GameSession.MapLabel> = { _, _ -> emptyList() },
     /** Warp to a mark on the map, by universe time. */
-    onWarpToMark: (Double) -> Unit = {},
+    onWarpToMark: (Double, String) -> Unit = { _, _ -> },
+    /** Allows or refuses someone's warp request, by its id. */
+    onWarpAnswer: (Int, Boolean) -> Unit = { _, _ -> },
     onToggleBrakes: () -> Unit,
     /** Arm the thrusters, or stand them down. */
     onToggleRcs: () -> Unit = {},
@@ -187,6 +191,12 @@ fun FlightScreen(
     onRemoveCraft: (Long) -> Unit = {},
     /** Take the craft being flown out of the world and go back to the menu. */
     onRetire: () -> Unit = {},
+    /** Says a line to everyone in the game. */
+    onSendChat: (String) -> Unit = {},
+    /** The host sends a player out of the game, by client id. */
+    onKick: (String) -> Unit = {},
+    /** Joins again with a password, after being turned away for one. */
+    onJoinWithPassword: (String) -> Unit = {},
     /** Planning burns, and the autopilots. */
     burnActions: com.rm.apogee.ui.components.BurnActions = com.rm.apogee.ui.components.BurnActions(),
     crewActions: com.rm.apogee.ui.components.CrewActions = com.rm.apogee.ui.components.CrewActions(),
@@ -214,15 +224,15 @@ fun FlightScreen(
         val statusActions = remember(crewActions, onUndock, onFound, onRefuel, onUnload, onRefine, onDockPilot) {
             StatusActions(crewActions, onUndock, onFound, onRefuel, onUnload, onRefine, onDockPilot)
         }
-        val promptActions = remember(onJoin, onFound, crewActions, onHook, onReleaseLine, onRightCraft, onTutorialKeep, onTutorials) {
+        val promptActions = remember(onJoin, onFound, crewActions, onHook, onReleaseLine, onRightCraft, onTutorialKeep, onTutorials, onWarpAnswer) {
             PromptActions(
                 onJoin, onFound, crewActions.onBoard, crewActions.onGrab, onHook, onReleaseLine, onRightCraft, crewActions.onClimbOut,
-                onTutorialKeep = onTutorialKeep, onTutorials = onTutorials,
+                onTutorialKeep = onTutorialKeep, onTutorials = onTutorials, onWarpAnswer = onWarpAnswer,
             )
         }
 
         if (hud.connectionError != null) {
-            ConnectionProblem(hud.connectionError!!, onExit)
+            ConnectionProblem(hud.connectionError!!, onExit, if (hud.needsPassword) onJoinWithPassword else null, sentOut = hud.sentOut)
             return@BoxWithConstraints
         }
         // The program, over the flight. In someone else's world it's the only way to see it.
@@ -258,9 +268,11 @@ fun FlightScreen(
 
         // --- fading when idle -----------------------------------------------
         //
-        // A few seconds untouched and the controls fade. A touch, a new warning or prompt, or the
+        // Five minutes untouched and the controls fade. A touch, a new warning or prompt, or the
         // engines running brings them back.
         var idle by remember { mutableStateOf(false) }
+        // Where the top right's strip and chips end, in px, so the prompts can clear them.
+        var rightBottom by remember { mutableStateOf(0f) }
         // Derived, so readouts changing ten times a second only recompose these, and the rest
         // hears only when a key changes.
         val statusKey by remember(hud) { derivedStateOf { statusKey(hud) } }
@@ -311,8 +323,9 @@ fun FlightScreen(
                 spacing = Dimens.HudGroupGap,
             ) {
                 FilledTonalIconButton(
-                    // Alone in your own world it opens a menu with save points. Otherwise it leaves.
-                    onClick = { if (hud.canRewind) hud.exitMenuOpen = true else onExit() },
+                    // The menu: save points alone in your own world, and always Leave, so one tap
+                    // doesn't end a game.
+                    onClick = { hud.exitMenuOpen = true },
                     modifier = Modifier.size(Dimens.HudIconSize),
                 ) {
                     Icon(Icons.Filled.Close, contentDescription = "Leave")
@@ -357,6 +370,7 @@ fun FlightScreen(
                         onExpand = { hud.warpPickerOpen = it },
                         onWarp = onWarp,
                         size = Dimens.HudIconSize,
+                        canPause = hud.canPause,
                     )
                 }
                 // The career's program: what to spend the insight you just earned on.
@@ -380,11 +394,18 @@ fun FlightScreen(
                     )
                 }
             }
+            // Chat that just came in, for a moment.
+            if (hud.multiplayer) {
+                Spacer(Modifier.height(8.dp))
+                com.rm.apogee.ui.components.ChatToasts(hud)
+            }
             if (showDebugOverlay) {
                 Spacer(Modifier.height(8.dp))
                 DebugOverlay(hud)
             }
         }
+        if (hud.chatOpen) com.rm.apogee.ui.components.ChatWindow(hud, onSendChat, onKick)
+        if (hud.linkLost) LinkLost(hud.linkGone, onExit)
 
         // Gone, so no controls, only what happened to it.
         hud.telemetry.destroyed?.let { report ->
@@ -411,11 +432,24 @@ fun FlightScreen(
         Column(
             modifier = Modifier
                 .align(Alignment.TopEnd)
+                .onGloballyPositioned { rightBottom = it.boundsInParent().bottom }
                 .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Horizontal))
                 .padding(horizontal = 12.dp, vertical = 6.dp)
-                .padding(top = if (portrait) Dimens.HudIconSize + 6.dp else 0.dp),
+                // The message button takes that row itself, level with the buttons on the left.
+                .padding(top = if (portrait && !hud.multiplayer) Dimens.HudIconSize + 6.dp else 0.dp),
             horizontalAlignment = Alignment.End,
         ) {
+            // In landscape the message button sits beside the strip; in portrait it's in the
+            // corner above it.
+            if (hud.multiplayer && portrait) {
+                com.rm.apogee.ui.components.ChatButton(hud, Dimens.HudIconSize, Modifier.alpha(alpha))
+                Spacer(Modifier.height(6.dp))
+            }
+            Row(verticalAlignment = Alignment.Top) {
+            if (hud.multiplayer && !portrait) {
+                com.rm.apogee.ui.components.ChatButton(hud, Dimens.HudIconSize, Modifier.alpha(alpha))
+                Spacer(Modifier.width(Dimens.HudGroupGap))
+            }
             FlightStrip(
                 hud.telemetry, hud.stripOpen, { hud.stripOpen = !hud.stripOpen },
                 twoColumns = !portrait, power = hud.power,
@@ -426,6 +460,7 @@ fun FlightScreen(
                 lift = hud.power?.lift ?: -1f,
                 perLine = if (portrait) PORTRAIT_STRIP_PER_LINE else LANDSCAPE_STRIP_PER_LINE,
             )
+            }
             Spacer(Modifier.height(6.dp))
             StatusRow(
                 hud, hud.chute, statusActions,
@@ -435,12 +470,15 @@ fun FlightScreen(
         }
 
         // --- top middle: whatever asks for something now ---------------------
+        // In portrait the open readouts reach across the top, so the prompts go below them.
+        val promptTop = if (portrait) PORTRAIT_PROMPT_TOP else LANDSCAPE_PROMPT_TOP
+        val belowReadouts = with(androidx.compose.ui.platform.LocalDensity.current) { rightBottom.toDp() } + 6.dp
         PromptSlot(
             hud, burnActions, promptActions,
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Horizontal))
-                .padding(top = if (portrait) PORTRAIT_PROMPT_TOP else LANDSCAPE_PROMPT_TOP, start = 12.dp, end = 12.dp),
+                .padding(top = if (portrait && hud.stripOpen) maxOf(promptTop, belowReadouts) else promptTop, start = 12.dp, end = 12.dp),
         )
 
         // --- the bottom corners: throttle and switches, stick, navball, stage -
@@ -637,7 +675,7 @@ private fun ExitMenu(hud: HudState, rewind: RewindActions, onExit: () -> Unit, o
                 if (hud.canRewind) MenuRow("Revert to launch", enabled = hud.canRevert) {
                     confirm = "revert"
                 }
-                MenuRow("Leave") { onClose(); onExit() }
+                MenuRow("Leave", if (hud.hosting) "Ends the game for everyone" else null) { onClose(); onExit() }
             }
         },
         confirmButton = { androidx.compose.material3.TextButton(onClick = onClose) { Text(hud.going.keep) } },
@@ -800,7 +838,8 @@ private fun DebugOverlay(hud: HudState, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun ConnectionProblem(message: String, onExit: () -> Unit) {
+private fun ConnectionProblem(message: String, onExit: () -> Unit, onPassword: ((String) -> Unit)? = null, sentOut: Boolean = false) {
+    var password by remember { mutableStateOf("") }
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Surface(
             shape = RoundedCornerShape(Dimens.CornerPanel),
@@ -811,7 +850,7 @@ private fun ConnectionProblem(message: String, onExit: () -> Unit) {
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text(
-                    "Could not join",
+                    if (sentOut) "Sent out of the game" else "Could not join",
                     style = MaterialTheme.typography.titleMedium,
                     color = ApogeeColors.Danger,
                 )
@@ -822,7 +861,38 @@ private fun ConnectionProblem(message: String, onExit: () -> Unit) {
                     color = Color.White.alpha(ApogeeAlpha.BODY),
                 )
                 Spacer(Modifier.height(16.dp))
+                if (onPassword != null) {
+                    androidx.compose.material3.OutlinedTextField(
+                        value = password,
+                        onValueChange = { password = it.take(32) },
+                        singleLine = true,
+                        placeholder = { Text("Password", color = Color.White.alpha(ApogeeAlpha.SUBTITLE)) },
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    ApogeeButton("Join", { onPassword(password) }, enabled = password.isNotEmpty())
+                    Spacer(Modifier.height(8.dp))
+                }
                 ApogeeButton("Back", onExit)
+            }
+        }
+    }
+}
+
+/** The link to the game has gone: trying to get back in, or given up, and a way out. */
+@Composable
+private fun LinkLost(gaveUp: Boolean, onExit: () -> Unit) {
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Surface(shape = RoundedCornerShape(Dimens.CornerPanel), color = Color.Black.alpha(ApogeeAlpha.SCRIM_HEAVY)) {
+            Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("Lost the game", style = MaterialTheme.typography.titleMedium, color = ApogeeColors.Caution)
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    if (gaveUp) "Couldn't get back in" else "Trying to get back in…",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.White.alpha(ApogeeAlpha.BODY),
+                )
+                Spacer(Modifier.height(16.dp))
+                ApogeeButton("Leave", onExit)
             }
         }
     }
@@ -931,7 +1001,7 @@ private fun CrashCard(
 
 /** The worlds' names next to their marks on the map, placed afresh ten times a second. */
 @Composable
-private fun MapNames(labels: (Float, Float) -> List<com.rm.apogee.game.GameSession.MapLabel>, onWarpTo: (Double) -> Unit) {
+private fun MapNames(labels: (Float, Float) -> List<com.rm.apogee.game.GameSession.MapLabel>, onWarpTo: (Double, String) -> Unit) {
     var size by remember { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
     var shown by remember { mutableStateOf(emptyList<com.rm.apogee.game.GameSession.MapLabel>()) }
     LaunchedEffect(size) {
@@ -944,7 +1014,20 @@ private fun MapNames(labels: (Float, Float) -> List<com.rm.apogee.game.GameSessi
     Box(Modifier.fillMaxSize().onSizeChanged { size = it }) {
         MapIcons(shown)
         for (label in shown) {
-            if (label.icon != null) continue
+            // Whose it is, beside another player's craft or base, in their colour.
+            if (label.icon != null) {
+                if (label.name.isNotEmpty()) Text(
+                    label.name,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = label.colour?.let { Color(it[0], it[1], it[2]) } ?: Color.White,
+                    maxLines = 1,
+                    modifier = Modifier
+                        .offset { androidx.compose.ui.unit.IntOffset(label.x.toInt() + 12, label.y.toInt() - 8) }
+                        .background(Color.Black.alpha(0.55f), RoundedCornerShape(4.dp))
+                        .padding(horizontal = 4.dp),
+                )
+                continue
+            }
             if (label.place) {
                 // A found place is just a dot, its name in the Program. One still to find is a ring.
                 val found = label.name != "?"
@@ -1031,7 +1114,7 @@ private val MAP_ICON = 14.dp
 
 /** A mark on the path: its tag, and picked, what it says and a warp to it. */
 @Composable
-private fun MarkTag(label: com.rm.apogee.game.GameSession.MapLabel, mark: com.rm.apogee.game.PathMark, onWarpTo: (Double) -> Unit) {
+private fun MarkTag(label: com.rm.apogee.game.GameSession.MapLabel, mark: com.rm.apogee.game.PathMark, onWarpTo: (Double, String) -> Unit) {
     val rgb = com.rm.apogee.game.GameSession.markColour(mark.kind)
     val colour = Color(rgb[0], rgb[1], rgb[2])
     val offset = Modifier.offset { androidx.compose.ui.unit.IntOffset(label.x.toInt() + 10, label.y.toInt() - 20) }
@@ -1060,7 +1143,7 @@ private fun MarkTag(label: com.rm.apogee.game.GameSession.MapLabel, mark: com.rm
                 modifier = Modifier
                     .clip(RoundedCornerShape(Dimens.CornerTight))
                     .background(Color.White.alpha(ApogeeAlpha.CONTROL_FILL))
-                    .clickable { onWarpTo(mark.time) }
+                    .clickable { onWarpTo(mark.time, markSays(label, mark)) }
                     .padding(horizontal = 10.dp, vertical = 7.dp),
             )
         }

@@ -129,6 +129,8 @@ class WorldSave(
     val lastFlown: Map<String, Long> = emptyMap(),
     /** Owner id to the stripe their crew wear. See [World.stripes]. */
     val stripes: Map<String, Int> = emptyMap(),
+    /** Craft warping ahead in bubbles of their own time. See [World.bubbles]. */
+    val bubbles: List<SavedBubble> = emptyList(),
     /** Owner id to the named places under the sea they've found. See [World.wondersFound]. */
     val wondersFound: Map<String, List<String>> = emptyMap(),
     /** What the weather is made from. Missing in older saves, and the server picks its default. */
@@ -186,3 +188,7 @@ data class SavedLine(
     val reel: Int = 0,
     val taut: Boolean = false,
 )
+
+/** A warp bubble as saved: whose, its own time, and its craft. See [World.Bubble]. */
+@kotlinx.serialization.Serializable
+data class SavedBubble(val owner: String, val time: Double, val vessels: List<Long>)

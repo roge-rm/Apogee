@@ -13,11 +13,13 @@ enum class Resolution(val label: String, val scale: Double) {
 }
 
 /**
- * Picks the resolution itself: full to start, a step down when the frame rate falls under
+ * Picks the resolution itself: from [start], a step down when the frame rate falls under
  * [DOWN_FPS], a step up when there's room. A step up that didn't hold waits a while to retry.
  */
-class AutoResolution {
-    private var step = 0
+class AutoResolution(start: Int = 0) {
+    /** Which of [STEPS] it's at. */
+    var step = start.coerceIn(STEPS.indices)
+        private set
     private var windowStart = 0L
     private var windowFrames = 0L
     private var settleUntil = 0L
@@ -27,15 +29,20 @@ class AutoResolution {
     /** The scale to draw at now. */
     val scale: Double get() = STEPS[step]
 
-    /** Starts over at full resolution, as for a new flight. */
+    /**
+     * Starts watching again, as for a new flight, at the step it had settled on. A slow device
+     * would otherwise spend its first seconds at full resolution finding its way back down.
+     */
     fun reset(now: Long) {
-        step = 0; windowStart = 0L; settleUntil = now + SETTLE_NANOS; upAgainAt = 0L; steppedUpAt = 0L
+        windowStart = 0L; settleUntil = now + SETTLE_NANOS; upAgainAt = 0L; steppedUpAt = 0L
     }
 
     /** Takes the frames drawn by [now] (nanoseconds) and steps if needed. True if the scale changed. */
     fun update(now: Long, framesDrawn: Long): Boolean {
         if (now < settleUntil) { windowStart = 0L; return false }
         if (windowStart == 0L) { windowStart = now; windowFrames = framesDrawn; return false }
+        // A new renderer counts its frames from nothing.
+        if (framesDrawn < windowFrames) { windowStart = now; windowFrames = framesDrawn; return false }
         if (now - windowStart < WINDOW_NANOS) return false
         val fps = (framesDrawn - windowFrames) * 1e9 / (now - windowStart)
         windowStart = now; windowFrames = framesDrawn

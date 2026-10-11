@@ -9,23 +9,33 @@ import java.io.File
 
 /**
  * The perf build's setup, for timing a phone I can't reach with adb. On first start it seeds the
- * scene from its assets as the free play world, with its player, and turns on the "debug-perf" log.
+ * scene from its assets as the free play world, its craft given to this install's player, and
+ * turns on the "debug-perf" log.
  * Each run copies every "ApogeePerf" line into a new Download/apogee-perf-<when>.txt, headed with
  * the phone's details, so the file can just be sent back.
  */
 object PerfKit {
     private const val SCENE = "perf-scene.json"
+    /** Who owns the craft in the scene's file, replaced with this install's own player. */
     private const val PLAYER = "a9e0c7d2-5f4b-4c1e-9b8a-perf00000001"
 
     fun start(context: Context) {
+        val prefs = context.getSharedPreferences("apogee.settings", Context.MODE_PRIVATE)
+        val world = File(context.filesDir, "world/solo.json")
+        // Each install is its own player, so two perf builds can join each other's games. The
+        // scene's craft are handed to it; a build that took the scene's player before gets its own.
+        var me = prefs.getString("client_id", null)
+        if (me == null || me == PLAYER) {
+            me = java.util.UUID.randomUUID().toString()
+            prefs.edit().putString("client_id", me).apply()
+            if (world.exists()) world.writeText(world.readText().replace(PLAYER, me))
+        }
         val seeded = File(context.filesDir, "perf-seeded")
         if (!seeded.exists()) {
-            File(context.filesDir, "world").mkdirs()
-            context.assets.open(SCENE).use { input -> File(context.filesDir, "world/solo.json").outputStream().use { input.copyTo(it) } }
-            context.getSharedPreferences("apogee.settings", Context.MODE_PRIVATE).edit()
-                .putString("client_id", PLAYER)
-                .putBoolean("career_mode", false)
-                .apply()
+            world.parentFile?.mkdirs()
+            val scene = context.assets.open(SCENE).use { it.readBytes().decodeToString() }
+            world.writeText(scene.replace(PLAYER, me))
+            prefs.edit().putBoolean("career_mode", false).apply()
             seeded.writeText("1")
         }
         File(context.filesDir, "debug-perf").writeText("1")

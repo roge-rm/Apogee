@@ -170,6 +170,9 @@ class ApogeeApp(private val host: AppHost) {
     private var manualAddress by mutableStateOf("")
     private var serverName by mutableStateOf("")
 
+    /** What joining a game hosted here asks for, or blank for anyone. */
+    private var hostPassword by mutableStateOf("")
+
     private var appScreen by mutableStateOf(AppScreen.MENU)
     private var detectedTier by mutableStateOf<QualityTier?>(null)
 
@@ -435,7 +438,8 @@ class ApogeeApp(private val host: AppHost) {
                         settings, pad, controllerName, onBack = ::goBack,
                     )
                     AppScreen.ABOUT -> AboutScreen(onBack = ::goBack)
-                    AppScreen.FLIGHT -> FlightScreen(
+                    AppScreen.FLIGHT -> {
+                    FlightScreen(
                         hud = hudState,
                         controlOpacity = settings.controlOpacity,
                         showDebugOverlay = settings.showDebugOverlay,
@@ -456,7 +460,8 @@ class ApogeeApp(private val host: AppHost) {
                         },
                         targetChoices = { session?.targetChoices() ?: emptyList() },
                         mapLabels = { w, h -> session?.mapLabels(w, h) ?: emptyList() },
-                        onWarpToMark = { time -> session?.let { s -> scope.launch { s.warpTo(time) } } },
+                        onWarpToMark = { time, label -> session?.let { s -> scope.launch { s.warpTo(time, label) } } },
+                        onWarpAnswer = { id, allow -> session?.let { s -> scope.launch { s.answerWarp(id, allow) } } },
                         onTarget = { id -> session?.let { s -> scope.launch { s.setTarget(id) } } },
                         onToggleBrakes = ::onToggleBrakes,
                         onToggleRcs = ::onToggleRcs,
@@ -541,7 +546,14 @@ class ApogeeApp(private val host: AppHost) {
                         onFlyCraft = { id -> session?.let { s -> scope.launch { s.flyCraft(id) } } },
                         onRemoveCraft = { id -> session?.let { s -> scope.launch { s.removeCraft(id) } } },
                         onRetire = ::onRetire,
+                        onSendChat = { text -> session?.let { s -> scope.launch { s.sendChat(text) } } },
+                        onKick = { id -> session?.let { s -> scope.launch { s.kick(id) } } },
+                        onJoinWithPassword = ::joinWithPassword,
                     )
+                    // Joined someone's game: what to fly, over the flight as it loads.
+                    // hudState's flags are state, so this shows once the welcome lands.
+                    session?.takeIf { it.choosingCraft && !hudState.connecting && hudState.connectionError == null }?.let { joined -> JoinCraft(joined) }
+                    }
                     AppScreen.BUILDER -> builderSession?.let { builder ->
                         // The Building tutorial looks at what's built a few times a second.
                         val run = tutorialRun
@@ -572,12 +584,31 @@ class ApogeeApp(private val host: AppHost) {
                         )
                     }
                     AppScreen.HOST_GAME -> HostGameScreen(
+                        playerName = settings.playerName,
+                        onPlayerNameChange = { name ->
+                            // The game's name follows until it's been given one of its own.
+                            if (serverName == "${settings.playerName}'s Game") serverName = "${name.take(32)}'s Game"
+                            settings.playerName = name.take(32)
+                        },
                         serverName = serverName,
                         onServerNameChange = { serverName = it },
+                        password = hostPassword,
+                        onPasswordChange = { hostPassword = it.take(32) },
                         career = careerMode,
                         onCareer = ::switchMode,
+                        site = settings.hostSite.ifBlank { null },
+                        onSite = { settings.hostSite = it ?: "" },
+                        launchTime = settings.launchTime,
+                        onLaunchTime = { settings.launchTime = it },
+                        warp = settings.hostWarp,
+                        onWarp = { settings.hostWarp = it },
                         onStartHosting = {
+                            // For the notice that it's still going while the app's out of sight.
+                            host.askForNotices()
+                            hostingSince = System.nanoTime()
                             pendingMode = SessionMode.Host(serverName.ifBlank { "Apogee Game" })
+                            // A career has no stock rocket to start on.
+                            pendingLaunchSite = if (careerMode) null else settings.hostSite.ifBlank { null }
                             navigateTo(AppScreen.FLIGHT)
                         },
                         onBack = ::goBack,
@@ -592,6 +623,8 @@ class ApogeeApp(private val host: AppHost) {
                         defaultPort = GameSession.DEFAULT_PORT,
                         onJoin = ::joinServer,
                         onJoinAddress = ::joinAddress,
+                        playerName = settings.playerName,
+                        onPlayerNameChange = { settings.playerName = it.take(32) },
                         onBack = ::goBack,
                     )
                 }
@@ -770,20 +803,26 @@ class ApogeeApp(private val host: AppHost) {
 
     /** Connects to a typed address. It's only remembered once it works, so a typo isn't kept. */
     private fun joinAddress(address: ServerAddress) {
-        connectTo(address.label(GameSession.DEFAULT_PORT), address.host, address.port) {
+        connectTo(address.label(GameSession.DEFAULT_PORT), address.host, address.port, onConnected = {
             settings.lastServerAddress = manualAddress.trim()
-        }
+        })
     }
+
+    /** The game last joined, to join again with a password or after the link drops. */
+    private class Joining(val label: String, val host: String, val port: Int, val password: String)
+    private var lastJoin: Joining? = null
 
     private fun connectTo(
         label: String,
         host: String,
         port: Int,
         onConnected: () -> Unit = {},
+        password: String = "",
     ) {
         if (connectingTo != null) return
         connectingTo = label
         joinError = null
+        lastJoin = Joining(label, host, port, password)
 
         scope.launch {
             val result = GameSession.join(
@@ -794,6 +833,7 @@ class ApogeeApp(private val host: AppHost) {
                 stripe = settings.suitStripe,
                 host = host,
                 port = port,
+                password = password,
             )
             connectingTo = null
             result
@@ -806,6 +846,147 @@ class ApogeeApp(private val host: AppHost) {
                     joinError = "Couldn't reach $label: ${it.message ?: "host unreachable"}"
                 }
         }
+    }
+
+    /** Joins the last game again with [password], from its "needs a password" box. */
+    private fun joinWithPassword(password: String) {
+        val last = lastJoin ?: return
+        navigateTo(AppScreen.JOIN_GAME)
+        connectTo(last.label, last.host, last.port, password = password)
+    }
+
+    private var rejoining: kotlinx.coroutines.Job? = null
+
+    /**
+     * The link to a joined game has gone: tries every few seconds to get back in, to the craft
+     * this player was flying, and gives up after [REJOIN_MILLIS].
+     */
+    private fun rejoin() {
+        val last = lastJoin ?: return
+        if (rejoining?.isActive == true) return
+        rejoining = scope.launch {
+            val started = System.nanoTime()
+            while ((System.nanoTime() - started) / 1_000_000L < REJOIN_MILLIS) {
+                kotlinx.coroutines.delay(REJOIN_EVERY_MILLIS)
+                if (appScreen != AppScreen.FLIGHT) return@launch
+                val back = GameSession.join(
+                    frameBus = frameBus, perfHints = null, playerName = settings.playerName,
+                    clientId = settings.clientId, stripe = settings.suitStripe,
+                    host = last.host, port = last.port, password = last.password, choosing = false,
+                ).getOrNull() ?: continue
+                leaveWorld()
+                pendingMode = SessionMode.Joined(back)
+                enterWorld(AppScreen.FLIGHT)
+                return@launch
+            }
+            hudState.linkGone = true
+        }
+    }
+
+    /** When the hosted game began, by [System.nanoTime]. */
+    private var hostingSince = 0L
+    private var backgroundHost: kotlinx.coroutines.Job? = null
+
+    /**
+     * Out of sight, a hosted game keeps going with a notice of who's in and for how long. With
+     * nobody else in it closes after [ALONE_MILLIS], time enough to tell someone it's up.
+     */
+    private fun hostInBackground(running: GameSession) {
+        backgroundHost?.cancel()
+        backgroundHost = scope.launch {
+            var aloneSince = 0L
+            while (true) {
+                val others = running.othersIn
+                val now = System.nanoTime()
+                if (others > 0) aloneSince = 0L else if (aloneSince == 0L) aloneSince = now
+                val name = serverName.ifBlank { "Apogee Game" }
+                val minutes = ((now - hostingSince) / 60_000_000_000L).coerceAtLeast(0L)
+                if (others > 0) {
+                    host.hostingInBackground("Hosting $name", "${if (others == 1) "1 player" else "$others players"} in · $minutes min")
+                } else {
+                    val left = ALONE_MILLIS - (now - aloneSince) / 1_000_000L
+                    if (left <= 0L) {
+                        // Nobody came: the game ends, saved, and the app's back at the menu.
+                        host.hostingInBackground(null)
+                        backgroundHost = null
+                        navigateTo(AppScreen.PLAY)
+                        return@launch
+                    }
+                    host.hostingInBackground("Hosting $name", "Nobody in · closes in ${(left + 59_999L) / 60_000L} min")
+                }
+                kotlinx.coroutines.delay(BACKGROUND_REFRESH_MILLIS)
+            }
+        }
+    }
+
+    private fun stopHostingInBackground() {
+        backgroundHost?.cancel()
+        backgroundHost = null
+        host.hostingInBackground(null)
+    }
+
+    /** The player's own craft and the host's others, for [JoinCraft]. */
+    private var joinEntries by mutableStateOf(emptyList<com.rm.apogee.game.CraftShelf.Entry>())
+    private var joinChosen by mutableStateOf<String?>(null)
+    private var joinLoading by mutableStateOf(true)
+
+    /**
+     * Picking what to fly in a joined game: the player's own craft, then those of the host's they
+     * don't have, which keep arriving for a moment after the welcome.
+     */
+    @Composable
+    private fun JoinCraft(joined: GameSession) {
+        LaunchedEffect(joined) {
+            joinEntries = emptyList()
+            joinLoading = true
+            val pickingSince = System.nanoTime()
+            val store = craftStore
+            val own = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                com.rm.apogee.game.CraftShelf.read(store.list(), store, StockParts.catalog, partThumbnails)
+            }
+            val theirs = ArrayList<com.rm.apogee.game.CraftShelf.Entry>()
+            var seen = 0
+            while (joined.choosingCraft) {
+                val offered = joined.offeredCraft
+                if (offered.size > seen) {
+                    val names = own.map { it.saved.name }.toSet()
+                    val fresh = offered.subList(seen, offered.size).withIndex().filter { it.value.name !in names }
+                    val start = seen
+                    theirs += kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                        fresh.map { (i, design) ->
+                            val saved = com.rm.apogee.core.craft.SavedCraft(design.name, "host-${start + i}", design.parts.size, 0L)
+                            com.rm.apogee.game.CraftShelf.entryOf(saved, design, StockParts.catalog, partThumbnails)
+                        }
+                    }
+                    seen = offered.size
+                }
+                if (joinEntries.size != own.size + theirs.size) {
+                    joinEntries = own + theirs
+                    if (joinChosen == null || joinEntries.none { it.saved.fileName == joinChosen }) {
+                        joinChosen = joinEntries.firstOrNull { it.saved.fileName == settings.quickCraft }?.saved?.fileName
+                            ?: joinEntries.firstOrNull()?.saved?.fileName
+                    }
+                }
+                // All of the host's craft may be ones this player has, adding nothing, so this is
+                // state of its own.
+                // Nothing offered at all (a career) sends no count, so a few seconds is enough.
+                joinLoading = (joined.offeredCount < 0 && System.nanoTime() - pickingSince < OFFER_WAIT_NANOS) ||
+                    (joined.offeredCount >= 0 && joined.offeredCraft.size < joined.offeredCount)
+                kotlinx.coroutines.delay(250)
+            }
+        }
+        com.rm.apogee.ui.screens.JoinCraftScreen(
+            entries = joinEntries,
+            pictures = partThumbnails.pictures,
+            chosen = joinChosen,
+            onChoose = { joinChosen = it },
+            craftHere = joined.craftHereName,
+            loading = joinLoading,
+            onFly = { entry -> scope.launch { joined.chooseCraft(entry.design) } },
+            onKeep = joined::keepCraft,
+            onLeave = { navigateTo(AppScreen.PLAY) },
+            onShow = { key -> joinEntries.firstOrNull { it.saved.fileName == key }?.let { partThumbnails.requestLargeCraft(it.design, StockParts.catalog) } },
+        )
     }
 
     // --- flight controls -----------------------------------------------------
@@ -1202,6 +1383,17 @@ class ApogeeApp(private val host: AppHost) {
                     clouds = settings.cloudCover,
                     // The chosen solo world. The others join it.
                     world = openSoloWorld(),
+                    siteId = pendingLaunchSite,
+                    launchTime = settings.launchTime,
+                    warp = settings.hostWarp,
+                    password = hostPassword.trim(),
+                    // The host's craft, for those joining to pick from. Read once, when the first joins.
+                    offeredCraft = run {
+                        val store = craftStore
+                        val offer by lazy { store.list().mapNotNull { store.load(it.fileName).getOrNull()?.withoutEmptyStages() } }
+                        val pick: (com.rm.apogee.core.part.PartCatalog) -> List<com.rm.apogee.core.craft.CraftDesign> = { offer }
+                        pick
+                    },
                 )
 
                 // Already connected, so a failure showed on the browser.
@@ -1444,6 +1636,7 @@ class ApogeeApp(private val host: AppHost) {
         if (session != null && !tutorialFlight) saveSoloWorld()
 
         session?.stop(); session = null
+        stopHostingInBackground()
         builderSession?.stop(); builderSession = null
         perfHints?.close(); perfHints = null
 
@@ -1472,7 +1665,9 @@ class ApogeeApp(private val host: AppHost) {
             com.rm.apogee.audio.AudioEngine.logging = host.debugSwitch("debug-sound")
         }
         if (!perfLogging) { perfSince = 0L; return }
-        if (perfSince == 0L) {
+        // A new renderer counts its frames from nothing, so the window starts again with it.
+        if (perfSince == 0L || perfRenderer !== glRenderer) {
+            perfRenderer = glRenderer
             perfSince = now; perfFrames = glRenderer.framesDrawn.get(); perfBuild = 0.0; perfSea = 0.0; perfSamples = 0
             return
         }
@@ -1499,9 +1694,30 @@ class ApogeeApp(private val host: AppHost) {
     private var perfLogging = false
     private var perfSince = 0L
     private var perfFrames = 0L
+    private var perfRenderer: com.rm.apogee.render.GlRenderer? = null
     private var perfBuild = 0.0
     private var perfSea = 0.0
     private var perfSamples = 0
+
+    private var chatSeen = 0L
+    private var chatFor: GameSession? = null
+
+    /** New chat lines into the HUD: the window's list, a moment under the buttons, and unread. */
+    private fun showChat(current: GameSession) {
+        if (chatFor !== current) {
+            chatFor = current; chatSeen = 0L
+            hudState.chatLines = emptyList(); hudState.chatToasts = emptyList(); hudState.chatUnread = 0
+        }
+        val count = current.chatCount
+        if (count == chatSeen) return
+        val lines = current.chatLines()
+        val fresh = lines.filter { it.id > chatSeen }
+        chatSeen = count
+        hudState.chatLines = lines
+        val now = System.nanoTime()
+        hudState.chatToasts = (hudState.chatToasts + fresh.map { com.rm.apogee.game.ChatToast(it, now) }).takeLast(com.rm.apogee.game.ChatToast.MOST)
+        if (!hudState.chatOpen) hudState.chatUnread += fresh.size
+    }
 
     private var telemetryShownNanos = 0L
     private var readoutsShownNanos = 0L
@@ -1526,7 +1742,7 @@ class ApogeeApp(private val host: AppHost) {
         }
     }
 
-    private val autoResolution = com.rm.apogee.render.AutoResolution()
+    private val autoResolution = com.rm.apogee.render.AutoResolution(settings.autoResolutionStep)
     private var renderScale = 1.0
     private var resolutionFor: GameSession? = null
 
@@ -1543,7 +1759,9 @@ class ApogeeApp(private val host: AppHost) {
             choice != com.rm.apogee.render.Resolution.AUTO -> choice.scale
             current == null -> 1.0
             else -> {
-                if (current.surfaceReady) autoResolution.update(now, glRenderer.framesDrawn.get())
+                if (current.surfaceReady && autoResolution.update(now, glRenderer.framesDrawn.get())) {
+                    settings.autoResolutionStep = autoResolution.step
+                }
                 autoResolution.scale
             }
         }
@@ -1589,6 +1807,14 @@ class ApogeeApp(private val host: AppHost) {
                     // Only when it changes, or the stack recomposes every frame.
                     if (hudState.stages !== current.stageCards) hudState.stages = current.stageCards
                     hudState.connecting = !current.connected && current.rejectionReason == null
+                    hudState.multiplayer = current.multiplayer
+                    hudState.hosting = current.hostingOthers
+                    hudState.isHost = current.isHost || current.hostingOthers
+                    current.players.let { if (it != hudState.players) hudState.players = it }
+                    hudState.needsPassword = current.needsPassword
+                    hudState.sentOut = current.sentOut
+                    if (current.lost && !hudState.linkLost) { hudState.linkLost = true; rejoin() }
+                    showChat(current)
                     hudState.surfaceReady = current.surfaceReady
                     hudState.connectionError = current.rejectionReason
                     hudState.canJoin = current.joinable
@@ -1677,9 +1903,18 @@ class ApogeeApp(private val host: AppHost) {
                         com.rm.apogee.audio.AudioEngine.busGains(gains)
                     }
                     current.clock?.let { clock ->
-                        hudState.warp = clock.warp
-                        hudState.warpRequested = clock.warpRequested
-                        hudState.warpAllowed = clock.warpAllowed
+                        // In a bubble of their own, it's the bubble's warp they see and set.
+                        val bubble = current.bubbleRate
+                        hudState.warp = if (bubble != null) current.viewWarp else clock.warp
+                        hudState.warpRequested = bubble ?: clock.warpRequested
+                        current.viewLead.let { if (kotlin.math.abs(it - hudState.aheadBy) > 0.5 || (it == 0.0) != (hudState.aheadBy == 0.0)) hudState.aheadBy = it }
+                        // With others in and the host's say over warp, only the host has the button.
+                        hudState.warpAllowed = clock.warpAllowed && (!clock.shared || !clock.warpHostOnly || current.isHost)
+                        hudState.warpShared = clock.shared
+                        hudState.canPause = clock.warpAllowed && (!clock.shared || current.isHost)
+                        if (hudState.warpVote != clock.vote) hudState.warpVote = clock.vote
+                        hudState.warpHeldBy = clock.heldBy
+                        hudState.clientId = current.clientId
                     }
                     // To a tenth, so it doesn't flicker.
                     current.worldRateNow.let { r ->
@@ -1687,7 +1922,7 @@ class ApogeeApp(private val host: AppHost) {
                         if (!(shown == hudState.warpActual || (shown.isNaN() && hudState.warpActual.isNaN()))) hudState.warpActual = shown
                     }
                     // Rewinding is only for your own world with nobody else in it, like warp.
-                    hudState.canRewind = flyingSolo && hudState.warpAllowed
+                    hudState.canRewind = flyingSolo && hudState.warpAllowed && !hudState.warpShared
                     hudState.savePoint = currentSavePoint()?.at
                     hudState.canRevert = launchPoint != null
                 }
@@ -1710,6 +1945,10 @@ class ApogeeApp(private val host: AppHost) {
      * backgrounded app and a closed tab is gone. In flight it's taken between ticks.
      */
     fun hidden() {
+        session?.let { running ->
+            running.hiddenFromView = true
+            if (running.hostingOthers) hostInBackground(running)
+        }
         if (tutorialFlight && session != null) return
         val world = soloWorld ?: return
         val running = session
@@ -1727,12 +1966,15 @@ class ApogeeApp(private val host: AppHost) {
 
     /** Back from the background. */
     fun resume() {
+        stopHostingInBackground()
+        session?.hiddenFromView = false
         com.rm.apogee.audio.AudioEngine.pause(false)
         // On a phone, full screen everywhere, menus too. The system bars come back with a swipe.
         if (host.fullscreenMenus || appScreen.needsWorldSurface) host.fullscreen(true)
     }
 
     fun destroy() {
+        stopHostingInBackground()
         serverBrowser.stop()
         leaveWorld()
         com.rm.apogee.audio.AudioEngine.stop()
@@ -1748,6 +1990,17 @@ class ApogeeApp(private val host: AppHost) {
     }
 
     private companion object {
+        /** How long a hosted game out of sight waits with nobody in before it closes, and how often its notice changes, in ms. */
+        const val ALONE_MILLIS = 5L * 60_000L
+        const val BACKGROUND_REFRESH_MILLIS = 10_000L
+
+        /** How long to keep trying to get back into a game after the link drops, and how often, in ms. */
+        const val REJOIN_MILLIS = 120_000L
+
+        /** How long the craft picker waits for the host's craft before it stops saying so. */
+        const val OFFER_WAIT_NANOS = 5_000_000_000L
+        const val REJOIN_EVERY_MILLIS = 3_000L
+
         /** How often the HUD's readouts change: ten times a second. */
         const val TELEMETRY_EVERY_NANOS = 100_000_000L
 

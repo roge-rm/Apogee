@@ -14,6 +14,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.filled.Anchor
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Upgrade
@@ -57,6 +58,8 @@ class PromptActions(
     /** A tutorial finished: keep flying, or back to the list. */
     val onTutorialKeep: () -> Unit = {},
     val onTutorials: () -> Unit = {},
+    /** Allows or refuses someone's warp request, by its id. */
+    val onWarpAnswer: (Int, Boolean) -> Unit = { _, _ -> },
 )
 
 /**
@@ -90,6 +93,14 @@ fun PromptSlot(
                 if (hud.banner?.id == banner.id) hud.banner = null
             }
             Banner(banner)
+        }
+        // Asked to warp, or waiting on the others; on the map too.
+        hud.warpVote?.let { WarpVotePrompt(it, hud.clientId, actions.onWarpAnswer) }
+        if (hud.aheadBy >= 1.0) {
+            Text("${com.rm.apogee.core.world.WarpWords.span(hud.aheadBy)} ahead of everyone", style = MaterialTheme.typography.labelSmall, color = ApogeeColors.Accent)
+        }
+        if (hud.warpHeldBy.isNotEmpty() && hud.warpRequested > 1.0) {
+            Text("Warp held for ${hud.warpHeldBy}", style = MaterialTheme.typography.labelSmall, color = ApogeeColors.Caution)
         }
         BurnPanel(
             hud.burn, hud.landing, hud.mapMode, hud.autopilotNote, burnActions,
@@ -143,6 +154,40 @@ private fun Banner(banner: HudState.Banner) {
 private const val BANNER_MS = 4_000L
 
 /** One prompt, solid so it reads against sky and ground. */
+/**
+ * Someone asking to warp: ALLOW or NO for those asked, with the time left. The one who asked
+ * sees who it's waiting on, and can call it off.
+ */
+@Composable
+private fun WarpVotePrompt(vote: com.rm.apogee.core.world.WarpVote, me: String, onAnswer: (Int, Boolean) -> Unit) {
+    val mine = vote.from == me
+    val what = if (vote.until.isNaN()) "${vote.rate.toLong()}x" else vote.label.ifBlank { "later" }
+    Column(
+        Modifier
+            .clip(RoundedCornerShape(Dimens.CornerPanel))
+            .background(Color.Black.alpha(0.6f))
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(
+            if (mine) "WAITING ON ${vote.waitingNames.joinToString().uppercase()}"
+            else "${vote.fromName.uppercase()} WANTS TO WARP TO ${what.uppercase()}",
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+            color = Color.White,
+        )
+        Text("${vote.secondsLeft.toInt()} s", style = MaterialTheme.typography.labelSmall, color = Color.White.alpha(ApogeeAlpha.SUBTITLE))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (mine) Prompt(Icons.Filled.Close, "CANCEL", ApogeeColors.Caution) { onAnswer(vote.id, false) }
+            else if (me in vote.waiting) {
+                Prompt(Icons.Filled.Check, "ALLOW", ApogeeColors.Prograde) { onAnswer(vote.id, true) }
+                Prompt(Icons.Filled.Close, "NO", ApogeeColors.Caution) { onAnswer(vote.id, false) }
+            }
+        }
+    }
+}
+
 @Composable
 private fun Prompt(icon: ImageVector, text: String, colour: Color, onTap: () -> Unit) {
     val ink = Color(0xFF0C1824)

@@ -4,6 +4,7 @@ import com.rm.apogee.core.world.PartEventKind
 import com.rm.apogee.core.math.Quat
 import com.rm.apogee.core.math.Vec3
 import com.rm.apogee.core.math.quatFromTo
+import com.rm.apogee.core.math.quatLookAt
 import com.rm.apogee.core.orbit.CelestialBody
 import com.rm.apogee.core.part.Exhaust
 import com.rm.apogee.core.part.ModelSpec
@@ -770,13 +771,15 @@ class Effects(tier: QualityTier) {
         girth: Double = size * 0.3,
         /** Unit, from the nose back along the body: what the collar hugs. Null for along the flow. */
         back: Vec3? = null,
+        /** The craft's parts, for vapour and glow that follow its shape. Empty for one shock on the nose. */
+        parts: List<AeroPart> = emptyList(),
     ) {
         val atmosphere = body.atmosphere ?: return
         val altitude = centre.length - body.radius
         val density = atmosphere.densityAt(altitude)
         if (density <= 0.0) return
         val speed = airVelocity.length
-        if (speed < 150.0) return
+        if (speed < AIR_SHOWS_FROM) return
         val flow = airVelocity.copy().mulInPlace(-1.0 / speed)
 
         // Vapour: a condensation shock cone, strongest right at Mach 1, and only where there's
@@ -798,6 +801,7 @@ class Effects(tier: QualityTier) {
                     key = RenderItem.effectKey(-1L - seed, 3),
                 ),
             )
+            wingVapour(parts, flow, vapour, seed, out)
         }
 
         // Re-entry glow: air heated to plasma. It's decided by the recovery temperature, v²/2cp, as
@@ -808,9 +812,10 @@ class Effects(tier: QualityTier) {
         val glow = smoothstep(GLOW_FROM, GLOW_FULL, recovery) * smoothstep(1e-6, 1e-4, density)
         if (glow > 0.02) {
             val flicker = 0.9 + 0.1 * Noise.simplex(seed + 3, time * 17.0, 0.0, 0.0)
+            if (parts.isNotEmpty()) sheaths(parts, flow, glow, flicker, seed, out)
             // Standing just off the nose, wrapping back round it.
             val ahead = nose.copy().addScaledInPlace(flow, girth * 0.4)
-            out.add(
+            if (parts.isEmpty()) out.add(
                 RenderItem(
                     BOW_SHOCK, ahead, quatFromTo(Vec3(0.0, 1.0, 0.0), flow.copy().mulInPlace(-1.0)),
                     floatArrayOf(1.0f, (0.45 + 0.35 * (1 - glow)).toFloat(), (0.2 * (1 - glow)).toFloat(), (0.75 * glow * flicker).toFloat()),
@@ -832,6 +837,101 @@ class Effects(tier: QualityTier) {
             }
         }
     }
+
+    /**
+     * A sheet of vapour over each wing and fin near Mach 1, where the air speeding over its top
+     * drops below its dew point. It sits on the side the air leaves from and flares back past the
+     * trailing edge.
+     */
+    private fun wingVapour(parts: List<AeroPart>, flow: Vec3, vapour: Double, seed: Int, out: MutableList<RenderItem>) {
+        var k = 0
+        for (part in parts) {
+            if (!part.wing || k >= MAX_SHEATHS) continue
+            // The top: the face the air moves away from.
+            val top = part.z.copy().let { if ((it dot flow) < 0.0) it.negateInPlace() else it }
+            val wide = part.longestAcross(flow)
+            val span = part.extent(wide)
+            val chord = part.extent(flow).coerceAtLeast(part.halves.y * 0.5)
+            if (span < MIN_SHEATH) continue
+            val at = part.centre.copy().addScaledInPlace(top, part.halves.z + chord * 0.15).addScaledInPlace(flow, chord * 0.3)
+            out.add(
+                RenderItem(
+                    VAPOUR_CONE, at, quatLookAt(wide.cross(flow), flow.copy().mulInPlace(-1.0)),
+                    floatArrayOf(0.95f, 0.97f, 1.0f, (0.4 * vapour).toFloat()),
+                    caps = 0, scale = Vec3(span * 1.05, chord * 2.2, maxOf(chord * 0.3, MIN_SHEATH)), ambient = 0.9f,
+                    key = RenderItem.effectKey(-1L - seed, 80 + k),
+                ),
+            )
+            k++
+        }
+    }
+
+    /**
+     * The glow wrapping a craft's own shape: a see-through sheath on each part, as wide and as deep
+     * as the part meets the air, so a wing edge-on glows along its leading edge and face-on across
+     * its whole underside. Each stands just off the part's face and streams back along the flow,
+     * longer and hotter as it heats. A part tucked in behind another glows less, the way its shield
+     * covers it. [flow] is the way the air moves past the craft, unit.
+     */
+    private fun sheaths(parts: List<AeroPart>, flow: Vec3, glow: Double, flicker: Double, seed: Int, out: MutableList<RenderItem>) {
+        val faces = ArrayList<Face>(parts.size)
+        var tail = -Double.MAX_VALUE
+        for (part in parts) {
+            val depth = part.extent(flow)
+            // Wide across its longest side as the air sees it, and narrow across the other.
+            val wide = part.longestAcross(flow)
+            val narrow = flow.cross(wide)
+            val face = Vec3().setTo(part.centre).addScaledInPlace(flow, -depth)
+            faces += Face(face, wide, part.extent(wide).coerceAtLeast(MIN_SHEATH), part.extent(narrow).coerceAtLeast(MIN_SHEATH))
+            // Where the craft ends downstream, so a stream runs past the whole of it.
+            tail = maxOf(tail, (part.centre dot flow) + depth)
+        }
+        // Upstream first, biggest first.
+        val order = faces.sortedBy { (it.at dot flow) - it.wide * 0.01 }.take(MAX_SHEATHS)
+        val lateral = Vec3()
+        order.forEachIndexed { k, face ->
+            // In the lee of a part further upstream that's big enough to cover it.
+            var shade = 1.0
+            for (j in 0 until k) {
+                val other = order[j]
+                lateral.setTo(face.at).subInPlace(other.at)
+                val down = lateral dot flow
+                if (down <= 0.0 || face.wide > other.wide * 1.1) continue
+                lateral.addScaledInPlace(flow, -down)
+                val across = (lateral dot other.across) / other.wide
+                val thin = (lateral dot flow.cross(other.across)) / other.narrow
+                if (across * across + thin * thin < 0.81) { shade = SHELTERED; break }
+            }
+            val heat = glow * shade
+            if (heat < 0.03) return@forEachIndexed
+            // Lathe +Y upstream and +X along the part's wide side.
+            val turn = quatLookAt(face.across.cross(flow), flow.copy().mulInPlace(-1.0))
+            val size = maxOf(face.wide, face.narrow)
+            val at = face.at.copy().addScaledInPlace(flow, -face.narrow * 0.15)
+            // The hot cap, short and bright, then the long orange stream behind.
+            out.add(
+                RenderItem(
+                    SHEATH, at, turn,
+                    floatArrayOf(1.0f, (0.75 + 0.2 * (1 - heat)).toFloat(), (0.45 * (1 - heat)).toFloat(), (0.5 * heat * flicker).toFloat()),
+                    caps = 0, scale = Vec3(face.wide * 1.15, size * (0.6 + 0.6 * heat), face.narrow * 1.15), ambient = EMISSIVE,
+                    key = RenderItem.effectKey(-1L - seed, 20 + 2 * k),
+                ),
+            )
+            // Past the end of the craft behind it, and on for a few widths as it heats.
+            val behind = (tail - (face.at dot flow)).coerceAtLeast(0.0)
+            out.add(
+                RenderItem(
+                    SHEATH, at, turn,
+                    floatArrayOf(1.0f, (0.4 + 0.25 * (1 - heat)).toFloat(), (0.12 * (1 - heat)).toFloat(), (0.3 * heat * flicker).toFloat()),
+                    caps = 0, scale = Vec3(face.wide * 1.35, behind + size * (1.0 + 4.0 * heat), face.narrow * 1.35), ambient = EMISSIVE,
+                    key = RenderItem.effectKey(-1L - seed, 21 + 2 * k),
+                ),
+            )
+        }
+    }
+
+    /** A part's face to the air: where it is, its wide way across (unit) and its half sizes both ways. */
+    private class Face(val at: Vec3, val across: Vec3, val wide: Double, val narrow: Double)
 
     // --- crashes -------------------------------------------------------------------
 
@@ -1285,6 +1385,29 @@ class Effects(tier: QualityTier) {
             segments = 14,
         )
 
+        /**
+         * A sheath of hot air round a part's face, +Y upstream: a round cap just ahead of it, flaring
+         * past its edge and streaming back to a point.
+         */
+        val SHEATH = ModelSpec.Lathe(
+            listOf(listOf(0.0, 0.25), listOf(0.6, 0.15), listOf(0.95, -0.1), listOf(1.0, -0.35), listOf(0.75, -0.6), listOf(0.35, -0.85), listOf(0.0, -1.0)),
+            segments = 14,
+        )
+
+        /** At most this many parts get a sheath, and a sheltered one glows this much. */
+        const val MAX_SHEATHS = 24
+
+        /** Airspeed in m/s below which the air shows nothing round a craft. */
+        const val AIR_SHOWS_FROM = 150.0
+
+        /** Whether the air at [speed] m/s shows round a craft's parts, as vapour near Mach 1 or as glow. */
+        fun showsShape(speed: Double): Boolean =
+            speed > AIR_SHOWS_FROM && (kotlin.math.abs(speed / SPEED_OF_SOUND - 1.0) < 0.25 || speed * speed / (2.0 * 1_005.0) > GLOW_FROM)
+        const val SHELTERED = 0.3
+
+        /** The thinnest a sheath gets, in metres, so a fin edge-on still shows a line of glow. */
+        const val MIN_SHEATH = 0.15
+
         /** The glowing cap of a re-entry shock, bulging forward. */
         val BOW_SHOCK = ModelSpec.Lathe(
             listOf(listOf(0.0, 0.6), listOf(0.55, 0.45), listOf(0.9, 0.1), listOf(1.05, -0.35), listOf(1.1, -0.8)),
@@ -1327,5 +1450,31 @@ class Effects(tier: QualityTier) {
             listOf(listOf(0.0, -1.0), listOf(0.6, -0.5), listOf(0.9, -0.1), listOf(0.85, 0.0)),
             segments = 10,
         )
+    }
+}
+
+/**
+ * A part as the air meets it, in the attractor frame: its middle, its own X, Y and Z (unit) and half
+ * its size along each. A [round] part is a cylinder about Y, with [halves] x as its radius. A [wing]
+ * is a flat plate: span along X, chord along Y and thin along Z.
+ */
+class AeroPart(val centre: Vec3, val x: Vec3, val y: Vec3, val z: Vec3, val halves: Vec3, val round: Boolean, val wing: Boolean = false) {
+    /** Half its size along [direction], unit. */
+    fun extent(direction: Vec3): Double {
+        val alongY = kotlin.math.abs(y dot direction)
+        if (round) return halves.y * alongY + halves.x * kotlin.math.sqrt((1.0 - alongY * alongY).coerceAtLeast(0.0))
+        return halves.x * kotlin.math.abs(x dot direction) + halves.y * alongY + halves.z * kotlin.math.abs(z dot direction)
+    }
+
+    /** Its longest side as seen down [flow], unit and square to it. */
+    fun longestAcross(flow: Vec3): Vec3 {
+        var best = Vec3(); var most = -1.0
+        for ((axis, half) in listOf(x to halves.x, y to halves.y, z to halves.z)) {
+            val side = axis.copy().addScaledInPlace(flow, -(axis dot flow))
+            val seen = side.length
+            if (seen < 0.1) continue
+            if (half * seen > most) { most = half * seen; best = side.mulInPlace(1.0 / seen) }
+        }
+        return best
     }
 }

@@ -49,6 +49,17 @@ class ServerConfig(
      * time. Free Flight in single player. Their bases elsewhere stay.
      */
     val freshFlight: Boolean = false,
+    /** The one player, by client id, who starts on a fresh [starterCraft] (the host picking a site). */
+    val freshFlightFor: String? = null,
+    /** Where [starterCraft] goes, by launch site id. Null for the first site, the Cape. */
+    val starterSite: String? = null,
+    /**
+     * The craft a joining player who's choosing ([ClientMessage.Hello.choosing]) can pick from,
+     * besides their own. Read on the server's own thread as each player joins.
+     */
+    val offeredCraft: (PartCatalog) -> List<CraftDesign> = { listOf(starterCraft(it)) },
+    /** Joining asks for this, or blank for anyone. */
+    val password: String = "",
     /** Put a joining player straight into this craft (Resume Flight). Ignored if it isn't theirs. */
     val resumeVessel: Long? = null,
     /** How many players at once, or 0 for no limit. */
@@ -57,9 +68,26 @@ class ServerConfig(
     val weatherIntensity: com.rm.apogee.core.weather.WeatherIntensity? = null,
     /** How cloudy it is, also overriding the world's own. Null keeps it. */
     val cloudCover: com.rm.apogee.core.weather.CloudCover? = null,
-    /** Whether a player can pause or warp: only the phone's own game, with one player on it. */
+    /** Whether a player can pause or warp at all. See [warp] for how, with others in. */
     val allowWarp: Boolean = false,
+    /** How players share warp, the host's choice. Without [allowWarp], none. */
+    val warp: WarpPolicy = if (allowWarp) WarpPolicy.TOGETHER else WarpPolicy.OFF,
 )
+
+/** How a game with more than one player in it warps. Alone, a player always can. */
+enum class WarpPolicy {
+    /** Anyone asks, and warps once everyone else agrees. */
+    TOGETHER,
+    /** Only the host warps. */
+    HOST,
+    /** Nobody warps or pauses. */
+    OFF,
+    /**
+     * Each player warps in a bubble of their own time, alone in their part of space, and rejoins
+     * everyone's time when they stop. Near someone else, it's asked of everyone as [TOGETHER].
+     */
+    BUBBLES,
+}
 
 /**
  * One connected player: what the server needs to talk to them and decide what they may do.
@@ -98,9 +126,76 @@ class PlayerSession internal constructor(
     @Volatile var connected: Boolean = true
         internal set
 
+    /** The host's own player, who can pause everyone. */
+    var isHost: Boolean = false
+        internal set
+
+    /** The server tick of this player's last command for their craft, for telling who's away. */
+    internal var lastInputTick: Long = 0L
+
+    /**
+     * Queues [message] for the writer. The tick never waits on a socket, so one player on a slow
+     * link can't hold up the world. Motion goes latest only, so a link that can't keep up skips
+     * stale snapshots instead of falling behind; everything else goes in order. Messages are
+     * encoded on the writer too. A loopback in the same process takes them straight.
+     */
     suspend fun send(message: ServerMessage, channel: Channel) {
         if (!connected) return
-        transport.send(if (transport.passesObjects) Packet(channel, NO_BYTES, message) else Packet(channel, Codec.encode(message)))
+        if (transport.passesObjects) {
+            transport.send(Packet(channel, NO_BYTES, message))
+            return
+        }
+        if (transport.inProcess) {
+            transport.send(Packet(channel, Codec.encode(message)))
+            return
+        }
+        if (channel == Channel.KINEMATICS) latestMotion = message else inOrder.trySend(channel to message)
+        wake.trySend(Unit)
+    }
+
+    private val inOrder = kotlinx.coroutines.channels.Channel<Pair<Channel, ServerMessage>>(kotlinx.coroutines.channels.Channel.UNLIMITED)
+    @Volatile private var latestMotion: ServerMessage? = null
+    private val wake = kotlinx.coroutines.channels.Channel<Unit>(kotlinx.coroutines.channels.Channel.CONFLATED)
+
+    /** Writes what [send] queued until the player goes. One per player, off the tick. */
+    internal fun startWriter(scope: CoroutineScope) {
+        if (transport.inProcess) return
+        writing = true
+        // On the scope's own dispatcher: the transport does its writing off it.
+        scope.launch {
+            try {
+                while (true) {
+                    wake.receive()
+                    while (true) {
+                        val next = inOrder.tryReceive()
+                        // Closed and empty: everything queued before the end has gone.
+                        if (next.isClosed) return@launch
+                        val (channel, message) = next.getOrNull() ?: break
+                        transport.send(Packet(channel, Codec.encode(message)))
+                    }
+                    latestMotion?.let { motion ->
+                        latestMotion = null
+                        if (connected) transport.send(Packet(Channel.KINEMATICS, Codec.encode(motion)))
+                    }
+                }
+            } finally {
+                if (closeWhenWritten) transport.close()
+            }
+        }
+    }
+
+    @Volatile private var writing = false
+    @Volatile private var closeWhenWritten = false
+
+    /**
+     * Ends the writer once what's queued has gone, so a rejection still reaches the player, and
+     * with [close], shuts the transport after it.
+     */
+    internal fun stopWriter(close: Boolean) {
+        closeWhenWritten = close
+        inOrder.close()
+        wake.trySend(Unit)
+        if (close && !writing) transport.close()
     }
 }
 
@@ -150,9 +245,11 @@ class GameServer(
      * Registers a transport and pumps its packets into the inbox. Reading runs on the caller's
      * scope, so a slow client can't stall the world.
      */
-    fun accept(transport: Transport, scope: CoroutineScope): PlayerSession {
+    fun accept(transport: Transport, scope: CoroutineScope, host: Boolean = false): PlayerSession {
         val session = PlayerSession(nextSessionId++, transport)
+        session.isHost = host
         sessions.add(session)
+        session.startWriter(scope)
 
         scope.launch(Dispatchers.Default) {
             try {
@@ -163,6 +260,7 @@ class GameServer(
                 }
             } finally {
                 session.connected = false
+                session.stopWriter(close = false)
             }
         }
         return session
@@ -170,7 +268,7 @@ class GameServer(
 
     fun disconnect(session: PlayerSession) {
         session.connected = false
-        session.transport.close()
+        session.stopWriter(close = true)
         sessions.remove(session)
     }
 
@@ -222,12 +320,15 @@ class GameServer(
      * that on rails, falling back to physics warp for what the rails won't take.
      */
     private fun advanceWorld() {
+        serverTick++
+        resolveVote()
         // Reached the warp's stop time, so back to real time.
         if (!world.warpUntil.isNaN() && world.time >= world.warpUntil - 1e-6) {
             world.warpUntil = Double.NaN
+            if (requestedWarp > 1.0 && playerCount > 1) notices += "Warp done"
             requestedWarp = 1.0
         }
-        world.hurried = warpAllowed && requestedWarp > World.PHYSICS_WARP
+        world.hurried = warpAllowed && !paused && requestedWarp > World.PHYSICS_WARP
         val rate = effectiveWarp()
         when {
             rate <= 0.0 -> Unit
@@ -237,21 +338,218 @@ class GameServer(
                 if (done < dt * rate) repeat(World.PHYSICS_WARP.toInt()) { world.step(dt) }
             }
         }
+        if (!paused && !held) advanceBubbles(dt)
     }
 
-    /** What the player asked for: 1 is real time, and 0 is paused. */
+    /** The warp asked for and agreed: 1 is real time. See [paused]. */
     @Volatile
     var requestedWarp: Double = 1.0
         private set
 
-    /** Warp is only for a server that allows it, with one player on it. */
-    val warpAllowed: Boolean get() = config.allowWarp && playerCount <= 1
+    /** Paused, by the one player alone or by the host. */
+    @Volatile
+    var paused: Boolean = false
+        private set
+
+    /** Held still while the phone's own game is out of sight, apart from any pause of the player's. */
+    @Volatile
+    var held: Boolean = false
+
+    /** Whether this server warps at all. Who may is [mayWarp]. */
+    val warpAllowed: Boolean get() = config.warp != WarpPolicy.OFF
+
+    /** Whether [session] may speed the world up, alone or as the host chose. */
+    private fun mayWarp(session: PlayerSession): Boolean = when (config.warp) {
+        WarpPolicy.OFF -> false
+        WarpPolicy.HOST -> session.isHost || playerCount <= 1
+        WarpPolicy.TOGETHER, WarpPolicy.BUBBLES -> true
+    }
+
+    /** Whether [session] may pause everyone: the one player alone, or the host. */
+    private fun mayPause(session: PlayerSession): Boolean = warpAllowed && (playerCount <= 1 || session.isHost)
 
     /** The rate the world actually runs at. */
     fun effectiveWarp(): Double {
+        if (held) return 0.0
         if (!warpAllowed) return 1.0
-        if (requestedWarp <= 0.0) return 0.0
-        return minOf(requestedWarp, world.maxWarp())
+        if (paused) return 0.0
+        if (requestedWarp <= 1.0) return requestedWarp.coerceAtLeast(1.0)
+        val limit = world.maxWarp()
+        // With others in, anyone flying (thrusting, landing, in the air) holds an agreed warp to
+        // real time, not physics warp, so it's never sped up on them. Standing on the ground is
+        // no danger.
+        if (playerCount > 1 && limit <= World.PHYSICS_WARP && world.movingWarpLimiter() != null) return 1.0
+        return minOf(requestedWarp, limit)
+    }
+
+    /** Server ticks, paused or not, for the vote's timing. */
+    private var serverTick = 0L
+
+    /** How long a player away has before they count as allowing, how long it takes to be away, and how long a vote lasts. */
+    private val AUTO_ALLOW_TICKS get() = 5L * config.tickHz
+    private val IDLE_TICKS get() = 60L * config.tickHz
+    private val VOTE_TICKS get() = 30L * config.tickHz
+
+    /** Lines to tell everyone, from the tick: who asked, who stopped it. Sent with the snapshot. */
+    private val notices = ArrayList<String>()
+
+    /** A warp asked for, waiting on everyone else. */
+    private class Pending(
+        val id: Int, val from: PlayerSession, val rate: Double, val until: Double, val label: String,
+        val at: Long, val allowed: MutableSet<Int> = HashSet(),
+    )
+    private var pending: Pending? = null
+    private var nextVoteId = 1
+
+    /** A warp to [rate] (until [until], or NaN), from [session]: at once if it may be, else asked of everyone. */
+    private fun askWarp(session: PlayerSession, rate: Double, until: Double, label: String) {
+        val wanted = rate.coerceIn(1.0, World.WARP_RATES.last())
+        // Slower is always safe, and alone or as the host given it, nobody's asked.
+        val now = wanted <= requestedWarp || playerCount <= 1 || (config.warp == WarpPolicy.HOST && session.isHost)
+        if (now) {
+            if (playerCount > 1 && wanted > requestedWarp) notices += "${session.playerName} is warping${aboutWarp(wanted, until, label)}"
+            setWarp(wanted, until)
+            pending = null
+            return
+        }
+        if (config.warp != WarpPolicy.TOGETHER && config.warp != WarpPolicy.BUBBLES) return
+        pending = Pending(nextVoteId++, session, wanted, until, label, serverTick).also { it.allowed += session.id }
+        notices += "${session.playerName} asks to warp${aboutWarp(wanted, until, label)}"
+    }
+
+    private fun setWarp(rate: Double, until: Double) {
+        requestedWarp = rate
+        world.warpUntil = if (until > world.time) until else Double.NaN
+    }
+
+    /** " to Luna arrival (2 d)" or " 1000x", for the notices. */
+    private fun aboutWarp(rate: Double, until: Double, label: String): String =
+        if (!until.isNaN()) " to ${label.ifBlank { "later" }} (${com.rm.apogee.core.world.WarpWords.span(until - world.time)})"
+        else " ${rate.toLong()}x"
+
+    /** The players still to answer [vote]: everyone in but the asker who hasn't allowed, and isn't away. */
+    private fun waitingOn(vote: Pending): List<PlayerSession> = sessions.filter { s ->
+        s.connected && s.handshakeComplete && s.id !in vote.allowed &&
+            !(serverTick - vote.at >= AUTO_ALLOW_TICKS && away(s))
+    }
+
+    /** Whether [session] is away: nothing to fly, parked, or not touched the controls in a while. */
+    private fun away(session: PlayerSession): Boolean {
+        val craft = session.controlledVessel?.let { world.vessel(it) } ?: return true
+        return craft.dormant || craft.anchored || serverTick - session.lastInputTick >= IDLE_TICKS
+    }
+
+    /** Starts the warp once everyone's agreed, or lets it lapse. */
+    private fun resolveVote() {
+        val vote = pending ?: return
+        if (!vote.from.connected) { pending = null; return }
+        val waiting = waitingOn(vote)
+        if (waiting.isEmpty()) {
+            pending = null
+            setWarp(vote.rate, vote.until)
+            notices += "Warping${aboutWarp(vote.rate, vote.until, vote.label)}"
+        } else if (serverTick - vote.at >= VOTE_TICKS) {
+            pending = null
+            notices += "No answer from ${waiting.joinToString { it.playerName }}, so no warp"
+        }
+    }
+
+    private fun answerWarp(session: PlayerSession, command: Command.AnswerWarp) {
+        val vote = pending ?: return
+        if (vote.id != command.request) return
+        if (command.allow) vote.allowed += session.id
+        else {
+            pending = null
+            notices += "${session.playerName} said no to warp"
+        }
+    }
+
+    /**
+     * The bubble [session]'s warp goes in: theirs already, or a new one if this game warps in
+     * bubbles, others are in, and nobody else's craft is near. Null to warp the whole world.
+     */
+    private fun bubbleFor(session: PlayerSession): World.Bubble? {
+        val craft = session.controlledVessel?.let { world.vessel(it) } ?: return null
+        world.bubbles[craft.id.raw]?.let { return it }
+        if (config.warp != WarpPolicy.BUBBLES || playerCount <= 1 || paused) return null
+        if (othersNear(session, craft)) return null
+        return world.openBubble(world.hitchedGroup(craft), session.clientId)
+    }
+
+    /**
+     * Whether everything near [vessel] is in the same time as it, so it can board, hook, join or
+     * refuel from them. Out of one bubble, or near a craft in one, the two aren't really there
+     * together. Away from every bubble it's always true.
+     */
+    private fun sameTimeAround(vessel: Long): Boolean {
+        if (world.bubbles.isEmpty()) return true
+        val craft = world.vessel(VesselId(vessel)) ?: return true
+        val mine = world.bubbles[vessel]
+        return world.vessels.none { other ->
+            other !== craft && world.bubbles[other.id.raw] !== mine &&
+                other.referenceBodyId == craft.referenceBodyId &&
+                other.body.position.distanceTo(craft.body.position) < SAME_TIME_REACH
+        }
+    }
+
+    /** Whether another player's craft is in [craft]'s part of space: round the same world, and near. */
+    private fun othersNear(session: PlayerSession, craft: com.rm.apogee.core.craft.Vessel): Boolean =
+        world.vessels.any { other ->
+            other.owner.isNotBlank() && other.owner != session.clientId && other.owner != World.WORLD_OWNER &&
+                other.referenceBodyId == craft.referenceBodyId &&
+                other.body.position.distanceTo(craft.body.position) < BUBBLE_NEAR
+        }
+
+    /** [session] warping their own bubble: at [rate], to [until] in its own time, or with rate 0, waiting. */
+    private fun warpBubble(session: PlayerSession, rate: Double, until: Double, label: String) {
+        val craft = session.controlledVessel?.let { world.vessel(it) } ?: return
+        val bubble = world.bubbles[craft.id.raw] ?: return
+        if (rate <= 0.0 && mayPause(session) && playerCount <= 1) { paused = true; return }
+        if (paused && mayPause(session)) paused = false
+        bubble.rate = rate.coerceIn(0.0, World.WARP_RATES.last())
+        bubble.until = if (until > bubble.time) until else Double.NaN
+        if (rate > 1.0 && !until.isNaN()) notices += "${session.playerName} is warping ahead${aboutWarp(rate, until - (bubble.time - world.time), label)}"
+    }
+
+    /**
+     * Each bubble on by a tick: stopping at its warp-to time or near someone else, waiting while
+     * its owner's away, and back on everyone's time once it's stopped where it can be.
+     */
+    private fun advanceBubbles(dt: Double) {
+        if (world.bubbles.isEmpty()) return
+        for (bubble in world.bubbles.values.toSet()) {
+            val owner = sessions.firstOrNull { it.clientId == bubble.owner && it.connected && it.handshakeComplete }
+            val members = world.membersOf(bubble)
+            if (members.isEmpty()) continue
+            when {
+                // Gone, or alone in the game: it waits, and the world catches it up.
+                owner == null || playerCount <= 1 -> bubble.rate = 0.0
+                !bubble.until.isNaN() && bubble.time >= bubble.until - 1e-6 -> { bubble.rate = 1.0; bubble.until = Double.NaN }
+                bubble.rate > 1.0 && members.any { othersNear(owner, it) } -> {
+                    bubble.rate = 1.0; bubble.until = Double.NaN
+                    notices += "${owner.playerName} came near someone, so their warp stopped"
+                }
+            }
+            world.advanceBubble(bubble, dt)
+            val lead = bubble.time - world.time
+            // Caught up, or stopped where it can rejoin.
+            if (lead <= 1e-6) { bubble.time = world.time; world.closeBubble(bubble) }
+            else if (bubble.rate == 1.0 && world.canClose(bubble)) {
+                world.closeBubble(bubble)
+                if (owner != null) notices += "${owner.playerName} is back in everyone's time"
+            }
+        }
+    }
+
+    /** Asked of everyone, as the snapshot carries it. */
+    private fun voteState(): com.rm.apogee.core.world.WarpVote? {
+        val vote = pending ?: return null
+        val waiting = waitingOn(vote)
+        return com.rm.apogee.core.world.WarpVote(
+            vote.id, vote.from.clientId, vote.from.playerName, vote.rate, vote.until, vote.label,
+            waiting.map { it.clientId }, waiting.map { it.playerName },
+            ((VOTE_TICKS - (serverTick - vote.at)) / config.tickHz.toDouble()).coerceAtLeast(0.0),
+        )
     }
 
     /** Steps once without any wall-clock pacing. For tests. */
@@ -279,19 +577,50 @@ class GameServer(
                 if (!session.handshakeComplete) return
                 val command = message.command
                 if (!isAuthorised(session, command)) return
+                // Anything but talk and warp is them at the controls.
+                if (command !is Command.Chat && command !is Command.SetWarp && command !is Command.WarpTo && command !is Command.AnswerWarp) {
+                    session.lastInputTick = serverTick
+                }
                 if (command is Command.Chat) {
-                    broadcast(
-                        ServerMessage.ChatMessage(session.playerName, command.text),
+                    val text = command.text.trim().take(MAX_CHAT_CHARS)
+                    if (text.isNotEmpty()) broadcast(
+                        ServerMessage.ChatMessage(
+                            session.playerName, text,
+                            com.rm.apogee.core.crew.Crew.stripeFor(session.clientId, world.stripes[session.clientId]),
+                        ),
                         Channel.CONTROL,
                     )
+                } else if (command is Command.SetWarp && bubbleFor(session) != null) {
+                    warpBubble(session, command.rate, Double.NaN, "")
+                } else if (command is Command.WarpTo && bubbleFor(session) != null) {
+                    if (command.time > world.time) warpBubble(session, World.WARP_RATES.last(), command.time, command.label)
                 } else if (command is Command.SetWarp) {
-                    requestedWarp = command.rate.coerceIn(0.0, World.WARP_RATES.last())
-                    world.warpUntil = Double.NaN
-                } else if (command is Command.WarpTo) {
-                    if (command.time > world.time) {
-                        world.warpUntil = command.time
-                        requestedWarp = World.WARP_RATES.last()
+                    if (command.rate <= 0.0) {
+                        if (mayPause(session) && !paused) {
+                            paused = true
+                            pending = null
+                            if (playerCount > 1) notices += "${session.playerName} paused the game"
+                        }
+                    } else {
+                        if (paused && mayPause(session)) {
+                            paused = false
+                            if (playerCount > 1) notices += "${session.playerName} carried on"
+                        }
+                        if (command.rate < requestedWarp) {
+                            // Anyone can slow it, back to real time at the least.
+                            if (playerCount > 1 && command.rate <= 1.0) notices += "${session.playerName} stopped warp"
+                            setWarp(command.rate.coerceAtLeast(1.0), Double.NaN)
+                            pending = null
+                        } else if (command.rate > requestedWarp && mayWarp(session)) {
+                            askWarp(session, command.rate, Double.NaN, "")
+                        }
                     }
+                } else if (command is Command.WarpTo) {
+                    if (command.time > world.time && mayWarp(session)) askWarp(session, World.WARP_RATES.last(), command.time, command.label)
+                } else if (command is Command.AnswerWarp) {
+                    answerWarp(session, command)
+                } else if (command is Command.Kick) {
+                    kick(command.clientId)
                 } else if (command is Command.RemoveVessel) {
                     val flying = session.controlledVessel?.raw == command.vessel
                     world.apply(command)
@@ -340,6 +669,19 @@ class GameServer(
      * system mismatch reads them fine but the two simulations quietly drift apart.
      */
     private suspend fun completeHandshake(session: PlayerSession, hello: ClientMessage.Hello) {
+        if (!session.isHost && hello.clientId in kicked) {
+            session.send(ServerMessage.Rejected("The host has sent you out of this game"), Channel.CONTROL)
+            disconnect(session)
+            return
+        }
+        if (!session.isHost && config.password.isNotEmpty() && hello.password != config.password) {
+            session.send(
+                ServerMessage.Rejected(if (hello.password.isEmpty()) "This game needs a password" else "Wrong password", needsPassword = true),
+                Channel.CONTROL,
+            )
+            disconnect(session)
+            return
+        }
         if (hello.protocolVersion != Protocol.VERSION) {
             session.send(
                 ServerMessage.Rejected(
@@ -398,7 +740,7 @@ class GameServer(
             return
         }
 
-        session.playerName = hello.playerName.take(32).ifBlank { "Pilot" }
+        session.playerName = uniqueName(session, hello.playerName.trim().take(32).ifBlank { "Pilot" })
         session.clientId = hello.clientId.take(64)
         if (session.clientId.isBlank()) {
             // Every build on this protocol sends one. A blank id would share an anonymous craft
@@ -423,7 +765,8 @@ class GameServer(
         world.sendEverythingNext()
 
         // A returning player gets their craft back where they left it, unless it's a fresh flight.
-        if (config.freshFlight) {
+        val fresh = config.freshFlight || (config.freshFlightFor != null && config.freshFlightFor == session.clientId)
+        if (fresh) {
             world.lastFlown[session.clientId]?.let { last ->
                 val previous = world.vessel(VesselId(last))
                 if (previous != null && previous.owner == session.clientId) {
@@ -435,13 +778,15 @@ class GameServer(
         val chosen = config.resumeVessel?.let { world.vessel(VesselId(it)) }
             ?.takeIf { it.owner == session.clientId || it.owner.isBlank() }
             ?.also { if (it.owner.isBlank()) { world.claim(it, session.clientId); it.ownerName = session.playerName } }
-        val existing = chosen ?: if (config.freshFlight) null else world.vesselOwnedBy(session.clientId)
+        val existing = chosen ?: if (fresh) null else world.vesselOwnedBy(session.clientId)
         // The owner label follows the player's name.
         existing?.ownerName = session.playerName
         // A career gets no starter craft.
-        val vessel = existing ?: if (config.assignCraftOnJoin && world.program == null) {
+        // One choosing their own craft gets none handed to them.
+        val vessel = existing ?: if (config.assignCraftOnJoin && !hello.choosing && world.program == null) {
             // The nearest clear pad, so it never lands inside a craft already there.
-            world.spawnAtSite(config.starterCraft(world.catalog), World.launchSites.first(), legsOut = true).also {
+            val site = World.launchSites.firstOrNull { it.id == config.starterSite } ?: World.launchSites.first()
+            world.spawnAtSite(config.starterCraft(world.catalog), site, legsOut = true).also {
                 world.assignOwner(it, session.clientId)
                 it.ownerName = session.playerName
             }
@@ -451,6 +796,13 @@ class GameServer(
         session.controlledVessel = vessel?.id
         vessel?.let { world.lastFlown[session.clientId] = it.id.raw }
 
+        // At the controls from the start, and someone arriving ends any warp or vote.
+        session.lastInputTick = serverTick
+        if (playerCount > 1 && (requestedWarp > 1.0 || pending != null)) {
+            if (requestedWarp > 1.0) notices += "${session.playerName} joined, so warp stopped"
+            setWarp(1.0, Double.NaN)
+            pending = null
+        }
         session.send(
             ServerMessage.Welcome(
                 protocolVersion = Protocol.VERSION,
@@ -459,9 +811,18 @@ class GameServer(
                 controlledVessel = vessel?.id?.raw ?: -1L,
                 weather = world.weatherConfig,
                 mode = if (world.program != null) WorldSave.MODE_CAREER else WorldSave.MODE_SANDBOX,
+                host = session.isHost,
             ),
             Channel.CONTROL,
         )
+
+        // What they can pick from, unless it's a career, where each player flies their own.
+        if (hello.choosing && world.program == null) {
+            val offer = runCatching { config.offeredCraft(world.catalog) }.getOrDefault(emptyList())
+            for (design in offer) {
+                session.send(ServerMessage.CraftOffered(design, offer.size, config.starterSite), Channel.STRUCTURE)
+            }
+        }
 
         // What's been knocked down, so their forest matches everyone else's.
         if (world.felledScatter.isNotEmpty()) {
@@ -533,22 +894,22 @@ class GameServer(
         is Command.SetLights -> flies(session, command.vessel)
         is Command.SetCruise -> flies(session, command.vessel)
         is Command.SetStationKeep -> flies(session, command.vessel)
-        is Command.Hook -> flies(session, command.vessel)
+        is Command.Hook -> flies(session, command.vessel) && sameTimeAround(command.vessel)
         is Command.Reel -> flies(session, command.vessel)
         is Command.ReleaseLine -> flies(session, command.vessel)
         is Command.Deploy -> flies(session, command.vessel)
         is Command.SetGear -> flies(session, command.vessel)
         // Only for your own crew, from the craft you're in.
-        is Command.Eva -> session.controlledVessel?.raw == command.vessel && world.crew[command.crew]?.owner == session.clientId
+        is Command.Eva -> session.controlledVessel?.raw == command.vessel && world.crew[command.crew]?.owner == session.clientId && sameTimeAround(command.vessel)
         is Command.TransferCrew -> session.controlledVessel?.raw == command.vessel && world.crew[command.crew]?.owner == session.clientId
-        is Command.Board -> flies(session, command.vessel)
+        is Command.Board -> flies(session, command.vessel) && sameTimeAround(command.vessel)
         is Command.Jump -> flies(session, command.vessel)
-        is Command.Grab -> flies(session, command.vessel)
+        is Command.Grab -> flies(session, command.vessel) && sameTimeAround(command.vessel)
         is Command.PlantFlag -> flies(session, command.vessel)
-        is Command.ClimbOut -> flies(session, command.vessel)
+        is Command.ClimbOut -> flies(session, command.vessel) && sameTimeAround(command.vessel)
         is Command.RightCraft -> flies(session, command.vessel)
         is Command.SetIndustry -> flies(session, command.vessel) || world.vessel(VesselId(command.vessel))?.let { it.anchored && it.owner == session.clientId } == true
-        is Command.Unload -> flies(session, command.vessel)
+        is Command.Unload -> flies(session, command.vessel) && sameTimeAround(command.vessel)
         is Command.SetBallast -> flies(session, command.vessel)
         is Command.HoldDepth -> flies(session, command.vessel)
         is Command.SetTranslation -> flies(session, command.vessel)
@@ -560,17 +921,20 @@ class GameServer(
             world.vessel(VesselId(command.vessel))?.let { session.clientId in world.ownersOf(it) } == true
         // Welding uses up the other craft, which may be someone else's. Only the flown craft can
         // start it, and the world also needs them touching and at rest.
-        is Command.Join -> session.controlledVessel?.raw == command.vessel
+        is Command.Join -> session.controlledVessel?.raw == command.vessel && sameTimeAround(command.vessel)
         is Command.Anchor -> world.vessel(VesselId(command.vessel))?.owner == session.clientId
-        is Command.Refuel -> flies(session, command.vessel)
+        is Command.Refuel -> flies(session, command.vessel) && sameTimeAround(command.vessel)
         // Only your own craft, or one docked with yours.
         is Command.SwitchVessel ->
             world.vessel(VesselId(command.vessel))
                 ?.let { session.clientId in world.ownersOf(it) } == true
         is Command.SpawnCraft -> true
         is Command.Chat -> true
+        is Command.Kick -> session.isHost
+        // Who may do what is worked out where they're handled; anyone may slow it.
         is Command.SetWarp -> warpAllowed
         is Command.WarpTo -> warpAllowed
+        is Command.AnswerWarp -> warpAllowed
         is Command.PlanBurns -> flies(session, command.vessel)
         is Command.SetAutopilot -> flies(session, command.vessel)
         // Only your own, never another player's base.
@@ -711,6 +1075,38 @@ class GameServer(
     suspend fun broadcastChat(from: String, text: String) =
         broadcast(ServerMessage.ChatMessage(from, text), Channel.CONTROL)
 
+    /** Players the host sent out, by client id, kept out until the game ends. */
+    private val kicked = HashSet<String>()
+
+    /** Sends [clientId] out of the game, telling them and everyone. Never the host. */
+    private suspend fun kick(clientId: String) {
+        val target = sessions.firstOrNull { it.clientId == clientId && it.connected && !it.isHost } ?: return
+        kicked += clientId
+        target.send(ServerMessage.Rejected("The host has sent you out of this game"), Channel.CONTROL)
+        disconnect(target)
+        notices += "${target.playerName} was sent out of the game"
+    }
+
+    /** Everyone in the game, as the snapshot carries it. */
+    private fun playerList(): List<com.rm.apogee.core.world.PlayerInfo> =
+        sessions.filter { it.connected && it.handshakeComplete }.map { s ->
+            com.rm.apogee.core.world.PlayerInfo(
+                s.clientId, s.playerName,
+                com.rm.apogee.core.crew.Crew.stripeFor(s.clientId, world.stripes[s.clientId]),
+                s.isHost,
+                s.controlledVessel?.let { id -> world.vessel(id) }?.let { world.leadOf(it) } ?: 0.0,
+            )
+        }
+
+    /** [wanted], or with a number after it if someone else in the game already has it, so chat and tags tell them apart. */
+    private fun uniqueName(session: PlayerSession, wanted: String): String {
+        val taken = sessions.filter { it !== session && it.connected && it.handshakeComplete }.map { it.playerName.lowercase() }.toSet()
+        if (wanted.lowercase() !in taken) return wanted
+        var n = 2
+        while ("$wanted $n".lowercase() in taken) n++
+        return "$wanted $n"
+    }
+
     /** Finds a connected player by name, for admin actions. */
     fun sessionNamed(playerName: String): PlayerSession? =
         sessions.firstOrNull {
@@ -719,13 +1115,22 @@ class GameServer(
 
     private suspend fun broadcastSnapshot() {
         if (sessions.isEmpty()) return
-        // A second player arriving ends any pause or warp.
-        if (!warpAllowed) requestedWarp = 1.0
+        // What the tick had to say about warp, as lines of chat from nobody.
+        if (notices.isNotEmpty()) {
+            val said = notices.toList()
+            notices.clear()
+            for (line in said) broadcast(ServerMessage.ChatMessage("", line), Channel.CONTROL)
+        }
         val flown = sessions.mapNotNullTo(HashSet()) { it.controlledVessel?.raw }
         val snapshot = world.snapshot(quietEvery = QUIET_EVERY_TICKS, always = flown).copy(
             warp = effectiveWarp(),
-            warpRequested = requestedWarp,
+            warpRequested = if (paused) 0.0 else requestedWarp,
             warpAllowed = warpAllowed,
+            shared = playerCount > 1,
+            warpHostOnly = config.warp == WarpPolicy.HOST,
+            vote = voteState(),
+            heldBy = if (requestedWarp > 1.0 && playerCount > 1) world.movingWarpLimiter()?.ownerName ?: "" else "",
+            players = playerList(),
         )
         broadcast(ServerMessage.SnapshotMessage(snapshot), Channel.KINEMATICS)
     }
@@ -847,6 +1252,15 @@ class GameServer(
     }
 
     companion object {
+        /** The longest chat line passed on, in characters. */
+        const val MAX_CHAT_CHARS = 200
+
+        /** How near another player's craft ends someone's bubble or keeps them out of one, in metres. */
+        const val BUBBLE_NEAR = 100_000.0
+
+        /** How near a craft in another time has to be to stop boarding, hooking and the like, in metres. */
+        const val SAME_TIME_REACH = 2_000.0
+
         /** The most feats kept for a player who's away: a few to tell them, not a backlog. */
         const val MAX_UNSENT_FEATS = 5
 

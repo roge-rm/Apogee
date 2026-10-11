@@ -17,7 +17,7 @@ actual class Worker actual constructor(name: String) {
     actual fun execute(task: () -> Unit) = background.execute(task)
 }
 
-actual fun openToNetwork(server: GameServer, scope: CoroutineScope, serverName: String, catalogHash: String): NetworkHost? = null
+actual fun openToNetwork(server: GameServer, scope: CoroutineScope, serverName: String, catalogHash: String, locked: Boolean): NetworkHost? = null
 
 actual suspend fun connectTo(host: String, port: Int): Result<Transport> =
     Result.failure(UnsupportedOperationException("Joining games isn't possible from a browser"))

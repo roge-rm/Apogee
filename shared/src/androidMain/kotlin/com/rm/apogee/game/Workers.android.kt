@@ -54,19 +54,20 @@ actual fun openToNetwork(
     scope: kotlinx.coroutines.CoroutineScope,
     serverName: String,
     catalogHash: String,
+    locked: Boolean,
 ): NetworkHost? {
     val tcp = com.rm.apogee.net.TcpListener(GameSession.DEFAULT_PORT) { transport -> server.accept(transport, scope) }
     tcp.start(scope)
-    val beacon = com.rm.apogee.net.LanDiscovery.announce(
+    val beacon = com.rm.apogee.net.LanDiscovery.announce(scope) {
         com.rm.apogee.net.ServerBeacon(
             serverName = serverName,
             port = tcp.boundPort,
             players = server.playerCount,
             protocolVersion = com.rm.apogee.core.world.Protocol.VERSION,
             catalogHash = catalogHash,
-        ),
-        scope,
-    )
+            locked = locked,
+        )
+    }
     return NetworkHost(tcp.boundPort) { beacon.cancel(); tcp.stop() }
 }
 

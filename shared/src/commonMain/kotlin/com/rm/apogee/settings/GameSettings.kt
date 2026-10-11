@@ -66,6 +66,12 @@ class GameSettings(private val prefs: Preferences) {
     var quickCraft: String by stringPref(KEY_QUICK_CRAFT, "")
     var quickSite: String by stringPref(KEY_QUICK_SITE, "")
 
+    /** Where a hosted game starts, by launch site id, or blank to keep the last craft. */
+    var hostSite: String by stringPref(KEY_HOST_SITE, "")
+
+    /** How a hosted game shares warp. */
+    var hostWarp: com.rm.apogee.server.WarpPolicy by enumPref(KEY_HOST_WARP, com.rm.apogee.server.WarpPolicy.TOGETHER)
+
     /** How the flight camera follows the craft. See [com.rm.apogee.game.CameraMode]. */
     var cameraMode: com.rm.apogee.game.CameraMode by enumPref(KEY_CAMERA_MODE, com.rm.apogee.game.CameraMode.FREE)
 
@@ -149,6 +155,9 @@ class GameSettings(private val prefs: Preferences) {
 
     /** What resolution the 3D view is drawn at. Automatic follows the frame rate. */
     var resolution: com.rm.apogee.render.Resolution by enumPref(KEY_RESOLUTION, com.rm.apogee.render.Resolution.AUTO)
+
+    /** Where Automatic resolution last settled, as a step of [com.rm.apogee.render.AutoResolution.STEPS], so a flight starts there. */
+    var autoResolutionStep: Int by intPref(KEY_AUTO_RESOLUTION_STEP, 0, com.rm.apogee.render.AutoResolution.STEPS.indices)
 
     /** Shadows as chosen. Null goes by the tier in use. */
     var shadowQualityOverride: com.rm.apogee.render.ShadowQuality? by nullableEnumPref<com.rm.apogee.render.ShadowQuality>(KEY_SHADOWS)
@@ -256,11 +265,14 @@ class GameSettings(private val prefs: Preferences) {
         const val KEY_CAMERA_MODE = "camera_mode"
         const val KEY_QUICK_CRAFT = "quick_craft"
         const val KEY_QUICK_SITE = "quick_site"
+        const val KEY_HOST_SITE = "host_site"
+        const val KEY_HOST_WARP = "host_warp"
         const val KEY_WEATHER = "weather_intensity"
         const val KEY_CLOUDS = "cloud_cover"
         const val KEY_LAUNCH_TIME = "launch_time"
         const val KEY_SHADOWS = "shadow_quality"
         const val KEY_RESOLUTION = "resolution"
+        const val KEY_AUTO_RESOLUTION_STEP = "auto_resolution_step"
         const val KEY_UI_SOUND = "ui_sound"
         const val KEY_VEHICLE_SOUND = "vehicle_sound"
         const val KEY_AMBIENT_SOUND = "ambient_sound"

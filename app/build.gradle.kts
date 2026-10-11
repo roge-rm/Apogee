@@ -13,6 +13,9 @@ val signingProperties: Properties? = rootProject.file("../Keys/apogee-keystore.p
     ?.let { f -> Properties().apply { f.inputStream().use { load(it) } } }
 val releaseStoreFile = signingProperties?.getProperty("storeFile")
 
+/** The 32-bit build, for tablets like the Fire HD 8: see versionCode below. */
+val arm32 = providers.gradleProperty("arm32").isPresent
+
 android {
     namespace = "com.rm.apogee"
     compileSdk {
@@ -26,16 +29,20 @@ android {
         // (render/QualityTier.kt).
         minSdk = 27
         targetSdk = 37
-        // Bumped for builds worth telling apart. Joining a server is decided by Protocol.VERSION
-        // and the part catalogue's hash, which move on their own.
-        versionCode = 45
-        versionName = "0.9.0"
+        // Two APKs a release: 64-bit, and with -Parm32 a 32-bit one for tablets like the Fire HD 8.
+        // A store installs the highest versionCode the device can run, so the 64-bit one is
+        // higher: the release number (the 5) times ten, plus 2 for 64-bit and 1 for 32-bit. Bump
+        // the release number, not the code. Joining a server is decided by Protocol.VERSION and
+        // the part catalogue's hash, which move on their own.
+        versionCode = 5 * 10 + if (arm32) 1 else 2
+        versionName = "0.9.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        // The sound engine is native: phones, and the x86_64 emulator.
+        // The sound engine is native. 64-bit phones and the x86_64 emulator, or with -Parm32
+        // 32-bit tablets and the x86 emulator.
         ndk {
-            abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
+            abiFilters += if (arm32) listOf("armeabi-v7a", "x86") else listOf("arm64-v8a", "x86_64")
         }
         externalNativeBuild {
             cmake {

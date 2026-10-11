@@ -36,9 +36,10 @@ fun Modifier.verticalScrollbar(state: ScrollState, width: Dp = 4.dp, inset: Dp =
 
 /**
  * The same for a lazy list. Its length is estimated from the rows in view, which is exact for
- * equal rows, as all of ours are.
+ * equal rows, as all of ours are. With [reverse], for a list laid out from the bottom up, the
+ * first row is at the bottom.
  */
-fun Modifier.verticalScrollbar(state: LazyListState, width: Dp = 4.dp, inset: Dp = 2.dp): Modifier = composed {
+fun Modifier.verticalScrollbar(state: LazyListState, width: Dp = 4.dp, inset: Dp = 2.dp, reverse: Boolean = false): Modifier = composed {
     val info = state.layoutInfo
     val visible = info.visibleItemsInfo
     val overflows = visible.isNotEmpty() && (visible.size < info.totalItemsCount ||
@@ -54,7 +55,7 @@ fun Modifier.verticalScrollbar(state: LazyListState, width: Dp = 4.dp, inset: Dp
         val scrolled = state.firstVisibleItemIndex * rowSize + state.firstVisibleItemScrollOffset
         drawBar(
             viewFraction = viewport / content,
-            position = (scrolled / (content - viewport)).coerceIn(0f, 1f),
+            position = (scrolled / (content - viewport)).coerceIn(0f, 1f).let { if (reverse) 1f - it else it },
             width = width.toPx(), inset = inset.toPx(), alpha = shown,
         )
     }

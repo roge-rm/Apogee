@@ -1423,6 +1423,18 @@ class Vessel(
      *
      * Returns a large number the first time, so nothing anchors on its first tick of contact.
      */
+    /**
+     * Moves every universe time it keeps by [shift] seconds: for a craft coming out of a warp
+     * bubble onto the world's clock. One place, so nothing timed is left behind.
+     */
+    fun retime(shift: Double) {
+        if (!powerSettledAt.isNaN()) powerSettledAt += shift
+        if (!airSampledAt.isNaN()) airSampledAt += shift
+        if (!rightingStart.isNaN()) rightingStart += shift
+        if (!signalAt.isNaN()) signalAt += shift
+        for (i in plannedBurns.indices) plannedBurns[i] = plannedBurns[i].copy(time = plannedBurns[i].time + shift)
+    }
+
     fun groundMovementSince(position: Vec3, orientation: Quat): Double {
         if (!hasRestPose) {
             lastRestPosition.setTo(position)

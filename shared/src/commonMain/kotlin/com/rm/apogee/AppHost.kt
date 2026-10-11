@@ -77,6 +77,15 @@ interface AppHost {
     fun runOnMain(block: () -> Unit)
 
     /**
+     * Keeps a hosted game going while the app is out of sight, with a notice saying so: [title]
+     * and [text]. A null [title] lets it go.
+     */
+    fun hostingInBackground(title: String?, text: String = "") {}
+
+    /** Asks to be allowed to show notices, ahead of needing one. */
+    fun askForNotices() {}
+
+    /**
      * Whether the world's touches come through Compose ([WorldInputLayer]) because the screens sit
      * over the surface and take every pointer event, as on a web page. Android's surface takes its
      * own.

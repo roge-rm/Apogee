@@ -73,6 +73,34 @@ class EffectsTest {
         assertTrue("not in the thin dry air at 25 km", high.none { it.shape == Effects.VAPOUR_CONE })
     }
 
+    /** A fuselage along the flow with a wing across it, flying along +Y at [speed]. */
+    private fun planeAt(altitude: Double, speed: Double): List<com.rm.apogee.render.RenderItem> {
+        val fx = Effects(QualityTier.MEDIUM)
+        val items = ArrayList<com.rm.apogee.render.RenderItem>()
+        val centre = Vec3(terra.radius + altitude, 0.0, 0.0)
+        // Span along Z, chord along the flow, thin along X: edge-on to the air.
+        val parts = listOf(
+            AeroPart(centre.copy(), Vec3.unitX(), Vec3.unitY(), Vec3.unitZ(), Vec3(0.6, 3.0, 0.6), round = true),
+            AeroPart(centre.copy(), Vec3.unitZ(), Vec3.unitY(), Vec3.unitX(), Vec3(3.5, 1.0, 0.08), round = false, wing = true),
+        )
+        repeat(30) {
+            fx.aero(centre, Vec3(0.0, speed, 0.0), 4.0, terra, Quat.identity(), 1.0 / 60.0, it / 60.0, 7, items.also { l -> l.clear() }, parts = parts)
+        }
+        return items
+    }
+
+    @Test
+    fun `wings show vapour near Mach 1 and glow at re-entry, as wide as their span and thin edge-on`() {
+        val vapour = planeAt(1_000.0, 340.0).filter { it.shape == Effects.VAPOUR_CONE }
+        assertEquals("the nose collar and a sheet on the wing", 2, vapour.size)
+        assertTrue("the sheet spans the wing: ${vapour.map { it.scale }}", vapour.any { it.scale!!.x > 3.0 })
+
+        val sheaths = planeAt(35_000.0, 2_200.0).filter { it.shape == Effects.SHEATH }
+        val wide = sheaths.filter { it.scale!!.x > 3.0 }
+        assertTrue("the wing glows along its span: ${sheaths.map { it.scale }}", wide.isNotEmpty())
+        assertTrue("and thin, edge-on: ${wide.map { it.scale }}", wide.all { it.scale!!.z < 0.5 })
+    }
+
     @Test
     fun `re-entry glows and throws sparks`() {
         val (items, fx) = aeroAt(35_000.0, 2_200.0)

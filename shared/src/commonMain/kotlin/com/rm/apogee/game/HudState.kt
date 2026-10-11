@@ -186,6 +186,20 @@ class HudState {
     /** Whether the list of the player's craft is open. */
     var craftListOpen: Boolean by mutableStateOf(false)
 
+    /** Whether others can be in this game, so there's chat, and whether it's this one's to end. */
+    var multiplayer: Boolean by mutableStateOf(false)
+    var hosting: Boolean by mutableStateOf(false)
+
+    /** Every chat line so far, oldest first, and whether the chat window is open. */
+    var chatLines: List<com.rm.apogee.net.ChatLine> by mutableStateOf(emptyList())
+    var chatOpen: Boolean by mutableStateOf(false)
+
+    /** Lines that came in lately, shown for a moment under the top left buttons. */
+    var chatToasts: List<ChatToast> by mutableStateOf(emptyList())
+
+    /** Lines that came in while the chat window was shut. */
+    var chatUnread: Int by mutableStateOf(0)
+
     /** Whether it's a plane in the air, which can hold its height and heading. */
     var canCruise: Boolean by mutableStateOf(false)
 
@@ -354,6 +368,32 @@ class HudState {
     var warpActual: Double by mutableStateOf(Double.NaN)
     var warpAllowed: Boolean by mutableStateOf(false)
 
+    /** Others are in the game, so warp is asked for and pause is the host's. */
+    var warpShared: Boolean by mutableStateOf(false)
+
+    /** This player may pause: alone, or the host. */
+    var canPause: Boolean by mutableStateOf(true)
+
+    /** Someone's warp request, this player's client id to tell whose and who's waited on, and whose craft holds warp down. */
+    var warpVote: com.rm.apogee.core.world.WarpVote? by mutableStateOf(null)
+    var clientId: String by mutableStateOf("")
+    var warpHeldBy: String by mutableStateOf("")
+
+    /** Everyone in the game, and whether this player hosts it, so can send others out. */
+    var players: List<com.rm.apogee.core.world.PlayerInfo> by mutableStateOf(emptyList())
+    var isHost: Boolean by mutableStateOf(false)
+
+    /** The link to the game has gone, and it's trying to get back; or it gave up. */
+    var linkLost: Boolean by mutableStateOf(false)
+    var linkGone: Boolean by mutableStateOf(false)
+
+    /** Turned away for a missing or wrong password, or sent out of the game after being in it. */
+    var needsPassword: Boolean by mutableStateOf(false)
+    var sentOut: Boolean by mutableStateOf(false)
+
+    /** How far ahead of everyone this player is, warping in a bubble of their own, in seconds. */
+    var aheadBy: Double by mutableStateOf(0.0)
+
     /** Sounds playing right now, for diagnostics. */
     var voices: Int by mutableIntStateOf(0)
 
@@ -391,6 +431,11 @@ class HudState {
     /** Clears passing state when leaving the world, so a new flight starts clean. */
     fun reset() {
         tutorial = null
+        linkLost = false
+        linkGone = false
+        needsPassword = false
+        sentOut = false
+        players = emptyList()
         frameTimeMillis = 0f
         frameBuildMillis = 0f
         simTick = 0L
@@ -469,6 +514,16 @@ class HudState {
     }
 }
 
+/** A chat line on screen for a moment, with when it came in, by [System.nanoTime]. */
+class ChatToast(val line: com.rm.apogee.net.ChatLine, val shownAtNanos: Long) {
+    companion object {
+        /** How long a line stays up, the last of it fading, and the most up at once. */
+        const val SHOW_NANOS = 6_000_000_000L
+        const val FADE_NANOS = 1_000_000_000L
+        const val MOST = 4
+    }
+}
+
 /**
  * When the flight controls fade to let the view through: [IDLE_NANOS] after the last thing that
  * wanted them (a touch, a new warning or prompt, engines running), and back at once on the next.
@@ -484,7 +539,8 @@ class HudFade {
     fun idle(now: Long): Boolean = now - lastWake > IDLE_NANOS
 
     companion object {
-        const val IDLE_NANOS = 4_000_000_000L
+        /** Five minutes. */
+        const val IDLE_NANOS = 300_000_000_000L
 
         /** How much of the control opacity is left once faded. */
         const val FADED = 0.35f

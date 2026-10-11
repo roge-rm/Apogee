@@ -24,11 +24,16 @@ object CraftShelf {
     fun read(list: List<SavedCraft>, store: CraftStore, catalog: PartCatalog, thumbnails: com.rm.apogee.render.PartThumbnails?): List<Entry> =
         list.mapNotNull { saved ->
             val design = store.load(saved.fileName).getOrNull() ?: return@mapNotNull null
-            val kind = CraftKind.of(design, catalog)
-            val stats = runCatching { CraftStats.analyze(design, catalog) }.getOrNull()
-            thumbnails?.requestCraft(design, catalog)
-            Entry(saved, design, kind, summaryOf(kind, stats, saved.partCount), thumbnails?.craftKey(design) ?: "")
+            entryOf(saved, design, catalog, thumbnails)
         }
+
+    /** [design] as an entry under [saved]'s name and file, for one that didn't come from a file too. */
+    fun entryOf(saved: SavedCraft, design: CraftDesign, catalog: PartCatalog, thumbnails: com.rm.apogee.render.PartThumbnails?): Entry {
+        val kind = CraftKind.of(design, catalog)
+        val stats = runCatching { CraftStats.analyze(design, catalog) }.getOrNull()
+        thumbnails?.requestCraft(design, catalog)
+        return Entry(saved, design, kind, summaryOf(kind, stats, saved.partCount), thumbnails?.craftKey(design) ?: "")
+    }
 
     /**
      * The one or two figures that say most about a craft of [kind] on one line, and its mass and

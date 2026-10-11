@@ -18,14 +18,14 @@ class SolarSystem(
      */
     val contentHash: String by lazy {
         val text = StringBuilder()
-        fun d(x: Double) { text.append(x.toRawBits().toULong().toString(16)).append(',') }
+        fun d(x: Double) { text.append(hashBits(x).toULong().toString(16)).append(',') }
         fun v(x: Vec3) { d(x.x); d(x.y); d(x.z) }
         text.append(rootId).append(';')
         for (b in this.bodies.values.sortedBy { it.id }) {
             text.append(b.id).append(':').append(b.parentId).append(':')
             d(b.gravitationalParameter); d(b.radius); d(b.rotationPeriod); v(b.spinAxis); d(b.sphereOfInfluence)
             b.orbit?.let { v(it.position); v(it.velocity); d(it.mu); d(it.epoch) }
-            // Doubles by their bits, since platforms can print them differently.
+            // Doubles by their rounded bits, since platforms can print them differently.
             b.atmosphere?.let {
                 d(it.seaLevelDensity); d(it.seaLevelPressure); d(it.scaleHeight); d(it.height)
                 d(it.surfaceTemperature); d(it.lapseRate); d(it.tropopause); text.append(it.deep)
@@ -170,6 +170,16 @@ class SolarSystem(
     }
 
     companion object {
+        /**
+         * [x]'s bits rounded to about nine digits, for [contentHash]. Orbits and spin axes are
+         * worked out with sin and cos, which 32-bit ARM can round a last bit differently from
+         * 64-bit, and that mustn't stop the two playing together.
+         */
+        fun hashBits(x: Double): Long = (x.toRawBits() + (1L shl (HASH_DROPPED_BITS - 1))) and ((1L shl HASH_DROPPED_BITS) - 1).inv()
+
+        /** Low mantissa bits [hashBits] drops: 22 of 52 leaves about nine digits. */
+        private const val HASH_DROPPED_BITS = 22
+
         /** The [defaultSystem]'s [contentHash], which this build offers a server. */
         val DEFAULT_HASH: String by lazy { defaultSystem().contentHash }
 

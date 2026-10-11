@@ -13,6 +13,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
+/** One line of chat: its place in the order lines came in, who sent it and their stripe, and what they said. */
+class ChatLine(val id: Long, val from: String, val text: String, val stripe: Int = -1) {
+    override fun toString() = "$from: $text"
+}
+
 /** A vessel as the client knows it: its structure, plus the last two motion states. */
 class ClientVessel(
     val id: Long,
@@ -23,8 +28,12 @@ class ClientVessel(
     /** Tanks from [ServerMessage.FuelLevels]. Null until sent; only the flown craft has them. */
     @Volatile var fuel: List<Float>? = null,
 
-    /** The owner's name. Blank for debris. */
+    /** The owner's id. Blank for debris. */
     @Volatile var owner: String = "",
+    /** The owner's display name, for labels. Never matched on. */
+    @Volatile var ownerName: String = "",
+    /** The owner's suit stripe, for their colour, or -1 for debris and the world's. */
+    @Volatile var ownerStripe: Int = -1,
     /** Founded: pinned to the ground and can't be moved. */
     @Volatile var anchored: Boolean = false,
     /** Burns planned for it, soonest first, as the server has them. */
@@ -109,7 +118,38 @@ class GameClient(
     private val systemHash: String = com.rm.apogee.core.orbit.SolarSystem.DEFAULT_HASH,
     /** The stripe this player's crew wear, or -1 to leave it to the server. */
     private val stripe: Int = -1,
+    /** Picks a craft once in, from its own and [offered], instead of taking a stock rocket. */
+    private val choosing: Boolean = false,
+    /** The game's password, or blank. */
+    private val password: String = "",
 ) {
+    /** Turned away for a missing or wrong password. */
+    @Volatile var needsPassword: Boolean = false
+        private set
+
+    /** Turned away after being let in: sent out by the host. */
+    @Volatile var sentOut: Boolean = false
+        private set
+
+    /** Was in the game, and the link to it has gone without being turned away. */
+    @Volatile var lost: Boolean = false
+        private set
+
+    /** Everyone in the game, as the newest snapshot says. */
+    val players: List<com.rm.apogee.core.world.PlayerInfo> get() = latestSnapshot?.players.orEmpty()
+
+    /** The craft the server offers to fly, as they arrive. Replaced whole, so any thread can read it. */
+    @Volatile var offered: List<CraftDesign> = emptyList()
+        private set
+
+    /** How many craft the server is offering, or -1 before it says. */
+    @Volatile var offeredCount: Int = -1
+        private set
+
+    /** Where the host starts, from the offer, or null for wherever each design goes. */
+    @Volatile var offeredSite: String? = null
+        private set
+
     private val vesselsById = com.rm.apogee.core.concurrentMapOf<Long, ClientVessel>()
 
     @Volatile var connected: Boolean = false
@@ -119,6 +159,22 @@ class GameClient(
         private set
 
     @Volatile var serverName: String = ""
+        private set
+
+    /** How far the flown craft is ahead of the world, warping in a bubble of its own time, in seconds. */
+    val viewLead: Double get() = controlledVessel?.let { vesselsById[it]?.latest?.lead } ?: 0.0
+
+    /** The newest snapshot's time as this player sees it: the world's, plus their own lead. */
+    val viewTime: Double get() = (latestSnapshot?.time ?: 0.0) + viewLead
+
+    /** How fast this player's time runs: their bubble's rate while in one, else the world's. */
+    val viewWarp: Double get() {
+        val own = controlledVessel?.let { vesselsById[it]?.latest }
+        return if (own != null && (own.lead > 0.0 || own.leadRate != 1.0)) own.leadRate else latestSnapshot?.warp ?: 1.0
+    }
+
+    /** This player is the game's host, who can pause everyone. */
+    @Volatile var isHost: Boolean = false
         private set
 
     /** The vessel this client is allowed to fly, or null before the welcome. */
@@ -133,7 +189,11 @@ class GameClient(
         private set
 
     /** Chat lines, newest last, capped. */
-    private val chatLines = ArrayDeque<String>()
+    private val chatLines = ArrayDeque<ChatLine>()
+
+    /** How many chat lines have come in, so a reader can tell when there are new ones. */
+    @Volatile var chatCount: Long = 0L
+        private set
 
     val vessels: Collection<ClientVessel> get() = vesselsById.values
 
@@ -180,7 +240,7 @@ class GameClient(
 
     fun vessel(id: Long): ClientVessel? = vesselsById[id]
 
-    fun chatHistory(): List<String> = com.rm.apogee.core.guarded(chatLines) { chatLines.toList() }
+    fun chatHistory(): List<ChatLine> = com.rm.apogee.core.guarded(chatLines) { chatLines.toList() }
 
     /** Starts reading from the transport and sends the handshake. */
     fun connect(scope: CoroutineScope): Job = scope.launch(Dispatchers.Default) {
@@ -202,11 +262,15 @@ class GameClient(
                         terrainGeneration = terrainGeneration,
                         systemHash = systemHash,
                         stripe = stripe,
+                        choosing = choosing,
+                        password = password,
                     )
                 ),
             )
         )
         reader.join()
+        // The other end hung up or the network went, rather than the host saying no.
+        if (connected && rejectionReason == null) lost = true
     }
 
     suspend fun send(command: Command) {
@@ -256,6 +320,7 @@ class GameClient(
             is ServerMessage.DockedWith -> dockedWith = message
 
             is ServerMessage.Welcome -> {
+                isHost = message.host
                 weather = message.weather
                 mode = message.mode
                 serverName = message.serverName
@@ -264,8 +329,17 @@ class GameClient(
             }
 
             is ServerMessage.Rejected -> {
+                // Already in: the host has sent this player out.
+                sentOut = connected
+                needsPassword = message.needsPassword
                 rejectionReason = message.reason
                 connected = false
+            }
+
+            is ServerMessage.CraftOffered -> {
+                offered = offered + message.design
+                offeredSite = message.siteId
+                offeredCount = message.count
             }
 
             // Control moved: a launch, or a switch to a craft already parked.
@@ -288,6 +362,8 @@ class GameClient(
                             currentStage = update.currentStage,
                             activatedParts = update.activatedParts,
                             owner = update.owner,
+                            ownerName = update.ownerName,
+                            ownerStripe = update.ownerStripe,
                             anchored = update.anchored,
                             burns = update.burns,
                             crew = update.crew,
@@ -297,6 +373,8 @@ class GameClient(
                     } else {
                         existing.design = design
                         existing.owner = update.owner
+                        existing.ownerName = update.ownerName
+                        existing.ownerStripe = update.ownerStripe
                         existing.name = update.name
                         existing.currentStage = update.currentStage
                         existing.activatedParts = update.activatedParts
@@ -316,7 +394,8 @@ class GameClient(
                 for (kinematics in snapshot.vessels) {
                     // A new craft's snapshot can beat its structure here. Drop it; the next one
                     // carries it again.
-                    vesselsById[kinematics.vessel]?.observe(kinematics, snapshot.time)
+                    // Each as at its own time: ahead by its lead if it's warping in a bubble.
+                    vesselsById[kinematics.vessel]?.observe(kinematics, snapshot.time + kinematics.lead)
                 }
             }
 
@@ -360,8 +439,9 @@ class GameClient(
             }
 
             is ServerMessage.ChatMessage -> com.rm.apogee.core.guarded(chatLines) {
-                chatLines.addLast("${message.from}: ${message.text}")
+                chatLines.addLast(ChatLine(chatCount + 1, message.from, message.text, message.stripe))
                 while (chatLines.size > MAX_CHAT_LINES) chatLines.removeFirst()
+                chatCount++
             }
         }
     }

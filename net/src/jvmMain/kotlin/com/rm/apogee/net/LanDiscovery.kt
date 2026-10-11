@@ -34,12 +34,15 @@ object LanDiscovery {
      * Broadcasts [beacon] until the scope is cancelled, to every interface's broadcast address as
      * well as 255.255.255.255, which Android often drops.
      */
-    fun announce(beacon: ServerBeacon, scope: CoroutineScope): Job =
+    fun announce(beacon: ServerBeacon, scope: CoroutineScope): Job = announce(scope) { beacon }
+
+    /** The same, asking [beacon] for it afresh each time, so the player count stays current. */
+    fun announce(scope: CoroutineScope, beacon: () -> ServerBeacon): Job =
         scope.launch(Dispatchers.IO) {
             val socket = DatagramSocket().apply { broadcast = true }
-            val payload = (MAGIC + format.encodeToString(beacon)).toByteArray()
             try {
                 while (isActive) {
+                    val payload = (MAGIC + format.encodeToString(beacon())).toByteArray()
                     for (address in broadcastAddresses()) {
                         runCatching {
                             socket.send(

@@ -248,17 +248,28 @@ sealed interface Command {
     data class Chat(val text: String) : Command
 
     /**
-     * How fast the world runs, times real time, with 0 to pause. Only honoured by a server that
-     * allows it with nobody else on it.
+     * How fast the world runs, times real time, with 0 to pause. Alone it's done at once. With
+     * others, slower is done at once by anyone, faster is put to everyone ([WarpVote]), and pause
+     * is the host's.
      */
     @Serializable
     @SerialName("setWarp")
     data class SetWarp(val rate: Double) : Command
 
-    /** As fast as allowed until universe [time], then real time. Honoured wherever [SetWarp] is. */
+    /** As fast as allowed until universe [time], then real time, [label] saying what's then. As [SetWarp] does. */
     @Serializable
     @SerialName("warpTo")
-    data class WarpTo(val time: Double) : Command
+    data class WarpTo(val time: Double, val label: String = "") : Command
+
+    /** The host sends player [clientId] out of the game, and keeps them out until it ends. */
+    @Serializable
+    @SerialName("kick")
+    data class Kick(val clientId: String) : Command
+
+    /** Allows or refuses warp request [request] (see [WarpVote.id]). */
+    @Serializable
+    @SerialName("answerWarp")
+    data class AnswerWarp(val request: Int, val allow: Boolean) : Command
 
     /** Takes one of the player's own craft out of the world for good. */
     @Serializable
@@ -304,6 +315,13 @@ data class VesselKinematics(
     val centreOfMass: SerialVec3? = null,
     /** Its lamps lit now, by part index. Null for none. */
     val lit: List<Int>? = null,
+    /**
+     * Seconds it's ahead of the world, warping in a bubble of its own time, or 0. Its state is as
+     * at snapshot time plus this, around its own world.
+     */
+    val lead: Double = 0.0,
+    /** How fast its bubble is going, times real time, with 0 waiting for the world. */
+    val leadRate: Double = 1.0,
 ) {
     // By content, since arrays compare by identity.
     override fun equals(other: Any?): Boolean =
@@ -325,12 +343,41 @@ data class Snapshot(
     val warp: Double = 1.0,
     /** What the player asked for, which the world might be holding below. */
     val warpRequested: Double = 1.0,
-    /** Whether this player can pause or warp: a solo world with nobody else on it. */
+    /** Whether this server warps at all. See [warpHostOnly] for who may. */
     val warpAllowed: Boolean = false,
+    /** More than one player is in the game, so warp is asked for and pause is the host's. */
+    val shared: Boolean = false,
+    /** Only the host may warp. */
+    val warpHostOnly: Boolean = false,
+    /** A warp waiting on others to agree, or null. */
+    val vote: WarpVote? = null,
+    /** Whose craft is holding warp down (thrusting, landing, in the air), or blank. */
+    val heldBy: String = "",
+    /** Everyone in the game. */
+    val players: List<PlayerInfo> = emptyList(),
     /** Tow hitches coupled up. */
     val hitches: List<SavedLink> = emptyList(),
     /** Winch lines out, for drawing. */
     val lines: List<SavedLine> = emptyList(),
+)
+
+/** Someone in the game: who, their colour, whether they host it, and how far ahead in time they are, in seconds. */
+@Serializable
+data class PlayerInfo(val clientId: String, val name: String, val stripe: Int = -1, val host: Boolean = false, val lead: Double = 0.0)
+
+/** A player asking everyone to warp. [waiting] are the client ids yet to answer, [waitingNames] their names. */
+@Serializable
+data class WarpVote(
+    val id: Int,
+    val from: String,
+    val fromName: String,
+    val rate: Double,
+    /** Universe time to warp to, or NaN for no end. */
+    val until: Double = Double.NaN,
+    val label: String = "",
+    val waiting: List<String> = emptyList(),
+    val waitingNames: List<String> = emptyList(),
+    val secondsLeft: Double = 0.0,
 )
 
 /**
@@ -366,6 +413,8 @@ data class StructureUpdate(
      */
     val stripe: Int = -1,
     val visor: Int = -1,
+    /** The owner's suit stripe, so their craft show in their colour, or -1 for debris and the world's. */
+    val ownerStripe: Int = -1,
 )
 
 /** Server to client. */
@@ -383,11 +432,26 @@ sealed interface ServerMessage {
         val weather: com.rm.apogee.core.weather.WeatherConfig? = null,
         /** [WorldSave.MODE_CAREER] or [WorldSave.MODE_SANDBOX]. */
         val mode: String = WorldSave.MODE_SANDBOX,
+        /** This player is the host, who can pause everyone and, as the host chose, warp alone. */
+        val host: Boolean = false,
     ) : ServerMessage
 
     @Serializable
     @SerialName("rejected")
-    data class Rejected(val reason: String) : ServerMessage
+    data class Rejected(
+        val reason: String,
+        /** Turned away for a missing or wrong password, so the player can be asked for one. */
+        val needsPassword: Boolean = false,
+    ) : ServerMessage
+
+    /**
+     * One of the craft the server offers a joining player to fly, one design a message so none
+     * gets near the frame limit. [count] is how many there are in all; [siteId] is where the host
+     * starts, or null for wherever each design goes.
+     */
+    @Serializable
+    @SerialName("craftOffered")
+    data class CraftOffered(val design: CraftDesign, val count: Int, val siteId: String? = null) : ServerMessage
 
     @Serializable
     @SerialName("snapshot")
@@ -412,7 +476,12 @@ sealed interface ServerMessage {
 
     @Serializable
     @SerialName("chat")
-    data class ChatMessage(val from: String, val text: String) : ServerMessage
+    data class ChatMessage(
+        val from: String,
+        val text: String,
+        /** The sender's suit stripe, as [com.rm.apogee.core.crew.Crew] numbers them, for their name's colour. */
+        val stripe: Int = -1,
+    ) : ServerMessage
 
     /** Scatter that got knocked down: as it happens, and in full to anyone joining. */
     @Serializable
@@ -673,6 +742,13 @@ sealed interface ClientMessage {
         val systemHash: String = "",
         /** The stripe this player's crew wear, or -1 to leave it to the server. See [com.rm.apogee.core.crew.Crew.stripeFor]. */
         val stripe: Int = -1,
+        /**
+         * The player picks what to fly once in, so the server hands out no stock rocket and sends
+         * its craft to choose from ([ServerMessage.CraftOffered]).
+         */
+        val choosing: Boolean = false,
+        /** The game's password, or blank. */
+        val password: String = "",
     ) : ClientMessage
 
     @Serializable
@@ -716,5 +792,7 @@ object Protocol {
     // 28: places as targets, SetTarget's body "place:" and an id.
     // 29: the light switch: SetLights, CraftSystems.lights and lamps, VesselKinematics.lit.
     // 30: the gear switch: SetGear, CraftSystems.gear and gearFolds; legs no longer stage.
-    const val VERSION = 30
+    // 31: picking a craft on joining: Hello.choosing, CraftOffered; ChatMessage.stripe and
+    //     StructureUpdate.ownerStripe.
+    const val VERSION = 31
 }

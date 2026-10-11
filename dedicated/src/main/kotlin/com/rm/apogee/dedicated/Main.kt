@@ -90,16 +90,15 @@ fun main(): Unit = runBlocking {
     log.info("Listening on port ${listener.boundPort}")
 
     if (settings.lanDiscovery) {
-        LanDiscovery.announce(
+        LanDiscovery.announce(scope) {
             ServerBeacon(
                 serverName = settings.serverName,
                 port = listener.boundPort,
                 players = server.playerCount,
                 protocolVersion = Protocol.VERSION,
                 catalogHash = catalog.contentHash,
-            ),
-            scope,
-        )
+            )
+        }
         log.info("Announcing on the local network")
     }
 

@@ -4,6 +4,9 @@ import com.rm.apogee.core.craft.CraftDesign
 import com.rm.apogee.core.craft.CraftOrientation
 import com.rm.apogee.core.craft.StockCraft
 import com.rm.apogee.core.math.Quat
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import com.rm.apogee.core.math.Vec3
 import com.rm.apogee.core.orbit.CelestialBody
 import com.rm.apogee.core.orbit.Orbit
@@ -78,7 +81,79 @@ class GameSession private constructor(
     private val launchDesign: CraftDesign? = null,
     /** Where to put [launchDesign], or null to let the design decide. */
     private val launchSiteId: String? = null,
+    /** Joined someone else's game and picks what to fly once in. See [chooseCraft]. */
+    choosing: Boolean = false,
 ) {
+    /** Still to pick what to fly, from the player's own craft and [offeredCraft]. */
+    var choosingCraft by mutableStateOf(choosing)
+        private set
+
+    /** The craft the server offers, as they arrive. */
+    val offeredCraft: List<CraftDesign> get() = client.offered
+
+    /** How many craft the server is offering, or -1 before it says. */
+    val offeredCount: Int get() = client.offeredCount
+
+    /** The name of the craft the player already has in this world, or null if none. */
+    val craftHereName: String? get() = client.controlledVessel?.let { id -> client.vessel(id)?.design?.name ?: "your craft" }
+
+    /**
+     * Flies [design], put down where the host starts if it suits the design: the host's site when
+     * it's on another world or the same one the design would pick, else the design's own.
+     */
+    suspend fun chooseCraft(design: CraftDesign) {
+        val own = World.launchSiteFor(design, catalog)
+        val hosts = client.offeredSite?.let { id -> World.launchSites.firstOrNull { it.id == id } }
+        val site = if (hosts != null && (hosts.bodyId != own.bodyId || hosts.id == own.id)) hosts.id else own.id
+        client.send(Command.SpawnCraft(design.withoutEmptyStages(), site))
+        choosingCraft = false
+    }
+
+    /** Goes on flying the craft the player already has here. */
+    fun keepCraft() {
+        choosingCraft = false
+    }
+
+    /** Whether others can be here: a game joined, or one open to the network. */
+    val multiplayer: Boolean get() = hostedServer == null || network != null
+
+    /** Whether this is the host of a game open to others, which ends when it leaves. */
+    val hostingOthers: Boolean get() = hostedServer != null && network != null
+
+    /** Turned away for a missing or wrong password, the link to the game gone, and who's in it. */
+    val needsPassword: Boolean get() = client.needsPassword
+    val sentOut: Boolean get() = client.sentOut
+    val lost: Boolean get() = client.lost
+    val players: List<com.rm.apogee.core.world.PlayerInfo> get() = client.players
+
+    /** Sends player [clientId] out of the game. Only the host can. */
+    suspend fun kick(clientId: String) {
+        client.send(Command.Kick(clientId))
+    }
+
+    /** How many others are in this game this player hosts. */
+    val othersIn: Int get() = ((hostedServer?.playerCount ?: 1) - 1).coerceAtLeast(0)
+
+    /**
+     * The app's out of sight: no frames are built until it's back (see [start]), and a game only
+     * this player is in stands still.
+     */
+    @Volatile var hiddenFromView = false
+        set(value) {
+            field = value
+            hostedServer?.held = value && network == null
+        }
+
+    /** Chat so far, oldest first, and how many lines have come in, to tell when there's more. */
+    fun chatLines(): List<com.rm.apogee.net.ChatLine> = client.chatHistory()
+    val chatCount: Long get() = client.chatCount
+
+    /** Says [text] to everyone in the game. */
+    suspend fun sendChat(text: String) {
+        val line = text.trim()
+        if (line.isNotEmpty()) client.send(Command.Chat(line))
+    }
+
     val camera = CameraController()
 
     /**
@@ -294,6 +369,9 @@ class GameSession private constructor(
         }
         presentJob = scope.launch(FRAME_THREAD) {
             while (isActive) {
+                // Out of sight nothing's drawn, so no frames and no ground to build for them. The
+                // server goes on.
+                if (hiddenFromView) { delay(HIDDEN_POLL_MILLIS); continue }
                 val started = System.nanoTime()
                 buildFrame(started)
                 refreshScreenAttitude()
@@ -329,8 +407,8 @@ class GameSession private constructor(
      * Opens this session's server to the network and announces it. The host's own client stays on
      * the loopback, so it can play with no network.
      */
-    private fun openToLan(server: GameServer, scope: CoroutineScope, serverName: String) {
-        val opened = openToNetwork(server, scope, serverName, catalog.contentHash) ?: return
+    private fun openToLan(server: GameServer, scope: CoroutineScope, serverName: String, locked: Boolean) {
+        val opened = openToNetwork(server, scope, serverName, catalog.contentHash, locked) ?: return
         network = opened
         hostedPort = opened.port
     }
@@ -1027,15 +1105,30 @@ class GameSession private constructor(
         val focus = client.controlledVessel?.let { client.vessel(it) } ?: return
         val burn = burnsOf(focus).firstOrNull() ?: return
         val duration = prediction.replica?.let { com.rm.apogee.core.world.Burns.duration(it, burn.deltaV) } ?: 0.0
-        warpTo(com.rm.apogee.core.world.Burns.startOf(burn, duration))
+        warpTo(com.rm.apogee.core.world.Burns.startOf(burn, duration), "the burn")
     }
 
-    /** Warps to a little before universe time [time], if that's far enough off. */
-    suspend fun warpTo(time: Double) {
+    /** Warps to a little before universe time [time], if that's far enough off. [label] says what's then, for the others. */
+    suspend fun warpTo(time: Double, label: String = "") {
         val until = time - BURN_WARP_LEAD
-        if (until > lastRenderTime + 5.0) client.send(Command.WarpTo(until))
+        if (until > lastRenderTime + 5.0) client.send(Command.WarpTo(until, label))
         mapPicked = null
     }
+
+    /** Allows or refuses someone's warp request. */
+    suspend fun answerWarp(request: Int, allow: Boolean) {
+        client.send(Command.AnswerWarp(request, allow))
+    }
+
+    /** How far ahead of everyone the flown craft is, in a warp bubble of its own, and its bubble's rate, or null outside one. */
+    val viewLead: Double get() = client.viewLead
+    val viewWarp: Double get() = client.viewWarp
+    val bubbleRate: Double? get() = client.controlledVessel?.let { client.vessel(it)?.latest }
+        ?.takeIf { it.lead > 0.0 || it.leadRate != 1.0 }?.leadRate
+
+    /** Whether this player hosts the game, and who they are to it. */
+    val isHost: Boolean get() = client.isHost
+    val clientId: String get() = client.clientId
 
     /** Turns the autopilots on or off. */
     suspend fun setAutopilot(autoBurn: Boolean, autoLand: Boolean) {
@@ -1360,7 +1453,7 @@ class GameSession private constructor(
             .mapNotNull { vessel ->
                 val state = vessel.latest ?: return@mapNotNull null
                 val body = system.bodies[state.referenceBodyId] ?: return@mapNotNull null
-                val bodyFixed = body.toBodyFixed(state.position, body.rotationAt(client.latestSnapshot?.time ?: 0.0))
+                val bodyFixed = body.toBodyFixed(state.position, body.rotationAt(client.viewTime))
                 val up = state.position.normalized()
                 val above = (body.heightAboveTerrain(state.position, bodyFixed) +
                     lowestPointOffset(vessel.design, state.rotation, up, liveCentreOfMass(vessel.id, vessel.design, state))).coerceAtLeast(0.0)
@@ -1530,11 +1623,12 @@ class GameSession private constructor(
         // The one time this frame is drawn at: snapshot time plus its age, or the craft's own time
         // when predicted. Everything must share it; at the equator a few ms of difference is a
         // visible slide.
-        val snapshotTime = client.latestSnapshot?.time ?: 0.0
+        // Ahead by the flown craft's lead when it's warping in a bubble of its own.
+        val snapshotTime = client.viewTime
         val snapshotAge = if (client.latestSnapshotNanos == 0L) 0.0
             else (System.nanoTime() - client.latestSnapshotNanos) / 1e9
         // The world's clock runs at the warp rate, and not at all while paused.
-        val warp = client.latestSnapshot?.warp ?: 1.0
+        val warp = client.viewWarp
         val warping = warp != 1.0
         // Warped, snapshot time is too jumpy to draw by, so our own clock runs at the warp rate and
         // eases toward it. Under physics warp it runs at the rate the world really manages, or it
@@ -1648,13 +1742,14 @@ class GameSession private constructor(
             signalLines(focusId, focusState.position, attractor, renderTime, reach, lines, icons)
             richnessDots(attractor, renderTime, lines)
             if (mapCurrents) currentArrows(attractor, renderTime, cameraPosition, lines)
-            // Founded bases on this world (the player's own and the Cape's), where they stand.
+            // Founded bases on this world, where they stand: the player's own and the Cape's, and
+            // other players' in their colour, with their name.
             for (other in client.vessels) {
                 if (!other.anchored || other.id == focusId) continue
-                if (other.owner != World.WORLD_OWNER && other.owner != client.clientId) continue
                 val seen = other.latest ?: continue
                 if (seen.referenceBodyId != focusState.referenceBodyId) continue
-                icons += MapIcon(IconKind.BASE, seen.position.copy(), BASE_COLOR)
+                val theirs = theirs(other)
+                icons += MapIcon(IconKind.BASE, seen.position.copy(), if (theirs) ownerColour(other) else BASE_COLOR, label = if (theirs) other.ownerName else "")
             }
             // Flags planted on this world, anyone's.
             for (other in client.vessels) {
@@ -2167,7 +2262,16 @@ class GameSession private constructor(
      * A thing shown on the map as an icon: what it is, where (around the attractor), its colour, and
      * for the craft, which way it's going. Drawn flat on the screen, one size at any distance.
      */
-    class MapIcon(val kind: IconKind, val at: Vec3, val colour: FloatArray, val heading: Vec3? = null)
+    class MapIcon(val kind: IconKind, val at: Vec3, val colour: FloatArray, val heading: Vec3? = null, val label: String = "")
+
+    /** Whether [vessel] belongs to another player, not this one, the world or nobody. */
+    private fun theirs(vessel: com.rm.apogee.net.ClientVessel): Boolean =
+        vessel.owner.isNotBlank() && vessel.owner != client.clientId && vessel.owner != World.WORLD_OWNER
+
+    /** [vessel]'s owner's colour: their suit stripe. */
+    private fun ownerColour(vessel: com.rm.apogee.net.ClientVessel): FloatArray =
+        if (vessel.ownerStripe >= 0) com.rm.apogee.render.SuitColours.stripe(vessel.ownerStripe).let { floatArrayOf(it[0], it[1], it[2], 1f) }
+        else OTHER_CRAFT_COLOR
 
     /**
      * A world's name on the map, placed on a [width] x [height] screen, or with [place], a named
@@ -2220,7 +2324,7 @@ class GameSession private constructor(
                     angle = (kotlin.math.atan2((ahead[1] - at[1]).toDouble(), (ahead[0] - at[0]).toDouble()) * 180.0 / kotlin.math.PI).toFloat()
                 }
             }
-            out += MapLabel("", at[0], at[1], icon = icon.kind, colour = icon.colour, angle = angle)
+            out += MapLabel(icon.label, at[0], at[1], icon = icon.kind, colour = icon.colour, angle = angle)
         }
         // Every mark gets its icon, even where its tag gives way to another's.
         for (m in view.marks) {
@@ -2708,7 +2812,7 @@ class GameSession private constructor(
         val bodyId = replica?.referenceBodyId ?: state.referenceBodyId
         val position = replica?.body?.position?.copy() ?: state.position.copy()
         val velocity = replica?.body?.linearVelocity?.copy() ?: state.velocity.copy()
-        val time = if (replica != null) prediction.renderTime() ?: renderTime else client.latestSnapshot?.time ?: renderTime
+        val time = if (replica != null) prediction.renderTime() ?: renderTime else client.viewTime
         val target = client.vessel(localTarget)?.latest?.takeIf { it.referenceBodyId == bodyId }
         planner.ask(
             terrainScope,
@@ -2892,7 +2996,16 @@ class GameSession private constructor(
             if (seen.referenceBodyId != attractor.id) continue
             val target = other.id == localTarget
             if (!target && ++shown > MAP_OTHER_CRAFT) continue
-            icons += MapIcon(if (target) IconKind.TARGET else IconKind.OTHER, seen.position.copy(), if (target) NEAR_COLOR else OTHER_CRAFT_COLOR, heading = seen.velocity.copy())
+            // Another player's in their colour, with their name, and how far off in time if they're
+            // in a different one from this player.
+            val theirs = theirs(other)
+            val apart = seen.lead - client.viewLead
+            val whenTag = if (kotlin.math.abs(apart) < MAP_TIME_APART) "" else (if (apart > 0) " +" else " -") + com.rm.apogee.core.world.WarpWords.span(kotlin.math.abs(apart))
+            icons += MapIcon(
+                if (target) IconKind.TARGET else IconKind.OTHER, seen.position.copy(),
+                if (target) NEAR_COLOR else if (theirs) ownerColour(other) else OTHER_CRAFT_COLOR,
+                heading = seen.velocity.copy(), label = if (theirs) other.ownerName + whenTag else whenTag.trim(),
+            )
             if (target) {
                 val orbit = Orbit(seen.position.copy(), seen.velocity.copy(), attractor.gravitationalParameter, time)
                 if (orbit.isBound && orbit.periapsis > attractor.radius) lines.add(RenderLine(orbit.sample(160), TARGET_ORBIT_COLOR))
@@ -3123,6 +3236,9 @@ class GameSession private constructor(
      *
      * @return where the controlled craft should be drawn.
      */
+    /** The flown craft's lead when last predicted, to tell when it jumps. */
+    private var lastViewLead = 0.0
+
     private fun updatePrediction(focus: ClientVessel, state: VesselKinematics): Vec3 {
         val now = System.nanoTime()
         val snapshot = client.latestSnapshot
@@ -3130,10 +3246,10 @@ class GameSession private constructor(
         // over many snapshots. One snapshot's jitter is metres at orbital speed.
         if (snapshot != null && snapshot.tick != clockSampledTick) {
             clockSampledTick = snapshot.tick
-            serverClock.sample(snapshot.time, client.latestSnapshotNanos / 1e9)
+            serverClock.sample(client.viewTime, client.latestSnapshotNanos / 1e9)
         }
         val present = serverClock.now(now / 1e9)
-        val age = present?.let { (it - (snapshot?.time ?: it)).coerceIn(0.0, MAX_SNAPSHOT_AGE) }
+        val age = present?.let { (it - (if (snapshot != null) client.viewTime else it)).coerceIn(0.0, MAX_SNAPSHOT_AGE) }
             ?: ((now - client.latestSnapshotNanos) / 1e9)
         // Rebuilt (staging, a part lost), so the replica starts again from the server. Where the
         // craft was drawn is carried over and eased away. Measured at the design's origin, not the
@@ -3143,9 +3259,13 @@ class GameSession private constructor(
             predictedPosition.copy().addScaledInPlace(prediction.velocity() ?: Vec3(), (now - lastAdvanceNanos) / 1e9)
                 .subInPlace(predictedRotation.rotate(prediction.replica?.centerOfMass() ?: Vec3()))
         else null
+        // In or out of a warp bubble the craft's clock jumps, so the replica starts again from it.
+        val lead = client.viewLead
+        if (client.viewWarp == 1.0 && kotlin.math.abs(lead - lastViewLead) > 1.0) prediction.reset()
+        lastViewLead = lead
         if (prediction.needsAdopting(focus.design)) {
             // On the server's clock. See ClientPrediction.adopt.
-            prediction.adopt(focus.design, state, snapshot?.time ?: 0.0, client.weather)
+            prediction.adopt(focus.design, state, client.viewTime, client.weather)
             pushControlsToPrediction()
             lastReconciledTick = -1
         }
@@ -3168,7 +3288,7 @@ class GameSession private constructor(
         if (snapshot != null && snapshot.tick != lastReconciledTick) {
             lastReconciledTick = snapshot.tick
             val t0 = System.nanoTime()
-            prediction.reconcile(state, age, snapshot.time, neighboursOf(focus, state, snapshot.time), anchored = focus.anchored)
+            prediction.reconcile(state, age, client.viewTime, neighboursOf(focus, state, client.viewTime), anchored = focus.anchored)
             addBuildTime(20, System.nanoTime() - t0)
         }
         prediction.sync(focus.currentStage, focus.activatedParts, focus.fuel)
@@ -3655,7 +3775,7 @@ class GameSession private constructor(
             )
         }
         // Paused, everything is still.
-        if ((client.latestSnapshot?.warp ?: 1.0) <= 0.0) {
+        if (client.viewWarp <= 0.0) {
             synchronized(soundLock) { if (!soundStopped) AudioEngine.scene(0, sound.keys, sound.recipes, sound.flags, sound.params) }
             return
         }
@@ -4040,7 +4160,7 @@ class GameSession private constructor(
     private fun wreckStandIn(id: Long): ClientVessel? {
         val seen = lastSeen?.takeIf { it.id == id } ?: return null
         val body = system.bodies[seen.bodyId] ?: return null
-        val time = (client.latestSnapshot?.time ?: 0.0) +
+        val time = client.viewTime +
             if (client.latestSnapshotNanos == 0L) 0.0 else (System.nanoTime() - client.latestSnapshotNanos) / 1e9
         // Where it came apart if known, otherwise where it was last seen (well short of where a
         // fast craft hit).
@@ -4291,6 +4411,8 @@ class GameSession private constructor(
         val emitters = frameEmitters
         val state = stateOverride ?: vessel.latest ?: return
         val design = vessel.design
+        // In a different time from this player's, it's drawn faint: there, but not to be touched.
+        val ghost = kotlin.math.abs(state.lead - client.viewLead) > GHOST_APART
 
         // The server sends the centre of mass, and design part positions are relative to the design
         // origin, so offset by where the centre is in the design.
@@ -4647,7 +4769,8 @@ class GameSession private constructor(
                         shape = leaf.shape,
                         position = leafWorld,
                         rotation = leafRotation,
-                        color = if (condition.any && !lit) ConditionLook.colour(base, health, heat) else base,
+                        color = (if (condition.any && !lit) ConditionLook.colour(base, health, heat) else base)
+                            .let { if (ghost) it.copyOf().also { faint -> faint[3] *= GHOST_ALPHA } else it },
                         // Lit, a lamp's glare makes it look bigger than it is.
                         scale = if (lit) LAMP_GLARE else dent?.let { ConditionLook.inLeaf(it, leaf.rotation) },
                         ambient = if (lit) 1.2f else if (condition.any) ConditionLook.ambient(0.28f, heat) else 0.28f,
@@ -4701,6 +4824,7 @@ class GameSession private constructor(
             val back = Vec3()
             var girth = 0.5
             val speed = throughAir.length
+            val aeroParts = ArrayList<AeroPart>()
             if (speed > 1.0) {
                 val ahead = Vec3().setTo(throughAir).mulInPlace(1.0 / speed)
                 var lead = -Double.MAX_VALUE
@@ -4717,6 +4841,7 @@ class GameSession private constructor(
                     if (def.module<com.rm.apogee.core.part.AeroSurface>() == null && radius > girth) girth = radius
                     rotation.rotate(offset.setTo(placed.position).subInPlace(centreOfMass), offset)
                     (rotation * placed.rotation).rotate(Vec3.unitY(), axis)
+                    if (Effects.showsShape(speed)) aeroPart(def, rotation * placed.rotation, Vec3().setTo(position).addInPlace(offset))?.let { aeroParts += it }
                     if ((axis dot ahead) < 0.0) axis.negateInPlace()
                     val tip = offset.addScaledInPlace(axis, half)
                     val reach = tip dot ahead
@@ -4730,8 +4855,22 @@ class GameSession private constructor(
             effects?.aero(
                 position, throughAir, designRadius(design, centreOfMass), attractor, bodyRotation,
                 animationDt, lastRenderTime, vessel.id.toInt(), out, nose, girth, back.takeIf { it.lengthSq > 0.5 },
+                aeroParts,
             )
         }
+    }
+
+    /** A part's shape as the air meets it, at [centre] turned by [turn], or null if it's too small to show. */
+    private fun aeroPart(def: com.rm.apogee.core.part.PartDef, turn: Quat, centre: Vec3): AeroPart? {
+        val wing = def.module<com.rm.apogee.core.part.AeroSurface>() != null
+        val (halves, round) = when (val mesh = def.mesh) {
+            is com.rm.apogee.core.part.MeshSpec.Cylinder -> Vec3(mesh.radius, mesh.height * 0.5, mesh.radius) to true
+            is com.rm.apogee.core.part.MeshSpec.Cone -> maxOf(mesh.topRadius, mesh.bottomRadius).let { Vec3(it, mesh.height * 0.5, it) } to true
+            is com.rm.apogee.core.part.MeshSpec.Sphere -> Vec3(mesh.radius, mesh.radius, mesh.radius) to true
+            is com.rm.apogee.core.part.MeshSpec.Box -> Vec3(mesh.width * 0.5, mesh.height * 0.5, mesh.depth * 0.5) to false
+        }
+        if (maxOf(halves.x, halves.y, halves.z) < 0.1) return null
+        return AeroPart(centre, turn.rotate(Vec3.unitX()), turn.rotate(Vec3.unitY()), turn.rotate(Vec3.unitZ()), halves, round, wing)
     }
 
     /** Which part this is, in a way staging doesn't change: its kind and place in the design. */
@@ -5176,6 +5315,9 @@ class GameSession private constructor(
         /** About 60 Hz. The server streams slower, and the renderer interpolates. */
         private const val PRESENT_INTERVAL_MILLIS = 16L
 
+        /** How often a hidden session looks to see whether it's back in sight, in ms. */
+        private const val HIDDEN_POLL_MILLIS = 250L
+
         /** Stage cards at 5 Hz, plenty for gauges. */
         private const val STAGE_CARD_INTERVAL_NANOS = 200_000_000L
 
@@ -5350,6 +5492,13 @@ class GameSession private constructor(
         private val BURN_COLOR = floatArrayOf(0.31f, 0.64f, 1.0f, 1f)
         private val ARRIVE_COLOR = floatArrayOf(0.85f, 0.85f, 0.88f, 1f)
         private val OTHER_CRAFT_COLOR = floatArrayOf(0.75f, 0.78f, 0.85f, 1f)
+
+        /** Craft further apart in time than this, in seconds, have it on their tag. */
+        private const val MAP_TIME_APART = 60.0
+
+        /** Craft further apart in time than this, in seconds, are drawn faint, at this alpha. */
+        private const val GHOST_APART = 1.0
+        private const val GHOST_ALPHA = 0.35f
         private val TARGET_ORBIT_COLOR = floatArrayOf(1.0f, 0.55f, 0.85f, 0.55f)
         private val PLANET_ORBIT_COLOR = floatArrayOf(0.55f, 0.58f, 0.68f, 0.45f)
         private val STAR_COLOR = floatArrayOf(1.0f, 0.86f, 0.45f, 1f)
@@ -5417,6 +5566,19 @@ class GameSession private constructor(
             clouds: com.rm.apogee.core.weather.CloudCover? = null,
             /** The world the others join: the host's own, career or sandbox. */
             world: World = World.default(catalog),
+            /**
+             * Where the host starts, on a fresh stock rocket, and anyone joining with nothing to
+             * fly. Null keeps the host's last craft.
+             */
+            siteId: String? = null,
+            /** When in the day to start. The clock moves on to it first. */
+            launchTime: com.rm.apogee.core.world.LaunchTime = com.rm.apogee.core.world.LaunchTime.NOW,
+            /** The craft offered to players joining, besides their own. Read as each joins. */
+            offeredCraft: (PartCatalog) -> List<CraftDesign> = { listOf(StockCraft.starterRocket(it)) },
+            /** How the players share warp. */
+            warp: com.rm.apogee.server.WarpPolicy = com.rm.apogee.server.WarpPolicy.TOGETHER,
+            /** What joining asks for, or blank for anyone. */
+            password: String = "",
         ): GameSession {
             val session = hostLocal(
                 frameBus, perfHints, playerName, clientId, stripe, design, catalog, scope,
@@ -5426,8 +5588,14 @@ class GameSession private constructor(
                 weather = weather,
                 clouds = clouds,
                 world = world,
+                siteId = siteId,
+                launchTime = launchTime,
+                freshFor = if (siteId != null && design == null) clientId else null,
+                offeredCraft = offeredCraft,
+                warp = warp,
+                password = password,
             )
-            session.hostedServer?.let { session.openToLan(it, scope, serverName) }
+            session.hostedServer?.let { session.openToLan(it, scope, serverName, locked = password.isNotEmpty()) }
             return session
         }
 
@@ -5445,14 +5613,19 @@ class GameSession private constructor(
             host: String,
             port: Int,
             catalog: PartCatalog = StockParts.catalog,
+            /** The game's password, or blank. */
+            password: String = "",
+            /** Picks what to fly once in. Off when coming back to a game after a dropped link. */
+            choosing: Boolean = true,
         ): Result<GameSession> = connectTo(host, port).map { transport ->
             GameSession(
                 frameBus = frameBus,
                 perfHints = perfHints,
                 catalog = catalog,
                 hostedServer = null,
-                client = GameClient(transport, playerName, catalog.contentHash, clientId, stripe = stripe),
+                client = GameClient(transport, playerName, catalog.contentHash, clientId, stripe = stripe, choosing = choosing, password = password),
                 transport = transport,
+                choosing = choosing,
             )
         }
 
@@ -5483,6 +5656,14 @@ class GameSession private constructor(
             clouds: com.rm.apogee.core.weather.CloudCover? = null,
             /** When in the day to launch. The clock moves on to it first. Not for Resume Flight. */
             launchTime: com.rm.apogee.core.world.LaunchTime = com.rm.apogee.core.world.LaunchTime.NOW,
+            /** The one player who starts on a fresh stock rocket at [siteId]: a host picking a site. */
+            freshFor: String? = null,
+            /** The craft offered to players joining, besides their own. */
+            offeredCraft: (PartCatalog) -> List<CraftDesign> = { listOf(StockCraft.starterRocket(it)) },
+            /** How players share warp once others are in. Alone, warp is always there. */
+            warp: com.rm.apogee.server.WarpPolicy = com.rm.apogee.server.WarpPolicy.TOGETHER,
+            /** What joining asks for, or blank for anyone. */
+            password: String = "",
         ): GameSession {
             // A launch at a chosen time of day moves the clock on to it at the site before anyone
             // joins.
@@ -5505,16 +5686,21 @@ class GameSession private constructor(
                     // A design of their own is coming, so no stock rocket as well.
                     assignCraftOnJoin = design == null,
                     freshFlight = freshFlight && resumeVessel == null,
+                    freshFlightFor = freshFor,
+                    offeredCraft = offeredCraft,
+                    starterSite = siteId?.takeIf { id -> World.launchSites.any { it.id == id } },
                     resumeVessel = resumeVessel,
                     weatherIntensity = weather,
                     cloudCover = clouds,
-                    // The phone's own game: pause and warp while nobody else is in it.
+                    // The phone's own game: pause and warp alone, and with others as the host chose.
                     allowWarp = true,
+                    warp = warp,
+                    password = password,
                 ),
             )
             // Both ends here, so messages go across as they are.
             val link = LoopbackTransportPair(objects = true)
-            server.accept(link.serverSide, scope)
+            server.accept(link.serverSide, scope, host = true)
 
             val client = GameClient(link.clientSide, playerName, catalog.contentHash, clientId, stripe = stripe)
             return GameSession(

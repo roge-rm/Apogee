@@ -52,4 +52,30 @@ class AutoResolutionTest {
         run(auto, clock, frames, 60.0) { 60.0 }
         assertEquals(1.0, auto.scale, 1e-9)
     }
+
+    @Test
+    fun `a new flight starts where the last one settled`() {
+        val auto = AutoResolution()
+        val clock = longArrayOf(1_000_000_000L)
+        val frames = longArrayOf(0L)
+        auto.reset(clock[0])
+        run(auto, clock, frames, 60.0, phone)
+        val settled = auto.scale
+        auto.reset(clock[0])
+        assertEquals(settled, auto.scale, 1e-9)
+        // And a fresh start from a remembered step.
+        assertEquals(settled, AutoResolution(auto.step).scale, 1e-9)
+    }
+
+    @Test
+    fun `a renderer starting its frame count again doesn't read as a slow frame rate`() {
+        val auto = AutoResolution()
+        val clock = longArrayOf(1_000_000_000L)
+        val frames = longArrayOf(0L)
+        auto.reset(clock[0])
+        run(auto, clock, frames, 20.0) { 60.0 }
+        frames[0] = 0L
+        run(auto, clock, frames, 20.0) { 60.0 }
+        assertEquals(1.0, auto.scale, 1e-9)
+    }
 }

@@ -23,6 +23,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -45,14 +49,29 @@ import com.rm.apogee.ui.theme.alpha
 
 @Composable
 fun HostGameScreen(
+    /** What the others see this player called. */
+    playerName: String,
+    onPlayerNameChange: (String) -> Unit,
     serverName: String,
     onServerNameChange: (String) -> Unit,
+    /** What joining asks for, or blank for anyone. */
+    password: String = "",
+    onPasswordChange: (String) -> Unit = {},
     onStartHosting: () -> Unit,
     /** Hosting the career world instead of the sandbox. */
     career: Boolean = false,
     onCareer: (Boolean) -> Unit = {},
+    /** Where the host starts, by launch site id, or null to keep their last craft. */
+    site: String? = null,
+    onSite: (String?) -> Unit = {},
+    launchTime: com.rm.apogee.core.world.LaunchTime = com.rm.apogee.core.world.LaunchTime.NOW,
+    onLaunchTime: (com.rm.apogee.core.world.LaunchTime) -> Unit = {},
+    /** How the players share warp. */
+    warp: com.rm.apogee.server.WarpPolicy = com.rm.apogee.server.WarpPolicy.TOGETHER,
+    onWarp: (com.rm.apogee.server.WarpPolicy) -> Unit = {},
     onBack: () -> Unit = {},
 ) {
+    var pickingSite by remember { mutableStateOf(false) }
     Backdrop(maxContentWidth = Dimens.PanelContentMaxWidth) { contentModifier ->
         Text("Host a Game", style = MaterialTheme.typography.titleLarge, color = Color.White)
 
@@ -68,6 +87,14 @@ fun HostGameScreen(
             modifier = contentModifier,
         )
 
+        SectionHeading("Your name", contentModifier)
+        OutlinedTextField(
+            value = playerName,
+            onValueChange = onPlayerNameChange,
+            singleLine = true,
+            modifier = contentModifier,
+        )
+
         SectionHeading("Game name", contentModifier)
         OutlinedTextField(
             value = serverName,
@@ -76,7 +103,40 @@ fun HostGameScreen(
             modifier = contentModifier,
         )
 
-        Spacer(Modifier.height(24.dp))
+        SectionHeading("Password", contentModifier)
+        OutlinedTextField(
+            value = password,
+            onValueChange = onPasswordChange,
+            singleLine = true,
+            placeholder = { Text("None", color = Color.White.alpha(ApogeeAlpha.SUBTITLE)) },
+            modifier = contentModifier,
+        )
+
+        // A career has no stock rocket to start on, so only the time.
+        SectionHeading("Start", contentModifier)
+        if (!career) {
+            ApogeeButton(
+                "From: " + (site?.let { id -> com.rm.apogee.core.world.World.launchSites.firstOrNull { it.id == id }?.displayName } ?: "your last craft"),
+                { pickingSite = true },
+                contentModifier,
+                subtitle = site?.let { "Replaces your last craft" },
+            )
+            Spacer(Modifier.height(10.dp))
+        }
+        LaunchTimeRow(launchTime, contentModifier, onLaunchTime)
+
+        SectionHeading("Warp", contentModifier)
+        PillRow(
+            listOf(
+                "Own time" to com.rm.apogee.server.WarpPolicy.BUBBLES,
+                "Together" to com.rm.apogee.server.WarpPolicy.TOGETHER,
+                "Host" to com.rm.apogee.server.WarpPolicy.HOST,
+                "Off" to com.rm.apogee.server.WarpPolicy.OFF,
+            ),
+            warp, onWarp,
+        )
+
+        Spacer(Modifier.height(14.dp))
         ApogeeButton(
             "Start hosting",
             onStartHosting,
@@ -84,6 +144,15 @@ fun HostGameScreen(
         )
         Spacer(Modifier.height(12.dp))
         com.rm.apogee.ui.components.BackButton(onBack)
+    }
+    if (pickingSite) {
+        SiteDialog(
+            selected = site,
+            automatic = "your last craft",
+            bases = emptyList(),
+            onPick = { onSite(it); pickingSite = false },
+            onDismiss = { pickingSite = false },
+        )
     }
 }
 
@@ -97,9 +166,20 @@ fun JoinGameScreen(
     defaultPort: Int,
     onJoin: (DiscoveredServer) -> Unit,
     onJoinAddress: (ServerAddress) -> Unit,
+    /** What the others see this player called. */
+    playerName: String = "",
+    onPlayerNameChange: (String) -> Unit = {},
     onBack: () -> Unit = {},
 ) {
     Backdrop(maxContentWidth = Dimens.PanelContentMaxWidth, title = "Join a Game", onBack = onBack) { contentModifier ->
+        SectionHeading("Your name", contentModifier)
+        OutlinedTextField(
+            value = playerName,
+            onValueChange = onPlayerNameChange,
+            singleLine = true,
+            modifier = contentModifier,
+        )
+        Spacer(Modifier.height(12.dp))
 
         if (connectingTo != null) {
             CircularProgressIndicator(color = ApogeeColors.Accent)

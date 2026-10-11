@@ -10,6 +10,13 @@
          to save power unless a MulticastLock is held, and that needs this. -->
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
 
+    <!-- Hosting a game out of sight: a service with a notice of who's in, the CPU and Wi-Fi
+         kept awake for the others playing. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
     <!-- GLES 3.0 is the floor. 3.1 and 3.2 depend on the driver, not the API
          level, so they're checked at runtime and never required. -->
     <uses-feature
@@ -70,6 +77,14 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
+        <service
+            android:name=".HostingService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Keeps a multiplayer game hosted on this device running for the players connected to it over the local network, while the app is in the background." />
+        </service>
     </application>
 
 </manifest>

@@ -220,6 +220,18 @@ class SystemTest {
     }
 
     @Test
+    fun `a last-bit difference in a worked-out number doesn't change the hash, a real change does`() {
+        var same = 0
+        val tries = 10_000
+        for (k in 0 until tries) {
+            val x = kotlin.math.sin(k * 0.731) * 1.3e10
+            if (SolarSystem.hashBits(x) == SolarSystem.hashBits(Math.nextUp(x))) same++
+        }
+        assertTrue("only $same of $tries survived a last-bit change", same > tries - 5)
+        assertNotEquals(SolarSystem.hashBits(84_159_286.0), SolarSystem.hashBits(84_159_287.0))
+    }
+
+    @Test
     fun `panels among the giants make a sliver of what they make at home`() {
         val world = World.default(catalog)
         val magna = world.system.body("magna")

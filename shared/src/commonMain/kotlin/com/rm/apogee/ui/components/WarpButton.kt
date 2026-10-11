@@ -56,6 +56,8 @@ fun WarpButton(
     onExpand: (Boolean) -> Unit,
     onWarp: (Double) -> Unit,
     size: Dp,
+    /** Whether this player may pause: alone, or the host. If not, a tap opens the rates. */
+    canPause: Boolean = true,
 ) {
     val paused = warp <= 0.0
     val warped = requested > 1.0
@@ -71,7 +73,7 @@ fun WarpButton(
         ) {
             Box(
                 Modifier.combinedClickable(
-                    onClick = { onWarp(if (paused || warped) 1.0 else 0.0) },
+                    onClick = { if (paused || warped) onWarp(1.0) else if (canPause) onWarp(0.0) else onExpand(true) },
                     onLongClick = { onExpand(true) },
                 ),
                 contentAlignment = Alignment.Center,
@@ -100,20 +102,20 @@ fun WarpButton(
                 onDismissRequest = { onExpand(false) },
                 properties = PopupProperties(focusable = true),
             ) {
-                Rates(warp, requested) { onWarp(it); onExpand(false) }
+                Rates(warp, requested, canPause) { onWarp(it); onExpand(false) }
             }
         }
     }
 }
 
 @Composable
-private fun Rates(warp: Double, requested: Double, onPick: (Double) -> Unit) {
+private fun Rates(warp: Double, requested: Double, canPause: Boolean, onPick: (Double) -> Unit) {
     Surface(shape = RoundedCornerShape(Dimens.CornerPanel), color = ApogeeColors.Surface.alpha(0.95f)) {
         Column(Modifier.padding(10.dp)) {
             Text("TIME", style = TelemetryTextStyle, color = Color.White.alpha(ApogeeAlpha.SUBTITLE))
             Spacer(Modifier.height(6.dp))
             // Four to a row; rates on rails go up to a million.
-            val rows = listOf(listOf(0.0, 1.0, 2.0, 4.0)) + World.WARP_RATES.filter { it > World.PHYSICS_WARP }.chunked(4)
+            val rows = listOf(listOfNotNull(0.0.takeIf { canPause }, 1.0, 2.0, 4.0)) + World.WARP_RATES.filter { it > World.PHYSICS_WARP }.chunked(4)
             for (row in rows) {
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     for (r in row) {

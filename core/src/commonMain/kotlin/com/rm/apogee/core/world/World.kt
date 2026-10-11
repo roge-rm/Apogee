@@ -1796,6 +1796,8 @@ class World(
             is Command.Chat -> Unit // handled above the world
             is Command.SetWarp -> Unit // the server's clock, not the world's
             is Command.WarpTo -> Unit
+            is Command.AnswerWarp -> Unit
+            is Command.Kick -> Unit
             is Command.RemoveVessel -> destroy(VesselId(command.vessel), REMOVED_REASON)
             // Whose insight it is, is the server's call. See [unlock].
             is Command.Unlock -> Unit
@@ -2718,9 +2720,9 @@ class World(
      * Docking, each tick after craft have moved and met: magnets pull, captures latch into one craft
      * or a hitch, and hitches hold their craft together.
      */
-    private fun stepDocking(dt: Double) {
+    private fun stepDocking(dt: Double, among: Collection<Vessel>) {
         docking.step(
-            vesselsById.values, dt,
+            among, dt,
             ignore = { a, b -> justSeparated.containsKey(pairKey(a, b)) || linked(a, b) },
             occupied = { v, i -> links.any { (it.a == v.id && it.partA == i) || (it.b == v.id && it.partB == i) } },
         )
@@ -3275,11 +3277,12 @@ class World(
     fun step(dt: Double) {
         tickEnd = time + dt
         // The first tick after a world's made or restored, then once a second.
-        if (calmCheckedAt < 0L || tick - calmCheckedAt >= CALM_BASES_EVERY) {
+        if (scope == null && (calmCheckedAt < 0L || tick - calmCheckedAt >= CALM_BASES_EVERY)) {
             calmCheckedAt = tick
             calmBases()
         }
         for (vessel in vesselsById.values) {
+            if (!inScope(vessel)) continue
             val attractor = attractorFor(vessel)
             val body = vessel.body
             // Marks it as at the end of this tick, for craft still at the start that measure
@@ -3469,6 +3472,7 @@ class World(
 
         // Craft asleep on decks follow them. If the deck's gone they wake.
         for (vessel in vesselsById.values) {
+            if (!inScope(vessel)) continue
             val deckId = vessel.ridingOn ?: continue
             val deck = vesselsById[deckId]
             if (deck == null || deck.referenceBodyId != vessel.referenceBodyId) vessel.wake() else vessel.followRide(deck)
@@ -3477,7 +3481,7 @@ class World(
         // Craft against craft, once everything has moved, since a pair needs both in their new
         // places. It isn't interleaved with terrain contact, which at 60 Hz nobody can see.
         stepOrder.clear()
-        stepOrder.addAll(vesselsById.values)
+        for (vessel in vesselsById.values) if (inScope(vessel)) stepOrder.add(vessel)
         if (justSeparated.isNotEmpty()) justSeparated.values.removeAll { it < time }
         val impacts = craftContacts.resolve(stepOrder, dt)
         // Anything touched wakes, hurt or not, or a sleeping base would act like a wall.
@@ -3490,9 +3494,11 @@ class World(
             impact(struck, impacts.parts[i], impacts.speeds[i], impactNormal)
             pendingBreakUps.add(struck.id)
         }
-        stepDocking(dt)
-        stepRefuelling(dt)
-        stepUnloading(dt)
+        stepDocking(dt, stepOrder)
+        if (scope == null) {
+            stepRefuelling(dt)
+            stepUnloading(dt)
+        }
         resolveExplosions()
         if (pendingBreakUps.isNotEmpty() || pendingDetach.isNotEmpty()) {
             val ids = LinkedHashSet(pendingBreakUps).apply { addAll(pendingDetach.keys) }
@@ -3502,6 +3508,16 @@ class World(
             pendingBreakUps.clear()
             pendingDetach.clear()
             breakUpCause.clear()
+        }
+
+        // A bubble's own pass: the world's clockwork is the world's pass's to do.
+        if (scope != null) {
+            if (pendingDestruction.isNotEmpty()) {
+                for ((id, reason) in pendingDestruction) destroy(id, reason)
+                pendingDestruction.clear()
+            }
+            time += dt
+            return
         }
 
         if (fragmentExpiry.isNotEmpty() && tick % FRAGMENT_CHECK_TICKS == 0L) {
@@ -3528,12 +3544,12 @@ class World(
             // Reweigh whatever the drills and converters moved.
             for (vessel in vesselsById.values) if (vessel.industryMoved) { vessel.industryMoved = false; vessel.recomputeMass() }
             for (vessel in vesselsById.values) {
-                if (!vessel.dormant && !isDebris(vessel) && Comms.needsSignal(vessel)) refreshSignal(vessel, tickEnd)
+                if (!vessel.dormant && !isDebris(vessel) && vessel.id.raw !in bubbles && Comms.needsSignal(vessel)) refreshSignal(vessel, tickEnd)
             }
         }
         if (tick % POWER_CHECK_TICKS == 0L) {
             // Founded and parked craft keep a ledger instead of stepping.
-            for (vessel in vesselsById.values) if (vessel.anchored || (vessel.dormant && !isDebris(vessel))) settlePower(vessel, tickEnd)
+            for (vessel in vesselsById.values) if ((vessel.anchored || (vessel.dormant && !isDebris(vessel))) && vessel.id.raw !in bubbles) settlePower(vessel, tickEnd)
         }
 
         watchCareer(look = tick % com.rm.apogee.core.career.Program.LOOK_TICKS == 0L)
@@ -4535,11 +4551,44 @@ class World(
     fun maxWarp(): Double {
         var limit = WARP_RATES.last()
         for (vessel in vesselsById.values) {
-            // Debris doesn't hold time back. See [advanceOnRails].
-            if (vessel.dormant || isDebris(vessel)) continue
+            // Debris doesn't hold time back, nor a craft warping in a bubble of its own. See [advanceOnRails].
+            if (vessel.dormant || isDebris(vessel) || !inScope(vessel)) continue
             limit = minOf(limit, warpLimit(vessel))
         }
         return limit
+    }
+
+    /** Whether [vessel] is standing on the ground and not moving over it: in no danger from warp. */
+    fun resting(vessel: Vessel): Boolean {
+        if (!vessel.touchingGround) return false
+        val attractor = attractorFor(vessel)
+        return attractor.surfaceVelocityAt(vessel.body.position, scratchRest).subInPlace(vessel.body.linearVelocity).length < REST_SPEED
+    }
+
+    private val scratchRest = Vec3()
+
+    /** The awake craft moving, and not resting (see [resting]), that holds warp lowest, or null if none holds it under the fastest rate. */
+    fun movingWarpLimiter(): Vessel? {
+        var limit = WARP_RATES.last()
+        var holder: Vessel? = null
+        for (vessel in vesselsById.values) {
+            if (vessel.dormant || isDebris(vessel) || !inScope(vessel) || resting(vessel)) continue
+            val own = warpLimit(vessel)
+            if (own < limit) { limit = own; holder = vessel }
+        }
+        return holder?.takeIf { limit <= PHYSICS_WARP }
+    }
+
+    /** The awake craft holding warp lowest, or null if none holds it under the fastest rate. */
+    fun warpLimiter(): Vessel? {
+        var limit = WARP_RATES.last()
+        var holder: Vessel? = null
+        for (vessel in vesselsById.values) {
+            if (vessel.dormant || isDebris(vessel) || !inScope(vessel)) continue
+            val own = warpLimit(vessel)
+            if (own < limit) { limit = own; holder = vessel }
+        }
+        return holder
     }
 
     /** Nothing to fly it with: a spent stage, a fairing's shell, or a piece broken off. */
@@ -4594,6 +4643,7 @@ class World(
             val h = minOf(RAILS_STEP * maxOf(1.0, allowed / RAILS_SLICE_WARP), seconds - done)
             tickEnd = time + h
             for (vessel in vesselsById.values) {
+                if (!inScope(vessel)) continue
                 val attractor = attractorFor(vessel)
                 if (vessel.dormant) {
                     if (vessel.afloat) followSea(vessel, attractor, waves = false) else followGround(vessel, attractor)
@@ -4627,7 +4677,7 @@ class World(
                 pendingDestruction.clear()
             }
         }
-        if (done > 0.0) {
+        if (done > 0.0 && scope == null) {
             watchCareer(look = true)
             tick++
         }
@@ -4635,6 +4685,138 @@ class World(
     }
 
     private val scratchWarp = Vec3()
+
+    // --- warp bubbles -----------------------------------------------------------------------
+
+    /**
+     * Craft warping ahead of everyone else, each in a bubble of its own time: by vessel id, the
+     * bubble it's in. Craft in one bubble share it. [step], [advanceOnRails] and [maxWarp] leave
+     * them out; [advanceBubble] moves them, at their own time.
+     */
+    val bubbles = HashMap<Long, Bubble>()
+
+    /** What [step] and the rails are moving: the world outside bubbles (null), or one bubble's craft. */
+    private var scope: Set<Long>? = null
+
+    private fun inScope(vessel: Vessel): Boolean = scope?.contains(vessel.id.raw) ?: (vessel.id.raw !in bubbles)
+
+    /** How far ahead of the world [vessel] is, in seconds: 0 outside a bubble. */
+    fun leadOf(vessel: Vessel): Double = bubbles[vessel.id.raw]?.let { it.time - time } ?: 0.0
+
+    /** Puts [members] in a bubble of their own, starting at the world's time, owned by player [owner]. */
+    fun openBubble(members: Collection<Vessel>, owner: String): Bubble {
+        val bubble = members.firstNotNullOfOrNull { bubbles[it.id.raw] } ?: Bubble(owner, time)
+        for (vessel in members) bubbles[vessel.id.raw] = bubble
+        return bubble
+    }
+
+    /** [vessel] and everything hitched to it, all the way along: what goes into a bubble together. */
+    fun hitchedGroup(vessel: Vessel): List<Vessel> {
+        val seen = LinkedHashSet<Long>().apply { add(vessel.id.raw) }
+        var grew = true
+        while (grew) {
+            grew = false
+            for (link in links) {
+                val a = link.a.raw; val b = link.b.raw
+                if (a in seen && seen.add(b)) grew = true
+                if (b in seen && seen.add(a)) grew = true
+            }
+        }
+        return seen.mapNotNull { vesselsById[VesselId(it)] }
+    }
+
+    /** The craft in [bubble]. */
+    fun membersOf(bubble: Bubble): List<Vessel> = vesselsById.values.filter { bubbles[it.id.raw] === bubble }
+
+    /**
+     * Moves [bubble] on by a host tick of [dt]: at [Bubble.rate] times, on rails where all its
+     * craft can go (see [warpLimit]), else in physics steps, and not at all while it waits (rate
+     * 0). Bubble time stops at [Bubble.until]. Pieces that come off join it.
+     */
+    fun advanceBubble(bubble: Bubble, dt: Double) {
+        val members = membersOf(bubble)
+        if (members.isEmpty()) return
+        val hostTime = time
+        val hostEnd = tickEnd
+        val hostTick = tick
+        val before = vesselsById.keys.toHashSet()
+        time = bubble.time
+        scope = members.mapTo(HashSet()) { it.id.raw }
+        val heldUntil = warpUntil
+        warpUntil = bubble.until
+        try {
+            // No faster than its own craft allow, as for the world (see [maxWarp], here over them).
+            val rate = minOf(bubble.rate, maxWarp())
+            bubble.running = rate
+            if (rate > PHYSICS_WARP) {
+                advanceOnRails(dt * rate)
+            } else if (rate > 0.0) {
+                repeat(rate.coerceAtMost(PHYSICS_WARP).toInt().coerceAtLeast(1)) {
+                    if (bubble.until.isNaN() || time < bubble.until - 1e-6) step(dt)
+                }
+            }
+        } finally {
+            bubble.time = time
+            warpUntil = heldUntil
+            scope = null
+            time = hostTime
+            tickEnd = hostEnd
+            tick = hostTick
+        }
+        for (id in vesselsById.keys) if (id !in before) bubbles[id.raw] = bubble
+        bubbles.keys.retainAll { VesselId(it) in vesselsById }
+    }
+
+    /**
+     * Puts [bubble]'s craft back on the world's clock. Their place and motion are kept relative to
+     * the world each is near, which is wherever the world has it now; on the ground they're put
+     * back where they stood. Everything timed on them moves back by the lead.
+     */
+    fun closeBubble(bubble: Bubble) {
+        val lead = bubble.time - time
+        for (vessel in membersOf(bubble)) {
+            bubbles.remove(vessel.id.raw)
+            if (lead == 0.0) continue
+            val attractor = attractorFor(vessel)
+            if (vessel.dormant || vessel.anchored || vessel.touchingGround) {
+                // Standing on the ground: where it stood, as the world has turned.
+                val fixed = attractor.toBodyFixed(vessel.body.position, attractor.rotationAt(bubble.time), Vec3())
+                attractor.rotationAt(time).rotate(fixed, vessel.body.position)
+                val fixedVelocity = attractor.rotationAt(bubble.time).inverseRotate(vessel.body.linearVelocity, Vec3())
+                attractor.rotationAt(time).rotate(fixedVelocity, vessel.body.linearVelocity)
+                vessel.body.orientation.setTo((attractor.rotationAt(time) * attractor.rotationAt(bubble.time).conjugate() * vessel.body.orientation).normalizeInPlace())
+            }
+            vessel.retime(-lead)
+        }
+    }
+
+    /**
+     * Whether [bubble] can rejoin the world's clock without losing where it's going: every craft
+     * on the ground, or in an orbit that stays round its world or moon and clear of that world's
+     * moons. Out between worlds, or heading for a moon, what it's heading for would be somewhere
+     * else.
+     */
+    fun canClose(bubble: Bubble): Boolean = membersOf(bubble).all { vessel ->
+        if (vessel.dormant || vessel.anchored || vessel.touchingGround) return@all true
+        if (vessel.referenceBodyId == system.rootId) return@all false
+        // Round its world for good, and never out as far as a moon's reach: rejoined, the moon
+        // would be somewhere else, and so would the meeting.
+        val body = attractorFor(vessel)
+        val orbit = com.rm.apogee.core.orbit.Orbit(vessel.body.position, vessel.body.linearVelocity, body.gravitationalParameter)
+        if (!orbit.isBound || orbit.apoapsis >= body.sphereOfInfluence) return@all false
+        system.childrenOf(body.id).none { moon ->
+            val path = moon.orbit ?: return@none false
+            orbit.apoapsis >= path.periapsis - moon.sphereOfInfluence
+        }
+    }
+
+    /** A bubble: whose, its own time, how fast it goes (0 waits for the world), and when to stop. */
+    class Bubble(val owner: String, var time: Double) {
+        var rate: Double = 1.0
+        var until: Double = Double.NaN
+        /** The rate it last really ran at, held down by its craft. */
+        var running: Double = 1.0
+    }
 
     /** The universe time a warp was asked to stop at (see [Command.WarpTo]), or NaN for none. */
     var warpUntil: Double = Double.NaN
@@ -4731,6 +4913,8 @@ class World(
                 asleep = vessel.dormant,
                 centreOfMass = vessel.centerOfMass(),
                 lit = litLamps(vessel),
+                lead = leadOf(vessel),
+                leadRate = bubbles[vessel.id.raw]?.running ?: 1.0,
             )
         },
     ).also { if (quietSentAt.size > vesselsById.size * 2 + 16) quietSentAt.keys.retainAll { VesselId(it) in vesselsById } }
@@ -4757,6 +4941,8 @@ class World(
         crew = if (vessel.crewAboard > 0) vessel.crew.map { it.toList() } else emptyList(),
         stripe = suitWearer(vessel)?.let { com.rm.apogee.core.crew.Crew.stripeFor(vessel.owner, stripes[vessel.owner]) } ?: -1,
         visor = suitWearer(vessel)?.let { com.rm.apogee.core.crew.Crew.visorOf(it) } ?: -1,
+        ownerStripe = if (vessel.owner.isBlank() || vessel.owner == WORLD_OWNER) -1
+            else com.rm.apogee.core.crew.Crew.stripeFor(vessel.owner, stripes[vessel.owner]),
     )
 
     /** Who's in [vessel], if it's someone out in a suit. */
@@ -4829,6 +5015,7 @@ class World(
         terrainGeneration = TerrainField.GENERATION,
         lastFlown = lastFlown.toMap(),
         stripes = stripes.toMap(),
+        bubbles = bubbles.entries.groupBy({ it.value }, { it.key }).map { (bubble, ids) -> SavedBubble(bubble.owner, bubble.time, ids) },
         wondersFound = wondersFound.mapValues { it.value.sorted() },
         weather = weatherConfig,
         mode = if (program != null) WorldSave.MODE_CAREER else WorldSave.MODE_SANDBOX,
@@ -5073,6 +5260,12 @@ class World(
                 "This world was written with a different part catalogue " +
                     "(${save.catalogHash} vs ${catalog.contentHash})",
             )
+        }
+        // Back waiting, until their owner flies on: the world catches them up meanwhile.
+        bubbles.clear()
+        for (saved in save.bubbles) {
+            val bubble = Bubble(saved.owner, saved.time).also { it.rate = 0.0 }
+            for (id in saved.vessels) if (VesselId(id) in vesselsById) bubbles[id] = bubble
         }
         return problems
     }
@@ -5977,6 +6170,9 @@ class World(
 
         /** Up to this the world steps faster. Past it, craft go on rails. */
         const val PHYSICS_WARP = 4.0
+
+        /** Slower than this over the ground, in m/s, a craft touching it is resting. */
+        const val REST_SPEED = 0.5
 
         /**
          * How long a craft's air sample is kept, in seconds, and how far it can move meanwhile, in
