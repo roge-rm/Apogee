@@ -27,6 +27,7 @@ import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -133,6 +134,11 @@ private fun ChatLineText(line: ChatLine, modifier: Modifier = Modifier) {
 @Composable
 fun ChatWindow(hud: HudState, onSend: (String) -> Unit, onKick: (String) -> Unit = {}) {
     var text by remember { mutableStateOf("") }
+    // With a keyboard the box takes it at once. A phone's would cover the chat.
+    val box = remember { androidx.compose.ui.focus.FocusRequester() }
+    androidx.compose.runtime.LaunchedEffect(Unit) { if (hud.keyboardFirst) runCatching { box.requestFocus() } }
+    // Back (Esc on a desktop) closes chat, not the flight behind it.
+    com.rm.apogee.ui.BackHandler(enabled = true) { hud.chatOpen = false }
     fun send() {
         if (text.isNotBlank()) onSend(text)
         text = ""
@@ -183,7 +189,7 @@ fun ChatWindow(hud: HudState, onSend: (String) -> Unit, onKick: (String) -> Unit
                     placeholder = { Text("Say something", color = Color.White.alpha(ApogeeAlpha.SUBTITLE)) },
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                     keyboardActions = KeyboardActions(onSend = { send() }),
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().focusRequester(box),
                 )
             }
         },

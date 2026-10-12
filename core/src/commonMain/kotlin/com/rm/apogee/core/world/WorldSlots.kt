@@ -5,7 +5,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
 /**
- * The worlds kept in [folder] of one kind: [kind] is "solo" for sandbox worlds or "career". The
+ * The universes kept in [folder] of one kind: [kind] is "solo" for sandbox ones or "career". The
  * first is kind.json, the rest kind-2.json, kind-3.json and so on, each with its own save point.
  * Names are kept in worlds.json beside them.
  */
@@ -74,7 +74,7 @@ class WorldSlots(private val folder: Folder, private val kind: String) {
 
     private fun defaultName(id: String): String {
         val n = if (id == kind) 1 else id.removePrefix("$kind-").toInt()
-        return if (kind == "career") "Career $n" else "World $n"
+        return if (kind == "career") "Career $n" else "Universe $n"
     }
 
     private companion object {

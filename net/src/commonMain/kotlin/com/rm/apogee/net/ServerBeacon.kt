@@ -12,6 +12,8 @@ data class ServerBeacon(
     val catalogHash: String,
     /** It asks for a password. */
     val locked: Boolean = false,
+    /** Made up for each game announced, so one heard on two networks is listed once. */
+    val hostId: String = "",
 ) {
     /** Filled in by the listener from where the packet came from. */
     @kotlinx.serialization.Transient

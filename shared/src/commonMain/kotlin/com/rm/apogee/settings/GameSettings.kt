@@ -60,6 +60,9 @@ class GameSettings(private val prefs: Preferences) {
     var textScale: Float by floatPref(KEY_TEXT_SCALE, 1f, 1f..1.5f)
     var colourBlind: Boolean by booleanPref(KEY_COLOUR_BLIND, false)
 
+    /** The desktop window opens full screen. */
+    var fullScreen: Boolean by booleanPref(KEY_FULL_SCREEN, false)
+
     /** The welcome on first start has been seen. */
     var welcomed: Boolean by booleanPref(KEY_WELCOMED, false)
     var careerWorld: String by stringPref(KEY_CAREER_WORLD, "career")
@@ -281,6 +284,7 @@ class GameSettings(private val prefs: Preferences) {
         const val KEY_WELCOMED = "welcomed"
         const val KEY_TEXT_SCALE = "text_scale"
         const val KEY_COLOUR_BLIND = "colour_blind"
+        const val KEY_FULL_SCREEN = "full_screen"
         const val KEY_CAREER_WORLD = "career_world"
         const val KEY_HOST_WARP = "host_warp"
         const val KEY_WEATHER = "weather_intensity"

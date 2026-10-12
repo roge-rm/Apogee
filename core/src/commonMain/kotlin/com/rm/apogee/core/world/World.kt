@@ -5257,7 +5257,7 @@ class World(
         if (catalogueChanged && problems.isNotEmpty()) {
             problems.add(
                 0,
-                "This world was written with a different part catalogue " +
+                "This universe was written with a different part catalogue " +
                     "(${save.catalogHash} vs ${catalog.contentHash})",
             )
         }

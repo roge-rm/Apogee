@@ -73,6 +73,9 @@ fun SettingsScreen(
     /** The connected controller's name, if any. [onController] opens its buttons page. */
     controllerName: String? = null,
     onController: () -> Unit = {},
+    /** Whether the window is full screen, or null where that isn't a choice. */
+    fullScreen: Boolean? = null,
+    onFullScreen: (Boolean) -> Unit = {},
 ) {
     // Not kept across visits: Settings always opens on the first tab.
     var tab by remember { mutableStateOf(SettingsTab.PLAYER) }
@@ -137,7 +140,7 @@ fun SettingsScreen(
                 when (tab) {
                     SettingsTab.PLAYER -> PlayerTab(settings)
                     SettingsTab.CONTROLS -> ControlsTab(settings, controllerName, onController)
-                    SettingsTab.DISPLAY -> DisplayTab(settings, detectedTier, canScaleRender)
+                    SettingsTab.DISPLAY -> DisplayTab(settings, detectedTier, canScaleRender, fullScreen, onFullScreen)
                     SettingsTab.AUDIO -> AudioTab(settings)
                 }
             }
@@ -155,13 +158,6 @@ private fun PlayerTab(settings: GameSettings) {
         label = { Text("Name") },
         modifier = Modifier.fillMaxWidth(),
     )
-    Spacer(Modifier.height(4.dp))
-    Text(
-        // Craft belong to this install, not the name, so renaming keeps them.
-        "Shown to other players. Changing it keeps your craft.",
-        style = MaterialTheme.typography.labelSmall,
-        color = Color.White.alpha(ApogeeAlpha.SUBTITLE),
-    )
 
     SectionHeading("Suit stripe")
     com.rm.apogee.ui.components.Swatches(
@@ -173,8 +169,7 @@ private fun PlayerTab(settings: GameSettings) {
     )
     Spacer(Modifier.height(6.dp))
     Text(
-        (com.rm.apogee.render.SuitColours.STRIPES.getOrNull(settings.suitStripe)?.name ?: "Picked for you") +
-            ". From your next flight.",
+        "From your next flight.",
         style = MaterialTheme.typography.labelSmall,
         color = Color.White.alpha(ApogeeAlpha.SUBTITLE),
     )
@@ -267,7 +262,14 @@ private fun ControlsTab(settings: GameSettings, controllerName: String?, onContr
 }
 
 @Composable
-private fun DisplayTab(settings: GameSettings, detectedTier: QualityTier?, canScaleRender: Boolean) {
+private fun DisplayTab(
+    settings: GameSettings,
+    detectedTier: QualityTier?,
+    canScaleRender: Boolean,
+    fullScreen: Boolean?,
+    onFullScreen: (Boolean) -> Unit,
+) {
+    if (fullScreen != null) SwitchRow(title = "Full screen", checked = fullScreen, onCheckedChange = onFullScreen)
     SliderRow(
         title = "Text size",
         value = settings.textScale,
@@ -297,11 +299,6 @@ private fun DisplayTab(settings: GameSettings, detectedTier: QualityTier?, canSc
             onClick = { settings.qualityOverride = if (selected) null else tier },
         )
     }
-    Text(
-        "None picked follows what's detected",
-        style = MaterialTheme.typography.bodySmall,
-        color = Color.White.alpha(ApogeeAlpha.SUBTITLE),
-    )
 
     if (canScaleRender) {
         SectionHeading("Resolution")
@@ -346,7 +343,6 @@ private fun AudioTab(settings: GameSettings) {
     SectionHeading("Sounds")
     SwitchRow(
         title = "Vehicle sounds",
-        subtitle = "Crashes still sound",
         checked = settings.vehicleSoundEnabled,
         onCheckedChange = { settings.vehicleSoundEnabled = it },
     )

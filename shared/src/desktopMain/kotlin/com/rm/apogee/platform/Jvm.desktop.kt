@@ -43,11 +43,27 @@ actual class SplittableRandom actual constructor(seed: Long) {
 
 actual fun <K, V> identityMapOf(): MutableMap<K, V> = java.util.IdentityHashMap()
 
-/** To standard error, as a line a terminal or a log file can read. */
+/** To standard error, as a line a terminal or a log file can read, with the last few kept for a crash report. */
 actual object Log {
-    actual fun i(tag: String, message: String): Int { java.lang.System.err.println("I $tag: $message"); return 0 }
-    actual fun w(tag: String, message: String): Int { java.lang.System.err.println("W $tag: $message"); return 0 }
-    actual fun e(tag: String, message: String): Int { java.lang.System.err.println("E $tag: $message"); return 0 }
+    actual fun i(tag: String, message: String): Int = line("I $tag: $message")
+    actual fun w(tag: String, message: String): Int = line("W $tag: $message")
+    actual fun e(tag: String, message: String): Int = line("E $tag: $message")
+
+    private val lines = ArrayDeque<String>()
+
+    private fun line(text: String): Int {
+        java.lang.System.err.println(text)
+        kotlin.synchronized(lines) {
+            lines.addLast(text)
+            if (lines.size > KEPT) lines.removeFirst()
+        }
+        return 0
+    }
+
+    /** The last lines logged, oldest first. */
+    fun recent(): String = kotlin.synchronized(lines) { lines.joinToString("\n") }
+
+    private const val KEPT = 200
 }
 
 /** The window's own thread, Swing's. */

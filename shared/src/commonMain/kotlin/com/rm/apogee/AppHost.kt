@@ -52,6 +52,21 @@ interface AppHost {
      */
     val fullscreenMenus: Boolean get() = false
 
+    /** Whether typing is on a real keyboard: a desktop, or a browser without a touch screen. */
+    val keyboardFirst: Boolean get() = false
+
+    /** Whether the window can be put in full screen from Settings: a desktop or a browser. */
+    val canFullScreen: Boolean get() = false
+
+    /** Whether it's full screen by choice now, as Settings shows it. */
+    val isFullScreen: Boolean get() = false
+
+    /** Puts the window in or out of full screen, from Settings or a key. */
+    fun setFullScreen(on: Boolean) {}
+
+    /** Whether sending a craft or world saves a file, as on a desktop or in a browser, not a share sheet. */
+    val savesToFiles: Boolean get() = false
+
     /** Sends a craft file somewhere: the share sheet, or a download. */
     fun shareCraft(name: String, text: String)
 

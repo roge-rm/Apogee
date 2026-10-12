@@ -82,7 +82,7 @@ fun PlayScreen(
         // Career or sandbox: two separate worlds.
         PillRow(listOf("Career" to true, "Sandbox" to false), career, onCareer)
         Spacer(Modifier.height(20.dp))
-        ApogeeButton((if (career) "Career: " else "World: ") + worldName, { onNavigate(AppScreen.WORLDS) }, contentModifier)
+        ApogeeButton((if (career) "Career: " else "Universe: ") + worldName, { onNavigate(AppScreen.WORLDS) }, contentModifier)
         ApogeeButton("Tutorials", { onNavigate(AppScreen.TUTORIALS) }, contentModifier)
         if (career) {
             ApogeeButton(

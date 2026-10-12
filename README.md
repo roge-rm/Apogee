@@ -90,11 +90,11 @@ Use the x86_64 AppImage. In Desktop Mode, download it, right-click it and turn o
 
 ### Windows
 
-Windows 10 or 11, 64-bit. From the [Releases](https://github.com/roge-rm/Apogee/releases) page, run `apogee-*-setup.exe`, or unzip `apogee-*-windows-x64.zip` anywhere and run `Apogee.exe`. They aren't signed, so Windows will warn you: choose **More info** and then **Run anyway**.
+Windows 10 or 11, 64-bit. From the [Releases](https://github.com/roge-rm/Apogee/releases) page, run `apogee-*-setup.exe`, or unzip `apogee-*-windows-x64.zip` anywhere and run `Apogee.exe`. They aren't signed, so Windows will warn you: choose **More info** and then **Run anyway**. The first time you host a game, Windows asks whether Java can use the network: allow it on private networks so others can join.
 
 ## Playing in a browser
 
-You can play it at [hunke.ws/fdroid/play/apogee](https://hunke.ws/fdroid/play/apogee/). It's the same game, solo only, and your worlds and craft are kept in the browser. It needs WebGL 2 and WebAssembly GC (Chrome or Edge 119, Firefox 120, Safari 18.2 or newer).
+You can play it at [hunke.ws/fdroid/play/apogee](https://hunke.ws/fdroid/play/apogee/). It's the same game, solo only, and your universes and craft are kept in the browser. It needs WebGL 2 and WebAssembly GC (Chrome or Edge 119, Firefox 120, Safari 18.2 or newer).
 
 Drag to look around, use the wheel to zoom, and right-drag to pan in the Vehicle Assembly. On a keyboard, here and on the desktop:
 

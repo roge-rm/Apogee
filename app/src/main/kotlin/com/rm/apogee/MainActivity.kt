@@ -247,7 +247,7 @@ class MainActivity : ComponentActivity(), AppHost {
 
     /** The system's file picker, for a craft file someone sent. */
     private val openShared = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        uri?.let { app.importFile(read(it)) }
+        uri?.let { app.importFile(read(it), nameOf(it)) }
     }
 
     override fun pickSharedCraft() {
@@ -257,6 +257,13 @@ class MainActivity : ComponentActivity(), AppHost {
     private fun read(uri: Uri): String? =
         runCatching { contentResolver.openInputStream(uri)?.use { it.readBytes().decodeToString() } }.getOrNull()
 
+    /** The file's own name, where the app it came from gives one. */
+    private fun nameOf(uri: Uri): String? = runCatching {
+        contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+            if (c.moveToFirst()) c.getString(0) else null
+        }
+    }.getOrNull() ?: uri.lastPathSegment
+
     /** A craft file sent or opened from outside the app, if that's what [intent] is. */
     private fun handleSharedIntent(intent: Intent?) {
         intent ?: return
@@ -265,7 +272,7 @@ class MainActivity : ComponentActivity(), AppHost {
             Intent.ACTION_SEND -> IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)
             else -> null
         } ?: return
-        app.importFile(read(uri))
+        app.importFile(read(uri), nameOf(uri))
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -289,14 +296,14 @@ class MainActivity : ComponentActivity(), AppHost {
 
     override fun shareWorld(name: String, text: String) {
         val folder = File(cacheDir, "shared").apply { mkdirs() }
-        val safe = name.map { if (it.isLetterOrDigit() || it == '-') it else '-' }.joinToString("").trim('-').ifBlank { "world" }
+        val safe = name.map { if (it.isLetterOrDigit() || it == '-') it else '-' }.joinToString("").trim('-').ifBlank { "universe" }
         val file = File(folder, "$safe.apogee-world.json")
         file.writeText(text)
         val uri = FileProvider.getUriForFile(this, "$packageName.files", file)
         val send = Intent(Intent.ACTION_SEND)
             .setType("application/json")
             .putExtra(Intent.EXTRA_STREAM, uri)
-            .putExtra(Intent.EXTRA_SUBJECT, "$name, an Apogee world")
+            .putExtra(Intent.EXTRA_SUBJECT, "$name, an Apogee universe")
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         startActivity(Intent.createChooser(send, "Send $name"))
     }

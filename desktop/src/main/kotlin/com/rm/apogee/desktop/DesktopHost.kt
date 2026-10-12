@@ -5,6 +5,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
+import androidx.compose.ui.window.WindowPlacement
+import androidx.compose.ui.window.WindowState
 import com.rm.apogee.ApogeeApp
 import com.rm.apogee.AppHost
 import com.rm.apogee.WorldGestures
@@ -51,8 +53,11 @@ class DesktopHost(
     /** Closes the window and the app. */
     var onQuit: () -> Unit = {}
 
-    /** Puts the window in or out of full screen. */
-    var onFullscreen: (Boolean) -> Unit = {}
+    /** The window's state, for full screen. */
+    var window: WindowState? = null
+
+    /** Where the window goes back to from full screen: as it was, maximised or not. */
+    private var before = WindowPlacement.Floating
 
     override val scope: CoroutineScope = MainScope()
     override val settings = GameSettings(config)
@@ -63,6 +68,8 @@ class DesktopHost(
     override val serverBrowser: ServerBrowser = DesktopServerBrowser(StockParts.catalog.contentHash)
 
     override val worldInputInCompose = true
+    override val keyboardFirst = true
+    override val savesToFiles = true
     override val canScaleRender = true
     override val canQuit = true
 
@@ -97,25 +104,50 @@ class DesktopHost(
 
     override fun fullscreen(on: Boolean) {}
 
+    override val canFullScreen = true
+
+    override val isFullScreen: Boolean get() = window?.placement == WindowPlacement.Fullscreen
+
+    override fun setFullScreen(on: Boolean) {
+        val state = window ?: return
+        if (on == isFullScreen) return
+        if (on) {
+            before = state.placement
+            state.placement = WindowPlacement.Fullscreen
+        } else {
+            state.placement = before
+        }
+        settings.fullScreen = on
+    }
+
     override fun shareCraft(name: String, text: String) = save(name, "craft", ".apogee.json", text)
 
-    override fun shareWorld(name: String, text: String) = save(name, "world", ".apogee-world.json", text)
+    override fun shareWorld(name: String, text: String) = save(name, "universe", ".apogee-world.json", text)
 
     override fun pickSharedCraft() {
         val dialog = FileDialog(frame, "Open a file", FileDialog.LOAD)
+        dialog.directory = lastFolder.path
         dialog.isVisible = true
         val file = dialog.file?.let { File(dialog.directory, it) } ?: return
-        app.importFile(runCatching { file.readText() }.getOrNull())
+        lastFolder = file.parentFile
+        app.importFile(runCatching { file.readText() }.getOrNull(), file.name)
     }
+
+    /** Where the file dialogs open: the last folder used, at first the home folder. */
+    private var lastFolder = File(System.getProperty("user.home"))
 
     /** Asks where to save [text], under a name made from [name]. */
     private fun save(name: String, fallback: String, suffix: String, text: String) {
         val safe = name.map { if (it.isLetterOrDigit() || it == '-') it else '-' }.joinToString("").trim('-').ifBlank { fallback }
         val dialog = FileDialog(frame, "Save $name", FileDialog.SAVE)
+        dialog.directory = lastFolder.path
         dialog.file = "$safe$suffix"
         dialog.isVisible = true
         val file = dialog.file?.let { File(dialog.directory, it) } ?: return
-        runCatching { file.writeText(text) }.onFailure { toast("Couldn't save ${file.name}") }
+        lastFolder = file.parentFile
+        runCatching { file.writeText(text) }
+            .onSuccess { toast("Saved ${file.name}") }
+            .onFailure { toast("Couldn't save ${file.name}") }
     }
 
     /** The note on screen now, if any, which the window shows at the bottom. */
@@ -186,9 +218,9 @@ private class DesktopServerBrowser(private val localCatalogHash: String) : Serve
         if (listenJob != null) return
         scanning = true
         listenJob = LanDiscovery.listen(scope) { beacon ->
-            val entry = DiscoveredServer(beacon, System.currentTimeMillis())
             synchronized(found) {
-                found[entry.key] = entry
+                val key = DiscoveredServer(beacon, 0L).key
+                found[key] = DiscoveredServer.heard(found[key], beacon, System.currentTimeMillis())
                 servers = found.values.sortedBy { it.beacon.serverName }
             }
         }

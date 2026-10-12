@@ -40,9 +40,10 @@ object LanDiscovery {
     fun announce(scope: CoroutineScope, beacon: () -> ServerBeacon): Job =
         scope.launch(Dispatchers.IO) {
             val socket = DatagramSocket().apply { broadcast = true }
+            val id = java.util.UUID.randomUUID().toString().take(8)
             try {
                 while (isActive) {
-                    val payload = (MAGIC + format.encodeToString(beacon())).toByteArray()
+                    val payload = (MAGIC + format.encodeToString(beacon().let { if (it.hostId.isEmpty()) it.copy(hostId = id) else it })).toByteArray()
                     for (address in broadcastAddresses()) {
                         runCatching {
                             socket.send(

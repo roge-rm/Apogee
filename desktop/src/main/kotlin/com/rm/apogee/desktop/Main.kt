@@ -9,7 +9,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -96,6 +98,8 @@ fun main() {
     val cache = (if (onWindows) windowsDir("LOCALAPPDATA", "cache") else xdg("XDG_CACHE_HOME", ".cache")).apply { mkdirs() }
     // A second launch brings the running copy forward instead.
     if (!SingleInstance.claim(data)) return
+    // Before anything else can throw. Also picks up crashes the JVM wrote on earlier runs.
+    val crashes = CrashReports(data).apply { install(); collect() }
 
     val world = WorldView()
     val host = DesktopHost(data, config, cache, world)
@@ -115,12 +119,12 @@ fun main() {
         val window = rememberWindowState(
             size = DpSize(1280.dp, 800.dp),
             placement = when {
-                gameMode -> WindowPlacement.Fullscreen
+                gameMode || host.settings.fullScreen -> WindowPlacement.Fullscreen
                 smallScreen() -> WindowPlacement.Maximized
                 else -> WindowPlacement.Floating
             },
         )
-        var before by remember { mutableStateOf(WindowPlacement.Floating) }
+        host.window = window
         Window(
             onCloseRequest = ::quit,
             title = "Apogee",
@@ -129,14 +133,7 @@ fun main() {
             onPreviewKeyEvent = {
                 // F11 for full screen, as in a browser.
                 if (it.key == Key.F11) {
-                    if (it.type == KeyEventType.KeyDown) {
-                        if (window.placement == WindowPlacement.Fullscreen) {
-                            window.placement = before
-                        } else {
-                            before = window.placement
-                            window.placement = WindowPlacement.Fullscreen
-                        }
-                    }
+                    if (it.type == KeyEventType.KeyDown) host.setFullScreen(!host.isFullScreen)
                     true
                 } else false
             },
@@ -177,6 +174,7 @@ fun main() {
                         app.Content()
                     }
                     Note(host.note)
+                    com.rm.apogee.ui.theme.ApogeeTheme(textScale = host.settings.textScale) { CrashNotice(crashes) }
                 }
             }
         }
@@ -219,6 +217,29 @@ private fun WorldImage(host: DesktopHost) {
             skia.restore()
         }
     }
+}
+
+/** Once, after a crash: where its report is. */
+@Composable
+private fun CrashNotice(crashes: CrashReports) {
+    var report by remember { mutableStateOf(crashes.unread()) }
+    val file = report ?: return
+    fun done() {
+        crashes.markRead()
+        report = null
+    }
+    AlertDialog(
+        onDismissRequest = ::done,
+        title = { Text("Apogee closed unexpectedly") },
+        text = { Text("A report was saved in ${file.parentFile.path}") },
+        confirmButton = {
+            TextButton(onClick = {
+                runCatching { java.awt.Desktop.getDesktop().open(file.parentFile) }
+                done()
+            }) { Text("Show the report") }
+        },
+        dismissButton = { TextButton(onClick = ::done) { Text("OK") } },
+    )
 }
 
 /** A short note at the bottom of the window. */

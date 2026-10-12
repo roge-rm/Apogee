@@ -76,16 +76,18 @@ fun HostGameScreen(
         Text("Host a Game", style = MaterialTheme.typography.titleLarge, color = Color.White)
 
         // Which world on this phone the others join.
-        SectionHeading("World", contentModifier)
+        SectionHeading("Universe", contentModifier)
         PillRow(listOf("Career" to true, "Sandbox" to false), career, onCareer)
-        Spacer(Modifier.height(6.dp))
-        Text(
-            if (career) "Everyone who joins starts their own career" else "Everything unlocked, for everyone",
-            style = MaterialTheme.typography.bodySmall,
-            color = Color.White.alpha(ApogeeAlpha.SECONDARY),
-            textAlign = TextAlign.Center,
-            modifier = contentModifier,
-        )
+        if (career) {
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "Everyone who joins starts their own career",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.White.alpha(ApogeeAlpha.SECONDARY),
+                textAlign = TextAlign.Center,
+                modifier = contentModifier,
+            )
+        }
 
         SectionHeading("Your name", contentModifier)
         OutlinedTextField(
@@ -274,15 +276,7 @@ private fun ManualAddressEntry(
         keyboardActions = KeyboardActions(onGo = { parsed?.let(onConnect) }),
         modifier = modifier.fillMaxWidth(),
     )
-    Spacer(Modifier.height(4.dp))
-    Text(
-        "Port $defaultPort unless you add one",
-        style = MaterialTheme.typography.labelSmall,
-        color = Color.White.alpha(ApogeeAlpha.SUBTITLE),
-        textAlign = TextAlign.Center,
-        modifier = modifier,
-    )
-    Spacer(Modifier.height(8.dp))
+    Spacer(Modifier.height(12.dp))
     ApogeeButton(
         "Connect",
         { parsed?.let(onConnect) },

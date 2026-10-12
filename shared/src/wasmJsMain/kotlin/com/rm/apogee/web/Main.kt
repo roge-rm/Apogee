@@ -2,6 +2,8 @@
 
 package com.rm.apogee.web
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.window.ComposeViewport
 import com.rm.apogee.ApogeeApp
 import com.rm.apogee.AppHost
@@ -87,14 +89,14 @@ private fun download(name: String, text: String): Unit = js("""{
     setTimeout(() => URL.revokeObjectURL(a.href), 10000);
 }""")
 
-private fun pickFile(onText: (String?) -> Unit): Unit = js("""{
+private fun pickFile(onText: (String?, String) -> Unit): Unit = js("""{
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = '.json,application/json,text/plain';
     input.onchange = () => {
         const file = input.files && input.files[0];
         if (!file) return;
-        file.text().then(onText, () => onText(null));
+        file.text().then((t) => onText(t, file.name), () => onText(null, file.name));
     };
     input.click();
 }""")
@@ -117,6 +119,18 @@ private fun fullscreenOn(on: Boolean): Unit = js("""{
         if (!on && document.fullscreenElement) document.exitFullscreen().catch(() => {});
     } catch (e) {}
 }""")
+
+/** Puts the page in or out of full screen. A browser only allows it from a press or a key. */
+private fun fullscreenChoose(on: Boolean): Unit = js("""{
+    try {
+        if (on && !document.fullscreenElement) document.documentElement.requestFullscreen().catch(() => {});
+        if (!on && document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    } catch (e) {}
+}""")
+
+private fun fullscreenNow(): Boolean = js("!!document.fullscreenElement")
+
+private fun onFullscreenChange(callback: () -> Unit): Unit = js("document.addEventListener('fullscreenchange', () => callback())")
 
 private fun cores(): Int = js("navigator.hardwareConcurrency || 4")
 
@@ -180,6 +194,8 @@ private class WebHost(private val canvas: HTMLCanvasElement) : AppHost {
     }
 
     override val worldInputInCompose = true
+    override val savesToFiles = true
+    override val keyboardFirst: Boolean get() = !touchScreen()
     override val networked = false
 
     private var renderer: GlRenderer? = null
@@ -231,19 +247,43 @@ private class WebHost(private val canvas: HTMLCanvasElement) : AppHost {
 
     override fun perfHints(): PerfHints? = null
 
-    override fun fullscreen(on: Boolean) = fullscreenOn(on)
+    /** Full screen chosen in Settings, which leaving the world doesn't undo. */
+    private var chosenFullScreen = false
+
+    override fun fullscreen(on: Boolean) {
+        if (!chosenFullScreen) fullscreenOn(on)
+    }
+
+    override val canFullScreen = true
+
+    /** Follows the page, which can also leave full screen by Esc or the browser's own controls. */
+    private var fullScreenNow by androidx.compose.runtime.mutableStateOf(false)
+
+    init {
+        onFullscreenChange {
+            fullScreenNow = fullscreenNow()
+            if (!fullScreenNow) chosenFullScreen = false
+        }
+    }
+
+    override val isFullScreen: Boolean get() = fullScreenNow
+
+    override fun setFullScreen(on: Boolean) {
+        chosenFullScreen = on
+        fullscreenChoose(on)
+    }
 
     override fun shareCraft(name: String, text: String) {
         val safe = name.map { if (it.isLetterOrDigit() || it == '-') it else '-' }.joinToString("").trim('-').ifBlank { "craft" }
         download("$safe.apogee.json", text)
     }
 
-    override fun pickSharedCraft() = pickFile { text -> app.importFile(text) }
+    override fun pickSharedCraft() = pickFile { text, name -> app.importFile(text, name) }
 
     override fun dateTime(epochMillis: Long): String = dateText(epochMillis.toDouble())
 
     override fun shareWorld(name: String, text: String) {
-        val safe = name.map { if (it.isLetterOrDigit() || it == '-') it else '-' }.joinToString("").trim('-').ifBlank { "world" }
+        val safe = name.map { if (it.isLetterOrDigit() || it == '-') it else '-' }.joinToString("").trim('-').ifBlank { "universe" }
         download("$safe.apogee-world.json", text)
     }
 

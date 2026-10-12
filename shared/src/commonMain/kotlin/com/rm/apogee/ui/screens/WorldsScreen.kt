@@ -69,7 +69,7 @@ fun WorldsScreen(
     var picked by remember(current) { mutableStateOf(current) }
     val chosen = worlds.firstOrNull { it.id == picked } ?: worlds.first()
 
-    Backdrop(title = if (career) "Careers" else "Worlds", onBack = onBack, maxContentWidth = Dimens.PanelContentMaxWidth) { contentModifier ->
+    Backdrop(title = if (career) "Careers" else "Universes", onBack = onBack, maxContentWidth = Dimens.PanelContentMaxWidth) { contentModifier ->
         val list = rememberLazyListState()
         LazyColumn(contentModifier.heightIn(max = 360.dp).verticalScrollbar(list), state = list, verticalArrangement = Arrangement.spacedBy(6.dp)) {
             items(worlds, key = { it.id }) { slot ->
@@ -98,17 +98,17 @@ fun WorldsScreen(
         if (chosen.id != current) ApogeeButton("Play ${chosen.name}", { actions.onPlay(chosen) }, contentModifier)
         Row(contentModifier, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             ApogeeButton("Rename", { naming = chosen }, Modifier.weight(1f))
-            ApogeeButton("Send", { actions.onExport(chosen) }, Modifier.weight(1f), enabled = chosen.lastSaved != 0L)
+            ApogeeButton(if (com.rm.apogee.ui.LocalSavesToFiles.current) "Save" else "Send", { actions.onExport(chosen) }, Modifier.weight(1f), enabled = chosen.lastSaved != 0L)
             ApogeeButton("Delete", { deleting = chosen }, Modifier.weight(1f))
         }
         Row(contentModifier, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ApogeeButton(if (career) "New career" else "New world", { making = true }, Modifier.weight(1f))
+            ApogeeButton(if (career) "New career" else "New universe", { making = true }, Modifier.weight(1f))
             ApogeeButton("Open a file", actions.onImport, Modifier.weight(1f))
         }
     }
 
     naming?.let { slot -> NameDialog("Rename", slot.name, { actions.onRename(slot, it); naming = null }) { naming = null } }
-    if (making) NameDialog(if (career) "New career" else "New world", "", { actions.onNew(it); making = false }) { making = false }
+    if (making) NameDialog(if (career) "New career" else "New universe", "", { actions.onNew(it); making = false }) { making = false }
     deleting?.let { slot ->
         AlertDialog(
             onDismissRequest = { deleting = null },

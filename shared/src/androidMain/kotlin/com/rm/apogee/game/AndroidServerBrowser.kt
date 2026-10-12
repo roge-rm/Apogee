@@ -44,9 +44,9 @@ class AndroidServerBrowser(
         acquireMulticastLock()
 
         listenJob = LanDiscovery.listen(scope) { beacon ->
-            val entry = DiscoveredServer(beacon, System.currentTimeMillis())
             synchronized(found) {
-                found[entry.key] = entry
+                val key = DiscoveredServer(beacon, 0L).key
+                found[key] = DiscoveredServer.heard(found[key], beacon, System.currentTimeMillis())
                 servers = found.values.sortedBy { it.beacon.serverName }
             }
         }

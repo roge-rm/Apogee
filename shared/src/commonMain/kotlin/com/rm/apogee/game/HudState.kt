@@ -194,6 +194,9 @@ class HudState {
     var chatLines: List<com.rm.apogee.net.ChatLine> by mutableStateOf(emptyList())
     var chatOpen: Boolean by mutableStateOf(false)
 
+    /** Whether typing is on a real keyboard, so the chat box takes it when it opens. */
+    var keyboardFirst = false
+
     /** Lines that came in lately, shown for a moment under the top left buttons. */
     var chatToasts: List<ChatToast> by mutableStateOf(emptyList())
 

@@ -2,6 +2,7 @@ package com.rm.apogee.ui.screens
 
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.MoreVert
@@ -460,6 +461,7 @@ private fun FileMenu(
     onShare: () -> Unit, onOpenShared: () -> Unit,
 ) {
     var open by remember { mutableStateOf(false) }
+    val files = com.rm.apogee.ui.LocalSavesToFiles.current
     Box {
         ToolButton(Icons.Filled.MoreVert, "Save, load or start again", { open = true })
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
@@ -467,8 +469,12 @@ private fun FileMenu(
             DropdownMenuItem(text = { Text("Save as…") }, leadingIcon = { Icon(Icons.Filled.Save, null) }, onClick = { open = false; onSaveAs() })
             DropdownMenuItem(text = { Text("Load") }, leadingIcon = { Icon(Icons.Filled.FolderOpen, null) }, onClick = { open = false; onLoad() })
             DropdownMenuItem(text = { Text("New") }, leadingIcon = { Icon(Icons.Filled.Add, null) }, onClick = { open = false; onNew() })
-            DropdownMenuItem(text = { Text("Share…") }, leadingIcon = { Icon(Icons.Filled.Share, null) }, onClick = { open = false; onShare() })
-            DropdownMenuItem(text = { Text("Open a shared craft…") }, leadingIcon = { Icon(Icons.Filled.FileOpen, null) }, onClick = { open = false; onOpenShared() })
+            DropdownMenuItem(
+                text = { Text(if (files) "Save to a file…" else "Share…") },
+                leadingIcon = { Icon(if (files) Icons.Filled.Download else Icons.Filled.Share, null) },
+                onClick = { open = false; onShare() },
+            )
+            DropdownMenuItem(text = { Text(if (files) "Open a craft file…" else "Open a shared craft…") }, leadingIcon = { Icon(Icons.Filled.FileOpen, null) }, onClick = { open = false; onOpenShared() })
         }
     }
 }

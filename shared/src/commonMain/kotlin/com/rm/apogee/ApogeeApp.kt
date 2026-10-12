@@ -52,7 +52,7 @@ class ApogeeApp(private val host: AppHost) {
     private val settings: GameSettings get() = host.settings
     private val scope: CoroutineScope get() = host.scope
     private var lastBusGains = FloatArray(0)
-    val hudState = HudState()
+    val hudState = HudState().also { it.keyboardFirst = host.keyboardFirst }
     private val frameBus = FrameBus()
 
     /** Saved designs for free play and for a career. A career gets no stock ones. */
@@ -342,6 +342,7 @@ class ApogeeApp(private val host: AppHost) {
             LaunchedEffect(Unit) { if (host.fullscreenMenus) host.fullscreen(true) }
             com.rm.apogee.ui.theme.ApogeeColors.colourBlind = settings.colourBlind
             ApogeeTheme(textScale = settings.textScale) {
+              androidx.compose.runtime.CompositionLocalProvider(com.rm.apogee.ui.LocalSavesToFiles provides host.savesToFiles) {
                 // Back follows AppScreen.parent. Flight has no parent, so a stray gesture can't
                 // throw away a flight.
                 BackHandler(enabled = appScreen.parent != null) {
@@ -479,6 +480,8 @@ class ApogeeApp(private val host: AppHost) {
                         canScaleRender = host.canScaleRender,
                         controllerName = controllerName,
                         onController = { navigateTo(AppScreen.CONTROLLER) },
+                        fullScreen = if (host.canFullScreen) host.isFullScreen else null,
+                        onFullScreen = host::setFullScreen,
                     )
                     AppScreen.CONTROLLER -> com.rm.apogee.ui.screens.ControllerScreen(
                         settings, pad, controllerName, onBack = ::goBack,
@@ -675,6 +678,7 @@ class ApogeeApp(private val host: AppHost) {
                     )
                 }
                 }
+              }
             }
     }
 
@@ -827,28 +831,39 @@ class ApogeeApp(private val host: AppHost) {
      * A file sent or opened from outside: a world's save becomes a new world of its kind, played
      * from then on, and anything else is read as a craft.
      */
-    fun importFile(text: String?) {
-        if (text != null && text.contains("\"universeTime\"")) importWorld(text) else importCraft(text)
+    /** A file opened from outside the app, a world or a craft. [fileName] names a world after it. */
+    fun importFile(text: String?, fileName: String? = null) {
+        if (text != null && text.contains("\"universeTime\"")) importWorld(text, fileName) else importCraft(text)
     }
 
-    private fun importWorld(text: String) {
-        if (session != null) return host.toast("Go back to the menu to open a world")
+    private fun importWorld(text: String, fileName: String?) {
+        if (session != null) return host.toast("Go back to the menu to open a universe")
         val save = runCatching { com.rm.apogee.core.world.WorldStore.decode(text) }.getOrElse {
-            return host.toast("That isn't a world Apogee can read")
+            return host.toast("That isn't a universe Apogee can read")
         }
         val career = save.mode == com.rm.apogee.core.world.WorldSave.MODE_CAREER
         if (career != careerMode) switchMode(career)
-        val slot = worldSlots.create(if (career) "Opened career" else "Opened world")
-        worldSlots.store(slot).save(save).onFailure { return host.toast("Couldn't keep that world: ${it.message}") }
+        val base = worldNameFrom(fileName) ?: if (career) "Opened career" else "Opened universe"
+        val taken = worldSlots.list().map { it.name }.toSet()
+        val name = generateSequence(2) { it + 1 }.map { "$base ($it)" }.let { more -> if (base in taken) more.first { it !in taken } else base }
+        val slot = worldSlots.create(name)
+        worldSlots.store(slot).save(save).onFailure { return host.toast("Couldn't keep that universe: ${it.message}") }
         playWorld(slot)
         navigateTo(AppScreen.WORLDS)
         host.toast("Opened as ${slot.name}")
     }
 
+    /** "Universe-1.apogee-world.json" as "Universe 1", the way it was saved. */
+    private fun worldNameFrom(fileName: String?): String? =
+        fileName?.substringAfterLast('/')
+            ?.removeSuffix(".json")?.removeSuffix(".apogee-world")
+            ?.replace('-', ' ')?.replace('_', ' ')?.trim()
+            ?.take(32)?.takeIf { it.isNotBlank() }
+
     fun importCraft(text: String?) {
         // Not mid-flight.
         if (session != null) {
-            host.toast("Go back to the menu to open a shared craft")
+            host.toast("Go back to the menu to open a craft")
             return
         }
         val result = if (text == null) Result.failure(IllegalArgumentException("Couldn't read that file")) else craftStore.decode(text, StockParts.catalog)
@@ -1040,6 +1055,7 @@ class ApogeeApp(private val host: AppHost) {
     private var joinEntries by mutableStateOf(emptyList<com.rm.apogee.game.CraftShelf.Entry>())
     private var joinChosen by mutableStateOf<String?>(null)
     private var joinLoading by mutableStateOf(true)
+    private var joinCraftHere by mutableStateOf<String?>(null)
 
     /**
      * Picking what to fly in a joined game: the player's own craft, then those of the host's they
@@ -1057,6 +1073,7 @@ class ApogeeApp(private val host: AppHost) {
             }
             val theirs = ArrayList<com.rm.apogee.game.CraftShelf.Entry>()
             var seen = 0
+            joinCraftHere = joined.craftHereName
             while (joined.choosingCraft) {
                 val offered = joined.offeredCraft
                 if (offered.size > seen) {
@@ -1083,6 +1100,8 @@ class ApogeeApp(private val host: AppHost) {
                 // Nothing offered at all (a career) sends no count, so a few seconds is enough.
                 joinLoading = (joined.offeredCount < 0 && System.nanoTime() - pickingSince < OFFER_WAIT_NANOS) ||
                     (joined.offeredCount >= 0 && joined.offeredCraft.size < joined.offeredCount)
+                // Its name comes with its design, which may follow the first snapshot.
+                joinCraftHere = joined.craftHereName
                 kotlinx.coroutines.delay(250)
             }
         }
@@ -1091,7 +1110,7 @@ class ApogeeApp(private val host: AppHost) {
             pictures = partThumbnails.pictures,
             chosen = joinChosen,
             onChoose = { joinChosen = it },
-            craftHere = joined.craftHereName,
+            craftHere = joinCraftHere,
             loading = joinLoading,
             onFly = { entry -> scope.launch { joined.chooseCraft(entry.design) } },
             onKeep = joined::keepCraft,
@@ -1208,6 +1227,11 @@ class ApogeeApp(private val host: AppHost) {
             keysDown.clear()
             return false
         }
+        // Typing in chat isn't flying.
+        if (hudState.chatOpen) {
+            releaseKeys()
+            return false
+        }
         val was = code in keysDown
         if (down) keysDown.add(code) else keysDown.remove(code)
         val pressed = down && !was
@@ -1237,8 +1261,13 @@ class ApogeeApp(private val host: AppHost) {
 
     /** Lets go of every key, when the window loses the keyboard and key-ups won't come. */
     fun releaseKeys() {
-        for (code in keysDown.toList()) key(code, false)
+        if (keysDown.isEmpty()) return
         keysDown.clear()
+        if (session != null) {
+            onAttitude(0f, 0f)
+            onRoll(0f)
+        }
+        throttleKeysAt = 0L
     }
 
     /** +1, -1 or 0, from which keys are down. */
@@ -1670,7 +1699,7 @@ class ApogeeApp(private val host: AppHost) {
     private fun saveSoloWorld() {
         val world = soloWorld ?: return
         synchronized(saving) { soloWorldStore.save(world.save()) }
-            .onFailure { Log.w(TAG, "Could not save the world: ${it.message}") }
+            .onFailure { Log.w(TAG, "Could not save the universe: ${it.message}") }
     }
 
     /** Held while the solo world is written, so two saves never overlap. */
@@ -2072,7 +2101,7 @@ class ApogeeApp(private val host: AppHost) {
             val save = world.save()
             scope.launch(kotlinx.coroutines.Dispatchers.Default) {
                 synchronized(saving) { soloWorldStore.save(save) }
-                    .onFailure { Log.w(TAG, "Could not save the world: ${it.message}") }
+                    .onFailure { Log.w(TAG, "Could not save the universe: ${it.message}") }
             }
         }
     }
