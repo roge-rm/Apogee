@@ -26,8 +26,8 @@ class SlopeContactTest {
         val terra = world.system.body("terra")
         val terrain = terra.terrain!!
         val rotation = terra.rotationAt(world.time)
-        // On the equator, where the ground moves fastest, among hills.
-        val pad = Vec3(1.0, 0.0, 0.0)
+        // On a measured Alpine slope, away from the level launch sites.
+        val pad = com.rm.apogee.core.orbit.SolarSystem.surfaceDirection(Math.toRadians(45.9), Math.toRadians(7.8))
 
         // The steepest east-west slope nearby a pod can still sit on (under the 31 degrees its
         // grip holds).

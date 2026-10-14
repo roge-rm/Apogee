@@ -100,9 +100,8 @@ fun PlayScreen(
                 { onNavigate(AppScreen.QUICK_LAUNCH) },
                 contentModifier,
             )
+            LaunchTimeRow(chosen, contentModifier) { chosen = it; onLaunchTime(it) }
         }
-        // Time of day for Quick Launch and the builder's launches.
-        LaunchTimeRow(chosen, contentModifier) { chosen = it; onLaunchTime(it) }
         ApogeeButton(
             "Out There",
             { onNavigate(AppScreen.RESUME_FLIGHT) },
@@ -118,6 +117,9 @@ fun PlayScreen(
             { onNavigate(AppScreen.BUILDER) },
             contentModifier,
         )
+        if (career) {
+            LaunchTimeRow(chosen, contentModifier) { chosen = it; onLaunchTime(it) }
+        }
         if (networked) {
             ApogeeButton(
                 "Host a Game",

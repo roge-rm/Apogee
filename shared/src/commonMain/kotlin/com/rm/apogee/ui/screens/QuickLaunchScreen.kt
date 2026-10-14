@@ -70,7 +70,7 @@ fun QuickLaunchScreen(
     var pickingSite by remember { mutableStateOf(false) }
     Backdrop(title = "Quick Launch", onBack = onBack, fillHeight = true, maxContentWidth = Dimens.WideContentMaxWidth) { contentModifier ->
         if (entries.isEmpty()) {
-            Text("Reading your craft…", color = Color.White.alpha(ApogeeAlpha.SUBTITLE), modifier = contentModifier)
+            Text("Preparing Quick Launch…", color = Color.White.alpha(ApogeeAlpha.SUBTITLE), modifier = contentModifier)
             return@Backdrop
         }
         val items = entries.map { entry ->

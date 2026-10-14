@@ -23,7 +23,7 @@ class SailTest {
     private fun sail(wind: Vec3, sheet: Double = 1.0, seconds: Double = 60.0): Pair<World, Vessel> {
         val world = World.default(catalog)
         world.steadyWind = wind
-        val d = SolarSystem.capeDirection(-8_000.0, 12_000.0)
+        val d = com.rm.apogee.core.terrain.Seabed.capeDirection(-8_000.0, 12_000.0)
         val boat = world.spawnOnSurface(StockCraft.sloop(catalog), LaunchSite("sea", "Sea", "terra", SolarSystem.latitudeOf(d), SolarSystem.longitudeOf(d)))
         world.assignOwner(boat, "p1")
         world.seatCrew(boat)

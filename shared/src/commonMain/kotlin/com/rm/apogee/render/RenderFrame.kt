@@ -41,6 +41,10 @@ class RenderItem(
      * and fades into the cloud at its top.
      */
     val curtain: Boolean = false,
+    /** Keep this translucent item in exact distance order, including between batching groups. */
+    val orderedTransparency: Boolean = false,
+    /** On its first frame, interpolate this new effect with the part it detached from. */
+    val spawnReference: Long = 0L,
 ) {
     companion object {
         /** A piece of a craft's part. */
@@ -50,6 +54,10 @@ class RenderItem(
         /** One of a craft's effects (flame, vapour, shock), by a seed of its own and a slot. */
         fun effectKey(seed: Long, slot: Int): Long =
             (seed * 64L + slot) and KEY_MASK or EFFECT_BIT
+
+        /** A weather lobe and its optional cirrus streak; separate from craft and effect keys. */
+        fun cloudKey(shape: Long, slot: Int, streak: Int = 0): Long =
+            ((shape shl 18) xor (slot.toLong() shl 2) xor streak.toLong()) and KEY_MASK or (1L shl 62)
 
         private const val KEY_MASK = (1L shl 60) - 1
         private const val PART_BIT = 1L shl 61

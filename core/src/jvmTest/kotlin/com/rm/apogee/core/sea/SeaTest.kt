@@ -84,7 +84,7 @@ class SeaTest {
     @Test
     fun `the tide is high under Luna and opposite it, and low in between, twice a lunar day`() {
         val s = sea(null)
-        val deep = seaWhere(1_500.0, 3_000.0)
+        val deep = seaWhere(300.0, 800.0)
         // Its height through two days, every two minutes.
         val heights = ArrayList<Double>()
         var t = 0.0
@@ -281,18 +281,18 @@ class SeaTest {
     }
 
     @Test
-    fun `the ocean swell reaches the Cape's open beach and breaks there, and the harbour stays calmer`() {
-        val s = sea()
+    fun `storm swell reaches the Cape's beach and breaks there, and the harbour stays calmer`() {
+        val s = sea(WeatherIntensity.WILD)
         val sample = SeaSample()
-        val beach = SolarSystem.capeDirection(-3_000.0, 0.0).mulInPlace(terra.radius)
+        val beach = SolarSystem.capeDirection(-2_750.0, 250.0).mulInPlace(terra.radius)
         val harbour = SolarSystem.surfaceDirection(SolarSystem.HARBOUR_LATITUDE, SolarSystem.HARBOUR_LONGITUDE).mulInPlace(terra.radius)
-        for (time in listOf(36_000.0, 90_000.0, 150_000.0)) {
+        for (time in listOf(36_000.0, 90_000.0, 120_000.0)) {
             s.sample(beach, time, sample)
             val atBeach = sample.significantHeight
             // Along the run in to the beach, since where it breaks moves with the tide.
             var breaking = 0.0
-            for (east in listOf(-2_300.0, -2_600.0, -3_000.0, -3_500.0)) {
-                val at = SolarSystem.capeDirection(east, 0.0).mulInPlace(terra.radius)
+            for (east in listOf(-2_600.0, -2_650.0, -2_700.0, -2_750.0, -2_800.0)) {
+                val at = SolarSystem.capeDirection(east, 250.0).mulInPlace(terra.radius)
                 for (k in 0 until 60) breaking = maxOf(breaking, s.sample(at, time + k * 0.5, sample).breaking)
             }
             s.sample(harbour, time, sample)

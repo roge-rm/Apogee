@@ -459,7 +459,8 @@ class Weather(
             val middle = th.base + th.depth * amount * 0.5
             convection.columnAt(th, middle, column)
             frame(column, te, tn)
-            val shape = CloudShape(CloudType.CUMULUS, th.consistency * amount)
+            val shape = CloudShape(CloudType.CUMULUS, th.consistency * amount, key =
+                Noise.hashInt(seed + th.start.toInt(), (th.origin.x * radius).toInt(), (th.origin.y * radius).toInt(), (th.origin.z * radius).toInt()).toLong() and 0xffffffffL)
             for (l in 0 until th.lobeCount) {
                 val o = l * 5
                 val centre = Vec3().setTo(column).mulInPlace(radius + th.ground + middle)
@@ -487,12 +488,8 @@ class Weather(
             storms.centreAt(s, time, stormCentre)
             val away = stormCentre.mulInPlace(radius).distanceTo(here) - kotlin.math.hypot(s.halfAlong, s.halfAcross)
             if (away > stormReach) continue
-            val near = when {
-                away < 15_000.0 -> 1.0
-                away < 45_000.0 -> 0.6
-                else -> 0.35
-            }
-            out.add(stormShapes.build(s, time, stormDetail * near) { terrain?.elevation(it) ?: 0.0 }.also { it.drift.setTo(s.steer) })
+            // Keep one storm layout across near/far listings; mesh detail is handled by the renderer.
+            out.add(stormShapes.build(s, time, stormDetail) { terrain?.elevation(it) ?: 0.0 }.also { it.drift.setTo(s.steer) })
         }
         // Layer cloud: the deck's puffs, cell by cell, the same ones the air is sampled from. Far
         // away, where an overcast would need tens of thousands of puffs, it's rough sheets.
@@ -568,7 +565,8 @@ class Weather(
         val a = deckAt(type, key, epoch, far)
         val b = deckAt(type, key, epoch + 1, far)
         if (a == null && b == null) return null
-        val shape = CloudShape(type, (a?.amount ?: 0.0) * (1.0 - f) + (b?.amount ?: 0.0) * f, far = far)
+        val shape = CloudShape(type, (a?.amount ?: 0.0) * (1.0 - f) + (b?.amount ?: 0.0) * f, far = far,
+            key = Noise.hashInt(seed + type.ordinal + if (far) 100 else 0, key.toInt(), (key ushr 32).toInt(), 0).toLong() and 0xffffffffL)
         shape.amountRate = ((b?.amount ?: 0.0) - (a?.amount ?: 0.0)) / DECK_EPOCH
         val count = max(a?.lobes?.size ?: 0, b?.lobes?.size ?: 0)
         for (p in 0 until count) {
@@ -584,6 +582,7 @@ class Weather(
             if (horizontal < 1.0 && horizontalRate <= 0.0) continue
             shape.lobes.add(
                 CloudLobe(centre, horizontal, vertical, shade, one.flat).also { lobe ->
+                    lobe.visualSlot = p
                     lobe.horizontalRate = horizontalRate
                     lobe.verticalRate = ((lb?.vertical ?: 0.0) - (la?.vertical ?: 0.0)) / DECK_EPOCH
                     if (la != null && lb != null) lobe.centreRate = Vec3().setTo(lb.centre).subInPlace(la.centre).mulInPlace(1.0 / DECK_EPOCH)

@@ -120,6 +120,8 @@ class GlRenderer(
 
     /** Chunks on the GPU. The builder decides when each one goes. See TerrainSource.release. */
     private val chunkMeshes = HashMap<ChunkKey, TerrainMesh>()
+    private val chunkShownAt = HashMap<ChunkKey, Long>()
+    private var drawnChunks = emptySet<ChunkKey>()
 
     /**
      * One mesh per distinct shape, built the first time it's seen. Keyed by the shape value, so
@@ -362,9 +364,9 @@ class GlRenderer(
             GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT or GLES30.GL_DEPTH_BUFFER_BIT)
             GLES30.glClearColor(0.01f, 0.012f, 0.03f, 1f)
         } else if (world != null) {
-            // A million to one, near to far, however far that is: the whole system on the map.
+            // Move the near plane out with the map camera so clouds retain depth above the globe.
             val farFar = maxOf(FAR_FAR_PLANE, latest.farReach)
-            farProjection.setPerspective(latest.fovYRadians, aspect, maxOf(FAR_NEAR_PLANE, farFar * 1e-6), farFar)
+            farProjection.setPerspective(latest.fovYRadians, aspect, FarProjection.nearPlane(latest, cameraPos, farFar), farFar)
             farViewProjection.setMultiplied(farProjection, viewMatrix)
 
             val atmosphereFactor = atmosphereFactorAt(world)
@@ -618,6 +620,7 @@ class GlRenderer(
         while (true) {
             val key = terrainSource.nextReleased() ?: break
             chunkMeshes.remove(key)?.let(::retire)
+            chunkShownAt.remove(key)
         }
         // Up to a count and a time: low and fast over new ground there are always more waiting.
         var uploads = 0
@@ -629,8 +632,10 @@ class GlRenderer(
             // A retired mesh is the same size as any other, so its buffers are written over, not
             // remade.
             val mesh = if (spareChunkMeshes.isNotEmpty()) spareChunkMeshes.removeAt(spareChunkMeshes.size - 1) else TerrainMesh(indices)
-            mesh.upload(vertices)
+            mesh.upload(vertices, coarse = chunk.coarseVertices)
             chunk.vertices = null
+            chunk.coarseVertices = null
+            chunkShownAt.remove(chunk.key)
             chunkMeshes[chunk.key] = mesh
             terrainSource.markUploaded(chunk.key)
             uploads++
@@ -642,9 +647,18 @@ class GlRenderer(
         applyLamps(shader, true)
         shader.setMat4("uViewProjection", nearViewProjection.m)
         shader.setFloat("uDiscardNearer", 0f)
+        val now = System.nanoTime()
+        val morphFocus = terrainSource.focus()
         for (entry in list) {
             val chunk = entry.chunk
             val mesh = chunkMeshes[chunk.key] ?: continue
+            if (chunk.key !in drawnChunks || chunk.key !in chunkShownAt) {
+                chunkShownAt[chunk.key] = if (chunk.key.parent in drawnChunks) now else now - TERRAIN_MORPH_NANOS
+            }
+            val appeared = chunkShownAt.getValue(chunk.key)
+            val arrival = GridMorph.smooth(0.0, TERRAIN_MORPH_NANOS.toDouble(), (now - appeared).toDouble()).toFloat()
+            if (arrival == 1f) terrainSource.markSettled(chunk.key)
+            shader.setFloat("uMorph", 1f - entry.detailAt(morphFocus) * arrival)
             interpolatedBodyRotation.rotate(chunk.centre, scratchChunkCentre)
             // Behind the camera by more than the chunk's size, so none of it can be on screen.
             // Cheap, and usually half the chunks.
@@ -655,6 +669,7 @@ class GlRenderer(
             shader.setMat4("uModel", modelMatrix.m)
             mesh.drawQuadrants(entry.quadrants)
         }
+        drawnChunks = list.mapTo(HashSet()) { it.key }
 
         mark(7)
         scatterRenderer?.draw(
@@ -678,6 +693,7 @@ class GlRenderer(
         atmosphereFactor: Float,
         cameraPos: Vec3,
     ) {
+        shader.setFloat("uMorph", 0f)
         shader.setMat4("uModel", modelMatrix.m)
         shader.setMat4("uViewProjection", farViewProjection.m)
         shader.setVec3(
@@ -868,7 +884,8 @@ class GlRenderer(
         // Solid parts by shape, many per call. The Cape's buildings alone are some 800 pieces.
         val batching = cloudProgram != null && solidBuffer[0] != 0
         for ((index, item) in items.withIndex()) {
-            if (item.color[3] < 0.999f) { translucent.add(index); continue }
+            // Cloud edges and camera-entry fades need blending even at full base opacity.
+            if (item.color[3] < 0.999f || item.wrap || item.curtain) { translucent.add(index); continue }
             if (batching && !item.wrap && item.decal == 0 && !item.sky) solidGroup(item.shape, item.caps).add(index)
             else drawItem(item, partners[index], alpha, cameraPos, shader)
         }
@@ -1043,8 +1060,7 @@ class GlRenderer(
 
     /**
      * The see-through items, far to near. Cloud lobes are drawn many per call, one distance band at
-     * a time with a call per shape, and anything else one by one in its place. Order within a band
-     * doesn't show between soft lobes; 2,000 draw calls did.
+     * a time with a call per shape, and anything else one by one in its place. Clouds and rain retain exact order; neighbouring identical meshes still share a call.
      */
     private fun drawTranslucent(items: List<RenderItem>, alpha: Double, cameraPos: Vec3, shader: ShaderProgram) {
         val clouds = cloudProgram
@@ -1061,11 +1077,23 @@ class GlRenderer(
         while (i < n) {
             val item = items[translucent[i]]
             if (!instanced(item)) { commands.add(-1 - translucent[i]); i++; continue }
+            if (item.orderedTransparency) {
+                val first = floats / Mesh.INSTANCE_FLOATS
+                var count = 0
+                while (i < n) {
+                    val next = items[translucent[i]]
+                    if (!instanced(next) || !next.orderedTransparency || next.shape != item.shape) break
+                    floats = writeInstance(items, translucent[i], alpha, cameraPos, floats)
+                    count++; i++
+                }
+                commands.add(first); commands.add(count); commandShapes.add(item.shape)
+                continue
+            }
             val floor = distances[i] / BAND_RATIO
             bands.clear()
             while (i < n) {
                 val next = items[translucent[i]]
-                if (!instanced(next) || distances[i] < floor) break
+                if (!instanced(next) || next.orderedTransparency || distances[i] < floor) break
                 bands.getOrPut(next.shape) { ArrayList() }.add(translucent[i])
                 i++
             }
@@ -1371,6 +1399,9 @@ class GlRenderer(
             if (scratchChunkCentre.distanceTo(groundWorld) > reach * 1.5 + chunk.boundingRadius) continue
             modelMatrix.setFromTrs(scratchChunkCentre, interpolatedBodyRotation, cameraPos)
             shader.setMat4("uModel", modelMatrix.m)
+            val appeared = chunkShownAt[chunk.key]
+            val arrival = if (appeared == null) 1f else GridMorph.smooth(0.0, TERRAIN_MORPH_NANOS.toDouble(), (System.nanoTime() - appeared).toDouble()).toFloat()
+            shader.setFloat("uMorph", 1f - entry.detailAt(terrainSource.focus()) * arrival)
             mesh.drawQuadrants(entry.quadrants)
         }
         map.end(viewportWidth, viewportHeight)
@@ -1632,6 +1663,8 @@ class GlRenderer(
         for (key in chunkMeshes.keys) terrainSource.discarded(key)
         chunkMeshes.values.forEach { it.release() }
         chunkMeshes.clear()
+        chunkShownAt.clear()
+        drawnChunks = emptySet()
         spareChunkMeshes.forEach { it.release() }
         spareChunkMeshes.clear()
         chunkIndices?.release(); chunkIndices = null
@@ -1699,6 +1732,9 @@ class GlRenderer(
         /** The most the sea is carried on from when it was built, in seconds. */
         const val SEA_LOOKAHEAD = 0.25
 
+        /** Time to reveal a newly built terrain level, independent of the universe clock. */
+        const val TERRAIN_MORPH_NANOS = 300_000_000L
+
         /**
          * Terrain chunks uploaded per frame at most, about 50 KB each, so new ground spreads over a
          * few frames.
@@ -1728,7 +1764,7 @@ class GlRenderer(
         const val NEAR_FAR_PLANE = 250_000.0
 
         /** Far pass: the planet and anything else at world scale. */
-        const val FAR_NEAR_PLANE = 100.0
+        const val FAR_NEAR_PLANE = FarProjection.MIN_NEAR
         const val FAR_FAR_PLANE = 1.0e8
     }
 

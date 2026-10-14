@@ -197,9 +197,6 @@ fun BuilderScreen(
                     onClose = { settings.builderPartsOpen = false; peek = false },
                     modifier = Modifier.height(paletteHeight),
                     locked = session.lockedParts(),
-                    onLocked = { id ->
-                        session.statusMessage = "${catalog[id]?.title ?: id} needs ${session.lockedParts()[id] ?: "unlocking"} in the Program"
-                    },
                     saved = session.savedAssemblies.map { (piece, file) ->
                         com.rm.apogee.ui.components.builder.SavedPiece(piece.name, piece.rootPartId, piece.parts.map { it.partId }, file)
                     },

@@ -42,3 +42,7 @@ local.properties
 
 # Crash core dumps; the pre-commit hook deletes them. (Not "core" alone: that is a module.)
 core.[0-9]*
+
+# Python authoring tools
+__pycache__/
+*.pyc

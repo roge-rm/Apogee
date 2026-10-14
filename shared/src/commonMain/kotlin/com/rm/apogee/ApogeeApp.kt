@@ -107,6 +107,9 @@ class ApogeeApp(private val host: AppHost) {
     private var quickEntries: List<com.rm.apogee.game.CraftShelf.Entry> by mutableStateOf(emptyList())
     private var quickCraft: String? by mutableStateOf(null)
     private var quickSite: String? by mutableStateOf(null)
+    private var quickBases by mutableStateOf(emptyList<com.rm.apogee.core.world.LaunchSite>())
+    private var quickLoad: kotlinx.coroutines.Job? = null
+    private var quickPrepared = false
     private var pendingResume: Long? = null
 
     /**
@@ -339,7 +342,10 @@ class ApogeeApp(private val host: AppHost) {
     /** Every screen, one at a time, over the world's surface when there is one. */
     @Composable
     fun Content() {
-            LaunchedEffect(Unit) { if (host.fullscreenMenus) host.fullscreen(true) }
+            LaunchedEffect(Unit) {
+                if (host.fullscreenMenus) host.fullscreen(true)
+                if (!careerMode && appScreen in quickMenus) refreshQuickLaunch()
+            }
             com.rm.apogee.ui.theme.ApogeeColors.colourBlind = settings.colourBlind
             ApogeeTheme(textScale = settings.textScale) {
               androidx.compose.runtime.CompositionLocalProvider(com.rm.apogee.ui.LocalSavesToFiles provides host.savesToFiles) {
@@ -454,7 +460,7 @@ class ApogeeApp(private val host: AppHost) {
                         site = quickSite,
                         automatic = quickEntries.firstOrNull { it.saved.fileName == quickCraft }
                             ?.let { World.launchSiteFor(it.design, StockParts.catalog).displayName } ?: "the pad",
-                        bases = runCatching { openSoloWorld().baseSites(settings.clientId) }.getOrDefault(emptyList()),
+                        bases = quickBases,
                         onSite = { quickSite = it; settings.quickSite = it ?: "" },
                         onLaunch = ::quickLaunch,
                         onBack = ::goBack,
@@ -709,11 +715,11 @@ class ApogeeApp(private val host: AppHost) {
         if (target == appScreen) return
         val wasInWorld = appScreen.needsWorldSurface
         val wasBrowsing = appScreen == AppScreen.JOIN_GAME
+        if (target !in quickMenus || careerMode) cancelQuickPreparation()
         appScreen = target
         if (target == AppScreen.QUICK_LAUNCH) showPictureSurface() else hidePictureSurface()
         if (target == AppScreen.RESUME_FLIGHT) refreshResumeCraft()
         if (target == AppScreen.CREW) refreshCrew()
-        if (target == AppScreen.QUICK_LAUNCH) refreshQuickLaunch()
         if (target == AppScreen.PLAY || target == AppScreen.PROGRAM) refreshProgram()
         if (target == AppScreen.PLAY || target == AppScreen.WORLDS) refreshWorlds()
 
@@ -736,6 +742,7 @@ class ApogeeApp(private val host: AppHost) {
             target.needsWorldSurface -> enterWorld(target)
             wasInWorld -> leaveWorld()
         }
+        if (!careerMode && target in quickMenus) refreshQuickLaunch()
         if (!target.needsWorldSurface) {
             tutorialRun = null
             tutorialFlight = false
@@ -803,6 +810,7 @@ class ApogeeApp(private val host: AppHost) {
     /** Plays [slot] from now on: the world being played is saved and let go. */
     private fun playWorld(slot: com.rm.apogee.core.world.WorldSlots.Slot) {
         if (session != null) return
+        cancelQuickPreparation()
         saveSoloWorld()
         soloWorld = null
         if (careerMode) settings.careerWorld = slot.id else settings.sandboxWorld = slot.id
@@ -881,18 +889,51 @@ class ApogeeApp(private val host: AppHost) {
         }
     }
 
-    /** Reads the saved craft for Quick Launch off the main thread, choosing the last one again. */
+    private val quickMenus = setOf(AppScreen.MENU, AppScreen.PLAY, AppScreen.QUICK_LAUNCH)
+
+    private fun cancelQuickPreparation() {
+        quickLoad?.cancel()
+        quickLoad = null
+        quickPrepared = false
+        quickEntries = emptyList()
+        quickBases = emptyList()
+    }
+
+    /** Prepares Quick Launch while the player is in the menus and keeps it ready to open. */
     private fun refreshQuickLaunch() {
+        if (quickPrepared || quickLoad?.isActive == true) return
         quickSite = settings.quickSite.ifBlank { null }
+        quickEntries = emptyList()
+        quickBases = emptyList()
         val store = craftStore
-        scope.launch {
-            val entries = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
-                com.rm.apogee.game.CraftShelf.read(store.list(), store, StockParts.catalog, partThumbnails)
+        val worldStore = soloWorldStore
+        val career = careerMode
+        val openWorld = soloWorld
+        val thumbnails = partThumbnails
+        quickLoad = scope.launch {
+            try {
+                val (entries, loadedWorld) = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                    val world = openWorld ?: readSoloWorld(worldStore, career)
+                    val entries = com.rm.apogee.game.CraftShelf.read(store.list(), store, StockParts.catalog, thumbnails)
+                    entries to world
+                }
+                // Only these menus share a load; entering another screen cancels it.
+                soloWorld = loadedWorld
+                quickBases = loadedWorld.baseSites(settings.clientId)
+                quickEntries = entries
+                quickCraft = settings.quickCraft.takeIf { name -> entries.any { it.saved.fileName == name } }
+                    ?: entries.firstOrNull { it.saved.name == "Starter I" }?.saved?.fileName
+                    ?: entries.firstOrNull()?.saved?.fileName
+                quickPrepared = true
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                Log.w(TAG, "Quick Launch: ${error.message}")
+                if (appScreen == AppScreen.QUICK_LAUNCH) {
+                    host.toast("Couldn't prepare Quick Launch: ${error.message}")
+                    navigateTo(AppScreen.PLAY)
+                }
             }
-            quickEntries = entries
-            quickCraft = settings.quickCraft.takeIf { name -> entries.any { it.saved.fileName == name } }
-                ?: entries.firstOrNull { it.saved.name == "Starter I" }?.saved?.fileName
-                ?: entries.firstOrNull()?.saved?.fileName
         }
     }
 
@@ -1590,17 +1631,19 @@ class ApogeeApp(private val host: AppHost) {
      */
     private fun openSoloWorld(): World {
         soloWorld?.let { return it }
+        return readSoloWorld(soloWorldStore, careerMode).also { soloWorld = it }
+    }
+
+    /** Builds a detached world; the caller publishes it on the main thread once it is ready. */
+    private fun readSoloWorld(store: WorldStore, career: Boolean): World {
         val world = World.default(StockParts.catalog)
-        soloWorldStore.loadWithFallback()?.let { (save, warning) ->
+        store.loadWithFallback()?.let { (save, warning) ->
             val problems = world.restore(save)
             if (warning != null) Log.w(TAG, "World save: $warning")
             for (problem in problems) Log.w(TAG, "World save: $problem")
         }
-        // A career world that's new to this device starts its program here.
-        if (careerMode && world.program == null) world.program = com.rm.apogee.core.career.Program()
-        // The Cape's buildings and Luna's test base, before anything asks for launch sites.
+        if (career && world.program == null) world.program = com.rm.apogee.core.career.Program()
         world.ensureStructures()
-        soloWorld = world
         return world
     }
 
@@ -1681,12 +1724,14 @@ class ApogeeApp(private val host: AppHost) {
      */
     private fun switchMode(career: Boolean) {
         if (career == careerMode || session != null) return
+        cancelQuickPreparation()
         saveSoloWorld()
         soloWorld = null
         careerMode = career
         settings.careerMode = career
         refreshProgram()
         refreshWorlds()
+        if (!career && appScreen in quickMenus) refreshQuickLaunch()
     }
 
     /** The player's career in the open world, for the Play and Program screens. */

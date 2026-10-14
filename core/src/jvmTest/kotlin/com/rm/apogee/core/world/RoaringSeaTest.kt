@@ -21,7 +21,7 @@ class RoaringSeaTest {
         val world = World.default(catalog)
         world.weatherConfig = com.rm.apogee.core.weather.WeatherConfig()
         val terra = world.system.body("terra")
-        assertTrue(terra.terrain!!.elevation(where) < -300.0)
+        assertTrue("deep ocean at Terra’s Earth scale", terra.terrain!!.elevation(where) < -200.0)
         val sample = com.rm.apogee.core.sea.SeaSample()
         var sum = 0.0; var n = 0
         var t = 3_000.0

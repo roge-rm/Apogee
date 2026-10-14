@@ -167,6 +167,8 @@ The tests:
 
 Without an Android SDK the app is left out, so the server builds with just a JDK.
 
+Terra uses Earth relief and climate data, with a redesigned Cape harbour. See [terrain sources and attribution](docs/terra-terrain.md). Multiplayer games require matching terrain generations; all players and dedicated servers need 0.9.4 for the new terrain.
+
 ## Running a server
 
 A dedicated server is a persistent world that players join from **Join a Game**. See [dedicated/README.md](dedicated/README.md), with Docker or without.

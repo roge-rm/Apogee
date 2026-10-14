@@ -106,9 +106,22 @@ class DesktopHost(
 
     override val canFullScreen = true
 
-    override val isFullScreen: Boolean get() = window?.placement == WindowPlacement.Fullscreen
+    /**
+     * Full screen as a window of its own without a frame, which the window shows instead. On
+     * Windows a framed window in full screen only maximises.
+     */
+    var separateFullScreen = false
+    var inFullScreenWindow by mutableStateOf(false)
+
+    override val isFullScreen: Boolean
+        get() = if (separateFullScreen) inFullScreenWindow else window?.placement == WindowPlacement.Fullscreen
 
     override fun setFullScreen(on: Boolean) {
+        if (separateFullScreen) {
+            inFullScreenWindow = on
+            settings.fullScreen = on
+            return
+        }
         val state = window ?: return
         if (on == isFullScreen) return
         if (on) {

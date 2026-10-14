@@ -17,8 +17,7 @@ import com.rm.apogee.core.math.Math
  * blown out ahead. A supercell's base is layered like plates with a wall cloud under it; a squall
  * line has a shelf cloud along its front and rain in a wall behind.
  *
- * [detail], 0..1, scales the lobe count. Far storms and weak devices get fewer, bigger lobes in the
- * same places.
+ * [detail], 0..1, scales the lobe count for the device. A storm keeps the same layout as the camera moves.
  */
 internal class StormShapes(
     private val storms: Storms,
@@ -33,20 +32,26 @@ internal class StormShapes(
 
     fun build(s: Storms.Storm, time: Double, detail: Double, groundAt: (Vec3) -> Double): CloudShape {
         val envelope = storms.envelope(s, time)
-        val shape = CloudShape(climate.stormCloud, envelope)
+        val shape = CloudShape(climate.stormCloud, envelope, key =
+            Noise.hashInt(seed + 990, s.cx, s.cy, s.cycle.toInt()).toLong() and 0xffffffffL)
         storms.frameAt(s, time, centre, track, right)
         val c = s.cycle.toInt()
         fun h(k: Int) = Noise.hash(seed + 300 + k, s.cx, s.cy, c)
         fun at(along: Double, across: Double, height: Double) = storms.place(centre, track, right, along, across, radius + height, Vec3())
 
-        deck(s, envelope, detail, shape, ::h, ::at)
-        towers(s, time, detail, shape, ::h, ::at)
+        fun stage(base: Int, build: () -> Unit) {
+            val from = shape.lobes.size
+            build()
+            for (i in from until shape.lobes.size) if (shape.lobes[i].visualSlot < 0) shape.lobes[i].visualSlot = base + i - from
+        }
+        stage(0) { deck(s, envelope, detail, shape, ::h, ::at) }
+        stage(1_000) { towers(s, time, detail, shape, ::h, ::at) }
         when (s.kind) {
-            StormKind.SUPERCELL -> mothership(s, detail, shape, ::h, ::at)
-            StormKind.SQUALL -> shelf(s, detail, shape, ::h, ::at)
+            StormKind.SUPERCELL -> stage(4_000) { mothership(s, detail, shape, ::h, ::at) }
+            StormKind.SQUALL -> stage(5_000) { shelf(s, detail, shape, ::h, ::at) }
             else -> {}
         }
-        anvil(s, time, envelope, detail, shape, ::h, ::at)
+        stage(6_000) { anvil(s, time, envelope, detail, shape, ::h, ::at) }
         if (climate.precipitation != Climate.Precipitation.NONE) rain(s, time, envelope, detail, shape, ::h, ::at, groundAt)
         return shape
     }
@@ -57,8 +62,8 @@ internal class StormShapes(
         h: (Int) -> Double, at: (Double, Double, Double) -> Vec3,
     ) {
         val grow = 0.55 + 0.45 * envelope
-        val halfA = s.halfAlong * grow
-        val halfC = s.halfAcross * grow
+        val halfA = s.halfAlong
+        val halfC = s.halfAcross
         val wanted = 14.0 + 40.0 * detail
         val spacing = max(1_500.0, sqrt(4.0 * halfA * halfC / wanted))
         var k = 0
@@ -74,8 +79,8 @@ internal class StormShapes(
                 if (q > 1.0 || (q > 0.75 && h(3_000 + k) < 0.35)) { cr += spacing; continue }
                 shape.lobes.add(
                     CloudLobe(
-                        at(s.deckAlong + ja, jc, s.base + 180.0 + 220.0 * h(4_000 + k)),
-                        spacing * (0.72 + 0.3 * h(5_000 + k)) * (1.0 - 0.3 * max(0.0, q - 0.7)),
+                        at(s.deckAlong + ja * grow, jc * grow, s.base + 180.0 + 220.0 * h(4_000 + k)),
+                        spacing * grow * (0.72 + 0.3 * h(5_000 + k)) * (1.0 - 0.3 * max(0.0, q - 0.7)),
                         320.0 + 260.0 * h(6_000 + k),
                         shade = 0.13 + 0.09 * h(7_000 + k),
                     ),
@@ -96,7 +101,7 @@ internal class StormShapes(
             val out = sqrt(h(460 + j))
             shape.lobes.add(
                 CloudLobe(
-                    at(s.deckAlong + cos(an) * out * halfA * 0.9, sin(an) * out * halfC * 0.9, s.base - 150.0 - 350.0 * h(470 + j)),
+                    at(s.deckAlong + cos(an) * out * halfA * grow * 0.9, sin(an) * out * halfC * grow * 0.9, s.base - 150.0 - 350.0 * h(470 + j)),
                     250.0 + 450.0 * h(480 + j), 120.0 + 150.0 * h(490 + j), shade = 0.2,
                 ),
             )
@@ -112,7 +117,9 @@ internal class StormShapes(
         s: Storms.Storm, time: Double, detail: Double, shape: CloudShape,
         h: (Int) -> Double, at: (Double, Double, Double) -> Vec3,
     ) {
-        val weights = DoubleArray(s.cellCount) { i -> s.cellHeight[i] * s.cellRadius[i] * storms.cellLife(s, i, time) }
+        fun add(slot: Int, lobe: CloudLobe) { lobe.visualSlot = slot; shape.lobes.add(lobe) }
+        // Cell birth changes size and opacity, not the topology or identities of neighbouring towers.
+        val weights = DoubleArray(s.cellCount) { i -> s.cellHeight[i] * s.cellRadius[i] }
         val total = weights.sum()
         if (total <= 0.0) return
         val budget = 40.0 + 220.0 * detail
@@ -140,12 +147,12 @@ internal class StormShapes(
                 val drift = s.lean * s.core * rise
                 val a0 = s.cellAlong[i] + drift
                 val c0 = s.cellAcross[i]
-                shape.lobes.add(CloudLobe(at(a0, c0, height), w * 0.5, step * (0.9 - 0.4 * flare), shade = shade, flat = flare > 0.5))
+                add(1_000 + i * 128 + k * 8, CloudLobe(at(a0, c0, height), w * 0.5, step * (0.9 - 0.4 * flare), shade = shade, flat = flare > 0.5))
                 for (j in 0 until heap) {
                     val q = salt + k * 32 + j + 1
                     val an = (j + h(q)) * 2.0 * Math.PI / heap
                     val out = w * 0.5 * (0.45 + 0.55 * h(q + 100))
-                    shape.lobes.add(
+                    add(1_000 + i * 128 + k * 8 + j + 1,
                         CloudLobe(
                             at(a0 + cos(an) * out, c0 + sin(an) * out, height + (h(q + 200) - 0.4) * step * 0.8),
                             w * (0.2 + 0.2 * h(q + 300)) * fill,
@@ -162,10 +169,10 @@ internal class StormShapes(
             val top = storms.cellTop(s, main, time)
             val a0 = s.cellAlong[main] + s.lean * s.core
             val w = 1.9 * s.cellRadius[main]
-            shape.lobes.add(CloudLobe(at(a0, s.cellAcross[main], top + 200.0), w * 0.45, 700.0, shade = 0.92))
+            add(3_500, CloudLobe(at(a0, s.cellAcross[main], top + 200.0), w * 0.45, 700.0, shade = 0.92))
             for (j in 0 until 4) {
                 val an = (j + h(600 + j)) * 0.5 * Math.PI
-                shape.lobes.add(
+                add(3_501 + j,
                     CloudLobe(at(a0 + cos(an) * w * 0.3, s.cellAcross[main] + sin(an) * w * 0.3, top), w * (0.18 + 0.1 * h(610 + j)), 450.0, shade = 0.88),
                 )
             }
@@ -295,7 +302,7 @@ internal class StormShapes(
         h: (Int) -> Double, at: (Double, Double, Double) -> Vec3, groundAt: (Vec3) -> Double,
     ) {
         if (envelope <= 0.3) return
-        fun curtain(along: Double, across: Double, width: Double, shade: Double) {
+        fun curtain(slot: Int, along: Double, across: Double, width: Double, shade: Double) {
             val foot = at(along, across, 0.0).normalizeInPlace()
             val ground = max(groundAt(foot), 0.0)
             val top = s.base + 100.0
@@ -303,20 +310,20 @@ internal class StormShapes(
             // Sink it into the ground so hills and lower ground under a wide shaft don't show a gap
             // of sky. Over the sea it only needs to cover the waves.
             val bottom = if (groundAt(foot) > 0.0) ground - CURTAIN_SINK else -CURTAIN_SINK_SEA
-            shape.rain.add(CloudLobe(foot.mulInPlace(radius + (bottom + top) * 0.5), width, (top - bottom) * 0.5, shade = shade))
+            shape.rain.add(CloudLobe(foot.mulInPlace(radius + (bottom + top) * 0.5), width, (top - bottom) * 0.5, shade = shade).also { it.visualSlot = slot })
         }
         for (i in 0 until s.cellCount) {
             val life = storms.cellLife(s, i, time)
             if (life < 0.3) continue
             val r = s.cellRadius[i]
-            curtain(s.cellAlong[i] + s.shaftAlong * r, s.cellAcross[i], 0.75 * r * life, smooth(0.3, 0.6, life))
+            curtain(i, s.cellAlong[i] + s.shaftAlong * r, s.cellAcross[i], 0.75 * r * life, smooth(0.3, 0.6, life))
         }
         if (s.stratiform > 0.2) {
             val count = (2 + 4 * detail).roundToInt()
             for (j in 0 until count) {
                 val along = s.deckAlong - s.halfAlong * (0.1 + 0.5 * h(1_700 + j))
                 val across = (h(1_710 + j) - 0.5) * 1.6 * s.halfAcross
-                curtain(along, across, min(s.halfAlong, s.halfAcross) * 0.35, 0.45 * s.stratiform * envelope)
+                curtain(100 + j, along, across, min(s.halfAlong, s.halfAcross) * 0.35, 0.45 * s.stratiform * envelope)
             }
         }
     }

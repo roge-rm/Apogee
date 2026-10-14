@@ -20,9 +20,9 @@ class AirLandingTest {
     private val catalog = StockParts.catalog
 
     /** [design] [height] metres over the Cape's ground at [east], [north], level, crewed. */
-    private fun over(world: World, design: CraftDesign, east: Double, north: Double, height: Double, speed: Double = 0.0): Vessel {
+    private fun over(world: World, design: CraftDesign, east: Double, north: Double, height: Double, speed: Double = 0.0, direction: Vec3? = null): Vessel {
         val terra = world.system.body("terra")
-        val up = SolarSystem.capeDirection(east, north)
+        val up = direction ?: SolarSystem.capeDirection(east, north)
         val ground = (terra.terrain?.elevation(up) ?: 0.0).coerceAtLeast(0.0)
         val rotation = terra.rotationAt(world.time)
         val position = rotation.rotate(up, Vec3()).mulInPlace(terra.radius + ground + height)
@@ -208,8 +208,8 @@ class AirLandingTest {
     }
 
     /** A Sparrow flying [speed] m/s east (west if negative) [height] metres over the Cape's ground at [x], [y]. */
-    private fun sparrow(world: World, x: Double, y: Double, height: Double, speed: Double): Vessel {
-        val plane = over(world, StockCraft.sparrow(catalog), x, y, height, speed = kotlin.math.abs(speed))
+    private fun sparrow(world: World, x: Double, y: Double, height: Double, speed: Double, direction: Vec3? = null): Vessel {
+        val plane = over(world, StockCraft.sparrow(catalog), x, y, height, speed = kotlin.math.abs(speed), direction = direction)
         if (speed < 0.0) {
             // Turned round to fly west.
             val up = plane.body.position.normalized()
@@ -247,8 +247,29 @@ class AirLandingTest {
 
     @Test
     fun `a Sparrow over forest far from any runway finds a clear strip and lands on it without hitting anything`() {
-        val world = World.default(catalog)
-        val plane = sparrow(world, 20_000.0, 0.0, 400.0, 80.0)
+        val original = SolarSystem.defaultSystem().body("terra")
+        // A level forest with a clear strip ahead makes this an obstacle-avoidance test.
+        val home = SolarSystem.capeDirection(20_000.0, 0.0)
+        val east = Vec3.unitY().cross(home).normalizeInPlace()
+        val north = home.cross(east).normalizeInPlace()
+        val terrain = object : com.rm.apogee.core.terrain.Terrain {
+            override val bodyRadius = original.radius
+            override val maxElevation = 60.0
+            override val generation = 0
+            override val tiles = com.rm.apogee.core.terrain.TerrainTileCache(this)
+            override val scatter = com.rm.apogee.core.terrain.ScatterField(this)
+            override fun elevation(direction: Vec3) = 60.0
+            private fun clearing(d: Vec3): Boolean =
+                (d dot east) * bodyRadius in 400.0..3_000.0 && kotlin.math.abs((d dot north) * bodyRadius) < 120.0
+            override fun isKeptClear(direction: Vec3) = clearing(direction)
+            override fun material(direction: Vec3, elevation: Double, slope: Double) =
+                if (clearing(direction)) com.rm.apogee.core.terrain.SurfaceMaterial.GRASS
+                else com.rm.apogee.core.terrain.SurfaceMaterial.FOREST
+        }
+        val body = com.rm.apogee.core.orbit.CelestialBody("terra", "Forest fixture", original.gravitationalParameter,
+            original.radius, original.rotationPeriod, original.atmosphere, terrain)
+        val world = World(SolarSystem(listOf(body), "terra"), catalog)
+        val plane = sparrow(world, 0.0, 0.0, 400.0, 80.0, home)
         world.apply(Command.SetAutopilot(plane.id.raw, autoBurn = false, autoLand = true))
         world.step(Aloft.DT)
         assertEquals("Landing on clear ground", plane.control.autopilotNote)

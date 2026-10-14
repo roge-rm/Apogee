@@ -22,7 +22,18 @@ class ItemMatcher {
         }
         var unkeyed = 0
         for (item in items) {
-            _partners.add(if (item.key != 0L) previousByKey[item.key] else previousUnkeyed.getOrNull(unkeyed++))
+            val previous = if (item.key != 0L) previousByKey[item.key] else previousUnkeyed.getOrNull(unkeyed++)
+            _partners.add(previous ?: spawnPose(item, items))
         }
     }
+    private fun spawnPose(item: RenderItem, items: List<RenderItem>): RenderItem? {
+        if (item.spawnReference == 0L) return null
+        val before = previousByKey[item.spawnReference] ?: return null
+        val current = items.firstOrNull { it.key == item.spawnReference } ?: return null
+        val turn = before.rotation * current.rotation.conjugate()
+        val position = turn.rotate(item.position.copy().subInPlace(current.position)).addInPlace(before.position)
+        return RenderItem(item.shape, position, turn * item.rotation, item.color, item.caps, item.scale,
+            item.ambient, item.wrap, item.key, item.decal, item.sky, item.curtain, item.orderedTransparency)
+    }
+
 }

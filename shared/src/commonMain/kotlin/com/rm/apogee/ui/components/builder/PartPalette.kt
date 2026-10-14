@@ -112,23 +112,28 @@ fun PartPalette(
     carry: PaletteCarry,
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
-    /** In a career, locked part ids mapped to the tech node that unlocks each. Shown faded. */
+    /** In a career, locked part ids mapped to the tech node that unlocks each. Left out. */
     locked: Map<String, String> = emptyMap(),
-    /** A locked part was tapped. */
-    onLocked: (String) -> Unit = {},
     /** The saved pieces, for the Saved tab. */
     saved: List<SavedPiece> = emptyList(),
     onPickSaved: (String) -> Unit = {},
     onDeleteSaved: (String) -> Unit = {},
 ) {
-    val parts = remember(catalog, tab) { PartTabs.parts(catalog, tab) }
+    // Tabs with nothing unlocked are left out, and the drawer falls back to All from one.
+    // Not the launch sites' buildings, which are parts only so the sites can be built of them.
+    fun offered(def: com.rm.apogee.core.part.PartDef) = def.id !in locked && PartTabs.of(def) != PartTab.BUILDINGS
+    val tabs = remember(catalog, locked) {
+        PartTab.entries.filter { t -> t == PartTab.ALL || t == PartTab.SAVED || PartTabs.parts(catalog, t).any(::offered) }
+    }
+    val shown = if (tab in tabs) tab else PartTab.ALL
+    val parts = remember(catalog, shown, locked) { PartTabs.parts(catalog, shown).filter(::offered) }
     Surface(
         shape = RoundedCornerShape(Dimens.CornerPanel),
         color = Color.Black.alpha(ApogeeAlpha.SCRIM),
         modifier = modifier,
     ) {
         Row(Modifier.fillMaxHeight()) {
-            TabRail(tab, onTab)
+            TabRail(tabs, shown, onTab)
             Column(Modifier.fillMaxHeight().width(tileSize * columns + 14.dp).padding(end = 6.dp, top = 6.dp, bottom = 6.dp)) {
                 // The tab's name. Tap the chevron or swipe left to put the drawer away.
                 var swipe by remember { mutableFloatStateOf(0f) }
@@ -144,7 +149,7 @@ fun PartPalette(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        tab.label.uppercase(),
+                        shown.label.uppercase(),
                         style = TelemetryTextStyle,
                         color = Color.White.alpha(ApogeeAlpha.BODY),
                         maxLines = 1,
@@ -168,10 +173,9 @@ fun PartPalette(
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     items(parts, key = { it.id }) { def ->
-                        if (def.id in locked) LockedTile(def, pictures[def.id], tileSize, onLocked)
-                        else PartTile(def, pictures[def.id], tileSize, def.id == heldPartId, onPick, carry)
+                        PartTile(def, pictures[def.id], tileSize, def.id == heldPartId, onPick, carry)
                     }
-                    if (tab == PartTab.SAVED) {
+                    if (shown == PartTab.SAVED) {
                         if (saved.isEmpty()) {
                             item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
                                 Text(
@@ -193,7 +197,7 @@ fun PartPalette(
 }
 
 @Composable
-private fun TabRail(tab: PartTab, onTab: (PartTab) -> Unit) {
+private fun TabRail(tabs: List<PartTab>, tab: PartTab, onTab: (PartTab) -> Unit) {
     val scroll = rememberScrollState()
     Column(
         Modifier
@@ -202,7 +206,7 @@ private fun TabRail(tab: PartTab, onTab: (PartTab) -> Unit) {
             .verticalScroll(scroll),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        for (t in PartTab.entries) {
+        for (t in tabs) {
             val chosen = t == tab
             Box(
                 Modifier
@@ -355,35 +359,6 @@ private fun SavedTile(
             style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 10.sp),
             color = Color.White.alpha(ApogeeAlpha.SUBTITLE),
             maxLines = 1,
-        )
-    }
-}
-
-/** A part the career hasn't unlocked yet, shown but not usable. */
-@Composable
-private fun LockedTile(def: PartDef, picture: ImageBitmap?, size: Dp, onLocked: (String) -> Unit) {
-    Column(
-        Modifier
-            .width(size)
-            .clip(RoundedCornerShape(Dimens.CornerTight))
-            .background(Color.White.alpha(ApogeeAlpha.FILL_FAINT))
-            .clickable { onLocked(def.id) }
-            .padding(4.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Box(Modifier.size(size - 16.dp), contentAlignment = Alignment.Center) {
-            if (picture != null) {
-                Image(picture, contentDescription = null, modifier = Modifier.size(size - 16.dp).alpha(0.3f))
-            }
-            Icon(Icons.Filled.Lock, contentDescription = "Locked", tint = Color.White.alpha(ApogeeAlpha.SECONDARY), modifier = Modifier.size(18.dp))
-        }
-        Text(
-            def.title,
-            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 11.sp),
-            color = Color.White.alpha(ApogeeAlpha.SUBTITLE),
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            textAlign = TextAlign.Center,
         )
     }
 }

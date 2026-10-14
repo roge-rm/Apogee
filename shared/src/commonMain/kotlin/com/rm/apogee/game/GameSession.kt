@@ -3089,23 +3089,6 @@ class GameSession private constructor(
         }
     }
 
-    /**
-     * A piece of an engine's shell falling away after its stage dropped, toppling outward about its
-     * foot. [foot] is in the piece's space at [pivot], in world [bodyId]'s frame.
-     */
-    private class ShroudPanel(
-        val shape: com.rm.apogee.core.part.ModelSpec.Lathe,
-        val bodyId: String,
-        val pivot: Vec3,
-        val velocity: Vec3,
-        val start: Quat,
-        val axis: Vec3,
-        val rate: Double,
-        val foot: Vec3,
-        val key: Long,
-        var age: Double = 0.0,
-    )
-
     private val panels = ArrayList<ShroudPanel>()
 
     /** Parts whose shed shell has already split, by craft and part, so it only happens once. */
@@ -3124,7 +3107,7 @@ class GameSession private constructor(
      */
     private fun shedShroud(
         vesselId: Long, index: Int, def: com.rm.apogee.core.part.PartDef, shroud: com.rm.apogee.core.craft.Shroud,
-        position: Vec3, rotation: Quat, velocity: Vec3, attractor: CelestialBody,
+        position: Vec3, rotation: Quat, velocity: Vec3, attractor: CelestialBody, referenceKey: Long,
     ) {
         if (!shedShells.add(vesselId * 4_096L + index)) return
         if (System.nanoTime() - shellsSince < SHELLS_SETTLE_NANOS) return
@@ -3160,6 +3143,7 @@ class GameSession private constructor(
                     rate = SHROUD_TUMBLE * (0.6 + 0.8 * jitter),
                     foot = foot,
                     key = RenderItem.effectKey(-5_000L - vesselId * 64L - index, k),
+                    referenceKey = referenceKey,
                 ),
             )
         }
@@ -3173,14 +3157,10 @@ class GameSession private constructor(
         val iterator = panels.iterator()
         while (iterator.hasNext()) {
             val panel = iterator.next()
-            panel.age += dt
-            if (panel.age > SHROUD_FALL_SECONDS || panel.bodyId != attractor.id) { iterator.remove(); continue }
-            val down = panel.pivot.normalized().negateInPlace()
-            panel.velocity.addScaledInPlace(down, attractor.surfaceGravity * dt)
-            panel.pivot.addScaledInPlace(panel.velocity, dt)
-            val turned = Quat.fromAxisAngle(panel.axis, panel.rate * panel.age) * panel.start
-            val at = Vec3().setTo(panel.pivot).subInPlace(turned.rotate(panel.foot.copy()))
-            items.add(RenderItem(shape = panel.shape, position = at, rotation = turned, color = colour, caps = 0, key = panel.key))
+            if (panel.bodyId != attractor.id) { iterator.remove(); continue }
+            val item = panel.advance(dt, attractor.surfaceGravity, colour)
+            if (panel.age > SHROUD_FALL_SECONDS) { iterator.remove(); continue }
+            items.add(item)
         }
     }
 
@@ -4708,7 +4688,8 @@ class GameSession private constructor(
             val shed = placed.shroud
             if (shroud == null && shed != null && !mapMode) {
                 if (vessel.id < 0) com.rm.apogee.render.ShroudLook.leaf(def, placed, shed)?.let(leaves::add)
-                else shedShroud(vessel.id, index, def, shed, scratch, rotation * placedRotation, state.velocity, attractor)
+                else shedShroud(vessel.id, index, def, shed, scratch, rotation * placedRotation, state.velocity, attractor,
+                    RenderItem.partKey(vessel.id, partIdentity(placed), 0))
             }
             val health = if (condition.any) condition.health[index] else 1f
             val heat = if (condition.any) condition.temperature[index] else 0f

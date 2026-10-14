@@ -304,6 +304,8 @@ object Shaders {
             } else if (uWrap > 0.5) {
                 float faceOn = abs(dot(n, normalize(vToCamera)));
                 alpha *= mix(0.25, 1.0, smoothstep(0.05, 0.6, faceOn));
+                // Thin the surface before the camera crosses it; weather fog fills the interior.
+                alpha *= smoothstep(0.0, 250.0, length(vToCamera));
             }
             fragColor = vec4(mix(lit, uFogColor, clamp(fog, 0.0, 1.0)), alpha);
         }
@@ -582,9 +584,16 @@ object Shaders {
         layout(location = 1) in vec3 aNormal;
         layout(location = 2) in vec3 aColour;
         layout(location = 3) in float aWet;
+        layout(location = 4) in vec3 aCoarsePosition;
+        layout(location = 5) in vec3 aCoarseNormal;
+        layout(location = 6) in vec3 aCoarseColour;
+        layout(location = 7) in float aCoarseWet;
+        layout(location = 8) in vec3 aCoarseWater;
+        layout(location = 9) in vec3 aCoarseUpperColour;
 
         uniform mat4 uModel;
         uniform mat4 uViewProjection;
+        uniform float uMorph;  // 0 at full detail, 1 on the parent's planes
         // The sea: waves out to uSeaReach metres (0 for none). Beyond that the seabed is lifted to
         // the water (uTide above the datum) and coloured as water.
         uniform float uSeaReach;
@@ -596,6 +605,10 @@ object Shaders {
         // Flat: each triangle takes one vertex's colour. The normal comes per triangle in the
         // fragment shader.
         flat out vec3 vColour;
+        flat out vec3 vCoarseLower;
+        flat out vec3 vCoarseUpper;
+        out vec2 vGrid;
+        flat out vec2 vGridCorner;
         flat out float vWet;
         // Far water: the bed under it, and how much of the water's own colour hides it.
         flat out vec3 vBed;
@@ -611,8 +624,21 @@ object Shaders {
 
         void main() {
             vec4 worldPos = uModel * vec4(aPosition, 1.0);
+            vec4 coarsePos = uModel * vec4(aCoarsePosition, 1.0);
             vSkirt = aWet >= 3.5 ? 1.0 : 0.0;
             float code = aWet >= 3.5 ? aWet - 4.0 : aWet;
+            float coarseCode = aCoarseWet >= 3.5 ? aCoarseWet - 4.0 : aCoarseWet;
+            vCoarseLower = aCoarseColour;
+            vCoarseUpper = aCoarseUpperColour;
+            int vertex = gl_VertexID;
+            if (vertex >= ${TerrainChunk.SIDE * TerrainChunk.SIDE}) {
+                int edge = (vertex - ${TerrainChunk.SIDE * TerrainChunk.SIDE}) / ${TerrainChunk.SIDE};
+                int along = (vertex - ${TerrainChunk.SIDE * TerrainChunk.SIDE}) % ${TerrainChunk.SIDE};
+                vertex = edge == 0 ? along : edge == 1 ? ${TerrainChunk.CELLS * TerrainChunk.SIDE} + along :
+                    edge == 2 ? along * ${TerrainChunk.SIDE} : along * ${TerrainChunk.SIDE} + ${TerrainChunk.CELLS};
+            }
+            vGrid = vec2(vertex % ${TerrainChunk.SIDE}, vertex / ${TerrainChunk.SIDE});
+            vGridCorner = vGrid;
             vColour = aColour;
             vWet = 0.0;
             vBed = aColour;
@@ -620,7 +646,14 @@ object Shaders {
             vDepth = 0.0;
             vRise = 0.0;
             float away = length(worldPos.xyz);
-            if (code >= 0.5 && away > uSeaReach * SEA_RISE) {
+            if (coarseCode > 0.0 && (uSeaReach <= 0.0 || away > uSeaReach * SEA_RISE)) {
+                float rise = uSeaReach > 0.0 ? smoothstep(uSeaReach * SEA_RISE, uSeaReach * SEA_BLEND, away) : 1.0;
+                float under = uSeaReach > 0.0 ? SEA_BLEND_SINK * (1.0 - smoothstep(uSeaReach * SEA_BLEND, uSeaReach, away)) : 0.0;
+                vec3 up = normalize(coarsePos.xyz - uBodyCentre);
+                vec3 coarseWater = (uModel * vec4(aCoarseWater, 1.0)).xyz;
+                coarsePos.xyz = mix(coarsePos.xyz, coarseWater + up * (uTide - under), rise);
+            }
+            if (code >= 0.5 && (uSeaReach <= 0.0 || away > uSeaReach * SEA_RISE)) {
                 // Past the waves: flat water at the tide, blue by depth. Under the waves it rises
                 // from the bed to a little below them, so no triangle stands from bed to surface
                 // where it starts, and there's no line where the waves fade into it.
@@ -645,8 +678,9 @@ object Shaders {
                 vRise = rise;
                 vWet = 1.0;
             }
+            worldPos.xyz = mix(worldPos.xyz, coarsePos.xyz, uMorph);
             vPosition = worldPos.xyz;
-            vGroundNormal = mat3(uModel) * aNormal;
+            vGroundNormal = mat3(uModel) * mix(aNormal, aCoarseNormal, uMorph);
             // The camera is at the origin.
             vDistance = length(worldPos.xyz);
             vViewDir = -worldPos.xyz / max(vDistance, 1.0);
@@ -663,6 +697,10 @@ object Shaders {
         precision highp float;
 
         flat in vec3 vColour;
+        flat in vec3 vCoarseLower;
+        flat in vec3 vCoarseUpper;
+        in vec2 vGrid;
+        flat in vec2 vGridCorner;
         flat in float vWet;
         flat in vec3 vBed;
         flat in float vSee;
@@ -675,6 +713,7 @@ object Shaders {
         in vec3 vGroundNormal;
 
         uniform vec3 uSunDirection;
+        uniform float uMorph;
         uniform float uAtmosphereFactor;
         uniform float uHazeDistance;
         uniform float uHasAtmosphere; // 1 for a body with air, 0 for one without
@@ -694,15 +733,21 @@ object Shaders {
         $SHADOW
 
         void main() {
+            vec3 viewDir = normalize(-vPosition);
             if (vDistance < uDiscardNearer) discard;
             // The triangle's own face normal, from screen derivatives. Vertex normals shimmer on
             // rough ground as the detail changes.
             vec3 n = normalize(cross(dFdx(vPosition), dFdy(vPosition)));
-            if (dot(n, vViewDir) < 0.0) n = -n;
+            if (dot(n, viewDir) < 0.0) n = -n;
             // A skirt hides a crack, so light it like the ground above it.
             if (vSkirt > 0.001) n = normalize(vGroundNormal);
+            // Far water and its crack-hiding skirts share one continuous sea normal.
+            if (vWet > 0.5) n = normalize(vPosition - uBodyCentre);
             vec3 surface = vColour;
             float wet = vWet;
+            vec2 fromCorner = vGrid - vGridCorner;
+            vec3 coarseColour = fromCorner.x - fromCorner.y >= 0.0 ? vCoarseLower : vCoarseUpper;
+            if (wet < 0.5) surface = mix(surface, coarseColour, uMorph);
 
             if (uSkyBody > 0.5) {
                 // Another world across space: sunlit only, night side nearly black, a glint off its
@@ -710,9 +755,9 @@ object Shaders {
                 vec3 rimUp = normalize(vPosition - uBodyCentre);
                 float facing = dot(n, uSunDirection);
                 vec3 world = surface * (0.03 + 1.1 * max(facing, 0.0));
-                vec3 half0 = normalize(uSunDirection + vViewDir);
+                vec3 half0 = normalize(uSunDirection + viewDir);
                 world += vec3(1.0, 0.96, 0.88) * pow(max(dot(n, half0), 0.0), 60.0) * wet * 0.6 * step(0.0, facing);
-                float rim = pow(1.0 - max(dot(rimUp, vViewDir), 0.0), 3.0);
+                float rim = pow(1.0 - max(dot(rimUp, viewDir), 0.0), 3.0);
                 world += uFarRim * rim * smoothstep(-0.1, 0.3, dot(rimUp, uSunDirection)) * 0.9 * uHasAtmosphere;
                 fragColor = vec4(mix(world, uHaze, 0.35 * uAtmosphereFactor * uDaylight), 1.0);
                 return;
@@ -728,17 +773,17 @@ object Shaders {
             lit += surface * FLASH * uFlash * sea;
             if (uLampCount > 0) lit += surface * lampLight(vPosition, n);
 
-            vec3 halfway = normalize(uSunDirection + vViewDir);
+            vec3 halfway = normalize(uSunDirection + viewDir);
             if (wet > 0.5) {
                 // Flat water past the waves, lit the way the waves are (see SEA_FRAGMENT), so there's
                 // no ring where one meets the other.
                 // The bed lit like ground and darkened by the water over it, as the bed under the
                 // waves is (underSea), under water lit like water and as clear as the waves.
-                vec3 bed = vBed * (night * moonLeft(uDaylight) + duskGlow(uDaylight) + (0.06 + lambert * 1.10 * uLightScale) * daylight)
+                vec3 bed = mix(vBed, coarseColour, uMorph) * (night * moonLeft(uDaylight) + duskGlow(uDaylight) + (0.06 + lambert * 1.10 * uLightScale) * daylight)
                     * exp(-vDepth / uWater);
                 float shade = 0.22 + 1.25 * pow(lambert, 0.8) * uLightScale;
                 vec3 water = surface * (night * moonLeft(uDaylight) + duskGlow(uDaylight) + shade * daylight) + surface * FLASH * uFlash;
-                float facing = max(dot(n, vViewDir), 0.0);
+                float facing = max(dot(n, viewDir), 0.0);
                 float reflected = 0.03 + 0.97 * pow(1.0 - facing, 5.0);
                 vec3 sky = mix(uHaze, uSeaSky, 0.5) * (NIGHT_AIR + (1.0 - NIGHT_AIR) * daylight) * (0.5 + 0.5 * uLightScale);
                 water = mix(water, sky, reflected * 0.5);
@@ -762,7 +807,7 @@ object Shaders {
             // without air. Taken against the planet's curve, not the facet, or edge-on mountain
             // faces flicker blue.
             vec3 up = normalize(vPosition - uBodyCentre);
-            float fresnel = pow(1.0 - max(dot(up, vViewDir), 0.0), 3.0);
+            float fresnel = pow(1.0 - max(dot(up, viewDir), 0.0), 3.0);
             lit += vec3(0.25, 0.45, 0.78) * fresnel * daylight * 0.9 *
                 (1.0 - clamp(uAtmosphereFactor, 0.0, 1.0)) * uHasAtmosphere;
 

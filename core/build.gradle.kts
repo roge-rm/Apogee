@@ -140,6 +140,16 @@ tasks.register<JavaExec>("terrainAtlas") {
     args = listOf(layout.buildDirectory.dir("terrain-atlas").get().asFile.absolutePath)
 }
 
+/** The whole Earth-like Terra and its two polar caps, for checking the geography by eye. */
+tasks.register<JavaExec>("terraAtlas") {
+    group = "verification"
+    description = "Writes a world map and both polar views of Terra."
+    dependsOn("jvmTestClasses")
+    classpath = jvmTestClasspath
+    mainClass.set("com.rm.apogee.core.scenario.TerrainAtlasKt")
+    args = listOf(layout.buildDirectory.dir("terra-atlas").get().asFile.absolutePath, "--planet")
+}
+
 /** Draws the Cape from above to build/cape-map: `./gradlew :core:capeMap`. */
 tasks.register<JavaExec>("capeMap") {
     group = "verification"

@@ -29,8 +29,7 @@ class TerrainField(
     val homeDirection: Vec3? = null,
     /**
      * Where the launch complex itself stands (pad levelled, runway laid, country kept gentle), if
-     * it's not at [homeDirection]. The continent stays raised where it was, since moving that would
-     * move every coastline.
+     * it's not at [homeDirection]. Only the country round the works is adjusted.
      */
     val padDirection: Vec3? = null,
     /**
@@ -87,12 +86,18 @@ class TerrainField(
         return nearestWork(east, north) >= 0
     }
 
-    /** What stands on the continents. Only for a body with a home to keep clear (Terra). */
+    /** Terra’s close-up relief and climate. */
     private val homeUnit: Vec3? = homeDirection?.normalized()
     private val padUnit: Vec3? = (padDirection ?: homeDirection)?.normalized()
-    private val land: TerraLand? = homeUnit?.let { home ->
-        val pad = padUnit!!
+    private val land: TerraLand? = if (profile == Profile.TERRA) {
+        val home = homeUnit ?: Vec3(1.0, 0.0, 0.0)
+        val pad = padUnit ?: home
         TerraLand(seed, bodyRadius, home.x, home.y, home.z, pad.x, pad.y, pad.z)
+    } else null
+    private val polarIce = PolarIce(seed, bodyRadius)
+    private val capeLand: CapeLand? = homeUnit?.let { home ->
+        val pad = padUnit!!
+        CapeLand(seed, bodyRadius, home.x, home.y, home.z, pad.x, pad.y, pad.z)
     }
 
     /**
@@ -117,6 +122,8 @@ class TerrainField(
     private val runwayAcross: Vec3? = runwayAlong?.let { along ->
         padUnit!!.copy().crossInPlace(along)
     }
+
+    private val harbourGrid by lazy { TerrainGrid("/terrain/cape-harbour.json") }
 
     /**
      * Ground level at the launch complex, worked out once from the field before flattening, since
@@ -246,7 +253,27 @@ class TerrainField(
     private fun shapedElevation(nx: Double, ny: Double, nz: Double): Double {
         val raw = capeLift(nx, ny, nz, naturalElevation(nx, ny, nz))
         val ground = bay(nx, ny, nz, raw)
-        return seabed?.cape(nx, ny, nz, ground) ?: ground
+        val mapped = legacySeabed?.cape(nx, ny, nz, ground) ?: ground
+        val coast = harbourCoast(nx, ny, nz, mapped)
+        val floor = seabed?.cape(nx, ny, nz, coast) ?: coast
+        return coast + smoothstep((-coast / 8.0).coerceIn(0.0, 1.0)) * (floor - coast)
+    }
+
+    private fun harbourCoast(nx: Double, ny: Double, nz: Double, ground: Double): Double {
+        if (profile != Profile.TERRA || harbourUnit == null) return ground
+        val pad = padUnit ?: return ground
+        val a = runwayAlong ?: return ground
+        val c = runwayAcross!!
+        val dot = nx * pad.x + ny * pad.y + nz * pad.z
+        if (dot < 0.99) return ground
+        val east = (nx * a.x + ny * a.y + nz * a.z) * bodyRadius / dot
+        val north = (nx * c.x + ny * c.y + nz * c.z) * bodyRadius / dot
+        // Bounds are checked before loading the local coast field.
+        if (east <= -24_000.0 || east >= 18_000.0 || north <= -26_000.0 || north >= 22_000.0) return ground
+        val grid = harbourGrid
+        val edge = minOf(east - grid.west, grid.east - east, north - grid.south, grid.north - north)
+        val weight = smoothstep((edge / 2_000.0).coerceIn(0.0, 1.0))
+        return ground + (grid.sample(east, north) - ground) * weight
     }
 
     override fun ventField(direction: Vec3): Double {
@@ -256,7 +283,8 @@ class TerrainField(
     }
 
     /** The sea floor's shapes and ground: Terra's, with the Cape's off its coast. See [Seabed]. */
-    private val seabed: Seabed? = if (profile == Profile.TERRA) Seabed(seed, bodyRadius, padDirection ?: homeDirection) else null
+    private val legacySeabed: Seabed? = if (profile == Profile.TERRA) Seabed(seed, bodyRadius, padDirection ?: homeDirection) else null
+    private val seabed: Seabed? = if (profile == Profile.TERRA) Seabed(seed, bodyRadius, padDirection ?: homeDirection, Seabed.HARBOUR_TURN) else null
 
     /**
      * The Cape's low country lifted clear of its four-metre tides. Low land rises most, higher land
@@ -377,8 +405,119 @@ class TerrainField(
         return minOf(a, b) - h * h * k * 0.25
     }
 
-    /** The field as it comes, before anything is built into it. */
+    /** The redesigned planet outside the Cape's working country, which blends into it over eight kilometres. */
     private fun naturalElevation(nx: Double, ny: Double, nz: Double): Double {
+        val pad = padUnit ?: return planetaryElevation(nx, ny, nz)
+        val dx = nx - pad.x; val dy = ny - pad.y; val dz = nz - pad.z
+        val distance = sqrt(dx * dx + dy * dy + dz * dz) * bodyRadius
+        if (distance >= 20_000.0) return planetaryElevation(nx, ny, nz)
+        val previous = previousNaturalElevation(nx, ny, nz)
+        if (distance <= 12_000.0) return previous
+        val blend = smoothstep((distance - 12_000.0) / 8_000.0)
+        return previous + (planetaryElevation(nx, ny, nz) - previous) * blend
+    }
+
+    /** Generation 9's ground away from the built works, for migrating craft on vanished land. */
+    internal fun previousElevation(unit: Vec3, generation: Int = 9): Double {
+        val natural = when (generation) {
+            10 -> previousReviewElevation(unit)
+            11 -> previousEarthElevation(unit)
+            else -> previousNaturalElevation(unit.x, unit.y, unit.z)
+        }
+        val raw = capeLift(unit.x, unit.y, unit.z, natural)
+        val ground = bay(unit.x, unit.y, unit.z, raw)
+        return legacySeabed?.cape(unit.x, unit.y, unit.z, ground) ?: ground
+    }
+
+    private val legacyEarthLand by lazy {
+        val home = homeUnit ?: Vec3(1.0, 0.0, 0.0)
+        val pad = padUnit ?: home
+        LegacyEarthLand(seed, bodyRadius, home.x, home.y, home.z, pad.x, pad.y, pad.z)
+    }
+    private fun previousEarthElevation(unit: Vec3): Double {
+        val x = unit.x; val y = unit.y; val z = unit.z
+        val base = polarIce.height(x, y, z, EarthRelief.elevation(x, y, z) * bodyRadius / EarthRelief.EARTH_RADIUS)
+        val mapped = if (base <= 0.0) base else legacyEarthLand.height(x, y, z, base,
+            smoothstep((base / HILL_SHORE_FADE).coerceIn(0.0, 1.0)))
+        val pad = padUnit ?: return mapped
+        val distance = unit.distanceTo(pad) * bodyRadius
+        if (distance >= 20_000.0) return mapped
+        val local = previousNaturalElevation(x, y, z)
+        if (distance <= 12_000.0) return local
+        return local + (mapped - local) * smoothstep((distance - 12_000.0) / 8_000.0)
+    }
+
+    private val reviewContinents by lazy { TerraContinents(seed, bodyRadius, maxElevation, oceanDepth) }
+    private val reviewLand by lazy {
+        val home = homeUnit ?: Vec3(1.0, 0.0, 0.0)
+        val pad = padUnit ?: home
+        ReviewLand(seed, bodyRadius, home.x, home.y, home.z, pad.x, pad.y, pad.z)
+    }
+    private fun previousReviewElevation(unit: Vec3): Double {
+        val x = unit.x; val y = unit.y; val z = unit.z
+        val base = ReviewIce.height(seed, bodyRadius, x, y, z, reviewContinents.height(x, y, z))
+        val mapped = if (base <= 0.0) seabed?.global(x, y, z, base) ?: base
+            else reviewLand.height(x, y, z, base, smoothstep((base / HILL_SHORE_FADE).coerceIn(0.0, 1.0)))
+        val pad = padUnit ?: return mapped
+        val distance = unit.distanceTo(pad) * bodyRadius
+        if (distance >= 20_000.0) return mapped
+        val local = previousNaturalElevation(x, y, z)
+        if (distance <= 12_000.0) return local
+        return local + (mapped - local) * smoothstep((distance - 12_000.0) / 8_000.0)
+    }
+
+    /** Nearby dry ground for a parked generation-9 craft whose old country became ocean. */
+    internal fun nearbyLand(unit: Vec3): Vec3 {
+        val east = Vec3(0.0, 1.0, 0.0).cross(unit).let {
+            if (it.lengthSq < 1e-9) Vec3(1.0, 0.0, 0.0) else it.normalizeInPlace()
+        }
+        val north = unit.cross(east)
+        val candidate = Vec3()
+        var distance = 2_000.0
+        while (distance < bodyRadius * 3.0) {
+            val angle = distance / bodyRadius
+            for (k in 0 until 48) {
+                val heading = k * com.rm.apogee.core.math.Math.PI / 24.0
+                candidate.setTo(unit).mulInPlace(StrictMath.cos(angle))
+                    .addScaledInPlace(east, StrictMath.sin(angle) * StrictMath.cos(heading))
+                    .addScaledInPlace(north, StrictMath.sin(angle) * StrictMath.sin(heading))
+                if (elevation(candidate) > 20.0) return candidate
+            }
+            distance *= 1.35
+        }
+        return padUnit?.copy() ?: Vec3(0.0, -1.0, 0.0)
+    }
+
+    /** Nearby sea deep enough for a craft displaced by the new harbour's hills. */
+    internal fun nearbyWater(unit: Vec3, depth: Double): Vec3? {
+        val east = Vec3(0.0, 1.0, 0.0).cross(unit).normalizeInPlace()
+        val north = unit.cross(east)
+        val candidate = Vec3()
+        var distance = 250.0
+        while (distance < 60_000.0) {
+            val angle = distance / bodyRadius
+            for (k in 0 until 64) {
+                val heading = k * com.rm.apogee.core.math.Math.PI / 32.0
+                candidate.setTo(unit).mulInPlace(StrictMath.cos(angle))
+                    .addScaledInPlace(east, StrictMath.sin(angle) * StrictMath.cos(heading))
+                    .addScaledInPlace(north, StrictMath.sin(angle) * StrictMath.sin(heading))
+                if (elevation(candidate) < -depth) return candidate.copy()
+            }
+            distance *= 1.25
+        }
+        return null
+    }
+
+    /** Earth relief, with proportional heights and observed northern pack ice. */
+    private fun planetaryElevation(nx: Double, ny: Double, nz: Double): Double {
+        val base = polarIce.height(nx, ny, nz, EarthRelief.elevation(nx, ny, nz) * bodyRadius / EarthRelief.EARTH_RADIUS)
+        if (base <= 0.0) return base
+        val landness = smoothstep((base / HILL_SHORE_FADE).coerceIn(0.0, 1.0))
+        return land!!.height(nx, ny, nz, base, landness)
+    }
+
+    /** The field as it comes, before anything is built into it. */
+    private fun previousNaturalElevation(nx: Double, ny: Double, nz: Double): Double {
         // Continents at the largest scale, then detail. Each octave halves in size and weight, so it
         // looks alike at every distance.
         var amplitude = 1.0
@@ -412,12 +551,12 @@ class TerrainField(
             val depth = (-centred / SEA_FRACTION * (1.0 - SEA_FRACTION)).coerceIn(0.0, 1.0)
             -StrictMath.pow(depth, OCEAN_SHARPNESS) * oceanDepth
         }
-        if (base <= 0.0) return seabed?.global(nx, ny, nz, base) ?: base
+        if (base <= 0.0) return base
 
         // Hills, added in metres after sharpening, which would iron the lowlands flat. They fade in
         // over [HILL_SHORE_FADE], over twice [HILL_AMPLITUDE], so no hill digs a pond on the coast.
         val landness = smoothstep((base / HILL_SHORE_FADE).coerceIn(0.0, 1.0))
-        land?.let { return it.height(nx, ny, nz, base, landness) }
+        capeLand?.let { return it.height(nx, ny, nz, base, landness) }
         return base + hills(nx, ny, nz) * HILL_AMPLITUDE * landness
     }
 
@@ -475,6 +614,13 @@ class TerrainField(
                     watered = green
                 }
             }
+            val cape = padUnit
+            if (cape != null && capeLand != null) {
+                val dx = nx - cape.x; val dy = ny - cape.y; val dz = nz - cape.z
+                val distance = sqrt(dx * dx + dy * dy + dz * dz) * bodyRadius
+                val patch = 0.5 + 0.5 * Noise.simplex(seed + 74, nx * bodyRadius / 1_500.0, ny * bodyRadius / 1_500.0, nz * bodyRadius / 1_500.0)
+                if (distance < 12_000.0 + 8_000.0 * patch) return capeLand.material(nx, ny, nz, elevation, slope, landness, watered)
+            }
             return it.material(nx, ny, nz, elevation, slope, landness, watered)
         }
         return when {
@@ -523,7 +669,7 @@ class TerrainField(
         const val DEFAULT_SEED = 0x4A06EE
 
         /** See [Terrain.generation]. 1 is the terrain every save before M7 was made on. */
-        const val GENERATION = 9
+        const val GENERATION = 12
 
         /** The slope (0 flat, 1 wall) past which ground is bare rock, about 39 degrees. */
         private const val STEEP_SLOPE = 0.22

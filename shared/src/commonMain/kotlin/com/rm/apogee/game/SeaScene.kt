@@ -9,6 +9,7 @@ import com.rm.apogee.core.weather.Weather
 import com.rm.apogee.core.weather.WeatherConfig
 import com.rm.apogee.render.QualityTier
 import com.rm.apogee.render.SeaSurface
+import com.rm.apogee.render.GridMorph
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import com.rm.apogee.platform.System
@@ -179,6 +180,7 @@ class SeaScene(
     private inner class Builder(val sea: Sea) {
         val sample = SeaSample()
         val direction = Vec3()
+        val morphTarget = FloatArray(SeaSurface.STRIDE)
 
         /**
          * Lattice point ([gi], [gj]) of grid [level] into vertex [index] of [out]. Past [deadline]
@@ -282,6 +284,9 @@ class SeaScene(
         val middleI = IntArray(levels)
         val middleJ = IntArray(levels)
         val origin: Vec3
+        val cameraI = DoubleArray(levels)
+        val cameraJ = DoubleArray(levels)
+        val desiredSpacing: Double
 
         init {
             val up = centre.copy().normalizeInPlace()
@@ -292,11 +297,14 @@ class SeaScene(
             // From well above, the finest grids are finer than you can see and cost the most with a
             // fast camera, so they're left out.
             val height = kotlin.math.max(0.0, centre.length - body.radius)
+            desiredSpacing = height * FINEST_SHARE
             var k = 0
             while (k < levels - 1 && spacing(k) < height * FINEST_SHARE) k++
             first = k
             for (level in 0 until levels) {
                 val h = step(level)
+                cameraI[level] = u / h
+                cameraJ[level] = v / h
                 middleI[level] = 2 * Math.round(u / (2.0 * h)).toInt()
                 middleJ[level] = 2 * Math.round(v / (2.0 * h)).toInt()
             }
@@ -328,8 +336,19 @@ class SeaScene(
         /** Whether vertex (i, j) of grid [level] is used by a drawn cell. */
         fun used(level: Int, i: Int, j: Int): Boolean {
             if (level <= first) return true
+            // The innermost grid needs the whole next grid while it fades out with altitude.
+            if (level == first + 1 && altitudeMorph(first) > 0.0) return true
             val hi = holeI(level); val hj = holeJ(level)
-            return !(i > hi && i < hi + cells / 2 && j > hj && j < hj + cells / 2)
+            return !(i > hi + MORPH_PADDING && i < hi + cells / 2 - MORPH_PADDING &&
+                j > hj + MORPH_PADDING && j < hj + cells / 2 - MORPH_PADDING)
+        }
+
+        fun altitudeMorph(level: Int) = GridMorph.smooth(spacing(level) * 0.5, spacing(level), desiredSpacing)
+
+        /** Fully on the next grid before a snapped boundary can pass this point. */
+        fun morph(level: Int, i: Double, j: Double): Double {
+            val away = maxOf(kotlin.math.abs(startI(level) + i - cameraI[level]), kotlin.math.abs(startJ(level) + j - cameraJ[level]))
+            return maxOf(altitudeMorph(level), GridMorph.smooth(cells / 2.0 - 6.0, cells / 2.0 - 3.0, away))
         }
 
         /** Whether vertex (i, j) of grid [level] is on its edge, taken from the grid outside it. */
@@ -427,7 +446,7 @@ class SeaScene(
         val depths = FloatArray(layout.count)
         val cameraUp = centre.copy().normalizeInPlace()
         filterUp.setTo(cameraUp)
-        filterFinest = spacing(layout.first)
+        filterFinest = kotlin.math.max(finest, layout.desiredSpacing)
         builders[0].let { b ->
             b.sea.prepare(cameraUp, time, spacing(layout.first), Sea.Prepared()).let { p -> b.sea.surface(cameraUp, time, p, b.sample, spacing(layout.first)) }
         }
@@ -459,20 +478,26 @@ class SeaScene(
             }
         }
         jobs.forEach { it.await() }
-        // Each grid's edge from the grid outside: on its points exactly, and halfway between where
-        // the finer grid has an extra point, so they meet with no crack.
-        for (level in layout.first until levels - 1) {
+        // Work inward: the outer grid is already morphed before the inner one samples it.
+        val target = FloatArray(SeaSurface.STRIDE)
+        for (level in levels - 2 downTo layout.first) {
             val si = layout.startI(level); val sj = layout.startJ(level)
             val ci = layout.startI(level + 1); val cj = layout.startJ(level + 1)
             for (j in 0..cells) for (i in 0..cells) {
-                if (!layout.edge(level, i, j)) continue
+                if (!layout.used(level, i, j)) continue
                 val gi = si + i; val gj = sj + j
-                val i0 = Math.floorDiv(gi, 2) - ci; val j0 = Math.floorDiv(gj, 2) - cj
-                val i1 = if (gi % 2 != 0) i0 + 1 else i0
-                val j1 = if (gj % 2 != 0) j0 + 1 else j0
-                val a = layout.index(level + 1, i0, j0); val b = layout.index(level + 1, i1, j1)
-                blend(vertices, layout.index(level, i, j), a, b)
-                depths[layout.index(level, i, j)] = 0.5f * (depths[a] + depths[b])
+                val edge = layout.edge(level, i, j)
+                val amount = if (edge) 1.0 else layout.morph(level, i.toDouble(), j.toDouble())
+                if (amount == 0.0) continue
+                val x = gi * 0.5 - ci; val y = gj * 0.5 - cj
+                GridMorph.sample(vertices, side, SeaSurface.STRIDE, x, y, target, 0, layout.index(level + 1, 0, 0) * SeaSurface.STRIDE)
+                val index = layout.index(level, i, j)
+                morphVertex(vertices, index, target, amount.toFloat())
+                if (edge) {
+                    val i0 = kotlin.math.floor(x).toInt(); val j0 = kotlin.math.floor(y).toInt()
+                    val i1 = kotlin.math.ceil(x).toInt(); val j1 = kotlin.math.ceil(y).toInt()
+                    depths[index] = 0.5f * (depths[layout.index(level + 1, i0, j0)] + depths[layout.index(level + 1, i1, j1)])
+                }
             }
         }
         val coast = coast(scope, layout, vertices, depths, origin, time)
@@ -543,6 +568,18 @@ class SeaScene(
                             mix(vertices, into, p, q, t)
                         } else {
                             builder.refinedVertex(vertices, into, origin, sub, gi0 + a, gj0 + b, time)
+                            if (level < levels - 1) {
+                                val x = i + a / SUB.toDouble(); val y = j + b / SUB.toDouble()
+                                val amount = layout.morph(level, x, y)
+                                if (amount > 0.0) {
+                                    val target = builder.morphTarget
+                                    GridMorph.sample(vertices, side, SeaSurface.STRIDE,
+                                        (layout.startI(level) + x) * 0.5 - layout.startI(level + 1),
+                                        (layout.startJ(level) + y) * 0.5 - layout.startJ(level + 1),
+                                        target, 0, layout.index(level + 1, 0, 0) * SeaSurface.STRIDE)
+                                    morphVertex(vertices, into, target, amount.toFloat())
+                                }
+                            }
                         }
                     }
                     k += builders.size
@@ -604,10 +641,9 @@ class SeaScene(
     /** The coast's sea state, by lattice point, apart from the grids' tables. */
     private val refinedPrepared = com.rm.apogee.core.concurrentMapOf<Long, Stamped>()
 
-    /** Vertex [into] as the average of vertices [a] and [b] (which can be the same). */
-    private fun blend(vertices: FloatArray, into: Int, a: Int, b: Int) {
-        val o = into * SeaSurface.STRIDE; val pa = a * SeaSurface.STRIDE; val pb = b * SeaSurface.STRIDE
-        for (n in 0 until SeaSurface.STRIDE) vertices[o + n] = 0.5f * (vertices[pa + n] + vertices[pb + n])
+    private fun morphVertex(vertices: FloatArray, into: Int, target: FloatArray, amount: Float) {
+        val o = into * SeaSurface.STRIDE
+        for (n in 0 until SeaSurface.STRIDE) vertices[o + n] += (target[n] - vertices[o + n]) * amount
         // Up stays unit length.
         val x = vertices[o + 3]; val y = vertices[o + 4]; val z = vertices[o + 5]
         val l = kotlin.math.sqrt(x * x + y * y + z * z).coerceAtLeast(1e-6f)
@@ -687,6 +723,9 @@ class SeaScene(
         /** Spare vertex arrays kept for building into. */
 
         const val SPARES = 3
+
+        /** Coarse samples inside each hole used by the finer grid's transition band. */
+        const val MORPH_PADDING = 4
 
         /** A coast cell is split this many ways each way, which is [SUB_SHIFT] grids finer. */
         const val SUB = 4

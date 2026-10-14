@@ -171,8 +171,9 @@ class ScatterField(private val terrain: Terrain) {
             val slope = 1.0 - 1.0 / kotlin.math.sqrt(1.0 + gradient * gradient)
             val material = terrain.material(d, h, slope)
             val kind = (if (underwater) seaKindFor(material, roll) else worldKindFor(terrain.world, material, slope, roll) ?: kindFor(material, h, slope, roll))
-                // Nothing grows off Terra.
-                ?.takeIf { !terrain.barren || !it.lives } ?: continue
+                // Nothing grows off Terra, on permanent snow, or in the polar ice regions.
+                ?.takeIf { !it.lives || (!terrain.barren && material != SurfaceMaterial.SNOW &&
+                    material != SurfaceMaterial.ICE && !(terrain.world == "terra" && (d.y > 0.927 || d.y < -0.866))) } ?: continue
 
             ids[n] = base + cell
             kinds[n] = kind.ordinal.toByte()

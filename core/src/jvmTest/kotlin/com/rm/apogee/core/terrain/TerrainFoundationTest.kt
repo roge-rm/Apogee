@@ -24,15 +24,28 @@ class TerrainFoundationTest {
      */
     @Test
     fun `terrain is bit-for-bit what it was`() {
-        assertEquals("regenerate these goldens deliberately", 9, TerrainField.GENERATION)
+        assertEquals("regenerate these goldens deliberately", 12, TerrainField.GENERATION)
         val golden = longArrayOf(
-            -4578718847118141824, 4633304516215518119, -4576145650195994558,
-            -4606504763289932561, 4640841390928657255, 4651358863925320039,
-            -4575412248738341923, -4586221167063854346, -4580391478072772684,
-            -4588772863256232892, 4644246798824301635, -4583983049493818662,
+            -4578764645949226892, -4580144897755672565, 4638839480443195986,
+            -4575597927947283910, -4580662296156424977, 4633657153832727756,
+            -4577362199657365044, 4638451068437272873, -4588396109582217261,
+            -4579135724020653788, -4575996193783938537, -4580048170789498483,
         )
         golden.forEachIndexed { i, bits ->
             assertEquals("sample $i", bits, java.lang.Double.doubleToRawLongBits(terra.elevation(probe(i))))
+        }
+    }
+
+    @Test
+    fun `migration retains generation ten review terrain heights`() {
+        val bits = longArrayOf(
+            -4568973231779591914, -4564839846108602311, 4645796001165156678,
+            -4566335161927592267, -4565716669823938720, 4643401808324841664,
+            -4567326355058490316, 4644648752647774986, 4619692513942293117,
+            4648562550316714549, -4564437622760599092, 4643993321504625422,
+        )
+        bits.forEachIndexed { i, expected ->
+            assertEquals("generation 10 sample $i", Double.fromBits(expected), terra.previousElevation(probe(i).normalized(), 10), 1e-7)
         }
     }
 
@@ -115,7 +128,7 @@ class TerrainFoundationTest {
             CubeSphere.direction(0, 1.0 - 1e-9, t, out); cache.ground(out, a, lookup)
             val d = out.copy()
             val coords = Vec3()
-            val otherFace = CubeSphere.locate(d.addInPlace(Vec3(0.0, 1e-7, 0.0)).normalizeInPlace(), coords)
+            val otherFace = CubeSphere.locate(d.addInPlace(Vec3(0.0, 1e-9, 0.0)).normalizeInPlace(), coords)
             cache.ground(d, b, lookup)
             assertTrue(otherFace == 0 || otherFace == 2)
             assertEquals("face seam at $t", a.radius, b.radius, 0.05)

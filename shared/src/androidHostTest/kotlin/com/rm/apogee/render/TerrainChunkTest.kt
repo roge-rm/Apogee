@@ -91,6 +91,32 @@ class TerrainChunkTest {
         }
     }
 
+    @Test
+    fun `each child can collapse onto its parent's triangle planes`() {
+        val parent = TerrainChunk.build(terra, chunkNearHome().key.parent!!)
+        val a = Vec3(); val b = Vec3(); val c = Vec3(); val p = Vec3()
+        for (dj in 0..1) for (di in 0..1) {
+            val child = TerrainChunk.build(terra, parent.key.child(di, dj))
+            val target = child.coarseVertices!!
+            for (q in 0 until TerrainChunk.SIDE) for (s in 0 until TerrainChunk.SIDE) {
+                val x = (di * TerrainChunk.CELLS + s) * 0.5
+                val y = (dj * TerrainChunk.CELLS + q) * 0.5
+                val i = kotlin.math.floor(x).toInt().coerceAtMost(TerrainChunk.CELLS - 1)
+                val j = kotlin.math.floor(y).toInt().coerceAtMost(TerrainChunk.CELLS - 1)
+                val corner = j * TerrainChunk.SIDE + i
+                if (x - i + y - j <= 1.0) {
+                    vertex(parent, corner, a); vertex(parent, corner + 1, b); vertex(parent, corner + TerrainChunk.SIDE, c)
+                } else {
+                    vertex(parent, corner + TerrainChunk.SIDE + 1, a); vertex(parent, corner + TerrainChunk.SIDE, b); vertex(parent, corner + 1, c)
+                }
+                val o = (q * TerrainChunk.SIDE + s) * TerrainChunk.COARSE_STRIDE
+                p.setTo(target[o].toDouble(), target[o + 1].toDouble(), target[o + 2].toDouble()).addInPlace(child.centre)
+                val normal = b.copy().subInPlace(a).crossInPlace(c.copy().subInPlace(a)).normalizeInPlace()
+                assertEquals("child $di,$dj vertex $s,$q", 0.0, p.subInPlace(a) dot normal, 0.01)
+            }
+        }
+    }
+
     /**
      * The shared index buffer is four equal quarters, one per child, so a chunk can stand in for
      * just its missing children. Together: every cell twice (two triangles), every skirt once.

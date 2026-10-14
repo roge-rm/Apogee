@@ -356,7 +356,7 @@ class LandingTest {
             stages = listOf(com.rm.apogee.core.craft.Stage(listOf(1))),
         )
         val terra = world.system.body("terra")
-        val up = Vec3(1.0, 0.0, 0.0)
+        val up = com.rm.apogee.core.orbit.SolarSystem.surfaceDirection(0.0, Math.toRadians(25.0))
         val position = up.copy().mulInPlace(terra.radius + 30_000.0)
         val velocity = terra.surfaceVelocityAt(position, Vec3()).addScaledInPlace(up, -100.0)
         val vessel = world.spawnAt(pod, "terra", position, velocity, com.rm.apogee.core.math.quatFromTo(Vec3.unitY(), up))

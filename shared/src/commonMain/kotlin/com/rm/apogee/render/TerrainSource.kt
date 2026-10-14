@@ -26,11 +26,23 @@ class TerrainSource {
 
     /** Chunks the GPU has. The builder only lists these, so nothing is listed before it can be drawn. */
     private val uploaded: MutableSet<ChunkKey> = com.rm.apogee.core.concurrentSetOf()
+    private val settled: MutableSet<ChunkKey> = com.rm.apogee.core.concurrentSetOf()
+
+    fun isSettled(key: ChunkKey): Boolean = key in settled
+
+    /** A refinement has finished appearing; the builder can split it again. GL thread. */
+    fun markSettled(key: ChunkKey) {
+        if (settled.add(key)) changes.incrementAndGet()
+    }
 
     /** Keys in the order they were built, which is nearest first: the upload order. */
     private val uploadOrder = com.rm.apogee.core.ConcurrentQueue<ChunkKey>()
 
     private val drawListRef = AtomicReference<List<DrawEntry>>(emptyList())
+    private val focusRef = AtomicReference<com.rm.apogee.core.math.Vec3?>(null)
+
+    fun follow(position: com.rm.apogee.core.math.Vec3) = focusRef.set(position.copy())
+    fun focus(): com.rm.apogee.core.math.Vec3? = focusRef.get()
 
     fun publishGlobe(revision: Int, data: PlanetMesh.Data, radius: Double = 0.0) {
         globeRef.set(PendingGlobe(revision, data, radius))
@@ -76,6 +88,7 @@ class TerrainSource {
         changes.incrementAndGet()
         available -= key
         uploaded -= key
+        settled -= key
         pendingChunks.remove(key)
         releaseQueue.add(key)
     }
@@ -101,11 +114,16 @@ class TerrainSource {
         changes.incrementAndGet()
         available -= key
         uploaded -= key
+        settled -= key
         pendingChunks.remove(key)
     }
 
     /** What to draw. Only the centre and bounds are used; the vertices may already be on the GPU. */
-    fun publishDrawList(list: List<DrawEntry>) = drawListRef.set(list)
+    fun publishDrawList(list: List<DrawEntry>) {
+        val before = drawListRef.get().mapTo(HashSet()) { it.key }
+        for (entry in list) if (entry.key !in before && entry.key.parent in before) settled -= entry.key
+        drawListRef.set(list)
+    }
 
     fun drawList(): List<DrawEntry> = drawListRef.get()
 
@@ -114,8 +132,10 @@ class TerrainSource {
         pendingChunks.clear()
         available.clear()
         uploaded.clear()
+        settled.clear()
         uploadOrder.clear()
         releaseQueue.clear()
         drawListRef.set(emptyList())
+        focusRef.set(null)
     }
 }

@@ -192,7 +192,7 @@ class SolarSystem(
                 bodyRadius = 600_000.0,
                 maxElevation = 6_000.0,
                 oceanDepth = 3_000.0,
-                // The continent is centred on lat 0, lon 0 (+X). Moving it would move every coast.
+                // Centre of the Cape’s preserved local terrain.
                 homeDirection = Vec3(1.0, 0.0, 0.0),
                 padDirection = surfaceDirection(PAD_LATITUDE, PAD_LONGITUDE),
                 harbourDirection = surfaceDirection(HARBOUR_LATITUDE, HARBOUR_LONGITUDE),

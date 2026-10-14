@@ -18,7 +18,10 @@ class Seabed(
     private val bodyRadius: Double,
     /** The Cape: the pad's direction, unit length, body-fixed. Null for a world with no Cape. */
     pad: Vec3? = null,
+    private val capeTurn: Double = 0.0,
 ) {
+    private val turnCos = kotlin.math.cos(Math.toRadians(capeTurn))
+    private val turnSin = kotlin.math.sin(Math.toRadians(capeTurn))
     private val padUnit: Vec3? = pad?.normalized()
     private val east: Vec3? = padUnit?.let { Vec3(0.0, 1.0, 0.0).crossInPlace(it).normalizeInPlace() }
     private val north: Vec3? = padUnit?.let { it.copy().crossInPlace(east!!) }
@@ -89,8 +92,10 @@ class Seabed(
         val e = east!!; val n = north!!
         val ox = nx - pad.x; val oy = ny - pad.y; val oz = nz - pad.z
         if (ox * ox + oy * oy + oz * oz > (CAPE_REACH / bodyRadius) * (CAPE_REACH / bodyRadius)) return false
-        out[0] = (e.x * ox + e.y * oy + e.z * oz) * bodyRadius
-        out[1] = (n.x * ox + n.y * oy + n.z * oz) * bodyRadius
+        val x = (e.x * ox + e.y * oy + e.z * oz) * bodyRadius
+        val y = (n.x * ox + n.y * oy + n.z * oz) * bodyRadius
+        out[0] = turnCos * x + turnSin * y
+        out[1] = -turnSin * x + turnCos * y
         return true
     }
 
@@ -263,6 +268,17 @@ class Seabed(
 
         // Off the Cape: metres from the pad, and depths as heights (negative).
         const val CAPE_REACH = 40_000.0
+        /** Aligns the offshore shelf with the redesigned harbour's open mouth. */
+        const val HARBOUR_TURN = 60.0
+
+        fun capeDirection(east: Double, north: Double, turn: Double = HARBOUR_TURN): Vec3 {
+            val a = Math.toRadians(turn)
+            return com.rm.apogee.core.orbit.SolarSystem.capeDirection(
+                kotlin.math.cos(a) * east - kotlin.math.sin(a) * north,
+                kotlin.math.sin(a) * east + kotlin.math.cos(a) * north,
+            )
+        }
+
         /**
          * The bearing of open sea from the pad, degrees clockwise from north, and how far either
          * side the deep lies.

@@ -30,7 +30,7 @@ object Wonders {
     /** What the world places at a wonder: a craft, tipped over by [tip] radians. */
     class Prop(val design: (com.rm.apogee.core.part.PartCatalog) -> com.rm.apogee.core.craft.CraftDesign, val tip: Double)
 
-    private fun cape(east: Double, north: Double) = SolarSystem.capeDirection(east, north)
+    private fun cape(east: Double, north: Double, turn: Double = Seabed.HARBOUR_TURN) = Seabed.capeDirection(east, north, turn)
 
     private fun latLon(lat: Double, lon: Double) = SolarSystem.surfaceDirection(Math.toRadians(lat), Math.toRadians(lon))
 
@@ -60,11 +60,11 @@ object Wonders {
             "Hot vents on Farrow Seamount, with chimneys of mineral round them.", 20,
         ),
         Wonder(
-            "nodule-plain", "The Nodule Plain", "terra", cape(-16_440.0, 5_990.0),
+            "nodule-plain", "The Nodule Plain", "terra", cape(-18_000.0, 6_000.0, 45.0),
             "A flat plain two and a half kilometres down, covered in lumps of metal, with an old rocket on it.", 25, landmark = PLAIN_ROCKET,
         ),
         Wonder(
-            "terra-deep", "The Terra Deep", "terra", cape(-15_556.0, 15_556.0),
+            "terra-deep", "The Terra Deep", "terra", cape(-15_556.0, 15_556.0, 75.0),
             "The bottom of the trench off the Cape, seven kilometres down and the deepest place on Terra.", 40,
         ),
         Wonder(

@@ -28,8 +28,22 @@ data class ChunkKey(
  * children and only some are ready. Bit `dj * 2 + di` is the quarter [ChunkKey.child] (di, dj)
  * covers.
  */
-class DrawEntry(val chunk: ChunkData, val quadrants: Int = ALL_QUADRANTS) {
+class DrawEntry(
+    val chunk: ChunkData,
+    val quadrants: Int = ALL_QUADRANTS,
+    val detail: Float = 1f,
+    private val parentCentre: Vec3? = null,
+    private val parentSize: Double = 0.0,
+    private val splitAt: Double = 0.0,
+) {
     val key: ChunkKey get() = chunk.key
+
+    /** Detail follows the craft every frame, even while the selected tree is unchanged. */
+    fun detailAt(focus: Vec3?): Float {
+        if (focus == null || parentCentre == null) return detail
+        val distance = (focus.distanceTo(parentCentre) - parentSize * 0.75).coerceAtLeast(0.0)
+        return (1.0 - GridMorph.smooth(splitAt * 0.65, splitAt, distance)).toFloat()
+    }
 
     companion object {
         const val ALL_QUADRANTS = 0xF
@@ -44,7 +58,9 @@ class ChunkData(
     /** Body-fixed, in metres from the body's centre. */
     val centre: Vec3,
     /** The radius of a sphere around [centre] that holds every vertex, in metres. */
-    val boundingRadius: Double,
+    var boundingRadius: Double,
+    /** The parent's triangles at each vertex, measured from [centre]. Cleared after upload. */
+    @Volatile var coarseVertices: FloatArray? = null,
 )
 
 object TerrainChunk {
@@ -63,6 +79,9 @@ object TerrainChunk {
 
     /** Position(3), normal(3), colour(3), wet(1). */
     const val STRIDE_FLOATS = 10
+
+    /** Parent position(3), normal(3), lower colour(3), wet(1), water position(3), upper colour(3). */
+    const val COARSE_STRIDE = 16
 
     /** Grid vertices plus four skirts of [SIDE] each. */
     const val VERTEX_COUNT = SIDE * SIDE + 4 * SIDE
@@ -133,6 +152,20 @@ object TerrainChunk {
      * central differences as the collider's tiles, so materials line up.
      */
     fun build(terrain: Terrain, key: ChunkKey): ChunkData {
+        val chunk = geometry(terrain, key)
+        val parent = key.parent ?: return chunk
+        val coarse = geometry(terrain, parent)
+        chunk.coarseVertices = parentSurface(chunk, coarse, terrain.bodyRadius)
+        val target = chunk.coarseVertices!!
+        for (v in 0 until VERTEX_COUNT) {
+            val o = v * COARSE_STRIDE
+            val x = target[o].toDouble(); val y = target[o + 1].toDouble(); val z = target[o + 2].toDouble()
+            chunk.boundingRadius = maxOf(chunk.boundingRadius, kotlin.math.sqrt(x * x + y * y + z * z))
+        }
+        return chunk
+    }
+
+    private fun geometry(terrain: Terrain, key: ChunkKey): ChunkData {
         val radius = terrain.bodyRadius
         val n = 1 shl key.level
         val bordered = SIDE + 2
@@ -245,6 +278,61 @@ object TerrainChunk {
         }
 
         return ChunkData(key, vertices, centre, kotlin.math.sqrt(bound) + drop)
+    }
+
+    /** Subdivide the parent's planes, including the far sea, without adding any relief yet. */
+    internal fun parentSurface(chunk: ChunkData, parent: ChunkData, radius: Double): FloatArray {
+        val source = parent.vertices!!
+        val water = FloatArray(SIDE * SIDE * 3)
+        for (v in 0 until SIDE * SIDE) {
+            val o = v * STRIDE_FLOATS
+            val x = source[o] + parent.centre.x; val y = source[o + 1] + parent.centre.y; val z = source[o + 2] + parent.centre.z
+            val scale = if (source[o + 9] >= 0.5f) radius / kotlin.math.sqrt(x * x + y * y + z * z) else 1.0
+            water[v * 3] = (x * scale - chunk.centre.x).toFloat()
+            water[v * 3 + 1] = (y * scale - chunk.centre.y).toFloat()
+            water[v * 3 + 2] = (z * scale - chunk.centre.z).toFloat()
+        }
+        val out = FloatArray(VERTEX_COUNT * COARSE_STRIDE)
+        val sampled = FloatArray(STRIDE_FLOATS)
+        for (q in 0 until SIDE) for (p in 0 until SIDE) {
+            val x = ((chunk.key.i and 1) * CELLS + p) * 0.5
+            val y = ((chunk.key.j and 1) * CELLS + q) * 0.5
+            val o = (q * SIDE + p) * COARSE_STRIDE
+            GridMorph.sample(source, SIDE, STRIDE_FLOATS, x, y, sampled, 0)
+            sampled.copyInto(out, o)
+            out[o] += (parent.centre.x - chunk.centre.x).toFloat()
+            out[o + 1] += (parent.centre.y - chunk.centre.y).toFloat()
+            out[o + 2] += (parent.centre.z - chunk.centre.z).toFloat()
+            GridMorph.sample(water, SIDE, 3, x, y, out, o + 10)
+            // This vertex provokes a lower triangle as its C corner, or an upper one as B.
+            // Keep both parent face colours so subdividing doesn't change the flat shading.
+            fun faceColour(fx: Double, fy: Double, into: Int) {
+                val px = fx.coerceIn(0.0, CELLS.toDouble())
+                val py = fy.coerceIn(0.0, CELLS.toDouble())
+                val i = kotlin.math.floor(px).toInt().coerceAtMost(CELLS - 1)
+                val j = kotlin.math.floor(py).toInt().coerceAtMost(CELLS - 1)
+                val v = j * SIDE + i + if (px - i + py - j <= 1.0) SIDE else 1
+                source.copyInto(out, into, v * STRIDE_FLOATS + 6, v * STRIDE_FLOATS + 9)
+            }
+            faceColour(x + 1.0 / 6.0, y - 1.0 / 3.0, o + 6)
+            faceColour(x - 1.0 / 6.0, y + 1.0 / 3.0, o + 13)
+        }
+        val drop = (size(radius, chunk.key.level) / CELLS * 3.0).toFloat()
+        for (edge in 0..3) for (k in 0 until SIDE) {
+            val v = when (edge) { 0 -> k; 1 -> CELLS * SIDE + k; 2 -> k * SIDE; else -> k * SIDE + CELLS }
+            val from = v * COARSE_STRIDE
+            val to = (SIDE * SIDE + edge * SIDE + k) * COARSE_STRIDE
+            out.copyInto(out, to, from, from + COARSE_STRIDE)
+            val x = out[from] + chunk.centre.x; val y = out[from + 1] + chunk.centre.y; val z = out[from + 2] + chunk.centre.z
+            val length = kotlin.math.sqrt(x * x + y * y + z * z)
+            for (n in 0..2) {
+                val down = ((when (n) { 0 -> x; 1 -> y; else -> z }) / length * drop).toFloat()
+                out[to + n] -= down
+                out[to + 10 + n] -= down
+            }
+            out[to + 9] += 4f
+        }
+        return out
     }
 
     /** A stable id for grid point (p, q) of [key], shared by every chunk and level with that point. */

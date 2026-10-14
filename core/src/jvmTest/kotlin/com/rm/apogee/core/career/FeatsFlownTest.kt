@@ -183,13 +183,13 @@ class FeatsFlownTest {
     // --- ground and sea -------------------------------------------------------------
 
     @Test
-    fun `the Trundler driven round and round the airfield for ten kilometres is a Road Trip`() {
+    fun `the Trundler driven round and round the launch complex for ten kilometres is a Road Trip`() {
         val world = careerWorld()
         val rover = launch(world, StockCraft.rover(catalog), "cape")
         val driver = Driver(world, rover, sense = Driver.ROVER)
         val pad = com.rm.apogee.core.orbit.SolarSystem.capeDirection(0.0, 0.0)
-        // Out to the runway, then a wide circle over it and the grass. No hairpin to roll it.
-        val middle = 1_500.0 to Pilot.CENTRELINE
+        // A wide circle on the level launch complex. No hairpin to roll it.
+        val middle = 0.0 to 0.0
         val entry = middle.first to middle.second + 300.0
         var circling = false
         var t = 0.0
@@ -282,7 +282,7 @@ class FeatsFlownTest {
         val world = careerWorld()
         // A fresh breeze on her beam, out on open water off the Cape.
         world.steadyWind = com.rm.apogee.core.math.Vec3(0.0, 12.0, 0.0)
-        val d = com.rm.apogee.core.orbit.SolarSystem.capeDirection(-8_000.0, 12_000.0)
+        val d = com.rm.apogee.core.terrain.Seabed.capeDirection(-8_000.0, 12_000.0)
         val site = com.rm.apogee.core.world.LaunchSite("sea", "Sea", "terra",
             com.rm.apogee.core.orbit.SolarSystem.latitudeOf(d), com.rm.apogee.core.orbit.SolarSystem.longitudeOf(d))
         val boat = world.spawnOnSurface(StockCraft.sloop(catalog), site)

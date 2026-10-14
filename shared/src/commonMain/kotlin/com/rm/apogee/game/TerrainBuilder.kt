@@ -11,6 +11,7 @@ import com.rm.apogee.render.PlanetMesh
 import com.rm.apogee.render.QualityTier
 import com.rm.apogee.render.TerrainChunk
 import com.rm.apogee.render.TerrainSource
+import com.rm.apogee.render.GridMorph
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -142,6 +143,7 @@ class TerrainBuilder(
     /** Every ancestor of a chunk in the last draw list: where finer ground was. */
     private var drawnBelow = HashSet<ChunkKey>()
     private var drawnBelowNext = HashSet<ChunkKey>()
+    private val previouslyDrawn = HashSet<ChunkKey>()
 
     /** The distance to the nearest chunk built but not uploaded yet, in this selection. */
     private var nearestWaiting = Double.MAX_VALUE
@@ -180,6 +182,7 @@ class TerrainBuilder(
         altitude: Double,
         scope: CoroutineScope,
     ) {
+        source.follow(bodyFixedPosition)
         val field = body.terrain ?: run {
             patchReady = true
             return
@@ -225,6 +228,8 @@ class TerrainBuilder(
         lostThisSelection = 0
         nearestWaiting = Double.MAX_VALUE
         val draw = ArrayList<DrawEntry>(256)
+        previouslyDrawn.clear()
+        source.drawList().mapTo(previouslyDrawn) { it.key }
         var complete = true
         for (face in 0 until 6) {
             val resolved = resolve(ChunkKey(face, 0, 0, 0, field.hashCode()), field, maxLevel, range, draw)
@@ -301,6 +306,7 @@ class TerrainBuilder(
         maxLevel: Int,
         range: Double,
         draw: MutableList<DrawEntry>,
+        replacingAncestor: Boolean = false,
     ): Boolean {
         val size = TerrainChunk.size(field.bodyRadius, key.level)
         val distance = (camera.distanceTo(centre(key, field)) - size * 0.75).coerceAtLeast(0.0)
@@ -314,12 +320,19 @@ class TerrainBuilder(
         // tier. Coarser mesh over rough ground sits metres off the real surface and buries landed
         // craft.
         val deepest = if (distance < FULL_DETAIL_METRES) fullLevel(field) else maxLevel
-        if (key.level < deepest && distance < splitAt) {
+        val wantsSplit = key.level < deepest && distance < splitAt
+        // Reveal one level at a time when replacing ground already on screen.
+        val canSplit = key in drawnBelow || (!replacingAncestor && key !in previouslyDrawn) ||
+            (key in previouslyDrawn && source.isSettled(key))
+        if (wantsSplit && !canSplit) nearestWaiting = minOf(nearestWaiting, distance)
+        if (wantsSplit && canSplit) {
             splitNow.add(key)
             val start = draw.size
             var missing = 0
             for (dj in 0..1) for (di in 0..1) {
-                if (!resolve(key.child(di, dj), field, maxLevel, range, draw)) missing = missing or (1 shl (dj * 2 + di))
+                if (!resolve(key.child(di, dj), field, maxLevel, range, draw, replacingAncestor || key in previouslyDrawn)) {
+                    missing = missing or (1 shl (dj * 2 + di))
+                }
             }
             if (missing == 0) return true
             // Not all four are ready, so this chunk stands in for only the missing quarters.
@@ -327,7 +340,7 @@ class TerrainBuilder(
             // building could blank the ground near the craft.
             val parent = built[key]?.takeIf { source.isUploaded(key) }
             if (parent != null) {
-                draw.add(DrawEntry(parent, missing))
+                draw.add(entry(parent, field, missing))
                 return true
             }
             while (draw.size > start) draw.removeAt(draw.size - 1)
@@ -335,7 +348,7 @@ class TerrainBuilder(
 
         val ready = built[key]?.takeIf { source.isUploaded(key) }
         if (ready != null) {
-            draw.add(DrawEntry(ready))
+            draw.add(entry(ready, field))
             return true
         }
         if (built[key] != null && source.isWaitingForUpload(key)) {
@@ -353,7 +366,7 @@ class TerrainBuilder(
         // Merging back from finer ground whose parent the GPU has since let go: keep the finer
         // ground until the parent is back, rather than fall back to a far coarser ancestor or a
         // hole.
-        if (key.level < fullLevel(field) && key in drawnBelow && drawUploadedBelow(key, fullLevel(field), draw)) return true
+        if (key.level < fullLevel(field) && key in drawnBelow && drawUploadedBelow(key, fullLevel(field), field, draw)) return true
         return false
     }
 
@@ -361,16 +374,16 @@ class TerrainBuilder(
      * Covers [key]'s square with uploaded descendants if it can be covered completely, else adds
      * nothing and returns false.
      */
-    private fun drawUploadedBelow(key: ChunkKey, maxLevel: Int, draw: MutableList<DrawEntry>): Boolean {
+    private fun drawUploadedBelow(key: ChunkKey, maxLevel: Int, field: Terrain, draw: MutableList<DrawEntry>): Boolean {
         val start = draw.size
         for (dj in 0..1) for (di in 0..1) {
             val child = key.child(di, dj)
             val ready = built[child]?.takeIf { source.isUploaded(child) }
             val covered = when {
-                ready != null -> { draw.add(DrawEntry(ready)); true }
+                ready != null -> { draw.add(entry(ready, field)); true }
                 // Only down branches that led to something drawn last time. Walking a face's empty
                 // subtree to the finest level costs millions.
-                child.level < maxLevel && child in drawnBelow -> drawUploadedBelow(child, maxLevel, draw)
+                child.level < maxLevel && child in drawnBelow -> drawUploadedBelow(child, maxLevel, field, draw)
                 else -> false
             }
             if (!covered) {
@@ -379,6 +392,15 @@ class TerrainBuilder(
             }
         }
         return true
+    }
+
+    private fun entry(chunk: ChunkData, field: Terrain, quadrants: Int = DrawEntry.ALL_QUADRANTS): DrawEntry {
+        val parent = chunk.key.parent ?: return DrawEntry(chunk, quadrants)
+        val size = TerrainChunk.size(field.bodyRadius, parent.level)
+        val distance = (camera.distanceTo(centre(parent, field)) - size * 0.75).coerceAtLeast(0.0)
+        // Fully coarse before the merge threshold; full detail under landed craft (distance 0).
+        val detail = 1.0 - GridMorph.smooth(size * splitDistance * 0.65, size * splitDistance, distance)
+        return DrawEntry(chunk, quadrants, detail.toFloat(), centre(parent, field), size, size * splitDistance)
     }
 
     /**

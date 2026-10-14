@@ -20,8 +20,8 @@ class DeepTest {
     private fun run(world: World, seconds: Double, each: () -> Unit = {}) = repeat((seconds / dt).toInt()) { each(); world.step(dt) }
 
     /** [design] afloat off the Cape, [east] and [north] metres from the pad, crewed. */
-    private fun afloat(world: World, design: CraftDesign, east: Double = -8_000.0, north: Double = 12_000.0): Vessel {
-        val d = SolarSystem.capeDirection(east, north)
+    private fun afloat(world: World, design: CraftDesign, east: Double = -8_000.0, north: Double = 12_000.0, turn: Double = com.rm.apogee.core.terrain.Seabed.HARBOUR_TURN): Vessel {
+        val d = com.rm.apogee.core.terrain.Seabed.capeDirection(east, north, turn)
         val sub = world.spawnOnSurface(design, LaunchSite("sea", "Sea", "terra", SolarSystem.latitudeOf(d), SolarSystem.longitudeOf(d)))
         world.assignOwner(sub, "p1")
         world.seatCrew(sub)
@@ -153,7 +153,7 @@ class DeepTest {
     fun `each submarine lies level afloat and held, and dives nose a little down`() {
         for (design in listOf(StockCraft.minnow(catalog), StockCraft.nautilus(catalog), StockCraft.abyss(catalog))) {
             val world = World.default(catalog)
-            val sub = afloat(world, design, -12_000.0, 13_000.0)
+            val sub = afloat(world, design, -15_556.0, 15_556.0, 75.0)
             run(world, 30.0)
             assertTrue("${design.name} afloat at ${pitch(sub)} degrees", kotlin.math.abs(pitch(sub)) < 8.0)
             world.apply(Command.SetBallast(sub.id.raw, 1))
@@ -172,7 +172,7 @@ class DeepTest {
         for ((design, depth) in listOf(StockCraft.nautilus(catalog) to 1_300.0, StockCraft.abyss(catalog) to 2_200.0)) {
             val world = World.default(catalog)
             // Over the deep off the Cape.
-            val sub = afloat(world, design, -12_000.0, 13_000.0)
+            val sub = afloat(world, design, -15_556.0, 15_556.0, 75.0)
             downTo(world, sub, depth)
             run(world, 30.0)
             assertTrue("${design.name} hurt at ${world.depthOf(sub)} m", world.vessel(sub.id) != null && sub.health.all { it >= 1.0 })

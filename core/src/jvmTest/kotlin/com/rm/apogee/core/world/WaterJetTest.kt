@@ -20,7 +20,7 @@ class WaterJetTest {
     private fun launch(design: CraftDesign): Pair<World, Vessel> {
         val world = World.default(catalog)
         world.steadyWind = Vec3(0.0, 0.0, 0.0)
-        val d = SolarSystem.capeDirection(-8_000.0, 12_000.0)
+        val d = com.rm.apogee.core.terrain.Seabed.capeDirection(-8_000.0, 12_000.0)
         val boat = world.spawnOnSurface(design, LaunchSite("sea", "Sea", "terra", SolarSystem.latitudeOf(d), SolarSystem.longitudeOf(d)))
         world.assignOwner(boat, "p1")
         world.seatCrew(boat)

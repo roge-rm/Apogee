@@ -102,6 +102,8 @@ class CloudShape(
      * [Weather.NEAR_DECK].
      */
     val far: Boolean = false,
+    /** Stable visual identity, independent of the camera and listing order. */
+    val key: Long = 0L,
 ) {
     val lobes = ArrayList<CloudLobe>(6)
 
@@ -132,6 +134,8 @@ class CloudLobe(
      * Rates of change per second until [changingUntil], as a deck's puff grows, shrinks or rises.
      * Drawing carries it on by these between listings.
      */
+    /** Stable slot within a blended deck, including temporarily invisible puffs. */
+    var visualSlot = -1
     var horizontalRate = 0.0
     var verticalRate = 0.0
     var centreRate: Vec3? = null

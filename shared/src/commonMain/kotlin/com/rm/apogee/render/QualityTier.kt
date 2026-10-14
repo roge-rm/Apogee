@@ -20,8 +20,8 @@ enum class QualityTier {
         }
 
     /**
-     * Terrain chunks kept on the GPU, about 15 KB each. The working set on the ground is 100 to
-     * 300; the rest holds ground you've just left, so turning round doesn't rebuild it.
+     * Terrain chunks kept on the GPU, about 37 KB each with their morph targets. The working set on
+     * the ground is 100 to 300; the rest holds ground you've just left, so turning round doesn't rebuild it.
      */
     val terrainChunkBudget: Int
         get() = when (this) {

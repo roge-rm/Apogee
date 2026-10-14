@@ -53,15 +53,13 @@ class RightingTest {
     }
 
     @Test
-    fun `one rolled over by the Roaring Sea can be righted there`() {
+    fun `an overturned boat can be righted in the Roaring Sea`() {
         val world = World.default(catalog)
         world.weatherConfig = WeatherConfig(intensity = WeatherIntensity.WILD)
         // A start the sea rolls her over from, idling side on to it.
         world.restore(WorldSave(catalogHash = catalog.contentHash, universeTime = 40_000.0, nextVesselId = 1L))
-        val boat = world.spawnOnSurface(StockCraft.jetBoat(catalog), World.launchSites.first { it.id == "roaring-sea" })
-        var seconds = 0
-        while (!world.canRight(boat) && seconds < 300) { repeat(60) { world.step(dt) }; seconds++ }
-        assertTrue("she never went over, or couldn't be righted", world.canRight(boat))
+        val (_, boat) = overturned(StockCraft.jetBoat(catalog), "roaring-sea", world = world)
+        assertTrue("cannot right her in the rough sea", world.canRight(boat))
         world.apply(Command.RightCraft(boat.id.raw))
         repeat((5.0 / dt).toInt()) { world.step(dt) }
         assertTrue("she's still at ${tilt(boat)} degrees", tilt(boat) < 45.0)

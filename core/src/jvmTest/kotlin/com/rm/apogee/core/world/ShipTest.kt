@@ -129,7 +129,7 @@ class ShipTest {
         for ((wind, least) in listOf(Vec3(0.0, 7.0, 0.0) to 3.0, Vec3(7.0, 0.0, 0.0) to 2.5)) {
             val world = World.default(catalog)
             world.steadyWind = wind
-            val d = com.rm.apogee.core.orbit.SolarSystem.capeDirection(-8_000.0, 12_000.0)
+            val d = com.rm.apogee.core.terrain.Seabed.capeDirection(-8_000.0, 12_000.0)
             val ship = world.spawnOnSurface(StockCraft.schooner(catalog), LaunchSite("sea", "Sea", "terra", com.rm.apogee.core.orbit.SolarSystem.latitudeOf(d), com.rm.apogee.core.orbit.SolarSystem.longitudeOf(d)))
             world.assignOwner(ship, "p1")
             world.seatCrew(ship)

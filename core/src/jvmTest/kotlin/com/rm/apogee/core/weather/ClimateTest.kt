@@ -41,7 +41,7 @@ class ClimateTest {
     }
 
     @Test
-    fun `Terra's weather is bit for bit what it was before worlds had climates`() {
+    fun `Terra's weather is deterministic over the Earth terrain`() {
         val terra = system.body("terra")
         val weather = Weather(terra, WeatherConfig())
         val out = AirSample()
@@ -62,8 +62,8 @@ class ClimateTest {
                 mix(weather.overcastAbove(d, 500.0, t))
             }
         }
-        // A hash of Terra's weather. Re-pin it only when Terra's weather is meant to change.
-        assertEquals("190c822707ecc955", java.lang.Long.toHexString(h))
+        // A hash of Terra's weather sampled above generation-12 terrain.
+        assertEquals("afeb9e7fe44f005a", java.lang.Long.toHexString(h))
     }
 
     @Test

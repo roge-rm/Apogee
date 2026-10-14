@@ -18,6 +18,16 @@ fun main(args: Array<String>) {
     val out = File(args.firstOrNull() ?: "build/terrain-atlas").apply { mkdirs() }
     val system = SolarSystem.defaultSystem()
     val terra = system.body("terra")!!.terrain!!
+    if ("--planet" in args) {
+        map(terra, direction(Math.toRadians(46.2), Math.toRadians(8.0)), 130_000.0, 900, File(out, "terra-alps.png"))
+        map(terra, direction(Math.toRadians(28.0), Math.toRadians(85.0)), 160_000.0, 900, File(out, "terra-himalayas.png"))
+        map(terra, direction(Math.toRadians(-17.0), Math.toRadians(-70.0)), 180_000.0, 900, File(out, "terra-andes.png"))
+        globeMap(terra, 1440, 720, File(out, "terra-world.png"))
+        map(terra, Vec3(0.0, 1.0, 0.0), 600_000.0, 560, File(out, "terra-north-pole.png"))
+        map(terra, Vec3(0.0, -1.0, 0.0), 600_000.0, 560, File(out, "terra-south-pole.png"))
+        println("Terra atlas written to ${out.absolutePath}")
+        return
+    }
     val cape = Vec3(1.0, 0.0, 0.0)
     val harbour = direction(0.102236, 0.102236)
 
@@ -48,6 +58,33 @@ private fun direction(latitude: Double, longitude: Double) = Vec3(
     kotlin.math.sin(latitude),
     kotlin.math.cos(latitude) * kotlin.math.sin(longitude),
 )
+
+private fun globeMap(terrain: Terrain, width: Int, height: Int, file: File) {
+    val image = BufferedImage(width, height, BufferedImage.TYPE_INT_RGB)
+    var landArea = 0.0
+    var area = 0.0
+    for (y in 0 until height) for (x in 0 until width) {
+        val latitude = Math.PI / 2.0 - (y + 0.5) * Math.PI / height
+        val longitude = (x + 0.5) * 2.0 * Math.PI / width - Math.PI
+        val d = direction(latitude, longitude)
+        val h = terrain.elevation(d)
+        val weight = kotlin.math.cos(latitude)
+        area += weight
+        if (h >= 0.0) landArea += weight
+        val rgb = if (h < 0.0) {
+            val t = (-h / 1_200.0).coerceIn(0.0, 1.0)
+            Triple(0.08 - 0.05 * t, 0.3 - 0.1 * t, 0.5 - 0.08 * t)
+        } else {
+            val c = swatch(terrain.groundMaterial(d, h, 0.0), h)
+            val light = 0.8 + 0.2 * (h / 800.0).coerceIn(0.0, 1.0)
+            Triple(c.first * light, c.second * light, c.third * light)
+        }
+        fun b(v: Double) = (v.coerceIn(0.0, 1.0) * 255).toInt()
+        image.setRGB(x, y, (b(rgb.first) shl 16) or (b(rgb.second) shl 8) or b(rgb.third))
+    }
+    ImageIO.write(image, "png", file)
+    println("${file.name}: ${100.0 * landArea / area}% land/ice by surface area")
+}
 
 private fun map(terrain: Terrain, centre: Vec3, widthMetres: Double, pixels: Int, file: File) {
     val started = System.nanoTime()

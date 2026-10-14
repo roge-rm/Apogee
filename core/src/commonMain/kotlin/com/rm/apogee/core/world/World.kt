@@ -1626,11 +1626,12 @@ class World(
     /**
      * Sets every craft resting on the ground (barely moving and low) back onto it after loading
      * onto different terrain. It keeps its orientation and is lifted or lowered until its lowest
-     * contact touches. Craft in flight, in orbit or afloat are left alone.
+     * contact touches. Generation-9/10 craft parked on vanished Terra land move to nearby dry ground.
+     * Craft in flight, in orbit or afloat are left alone.
      *
      * @return how many craft were moved.
      */
-    private fun reseatOnNewTerrain(): Int {
+    private fun reseatOnNewTerrain(fromGeneration: Int): Int {
         var moved = 0
         val up = Vec3()
         val bodyFixed = Vec3()
@@ -1648,7 +1649,33 @@ class World(
             up.setTo(vessel.body.position).normalizeInPlace()
             attractor.rotationAt(time, rotation)
             attractor.toBodyFixed(up, rotation, bodyFixed)
-            if (terrain.isOcean(bodyFixed)) continue
+            if (fromGeneration == 11 && terrain is TerrainField && terrain.profile == TerrainField.Profile.TERRA &&
+                !terrain.isOcean(bodyFixed) && altitude in -20.0..30.0 && terrain.previousElevation(bodyFixed, 11) < -3.0) {
+                val water = terrain.nearbyWater(bodyFixed, maxOf(5.0, -altitude + lowestExtentAlong(vessel, up) + 2.0))
+                if (water != null) {
+                    bodyFixed.setTo(water)
+                    val newUp = rotation.rotate(bodyFixed)
+                    vessel.body.orientation.setTo(quatFromTo(up, newUp) * vessel.body.orientation)
+                    up.setTo(newUp)
+                    vessel.body.position.setTo(up).mulInPlace(attractor.radius + altitude)
+                    attractor.surfaceVelocityAt(vessel.body.position, vessel.body.linearVelocity)
+                    vessel.body.angularVelocity.setTo(Vec3.zero())
+                    moved++
+                    continue
+                }
+            }
+            if (terrain.isOcean(bodyFixed)) {
+                if (fromGeneration !in 9..11 || terrain !is TerrainField || terrain.profile != TerrainField.Profile.TERRA) continue
+                val oldGround = terrain.previousElevation(bodyFixed, fromGeneration)
+                val clearance = altitude - lowestExtentAlong(vessel, up) - oldGround
+                // Floating, submerged and airborne craft stay where their save put them.
+                if (oldGround <= 0.0 || kotlin.math.abs(clearance) > 20.0) continue
+                bodyFixed.setTo(terrain.nearbyLand(bodyFixed))
+                val newUp = rotation.rotate(bodyFixed)
+                val turn = quatFromTo(up, newUp)
+                vessel.body.orientation.setTo(turn * vessel.body.orientation)
+                up.setTo(newUp)
+            }
             val ground = attractor.surfaceRadiusInBodyFrame(bodyFixed)
 
             vessel.body.position.setTo(up).mulInPlace(ground + lowestExtentAlong(vessel, up) + 0.05)
@@ -2269,7 +2296,24 @@ class World(
         vesselsById.values.firstOrNull { it.owner == WORLD_OWNER && it.name == WorldBases.OLD_LUNA_NAME }
             ?.let { it.name = WorldBases.all.first { b -> b.bodyId == "luna" }.name }
         // What lies about to be found: arches and wrecks.
-        for (wonder in Wonders.all) if (wonder.landmark.isNotEmpty() && landmark(wonder) == null) raiseLandmark(wonder)
+        for (wonder in Wonders.all) if (wonder.landmark.isNotEmpty()) {
+            val mark = landmark(wonder)
+            if (mark == null) raiseLandmark(wonder)
+            else if (wonder.bodyId == SolarSystem.HOMEWORLD_ID) {
+                val body = attractorFor(mark)
+                body.rotationAt(time, scratchRotation)
+                val oldUp = mark.body.position.normalized()
+                val newUp = scratchRotation.rotate(wonder.direction)
+                if (oldUp.distanceTo(newUp) * body.radius > 1.0) {
+                    mark.unanchor()
+                    mark.body.orientation.setTo(quatFromTo(oldUp, newUp) * mark.body.orientation)
+                    val ground = body.radius + (body.terrain?.elevation(wonder.direction) ?: 0.0)
+                    mark.body.position.setTo(newUp).mulInPlace(ground + lowestExtentAlong(mark, newUp))
+                    body.surfaceVelocityAt(mark.body.position, mark.body.linearVelocity)
+                    pin(mark)
+                }
+            }
+        }
         if (program == null) {
             for (base in WorldBases.all) if (worldBase(base.bodyId) == null) raiseWorldBase(base)
         } else {
@@ -5239,7 +5283,7 @@ class World(
         if (!save.crewSeated) for (vessel in vesselsById.values) seatCrew(vessel)
 
         if (terrainChanged) {
-            val moved = reseatOnNewTerrain()
+            val moved = reseatOnNewTerrain(save.terrainGeneration)
             problems.add(
                 "The terrain changed (generation ${save.terrainGeneration} to " +
                     "${TerrainField.GENERATION}): set $moved landed craft back on the ground" +
@@ -6695,8 +6739,8 @@ class World(
             capeSite("harbour", "Cape Harbour", 2_700.0, 330.0),
             // For testing, over the deep: just west of the Great Arch, and upstream of the Chimneys
             // so the planet's turn carries a sub onto them as it sinks.
-            capeSite("arch-sea", "Great Arch (test)", -2_635.0, 7_100.0),
-            capeSite("chimneys-sea", "The Chimneys (test)", com.rm.apogee.core.terrain.Seabed.CHIMNEYS_EAST - 130.0, com.rm.apogee.core.terrain.Seabed.CHIMNEYS_NORTH),
+            offshoreSite("arch-sea", "Great Arch (test)", -2_635.0, 7_100.0),
+            offshoreSite("chimneys-sea", "The Chimneys (test)", com.rm.apogee.core.terrain.Seabed.CHIMNEYS_EAST - 130.0, com.rm.apogee.core.terrain.Seabed.CHIMNEYS_NORTH),
             // Where Terra's seas run biggest: four metres on an ordinary day, past ten in a storm.
             LaunchSite(
                 id = "roaring-sea",
@@ -6724,6 +6768,11 @@ class World(
         }
 
         /** A site at the Cape, [east] and [north] metres from the pad. */
+        private fun offshoreSite(id: String, name: String, east: Double, north: Double): LaunchSite {
+            val d = com.rm.apogee.core.terrain.Seabed.capeDirection(east, north)
+            return LaunchSite(id, name, SolarSystem.HOMEWORLD_ID, SolarSystem.latitudeOf(d), SolarSystem.longitudeOf(d))
+        }
+
         private fun capeSite(id: String, name: String, east: Double, north: Double): LaunchSite {
             val d = SolarSystem.capeDirection(east, north)
             return LaunchSite(id, name, SolarSystem.HOMEWORLD_ID, SolarSystem.latitudeOf(d), SolarSystem.longitudeOf(d))

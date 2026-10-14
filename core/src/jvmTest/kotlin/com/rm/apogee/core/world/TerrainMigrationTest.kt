@@ -15,6 +15,30 @@ import org.junit.Test
 /** Loading a world saved on older ground, as every save from before 0.3.0 was. */
 class TerrainMigrationTest {
 
+    @Test fun `old underwater landmarks move to the new sea floor without replacing them`() {
+        val world = World.default(StockParts.catalog)
+        world.ensureStructures()
+        val wonder = Wonders.byId("great-arch")!!
+        val mark = world.landmark(wonder)!!
+        val body = world.system.body("terra")
+        val oldUp = com.rm.apogee.core.orbit.SolarSystem.capeDirection(-2_600.0, 7_100.0)
+        mark.unanchor()
+        mark.body.position.setTo(oldUp).mulInPlace(body.radius + 50.0)
+        world.pin(mark)
+        val restored = World.default(StockParts.catalog)
+        restored.restore(world.save())
+        restored.ensureStructures()
+        val moved = restored.landmark(wonder)!!
+        assertEquals(mark.id, moved.id)
+        assertTrue(moved.anchored)
+        val fixed = body.toBodyFixed(moved.body.position, body.rotationAt(restored.time)).normalizeInPlace()
+        assertTrue(fixed.distanceTo(wonder.direction) * body.radius < 1.0)
+        assertTrue(body.altitudeOf(moved.body.position) < -100.0)
+        assertEquals(mark.health.toList(), moved.health.toList())
+        restored.ensureStructures()
+        assertEquals(moved.id, restored.landmark(wonder)!!.id)
+    }
+
     private val catalog = StockParts.catalog
     private val dt = 1.0 / 60.0
 
@@ -109,6 +133,76 @@ class TerrainMigrationTest {
             assertTrue("craft $id should be at rest, moving at $speed m/s", speed < 0.3)
             assertTrue("craft $id should be undamaged", v.broken.none { it })
         }
+    }
+
+    @Test
+    fun `generation nine parked craft on vanished land move ashore but afloat craft stay put`() = migrateParked(9)
+
+    @Test
+    fun `generation ten parked craft on vanished land move ashore but afloat craft stay put`() = migrateParked(10)
+
+    private fun migrateParked(fromGeneration: Int) {
+        val world = World.default(catalog)
+        val terra = world.system.body("terra")
+        val terrain = terra.terrain as TerrainField
+        var vanished: Vec3? = null
+        var ocean: Vec3? = null
+        for (i in 0 until 10_000) {
+            val y = 1.0 - 2.0 * (i + 0.5) / 10_000.0
+            val r = kotlin.math.sqrt(1.0 - y * y)
+            val d = Vec3(r * kotlin.math.cos(i * 2.399963), y, r * kotlin.math.sin(i * 2.399963))
+            if (terrain.elevation(d) >= -100.0) continue
+            if (terrain.previousElevation(d, fromGeneration) > 50.0 && vanished == null) vanished = d
+            if (terrain.previousElevation(d, fromGeneration) < -100.0 && ocean == null) ocean = d
+            if (vanished != null && ocean != null) break
+        }
+        assertNotNull(vanished)
+        assertNotNull(ocean)
+        val rover = world.spawnOnSurface(StockCraft.rover(catalog), World.launchSites.first())
+        val afloat = world.spawnOnSurface(StockCraft.rover(catalog), World.launchSites.first(), pad = 1)
+        for ((vessel, unit) in listOf(rover to vanished!!, afloat to ocean!!)) {
+            val oldUp = vessel.body.position.normalized()
+            val axis = oldUp.cross(unit)
+            vessel.body.orientation.setTo(Quat(axis.x, axis.y, axis.z, 1.0 + (oldUp dot unit)).normalizeInPlace() * vessel.body.orientation)
+            val height = if (vessel === rover) terrain.previousElevation(unit, fromGeneration) else 0.0
+            // A rover's bottom lies a few metres below its centre; the migration allows 20 m.
+            vessel.body.position.setTo(unit).mulInPlace(terra.radius + height + 3.0)
+            terra.surfaceVelocityAt(vessel.body.position, vessel.body.linearVelocity)
+        }
+        val afloatPosition = afloat.body.position.copy()
+        val json = Json
+        val tree = json.parseToJsonElement(json.encodeToString(WorldSave.serializer(), world.save())) as kotlinx.serialization.json.JsonObject
+        val old = kotlinx.serialization.json.JsonObject(tree + ("terrainGeneration" to kotlinx.serialization.json.JsonPrimitive(fromGeneration)))
+        val save = json.decodeFromJsonElement(WorldSave.serializer(), old)
+        val restored = World.default(catalog)
+        restored.restore(save)
+        val landed = restored.vessel(rover.id)!!
+        val bf = terra.toBodyFixed(landed.body.position.normalized(), terra.rotationAt(restored.time, Quat.identity()))
+        assertTrue("parked craft moved onto dry ground", terrain.elevation(bf) > 0.0)
+        assertTrue("craft rests on the new surface", clearance(restored, rover.id) in 0.0..0.2)
+        assertTrue("afloat craft stays put", restored.vessel(afloat.id)!!.body.position.approxEquals(afloatPosition, 1e-9))
+    }
+
+    @Test
+    fun `generation eleven boats on filled harbour water move back to sea`() {
+        val world = World.default(catalog)
+        val terra = world.system.body("terra")
+        val terrain = terra.terrain as TerrainField
+        val unit = terrain.worksDirection(-9000.0, 12000.0)
+        assertTrue(terrain.previousElevation(unit, 11) < -3.0)
+        assertTrue(terrain.elevation(unit) > 0.0)
+        val boat = world.spawnOnSurface(StockCraft.rover(catalog), World.launchSites.first())
+        boat.body.position.setTo(unit).mulInPlace(terra.radius + 1.0)
+        terra.surfaceVelocityAt(boat.body.position, boat.body.linearVelocity)
+        val tree = Json.parseToJsonElement(Json.encodeToString(WorldSave.serializer(), world.save())) as kotlinx.serialization.json.JsonObject
+        val save = Json.decodeFromJsonElement(WorldSave.serializer(), kotlinx.serialization.json.JsonObject(tree +
+            ("terrainGeneration" to kotlinx.serialization.json.JsonPrimitive(11))))
+        val restored = World.default(catalog)
+        restored.restore(save)
+        val moved = restored.vessel(boat.id)!!
+        val dir = terra.toBodyFixed(moved.body.position.normalized(), terra.rotationAt(restored.time, Quat.identity()))
+        assertTrue("displaced boat returns to sea", terrain.elevation(dir) < -5.0)
+        assertEquals("boat retains its waterline", 1.0, terra.altitudeOf(moved.body.position), .001)
     }
 
     @Test

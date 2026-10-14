@@ -17,6 +17,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -116,20 +117,28 @@ fun main() {
             exitApplication()
         }
         host.onQuit = ::quit
+        host.separateFullScreen = onWindows
+        val startFull = gameMode || host.settings.fullScreen
         val window = rememberWindowState(
             size = DpSize(1280.dp, 800.dp),
             placement = when {
-                gameMode || host.settings.fullScreen -> WindowPlacement.Fullscreen
+                startFull && !onWindows -> WindowPlacement.Fullscreen
                 smallScreen() -> WindowPlacement.Maximized
                 else -> WindowPlacement.Floating
             },
         )
+        val fullWindow = rememberWindowState(placement = WindowPlacement.Fullscreen)
+        remember { if (onWindows && startFull) host.inFullScreenWindow = true }
         host.window = window
+        // On Windows, full screen is a second window without a frame in place of this one.
+        val frameless = onWindows && host.inFullScreenWindow
+        key(frameless) {
         Window(
             onCloseRequest = ::quit,
             title = "Apogee",
             icon = remember { windowIcon() },
-            state = window,
+            state = if (frameless) fullWindow else window,
+            undecorated = frameless,
             onPreviewKeyEvent = {
                 // F11 for full screen, as in a browser.
                 if (it.key == Key.F11) {
@@ -177,6 +186,7 @@ fun main() {
                     com.rm.apogee.ui.theme.ApogeeTheme(textScale = host.settings.textScale) { CrashNotice(crashes) }
                 }
             }
+        }
         }
     }
 }

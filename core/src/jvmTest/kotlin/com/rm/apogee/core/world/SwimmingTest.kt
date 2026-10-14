@@ -30,8 +30,8 @@ class SwimmingTest {
         it.steadyWind = Vec3(0.0, 0.0, 0.0)
     }
 
-    /** A spot [east] and [north] metres from the Cape. Out at (-3 km, 2 km) the sea's 24 m deep. */
-    private fun site(east: Double = -3_000.0, north: Double = 2_000.0): LaunchSite {
+    /** A spot in the harbour or on the shelf, with enough room to swim above its floor. */
+    private fun site(east: Double = -5_000.0, north: Double = 300.0): LaunchSite {
         val d = SolarSystem.capeDirection(east, north)
         return LaunchSite("sea", "Sea", "terra", SolarSystem.latitudeOf(d), SolarSystem.longitudeOf(d))
     }
@@ -139,7 +139,7 @@ class SwimmingTest {
     @Test
     fun `they won't swim down deeper than their suit can take, and put there, it crushes them`() {
         val world = world()
-        val (_, suit) = overboard(world, launch(world, StockCraft.coaster(catalog), site(-6_000.0, 3_000.0)))
+        val (_, suit) = overboard(world, launch(world, StockCraft.coaster(catalog), site(-13_544.0, -5_459.0)))
         world.apply(Command.SetBallast(suit.id.raw, 1))
         run(world, 90.0)
         val limit = world.suitDeepest(world.attractorFor(suit))
@@ -299,7 +299,7 @@ class SwimmingTest {
     @Test
     fun `too deep for a suit, nobody goes outside`() {
         val world = world()
-        val base = launch(world, StockCraft.seaFloorBase(catalog), site(-6_000.0, 2_000.0))
+        val base = launch(world, StockCraft.seaFloorBase(catalog), site(-13_544.0, -5_459.0))
         run(world, 10.0)
         world.apply(Command.SetBallast(base.id.raw, 1))
         run(world, 240.0)

@@ -13,6 +13,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertEquals
 import org.junit.Test
 
 /**
@@ -20,6 +21,63 @@ import org.junit.Test
  * The grid is laid out on the ground, so moving the craft doesn't move the facets.
  */
 class SeaSceneTest {
+
+    /** Distance along the surface; storm-wave height must not shrink the sampled centre. */
+    private fun across(p: Vec3, centre: Vec3, radius: Double) = p.normalized().distanceTo(centre.normalized()) * radius
+
+    /** Intersect a radial ray with the drawn triangles, including the fine grid's collapsed ones. */
+    private fun drawnRadius(surface: SeaSurface, direction: Vec3): Double {
+        fun point(index: Int): Vec3 {
+            val o = index * SeaSurface.STRIDE
+            return Vec3(surface.vertices[o].toDouble(), surface.vertices[o + 1].toDouble(), surface.vertices[o + 2].toDouble()).addInPlace(surface.origin)
+        }
+        for (t in surface.indices.indices step 3) {
+            val a = point(surface.indices[t]); val b = point(surface.indices[t + 1]); val c = point(surface.indices[t + 2])
+            val e = b.subInPlace(a); val f = c.subInPlace(a)
+            val normal = e.copy().crossInPlace(f)
+            val along = normal dot direction
+            if (kotlin.math.abs(along) < 1e-12) continue
+            val radius = (normal dot a) / along
+            val p = direction.copy().mulInPlace(radius).subInPlace(a)
+            val ee = e dot e; val ff = f dot f; val ef = e dot f
+            val determinant = ee * ff - ef * ef
+            if (determinant <= 1e-12) continue
+            val u = ((p dot e) * ff - (p dot f) * ef) / determinant
+            val v = ((p dot f) * ee - (p dot e) * ef) / determinant
+            if (u >= -1e-6 && v >= -1e-6 && u + v <= 1.000001) return radius
+        }
+        throw AssertionError("no sea triangle on $direction")
+    }
+
+    @Test
+    fun `dropping the finest water grid with altitude keeps the same surface`() {
+        val body = com.rm.apogee.core.orbit.CelestialBody("test-sea", "Sea", 3.5316e12, 600_000.0)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val below = builtAt(SeaScene(body, null, null, QualityTier.LOW, scope), Vec3(body.radius + 199.99, 0.0, 0.0), 5_000.0)
+            val above = builtAt(SeaScene(body, null, null, QualityTier.LOW, scope), Vec3(body.radius + 200.01, 0.0, 0.0), 5_000.0)
+            assertTrue("different grid layouts", below.vertexCount != above.vertexCount)
+            for (y in -4..4) {
+                val direction = Vec3(body.radius, y + 0.3, 0.7).normalizeInPlace()
+                assertEquals("surface at $y", drawnRadius(below, direction), drawnRadius(above, direction), 0.01)
+            }
+        } finally { scope.cancel() }
+    }
+
+    @Test
+    fun `moving a water grid boundary keeps the same surface`() {
+        val body = com.rm.apogee.core.orbit.CelestialBody("test-sea", "Sea", 3.5316e12, 600_000.0)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val before = builtAt(SeaScene(body, null, null, QualityTier.LOW, scope), Vec3(body.radius, 0.0, 0.999), 5_000.0)
+            val after = builtAt(SeaScene(body, null, null, QualityTier.LOW, scope), Vec3(body.radius, 0.0, 1.001), 5_000.0)
+            assertTrue("grid triangles shifted", !before.indices.contentEquals(after.indices))
+            for (z in listOf(-11.5, -10.5, 12.5, 13.5)) {
+                val direction = Vec3(body.radius, 0.3, z).normalizeInPlace()
+                assertEquals("surface at $z", drawnRadius(before, direction), drawnRadius(after, direction), 0.01)
+            }
+        } finally { scope.cancel() }
+    }
 
     /** Somewhere deep on Terra, as a unit direction. */
     private fun deep(terra: com.rm.apogee.core.orbit.CelestialBody): Vec3 {
@@ -62,16 +120,17 @@ class SeaSceneTest {
                 val o = v * SeaSurface.STRIDE
                 Vec3(s.origin.x + s.vertices[o], s.origin.y + s.vertices[o + 1], s.origin.z + s.vertices[o + 2])
             }
-            val before = points(a).filter { it.distanceTo(here) < 12.0 }
+            val before = points(a).filter { across(it, here, terra.radius) < 12.0 }
             val after = points(b)
             var matched = 0
             for (p in before) {
-                if (p.distanceTo(there) > 6.0) continue
+                // Both samples must lie inside the full-detail centre, outside the morph band.
+                if (across(p, here, terra.radius) > 4.0 || across(p, there, terra.radius) > 4.0) continue
                 val nearest = after.minOf { it.distanceTo(p) }
                 assertTrue("a vertex moved $nearest m", nearest < 0.01)
                 matched++
             }
-            assertTrue("matched $matched", matched > 20)
+            assertTrue("matched $matched", matched > 10)
         } finally {
             scope.cancel()
         }
@@ -112,13 +171,13 @@ class SeaSceneTest {
                 val p = Vec3(
                     built.origin.x + built.vertices[o], built.origin.y + built.vertices[o + 1], built.origin.z + built.vertices[o + 2],
                 )
-                // Near the hull, where every wave train is included.
-                if (p.distanceTo(centre) > 8.0) continue
+                // The LOW grid keeps full detail within 4 m, including at cube-face corners.
+                if (across(p, centre, terra.radius) > 4.0) continue
                 val drawn = p.length - terra.radius
                 worst = maxOf(worst, kotlin.math.abs(drawn - truth.height(p, built.time)))
                 checked++
             }
-            assertTrue("checked $checked vertices", checked > 100)
+            assertTrue("checked $checked vertices", checked > 30)
             assertTrue("drawn water off the physics' by $worst m", worst < 0.02)
         } finally {
             scope.cancel()

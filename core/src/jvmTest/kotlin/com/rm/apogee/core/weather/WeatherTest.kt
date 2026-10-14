@@ -85,8 +85,21 @@ class WeatherTest {
     /** Over lots of places, crests are windier than hollows at the same height above them. */
     @Test
     fun `crests are windier than hollows`() {
-        val w = weather(WeatherIntensity.CALM)
-        val tw = TerrainWind(terrain, radius)
+        // Fixed hills keep the wind test independent of the world's imported geography.
+        val hills = object : com.rm.apogee.core.terrain.Terrain {
+            override val bodyRadius = radius
+            override val maxElevation = 900.0
+            override val generation = 0
+            override val hasOcean = false
+            override val tiles = com.rm.apogee.core.terrain.TerrainTileCache(this)
+            override fun elevation(direction: Vec3) = 500.0 +
+                350.0 * sin(direction.x * radius / 900.0) * sin(direction.z * radius / 900.0)
+            override fun material(direction: Vec3, elevation: Double, slope: Double) = com.rm.apogee.core.terrain.SurfaceMaterial.GRASS
+        }
+        val body = com.rm.apogee.core.orbit.CelestialBody("terra", "Wind fixture", terra.gravitationalParameter,
+            radius, terra.rotationPeriod, terra.atmosphere, hills)
+        val w = Weather(body, WeatherConfig(intensity = WeatherIntensity.CALM))
+        val tw = TerrainWind(hills, radius)
         val d = DoubleArray(TerrainWind.SIZE)
         val s = AirSample()
         var crest = 0.0; var crests = 0
@@ -97,7 +110,7 @@ class WeatherTest {
             if (d[TerrainWind.OCEAN] > 0.5) continue
             val exposure = d[TerrainWind.H0] - d[TerrainWind.MEAN]
             if (exposure > 120.0 || exposure < -120.0) {
-                w.sample(above(dir, 30.0), 0.0, s)
+                w.sample(dir.copy().mulInPlace(radius + hills.elevation(dir) + 30.0), 0.0, s)
                 val horizontal = s.wind.copy().addScaledInPlace(dir, -(s.wind dot dir)).length
                 if (exposure > 0) { crest += horizontal; crests++ } else { hollow += horizontal; hollows++ }
             }

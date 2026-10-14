@@ -30,15 +30,16 @@ class SharedIndexBuffer(indices: ShortArray) {
 class TerrainMesh(private val shared: SharedIndexBuffer? = null) {
 
     private val vao = IntArray(1)
-    private val buffers = IntArray(2)
+    private val buffers = IntArray(3)
     private var indexCount = shared?.count ?: 0
     private var vertexCapacity = 0
+    private var coarseCapacity = 0
     private var indexCapacity = 0
     private var hasVertices = false
 
     init {
         GLES30.glGenVertexArrays(1, vao, 0)
-        GLES30.glGenBuffers(2, buffers, 0)
+        GLES30.glGenBuffers(3, buffers, 0)
 
         GLES30.glBindVertexArray(vao[0])
         GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, buffers[0])
@@ -53,12 +54,21 @@ class TerrainMesh(private val shared: SharedIndexBuffer? = null) {
         GLES30.glEnableVertexAttribArray(ATTR_WET)
         GLES30.glVertexAttribPointer(ATTR_WET, 1, GLES30.GL_FLOAT, false, stride, 9 * Float.SIZE_BYTES)
 
+        if (shared != null) {
+            GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, buffers[2])
+            val coarseStride = TerrainChunk.COARSE_STRIDE * Float.SIZE_BYTES
+            for ((attribute, offset, count) in listOf(Triple(4, 0, 3), Triple(5, 3, 3), Triple(6, 6, 3), Triple(7, 9, 1), Triple(8, 10, 3), Triple(9, 13, 3))) {
+                GLES30.glEnableVertexAttribArray(attribute)
+                GLES30.glVertexAttribPointer(attribute, count, GLES30.GL_FLOAT, false, coarseStride, offset * Float.SIZE_BYTES)
+            }
+        }
+
         GLES30.glBindBuffer(GLES30.GL_ELEMENT_ARRAY_BUFFER, shared?.id ?: buffers[1])
         GLES30.glBindVertexArray(0)
     }
 
     /** Replaces the vertices, and the indices too for a mesh with its own. */
-    fun upload(vertices: FloatArray, indices: IntArray? = null) {
+    fun upload(vertices: FloatArray, indices: IntArray? = null, coarse: FloatArray? = null) {
         GLES30.glBindVertexArray(vao[0])
 
         val vertexBytes = vertices.size * Float.SIZE_BYTES
@@ -70,6 +80,23 @@ class TerrainMesh(private val shared: SharedIndexBuffer? = null) {
             vertexCapacity = vertexBytes
         } else {
             GLES30.glBufferSubData(GLES30.GL_ARRAY_BUFFER, 0, vertexBytes, vertexBuffer)
+        }
+
+        if (shared != null) {
+            // Roots have no parent; their target is their own surface.
+            val target = coarse ?: FloatArray(TerrainChunk.VERTEX_COUNT * TerrainChunk.COARSE_STRIDE).also { out ->
+                for (v in 0 until TerrainChunk.VERTEX_COUNT) {
+                    vertices.copyInto(out, v * TerrainChunk.COARSE_STRIDE, v * TerrainChunk.STRIDE_FLOATS, (v + 1) * TerrainChunk.STRIDE_FLOATS)
+                    vertices.copyInto(out, v * TerrainChunk.COARSE_STRIDE + 10, v * TerrainChunk.STRIDE_FLOATS, v * TerrainChunk.STRIDE_FLOATS + 3)
+                }
+            }
+            val bytes = target.size * Float.SIZE_BYTES
+            val buffer = staging(bytes).apply { putFloats(target) }
+            GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, buffers[2])
+            if (bytes > coarseCapacity) {
+                GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, bytes, buffer, GLES30.GL_STATIC_DRAW)
+                coarseCapacity = bytes
+            } else GLES30.glBufferSubData(GLES30.GL_ARRAY_BUFFER, 0, bytes, buffer)
         }
 
         if (indices != null && shared == null) {
@@ -115,7 +142,7 @@ class TerrainMesh(private val shared: SharedIndexBuffer? = null) {
     }
 
     fun release() {
-        GLES30.glDeleteBuffers(2, buffers, 0)
+        GLES30.glDeleteBuffers(3, buffers, 0)
         GLES30.glDeleteVertexArrays(1, vao, 0)
     }
 
