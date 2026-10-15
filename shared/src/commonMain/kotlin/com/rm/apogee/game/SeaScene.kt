@@ -162,6 +162,7 @@ class SeaScene(
                 builders[0].sea.prefetch(at, ahead)
             } finally {
                 building = false
+                com.rm.apogee.platform.AllocProbe.note("sea-build")
             }
         }
     }
@@ -475,6 +476,7 @@ class SeaScene(
                     }
                     r += builders.size
                 }
+                com.rm.apogee.platform.AllocProbe.note("sea-build")
             }
         }
         jobs.forEach { it.await() }
@@ -584,6 +586,7 @@ class SeaScene(
                     }
                     k += builders.size
                 }
+                com.rm.apogee.platform.AllocProbe.note("sea-build")
             }
         }
         jobs.forEach { it.await() }

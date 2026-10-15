@@ -4,6 +4,7 @@ import com.rm.apogee.core.math.Quat
 import com.rm.apogee.core.math.Vec3
 import com.rm.apogee.core.part.MeshSpec
 import com.rm.apogee.platform.AtomicReference
+import kotlin.concurrent.Volatile
 
 /**
  * One thing to draw this frame. It carries a [MeshSpec], not a GPU handle; the renderer builds and
@@ -233,6 +234,10 @@ class FrameBus {
     class Pair(val previous: RenderFrame?, val latest: RenderFrame)
 
     private val frames = AtomicReference<Pair?>(null)
+
+    /** The drawn size in pixels, set by the renderer, 0 until it has a surface. */
+    @Volatile var viewWidth = 0
+    @Volatile var viewHeight = 0
 
     fun publish(frame: RenderFrame) {
         while (true) {

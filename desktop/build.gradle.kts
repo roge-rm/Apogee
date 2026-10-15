@@ -453,3 +453,11 @@ tasks.register("windowsX64") {
         )
     }
 }
+
+// Allocation attribution (AllocationAttributionTest), off unless asked: -PallocProfile=<seconds>,
+// and -PallocNoEscape to turn off escape analysis, closer to what ART allocates.
+tasks.test {
+    providers.gradleProperty("allocProfile").orNull?.let { systemProperty("apogee.allocProfile", it) }
+    if (providers.gradleProperty("allocNoEscape").isPresent) jvmArgs("-XX:-DoEscapeAnalysis")
+    if (providers.gradleProperty("allocProfile").isPresent) outputs.upToDateWhen { false }
+}

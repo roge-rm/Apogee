@@ -16,12 +16,30 @@ import javax.microedition.khronos.opengles.GL10
 
 /** [renderer] on a GLSurfaceView's own thread. */
 class GlSurfaceRenderer(val renderer: GlRenderer) : GLSurfaceView.Renderer {
+    private var since = 0L
+    private var cpu = 0L
+    private var wall = 0L
+    private var frames = 0
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
         com.rm.apogee.platform.HintedThreads.set("gl", android.os.Process.myTid())
         renderer.onSurfaceCreated()
     }
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) = renderer.onSurfaceChanged(width, height)
-    override fun onDrawFrame(gl: GL10?) = renderer.onDrawFrame()
+    override fun onDrawFrame(gl: GL10?) {
+        if (!renderer.debugCpuTiming) { renderer.onDrawFrame(); since = 0L; return }
+        val start = System.nanoTime()
+        val startCpu = android.os.Debug.threadCpuTimeNanos()
+        renderer.onDrawFrame()
+        val end = System.nanoTime()
+        if (since == 0L) { since = start; cpu = 0L; wall = 0L; frames = 0 }
+        cpu += android.os.Debug.threadCpuTimeNanos() - startCpu
+        wall += end - start
+        frames++
+        if (end - since >= 5_000_000_000L) {
+            Log.i("ApogeePerf", "GL submission cpu %.1f ms wall %.1f ms (excludes swap/presentation)".format(cpu / 1e6 / frames, wall / 1e6 / frames))
+            since = 0L
+        }
+    }
 }
 
 /** Part pictures kept as PNG files under [cacheRoot]. */

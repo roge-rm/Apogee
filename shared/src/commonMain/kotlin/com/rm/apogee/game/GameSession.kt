@@ -376,6 +376,7 @@ class GameSession private constructor(
                 buildFrame(started)
                 refreshScreenAttitude()
                 lastFrameBuildNanos.set(System.nanoTime() - started)
+                com.rm.apogee.platform.AllocProbe.note("frame-build")
                 perfHints?.reportActualWorkDuration(lastFrameBuildNanos.get())
                 delay(PRESENT_INTERVAL_MILLIS)
             }
@@ -1569,30 +1570,57 @@ class GameSession private constructor(
      * for the "debug-perf-build" switch.
      */
     @Volatile var timeBuild = false
+    /** Perf-build comparison switch; ordinary games keep the scenery cache enabled. */
+    @Volatile var debugHideStaticScenery = false
     private val buildNanos = LongArray(BUILD_PARTS.size)
     private var buildFrames = 0
     private var buildMark = 0L
 
+    /** Debug: bytes allocated in each part of building a frame, while [AllocProbe] is on. */
+    private val buildBytes = LongArray(BUILD_PARTS.size)
+    private var buildBytesMark = 0L
+
     private fun lap(part: Int) {
         if (!timeBuild) return
         val now = System.nanoTime()
+        val bytes = com.rm.apogee.platform.AllocProbe.threadBytes?.invoke() ?: 0L
         synchronized(buildNanos) {
             buildNanos[part] += now - buildMark
+            buildBytes[part] += bytes - buildBytesMark
             if (part == 12) buildFrames++
         }
         buildMark = now
+        buildBytesMark = bytes
     }
 
+    /** Debug: bytes and items per craft drawn, by name, while [AllocProbe] is on. */
+    private val vesselAlloc = HashMap<String, LongArray>()
+
+    private fun noteVessel(name: String, bytes: Long, items: Int) = synchronized(buildNanos) {
+        val counts = vesselAlloc.getOrPut(name) { LongArray(3) }
+        counts[0] += bytes; counts[1] += items.toLong(); counts[2]++
+    }
+
+    /** Debug: the calling thread's allocation count now, or 0 with [AllocProbe] off. */
+    private fun allocNow(): Long = if (timeBuild) com.rm.apogee.platform.AllocProbe.threadBytes?.invoke() ?: 0L else 0L
+
     /** Adds [nanos] to part [part] of the build timing, for something timed inside another part. */
-    private fun addBuildTime(part: Int, nanos: Long) {
-        if (timeBuild) synchronized(buildNanos) { buildNanos[part] += nanos }
+    private fun addBuildTime(part: Int, nanos: Long, bytes: Long = 0L) {
+        if (timeBuild) synchronized(buildNanos) { buildNanos[part] += nanos; buildBytes[part] += bytes }
     }
 
     /** Each part of building a frame, averaged since the last call, as a line, or null. */
     fun takeBuildReport(): String? = synchronized(buildNanos) {
         if (buildFrames == 0) return null
-        val line = BUILD_PARTS.indices.joinToString(" ") { "%s %.1f".format(BUILD_PARTS[it], buildNanos[it] / 1e6 / buildFrames) } + " ms"
-        buildNanos.fill(0); buildFrames = 0
+        var line = BUILD_PARTS.indices.joinToString(" ") { "%s %.1f".format(BUILD_PARTS[it], buildNanos[it] / 1e6 / buildFrames) } + " ms"
+        if (com.rm.apogee.platform.AllocProbe.threadBytes != null) {
+            line += " | alloc " + BUILD_PARTS.indices.joinToString(" ") { "%s %d".format(BUILD_PARTS[it], buildBytes[it] / buildFrames) } +
+                " B/frame over %d frames".format(buildFrames)
+            line += " | by craft " + vesselAlloc.entries.sortedByDescending { it.value[0] }.take(40)
+                .joinToString(" ") { (name, c) -> "'%s' %d B %d items".format(name, c[0] / buildFrames, c[1] / c[2].coerceAtLeast(1)) }
+            vesselAlloc.clear()
+        }
+        buildNanos.fill(0); buildBytes.fill(0); buildFrames = 0
         line
     }
 
@@ -1601,7 +1629,7 @@ class GameSession private constructor(
      * server sends 20 motion samples a second and the renderer interpolates between the last two.
      */
     private fun buildFrame(timestampNanos: Long) {
-        if (timeBuild) buildMark = System.nanoTime()
+        if (timeBuild) { buildMark = System.nanoTime(); buildBytesMark = allocNow() }
         val focusId = client.controlledVessel ?: return
         // Smashed or burnt up whole. The view stays on a stand-in with no parts where it went, so
         // the wreck, fire and smoke are still there to see.
@@ -1819,6 +1847,9 @@ class GameSession private constructor(
             frameLines = if (mapMode) emptyList() else client.latestSnapshot?.lines ?: emptyList()
             lap(13)
             for (vessel in client.vessels) {
+                val vesselBytes0 = allocNow()
+                val vesselItems0 = items.size
+                try {
                 if (vessel.id == focusId && !warping) {
                     // Staged here and not heard back yet, so draw the replica's shape and what it
                     // let go of, or the old stack is drawn a stage length out until the server
@@ -1866,6 +1897,9 @@ class GameSession private constructor(
                     val rotation = spunOn(observed, renderTime)
                     smoothed(vessel.id, observed.time, renderTime, position, rotation, observed.kinematics.velocity, vessel.design.parts.firstOrNull()?.partId)
                     appendVessel(vessel, items, attractor, position, rotation, stateOverride = observed.kinematics)
+                }
+                } finally {
+                    if (vesselBytes0 != 0L) noteVessel(vessel.name, allocNow() - vesselBytes0, items.size - vesselItems0)
                 }
             }
             if (drawn.size > client.vessels.size) {
@@ -2142,7 +2176,7 @@ class GameSession private constructor(
                 timestampNanos = timestampNanos,
                 cameraPosition = cameraPosition.copy(),
                 cameraRotation = cameraRotation.copy(),
-                fovYRadians = Math.toRadians(55.0),
+                fovYRadians = FRAME_FOV_Y,
                 items = items,
                 lines = lines,
                 occluders = if (mapMode) mapOccluders(attractor, renderTime) else DoubleArray(0),
@@ -3259,8 +3293,9 @@ class GameSession private constructor(
             val elapsed = if (present != null && !lastPresent.isNaN()) (present - lastPresent).coerceAtLeast(0.0)
                 else (now - lastAdvanceNanos) / 1e9
             val t0 = System.nanoTime()
+            val b0 = allocNow()
             prediction.advance(elapsed)
-            addBuildTime(19, System.nanoTime() - t0)
+            addBuildTime(19, System.nanoTime() - t0, allocNow() - b0)
         }
         lastAdvanceNanos = now
         lastPresent = present ?: Double.NaN
@@ -3268,8 +3303,9 @@ class GameSession private constructor(
         if (snapshot != null && snapshot.tick != lastReconciledTick) {
             lastReconciledTick = snapshot.tick
             val t0 = System.nanoTime()
+            val b0 = allocNow()
             prediction.reconcile(state, age, client.viewTime, neighboursOf(focus, state, client.viewTime), anchored = focus.anchored)
-            addBuildTime(20, System.nanoTime() - t0)
+            addBuildTime(20, System.nanoTime() - t0, allocNow() - b0)
         }
         prediction.sync(focus.currentStage, focus.activatedParts, focus.fuel)
         client.systems?.takeIf { it.vessel == focus.id }?.let { prediction.syncSystems(it) }
@@ -4377,6 +4413,8 @@ class GameSession private constructor(
         return out.mulInPlace(kotlin.math.cos(droop)).addScaledInPlace(up, -kotlin.math.sin(droop)).normalizeInPlace()
     }
 
+    private val staticScenery = HashMap<Long, StaticScenery>()
+
     private fun appendVessel(
         vessel: ClientVessel,
         out: MutableList<RenderItem>,
@@ -4417,6 +4455,12 @@ class GameSession private constructor(
             else if (state.pose === animation.decodedFrom) true
             else (defs.all { it != null } && VesselPose.decode(defs.map { it!! }, state.pose, animation.target)).also { if (it) animation.decodedFrom = state.pose }) &&
             animation.target.deflection.size == n
+        // Out of sight, it's left out of this frame, and its moving parts start afresh when it's
+        // back. Only drawing skips it.
+        if (!predicted && leftOut(vessel, state, centreOfMass, position, attractor, animation.target, fresh)) {
+            animation.initialised = false
+            return
+        }
         animation.shown.fit(n)
         if (animation.spin.size != n) animation.spin = DoubleArray(n)
         if (fresh) {
@@ -4483,7 +4527,15 @@ class GameSession private constructor(
             (scratchLamp.setTo(position).normalizeInPlace() dot frameSun) < World.LAMP_DUSK ||
                 (attractor.ocean != null && attractor.altitudeOf(position) < -World.LAMP_DEPTH))
         val litParts = if (vessel.owner == World.WORLD_OWNER) null else vessel.latest?.lit
+        val scenery = if (!debugHideStaticScenery && vessel.anchored && vessel.owner == World.WORLD_OWNER &&
+            vessel.id != client.controlledVessel && !condition.any && !ghost && frameLines.isEmpty()) {
+            staticScenery[vessel.id]?.takeIf { it.design === design } ?: run {
+                if (staticScenery.size >= 64) staticScenery.clear()
+                StaticScenery(vessel.id, design, catalog).also { staticScenery[vessel.id] = it }
+            }
+        } else null
         for ((index, placed) in design.parts.withIndex()) {
+            if (scenery?.append(index, centreOfMass, position, rotation, out) == true) continue
             val def = defs[index] ?: continue
             // From the cockpit, the cockpit itself would fill the view.
             if (index == cockpitPart && vessel.id == client.controlledVessel && !mapMode) continue
@@ -4839,6 +4891,85 @@ class GameSession private constructor(
                 aeroParts,
             )
         }
+    }
+
+    /**
+     * A craft's bounds for leaving it out of the frame: [radius] about [centre] (its design's centre
+     * of mass), the furthest its lamps light, its chutes, and the shells it has shed.
+     */
+    private class CullBounds(val centre: Vec3, val radius: Double, val lampReach: Double, val chutes: IntArray, val shells: IntArray)
+    private val cullBounds = com.rm.apogee.platform.identityMapOf<CraftDesign, CullBounds>()
+    private val craftVisibility = com.rm.apogee.render.CraftVisibility()
+    private val scratchCull = Vec3()
+    private val cullLeaves = ArrayList<PartModels.Leaf>()
+    /** Perf-build comparison switch: draws every craft, in sight or not. */
+    @Volatile var debugNoCraftCulling = false
+
+    private fun cullBoundsOf(design: CraftDesign): CullBounds = cullBounds[design] ?: run {
+        if (cullBounds.size >= 256) cullBounds.clear()
+        val centre = designCentreOfMass(design)
+        val shrouds = com.rm.apogee.render.ShroudLook.forDesign(design, catalog)
+        var radius = 1.0
+        var reach = 0.0
+        val chutes = ArrayList<Int>()
+        val shells = ArrayList<Int>()
+        for ((index, placed) in design.parts.withIndex()) {
+            if (placed.shroud != null && shrouds.getOrNull(index) == null) shells += index
+            val def = catalog[placed.partId] ?: continue
+            cullLeaves.clear()
+            PartModels.expand(def, 0, null, cullLeaves)
+            var bound = PartModels.boundingRadius(def.mesh)
+            for (leaf in cullLeaves) bound = maxOf(bound, leaf.position.length + PartModels.boundingRadius(leaf.shape))
+            def.module<com.rm.apogee.core.part.Lamp>()?.let { bound *= LAMP_GLARE.x; reach = maxOf(reach, it.reach) }
+            if (def.module<com.rm.apogee.core.part.Parachute>() != null) chutes += index
+            radius = maxOf(radius, placed.position.distanceTo(centre) + bound)
+        }
+        // Moving parts (legs, gear, sails) can reach past their still shape.
+        CullBounds(centre, radius * CULL_SLACK + 1.0, reach, chutes.toIntArray(), shells.toIntArray()).also { cullBounds[design] = it }
+    }
+
+    /**
+     * Whether [vessel] can be left out of this frame: too small to see, behind the world the camera
+     * is at, or well outside the view. Flames, smoke, sparks and sound are made while drawing, so a
+     * craft with any of them going is only left out from far off. Lit lamps count as far as they
+     * reach. Never the flown craft, a staged piece or a craft on a winch line.
+     */
+    private fun leftOut(
+        vessel: ClientVessel, state: VesselKinematics, centreOfMass: Vec3, position: Vec3,
+        attractor: CelestialBody, pose: VesselPose.Values, fresh: Boolean,
+    ): Boolean {
+        if (debugNoCraftCulling || mapMode) return false
+        val id = vessel.id
+        if (id < 0 || id == client.controlledVessel) return false
+        if (frameLines.isNotEmpty() && frameLines.any { it.vesselA == id || it.vesselB == id }) return false
+        val design = vessel.design
+        val bounds = cullBoundsOf(design)
+        var radius = bounds.radius + centreOfMass.distanceTo(bounds.centre)
+        if (vessel.owner == World.WORLD_OWNER || !vessel.latest?.lit.isNullOrEmpty()) radius += bounds.lampReach
+        val heightPx = frameBus.viewHeight.takeIf { it > 0 } ?: CULL_HEIGHT_PX
+        val aspect = if (frameBus.viewWidth > 0 && frameBus.viewHeight > 0) frameBus.viewWidth.toDouble() / heightPx else CULL_ASPECT
+        val own = system.bodies[state.referenceBodyId] ?: attractor
+        val moving = own.surfaceVelocityAt(state.position, scratchCull).subInPlace(state.velocity).length >= QUIET_SPEED
+        val quiet = state.throttle <= 0.0 && state.condition.isEmpty() && !moving && !(fresh && busy(pose, bounds.chutes))
+        val seen = if (quiet) {
+            val ground = attractor.radius - maxOf(attractor.terrain?.maxElevation ?: 0.0, 0.0) - HORIZON_DEPTH
+            craftVisibility.visible(position, radius, cameraPosition, cameraRotation, FRAME_FOV_Y, aspect, heightPx, ground)
+        } else {
+            position.distanceTo(cameraPosition) <= ACTIVE_REACH ||
+                craftVisibility.visible(position, radius + EFFECT_REACH, cameraPosition, cameraRotation, FRAME_FOV_Y, aspect, heightPx, 0.0)
+        }
+        if (seen) return false
+        // A shell shed while out of sight isn't split off later, when it comes back.
+        for (index in bounds.shells) shedShells.add(id * 4_096L + index)
+        return true
+    }
+
+    /** An engine or rotor turning, a thruster block puffing or a chute open, by [pose]. */
+    private fun busy(pose: VesselPose.Values, chutes: IntArray): Boolean {
+        for (o in pose.output) if (o > 0.01) return true
+        for (r in pose.rcs) if (kotlin.math.abs(r) > 0.01) return true
+        for (index in chutes) if (pose.deploy.getOrElse(index) { 0.0 } > 0.01) return true
+        return false
     }
 
     /** A part's shape as the air meets it, at [centre] turned by [turn], or null if it's too small to show. */
@@ -5199,6 +5330,21 @@ class GameSession private constructor(
 
         /** How far from the camera, in metres, a boat's wake is drawn. */
         private const val WAKE_REACH = 600.0
+        /** The frame's vertical field of view, in radians. */
+        private val FRAME_FOV_Y = Math.toRadians(55.0)
+        /** Craft bounds are widened this much, for moving parts. */
+        private const val CULL_SLACK = 1.25
+        /** Before the renderer says its size, craft are judged against a tall 4K screen. */
+        private const val CULL_HEIGHT_PX = 2160
+        private const val CULL_ASPECT = 2.4
+        /** Slower than this over the ground, in m/s, a craft throws no dust, spray or vapour. */
+        private const val QUIET_SPEED = 0.5
+        /** The ground the horizon test uses sits this far under the datum, in metres, below any sea floor. */
+        private const val HORIZON_DEPTH = 10_000.0
+        /** A busy craft is always drawn within this many metres; its sound can carry far. */
+        private const val ACTIVE_REACH = 1_000_000.0
+        /** How far a busy craft's flames and smoke can reach past its parts, in metres. */
+        private const val EFFECT_REACH = 2_000.0
 
         /**
          * How far the camera sees under water, in metres: near the top, in the deep, and the depth

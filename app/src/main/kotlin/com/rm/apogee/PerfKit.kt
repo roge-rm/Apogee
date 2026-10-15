@@ -43,6 +43,68 @@ object PerfKit {
         Thread({ copyLog(context) }, "perf-log").apply { isDaemon = true }.start()
         File(context.filesDir, "debug-no-sea").delete()
         File(context.filesDir, "debug-perf-passes").delete()
+        // Only the separate perf package runs this bridge. adb can compare passes/cache without
+        // making the production app debuggable or restarting a warmed-up scene.
+        Thread({
+            val external = context.getExternalFilesDir(null) ?: return@Thread
+            val switches = listOf("debug-no-static-scenery", "debug-no-craft-culling", "debug-no-cloud-culling", "debug-legacy-instancing", "debug-perf-passes", "debug-no-sea")
+            val profile = File(external, "debug-cpu-profile")
+            var profiling = false
+            var profileUntil = 0L
+            var counting = false
+            while (true) {
+                // Allocation counting, by thread and by part of the frame. ART counts through slower
+                // allocation entry points while it's on, so frame rates under it aren't comparable.
+                val wantCounting = File(external, "debug-alloc").exists()
+                if (wantCounting && !counting) {
+                    @Suppress("DEPRECATION") android.os.Debug.startAllocCounting()
+                    com.rm.apogee.platform.AllocProbe.processBytes = { android.os.Debug.getRuntimeStat("art.gc.bytes-allocated")?.toLongOrNull() ?: -1L }
+                    com.rm.apogee.platform.AllocProbe.threadBytes = { threadAllocBytes() }
+                    com.rm.apogee.platform.AllocProbe.threadId = { Thread.currentThread().id }
+                    counting = true
+                    android.util.Log.i("ApogeePerf", "allocation counting on")
+                } else if (!wantCounting && counting) {
+                    com.rm.apogee.platform.AllocProbe.threadBytes = null
+                    com.rm.apogee.platform.AllocProbe.processBytes = null
+                    com.rm.apogee.platform.AllocProbe.threadId = null
+                    @Suppress("DEPRECATION") android.os.Debug.stopAllocCounting()
+                    counting = false
+                    android.util.Log.i("ApogeePerf", "allocation counting off")
+                }
+                for (name in switches) {
+                    val target = File(context.filesDir, name)
+                    if (File(external, name).exists()) {
+                        if (!target.exists()) target.writeText("1")
+                    } else if (target.exists()) target.delete()
+                }
+                if (!profiling && profile.exists()) {
+                    runCatching {
+                        android.os.Debug.startMethodTracingSampling(File(external, "apogee-cpu.trace").path, 16 * 1024 * 1024, 1_000)
+                        profiling = true
+                        profileUntil = android.os.SystemClock.elapsedRealtime() + 15_000
+                        android.util.Log.i("ApogeePerf", "CPU sampling started")
+                    }.onFailure { profile.delete(); android.util.Log.e("ApogeePerf", "CPU sampling failed", it) }
+                } else if (profiling && (!profile.exists() || android.os.SystemClock.elapsedRealtime() >= profileUntil)) {
+                    android.os.Debug.stopMethodTracing()
+                    profiling = false
+                    profile.delete()
+                    android.util.Log.i("ApogeePerf", "CPU sampling saved")
+                }
+                Thread.sleep(1_000)
+            }
+        }, "perf-switches").apply { isDaemon = true }.start()
+    }
+
+    /** Per thread: ART's last 32-bit reading and the running total it's unwrapped into. */
+    private val allocCounts = object : ThreadLocal<LongArray>() { override fun initialValue() = LongArray(2) }
+
+    /** The calling thread's bytes allocated since counting began, unwrapped past ART's int. */
+    private fun threadAllocBytes(): Long {
+        val counts = allocCounts.get()!!
+        @Suppress("DEPRECATION") val raw = android.os.Debug.getThreadAllocSize().toLong() and 0xFFFFFFFFL
+        counts[1] += (raw - counts[0]) and 0xFFFFFFFFL
+        counts[0] = raw
+        return counts[1]
     }
 
     /** Follows this app's own log, writing each timing line out as it comes. */

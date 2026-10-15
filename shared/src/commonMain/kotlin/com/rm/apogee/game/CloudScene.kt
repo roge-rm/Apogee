@@ -162,6 +162,7 @@ class CloudScene(
             } finally {
                 lastListMillis = (System.nanoTime() - started) / 1e6
                 listing = false
+                com.rm.apogee.platform.AllocProbe.note("cloud-list")
             }
         }
     }

@@ -940,7 +940,7 @@ class ApogeeApp(private val host: AppHost) {
     /** The chosen craft onto the chosen site, in place of the one flown last. */
     private fun quickLaunch() {
         val entry = quickEntries.firstOrNull { it.saved.fileName == quickCraft } ?: return
-        pendingLaunchDesign = entry.design.withoutEmptyStages()
+        pendingLaunchDesign = entry.design.preparedForLaunch(StockParts.catalog)
         pendingLaunchSite = quickSite
         pendingFresh = true
         navigateTo(AppScreen.FLIGHT)
@@ -1846,12 +1846,18 @@ class ApogeeApp(private val host: AppHost) {
         if (now - perfLookedNanos > 1_000_000_000L) {
             perfLookedNanos = now
             current.debugHideSea = host.debugSwitch("debug-no-sea")
+            current.debugHideStaticScenery = host.debugSwitch("debug-no-static-scenery")
+            current.debugNoCraftCulling = host.debugSwitch("debug-no-craft-culling")
+            glRenderer.debugNoCloudCulling = host.debugSwitch("debug-no-cloud-culling")
+            com.rm.apogee.render.Mesh.debugLegacyInstancing = host.debugSwitch("debug-legacy-instancing")
             perfLogging = host.debugSwitch("debug-perf")
+            glRenderer.debugCpuTiming = perfLogging
             glRenderer.timePasses = host.debugSwitch("debug-perf-passes")
             current.timeBuild = host.debugSwitch("debug-perf-build")
             com.rm.apogee.audio.AudioEngine.logging = host.debugSwitch("debug-sound")
         }
         if (!perfLogging) { perfSince = 0L; return }
+        com.rm.apogee.platform.AllocProbe.note("main")
         // A new renderer counts its frames from nothing, so the window starts again with it.
         if (perfSince == 0L || perfRenderer !== glRenderer) {
             perfRenderer = glRenderer
@@ -1873,8 +1879,33 @@ class ApogeeApp(private val host: AppHost) {
             )
             glRenderer.takePassReport()?.let { Log.i("ApogeePerf", "passes $it") }
             current.takeBuildReport()?.let { Log.i("ApogeePerf", "build $it") }
+            allocReport(seconds)?.let { Log.i("ApogeePerf", it) }
+            glRenderer.takePassAllocReport()?.let { Log.i("ApogeePerf", "pass-alloc $it") }
             perfSince = now; perfFrames = glRenderer.framesDrawn.get(); perfBuild = 0.0; perfSea = 0.0; perfSamples = 0
         }
+    }
+
+    private var allocThreads: Map<String, Long> = emptyMap()
+    private var allocProcess = -1L
+
+    /** Allocation rates over the last [seconds], whole process and by noted thread, in MB/s, or null with the probe off. */
+    private fun allocReport(seconds: Double): String? {
+        if (com.rm.apogee.platform.AllocProbe.threadBytes == null) return null
+        val threads = com.rm.apogee.platform.AllocProbe.totals()
+        val process = com.rm.apogee.platform.AllocProbe.processBytes?.invoke() ?: -1L
+        // Each thread's growth, summed by name over a pool's threads; new threads count from the next report.
+        val rates = LinkedHashMap<String, Long>()
+        for ((key, bytes) in threads) {
+            val before = allocThreads[key] ?: continue
+            val name = key.substringBefore('#')
+            rates[name] = (rates[name] ?: 0L) + bytes - before
+        }
+        val line = "alloc process %s MB/s, threads %s".format(
+            if (allocProcess >= 0 && process >= 0) "%.2f".format((process - allocProcess) / 1e6 / seconds) else "?",
+            rates.entries.sortedByDescending { it.value }.joinToString(" ") { (name, bytes) -> "%s %.2f".format(name, bytes / 1e6 / seconds) },
+        )
+        allocThreads = threads; allocProcess = process
+        return line
     }
 
     private var perfLookedNanos = 0L

@@ -355,45 +355,47 @@ class CraftBuilder(
         fun autoStage(design: CraftDesign, catalog: PartCatalog): List<Stage> {
             if (design.parts.isEmpty()) return emptyList()
 
-            val depth = IntArray(design.parts.size) { -1 }
+            val rooted = design.rootedAtControl(catalog)
+
+            val depth = IntArray(rooted.parts.size) { -1 }
             fun depthOf(index: Int): Int {
                 if (depth[index] >= 0) return depth[index]
-                val parent = design.parts[index].parentIndex
+                val parent = rooted.parts[index].parentIndex
                 depth[index] = if (parent < 0) 0 else depthOf(parent) + 1
                 return depth[index]
             }
 
             fun isDecoupler(index: Int) =
-                catalog[design.parts[index].partId]?.module<Decoupler>() != null
+                catalog[rooted.parts[index].partId]?.module<Decoupler>() != null
 
             fun isEngine(index: Int) =
-                catalog[design.parts[index].partId]?.module<Engine>() != null
+                catalog[rooted.parts[index].partId]?.module<Engine>() != null
 
             fun isParachute(index: Int) =
-                catalog[design.parts[index].partId]?.module<Parachute>() != null
+                catalog[rooted.parts[index].partId]?.module<Parachute>() != null
 
             // Each part's separation group: the decouplers between it and the root. Higher is
             // dropped sooner.
-            val separation = IntArray(design.parts.size) { -1 }
+            val separation = IntArray(rooted.parts.size) { -1 }
             fun separationOf(index: Int): Int {
                 if (separation[index] >= 0) return separation[index]
-                val parent = design.parts[index].parentIndex
+                val parent = rooted.parts[index].parentIndex
                 val inherited = if (parent < 0) 0 else separationOf(parent)
                 separation[index] = if (isDecoupler(index)) inherited + 1 else inherited
                 return separation[index]
             }
-            design.parts.indices.forEach { separationOf(it); depthOf(it) }
+            rooted.parts.indices.forEach { separationOf(it); depthOf(it) }
 
             val deepest = separation.maxOrNull() ?: 0
             val stages = ArrayList<Stage>()
 
             for (level in deepest downTo 0) {
-                val engines = design.parts.indices.filter {
+                val engines = rooted.parts.indices.filter {
                     separation[it] == level && isEngine(it)
                 }
                 // The decoupler dropping the level below fires with this level's engines, so
                 // there's no coast between.
-                val decouplers = design.parts.indices.filter {
+                val decouplers = rooted.parts.indices.filter {
                     separation[it] == level + 1 && isDecoupler(it)
                 }
                 val activated = decouplers + engines
@@ -402,18 +404,18 @@ class CraftBuilder(
 
             // Fairings open just before anything inside fires, being out of the air by then;
             // holding nothing that fires, after the engines.
-            val fairings = design.parts.indices.filter { catalog[design.parts[it].partId]?.module<com.rm.apogee.core.part.Fairing>() != null }
+            val fairings = rooted.parts.indices.filter { catalog[rooted.parts[it].partId]?.module<com.rm.apogee.core.part.Fairing>() != null }
             if (fairings.isNotEmpty()) {
-                val defs = design.parts.map { catalog[it.partId] }
+                val defs = rooted.parts.map { catalog[it.partId] }
                 if (defs.all { it != null }) {
-                    val inside = Fairings.enclosed(design, defs.map { it!! }) { false }
+                    val inside = Fairings.enclosed(rooted, defs.map { it!! }) { false }
                     val first = stages.indexOfFirst { stage -> stage.activatedParts.any { inside[it] } }
                     stages.add(if (first >= 0) first else stages.size, Stage(fairings))
                 }
             }
 
             // Legs aren't staged: they go up and down with the gear.
-            val parachutes = design.parts.indices.filter { isParachute(it) }
+            val parachutes = rooted.parts.indices.filter { isParachute(it) }
             if (parachutes.isNotEmpty()) stages.add(Stage(parachutes))
 
             return stages

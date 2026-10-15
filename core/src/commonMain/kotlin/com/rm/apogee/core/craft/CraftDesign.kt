@@ -123,6 +123,24 @@ data class CraftDesign(
         return copy(parts = out)
     }
 
+    /** Keeps the control part when a stage separates, regardless of which part was placed first. */
+    fun rootedAtControl(catalog: PartCatalog): CraftDesign {
+        fun control(i: Int) = catalog[parts[i].partId]?.module<com.rm.apogee.core.part.Command>()
+            ?.takeIf { it.providesControl }
+        val root = rootIndex()
+        if (root < 0 || control(root) != null) return this
+        val crew = parts.indices.firstOrNull { (control(it)?.crewCapacity ?: 0) > 0 }
+        val command = crew ?: parts.indices.firstOrNull { control(it) != null } ?: return this
+        return rerootedAt(command)
+    }
+
+    /** Fits automatically staged saved designs to their control root before launching. */
+    fun preparedForLaunch(catalog: PartCatalog): CraftDesign {
+        val rooted = rootedAtControl(catalog)
+        return (if (rooted !== this && !manualStaging)
+            rooted.copy(stages = CraftBuilder.autoStage(rooted, catalog)) else rooted).withoutEmptyStages()
+    }
+
     /** Indices of every part hanging below [index], including itself. */
     fun subtreeOf(index: Int): List<Int> {
         val result = ArrayList<Int>()

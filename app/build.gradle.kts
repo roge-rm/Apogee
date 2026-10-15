@@ -90,6 +90,9 @@ android {
         // times to Download (see PerfKit).
         create("perf") {
             initWith(getByName("release"))
+            optimization {
+                enable = providers.gradleProperty("perfOptimize").isPresent
+            }
             applicationIdSuffix = ".perf"
             versionNameSuffix = "-perf"
             signingConfig = signingConfigs.getByName("debug")

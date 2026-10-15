@@ -5316,16 +5316,17 @@ class World(
 
     /** Spawns the craft a [Command.SpawnCraft] asks for on a free pad, and returns it to be flown. */
     fun spawnFor(command: Command.SpawnCraft, owner: String): Vessel {
+        val design = command.design.preparedForLaunch(catalog)
         if (command.siteId.startsWith(LaunchSite.BASE_SITE_PREFIX)) {
             val (base, pad) = command.siteId.removePrefix(LaunchSite.BASE_SITE_PREFIX).split(":").let {
                 vesselsById[VesselId(it.getOrNull(0)?.toLongOrNull() ?: -1)] to (it.getOrNull(1)?.toIntOrNull() ?: -1)
             }
             if (base != null && base.anchored && mayLaunchFrom(base, owner) && base.defs.getOrNull(pad)?.module<com.rm.apogee.core.part.LaunchPad>() != null) {
-                return spawnOnBasePad(command.design, base, pad, legsOut = true).also { assignOwner(it, owner) }
+                return spawnOnBasePad(design, base, pad, legsOut = true).also { assignOwner(it, owner) }
             }
         }
         val site = launchSites.firstOrNull { it.id == command.siteId } ?: launchSites.first()
-        val vessel = spawnAtSite(command.design, site, legsOut = true)
+        val vessel = spawnAtSite(design, site, legsOut = true)
         assignOwner(vessel, owner)
         return vessel
     }

@@ -186,7 +186,8 @@ class MainActivity : ComponentActivity(), AppHost {
             preserveEGLContextOnPause = true
             // 4x MSAA where the device has it, else none. Without it facet edges crawl as the
             // camera moves. Tile-based GPUs resolve it on chip, so it's cheap.
-            setEGLConfigChooser(MultisampleConfigChooser)
+            val samples = if (BuildConfig.PERF && File(getExternalFilesDir(null), "debug-no-msaa").exists()) 0 else 4
+            setEGLConfigChooser(MultisampleConfigChooser(samples))
             setRenderer(GlSurfaceRenderer(renderer))
             renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
         }
@@ -395,7 +396,7 @@ class MainActivity : ComponentActivity(), AppHost {
 }
 
 /** An RGBA8888 config with 24-bit depth and 4x multisampling if offered, else without. */
-private object MultisampleConfigChooser : GLSurfaceView.EGLConfigChooser {
+private class MultisampleConfigChooser(private val samples: Int) : GLSurfaceView.EGLConfigChooser {
     override fun chooseConfig(
         egl: javax.microedition.khronos.egl.EGL10,
         display: javax.microedition.khronos.egl.EGLDisplay,
@@ -414,10 +415,18 @@ private object MultisampleConfigChooser : GLSurfaceView.EGLConfigChooser {
                 javax.microedition.khronos.egl.EGL10.EGL_NONE,
             )
             val count = IntArray(1)
-            val configs = arrayOfNulls<javax.microedition.khronos.egl.EGLConfig>(1)
-            if (!egl.eglChooseConfig(display, attributes, configs, 1, count) || count[0] == 0) return null
-            return configs[0]
+            if (!egl.eglChooseConfig(display, attributes, null, 0, count) || count[0] == 0) return null
+            val configs = arrayOfNulls<javax.microedition.khronos.egl.EGLConfig>(count[0])
+            if (!egl.eglChooseConfig(display, attributes, configs, configs.size, count)) return null
+            val actual = IntArray(1)
+            return configs.firstOrNull { config ->
+                config != null && egl.eglGetConfigAttrib(display, config, javax.microedition.khronos.egl.EGL10.EGL_SAMPLES, actual) && actual[0] == samples
+            }
         }
-        return find(4) ?: find(0) ?: throw IllegalStateException("No usable EGL config")
+        val config = find(samples) ?: find(0) ?: throw IllegalStateException("No usable EGL config")
+        val actual = IntArray(1)
+        egl.eglGetConfigAttrib(display, config, javax.microedition.khronos.egl.EGL10.EGL_SAMPLES, actual)
+        android.util.Log.i("ApogeePerf", "EGL samples ${actual[0]}")
+        return config
     }
 }

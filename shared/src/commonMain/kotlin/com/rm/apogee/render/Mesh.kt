@@ -13,6 +13,9 @@ import com.rm.apogee.render.gl.GlData
 class Mesh(vertices: FloatArray, indices: IntArray) {
 
     private val vao = IntArray(1)
+    private val instancedVao = IntArray(1)
+    private var instanceBuffer = -1
+    private var instanceFirst = -1
     private val buffers = IntArray(2)
     val indexCount = indices.size
 
@@ -62,9 +65,39 @@ class Mesh(vertices: FloatArray, indices: IntArray) {
     /**
      * Draws [count] copies in one call, from instance [first] of [instances], a buffer of
      * [INSTANCE_FLOATS] floats each: model matrix, 1/scale^2, colour and ambient. See
-     * [Shaders.CLOUD_INSTANCED_VERTEX]. The instance attributes are switched off again afterwards.
+     * [Shaders.CLOUD_INSTANCED_VERTEX]. A separate VAO retains the enabled instance attributes,
+     * leaving ordinary draws independent of whichever instance buffer was last used.
      */
     fun drawInstanced(instances: Int, first: Int, count: Int) {
+        if (!debugLegacyInstancing) {
+            if (instancedVao[0] == 0) {
+                GLES30.glGenVertexArrays(1, instancedVao, 0)
+                GLES30.glBindVertexArray(instancedVao[0])
+                GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, buffers[0])
+                val stride = STRIDE_FLOATS * Float.SIZE_BYTES
+                GLES30.glEnableVertexAttribArray(ATTR_POSITION)
+                GLES30.glVertexAttribPointer(ATTR_POSITION, 3, GLES30.GL_FLOAT, false, stride, 0)
+                GLES30.glEnableVertexAttribArray(ATTR_NORMAL)
+                GLES30.glVertexAttribPointer(ATTR_NORMAL, 3, GLES30.GL_FLOAT, false, stride, 3 * Float.SIZE_BYTES)
+                GLES30.glBindBuffer(GLES30.GL_ELEMENT_ARRAY_BUFFER, buffers[1])
+                for (location in ATTR_MODEL until ATTR_MODEL + INSTANCE_ATTRIBUTES) {
+                    GLES30.glEnableVertexAttribArray(location)
+                    GLES30.glVertexAttribDivisor(location, 1)
+                }
+            } else GLES30.glBindVertexArray(instancedVao[0])
+            if (instanceBuffer != instances || instanceFirst != first) {
+                GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, instances)
+                val stride = INSTANCE_FLOATS * Float.SIZE_BYTES
+                val base = first * stride
+                for (column in 0 until INSTANCE_ATTRIBUTES)
+                    GLES30.glVertexAttribPointer(ATTR_MODEL + column, 4, GLES30.GL_FLOAT, false, stride, base + column * 4 * Float.SIZE_BYTES)
+                instanceBuffer = instances
+                instanceFirst = first
+            }
+            GLES30.glDrawElementsInstanced(GLES30.GL_TRIANGLES, indexCount, GLES30.GL_UNSIGNED_INT, 0, count)
+            GLES30.glBindVertexArray(0)
+            return
+        }
         GLES30.glBindVertexArray(vao[0])
         GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, instances)
         val stride = INSTANCE_FLOATS * Float.SIZE_BYTES
@@ -88,9 +121,12 @@ class Mesh(vertices: FloatArray, indices: IntArray) {
     fun release() {
         GLES30.glDeleteBuffers(2, buffers, 0)
         GLES30.glDeleteVertexArrays(1, vao, 0)
+        if (instancedVao[0] != 0) GLES30.glDeleteVertexArrays(1, instancedVao, 0)
     }
 
     companion object {
+        /** Live comparison for the separate perf build. */
+        @kotlin.concurrent.Volatile var debugLegacyInstancing = false
         const val ATTR_POSITION = 0
         const val ATTR_NORMAL = 1
         const val STRIDE_FLOATS = 6

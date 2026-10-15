@@ -51,6 +51,9 @@ class GlRenderer(
      * share is its own.
      */
     @Volatile var timePasses = false
+    @Volatile var debugCpuTiming = false
+    @Volatile var debugNoCloudCulling = false
+    private val cloudVisibility = CloudVisibility()
     private val passNanos = LongArray(PASS_NAMES.size)
     private var passFrames = 0
     private var passMark = 0L
@@ -60,7 +63,29 @@ class GlRenderer(
     private var passSingles = 0L
     private var passBatches = 0L
 
+    /** Debug: bytes allocated in each pass, while [com.rm.apogee.platform.AllocProbe] is on. No glFinish. */
+    private val passBytes = LongArray(PASS_NAMES.size)
+    private var passBytesMark = 0L
+    private var passBytesFrames = 0
+
+    private fun allocMark(pass: Int) {
+        val probe = com.rm.apogee.platform.AllocProbe.threadBytes ?: return
+        val bytes = probe()
+        synchronized(passBytes) { passBytes[pass] += bytes - passBytesMark }
+        passBytesMark = bytes
+    }
+
+    /** The bytes allocated in each pass since the last call, as a line, or null. */
+    fun takePassAllocReport(): String? = synchronized(passBytes) {
+        if (passBytesFrames == 0) return null
+        val line = PASS_NAMES.indices.joinToString(" ") { "%s %d".format(PASS_NAMES[it], passBytes[it] / passBytesFrames) } +
+            " B/frame over %d frames".format(passBytesFrames)
+        passBytes.fill(0); passBytesFrames = 0
+        line
+    }
+
     private fun mark(pass: Int) {
+        allocMark(pass)
         if (!timePasses) return
         GLES30.glFinish()
         val now = System.nanoTime()
@@ -296,6 +321,8 @@ class GlRenderer(
     fun onSurfaceChanged(width: Int, height: Int) {
         viewportWidth = max(1, width)
         viewportHeight = max(1, height)
+        frameBus.viewWidth = viewportWidth
+        frameBus.viewHeight = viewportHeight
         GLES30.glViewport(0, 0, viewportWidth, viewportHeight)
     }
 
@@ -304,6 +331,10 @@ class GlRenderer(
         if (lastDrawNanos != 0L) lastFrameTimeNanos.set(now - lastDrawNanos)
         lastDrawNanos = now
         framesDrawn.incrementAndGet()
+        com.rm.apogee.platform.AllocProbe.threadBytes?.let { probe ->
+            synchronized(passBytes) { passBytesFrames++ }
+            passBytesMark = probe()
+        }
 
         drawThumbnails()
         if (timePasses) { GLES30.glFinish(); passMark = System.nanoTime() }
@@ -348,9 +379,12 @@ class GlRenderer(
         interpolatedCameraRot.rotate(Vec3.unitY(), cameraUp)
         interpolatedCameraRot.rotate(Vec3(0.0, 0.0, -1.0), cameraForward)
 
+        // Allocation in taking the sea goes under "upload", with the terrain's.
+        allocMark(0)
         // The newest sea onto the GPU first, since it casts shadows too.
         latest.world?.sea?.let { next -> (seaMesh ?: SeaMesh().also { seaMesh = it }).take(next) }
         if (latest.world?.sea == null) seaMesh?.let { it.release(); seaMesh = null }
+        allocMark(3)
 
         mark(0)
         prepareShadows(latest, previous, alpha, cameraPos)
@@ -401,10 +435,11 @@ class GlRenderer(
         drawVessels(latest, previous, alpha, cameraPos)
         mark(9)
         if (world != null) drawSea(world, cameraPos)
+        mark(10)
         // Cloud after the sea, or the blended sea lays a disc of blue over the cloud deck below a
         // high craft.
         drawDeferredTranslucent(latest, alpha, cameraPos)
-        mark(10)
+        mark(12)
         latest.particles?.let { particles ->
             val world = latest.world
             particleRenderer?.draw(
@@ -419,6 +454,9 @@ class GlRenderer(
             drawLines(latest, cameraPos)
             GLES30.glEnable(GLES30.GL_DEPTH_TEST)
         }
+        // Lines' allocation goes under "lines"; their time stays in "particles".
+        allocMark(6)
+        com.rm.apogee.platform.AllocProbe.note("gl")
         if (timePasses) synchronized(passNanos) {
             passFrames++
             passItems += latest.items.size
@@ -883,7 +921,11 @@ class GlRenderer(
         translucent.clear()
         // Solid parts by shape, many per call. The Cape's buildings alone are some 800 pieces.
         val batching = cloudProgram != null && solidBuffer[0] != 0
+        val tanY = tan(latest.fovYRadians * 0.5)
+        val aspect = viewportWidth.toDouble() / viewportHeight
         for ((index, item) in items.withIndex()) {
+            if (!debugNoCloudCulling && !cloudVisibility.visible(item, partners[index], cameraPos,
+                    interpolatedCameraRot, tanY, aspect)) continue
             // Cloud edges and camera-entry fades need blending even at full base opacity.
             if (item.color[3] < 0.999f || item.wrap || item.curtain) { translucent.add(index); continue }
             if (batching && !item.wrap && item.decal == 0 && !item.sky) solidGroup(item.shape, item.caps).add(index)
@@ -1701,7 +1743,7 @@ class GlRenderer(
         const val BAND_RATIO = 1.6
 
         /** The passes [timePasses] measures, in order. */
-        val PASS_NAMES = arrayOf("setup", "shadows", "sky", "upload", "globe", "far", "lines", "terrain", "scatter", "items", "sea", "particles")
+        val PASS_NAMES = arrayOf("setup", "shadows", "sky", "upload", "globe", "far", "lines", "terrain", "scatter", "items", "sea", "particles", "transparent")
 
         /** How big a cell of the map's cloud texture is, in metres, and how long it takes to drift one, in seconds. */
         private const val CLOUD_SHELL_CELL = 40_000.0

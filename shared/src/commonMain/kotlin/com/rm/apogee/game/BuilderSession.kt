@@ -713,7 +713,7 @@ class BuilderSession(
 
     /** The design as it would be launched. */
     fun designForLaunch(): CraftDesign? =
-        if (builder.isEmpty || !stats.isFlyable) null else builder.design.withoutEmptyStages()
+        if (builder.isEmpty || !stats.isFlyable) null else builder.design.preparedForLaunch(catalog)
 
     // --- rendering -----------------------------------------------------------
 
