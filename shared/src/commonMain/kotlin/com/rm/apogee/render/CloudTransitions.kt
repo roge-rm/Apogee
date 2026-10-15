@@ -46,8 +46,12 @@ class CloudTransitions {
             if (alpha == colour[3]) colour else colour.copyOf().also { it[3] = alpha }
     }
 
-    private class State(val shape: Shape, var from: RenderItem,
-        var last: RenderItem, var target: RenderItem, var started: Long, var leaving: Boolean = false,
+    /**
+     * One cloud's easing. [from] and [last] are its own, filled in place and never drawn; [target]
+     * is never changed, so it can be drawn as is.
+     */
+    private class State(val shape: Shape, val from: RenderItem,
+        val last: RenderItem, var target: RenderItem, var started: Long, var leaving: Boolean = false,
         var alphaAt: Long = started, var alphaRate: Double = maxOf(from.color[3], target.color[3]).toDouble() * 2.0)
     private val states = LinkedHashMap<Long, State>()
     private val current = LongMap<Cloud>(512)
@@ -56,14 +60,17 @@ class CloudTransitions {
     private val adopted = ArrayList<Cloud>()
 
     /** As [append] below, from items. */
-    fun append(items: List<RenderItem>, revision: Any, now: Long, out: MutableList<RenderItem>) {
+    fun append(items: List<RenderItem>, revision: Any, now: Long, out: MutableList<RenderItem>, pool: RenderItemPool? = null) {
         while (adopted.size < items.size) adopted.add(Cloud())
         for (i in items.indices) adopted[i].setFrom(items[i])
-        append(adopted, items.size, revision, now, out)
+        append(adopted, items.size, revision, now, out, pool)
     }
 
-    /** Appends the first [count] of [clouds], eased from what was shown, to [out]. */
-    fun append(clouds: List<Cloud>, count: Int, revision: Any, now: Long, out: MutableList<RenderItem>) {
+    /**
+     * Appends the first [count] of [clouds], eased from what was shown, to [out], in items from
+     * [pool] or new ones.
+     */
+    fun append(clouds: List<Cloud>, count: Int, revision: Any, now: Long, out: MutableList<RenderItem>, pool: RenderItemPool? = null) {
         current.clear()
         for (i in 0 until count) {
             val cloud = clouds[i]
@@ -77,11 +84,11 @@ class CloudTransitions {
                 val nextAlpha = next?.alpha ?: 0f
                 if (kotlin.math.abs(nextAlpha - state.target.color[3]) > .02f) state.alphaAt = now
                 state.alphaRate = maxOf(state.alphaRate, nextAlpha * 2.0)
-                state.from = state.last
+                state.from.refillFrom(state.last)
                 state.started = now
                 state.leaving = next == null
-                state.target = next?.let { kept(it) } ?: copy(state.last, state.last.position, state.last.rotation,
-                    state.last.scale, state.last.color.copyOf().also { it[3] = 0f }, state.shape)
+                state.target = next?.let { kept(it) } ?: copy(state.last, state.last.position.copy(), state.last.rotation.copy(),
+                    state.last.scale?.copy(), state.last.color.copyOf().also { it[3] = 0f }, state.shape)
             }
             // New ones in listing order.
             for (i in 0 until count) {
@@ -90,7 +97,8 @@ class CloudTransitions {
                 val target = kept(cloud)
                 val clear = copy(target, target.position, target.rotation, target.scale,
                     target.color.copyOf().also { it[3] = 0f }, target.shape)
-                states[cloud.key] = State(cloud.shape, clear, clear, target, now)
+                states[cloud.key] = State(cloud.shape, RenderItemPool.blank().refillFrom(clear),
+                    RenderItemPool.blank().refillFrom(clear), target, now)
             }
         }
         val iterator = states.entries.iterator()
@@ -108,30 +116,38 @@ class CloudTransitions {
             if (u >= 1.0) {
                 val kept = state.target
                 val shown = if (listed == null && kept.shape == state.shape && alpha == kept.color[3]) kept
-                    else RenderItem(state.shape, target.position.copy(), target.rotation.copy(), target.keptColour(alpha),
-                        target.caps, target.keptScale(), target.ambient, target.wrap, target.key, target.decal,
-                        target.sky, target.curtain, target.orderedTransparency)
-                state.last = shown
+                    else (pool?.take() ?: RenderItemPool.blank()).let { item ->
+                        item.position.setTo(target.position)
+                        item.rotation.setTo(target.rotation)
+                        val colour = if (alpha == target.colour[3]) target.colour
+                            else target.colour.copyInto(item.ownColour()).also { it[3] = alpha }
+                        val scale = target.scale?.let { if (it === target.grown) item.ownScale().setTo(it) else it }
+                        item.refill(state.shape, colour, target.caps, scale, target.ambient, target.wrap, target.key,
+                            target.decal, target.sky, target.curtain, target.orderedTransparency)
+                    }
+                state.last.refillFrom(shown)
                 out.add(shown)
                 continue
             }
             val from = state.from
             // Keep carrying the cloud along its drift while correcting the worker's new snapshot.
             val anchor = state.target
-            val position = Vec3(target.position.x + (from.position.x - anchor.position.x) * (1.0 - t),
+            val shown = pool?.take() ?: RenderItemPool.blank()
+            shown.position.setTo(target.position.x + (from.position.x - anchor.position.x) * (1.0 - t),
                 target.position.y + (from.position.y - anchor.position.y) * (1.0 - t),
                 target.position.z + (from.position.z - anchor.position.z) * (1.0 - t))
             val scale = target.scale?.let { b ->
                 val a = from.scale ?: b
                 val c = anchor.scale ?: b
-                Vec3(b.x + (a.x - c.x) * (1.0 - t), b.y + (a.y - c.y) * (1.0 - t), b.z + (a.z - c.z) * (1.0 - t))
+                shown.ownScale().setTo(b.x + (a.x - c.x) * (1.0 - t), b.y + (a.y - c.y) * (1.0 - t), b.z + (a.z - c.z) * (1.0 - t))
             }
-            val colour = FloatArray(4) { (target.colour[it] + (from.color[it] - anchor.color[it]) * (1.0 - t)).toFloat().coerceIn(0f, 1f) }
+            val colour = shown.ownColour()
+            for (i in 0 until 4) colour[i] = (target.colour[i] + (from.color[i] - anchor.color[i]) * (1.0 - t)).toFloat().coerceIn(0f, 1f)
             colour[3] = alpha
-            val rotation = Quat.slerp(from.rotation, target.rotation, t, Quat())
-            val shown = RenderItem(state.shape, position, rotation, colour, target.caps, scale, target.ambient,
+            Quat.slerp(from.rotation, target.rotation, t, shown.rotation)
+            shown.refill(state.shape, colour, target.caps, scale, target.ambient,
                 target.wrap, target.key, target.decal, target.sky, target.curtain, target.orderedTransparency)
-            state.last = shown
+            state.last.refillFrom(shown)
             out.add(shown)
         }
     }

@@ -463,6 +463,8 @@ class GlRenderer(
             passFarItems += latest.farItems.size
             passParticles += latest.particleShapes
         }
+        // Done with these frames' items, so the frame builder can fill older ones again.
+        frameBus.drawn(pair)
     }
 
     /** The air's colour over distance, for every lit shader. This world's. */

@@ -1630,6 +1630,7 @@ class GameSession private constructor(
      */
     private fun buildFrame(timestampNanos: Long) {
         if (timeBuild) { buildMark = System.nanoTime(); buildBytesMark = allocNow() }
+        itemPool.begin()
         val focusId = client.controlledVessel ?: return
         // Smashed or burnt up whole. The view stays on a stand-in with no parts where it went, so
         // the wreck, fire and smoke are still there to see.
@@ -1643,7 +1644,7 @@ class GameSession private constructor(
 
         soundCrafts.clear()
         val lines = ArrayList<RenderLine>(4)
-        val items = ArrayList<RenderItem>(64)
+        val items = itemPool.list()
         val farItems = ArrayList<RenderItem>()
         frameEmitters.clear()
         lampCount = 0
@@ -2029,7 +2030,7 @@ class GameSession private constructor(
             attractor.toBodyFixed(cameraPosition, bodyRotation, cloudCamera)
             clouds.update(cloudCamera, renderTime)
             if (!mapMode) {
-                clouds.append(bodyRotation, renderTime, items)
+                clouds.append(bodyRotation, renderTime, items, pool = itemPool)
                 World.launchSites.firstOrNull { it.id == "cape" }?.let { cape ->
                     clouds.windsock(cape, cloudCamera, renderTime, bodyRotation, items)
                 }
@@ -2226,7 +2227,7 @@ class GameSession private constructor(
                 shadowFocus = if (mapMode) null else focusDrawn.copy(),
                 shadowRadius = shadowReach,
             )
-        )
+        ).let(itemPool::published)
         framesPublished.incrementAndGet()
         lap(12)
     }
@@ -4419,6 +4420,9 @@ class GameSession private constructor(
     }
 
     private val staticScenery = HashMap<Long, StaticScenery>()
+    /** Craft, scenery and cloud items, filled again once the GL thread is done with them. */
+    private val itemPool = com.rm.apogee.render.RenderItemPool(frameBus)
+    private val scratchLeafTurn = Quat()
 
     private fun appendVessel(
         vessel: ClientVessel,
@@ -4540,7 +4544,7 @@ class GameSession private constructor(
             }
         } else null
         for ((index, placed) in design.parts.withIndex()) {
-            if (scenery?.append(index, centreOfMass, position, rotation, out) == true) continue
+            if (scenery?.append(index, centreOfMass, position, rotation, out, itemPool) == true) continue
             val def = defs[index] ?: continue
             // From the cockpit, the cockpit itself would fill the view.
             if (index == cockpitPart && vessel.id == client.controlledVessel && !mapMode) continue
@@ -4789,27 +4793,26 @@ class GameSession private constructor(
                 }
                 val leafPosition = if (dent == null) leaf.position
                     else Vec3(leaf.position.x * dent.x, leaf.position.y * dent.y, leaf.position.z * dent.z)
-                var leafWorld = partRotation.rotate(leafPosition).addInPlace(scratch)
-                var leafRotation = partRotation * leaf.rotation
+                val item = itemPool.take()
+                val leafWorld = partRotation.rotate(leafPosition, item.position).addInPlace(scratch)
+                val leafRotation = item.rotation.setTo(partRotation).mulInPlace(leaf.rotation)
                 if (tipped != null && leaf.spinning) {
-                    leafWorld = tipped.rotate(leafWorld.subInPlace(bladeHub)).addInPlace(bladeHub)
-                    leafRotation = tipped * leafRotation
+                    tipped.rotate(leafWorld.subInPlace(bladeHub), leafWorld).addInPlace(bladeHub)
+                    leafRotation.setTo(scratchLeafTurn.setTo(tipped).mulInPlace(leafRotation))
                 }
                 if (sock && piece == WINDSOCK_PIECE) {
                     // Blown out downwind from the top of the mast, hanging lower in a lighter wind.
                     val pivot = partRotation.rotate(WINDSOCK_PIVOT.copy()).addInPlace(scratch)
                     val axis = leafRotation.rotate(Vec3.unitY(), Vec3())
                     val hang = windsockHang(position, bodyRotation)
-                    leafRotation = com.rm.apogee.core.math.quatFromTo(axis, hang) * leafRotation
-                    leafWorld = pivot.addScaledInPlace(hang, WINDSOCK_REACH)
+                    leafRotation.setTo(com.rm.apogee.core.math.quatFromTo(axis, hang) * leafRotation)
+                    leafWorld.setTo(pivot.addScaledInPlace(hang, WINDSOCK_REACH))
                 }
                 if (lit && reach > 0.0) { scratchGlow.addInPlace(leafWorld); glows++ }
                 out.add(
-                    RenderItem(
+                    item.refill(
                         caps = leaf.caps,
                         shape = leaf.shape,
-                        position = leafWorld,
-                        rotation = leafRotation,
                         color = (if (condition.any && !lit) ConditionLook.colour(base, health, heat) else base)
                             .let { if (ghost) it.copyOf().also { faint -> faint[3] *= GHOST_ALPHA } else it },
                         // Lit, a lamp's glare makes it look bigger than it is.
@@ -5088,8 +5091,16 @@ class GameSession private constructor(
         return false
     }
 
-    /** Roughly how far this design reaches from its centre, in metres. */
-    private fun designReach(design: CraftDesign): Double {
+    /** Each design's [designReach], worked out once since designs never change. Frame-build thread only. */
+    private val designReaches = com.rm.apogee.platform.identityMapOf<CraftDesign, Double>()
+
+    /** Roughly how far this design reaches from its centre, in metres. Frame-build thread only. */
+    private fun designReach(design: CraftDesign): Double = designReaches[design] ?: run {
+        if (designReaches.size >= 256) designReaches.clear()
+        workOutReach(design).also { designReaches[design] = it }
+    }
+
+    private fun workOutReach(design: CraftDesign): Double {
         val centre = designCentreOfMass(design)
         var furthest = 0.0
         for (placed in design.parts) {

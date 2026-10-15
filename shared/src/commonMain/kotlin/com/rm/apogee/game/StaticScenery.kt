@@ -9,6 +9,7 @@ import com.rm.apogee.core.part.PartCategory
 import com.rm.apogee.core.part.PieceRole
 import com.rm.apogee.render.PartModels
 import com.rm.apogee.render.RenderItem
+import com.rm.apogee.render.RenderItemPool
 import com.rm.apogee.render.StackCaps
 
 /** Immutable building pieces in design space. The planet's rotation is still applied each frame. */
@@ -42,19 +43,23 @@ internal class StaticScenery(vessel: Long, val design: CraftDesign, catalog: Par
         }
     }
 
-    /** False means this part needs the animated/damaged presentation path. Published items are never mutated. */
-    fun append(index: Int, centre: Vec3, position: Vec3, rotation: Quat, out: MutableList<RenderItem>): Boolean {
+    /** False means this part needs the animated/damaged presentation path. Items come from [pool]. */
+    fun append(index: Int, centre: Vec3, position: Vec3, rotation: Quat, out: MutableList<RenderItem>, pool: RenderItemPool): Boolean {
         val pieces = parts[index] ?: return false
-        for (piece in pieces) out.add(RenderItem(
-            shape = piece.shape,
-            position = rotation.rotate(piece.position.copy().subInPlace(centre)).addInPlace(position),
-            rotation = rotation * piece.rotation,
-            color = piece.color,
-            caps = piece.caps,
-            wrap = false,
-            key = piece.key,
-            decal = piece.decal,
-        ))
+        for (i in pieces.indices) {
+            val piece = pieces[i]
+            val item = pool.take()
+            rotation.rotate(item.position.setTo(piece.position).subInPlace(centre), item.position).addInPlace(position)
+            item.rotation.setTo(rotation).mulInPlace(piece.rotation)
+            out.add(item.refill(
+                shape = piece.shape,
+                color = piece.color,
+                caps = piece.caps,
+                wrap = false,
+                key = piece.key,
+                decal = piece.decal,
+            ))
+        }
         return true
     }
 

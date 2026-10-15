@@ -47,6 +47,8 @@ class CraftCullingTest {
             session.debugNoCraftCulling = true
             val all = drawUntil(90.0) { far(it) > 100 }
             assertNotNull("other worlds' bases never drawn", all)
+            // Counted now: once drawn past, a frame's items and list are filled again.
+            val allCount = all!!.items.size
 
             session.debugNoCraftCulling = false
             val published = frameBus.latest()?.latest
@@ -57,7 +59,7 @@ class CraftCullingTest {
             val focus = culled.shadowFocus!!
             val own = culled.items.count { it.position.distanceTo(focus) < 30.0 + PartModels.boundingRadius(it.shape) }
             assertTrue("flown craft missing", own >= 15)
-            assertTrue("${culled.items.size} items of ${all!!.items.size}", culled.items.size < all.items.size)
+            assertTrue("${culled.items.size} items of $allCount", culled.items.size < allCount)
         } finally {
             session.stop()
             scope.cancel()

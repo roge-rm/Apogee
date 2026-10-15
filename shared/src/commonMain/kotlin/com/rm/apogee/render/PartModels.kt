@@ -101,7 +101,8 @@ object PartModels {
                     byCaps[caps] ?: ArrayList<Leaf>().also { expandAfresh(def, caps, null, it); byCaps[caps] = it }
                 }
             }
-            out.addAll(made)
+            // One at a time: addAll copies the list to an array first.
+            for (i in made.indices) out.add(made[i])
             return
         }
         expandAfresh(def, caps, anim, out)

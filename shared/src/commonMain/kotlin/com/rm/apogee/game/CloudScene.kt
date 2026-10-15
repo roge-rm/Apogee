@@ -456,8 +456,11 @@ class CloudScene(
     private val clouds = ArrayList<com.rm.apogee.render.CloudTransitions.Cloud>()
     private val drifted = Vec3()
 
-    /** Appends the clouds, turned to where the planet is at [bodyRotation], to [out]. */
-    fun append(bodyRotation: Quat, time: Double, out: MutableList<RenderItem>, nowNanos: Long = System.nanoTime()) {
+    /** Appends the clouds, turned to where the planet is at [bodyRotation], to [out], in items from [pool]. */
+    fun append(
+        bodyRotation: Quat, time: Double, out: MutableList<RenderItem>, nowNanos: Long = System.nanoTime(),
+        pool: com.rm.apogee.render.RenderItemPool? = null,
+    ) {
         val snapshot = lobes
         while (clouds.size < snapshot.size) clouds.add(com.rm.apogee.render.CloudTransitions.Cloud())
         for (i in snapshot.indices) {
@@ -494,7 +497,7 @@ class CloudScene(
                 cloud.caps = com.rm.apogee.render.StackCaps.BOTH; cloud.ambient = 0.42f; cloud.curtain = false
             }
         }
-        transitions.append(clouds, snapshot.size, snapshot, nowNanos, out)
+        transitions.append(clouds, snapshot.size, snapshot, nowNanos, out, pool)
     }
 
     // --- the map's cloud -----------------------------------------------------

@@ -8,45 +8,98 @@ import kotlin.concurrent.Volatile
 
 /**
  * One thing to draw this frame. It carries a [MeshSpec], not a GPU handle; the renderer builds and
- * caches a mesh per shape the first time it sees one.
+ * caches a mesh per shape the first time it sees one. Never changed once in a published frame; a
+ * [RenderItemPool] only fills it again after the GL thread is done with that frame.
  */
 class RenderItem(
     /** A physics [MeshSpec] or a leaf of a part model. */
-    val shape: com.rm.apogee.core.part.Shape,
+    shape: com.rm.apogee.core.part.Shape,
     val position: Vec3,
     val rotation: Quat,
-    val color: FloatArray,
+    color: FloatArray,
     /**
      * Which end caps to draw, from [com.rm.apogee.render.StackCaps]. Per item, since the same tank
      * needs different caps alone and mid-stack.
      */
-    val caps: Int = StackCaps.BOTH,
+    caps: Int = StackCaps.BOTH,
     /** Stretch along the shape's own axes, or null for none. For cloud lobes. */
-    val scale: Vec3? = null,
+    scale: Vec3? = null,
     /** The light it has without the sun: 0.28 for a part, much more for a cloud. */
-    val ambient: Float = 0.28f,
+    ambient: Float = 0.28f,
     /** Wraps its light round and thins at the edges, like cloud and vapour. Never a part. */
-    val wrap: Boolean = scale != null && ambient < 1f,
+    wrap: Boolean = scale != null && ambient < 1f,
     /**
      * Identifies this thing from frame to frame, so the renderer eases it from where it was. With
      * 0 it's matched by its place among unkeyed items, which breaks when anything before it comes
      * or goes.
      */
-    val key: Long = 0L,
+    key: Long = 0L,
     /** Laid on the ground (paving): this many steps of depth bias over it. No shadow. 0 otherwise. */
-    val decal: Int = 0,
+    decal: Int = 0,
     /** Another world seen across space. Sunlit, not hazed by distance, paled a little by day. */
-    val sky: Boolean = false,
+    sky: Boolean = false,
     /**
      * A column of rain seen from afar. It thins toward its round outline, so its sides are soft,
      * and fades into the cloud at its top.
      */
-    val curtain: Boolean = false,
+    curtain: Boolean = false,
     /** Keep this translucent item in exact distance order, including between batching groups. */
-    val orderedTransparency: Boolean = false,
+    orderedTransparency: Boolean = false,
     /** On its first frame, interpolate this new effect with the part it detached from. */
-    val spawnReference: Long = 0L,
+    spawnReference: Long = 0L,
 ) {
+    var shape = shape; private set
+    var color = color; private set
+    var caps = caps; private set
+    var scale = scale; private set
+    var ambient = ambient; private set
+    var wrap = wrap; private set
+    var key = key; private set
+    var decal = decal; private set
+    var sky = sky; private set
+    var curtain = curtain; private set
+    var orderedTransparency = orderedTransparency; private set
+    var spawnReference = spawnReference; private set
+
+    // Room of its own for a scale and colour worked out each frame, made the first time asked for.
+    private var scaleRoom: Vec3? = null
+    private var colourRoom: FloatArray? = null
+
+    /** This item's own scale room, to set and pass as [scale] to [refill]. */
+    fun ownScale(): Vec3 = scaleRoom ?: Vec3().also { scaleRoom = it }
+
+    /** This item's own four-float colour room, to set and pass as [color] to [refill]. */
+    fun ownColour(): FloatArray = colourRoom ?: FloatArray(4).also { colourRoom = it }
+
+    /**
+     * Everything but [position] and [rotation], which are set in place. Only for an item from a
+     * [RenderItemPool] or one never published.
+     */
+    fun refill(
+        shape: com.rm.apogee.core.part.Shape, color: FloatArray, caps: Int = StackCaps.BOTH, scale: Vec3? = null,
+        ambient: Float = 0.28f, wrap: Boolean = scale != null && ambient < 1f, key: Long = 0L, decal: Int = 0,
+        sky: Boolean = false, curtain: Boolean = false, orderedTransparency: Boolean = false, spawnReference: Long = 0L,
+    ): RenderItem {
+        this.shape = shape; this.color = color; this.caps = caps; this.scale = scale; this.ambient = ambient
+        this.wrap = wrap; this.key = key; this.decal = decal; this.sky = sky; this.curtain = curtain
+        this.orderedTransparency = orderedTransparency; this.spawnReference = spawnReference
+        return this
+    }
+
+    /**
+     * Takes [other]'s look. A scale or colour in [other]'s own room is copied into this one's,
+     * anything else is shared, since it's never changed.
+     */
+    fun refillFrom(other: RenderItem): RenderItem {
+        position.setTo(other.position)
+        rotation.setTo(other.rotation)
+        val otherScale = other.scale
+        val scale = if (otherScale != null && otherScale === other.scaleRoom) ownScale().setTo(otherScale) else otherScale
+        val color = if (other.color === other.colourRoom) other.color.copyInto(ownColour()) else other.color
+        return refill(other.shape, color, other.caps, scale, other.ambient, other.wrap, other.key, other.decal,
+            other.sky, other.curtain, other.orderedTransparency, other.spawnReference)
+    }
+
     companion object {
         /** A piece of a craft's part. */
         fun partKey(vessel: Long, part: Int, piece: Int): Long =
@@ -231,26 +284,48 @@ class WorldView(
  */
 class FrameBus {
 
-    class Pair(val previous: RenderFrame?, val latest: RenderFrame)
+    /** The two newest frames, with the numbers [publish] gave them. */
+    class Pair(val previous: RenderFrame?, val latest: RenderFrame, val previousSequence: Long, val latestSequence: Long)
 
-    private val frames = AtomicReference<Pair?>(null)
+    /** A [Pair], or a new [Cleared] each clear, so a publish that read before a clear can't land after it. */
+    private val frames = AtomicReference<Any>(Cleared())
+    private class Cleared
+    /** Frame numbers, never reset, so a publish racing [clear] can't go back. */
+    private val numbers = com.rm.apogee.platform.AtomicLong(0L)
 
     /** The drawn size in pixels, set by the renderer, 0 until it has a surface. */
     @Volatile var viewWidth = 0
     @Volatile var viewHeight = 0
 
-    fun publish(frame: RenderFrame) {
+    /**
+     * Frames numbered below this are done with on the GL thread, items and all. Set by the GL
+     * thread only, after drawing, and never goes down. See [RenderItemPool].
+     */
+    @Volatile var releasedBelow = 0L
+        private set
+
+    /** Publishes [frame] and returns its number, higher than any published before it. */
+    fun publish(frame: RenderFrame): Long {
         while (true) {
-            val current = frames.get()
-            val next = Pair(current?.latest, frame)
-            if (frames.compareAndSet(current, next)) return
+            val read = frames.get()
+            val current = read as? Pair
+            // Taken after reading current, so it's above current's even if another publish got in first.
+            val sequence = numbers.incrementAndGet()
+            val next = Pair(current?.latest, frame, current?.latestSequence ?: 0L, sequence)
+            if (frames.compareAndSet(read, next)) return sequence
         }
     }
 
-    fun latest(): Pair? = frames.get()
+    fun latest(): Pair? = frames.get() as? Pair
+
+    /** GL thread, after drawing [pair]: nothing older than it is held any more. */
+    fun drawn(pair: Pair) {
+        val below = if (pair.previous != null) pair.previousSequence else pair.latestSequence
+        if (below > releasedBelow) releasedBelow = below
+    }
 
     fun clear() {
-        frames.set(null)
+        frames.set(Cleared())
     }
 }
 

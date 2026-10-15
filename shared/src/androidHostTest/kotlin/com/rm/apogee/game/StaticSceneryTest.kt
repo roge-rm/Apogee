@@ -6,7 +6,9 @@ import com.rm.apogee.core.math.Quat
 import com.rm.apogee.core.math.Vec3
 import com.rm.apogee.core.part.PartCatalog
 import com.rm.apogee.render.PartModels
+import com.rm.apogee.render.FrameBus
 import com.rm.apogee.render.RenderItem
+import com.rm.apogee.render.RenderItemPool
 import com.rm.apogee.render.StackCaps
 import org.junit.Assert.*
 import org.junit.Test
@@ -21,6 +23,7 @@ class StaticSceneryTest {
         val placed = PlacedPart("struct-assembly", Vec3(10.0, 5.0, -3.0), Quat.fromAxisAngle(Vec3.unitY(), 0.7))
         val design = CraftDesign("Building", listOf(placed))
         val cache = StaticScenery(37L, design, catalog)
+        val pool = RenderItemPool(FrameBus())
         val centre = Vec3(2.0, 3.0, 1.0)
         val position = Vec3(600_000.0, 20.0, 50.0)
         val leaves = ArrayList<PartModels.Leaf>()
@@ -29,7 +32,7 @@ class StaticSceneryTest {
         for (angle in listOf(0.0, 0.4, 1.0)) {
             val rotation = Quat.fromAxisAngle(Vec3.unitZ(), angle)
             val out = ArrayList<RenderItem>()
-            assertTrue(cache.append(0, centre, position, rotation, out))
+            assertTrue(cache.append(0, centre, position, rotation, out, pool))
             assertEquals(leaves.size, out.size)
             val origin = rotation.rotate(placed.position.copy().subInPlace(centre)).addInPlace(position)
             val partRotation = rotation * placed.rotation
@@ -55,10 +58,11 @@ class StaticSceneryTest {
         val catalog = catalog()
         val design = CraftDesign("Fittings", listOf("struct-floodlight", "struct-windsock", "struct-paint-bar").map { PlacedPart(it, Vec3()) })
         val cache = StaticScenery(7, design, catalog)
+        val pool = RenderItemPool(FrameBus())
         val out = ArrayList<RenderItem>()
-        assertFalse(cache.append(0, Vec3(), Vec3(), Quat.identity(), out))
-        assertFalse(cache.append(1, Vec3(), Vec3(), Quat.identity(), out))
-        assertTrue(cache.append(2, Vec3(), Vec3(), Quat.identity(), out))
+        assertFalse(cache.append(0, Vec3(), Vec3(), Quat.identity(), out, pool))
+        assertFalse(cache.append(1, Vec3(), Vec3(), Quat.identity(), out, pool))
+        assertTrue(cache.append(2, Vec3(), Vec3(), Quat.identity(), out, pool))
         assertTrue(out.isNotEmpty())
         assertTrue(out.all { it.decal == 20 })
     }
