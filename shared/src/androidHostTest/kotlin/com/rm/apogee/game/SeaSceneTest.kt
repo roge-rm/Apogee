@@ -218,4 +218,42 @@ class SeaSceneTest {
             scope.cancel()
         }
     }
+
+    @Test
+    fun `a sea built into a reused array matches one built into a new array`() {
+        val system = SolarSystem.defaultSystem()
+        val terra = system.body("terra")
+        val config = WeatherConfig(intensity = WeatherIntensity.WILD)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            // Near a shore, so the coast's finer cells are built too.
+            var at = Vec3()
+            for (i in 0 until 20_000) {
+                val lat = (com.rm.apogee.core.terrain.Noise.hash(9, i, 0, 0) - 0.5) * 1.2
+                val lon = com.rm.apogee.core.terrain.Noise.hash(9, i, 1, 0) * 2 * Math.PI
+                at = Vec3(Math.cos(lat) * Math.cos(lon), Math.sin(lat), Math.cos(lat) * Math.sin(lon))
+                if (kotlin.math.abs(terra.terrain!!.elevation(at)) < 3.0) break
+            }
+            val centre = at.copy().mulInPlace(terra.radius + 20.0)
+            fun scene() = SeaScene(terra, system.body("luna"), config, QualityTier.LOW, scope).also { it.outerBudgetNanos = Long.MAX_VALUE / 4 }
+            val reused = scene()
+            val fresh = scene()
+            val first = kotlinx.coroutines.runBlocking { reused.buildNow(centre, 5_000.0) }
+            kotlinx.coroutines.runBlocking { fresh.buildNow(centre, 5_000.0) }
+            assertTrue("no coast at $at", reused.lastCoastCount > 0)
+            // Handed back dirty, as the GPU would once a newer one replaced it.
+            first.vertices.fill(7f)
+            first.giveBack!!.invoke(first.vertices)
+            val a = kotlinx.coroutines.runBlocking { reused.buildNow(centre, 5_000.1) }
+            val b = kotlinx.coroutines.runBlocking { fresh.buildNow(centre, 5_000.1) }
+            assertTrue("array not reused", a.vertices === first.vertices)
+            assertTrue("coast triangles not kept", a.indices === first.indices && a.layout == first.layout)
+            assertEquals(b.vertexCount, a.vertexCount)
+            assertTrue("triangles differ", a.indices.contentEquals(b.indices))
+            val n = a.vertexCount * SeaSurface.STRIDE
+            assertTrue("vertices differ", a.vertices.copyOf(n).contentEquals(b.vertices.copyOf(n)))
+        } finally {
+            scope.cancel()
+        }
+    }
 }

@@ -22,6 +22,24 @@ class SeaSurface(
     /** Where [vertices] goes back for reuse once a newer surface replaces it on the GPU, or null. */
     val giveBack: ((FloatArray) -> Unit)? = null,
 ) {
+    /** 0 while no one has it, 1 once the GPU has taken it, 2 once handed back without being drawn. */
+    private var held = 0
+
+    /** For the GPU: whether it may take this one. False if it was handed back unused. */
+    fun claim(): Boolean = com.rm.apogee.platform.synchronized(this) {
+        if (held == 0) held = 1
+        held == 1
+    }
+
+    /**
+     * For the builder, once a newer one replaces it: whether the GPU never took it, so its
+     * vertices can be built into again. The GPU won't take it after this returns true.
+     */
+    fun drop(): Boolean = com.rm.apogee.platform.synchronized(this) {
+        if (held == 0) held = 2
+        held == 2
+    }
+
     companion object {
         /** Position(3), up(3), colour(4), rise(1). */
         const val STRIDE = 11

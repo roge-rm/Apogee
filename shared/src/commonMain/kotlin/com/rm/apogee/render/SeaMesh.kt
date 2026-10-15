@@ -12,6 +12,7 @@ class SeaMesh {
     private var indexCount = 0
     private var layout = -1
     private var vertexBuffer: GlData? = null
+    private var indexBuffer: GlData? = null
 
     /** The surface on the GPU now. */
     var surface: SeaSurface? = null
@@ -35,9 +36,12 @@ class SeaMesh {
         GLES30.glBindVertexArray(0)
     }
 
-    /** Takes [next] onto the GPU, if it isn't the one already there. */
+    /**
+     * Takes [next] onto the GPU, if it isn't the one already there. One its builder has already
+     * handed back is skipped, and the last one stays.
+     */
     fun take(next: SeaSurface) {
-        if (next === surface) return
+        if (next === surface || !next.claim()) return
         GLES30.glBindVertexArray(vao[0])
         val bytes = next.vertexCount * SeaSurface.STRIDE * Float.SIZE_BYTES
         val buffer = vertexBuffer?.takeIf { it.capacity >= bytes }
@@ -52,10 +56,11 @@ class SeaMesh {
         }
         if (next.layout != layout) {
             val indexBytes = next.indices.size * 4
-            val indexBuffer = GlData(indexBytes)
-            indexBuffer.putInts(next.indices)
+            val data = indexBuffer?.takeIf { it.capacity >= indexBytes }
+                ?: GlData(indexBytes).also { indexBuffer = it }
+            data.putInts(next.indices)
             GLES30.glBindBuffer(GLES30.GL_ELEMENT_ARRAY_BUFFER, buffers[1])
-            GLES30.glBufferData(GLES30.GL_ELEMENT_ARRAY_BUFFER, indexBytes, indexBuffer, GLES30.GL_STATIC_DRAW)
+            GLES30.glBufferData(GLES30.GL_ELEMENT_ARRAY_BUFFER, indexBytes, data, GLES30.GL_STATIC_DRAW)
             indexCount = next.indices.size
             layout = next.layout
         }
