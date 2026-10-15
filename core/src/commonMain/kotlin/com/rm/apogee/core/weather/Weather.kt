@@ -29,6 +29,7 @@ import com.rm.apogee.core.math.Math
  *   ([TerrainWind]);
  * - thermals and their cumulus ([Convection]);
  * - storms: towers, gust fronts, rain and lightning ([Storms]);
+ * - hurricanes, with rare events on ([Hurricanes]);
  * - layer cloud: stratus, altostratus and cirrus;
  * - turbulence, sampled per part ([turbulence]).
  */
@@ -46,7 +47,9 @@ class Weather(
     private val terrainWind = terrain?.let { TerrainWind(it, radius) }
     private val convection = Convection(this, terrainWind, radius, seed, intensity)
     private val storms = Storms(this, radius, seed, intensity)
+    private val hurricanes = Hurricanes(this, radius, seed, intensity).also { storms.hurricanes = it }
     private val stormShapes = StormShapes(storms, seed, radius, climate)
+    private val hurricaneShapes = HurricaneShapes(seed, radius, climate)
 
     private val up = Vec3()
     private val east = Vec3()
@@ -147,6 +150,7 @@ class Weather(
 
         convection.apply(up, east, north, position, altitude, time, out)
         storms.apply(up, east, north, position, altitude, groundTop, time, out)
+        hurricanes.apply(up, altitude, agl, ocean, time, out)
         if (climate.layers) layers(up, altitude, groundTop, time, out)
         if (climate.hasDeck) deckAt(altitude, out)
 
@@ -165,7 +169,8 @@ class Weather(
         out.cloudType?.let { type ->
             if (out.cloudDensity > 0.0) visibility = min(visibility, type.visibility / max(out.cloudDensity, 0.02))
         }
-        out.visibility = visibility
+        // A hurricane may have cut it already.
+        out.visibility = min(visibility, out.visibility)
         return out
     }
 
@@ -446,6 +451,8 @@ class Weather(
          * How much detail they have, 0..1. Fewer, bigger lobes for a device that can't draw many.
          */
         stormDetail: Double = 1.0,
+        /** Whether to list hurricanes' lobes, out to [stormReach]. */
+        hurricanes: Boolean = true,
     ) {
         val e = Vec3(); val n = Vec3()
         frame(direction, e, n)
@@ -490,6 +497,12 @@ class Weather(
             if (away > stormReach) continue
             // Keep one storm layout across near/far listings; mesh detail is handled by the renderer.
             out.add(stormShapes.build(s, time, stormDetail) { terrain?.elevation(it) ?: 0.0 }.also { it.drift.setTo(s.steer) })
+        }
+        // Hurricanes near enough, the part of each within [stormReach].
+        if (hurricanes && this.hurricanes.active) {
+            val live = ArrayList<LiveHurricane>()
+            this.hurricanes.near(direction, time, stormReach, live)
+            for (h in live) hurricaneShapes.build(h, direction, stormReach, stormDetail) { terrain?.elevation(it) ?: 0.0 }?.let { out.add(it) }
         }
         // Layer cloud: the deck's puffs, cell by cell, the same ones the air is sampled from. Far
         // away, where an overcast would need tens of thousands of puffs, it's rough sheets.
@@ -763,11 +776,22 @@ class Weather(
     fun strikes(direction: Vec3, from: Double, to: Double, out: MutableList<Strike>) {
         val e = Vec3(); val n = Vec3()
         frame(direction, e, n)
+        hurricanes.strikes(direction, from, to, out)
         storms.strikes(direction, e, n, from, to, out)
+        out.sortBy { it.time }
     }
 
     internal val convectionModel: Convection get() = convection
     internal val stormModel: Storms get() = storms
+    internal val hurricaneModel: Hurricanes get() = hurricanes
+
+    /**
+     * The hurricanes alive at [time] that reach within [reach] metres of unit [direction], into
+     * [out]. Makes new objects, so not for every sample.
+     */
+    fun hurricanes(direction: Vec3, time: Double, reach: Double, out: MutableList<LiveHurricane>) {
+        hurricanes.near(probe.setTo(direction).normalizeInPlace(), time, reach, out)
+    }
 
     companion object {
         /**

@@ -108,9 +108,12 @@ class RigidBody {
     }
 
     /** How fast this tick's [torque] spins it up, in rad/s², world axes, into [out]. */
-    fun angularAcceleration(out: Vec3): Vec3 {
+    fun angularAcceleration(out: Vec3): Vec3 = angularAcceleration(torque, out)
+
+    /** How fast [worldTorque] would spin it up, in rad/s², world axes, into [out]. */
+    fun angularAcceleration(worldTorque: Vec3, out: Vec3): Vec3 {
         inverseInertiaWorld.setRotated(inverseInertiaLocal, orientation)
-        return inverseInertiaWorld.transform(torque, out)
+        return inverseInertiaWorld.transform(worldTorque, out)
     }
 
     /** How easily the body turns around the unit [axis]: axis . (I^-1 axis), in world axes. */

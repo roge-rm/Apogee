@@ -10596,6 +10596,7 @@
     "description": "A mast and mainsail for a skiff or a punt. The throttle sets how much sail is out, and it can't sail closer than about forty degrees to the wind.",
     "crashTolerance": 8.0,
     "dragCoefficient": 0.3,
+    "strength": 50000.0,
     "mesh": {
       "type": "box",
       "width": 0.14,
@@ -24516,6 +24517,7 @@
     "crashTolerance": 25.0,
     "dragCoefficient": 0.1,
     "solid": false,
+    "strength": 2000000.0,
     "mesh": {
       "type": "box",
       "width": 1.2,

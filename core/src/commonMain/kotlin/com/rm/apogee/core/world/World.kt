@@ -1123,7 +1123,7 @@ class World(
     private val stress = Stress()
     private val heat = Heat()
     private val stabilityAssist = StabilityAssist()
-    private val hydrostatics = Hydrostatics()
+    internal val hydrostatics = Hydrostatics()
 
     init {
         forces.waterAt = { vessel, attractor, p, t -> hydrostatics.keptHeight(vessel, attractor, p, t) }
@@ -3428,7 +3428,13 @@ class World(
             for (i in 0 until forces.overstressedCount) {
                 detach(vessel, forces.overstressed[i], "snapped off under load")
             }
+            vessel.waterTorque.setTo(vessel.body.torque)
             hydrostatics.apply(vessel, attractor, time, dt)
+            // What the water turned it by, less what was handed to Stress, while it settles after
+            // reaching the water. Settled, the water's steady torque is what balances a sail's or
+            // a load's, so it counts again.
+            val settling = 1.0 - ((vessel.waterTime - Hydrostatics.POUNDING_SETTLE) / Hydrostatics.POUNDING_SETTLE).coerceIn(0.0, 1.0)
+            vessel.waterTorque.negateInPlace().addInPlace(vessel.body.torque).subInPlace(hydrostatics.recordedTorque).mulInPlace(settling)
             if (hydrostatics.splashCount > 0) {
                 for (i in 0 until hydrostatics.splashCount) {
                     impactNormal.setTo(vessel.body.position).normalizeInPlace()
@@ -3767,7 +3773,8 @@ class World(
             }
         }
         // Too rough for it: wake it and let the physics decide.
-        if (waves && !hurried && !vessel.anchored && seaRide.significantHeight > tooRough(vessel)) vessel.wake()
+        if (waves && !hurried && !vessel.anchored &&
+            (seaRide.significantHeight > tooRough(vessel) || breakersWake && Hydrostatics.keepsAwake(seaRide))) vessel.wake()
     }
 
     /**
@@ -3775,6 +3782,9 @@ class World(
      * storm would hold the whole world to physics warp.
      */
     var hurried: Boolean = false
+
+    /** Off for tests: breaking seas don't keep craft afloat awake. */
+    internal var breakersWake = true
 
     /** The significant wave height, in metres, past which [vessel] can't ride the sea asleep. */
     private fun tooRough(vessel: Vessel): Double = kotlin.math.max(ROUGH_SEA, ROUGH_PER_METRE * vessel.contactRadius)
@@ -3841,7 +3851,7 @@ class World(
         // for a craft wholly underwater, which doesn't heave and could fall asleep mid-rise.
         val seaway = hydrostatics.seaHeight > SEAWAY_HS && !vessel.submerged
         if (seaway && !handsOff) return false
-        if (!hurried && hydrostatics.seaHeight > tooRough(vessel)) return false
+        if (!hurried && (hydrostatics.seaHeight > tooRough(vessel) || breakersWake && hydrostatics.breakers)) return false
         val limit = if (seaway || (handsOff && vessel.air.wind.length > 0.5)) ANCHOR_DRIFT else FLOATING_REST_SPEED
         attractor.surfaceVelocityAt(vessel.body.position, scratchSurfaceVelocity)
         scratchRelativeVelocity.setTo(vessel.body.linearVelocity).subInPlace(scratchSurfaceVelocity)

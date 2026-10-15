@@ -38,6 +38,7 @@ class Forces {
     private val scratchForce = Vec3()
     private val scratchVelocity = Vec3()
     private val scratchSurface = Vec3()
+    private val scratchSailTrue = Vec3()
     private val scratchWind = Vec3()
     private val scratchGust = Vec3()
     private val scratchGustPoint = Vec3()
@@ -58,7 +59,7 @@ class Forces {
         private set
 
     /**
-     * Parachute parts torn off by opening too fast this call. Indices, not events: the world turns
+     * Parachute parts torn off by opening too fast this call, and sails blown out. Indices, not events: the world turns
      * them into events. A fixed array, like [com.rm.apogee.core.physics.ContactReport], so it
      * doesn't allocate.
      */
@@ -759,6 +760,16 @@ class Forces {
         scratchSailForward.addScaledInPlace(scratchSailUp, -(scratchSailForward dot scratchSailUp))
         val forwardLength = scratchSailForward.length
         if (wind < 0.2 || forwardLength < 1e-3) { settleSail(vessel, partIndex, 0.0); return }
+        // Left up in a storm, past [SAIL_TEARS] of true wind, it blows out: the air's own speed over
+        // the ground, gusts and all, not what the craft's speed adds, and the same on any world.
+        // Reefed, it holds in a wind as much stronger as the root of how much less is set.
+        vessel.body.velocityAtOffset(scratchOffset, scratchSailTrue)
+        scratchSailTrue.subInPlace(scratchSurface).addInPlace(scratchWind).subInPlace(scratchLocalVelocity)
+        if (set > 0.0 && scratchSailTrue.lengthSq * set > SAIL_TEARS * SAIL_TEARS && vessel.breakPart(partIndex)) {
+            if (tornCount < MAX_TORN) tornParachutes[tornCount++] = partIndex
+            settleSail(vessel, partIndex, 0.0)
+            return
+        }
         scratchSailWind.mulInPlace(1.0 / wind)
         scratchSailForward.mulInPlace(1.0 / forwardLength)
         // How far off the bow the wind comes from: 0 dead ahead, pi dead astern.
@@ -980,6 +991,9 @@ class Forces {
 
         /** A drawing sail's drag along the wind, and a flapping one's extra, as coefficients. */
         const val SAIL_DRAG = 0.05
+
+        /** The true wind, m/s, that blows out a sail set full. */
+        const val SAIL_TEARS = 40.0
         const val SAIL_FLOGGING = 0.25
 
         /**

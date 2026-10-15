@@ -41,6 +41,17 @@ class SphereCells(bodyRadius: Double, cellSize: Double) {
         return CubeSphere.direction(face, s, t, out)
     }
 
+    /** The unit direction [fs], [ft] (each 0..1) of the way across cell [key], into [out]. */
+    fun point(key: Long, fs: Double, ft: Double, out: Vec3): Vec3 {
+        val j = (key % perFace).toInt()
+        val rest = key / perFace
+        val i = (rest % perFace).toInt()
+        val face = (rest / perFace).toInt()
+        val s = (i + fs) / perFace * 2.0 - 1.0
+        val t = (j + ft) / perFace * 2.0 - 1.0
+        return CubeSphere.direction(face, s, t, out)
+    }
+
     /**
      * The cells around [direction], its own and up to [reach] cells away, into [out].
      *

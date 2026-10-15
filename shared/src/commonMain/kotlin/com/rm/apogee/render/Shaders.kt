@@ -937,6 +937,97 @@ object Shaders {
         }
     """.trimIndent()
 
+    // ---- hurricanes from high up: a disc of cloud each -----------------------
+
+    val HURRICANE_VEIL_VERTEX = """
+        #version 300 es
+        layout(location = 0) in vec3 aPosition;
+        layout(location = 1) in vec4 aColour;
+
+        uniform mat4 uModel;
+        uniform mat4 uViewProjection;
+
+        out vec4 vColour;
+        out vec3 vUp;
+        out vec3 vBody;
+        // From the camera, in metres.
+        out vec3 vRelative;
+
+        void main() {
+            vColour = aColour;
+            vUp = mat3(uModel) * aPosition;
+            vBody = aPosition;
+            vec4 relative = uModel * vec4(aPosition, 1.0);
+            vRelative = relative.xyz;
+            gl_Position = uViewProjection * relative;
+        }
+    """.trimIndent()
+
+    /**
+     * Lit like the map's veil, but solid where the vertices say, with a little texture. Drawn only
+     * between [uFrom] and [uTo] metres from the camera, so a near and a far pass can share it, and
+     * not where the world's ball (centre [uCentre] from the camera, radius [uRadius]) is in front.
+     */
+    val HURRICANE_VEIL_FRAGMENT = """
+        #version 300 es
+        precision highp float;
+
+        in vec4 vColour;
+        in vec3 vUp;
+        in vec3 vBody;
+        in vec3 vRelative;
+
+        uniform vec3 uSunDirection;
+        uniform float uNoiseScale;
+        uniform float uDrift;
+        uniform float uAlpha;
+        uniform float uFrom;
+        uniform float uTo;
+        uniform vec3 uCentre;
+        uniform float uRadius;
+
+        out vec4 fragColor;
+
+        float hash(vec3 p) {
+            p = fract(p * 0.3183099 + vec3(0.71, 0.113, 0.419));
+            p *= 17.0;
+            return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+        }
+
+        float noise(vec3 x) {
+            vec3 i = floor(x);
+            vec3 f = fract(x);
+            f = f * f * (3.0 - 2.0 * f);
+            return mix(
+                mix(mix(hash(i), hash(i + vec3(1, 0, 0)), f.x), mix(hash(i + vec3(0, 1, 0)), hash(i + vec3(1, 1, 0)), f.x), f.y),
+                mix(mix(hash(i + vec3(0, 0, 1)), hash(i + vec3(1, 0, 1)), f.x), mix(hash(i + vec3(0, 1, 1)), hash(i + vec3(1, 1, 1)), f.x), f.y),
+                f.z);
+        }
+
+        void main() {
+            float away = length(vRelative);
+            if (away < uFrom || away >= uTo) discard;
+            // Behind the world: the sight line passes inside the ball before it gets here.
+            vec3 along = vRelative / away;
+            float nearest = dot(uCentre, along);
+            if (nearest > 0.0 && nearest < away && dot(uCentre, uCentre) - nearest * nearest < uRadius * uRadius) discard;
+            vec3 p = normalize(vBody) * uNoiseScale + vec3(uDrift, 0.0, -uDrift);
+            float n = 0.5 * noise(p) + 0.3 * noise(p * 2.3 + 7.1) + 0.2 * noise(p * 5.1 - 3.7);
+            float m = clamp((n - 0.5) * 2.4 + 0.5, 0.0, 1.0);
+            // Thin cloud breaks up; thick cloud stays whole.
+            float alpha = clamp(vColour.a * (0.7 + 0.6 * m) - 0.12 * (1.0 - m), 0.0, 0.95) * uAlpha;
+            vec3 colour = vColour.rgb * (0.86 + 0.14 * m);
+            vec3 up = normalize(vUp);
+            // Slopes facing the sun brighter than level cloud, those facing away in shadow.
+            vec3 normal = normalize(cross(dFdx(vRelative), dFdy(vRelative)));
+            if (dot(normal, up) < 0.0) normal = -normal;
+            float slope = dot(normal, uSunDirection) - dot(up, uSunDirection);
+            colour *= clamp(1.0 + 1.5 * slope, 0.3, 1.35);
+            float day = smoothstep(-0.12, 0.3, dot(up, uSunDirection));
+            fragColor = vec4(colour * (0.05 + 0.95 * day), alpha * (0.3 + 0.7 * day));
+        }
+    """.trimIndent()
+
     // ---- the map's cloud: a veil over the globe --------------------------
 
     val CLOUD_SHELL_VERTEX = """

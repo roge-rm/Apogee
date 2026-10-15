@@ -57,7 +57,10 @@ class Stress {
         val w = body.angularVelocity
         // And how fast it's spinning up: a part out from the middle needs pushing to turn with it,
         // so a roll from the wings mostly spins the craft rather than twisting its joints.
-        val alpha = body.angularAcceleration(scratchAlpha)
+        // Less the water's torque it isn't told about while settling into the water: a hull set
+        // down unlevel is spun by buoyancy its joints aren't told about, which would load them
+        // with nothing to balance it.
+        val alpha = body.angularAcceleration(scratchTorque.setTo(body.torque).subInPlace(vessel.waterTorque), scratchAlpha)
 
         // Each part's own share: what pushes it, minus what it takes to keep up.
         val offset = scratch
@@ -141,6 +144,7 @@ class Stress {
 
     private val scratch = com.rm.apogee.core.math.Vec3()
     private val scratchAlpha = com.rm.apogee.core.math.Vec3()
+    private val scratchTorque = com.rm.apogee.core.math.Vec3()
 
     private fun ensure(n: Int) {
         if (n <= capacity) return

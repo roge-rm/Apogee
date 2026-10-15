@@ -87,6 +87,7 @@ class SeawayTest {
         val sample = SeaSample()
         val e = Vec3(); val n = Vec3()
         val list = ArrayList<Storms.Storm>()
+        val hurricanes = ArrayList<com.rm.apogee.core.weather.LiveHurricane>()
         for (i in 0 until 1_500) {
             val d = randomDirection(i)
             if (terra.terrain!!.elevation(d) > -500.0) continue
@@ -98,6 +99,10 @@ class SeawayTest {
                 val t = st.start + 0.5 * Storms.CYCLE
                 val c = weather.stormModel.centreAt(st, t, Vec3())
                 if (terra.terrain!!.elevation(c) > -500.0) continue
+                // A thunderstorm's sea, clear of any hurricane's.
+                hurricanes.clear()
+                weather.hurricanes(c, t, 300_000.0, hurricanes)
+                if (hurricanes.isNotEmpty()) continue
                 terra.ocean!!.sample(c, t, sample)
                 if (sample.significantHeight > 8.0) return c to t
             }

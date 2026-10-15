@@ -148,7 +148,8 @@ class WavePatch {
  *
  * Wave size comes from a sea state on [Lattice] corners a few kilometres apart, fixed per
  * [STATE_EPOCH]: wind sea grown over the upwind fetch, swell from distant storms arriving hours
- * later, the storm sea under a storm, and a ripple everywhere.
+ * later, the storm sea under a storm or hurricane, and a ripple everywhere. A hurricane's surge
+ * raises the tide on a shallow coast near it.
  *
  * The waves are [COMPONENTS] fixed trains, each with a wavelength and a 3D direction, so phase is
  * seamless on the sphere. Heights come from the spectrum. Crests are second order. Waves steepen
@@ -363,6 +364,7 @@ class Sea(
     private val wind = Vec3()
     private val probe = Vec3()
     private val stormSea = Storms.StormSea()
+    private val isLand: (Vec3) -> Boolean = { p -> (terrain?.elevation(p) ?: -1.0) > 0.0 }
 
     private class System(var hs: Double, var period: Double, val direction: Vec3, var spread: Double, var gamma: Double)
     private val systems = Array(5) { System(0.0, 1.0, Vec3(), 1.0, 1.0) }
@@ -396,7 +398,8 @@ class Sea(
         }
         // What storms do to it.
         if (weather != null) {
-            weather.stormModel.seaAt(u, time, stormSea) { p -> (terrain?.elevation(p) ?: -1.0) > 0.0 }
+            weather.stormModel.seaAt(u, time, stormSea, isLand)
+            weather.hurricaneModel.seaAt(u, time, stormSea)
         } else {
             stormSea.stormHs = 0.0; stormSea.swellHs = 0.0
         }
@@ -663,7 +666,8 @@ class Sea(
     private fun prepareAt(time: Double, spacing: Double, p: Prepared) {
         (if (spacing > COARSE_BED_SPACING) coarseDepth else depth).sample(u, 0.0, depthOut)
         val bed = depthOut[0]
-        val tide = tides.height(u, time, bed)
+        // A hurricane's surge raises the sea on a shallow coast near it.
+        val tide = tides.height(u, time, bed) + (weather?.hurricaneModel?.surge(u, time, bed) ?: 0.0)
         val water = tide - bed
         p.tide = tide; p.water = water
         p.dry = water <= 0.0

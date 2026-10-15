@@ -61,6 +61,9 @@ class AirSample {
     /** How close and how strong the nearest storm is, 0..1, for how dark the sky gets. */
     var storm = 0.0
 
+    /** How far under a hurricane, 0..1, which darkens the sky past any storm. */
+    var gloom = 0.0
+
     /** Extra air loading from cloud water, as a multiplier on density. 1 in clear air. */
     val loading: Double get() = 1.0 + cloudDensity * (cloudType?.dragLoad ?: 0.0)
 
@@ -73,6 +76,7 @@ class AirSample {
         precipitation = 0.0
         visibility = CLEAR_VISIBILITY
         storm = 0.0
+        gloom = 0.0
     }
 
     fun setTo(other: AirSample): AirSample {
@@ -84,6 +88,7 @@ class AirSample {
         precipitation = other.precipitation
         visibility = other.visibility
         storm = other.storm
+        gloom = other.gloom
         return this
     }
 
@@ -104,6 +109,8 @@ class CloudShape(
     val far: Boolean = false,
     /** Stable visual identity, independent of the camera and listing order. */
     val key: Long = 0L,
+    /** Part of a hurricane, which is drawn as a veil instead from high up. */
+    val hurricane: Boolean = false,
 ) {
     val lobes = ArrayList<CloudLobe>(6)
 

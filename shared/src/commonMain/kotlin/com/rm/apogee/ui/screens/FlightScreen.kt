@@ -54,6 +54,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onSizeChanged
@@ -1100,6 +1101,19 @@ private fun MapIcons(labels: List<com.rm.apogee.game.GameSession.MapLabel>) {
                 com.rm.apogee.game.GameSession.IconKind.CRAFT -> {
                     // A chevron pointing the way it's going.
                     rotate(label.angle, c) { poly(1f to 0f, -0.7f to -0.75f, -0.35f to 0f, -0.7f to 0.75f, fill = true) }
+                }
+                com.rm.apogee.game.GameSession.IconKind.HURRICANE -> {
+                    // An eye with two arms trailing its turn, mirrored in the south.
+                    val path = androidx.compose.ui.graphics.Path().apply {
+                        moveTo(c.x, c.y - 0.35f * r); quadraticTo(c.x + 0.7f * r, c.y - 0.75f * r, c.x + 0.95f * r, c.y + 0.05f * r)
+                        moveTo(c.x, c.y + 0.35f * r); quadraticTo(c.x - 0.7f * r, c.y + 0.75f * r, c.x - 0.95f * r, c.y - 0.05f * r)
+                    }
+                    scale(if (label.mirrored) -1f else 1f, 1f, c) {
+                        drawPath(path, shadow, style = androidx.compose.ui.graphics.drawscope.Stroke(width = stroke.width + 2.dp.toPx()))
+                        drawCircle(shadow, r * 0.35f, c, style = androidx.compose.ui.graphics.drawscope.Stroke(width = stroke.width + 2.dp.toPx()))
+                        drawPath(path, colour, style = stroke)
+                        drawCircle(colour, r * 0.35f, c, style = stroke)
+                    }
                 }
                 com.rm.apogee.game.GameSession.IconKind.MARK -> when (label.mark?.kind) {
                     com.rm.apogee.game.MarkKind.AP -> poly(0f to -0.75f, 0.7f to 0.5f, -0.7f to 0.5f, fill = true)

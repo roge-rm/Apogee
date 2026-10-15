@@ -428,6 +428,8 @@ class ClientPrediction(
             system.rebase(local.body.position, local.body.linearVelocity, local.referenceBodyId, state.referenceBodyId, replica.time)
             local.referenceBodyId = state.referenceBodyId
             renderOffset.setZero()
+            // The breakers' push was in the old body's sea.
+            local.resetSlam()
         }
 
         // Where it was drawn, not where it last stepped to, or the part step counts as error.

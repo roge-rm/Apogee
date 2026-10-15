@@ -481,8 +481,31 @@ class Vessel(
     /** Seconds afloat, counting back down out of the water, up to a few. */
     var waterTime: Double = 0.0
 
-    /** Forgets [waterLoad] and [waterTime], so the next time in the water starts afresh. */
+    /**
+     * Each part's slam from breaking water, smoothed over a few tenths of a second, world axes: the
+     * force in N and its moment about the part's centre in N m, six values a part. See
+     * [com.rm.apogee.core.world.Hydrostatics].
+     */
+    var slamLoad: DoubleArray = DoubleArray(design.parts.size * 6)
+        private set
+
+    /**
+     * The torque the water put on the craft this tick that [com.rm.apogee.core.world.Stress] isn't
+     * handed as part forces, world axes, N m.
+     */
+    val waterTorque = Vec3()
+
+    /** Whether [slamLoad] holds anything. */
+    var slamming: Boolean = false
+
+    /** Forgets [slamLoad]. */
+    fun resetSlam() {
+        if (slamming) { slamLoad.fill(0.0); slamming = false }
+    }
+
+    /** Forgets [waterLoad], [waterTime] and [slamLoad], so the next time in the water starts afresh. */
     fun resetWaterLoad() {
+        resetSlam()
         if (waterTime == 0.0 && (waterLoad.isEmpty() || waterLoad[0].isNaN())) return
         waterLoad.fill(Double.NaN)
         waterTime = 0.0
@@ -1697,6 +1720,8 @@ class Vessel(
         wet = null
         partForce = DoubleArray(parts * 3)
         waterLoad = DoubleArray(parts * 3) { Double.NaN }
+        slamLoad = DoubleArray(parts * 6)
+        slamming = false
         jointLoad = FloatArray(parts)
         surfaceLoad = FloatArray(parts)
         stress = 0.0

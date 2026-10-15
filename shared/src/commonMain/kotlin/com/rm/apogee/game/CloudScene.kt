@@ -126,6 +126,7 @@ class CloudScene(
      */
     fun update(camera: Vec3, time: Double) {
         weather.sample(camera, time, air)
+        updateHurricanes(time)
         if (time - windAt > 0.25) {
             windAt = time
             weather.surfaceWind(direction.setTo(camera).normalizeInPlace(), time, surfaceWind)
@@ -221,7 +222,8 @@ class CloudScene(
     private fun list(camera: Vec3, time: Double, inner: Double, reach: Double, withShadow: Boolean): List<Lobe> {
         shapes.clear()
         val stormReach = if (reach < this.reach) reach else stormReach
-        listingWeather.clouds(camera.copy().normalizeInPlace(), reach, time, shapes, stormReach, stormDetail)
+        val altitude = camera.length - body.radius
+        listingWeather.clouds(camera.copy().normalizeInPlace(), reach, time, shapes, stormReach, stormDetail, hurricanes = altitude < HURRICANE_PUFFS_TOP)
         val list = ArrayList<Lobe>(shapes.size * 4)
         val curtains = ArrayList<Lobe>()
         for (shape in shapes) {
@@ -232,7 +234,7 @@ class CloudScene(
                 if (distance > far || (inner > 0.0 && distance < inner)) continue
                 val drawReach = if (shape.type == CloudType.CUMULONIMBUS || shape.type == CloudType.DUST) this.stormReach else this.reach
                 val key = RenderItem.cloudKey(if (shape.key != 0L) shape.key else fallbackKey(shape, lobe), if (lobe.visualSlot >= 0) lobe.visualSlot else index)
-                val weight = deckWeight(shape, lobe, camera)
+                val weight = if (shape.hurricane) hurricaneWeight(altitude) else deckWeight(shape, lobe, camera)
                 if (weight < 0.01) continue
                 if (shape.type == CloudType.CIRRUS) cirrusStreaks(shape.amount, lobe, distance, drawReach, weight, list, time, shape.amountRate, key)
                 else list.add(lobeFor(shape.type, shape.amount, lobe, distance, fadeAt = drawReach, weight = weight, drift = shape.drift, listedAt = time, amountRate = shape.amountRate, key = key))
@@ -241,7 +243,9 @@ class CloudScene(
                 val distance = lobe.centre.distanceTo(camera) - lobe.horizontal
                 // Negative distance means the camera is inside this puff, so keep it in the near sky.
                 if (distance > far || (inner > 0.0 && distance < inner)) continue
-                curtains.add(curtainFor(lobe, distance, this.stormReach, shape.drift, time, forming(shape.type, shape.amount), RenderItem.cloudKey(shape.key, 32768 + (if (lobe.visualSlot >= 0) lobe.visualSlot else index))))
+                val formed = forming(shape.type, shape.amount) * (if (shape.hurricane) hurricaneWeight(altitude) else 1.0)
+                if (formed < 0.01) continue
+                curtains.add(curtainFor(lobe, distance, this.stormReach, shape.drift, time, formed, RenderItem.cloudKey(shape.key, 32768 + (if (lobe.visualSlot >= 0) lobe.visualSlot else index))))
             }
         }
         if (withShadow) {
@@ -256,6 +260,47 @@ class CloudScene(
         list.addAll(curtains)
         return list
     }
+
+    // --- hurricanes from afar --------------------------------------------------
+
+    /** For listing hurricanes off the frame thread; made only where they can happen. */
+    private val hurricaneWeather by lazy { Weather(body, config) }
+    @Volatile private var hurricaneListing = false
+    private var hurricanesAt = Double.NEGATIVE_INFINITY
+
+    /** The hurricanes alive on this world, as last listed. Empty where there are none. */
+    @Volatile var hurricanes: List<com.rm.apogee.core.weather.LiveHurricane> = emptyList()
+        private set
+
+    /** Their discs, for the map and high up, as last listed, or null for none. */
+    @Volatile var hurricaneVeil: com.rm.apogee.render.CloudShell? = null
+        private set
+
+    private fun updateHurricanes(time: Double) {
+        if (config.intensity.rare <= 0.0 || hurricaneListing) return
+        if (kotlin.math.abs(time - hurricanesAt) < HURRICANE_RELIST_SECONDS) return
+        hurricanesAt = time
+        hurricaneListing = true
+        scope.launch(kotlinx.coroutines.Dispatchers.Default) {
+            try {
+                val live = ArrayList<com.rm.apogee.core.weather.LiveHurricane>()
+                hurricaneWeather.hurricanes(Vec3.unitY(), time, Double.MAX_VALUE, live)
+                hurricaneVeil = com.rm.apogee.render.HurricaneVeil.build(live, body.radius, VEIL_REVISIONS.incrementAndGet().toInt())
+                hurricanes = live
+            } finally {
+                hurricaneListing = false
+            }
+        }
+    }
+
+    /**
+     * How much of the hurricanes' lobes to draw from a camera [altitude] metres up: all low down,
+     * none from where their veil has taken over.
+     */
+    private fun hurricaneWeight(altitude: Double): Double = 1.0 - smooth(HURRICANE_PUFFS_FADE, HURRICANE_PUFFS_TOP, altitude)
+
+    /** How much of the hurricanes' veil to draw from a camera [altitude] metres up, 0..1: none low down. */
+    fun hurricaneVeilAlpha(altitude: Double): Float = smooth(12_000.0, 30_000.0, altitude).toFloat()
 
     /** The clouds' shadows on the ground round the camera, as last worked out, or null. */
     @Volatile var shadowGrid: com.rm.apogee.render.CloudShadowGrid? = null
@@ -668,7 +713,11 @@ class CloudScene(
                 null -> if (sky === com.rm.apogee.render.SkyColours.TERRA) floatArrayOf(0.55f, 0.58f, 0.62f) else sky.haze
             }
             val t = if (air.cloudType == null) WHITE else sky.cloud
-            return floatArrayOf(base[0] * t[0] * (0.5f + 0.5f * light), base[1] * t[1] * (0.5f + 0.5f * light), base[2] * t[2] * (0.5f + 0.5f * light))
+            // Under a hurricane, the dark grey of its rain whatever the cloud.
+            val g = air.gloom.toFloat()
+            val k = 0.5f + 0.5f * light
+            fun mix(i: Int, rain: Float) = (base[i] * t[i] * (1f - g) + rain * g) * k
+            return floatArrayOf(mix(0, 0.30f), mix(1, 0.32f), mix(2, 0.35f))
         }
 
     /** 1 deep in cloud, where the sky is gone. */
@@ -677,9 +726,10 @@ class CloudScene(
     /** How much a deck overhead closes off the sky, 0..1. */
     @Volatile private var overcast = 0.0
 
-    /** Sunlight left. A storm, rain, or an overcast sky over the camera dims it. */
+    /** Sunlight left. A storm, rain, or an overcast sky over the camera dims it, and a hurricane most. */
     val lightScale: Float get() =
-        (1.0 - 0.6 * air.storm - 0.25 * air.precipitation - 0.4 * overcast).coerceIn(0.25, 1.0).toFloat()
+        (1.0 - 0.6 * air.storm - 0.25 * air.precipitation - 0.4 * overcast - 0.6 * air.gloom)
+            .coerceIn(0.25 - 0.12 * air.gloom, 1.0).toFloat()
 
     private fun colourOf(type: CloudType, shade: Double): FloatArray {
         val s = shade.toFloat()
@@ -769,6 +819,22 @@ class CloudScene(
         }
 
         const val RELIST_SECONDS = 1.0
+
+        /**
+         * Hurricanes are listed again this often, in seconds of game time. Moving at 10 m/s at most,
+         * one moves 20 m between.
+         */
+        const val HURRICANE_RELIST_SECONDS = 2.0
+
+        /** Hurricane veils' revisions, shared by every scene so a new world's veil never matches an old one's. */
+        val VEIL_REVISIONS = com.rm.apogee.platform.AtomicLong(0L)
+
+        /**
+         * Hurricanes' lobes fade out between these heights of the camera, in metres, as their veil
+         * fades in, and aren't listed above.
+         */
+        const val HURRICANE_PUFFS_FADE = 15_000.0
+        const val HURRICANE_PUFFS_TOP = 32_000.0
 
         /** Fainter than this, a lobe isn't drawn, and takes no place in the budget. */
         const val VISIBLE_ALPHA = 0.01f

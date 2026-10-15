@@ -51,6 +51,20 @@ class Hydrostatics {
     var splashCount = 0
         private set
 
+    /** The torque about the centre of mass of what this tick's [apply] handed [Stress], N m. */
+    val recordedTorque = Vec3()
+
+    /** Off for tests that need a sea without breakers. */
+    internal var slamOn = true
+
+    /** The last slammed craft's crest speed in m/s and the way its sea runs, for tests. */
+    internal var lastCrestSpeed = 0.0
+        private set
+    internal val lastSeaWay = Vec3()
+
+    /** Whether the sea where the last craft was breaks too hard for it to sleep. See [keepsAwake]. */
+    val breakers: Boolean get() = keepsAwake(sea)
+
     /** The significant wave height where the last craft was, in metres. */
     var seaHeight: Double = 0.0
         private set
@@ -125,6 +139,7 @@ class Hydrostatics {
     private var partWater = DoubleArray(96)
 
     fun apply(vessel: Vessel, attractor: CelestialBody, time: Double, dt: Double) {
+        recordedTorque.setZero()
         submergedVolume = 0.0
         splashCount = 0
         vessel.buoyed = false
@@ -227,6 +242,8 @@ class Hydrostatics {
         splashes(vessel, attractor, ocean, time)
         applySurfaces(vessel, attractor, ocean, time, dt)
         flood(vessel, attractor, ocean, time, dt)
+        slam(vessel, attractor, ocean, submergedCells, dt)
+        rigs(vessel, attractor, ocean, time, dt)
         if (submergedCells == 0) { pound(vessel, dt); return }
 
         // How the hull meets the water as a whole, from its length and speed. The bow wave only
@@ -336,6 +353,13 @@ class Hydrostatics {
         vessel.submerged = whole > 0.0 && submergedVolume > SUBMERGED_SHARE * whole
     }
 
+    /** Hands [force] on [part] to [Stress], and adds its moment to [recordedTorque]. */
+    private fun record(vessel: Vessel, part: Int, force: Vec3) {
+        vessel.recordForce(part, force)
+        vessel.partOffsetWorld(part, slamArm)
+        recordedTorque.addInPlace(slamArm.crossInPlace(force))
+    }
+
     private fun hydro(part: Int, force: Vec3) {
         partHydro[part * 3] += force.x
         partHydro[part * 3 + 1] += force.y
@@ -363,8 +387,282 @@ class Hydrostatics {
             }
             force.setTo(partHydro[o] - average[o], partHydro[o + 1] - average[o + 1], partHydro[o + 2] - average[o + 2])
             average[o] += force.x * follow; average[o + 1] += force.y * follow; average[o + 2] += force.z * follow
-            if (share > 0.0 && force.lengthSq > 0.0) vessel.recordForce(i, force.mulInPlace(share))
+            if (share > 0.0 && force.lengthSq > 0.0) record(vessel, i, force.mulInPlace(share))
         }
+    }
+
+    /**
+     * Breaking crests and green water hitting the craft. Each wet cell near the top of a tall
+     * breaking crest's front is struck by water running at the crest's speed along the way the sea
+     * runs: a pressure of half rho v² times [SLAM_CD], by how much the crest breaks and how tall it
+     * stands, on the cell's open faces toward the sea. v is the crest speed less the cell's own
+     * speed along the sea, so a craft already carried along feels less. Smoothed over
+     * [SLAM_SMOOTH] per part, pushed on the craft and handed to [Stress], phased in like [pound].
+     *
+     * Nothing pushes down on decks: pushing a bow under has it plunge, and the impact takes small
+     * parts off ships that should ride a rogue.
+     */
+    private fun slam(vessel: Vessel, attractor: CelestialBody, ocean: com.rm.apogee.core.terrain.Ocean, submergedCells: Int, dt: Double) {
+        val n = vessel.defs.size
+        val load = vessel.slamLoad
+        if (load.size != n * 6) return
+        val hs = sea.significantHeight
+        val most = mostBreaking(sea)
+        val live = submergedCells > 0 && most > SLAM_FROM && hs > SLAM_HS_FROM && sea.depth > 0.0
+        if (!live && !vessel.slamming) return
+        if (!slamOn) { if (vessel.slamming) { load.fill(0.0); vessel.slamming = false }; return }
+        val body = vessel.body
+        val tideRadius = attractor.radius + sea.tide
+        val follow = (dt / SLAM_SMOOTH).coerceAtMost(1.0)
+        val crestSpeed = if (live) seaRun(body.position, slamDirection) else 0.0
+        // The way the sea runs in the body's axes, and a step a sixteenth of its waves' length
+        // for their slope.
+        rotation.inverseRotate(slamDirection, slamAlong)
+        val slamStep = (2.0 * Math.PI * crestSpeed * crestSpeed / STANDARD_GRAVITY / 16.0).coerceAtLeast(1.0)
+        attractor.surfaceVelocityAt(body.position, slamGround)
+        // Cells under water or under a breaking lip, so the craft's mass is shared among them.
+        var struck = 0
+        if (live) {
+            var k = 0
+            for (i in 0 until n) for (cell in vessel.defs[i].volumeCells) {
+                if (cellFraction[k] > 0.0 || lipWeight(vessel, i, cell, cellSurface[k], tideRadius) > 0.0) struck++
+                k++
+            }
+        }
+        val cellMass = body.mass / struck.coerceAtLeast(1)
+        val share = ((vessel.waterTime - POUNDING_SETTLE) / POUNDING_SETTLE).coerceIn(0.0, 1.0)
+        var any = false
+        var c = 0
+        for (i in 0 until n) {
+            val def = vessel.defs[i]
+            val cells = def.volumeCells
+            slamForce.setZero(); slamMoment.setZero()
+            if (live) {
+                val size = def.volumeCellSize
+                val placed = vessel.design.parts[i]
+                val faces = exposure(vessel)[i]
+                // A ladder is rungs: most of the water goes through.
+                val solid = if (def.module<com.rm.apogee.core.part.Ladder>() != null) LADDER_SOLID else 1.0
+                vessel.partOffsetWorld(i, slamCentre)
+                // The sea's run in the part's axes, and which faces it meets.
+                body.orientation.inverseRotate(slamDirection, slamLocal)
+                placed.rotation.inverseRotate(slamLocal, slamLocal)
+                for (cn in cells.indices) {
+                    val surface = cellSurface[c + cn]
+                    // In the water, or above it under the breaking lip, less toward its top.
+                    val fraction = kotlin.math.max(cellFraction[c + cn], lipWeight(vessel, i, cells[cn], surface, tideRadius))
+                    if (fraction <= 0.0) continue
+                    val stands = surface - tideRadius
+                    val breaks = smooth(CREST_FROM, CREST_FULL, stands / hs) * most
+                    if (breaks <= SLAM_FROM || stands <= SLAM_HEIGHT_FROM) continue
+                    vessel.partPointOffsetWorld(i, cells[cn], offset)
+                    point.setTo(offset).addInPlace(body.position)
+                    // Only near the top: the broken water doesn't reach far down.
+                    val zone = SLAM_ZONE + SLAM_ZONE_SHARE * stands
+                    val reach = 1.0 - (surface - point.length) / zone
+                    if (reach <= 0.0) continue
+                    // Only on the crest's front, where the sea slopes down ahead: once it's passed
+                    // over, the water runs on.
+                    attractor.toBodyFixed(point, rotation, bodyFixed)
+                    slamProbe.setTo(bodyFixed).addScaledInPlace(slamAlong, slamStep)
+                    val ahead = patch.height(slamProbe)
+                    slamProbe.setTo(bodyFixed).addScaledInPlace(slamAlong, -slamStep)
+                    val face = smooth(FACE_FROM, FACE_FULL, (patch.height(slamProbe) - ahead) / (2.0 * slamStep))
+                    if (face <= 0.0) continue
+                    body.velocityAtOffset(offset, relative)
+                    relative.subInPlace(slamGround)
+                    val closing = crestSpeed - (relative dot slamDirection)
+                    if (closing <= 0.0) continue
+                    val strength = (breaks - SLAM_FROM) / (1.0 - SLAM_FROM) *
+                        smooth(SLAM_HEIGHT_FROM, SLAM_HEIGHT_FULL, stands) * reach.coerceAtMost(1.0) * face * fraction
+                    val pressure = 0.5 * ocean.density * SLAM_CD * strength * closing * closing
+                    // Faces toward the sea: the water runs along +d, so it meets the -d face.
+                    val open = faces[cn].toInt()
+                    val front =
+                        (if (open and (if (slamLocal.x > 0.0) MINUS_X else PLUS_X) != 0) abs(slamLocal.x) * size.y * size.z else 0.0) +
+                        (if (open and (if (slamLocal.y > 0.0) MINUS_Y else PLUS_Y) != 0) abs(slamLocal.y) * size.x * size.z else 0.0) +
+                        (if (open and (if (slamLocal.z > 0.0) MINUS_Z else PLUS_Z) != 0) abs(slamLocal.z) * size.x * size.y else 0.0)
+                    force.setTo(slamDirection).mulInPlace(solid * pressure * front)
+                    // Never more than brings this cell's share of the craft up to the crest's speed
+                    // in a tick, or a light craft is flung past it.
+                    val limit = cellMass * closing / dt
+                    val magnitude = force.length
+                    if (magnitude > limit) force.mulInPlace(limit / magnitude)
+                    slamForce.addInPlace(force)
+                    // Its moment about the part's centre.
+                    slamArm.setTo(offset).subInPlace(slamCentre)
+                    slamMoment.addInPlace(slamArm.crossInPlace(force))
+                }
+            }
+            var wet = 0
+            if (live) for (cn in cells.indices) {
+                if (cellFraction[c + cn] > 0.0 || lipWeight(vessel, i, cells[cn], cellSurface[c + cn], tideRadius) > 0.0) wet++
+            }
+            c += cells.size
+            val o = i * 6
+            load[o] += (slamForce.x - load[o]) * follow
+            load[o + 1] += (slamForce.y - load[o + 1]) * follow
+            load[o + 2] += (slamForce.z - load[o + 2]) * follow
+            load[o + 3] += (slamMoment.x - load[o + 3]) * follow
+            load[o + 4] += (slamMoment.y - load[o + 4]) * follow
+            load[o + 5] += (slamMoment.z - load[o + 5]) * follow
+            force.setTo(load[o], load[o + 1], load[o + 2])
+            val felt = force.length
+            if (felt < SLAM_LEAST) {
+                // Faded out: let it go rather than carry a trickle forever.
+                if (!live || slamForce.lengthSq == 0.0) for (k in 0 until 6) load[o + k] = 0.0 else any = true
+                continue
+            }
+            any = true
+            // Pushes no more than brings the part's wet share of the craft up to the crest's speed
+            // now, so the smoothed load can't carry it on past the crest.
+            vessel.partOffsetWorld(i, offset)
+            body.velocityAtOffset(offset, relative)
+            relative.subInPlace(slamGround)
+            val limit = wet * cellMass * (crestSpeed - (relative dot slamDirection)).coerceAtLeast(0.0) / dt
+            if (felt <= 0.0 || limit <= 0.0) continue
+            val keep = (limit / felt).coerceAtMost(1.0)
+            force.mulInPlace(keep)
+            body.applyForceAtOffset(force, offset)
+            slamMoment.setTo(load[o + 3], load[o + 4], load[o + 5]).mulInPlace(keep)
+            body.applyTorque(slamMoment)
+            if (share > 0.0) record(vessel, i, force.mulInPlace(share))
+        }
+        vessel.slamming = any
+        if (any && live) {
+            lastCrestSpeed = crestSpeed
+            lastSeaWay.setTo(slamDirection)
+        }
+    }
+
+    /**
+     * Masts and sails driven into the water, as a boat is knocked down or rolls over: the water's
+     * drag on the sail set, square to it, and on the bare spar across it, over the share of the mast
+     * under the surface. Handed to [Stress] whole, so a sail dragged under can snap its mast.
+     */
+    private fun rigs(vessel: Vessel, attractor: CelestialBody, ocean: com.rm.apogee.core.terrain.Ocean, time: Double, dt: Double) {
+        val body = vessel.body
+        val sheet = vessel.control.throttle.coerceIn(0.0, 1.0)
+        for (i in vessel.defs.indices) {
+            val def = vessel.defs[i]
+            val sail = def.module<com.rm.apogee.core.part.Sail>() ?: continue
+            val placed = vessel.design.parts[i]
+            placed.rotation.rotate(Vec3.unitY(), rigAxis)
+            body.orientation.rotate(rigAxis, rigAxis)
+            vessel.partOffsetWorld(i, rigCentre)
+            val half = def.boundsHalfExtents.y
+            // How deep the mast's foot and head are under the surface.
+            val foot = depthAt(attractor, rigPoint.setTo(rigCentre).addScaledInPlace(rigAxis, -half).addInPlace(body.position))
+            val head = depthAt(attractor, rigPoint.setTo(rigCentre).addScaledInPlace(rigAxis, half).addInPlace(body.position))
+            if (foot <= 0.0 && head <= 0.0) continue
+            // The share of it under, from foot (-1) to head (1) along the mast.
+            val under: Double
+            val from: Double
+            val to: Double
+            if (foot > 0.0 && head > 0.0) { under = 1.0; from = -1.0; to = 1.0 } else {
+                val cross = foot / (foot - head)
+                under = if (foot > 0.0) cross else 1.0 - cross
+                if (foot > 0.0) { from = -1.0; to = -1.0 + 2.0 * cross } else { from = -1.0 + 2.0 * cross; to = 1.0 }
+            }
+            // Pushed where the wet part's middle is.
+            offset.setTo(rigCentre).addScaledInPlace(rigAxis, 0.5 * (from + to) * half)
+            body.velocityAtOffset(offset, relative)
+            waterVelocity(vessel, attractor, ocean, time, i, waterVelocity)
+            relative.subInPlace(waterVelocity)
+            val speed = relative.length
+            if (speed < 1e-6) continue
+            // Square to the sail as it's set: its chord runs from the part's -Z, turned round the
+            // mast by its angle.
+            val angle = vessel.sailAngle[i]
+            rigNormal.setTo(kotlin.math.cos(angle), 0.0, -kotlin.math.sin(angle))
+            placed.rotation.rotate(rigNormal, rigNormal)
+            body.orientation.rotate(rigNormal, rigNormal)
+            val torn = vessel.isBroken(i)
+            // Stowed by its action group, it's furled whatever the sheet.
+            val set = if (vessel.groupState(i) >= 0) sheet else 0.0
+            val canvas = if (torn) 0.0 else set * sail.area * under
+            val across = relative dot rigNormal
+            force.setTo(rigNormal).mulInPlace(-0.5 * ocean.density * SAIL_WATER_CD * canvas * across * abs(across))
+            // The spar across its length, with the boom, rigging and any sail furled on it.
+            rigNormal.setTo(relative).addScaledInPlace(rigAxis, -(relative dot rigAxis))
+            val furled = if (torn) 0.0 else (1.0 - set) * FURLED_SHARE * sail.area
+            val spar = (2.0 * kotlin.math.max(def.boundsHalfExtents.x, def.boundsHalfExtents.z) * 2.0 * half + furled) * under
+            force.addScaledInPlace(rigNormal, -0.5 * ocean.density * SPAR_CD * spar * rigNormal.length)
+            // No more than stops the whole craft in a tick, so it can't throw it back.
+            val limit = body.mass * speed / dt
+            val magnitude = force.length
+            if (magnitude > limit) force.mulInPlace(limit / magnitude)
+            body.applyForceAtOffset(force, offset)
+            record(vessel, i, force)
+        }
+    }
+
+    /** How far under the sea's surface [point] (inertial) is, in metres; less than 0 above it. */
+    private fun depthAt(attractor: CelestialBody, point: Vec3): Double {
+        attractor.toBodyFixed(point, rotation, rigFixed)
+        return attractor.radius + patch.height(rigFixed) - point.length
+    }
+
+    /**
+     * How much of the breaking lip over a tall crest reaches [cell] of [part], from 1 at the
+     * surface to nothing [LIP_SHARE] of the slam zone above it. Nothing for a crest too low to slam.
+     */
+    private fun lipWeight(vessel: Vessel, part: Int, cell: Vec3, surface: Double, tideRadius: Double): Double {
+        val stands = surface - tideRadius
+        if (stands <= SLAM_HEIGHT_FROM) return 0.0
+        val lip = LIP_SHARE * (SLAM_ZONE + SLAM_ZONE_SHARE * stands)
+        vessel.partPointOffsetWorld(part, cell, slamLip)
+        val above = slamLip.addInPlace(vessel.body.position).length - surface
+        return if (above >= lip) 0.0 else (1.0 - above / lip).coerceAtMost(1.0)
+    }
+
+    /**
+     * Which way the sea runs at the craft at [position], into [out] (inertial, unit, across the
+     * surface), and its crests' speed in m/s: each train's way and phase speed, weighed by its
+     * energy, so a rogue running through has its own.
+     */
+    private fun seaRun(position: Vec3, out: Vec3): Double {
+        val l = position.length
+        val ux = position.x / l; val uy = position.y / l; val uz = position.z / l
+        // Into the body's axes for the patch, which is body-fixed.
+        rotation.inverseRotate(slamUp.setTo(ux, uy, uz), slamUp)
+        var sx = 0.0; var sy = 0.0; var sz = 0.0; var speed = 0.0; var weight = 0.0
+        for (j in 0 until patch.n) {
+            val a = patch.a[j]
+            val w = a * a
+            val dot = patch.dx[j] * slamUp.x + patch.dy[j] * slamUp.y + patch.dz[j] * slamUp.z
+            sx += w * (patch.dx[j] - dot * slamUp.x); sy += w * (patch.dy[j] - dot * slamUp.y); sz += w * (patch.dz[j] - dot * slamUp.z)
+            speed += w * patch.omega[j] / patch.k[j]
+            weight += w
+        }
+        out.setTo(sx, sy, sz)
+        if (weight <= 0.0 || out.lengthSq < 1e-18) { out.setZero(); return 0.0 }
+        out.normalizeInPlace()
+        rotation.rotate(out, out)
+        return speed / weight
+    }
+
+    private val slamDirection = Vec3()
+    private val slamGround = Vec3()
+    private val slamLocal = Vec3()
+    private val slamForce = Vec3()
+    private val slamMoment = Vec3()
+    private val slamCentre = Vec3()
+    private val slamArm = Vec3()
+    private val slamUp = Vec3()
+    private val slamAlong = Vec3()
+    private val slamProbe = Vec3()
+    private val slamLip = Vec3()
+    private val rigAxis = Vec3()
+    private val rigCentre = Vec3()
+    private val rigPoint = Vec3()
+    private val rigNormal = Vec3()
+    private val rigFixed = Vec3()
+
+    /** 0 below [from], 1 above [to], smooth between. */
+    private fun smooth(from: Double, to: Double, x: Double): Double {
+        val t = ((x - from) / (to - from)).coerceIn(0.0, 1.0)
+        return t * t * (3.0 - 2.0 * t)
     }
 
     /**
@@ -674,7 +972,7 @@ class Hydrostatics {
         return (depth / height + 0.5).coerceIn(0.0, 1.0)
     }
 
-    private companion object {
+    internal companion object {
         /**
          * How much of a hull's bow drag there is at [speed] m/s for a hull [length] metres long,
          * 0..1. It's the bow wave, set by the Froude number (speed over sqrt(g * length)): almost
@@ -766,6 +1064,65 @@ class Hydrostatics {
         const val BREAKER = 0.1
         const val BREAKING_FROM = 0.25
         const val BREAKER_HS = 6.0
+
+        /**
+         * Slam from breaking water. The pressure is half rho v² times [SLAM_CD], v the crest's
+         * speed into the cell, scaled by how far the breaking passes [SLAM_FROM] and by the
+         * crest's height over the tide from [SLAM_HEIGHT_FROM] to [SLAM_HEIGHT_FULL] metres.
+         * A cell breaks fully where its water stands [CREST_FULL] significant heights over the
+         * tide, from [CREST_FROM]. A storm sea of [STORM_BREAKS] metres breaks fully on its
+         * crests. Seas under [SLAM_HS_FROM] metres don't slam. From 9 m so Wild's biggest storm
+         * crests barely slam and a rogue's do fully.
+         */
+        const val SLAM_CD = 2.0
+        const val SLAM_FROM = 0.3
+        const val SLAM_HEIGHT_FROM = 9.0
+        const val SLAM_HEIGHT_FULL = 25.0
+        const val CREST_FROM = 0.25
+        const val CREST_FULL = 0.7
+        const val STORM_BREAKS = 5.0
+        const val SLAM_HS_FROM = 2.0
+
+        /** A breaking sea this tall, in metres of significant height, keeps craft afloat awake. */
+        const val AWAKE_HS = 4.0
+
+        /** The most the sea in [s] can break: the sample's own, and a storm's crests. */
+        fun mostBreaking(s: com.rm.apogee.core.sea.SeaSample): Double =
+            kotlin.math.max(s.breaking, kotlin.math.min(1.0, s.stormHeight / STORM_BREAKS))
+
+        /** Whether the sea in [s] breaks hard enough to slam or pound a craft, so it can't sleep. */
+        fun keepsAwake(s: com.rm.apogee.core.sea.SeaSample): Boolean =
+            s.depth > 0.0 && s.significantHeight > AWAKE_HS && mostBreaking(s) > SLAM_FROM
+
+        /** How steeply the sea has to fall away ahead for the front of a crest to slam, from and fully. */
+        const val FACE_FROM = 0.1
+        const val FACE_FULL = 0.35
+
+        /** Drag coefficients in water of a sail square on, and of a bare mast across it. */
+        const val SAIL_WATER_CD = 1.2
+        const val SPAR_CD = 1.0
+
+        /** A furled sail with its boom and rigging meets the water like this share of it set. */
+        const val FURLED_SHARE = 0.15
+
+        /** How far over the surface a tall breaking crest's lip reaches, as a share of the slam zone. */
+        const val LIP_SHARE = 0.25
+
+        /**
+         * How deep the broken water reaches, in metres: this much plus a share of the crest's
+         * height over the tide.
+         */
+        const val SLAM_ZONE = 1.0
+        const val SLAM_ZONE_SHARE = 0.3
+
+        /** How much of a ladder's outline meets the water. */
+        const val LADDER_SOLID = 0.2
+
+        /** How long a part's slam takes to build or ease, in seconds. */
+        const val SLAM_SMOOTH = 0.25
+
+        /** Under this many newtons a part's slam is let go. */
+        const val SLAM_LEAST = 1.0
 
         /** The pump, in m³/s. */
         const val PUMP = 0.01

@@ -245,6 +245,9 @@ class WorldView(
     val underwater: Boolean = false,
     /** The planet's cloud as a veil, for the map. Null for none drawn. */
     val cloudShell: CloudShell? = null,
+    /** Hurricanes as discs of cloud ([HurricaneVeil]), and how much of them to draw, 0..1. */
+    val hurricaneVeil: CloudShell? = null,
+    val hurricaneVeilAlpha: Float = 0f,
     /** The sea's surface, metres from the body's centre, for the light under it. 0 for no sea. */
     val seaRadius: Double = 0.0,
     /** How far each of red, green and blue light gets through the sea, in metres per e-fold. */

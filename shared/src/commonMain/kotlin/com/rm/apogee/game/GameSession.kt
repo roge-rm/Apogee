@@ -1780,6 +1780,8 @@ class GameSession private constructor(
                 val theirs = theirs(other)
                 icons += MapIcon(IconKind.BASE, seen.position.copy(), if (theirs) ownerColour(other) else BASE_COLOR, label = if (theirs) other.ownerName else "")
             }
+            // Hurricanes on this world, as last listed.
+            cloudScene?.takeIf { it.body === attractor }?.let { hurricaneIcons(it.hurricanes, attractor.rotationAt(renderTime, Quat()), attractor.radius, icons) }
             // Flags planted on this world, anyone's.
             for (other in client.vessels) {
                 if (other.design.parts.singleOrNull()?.partId != com.rm.apogee.core.world.World.FLAG_PART) continue
@@ -2210,6 +2212,12 @@ class GameSession private constructor(
                     sea = seaSurface,
                     underwater = underwater,
                     cloudShell = mapCloud,
+                    hurricaneVeil = clouds?.hurricaneVeil,
+                    hurricaneVeilAlpha = when {
+                        clouds == null -> 0f
+                        mapMode -> 1f
+                        else -> clouds.hurricaneVeilAlpha(attractor.altitudeOf(cameraPosition))
+                    },
                     seaRadius = if (attractor.ocean != null && !mapMode) attractor.radius + tide else 0.0,
                     water = waterOf(attractor.id),
                     lamps = nearestLamps(cloudCamera),
@@ -2291,13 +2299,17 @@ class GameSession private constructor(
     )
 
     /** What a map icon stands for, which decides its shape. */
-    enum class IconKind { CRAFT, WORLD, BASE, FLAG, STATION, GHOST, MARK, TARGET, OTHER, STAR }
+    enum class IconKind { CRAFT, WORLD, BASE, FLAG, STATION, GHOST, MARK, TARGET, OTHER, STAR, HURRICANE }
 
     /**
      * A thing shown on the map as an icon: what it is, where (around the attractor), its colour, and
      * for the craft, which way it's going. Drawn flat on the screen, one size at any distance.
      */
-    class MapIcon(val kind: IconKind, val at: Vec3, val colour: FloatArray, val heading: Vec3? = null, val label: String = "")
+    class MapIcon(
+        val kind: IconKind, val at: Vec3, val colour: FloatArray, val heading: Vec3? = null, val label: String = "",
+        /** Drawn mirrored: a hurricane turning clockwise, in the south. */
+        val mirrored: Boolean = false,
+    )
 
     /** Whether [vessel] belongs to another player, not this one, the world or nobody. */
     private fun theirs(vessel: com.rm.apogee.net.ClientVessel): Boolean =
@@ -2325,6 +2337,7 @@ class GameSession private constructor(
         val icon: IconKind? = null,
         val colour: FloatArray? = null,
         val angle: Float = 0f,
+        val mirrored: Boolean = false,
     )
 
     /** The names of the worlds the map shows, placed on a [width] x [height] screen. */
@@ -2359,7 +2372,7 @@ class GameSession private constructor(
                     angle = (kotlin.math.atan2((ahead[1] - at[1]).toDouble(), (ahead[0] - at[0]).toDouble()) * 180.0 / kotlin.math.PI).toFloat()
                 }
             }
-            out += MapLabel(icon.label, at[0], at[1], icon = icon.kind, colour = icon.colour, angle = angle)
+            out += MapLabel(icon.label, at[0], at[1], icon = icon.kind, colour = icon.colour, angle = angle, mirrored = icon.mirrored)
         }
         // Every mark gets its icon, even where its tag gives way to another's.
         for (m in view.marks) {
@@ -5651,6 +5664,19 @@ class GameSession private constructor(
         private val AIR_COLOR = floatArrayOf(0.55f, 0.90f, 0.95f, 1f)
         private val NEAR_COLOR = floatArrayOf(1.0f, 0.55f, 0.85f, 1f)
         private val NODE_COLOR = floatArrayOf(0.75f, 0.70f, 1.0f, 1f)
+
+        private val HURRICANE_COLOR = floatArrayOf(0.95f, 0.95f, 1.0f, 1f)
+
+        /**
+         * A map icon for each of [hurricanes] that shows, at its centre on a world of [radius]
+         * turned by [rotation], into [out].
+         */
+        fun hurricaneIcons(hurricanes: List<com.rm.apogee.core.weather.LiveHurricane>, rotation: Quat, radius: Double, out: MutableList<MapIcon>) {
+            for (h in hurricanes) {
+                if (h.wet <= 0.0) continue
+                out += MapIcon(IconKind.HURRICANE, rotation.rotate(Vec3().setTo(h.centre).mulInPlace(radius), Vec3()), HURRICANE_COLOR, mirrored = h.turn < 0.0)
+            }
+        }
 
         /** Each kind of mark's colour on the map, its tag's too. */
         fun markColour(kind: MarkKind): FloatArray = when (kind) {

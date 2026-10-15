@@ -413,6 +413,7 @@ class GlRenderer(
             drawItems(latest.farItems, null, latest, 0.0, cameraPos, farViewProjection.m)
             drawFarGlobes(latest.farGlobes, world, cameraPos, atmosphereFactor)
             drawCloudShell(world, cameraPos)
+            drawHurricaneVeil(world, cameraPos, farViewProjection.m, HURRICANE_VEIL_SPLIT, Float.MAX_VALUE)
             mark(5)
             // Paths use the far projection, since an orbit is hundreds of kilometres across and the
             // near frustum would clip it. Drawn last, over everything, so near ground can't cover a
@@ -439,6 +440,9 @@ class GlRenderer(
         // Cloud after the sea, or the blended sea lays a disc of blue over the cloud deck below a
         // high craft.
         drawDeferredTranslucent(latest, alpha, cameraPos)
+        // Hurricanes nearer than the far pass drew them, behind near ground and craft. After the
+        // puffs: it only shows from above 12 km, over a veil 10 km up, so the puffs are under it.
+        if (world != null && !world.underwater) drawHurricaneVeil(world, cameraPos, nearViewProjection.m, 0f, HURRICANE_VEIL_SPLIT)
         mark(12)
         latest.particles?.let { particles ->
             val world = latest.world
@@ -571,6 +575,42 @@ class GlRenderer(
         // Cells about 40 km across, drifting one across in a couple of hours.
         shader.setFloat("uNoiseScale", (world.radius / CLOUD_SHELL_CELL).toFloat())
         shader.setFloat("uDrift", ((world.time / CLOUD_SHELL_DRIFT) % 1_000.0).toFloat())
+        GLES30.glEnable(GLES30.GL_BLEND)
+        GLES30.glBlendFunc(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA)
+        GLES30.glDepthMask(false)
+        GLES30.glDisable(GLES30.GL_CULL_FACE)
+        mesh.draw()
+        GLES30.glEnable(GLES30.GL_CULL_FACE)
+        GLES30.glDepthMask(true)
+        GLES30.glDisable(GLES30.GL_BLEND)
+    }
+
+    private var hurricaneVeilProgram: ShaderProgram? = null
+    private var hurricaneVeilMesh: CloudShellMesh? = null
+
+    /**
+     * The hurricanes' discs, between [from] and [to] metres from the camera, over what's already
+     * drawn with [viewProjection]. Blended and leaving depth alone; the world's ball hides the far
+     * side.
+     */
+    private fun drawHurricaneVeil(world: WorldView, cameraPos: Vec3, viewProjection: FloatArray, from: Float, to: Float) {
+        val veil = world.hurricaneVeil ?: return
+        if (world.hurricaneVeilAlpha <= 0.01f) return
+        val shader = hurricaneVeilProgram ?: ShaderProgram(Shaders.HURRICANE_VEIL_VERTEX, Shaders.HURRICANE_VEIL_FRAGMENT, "hurricane-veil").also { hurricaneVeilProgram = it }
+        val mesh = hurricaneVeilMesh ?: CloudShellMesh().also { hurricaneVeilMesh = it }
+        if (mesh.revision != veil.revision) mesh.upload(veil)
+        shader.use()
+        modelMatrix.setFromTrs(Vec3.zero(), interpolatedBodyRotation, cameraPos, world.radius)
+        shader.setMat4("uModel", modelMatrix.m)
+        shader.setMat4("uViewProjection", viewProjection)
+        shader.setVec3("uSunDirection", world.sunDirection.x.toFloat(), world.sunDirection.y.toFloat(), world.sunDirection.z.toFloat())
+        shader.setFloat("uNoiseScale", (world.radius / HURRICANE_VEIL_CELL).toFloat())
+        shader.setFloat("uDrift", ((world.time / CLOUD_SHELL_DRIFT) % 1_000.0).toFloat())
+        shader.setFloat("uAlpha", world.hurricaneVeilAlpha)
+        shader.setFloat("uFrom", from)
+        shader.setFloat("uTo", to)
+        shader.setVec3("uCentre", (-cameraPos.x).toFloat(), (-cameraPos.y).toFloat(), (-cameraPos.z).toFloat())
+        shader.setFloat("uRadius", (world.radius * 0.999).toFloat())
         GLES30.glEnable(GLES30.GL_BLEND)
         GLES30.glBlendFunc(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA)
         GLES30.glDepthMask(false)
@@ -1699,6 +1739,8 @@ class GlRenderer(
         terrainProgram?.release(); terrainProgram = null
         cloudShellProgram?.release(); cloudShellProgram = null
         cloudShellMesh?.release(); cloudShellMesh = null
+        hurricaneVeilProgram?.release(); hurricaneVeilProgram = null
+        hurricaneVeilMesh?.release(); hurricaneVeilMesh = null
         globeMesh?.release(); globeMesh = null
         for (mesh in farGlobeMeshes.values) mesh.release()
         farGlobeMeshes.clear()
@@ -1750,6 +1792,15 @@ class GlRenderer(
         /** How big a cell of the map's cloud texture is, in metres, and how long it takes to drift one, in seconds. */
         private const val CLOUD_SHELL_CELL = 40_000.0
         private const val CLOUD_SHELL_DRIFT = 7_200.0
+
+        /** A hurricane veil's texture cells, in metres. */
+        private const val HURRICANE_VEIL_CELL = 12_000.0
+
+        /**
+         * Nearer than this the veil is drawn in the near pass, behind near ground and craft; further,
+         * in the far pass. Inside the near pass's far plane, [NEAR_FAR_PLANE].
+         */
+        private const val HURRICANE_VEIL_SPLIT = 225_000f
 
         /** Above this height, in metres, the clouds' shadows fade out, and they're gone at twice it. */
         private const val CLOUD_SHADOW_HIGH = 15_000.0

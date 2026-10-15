@@ -66,6 +66,9 @@ internal class Storms(
 
     class Storm {
         var exists = false
+        /** [held] at [heldAt]. */
+        internal var held = 1.0
+        internal var heldAt = Double.NaN
         var cx = 0; var cy = 0; var cycle = 0L
         val origin = Vec3()
         val steer = Vec3()        // tangent, m/s
@@ -340,11 +343,30 @@ internal class Storms(
     fun centreAt(s: Storm, time: Double, out: Vec3): Vec3 =
         out.setTo(s.origin).mulInPlace(bodyRadius).addScaledInPlace(s.steer, time - s.start).normalizeInPlace()
 
-    /** Builds, matures and dies: 0..1. */
+    /** Builds, matures and dies: 0..1. Held back under a hurricane ([held]). */
     fun envelope(s: Storm, time: Double): Double {
         val u = ((time - s.start) / CYCLE).coerceIn(0.0, 1.0)
-        return smooth(0.0, 0.3, u) * (1.0 - smooth(0.7, 1.0, u))
+        val life = smooth(0.0, 0.3, u) * (1.0 - smooth(0.7, 1.0, u))
+        return if (life <= 0.0) 0.0 else life * held(s, time)
     }
+
+    /** The hurricanes, which hold storms back inside them. Set once by [Weather]. */
+    internal var hurricanes: Hurricanes? = null
+
+    /**
+     * How much of [s] there is at [time] for the hurricanes round it, 0..1: none well inside one,
+     * whose own wind and rain take over there. Kept for the last time asked, which is pure.
+     */
+    private fun held(s: Storm, time: Double): Double {
+        val h = hurricanes ?: return 1.0
+        if (!h.active) return 1.0
+        if (s.heldAt == time) return s.held
+        s.held = 1.0 - h.calm(centreAt(s, time, heldCentre), time)
+        s.heldAt = time
+        return s.held
+    }
+
+    private val heldCentre = Vec3()
 
     fun apply(up: Vec3, east: Vec3, north: Vec3, position: Vec3, altitude: Double, groundTop: Double, time: Double, out: AirSample) {
         if (!active) return
@@ -638,6 +660,8 @@ internal class Storms(
 
     private fun collect(s: Storm, from: Double, to: Double, out: MutableList<Strike>) {
         if (!s.exists) return
+        // None from a storm a hurricane has taken over.
+        if (held(s, from) < 0.5) return
         // Strikes only while it's mature enough to have them.
         val first = s.start + 0.25 * CYCLE
         val last = s.start + 0.8 * CYCLE
