@@ -156,12 +156,25 @@ class SoundSceneTest {
     }
 
     @Test
+    fun `a tornado roars from its side when near, and not in space`() {
+        val scene = SoundScene(16)
+        scene.build(SoundScene.Listener(Vec3(), Vec3(1.0, 0.0, 0.0), density = 1.2, tornado = 0.8, tornadoNear = 0.5, tornadoPan = -0.6f), emptyList(), null)
+        val i = scene.indexOf(Recipes.TORNADO)!!
+        assertEquals("thinned a little by the air", 0.8f, scene.param(i, 0), 0.02f)
+        assertEquals(-0.6f, scene.param(i, SharedParams.PAN), 1e-6f)
+        scene.build(air, emptyList(), null)
+        assertNull("none near", scene.indexOf(Recipes.TORNADO))
+        scene.build(SoundScene.Listener(Vec3(), Vec3(1.0, 0.0, 0.0), density = 0.0, tornado = 0.8), emptyList(), null)
+        assertNull("in vacuum", scene.indexOf(Recipes.TORNADO))
+    }
+
+    @Test
     fun `thrusters puff in the air, come through the hull in vacuum, and another craft's are silent there`() {
         val scene = SoundScene(16)
         val mine = SoundScene.Craft(1, true, Vec3(), 1.0).also { it.rcs(0.8) }
         scene.build(air, listOf(mine), null)
         val i = scene.indexOf(Recipes.RCS)!!
-        assertEquals(0.8f, scene.param(i, 0), 1e-6f)
+        assertEquals("thinned a little by the air", 0.8f, scene.param(i, 0), 0.02f)
         assertEquals(0, scene.flags[i] and VoiceFlags.HULL)
 
         scene.build(vacuum, listOf(mine), null)

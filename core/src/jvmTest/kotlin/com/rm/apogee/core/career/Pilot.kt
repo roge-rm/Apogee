@@ -127,8 +127,10 @@ internal class Pilot(private val world: World, private val craft: Vessel) {
         val (_, north) = cape()
         val offset = north - CENTRELINE
         val line = if (sense > 0.0) 0.0 else 180.0
-        // Closing on the line, turned across it more the further off it is.
-        return line - sense * (offset / 20.0).coerceIn(-40.0, 40.0)
+        // Closing on the line, turned across it more the further off it is, and less the faster
+        // it's already closing, or it weaves across the line.
+        val closing = groundVelocity() dot north()
+        return line - sense * ((offset + 8.0 * closing) / 20.0).coerceIn(-40.0, 40.0)
     }
 
     private var downAt = -1.0

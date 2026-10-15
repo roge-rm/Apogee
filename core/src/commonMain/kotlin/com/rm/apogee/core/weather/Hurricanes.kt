@@ -347,7 +347,10 @@ internal class Hurricanes(
      * to [out]. [ocean] is whether it's over the sea. Nothing to do far from any.
      */
     fun apply(up: Vec3, altitude: Double, agl: Double, ocean: Boolean, time: Double, out: AirSample) {
-        if (!active || altitude > TOP) return
+        seenCount = 0
+        // High up only the seen list matters, for a tornado over high ground.
+        val high = altitude > TOP
+        if (!active || (high && agl > Tornadoes.TOP)) return
         for (slot in 0 until slots) {
             val h = hurricane(slot, time)
             if (!reaches(h, up, time)) continue
@@ -358,6 +361,14 @@ internal class Hurricanes(
             val outer = h.outerRadius
             if (r >= outer) continue
             val rm = h.maxWindRadius
+            if (seenCount < seen.size) {
+                val q = seen[seenCount++]
+                q.id = (h.cycle shl 16) xor slot.toLong()
+                q.centre.setTo(at.centre)
+                frame(at.centre, q.east, q.north)
+                q.strength = s; q.maxWindRadius = rm; q.outerRadius = outer; q.turn = h.turn
+            }
+            if (high) continue
 
             val shape = windShape(r, rm, outer)
             val band = bands(r, rm, outer, h.turn)
@@ -583,6 +594,29 @@ internal class Hurricanes(
         }
         return most
     }
+
+    /** One hurricane at one moment, as the tornadoes in its bands need it. */
+    internal class Seen {
+        var id = 0L
+        val centre = Vec3()
+        val east = Vec3()
+        val north = Vec3()
+        var strength = 0.0
+        var maxWindRadius = 0.0
+        var outerRadius = 0.0
+        var turn = 1.0
+
+        fun setTo(h: LiveHurricane): Seen {
+            id = h.id; centre.setTo(h.centre); east.setTo(h.east); north.setTo(h.north)
+            strength = h.strength; maxWindRadius = h.maxWindRadius; outerRadius = h.outerRadius; turn = h.turn
+            return this
+        }
+    }
+
+    /** The hurricanes the last [apply] found its point inside, [seenCount] of them. */
+    internal val seen = Array(4) { Seen() }
+    internal var seenCount = 0
+        private set
 
     /** The hurricanes alive at [time] within [reach] metres of unit [up]'s edge, into [out]. */
     fun near(up: Vec3, time: Double, reach: Double, out: MutableList<LiveHurricane>) {

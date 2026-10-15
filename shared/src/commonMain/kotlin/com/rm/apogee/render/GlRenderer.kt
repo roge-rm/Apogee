@@ -1607,6 +1607,7 @@ class GlRenderer(
             is MeshSpec.Sphere -> MeshBuilder.sphere(spec.radius.toFloat())
             is com.rm.apogee.core.part.ModelSpec -> ModelShapes.build(spec, caps).let { Mesh(it.vertices, it.indices) }
             is CloudPuff -> CloudShapes.puff(spec).let { Mesh(it.vertices, it.indices) }
+            is FunnelPiece -> CloudShapes.funnel(spec).let { Mesh(it.vertices, it.indices) }
             is PavingShape -> Mesh(spec.vertices, spec.indices)
             else -> throw IllegalArgumentException("Cannot draw $spec")
         }

@@ -106,6 +106,7 @@ float trim(int r) {
         case recipe::COMPLEX: return 0.3f;  // background
         case recipe::PORT: return 0.3f;
         case recipe::SAIL: return 0.3f;
+        case recipe::TORNADO: return 0.18f;  // long, so about 6 dB under the engines even close
         case recipe::ROTOR: return 0.35f;  // under the engines, since it can run for ages
         case recipe::RCS: return 0.25f;  // puffs under the engines
         case recipe::IMPACT: return 0.2f;
@@ -679,6 +680,27 @@ void Synth::renderVoice(Voice& v, float& left, float& right) {
             float chop = (v.f[0].band * 1.05f + v.f[3].band * 0.75f) * size;
             float buzz = v.f[2].low * 0.3f * (1.0f - size);
             s = (chop + buzz + v.f[1].low * (0.25f + 0.35f * out)) * out;
+            break;
+        }
+        case recipe::TORNADO: {
+            // A tornado near by: a deep, steady roar that never passes, swelling slowly and
+            // unevenly, with a darker rush on top as it comes close. Brown noise through low
+            // passes and nothing bright, since it can go on for minutes.
+            float loud = clampf(p[0], 0, 1.5f), close = clampf(p[1], 0, 1);
+            // Swells: a slow wander toward a new depth every few seconds.
+            v.state[2] -= dt;
+            if (v.state[2] <= 0) { v.state[1] = 0.55f + 0.45f * rng.uniform(); v.state[2] = 1.5f + 2.5f * rng.uniform(); }
+            v.state[0] += (v.state[1] - v.state[0]) * (dt / 1.4f);
+            float swell = v.state[0];
+            if (control) {
+                v.f[0].set(65.0f + 25.0f * swell, 0.9f, sr);
+                v.f[1].set(200.0f + 140.0f * close, 0.7f, sr);
+                v.f[2].set(380.0f + 260.0f * close * swell, 0.8f, sr);
+            }
+            v.f[0].process(v.brown.next(rng.white()));
+            v.f[1].process(v.brown2.next(rng.white()));
+            v.f[2].process(v.pink.next(rng.white()));
+            s = (v.f[0].low * 0.6f + v.f[1].low * (0.6f + 0.5f * swell) + v.f[2].band * 0.9f * close * swell) * loud;
             break;
         }
         case recipe::SAIL: {

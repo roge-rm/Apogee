@@ -532,10 +532,10 @@ object StockCraft {
         val forward = a.on(cockpit, "bottom", "fuselage-short")
         val aft = a.on(forward, "bottom", "fuselage-long")
         val jet = a.on(aft, "bottom", "engine-zephyr")
-        // Wings on the front station, where it trims with the tail neutral. Further back it's
-        // nose-heavy; further forward it pitches up.
-        a.on(aft, "side-right-fore", "wing-swept")
-        a.on(aft, "side-left-fore", "wing-swept")
+        // Wings far enough back that the lift sits about 16 cm behind the centre of mass, so it
+        // noses down into the airflow by itself. Further forward it pitches up hands off.
+        a.on(aft, "side-right-front", "wing-swept")
+        a.on(aft, "side-left-front", "wing-swept")
         // An all-moving tail; elevons alone can't lift the nose at take-off speed.
         a.on(jet, "surface-0", "tail-stabilator")
         a.on(jet, "surface-1", "tail-stabilator")

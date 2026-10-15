@@ -30,6 +30,7 @@ import com.rm.apogee.core.math.Math
  * - thermals and their cumulus ([Convection]);
  * - storms: towers, gust fronts, rain and lightning ([Storms]);
  * - hurricanes, with rare events on ([Hurricanes]);
+ * - tornadoes and waterspouts under supercells and in hurricane bands ([Tornadoes]);
  * - layer cloud: stratus, altostratus and cirrus;
  * - turbulence, sampled per part ([turbulence]).
  */
@@ -48,6 +49,7 @@ class Weather(
     private val convection = Convection(this, terrainWind, radius, seed, intensity)
     private val storms = Storms(this, radius, seed, intensity)
     private val hurricanes = Hurricanes(this, radius, seed, intensity).also { storms.hurricanes = it }
+    private val tornadoes = Tornadoes(this, radius, seed, intensity, storms, hurricanes)
     private val stormShapes = StormShapes(storms, seed, radius, climate)
     private val hurricaneShapes = HurricaneShapes(seed, radius, climate)
 
@@ -151,6 +153,7 @@ class Weather(
         convection.apply(up, east, north, position, altitude, time, out)
         storms.apply(up, east, north, position, altitude, groundTop, time, out)
         hurricanes.apply(up, altitude, agl, ocean, time, out)
+        tornadoes.apply(position, up, agl, time, out)
         if (climate.layers) layers(up, altitude, groundTop, time, out)
         if (climate.hasDeck) deckAt(altitude, out)
 
@@ -784,6 +787,7 @@ class Weather(
     internal val convectionModel: Convection get() = convection
     internal val stormModel: Storms get() = storms
     internal val hurricaneModel: Hurricanes get() = hurricanes
+    internal val tornadoModel: Tornadoes get() = tornadoes
 
     /**
      * The hurricanes alive at [time] that reach within [reach] metres of unit [direction], into
@@ -791,6 +795,14 @@ class Weather(
      */
     fun hurricanes(direction: Vec3, time: Double, reach: Double, out: MutableList<LiveHurricane>) {
         hurricanes.near(probe.setTo(direction).normalizeInPlace(), time, reach, out)
+    }
+
+    /**
+     * The tornadoes and waterspouts alive at [time] whose wind comes within [reach] metres of
+     * unit [direction], into [out]. Makes new objects, so not for every sample.
+     */
+    fun tornadoes(direction: Vec3, time: Double, reach: Double, out: MutableList<LiveTornado>) {
+        tornadoes.near(direction.copy().normalizeInPlace(), time, reach, out)
     }
 
     companion object {

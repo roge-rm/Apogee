@@ -19,6 +19,13 @@ data class CloudPuff(
 ) : Shape
 
 /**
+ * One of [pieces] lengths of a tornado's funnel, [piece] counting up from the ground. Its own y
+ * runs 0 to 1 up the piece; x and z are in the funnel's top radius. The pieces of one [variant]
+ * meet edge to edge, so a bent funnel is drawn as a few of them, each tilted its own way.
+ */
+data class FunnelPiece(val variant: Int, val piece: Int, val pieces: Int) : Shape
+
+/**
  * Cloud meshes in the game's faceted, flat-shaded style: a subdivided icosahedron pushed in and out
  * by noise, with the underside cut flat like a cumulus base.
  */
@@ -81,6 +88,43 @@ object CloudShapes {
         }
         return vertices to faces
     }
+
+    /**
+     * A funnel piece: a tube narrow at the ground and flaring under the cloud, lumpy in spiral
+     * streaks so its turning shows. Open at both ends, since the ground and the wall cloud hide them.
+     */
+    fun funnel(shape: FunnelPiece): MeshData {
+        val n = shape.pieces.coerceAtLeast(1)
+        val rings = (FUNNEL_RINGS / n).coerceAtLeast(2)
+        val seed = 0x70F0 + shape.variant * 613
+        // Ring i of this piece is ring (piece * rings + i) of the whole funnel, so neighbours share their edge.
+        fun vertex(i: Int, j: Int): DoubleArray {
+            val ring = shape.piece * rings + i
+            val t = ring.toDouble() / (n * rings)
+            val a = 2.0 * kotlin.math.PI * (j + 0.35 * (Noise.hash(seed, ring, j % FUNNEL_SIDES, 0) - 0.5)) / FUNNEL_SIDES
+            val twist = a + 2.6 * t
+            val bump = 1.0 + 0.18 * Noise.simplex(seed + 1, kotlin.math.cos(twist) * 1.4, t * 4.0, kotlin.math.sin(twist) * 1.4) +
+                0.07 * Noise.simplex(seed + 2, kotlin.math.cos(a) * 3.0, t * 11.0, kotlin.math.sin(a) * 3.0)
+            val r = funnelRadius(t) * bump
+            return doubleArrayOf(r * kotlin.math.cos(a), i.toDouble() / rings, r * kotlin.math.sin(a))
+        }
+        val soup = ModelShapes.Soup()
+        for (i in 0 until rings) {
+            val y = (i + 0.5) / rings
+            val inside = doubleArrayOf(0.0, y, 0.0)
+            for (j in 0 until FUNNEL_SIDES) {
+                soup.quad(vertex(i, j), vertex(i, j + 1), vertex(i + 1, j + 1), vertex(i + 1, j), inside)
+            }
+        }
+        return soup.data()
+    }
+
+    /** The funnel's radius [t] of the way up, as a share of its top's: a rope low down, flaring at the top. */
+    fun funnelRadius(t: Double): Double = 0.2 + 0.55 * t * t + 0.25 * t * t * t * t * t * t
+
+    /** Rings up the whole funnel and sides round it. */
+    private const val FUNNEL_RINGS = 12
+    private const val FUNNEL_SIDES = 10
 
     private fun normalise(v: DoubleArray): DoubleArray {
         val l = sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2])

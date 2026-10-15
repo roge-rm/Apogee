@@ -148,8 +148,8 @@ class ControlState {
      * assist's. Every surface, gimbal and reaction wheel reads these, so a hold has the same
      * authority as your thumb.
      */
-    val commandPitch: Double get() = if (stickOverrides) pitch else assistPitch
-    val commandYaw: Double get() = if (stickOverrides) yaw else assistYaw
+    val commandPitch: Double get() = if (stickOverrides && !assistGuarding) pitch else assistPitch
+    val commandYaw: Double get() = if (stickOverrides && !assistGuarding) yaw else assistYaw
     val commandRoll: Double get() = if (stickOverrides && !(assistLevelling && roll == 0.0)) roll else assistRoll
 
     /**
@@ -157,6 +157,12 @@ class ControlState {
      * you roll it yourself. Set by the assist every tick.
      */
     var assistLevelling: Boolean = false
+
+    /**
+     * Stability assist passing the stick's pitch and yaw on through [assistPitch] and [assistYaw],
+     * held back so the craft can't turn faster than its wings can take. Set by the assist every tick.
+     */
+    var assistGuarding: Boolean = false
 
     fun reset() {
         throttle = 0.0; pitch = 0.0; yaw = 0.0; roll = 0.0
@@ -524,6 +530,18 @@ class Vessel(
      */
     var surfaceLoad: FloatArray = FloatArray(design.parts.size)
         private set
+
+    /**
+     * The torque full stick gets from the control surfaces about the craft's own axes, pitch (X),
+     * roll (Y) and yaw (Z), N m, refreshed before stability assist and again in the drag pass. Zero out of the air.
+     */
+    val surfaceAuthority = Vec3()
+
+    /** Speed through the air as of the last refresh, m/s. Zero out of the air. */
+    var airspeed: Double = 0.0
+
+    /** Dynamic pressure as of the last refresh, Pa. Zero out of the air. */
+    var dynamicPressure: Double = 0.0
 
     /**
      * Which parts had their centres under water last tick, to tell a part hitting the sea from one

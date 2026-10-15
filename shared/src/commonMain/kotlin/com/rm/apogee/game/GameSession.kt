@@ -199,7 +199,8 @@ class GameSession private constructor(
     private var rcsFor = -1L
     private var seenFelledRevision = -1
 
-    private var lastReconciledTick = -1L
+    /** The flown craft's observation last reconciled to, so each is used once. */
+    private var lastReconciled: ClientVessel.Observation? = null
 
     /** The server's time, followed smoothly. See [ServerClock]. */
     private val serverClock = ServerClock()
@@ -1332,7 +1333,8 @@ class GameSession private constructor(
                 impactSpeed = impact.speed,
                 brakeIn = if (stopping.isFinite()) (height - stopping) / falling.coerceAtLeast(1.0) else Double.NaN,
                 auto = localAutoLand,
-                canAuto = autopilotAllowed,
+                // Only when the lit engines can hold the craft up, so not under chutes alone.
+                canAuto = autopilotAllowed && (most > g || localAutoLand),
             )
         }
     }
@@ -1782,6 +1784,10 @@ class GameSession private constructor(
             }
             // Hurricanes on this world, as last listed.
             cloudScene?.takeIf { it.body === attractor }?.let { hurricaneIcons(it.hurricanes, attractor.rotationAt(renderTime, Quat()), attractor.radius, icons) }
+            // Tornadoes and waterspouts on this world, as last listed.
+            cloudScene?.takeIf { it.body === attractor }?.let {
+                tornadoIcons(it.tornadoes.forMap(cloudCamera, renderTime), attractor.rotationAt(renderTime, Quat()), attractor.radius, icons)
+            }
             // Flags planted on this world, anyone's.
             for (other in client.vessels) {
                 if (other.design.parts.singleOrNull()?.partId != com.rm.apogee.core.world.World.FLAG_PART) continue
@@ -1813,7 +1819,7 @@ class GameSession private constructor(
             // Warped, the replica can't keep up. It isn't stepped or drawn, only kept in step with
             // staging and fuel for the gauges, and adopted afresh back at real time.
             if (warping) {
-                if (prediction.needsAdopting(focus.design)) prediction.adopt(focus.design, focusState, snapshotTime, client.weather)
+                if (prediction.needsAdopting(focus.design)) focus.observed?.let { prediction.adopt(focus.design, it.kinematics, it.time, client.weather) }
                 prediction.sync(focus.currentStage, focus.activatedParts, focus.fuel)
                 refreshStageCards()
                 lastAdvanceNanos = 0L; lastPresent = Double.NaN
@@ -2033,6 +2039,7 @@ class GameSession private constructor(
             clouds.update(cloudCamera, renderTime)
             if (!mapMode) {
                 clouds.append(bodyRotation, renderTime, items, pool = itemPool)
+                clouds.tornadoes.append(cloudCamera, bodyRotation, renderTime, items, itemPool)
                 World.launchSites.firstOrNull { it.id == "cape" }?.let { cape ->
                     clouds.windsock(cape, cloudCamera, renderTime, bodyRotation, items)
                 }
@@ -2089,9 +2096,12 @@ class GameSession private constructor(
         // Where the ears are, and what air there is to carry anything to them.
         val cameraAir = clouds?.air
         val ear = attractor.toBodyFixed(cameraPosition, bodyRotation, scratchEar)
+        // A tornado's roar, from the side it's on.
+        val roar = if (mapMode || clouds == null) null else clouds.tornadoes.also { it.heard(ear, renderTime) }
+        val listenerRight = cameraRotation.rotate(Vec3.unitX(), Vec3())
         val listener = SoundScene.Listener(
             position = cameraPosition.copy(),
-            right = cameraRotation.rotate(Vec3.unitX(), Vec3()),
+            right = listenerRight,
             density = if (mapMode) 0.0 else attractor.atmosphere?.densityAt(attractor.altitudeOf(cameraPosition)) ?: 0.0,
             wind = cameraAir?.wind?.length ?: 0.0,
             turbulence = cameraAir?.turbulence ?: 0.0,
@@ -2105,6 +2115,9 @@ class GameSession private constructor(
             complex = if (mapMode) 0.0 else nearCape(attractor, ear, CAPE_PADS),
             lampsLit = (scratchLamp.setTo(ear).normalizeInPlace() dot frameSun) < World.LAMP_DUSK,
             port = if (mapMode) 0.0 else nearCape(attractor, ear, CAPE_JETTY),
+            tornado = roar?.loudness ?: 0.0,
+            tornadoNear = roar?.closeness ?: 0.0,
+            tornadoPan = roar?.takeIf { it.loudness > 0.0 }?.let { (bodyRotation.rotate(it.heardFrom, Vec3()) dot listenerRight * 0.8).toFloat() } ?: 0f,
         )
         lastListener = listener
         // Blows, breakages and blasts since the last frame, where they happened on the turning
@@ -2299,7 +2312,7 @@ class GameSession private constructor(
     )
 
     /** What a map icon stands for, which decides its shape. */
-    enum class IconKind { CRAFT, WORLD, BASE, FLAG, STATION, GHOST, MARK, TARGET, OTHER, STAR, HURRICANE }
+    enum class IconKind { CRAFT, WORLD, BASE, FLAG, STATION, GHOST, MARK, TARGET, OTHER, STAR, HURRICANE, TORNADO }
 
     /**
      * A thing shown on the map as an icon: what it is, where (around the attractor), its colour, and
@@ -3267,9 +3280,15 @@ class GameSession private constructor(
     /** The flown craft's lead when last predicted, to tell when it jumps. */
     private var lastViewLead = 0.0
 
-    private fun updatePrediction(focus: ClientVessel, state: VesselKinematics): Vec3 {
+    private fun updatePrediction(focus: ClientVessel, latest: VesselKinematics): Vec3 {
         val now = System.nanoTime()
         val snapshot = client.latestSnapshot
+        // The craft's state and the time it describes, read as one. The client takes a new
+        // snapshot's time before the craft's state, so one landing mid-frame would pair this state
+        // with the next time: on the pad, 50 ms of the planet's turn, metres along the ground.
+        val observed = focus.observed
+        val state = observed?.kinematics ?: latest
+        val stateTime = observed?.time ?: client.viewTime
         // How old the server's word is when we act on it, against the server's clock as followed
         // over many snapshots. One snapshot's jitter is metres at orbital speed.
         if (snapshot != null && snapshot.tick != clockSampledTick) {
@@ -3277,7 +3296,7 @@ class GameSession private constructor(
             serverClock.sample(client.viewTime, client.latestSnapshotNanos / 1e9)
         }
         val present = serverClock.now(now / 1e9)
-        val age = present?.let { (it - (if (snapshot != null) client.viewTime else it)).coerceIn(0.0, MAX_SNAPSHOT_AGE) }
+        val age = present?.let { (it - (if (snapshot != null) stateTime else it)).coerceIn(0.0, MAX_SNAPSHOT_AGE) }
             ?: ((now - client.latestSnapshotNanos) / 1e9)
         // Rebuilt (staging, a part lost), so the replica starts again from the server. Where the
         // craft was drawn is carried over and eased away. Measured at the design's origin, not the
@@ -3288,14 +3307,14 @@ class GameSession private constructor(
                 .subInPlace(predictedRotation.rotate(prediction.replica?.centerOfMass() ?: Vec3()))
         else null
         // In or out of a warp bubble the craft's clock jumps, so the replica starts again from it.
-        val lead = client.viewLead
+        val lead = observed?.kinematics?.lead ?: client.viewLead
         if (client.viewWarp == 1.0 && kotlin.math.abs(lead - lastViewLead) > 1.0) prediction.reset()
         lastViewLead = lead
         if (prediction.needsAdopting(focus.design)) {
             // On the server's clock. See ClientPrediction.adopt.
-            prediction.adopt(focus.design, state, client.viewTime, client.weather)
+            prediction.adopt(focus.design, state, stateTime, client.weather)
             pushControlsToPrediction()
-            lastReconciledTick = -1
+            lastReconciled = null
         }
 
         repeat(pendingLocalStages.getAndSet(0)) { prediction.stage() }
@@ -3314,11 +3333,11 @@ class GameSession private constructor(
         lastAdvanceNanos = now
         lastPresent = present ?: Double.NaN
 
-        if (snapshot != null && snapshot.tick != lastReconciledTick) {
-            lastReconciledTick = snapshot.tick
+        if (snapshot != null && observed !== lastReconciled) {
+            lastReconciled = observed
             val t0 = System.nanoTime()
             val b0 = allocNow()
-            prediction.reconcile(state, age, client.viewTime, neighboursOf(focus, state, client.viewTime), anchored = focus.anchored)
+            prediction.reconcile(state, age, stateTime, neighboursOf(focus, state, stateTime), anchored = focus.anchored)
             addBuildTime(20, System.nanoTime() - t0, allocNow() - b0)
         }
         prediction.sync(focus.currentStage, focus.activatedParts, focus.fuel)
@@ -5666,6 +5685,27 @@ class GameSession private constructor(
         private val NODE_COLOR = floatArrayOf(0.75f, 0.70f, 1.0f, 1f)
 
         private val HURRICANE_COLOR = floatArrayOf(0.95f, 0.95f, 1.0f, 1f)
+        private val TORNADO_COLOR = floatArrayOf(0.85f, 0.88f, 0.95f, 1f)
+
+        /** The map's tornado icon as lines, x0 y0 x1 y1 each, in icon radii with y down. */
+        val TORNADO_GLYPH = floatArrayOf(
+            -0.85f, -0.7f, 0.85f, -0.7f,
+            -0.55f, -0.3f, 0.65f, -0.3f,
+            -0.25f, 0.1f, 0.4f, 0.1f,
+            0.0f, 0.48f, 0.25f, 0.48f,
+            0.12f, 0.82f, 0.18f, 0.82f,
+        )
+
+        /**
+         * A map icon for each of [tornadoes] at its foot, on a world of [radius] turned by
+         * [rotation], into [out]. One just forming or nearly gone has none.
+         */
+        fun tornadoIcons(tornadoes: List<com.rm.apogee.core.weather.LiveTornado>, rotation: Quat, radius: Double, out: MutableList<MapIcon>) {
+            for (t in tornadoes) {
+                if (t.strength <= 0.02) continue
+                out += MapIcon(IconKind.TORNADO, rotation.rotate(Vec3().setTo(t.centre).mulInPlace(radius), Vec3()), TORNADO_COLOR)
+            }
+        }
 
         /**
          * A map icon for each of [hurricanes] that shows, at its centre on a world of [radius]

@@ -83,15 +83,20 @@ class StressTest {
         val rotation = com.rm.apogee.core.math.quatFromTo(Vec3.unitZ(), up)
         val nose = rotation.rotate(Vec3.unitY(), Vec3())
         val velocity = terra.surfaceVelocityAt(position, Vec3()).addScaledInPlace(nose, 260.0)
+        // Nose 8 degrees above the flight path, as in a yank. Full stick alone doesn't get the
+        // stable Sparrow there.
+        val right = rotation.rotate(Vec3.unitX(), Vec3())
+        rotation.setTo(com.rm.apogee.core.math.Quat.fromAxisAngle(right, Math.toRadians(8.0)) * rotation)
         val jet = world.spawnAt(design, "terra", position, velocity, rotation)
         val partsBefore = jet.design.parts.size
+        world.apply(Command.SetSas(jet.id.raw, false))
         world.apply(Command.SetAttitude(jet.id.raw, 1.0, 0.0, 0.0))
         val detached = ArrayList<WorldEvent.PartDetached>()
         repeat((6.0 / dt).toInt()) {
             world.step(dt)
             detached += world.drainEvents().filterIsInstance<WorldEvent.PartDetached>()
         }
-        assertTrue("a full pull at 260 m/s should snap something", detached.isNotEmpty())
+        assertTrue("yanked 8 degrees up at 260 m/s should snap something", detached.isNotEmpty())
         assertTrue("the jet is smaller", world.vessel(jet.id)!!.design.parts.size < partsBefore)
         assertTrue("and what snapped is flying on its own", world.vessels.size > 1)
     }

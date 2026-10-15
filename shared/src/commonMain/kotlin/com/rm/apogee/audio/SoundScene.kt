@@ -123,6 +123,13 @@ class SoundScene(private val budget: Int) {
         val lampsLit: Boolean = false,
         /** The harbour around the listener, from 0 away to 1 on its jetty. */
         val port: Double = 0.0,
+        /**
+         * The nearest tornado's roar, 0..1, how near it is, 0..1 (1 in its core), and its pan,
+         * -1 left to 1 right.
+         */
+        val tornado: Double = 0.0,
+        val tornadoNear: Double = 0.0,
+        val tornadoPan: Float = 0f,
     ) {
         val inAir: Boolean get() = density > AIRLESS
     }
@@ -291,6 +298,12 @@ class SoundScene(private val budget: Int) {
                 v[1] = if (listener.lampsLit) 1f else 0f
                 add(KEY_COMPLEX, Recipes.COMPLEX, 0, v, 1f, 0f, 0f, weight = v[0] * 0.25f)
             }
+            if (listener.tornado > 0.02) {
+                val v = FloatArray(SharedParams.COUNT)
+                v[0] = (listener.tornado * thin).coerceIn(0.0, 1.0).toFloat()
+                v[1] = listener.tornadoNear.coerceIn(0.0, 1.0).toFloat()
+                add(KEY_TORNADO, Recipes.TORNADO, 0, v, 1f, listener.tornadoPan.coerceIn(-0.8f, 0.8f), 0f, weight = v[0] * 0.6f)
+            }
             if (listener.port > 0.02) {
                 val v = FloatArray(SharedParams.COUNT)
                 v[0] = listener.port.coerceIn(0.0, 1.0).toFloat()
@@ -438,6 +451,7 @@ class SoundScene(private val budget: Int) {
         const val KEY_SEA = -8
         const val KEY_COMPLEX = -9
         const val KEY_PORT = -10
+        const val KEY_TORNADO = -11
 
         /**
          * How vacuum-built an engine is, 0..1, from how much thrust it keeps at sea level. A

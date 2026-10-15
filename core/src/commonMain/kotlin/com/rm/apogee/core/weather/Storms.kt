@@ -368,7 +368,14 @@ internal class Storms(
 
     private val heldCentre = Vec3()
 
+    /**
+     * The supercells the last [apply] found reaching its point, for the tornadoes under them.
+     * Refilled by every [apply].
+     */
+    internal val supercellsSeen = ArrayList<Storm>(8)
+
     fun apply(up: Vec3, east: Vec3, north: Vec3, position: Vec3, altitude: Double, groundTop: Double, time: Double, out: AirSample) {
+        supercellsSeen.clear()
         if (!active) return
         // The cells to search depend only on where, and a craft moves a few metres between samples,
         // so keep the search until it's moved [NEAR_MOVE].
@@ -386,6 +393,7 @@ internal class Storms(
             rel.setTo(position).addScaledInPlace(centre, -bodyRadius)
             rel.addScaledInPlace(centre, -(rel dot centre))
             if (rel.length > s.reach) continue
+            if (s.kind == StormKind.SUPERCELL) supercellsSeen.add(s)
             val along = rel dot steerDir
             val across = rel dot right
             val agl = altitude - groundTop
@@ -641,6 +649,31 @@ internal class Storms(
         for (k in 0 until n) {
             val s = storm(found[k], time)
             if (s.exists && envelope(s, time) > 0.0) out.add(s)
+        }
+    }
+
+    /**
+     * The live supercells whose reach comes within [reach] metres of unit [up] at [time], into
+     * [out]. Every one on the world when [reach] spans it. Makes new objects.
+     */
+    fun supercells(up: Vec3, east: Vec3, north: Vec3, reach: Double, time: Double, out: MutableList<Storm>) {
+        if (!active) return
+        val radiusCells = kotlin.math.ceil(min(reach, 4.0 * bodyRadius) / CELL).toInt() + 1
+        val found = ArrayList<Storm>()
+        if (2 * radiusCells + 1 >= cells.perFace) {
+            val sn = cells.perFace
+            for (face in 0 until 6) for (i in 0 until sn) for (j in 0 until sn) {
+                val s = storm((face.toLong() * sn + i) * sn + j, time)
+                if (s.exists && envelope(s, time) > 0.0) found.add(s)
+            }
+        } else {
+            around(up, east, north, radiusCells, time, found)
+        }
+        val c = Vec3()
+        for (s in found) {
+            if (s.kind != StormKind.SUPERCELL) continue
+            if (centreAt(s, time, c).distanceTo(up) * bodyRadius > reach + s.reach) continue
+            out.add(s)
         }
     }
 

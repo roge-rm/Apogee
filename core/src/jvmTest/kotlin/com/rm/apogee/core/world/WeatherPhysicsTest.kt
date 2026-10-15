@@ -79,14 +79,19 @@ class WeatherPhysicsTest {
         val rotation = quatFromTo(Vec3.unitZ(), up)
         val nose = rotation.rotate(Vec3.unitY(), Vec3())
         val velocity = terra.surfaceVelocityAt(position, Vec3()).addScaledInPlace(nose, 260.0)
+        // Nose 8 degrees above the flight path, as in a yank. Full stick alone doesn't get the
+        // stable Sparrow there.
+        val right = rotation.rotate(Vec3.unitX(), Vec3())
+        rotation.setTo(com.rm.apogee.core.math.Quat.fromAxisAngle(right, Math.toRadians(8.0)) * rotation)
         val jet = world.spawnAt(design, "terra", position, velocity, rotation)
+        world.apply(Command.SetSas(jet.id.raw, false))
         world.apply(Command.SetAttitude(jet.id.raw, 1.0, 0.0, 0.0))
         var failed = false
         repeat((6.0 / dt).toInt()) {
             world.step(dt)
             if (world.drainEvents().any { it is WorldEvent.PartDetached && it.cause.contains("under load") }) failed = true
         }
-        assertTrue("a full pull at 260 m/s should break something", failed)
+        assertTrue("yanked 8 degrees up at 260 m/s should break something", failed)
     }
 
     /** Normal weather at the Cape: the jet still takes off and climbs, whole. */

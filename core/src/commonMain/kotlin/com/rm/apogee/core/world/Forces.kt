@@ -471,6 +471,9 @@ class Forces {
     ) {
         tornCount = 0
         overstressedCount = 0
+        vessel.surfaceAuthority.setZero()
+        vessel.airspeed = 0.0
+        vessel.dynamicPressure = 0.0
         val atmosphere = attractor.atmosphere ?: return
         val altitude = attractor.altitudeOf(vessel.body.position)
         // Cloud water and ice thicken the air a craft has to push through.
@@ -488,6 +491,8 @@ class Forces {
         attractor.surfaceVelocityAt(vessel.body.position, scratchSurface)
         scratchSurface.addInPlace(scratchWind)
         scratchVelocity.setTo(vessel.body.linearVelocity).subInPlace(scratchSurface)
+        vessel.airspeed = scratchVelocity.length
+        vessel.dynamicPressure = 0.5 * density * scratchVelocity.lengthSq
         // Still air and a still craft: nothing to do. A craft standing in a gale isn't still
         // against the air.
         if (scratchVelocity.lengthSq < 1e-6 && !gusty) return
@@ -662,6 +667,7 @@ class Forces {
                 val flapForce = flaps(vessel, i, surface, density)
 
                 val controlForce = if (surface.controllable) {
+                    addAuthority(vessel, i, surface, density, localSpeed)
                     deflect(vessel, i, surface, density, localSpeed)
                 } else 0.0
 
@@ -889,6 +895,47 @@ class Forces {
     }
 
     /**
+     * Adds what control surface [partIndex] turns the craft by at full travel to
+     * [Vessel.surfaceAuthority], for stability assist to size its gains by.
+     */
+    private fun addAuthority(vessel: Vessel, partIndex: Int, surface: AeroSurface, density: Double, airspeed: Double) {
+        val lever = poseTorqueOf(vessel, partIndex)
+        if (lever <= 0.0) return
+        val force = (0.5 * density * airspeed * airspeed * surface.area * surface.controlAuthority *
+            normalCoefficient(Math.toRadians(surface.maxDeflection), surface.liftCoefficient, slopeAt(airspeed / soundSpeed)))
+            .coerceAtMost(BLOWBACK_SHARE * surface.loadLimit) * lever
+        // A full command on one axis moves it by its share of that axis, and its torque is shared
+        // the same way.
+        vessel.surfaceAuthority.x += force * poseTorque.x * poseTorque.x
+        vessel.surfaceAuthority.y += force * poseTorque.y * poseTorque.y
+        vessel.surfaceAuthority.z += force * poseTorque.z * poseTorque.z
+    }
+
+    /**
+     * Which way a push from control surface [partIndex] turns the craft, as a unit vector in its
+     * own axes into [poseTorque], and the lever, m. 0 when it can't turn it.
+     */
+    private fun poseTorqueOf(vessel: Vessel, partIndex: Int): Double {
+        val offset = vessel.centerOfMass(poseOffset)
+            .mulInPlace(-1.0).addInPlace(vessel.design.parts[partIndex].position)
+        // The mounting radius: how far off the fuselage axis, +Y, it is.
+        poseRadial.setTo(offset.x, 0.0, offset.z)
+        val radialLength = poseRadial.length
+        if (radialLength < 1e-6) return 0.0
+        poseRadial.mulInPlace(1.0 / radialLength)
+        // The way it can push: across the fuselage and the radius.
+        poseNormal.setTo(0.0, 1.0, 0.0).crossInPlace(poseRadial)
+        if (poseNormal.length < 1e-6) return 0.0
+        poseNormal.normalizeInPlace()
+        // The torque a unit push there makes.
+        poseTorque.setTo(offset).crossInPlace(poseNormal)
+        val torqueLength = poseTorque.length
+        if (torqueLength < 1e-6) return 0.0
+        poseTorque.mulInPlace(1.0 / torqueLength)
+        return torqueLength
+    }
+
+    /**
      * How far control surface [partIndex] moves for this tick's command, -1..1 of its travel, 0 for
      * anything that isn't one.
      *
@@ -906,23 +953,7 @@ class Forces {
         val roll = control.commandRoll
         val yaw = control.commandYaw
         if (pitch == 0.0 && yaw == 0.0 && roll == 0.0) return 0.0
-
-        val offset = vessel.centerOfMass(poseOffset)
-            .mulInPlace(-1.0).addInPlace(vessel.design.parts[partIndex].position)
-        // The mounting radius: how far off the fuselage axis, +Y, it is.
-        poseRadial.setTo(offset.x, 0.0, offset.z)
-        val radialLength = poseRadial.length
-        if (radialLength < 1e-6) return 0.0
-        poseRadial.mulInPlace(1.0 / radialLength)
-        // The way it can push: across the fuselage and the radius.
-        poseNormal.setTo(0.0, 1.0, 0.0).crossInPlace(poseRadial)
-        if (poseNormal.length < 1e-6) return 0.0
-        poseNormal.normalizeInPlace()
-        // The torque a unit push there makes.
-        poseTorque.setTo(offset).crossInPlace(poseNormal)
-        val torqueLength = poseTorque.length
-        if (torqueLength < 1e-6) return 0.0
-        poseTorque.mulInPlace(1.0 / torqueLength)
+        if (poseTorqueOf(vessel, partIndex) <= 0.0) return 0.0
         // Pitch around X, roll around Y, yaw around Z, the same as the reaction wheels.
         return (pitch * poseTorque.x + roll * poseTorque.y + yaw * poseTorque.z).coerceIn(-1.0, 1.0)
     }
@@ -931,6 +962,70 @@ class Forces {
     private val poseOffset = Vec3()
     private val poseRadial = Vec3()
     private val poseNormal = Vec3()
+    private val figuresRotation = Quat.identity()
+
+    /**
+     * Brings [Vessel.airspeed], [Vessel.dynamicPressure] and [Vessel.surfaceAuthority] up to the
+     * craft's parts and pose now, for stability assist to read before the drag pass. Steady wind
+     * only, no gusts. Zero out of the air.
+     */
+    fun assistFigures(vessel: Vessel, attractor: CelestialBody, time: Double) {
+        vessel.surfaceAuthority.setZero()
+        vessel.airspeed = 0.0
+        vessel.dynamicPressure = 0.0
+        waterAuthority(vessel, attractor)
+        val atmosphere = attractor.atmosphere ?: return
+        val density = atmosphere.densityAt(attractor.altitudeOf(vessel.body.position)) * vessel.air.loading
+        if (density <= 0.0) return
+        soundSpeed = kotlin.math.sqrt(GAS_RATIO * GAS_CONSTANT * atmosphere.temperatureAt(attractor.altitudeOf(vessel.body.position)))
+        attractor.surfaceVelocityAt(vessel.body.position, scratchSurface)
+        if (vessel.air.wind.lengthSq > 0.0) {
+            attractor.rotationAt(time, figuresRotation)
+            scratchSurface.addInPlace(figuresRotation.rotate(vessel.air.wind, scratchWind))
+        }
+        scratchVelocity.setTo(vessel.body.linearVelocity).subInPlace(scratchSurface)
+        vessel.airspeed = scratchVelocity.length
+        vessel.dynamicPressure = 0.5 * density * scratchVelocity.lengthSq
+        val enclosed = vessel.enclosed()
+        for (i in vessel.defs.indices) {
+            if (enclosed.getOrElse(i) { false } || vessel.isBroken(i)) continue
+            val surface = vessel.defs[i].module<AeroSurface>() ?: continue
+            if (!surface.controllable) continue
+            vessel.partOffsetWorld(i, scratchOffset)
+            vessel.body.velocityAtOffset(scratchOffset, scratchLocalVelocity)
+            scratchLocalVelocity.subInPlace(scratchSurface)
+            val localSpeed = scratchLocalVelocity.length
+            if (localSpeed < 1e-6) continue
+            addAuthority(vessel, i, surface, density, localSpeed)
+        }
+    }
+
+    /**
+     * Adds what rudders and dive planes in the water turn the craft by at full travel to
+     * [Vessel.surfaceAuthority]. The ones [Vessel.wet] last tick, against still water.
+     */
+    private fun waterAuthority(vessel: Vessel, attractor: CelestialBody) {
+        val density = attractor.ocean?.density ?: return
+        val wet = vessel.wet ?: return
+        for (i in vessel.defs.indices) {
+            if (!wet.getOrElse(i) { false } || vessel.isBroken(i)) continue
+            val surface = vessel.defs[i].module<com.rm.apogee.core.part.HydroSurface>() ?: continue
+            if (!surface.controllable) continue
+            vessel.partOffsetWorld(i, scratchOffset)
+            vessel.body.velocityAtOffset(scratchOffset, scratchLocalVelocity)
+            attractor.surfaceVelocityAt(scratchOffset.addInPlace(vessel.body.position), scratchSurface)
+            scratchLocalVelocity.subInPlace(scratchSurface)
+            val lever = poseTorqueOf(vessel, i)
+            if (lever <= 0.0) continue
+            val angle = Math.toRadians(surface.maxDeflection)
+            val force = 0.5 * density * scratchLocalVelocity.lengthSq * surface.area * surface.liftCoefficient *
+                surface.controlAuthority * kotlin.math.sin(angle) * kotlin.math.cos(angle) * lever
+            vessel.surfaceAuthority.x += force * poseTorque.x * poseTorque.x
+            vessel.surfaceAuthority.y += force * poseTorque.y * poseTorque.y
+            vessel.surfaceAuthority.z += force * poseTorque.z * poseTorque.z
+        }
+    }
+
     private val poseTorque = Vec3()
 
     /**

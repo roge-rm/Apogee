@@ -3372,6 +3372,8 @@ class World(
             vessel.control.stickTilts = false
             if (vessel.control.keeping && !landingItself) flyKeeper(vessel, attractor, dt)
             val cruising = (vessel.control.cruise || vessel.control.keeping || landingItself) && landing == null
+            // Current for this tick's parts and air, not the last drag pass's.
+            if (vessel.powered && vessel.control.sasEnabled) forces.assistFigures(vessel, attractor, time)
             if (vessel.powered) stabilityAssist.update(vessel, dt, landing ?: if (cruising) null else holdDirection(vessel, attractor))
             else stabilityAssist.idle(vessel)
             raiseGearAfterTakeoff(vessel, attractor)
