@@ -20,6 +20,13 @@ import com.rm.apogee.core.math.Math
  * Drag is per cell and per axis of its part, by each face's area. A long narrow hull slides easily
  * along its length and hardly at all sideways, which acts as a keel and lets a boat turn rather
  * than skate.
+ *
+ * Both go to [Stress] through [Vessel.recordForce], so a heavy sea working a hull can snap its
+ * joints. Only what changes is passed on, each part's water force less its average over the last
+ * few seconds ([POUNDING_SETTLE]): a lead keel hanging under a hull is held up like a craft on the
+ * ground, which loads nothing, while waves lifting and dropping it do. Drag is passed on only up to
+ * [POUNDING_DRAG] of the cell's own buoyancy: a hard landing is [World.impact]'s job, and counting
+ * its whole stop here too would break craft twice.
  */
 class Hydrostatics {
 
@@ -111,6 +118,9 @@ class Hydrostatics {
     private var cellSurface = DoubleArray(256)
     private var cellFraction = DoubleArray(256)
 
+    /** Each part's water force this tick, world axes, xyz, for [pound]. */
+    private var partHydro = DoubleArray(96)
+
     /** Each part's water velocity this tick, inertial, xyz. NaN in x until it's worked out. */
     private var partWater = DoubleArray(96)
 
@@ -119,7 +129,7 @@ class Hydrostatics {
         splashCount = 0
         vessel.buoyed = false
         vessel.submerged = false
-        val ocean = attractor.ocean ?: run { vessel.wet = null; return }
+        val ocean = attractor.ocean ?: run { vessel.wet = null; vessel.resetWaterLoad(); return }
         val body = vessel.body
 
         // Far above any sea there could be, it's clear without asking the sea, so craft high in
@@ -128,6 +138,7 @@ class Hydrostatics {
             seaHeight = 0.0
             val n = vessel.defs.size
             (vessel.wet?.takeIf { it.size == n } ?: BooleanArray(n).also { vessel.wet = it }).fill(false)
+            vessel.resetWaterLoad()
             return
         }
 
@@ -144,12 +155,15 @@ class Hydrostatics {
             // Known to be clear, so whatever goes under next, fast, counts as a splash.
             val n = vessel.defs.size
             (vessel.wet?.takeIf { it.size == n } ?: BooleanArray(n).also { vessel.wet = it }).fill(false)
+            // Clear of the water, so the next splash down starts afresh rather than straight into
+            // Stress.
+            vessel.resetWaterLoad()
             return
         }
 
         // Whether there's sea here at all, asked once for the craft, since it's small next to a
         // coastline.
-        if (sea.depth <= 0.0) return
+        if (sea.depth <= 0.0) { vessel.resetWaterLoad(); return }
 
         // The water's up is against effective gravity (gravity less the spin's share), not straight
         // out from the centre. Off the equator they differ slightly, and pushing straight out
@@ -208,10 +222,12 @@ class Hydrostatics {
         }
 
         vessel.buoyed = submergedCells > 0
+        if (partHydro.size < vessel.defs.size * 3) partHydro = DoubleArray(vessel.defs.size * 6)
+        partHydro.fill(0.0, 0, vessel.defs.size * 3)
         splashes(vessel, attractor, ocean, time)
         applySurfaces(vessel, attractor, ocean, time, dt)
         flood(vessel, attractor, ocean, time, dt)
-        if (submergedCells == 0) return
+        if (submergedCells == 0) { pound(vessel, dt); return }
 
         // How the hull meets the water as a whole, from its length and speed. The bow wave only
         // builds near hull speed, and a long hull slips through more easily than a short one.
@@ -253,6 +269,7 @@ class Hydrostatics {
                 submergedVolume += displaced
                 force.setTo(buoyUp).mulInPlace(rho * g * displaced)
                 body.applyForceAtOffset(force, offset)
+                hydro(i, force)
 
                 // Drag against the water, which moves with the ground and the waves. A crest
                 // carries a boat forward, a trough pulls it back, a big sea throws it around.
@@ -307,11 +324,47 @@ class Hydrostatics {
                 val magnitude = force.length
                 if (magnitude > limit) force.mulInPlace(limit / magnitude)
                 body.applyForceAtOffset(force, offset)
+                val pounding = POUNDING_DRAG * rho * g * cellVolume
+                val felt = force.length
+                if (felt > pounding) force.mulInPlace(pounding / felt)
+                hydro(i, force)
             }
         }
+        pound(vessel, dt)
         var whole = 0.0
         for (def in vessel.defs) whole += def.displacedVolume
         vessel.submerged = whole > 0.0 && submergedVolume > SUBMERGED_SHARE * whole
+    }
+
+    private fun hydro(part: Int, force: Vec3) {
+        partHydro[part * 3] += force.x
+        partHydro[part * 3 + 1] += force.y
+        partHydro[part * 3 + 2] += force.z
+    }
+
+    /**
+     * Hands [Stress] what changed in each part's water force this tick: the force less its recent
+     * average, which then moves toward it.
+     */
+    private fun pound(vessel: Vessel, dt: Double) {
+        val n = vessel.defs.size
+        val average = vessel.waterLoad
+        if (average.size != n * 3) return
+        val follow = (dt / POUNDING_SETTLE).coerceAtMost(1.0)
+        // Only once it's been afloat a while, so settling after a launch or a landing loads
+        // nothing. Out of the water it counts back down at the same rate.
+        vessel.waterTime = (vessel.waterTime + if (vessel.buoyed) dt else -dt).coerceIn(0.0, 2.0 * POUNDING_SETTLE)
+        val share = ((vessel.waterTime - POUNDING_SETTLE) / POUNDING_SETTLE).coerceIn(0.0, 1.0)
+        for (i in 0 until n) {
+            val o = i * 3
+            // A part just added, or a craft just changed, starts from what it carries now.
+            if (average[o].isNaN()) {
+                average[o] = partHydro[o]; average[o + 1] = partHydro[o + 1]; average[o + 2] = partHydro[o + 2]
+            }
+            force.setTo(partHydro[o] - average[o], partHydro[o + 1] - average[o + 1], partHydro[o + 2] - average[o + 2])
+            average[o] += force.x * follow; average[o + 1] += force.y * follow; average[o + 2] += force.z * follow
+            if (share > 0.0 && force.lengthSq > 0.0) vessel.recordForce(i, force.mulInPlace(share))
+        }
     }
 
     /**
@@ -769,6 +822,18 @@ class Hydrostatics {
          * bobs and still looks afloat.
          */
         const val WAVE_MAKING_SPEED = 1.0
+
+        /**
+         * The most water drag a cell passes on to its joints, as a share of its buoyancy when
+         * wholly under.
+         */
+        const val POUNDING_DRAG = 1.0
+
+        /**
+         * How long a part's water force takes to count as its usual load, in seconds. Shorter than
+         * a sea's waves, so they still work the hull.
+         */
+        const val POUNDING_SETTLE = 4.0
 
         /** How much of an upright person's drag in the water a swimmer has. */
         const val SWIMMER_SHAPE = 0.06

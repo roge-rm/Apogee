@@ -456,7 +456,7 @@ class Vessel(
     }
 
     /**
-     * This tick's thrust and air forces on each part, world axes, N, three values a part.
+     * This tick's thrust, air and water forces on each part, world axes, N, three values a part.
      * [com.rm.apogee.core.world.Stress] works the joints out from it. Cleared every tick.
      */
     var partForce: DoubleArray = DoubleArray(design.parts.size * 3)
@@ -469,6 +469,24 @@ class Vessel(
     }
 
     fun clearForces() = partForce.fill(0.0)
+
+    /**
+     * Each part's recent water force, world axes, N, three values a part, so only what changes
+     * loads its joints. NaN until it's first at the water. See
+     * [com.rm.apogee.core.world.Hydrostatics].
+     */
+    var waterLoad: DoubleArray = DoubleArray(design.parts.size * 3) { Double.NaN }
+        private set
+
+    /** Seconds afloat, counting back down out of the water, up to a few. */
+    var waterTime: Double = 0.0
+
+    /** Forgets [waterLoad] and [waterTime], so the next time in the water starts afresh. */
+    fun resetWaterLoad() {
+        if (waterTime == 0.0 && (waterLoad.isEmpty() || waterLoad[0].isNaN())) return
+        waterLoad.fill(Double.NaN)
+        waterTime = 0.0
+    }
 
     /**
      * How close the joint above each part is to its limit, as load over strength (1 is the limit).
@@ -1525,6 +1543,8 @@ class Vessel(
         ridingOn = null
         settledTicks = 0
         hasRestPose = false
+        // Asleep it didn't feel the water, so what it carried then is out of date.
+        resetWaterLoad()
         return true
     }
 
@@ -1676,6 +1696,7 @@ class Vessel(
     private fun resetStress(parts: Int) {
         wet = null
         partForce = DoubleArray(parts * 3)
+        waterLoad = DoubleArray(parts * 3) { Double.NaN }
         jointLoad = FloatArray(parts)
         surfaceLoad = FloatArray(parts)
         stress = 0.0

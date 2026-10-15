@@ -46,13 +46,15 @@ internal class Currents(
     /**
      * The current at body-fixed unit [direction], [below] metres down, in m/s along the ground, into
      * [out]. [rough] skips enclosure and coast-turning, for a whole-world map; same in open sea.
+     * Without [calm], calm places and bases are left out, so it's the same for every sea alike.
      */
-    fun velocity(direction: Vec3, below: Double, out: Vec3, rough: Boolean = false): Vec3 {
+    fun velocity(direction: Vec3, below: Double, out: Vec3, rough: Boolean = false, calm: Boolean = true): Vec3 {
         out.setZero()
         if (strength <= 0.0) return out
         val fade = exp(-below.coerceAtLeast(0.0) / DEPTH_FADE)
         if (fade < 0.01) return out
-        val share = (if (rough) smooth(SHALLOW, DEEP, depth(direction)) else share(direction)) * calmness(direction)
+        val share = (if (rough) smooth(SHALLOW, DEEP, depth(direction)) else share(direction)) *
+            (if (calm) calmness(direction) else 1.0)
         if (share <= 0.0) return out
         // East and north here, from the spin about +Y.
         east.setTo(direction.z, 0.0, -direction.x)

@@ -1,6 +1,7 @@
 package com.rm.apogee.core.sea
 
 import com.rm.apogee.core.math.Vec3
+import com.rm.apogee.core.putIfAbsentShared
 import com.rm.apogee.core.orbit.CelestialBody
 import com.rm.apogee.core.terrain.Noise
 import com.rm.apogee.core.weather.Storms
@@ -42,13 +43,13 @@ class SeaSample {
  */
 class WavePatch {
     internal var n = 0
-    internal val a = DoubleArray(Sea.COMPONENTS)
-    internal val k = DoubleArray(Sea.COMPONENTS)
-    internal val omega = DoubleArray(Sea.COMPONENTS)
-    internal val dx = DoubleArray(Sea.COMPONENTS)
-    internal val dy = DoubleArray(Sea.COMPONENTS)
-    internal val dz = DoubleArray(Sea.COMPONENTS)
-    internal val phase = DoubleArray(Sea.COMPONENTS)
+    internal val a = DoubleArray(Sea.COMPONENTS + Sea.MAX_ROGUES)
+    internal val k = DoubleArray(Sea.COMPONENTS + Sea.MAX_ROGUES)
+    internal val omega = DoubleArray(Sea.COMPONENTS + Sea.MAX_ROGUES)
+    internal val dx = DoubleArray(Sea.COMPONENTS + Sea.MAX_ROGUES)
+    internal val dy = DoubleArray(Sea.COMPONENTS + Sea.MAX_ROGUES)
+    internal val dz = DoubleArray(Sea.COMPONENTS + Sea.MAX_ROGUES)
+    internal val phase = DoubleArray(Sea.COMPONENTS + Sea.MAX_ROGUES)
     internal var radius = 0.0
     internal val centre = Vec3()
     private val sc = DetMath.SinCos()
@@ -151,8 +152,10 @@ class WavePatch {
  *
  * The waves are [COMPONENTS] fixed trains, each with a wavelength and a 3D direction, so phase is
  * seamless on the sphere. Heights come from the spectrum. Crests are second order. Waves steepen
- * over shallows, break when too high for the depth, and stop at land. Rarely, a storm makes a rogue
- * wave twice the sea around it.
+ * over shallows, break when too high for the depth, and stop at land. Rarely, a storm sea makes a
+ * rogue: a group of three long waves, the middle one two or three times the sea's height with a
+ * deep trough in front, that builds, runs with the sea and dies over a few minutes. With
+ * [com.rm.apogee.core.weather.WeatherIntensity.rare] so can a big open sea. See [rogueIn].
  */
 class Sea(
     val body: CelestialBody,
@@ -197,6 +200,12 @@ class Sea(
      */
     private val seaScale = weather?.config?.intensity?.sea ?: 1.0
 
+    /** How often rare events happen. See [com.rm.apogee.core.weather.WeatherIntensity.rare]. */
+    private val rare = weather?.config?.intensity?.rare ?: 0.0
+
+    /** How much bigger and likelier storm rogues are: none up to Wild, all of it at Extreme. */
+    private val stormRogueExtra = ((rare - 0.1) / 0.9).coerceIn(0.0, 1.0)
+
     /** What makes this sea what it is, so it can share corners with identical ones. */
     private val identity = "${body.id}:$seed:${weather?.config?.hashCode() ?: 0}"
 
@@ -210,6 +219,9 @@ class Sea(
     }
 
     private val state = Lattice(radius, STATE_SPACING, STATE_EPOCH, STATE_SIZE, STATE_CAPACITY, "state:$identity") { d, t, out -> seaState(d, t, out) }
+
+    /** The sea state roughly, once a rogue slot, for where rogues start. See [rogueIn]. */
+    private val rogueSea = Lattice(radius, ROGUE_STATE_SPACING, ROGUE_SLOT, STATE_SIZE, STATE_CAPACITY / 4, "rogue-state:$identity") { d, t, out -> seaState(d, t, out) }
 
     /**
      * How open the sea is to waves from each direction, fine near a craft and rough far away. See
@@ -329,7 +341,22 @@ class Sea(
         u.setTo(direction).normalizeInPlace()
         state.prefetch(u, time)
         state.prefetch(u, time + STATE_EPOCH)
+        // Where rogues that could reach here start, this slot, the ones each side and the next.
+        localFrame(u, prefetchEast, prefetchNorth)
+        for (i in -1..1) for (j in -1..1) {
+            prefetchPoint.setTo(u).mulInPlace(radius)
+                .addScaledInPlace(prefetchEast, i * ROGUE_STATE_SPACING).addScaledInPlace(prefetchNorth, j * ROGUE_STATE_SPACING)
+                .normalizeInPlace()
+            for (slot in -1..2) rogueSea.prefetch(prefetchPoint, time + slot * ROGUE_SLOT)
+        }
+        // And the rogues themselves, now and for the next slot, so the flight step finds them made.
+        rogueList(u, time)
+        rogueList(u, time + ROGUE_SLOT)
     }
+
+    private val prefetchEast = Vec3()
+    private val prefetchNorth = Vec3()
+    private val prefetchPoint = Vec3()
 
     // --- the sea state at a corner --------------------------------------------
 
@@ -430,6 +457,39 @@ class Sea(
         out[COMPONENTS + 1] = speed
         out[COMPONENTS + 2] = wind.x; out[COMPONENTS + 3] = wind.y; out[COMPONENTS + 4] = wind.z
         out[COMPONENTS + 5] = stormSea.stormHs
+        // Which way most of the sea runs, by energy, for rogues.
+        var mx = 0.0; var my = 0.0; var mz = 0.0
+        for (n in 1 until systems.size) {
+            val s = systems[n]
+            val e = s.hs * s.hs
+            mx += s.direction.x * e; my += s.direction.y * e; mz += s.direction.z * e
+        }
+        out[COMPONENTS + 6] = mx; out[COMPONENTS + 7] = my; out[COMPONENTS + 8] = mz
+        out[COMPONENTS + 9] = crossing()
+    }
+
+    /**
+     * How much swell crosses the local sea here at the angle that makes rogues, 0..1: most from 30
+     * to 60 degrees apart, and only where both are a fair size next to each other.
+     */
+    private fun crossing(): Double {
+        var sx = 0.0; var sy = 0.0; var sz = 0.0; var swell = 0.0
+        for (n in intArrayOf(2, 4)) {
+            val s = systems[n]
+            sx += s.direction.x * s.hs; sy += s.direction.y * s.hs; sz += s.direction.z * s.hs; swell += s.hs
+        }
+        var wx = 0.0; var wy = 0.0; var wz = 0.0; var local = 0.0
+        for (n in intArrayOf(1, 3)) {
+            val s = systems[n]
+            wx += s.direction.x * s.hs; wy += s.direction.y * s.hs; wz += s.direction.z * s.hs; local += s.hs
+        }
+        val sl = sqrt(sx * sx + sy * sy + sz * sz); val wl = sqrt(wx * wx + wy * wy + wz * wz)
+        if (sl < 1e-6 || wl < 1e-6) return 0.0
+        val cos = ((sx * wx + sy * wy + sz * wz) / (sl * wl)).coerceIn(-1.0, 1.0)
+        // Cosines of 85, 60, 30 and 10 degrees.
+        val angle = smooth(0.087, 0.5, cos) * (1.0 - smooth(0.866, 0.985, cos))
+        val balance = smooth(0.2, 0.6, kotlin.math.min(swell, local) / kotlin.math.max(swell, local))
+        return angle * balance
     }
 
     private fun set(s: System, hs: Double, period: Double, direction: Vec3, spread: Double, gamma: Double) {
@@ -545,7 +605,20 @@ class Sea(
         internal var power = 0.0
         internal var hs = 0.0
         internal var biggest = 0.0
-        internal var rogueSea = false
+        /** Rogue waves that may pass here while this is in use. See [Rogue]. */
+        internal var rogues: Array<Rogue> = NO_ROGUES
+        /**
+         * How much of a storm's rogue and an open sea's the sea here keeps up, each 0..1, and how
+         * much calm round a site or base leaves.
+         */
+        internal var rogueStorm = 0.0
+        internal var rogueOpen = 0.0
+        internal var rogueCalm = 1.0
+        /** The sea's significant height here before shelter, in metres, which a rogue's height goes by. */
+        internal var rogueHs = 0.0
+        /** The shelter harmonics here, when there's land near enough to matter. */
+        internal val shelter = DoubleArray(SHELTER_SIZE)
+        internal var sheltered = false
         internal var wind = 0.0
         internal val windVector = Vec3()
         internal var stormHeight = 0.0
@@ -597,12 +670,18 @@ class Sea(
         if (p.dry) return
         state.sample(u, time, stateOut)
         var hs = stateOut[COMPONENTS]
-        p.rogueSea = stateOut[COMPONENTS + 5] > ROGUE_SEA
+        // Whether a rogue can keep going here, by the open sea before any shelter.
+        p.rogueStorm = smooth(ROGUE_SEA - 3.0, ROGUE_SEA - 1.0, stateOut[COMPONENTS + 5])
+        p.rogueOpen = if (rare > 0.0) smooth(OPEN_ROGUE_SEA - 3.0, OPEN_ROGUE_SEA - 1.0, hs) else 0.0
+        p.rogueHs = hs
+        p.sheltered = false
 
         // Shelter: cut each train by how soon there's land upwave.
         if (terrain != null) {
             (if (spacing > COARSE_BED_SPACING) coarseShelter else shelter).sample(u, 0.0, shelterOut)
             if (shelterOut[0] < SHELTER_OPEN) {
+                p.sheltered = true
+                shelterOut.copyInto(p.shelter)
                 localFrame(u, east, north)
                 var before = 0.0; var after = 0.0
                 for (i in 0 until COMPONENTS) {
@@ -639,16 +718,7 @@ class Sea(
         var biggest = 0.0
         for (i in 0 until COMPONENTS) {
             var a = stateOut[i]
-            if (shoal) {
-                val kd = k[i] * water
-                if (kd < Math.PI) {
-                    val e = DetMath.exp(-2.0 * kd)
-                    val t = (1.0 - e) / (1.0 + e)
-                    val sinh2 = (1.0 / e - e) * 0.5
-                    val cg = t * (1.0 + 2.0 * kd / kotlin.math.max(sinh2, 1e-9))
-                    a *= kotlin.math.min(1.0 / sqrt(kotlin.math.max(cg, 1e-6)), MAX_SHOALING)
-                }
-            }
+            if (shoal) a *= shoaling(k[i], water)
             p.amplitude[i] = a
             power += a * a
             if (a > biggest) biggest = a
@@ -657,9 +727,27 @@ class Sea(
         p.power = power
         p.biggest = biggest
         p.hs = hs
+        if (p.rogueStorm > 0.0 || p.rogueOpen > 0.0) {
+            p.rogues = rogueList(u, time)
+            warmRogues(u, time)
+        } else {
+            p.rogues = NO_ROGUES
+        }
+        p.rogueCalm = if (p.rogues.isEmpty()) 1.0 else calmAt(u)
         p.wind = stateOut[COMPONENTS + 1]
         p.windVector.setTo(stateOut[COMPONENTS + 2], stateOut[COMPONENTS + 3], stateOut[COMPONENTS + 4])
         p.stormHeight = stateOut[COMPONENTS + 5]
+    }
+
+    /** How much a train of wavenumber [k] grows in [water] metres deep, as it slows. */
+    private fun shoaling(k: Double, water: Double): Double {
+        val kd = k * water
+        if (kd >= Math.PI) return 1.0
+        val e = DetMath.exp(-2.0 * kd)
+        val t = (1.0 - e) / (1.0 + e)
+        val sinh2 = (1.0 / e - e) * 0.5
+        val cg = t * (1.0 + 2.0 * kd / kotlin.math.max(sinh2, 1e-9))
+        return kotlin.math.min(1.0 / sqrt(kotlin.math.max(cg, 1e-6)), MAX_SHOALING)
     }
 
     /** The waves at [u] and [time], from [p]. See [evaluate]. */
@@ -673,25 +761,31 @@ class Sea(
         }
         if (p.dry) {
             out?.height = tide
+            rogueHeight = 0.0
             patching?.n = 0
             return tide
         }
-        val rogue = if (p.rogueSea) rogue(u, time) else 1.0
+        rogueHeight = 0.0
+        val rogues = if (p.rogues.isEmpty()) 0 else rogueTerms(p, time, spacing)
+        // A rogue's group draws on the waves round it.
+        var scale = 1.0 - ROGUE_DRAW * rogueDraw
 
         // Waves can't stand higher than the water is deep.
-        var scale = rogue
         var breaking = 0.0
         val hs: Double
         if (p.shoal) {
-            val local = 4.0 * sqrt(p.power / 2.0) * rogue
+            var local = 4.0 * sqrt(p.power / 2.0) * scale
+            for (i in 0 until rogues) local += ROGUE_SHARE * roA[i]
             val limit = BREAKING * p.water
             if (local > limit) {
-                scale *= limit / local
+                val f = limit / local
+                scale *= f
+                for (i in 0 until rogues) { roA[i] *= f; roAx[i] *= f; roAy[i] *= f; roAt[i] *= f }
                 breaking = kotlin.math.min(1.0, (local - limit) / limit + 0.3)
             }
             hs = kotlin.math.min(local, limit)
         } else {
-            hs = p.hs * rogue
+            hs = p.hs
         }
 
         val amplitude = p.amplitude
@@ -749,6 +843,52 @@ class Sea(
             velocity.y += (ty / tl) * speed * c + u.y * speed * s
             velocity.z += (tz / tl) * speed * c + u.z * speed * s
         }
+
+        // The rogues, each a train whose size changes along and across it and with time.
+        var rogueTop = 0.0
+        for (i in 0 until rogues) {
+            val r = roRogue[i]!!
+            val a = roA[i]
+            val ki = r.k
+            val along = r.along; val across = r.across
+            DetMath.sinCos(roTheta[i], sc)
+            val s = sc.sin
+            val c = sc.cos
+            val c2 = 2.0 * c * c - 1.0
+            val eta = a * c + 0.5 * ki * a * a * c2
+            height += eta
+            rogueHeight += eta
+            if (patch != null) {
+                val m = patch.n++
+                patch.a[m] = a; patch.k[m] = ki; patch.omega[m] = r.omega
+                patch.dx[m] = along.x; patch.dy[m] = along.y; patch.dz[m] = along.z
+                patch.phase[m] = roTheta[i]
+                patch.reach += a + 0.5 * ki * a * a
+            }
+            if (!wantSlope) continue
+            // The height's change with size, and with phase.
+            val bySize = c + ki * a * c2
+            val byPhase = -a * s - ki * a * a * 2.0 * s * c
+            val slopeAlong = bySize * roAx[i] + ki * byPhase
+            val slopeAcross = bySize * roAy[i]
+            rise += bySize * (roAt[i] - r.speed * roAx[i]) - r.omega * byPhase
+            val dot = along.x * u.x + along.y * u.y + along.z * u.z
+            val tx = along.x - dot * u.x; val ty = along.y - dot * u.y; val tz = along.z - dot * u.z
+            val cdot = across.x * u.x + across.y * u.y + across.z * u.z
+            gradient.x += tx * slopeAlong + (across.x - cdot * u.x) * slopeAcross
+            gradient.y += ty * slopeAlong + (across.y - cdot * u.y) * slopeAcross
+            gradient.z += tz * slopeAlong + (across.z - cdot * u.z) * slopeAcross
+            steep += a * ki
+            // Its top breaks, near the peak of the middle wave.
+            rogueTop = kotlin.math.max(rogueTop, smooth(0.55, 0.9, eta / roFull[i]))
+            if (!wantMotion) continue
+            val decay = if (below > 0.0) DetMath.exp(-ki * below) else 1.0
+            val speed = a * r.omega * decay
+            val tl = sqrt((1.0 - dot * dot).coerceAtLeast(1e-9))
+            velocity.x += (tx / tl) * speed * c + u.x * speed * s
+            velocity.y += (ty / tl) * speed * c + u.y * speed * s
+            velocity.z += (tz / tl) * speed * c + u.z * speed * s
+        }
         if (out != null) {
             out.height = height
             out.normal.setTo(u).subInPlace(gradient).normalizeInPlace()
@@ -765,33 +905,311 @@ class Sea(
             // In a storm sea the high crests break, tumbling onto anything small underneath.
             val crest = if (hs > 0.1) (height - tide) / hs else 0.0
             val stormBreak = smooth(0.35, 0.8, crest) * smooth(2.0, 7.0, out.stormHeight)
-            out.breaking = kotlin.math.max(breaking, kotlin.math.max(whitecap, stormBreak))
-            if (steep > 0.0 && out.stormHeight > ROGUE_SEA && rogue > 1.3) out.breaking = kotlin.math.max(out.breaking, 0.6)
+            out.breaking = kotlin.math.max(breaking, kotlin.math.max(whitecap, kotlin.math.max(stormBreak, rogueTop)))
         }
         return height
     }
 
+    /** The rogues' share of the last surface worked out, in metres. */
+    private var rogueHeight = 0.0
+
+    // Each rogue reaching the point, as [rogueTerms] leaves them: the rogue, its size here, how
+    // that changes along, across and with time, its phase, and its size here at full strength.
+    private val roRogue = arrayOfNulls<Rogue>(MAX_ROGUES)
+    private val roA = DoubleArray(MAX_ROGUES)
+    private val roAx = DoubleArray(MAX_ROGUES)
+    private val roAy = DoubleArray(MAX_ROGUES)
+    private val roAt = DoubleArray(MAX_ROGUES)
+    private val roTheta = DoubleArray(MAX_ROGUES)
+    private val roFull = DoubleArray(MAX_ROGUES)
+    /** How much of its group's envelope the nearest rogue has here, 0..1. */
+    private var rogueDraw = 0.0
+
     /**
-     * A rogue wave's effect here, as a multiplier on the sea. Rare, at most one per patch, each a
-     * couple of hundred metres across and about a minute long, doubling the waves at its centre.
-     * Storm seas only.
+     * Works out each of [p]'s rogues at [u] and [time] into the arrays above, and how many reach.
+     * A rogue is three sisters: a big wave with a smaller one a wavelength before and after it and
+     * a deep trough in front. The group comes and goes over [ROGUE_LIFE] seconds either side of its
+     * peak, the middle wave over [ROGUE_PEAK]. All of it moves with the crests.
      */
-    private fun rogue(u: Vec3, time: Double): Double {
-        val cx = Math.floor(u.x * radius / ROGUE_CELL).toInt()
-        val cy = Math.floor(u.y * radius / ROGUE_CELL).toInt()
-        val cz = Math.floor(u.z * radius / ROGUE_CELL).toInt()
+    private fun rogueTerms(p: Prepared, time: Double, spacing: Double): Int {
+        var n = 0
+        rogueDraw = 0.0
+        for (r in p.rogues) {
+            if (n == MAX_ROGUES) break
+            val dt = time - r.time
+            if (dt <= -ROGUE_LIFE || dt >= ROGUE_LIFE) continue
+            val qx = u.x * radius - r.focus.x; val qy = u.y * radius - r.focus.y; val qz = u.z * radius - r.focus.z
+            val y = qx * r.across.x + qy * r.across.y + qz * r.across.z
+            if (y <= -ROGUE_SPAN || y >= ROGUE_SPAN) continue
+            val length = 2.0 * Math.PI / r.k
+            val xi = qx * r.along.x + qy * r.along.y + qz * r.along.z - r.speed * dt
+            val group = SISTERS_REACH * length
+            if (xi <= -group || xi >= group) continue
+            // Drawn, it fades only where the grid can't show it at all, since it's long and rare.
+            var local = 1.0
+            if (spacing > 0.0) {
+                val ks = r.k * spacing
+                if (ks >= 2.0 * Math.PI) continue
+                if (soft && ks > ROGUE_SOFT_FROM) {
+                    val t = (ks - ROGUE_SOFT_FROM) / (2.0 * Math.PI - ROGUE_SOFT_FROM)
+                    local *= 1.0 - t * t * (3.0 - 2.0 * t)
+                }
+            }
+            local *= p.rogueCalm * (if (r.storm) p.rogueStorm else p.rogueOpen)
+            if (p.sheltered) local *= rogueShelter(p, r.along)
+            if (p.shoal) local *= shoaling(r.k, p.water)
+            if (local <= 0.0) continue
+
+            // Across: the crest's length.
+            val sy = y / ROGUE_SPAN
+            val vy = 1.0 - sy * sy
+            val across = vy * vy
+            val acrossSlope = -4.0 * vy * sy / ROGUE_SPAN
+            // Along: the group, the middle wave and the hole in front of it.
+            val sg = xi / group
+            val vg = 1.0 - sg * sg * sg * sg
+            val eg = vg * vg
+            val egSlope = -8.0 * vg * sg * sg * sg / group
+            val middle = ROGUE_MIDDLE * length
+            val sm = xi / middle
+            val em: Double; val emSlope: Double
+            if (sm > -1.0 && sm < 1.0) {
+                val v = 1.0 - sm * sm
+                em = v * v; emSlope = -4.0 * v * sm / middle
+            } else {
+                em = 0.0; emSlope = 0.0
+            }
+            val hole = 0.5 * length
+            val sh = (xi - hole) / hole
+            val eh: Double; val ehSlope: Double
+            if (sh > -1.0 && sh < 1.0) {
+                val v = 1.0 - sh * sh
+                eh = v * v; ehSlope = -4.0 * v * sh / hole
+            } else {
+                eh = 0.0; ehSlope = 0.0
+            }
+            // Over time.
+            val st = dt / ROGUE_LIFE
+            val vt = 1.0 - st * st
+            val life = vt * vt * vt
+            val lifeRate = -6.0 * vt * vt * st / ROGUE_LIFE
+            val sp = dt / ROGUE_PEAK
+            val peak: Double; val peakRate: Double
+            if (sp > -1.0 && sp < 1.0) {
+                val v = 1.0 - sp * sp
+                peak = v * v * v; peakRate = -6.0 * v * v * sp / ROGUE_PEAK
+            } else {
+                peak = 0.0; peakRate = 0.0
+            }
+            val envelope = SISTERS * life * eg + (1.0 - SISTERS) * peak * em + HOLE * peak * eh
+            val full = rogueAmplitude(kotlin.math.min(r.ratio * p.rogueHs, r.cap), r.k) * local
+            roRogue[n] = r
+            roA[n] = full * across * envelope
+            roAx[n] = full * across * (SISTERS * life * egSlope + (1.0 - SISTERS) * peak * emSlope + HOLE * peak * ehSlope)
+            roAy[n] = full * acrossSlope * envelope
+            roAt[n] = full * across * (SISTERS * lifeRate * eg + (1.0 - SISTERS) * peakRate * em + HOLE * peakRate * eh)
+            roTheta[n] = r.k * xi
+            roFull[n] = full
+            rogueDraw = kotlin.math.max(rogueDraw, local * across * (SISTERS * life * eg + (1.0 - SISTERS) * peak * em))
+            n++
+        }
+        return n
+    }
+
+    private val rogueEast = Vec3()
+    private val rogueNorth = Vec3()
+
+    /** How open the water at [u] is toward where a rogue running [along] comes from, 0..1. */
+    private fun rogueShelter(p: Prepared, along: Vec3): Double {
+        localFrame(u, rogueEast, rogueNorth)
+        var fe = -(along dot rogueEast); var fn = -(along dot rogueNorth)
+        val l = sqrt((fe * fe + fn * fn).coerceAtLeast(1e-12))
+        fe /= l; fn /= l
+        val s = p.shelter
+        val e = (s[0] + s[1] * fe + s[2] * fn + s[3] * (fe * fe - fn * fn) + s[4] * (2.0 * fe * fn)).coerceIn(0.0, 1.0)
+        // Long, like swell, it bends round a headland as far as the water is open all round.
+        return kotlin.math.max(e, SHELTER_WRAP * s[0].coerceIn(0.0, 1.0))
+    }
+
+    /** How much calm round a sea site or base leaves of a rogue at unit [u], 0..1. */
+    private fun calmAt(u: Vec3): Double {
+        var f = 1.0
+        for ((d, r) in calm) f *= smooth(r, 2.0 * r, u.distanceTo(d) * radius)
+        for ((d, r) in calmBases) f *= smooth(r, 2.0 * r, u.distanceTo(d) * radius)
+        return f
+    }
+
+    /** The sea's own calm places: sea launch sites and named places. */
+    private val calm = calmPlaces(body)
+
+    /**
+     * The rogues' share of the surface at body-fixed [position] and [time], in metres, 0 for none.
+     * For tests.
+     */
+    internal fun rogueAt(position: Vec3, time: Double): Double {
+        evaluate(position, time, null, 0.0, 0.0)
+        return rogueHeight
+    }
+
+    /** The rogues that may reach body-fixed [position] around [time]. For tests. */
+    internal fun roguesNear(position: Vec3, time: Double): List<Rogue> {
+        u.setTo(position).normalizeInPlace()
+        return rogueList(u, time).toList()
+    }
+
+    private val rogueLists = com.rm.apogee.core.lruMapOf<Long, Array<Rogue>>(64, 4_000)
+
+    /** Each cell and slot's rogue, or none, shared by every sea like this one. */
+    private val rogueCells: MutableMap<Long, Array<Rogue>> = rogueCellsFor(identity)
+
+    /**
+     * Every rogue whose group could reach a point in unit [at]'s cell within [ROGUE_SLOT] of
+     * [time]: from the cells two either way, in this slot and the ones each side.
+     */
+    private fun rogueList(at: Vec3, time: Double): Array<Rogue> {
+        val cx = Math.floor(at.x * radius / ROGUE_CELL).toInt()
+        val cy = Math.floor(at.y * radius / ROGUE_CELL).toInt()
+        val cz = Math.floor(at.z * radius / ROGUE_CELL).toInt()
         val slot = Math.floor(time / ROGUE_SLOT).toInt()
-        val h = Noise.hash(seed + 7, cx * 73_856_093 xor slot, cy, cz)
-        if (h > ROGUE_CHANCE) return 1.0
-        // Where in the patch and when in the slot, kept clear of the edges.
-        val ox = (cx + 0.3 + 0.4 * Noise.hash(seed + 8, cx, cy, cz xor slot)) * ROGUE_CELL
-        val oy = (cy + 0.3 + 0.4 * Noise.hash(seed + 9, cx, cy, cz xor slot)) * ROGUE_CELL
-        val oz = (cz + 0.3 + 0.4 * Noise.hash(seed + 10, cx, cy, cz xor slot)) * ROGUE_CELL
-        val ex = u.x * radius - ox; val ey = u.y * radius - oy; val ez = u.z * radius - oz
-        val d2 = ex * ex + ey * ey + ez * ez
-        val mid = (slot + 0.5) * ROGUE_SLOT
-        val dt = (time - mid) / (ROGUE_SLOT * 0.25)
-        return 1.0 + ROGUE_GAIN * DetMath.exp(-d2 / (ROGUE_RADIUS * ROGUE_RADIUS) - dt * dt)
+        return rogueLists.getOrPut(rogueKey(cx, cy, cz, slot)) {
+            val found = ArrayList<Rogue>()
+            if (rogueCells.size > ROGUE_CELLS_KEPT) rogueCells.clear()
+            for (s in slot - 1..slot + 1) for (i in -2..2) for (j in -2..2) for (l in -2..2) {
+                val key = rogueKey(cx + i, cy + j, cz + l, s)
+                for (r in rogueCell(key, cx + i, cy + j, cz + l, s)) found.add(r)
+            }
+            found.toTypedArray()
+        }
+    }
+
+    /** The last few cells and slots [warmRogues] worked round, and how far it got with each. */
+    private val warmKeys = LongArray(ROGUE_WARM_KEPT) { Long.MIN_VALUE }
+    private val warmDone = IntArray(ROGUE_WARM_KEPT)
+    private var warmOldest = 0
+
+    /**
+     * Works out a few more of the rogues round unit [at] ahead of need, a little each call: the
+     * cells three either way, this slot and the next two. So a new slot or cell finds most of its
+     * rogues made, and no one step pays for them all.
+     */
+    private fun warmRogues(at: Vec3, time: Double) {
+        val cx = Math.floor(at.x * radius / ROGUE_CELL).toInt()
+        val cy = Math.floor(at.y * radius / ROGUE_CELL).toInt()
+        val cz = Math.floor(at.z * radius / ROGUE_CELL).toInt()
+        val slot = Math.floor(time / ROGUE_SLOT).toInt()
+        val here = rogueKey(cx, cy, cz, slot)
+        var w = -1
+        for (n in 0 until ROGUE_WARM_KEPT) if (warmKeys[n] == here) { w = n; break }
+        if (w < 0) {
+            w = warmOldest
+            warmOldest = (warmOldest + 1) % ROGUE_WARM_KEPT
+            warmKeys[w] = here; warmDone[w] = 0
+        }
+        var budget = ROGUE_WARM_EACH
+        while (warmDone[w] < ROGUE_WARM_CELLS && budget > 0) {
+            val n = warmDone[w]++
+            val s = slot + n / 343
+            val c = n % 343
+            val i = c / 49 - 3; val j = (c / 7) % 7 - 3; val l = c % 7 - 3
+            val key = rogueKey(cx + i, cy + j, cz + l, s)
+            if (rogueCells.containsKey(key)) continue
+            rogueCell(key, cx + i, cy + j, cz + l, s)
+            budget--
+        }
+    }
+
+    /** The rogue of a cell and slot, or none, worked out once for all seas like this one. */
+    private fun rogueCell(key: Long, cx: Int, cy: Int, cz: Int, slot: Int): Array<Rogue> {
+        rogueCells[key]?.let { return it }
+        val made = rogueIn(cx, cy, cz, slot, false)?.let { arrayOf(it) } ?: NO_ROGUES
+        return rogueCells.putIfAbsentShared(key, made) ?: made
+    }
+
+    private fun rogueKey(cx: Int, cy: Int, cz: Int, slot: Int): Long =
+        ((cx + 4096).toLong() and 0x1FFF shl 51) or ((cy + 4096).toLong() and 0x1FFF shl 38) or
+            ((cz + 4096).toLong() and 0x1FFF shl 25) or (slot.toLong() and 0x1FFFFFF)
+
+    /** A storm's rogue chance per cell and slot, an open sea's, and the most either can be. */
+    private val stormRogueChance = ROGUE_CHANCE * (1.0 + ROGUE_MORE * stormRogueExtra)
+    private val openRogueChance = OPEN_ROGUE_CHANCE * rare
+    private val rogueMostChance = kotlin.math.max(stormRogueChance, openRogueChance) *
+        ODDS_SCALE * (ODDS_FLAT + ODDS_CROSS) * (1.0 + ODDS_AGAINST)
+
+    private val rogueState = DoubleArray(STATE_SIZE)
+    private val rogueBed = DoubleArray(1)
+    private val rogueCurrent = Vec3()
+
+    /**
+     * The rogue of cell [cx], [cy], [cz] in [slot], or null if it has none. At most one per cell
+     * and slot, peaking somewhere in the slot at a point on the surface in the cell. Rough sea is
+     * needed where it peaks: a storm's for a storm rogue, or with [rare] any big sea for a smaller
+     * open-sea one. Likelier where swell crosses the sea and where a current runs against it. With
+     * [all], also those whose roll failed, for tests.
+     */
+    internal fun rogueIn(cx: Int, cy: Int, cz: Int, slot: Int, all: Boolean): Rogue? {
+        val roll = Noise.hash(seed + 11, cx xor (slot * 73_856_093), cy xor (slot * 19_349_663), cz)
+        if (!all && roll >= rogueMostChance) return null
+        val fx = (cx + Noise.hash(seed + 12, cx, cy, cz xor slot)) * ROGUE_CELL
+        val fy = (cy + Noise.hash(seed + 13, cx, cy, cz xor slot)) * ROGUE_CELL
+        val fz = (cz + Noise.hash(seed + 14, cx, cy, cz xor slot)) * ROGUE_CELL
+        val fl = sqrt(fx * fx + fy * fy + fz * fz)
+        // Only points near the surface count, so each patch of sea gets one try per slot.
+        if (kotlin.math.abs(fl - radius) > 0.5 * ROGUE_CELL) return null
+        val f = Vec3(fx / fl, fy / fl, fz / fl)
+        // The sea where it peaks, as it is at the start of the slot.
+        rogueSea.sample(f, slot * ROGUE_SLOT, rogueState)
+        val hs = rogueState[COMPONENTS]
+        val storm = rogueState[COMPONENTS + 5] > ROGUE_SEA
+        if (!storm && (rare <= 0.0 || hs <= OPEN_ROGUE_SEA)) return null
+        // Likelier where swell crosses the sea, and where a current runs against it, looked up
+        // only when the roll is close enough for it to matter.
+        val cross = rogueState[COMPONENTS + 9].coerceIn(0.0, 1.0)
+        val chance = (if (storm) stormRogueChance else openRogueChance) * ODDS_SCALE * (ODDS_FLAT + ODDS_CROSS * cross)
+        if (!all && roll >= chance * (1.0 + ODDS_AGAINST)) return null
+        coarseDepth.sample(f, 0.0, rogueBed)
+        if (rogueBed[0] > -ROGUE_DEPTH) return null
+
+        // It runs the way most of the sea does.
+        val along = Vec3(rogueState[COMPONENTS + 6], rogueState[COMPONENTS + 7], rogueState[COMPONENTS + 8])
+        along.addScaledInPlace(f, -(along dot f))
+        if (along.lengthSq < 1e-6) along.setTo(rogueState[COMPONENTS + 2], rogueState[COMPONENTS + 3], rogueState[COMPONENTS + 4]).addScaledInPlace(f, -(along dot f))
+        if (along.lengthSq < 1e-6) along.setTo(tangentOf(f))
+        along.normalizeInPlace()
+        val across = f.copy().crossInPlace(along).normalizeInPlace()
+        val against = currents?.let {
+            // Without calm places or bases, which differ between seas: those quieten it later,
+            // where it's sampled.
+            it.velocity(f, 0.0, rogueCurrent, rough = true, calm = false)
+            smooth(0.1, 0.6, -(rogueCurrent dot along))
+        } ?: 0.0
+        val exists = roll < chance * (1.0 + ODDS_AGAINST * against)
+        if (!exists && !all) return null
+
+        // How big, as times the sea round it wherever it is: steeper against a current.
+        val vary = Noise.hash(seed + 15, cx, cy, cz xor slot)
+        val ratio = kotlin.math.min(
+            (ROGUE_RATIO + ROGUE_RATIO_VARY * vary + (if (storm) ROGUE_RATIO_EXTRA * stormRogueExtra else 0.0)) * (1.0 + ROGUE_STEEPEN * against),
+            ROGUE_RATIO_MOST,
+        )
+        val cap = if (!storm) OPEN_ROGUE_CAP else if (rare <= 0.0) NORMAL_ROGUE_CAP else ROGUE_CAP + ROGUE_CAP_EXTRA * stormRogueExtra
+        val length = (ROGUE_SHORTEST + (ROGUE_LONGEST - ROGUE_SHORTEST) * Noise.hash(seed + 16, cx, cy, cz xor slot)) *
+            (1.0 - ROGUE_STEEPEN * against)
+        val k = 2.0 * Math.PI / length
+        val omega = sqrt(g * k)
+        return Rogue(
+            f.mulInPlace(radius), along, across, (slot + Noise.hash(seed + 17, cx, cy, cz xor slot)) * ROGUE_SLOT,
+            k, omega, omega / k, ratio, cap, kotlin.math.min(ratio * hs, cap), storm, cross, against, exists,
+        )
+    }
+
+    /**
+     * The middle wave's amplitude that makes [height] metres crest to trough at a rogue's peak,
+     * second order included: its crest stands at envelope 1, the hole in front at [ROGUE_TROUGH].
+     */
+    private fun rogueAmplitude(height: Double, k: Double): Double {
+        val b1 = 1.0 + ROGUE_TROUGH
+        val b2 = 0.5 * k * (1.0 - ROGUE_TROUGH * ROGUE_TROUGH)
+        return 2.0 * height / (b1 + sqrt((b1 * b1 + 4.0 * b2 * height).coerceAtLeast(0.0)))
     }
 
     private fun smooth(a: Double, b: Double, x: Double): Double {
@@ -862,7 +1280,7 @@ class Sea(
         /** Sea state corner spacing in metres, and how long each lasts in seconds. */
         const val STATE_SPACING = 5_000.0
         const val STATE_EPOCH = 30.0
-        internal const val STATE_SIZE = COMPONENTS + 6
+        internal const val STATE_SIZE = COMPONENTS + 10
         private const val STATE_CAPACITY = 20_000
 
         /** How far apart the sea bed's corners are, in metres. */
@@ -925,13 +1343,143 @@ class Sea(
         private const val WIND_DRIFT = 0.015
 
         /**
-         * Rogue waves: least storm sea height (m), patch size (m), time slot (s), how rare, how big.
+         * Rogue waves: the least storm sea height for one (m), the cell each may peak in (m), time
+         * slot (s), and the least depth where one starts (m).
          */
         private const val ROGUE_SEA = 5.0
-        private const val ROGUE_CELL = 1_500.0
-        private const val ROGUE_SLOT = 120.0
-        private const val ROGUE_CHANCE = 0.02
-        private const val ROGUE_RADIUS = 180.0
-        private const val ROGUE_GAIN = 1.2
+        private const val ROGUE_CELL = 6_000.0
+        private const val ROGUE_SLOT = 600.0
+        private const val ROGUE_DEPTH = 50.0
+
+        /** How far apart the rough sea state for rogues is worked out, in metres. */
+        private const val ROGUE_STATE_SPACING = 20_000.0
+
+        /** A storm's chance of a rogue per cell and slot, and how much more at full [rare]. */
+        private const val ROGUE_CHANCE = 0.04
+        private const val ROGUE_MORE = 3.0
+
+        /** Rogues in open sea away from storms: the least sea height (m) and chance at full [rare]. */
+        private const val OPEN_ROGUE_SEA = 6.0
+        private const val OPEN_ROGUE_CHANCE = 0.08
+
+        /**
+         * The odds for where they happen, with crossing seas and an opposing current, each 0..1.
+         * Scaled so the odds average about 1 over rough sea.
+         */
+        private const val ODDS_FLAT = 0.4
+        private const val ODDS_CROSS = 2.0
+        private const val ODDS_AGAINST = 1.5
+        private const val ODDS_SCALE = 1.0
+
+        /**
+         * How high, crest to trough, as times the sea's significant height: at least, and how much
+         * more by chance and at full [rare] in a storm, and the most. Then the most for a storm's (m), how much
+         * more at full [rare], and for an open sea's.
+         */
+        private const val ROGUE_RATIO = 2.2
+        private const val ROGUE_RATIO_VARY = 0.3
+        private const val ROGUE_RATIO_EXTRA = 0.3
+        private const val ROGUE_RATIO_MOST = 2.8
+        private const val NORMAL_ROGUE_CAP = 20.0
+        private const val ROGUE_CAP = 30.0
+        private const val ROGUE_CAP_EXTRA = 8.0
+        private const val OPEN_ROGUE_CAP = 25.0
+
+        /** How much higher and shorter a rogue running into a current is, as a share. */
+        private const val ROGUE_STEEPEN = 0.15
+
+        /** Wavelengths, shortest and longest (m), and how far each side its crest runs (m). */
+        private const val ROGUE_SHORTEST = 300.0
+        private const val ROGUE_LONGEST = 500.0
+        private const val ROGUE_SPAN = 1_600.0
+
+        /** The group's life and the middle wave's either side of its peak (s). */
+        private const val ROGUE_LIFE = 200.0
+        private const val ROGUE_PEAK = 120.0
+
+        /**
+         * The three sisters: the group's share of the middle wave, its reach and the middle wave's
+         * either side in wavelengths, and how much deeper the hole in front is.
+         */
+        private const val SISTERS = 0.78
+        private const val SISTERS_REACH = 2.0
+        private const val ROGUE_MIDDLE = 0.75
+        private const val HOLE = 0.35
+
+        /** The envelope at the hole in front, half a wavelength ahead, at the peak. */
+        private val ROGUE_TROUGH = run {
+            val sg = 0.5 / SISTERS_REACH
+            val vg = 1.0 - sg * sg * sg * sg
+            val sm = 0.5 / ROGUE_MIDDLE
+            val vm = 1.0 - sm * sm
+            SISTERS * vg * vg + (1.0 - SISTERS) * vm * vm + HOLE
+        }
+
+        /** How much of the waves round it a rogue's group draws in. */
+        private const val ROGUE_DRAW = 0.5
+
+        /** A rogue's crest to trough as times its envelope, for the depth limit. */
+        private const val ROGUE_SHARE = 2.2
+
+        /** Drawn, where a rogue starts to fade, in wavenumber times spacing. Gone by two pi. */
+        private const val ROGUE_SOFT_FROM = Math.PI * 1.4
+
+        /** The most rogues worked out at one point. */
+        const val MAX_ROGUES = 4
+
+        internal val NO_ROGUES = emptyArray<Rogue>()
+        private val sharedRogues = com.rm.apogee.core.concurrentMapOf<String, MutableMap<Long, Array<Rogue>>>()
+        private val rogueIdentities = ArrayList<String>()
+
+        /**
+         * The rogue cells for seas of [identity], kept for the last few identities asked for, so
+         * switching worlds or weather doesn't leave the old ones behind.
+         */
+        private fun rogueCellsFor(identity: String): MutableMap<Long, Array<Rogue>> = com.rm.apogee.core.guarded(rogueIdentities) {
+            rogueIdentities.remove(identity)
+            rogueIdentities.add(identity)
+            while (rogueIdentities.size > ROGUE_IDENTITIES) sharedRogues.remove(rogueIdentities.removeAt(0))
+            sharedRogues[identity] ?: com.rm.apogee.core.concurrentMapOf<Long, Array<Rogue>>().also { sharedRogues[identity] = it }
+        }
+
+        /** Forgets every sea's rogues. For tests, to work them out afresh. */
+        internal fun forgetRogues() = com.rm.apogee.core.guarded(rogueIdentities) { sharedRogues.clear(); rogueIdentities.clear() }
+
+        /** How many kinds of sea keep their rogue cells. */
+        private const val ROGUE_IDENTITIES = 4
+
+        /** How many cells and slots [warmRogues] keeps its place for, and how many it works round each. */
+        private const val ROGUE_WARM_KEPT = 16
+        private const val ROGUE_WARM_CELLS = 3 * 343
+
+        /** How many cells' rogues [warmRogues] works out each call. */
+        private const val ROGUE_WARM_EACH = 2
+
+        /** How many cells' rogues are kept before starting again. */
+        private const val ROGUE_CELLS_KEPT = 50_000
     }
 }
+
+/**
+ * One rogue wave: where on the surface it peaks (body-fixed, m), which way it runs and across it
+ * (unit), when it peaks (s), its wavenumber, frequency and speed. Its height crest to trough is
+ * [ratio] times the sea's significant height wherever it is, up to [cap] metres; [height] is that
+ * where it peaks, roughly. Then whether it's a storm's, how much swell crossed the sea and a
+ * current opposed it there, and whether its roll came up.
+ */
+internal class Rogue(
+    val focus: Vec3,
+    val along: Vec3,
+    val across: Vec3,
+    val time: Double,
+    val k: Double,
+    val omega: Double,
+    val speed: Double,
+    val ratio: Double,
+    val cap: Double,
+    val height: Double,
+    val storm: Boolean,
+    val cross: Double,
+    val against: Double,
+    val exists: Boolean,
+)

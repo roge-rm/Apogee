@@ -145,6 +145,10 @@ class SeaScene(
         if (now - lastStartedNanos < (if (behind) BEHIND_BUILD_NANOS else MIN_BUILD_NANOS)) return
         lastStartedNanos = now
         building = true
+        // The world's founded bases, so the sea drawn is calm round them like the one boats ride.
+        val bases = body.ocean?.sea?.calmBases ?: emptyList()
+        for (b in builders) b.sea.calmBases = bases
+        frameSea.calmBases = bases
         val at = centre.copy()
         // No more than [MAX_AHEAD] ahead. A slow first build would otherwise send the next one so
         // far on that every prepared point would be stale, making it slow in turn.

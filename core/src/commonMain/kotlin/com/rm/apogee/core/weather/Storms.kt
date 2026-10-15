@@ -58,6 +58,9 @@ internal class Storms(
     /** Whether this world has storms at all, at this setting. */
     private val active = intensity.storms > 0.0 && climate.storms > 0.0
 
+    /** How hard their winds blow and how big a sea they raise, by the setting. */
+    private val power = intensity.stormPower
+
     /** Whether anything falls from them. */
     private val wet = climate.precipitation != Climate.Precipitation.NONE
 
@@ -388,7 +391,7 @@ internal class Storms(
 
                 // The updraught under the tower.
                 if (altitude > s.base * 0.5 && altitude < top) {
-                    val w = UPDRAUGHT * life * exp(-(d / (0.6 * r)).let { it * it })
+                    val w = UPDRAUGHT * power * life * exp(-(d / (0.6 * r)).let { it * it })
                     out.lift += w
                     out.wind.addScaledInPlace(up, w)
                 }
@@ -396,7 +399,7 @@ internal class Storms(
                 val sx = dx - s.shaftAlong * r
                 val dShaft = kotlin.math.hypot(sx, dy)
                 if (altitude < s.base + 500.0) {
-                    val w = -DOWNDRAUGHT * life * exp(-(dShaft / (0.7 * r)).let { it * it }) * smooth(0.0, 200.0, agl)
+                    val w = -DOWNDRAUGHT * power * life * exp(-(dShaft / (0.7 * r)).let { it * it }) * smooth(0.0, 200.0, agl)
                     out.lift += w
                     out.wind.addScaledInPlace(up, w)
                 }
@@ -405,7 +408,7 @@ internal class Storms(
                 // A lone storm's gust front, spreading out from each shaft. A line's is below.
                 if (s.kind != StormKind.SQUALL && agl < 1_500.0 && dShaft > 1.0) {
                     val ring = (dShaft - 1.3 * r) / (0.8 * r)
-                    val outward = GUST_FRONT * life * exp(-ring * ring) * min(dShaft / r, 1.0) * (1.0 - smooth(300.0, 1_500.0, agl))
+                    val outward = GUST_FRONT * power * life * exp(-ring * ring) * min(dShaft / r, 1.0) * (1.0 - smooth(300.0, 1_500.0, agl))
                     if (outward > gust) {
                         gust = outward
                         shaftRel.setTo(steerDir).mulInPlace(sx / dShaft).addScaledInPlace(right, dy / dShaft)
@@ -414,7 +417,7 @@ internal class Storms(
                 // The tower draws low air in. The strongest pull wins.
                 val pull = life * (d / r) * exp(-(d / (2.0 * r)).let { it * it })
                 if (pull > inflowPull && d > 1.0) { inflowPull = pull; inflowAlong = dx / d; inflowAcross = dy / d }
-                turbulence = max(turbulence, TURBULENCE * life * exp(-(d / (1.8 * r)).let { it * it }))
+                turbulence = max(turbulence, TURBULENCE * power * life * exp(-(d / (1.8 * r)).let { it * it }))
 
                 // The tower itself.
                 if (altitude > s.base && altitude < top) {
@@ -430,17 +433,17 @@ internal class Storms(
                 val bow = 0.08 * half * (1.0 - (across / half).coerceIn(-1.0, 1.0).let { it * it })
                 val ahead = along - bow
                 val ring = (ahead - 2_500.0) / 4_000.0
-                val g = GUST_FRONT * envelope * exp(-ring * ring) * (1.0 - smooth(300.0, 1_500.0, agl)) *
+                val g = GUST_FRONT * power * envelope * exp(-ring * ring) * (1.0 - smooth(300.0, 1_500.0, agl)) *
                     (1.0 - smooth(0.85, 1.0, abs(across) / s.halfAcross))
                 if (g > gust) { gust = g; shaftRel.setTo(steerDir) }
             }
             if (gust > 0.0) out.wind.addScaledInPlace(shaftRel, gust)
             if (inflowPull > 0.0 && agl < 2_000.0) {
-                val inflow = INFLOW * inflowPull * (1.0 - smooth(500.0, 2_000.0, agl))
+                val inflow = INFLOW * power * inflowPull * (1.0 - smooth(500.0, 2_000.0, agl))
                 out.wind.addScaledInPlace(steerDir, -inflow * inflowAlong).addScaledInPlace(right, -inflow * inflowAcross)
             }
             // Rough air everywhere under and around the base, worst next to the towers.
-            out.turbulence += max(turbulence, TURBULENCE * 0.4 * envelope * nearness)
+            out.turbulence += max(turbulence, TURBULENCE * power * 0.4 * envelope * nearness)
 
             // Light rain over the back of the base.
             if (q < 1.0 && s.stratiform > 0.0 && da < 0.3) {
@@ -545,7 +548,7 @@ internal class Storms(
             val q = kotlin.math.sqrt(da * da + dc * dc)
             val cover = if (q <= 1.0) 1.0 else exp(-((q - 1.0) / 0.5).let { it * it })
             val boost = if (s.kind == StormKind.SUPERCELL || s.kind == StormKind.SQUALL) 1.1 else 1.0
-            val hs = STORM_SEA_HS * env * cover * boost
+            val hs = STORM_SEA_HS * power * env * cover * boost
             if (hs <= out.stormHs) continue
             out.stormHs = hs
             if (s.kind == StormKind.SQUALL) {
@@ -577,7 +580,7 @@ internal class Storms(
             val distance = kotlin.math.acos((seaCentre dot up).coerceIn(-1.0, 1.0)) * bodyRadius
             val source = kotlin.math.max(s.halfAlong, s.halfAcross)
             if (distance < source) continue
-            val hs = STORM_SEA_HS * SWELL_SHARE * env * kotlin.math.sqrt(source / distance) *
+            val hs = STORM_SEA_HS * power * SWELL_SHARE * env * kotlin.math.sqrt(source / distance) *
                 (1.0 - smooth(0.7 * SWELL_REACH, SWELL_REACH, distance))
             if (hs <= out.swellHs) continue
             // Across the sea only. A coast in between stops it.
@@ -694,7 +697,7 @@ internal class Storms(
         /** The most towers one storm has. */
         const val MAX_CELLS = 14
 
-        /** The significant wave height under the worst storm, in metres. */
+        /** The significant wave height under the worst storm, in metres, before [WeatherIntensity.stormPower]. */
         const val STORM_SEA_HS = 12.0
 
         /**

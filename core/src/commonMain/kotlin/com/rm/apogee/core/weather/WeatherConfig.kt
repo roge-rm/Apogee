@@ -24,11 +24,21 @@ enum class WeatherIntensity(
      * down near a coast and the swell didn't change.
      */
     val sea: Double,
+    /** Scales a storm's own winds and the sea under it. */
+    val stormPower: Double = 1.0,
+    /**
+     * How often rare events happen, from rogue waves in open sea to the worst storms. Zero means
+     * never; Extreme is 1.
+     */
+    val rare: Double = 0.0,
 ) {
     /** Wind but no storms, and gentle thermals, for learning to fly. */
     @SerialName("calm") CALM("Calm", wind = 0.5, storms = 0.0, thermals = 0.5, gusts = 0.5, sea = 0.6),
     @SerialName("normal") NORMAL("Normal", wind = 1.0, storms = 1.0, thermals = 1.0, gusts = 1.0, sea = 1.0),
-    @SerialName("wild") WILD("Wild", wind = 1.6, storms = 2.5, thermals = 1.4, gusts = 1.7, sea = 1.7),
+    @SerialName("wild") WILD("Wild", wind = 1.6, storms = 2.5, thermals = 1.4, gusts = 1.7, sea = 1.7, rare = 0.1),
+    @SerialName("extreme") EXTREME(
+        "Extreme", wind = 2.0, storms = 4.0, thermals = 1.8, gusts = 2.3, sea = 1.8, stormPower = 1.3, rare = 1.0,
+    ),
 }
 
 /**

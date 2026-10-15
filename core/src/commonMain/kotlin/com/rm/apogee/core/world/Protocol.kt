@@ -794,5 +794,6 @@ object Protocol {
     // 30: the gear switch: SetGear, CraftSystems.gear and gearFolds; legs no longer stage.
     // 31: picking a craft on joining: Hello.choosing, CraftOffered; ChatMessage.stripe and
     //     StructureUpdate.ownerStripe.
-    const val VERSION = 31
+    // 32: WeatherIntensity.EXTREME, travelling rogue waves, water loads on joints.
+    const val VERSION = 32
 }
