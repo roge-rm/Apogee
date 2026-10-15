@@ -243,7 +243,12 @@ object PartModels {
      * [up] (both design space), so its flaps go down toward the ground whichever way it's mounted.
      */
     fun alignFlap(partRotation: Quat, up: Vec3, anim: PartAnim) {
-        anim.flapSign = if ((partRotation.rotate(Vec3(0.0, 0.0, 1.0)) dot up) >= 0.0) 1.0 else -1.0
+        // The part's +Z turned into design space, worked out here so nothing is allocated.
+        val q = partRotation
+        val zx = 2.0 * (q.x * q.z + q.w * q.y)
+        val zy = 2.0 * (q.y * q.z - q.w * q.x)
+        val zz = 1.0 - 2.0 * (q.x * q.x + q.y * q.y)
+        anim.flapSign = if (zx * up.x + zy * up.y + zz * up.z >= 0.0) 1.0 else -1.0
     }
 
     /**

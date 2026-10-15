@@ -7,7 +7,7 @@ package com.rm.apogee.render
  */
 class ItemMatcher {
     private val _partners = ArrayList<RenderItem?>()
-    private val previousByKey = HashMap<Long, RenderItem>()
+    private val previousByKey = LongMap<RenderItem>(1024)
     private val previousUnkeyed = ArrayList<RenderItem>()
 
     /** From the last [match]: each item's self in the last frame, or null. */
@@ -17,11 +17,13 @@ class ItemMatcher {
         _partners.clear()
         previousByKey.clear()
         previousUnkeyed.clear()
-        if (previousItems != null) for (item in previousItems) {
+        if (previousItems != null) for (i in previousItems.indices) {
+            val item = previousItems[i]
             if (item.key != 0L) previousByKey[item.key] = item else previousUnkeyed.add(item)
         }
         var unkeyed = 0
-        for (item in items) {
+        for (i in items.indices) {
+            val item = items[i]
             val previous = if (item.key != 0L) previousByKey[item.key] else previousUnkeyed.getOrNull(unkeyed++)
             _partners.add(previous ?: spawnPose(item, items))
         }

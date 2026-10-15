@@ -4332,6 +4332,11 @@ class GameSession private constructor(
 
     private val scratchLamp = Vec3()
     private val scratchGlow = Vec3()
+    // Per part in appendVessel, frame-build thread only. Only read while drawing that part, never
+    // kept in an item.
+    private val scratchAnim = PartAnim()
+    private val scratchOffset = Vec3()
+    private val scratchPartRotation = Quat()
 
     /**
      * Lamps lit this frame that light their surroundings, [LAMP_FLOATS] each: body-fixed x, y, z
@@ -4562,20 +4567,23 @@ class GameSession private constructor(
                 lineEnds[lineKey(vessel.id, index)] = scratch.copy() to rotation * placedRotation
             }
 
-            val anim = PartAnim(
-                deflection = animation.shown.deflection[index],
-                steer = animation.shown.steer[index],
-                compression = animation.shown.compression[index],
-                deploy = animation.shown.deploy[index],
-                gimbalPitch = animation.shown.gimbalPitch[index],
-                gimbalYaw = animation.shown.gimbalYaw[index],
-                flap = animation.shown.flap[index],
-                sailAngle = animation.shown.sailAngle[index],
-                sailFill = animation.shown.sailFill[index],
-                jettisoned = def.module<com.rm.apogee.core.part.Fairing>() != null && index in vessel.activatedParts,
-            )
+            // Every field set afresh, since it's the last part's.
+            val anim = scratchAnim.apply {
+                deflection = animation.shown.deflection[index]
+                steer = animation.shown.steer[index]
+                spin = 0.0
+                compression = animation.shown.compression[index]
+                deploy = animation.shown.deploy[index]
+                gimbalPitch = animation.shown.gimbalPitch[index]
+                gimbalYaw = animation.shown.gimbalYaw[index]
+                hingeSign = 1.0
+                flap = animation.shown.flap[index]
+                sailAngle = animation.shown.sailAngle[index]
+                sailFill = animation.shown.sailFill[index]
+                jettisoned = def.module<com.rm.apogee.core.part.Fairing>() != null && index in vessel.activatedParts
+            }
             PartModels.alignWheel(def, placed.rotation, design.orientation.forward, design.orientation.up, anim)
-            PartModels.alignSurface(def, placed.rotation, Vec3().setTo(placed.position).subInPlace(centreOfMass), anim)
+            PartModels.alignSurface(def, placed.rotation, scratchOffset.setTo(placed.position).subInPlace(centreOfMass), anim)
             PartModels.alignFlap(placed.rotation, design.orientation.up, anim)
             val wheel = def.module<com.rm.apogee.core.part.Wheel>()
             if (wheel != null && anim.wheelAlign != null) {
@@ -4729,7 +4737,7 @@ class GameSession private constructor(
                 }
             }
 
-            val partRotation = rotation * placedRotation
+            val partRotation = scratchPartRotation.setTo(rotation).mulInPlace(placedRotation)
             val body = com.rm.apogee.render.PartModels.bodyColour(placed.partId)
             leaves.clear()
             PartModels.expand(def, caps[index], anim, leaves)

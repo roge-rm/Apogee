@@ -71,6 +71,10 @@ class CloudScene(
     ) {
         /** One mesh per device tier, retained across listings instead of switching at camera-distance thresholds. */
         val detail: Int get() = if (tier == QualityTier.LOW) 1 else 2
+        private var madeShape: com.rm.apogee.core.part.Shape? = null
+        /** Made once, on the frame-build thread. */
+        val shape: com.rm.apogee.core.part.Shape
+            get() = madeShape ?: (if (rain) RAIN_CURTAIN else CloudPuff(variant, flat, detail)).also { madeShape = it }
         fun withBudget(fade: Float) = Lobe(centre, up, scale, colour, variant, flat, distance, tier,
             rain, storm, drift, listedAt, centreRate, scaleRate, alphaRate, changingUntil, key, fade)
     }
@@ -448,56 +452,49 @@ class CloudScene(
     }
 
     private val transitions = com.rm.apogee.render.CloudTransitions()
-    private val rawItems = ArrayList<RenderItem>()
-    private val turned = Vec3()
+    // Reused frame to frame; the transitions copy out what they keep.
+    private val clouds = ArrayList<com.rm.apogee.render.CloudTransitions.Cloud>()
     private val drifted = Vec3()
 
     /** Appends the clouds, turned to where the planet is at [bodyRotation], to [out]. */
     fun append(bodyRotation: Quat, time: Double, out: MutableList<RenderItem>, nowNanos: Long = System.nanoTime()) {
         val snapshot = lobes
-        rawItems.clear()
-        for (lobe in snapshot) {
+        while (clouds.size < snapshot.size) clouds.add(com.rm.apogee.render.CloudTransitions.Cloud())
+        for (i in snapshot.indices) {
+            val lobe = snapshot[i]
+            val cloud = clouds[i]
             // Carried on along its drift since listing, so a moving storm moves smoothly and a
             // deck's puff keeps growing or thinning.
             val since = time - lobe.listedAt
             val changed = (kotlin.math.min(time, lobe.changingUntil) - lobe.listedAt).coerceAtLeast(0.0)
-            if (lobe.drift === NO_DRIFT && (lobe.centreRate == null || changed == 0.0)) bodyRotation.rotate(lobe.centre, turned)
+            if (lobe.drift === NO_DRIFT && (lobe.centreRate == null || changed == 0.0)) bodyRotation.rotate(lobe.centre, cloud.position)
             else {
                 drifted.setTo(lobe.centre).addScaledInPlace(lobe.drift, since)
                 lobe.centreRate?.let { drifted.addScaledInPlace(it, changed) }
-                bodyRotation.rotate(drifted, turned)
+                bodyRotation.rotate(drifted, cloud.position)
             }
-            val scale = lobe.scaleRate?.takeIf { changed > 0.0 }?.let { rate ->
-                Vec3(
-                    (lobe.scale.x + rate.x * changed).coerceAtLeast(0.0),
-                    (lobe.scale.y + rate.y * changed).coerceAtLeast(0.0),
-                    (lobe.scale.z + rate.z * changed).coerceAtLeast(0.0),
-                )
-            } ?: lobe.scale
-            val colour = if ((lobe.alphaRate != 0f && changed > 0.0) || lobe.budgetFade < 1f) lobe.colour.copyOf().also {
-                it[3] = ((it[3] + lobe.alphaRate * changed.toFloat()) * lobe.budgetFade).coerceIn(0f, 1f)
-            } else lobe.colour
+            val rate = lobe.scaleRate
+            cloud.scale = if (rate != null && changed > 0.0) cloud.grown.setTo(
+                (lobe.scale.x + rate.x * changed).coerceAtLeast(0.0),
+                (lobe.scale.y + rate.y * changed).coerceAtLeast(0.0),
+                (lobe.scale.z + rate.z * changed).coerceAtLeast(0.0),
+            ) else lobe.scale
+            cloud.colour = lobe.colour
+            cloud.alpha = if ((lobe.alphaRate != 0f && changed > 0.0) || lobe.budgetFade < 1f)
+                ((lobe.colour[3] + lobe.alphaRate * changed.toFloat()) * lobe.budgetFade).coerceIn(0f, 1f)
+            else lobe.colour[3]
+            cloud.rotation.setTo(bodyRotation).mulInPlace(lobe.up)
+            cloud.shape = lobe.shape
+            cloud.key = lobe.key
+            cloud.wrap = true
+            cloud.orderedTransparency = true
             if (lobe.rain) {
-                rawItems.add(
-                    RenderItem(
-                        shape = RAIN_CURTAIN, position = turned.copy(), rotation = bodyRotation * lobe.up,
-                        color = colour, caps = 0, scale = scale, ambient = 0.5f, curtain = true, key = lobe.key, orderedTransparency = true,
-                    ),
-                )
-                continue
+                cloud.caps = 0; cloud.ambient = 0.5f; cloud.curtain = true
+            } else {
+                cloud.caps = com.rm.apogee.render.StackCaps.BOTH; cloud.ambient = 0.42f; cloud.curtain = false
             }
-            rawItems.add(
-                RenderItem(
-                    shape = CloudPuff(lobe.variant, lobe.flat, lobe.detail),
-                    position = turned.copy(),
-                    rotation = bodyRotation * lobe.up,
-                    color = colour,
-                    scale = scale,
-                    ambient = 0.42f, key = lobe.key, orderedTransparency = true,
-                ),
-            )
         }
-        transitions.append(rawItems, snapshot, nowNanos, out)
+        transitions.append(clouds, snapshot.size, snapshot, nowNanos, out)
     }
 
     // --- the map's cloud -----------------------------------------------------
