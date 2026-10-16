@@ -29,6 +29,9 @@ import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.SignalWifiOff
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Whatshot
+import androidx.compose.material.icons.filled.Cyclone
+import androidx.compose.material.icons.filled.Tornado
+import androidx.compose.material.icons.filled.Tsunami
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -47,6 +50,7 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import com.rm.apogee.core.world.ServerMessage
 import com.rm.apogee.game.HudState
+import com.rm.apogee.game.WeatherWarnings
 import com.rm.apogee.ui.theme.ApogeeAlpha
 import com.rm.apogee.ui.theme.ApogeeColors
 import com.rm.apogee.ui.theme.Dimens
@@ -64,6 +68,7 @@ class StatusActions(
     val onUnload: (Boolean) -> Unit = {},
     val onRefine: (ServerMessage.BaseStatus, Boolean) -> Unit = { _, _ -> },
     val onDockPilot: (String) -> Unit = {},
+    val onWeather: (WeatherWarnings.Warning) -> Unit = {},
 )
 
 /** One chip. [opens] is the detail it opens, if any. */
@@ -76,6 +81,10 @@ private class StatusChip(
     val opens: String?,
     /** A bar after the text, 0..1, or null for none. */
     val bar: Float? = null,
+    /** Tapped, does this instead of opening a detail. */
+    val tap: (() -> Unit)? = null,
+    /** Light text on a solid fill of [colour], to read at a glance. */
+    val solid: Boolean = false,
 )
 
 /**
@@ -103,6 +112,14 @@ fun StatusRow(
     if (telemetry.heat >= HEAT_SHOWN) heatUntil = nowMillis + HEAT_HOLD_MILLIS
     val showHeat = telemetry.heat >= HEAT_SHOWN || nowMillis < heatUntil
     val chips = buildList {
+        hud.weatherWarning?.let { w ->
+            val icon = when (w.kind) {
+                WeatherWarnings.Kind.TORNADO, WeatherWarnings.Kind.WATERSPOUT -> Icons.Filled.Tornado
+                WeatherWarnings.Kind.TSUNAMI -> Icons.Filled.Tsunami
+                WeatherWarnings.Kind.HURRICANE -> Icons.Filled.Cyclone
+            }
+            add(StatusChip("weather", icon, w.text, if (w.danger) ApogeeColors.Danger else ApogeeColors.Caution, w.danger, null, tap = { actions.onWeather(w) }, solid = w.danger))
+        }
         if (power != null) {
             if (!power.powered) add(StatusChip("power", Icons.Filled.BatteryAlert, "NO POWER", ApogeeColors.Danger, true, null))
             else if (power.low) add(StatusChip("power", Icons.Filled.BatteryAlert, percent(power.share.toDouble()), ApogeeColors.Caution, false, null))
@@ -171,6 +188,7 @@ fun StatusRow(
     Box(modifier) {
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
             for (chip in chips) Chip(chip, if (chip.danger) 1f else fadedAlpha) {
+                chip.tap?.let { it(); return@Chip }
                 val opens = chip.opens ?: return@Chip
                 hud.statusOpen = if (hud.statusOpen == opens) null else opens
             }
@@ -207,14 +225,21 @@ private fun Chip(chip: StatusChip, alpha: Float, onTap: () -> Unit) {
         Modifier
             .alpha(alpha)
             .clip(RoundedCornerShape(Dimens.CornerTight))
-            .background(if (chip.danger) chip.colour.alpha(0.3f) else Color.Black.alpha(ApogeeAlpha.SCRIM))
+            .background(
+                when {
+                    chip.solid -> androidx.compose.ui.graphics.lerp(chip.colour, Color.Black, SOLID_DARKER)
+                    chip.danger -> chip.colour.alpha(0.3f)
+                    else -> Color.Black.alpha(ApogeeAlpha.SCRIM)
+                },
+            )
             .clickable(onClick = onTap)
             .padding(horizontal = 7.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(chip.icon, contentDescription = chip.key, tint = chip.colour, modifier = Modifier.size(15.dp))
+        val ink = if (chip.solid) Color.White else chip.colour
+        Icon(chip.icon, contentDescription = chip.key, tint = ink, modifier = Modifier.size(15.dp))
         Spacer(Modifier.width(4.dp))
-        Text(chip.text, style = TelemetryTextStyle, color = chip.colour, maxLines = 1)
+        Text(chip.text, style = TelemetryTextStyle, color = ink, maxLines = 1)
         chip.bar?.let { fill ->
             Spacer(Modifier.width(6.dp))
             Box(
@@ -248,6 +273,9 @@ private const val BASE_NAME = 12
 /** The heat bar shows from this share of a part's limit, and for this long after it drops under it. */
 private const val HEAT_SHOWN = 0.25
 private const val HEAT_HOLD_MILLIS = 3_000L
+
+/** How much darker a solid chip's fill is than its colour, 0..1. */
+private const val SOLID_DARKER = 0.4f
 
 /** How long a chip's bar is. */
 private val BAR_WIDTH = 44.dp

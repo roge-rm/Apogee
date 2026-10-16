@@ -855,6 +855,17 @@ class Weather(
     fun tsunamiPassing(direction: Vec3, time: Double): Boolean = tsunamis.passing(direction, time)
 
     companion object {
+        /**
+         * Drops the caches every instance shares: the tsunami grids, sea lattices, rogue cells and
+         * [body]'s terrain tiles, so the next instance works everything out afresh. For tests.
+         */
+        fun forgetShared(body: CelestialBody) {
+            Tsunamis.Grid.forget()
+            com.rm.apogee.core.sea.Lattice.forget()
+            com.rm.apogee.core.sea.Sea.forgetRogues()
+            body.terrain?.tiles?.forget()
+        }
+
         /** A tsunami's seconds since its crest where none has arrived: long before any crest. */
         const val TSUNAMI_NO_CREST = -10_000.0
 

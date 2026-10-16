@@ -314,6 +314,12 @@ class GameSession private constructor(
     }
 
     private val cloudCamera = Vec3()
+    /** The flown craft, body-fixed, for weather warnings. */
+    private val warnAt = Vec3()
+
+    /** The hurricane, tornado or tsunami most worth a warning at the flown craft, or null. */
+    val weatherWarning: WeatherWarnings.Warning?
+        get() = if (wreckedId != null) null else cloudScene?.warnings?.current
 
     /** The solar system, built once. Nothing about it changes. */
     private val system = SolarSystem.defaultSystem()
@@ -1702,7 +1708,8 @@ class GameSession private constructor(
                 // Opens looking straight down on the craft with where it's going in view, north up the
                 // screen. After that the view is the player's.
                 mapFramedFor = focusId
-                mapFocus = MapFocus.CRAFT
+                mapFocus = mapOpenFocus ?: MapFocus.CRAFT
+                mapOpenFocus = null
                 var span = 0.0
                 for (line in drawn + listOfNotNull(course?.first, fall?.first)) for (p in line.points) span = maxOf(span, p.distanceTo(craft))
                 mapCraftSpan = if (!free) maxOf(span, MAP_LOCAL) else span
@@ -2041,6 +2048,7 @@ class GameSession private constructor(
         if (clouds != null) {
             attractor.toBodyFixed(cameraPosition, bodyRotation, cloudCamera)
             clouds.update(cloudCamera, renderTime)
+            clouds.warnings.update(attractor.toBodyFixed(focusState.position, bodyRotation, warnAt), renderTime, focusId)
             if (!mapMode) {
                 clouds.append(bodyRotation, renderTime, items, pool = itemPool)
                 clouds.tornadoes.append(cloudCamera, bodyRotation, renderTime, items, itemPool)
@@ -2394,6 +2402,8 @@ class GameSession private constructor(
             if (hidden(view.camera, icon.at, view.radius)) continue
             if (!onScreen(view, icon.at, width, height, at)) continue
             if (at[0] < -40f || at[1] < -40f || at[0] > width + 40f || at[1] > height + 40f) continue
+            // Tornadoes under one storm sit close together; seen from afar, one icon for them.
+            if (icon.kind == IconKind.TORNADO && out.any { it.icon == IconKind.TORNADO && kotlin.math.hypot(it.x - at[0], it.y - at[1]) < TORNADO_ICON_GAP }) continue
             var angle = 0f
             icon.heading?.takeIf { it.length > 1e-3 }?.let { h ->
                 // A little way along the heading, on screen, gives the way it points.
@@ -2527,17 +2537,33 @@ class GameSession private constructor(
     private var targetBeforeTap: Pair<Long, String>? = null
 
     /** What the map turns round: the craft, a world, or the target. */
-    data class MapFocus(val kind: FocusKind, val bodyId: String = "") {
+    data class MapFocus(val kind: FocusKind, val bodyId: String = "", val id: Long = 0L) {
         companion object {
             val CRAFT = MapFocus(FocusKind.CRAFT)
             val TARGET = MapFocus(FocusKind.TARGET)
         }
     }
 
-    enum class FocusKind { CRAFT, WORLD, TARGET }
+    enum class FocusKind { CRAFT, WORLD, TARGET, PLACE }
 
     @Volatile var mapFocus: MapFocus = MapFocus.CRAFT
         private set
+    /** For [FocusKind.PLACE]: where on its world, unit, body-fixed, how much round it to show in metres, and its name. */
+    @Volatile private var mapPlace = Vec3.unitY()
+    @Volatile private var mapPlaceSpan = MAP_LOCAL
+    @Volatile private var mapPlaceName = ""
+    /** What the map turns round once it opens, instead of the craft. */
+    @Volatile private var mapOpenFocus: MapFocus? = null
+
+    /** Turns the map round [warning], on the world the craft is at, now or when it next opens. */
+    fun mapLookAt(warning: WeatherWarnings.Warning) {
+        val body = client.controlledVessel?.let { client.vessel(it) }?.latest?.referenceBodyId ?: return
+        mapPlace = warning.point.copy()
+        mapPlaceSpan = warning.span
+        mapPlaceName = warning.kind.name.lowercase().replaceFirstChar { it.uppercase() }
+        val focus = MapFocus(FocusKind.PLACE, body, warning.id)
+        if (mapMode && mapFramedFor != Long.MIN_VALUE) mapFocus = focus else mapOpenFocus = focus
+    }
     private var mapFramedFocus: MapFocus? = null
     private var mapLastPivot: Vec3? = null
     private var mapLastAttractor: String? = null
@@ -2560,10 +2586,11 @@ class GameSession private constructor(
 
     /** What the map's turned round, in words, for the focus button. */
     val mapFocusName: String
-        get() = when (mapFocus.kind) {
+        get() = when ((mapOpenFocus ?: mapFocus).kind) {
             FocusKind.CRAFT -> client.controlledVessel?.let { client.vessel(it) }?.name ?: "Craft"
             FocusKind.WORLD -> system.bodies[mapFocus.bodyId]?.displayName ?: mapFocus.bodyId
             FocusKind.TARGET -> client.vessel(localTarget)?.name ?: targetNameOf(localTargetBody)
+            FocusKind.PLACE -> mapPlaceName
         }
 
     private fun targetNameOf(body: String): String =
@@ -2576,11 +2603,13 @@ class GameSession private constructor(
         FocusKind.CRAFT -> true
         FocusKind.WORLD -> focus.bodyId in system.bodies
         FocusKind.TARGET -> hasTarget()
+        FocusKind.PLACE -> focus.bodyId == attractor.id
     }
 
     /** Where [focus] is now, around [attractor]. */
     private fun pivotOf(focus: MapFocus, attractor: CelestialBody, craft: Vec3, time: Double): Vec3 = when (focus.kind) {
         FocusKind.CRAFT -> craft.copy()
+        FocusKind.PLACE -> attractor.rotationAt(time).rotate(Vec3().setTo(mapPlace).mulInPlace(attractor.radius))
         FocusKind.WORLD ->
             if (focus.bodyId == attractor.id) Vec3()
             else system.positionOf(focus.bodyId, time).subInPlace(system.positionOf(attractor.id, time))
@@ -2606,6 +2635,7 @@ class GameSession private constructor(
     private fun framingOf(focus: MapFocus, attractor: CelestialBody): Double = when (focus.kind) {
         FocusKind.CRAFT -> mapCraftSpan * 2.4
         FocusKind.TARGET -> MAP_LOCAL * 2.4
+        FocusKind.PLACE -> mapPlaceSpan * 2.4
         FocusKind.WORLD -> {
             val body = system.body(focus.bodyId)
             if (body.parentId == null) {
@@ -3741,6 +3771,9 @@ class GameSession private constructor(
     private var heardLegs: Map<Int, Double> = emptyMap()
     private var heardCaution = false
     private var lastCautionNanos = 0L
+    /** The weather warnings last sounded, so each sounds once. */
+    private val warnedOf = LongArray(8) { Long.MIN_VALUE }
+    private var warnedNext = 0
 
     /** A blow, a breakage or a blast, as heard from here. */
     private fun hear(
@@ -3860,6 +3893,15 @@ class GameSession private constructor(
             lastCautionNanos = now
         }
         heardCaution = caution
+        // A new weather warning, once each.
+        weatherWarning?.let { w ->
+            if (w.id !in warnedOf && now - lastCautionNanos > CAUTION_SPACING_NANOS) {
+                com.rm.apogee.audio.Sounds.caution()
+                lastCautionNanos = now
+                warnedOf[warnedNext] = w.id
+                warnedNext = (warnedNext + 1) % warnedOf.size
+            }
+        }
 
         // The flown craft's own moments: a stage going, an engine lighting, and a chute opening.
         if (wrecked) return
@@ -5717,6 +5759,9 @@ class GameSession private constructor(
         private val TSUNAMI_FRONT_COLOR = floatArrayOf(0.55f, 0.78f, 0.95f, 0.7f)
 
         /** The map's tsunami icon: a wave rising and its crest curling over, as points x y in icon radii with y down. */
+        /** Tornado icons closer than this on the screen, in px, show as one. */
+        const val TORNADO_ICON_GAP = 24f
+
         val TSUNAMI_GLYPH = floatArrayOf(
             -0.95f, 0.62f, -0.74f, 0.55f, -0.56f, 0.40f, -0.40f, 0.19f, -0.25f, -0.04f, -0.11f, -0.27f,
             0.05f, -0.48f, 0.22f, -0.64f, 0.42f, -0.71f, 0.62f, -0.68f, 0.76f, -0.56f, 0.83f, -0.39f,

@@ -550,6 +550,7 @@ class ApogeeApp(private val host: AppHost) {
                                 scope.launch { s.setDockPilot(pilot) }
                             }
                         },
+                        onWeatherWarning = ::onWeatherWarning,
                         onStickMode = ::onStickMode,
                         onSteering = ::onSteering,
                         onCameraMode = ::onCameraMode,
@@ -1352,11 +1353,19 @@ class ApogeeApp(private val host: AppHost) {
         hudState.mapFocus = current.mapFocusName
     }
 
+    private fun onWeatherWarning(warning: com.rm.apogee.game.WeatherWarnings.Warning) {
+        val current = session ?: return
+        current.mapLookAt(warning)
+        if (!hudState.mapMode) onToggleMap()
+        hudState.mapFocus = current.mapFocusName
+    }
+
     private fun onToggleMap() {
         val current = session ?: return
         val enabled = !hudState.mapMode
         hudState.mapMode = enabled
         current.mapMode = enabled
+        if (enabled) hudState.mapFocus = current.mapFocusName
     }
 
     private fun onStage() {
@@ -2039,6 +2048,9 @@ class ApogeeApp(private val host: AppHost) {
                     // Only when changed; new messages come each second, not each frame.
                     current.baseService.let { if (it != hudState.baseService) hudState.baseService = it }
                     current.nearestBase.let { if (it != hudState.nearBase) hudState.nearBase = it }
+                    current.weatherWarning.let { if (it != hudState.weatherWarning) hudState.weatherWarning = it }
+                    // The focus button follows the map when it falls back to the craft by itself.
+                    if (hudState.mapMode && readoutsDue) current.mapFocusName.let { if (it != hudState.mapFocus) hudState.mapFocus = it }
                     if (readoutsDue) hudState.chute = current.chuteState
                     if (readoutsDue) hudState.burn = current.burnReadout
                     // When the autopilot or keeper core has the throttle, show where it is.

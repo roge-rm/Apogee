@@ -137,6 +137,9 @@ class HudState {
     /** The flown craft's power and link home, or null before the server has said. */
     var power: PowerReadout? by mutableStateOf(null)
 
+    /** The hurricane, tornado or tsunami most worth a warning at the craft, or null. */
+    var weatherWarning: WeatherWarnings.Warning? by mutableStateOf(null)
+
     /** Whether the flown craft has sun wings or dishes to fold out, so the DEPLOY control can hide itself. */
     var hasFoldouts: Boolean by mutableStateOf(false)
 

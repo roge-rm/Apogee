@@ -53,6 +53,9 @@ class CloudScene(
     /** Tsunamis: the sea they move round the camera, their roar, and on the whole world for the map. */
     val tsunamis = TsunamiScene(body, config, tier, scope)
 
+    /** The hurricane, tornado or tsunami most worth a warning at the flown craft. */
+    val warnings = WeatherWarnings(body, config, scope)
+
     private class Lobe(
         val centre: Vec3, val up: Quat, val scale: Vec3, val colour: FloatArray, val variant: Int, val flat: Boolean,
         val distance: Double,

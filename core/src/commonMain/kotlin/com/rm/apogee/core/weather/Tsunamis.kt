@@ -927,6 +927,9 @@ internal class Tsunamis(
 
         companion object {
             private val grids = concurrentMapOf<Terrain, Grid>()
+
+            /** Drops every grid and its arrival times. For tests. */
+            internal fun forget() = grids.clear()
             private val lock = Any()
             private val worker by lazy { com.rm.apogee.core.Background("tsunami-grid") }
 

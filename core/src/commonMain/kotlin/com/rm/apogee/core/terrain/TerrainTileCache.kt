@@ -100,6 +100,9 @@ class TerrainTileCache(
         }
     }
 
+    /** Drops every tile. For tests. */
+    internal fun forget() = tiles.clear()
+
     private fun evict() {
         // Drop the oldest quarter in one go.
         guarded(this) {

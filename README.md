@@ -43,6 +43,8 @@ Dan
 
 **The sea.** Waves that move what floats, storms, tides, currents, and a deep world underneath with canyons, vents and places to find. For big seas, launch at the Roaring Sea with the weather set to Wild.
 
+**Extreme weather.** Hurricanes, tornadoes and waterspouts, tsunamis that flood low land, and rogue waves, with a warning when one's near. Set the weather to Extreme, or Wild for now and then.
+
 **Bases.** Found a base on any solid world, floating on the sea or in the sky, or on the sea floor. Bases have pads, power, and industry that turns ore and water into propellant.
 
 **Crew.** Named astronauts who fly your craft, walk on other worlds, climb ladders, plant flags and can be rescued.

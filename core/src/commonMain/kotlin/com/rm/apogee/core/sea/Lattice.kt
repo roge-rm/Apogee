@@ -112,5 +112,8 @@ internal class Lattice(
 
     companion object {
         private val shared = concurrentMapOf<String, MutableMap<Long, DoubleArray>>()
+
+        /** Drops every lattice's corners. For tests. */
+        internal fun forget() = shared.clear()
     }
 }

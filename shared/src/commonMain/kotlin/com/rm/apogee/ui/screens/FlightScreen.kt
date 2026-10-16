@@ -172,6 +172,8 @@ fun FlightScreen(
     onRefuel: (Boolean) -> Unit = {},
     /** Shared with another player: who flies it ("me", "them" or "both"). */
     onDockPilot: (String) -> Unit = {},
+    /** A weather warning tapped: the map, turned round it. */
+    onWeatherWarning: (com.rm.apogee.game.WeatherWarnings.Warning) -> Unit = {},
     onToggleMap: () -> Unit,
     /** On the map, look at the next thing: the craft, its world, the target, the worlds round it. */
     onMapFocus: () -> Unit = {},
@@ -222,8 +224,8 @@ fun FlightScreen(
                 onLights = onLights, onLightMode = onLightMode,
             )
         }
-        val statusActions = remember(crewActions, onUndock, onFound, onRefuel, onUnload, onRefine, onDockPilot) {
-            StatusActions(crewActions, onUndock, onFound, onRefuel, onUnload, onRefine, onDockPilot)
+        val statusActions = remember(crewActions, onUndock, onFound, onRefuel, onUnload, onRefine, onDockPilot, onWeatherWarning) {
+            StatusActions(crewActions, onUndock, onFound, onRefuel, onUnload, onRefine, onDockPilot, onWeatherWarning)
         }
         val promptActions = remember(onJoin, onFound, crewActions, onHook, onReleaseLine, onRightCraft, onTutorialKeep, onTutorials, onWarpAnswer) {
             PromptActions(
