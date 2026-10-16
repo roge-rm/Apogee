@@ -783,6 +783,32 @@ object Shaders {
         }
     """
 
+    /**
+     * [TSUNAMI_FIELD] and [TSUNAMI_FLOOD] with no tsunami near, for the terrain drawn without one
+     * ([TERRAIN_VERTEX_CALM]): the same results as theirs with none set, so the compiler can drop
+     * the work and the uniform arrays. On a small GPU (a Mali-G52 MC1) they cost even untaken.
+     */
+    private val TSUNAMI_NONE = """
+        const vec3 uTsunamiGrid = vec3(1.0, 0.0, 0.0);
+        const vec4 uFloodGrid = vec4(1.0, 0.0, 0.0, 1.0);
+        const float WET_BED = 0.4;
+        vec3 tsunamiAt(vec3 p, out vec2 second) {
+            second = vec2(0.0, ${NO_CREST});
+            return vec3(0.0, 0.0, ${NO_CREST});
+        }
+        vec3 tsunamiCrest(vec3 t, vec2 second, float depth) { return vec3(${NO_CREST}, 0.0, 0.0); }
+        vec2 floodLift(vec3 p, float away) { return vec2(0.0); }
+    """
+
+    /** [TERRAIN_VERTEX] and [TERRAIN_FRAGMENT] for frames with no tsunami near (no TsunamiField). */
+    val TERRAIN_VERTEX_CALM by lazy { withDefine(TERRAIN_VERTEX, "NO_TSUNAMI") }
+    val TERRAIN_FRAGMENT_CALM by lazy { withDefine(TERRAIN_FRAGMENT, "NO_TSUNAMI") }
+
+    /** [TERRAIN_FRAGMENT] for the LOW tier: a tsunami's foam lines sized by depth, not derivatives. */
+    val TERRAIN_FRAGMENT_LOW by lazy { withDefine(TERRAIN_FRAGMENT, "CHEAP_SLOWNESS") }
+
+    private fun withDefine(source: String, define: String) = source.replaceFirst("#version 300 es", "#version 300 es\n#define $define")
+
     val TERRAIN_VERTEX = """
         #version 300 es
         layout(location = 0) in vec3 aPosition;
@@ -806,8 +832,12 @@ object Shaders {
         uniform vec3 uBodyCentre;
         uniform float uMethane;  // 1 for a sea of liquid methane
         $SEA_EDGE
+        #ifdef NO_TSUNAMI
+        $TSUNAMI_NONE
+        #else
         $TSUNAMI_FIELD
         $TSUNAMI_FLOOD
+        #endif
 
         // Flat: each triangle takes one vertex's colour. The normal comes per triangle in the
         // fragment shader.
@@ -989,9 +1019,17 @@ object Shaders {
         void main() {
             vec3 viewDir = normalize(-vPosition);
             if (vDistance < uDiscardNearer) discard;
+            #ifndef NO_TSUNAMI
             // Out of any branch, so the derivatives are good.
             float tsunamiBlur = fwidth(vTsunami.x);
+            #ifdef CHEAP_SLOWNESS
+            // The crest's seconds per metre over water this deep, as shallow-water waves go,
+            // rather than from derivatives: near enough, and much cheaper on a small GPU.
+            float tsunamiSlow = inversesqrt(9.81 * max(vDepth, 1.0));
+            #else
             float tsunamiSlow = tsunamiSlowness(vTsunami.x, vPosition);
+            #endif
+            #endif
             // The triangle's own face normal, from screen derivatives. Vertex normals shimmer on
             // rough ground as the detail changes.
             vec3 n = normalize(cross(dFdx(vPosition), dFdy(vPosition)));
@@ -1035,7 +1073,11 @@ object Shaders {
             vec3 halfway = normalize(uSunDirection + viewDir);
             if (wet > 0.5) {
                 // A tsunami's foam, per pixel, so its edges are smooth.
+                #ifdef NO_TSUNAMI
+                float foam = 0.0;
+                #else
                 float foam = tsunamiFoam(vTsunami.x, vTsunami.y, vTsunamiPeriod, tsunamiBlur, tsunamiSlow);
+                #endif
                 surface = mix(surface, TSUNAMI_WHITE, foam);
                 // Flat water past the waves, lit the way the waves are (see SEA_FRAGMENT), so there's
                 // no ring where one meets the other.

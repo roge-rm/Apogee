@@ -220,6 +220,10 @@ class GameSession private constructor(
 
     /** How long the last cloud listing took, in ms, for the debug performance log. */
     val cloudListMillis: Double get() = cloudScene?.lastListMillis ?: 0.0
+
+    /** How long the last tsunami field and weather warning listing took on their workers, in ms, for the perf log. */
+    val tsunamiFieldMillis: Double get() = cloudScene?.tsunamis?.lastFieldMillis ?: 0.0
+    val warningMillis: Double get() = cloudScene?.warnings?.lastMillis ?: 0.0
     val framesPublished = AtomicLong(0)
 
     /** Telemetry for the HUD, refreshed each published frame. */

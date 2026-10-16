@@ -70,6 +70,10 @@ class WeatherWarnings(
     /** The warning as last worked out for where the craft is now, or null for none. */
     val current: Warning? get() = found?.takeIf { it.place == place }?.warning
 
+    /** How long the last listing took, in ms, for the perf log. */
+    @Volatile var lastMillis = 0.0
+        private set
+
     @Volatile private var listing = false
     private var listedNanos = Long.MIN_VALUE
     private var listedTime = Double.NEGATIVE_INFINITY
@@ -94,7 +98,9 @@ class WeatherWarnings(
         listing = true
         run.launch(kotlinx.coroutines.Dispatchers.Default) {
             try {
+                val started = com.rm.apogee.platform.System.nanoTime()
                 val w = find(from, time)
+                lastMillis = (com.rm.apogee.platform.System.nanoTime() - started) / 1e6
                 if (forPlace == place) found = Found(w, forPlace)
             } finally {
                 listing = false

@@ -38,6 +38,21 @@ object PerfKit {
             prefs.edit().putBoolean("career_mode", false).apply()
             seeded.writeText("1")
         }
+        // adb can drop a scene (perf-scene.json) and a weather setting (perf-weather, e.g. EXTREME)
+        // into the external files folder; each is taken once, at the next start.
+        context.getExternalFilesDir(null)?.let { external ->
+            File(external, "perf-scene.json").takeIf { it.exists() }?.let {
+                // Into the sandbox universe last picked.
+                val slot = File(context.filesDir, "world/${prefs.getString("sandbox_world", null) ?: "solo"}.json")
+                slot.parentFile?.mkdirs()
+                slot.writeText(it.readText().replace(PLAYER, me))
+                it.delete()
+            }
+            File(external, "perf-weather").takeIf { it.exists() }?.let {
+                prefs.edit().putString("weather_intensity", it.readText().trim()).apply()
+                it.delete()
+            }
+        }
         File(context.filesDir, "debug-perf").writeText("1")
         File(context.filesDir, "debug-perf-build").writeText("1")
         Thread({ copyLog(context) }, "perf-log").apply { isDaemon = true }.start()

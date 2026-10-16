@@ -128,6 +128,12 @@ class GlRenderer(
     private val frameFog = FloatArray(3)
     private var terrainProgram: ShaderProgram? = null
 
+    /** The terrain without tsunami work, for frames with none near. See [Shaders.TERRAIN_VERTEX_CALM]. */
+    private var terrainCalmProgram: ShaderProgram? = null
+
+    /** The terrain with a tsunami near on the LOW tier. See [Shaders.TERRAIN_FRAGMENT_LOW]. */
+    private var terrainLowProgram: ShaderProgram? = null
+
     /**
      * Terrain geometry, handed over by the game thread. Sampling the height field is too slow for
      * the GL thread, so the producer swaps a finished mesh in here and it's uploaded next frame.
@@ -311,6 +317,8 @@ class GlRenderer(
         GLES30.glGenBuffers(1, solidBuffer, 0)
         skyProgram = ShaderProgram(Shaders.SKY_VERTEX, Shaders.SKY_FRAGMENT, "sky")
         terrainProgram = ShaderProgram(Shaders.TERRAIN_VERTEX, Shaders.TERRAIN_FRAGMENT, "terrain")
+        terrainCalmProgram = ShaderProgram(Shaders.TERRAIN_VERTEX_CALM, Shaders.TERRAIN_FRAGMENT_CALM, "terrain-calm")
+        terrainLowProgram = ShaderProgram(Shaders.TERRAIN_VERTEX, Shaders.TERRAIN_FRAGMENT_LOW, "terrain-low")
         lineProgram = ShaderProgram(Shaders.LINE_VERTEX, Shaders.LINE_FRAGMENT, "line")
 
         globeMesh = TerrainMesh()
@@ -643,8 +651,10 @@ class GlRenderer(
      */
     private fun drawFarGlobes(globes: List<FarGlobe>, world: WorldView, cameraPos: Vec3, atmosphereFactor: Float) {
         if (globes.isEmpty()) return
-        val shader = terrainProgram ?: return
+        val shader = terrainCalmProgram ?: return
         shader.use()
+        // The calm program may not have drawn this frame's ground, so set its water and lamps here.
+        applyLamps(shader, false)
         for (far in globes) {
             val mesh = farGlobeMeshes.getOrPut(far.id) { TerrainMesh().also { it.upload(far.globe.vertices, far.globe.indices) } }
             if (!mesh.isReady) continue
@@ -666,9 +676,16 @@ class GlRenderer(
         shader.setFloat("uSkyBody", 0f)
     }
 
+    /** The terrain program for [world]: the tsunami one only with a tsunami near, its cheaper one on LOW. */
+    private fun terrainFor(world: WorldView): ShaderProgram? = when {
+        world.tsunami == null -> terrainCalmProgram
+        qualityTier == QualityTier.LOW -> terrainLowProgram
+        else -> terrainProgram
+    }
+
     /** The whole body, for the view from any distance. */
     private fun drawGlobe(world: WorldView, cameraPos: Vec3, atmosphereFactor: Float) {
-        val shader = terrainProgram ?: return
+        val shader = terrainFor(world) ?: return
         val mesh = globeMesh ?: return
         if (!mesh.isReady || !world.drawFarSurface) return
         // Just into another world's pull, the last world's globe isn't drawn at this one's size.
@@ -699,7 +716,7 @@ class GlRenderer(
      * few metres and the ground doesn't shimmer.
      */
     private fun drawChunks(world: WorldView, cameraPos: Vec3, atmosphereFactor: Float) {
-        val shader = terrainProgram ?: return
+        val shader = terrainFor(world) ?: return
         val indices = chunkIndices ?: return
         val list = terrainSource.drawList()
 
@@ -1817,6 +1834,8 @@ class GlRenderer(
         if (solidBuffer[0] != 0) { GLES30.glDeleteBuffers(1, solidBuffer, 0); solidBuffer[0] = 0 }
         skyProgram?.release(); skyProgram = null
         terrainProgram?.release(); terrainProgram = null
+        terrainCalmProgram?.release(); terrainCalmProgram = null
+        terrainLowProgram?.release(); terrainLowProgram = null
         cloudShellProgram?.release(); cloudShellProgram = null
         cloudShellMesh?.release(); cloudShellMesh = null
         hurricaneVeilProgram?.release(); hurricaneVeilProgram = null

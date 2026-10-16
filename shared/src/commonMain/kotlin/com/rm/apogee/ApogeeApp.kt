@@ -1881,9 +1881,9 @@ class ApogeeApp(private val host: AppHost) {
             val seconds = (now - perfSince) / 1e9
             Log.i(
                 "ApogeePerf",
-                "fps %.1f draw %.1f ms build %.1f ms sea-build %.1f ms clouds-list %.0f ms sea %s tier %s scale %.2f".format(
+                "fps %.1f draw %.1f ms build %.1f ms sea-build %.1f ms clouds-list %.0f ms tsunami-field %.0f ms warn %.1f ms sea %s tier %s scale %.2f".format(
                     frames / seconds, 1000.0 * seconds / frames.coerceAtLeast(1), perfBuild / perfSamples,
-                    perfSea / perfSamples, current.cloudListMillis, if (current.debugHideSea) "off" else "on", glRenderer.qualityTier, renderScale,
+                    perfSea / perfSamples, current.cloudListMillis, current.tsunamiFieldMillis, current.warningMillis, if (current.debugHideSea) "off" else "on", glRenderer.qualityTier, renderScale,
                 ),
             )
             glRenderer.takePassReport()?.let { Log.i("ApogeePerf", "passes $it") }

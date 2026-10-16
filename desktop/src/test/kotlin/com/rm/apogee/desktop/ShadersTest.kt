@@ -27,6 +27,8 @@ class ShadersTest {
             Triple(Shaders.SEA_VERTEX, Shaders.SEA_FRAGMENT, "sea"),
             Triple(Shaders.SKY_VERTEX, Shaders.SKY_FRAGMENT, "sky"),
             Triple(Shaders.TERRAIN_VERTEX, Shaders.TERRAIN_FRAGMENT, "terrain"),
+            Triple(Shaders.TERRAIN_VERTEX_CALM, Shaders.TERRAIN_FRAGMENT_CALM, "terrain-calm"),
+            Triple(Shaders.TERRAIN_VERTEX, Shaders.TERRAIN_FRAGMENT_LOW, "terrain-low"),
             Triple(Shaders.TERRAIN_VERTEX, Shaders.DEPTH_FRAGMENT, "terrain-depth"),
         )
         // ShaderProgram throws with the driver's log if one fails.
