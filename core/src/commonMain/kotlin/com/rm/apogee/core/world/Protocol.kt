@@ -795,5 +795,6 @@ object Protocol {
     // 31: picking a craft on joining: Hello.choosing, CraftOffered; ChatMessage.stripe and
     //     StructureUpdate.ownerStripe.
     // 32: WeatherIntensity.EXTREME, travelling rogue waves, water loads on joints, hurricanes.
-    const val VERSION = 32
+    // 33: tsunamis, which change the sea on Wild and Extreme.
+    const val VERSION = 33
 }

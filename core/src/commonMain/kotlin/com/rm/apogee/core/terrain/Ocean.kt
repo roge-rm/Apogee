@@ -34,6 +34,7 @@ class Ocean(
         sample(bodyFixed, time, out.middle)
         out.middle.depth = 1.0
         out.n = 0
+        out.tilt.setZero()
         out.time = time
         return out
     }
@@ -47,7 +48,7 @@ class Ocean(
         if (s != null) return s.sample(bodyFixed, time, out, below, spacing)
         out.height = 0.0; out.tide = 0.0
         out.normal.setTo(bodyFixed).normalizeInPlace()
-        out.velocity.setZero()
+        out.velocity.setZero(); out.flow.setZero(); out.tsunami = 0.0; out.tsunamiFoam = 0.0
         out.steepness = 0.0; out.breaking = 0.0; out.depth = 0.0
         out.significantHeight = 0.0; out.wind = 0.0; out.stormHeight = 0.0
         return out

@@ -1788,6 +1788,10 @@ class GameSession private constructor(
             cloudScene?.takeIf { it.body === attractor }?.let {
                 tornadoIcons(it.tornadoes.forMap(cloudCamera, renderTime), attractor.rotationAt(renderTime, Quat()), attractor.radius, icons)
             }
+            // Tsunamis on this world, where each began and its front over the sea.
+            cloudScene?.takeIf { it.body === attractor }?.let {
+                tsunamiMarks(it.tsunamis.forMap(cloudCamera, renderTime), attractor.rotationAt(renderTime, Quat()), attractor.radius, icons, lines)
+            }
             // Flags planted on this world, anyone's.
             for (other in client.vessels) {
                 if (other.design.parts.singleOrNull()?.partId != com.rm.apogee.core.world.World.FLAG_PART) continue
@@ -2040,6 +2044,7 @@ class GameSession private constructor(
             if (!mapMode) {
                 clouds.append(bodyRotation, renderTime, items, pool = itemPool)
                 clouds.tornadoes.append(cloudCamera, bodyRotation, renderTime, items, itemPool)
+                clouds.tsunamis.append(cloudCamera, bodyRotation, renderTime, items, itemPool)
                 World.launchSites.firstOrNull { it.id == "cape" }?.let { cape ->
                     clouds.windsock(cape, cloudCamera, renderTime, bodyRotation, items)
                 }
@@ -2063,6 +2068,7 @@ class GameSession private constructor(
         var seaSurface: com.rm.apogee.render.SeaSurface? = null
         var seaReach = 0.0
         var tide = 0.0
+        var tsunamiHere = 0.0
         var underwater = false
         var cameraDepth = 0.0
         seaHeard = 0.0; seaRough = 0.0; seaStorm = 0.0
@@ -2076,6 +2082,7 @@ class GameSession private constructor(
             }
             val here = sea.sampleAt(scratchCameraBodyFixed, renderTime)
             tide = here.tide
+            tsunamiHere = here.tsunami
             underwater = sea.isUnder(scratchCameraBodyFixed, here)
             cameraDepth = attractor.radius + here.height - scratchCameraBodyFixed.length
             // The open sea, heard near it, louder and rougher with its waves.
@@ -2098,6 +2105,8 @@ class GameSession private constructor(
         val ear = attractor.toBodyFixed(cameraPosition, bodyRotation, scratchEar)
         // A tornado's roar, from the side it's on.
         val roar = if (mapMode || clouds == null) null else clouds.tornadoes.also { it.heard(ear, renderTime) }
+        // A tsunami's bore or flood coming in.
+        val surge = if (mapMode || clouds == null) null else clouds.tsunamis.also { it.heard(ear, renderTime) }
         val listenerRight = cameraRotation.rotate(Vec3.unitX(), Vec3())
         val listener = SoundScene.Listener(
             position = cameraPosition.copy(),
@@ -2118,6 +2127,9 @@ class GameSession private constructor(
             tornado = roar?.loudness ?: 0.0,
             tornadoNear = roar?.closeness ?: 0.0,
             tornadoPan = roar?.takeIf { it.loudness > 0.0 }?.let { (bodyRotation.rotate(it.heardFrom, Vec3()) dot listenerRight * 0.8).toFloat() } ?: 0f,
+            tsunami = surge?.loudness ?: 0.0,
+            tsunamiNear = surge?.closeness ?: 0.0,
+            tsunamiPan = surge?.takeIf { it.loudness > 0.0 }?.let { (bodyRotation.rotate(it.heardFrom, Vec3()) dot listenerRight * 0.8).toFloat() } ?: 0f,
         )
         lastListener = listener
         // Blows, breakages and blasts since the last frame, where they happened on the turning
@@ -2183,6 +2195,8 @@ class GameSession private constructor(
         askPlan(focus, focusState, renderTime, warping)
         updateReadouts(focus, attractor, renderTime)
         lap(11)
+        // A tsunami's sea round the camera, for the flat water past the waves.
+        val tsunamiField = if (mapMode || attractor.ocean == null) null else cloudScene?.takeIf { it.body === attractor }?.tsunamis?.field
         // Shadows around the craft, out to three times its size, within reason.
         val shadowReach = (designRadius(focus.design, designCentreOfMass(focus.design)) * 3.0).coerceIn(40.0, 300.0)
 
@@ -2221,7 +2235,8 @@ class GameSession private constructor(
                     time = renderTime,
                     warp = warp,
                     seaReach = seaReach,
-                    tide = tide,
+                    // With a tsunami near, its part is drawn from the field and left out here.
+                    tide = if (tsunamiField != null) tide - tsunamiHere else tide,
                     sea = seaSurface,
                     underwater = underwater,
                     cloudShell = mapCloud,
@@ -2231,7 +2246,8 @@ class GameSession private constructor(
                         mapMode -> 1f
                         else -> clouds.hurricaneVeilAlpha(attractor.altitudeOf(cameraPosition))
                     },
-                    seaRadius = if (attractor.ocean != null && !mapMode) attractor.radius + tide else 0.0,
+                    seaRadius = if (attractor.ocean != null && !mapMode) attractor.radius + (if (tsunamiField != null) tide - tsunamiHere + tsunamiField.shore else tide) else 0.0,
+                    tsunami = tsunamiField,
                     water = waterOf(attractor.id),
                     lamps = nearestLamps(cloudCamera),
                     sky = com.rm.apogee.render.SkyColours.of(attractor.id),
@@ -2312,7 +2328,7 @@ class GameSession private constructor(
     )
 
     /** What a map icon stands for, which decides its shape. */
-    enum class IconKind { CRAFT, WORLD, BASE, FLAG, STATION, GHOST, MARK, TARGET, OTHER, STAR, HURRICANE, TORNADO }
+    enum class IconKind { CRAFT, WORLD, BASE, FLAG, STATION, GHOST, MARK, TARGET, OTHER, STAR, HURRICANE, TORNADO, TSUNAMI }
 
     /**
      * A thing shown on the map as an icon: what it is, where (around the attractor), its colour, and
@@ -5695,6 +5711,25 @@ class GameSession private constructor(
             0.0f, 0.48f, 0.25f, 0.48f,
             0.12f, 0.82f, 0.18f, 0.82f,
         )
+
+        private val TSUNAMI_COLOR = floatArrayOf(0.70f, 0.88f, 1.0f, 1f)
+        private val TSUNAMI_FRONT_COLOR = floatArrayOf(0.55f, 0.78f, 0.95f, 0.7f)
+
+        /** The map's tsunami icon: a wave curling over, as points x y in icon radii with y down. */
+        val TSUNAMI_GLYPH = floatArrayOf(
+            -0.9f, 0.55f, -0.55f, 0.35f, -0.2f, -0.15f, 0.15f, -0.6f, 0.55f, -0.7f, 0.85f, -0.45f, 0.75f, -0.15f, 0.45f, -0.25f,
+        )
+
+        /**
+         * A map icon where each of [tsunamis] began and its front as lines over the sea, on a world
+         * of [radius] turned by [rotation], into [icons] and [lines].
+         */
+        fun tsunamiMarks(tsunamis: List<TsunamiScene.MapEntry>, rotation: Quat, radius: Double, icons: MutableList<MapIcon>, lines: MutableList<RenderLine>) {
+            for (t in tsunamis) {
+                icons += MapIcon(IconKind.TSUNAMI, rotation.rotate(Vec3().setTo(t.tsunami.origin).mulInPlace(radius), Vec3()), TSUNAMI_COLOR)
+                for (run in t.front) lines += RenderLine(run.map { rotation.rotate(Vec3().setTo(it).mulInPlace(radius), Vec3()) }, TSUNAMI_FRONT_COLOR)
+            }
+        }
 
         /**
          * A map icon for each of [tornadoes] at its foot, on a world of [radius] turned by

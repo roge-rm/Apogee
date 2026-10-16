@@ -1090,9 +1090,15 @@ class Hydrostatics {
         fun mostBreaking(s: com.rm.apogee.core.sea.SeaSample): Double =
             kotlin.math.max(s.breaking, kotlin.math.min(1.0, s.stormHeight / STORM_BREAKS))
 
-        /** Whether the sea in [s] breaks hard enough to slam or pound a craft, so it can't sleep. */
+        /**
+         * Whether the sea in [s] breaks hard enough to slam or pound a craft, or a tsunami's flow
+         * would carry it off, so it can't sleep.
+         */
         fun keepsAwake(s: com.rm.apogee.core.sea.SeaSample): Boolean =
-            s.depth > 0.0 && s.significantHeight > AWAKE_HS && mostBreaking(s) > SLAM_FROM
+            s.depth > 0.0 && (s.significantHeight > AWAKE_HS && mostBreaking(s) > SLAM_FROM || s.flow.lengthSq > AWAKE_FLOW * AWAKE_FLOW)
+
+        /** A tsunami's flow this fast, in m/s, keeps craft afloat awake. */
+        const val AWAKE_FLOW = 1.0
 
         /** How steeply the sea has to fall away ahead for the front of a crest to slam, from and fully. */
         const val FACE_FROM = 0.1

@@ -34,6 +34,22 @@ class SeaSample {
     /** The wind over the water in m/s, and a storm's own sea in metres. */
     var wind = 0.0
     var stormHeight = 0.0
+    /** A tsunami's flow here, body-fixed, in m/s along the ground. Also in [velocity] where motion is asked for. */
+    val flow = Vec3()
+    /** How far tsunamis raise (or draw back) the sea here, in metres. Part of [tide]. */
+    var tsunami = 0.0
+
+    /** How white a tsunami's bore is here, 0..1. */
+    var tsunamiFoam = 0.0
+
+    /**
+     * For drawing its foam per pixel: seconds since a tsunami's first crest passed here, how white
+     * it is (over 0 a bore, under 0 a gentle crest), and seconds between crests. See
+     * [com.rm.apogee.core.weather.Tsunamis.crest].
+     */
+    var tsunamiCrest = com.rm.apogee.core.weather.Tsunamis.NO_CREST
+    var tsunamiWhiteness = 0.0
+    var tsunamiPeriod = 0.0
 }
 
 /**
@@ -65,6 +81,9 @@ class WavePatch {
     /** The sea at the middle, as [Sea.sample] gave it: tide, breaking, heights and depth. */
     val middle = SeaSample()
 
+    /** How a tsunami leans the surface, as its rise per metre along the ground, body-fixed. */
+    internal val tilt = Vec3()
+
     /** Whether there's any sea under the craft at all. */
     val afloat: Boolean get() = middle.depth > 0.0
 
@@ -88,7 +107,7 @@ class WavePatch {
         if (!afloat) return middle.tide
         val l = p.length
         val qx = p.x / l * radius - centre.x; val qy = p.y / l * radius - centre.y; val qz = p.z / l * radius - centre.z
-        var h = middle.tide
+        var h = middle.tide + tilt.x * qx + tilt.y * qy + tilt.z * qz
         for (i in 0 until n) {
             val ph = phase[i] + k[i] * (dx[i] * qx + dy[i] * qy + dz[i] * qz)
             DetMath.sinCos(ph, sc)
@@ -105,7 +124,7 @@ class WavePatch {
         out.setTo(ux, uy, uz)
         if (!afloat) return out
         val qx = ux * radius - centre.x; val qy = uy * radius - centre.y; val qz = uz * radius - centre.z
-        var gx = 0.0; var gy = 0.0; var gz = 0.0
+        var gx = tilt.x; var gy = tilt.y; var gz = tilt.z
         for (i in 0 until n) {
             val ph = phase[i] + k[i] * (dx[i] * qx + dy[i] * qy + dz[i] * qz)
             DetMath.sinCos(ph, sc)
@@ -137,7 +156,7 @@ class WavePatch {
             out.y += (dy[i] - dot * uy) / tl * speed * sc.cos + uy * speed * sc.sin
             out.z += (dz[i] - dot * uz) / tl * speed * sc.cos + uz * speed * sc.sin
         }
-        return out
+        return out.addInPlace(middle.flow)
     }
 }
 
@@ -625,6 +644,20 @@ class Sea(
         internal var wind = 0.0
         internal val windVector = Vec3()
         internal var stormHeight = 0.0
+        /** A tsunami's flow, body-fixed, m/s, and how it leans the surface, rise per metre. */
+        internal val flow = Vec3()
+        internal val slope = Vec3()
+        /** How far tsunamis move the sea here, in metres, part of [tide]. */
+        internal var tsunami = 0.0
+        internal var tsunamiFoam = 0.0
+        internal var tsunamiCrest = com.rm.apogee.core.weather.Tsunamis.NO_CREST
+        internal var tsunamiWhiteness = 0.0
+        internal var tsunamiPeriod = 0.0
+        /** The time the tsunami was last worked out for. */
+        internal var tsunamiTime = 0.0
+
+        /** How far a bore's foam lines are widened, in metres: the spacing it was prepared at. */
+        internal var blur = 0.0
     }
 
     private val evaluated = Prepared()
@@ -662,12 +695,66 @@ class Sea(
         return waves(evaluated, time, out, below, spacing)
     }
 
+    /**
+     * Redoes only [p]'s tide, surge and tsunami for body-fixed [position] at [time], keeping its
+     * waves, for a renderer following a tsunami between full preparations. False, with [p] to be
+     * prepared afresh, where it was dry and now has water.
+     */
+    fun retide(position: Vec3, time: Double, p: Prepared): Boolean {
+        // The bed as [p] was prepared over.
+        val bed = p.tide - p.water
+        // Ground no tide or flood reaches stays as it was.
+        if (p.dry && bed > com.rm.apogee.core.weather.Tsunamis.COAST_CAP + 1.0) return true
+        u.setTo(position).normalizeInPlace()
+        val tide = tideAt(time, bed, p)
+        val water = tide - bed
+        if (p.dry && water > 0.0) return false
+        p.tide = tide; p.water = water
+        if (water <= 0.0) p.dry = true
+        return true
+    }
+
+    /** Whether a tsunami may be moving the sea at body-fixed [position] at [time]. Quick. */
+    fun tsunamiPassing(position: Vec3, time: Double): Boolean {
+        val w = weather ?: return false
+        u.setTo(position).normalizeInPlace()
+        return w.tsunamiPassing(u, time)
+    }
+
+    /**
+     * The tide at [u] over a bed [bed] metres up: a hurricane's surge raises the sea on a shallow
+     * coast near it, and a tsunami draws it back and floods low land by the sea. Leaves the
+     * tsunami's part, flow and lean in [p].
+     */
+    private fun tideAt(time: Double, bed: Double, p: Prepared): Double {
+        var tide = tides.height(u, time, bed)
+        p.flow.setZero(); p.slope.setZero(); p.tsunami = 0.0; p.tsunamiFoam = 0.0
+        p.tsunamiCrest = com.rm.apogee.core.weather.Tsunamis.NO_CREST; p.tsunamiWhiteness = 0.0; p.tsunamiPeriod = 0.0
+        if (weather != null) {
+            tide += weather.hurricaneModel.surge(u, time, bed)
+            val tsunamis = weather.tsunamiModel
+            val wave = tsunamis.height(u, time, bed, p.blur)
+            p.tsunamiFoam = tsunamis.foam()
+            p.tsunamiCrest = tsunamis.crest()
+            p.tsunamiWhiteness = tsunamis.whiteness()
+            p.tsunamiPeriod = tsunamis.period()
+            p.tsunamiTime = time
+            if (wave != 0.0) {
+                tide += wave
+                p.tsunami = wave
+                tsunamis.flow(p.flow)
+                tsunamis.slope(p.slope)
+            }
+        }
+        return tide
+    }
+
     /** [Prepared] at [u]. */
     private fun prepareAt(time: Double, spacing: Double, p: Prepared) {
+        p.blur = spacing
         (if (spacing > COARSE_BED_SPACING) coarseDepth else depth).sample(u, 0.0, depthOut)
         val bed = depthOut[0]
-        // A hurricane's surge raises the sea on a shallow coast near it.
-        val tide = tides.height(u, time, bed) + (weather?.hurricaneModel?.surge(u, time, bed) ?: 0.0)
+        val tide = tideAt(time, bed, p)
         val water = tide - bed
         p.tide = tide; p.water = water
         p.dry = water <= 0.0
@@ -762,11 +849,19 @@ class Sea(
             out.normal.setTo(u); out.velocity.setZero()
             out.steepness = 0.0; out.breaking = 0.0; out.significantHeight = 0.0; out.rise = 0.0
             out.wind = 0.0; out.stormHeight = 0.0
+            out.flow.setZero()
+            out.tsunami = p.tsunami
+            out.tsunamiFoam = p.tsunamiFoam
+            // Carried on to now: the time since the crest goes on with the clock.
+            out.tsunamiCrest = if (p.tsunamiPeriod != 0.0) p.tsunamiCrest + (time - p.tsunamiTime) else p.tsunamiCrest
+            out.tsunamiWhiteness = p.tsunamiWhiteness
+            out.tsunamiPeriod = p.tsunamiPeriod
         }
         if (p.dry) {
             out?.height = tide
             rogueHeight = 0.0
             patching?.n = 0
+            patching?.tilt?.setZero()
             return tide
         }
         rogueHeight = 0.0
@@ -799,8 +894,9 @@ class Sea(
         var height = tide
         val patch = patching
         if (patch != null) {
-            patch.n = 0; patch.radius = radius; patch.reach = 0.0
+            patch.n = 0; patch.radius = radius; patch.reach = p.slope.length * TILT_REACH
             patch.centre.setTo(u).mulInPlace(radius)
+            patch.tilt.setTo(p.slope)
         }
         gradient.setZero(); velocity.setZero()
         val wantSlope = out != null
@@ -895,10 +991,13 @@ class Sea(
         }
         if (out != null) {
             out.height = height
+            gradient.addInPlace(p.slope)
             out.normal.setTo(u).subInPlace(gradient).normalizeInPlace()
             // A little drift with the wind at the top.
             val drift = if (below < 1.0) WIND_DRIFT * (1.0 - below) else 0.0
             out.velocity.setTo(velocity).addScaledInPlace(p.windVector, drift)
+            out.flow.setTo(p.flow)
+            if (motion) out.velocity.addInPlace(p.flow)
             out.steepness = gradient.length
             out.rise = rise
             out.significantHeight = hs
@@ -1292,6 +1391,9 @@ class Sea(
 
         /** Coarse bed corner spacing in metres, and the sample spacing beyond which it's used. */
         const val COARSE_DEPTH_SPACING = 1_000.0
+
+        /** How far across a craft a tsunami's lean is allowed for in [WavePatch.reach], in metres. */
+        private const val TILT_REACH = 200.0
         const val COARSE_BED_SPACING = 150.0
 
         /** Where drawn trains start to fade, in wavenumber times spacing. Gone by pi. */

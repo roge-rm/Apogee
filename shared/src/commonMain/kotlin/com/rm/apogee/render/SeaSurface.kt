@@ -11,7 +11,10 @@ import com.rm.apogee.core.math.Vec3
 class SeaSurface(
     /** What the vertices are measured from: a point on the datum, body-fixed, in metres. */
     val origin: Vec3,
-    /** [STRIDE] floats per vertex: position from [origin] (body-fixed), unit up, colour, rise rate. */
+    /**
+     * [STRIDE] floats per vertex: position from [origin] (body-fixed), colour, rise rate, and a
+     * tsunami's seconds since its crest and whiteness (Tsunamis.crest), for its foam.
+     */
     val vertices: FloatArray,
     val vertexCount: Int,
     /** The grids' triangles. They're the same for every surface with the same [layout]. */
@@ -21,6 +24,8 @@ class SeaSurface(
     val time: Double,
     /** Where [vertices] goes back for reuse once a newer surface replaces it on the GPU, or null. */
     val giveBack: ((FloatArray) -> Unit)? = null,
+    /** Seconds between a tsunami's crests, for its foam, or 0 for none. */
+    val tsunamiPeriod: Double = 0.0,
 ) {
     /** 0 while no one has it, 1 once the GPU has taken it, 2 once handed back without being drawn. */
     private var held = 0
@@ -41,7 +46,7 @@ class SeaSurface(
     }
 
     companion object {
-        /** Position(3), up(3), colour(4), rise(1). */
-        const val STRIDE = 11
+        /** Position(3), colour(4), rise(1), tsunami crest and whiteness(2). */
+        const val STRIDE = 10
     }
 }

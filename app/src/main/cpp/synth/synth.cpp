@@ -107,6 +107,7 @@ float trim(int r) {
         case recipe::PORT: return 0.3f;
         case recipe::SAIL: return 0.3f;
         case recipe::TORNADO: return 0.18f;  // long, so about 6 dB under the engines even close
+        case recipe::TSUNAMI: return 0.24f;  // long too, and about as loud close as the tornado
         case recipe::ROTOR: return 0.35f;  // under the engines, since it can run for ages
         case recipe::RCS: return 0.25f;  // puffs under the engines
         case recipe::IMPACT: return 0.2f;
@@ -701,6 +702,33 @@ void Synth::renderVoice(Voice& v, float& left, float& right) {
             v.f[1].process(v.brown2.next(rng.white()));
             v.f[2].process(v.pink.next(rng.white()));
             s = (v.f[0].low * 0.6f + v.f[1].low * (0.6f + 0.5f * swell) + v.f[2].band * 0.9f * close * swell) * loud;
+            break;
+        }
+        case recipe::TSUNAMI: {
+            // A tsunami's bore or flood coming in: a deep rumble under a churning roar of water,
+            // surging unevenly as the front breaks, with a darker wash on top close by. No bursts
+            // and nothing bright, since it lasts for minutes.
+            float loud = clampf(p[0], 0, 1.5f), close = clampf(p[1], 0, 1);
+            // Surges: a wander toward a new strength every second or two, and a slower swell under it.
+            v.state[2] -= dt;
+            if (v.state[2] <= 0) { v.state[1] = 0.45f + 0.55f * rng.uniform(); v.state[2] = 0.7f + 1.3f * rng.uniform(); }
+            v.state[0] += (v.state[1] - v.state[0]) * (dt / 0.6f);
+            v.state[4] -= dt;
+            if (v.state[4] <= 0) { v.state[5] = 0.6f + 0.4f * rng.uniform(); v.state[4] = 3.0f + 4.0f * rng.uniform(); }
+            v.state[3] += (v.state[5] - v.state[3]) * (dt / 2.5f);
+            float surge = v.state[0], swell = v.state[3];
+            if (control) {
+                v.f[0].set(55.0f + 20.0f * swell, 0.8f, sr);
+                v.f[1].set(160.0f + 120.0f * close, 0.7f, sr);
+                v.f[2].set(450.0f + 250.0f * close * surge, 0.9f, sr);
+                v.f[3].set(900.0f, 0.7f, sr);
+            }
+            v.f[0].process(v.brown.next(rng.white()));
+            v.f[1].process(v.brown2.next(rng.white()));
+            v.f[2].process(v.pink.next(rng.white()));
+            v.f[3].process(v.pink2.next(rng.white()));
+            s = (v.f[0].low * 0.7f * swell + v.f[1].low * (0.5f + 0.5f * surge) * swell
+                + v.f[2].band * 0.8f * (0.3f + 0.7f * close) * surge + v.f[3].band * 0.25f * close * surge * surge) * loud;
             break;
         }
         case recipe::SAIL: {

@@ -199,7 +199,15 @@ class GlRenderer(
         shader.setMat4("uModel", modelMatrix.m)
         val most = SEA_LOOKAHEAD * warp.coerceAtLeast(1.0)
         shader.setFloat("uAhead", (time - sea.time).coerceIn(-most, most).toFloat())
+        val o = sea.origin
+        val l = o.length.coerceAtLeast(1.0)
+        shader.setVec3("uUp", (o.x / l).toFloat(), (o.y / l).toFloat(), (o.z / l).toFloat())
+        shader.setVec3("uFrothOrigin", froth(o.x), froth(o.y), froth(o.z))
+        shader.setFloat("uTsunamiPeriod", sea.tsunamiPeriod.toFloat())
     }
+
+    /** [x] metres modulo the froth's 4096 m repeat (see Shaders.SEA_FRAGMENT). */
+    private fun froth(x: Double): Float = (x - 4_096.0 * kotlin.math.floor(x / 4_096.0)).toFloat()
 
     /**
      * The sea, after everything solid. See-through over the shallows so the bottom shows, and
@@ -643,6 +651,7 @@ class GlRenderer(
             shader.setVec3("uBodyCentre", farGlobeCentre.x.toFloat(), farGlobeCentre.y.toFloat(), farGlobeCentre.z.toFloat())
             shader.setFloat("uSeaReach", 0f)
             shader.setFloat("uTide", 0f)
+            applyTsunami(shader, null, far.radius, cameraPos, 0.0)
             shader.setFloat("uMethane", if (far.id == "aurantia") 1f else 0f)
             shader.setFloat("uHasAtmosphere", if (far.hasAir) 1f else 0f)
             shader.setFloat("uDiscardNearer", 0f)
@@ -796,8 +805,30 @@ class GlRenderer(
         shader.setVec3("uBodyCentre", (-cameraPos.x).toFloat(), (-cameraPos.y).toFloat(), (-cameraPos.z).toFloat())
         shader.setFloat("uSeaReach", if (world.sea != null) world.seaReach.toFloat() else 0f)
         shader.setFloat("uTide", world.tide.toFloat())
+        applyTsunami(shader, world.tsunami, world.radius, cameraPos, world.time)
         shader.setFloat("uMethane", if (world.water === WorldView.AURANTIA_WATER) 1f else 0f)
         world.sky.seaSky.let { shader.setVec3("uSeaSky", it[0], it[1], it[2]) }
+    }
+
+    private val tsunamiScratch = Vec3()
+
+    /** A tsunami's sea round the camera for the flat water past the waves, or none. See [TsunamiField]. */
+    private fun applyTsunami(shader: ShaderProgram, field: TsunamiField?, r: Double, cameraPos: Vec3, time: Double) {
+        if (field == null) {
+            shader.setVec3("uTsunamiGrid", 1f, 0f, 0f)
+            return
+        }
+        // At the datum under its centre, camera-relative.
+        interpolatedBodyRotation.rotate(field.centre, tsunamiScratch)
+        shader.setVec3("uTsunamiCentre", (tsunamiScratch.x * r - cameraPos.x).toFloat(), (tsunamiScratch.y * r - cameraPos.y).toFloat(), (tsunamiScratch.z * r - cameraPos.z).toFloat())
+        interpolatedBodyRotation.rotate(field.east, tsunamiScratch)
+        shader.setVec3("uTsunamiEast", tsunamiScratch.x.toFloat(), tsunamiScratch.y.toFloat(), tsunamiScratch.z.toFloat())
+        interpolatedBodyRotation.rotate(field.north, tsunamiScratch)
+        shader.setVec3("uTsunamiNorth", tsunamiScratch.x.toFloat(), tsunamiScratch.y.toFloat(), tsunamiScratch.z.toFloat())
+        shader.setVec4Array("uTsunami", field.values, TsunamiField.VEC4S)
+        shader.setVec4Array("uTsunamiTau", field.tau, TsunamiField.VEC4S)
+        shader.setVec4("uTsunamiWave", field.period.toFloat(), (time - field.time).toFloat(), field.coastCap.toFloat(), field.shoalScale.toFloat())
+        shader.setVec3("uTsunamiGrid", field.spacing.toFloat(), 1f, 0f)
     }
 
     /** Whether this frame's far pass set up the lines to be drawn at its end. */
@@ -1474,6 +1505,8 @@ class GlRenderer(
         // The sea as flat water to the light, since it couldn't see waves cast anything.
         shader.setFloat("uSeaReach", 0f)
         shader.setFloat("uTide", world.tide.toFloat())
+        // With the tsunami's water, as the colour pass has it.
+        applyTsunami(shader, world.tsunami, world.radius, cameraPos, world.time)
         shader.setVec3("uBodyCentre", (-cameraPos.x).toFloat(), (-cameraPos.y).toFloat(), (-cameraPos.z).toFloat())
         val groundWorld = interpolatedBodyRotation.rotate(ground, Vec3())
         for (entry in terrainSource.drawList()) {

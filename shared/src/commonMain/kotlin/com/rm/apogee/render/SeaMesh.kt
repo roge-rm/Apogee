@@ -26,12 +26,12 @@ class SeaMesh {
         val stride = SeaSurface.STRIDE * Float.SIZE_BYTES
         GLES30.glEnableVertexAttribArray(0)
         GLES30.glVertexAttribPointer(0, 3, GLES30.GL_FLOAT, false, stride, 0)
-        GLES30.glEnableVertexAttribArray(1)
-        GLES30.glVertexAttribPointer(1, 3, GLES30.GL_FLOAT, false, stride, 3 * Float.SIZE_BYTES)
         GLES30.glEnableVertexAttribArray(2)
-        GLES30.glVertexAttribPointer(2, 4, GLES30.GL_FLOAT, false, stride, 6 * Float.SIZE_BYTES)
+        GLES30.glVertexAttribPointer(2, 4, GLES30.GL_FLOAT, false, stride, 3 * Float.SIZE_BYTES)
         GLES30.glEnableVertexAttribArray(3)
-        GLES30.glVertexAttribPointer(3, 1, GLES30.GL_FLOAT, false, stride, 10 * Float.SIZE_BYTES)
+        GLES30.glVertexAttribPointer(3, 1, GLES30.GL_FLOAT, false, stride, 7 * Float.SIZE_BYTES)
+        GLES30.glEnableVertexAttribArray(4)
+        GLES30.glVertexAttribPointer(4, 2, GLES30.GL_FLOAT, false, stride, 8 * Float.SIZE_BYTES)
         GLES30.glBindBuffer(GLES30.GL_ELEMENT_ARRAY_BUFFER, buffers[1])
         GLES30.glBindVertexArray(0)
     }

@@ -58,6 +58,9 @@ class ShaderProgram(vertexSource: String, fragmentSource: String, private val na
     fun setVec4(uniformName: String, v: FloatArray) =
         GLES30.glUniform4f(uniform(uniformName), v[0], v[1], v[2], v[3])
 
+    fun setVec4(uniformName: String, x: Float, y: Float, z: Float, w: Float) =
+        GLES30.glUniform4f(uniform(uniformName), x, y, z, w)
+
     /** The first [count] vec4s of [v] into a uniform array. */
     fun setVec4Array(uniformName: String, v: FloatArray, count: Int) =
         GLES30.glUniform4fv(uniform(uniformName), count, v, 0)

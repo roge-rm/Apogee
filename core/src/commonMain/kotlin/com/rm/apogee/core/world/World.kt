@@ -3338,7 +3338,11 @@ class World(
             if (vessel.dormant) {
                 // Asleep on a deck: posed from the deck once everything has moved.
                 if (vessel.ridingOn != null) continue
-                if (vessel.afloat) followSea(vessel, attractor, waves = true, dt = dt) else followGround(vessel, attractor)
+                if (vessel.afloat) followSea(vessel, attractor, waves = true, dt = dt) else {
+                    followGround(vessel, attractor)
+                    // Parked on low land as a tsunami floods it: woken to float and be carried.
+                    if (!hurried && flooded(vessel, attractor)) vessel.wake()
+                }
                 // Parked in crushing air (Caligo's floor) or too deep in the sea, it's still crushed.
                 val air = attractor.atmosphere
                 val deep = attractor.ocean != null && attractor.altitudeOf(vessel.body.position) < -WATER_PARKED_SAFE
@@ -3689,7 +3693,7 @@ class World(
             if (vessel.noteStillness(riding, SLEEP_SETTLE_TICKS)) vessel.ride(deck)
             return
         }
-        val still = report.anchored || floatingStill(vessel) || aloftStill(vessel)
+        val still = report.anchored && !flooded(vessel, attractorFor(vessel)) || floatingStill(vessel) || aloftStill(vessel)
         if (vessel.noteStillness(still, SLEEP_SETTLE_TICKS)) {
             // The pose is at the end of the tick, so pin it to the ground as it is then.
             val attractor = attractorFor(vessel)
@@ -3736,6 +3740,25 @@ class World(
     private val scratchSeaPoint = Vec3()
     private val scratchSeaUp = Vec3()
     private val scratchTilt = Quat()
+
+    /**
+     * Whether a tsunami's water stands on [vessel]'s spot now. Quick where none can be: only
+     * sampled on low land while one may be passing.
+     */
+    private fun flooded(vessel: Vessel, attractor: CelestialBody): Boolean {
+        val sea = attractor.ocean?.sea ?: return false
+        if (attractor.altitudeOf(vessel.body.position) > FLOOD_HIGHEST) return false
+        attractor.rotationAt(tickEnd, scratchFloodRotation)
+        attractor.toBodyFixed(vessel.body.position, scratchFloodRotation, scratchFloodPoint)
+        if (!sea.tsunamiPassing(scratchFloodPoint, tickEnd)) return false
+        sea.sample(scratchFloodPoint, tickEnd, floodSample, spacing = 1.0)
+        // Only land the flood runs over; the sea floor is under water anyway.
+        return floodSample.tsunami > 0.0 && floodSample.tide - floodSample.depth > 0.0 && floodSample.depth > FLOOD_DEPTH
+    }
+
+    private val floodSample = com.rm.apogee.core.sea.SeaSample()
+    private val scratchFloodRotation = Quat()
+    private val scratchFloodPoint = Vec3()
 
     /** Waves shorter than a craft don't move it as a whole, so a rider only feels longer ones. */
     private fun riderSpacing(vessel: Vessel): Double = kotlin.math.max(1.0, vessel.contactRadius)
@@ -6523,6 +6546,13 @@ class World(
          * checked.
          */
         const val WATER_PARKED_SAFE = 150.0
+
+        /**
+         * Craft parked lower than this, in metres above the datum, are checked for a tsunami's
+         * flood, and water this deep over their spot wakes them.
+         */
+        private const val FLOOD_HIGHEST = com.rm.apogee.core.weather.Tsunamis.COAST_CAP + 30.0
+        private const val FLOOD_DEPTH = 0.2
 
         /** Ticks between telling the seas where the founded bases are. */
         const val CALM_BASES_EVERY = 60L

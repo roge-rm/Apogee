@@ -192,6 +192,8 @@ int main(int argc, char** argv) {
     render(dir, "level-sail-breeze", 20, {{recipe::SAIL, 0, [](float, float* p) { p[0] = 1.0f; p[1] = 0.4f; }}});
     render(dir, "level-tornado-near", 20, {{recipe::TORNADO, 0, [](float, float* p) { p[0] = 1.0f; p[1] = 1.0f; }}});
     render(dir, "level-tornado-far", 20, {{recipe::TORNADO, 0, [](float, float* p) { p[0] = 0.3f; p[1] = 0.0f; }}});
+    render(dir, "level-tsunami-near", 20, {{recipe::TSUNAMI, 0, [](float, float* p) { p[0] = 1.0f; p[1] = 1.0f; }}});
+    render(dir, "level-tsunami-far", 20, {{recipe::TSUNAMI, 0, [](float, float* p) { p[0] = 0.3f; p[1] = 0.0f; }}});
     render(dir, "level-slap", 1, {{recipe::SLAP, 0, [](float, float* p) { p[0] = 1.0f; }}});
     // A plane going by at 150 m/s, with Doppler from high to low as it passes.
     render(dir, "doppler-flyby", 8, {{recipe::JET, 0, [](float t, float* p) {
@@ -219,6 +221,7 @@ int main(int argc, char** argv) {
     // Places and weather.
     render(dir, "wind", 12, {{recipe::WIND, 0, [](float t, float* p) { p[0] = 0.2f + 0.8f * ramp(t); p[1] = 0.8f; p[2] = ramp(t); }}});
     render(dir, "tornado", 16, {{recipe::TORNADO, 0, [](float t, float* p) { p[0] = 0.1f + 0.9f * ramp(t); p[1] = ramp(t); }}});
+    render(dir, "tsunami", 16, {{recipe::TSUNAMI, 0, [](float t, float* p) { p[0] = 0.1f + 0.9f * ramp(t); p[1] = ramp(t); }}});
     render(dir, "rain", 6, {{recipe::RAIN, 0, [](float t, float* p) { p[0] = 0.7f; p[1] = t; }}});
     render(dir, "surf", 16, {{recipe::SURF, 0, [](float, float* p) { p[0] = 0.8f; }}});
     render(dir, "fire", 6, {{recipe::FIRE, 0, [](float, float* p) { p[0] = 0.8f; }}});

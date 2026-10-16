@@ -250,6 +250,8 @@ class WorldView(
     val hurricaneVeilAlpha: Float = 0f,
     /** The sea's surface, metres from the body's centre, for the light under it. 0 for no sea. */
     val seaRadius: Double = 0.0,
+    /** A tsunami's sea round the camera, for the flat water past the waves. Null where none is near. */
+    val tsunami: TsunamiField? = null,
     /** How far each of red, green and blue light gets through the sea, in metres per e-fold. */
     val water: FloatArray = TERRA_WATER,
     /**

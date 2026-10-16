@@ -69,6 +69,111 @@ object Shaders {
      * Where the ground's flat water rises from the bed and the waves fade into it, as shares of the
      * waves' reach, and how far under the waves that water starts, in metres.
      */
+    private val TSUNAMI_FIELD = """
+        // A tsunami's sea round the camera (see TsunamiField): heights in cm with its height in
+        // deep water in what's left over, and seconds since it arrived, ${TsunamiField.SIDE} a side,
+        // uTsunamiGrid.x metres apart along uTsunamiEast and uTsunamiNorth from uTsunamiCentre
+        // (camera-relative); uTsunamiGrid.y is 0 for none.
+        uniform vec4 uTsunami[${TsunamiField.VEC4S}];
+        uniform vec4 uTsunamiTau[${TsunamiField.VEC4S}];
+        uniform vec3 uTsunamiCentre;
+        uniform vec3 uTsunamiEast;
+        uniform vec3 uTsunamiNorth;
+        uniform vec3 uTsunamiGrid;
+        // Seconds between crests, seconds since the field was worked out, the most it reaches on a
+        // coast in metres, and the shelf's delay per (sqrt 6 - sqrt depth) in seconds.
+        uniform vec4 uTsunamiWave;
+        const float WET_BED = 0.4;
+        float tsunamiPick(vec4 v, int k) {
+            int c = k - (k / 4) * 4;
+            return c == 0 ? v.x : c == 1 ? v.y : c == 2 ? v.z : v.w;
+        }
+        vec3 tsunamiPoint(int k) {
+            float v = tsunamiPick(uTsunami[k / 4], k);
+            float h = floor(v);
+            return vec3(h * 0.01, (v - h) * ${TsunamiField.DEEP_SCALE}, tsunamiPick(uTsunamiTau[k / 4], k));
+        }
+        // At camera-relative p: how far the tsunami moves the sea, in metres, how high it is in deep
+        // water there, and seconds since it arrived (with the field's age in).
+        vec3 tsunamiAt(vec3 p) {
+            if (uTsunamiGrid.y < 0.5) return vec3(0.0, 0.0, ${NO_CREST});
+            const int SIDE = ${TsunamiField.SIDE};
+            float middle = float(SIDE - 1) * 0.5;
+            vec3 d = p - uTsunamiCentre;
+            float x = dot(d, uTsunamiEast) / uTsunamiGrid.x + middle;
+            float y = dot(d, uTsunamiNorth) / uTsunamiGrid.x + middle;
+            if (x < 0.0 || y < 0.0 || x >= float(SIDE - 1) || y >= float(SIDE - 1)) return vec3(0.0, 0.0, ${NO_CREST});
+            int i = int(x); int j = int(y);
+            float fx = x - float(i); float fy = y - float(j);
+            int k = j * SIDE + i;
+            vec3 v = mix(mix(tsunamiPoint(k), tsunamiPoint(k + 1), fx), mix(tsunamiPoint(k + SIDE), tsunamiPoint(k + SIDE + 1), fx), fy);
+            // Gone by the square's edge.
+            float edge = max(abs(x - middle), abs(y - middle)) / middle;
+            float fade = 1.0 - smoothstep(0.7, 1.0, edge);
+            return vec3(v.xy * fade, v.z + uTsunamiWave.y);
+        }
+        // Seconds since the crest and how white it is (see TSUNAMI_FOAM) at water [depth] metres
+        // deep, from tsunamiAt's [t]: as Tsunamis.drawn has them.
+        vec2 tsunamiCrest(vec3 t, float depth) {
+            float period = uTsunamiWave.x;
+            // Slowed over the shelf, it gets there later.
+            float tau = t.z - uTsunamiWave.w * (2.449 - sqrt(clamp(depth, 0.0, 6.0)));
+            if (tau >= 7200.0 || t.z <= 0.0) return vec2(${NO_CREST}, 0.0);
+            float d = max(depth, 2.0);
+            float a = min(uTsunamiWave.z, t.y * sqrt(sqrt(3000.0 / d)));
+            float steep = smoothstep(0.1, 0.35, a / d);
+            float envelope = exp(-max(tau, 0.0) / 2400.0) * (1.0 - smoothstep(5760.0, 7200.0, tau));
+            float white = (smoothstep(0.6, 0.9, steep) - 0.8 * (1.0 - smoothstep(0.0, 0.15, steep))) * smoothstep(0.3, 0.9, a * envelope);
+            float rise = 0.5 + (min(3.0 / period, 0.5) - 0.5) * steep;
+            return vec2(tau - (0.5 + 0.5 * rise) * period, white);
+        }
+    """
+
+    /**
+     * A tsunami's foam, 0..1, from [c] seconds since its first crest passed (Tsunamis.crest), [w]
+     * how white (over 0 a bore with lines behind, under 0 a gentle crest's line), [period] seconds
+     * between crests (0 for the first only) and [blur] seconds a pixel spans. Narrower than a
+     * pixel, a band is widened and dimmed, and the lines go, so nothing aliases far off.
+     */
+    private val TSUNAMI_FOAM = """
+        const vec3 TSUNAMI_WHITE = vec3(0.93, 0.93, 0.97);
+        float tsunamiBand(float s, float lo, float hi, float blur) {
+            float half0 = 0.5 * (hi - lo);
+            float wide = max(half0, blur);
+            float d = abs(s - 0.5 * (hi + lo)) - wide;
+            return (1.0 - smoothstep(-0.5 * blur, 0.5 * blur, d)) * sqrt(half0 / wide);
+        }
+        float tsunamiFoam(float c, float w, float period, float blur) {
+            if (abs(w) < 0.01) return 0.0;
+            float k = period > 0.0 ? max(floor(c / period + 0.5), 0.0) : 0.0;
+            float s = c - k * period;
+            blur = max(blur, 0.05);
+            float white;
+            if (w > 0.0) {
+                // The face and the white water just behind it, then lines thinning out.
+                white = tsunamiBand(s, -3.0, 15.0, blur);
+                float behind = s - 15.0;
+                if (behind > 0.0 && behind < 52.0) {
+                    float line = 0.5 + 0.5 * cos(6.2831853 * behind / 7.0);
+                    float edge = 0.45 + 0.55 * smoothstep(0.0, 52.0, behind);
+                    white = max(white, (1.0 - smoothstep(0.84, 1.75, blur)) * smoothstep(edge, edge + 0.1, line) * 0.9);
+                }
+            } else {
+                white = tsunamiBand(s, -8.0, 0.0, blur);
+            }
+            // The sea behind the front a little paler.
+            white = max(white, 0.12 * smoothstep(-blur, blur, s) * (1.0 - smoothstep(30.0, 240.0, s)));
+            // Nothing where a pixel spans minutes: the edge of the train, or a triangle that's half dry.
+            return white * abs(w) * (1.0 - smoothstep(30.0, 90.0, blur));
+        }
+    """
+
+    /** Seconds since no crest has come: [com.rm.apogee.core.weather.Weather.TSUNAMI_NO_CREST]. */
+    private const val NO_CREST = "-10000.0"
+
+    /** 2 pi / 4096: the froth's sines repeat every 4096 m, so the origin can be taken modulo that. */
+    private const val FROTH_RATE = "0.0015339808"
+
     private const val SEA_EDGE = """
         const float SEA_RISE = 0.6;
         const float SEA_BLEND = 0.8;
@@ -601,6 +706,7 @@ object Shaders {
         uniform vec3 uBodyCentre;
         uniform float uMethane;  // 1 for a sea of liquid methane
         $SEA_EDGE
+        $TSUNAMI_FIELD
 
         // Flat: each triangle takes one vertex's colour. The normal comes per triangle in the
         // fragment shader.
@@ -621,6 +727,8 @@ object Shaders {
         // Nonzero inside a skirt triangle, plus the ground normal to light it by.
         out float vSkirt;
         out vec3 vGroundNormal;
+        // A tsunami's seconds since its crest and whiteness, for its foam (see TSUNAMI_FOAM).
+        out vec2 vTsunami;
 
         void main() {
             vec4 worldPos = uModel * vec4(aPosition, 1.0);
@@ -645,15 +753,25 @@ object Shaders {
             vSee = 1.0;
             vDepth = 0.0;
             vRise = 0.0;
+            vTsunami = vec2(${NO_CREST}, 0.0);
             float away = length(worldPos.xyz);
+            // A tsunami moves the water, and where it draws back the bed lies bare and wet.
+            vec3 wave = code >= 0.5 || uTsunamiGrid.y > 0.5 ? tsunamiAt(worldPos.xyz) : vec3(0.0, 0.0, ${NO_CREST});
+            // Land too keeps the time since the crest, with no white, so it runs on smoothly
+            // across a triangle at the coast.
+            if (uTsunamiGrid.y > 0.5) vTsunami = vec2(tsunamiCrest(wave, max((code - 1.0) * 1000.0, 0.0)).x, 0.0);
             if (coarseCode > 0.0 && (uSeaReach <= 0.0 || away > uSeaReach * SEA_RISE)) {
                 float rise = uSeaReach > 0.0 ? smoothstep(uSeaReach * SEA_RISE, uSeaReach * SEA_BLEND, away) : 1.0;
                 float under = uSeaReach > 0.0 ? SEA_BLEND_SINK * (1.0 - smoothstep(uSeaReach * SEA_BLEND, uSeaReach, away)) : 0.0;
                 vec3 up = normalize(coarsePos.xyz - uBodyCentre);
                 vec3 coarseWater = (uModel * vec4(aCoarseWater, 1.0)).xyz;
-                coarsePos.xyz = mix(coarsePos.xyz, coarseWater + up * (uTide - under), rise);
+                float coarseLevel = uTide + tsunamiAt(coarsePos.xyz).x;
+                if (uTsunamiGrid.y < 0.5 || (coarseCode - 1.0) * 1000.0 + coarseLevel > 0.0)
+                    coarsePos.xyz = mix(coarsePos.xyz, coarseWater + up * (coarseLevel - under), rise);
             }
-            if (code >= 0.5 && (uSeaReach <= 0.0 || away > uSeaReach * SEA_RISE)) {
+            if (code >= 0.5 && uTsunamiGrid.y > 0.5 && (code - 1.0) * 1000.0 + uTide + wave.x <= 0.0) {
+                vWet = WET_BED;
+            } else if (code >= 0.5 && (uSeaReach <= 0.0 || away > uSeaReach * SEA_RISE)) {
                 // Past the waves: flat water at the tide, blue by depth. Under the waves it rises
                 // from the bed to a little below them, so no triangle stands from bed to surface
                 // where it starts, and there's no line where the waves fade into it.
@@ -663,7 +781,7 @@ object Shaders {
                 bool waves = uSeaReach > 0.0;
                 float rise = waves ? smoothstep(uSeaReach * SEA_RISE, uSeaReach * SEA_BLEND, away) : 1.0;
                 float under = waves ? SEA_BLEND_SINK * (1.0 - smoothstep(uSeaReach * SEA_BLEND, uSeaReach, away)) : 0.0;
-                worldPos.xyz += up * (depth + uTide - under) * rise;
+                worldPos.xyz += up * (depth + uTide + wave.x - under) * rise;
                 // The waves' own colours by depth (see SeaScene.colour), over the bed as the waves
                 // let it show through, so the two meet unseen.
                 float shallow = 1.0 - smoothstep(1.0, 14.0, depth);
@@ -673,6 +791,7 @@ object Shaders {
                 // Liquid methane, as SeaScene has it.
                 if (uMethane > 0.5) water = vec3(0.06, 0.045, 0.025) + vec3(0.10, 0.07, 0.03) * shallow;
                 vColour = water;
+                if (uTsunamiGrid.y > 0.5) vTsunami = tsunamiCrest(wave, depth);
                 vSee = 0.35 + 0.57 * smoothstep(0.5, 20.0, depth);
                 vDepth = depth;
                 vRise = rise;
@@ -711,9 +830,11 @@ object Shaders {
         in vec3 vPosition;
         in float vSkirt;
         in vec3 vGroundNormal;
+        in vec2 vTsunami;
 
         uniform vec3 uSunDirection;
         uniform float uMorph;
+        uniform vec4 uTsunamiWave;    // a tsunami's seconds between crests in x (see TSUNAMI_FIELD)
         uniform float uAtmosphereFactor;
         uniform float uHazeDistance;
         uniform float uHasAtmosphere; // 1 for a body with air, 0 for one without
@@ -731,10 +852,13 @@ object Shaders {
 
         $NIGHT_LIGHT
         $SHADOW
+        $TSUNAMI_FOAM
 
         void main() {
             vec3 viewDir = normalize(-vPosition);
             if (vDistance < uDiscardNearer) discard;
+            // Out of any branch, so the derivative is good.
+            float tsunamiBlur = fwidth(vTsunami.x);
             // The triangle's own face normal, from screen derivatives. Vertex normals shimmer on
             // rough ground as the detail changes.
             vec3 n = normalize(cross(dFdx(vPosition), dFdy(vPosition)));
@@ -748,6 +872,8 @@ object Shaders {
             vec2 fromCorner = vGrid - vGridCorner;
             vec3 coarseColour = fromCorner.x - fromCorner.y >= 0.0 ? vCoarseLower : vCoarseUpper;
             if (wet < 0.5) surface = mix(surface, coarseColour, uMorph);
+            // Sea floor the water has left: darker, and glinting.
+            if (wet > 0.2 && wet < 0.5) surface *= 0.62;
 
             if (uSkyBody > 0.5) {
                 // Another world across space: sunlit only, night side nearly black, a glint off its
@@ -775,6 +901,9 @@ object Shaders {
 
             vec3 halfway = normalize(uSunDirection + viewDir);
             if (wet > 0.5) {
+                // A tsunami's foam, per pixel, so its edges are smooth.
+                float foam = tsunamiFoam(vTsunami.x, vTsunami.y, uTsunamiWave.x, tsunamiBlur);
+                surface = mix(surface, TSUNAMI_WHITE, foam);
                 // Flat water past the waves, lit the way the waves are (see SEA_FRAGMENT), so there's
                 // no ring where one meets the other.
                 // The bed lit like ground and darkened by the water over it, as the bed under the
@@ -782,13 +911,15 @@ object Shaders {
                 vec3 bed = mix(vBed, coarseColour, uMorph) * (night * moonLeft(uDaylight) + duskGlow(uDaylight) + (0.06 + lambert * 1.10 * uLightScale) * daylight)
                     * exp(-vDepth / uWater);
                 float shade = 0.22 + 1.25 * pow(lambert, 0.8) * uLightScale;
+                // Foam is white whichever way it's turned, as on the waves.
+                shade = mix(shade, (0.85 + 0.3 * lambert) * uLightScale, foam);
                 vec3 water = surface * (night * moonLeft(uDaylight) + duskGlow(uDaylight) + shade * daylight) + surface * FLASH * uFlash;
                 float facing = max(dot(n, viewDir), 0.0);
                 float reflected = 0.03 + 0.97 * pow(1.0 - facing, 5.0);
                 vec3 sky = mix(uHaze, uSeaSky, 0.5) * (NIGHT_AIR + (1.0 - NIGHT_AIR) * daylight) * (0.5 + 0.5 * uLightScale);
-                water = mix(water, sky, reflected * 0.5);
+                water = mix(water, sky, reflected * 0.5 * (1.0 - foam));
                 // Still rising under the waves, it's more bed than water.
-                lit = mix(bed, water, mix(vSee, 1.0, reflected) * vRise);
+                lit = mix(bed, water, mix(max(vSee, foam), 1.0, reflected) * vRise);
                 // The waves scatter the sun into sparkle. Flat, it's a broad dim sheen instead, about
                 // as bright on the whole.
                 lit += vec3(1.0, 0.96, 0.88) * pow(max(dot(n, halfway), 0.0), 40.0) * daylight * direct * 0.35 * uLightScale * vRise;
@@ -827,21 +958,30 @@ object Shaders {
     val SEA_VERTEX = """
         #version 300 es
         layout(location = 0) in vec3 aPosition;
-        layout(location = 1) in vec3 aUp;
         layout(location = 2) in vec4 aColour;
         layout(location = 3) in float aRise;
+        layout(location = 4) in vec2 aTsunami;
 
         uniform mat4 uModel;
         uniform mat4 uViewProjection;
         uniform float uAhead;   // seconds since the surface was built for
+        // Up at the surface's origin, body-fixed: near enough up anywhere on it to carry it by its rise.
+        uniform vec3 uUp;
+        // The surface's origin, body-fixed, in metres modulo 4096, for the foam's froth.
+        uniform vec3 uFrothOrigin;
 
         flat out vec4 vColour;
         out vec3 vPosition;
         out float vDistance;
         out vec3 vViewDir;
+        // A tsunami's seconds since its crest, carried on to now, and whiteness (see TSUNAMI_FOAM).
+        out vec2 vTsunami;
+        out vec3 vFroth;
 
         void main() {
-            vec3 p = aPosition + aUp * (aRise * uAhead);
+            vec3 p = aPosition + uUp * (aRise * uAhead);
+            vTsunami = vec2(aTsunami.x + uAhead, aTsunami.y);
+            vFroth = aPosition + uFrothOrigin;
             vec4 world = uModel * vec4(p, 1.0);
             vPosition = world.xyz;
             vColour = aColour;
@@ -864,8 +1004,11 @@ object Shaders {
         in vec3 vPosition;
         in float vDistance;
         in vec3 vViewDir;
+        in vec2 vTsunami;
+        in vec3 vFroth;
 
         uniform vec3 uSunDirection;
+        uniform float uTsunamiPeriod;    // seconds between a tsunami's crests, 0 for none
         uniform float uAtmosphereFactor;
         uniform float uHazeDistance;
         uniform vec3 uBodyCentre;
@@ -882,9 +1025,12 @@ object Shaders {
 
         $NIGHT_LIGHT
         $SHADOW
+        $TSUNAMI_FOAM
 
         void main() {
             if (vDistance > uSeaReach) discard;
+            // Out of any branch, so the derivative is good.
+            float tsunamiBlur = fwidth(vTsunami.x);
             vec3 n = normalize(cross(dFdx(vPosition), dFdy(vPosition)));
             vec3 up = normalize(vPosition - uBodyCentre);
             if (dot(n, up) < 0.0) n = -n;
@@ -901,13 +1047,24 @@ object Shaders {
             }
 
             vec3 surface = vColour.rgb;
+            // A tsunami's foam, per pixel so its edges are smooth, frothy up close: the time it
+            // goes by is nudged by a little noise on the ground, gone before it would shimmer.
+            float tsunami = 0.0;
+            if (abs(vTsunami.y) > 0.01) {
+                vec3 q = vFroth * ${FROTH_RATE};
+                float froth = sin(q.x * 640.0 + 2.0 * sin(q.z * 300.0)) + sin(q.y * 560.0 + 2.0 * sin(q.x * 410.0))
+                    + sin(q.z * 760.0 + 2.0 * sin(q.y * 350.0));
+                froth *= 0.4 * (1.0 - smoothstep(150.0, 600.0, vDistance));
+                tsunami = tsunamiFoam(vTsunami.x + froth, vTsunami.y, uTsunamiPeriod, tsunamiBlur);
+                surface = mix(surface, TSUNAMI_WHITE, tsunami);
+            }
             float direct = directLight(vPosition, n);
             float lambert = max(dot(n, uSunDirection), 0.0) * direct;
             vec3 night = MOON * (0.55 + 0.45 * max(-dot(n, uSunDirection), 0.0) * direct) * (0.4 + 0.6 * uLightScale);
             // Bright to the sun, dark away; harder than on land since the slopes are gentler.
             float shade = 0.22 + 1.25 * pow(lambert, 0.8) * uLightScale;
             // Foam is white whichever way it's turned. Nothing but foam is this white.
-            float foam = smoothstep(0.86, 0.9, min(min(surface.r, surface.g), surface.b));
+            float foam = max(smoothstep(0.86, 0.9, min(min(surface.r, surface.g), surface.b)), tsunami);
             shade = mix(shade, (0.85 + 0.3 * lambert) * uLightScale, foam);
             vec3 lit = surface * (night * moonLeft(uDaylight) + duskGlow(uDaylight) + shade * daylight);
             lit += surface * FLASH * uFlash;
@@ -932,7 +1089,7 @@ object Shaders {
             lit = mix(lit, uFogColor, clamp(fog, 0.0, 1.0));
 
             // Clear in the shallows, glassy at low angles, fading into the flat water at the edge.
-            float alpha = mix(vColour.a, 1.0, fresnel) * (1.0 - smoothstep(uSeaReach * SEA_BLEND, uSeaReach, vDistance));
+            float alpha = mix(max(vColour.a, tsunami), 1.0, fresnel) * (1.0 - smoothstep(uSeaReach * SEA_BLEND, uSeaReach, vDistance));
             fragColor = vec4(lit, alpha);
         }
     """.trimIndent()

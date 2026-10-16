@@ -130,6 +130,10 @@ class SoundScene(private val budget: Int) {
         val tornado: Double = 0.0,
         val tornadoNear: Double = 0.0,
         val tornadoPan: Float = 0f,
+        /** A tsunami's bore or flood coming in: its roar, 0..1, how near, 0..1, and its pan. */
+        val tsunami: Double = 0.0,
+        val tsunamiNear: Double = 0.0,
+        val tsunamiPan: Float = 0f,
     ) {
         val inAir: Boolean get() = density > AIRLESS
     }
@@ -304,6 +308,12 @@ class SoundScene(private val budget: Int) {
                 v[1] = listener.tornadoNear.coerceIn(0.0, 1.0).toFloat()
                 add(KEY_TORNADO, Recipes.TORNADO, 0, v, 1f, listener.tornadoPan.coerceIn(-0.8f, 0.8f), 0f, weight = v[0] * 0.6f)
             }
+            if (listener.tsunami > 0.02) {
+                val v = FloatArray(SharedParams.COUNT)
+                v[0] = (listener.tsunami * thin).coerceIn(0.0, 1.0).toFloat()
+                v[1] = listener.tsunamiNear.coerceIn(0.0, 1.0).toFloat()
+                add(KEY_TSUNAMI, Recipes.TSUNAMI, 0, v, 1f, listener.tsunamiPan.coerceIn(-0.8f, 0.8f), 0f, weight = v[0] * 0.6f)
+            }
             if (listener.port > 0.02) {
                 val v = FloatArray(SharedParams.COUNT)
                 v[0] = listener.port.coerceIn(0.0, 1.0).toFloat()
@@ -452,6 +462,7 @@ class SoundScene(private val budget: Int) {
         const val KEY_COMPLEX = -9
         const val KEY_PORT = -10
         const val KEY_TORNADO = -11
+        const val KEY_TSUNAMI = -12
 
         /**
          * How vacuum-built an engine is, 0..1, from how much thrust it keeps at sea level. A

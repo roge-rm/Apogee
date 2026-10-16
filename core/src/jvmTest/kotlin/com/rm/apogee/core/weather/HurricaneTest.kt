@@ -242,9 +242,11 @@ class HurricaneTest {
                 val bed = terrain.elevation(d)
                 if (bed > -1.0 || bed < -Hurricanes.SURGE_FULL_DEPTH) continue
                 extreme.sample(d, t, a); normal.sample(d, t, b)
-                // The sea's tide is higher by the surge on the bed the sea itself sees.
+                // The sea's tide is higher by the surge on the bed the sea itself sees, and moved by
+                // any tsunami passing.
                 val surge = w.hurricaneModel.surge(d, t, b.tide - b.depth)
-                assertEquals(surge, a.tide - b.tide, 1e-9)
+                val tsunami = w.tsunamiModel.height(d, t, b.tide - b.depth)
+                assertEquals(surge + tsunami, a.tide - b.tide, 1e-9)
                 if (surge > 0.0) checked++
                 best = maxOf(best, surge)
             }

@@ -26,6 +26,7 @@ object Recipes {
     const val SAIL = 18
     const val ROTOR = 19
     const val TORNADO = 20
+    const val TSUNAMI = 21
 
     // One-shots.
     const val IMPACT = 50

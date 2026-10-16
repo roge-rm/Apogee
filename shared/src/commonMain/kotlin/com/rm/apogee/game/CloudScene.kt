@@ -50,6 +50,9 @@ class CloudScene(
     /** Tornadoes and waterspouts near the camera, to draw and hear, and on the whole world for the map. */
     val tornadoes = TornadoScene(body, config, tier, scope)
 
+    /** Tsunamis: the sea they move round the camera, their roar, and on the whole world for the map. */
+    val tsunamis = TsunamiScene(body, config, tier, scope)
+
     private class Lobe(
         val centre: Vec3, val up: Quat, val scale: Vec3, val colour: FloatArray, val variant: Int, val flat: Boolean,
         val distance: Double,
@@ -131,6 +134,7 @@ class CloudScene(
         weather.sample(camera, time, air)
         updateHurricanes(time)
         tornadoes.update(camera, time)
+        tsunamis.update(camera, time)
         if (time - windAt > 0.25) {
             windAt = time
             weather.surfaceWind(direction.setTo(camera).normalizeInPlace(), time, surfaceWind)

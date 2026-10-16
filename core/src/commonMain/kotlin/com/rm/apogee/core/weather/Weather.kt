@@ -31,6 +31,7 @@ import com.rm.apogee.core.math.Math
  * - storms: towers, gust fronts, rain and lightning ([Storms]);
  * - hurricanes, with rare events on ([Hurricanes]);
  * - tornadoes and waterspouts under supercells and in hurricane bands ([Tornadoes]);
+ * - tsunamis from quakes on the sea floor, which only move the sea ([Tsunamis]);
  * - layer cloud: stratus, altostratus and cirrus;
  * - turbulence, sampled per part ([turbulence]).
  */
@@ -50,6 +51,7 @@ class Weather(
     private val storms = Storms(this, radius, seed, intensity)
     private val hurricanes = Hurricanes(this, radius, seed, intensity).also { storms.hurricanes = it }
     private val tornadoes = Tornadoes(this, radius, seed, intensity, storms, hurricanes)
+    private val tsunamis = Tsunamis(this, radius, seed, intensity)
     private val stormShapes = StormShapes(storms, seed, radius, climate)
     private val hurricaneShapes = HurricaneShapes(seed, radius, climate)
 
@@ -788,6 +790,7 @@ class Weather(
     internal val stormModel: Storms get() = storms
     internal val hurricaneModel: Hurricanes get() = hurricanes
     internal val tornadoModel: Tornadoes get() = tornadoes
+    internal val tsunamiModel: Tsunamis get() = tsunamis
 
     /**
      * The hurricanes alive at [time] that reach within [reach] metres of unit [direction], into
@@ -805,7 +808,64 @@ class Weather(
         tornadoes.near(direction.copy().normalizeInPlace(), time, reach, out)
     }
 
+    /**
+     * The tsunamis alive at [time] whose wave is within [reach] metres of unit [direction] or
+     * passing over it, into [out]. Makes new objects, so not for every sample.
+     */
+    fun tsunamis(direction: Vec3, time: Double, reach: Double, out: MutableList<LiveTsunami>) {
+        tsunamis.near(direction.copy().normalizeInPlace(), time, reach, out)
+    }
+
+    /**
+     * How far tsunamis move the sea at unit [direction] at [time] where the bed is [bed] metres
+     * (negative under the sea), in metres, and their flow there into [flow], body-fixed, m/s. Over
+     * land it's the height a crest floods it to, 0 where it doesn't. For drawing and hearing; the
+     * sea has it already for floating.
+     */
+    fun tsunamiHeight(direction: Vec3, time: Double, bed: Double, flow: Vec3? = null, blur: Double = 0.0): Double {
+        val h = tsunamis.height(direction, time, bed, blur)
+        if (flow != null) tsunamis.flow(flow)
+        return h
+    }
+
+    /**
+     * How white the bore is where [tsunamiHeight] last looked, 0..1: a band along its front and
+     * lines fading behind, widened by its blur in metres.
+     */
+    fun tsunamiFoam(): Double = tsunamis.foam()
+
+    /**
+     * For drawing the bore's foam per pixel, where [tsunamiHeight] last looked: seconds since the
+     * first crest, how white (over 0 a bore, under 0 a gentle crest's line), and seconds between
+     * crests. See [Tsunamis.crest].
+     */
+    fun tsunamiCrest(): Double = tsunamis.crest()
+    fun tsunamiWhiteness(): Double = tsunamis.whiteness()
+    fun tsunamiPeriod(): Double = tsunamis.period()
+
+    /**
+     * Tsunami [id]'s seconds since it arrived at unit [direction] at [time] by its coarse arrival
+     * times, into out[0], and its height in deep water there into out[1]. False where it never
+     * arrives.
+     */
+    fun tsunamiPhase(direction: Vec3, time: Double, id: Long, out: DoubleArray): Boolean =
+        tsunamis.phase(direction, time, id, out)
+
+    /** Whether any tsunami may be moving the sea at unit [direction] at [time]. Quick. */
+    fun tsunamiPassing(direction: Vec3, time: Double): Boolean = tsunamis.passing(direction, time)
+
     companion object {
+        /** A tsunami's seconds since its crest where none has arrived: long before any crest. */
+        const val TSUNAMI_NO_CREST = -10_000.0
+
+        /**
+         * For drawing tsunamis: the most one reaches on a coast at full strength (m), the shelf's
+         * slope it slows over, and how long its wave train passes a place for (s). See [Tsunamis].
+         */
+        const val TSUNAMI_COAST_CAP = 16.0
+        const val TSUNAMI_SHOAL_SLOPE = 0.006
+        const val TSUNAMI_TRAIN = 2.0 * 3_600.0
+
         /**
          * Above this Terra's air is still, so no weather reaches orbit. Each world has
          * [Climate.ceiling].

@@ -72,6 +72,12 @@ class SeaScene(
     private val filterUp = Vec3()
     @kotlin.concurrent.Volatile private var filterFinest = 1.0
 
+    /**
+     * Whether a tsunami may be passing the camera this build: then the tide near it is redone on
+     * every build, not every few seconds, so flood water stands where boats float.
+     */
+    @kotlin.concurrent.Volatile private var retiding = false
+
     /** The finest grid's spacing, in metres. */
     private val finest = if (tier == QualityTier.LOW) 1.0 else 0.5
 
@@ -191,6 +197,10 @@ class SeaScene(
         val direction = Vec3()
         val morphTarget = FloatArray(SeaSurface.STRIDE)
 
+        /** The seconds between crests of the whitest tsunami this build has met, and how white. */
+        var period = 0.0
+        var periodWhite = 0.0
+
         /**
          * Lattice point ([gi], [gj]) of grid [level] into vertex [index] of [out]. Past [deadline]
          * (ns), a point that isn't [near] isn't prepared any more: it keeps its last preparation,
@@ -221,6 +231,9 @@ class SeaScene(
                     depths?.set(index, Float.MAX_VALUE)
                     return
                 }
+            } else if (retiding && near && !sea.retide(direction, time, p)) {
+                sea.prepare(direction, time, spacing, p)
+                times[slot] = time
             }
             finish(out, index, origin, spacing, p, time, depths)
         }
@@ -234,15 +247,25 @@ class SeaScene(
             point(gi, gj, step(level), direction)
             val key = (level.toLong() shl 58) xor ((gi.toLong() and 0x1FFFFFFFL) shl 29) xor (gj.toLong() and 0x1FFFFFFFL)
             var kept: Stamped? = null
+            val retide = retiding && direction.distanceTo(filterUp) * body.radius < NEAR_REACH
             val ready = synchronized(refinedPrepared) {
                 kept = refinedPrepared[key]
-                kept?.let { time - it.time in 0.0..REPREPARE_SECONDS } ?: false
+                val fresh = kept?.let { time - it.time in 0.0..REPREPARE_SECONDS } ?: false
+                // Cells sharing a point share its state: retided by the first to reach it, before
+                // any of them reads it this build.
+                if (fresh && retide && kept!!.retidedAt != time) {
+                    val k = kept!!
+                    if (!sea.retide(direction, time, k.prepared)) sea.prepare(direction, time, spacing, k.prepared)
+                    k.retidedAt = time
+                }
+                fresh
             }
             val p = if (ready) kept!!.prepared else {
                 val stamp = kept ?: Stamped(Sea.Prepared(), time)
                 sea.prepare(direction, time, spacing, stamp.prepared)
                 synchronized(refinedPrepared) {
                     stamp.time = time
+                    stamp.retidedAt = time
                     if (refinedPrepared.size > REFINED_KEEP) refinedPrepared.clear()
                     refinedPrepared[key] = stamp
                 }
@@ -268,9 +291,13 @@ class SeaScene(
             out[o] = (direction.x * radius - origin.x).toFloat()
             out[o + 1] = (direction.y * radius - origin.y).toFloat()
             out[o + 2] = (direction.z * radius - origin.z).toFloat()
-            out[o + 3] = direction.x.toFloat(); out[o + 4] = direction.y.toFloat(); out[o + 5] = direction.z.toFloat()
-            colour(sample, direction, out, o + 6, shown)
-            out[o + 10] = sample.rise.toFloat()
+            colour(sample, direction, out, o + 3, shown)
+            out[o + 7] = sample.rise.toFloat()
+            out[o + 8] = sample.tsunamiCrest.toFloat()
+            out[o + 9] = if (methane) 0f else sample.tsunamiWhiteness.toFloat()
+            if (kotlin.math.abs(sample.tsunamiWhiteness) > periodWhite) {
+                periodWhite = kotlin.math.abs(sample.tsunamiWhiteness); period = sample.tsunamiPeriod
+            }
             depths?.set(index, sample.depth.toFloat())
         }
 
@@ -286,9 +313,9 @@ class SeaScene(
         out[o] = (direction.x * radius - origin.x).toFloat()
         out[o + 1] = (direction.y * radius - origin.y).toFloat()
         out[o + 2] = (direction.z * radius - origin.z).toFloat()
-        out[o + 3] = direction.x.toFloat(); out[o + 4] = direction.y.toFloat(); out[o + 5] = direction.z.toFloat()
-        out[o + 6] = DEEP_R.toFloat(); out[o + 7] = DEEP_G.toFloat(); out[o + 8] = DEEP_B.toFloat(); out[o + 9] = DEEP_ALPHA
-        out[o + 10] = 0f
+        out[o + 3] = DEEP_R.toFloat(); out[o + 4] = DEEP_G.toFloat(); out[o + 5] = DEEP_B.toFloat(); out[o + 6] = DEEP_ALPHA
+        out[o + 7] = 0f
+        out[o + 8] = com.rm.apogee.core.weather.Weather.TSUNAMI_NO_CREST.toFloat(); out[o + 9] = 0f
     }
 
     /**
@@ -422,7 +449,7 @@ class SeaScene(
     private val shapeScratch = IntArray(1 + 2 * levels)
 
     /** A surface on [layout]'s grids with no coast. Their triangles are made again only when the shape changes. */
-    private fun gridSurface(layout: Layout, vertices: FloatArray, time: Double, giveBack: ((FloatArray) -> Unit)?): SeaSurface =
+    private fun gridSurface(layout: Layout, vertices: FloatArray, time: Double, giveBack: ((FloatArray) -> Unit)?, period: Double = 0.0): SeaSurface =
         synchronized(this) {
             val n = layout.shape(shapeScratch)
             if (!sameShape(gridShape, gridShapeSize, n)) {
@@ -431,7 +458,7 @@ class SeaScene(
                 gridIndices = layout.indices()
                 gridLayout = ++lastLayout
             }
-            SeaSurface(layout.origin, vertices, layout.count, gridIndices, gridLayout, time, giveBack)
+            SeaSurface(layout.origin, vertices, layout.count, gridIndices, gridLayout, time, giveBack, period)
         }
 
     private fun sameShape(kept: IntArray, keptSize: Int, n: Int): Boolean {
@@ -512,10 +539,12 @@ class SeaScene(
         val cameraUp = centre.copy().normalizeInPlace()
         filterUp.setTo(cameraUp)
         filterFinest = kotlin.math.max(finest, layout.desiredSpacing)
+        for (b in builders) { b.period = 0.0; b.periodWhite = 0.0 }
         builders[0].let { b ->
             b.sea.prepare(cameraUp, time, spacing(layout.first), Sea.Prepared()).let { p -> b.sea.surface(cameraUp, time, p, b.sample, spacing(layout.first)) }
         }
         val tide = builders[0].sample.tide
+        retiding = builders[0].sea.tsunamiPassing(cameraUp, time)
         // Somewhere new (the first build, or flying fast over fresh sea) the outer sea state takes
         // seconds while terrain builds too. Near the camera it's always worked out; further off
         // only within a budget, with later builds filling in and flat water meanwhile.
@@ -568,10 +597,12 @@ class SeaScene(
         }
         val coast = coast(scope, layout, vertices, depths, origin, time)
         lastCoastCount = coast
-        if (coast == 0) return gridSurface(layout, vertices, time, giveBack)
+        var period = 0.0; var periodWhite = 0.0
+        for (b in builders) if (b.periodWhite > periodWhite) { periodWhite = b.periodWhite; period = b.period }
+        if (coast == 0) return gridSurface(layout, vertices, time, giveBack, period)
         return synchronized(this) {
             val indices = coastTriangles(layout, coast)
-            SeaSurface(origin, vertices, layout.count + coast * SUB_SIDE * SUB_SIDE, indices, coastLayout, time, giveBack)
+            SeaSurface(origin, vertices, layout.count + coast * SUB_SIDE * SUB_SIDE, indices, coastLayout, time, giveBack, period)
         }
     }
 
@@ -718,13 +749,13 @@ class SeaScene(
     private fun mix(vertices: FloatArray, into: Int, a: Int, b: Int, t: Float) {
         val o = into * SeaSurface.STRIDE; val pa = a * SeaSurface.STRIDE; val pb = b * SeaSurface.STRIDE
         for (n in 0 until SeaSurface.STRIDE) vertices[o + n] = vertices[pa + n] + (vertices[pb + n] - vertices[pa + n]) * t
-        val x = vertices[o + 3]; val y = vertices[o + 4]; val z = vertices[o + 5]
-        val l = kotlin.math.sqrt(x * x + y * y + z * z).coerceAtLeast(1e-6f)
-        vertices[o + 3] = x / l; vertices[o + 4] = y / l; vertices[o + 5] = z / l
     }
 
     /** A coast point's sea state and when it was worked out. */
-    private class Stamped(val prepared: Sea.Prepared, var time: Double)
+    private class Stamped(val prepared: Sea.Prepared, var time: Double) {
+        /** The build time it was last retided for, so it's done once a build, under the lock. */
+        var retidedAt = Double.NaN
+    }
 
     /** The coast's sea state, by lattice point, apart from the grids' tables. Locked on itself. */
     private val refinedPrepared = com.rm.apogee.render.LongMap<Stamped>(1_024)
@@ -732,10 +763,6 @@ class SeaScene(
     private fun morphVertex(vertices: FloatArray, into: Int, target: FloatArray, amount: Float) {
         val o = into * SeaSurface.STRIDE
         for (n in 0 until SeaSurface.STRIDE) vertices[o + n] += (target[n] - vertices[o + n]) * amount
-        // Up stays unit length.
-        val x = vertices[o + 3]; val y = vertices[o + 4]; val z = vertices[o + 5]
-        val l = kotlin.math.sqrt(x * x + y * y + z * z).coerceAtLeast(1e-6f)
-        vertices[o + 3] = x / l; vertices[o + 4] = y / l; vertices[o + 5] = z / l
     }
 
     /**
@@ -778,6 +805,19 @@ class SeaScene(
         // A storm sea: grey and hard.
         val storm = smooth(1.0, 8.0, s.stormHeight)
         r += (STORM_R - r) * storm * 0.7; g += (STORM_G - g) * storm * 0.7; b += (STORM_B - b) * storm * 0.7
+        // A tsunami: muddy over the land it floods and silty for a while behind its bore. Its foam
+        // is drawn per pixel by the shader, from the vertex's tsunami crest and whiteness.
+        var mud = 0.0
+        if ((s.tsunami != 0.0 || s.tsunamiWhiteness > 0.0) && !methane) {
+            val since = s.tsunamiCrest
+            val silt = if (s.tsunamiWhiteness > 0.0 && s.tsunamiPeriod > 0.0) {
+                // Seconds since the nearest crest, soft at both ends so its edge doesn't follow the foam's.
+                val c = since - s.tsunamiPeriod * kotlin.math.floor(since / s.tsunamiPeriod + 0.5).coerceAtLeast(0.0)
+                s.tsunamiWhiteness * smooth(-60.0, 0.0, c) * (1.0 - smooth(60.0, SILT_SECONDS, c))
+            } else 0.0
+            mud = if (s.tide - s.depth > 0.0) smooth(0.0, 0.6, depth) else silt * BORE_SILT
+            r += (MUD_R - r) * mud; g += (MUD_G - g) * mud; b += (MUD_B - b) * mud
+        }
         // Foam's ragged edge: each facet foams or not by its own hash against the foam amount. The
         // grain is never finer than the grid, so it isn't noise far off.
         val r0 = body.radius / kotlin.math.max(1.0 / FOAM_GRAIN, spacing)
@@ -787,7 +827,8 @@ class SeaScene(
         // Foam only where the grid is fine enough to draw it, fading as facets coarsen. Far out
         // each white facet would be a big grey diamond, so there it's only a paler tint.
         val fine = 1.0 - smooth(SURF_SPACING, SURF_SPACING * 2.5, spacing)
-        val surf = if (depth in 0.0..1.2 && s.significantHeight > 0.2) 1.0 - depth / 1.2 else 0.0
+        // No surf over flooded land: its own churn shows there instead.
+        val surf = if (depth in 0.0..1.2 && s.significantHeight > 0.2) (1.0 - depth / 1.2) * (1.0 - mud) else 0.0
         val breaking = kotlin.math.max(s.breaking, surf)
         val foam = SurfFoam.amount(s.breaking, (s.height - s.tide) / kotlin.math.max(s.significantHeight, 0.05), s.rise, surf) * fine
         val white = if (foam > 0.05 && speckle < foam * FOAM_COVER) 1.0 else 0.0
@@ -796,7 +837,7 @@ class SeaScene(
         r += (FOAM - r) * lift; g += (FOAM - g) * lift; b += (FOAM_B - b) * lift
         out[o] = r.toFloat(); out[o + 1] = g.toFloat(); out[o + 2] = b.toFloat()
         // See-through over the shallows, and solid where it's deep or foaming.
-        val alpha = (0.35 + 0.57 * smooth(0.5, 20.0, depth)).coerceAtLeast(white)
+        val alpha = (0.35 + 0.57 * smooth(0.5, 20.0, depth)).coerceAtLeast(white).coerceAtLeast(MUD_ALPHA * mud)
         out[o + 3] = alpha.toFloat()
     }
 
@@ -901,6 +942,15 @@ class SeaScene(
 
         /** How much paler surf too far off to draw makes the water. */
         const val FAR_SURF_TINT = 0.18
+
+        /** Flood water over land: brown and hardly see-through. */
+        const val MUD_R = 0.36; const val MUD_G = 0.32; const val MUD_B = 0.24
+        const val MUD_ALPHA = 0.85
+
+
+        /** How muddy a breaking bore's water is, 0..1, and for how long behind it, in seconds. */
+        const val BORE_SILT = 0.5
+        const val SILT_SECONDS = 240.0
 
         /** Foam patches per metre, as the grain its speckle is hashed on. */
         const val FOAM_GRAIN = 0.35
