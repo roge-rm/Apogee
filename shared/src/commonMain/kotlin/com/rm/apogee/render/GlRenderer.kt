@@ -203,7 +203,6 @@ class GlRenderer(
         val l = o.length.coerceAtLeast(1.0)
         shader.setVec3("uUp", (o.x / l).toFloat(), (o.y / l).toFloat(), (o.z / l).toFloat())
         shader.setVec3("uFrothOrigin", froth(o.x), froth(o.y), froth(o.z))
-        shader.setFloat("uTsunamiPeriod", sea.tsunamiPeriod.toFloat())
     }
 
     /** [x] metres modulo the froth's 4096 m repeat (see Shaders.SEA_FRAGMENT). */
@@ -277,6 +276,10 @@ class GlRenderer(
     private val shadowMatcher = ItemMatcher()
     private val cloudTexture = IntArray(1)
     private var cloudRevision = -1
+
+    /** A tsunami's flood grid on unit 4 for the ground's vertices, and the one last uploaded. */
+    private val floodTexture = IntArray(1)
+    private var floodUploaded: TsunamiFlood? = null
 
     /**
      * 1 by 1 stand-ins for the shadow maps and cloud shadow, bound while they're off: a shadow
@@ -814,8 +817,11 @@ class GlRenderer(
 
     /** A tsunami's sea round the camera for the flat water past the waves, or none. See [TsunamiField]. */
     private fun applyTsunami(shader: ShaderProgram, field: TsunamiField?, r: Double, cameraPos: Vec3, time: Double) {
+        shader.setInt("uTsunamiFlood", 4)
+        applyFlood(shader, field?.flood, r, cameraPos)
         if (field == null) {
             shader.setVec3("uTsunamiGrid", 1f, 0f, 0f)
+            shader.setVec4("uTsunamiWave2", 0f, 0f, 0f, 0f)
             return
         }
         // At the datum under its centre, camera-relative.
@@ -826,9 +832,49 @@ class GlRenderer(
         interpolatedBodyRotation.rotate(field.north, tsunamiScratch)
         shader.setVec3("uTsunamiNorth", tsunamiScratch.x.toFloat(), tsunamiScratch.y.toFloat(), tsunamiScratch.z.toFloat())
         shader.setVec4Array("uTsunami", field.values, TsunamiField.VEC4S)
-        shader.setVec4Array("uTsunamiTau", field.tau, TsunamiField.VEC4S)
+        shader.setVec4Array("uTsunamiFirst", field.first, TsunamiField.VEC4S)
+        shader.setVec4Array("uTsunamiSecond", field.second, TsunamiField.VEC4S)
         shader.setVec4("uTsunamiWave", field.period.toFloat(), (time - field.time).toFloat(), field.coastCap.toFloat(), field.shoalScale.toFloat())
+        shader.setVec4("uTsunamiWave2", field.period2.toFloat(), field.coastCap2.toFloat(), 0f, 0f)
         shader.setVec3("uTsunamiGrid", field.spacing.toFloat(), 1f, 0f)
+    }
+
+    /** A tsunami's flood over low land past the waves, or none, on unit 4. See [TsunamiFlood]. */
+    private fun applyFlood(shader: ShaderProgram, flood: TsunamiFlood?, r: Double, cameraPos: Vec3) {
+        if (flood == null) {
+            shader.setVec4("uFloodGrid", 1f, 0f, 0f, 1f)
+            return
+        }
+        if (flood !== floodUploaded) {
+            if (floodTexture[0] == 0) {
+                GLES30.glGenTextures(1, floodTexture, 0)
+                GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, floodTexture[0])
+                GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_NEAREST)
+                GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_NEAREST)
+                GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_S, GLES30.GL_CLAMP_TO_EDGE)
+                GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_CLAMP_TO_EDGE)
+            }
+            GLES30.glActiveTexture(GLES30.GL_TEXTURE4)
+            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, floodTexture[0])
+            val buffer = GlData(flood.texels.size)
+            buffer.putBytes(flood.texels)
+            GLES30.glPixelStorei(GLES30.GL_UNPACK_ALIGNMENT, 1)
+            GLES30.glTexImage2D(
+                GLES30.GL_TEXTURE_2D, 0, GLES30.GL_RG8, TsunamiFlood.SIDE, TsunamiFlood.SIDE, 0,
+                GLES30.GL_RG, GLES30.GL_UNSIGNED_BYTE, buffer,
+            )
+            GLES30.glPixelStorei(GLES30.GL_UNPACK_ALIGNMENT, 4)
+            GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
+            floodUploaded = flood
+        }
+        interpolatedBodyRotation.rotate(flood.centre, tsunamiScratch)
+        shader.setVec3("uFloodCentre", (tsunamiScratch.x * r - cameraPos.x).toFloat(), (tsunamiScratch.y * r - cameraPos.y).toFloat(), (tsunamiScratch.z * r - cameraPos.z).toFloat())
+        interpolatedBodyRotation.rotate(flood.east, tsunamiScratch)
+        shader.setVec3("uFloodEast", tsunamiScratch.x.toFloat(), tsunamiScratch.y.toFloat(), tsunamiScratch.z.toFloat())
+        interpolatedBodyRotation.rotate(flood.north, tsunamiScratch)
+        shader.setVec3("uFloodNorth", tsunamiScratch.x.toFloat(), tsunamiScratch.y.toFloat(), tsunamiScratch.z.toFloat())
+        // The camera's height over the datum, worked out in double so the ground's height can be.
+        shader.setVec4("uFloodGrid", flood.spacing.toFloat(), 1f, (cameraPos.length - r).toFloat(), r.toFloat())
     }
 
     /** Whether this frame's far pass set up the lines to be drawn at its end. */
@@ -1406,7 +1452,7 @@ class GlRenderer(
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
     }
 
-    /** Makes [standIns] and binds them to units 1, 2 and 3. */
+    /** Makes [standIns] and binds them to units 1, 2, 3 and 4. */
     private fun makeStandIns() {
         GLES30.glGenTextures(2, standIns, 0)
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, standIns[0])
@@ -1424,7 +1470,7 @@ class GlRenderer(
         GLES30.glPixelStorei(GLES30.GL_UNPACK_ALIGNMENT, 4)
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_NEAREST)
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_NEAREST)
-        for ((unit, texture) in listOf(GLES30.GL_TEXTURE1 to standIns[0], GLES30.GL_TEXTURE2 to standIns[0], GLES30.GL_TEXTURE3 to standIns[1])) {
+        for ((unit, texture) in listOf(GLES30.GL_TEXTURE1 to standIns[0], GLES30.GL_TEXTURE2 to standIns[0], GLES30.GL_TEXTURE3 to standIns[1], GLES30.GL_TEXTURE4 to standIns[1])) {
             GLES30.glActiveTexture(unit)
             GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, texture)
         }
@@ -1807,6 +1853,9 @@ class GlRenderer(
         if (cloudTexture[0] != 0) GLES30.glDeleteTextures(1, cloudTexture, 0)
         cloudTexture[0] = 0
         cloudRevision = -1
+        if (floodTexture[0] != 0) GLES30.glDeleteTextures(1, floodTexture, 0)
+        floodTexture[0] = 0
+        floodUploaded = null
         if (standIns[0] != 0) GLES30.glDeleteTextures(2, standIns, 0)
         standIns.fill(0)
     }

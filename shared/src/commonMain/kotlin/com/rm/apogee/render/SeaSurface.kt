@@ -13,7 +13,7 @@ class SeaSurface(
     val origin: Vec3,
     /**
      * [STRIDE] floats per vertex: position from [origin] (body-fixed), colour, rise rate, and a
-     * tsunami's seconds since its crest and whiteness (Tsunamis.crest), for its foam.
+     * tsunami's seconds since its crest (Tsunamis.crest) and its whiteness packed with its period (SeaScene.packTsunami), for its foam.
      */
     val vertices: FloatArray,
     val vertexCount: Int,
@@ -24,8 +24,6 @@ class SeaSurface(
     val time: Double,
     /** Where [vertices] goes back for reuse once a newer surface replaces it on the GPU, or null. */
     val giveBack: ((FloatArray) -> Unit)? = null,
-    /** Seconds between a tsunami's crests, for its foam, or 0 for none. */
-    val tsunamiPeriod: Double = 0.0,
 ) {
     /** 0 while no one has it, 1 once the GPU has taken it, 2 once handed back without being drawn. */
     private var held = 0

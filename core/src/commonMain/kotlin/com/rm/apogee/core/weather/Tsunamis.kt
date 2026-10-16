@@ -94,8 +94,8 @@ internal class Tsunamis(
     }
     private val live = arrayOfNulls<Event>(BACK + 1)
 
-    /** A quake placed by a test in place of the hashed ones. */
-    private var forced: Event? = null
+    /** Quakes placed by a test in place of the hashed ones. */
+    private val forced = ArrayList<Event>()
 
     private val e = Vec3()
     private val n = Vec3()
@@ -210,29 +210,31 @@ internal class Tsunamis(
         ev.exists = true
         ev.start = cycle * CYCLE - phase + hh(403) * CYCLE
         ev.strength = size * (STRENGTH_LEAST + (1.0 - STRENGTH_LEAST) * hh(404))
-        ev.period = PERIOD_SHORTEST + (PERIOD_LONGEST - PERIOD_SHORTEST) * hh(405)
+        // Whole seconds, so the sea's vertices can carry it packed with the whiteness.
+        ev.period = kotlin.math.round(PERIOD_SHORTEST + (PERIOD_LONGEST - PERIOD_SHORTEST) * hh(405))
         ev.shy = SITE_SHY * hh(406)
         // Its arrival times, ahead of time on a worker where there is one, so nothing waits on them.
         Grid.warm(t, bodyRadius, ev.origin.copy(), g)
     }
 
-    /** The quakes that may still be moving the sea at [time], into [live]; returns how many. */
-    private fun liveAt(time: Double): Int {
-        val f = forced
-        if (f != null) {
-            live[0] = f
-            return 1
+    /**
+     * The quakes that may still be moving the sea at any time from [time] to [until], into
+     * [live]; returns how many.
+     */
+    private fun liveAt(time: Double, until: Double = time): Int {
+        if (forced.isNotEmpty()) {
+            for (k in forced.indices) live[k] = forced[k]
+            return forced.size
         }
         if (!active) return 0
-        val newest = floor((time + phase) / CYCLE).toLong()
+        val newest = floor((until + phase) / CYCLE).toLong()
         // The next one's made a cycle early, so its arrival times are ready when it comes.
         event(newest + 1)
         var count = 0
         for (c in newest downTo newest - BACK) {
             val ev = event(c)
             if (!ev.exists) continue
-            val age = time - ev.start
-            if (age <= 0.0 || age >= LIFE) continue
+            if (until - ev.start <= 0.0 || time - ev.start >= LIFE) continue
             live[count++] = ev
         }
         return count
@@ -324,17 +326,29 @@ internal class Tsunamis(
                 }
                 tau -= shoalDelay(0.0) + coastOut[0] / BORE_LAND_SPEED
                 if (tau >= TRAIN) continue
-                // Drawn as white as deep as its crest would flood it.
+                // Drawn as white as deep as this cycle's crest floods it, the foam starting where
+                // the water reaches this ground part way up the rise (-cos over it, see [wave]).
                 val crestTop = coastSize * (1.0 - coastOut[0] / min(INLAND_MAX, INLAND_PER_METRE * coastSize))
-                drawn(tau, ev.period, 1.0, 1e6, if (crestTop > coastOut[1]) smooth(0.1, 0.8, crestTop - bed) else 0.0, coastSize)
+                val floods = crestTop > coastOut[1]
+                val crestRise = min(BORE_RISE / ev.period, 0.5)
+                val behind = sinceCrest(tau - (0.5 + 0.5 * crestRise) * ev.period, ev.period)
+                val top = crestTop * envelopeAt(tau - behind)
+                val lead = if (floods && top > bed) {
+                    val r = bed / top
+                    BORE_RISE * StrictMath.atan2(sqrt(max(0.0, 1.0 - r * r)), -r) / kotlin.math.PI
+                } else BORE_RISE
+                drawn(tau, ev.period, 1.0, 1e6, if (floods) smooth(0.1, 0.8, top - bed) else 0.0, coastSize, lead)
                 if (tau <= 0.0) continue
+                // The foam goes by the same start, so the model's and the drawn agree.
+                wave(tau - lead, ev.period, 1.0, blur / BORE_LAND_SPEED)
+                val landFoam = waveFoam
                 wave(tau, ev.period, 1.0, blur / BORE_LAND_SPEED)
-                val top = coastSize * max(waveF, 0.0)
-                if (top <= bed) continue
+                val high = coastSize * max(waveF, 0.0)
+                if (high <= bed) continue
                 val reach = min(INLAND_MAX, INLAND_PER_METRE * coastSize)
-                val level = top * (1.0 - coastOut[0] / reach)
+                val level = high * (1.0 - coastOut[0] / reach)
                 if (level <= bed || level <= coastOut[1]) continue
-                foamOut = max(foamOut, waveFoam * smooth(0.1, 0.8, level - bed))
+                foamOut = max(foamOut, landFoam * smooth(0.1, 0.8, level - bed))
                 if (level > land) {
                     land = level
                     // In while it rises, back out while it drains, easing through nothing at the
@@ -372,23 +386,40 @@ internal class Tsunamis(
     private var periodOut = 0.0
     private var drawnSize = 0.0
 
+    private var drawnShowing = 0
+
+    /** The wave train's envelope [tau] seconds after it arrives, as [wave] has it. */
+    private fun envelopeAt(tau: Double): Double = DetMath.exp(-max(tau, 0.0) / DECAY) * (1.0 - smooth(0.8 * TRAIN, TRAIN, tau))
+
     /**
      * Keeps [crest], [whiteness] and [period] for a wave [tau] seconds past its arrival, [steep]
-     * toward a bore, [a] metres high, as white as [share], if it's bigger here ([size] metres
-     * high) than the one kept. Picked by size, not whiteness, so neighbours pick the same one.
+     * toward a bore, [a] metres high, as white as [share], its foam [lead] seconds later than the
+     * crest has it. Where more than one arrives, one whose bore and lines show here
+     * ([FOAM_AHEAD] before its crest to [BORE_TRAIL] after) wins over one only paler behind
+     * (to [FOAM_BEHIND]), which wins over one with none, then the bigger here ([size] metres
+     * high): so the point changes hands only where the foam it had has gone or faded, and
+     * neighbours pick the same one.
      */
-    private fun drawn(tau: Double, period: Double, steep: Double, a: Double, share: Double, size: Double) {
+    private fun drawn(tau: Double, period: Double, steep: Double, a: Double, share: Double, size: Double, lead: Double = 0.0) {
         if (tau >= TRAIN) return
-        val envelope = DetMath.exp(-max(tau, 0.0) / DECAY) * (1.0 - smooth(0.8 * TRAIN, TRAIN, tau))
-        if (periodOut != 0.0 && size * envelope <= drawnSize) return
-        drawnSize = size * envelope
+        val envelope = envelopeAt(tau)
         val strength = smooth(BORE_LEAST, BORE_LEAST * 3.0, a * envelope) * share
         val bore = smooth(0.6, 0.9, steep)
         val gentle = if (steep < 0.15) CREST_WHITE * (1.0 - smooth(0.0, 0.15, steep)) else 0.0
         val white = (bore - gentle) * strength
         // Where wave() puts the crest: the rise squeezed toward [BORE_RISE] seconds as it steepens.
         val rise = 0.5 + (min(BORE_RISE / period, 0.5) - 0.5) * steep
-        crestOut = tau - (0.5 + 0.5 * rise) * period
+        val crest = tau - (0.5 + 0.5 * rise) * period - lead
+        val since = sinceCrest(crest, period)
+        val showing = if (kotlin.math.abs(white) < 0.01 || since <= -FOAM_AHEAD || since >= FOAM_BEHIND) 0
+            else if (since < BORE_TRAIL) 2 else 1
+        if (periodOut != 0.0) {
+            if (showing < drawnShowing) return
+            if (showing == drawnShowing && size * envelope <= drawnSize) return
+        }
+        drawnSize = size * envelope
+        drawnShowing = showing
+        crestOut = crest
         whiteOut = white
         periodOut = period
     }
@@ -435,6 +466,60 @@ internal class Tsunamis(
             return true
         }
         return false
+    }
+
+    /** Whether any tsunami may flood land within [FLOOD_LOOK] seconds of [time]. Quick. */
+    fun floodSoon(time: Double): Boolean = liveAt(time, time + FLOOD_LOOK) > 0
+
+    /**
+     * Seconds from [time] until a tsunami's crest next floods low land at unit [up], [bed] metres
+     * up, at least [depth] deep: 0 while a crest that does is in (from its rise to a quarter
+     * period after), [NEVER] where none will. From the quakes live within [FLOOD_LOOK] seconds, by
+     * each crest's height as [height] has it, so for warning ahead, not for the water itself.
+     */
+    fun floodIn(up: Vec3, time: Double, bed: Double, depth: Double): Double {
+        if (bed <= 0.0 || bed > COAST_CAP + 1.0) return NEVER
+        val count = liveAt(time, time + FLOOD_LOOK)
+        if (count == 0) return NEVER
+        var soonest = NEVER
+        var coastRead = false
+        for (q in 0 until count) {
+            val ev = live[q]!!
+            val age = time - ev.start
+            val dot = up dot ev.origin
+            val soon = age + FLOOD_LOOK
+            if (dot < 1.0 && (1.0 - dot) * 2.0 * bodyRadius * bodyRadius > (soon * FASTEST) * (soon * FASTEST)) continue
+            val solution = solution(ev)
+            val bin = Grid.binOf(dot)
+            if (soon <= solution.earliest[bin] || age >= solution.latest[bin] + TRAIN) continue
+            val at = Grid.of(terrain!!, bodyRadius).at(solution.arrival, up, located)
+            if (at >= NEVER) continue
+            if (!coastRead) {
+                coast!!.sample(up, 0.0, coastOut)
+                coastRead = true
+            }
+            val tau = age - at - shoalDelay(0.0) - coastOut[0] / BORE_LAND_SPEED
+            if (tau >= TRAIN) continue
+            cross.setTo(ev.origin).crossInPlace(up)
+            val sine = cross.length
+            val distance = StrictMath.atan2(sine, dot) * bodyRadius
+            var deep = DEEP * ev.strength * sqrt(SPREAD_FROM / max(SPREAD_FROM, sine * bodyRadius)) * DetMath.exp(-distance / FADE)
+            if (sites.isNotEmpty()) deep *= 1.0 - ev.shy * nearSite(up)
+            val coastSize = min(COAST_CAP * ev.strength, deep * green(SHALLOWEST))
+            val crestTop = coastSize * (1.0 - coastOut[0] / min(INLAND_MAX, INLAND_PER_METRE * coastSize))
+            if (crestTop <= coastOut[1]) continue
+            val firstCrest = (0.5 + 0.5 * min(BORE_RISE / ev.period, 0.5)) * ev.period
+            var k = 0
+            while (true) {
+                val crest = firstCrest + k * ev.period
+                // Each crest lower than the last: once one doesn't flood it, none after does.
+                if (crest >= TRAIN || crestTop * envelopeAt(crest) < bed + depth) break
+                if (tau < crest - BORE_RISE) { soonest = min(soonest, crest - BORE_RISE - tau); break }
+                if (tau <= crest + 0.25 * ev.period) return 0.0
+                k++
+            }
+        }
+        return soonest
     }
 
     /** The flow [height] last found, along the ground, body-fixed, in m/s, into [out]. */
@@ -603,10 +688,15 @@ internal class Tsunamis(
         }
     }
 
-    /** For tests: one quake at unit [origin] at [start], in place of all the hashed ones. */
-    internal fun force(origin: Vec3, start: Double, strength: Double = 1.0, period: Double = 900.0) {
-        forced = Event().also {
-            it.cycle = -1L; it.exists = true; it.start = start; it.origin.setTo(origin).normalizeInPlace()
+    /**
+     * For tests: one quake at unit [origin] at [start], in place of all the hashed ones, or with
+     * [also] one more beside those already placed (up to 4).
+     */
+    internal fun force(origin: Vec3, start: Double, strength: Double = 1.0, period: Double = 900.0, also: Boolean = false) {
+        if (!also) forced.clear()
+        check(forced.size < live.size)
+        forced += Event().also {
+            it.cycle = -1L - forced.size; it.exists = true; it.start = start; it.origin.setTo(origin).normalizeInPlace()
             it.strength = strength; it.period = period
         }
     }
@@ -959,6 +1049,23 @@ internal class Tsunamis(
         /** Seconds of a gentle crest's front that are white, and how white, 0..1. */
         const val CREST_LINE = 8.0
         const val CREST_WHITE = 0.8
+
+        /** Seconds before a crest its foam may show from (blur included) and after it to when it's gone. */
+        const val FOAM_AHEAD = 30.0
+        const val FOAM_BEHIND = 240.0
+
+        /**
+         * A [crest] time as seconds since the wave's own crest nearest behind, from -([period] -
+         * 250) up to 250, so the foam behind a crest stays with it.
+         */
+        fun sinceCrest(crest: Double, period: Double): Double {
+            if (period <= 0.0) return crest
+            val k = floor((crest + period - FOAM_BEHIND - 10.0) / period)
+            return if (k > 0.0) crest - k * period else crest
+        }
+
+        /** How far ahead [floodIn] looks for quakes still to come, in seconds. */
+        const val FLOOD_LOOK = 900.0
 
         /** [crest] where no tsunami has arrived: long before any crest. */
         const val NO_CREST = Weather.TSUNAMI_NO_CREST

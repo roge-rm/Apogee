@@ -237,9 +237,10 @@ class TsunamiSceneTest {
 
         /**
          * Draws the ground and sea round body-fixed [camera] at [time], looking along [rotation],
-         * with [items] too, once everything near is built. Writes [name] if given.
+         * with [items] too, once everything near is built. Writes [name] if given. Without
+         * [waves], no near sea, as in flight above its reach.
          */
-        fun shoot(name: String?, camera: Vec3, rotation: Quat, time: Double, items: List<RenderItem> = emptyList(), near: Double = 10.0): Shot {
+        fun shoot(name: String?, camera: Vec3, rotation: Quat, time: Double, items: List<RenderItem> = emptyList(), near: Double = 10.0, waves: Boolean = true): Shot {
             val up = Vec3().setTo(camera).normalizeInPlace()
             val altitude = camera.length - radius - maxOf(field.elevation(up), 0.0)
             val sea = SeaScene(terra, luna, config, tier, scope).also { s ->
@@ -256,7 +257,7 @@ class TsunamiSceneTest {
                 val world = WorldView(
                     radius, terra.atmosphereHeight, terra.atmosphere?.scaleHeight ?: 1.0, sun, Vec3.unitY(), camera.length - radius, Quat.identity(),
                     terra.terrain!!.maxElevation, drawFarSurface = terrain.farSurfaceNeeded, chunkRange = terrain.chunkRange, time = time,
-                    seaReach = if (sea.built) sea.reach else 0.0, tide = if (tf != null) here.tide - here.tsunami else here.tide, sea = sea.latest,
+                    seaReach = if (waves && sea.built) sea.reach else 0.0, tide = if (tf != null) here.tide - here.tsunami else here.tide, sea = if (waves) sea.latest else null,
                     seaRadius = radius + (if (tf != null) here.tide - here.tsunami + tf.shore else here.tide), tsunami = tf,
                 )
                 val drawn = ArrayList(items)
@@ -269,11 +270,12 @@ class TsunamiSceneTest {
                 terrain.collect()
                 terrain.followCraft(terra, camera, altitude, scope)
                 terrain.requestGlobe(terra, scope)
-                sea.update(camera, time)
+                sea.tsunamiField = tsunamis.field
+                if (waves) sea.update(camera, time)
                 bus.clear(); bus.publish(frame())
                 GL30C.glBindFramebuffer(GL30C.GL_FRAMEBUFFER, fbo)
                 renderer.onDrawFrame()
-                if (terrain.patchReady && sea.built) {
+                if (terrain.patchReady && (sea.built || !waves)) {
                     if (readyAt == 0L) readyAt = System.nanoTime()
                     // A few seconds more for the rest of the chunks.
                     if (System.nanoTime() - readyAt > 4_000_000_000L) break
@@ -282,8 +284,9 @@ class TsunamiSceneTest {
             }
             // A few more builds once everything near is prepared, to time one that only retides.
             var most = 0.0
-            repeat(5) {
+            if (waves) repeat(5) {
                 Thread.sleep(150)
+                sea.tsunamiField = tsunamis.field
                 sea.update(camera, time + 0.2 * (it + 1))
                 Thread.sleep(5)
                 val until = System.nanoTime() + 5_000_000_000L
@@ -296,7 +299,7 @@ class TsunamiSceneTest {
             }
             println("${name ?: "shot"}: ${frame().items.size - items.size} spray items; sea build up to %.1f ms, field %.2f ms".format(most, tsunamis.lastFieldMillis))
             assertTrue("ground built", terrain.patchReady)
-            assertTrue("sea built", sea.built)
+            assertTrue("sea built", sea.built || !waves)
             GL30C.glBindFramebuffer(GL30C.GL_FRAMEBUFFER, fbo)
             val data = BufferUtils.createByteBuffer(width * height * 4)
             glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, data)
@@ -465,6 +468,207 @@ class TsunamiSceneTest {
     }
 
 
+    /** Toward the open sea from the berth: the bearing with the deepest water 4 to 16 km out. */
+    private val toward: Vec3 by lazy {
+        (0 until 24).map { k ->
+            val a = 2.0 * Math.PI * k / 24
+            Vec3().setTo(east(berth)).mulInPlace(kotlin.math.cos(a)).addScaledInPlace(north(berth), kotlin.math.sin(a))
+        }.minBy { d -> (4..16).sumOf { km -> maxOf(field.elevation(Vec3().setTo(berth).addScaledInPlace(d, km * 1_000.0 / radius).normalizeInPlace()), -50.0) } }
+    }
+
+    private fun out(metres: Double) = Vec3().setTo(berth).addScaledInPlace(toward, metres / radius).normalizeInPlace()
+
+    /**
+     * The far water's crest (TsunamiField.crest, as the terrain shader has it) picks the same of
+     * two overlapping tsunamis as the waves do and is at the same time over open water; and toward
+     * the waves' edge their crest goes over to it, so the line is the same where the far water
+     * takes over.
+     */
+    @Test fun theFarLineMeetsTheWavesAtTheSeam() {
+        val e = event
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val w = Weather(terra, config)
+            val crest = DoubleArray(TsunamiField.CREST_OUT)
+            val camera = above(out(-3_000.0), 1_500.0)
+            val up0 = Vec3().setTo(camera).normalizeInPlace()
+            var owned = 0; var same = 0
+            val apart = ArrayList<Double>()
+            var seamChecked = 0; var seamWrong = 0
+            for (dt in listOf(0.0, 120.0, 300.0)) {
+                val time = frontAt(out(5_000.0), 0.5) + dt
+                val live = ArrayList<LiveTsunami>(); w.tsunamis(up0, time, 1e6, live)
+                val scene = TsunamiScene(terra, config, QualityTier.MEDIUM, scope)
+                listed(scene, camera, time)
+                val f = scene.field!!
+                assertTrue("two drawn where ${live.size} overlap", live.size < 2 || f.period2 > 0.0)
+                // Inside the waves' reach, against the model.
+                for (dist in listOf(4_000.0, 7_200.0)) for (k in 0 until 360) {
+                    val a = 2.0 * Math.PI * k / 360
+                    val p = offset(up0, dist * kotlin.math.cos(a), dist * kotlin.math.sin(a))
+                    val bed = field.elevation(p)
+                    if (bed >= 0.0 || !f.crest(p, -bed, time, crest)) continue
+                    w.tsunamiHeight(p, time, bed, blur = dist / 16.0)
+                    if (kotlin.math.abs(w.tsunamiWhiteness()) < 0.01) continue
+                    owned++
+                    if (crest[2] != w.tsunamiPeriod()) continue
+                    same++
+                    if (-bed > 6.0) apart += kotlin.math.abs(crest[0] - w.tsunamiCrest())
+                }
+                // The waves at their edge, against the far water.
+                val sea = SeaScene(terra, luna, config, QualityTier.MEDIUM, scope).also { s ->
+                    s.javaClass.getDeclaredField("outerBudgetNanos").also { it.isAccessible = true }.setLong(s, Long.MAX_VALUE / 4)
+                }
+                sea.tsunamiField = f
+                val until = System.nanoTime() + 60_000_000_000L
+                while (!sea.built && System.nanoTime() < until) { sea.update(camera, time); Thread.sleep(20) }
+                Thread.sleep(150)
+                sea.update(camera, time)
+                val building = sea.javaClass.getDeclaredField("building").also { it.isAccessible = true }
+                while (building.getBoolean(sea) && System.nanoTime() < until) Thread.sleep(5)
+                val surface = sea.latest!!
+                val d = Vec3()
+                for (v in 0 until surface.vertexCount) {
+                    val o = v * SeaSurface.STRIDE
+                    d.setTo(surface.origin).addInPlace(Vec3(surface.vertices[o].toDouble(), surface.vertices[o + 1].toDouble(), surface.vertices[o + 2].toDouble())).normalizeInPlace()
+                    val away = d.distanceTo(up0) * radius
+                    if (away < 0.85 * sea.reach || away > sea.reach) continue
+                    val bed = field.elevation(d)
+                    if (bed > -40.0 || !f.crest(d, -bed, surface.time, crest)) continue
+                    val packed = surface.vertices[o + 9]
+                    val white = packed - 4f * kotlin.math.floor((packed + 2f) * 0.25f)
+                    if (kotlin.math.abs(white) < 0.01 && kotlin.math.abs(crest[1]) < 0.01) continue
+                    // Off the coast's steep change in time: vertices the grids morph or the
+                    // coast cells mix take their neighbours' times, as the far water does.
+                    val there = crest[0]
+                    fun at(x: Double, y: Double): Double {
+                        val q = offset(d, x, y)
+                        val qb = field.elevation(q)
+                        return if (qb < -6.0 && f.crest(q, -qb, surface.time, crest)) crest[0] else Double.NaN
+                    }
+                    // Times along a line, where a morphed or mixed vertex's lands near its own.
+                    val smooth = kotlin.math.abs(at(400.0, 0.0) + at(-400.0, 0.0) - 2.0 * there) < 4.0 &&
+                        kotlin.math.abs(at(0.0, 400.0) + at(0.0, -400.0) - 2.0 * there) < 4.0
+                    if (!smooth) continue
+                    seamChecked++
+                    if (kotlin.math.abs(surface.vertices[o + 8] - there) > 2.0) seamWrong++
+                }
+            }
+            apart.sort()
+            val p50 = apart[apart.size / 2]; val p90 = apart[apart.size * 9 / 10]
+            println("far crest: same tsunami as the waves at $same of $owned, over 6 m deep %.1f s apart (median), %.1f s (90%%) of ${apart.size}; at the seam $seamWrong of $seamChecked off".format(p50, p90))
+            assertTrue("the same tsunami: $same of $owned", same >= owned * 0.9)
+            assertTrue("at the same time: $p50", p50 < 2.0)
+            assertTrue("at the seam: $seamWrong of $seamChecked", seamChecked > 15 && seamWrong <= seamChecked / 10)
+        } finally { scope.cancel() }
+    }
+
+    /**
+     * Low land a tsunami floods further out than the waves reach: the flood grid has the model's
+     * level, and the ground there is drawn at the water's height.
+     */
+    @Test fun farFloodedLandIsDrawnAsWater() {
+        TestGl.current()
+        val e = event
+        val (flooded, _) = places
+        val time = frontAt(flooded) + 240.0
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        // 15 km off, inland, so the flood is past the waves (12 km on MEDIUM), and high, to look
+        // down on it.
+        val inland = (0 until 16).map { k ->
+            val a = 2.0 * Math.PI * k / 16
+            offset(flooded, 15_000.0 * kotlin.math.cos(a), 15_000.0 * kotlin.math.sin(a))
+        }.maxBy { field.elevation(it) }
+        val camera = Vec3().setTo(inland).mulInPlace(radius + maxOf(field.elevation(inland), 0.0) + 8_000.0)
+        try {
+            val scene = TsunamiScene(terra, config, QualityTier.MEDIUM, scope)
+            listed(scene, camera, time)
+            val flood = scene.field?.flood
+            assertNotNull("a flood grid", flood)
+            val w = Weather(terra, config)
+            var wet = 0; var off = 0
+            for (j in 0 until TsunamiFlood.SIDE) for (i in 0 until TsunamiFlood.SIDE) {
+                val level = flood!!.level(i, j)
+                if (level <= 0.0) continue
+                wet++
+                val m = (TsunamiFlood.SIDE - 1) * 0.5
+                val p = Vec3().setTo(flood.centre).addScaledInPlace(flood.east, (i - m) * flood.spacing / radius).addScaledInPlace(flood.north, (j - m) * flood.spacing / radius).normalizeInPlace()
+                if (kotlin.math.abs(w.tsunamiHeight(p, time, field.elevation(p)) - level) > 0.01) off++
+            }
+            println("far-flood grid: $wet flooded points, $off off the model")
+            assertTrue("flooded points: $wet", wet > 10)
+            assertEquals(0, off)
+        } finally { scope.cancel() }
+        Harness(QualityTier.MEDIUM).use { h ->
+            val shot = h.shoot("far-flood", camera, look(camera, Vec3().setTo(flooded).mulInPlace(radius), flooded), time, near = 100.0)
+            val w = Weather(terra, config)
+            var lifted = 0
+            val apart = ArrayList<Double>()
+            for (y in 1 until height step 2) for (x in 1 until width step 2) {
+                val p = shot.point(x, y) ?: continue
+                // Past the waves, near enough for the ground's detail to follow the flood.
+                val away = p.distanceTo(camera)
+                if (away < 12_500.0 || away > 30_000.0) continue
+                val drawn = p.length - radius
+                // Through the sea to its bed.
+                if (drawn < -2.0) continue
+                val up = Vec3().setTo(p).normalizeInPlace()
+                val bed = field.elevation(up)
+                if (bed < 0.3) continue
+                val level = w.tsunamiHeight(up, time, bed)
+                // Well inside the flood, off its edge.
+                if (level - bed < 1.0) continue
+                apart += kotlin.math.abs(drawn - level)
+                if (drawn > bed + 0.3) lifted++
+            }
+            apart.sort()
+            val median = apart.getOrElse(apart.size / 2) { 99.0 }
+            // Ground triangles hundreds of metres across span the flood's edges, so only most
+            // are lifted, and the water's level varies between the points the grid has.
+            println("far-flood: $lifted of ${apart.size} flooded points drawn over the ground, %.2f m from the water (median)".format(median))
+            assertTrue("far flooded land seen: ${apart.size}", apart.size > 10)
+            assertTrue("drawn over the ground: $lifted of ${apart.size}", lifted >= apart.size * 3 / 4)
+            assertTrue("drawn at the water: $median", median < 1.0)
+        }
+    }
+
+    /**
+     * From 30 km above a flooded coast, over the waves' reach so they aren't drawn, the flood grid
+     * holds the land straight below too, as the model floods it.
+     */
+    @Test fun floodGridCoversTheLandBelowFromHighUp() {
+        val e = event
+        val (flooded, _) = places
+        val time = frontAt(flooded) + 240.0
+        val camera = Vec3().setTo(flooded).mulInPlace(radius + 30_000.0)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val scene = TsunamiScene(terra, config, QualityTier.MEDIUM, scope)
+            listed(scene, camera, time)
+            val flood = scene.field?.flood
+            assertNotNull("a flood grid", flood)
+            val w = Weather(terra, config)
+            var wet = 0; var near = 0; var off = 0
+            val m = (TsunamiFlood.SIDE - 1) * 0.5
+            for (j in 0 until TsunamiFlood.SIDE) for (i in 0 until TsunamiFlood.SIDE) {
+                val x = (i - m) * flood!!.spacing; val y = (j - m) * flood.spacing
+                // Within the waves' reach, under the camera.
+                if (x * x + y * y > 12_000.0 * 12_000.0) continue
+                val p = Vec3().setTo(flood.centre).addScaledInPlace(flood.east, x / radius).addScaledInPlace(flood.north, y / radius).normalizeInPlace()
+                val bed = field.elevation(p)
+                if (bed <= 0.0) continue
+                val level = w.tsunamiHeight(p, time, bed)
+                if (level - bed < 0.2) continue
+                wet++
+                if (x * x + y * y < 6_000.0 * 6_000.0) near++
+                if (kotlin.math.abs(flood.level(i, j) - level) > 0.01) off++
+            }
+            println("flood grid below: $wet flooded points, $near within 6 km, $off off the model")
+            assertTrue("flooded points below: $wet, $near within 6 km", wet > 3 && near > 0)
+            assertEquals(0, off)
+        } finally { scope.cancel() }
+    }
+
     /** Pictures for a look by eye, written only with a display. */
     @Test fun pictures() {
         TestGl.current()
@@ -481,12 +685,6 @@ class TsunamiSceneTest {
                 h.shoot("drawback-before", camera, look(camera, target, from), e.tsunami.start)
             }
             // The crest coming in from where the quake was, seen from the shore and from higher up.
-            // Toward the open sea: the bearing with the deepest water 4 to 16 km out.
-            val toward = (0 until 24).map { k ->
-                val a = 2.0 * Math.PI * k / 24
-                Vec3().setTo(east(berth)).mulInPlace(kotlin.math.cos(a)).addScaledInPlace(north(berth), kotlin.math.sin(a))
-            }.minBy { d -> (4..16).sumOf { km -> maxOf(field.elevation(Vec3().setTo(berth).addScaledInPlace(d, km * 1_000.0 / radius).normalizeInPlace()), -50.0) } }
-            fun out(metres: Double) = Vec3().setTo(berth).addScaledInPlace(toward, metres / radius).normalizeInPlace()
             run {
                 // On a beach with a shelf off it, the bore coming in over the shelf.
                 val (sand, way) = beach
@@ -511,6 +709,19 @@ class TsunamiSceneTest {
             run {
                 val camera = above(out(-1_000.0), 3_500.0)
                 h.shoot("crest-from-air", camera, look(camera, Vec3().setTo(out(7_000.0)).mulInPlace(radius), berth), frontAt(out(7_000.0), 0.5))
+            }
+            // Two overlapping: the second's front running in behind the first's, from the air.
+            run {
+                val live = ArrayList<LiveTsunami>()
+                Weather(terra, config).tsunamis(berth, e.crest, 1e9, live)
+                val other = live.filter { it.id != e.tsunami.id && !it.arrivesHere.isNaN() && it.arrivesHere < 1e29 }
+                    .minByOrNull { kotlin.math.abs(it.arrivesHere - e.arrives) }
+                if (other != null) {
+                    val time = other.arrivesHere + 0.5 * other.period
+                    println("overlap: ${e.tsunami.id} arrives %.0f s, ${other.id} %.0f s, picture at %.0f s".format(e.arrives, other.arrivesHere, time))
+                    val camera = above(out(-2_000.0), 2_500.0)
+                    h.shoot("overlap", camera, look(camera, Vec3().setTo(out(5_000.0)).mulInPlace(radius), berth), time)
+                }
             }
             // A boat carried in on the flood, the bore running on inland past it.
             run {

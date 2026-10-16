@@ -17,6 +17,13 @@ import com.rm.apogee.core.math.Math
 import kotlin.concurrent.Volatile
 import com.rm.apogee.platform.synchronized
 
+/** How far around the camera the waves are drawn at [tier], in metres. */
+internal fun seaReachFor(tier: QualityTier): Double = when (tier) {
+    QualityTier.LOW -> 6_000.0
+    QualityTier.MEDIUM -> 12_000.0
+    QualityTier.HIGH -> 20_000.0
+}
+
 /**
  * The sea to draw round the camera, sampled on a worker from the same [Sea] the physics floats
  * boats on.
@@ -51,11 +58,7 @@ class SeaScene(
     private val methane = (body.ocean?.density ?: 1_025.0) < 800.0
 
     /** How far around the camera the waves are drawn, in metres. */
-    val reach: Double = when (tier) {
-        QualityTier.LOW -> 6_000.0
-        QualityTier.MEDIUM -> 12_000.0
-        QualityTier.HIGH -> 20_000.0
-    }
+    val reach: Double = seaReachFor(tier)
 
     /**
      * Cells along each side of a grid. A multiple of four, so each grid sits on the next's lines.
@@ -77,6 +80,15 @@ class SeaScene(
      * every build, not every few seconds, so flood water stands where boats float.
      */
     @kotlin.concurrent.Volatile private var retiding = false
+
+    /**
+     * Tsunamis' sea round the camera as the far water draws it, or null. Out toward the edge the
+     * waves' crests go over to its, so the lines meet where the far water takes over.
+     */
+    @kotlin.concurrent.Volatile var tsunamiField: com.rm.apogee.render.TsunamiField? = null
+
+    /** [tsunamiField] as this build took it. */
+    @kotlin.concurrent.Volatile private var buildField: com.rm.apogee.render.TsunamiField? = null
 
     /** The finest grid's spacing, in metres. */
     private val finest = if (tier == QualityTier.LOW) 1.0 else 0.5
@@ -194,12 +206,9 @@ class SeaScene(
     /** One worker's share of a build: its own sea and scratch space. */
     private inner class Builder(val sea: Sea) {
         val sample = SeaSample()
+        private val farCrest = DoubleArray(com.rm.apogee.render.TsunamiField.CREST_OUT)
         val direction = Vec3()
         val morphTarget = FloatArray(SeaSurface.STRIDE)
-
-        /** The seconds between crests of the whitest tsunami this build has met, and how white. */
-        var period = 0.0
-        var periodWhite = 0.0
 
         /**
          * Lattice point ([gi], [gj]) of grid [level] into vertex [index] of [out]. Past [deadline]
@@ -293,11 +302,24 @@ class SeaScene(
             out[o + 2] = (direction.z * radius - origin.z).toFloat()
             colour(sample, direction, out, o + 3, shown)
             out[o + 7] = sample.rise.toFloat()
-            out[o + 8] = sample.tsunamiCrest.toFloat()
-            out[o + 9] = if (methane) 0f else sample.tsunamiWhiteness.toFloat()
-            if (kotlin.math.abs(sample.tsunamiWhiteness) > periodWhite) {
-                periodWhite = kotlin.math.abs(sample.tsunamiWhiteness); period = sample.tsunamiPeriod
+            var crest = sample.tsunamiCrest
+            var white = sample.tsunamiWhiteness
+            var period = sample.tsunamiPeriod
+            val field = buildField
+            val share = if (field == null) 0.0 else smooth(reach * FAR_CREST_FROM, reach * FAR_CREST_TO, direction.distanceTo(filterUp) * body.radius)
+            if (share > 0.0 && field!!.crest(direction, kotlin.math.max(sample.depth - sample.tide, 0.0), time, farCrest)) {
+                // Toward the edge, the far water's crest (TsunamiField.crest), mixed only between
+                // times of the same tsunami.
+                val fc = farCrest[0]; val fw = farCrest[1]; val fp = farCrest[2]
+                when {
+                    fp == period -> { crest += (fc - crest) * share; white += (fw - white) * share }
+                    period == 0.0 || white == 0.0 -> { crest = fc; white = fw * share; period = fp }
+                    fp == 0.0 || fw == 0.0 -> white *= 1.0 - share
+                    share >= 0.5 -> { crest = fc; white = fw; period = fp }
+                }
             }
+            out[o + 8] = crest.toFloat()
+            out[o + 9] = if (methane) 0f else packTsunami(white, period)
             depths?.set(index, sample.depth.toFloat())
         }
 
@@ -449,7 +471,7 @@ class SeaScene(
     private val shapeScratch = IntArray(1 + 2 * levels)
 
     /** A surface on [layout]'s grids with no coast. Their triangles are made again only when the shape changes. */
-    private fun gridSurface(layout: Layout, vertices: FloatArray, time: Double, giveBack: ((FloatArray) -> Unit)?, period: Double = 0.0): SeaSurface =
+    private fun gridSurface(layout: Layout, vertices: FloatArray, time: Double, giveBack: ((FloatArray) -> Unit)?): SeaSurface =
         synchronized(this) {
             val n = layout.shape(shapeScratch)
             if (!sameShape(gridShape, gridShapeSize, n)) {
@@ -458,7 +480,7 @@ class SeaScene(
                 gridIndices = layout.indices()
                 gridLayout = ++lastLayout
             }
-            SeaSurface(layout.origin, vertices, layout.count, gridIndices, gridLayout, time, giveBack, period)
+            SeaSurface(layout.origin, vertices, layout.count, gridIndices, gridLayout, time, giveBack)
         }
 
     private fun sameShape(kept: IntArray, keptSize: Int, n: Int): Boolean {
@@ -539,7 +561,7 @@ class SeaScene(
         val cameraUp = centre.copy().normalizeInPlace()
         filterUp.setTo(cameraUp)
         filterFinest = kotlin.math.max(finest, layout.desiredSpacing)
-        for (b in builders) { b.period = 0.0; b.periodWhite = 0.0 }
+        buildField = tsunamiField
         builders[0].let { b ->
             b.sea.prepare(cameraUp, time, spacing(layout.first), Sea.Prepared()).let { p -> b.sea.surface(cameraUp, time, p, b.sample, spacing(layout.first)) }
         }
@@ -597,12 +619,10 @@ class SeaScene(
         }
         val coast = coast(scope, layout, vertices, depths, origin, time)
         lastCoastCount = coast
-        var period = 0.0; var periodWhite = 0.0
-        for (b in builders) if (b.periodWhite > periodWhite) { periodWhite = b.periodWhite; period = b.period }
-        if (coast == 0) return gridSurface(layout, vertices, time, giveBack, period)
+        if (coast == 0) return gridSurface(layout, vertices, time, giveBack)
         return synchronized(this) {
             val indices = coastTriangles(layout, coast)
-            SeaSurface(origin, vertices, layout.count + coast * SUB_SIDE * SUB_SIDE, indices, coastLayout, time, giveBack, period)
+            SeaSurface(origin, vertices, layout.count + coast * SUB_SIDE * SUB_SIDE, indices, coastLayout, time, giveBack)
         }
     }
 
@@ -748,7 +768,16 @@ class SeaScene(
     /** Vertex [into] as [a] blended toward [b] by [t]. */
     private fun mix(vertices: FloatArray, into: Int, a: Int, b: Int, t: Float) {
         val o = into * SeaSurface.STRIDE; val pa = a * SeaSurface.STRIDE; val pb = b * SeaSurface.STRIDE
+        val ya = vertices[pa + 9]; val yb = vertices[pb + 9]
         for (n in 0 until SeaSurface.STRIDE) vertices[o + n] = vertices[pa + n] + (vertices[pb + n] - vertices[pa + n]) * t
+        vertices[o + 9] = mixTsunami(ya, yb, t)
+    }
+
+    private fun morphVertex(vertices: FloatArray, into: Int, target: FloatArray, amount: Float) {
+        val o = into * SeaSurface.STRIDE
+        val own = vertices[o + 9]
+        for (n in 0 until SeaSurface.STRIDE) vertices[o + n] += (target[n] - vertices[o + n]) * amount
+        vertices[o + 9] = mixTsunami(own, target[9], amount, keep = true)
     }
 
     /** A coast point's sea state and when it was worked out. */
@@ -760,10 +789,6 @@ class SeaScene(
     /** The coast's sea state, by lattice point, apart from the grids' tables. Locked on itself. */
     private val refinedPrepared = com.rm.apogee.render.LongMap<Stamped>(1_024)
 
-    private fun morphVertex(vertices: FloatArray, into: Int, target: FloatArray, amount: Float) {
-        val o = into * SeaSurface.STRIDE
-        for (n in 0 until SeaSurface.STRIDE) vertices[o + n] += (target[n] - vertices[o + n]) * amount
-    }
 
     /**
      * The grids laid flat at the datum in deep water's colour round body-fixed [centre]. No sea is
@@ -847,6 +872,26 @@ class SeaScene(
     }
 
     private companion object {
+        /**
+         * A tsunami's whiteness (-1..1) and its period (whole seconds) in one float, for a vertex:
+         * 4 x period + whiteness. Shaders.SEA_VERTEX takes them apart, so each tsunami's foam is
+         * wrapped by its own period where two overlap.
+         */
+        fun packTsunami(whiteness: Double, period: Double): Float =
+            (4.0 * kotlin.math.round(period) + whiteness.coerceIn(-1.0, 1.0)).toFloat()
+
+        fun tsunamiPeriodOf(packed: Float): Float = kotlin.math.floor((packed + 2f) * 0.25f)
+
+        /**
+         * Packed tsunami [a] toward [b] by [t]: the whiteness mixed where both have the same
+         * period, otherwise the nearer one's whole, or [a]'s if [keep].
+         */
+        fun mixTsunami(a: Float, b: Float, t: Float, keep: Boolean = false): Float {
+            val pa = tsunamiPeriodOf(a); val pb = tsunamiPeriodOf(b)
+            if (pa == pb) return a + (b - a) * t
+            return if (keep || t < 0.5f) a else b
+        }
+
 
         /** Spare vertex arrays kept for building into. */
 
@@ -878,6 +923,14 @@ class SeaScene(
 
         /** Out to here, in metres, the sea is worked out in full on every build. */
         const val NEAR_REACH = 2_000.0
+
+        /**
+         * Shares of [reach] over which the waves' tsunami crests go over to the far water's: where
+         * that water rises under them and where they start to fade into it (Shaders' SEA_RISE and
+         * SEA_BLEND).
+         */
+        const val FAR_CREST_FROM = 0.6
+        const val FAR_CREST_TO = 0.8
 
         /** How long a build can spend working out the sea beyond [NEAR_REACH] afresh, in ns. */
         const val OUTER_BUDGET_NANOS = 200_000_000L

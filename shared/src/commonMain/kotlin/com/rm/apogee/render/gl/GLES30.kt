@@ -115,6 +115,7 @@ interface GlConstants {
     val GL_TEXTURE1: Int get() = 0x84C1
     val GL_TEXTURE2: Int get() = 0x84C2
     val GL_TEXTURE3: Int get() = 0x84C3
+    val GL_TEXTURE4: Int get() = 0x84C4
     val GL_TEXTURE_2D: Int get() = 0x0DE1
     val GL_TEXTURE_COMPARE_FUNC: Int get() = 0x884D
     val GL_TEXTURE_COMPARE_MODE: Int get() = 0x884C

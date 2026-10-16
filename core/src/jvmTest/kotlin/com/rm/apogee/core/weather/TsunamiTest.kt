@@ -393,4 +393,123 @@ class TsunamiTest {
         assertTrue("sea foam where the model has it: $seaMiss of $seaWhite off", seaMiss <= seaWhite / 20)
         assertTrue("land foam where the model has it: $landMiss of $landWhite off", landMiss <= landWhite / 5)
     }
+
+    @Test
+    fun `two tsunamis overlapping draw each one's foam where the model has it`() {
+        val w = Weather(body, WeatherConfig(intensity = WeatherIntensity.EXTREME))
+        val model = w.tsunamiModel
+        val second = SolarSystem.surfaceDirection(-0.35, -150_000.0 / radius)
+        model.force(origin, 0.0, strength = 1.0, period = 600.0)
+        model.force(second, 400.0, strength = 0.9, period = 900.0, also = true)
+        var same = 0; var white = 0; var miss = 0
+        val periods = HashMap<Double, Int>()
+        var handovers = 0; var seenHandovers = 0
+        for (lat in doubleArrayOf(-0.25, -0.1, 0.0)) {
+            val start = minOf(model.arrivalAt(origin, east(-8_000.0, lat)), 400.0 + model.arrivalAt(second, east(-8_000.0, lat)))
+            var t = start
+            while (t < start + 2_400.0) {
+                var lastPeriod = -1.0; var lastFoam = 0.0
+                var m = -8_000.0
+                while (m < 0.0) {
+                    val d = east(m, lat)
+                    val bed = flat.elevation(d)
+                    model.height(d, t, bed)
+                    val drawn = drawnFoam(model.crest(), model.whiteness(), model.period())
+                    val a = model.foam() > 0.5
+                    val b = drawn > 0.5
+                    if (a || b) {
+                        white++
+                        if (a == b) same++ else miss++
+                        periods.merge(model.period(), 1, Int::plus)
+                    }
+                    // Neighbours 40 m apart handing over from one to the other: fine where the
+                    // foam either side is gone, seen where it isn't.
+                    if (lastPeriod > 0.0 && model.period() > 0.0 && model.period() != lastPeriod) {
+                        handovers++
+                        if (drawn > 0.5 && lastFoam > 0.5) seenHandovers++
+                    }
+                    lastPeriod = model.period(); lastFoam = drawn
+                    m += 40.0
+                }
+                t += 4.0
+            }
+        }
+        println("two overlapping: drawn agrees $same of $white white, periods $periods, $seenHandovers of $handovers hand-overs seen")
+        assertTrue("both draw foam: $periods", (periods[600.0] ?: 0) > 100 && (periods[900.0] ?: 0) > 100)
+        assertTrue("foam where the model has it: $miss of $white off", miss <= white / 20)
+        assertTrue("hand-overs out of sight: $seenHandovers of $handovers", seenHandovers <= handovers / 20)
+    }
+
+    @Test
+    fun `foam over land starts where the water does`() {
+        val (w, _) = flatSea()
+        val model = w.tsunamiModel
+        var points = 0; var worst = 0.0
+        var m = 100.0
+        while (m < 2_900.0) {
+            val d = east(m)
+            val bed = flat.elevation(d)
+            val arrival = model.arrivalAt(origin, d)
+            var wet = Double.NaN; var foam = Double.NaN
+            var t = arrival
+            while (t < arrival + 1_500.0 && (wet.isNaN() || foam.isNaN())) {
+                val h = model.height(d, t, bed)
+                if (wet.isNaN() && h > bed) wet = t
+                if (foam.isNaN() && drawnFoam(model.crest(), model.whiteness(), model.period()) > 0.5) foam = t
+                t += 0.25
+            }
+            if (!wet.isNaN() && !foam.isNaN()) {
+                points++
+                worst = maxOf(worst, wet - foam)
+            }
+            m += 50.0
+        }
+        println("land foam ahead of the water by at most $worst s (${worst * Tsunamis.BORE_LAND_SPEED} m) over $points points")
+        assertTrue("flooded points: $points", points > 10)
+        assertTrue("foam not ahead of the water: $worst s", worst <= 0.5)
+    }
+
+    @Test
+    fun `a boat asleep on low land under fast warp wakes as the flood comes and floats`() {
+        val catalog = StockParts.catalog
+        val world = World(SolarSystem(listOf(body), body.id), catalog)
+        world.restore(WorldSave(catalogHash = catalog.contentHash, universeTime = 0.0, nextVesselId = 1L))
+        world.weatherConfig = WeatherConfig(intensity = WeatherIntensity.CALM)
+        val weather = world.weatherFor(body)!!
+        val quake = 5_000.0
+        weather.tsunamiModel.force(origin, quake, strength = 1.0, period = 600.0)
+        val spot = east(400.0)
+        val arrival = quake + weather.tsunamiModel.arrivalAt(origin, spot)
+        val site = LaunchSite("field", "Field", body.id, 0.0, SolarSystem.longitudeOf(spot))
+        val boat = world.spawnOnSurface(StockCraft.boat(catalog), site)
+        val dt = 1.0 / 60.0
+        repeat((5.0 / dt).toInt()) { world.step(dt) }
+        if (!boat.dormant) boat.sleep(body.rotationAt(world.time))
+        assertTrue("parked asleep on dry land", boat.dormant && !boat.afloat)
+        // As GameServer.advanceWorld runs it at the fastest warp asked for.
+        val asked = World.WARP_RATES.last()
+        world.hurried = true
+        var wokeAt = Double.NaN
+        var floated = false
+        var physicsFrom = Double.NaN
+        var ticks = 0
+        while (world.time < arrival + 900.0) {
+            val rate = minOf(asked, world.maxWarp())
+            if (rate <= World.PHYSICS_WARP) {
+                if (physicsFrom.isNaN()) physicsFrom = world.time
+                repeat(rate.toInt()) { world.step(dt) }
+            } else {
+                val done = world.advanceOnRails(dt * rate)
+                if (done < dt * rate) repeat(World.PHYSICS_WARP.toInt()) { world.step(dt) }
+            }
+            ticks++
+            if (wokeAt.isNaN() && !boat.dormant) wokeAt = world.time - arrival
+            if (boat.buoyed && !boat.touchingGround) floated = true
+        }
+        world.hurried = false
+        println("under warp: held to physics ${physicsFrom - arrival} s after arrival, woke ${wokeAt} s after, floated $floated, $ticks ticks")
+        assertTrue("woke", !wokeAt.isNaN())
+        assertTrue("floated", floated)
+        assertTrue("warp held only near the flood: ${physicsFrom - arrival} s", physicsFrom - arrival > 0.0)
+    }
 }

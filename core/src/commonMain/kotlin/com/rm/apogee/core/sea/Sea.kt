@@ -714,6 +714,19 @@ class Sea(
         return true
     }
 
+    /**
+     * Seconds from [time] until a tsunami floods land at body-fixed [position] at least [deep]
+     * metres deep: 0 while one may, infinite where none is coming. Quick where none is live.
+     */
+    fun tsunamiFloodIn(position: Vec3, time: Double, deep: Double): Double {
+        val tsunamis = weather?.tsunamiModel ?: return Double.POSITIVE_INFINITY
+        if (!tsunamis.floodSoon(time)) return Double.POSITIVE_INFINITY
+        u.setTo(position).normalizeInPlace()
+        depth.sample(u, 0.0, depthOut)
+        val until = tsunamis.floodIn(u, time, depthOut[0], deep)
+        return if (until >= com.rm.apogee.core.weather.Tsunamis.NEVER) Double.POSITIVE_INFINITY else until
+    }
+
     /** Whether a tsunami may be moving the sea at body-fixed [position] at [time]. Quick. */
     fun tsunamiPassing(position: Vec3, time: Double): Boolean {
         val w = weather ?: return false

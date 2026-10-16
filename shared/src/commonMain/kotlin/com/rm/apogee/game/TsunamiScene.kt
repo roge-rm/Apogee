@@ -7,6 +7,7 @@ import com.rm.apogee.core.weather.Weather
 import com.rm.apogee.core.weather.WeatherConfig
 import com.rm.apogee.render.QualityTier
 import com.rm.apogee.render.TsunamiField
+import com.rm.apogee.render.TsunamiFlood
 import kotlinx.coroutines.launch
 import kotlin.concurrent.Volatile
 import kotlin.math.sqrt
@@ -111,9 +112,14 @@ class TsunamiScene(
         val spacing = 2.0 * reach / (side - 1)
         val values = FloatArray(TsunamiField.VEC4S * 4)
         val tau = FloatArray(TsunamiField.VEC4S * 4)
-        // Its crest is drawn for one: the one passing here, or else the biggest.
-        val main = live.firstOrNull { !it.arrivesHere.isNaN() && time >= it.arrivesHere && time < it.arrivesHere + Weather.TSUNAMI_TRAIN }
-            ?: live.maxBy { it.strength }
+        val deep = FloatArray(TsunamiField.VEC4S * 4)
+        val tau2 = FloatArray(TsunamiField.VEC4S * 4)
+        val deep2 = FloatArray(TsunamiField.VEC4S * 4)
+        // Crests are drawn for two: the one passing here, or else the biggest, and the next. Each
+        // point takes whichever the sea's own drawing would (Tsunamis.drawn).
+        val ranked = live.sortedWith(compareByDescending<LiveTsunami> { passingHere(it, time) }.thenByDescending { it.strength })
+        val main = ranked[0]
+        val next = ranked.getOrNull(1)
         val phase = DoubleArray(2)
         var any = false
         for (j in 0 until side) for (i in 0 until side) {
@@ -123,20 +129,104 @@ class TsunamiScene(
             // Over land, the sea as if it ran on over it, so the water along the coast reads smoothly.
             val h = weather.tsunamiHeight(sample, time, kotlin.math.min(bed, -SHALLOW), blur = spacing)
             if (kotlin.math.abs(h) > 0.05) any = true
-            val arrives = weather.tsunamiPhase(sample, time, main.id, phase)
-            values[j * side + i] = TsunamiField.pack(h, if (arrives) phase[1] else 0.0)
-            tau[j * side + i] = (if (arrives) phase[0] else Weather.TSUNAMI_NO_CREST).toFloat()
+            val k = j * side + i
+            values[k] = TsunamiField.packHeight(h)
+            if (weather.tsunamiPhase(sample, time, main.id, phase)) { tau[k] = phase[0].toFloat(); deep[k] = phase[1].toFloat() }
+            else tau[k] = NEVER
+            if (next != null && weather.tsunamiPhase(sample, time, next.id, phase)) { tau2[k] = phase[0].toFloat(); deep2[k] = phase[1].toFloat() }
+            else tau2[k] = NEVER
         }
         fillNever(tau)
+        fillNever(tau2)
+        val first = FloatArray(TsunamiField.VEC4S * 4) { TsunamiField.packTau(tau[it].toDouble(), deep[it].toDouble()) }
+        val second = FloatArray(TsunamiField.VEC4S * 4) { TsunamiField.packTau(tau2[it].toDouble(), deep2[it].toDouble()) }
         val shore = weather.tsunamiHeight(up, time, kotlin.math.min(terrain.elevation(up), -SHALLOW))
         val g = body.gravitationalParameter / (body.radius * body.radius)
+        val flood = if (any) floodAt(up, east, north, time) else null
         field = if (any) TsunamiField(
-            up, east, north, spacing, values, shore, tau, time, main.period,
-            Weather.TSUNAMI_COAST_CAP * main.strength, 2.0 / (Weather.TSUNAMI_SHOAL_SLOPE * sqrt(g)),
+            up, east, north, spacing, values, shore, first, second, time,
+            main.period, next?.period ?: 0.0,
+            Weather.TSUNAMI_COAST_CAP * main.strength, Weather.TSUNAMI_COAST_CAP * (next?.strength ?: 0.0),
+            2.0 / (Weather.TSUNAMI_SHOAL_SLOPE * sqrt(g)), body.radius, flood,
         ) else null
         roar = roarAt(camera, up, east, north, time)
         spray = sprayAt(camera, up, east, north, time)
         lastFieldMillis = (com.rm.apogee.platform.System.nanoTime() - started) / 1e6
+    }
+
+    private fun passingHere(t: LiveTsunami, time: Double) =
+        !t.arrivesHere.isNaN() && time >= t.arrivesHere && time < t.arrivesHere + Weather.TSUNAMI_TRAIN
+
+    /** How far round the camera flooded land is drawn past the waves, in metres. */
+    private val floodReach = kotlin.math.min(reach, 2.0 * seaReachFor(tier))
+
+    /** The flood grid's centre and frame, and the beds there, kept until the camera has gone [FLOOD_RECENTRE] of the reach. */
+    private var floodBeds: FloatArray? = null
+    private var floodLow = IntArray(0)
+    private val floodCentre = Vec3()
+    private val floodEast = Vec3()
+    private val floodNorth = Vec3()
+
+    /**
+     * The water over low land round unit [up] at [time], or null with none flooded. It covers
+     * the waves' reach too: the shader leaves that to the waves while they're drawn.
+     */
+    private fun floodAt(up: Vec3, east: Vec3, north: Vec3, time: Double): TsunamiFlood? {
+        val terrain = body.terrain ?: return null
+        val side = TsunamiFlood.SIDE
+        val spacing = 2.0 * floodReach / (side - 1)
+        val middle = (side - 1) * 0.5
+        if (floodBeds == null || up.distanceTo(floodCentre) * body.radius > FLOOD_RECENTRE * floodReach) {
+            floodCentre.setTo(up); floodEast.setTo(east); floodNorth.setTo(north)
+            val beds = FloatArray(side * side)
+            // Steps from the sea, out to as far inland as a flood runs.
+            val most = kotlin.math.ceil(FLOOD_INLAND / spacing).toInt()
+            val steps = IntArray(side * side) { Int.MAX_VALUE }
+            val queue = IntArray(side * side)
+            var tail = 0
+            for (j in 0 until side) for (i in 0 until side) {
+                val x = (i - middle) * spacing; val y = (j - middle) * spacing
+                sample.setTo(up).addScaledInPlace(east, x / body.radius).addScaledInPlace(north, y / body.radius).normalizeInPlace()
+                val bed = terrain.elevation(sample)
+                beds[j * side + i] = bed.toFloat()
+                if (bed < 0.0) { steps[j * side + i] = 0; queue[tail++] = j * side + i }
+            }
+            var head = 0
+            while (head < tail) {
+                val k = queue[head++]
+                val n = steps[k] + 1
+                if (n > most) continue
+                val i = k % side; val j = k / side
+                for (m in 0 until 4) {
+                    val ni = i + (if (m == 0) 1 else if (m == 1) -1 else 0)
+                    val nj = j + (if (m == 2) 1 else if (m == 3) -1 else 0)
+                    if (ni < 0 || nj < 0 || ni >= side || nj >= side) continue
+                    val q = nj * side + ni
+                    if (steps[q] <= n) continue
+                    steps[q] = n
+                    queue[tail++] = q
+                }
+            }
+            val low = ArrayList<Int>()
+            for (k in 0 until side * side) {
+                val bed = beds[k]
+                if (bed > 0f && bed < Weather.TSUNAMI_COAST_CAP + 1.0 && steps[k] <= most) low += k
+            }
+            floodBeds = beds
+            floodLow = low.toIntArray()
+        }
+        val beds = floodBeds!!
+        var texels: ByteArray? = null
+        for (k in floodLow) {
+            val x = (k % side - middle) * spacing; val y = (k / side - middle) * spacing
+            sample.setTo(floodCentre).addScaledInPlace(floodEast, x / body.radius).addScaledInPlace(floodNorth, y / body.radius).normalizeInPlace()
+            val bed = beds[k].toDouble()
+            val level = weather.tsunamiHeight(sample, time, bed)
+            if (level - bed < FLOOD_LEAST) continue
+            if (texels == null) texels = ByteArray(2 * side * side)
+            TsunamiFlood.put(texels, k, level)
+        }
+        return texels?.let { TsunamiFlood(floodCentre.copy(), floodEast.copy(), floodNorth.copy(), spacing, it) }
     }
 
     /**
@@ -145,7 +235,7 @@ class TsunamiScene(
      */
     private fun fillNever(tau: FloatArray) {
         val side = TsunamiField.SIDE
-        val none = Weather.TSUNAMI_NO_CREST.toFloat()
+        val none = NEVER
         val known = BooleanArray(side * side) { tau[it] != none }
         val next = known.copyOf()
         repeat(side) {
@@ -386,6 +476,18 @@ class TsunamiScene(
 
         /** Land counts as water this deep, in metres, for the sea run on over it. */
         const val SHALLOW = 2.0
+
+        /** Seconds since arrival for points one never reaches: Weather.TSUNAMI_NO_CREST. */
+        const val NEVER = -10_000f
+
+        /** Water shallower than this over land, in metres, isn't drawn past the waves. */
+        const val FLOOD_LEAST = 0.1
+
+        /** The furthest inland a flood runs, in metres (Tsunamis.INLAND_MAX). */
+        const val FLOOD_INLAND = 4_000.0
+
+        /** The flood grid moves with the camera once it's gone this share of its reach. */
+        const val FLOOD_RECENTRE = 0.125
 
         /** Heard fully within [HEARD_NEAR] metres, gone by [HEARD_REACH], up close inside [CLOSE_REACH]. */
         const val HEARD_NEAR = 400.0

@@ -2076,6 +2076,7 @@ class GameSession private constructor(
             if (!debugHideSea && attractor.altitudeOf(cameraPosition) < sea.reach) {
                 // Built less often while the world can't keep up, leaving more of the phone for the
                 // server.
+                sea.tsunamiField = cloudScene?.takeIf { it.body === attractor }?.tsunamis?.field
                 sea.update(bodyFixedCamera, renderTime, rate, behind = warping && rate < warp * BEHIND_SHARE)
                 seaSurface = sea.latest
                 if (seaSurface != null) seaReach = sea.reach
@@ -5715,9 +5716,12 @@ class GameSession private constructor(
         private val TSUNAMI_COLOR = floatArrayOf(0.70f, 0.88f, 1.0f, 1f)
         private val TSUNAMI_FRONT_COLOR = floatArrayOf(0.55f, 0.78f, 0.95f, 0.7f)
 
-        /** The map's tsunami icon: a wave curling over, as points x y in icon radii with y down. */
+        /** The map's tsunami icon: a wave rising and its crest curling over, as points x y in icon radii with y down. */
         val TSUNAMI_GLYPH = floatArrayOf(
-            -0.9f, 0.55f, -0.55f, 0.35f, -0.2f, -0.15f, 0.15f, -0.6f, 0.55f, -0.7f, 0.85f, -0.45f, 0.75f, -0.15f, 0.45f, -0.25f,
+            -0.95f, 0.62f, -0.74f, 0.55f, -0.56f, 0.40f, -0.40f, 0.19f, -0.25f, -0.04f, -0.11f, -0.27f,
+            0.05f, -0.48f, 0.22f, -0.64f, 0.42f, -0.71f, 0.62f, -0.68f, 0.76f, -0.56f, 0.83f, -0.39f,
+            0.81f, -0.23f, 0.72f, -0.11f, 0.59f, -0.05f, 0.47f, -0.06f, 0.37f, -0.12f, 0.32f, -0.22f,
+            0.33f, -0.31f, 0.38f, -0.38f, 0.44f, -0.40f,
         )
 
         /**

@@ -3340,8 +3340,9 @@ class World(
                 if (vessel.ridingOn != null) continue
                 if (vessel.afloat) followSea(vessel, attractor, waves = true, dt = dt) else {
                     followGround(vessel, attractor)
-                    // Parked on low land as a tsunami floods it: woken to float and be carried.
-                    if (!hurried && flooded(vessel, attractor)) vessel.wake()
+                    // Parked on low land as a tsunami floods it: woken to float and be carried. Warp
+                    // is held down for it as the flood comes (see [floodWarpLimit]).
+                    if (flooded(vessel, attractor)) vessel.wake()
                 }
                 // Parked in crushing air (Caligo's floor) or too deep in the sea, it's still crushed.
                 val air = attractor.atmosphere
@@ -4634,8 +4635,35 @@ class World(
             if (vessel.dormant || isDebris(vessel) || !inScope(vessel)) continue
             limit = minOf(limit, warpLimit(vessel))
         }
+        return minOf(limit, floodWarpLimit())
+    }
+
+    /**
+     * How fast time may go with craft asleep on low land that a tsunami is about to flood: rails
+     * slices no longer than half the time to the flood, and physics warp from [FLOOD_WARN] seconds
+     * before it, so [step] sees the water reach them and wakes them.
+     */
+    private fun floodWarpLimit(): Double {
+        var limit = WARP_RATES.last()
+        for (vessel in vesselsById.values) {
+            if (!vessel.dormant || vessel.afloat || vessel.anchored || vessel.ridingOn != null || !inScope(vessel)) continue
+            val attractor = attractorFor(vessel)
+            val sea = attractor.ocean?.sea ?: continue
+            if (attractor.altitudeOf(vessel.body.position) > FLOOD_HIGHEST) continue
+            attractor.rotationAt(time, scratchFloodRotation)
+            attractor.toBodyFixed(vessel.body.position, scratchFloodRotation, scratchFloodPoint)
+            val until = sea.tsunamiFloodIn(scratchFloodPoint, time, FLOOD_DEPTH)
+            if (until.isInfinite()) continue
+            if (until < FLOOD_WARN) return PHYSICS_WARP
+            var allowed = PHYSICS_WARP
+            for (rate in RAILS_RATES) if (railsSlice(rate) <= 0.5 * until) allowed = rate
+            limit = minOf(limit, allowed)
+        }
         return limit
     }
+
+    /** The longest slice [advanceOnRails] takes at warp [rate], in seconds. */
+    private fun railsSlice(rate: Double): Double = RAILS_STEP * maxOf(1.0, rate / RAILS_SLICE_WARP)
 
     /** Whether [vessel] is standing on the ground and not moving over it: in no danger from warp. */
     fun resting(vessel: Vessel): Boolean {
@@ -4719,7 +4747,7 @@ class World(
             val allowed = maxWarp()
             if (allowed <= PHYSICS_WARP) break
             // Longer slices only where the fastest warps are allowed; on a conic they're as exact.
-            val h = minOf(RAILS_STEP * maxOf(1.0, allowed / RAILS_SLICE_WARP), seconds - done)
+            val h = minOf(railsSlice(allowed), seconds - done)
             tickEnd = time + h
             for (vessel in vesselsById.values) {
                 if (!inScope(vessel)) continue
@@ -6549,10 +6577,12 @@ class World(
 
         /**
          * Craft parked lower than this, in metres above the datum, are checked for a tsunami's
-         * flood, and water this deep over their spot wakes them.
+         * flood, and water this deep over their spot wakes them. Warp drops to physics warp
+         * [FLOOD_WARN] seconds before a flood is due over them.
          */
         private const val FLOOD_HIGHEST = com.rm.apogee.core.weather.Tsunamis.COAST_CAP + 30.0
         private const val FLOOD_DEPTH = 0.2
+        private const val FLOOD_WARN = 20.0
 
         /** Ticks between telling the seas where the founded bases are. */
         const val CALM_BASES_EVERY = 60L
