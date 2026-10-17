@@ -36,6 +36,7 @@ import androidx.compose.material.icons.filled.Air
 import androidx.compose.material.icons.filled.Tsunami
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Grain
+import androidx.compose.material.icons.filled.Volcano
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -125,6 +126,7 @@ fun StatusRow(
                 WeatherWarnings.Kind.DUST, WeatherWarnings.Kind.DUST_STORM -> Icons.Filled.Air
                 WeatherWarnings.Kind.BLIZZARD -> Icons.Filled.AcUnit
                 WeatherWarnings.Kind.HAIL -> Icons.Filled.Grain
+                WeatherWarnings.Kind.ASH, WeatherWarnings.Kind.ERUPTION -> Icons.Filled.Volcano
             }
             add(StatusChip("weather", icon, w.text, if (w.danger) ApogeeColors.Danger else ApogeeColors.Caution, w.danger, null, tap = { actions.onWeather(w) }, solid = w.danger))
         }

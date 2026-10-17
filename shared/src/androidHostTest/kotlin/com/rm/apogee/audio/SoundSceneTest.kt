@@ -224,6 +224,27 @@ class SoundSceneTest {
     }
 
     @Test
+    fun `an eruption rumbles from its side, ash grits all round, and not in space`() {
+        val scene = SoundScene(16)
+        scene.build(SoundScene.Listener(Vec3(), Vec3(1.0, 0.0, 0.0), density = 1.2, eruption = 0.5, eruptionPan = 0.5f), emptyList(), null)
+        val i = scene.indexOf(Recipes.ASH)!!
+        assertEquals(0.5f, scene.param(i, 0), 0.02f)
+        assertEquals("no grit out of the ash", 0f, scene.param(i, 1), 1e-6f)
+        assertEquals("from the vent's side", 0.5f, scene.param(i, SharedParams.PAN), 1e-6f)
+        scene.build(SoundScene.Listener(Vec3(), Vec3(1.0, 0.0, 0.0), density = 1.2, ash = 0.6), emptyList(), null)
+        val j = scene.indexOf(Recipes.ASH)!!
+        assertEquals(0.6f, scene.param(j, 1), 0.02f)
+        assertEquals("grit all round", 0f, scene.param(j, SharedParams.PAN), 1e-6f)
+        scene.build(SoundScene.Listener(Vec3(), Vec3(1.0, 0.0, 0.0), density = 1.2, eruption = 0.5, eruptionPan = 0.5f, ash = 0.5), emptyList(), null)
+        val k = scene.indexOf(Recipes.ASH)!!
+        assertEquals("half way with as much grit as rumble", 0.25f, scene.param(k, SharedParams.PAN), 0.02f)
+        scene.build(air, emptyList(), null)
+        assertNull("no ash", scene.indexOf(Recipes.ASH))
+        scene.build(SoundScene.Listener(Vec3(), Vec3(1.0, 0.0, 0.0), density = 0.0, eruption = 0.9, ash = 0.9), emptyList(), null)
+        assertNull("in vacuum", scene.indexOf(Recipes.ASH))
+    }
+
+    @Test
     fun `hail rattles all round by how hard it hails, and not in space`() {
         val scene = SoundScene(16)
         scene.build(SoundScene.Listener(Vec3(), Vec3(1.0, 0.0, 0.0), density = 1.2, hail = 0.4), emptyList(), null)

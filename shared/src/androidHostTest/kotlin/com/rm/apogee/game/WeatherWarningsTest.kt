@@ -249,6 +249,65 @@ class WeatherWarningsTest {
     }
 
     @Test
+    fun `an eruption warns near its vent, its ash cloud as it nears, and is a danger in thick ash`() {
+        val (time, e) = AshSceneTest.eruption(weather)
+        val along = Vec3().setTo(e.drift).normalizeInPlace()
+        val side = Vec3().setTo(e.vent).crossInPlace(along).normalizeInPlace()
+        fun at(ahead: Double, aside: Double, height: Double): Vec3 {
+            val p = Vec3().setTo(e.vent).addScaledInPlace(along, ahead / radius).addScaledInPlace(side, aside / radius).normalizeInPlace()
+            return p.mulInPlace(radius + height)
+        }
+        fun ash(p: Vec3) = warnings().all(p, time).firstOrNull { (it.kind == WeatherWarnings.Kind.ASH || it.kind == WeatherWarnings.Kind.ERUPTION) && it.id == e.id }
+        // In its cloud, 30 km downwind at the cloud's height.
+        val air = com.rm.apogee.core.weather.AirSample()
+        val inCloud = (0 until 40).map { at(30_000.0, 0.0, e.ventHeight + (e.top - e.ventHeight) * (0.3 + 0.7 * it / 39.0)) }
+            .maxBy { weather.sample(it, time, air); air.ash }
+        weather.sample(inCloud, time, air)
+        val inside = ash(inCloud)
+        println("cloud %.0f km, half width %.0f km, ash at the craft %.2f: %s".format(e.length / 1e3, e.halfWidth / 1e3, air.ash, inside?.text))
+        assertTrue("thick in the cloud: ${air.ash}", air.ash >= WeatherWarnings.ASH_THICK)
+        assertEquals(WeatherWarnings.Kind.ASH, inside!!.kind)
+        assertEquals("ASH", inside.text)
+        assertTrue("a danger in thick ash", inside.danger)
+        val aside = ash(at(30_000.0, -(e.halfWidth + 20_000.0), 2_000.0))
+        assertEquals("beside its cloud", WeatherWarnings.Kind.ASH, aside!!.kind)
+        assertFalse(aside.danger)
+        assertTrue("with how far: ${aside.text}", aside.text.startsWith("ASH ") && aside.text.endsWith(" km"))
+        val upwind = ash(at(-80_000.0, 0.0, 2_000.0))
+        assertEquals("the vent upwind", WeatherWarnings.Kind.ERUPTION, upwind!!.kind)
+        assertTrue(upwind.text, upwind.text.startsWith("ERUPTION "))
+        assertEquals("one event", upwind.event, inside.event)
+        assertTrue("none far upwind", ash(at(-300_000.0, 0.0, 2_000.0)) == null)
+        assertTrue("none on Calm", WeatherWarnings(terra, WeatherConfig(intensity = WeatherIntensity.CALM), null).all(inCloud, time)
+            .none { it.kind == WeatherWarnings.Kind.ASH || it.kind == WeatherWarnings.Kind.ERUPTION })
+        if (e.top > WeatherWarnings.TOP + 100.0) {
+            val high = ash(at(30_000.0, 0.0, e.top - 50.0))
+            assertEquals("still warned over 15 km, under its top", WeatherWarnings.Kind.ASH, high?.kind)
+        }
+    }
+
+    @Test
+    fun `once an eruption stops its cloud moves off and the vent is clear`() {
+        val (_, e) = AshSceneTest.eruption(weather)
+        val later = e.start + e.emitting + 1.5 * 3_600.0
+        val live = ArrayList<com.rm.apogee.core.weather.LiveEruption>()
+        weather.eruptions(e.vent, later, 300_000.0, live)
+        val gone = live.single { it.id == e.id }
+        println("stopped: cloud %.0f to %.0f km, strength %.2f".format(gone.near / 1e3, gone.length / 1e3, gone.strength))
+        assertTrue("moved off: ${gone.near}", gone.near > 50_000.0 && gone.near < gone.length)
+        val along = Vec3().setTo(gone.drift).normalizeInPlace()
+        fun at(ahead: Double) = Vec3().setTo(e.vent).addScaledInPlace(along, ahead / radius).normalizeInPlace().mulInPlace(radius + e.ventHeight + 2_000.0)
+        fun ash(p: Vec3) = warnings().all(p, later).firstOrNull { (it.kind == WeatherWarnings.Kind.ASH || it.kind == WeatherWarnings.Kind.ERUPTION) && it.id == e.id }
+        assertNull("none by the clear vent", ash(at(0.0)))
+        assertEquals("in what's left of the cloud", WeatherWarnings.Kind.ASH, ash(at(0.5 * (gone.near + gone.length)))?.kind)
+        val icons = ArrayList<GameSession.MapIcon>(); val lines = ArrayList<com.rm.apogee.render.RenderLine>()
+        GameSession.ashMarks(listOf(gone), com.rm.apogee.core.math.Quat.identity(), radius, icons, lines)
+        val vent = Vec3().setTo(e.vent).mulInPlace(radius)
+        assertTrue("no icon once it stops", icons.isEmpty())
+        assertTrue("outline off the vent", lines.single().points.minOf { it.distanceTo(vent) } > 0.8 * gone.near)
+    }
+
+    @Test
     fun `hail warns near a hailing shaft and is a danger in heavy hail`() {
         val (time, h) = HailSceneTest.hailShaft(weather, 0.7)
         fun ground(p: Vec3) = maxOf(terra.terrain!!.elevation(p), 0.0)

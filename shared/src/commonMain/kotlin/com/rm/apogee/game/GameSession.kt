@@ -1831,6 +1831,10 @@ class GameSession private constructor(
             cloudScene?.takeIf { it.body === attractor && it.snow.active }?.let {
                 keptBlizzardMarks(it.snow.forMap(cloudCamera, renderTime), attractor.rotationAt(renderTime, blizzardMarksScratch), attractor.radius, icons, lines)
             }
+            // Erupting volcanoes at their vents, with the outline of the ash cloud they drift.
+            cloudScene?.takeIf { it.body === attractor && it.ash.active }?.let {
+                keptAshMarks(it.ash.forMap(cloudCamera, renderTime), attractor.rotationAt(renderTime, ashMarksScratch), attractor.radius, icons, lines)
+            }
             // Flags planted on this world, anyone's.
             for (other in client.vessels) {
                 if (other.design.parts.singleOrNull()?.partId != com.rm.apogee.core.world.World.FLAG_PART) continue
@@ -2105,6 +2109,7 @@ class GameSession private constructor(
                 clouds.quakes.append(cloudCamera, bodyRotation, renderTime, items, itemPool)
                 clouds.dust.append(cloudCamera, bodyRotation, renderTime, items, itemPool)
                 clouds.snow.append(cloudCamera, bodyRotation, renderTime, items, itemPool)
+                clouds.ash.append(cloudCamera, bodyRotation, renderTime, items, itemPool, frameSun)
                 World.launchSites.firstOrNull { it.id == "cape" }?.let { cape ->
                     clouds.windsock(cape, cloudCamera, renderTime, bodyRotation, items)
                 }
@@ -2174,6 +2179,8 @@ class GameSession private constructor(
         val hiss = if (mapMode || clouds == null || !clouds.dust.active) null else clouds.dust.also { it.heard(renderTime, clouds.air.wind.length) }
         // A blizzard's howl round the camera.
         val howl = if (mapMode || clouds == null || !clouds.snow.active) null else clouds.snow.also { it.heard(renderTime, clouds.air.wind.length) }
+        // An eruption's rumble, from the side its vent is on, and ash grit round the camera.
+        val eruption = if (mapMode || clouds == null || !clouds.ash.active) null else clouds.ash.also { it.heard(ear, renderTime) }
         val listenerRight = cameraRotation.rotate(Vec3.unitX(), Vec3())
         val listener = SoundScene.Listener(
             position = cameraPosition.copy(),
@@ -2193,6 +2200,7 @@ class GameSession private constructor(
             port = if (mapMode) 0.0 else nearCape(attractor, ear, CAPE_JETTY),
             tornado = roar?.loudness ?: 0.0,
             tornadoNear = roar?.closeness ?: 0.0,
+            tornadoDebris = roar?.rattle ?: 0.0,
             tornadoPan = roar?.takeIf { it.loudness > 0.0 }?.let { (bodyRotation.rotate(it.heardFrom, Vec3()) dot listenerRight * 0.8).toFloat() } ?: 0f,
             tsunami = surge?.loudness ?: 0.0,
             tsunamiNear = surge?.closeness ?: 0.0,
@@ -2204,6 +2212,9 @@ class GameSession private constructor(
             blizzard = howl?.loudness ?: 0.0,
             blizzardNear = howl?.closeness ?: 0.0,
             hail = if (mapMode) 0.0 else cameraAir?.hail ?: 0.0,
+            eruption = eruption?.loudness ?: 0.0,
+            eruptionPan = eruption?.takeIf { it.loudness > 0.0 }?.let { (bodyRotation.rotate(it.heardFrom, Vec3()) dot listenerRight * 0.8).toFloat() } ?: 0f,
+            ash = eruption?.grit ?: 0.0,
         )
         lastListener = listener
         // Blows, breakages and blasts since the last frame, where they happened on the turning
@@ -2271,7 +2282,8 @@ class GameSession private constructor(
         val daylight = com.rm.apogee.render.NightLight.daylight(cameraPosition, attractor.radius, frameSun)
         if (!mapMode) {
             fx.flames(frameEmitters, attractor, renderTime, items)
-            val (vertices, shapes) = fx.vertices(bodyRotation, cameraPosition, cameraRotation, clouds?.lightScale ?: 1f, renderTime, daylight, if (mapMode) 0f else fx.flash)
+            val (vertices, shapes) = fx.vertices(bodyRotation, cameraPosition, cameraRotation, clouds?.lightScale ?: 1f, renderTime, daylight, if (mapMode) 0f else fx.flash,
+                clouds?.tornadoes?.debris)
             particles = vertices
             particleShapes = shapes
         }
@@ -2429,7 +2441,7 @@ class GameSession private constructor(
     )
 
     /** What a map icon stands for, which decides its shape. */
-    enum class IconKind { CRAFT, WORLD, BASE, FLAG, STATION, GHOST, MARK, TARGET, OTHER, STAR, HURRICANE, TORNADO, TSUNAMI, QUAKE, DUST, BLIZZARD }
+    enum class IconKind { CRAFT, WORLD, BASE, FLAG, STATION, GHOST, MARK, TARGET, OTHER, STAR, HURRICANE, TORNADO, TSUNAMI, QUAKE, DUST, BLIZZARD, ASH }
 
     /**
      * A thing shown on the map as an icon: what it is, where (around the attractor), its colour, and
@@ -2468,6 +2480,24 @@ class GameSession private constructor(
     private var blizzardMarksRadius = 0.0
     private val blizzardIcons = ArrayList<MapIcon>()
     private val blizzardLines = ArrayList<RenderLine>()
+
+    // The ash marks as last laid out, kept like the quakes'.
+    private var ashMarksFor: List<com.rm.apogee.core.weather.LiveEruption>? = null
+    private val ashMarksTurn = Quat()
+    private val ashMarksScratch = Quat()
+    private var ashMarksRadius = 0.0
+    private val ashIcons = ArrayList<MapIcon>()
+    private val ashLines = ArrayList<RenderLine>()
+
+    /** [ashMarks], laid out again only for a new listing or once the planet has turned past [QUAKE_MARKS_TURN]. */
+    private fun keptAshMarks(eruptions: List<com.rm.apogee.core.weather.LiveEruption>, rotation: Quat, radius: Double, icons: MutableList<MapIcon>, lines: MutableList<RenderLine>) {
+        if (eruptions !== ashMarksFor || radius != ashMarksRadius || kotlin.math.abs(rotation dot ashMarksTurn) < QUAKE_MARKS_TURN) {
+            ashIcons.clear(); ashLines.clear()
+            ashMarks(eruptions, rotation, radius, ashIcons, ashLines)
+            ashMarksFor = eruptions; ashMarksTurn.setTo(rotation); ashMarksRadius = radius
+        }
+        icons.addAll(ashIcons); lines.addAll(ashLines)
+    }
 
     /** [blizzardMarks], laid out again only for a new listing or once the planet has turned past [QUAKE_MARKS_TURN]. */
     private fun keptBlizzardMarks(blizzards: List<com.rm.apogee.core.weather.LiveBlizzard>, rotation: Quat, radius: Double, icons: MutableList<MapIcon>, lines: MutableList<RenderLine>) {
@@ -6012,6 +6042,54 @@ class GameSession private constructor(
                     rotation.rotate(p, Vec3())
                 }
                 lines += RenderLine(ring, BLIZZARD_RING_COLOR)
+            }
+        }
+
+        private val ASH_COLOR = floatArrayOf(0.86f, 0.80f, 0.74f, 1f)
+        private val ASH_CLOUD_COLOR = floatArrayOf(0.78f, 0.72f, 0.66f, 0.4f)
+
+        /** The map's eruption icon: a cone with a crater and ash rising off it, as segments x0 y0 x1 y1 in icon radii with y down. */
+        val ASH_GLYPH = floatArrayOf(
+            -0.95f, 0.8f, -0.3f, -0.15f,
+            -0.3f, -0.15f, 0.3f, -0.15f,
+            0.3f, -0.15f, 0.95f, 0.8f,
+            -0.95f, 0.8f, 0.95f, 0.8f,
+            0.0f, -0.35f, -0.25f, -0.85f,
+            0.0f, -0.35f, 0.3f, -0.75f,
+            -0.25f, -0.85f, 0.05f, -0.95f,
+        )
+
+        /**
+         * A map icon at the vent of each of [eruptions] still giving out ash, and the outline of the
+         * ash it has drifted downwind, on a world of [radius] turned by [rotation], into [icons] and
+         * [lines].
+         */
+        fun ashMarks(eruptions: List<com.rm.apogee.core.weather.LiveEruption>, rotation: Quat, radius: Double, icons: MutableList<MapIcon>, lines: MutableList<RenderLine>) {
+            for (e in eruptions) {
+                if (e.strength > 0.02) icons += MapIcon(IconKind.ASH, rotation.rotate(Vec3().setTo(e.vent).mulInPlace(radius), Vec3()), ASH_COLOR)
+                if (e.length < 1_000.0) continue
+                val along = Vec3().setTo(e.drift)
+                if (along.lengthSq < 1e-12) continue
+                along.addScaledInPlace(e.vent, -(along dot e.vent)).normalizeInPlace()
+                val side = Vec3().setTo(e.vent).crossInPlace(along).normalizeInPlace()
+                val start = AshScene.START_WIDTH
+                // From where it starts (moving off the vent once it stops) to its far end.
+                val near = e.near.coerceIn(0.0, e.length)
+                fun edge(f: Double, k: Double, back: Double = 0.0): Vec3 {
+                    val s = near + (e.length - near) * f
+                    val a = (s - back) / radius
+                    val w = (start + (e.halfWidth - start).coerceAtLeast(0.0) * s / e.length) * k
+                    val p = Vec3().setTo(e.vent).mulInPlace(kotlin.math.cos(a)).addScaledInPlace(along, kotlin.math.sin(a))
+                        .addScaledInPlace(side, w / radius).normalizeInPlace().mulInPlace(radius)
+                    return rotation.rotate(p, Vec3())
+                }
+                val n = 16
+                val outline = (0..n).map { edge(it.toDouble() / n, 1.0) } +
+                    (0..8).map { val b = Math.PI * it / 8; edge(1.0, kotlin.math.cos(b)) }.drop(1) +
+                    (n downTo 0).map { edge(it.toDouble() / n, -1.0) }.drop(1) +
+                    (if (near > 0.0) (0..8).map { val b = Math.PI * it / 8; val w = start + (e.halfWidth - start).coerceAtLeast(0.0) * near / e.length
+                        edge(0.0, -kotlin.math.cos(b), w * kotlin.math.sin(b)) }.drop(1) else emptyList())
+                lines += RenderLine(outline, ASH_CLOUD_COLOR)
             }
         }
 

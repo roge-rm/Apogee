@@ -3776,7 +3776,8 @@ class World(
      * Hail since the last look, up to [worldUntil], at every [HAIL_STEP] of universe time in it, so a
      * craft parked through a warp takes what it would have stepping. Light parts open to the sky
      * dent (see [hailFragility]); heavy ones and those under others or inside a fairing don't.
-     * Each craft over its own span, so one in a bubble takes its hail on the bubble's clock.
+     * Each craft over its own span, so one in a bubble takes its hail on the bubble's clock. Tornado
+     * debris over the same span ([debris]).
      */
     private fun hail(worldUntil: Double) {
         if (hailCheckedTo.size > vesselsById.size) hailCheckedTo.keys.retainAll { VesselId(it) in vesselsById }
@@ -3788,17 +3789,18 @@ class World(
             hailCheckedTo[vessel.id.raw] = until
             val first = kotlin.math.floor(from / HAIL_STEP).toLong() + 1
             val last = kotlin.math.floor(until / HAIL_STEP).toLong()
-            if (last < first) continue
-            val count = (last - first + 1).toInt()
+            val count = (last - first + 1).toInt().coerceAtLeast(0)
             if (hailSeen.size < count) hailSeen = DoubleArray(count)
             val attractor = attractorFor(vessel)
             val weather = weatherFor(attractor) ?: continue
-            if (!weather.hailPossible) continue
+            if (!weather.hailPossible && !weather.debrisPossible) continue
             val altitude = attractor.altitudeOf(vessel.body.position)
             if (altitude > HAIL_CEILING || (attractor.ocean != null && altitude < -1.0)) continue
-            if (vessel.defs.indices.none { hailFragility(vessel.defs[it]) > 0.0 && vessel.health[it] > 0.0 }) continue
             attractor.rotationAt(until, hailRotation)
             attractor.toBodyFixed(vessel.body.position, hailRotation, hailPoint).normalizeInPlace()
+            if (weather.debrisPossible) debris(vessel, attractor, weather, altitude, from, until)
+            if (!weather.hailPossible || count == 0) continue
+            if (vessel.defs.indices.none { hailFragility(vessel.defs[it]) > 0.0 && vessel.health[it] > 0.0 }) continue
             var any = false
             for (k in 0 until count) {
                 val h = weather.hailAt(hailPoint, altitude, (first + k) * HAIL_STEP)
@@ -3820,6 +3822,51 @@ class World(
                 breakUpCause[vessel.id] = "broken by hail"
             }
         }
+    }
+
+    /**
+     * Debris from a land tornado knocking [vessel] (at [hailPoint], [altitude] over datum) after
+     * [from] up to [until], at every [DEBRIS_STEP] of universe time in it: each step a hashed chance
+     * of a knock on a hashed part open to it (as hail's), light parts hurt most, structures and
+     * bases not at all. Nothing is stepped unless a tornado could be near in the span.
+     */
+    private fun debris(vessel: Vessel, attractor: CelestialBody, weather: com.rm.apogee.core.weather.Weather, altitude: Double, from: Double, until: Double) {
+        val first = kotlin.math.floor(from / DEBRIS_STEP).toLong() + 1
+        val last = kotlin.math.floor(until / DEBRIS_STEP).toLong()
+        if (last < first) return
+        val terrain = attractor.terrain ?: return
+        val agl = altitude - maxOf(terrain.elevation(hailPoint), if (attractor.ocean != null) 0.0 else -1e9)
+        if (agl > com.rm.apogee.core.weather.Tornadoes.DEBRIS_TOP) return
+        if (vessel.defs.indices.none { debrisFragility(vessel.defs[it]) > 0.0 && vessel.health[it] > 0.0 }) return
+        if (!weather.debrisMaybe(hailPoint, first * DEBRIS_STEP, last * DEBRIS_STEP)) return
+        var exposed: List<Int>? = null
+        val seed = weatherConfig?.seed ?: 0
+        val idLow = vessel.id.raw.toInt(); val idHigh = (vessel.id.raw ushr 32).toInt()
+        var lost = false
+        for (step in first..last) {
+            val d = weather.debrisAt(hailPoint, agl, step * DEBRIS_STEP)
+            if (d < DEBRIS_LEAST) continue
+            if (com.rm.apogee.core.terrain.Noise.hash(seed + 0x0DEB, idLow, idHigh, step.toInt()) >= (DEBRIS_KNOCKS * d * DEBRIS_STEP).coerceAtMost(1.0)) continue
+            val open = exposed ?: hailExposed(vessel, ::debrisFragility).also { exposed = it }
+            val n = open.size
+            if (n == 0) return
+            val i = open[(com.rm.apogee.core.terrain.Noise.hash(seed + 0x0DEC, idLow, idHigh, step.toInt()) * n).toInt().coerceIn(0, n - 1)]
+            if (vessel.health[i] <= 0.0) continue
+            val hurt = debrisFragility(vessel.defs[i])
+            if (hurt <= 0.0) continue
+            val size = 0.5 + com.rm.apogee.core.terrain.Noise.hash(seed + 0x0DED, idLow, idHigh, step.toInt())
+            if (vessel.damage(i, DEBRIS_DAMAGE * size * d * hurt)) lost = true
+        }
+        if (lost) {
+            pendingBreakUps.add(vessel.id)
+            breakUpCause[vessel.id] = "broken by flying debris"
+        }
+    }
+
+    /** How hard flying debris hurts a part: as hail does light ones, a little for the rest, structures and bases not at all. */
+    internal fun debrisFragility(def: com.rm.apogee.core.part.PartDef): Double {
+        if (def.category == com.rm.apogee.core.part.PartCategory.STRUCTURE || def.category == com.rm.apogee.core.part.PartCategory.BASE) return 0.0
+        return maxOf(hailFragility(def), DEBRIS_STURDY)
     }
 
     private var hailSeen = DoubleArray(64)
@@ -3850,13 +3897,16 @@ class World(
         kind * (HAIL_LIGHT / (def.dryMass / face)).coerceIn(0.25, 1.0)
     }
 
-    /** [vessel]'s parts hail can dent: light, whole, out of any fairing and with nothing over them. */
-    internal fun hailExposed(vessel: Vessel): List<Int> {
+    /**
+     * [vessel]'s parts hail can dent: light, whole, out of any fairing and with nothing over them.
+     * With [fragility] another's, as flying debris.
+     */
+    internal fun hailExposed(vessel: Vessel, fragility: (com.rm.apogee.core.part.PartDef) -> Double = ::hailFragility): List<Int> {
         val inside = vessel.enclosed()
         lightningUp.setTo(vessel.body.position).normalizeInPlace()
         val out = ArrayList<Int>()
         for (i in vessel.defs.indices) {
-            if (hailFragility(vessel.defs[i]) <= 0.0 || vessel.health[i] <= 0.0 || inside.getOrElse(i) { false }) continue
+            if (fragility(vessel.defs[i]) <= 0.0 || vessel.health[i] <= 0.0 || inside.getOrElse(i) { false }) continue
             vessel.partOffsetWorld(i, hailOffset)
             var covered = false
             for (j in vessel.defs.indices) {
@@ -7153,6 +7203,17 @@ class World(
 
         /** The furthest back a look at the hail goes, in seconds, after a long warp. */
         private const val HAIL_LONGEST = 6.0 * 3_600.0
+
+        /**
+         * Tornado debris is looked at every this many seconds, none under [DEBRIS_LEAST]; a knock's
+         * chance a second at full debris, its health off at full debris (0.5-1.5 x that), and what
+         * sturdy parts take of it.
+         */
+        internal const val DEBRIS_STEP = 2.0
+        private const val DEBRIS_LEAST = 0.05
+        internal const val DEBRIS_KNOCKS = 0.15
+        internal const val DEBRIS_DAMAGE = 0.05
+        internal const val DEBRIS_STURDY = 0.25
 
         /** Above this, in metres, nothing hails. */
         private const val HAIL_CEILING = 20_000.0

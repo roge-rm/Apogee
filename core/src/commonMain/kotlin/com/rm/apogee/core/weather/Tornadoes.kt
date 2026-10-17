@@ -1,8 +1,13 @@
 package com.rm.apogee.core.weather
 
+import com.rm.apogee.core.math.StrictMath
 import com.rm.apogee.core.math.Vec3
+import com.rm.apogee.core.orbit.SolarSystem
 import com.rm.apogee.core.sea.DetMath
+import com.rm.apogee.core.terrain.EarthMoisture
+import com.rm.apogee.core.terrain.EarthRelief
 import com.rm.apogee.core.terrain.Noise
+import com.rm.apogee.core.terrain.SurfaceMaterial
 import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
@@ -125,6 +130,8 @@ internal class Tornadoes(
         fun h(k: Int) = Noise.hash(seed + 400 + 16 * w + k, s.cx, s.cy, c)
         if (h(0) >= chance) return false
         val window = (WINDOW_TO - WINDOW_FROM) * Storms.CYCLE / 2.0
+        // Fewer over mountains, deserts, ice and cold country, judged where the storm is mid-window.
+        if (h(0) >= chance * countryFor(s, w, s.start + WINDOW_FROM * Storms.CYCLE + (w + 0.5) * window)) return false
         val life = LIFE_SHORTEST + (LIFE_LONGEST - LIFE_SHORTEST) * h(1)
         val start = s.start + WINDOW_FROM * Storms.CYCLE + w * window + h(2) * (window - life)
         val age = time - start
@@ -178,6 +185,67 @@ internal class Tornadoes(
         v.peak = (0.25 + 0.45 * h(5)) * lifeShape(f) * smooth(0.25, 0.5, b.strength)
         v.age = age; v.life = life; v.turn = b.turn; v.inHurricane = true
         return v.peak > 0.0
+    }
+
+    private val terra = weather.body.id == SolarSystem.HOMEWORLD_ID
+    private val heightScale = bodyRadius / EarthRelief.EARTH_RADIUS
+
+    // [country] per supercell window, direct-mapped.
+    private val cKey = LongArray(COUNTRY_SLOTS) { -1L }
+    private val cValue = DoubleArray(COUNTRY_SLOTS)
+    private val countryAt = Vec3()
+
+    /** [country] where [s] is at [time], kept for its window [w]. */
+    private fun countryFor(s: Storms.Storm, w: Int, time: Double): Double {
+        val key = ((((s.cx.toLong() shl 42) xor (s.cy.toLong() shl 21) xor (s.cycle and 0x1fffffL)) shl 1) or w.toLong()) and Long.MAX_VALUE
+        var hash = key * -0x61c8864680b583ebL
+        hash = hash xor (hash ushr 31)
+        val slot = (hash and (COUNTRY_SLOTS - 1).toLong()).toInt()
+        if (cKey[slot] == key) return cValue[slot]
+        val v = country(storms.centreAt(s, time, countryAt))
+        cKey[slot] = key; cValue[slot] = v
+        return v
+    }
+
+    /**
+     * How much tornado country unit [p] is, [COUNTRY_LEAST]..1: warm, moist, low and flat land is
+     * 1; mountains, deserts, snow, ice and cold country are few. The sea is 1, for waterspouts.
+     */
+    internal fun country(p: Vec3): Double {
+        val t = terrain ?: return 1.0
+        val elevation = t.elevation(p)
+        if (t.hasOcean && elevation < 0.5) return 1.0
+        val m = t.material(p, elevation, 0.0)
+        val ground = when (m) {
+            SurfaceMaterial.SNOW, SurfaceMaterial.ICE,
+            SurfaceMaterial.FROST, SurfaceMaterial.NITROGEN_ICE -> 0.0
+            SurfaceMaterial.SAND, SurfaceMaterial.RED_DUST,
+            SurfaceMaterial.DARK_SAND, SurfaceMaterial.SALT -> 0.15
+            else -> 1.0
+        }
+        // Flat and low, in Earth metres so it reads the same on a smaller world.
+        frame(p, e1, e2)
+        var lo = elevation; var hi = elevation
+        for (k in 0 until 4) {
+            val c = if (k == 0) 1.0 else if (k == 2) -1.0 else 0.0
+            val sn = if (k == 1) 1.0 else if (k == 3) -1.0 else 0.0
+            ring.setTo(p).mulInPlace(bodyRadius).addScaledInPlace(e1, c * RELIEF_REACH).addScaledInPlace(e2, sn * RELIEF_REACH).normalizeInPlace()
+            val h = t.elevation(ring)
+            lo = min(lo, h); hi = max(hi, h)
+        }
+        val flat = (1.0 - smooth(HIGH_FROM, HIGH_FULL, elevation / heightScale)) *
+            (1.0 - smooth(RELIEF_FROM, RELIEF_FULL, (hi - lo) / heightScale))
+        var v = ground * flat
+        if (terra && v > 0.0) {
+            // Mid-latitudes most, the tropics some, none toward the poles; dry country few.
+            val latitude = kotlin.math.abs(StrictMath.atan2(p.y, sqrt(p.x * p.x + p.z * p.z))) * (180.0 / kotlin.math.PI)
+            val warm = (TROPICS + (1.0 - TROPICS) * smooth(12.0, 24.0, latitude)) * (1.0 - smooth(44.0, 54.0, latitude)) *
+                (1.0 - weather.blizzardModel.coldness(p))
+            val longitude = StrictMath.atan2(p.z, p.x) * (180.0 / kotlin.math.PI)
+            val moist = smooth(DRY, MOIST, EarthMoisture.sample(longitude, if (p.y >= 0.0) latitude else -latitude))
+            v *= warm * moist
+        }
+        return COUNTRY_LEAST + (1.0 - COUNTRY_LEAST) * v
     }
 
     // Ground results kept per tornado and 100 m cell of where it is, direct-mapped. They come from
@@ -284,6 +352,59 @@ internal class Tornadoes(
         out.storm = max(out.storm, s * edge)
     }
 
+    private val debrisCells = ArrayList<Storms.Storm>(8)
+    private val debrisEast = Vec3()
+    private val debrisNorth = Vec3()
+
+    /**
+     * How much debris a land tornado throws at unit [up], [agl] metres over the ground, at [time],
+     * 0..1: its strength inside [DEBRIS_CORES] core radii of its middle, low down. Supercells' only,
+     * not hurricane bands'; none from waterspouts.
+     */
+    fun debrisAt(up: Vec3, agl: Double, time: Double): Double {
+        if (!active || !enabled || agl > DEBRIS_TOP) return 0.0
+        frame(up, debrisEast, debrisNorth)
+        storms.supercellsAround(up, debrisEast, debrisNorth, time, debrisCells)
+        var most = 0.0
+        for (n in 0 until debrisCells.size) {
+            val s = debrisCells[n]
+            for (w in 0 until 2) {
+                if (!supercellVortex(s, w, time, v)) continue
+                val ring = DEBRIS_CORES * v.core
+                val d = v.centre.distanceTo(up) * bodyRadius
+                if (d >= ring) continue
+                ground(v)
+                if (v.water >= 0.5) continue
+                val k = v.strength * (1.0 - v.water) * (1.0 - smooth(0.6 * ring, ring, d)) * (1.0 - smooth(DEBRIS_LOW, DEBRIS_TOP, agl))
+                most = max(most, k)
+            }
+        }
+        return most.coerceAtMost(1.0)
+    }
+
+    /**
+     * Whether [debrisAt] could be over 0 at unit [up] at any time from [from] to [to]: some
+     * supercell round it has a tornado window then. Never false where [debrisAt] isn't 0.
+     */
+    fun debrisMaybe(up: Vec3, from: Double, to: Double): Boolean {
+        if (!active || !enabled || to < from) return false
+        frame(up, debrisEast, debrisNorth)
+        storms.supercellsAroundBetween(up, debrisEast, debrisNorth, from, to, debrisCells)
+        val window = (WINDOW_TO - WINDOW_FROM) * Storms.CYCLE / 2.0
+        for (n in 0 until debrisCells.size) {
+            val s = debrisCells[n]
+            val c = s.cycle.toInt()
+            for (w in 0 until 2) {
+                fun h(k: Int) = Noise.hash(seed + 400 + 16 * w + k, s.cx, s.cy, c)
+                if (h(0) >= chance) continue
+                val life = LIFE_SHORTEST + (LIFE_LONGEST - LIFE_SHORTEST) * h(1)
+                val start = s.start + WINDOW_FROM * Storms.CYCLE + w * window + h(2) * (window - life)
+                if (start < to && start + life > from) return true
+            }
+        }
+        return false
+    }
+
     /**
      * The tornadoes alive at [time] whose reach comes within [reach] metres of unit [up], into
      * [out]. Makes new objects, so not for every sample.
@@ -334,6 +455,27 @@ internal class Tornadoes(
         /** The core's wind at full strength, in m/s, and its updraught. */
         const val MAX_WIND = 100.0
         const val CORE_LIFT = 60.0
+
+        /** Debris flies within this many core radii of the middle, thinning from [DEBRIS_LOW] to [DEBRIS_TOP] metres up. */
+        const val DEBRIS_CORES = 3.0
+        const val DEBRIS_LOW = 80.0
+        const val DEBRIS_TOP = 350.0
+
+        /** The least [country] there is, so the worst land still sees one now and then. */
+        const val COUNTRY_LEAST = 0.06
+        const val COUNTRY_SLOTS = 64
+
+        /** Land gets fewer from [HIGH_FROM] to [HIGH_FULL] Earth metres up, and rising and falling [RELIEF_FROM] to [RELIEF_FULL] within [RELIEF_REACH] metres. */
+        const val HIGH_FROM = 700.0
+        const val HIGH_FULL = 1_800.0
+        const val RELIEF_FROM = 250.0
+        const val RELIEF_FULL = 900.0
+        const val RELIEF_REACH = 4_000.0
+
+        /** Terra: the tropics' share, and moisture from [DRY] to [MOIST]. */
+        const val TROPICS = 0.3
+        const val DRY = 0.28
+        const val MOIST = 0.45
 
         /** Ground results are kept per this many metres, in this many slots. */
         const val GROUND_CELL = 100.0

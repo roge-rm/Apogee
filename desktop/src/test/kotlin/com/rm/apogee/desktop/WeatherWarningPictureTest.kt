@@ -50,6 +50,9 @@ class WeatherWarningPictureTest {
             "blizzard-danger" to warning(WeatherWarnings.Kind.BLIZZARD, 0.0, 0.0, true),
             "hail" to warning(WeatherWarnings.Kind.HAIL, 4_200.0, 0.0, false),
             "hail-danger" to warning(WeatherWarnings.Kind.HAIL, 0.0, 0.0, true),
+            "ash" to warning(WeatherWarnings.Kind.ASH, 22_000.0, 0.0, false),
+            "ash-danger" to warning(WeatherWarnings.Kind.ASH, 0.0, 0.0, true),
+            "eruption" to warning(WeatherWarnings.Kind.ERUPTION, 85_000.0, 0.0, false),
             // Struck by lightning in heavy hail, crewed: the outage beside the warning.
             "struck" to warning(WeatherWarnings.Kind.HAIL, 0.0, 0.0, true),
         )

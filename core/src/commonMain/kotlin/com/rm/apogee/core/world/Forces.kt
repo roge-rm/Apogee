@@ -117,8 +117,10 @@ class Forces {
                 spinTo(spunBefore, effectiveThrottle, dt).also { if (partIndex < vessel.spool.size) vessel.spool[partIndex] = it }
             } else effectiveThrottle
 
+            // What breathes air chokes in volcanic ash; a jet flames out in thick ash.
+            val choke = ashChoke(engine, vessel.air.ash)
             val thrustMagnitude = lerp(engine.thrustVacuum, engine.thrustSeaLevel, pressureRatio) *
-                drive
+                drive * choke
             val isp = lerp(engine.ispVacuum, engine.ispSeaLevel, pressureRatio)
             if (thrustMagnitude <= 0.0 || isp <= 0.0) continue
 
@@ -148,7 +150,7 @@ class Forces {
             val feedFraction = if (unitsNeeded > 0.0) unitsDrawn / unitsNeeded else 0.0
             val actualThrust = thrustMagnitude * feedFraction
             lastMassFlow += massFlow * feedFraction
-            vessel.engineOutput[partIndex] = drive * feedFraction
+            vessel.engineOutput[partIndex] = drive * feedFraction * (if (propeller) 1.0 else choke)
 
             // Anything pushing on the water steers with less swing once the turn pulls the boat
             // hard sideways, or full lock at speed trips a jet boat over.
@@ -162,6 +164,20 @@ class Forces {
             vessel.partOffsetWorld(partIndex, scratchOffset)
             vessel.body.applyForceAtOffset(scratchForce, scratchOffset)
             vessel.recordForce(partIndex, scratchForce)
+        }
+    }
+
+    /**
+     * How much of [engine]'s thrust is left in volcanic ash [ash] (0..1): a jet's falls to nothing
+     * (it flames out), a propeller on fuel loses some; rockets, water props and electric motors
+     * don't breathe the air, so they're untouched. See [com.rm.apogee.core.weather.Volcanoes].
+     */
+    fun ashChoke(engine: Engine, ash: Double): Double {
+        if (ash <= 0.0 || engine.propellant == com.rm.apogee.core.part.ResourceType.ELECTRIC_CHARGE) return 1.0
+        return when (engine.exhaustKind) {
+            com.rm.apogee.core.part.Exhaust.JET -> com.rm.apogee.core.weather.Volcanoes.jetLeft(ash)
+            com.rm.apogee.core.part.Exhaust.PROP -> com.rm.apogee.core.weather.Volcanoes.propLeft(ash)
+            else -> 1.0
         }
     }
 

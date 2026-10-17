@@ -70,6 +70,12 @@ class AirSample {
     /** How thick the dust looks for how far you see in it, 0..1: as [dust], but a world storm's much thinner. For drawing. */
     var dustLook = 0.0
 
+    /** How thick volcanic ash is, 0..1, from eruptions' columns and the clouds they drift. */
+    var ash = 0.0
+
+    /** How high the ash over here reaches, metres over datum; 0 with none. For drawing. */
+    var ashTop = 0.0
+
     /** How thick blown and falling snow is, 0..1, from blizzards and wind over snow. */
     var snow = 0.0
 
@@ -100,6 +106,8 @@ class AirSample {
         dust = 0.0
         dustTop = 0.0
         dustLook = 0.0
+        ash = 0.0
+        ashTop = 0.0
         snow = 0.0
         snowTop = 0.0
         snowfall = 0.0
@@ -119,6 +127,8 @@ class AirSample {
         dust = other.dust
         dustTop = other.dustTop
         dustLook = other.dustLook
+        ash = other.ash
+        ashTop = other.ashTop
         snow = other.snow
         snowTop = other.snowTop
         snowfall = other.snowfall

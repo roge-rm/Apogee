@@ -184,6 +184,33 @@ class EffectsTest {
     }
 
     @Test
+    fun `ash flecks drift down near the camera, off the middle of the view and within their share`() {
+        val up = Vec3(0.0, 1.0, 0.0)
+        val camera = up.copy().mulInPlace(terra.radius + maxOf(terra.terrain!!.elevation(up), 0.0) + 2.0)
+        val air = AirSample().also { it.ash = 1.0 }
+        val px = Effects::class.java.getDeclaredField("px").also { it.isAccessible = true }
+        val py = Effects::class.java.getDeclaredField("py").also { it.isAccessible = true }
+        val pz = Effects::class.java.getDeclaredField("pz").also { it.isAccessible = true }
+        val forward = Vec3(1.0, 0.0, 0.0)
+        for (tier in QualityTier.entries) {
+            val f = Effects(tier)
+            repeat(180) { f.step(1.0 / 60.0, it / 60.0, terra, Quat.identity(), emptyList(), null, camera, air, forward) }
+            val x = px.get(f) as DoubleArray; val y = py.get(f) as DoubleArray; val z = pz.get(f) as DoubleArray
+            for (i in 0 until f.particleCount) {
+                val d = Vec3(x[i], y[i], z[i]).subInPlace(camera)
+                assertTrue("off the middle: ${(d dot forward) / d.length}", (d dot forward) / d.length < 0.97)
+                assertTrue("near the camera: ${d.length}", d.length < Effects.ASH_FAR + 5.0)
+            }
+            println("$tier: ${f.particleCount} ash flecks of ${tier.particleBudget}")
+            assertTrue("flecks on $tier", f.particleCount > 20)
+            assertTrue("within its share on $tier", f.particleCount <= tier.particleBudget * Effects.ASH_SHARE * 1.2 + 5)
+        }
+        val none = Effects(QualityTier.HIGH)
+        repeat(60) { none.step(1.0 / 60.0, it / 60.0, terra, Quat.identity(), emptyList(), null, camera, AirSample(), forward) }
+        assertEquals("none with no ash", 0, none.particleCount)
+    }
+
+    @Test
     fun `hail falls fast off the middle of the view, bounces and keeps to its share`() {
         val up = Vec3(0.0, 1.0, 0.0)
         val camera = up.copy().mulInPlace(terra.radius + maxOf(terra.terrain!!.elevation(up), 0.0) + 2.0)

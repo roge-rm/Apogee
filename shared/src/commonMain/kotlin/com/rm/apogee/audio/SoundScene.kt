@@ -130,6 +130,8 @@ class SoundScene(private val budget: Int) {
         val tornado: Double = 0.0,
         val tornadoNear: Double = 0.0,
         val tornadoPan: Float = 0f,
+        /** Debris clattering round its foot, 0..1. */
+        val tornadoDebris: Double = 0.0,
         /** A tsunami's bore or flood coming in: its roar, 0..1, how near, 0..1, and its pan. */
         val tsunami: Double = 0.0,
         val tsunamiNear: Double = 0.0,
@@ -145,6 +147,10 @@ class SoundScene(private val budget: Int) {
         val blizzardNear: Double = 0.0,
         /** Hail round the listener, 0..1. */
         val hail: Double = 0.0,
+        /** An eruption's rumble, 0..1, and its pan, -1 left to 1 right, and ash grit round the listener, 0..1. */
+        val eruption: Double = 0.0,
+        val eruptionPan: Float = 0f,
+        val ash: Double = 0.0,
     ) {
         val inAir: Boolean get() = density > AIRLESS
     }
@@ -317,6 +323,7 @@ class SoundScene(private val budget: Int) {
                 val v = FloatArray(SharedParams.COUNT)
                 v[0] = (listener.tornado * thin).coerceIn(0.0, 1.0).toFloat()
                 v[1] = listener.tornadoNear.coerceIn(0.0, 1.0).toFloat()
+                v[2] = listener.tornadoDebris.coerceIn(0.0, 1.0).toFloat()
                 add(KEY_TORNADO, Recipes.TORNADO, 0, v, 1f, listener.tornadoPan.coerceIn(-0.8f, 0.8f), 0f, weight = v[0] * 0.6f)
             }
             if (listener.tsunami > 0.02) {
@@ -348,6 +355,14 @@ class SoundScene(private val budget: Int) {
                 v[0] = (listener.hail * 1.5 * thin).coerceIn(0.0, 1.0).toFloat()
                 v[1] = listener.hail.coerceIn(0.0, 1.0).toFloat()
                 add(KEY_HAIL, Recipes.HAIL, 0, v, 1f, 0f, 0f, weight = v[0] * 0.5f)
+            }
+            if (listener.eruption > 0.02 || listener.ash > 0.02) {
+                val v = FloatArray(SharedParams.COUNT)
+                v[0] = (listener.eruption * thin).coerceIn(0.0, 1.0).toFloat()
+                v[1] = (listener.ash * thin).coerceIn(0.0, 1.0).toFloat()
+                // Toward the vent by how much of it is the rumble; grit all round is in the middle.
+                val pan = listener.eruptionPan.coerceIn(-0.6f, 0.6f) * v[0] / kotlin.math.max(v[0] + v[1], 1e-6f)
+                add(KEY_ASH, Recipes.ASH, 0, v, 1f, pan, 0f, weight = kotlin.math.max(v[0], v[1]) * 0.5f)
             }
             if (listener.port > 0.02) {
                 val v = FloatArray(SharedParams.COUNT)
@@ -502,6 +517,7 @@ class SoundScene(private val budget: Int) {
         const val KEY_DUST = -14
         const val KEY_BLIZZARD = -15
         const val KEY_HAIL = -16
+        const val KEY_ASH = -17
 
         /**
          * How vacuum-built an engine is, 0..1, from how much thrust it keeps at sea level. A

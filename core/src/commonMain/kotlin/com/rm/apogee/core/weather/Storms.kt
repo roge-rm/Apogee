@@ -782,6 +782,37 @@ internal class Storms(
         }
     }
 
+    /**
+     * The live supercells in the cells round unit [up] at [time], into [out] (cleared first). Makes
+     * nothing, for what's asked often.
+     */
+    fun supercellsAround(up: Vec3, east: Vec3, north: Vec3, time: Double, out: ArrayList<Storm>) {
+        out.clear()
+        if (!active) return
+        val n = cells.around(up, east, north, CELL / bodyRadius, keys, reach = SEARCH)
+        for (k in 0 until n) {
+            val s = storm(keys[k], time)
+            if (s.exists && s.kind == StormKind.SUPERCELL && envelope(s, time) > 0.0) out.add(s)
+        }
+    }
+
+    /**
+     * Every supercell in the cells round unit [up] in any cycle from [from] to [to], into [out]
+     * (cleared first), alive or not then. For a quick look before asking each moment.
+     */
+    fun supercellsAroundBetween(up: Vec3, east: Vec3, north: Vec3, from: Double, to: Double, out: ArrayList<Storm>) {
+        out.clear()
+        if (!active) return
+        val n = cells.around(up, east, north, CELL / bodyRadius, keys, reach = SEARCH)
+        for (k in 0 until n) {
+            val key = keys[k]
+            for (cycle in cycleAt(key, from)..cycleAt(key, to)) {
+                val s = stormIn(key, cycle)
+                if (s.exists && s.kind == StormKind.SUPERCELL) out.add(s)
+            }
+        }
+    }
+
     /** Strikes after [from] up to [to] from the storms around [up], in time order. */
     fun strikes(up: Vec3, east: Vec3, north: Vec3, from: Double, to: Double, out: MutableList<Strike>) {
         if (!active || !climate.lightning || to <= from) return

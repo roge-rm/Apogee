@@ -1182,6 +1182,16 @@ private fun MapIcons(labels: List<com.rm.apogee.game.GameSession.MapLabel>) {
                         else drawLine(colour, a, b, strokeWidth = stroke.width, cap = androidx.compose.ui.graphics.StrokeCap.Round)
                     }
                 }
+                com.rm.apogee.game.GameSession.IconKind.ASH -> {
+                    // A cone with ash rising off it.
+                    val g = com.rm.apogee.game.GameSession.ASH_GLYPH
+                    for (pass in 0..1) for (k in 0 until g.size / 4) {
+                        val a = androidx.compose.ui.geometry.Offset(c.x + g[4 * k] * r, c.y + g[4 * k + 1] * r)
+                        val b = androidx.compose.ui.geometry.Offset(c.x + g[4 * k + 2] * r, c.y + g[4 * k + 3] * r)
+                        if (pass == 0) drawLine(shadow, a, b, strokeWidth = stroke.width + 2.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                        else drawLine(colour, a, b, strokeWidth = stroke.width, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                    }
+                }
                 com.rm.apogee.game.GameSession.IconKind.TORNADO -> {
                     // Bars narrowing down to the ground.
                     val g = com.rm.apogee.game.GameSession.TORNADO_GLYPH

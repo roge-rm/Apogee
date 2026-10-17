@@ -124,7 +124,7 @@ class Rotors {
             if (kotlin.math.abs(perNewton) < 1e-6) continue
             // As much as it can push at the speed it's turning, which is the main rotor's.
             val speed = geared ?: vessel.spool[i]
-            val most = rotor.lift * thickness * (speed * speed).coerceAtLeast(MIN_TAIL_GRIP)
+            val most = rotor.lift * thickness * (speed * speed).coerceAtLeast(MIN_TAIL_GRIP) * ashLeft(vessel, rotor)
             val turn = TAIL_TURN * most * kotlin.math.abs(perNewton) * (command dot designUp)
             val output = ((against + turn) / perNewton / most).coerceIn(-1.0, 1.0)
             spinOff(vessel, i, rotor, 0, output, thickness, height, dt, geared = geared)
@@ -194,6 +194,10 @@ class Rotors {
      * Rotor [i] at [output] collective (a tail rotor's can go negative): spool, lift, fuel, twist,
      * and tilt for [cyclic]. A tail rotor turns at [geared] if given, and [output] sets only its pitch.
      */
+    /** The share of [rotor]'s push left in the ash round [vessel]: an engine on fuel chokes, a motor on charge doesn't. */
+    private fun ashLeft(vessel: Vessel, rotor: Rotor): Double =
+        if (rotor.propellant == ResourceType.ELECTRIC_CHARGE) 1.0 else com.rm.apogee.core.weather.Volcanoes.propLeft(vessel.air.ash)
+
     private fun spinOff(
         vessel: Vessel, i: Int, rotor: Rotor, spin: Int, output: Double, thickness: Double, height: Double, dt: Double,
         cyclic: Boolean = false, geared: Double? = null,
@@ -212,7 +216,7 @@ class Rotors {
         // Lift from its speed now. Spooled up, speed squared equals what was asked.
         val speed = if (rotor.tail && geared != null) geared else vessel.spool[i]
         val pull = if (rotor.tail) output * speed * speed else speed * speed
-        var thrust = rotor.lift * thickness * boost * pull
+        var thrust = rotor.lift * thickness * boost * pull * ashLeft(vessel, rotor)
         // Fuel for what it lifts.
         val needed = kotlin.math.abs(thrust) * dt / rotor.efficiency
         val feed = if (rotor.propellant == ResourceType.ELECTRIC_CHARGE) {

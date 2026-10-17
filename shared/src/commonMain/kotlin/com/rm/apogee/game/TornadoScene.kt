@@ -4,6 +4,7 @@ import com.rm.apogee.core.math.Quat
 import com.rm.apogee.core.math.Vec3
 import com.rm.apogee.core.orbit.CelestialBody
 import com.rm.apogee.core.terrain.Noise
+import com.rm.apogee.core.terrain.SurfaceMaterial
 import com.rm.apogee.core.weather.CloudType
 import com.rm.apogee.core.weather.LiveTornado
 import com.rm.apogee.core.weather.Weather
@@ -59,6 +60,8 @@ class TornadoScene(
         /** The wall cloud's width, in metres. */
         val wall: Double,
         val listedAt: Double,
+        /** What it picks up off the ground. */
+        val kind: DebrisKind = DebrisKind.SOIL,
     ) {
         /** Which way it leans, eased toward its track on the frame thread, body-fixed, unit. */
         internal val heading = Vec3()
@@ -67,6 +70,12 @@ class TornadoScene(
 
     @Volatile var near: List<Entry> = emptyList()
         private set
+
+    /** For pictures: the ground kind every tornado's debris takes, instead of the ground's own. */
+    var kindOverride: DebrisKind? = null
+
+    /** The bits thrown this frame, after [append]. */
+    val debris = TornadoDebris(tier)
 
     /** Every live tornado on the world, as last listed for the map. Empty until the map asks. */
     @Volatile var all: List<LiveTornado> = emptyList()
@@ -141,10 +150,21 @@ class TornadoScene(
                 phase1 = 2.0 * PI * h(6), phase2 = 2.0 * PI * h(7), phase3 = 2.0 * PI * h(8),
                 wall = 900.0 + 900.0 * h(9) + 4.0 * t.coreRadius,
                 listedAt = time,
+                kind = kindOverride ?: kindOf(t.centre, ground),
             ).also { e ->
                 // Its lean carries on from the last listing's.
                 before.firstOrNull { it.tornado.id == t.id }?.let { old -> e.heading.setTo(old.heading); e.headingAt = old.headingAt }
             }
+        }
+    }
+
+    /** What a tornado at unit [d] picks up, by the ground there. */
+    private fun kindOf(d: Vec3, ground: Double): DebrisKind {
+        val terrain = body.terrain ?: return DebrisKind.SOIL
+        return when (terrain.material(d, ground, 0.0)) {
+            SurfaceMaterial.SNOW, SurfaceMaterial.ICE, SurfaceMaterial.FROST, SurfaceMaterial.NITROGEN_ICE -> DebrisKind.SNOW
+            SurfaceMaterial.SAND, SurfaceMaterial.DARK_SAND, SurfaceMaterial.ORGANIC_SAND, SurfaceMaterial.SALT, SurfaceMaterial.RED_DUST -> DebrisKind.SAND
+            else -> DebrisKind.SOIL
         }
     }
 
@@ -180,6 +200,7 @@ class TornadoScene(
      * [bodyRotation], to [out], in items from [pool] (new ones without).
      */
     fun append(camera: Vec3, bodyRotation: Quat, time: Double, out: MutableList<RenderItem>, pool: RenderItemPool? = null) {
+        debris.clear()
         val list = near
         val n = list.size
         if (n == 0) return
@@ -294,22 +315,75 @@ class TornadoScene(
         val strong = 0.55 + 0.6 * t.strength
         axis(e, foot, whole, length, rope, 0.0, time, p0)
         val alpha = ((if (water) SPRAY_ALPHA else DEBRIS_ALPHA) * touch * fade).toFloat()
-        // A cloud round the very foot.
-        val middleWide = core * 1.1 * strong
-        val middleTall = core * (if (water) 0.35 else 0.9) * strong + 15.0
-        at.setTo(p0).addScaledInPlace(up, 0.3 * middleTall)
-        groundPuff(water, at, middleWide, middleTall, spinAngle * 0.9, alpha, e.variant + 2, bodyRotation, RenderItem.cloudKey(e.key, SLOT_FOOT), out, pool)
-        // Carried round slower than the funnel turns, so it reads as turning rather than a blur.
-        val ringSpin = t.turn * ((RING_SPIN * e.spin * time) % (2.0 * PI))
+        if (water) {
+            // Spray round the very foot, and a ring of it carried round.
+            val middleWide = core * 1.1 * strong
+            val middleTall = core * 0.35 * strong + 15.0
+            at.setTo(p0).addScaledInPlace(up, 0.3 * middleTall)
+            groundPuff(true, e.kind, puffs, at, middleWide, middleTall, spinAngle * 0.9, alpha, e.variant + 2, bodyRotation, RenderItem.cloudKey(e.key, SLOT_FOOT), out, pool)
+            // Carried round slower than the funnel turns, so it reads as turning rather than a blur.
+            val ringSpin = t.turn * ((RING_SPIN * e.spin * time) % (2.0 * PI))
+            for (j in 0 until ring) {
+                val h = Noise.hash(0x70A3, e.key.toInt(), j, 0)
+                val angle = ringSpin + 2.0 * PI * (j + 0.3 * h) / ring
+                val r = core * (1.0 + 0.3 * h) * strong
+                val wide = core * (0.6 + 0.2 * h) * strong
+                val tall = core * (0.25 + 0.15 * h) * strong + 10.0
+                at.setTo(p0).addScaledInPlace(east, cos(angle) * r).addScaledInPlace(north, sin(angle) * r).addScaledInPlace(up, 0.3 * tall)
+                groundPuff(true, e.kind, puffs, at, wide, tall, angle + h, alpha, e.variant + j, bodyRotation, RenderItem.cloudKey(e.key, SLOT_RING + j), out, pool)
+            }
+            return
+        }
+        // Over land a low dirt collar tight round the foot, so the funnel still shows above it,
+        // and streaks of dirt leaning into the turn, swirling round it faster than the ring of spray.
+        val collarWide = core * 0.75 * strong
+        val collarTall = core * 0.4 * strong + 10.0
+        at.setTo(p0).addScaledInPlace(up, 0.25 * collarTall)
+        groundPuff(false, e.kind, puffs, at, collarWide, collarTall, spinAngle * 0.9, alpha * 0.8f, e.variant + 2, bodyRotation, RenderItem.cloudKey(e.key, SLOT_FOOT), out, pool)
+        val swirl = t.turn * ((SWIRL_SPIN * e.spin * time) % (2.0 * PI))
         for (j in 0 until ring) {
             val h = Noise.hash(0x70A3, e.key.toInt(), j, 0)
-            val angle = ringSpin + 2.0 * PI * (j + 0.3 * h) / ring
-            val r = core * (if (water) 1.0 + 0.3 * h else 1.2 + 0.4 * h) * strong
-            val wide = core * (if (water) 0.6 + 0.2 * h else 0.7 + 0.3 * h) * strong
-            val tall = core * (if (water) 0.25 + 0.15 * h else 0.45 + 0.3 * h) * strong + 10.0
-            at.setTo(p0).addScaledInPlace(east, cos(angle) * r).addScaledInPlace(north, sin(angle) * r).addScaledInPlace(up, 0.3 * tall)
-            groundPuff(water, at, wide, tall, angle + h, alpha, e.variant + j, bodyRotation, RenderItem.cloudKey(e.key, SLOT_RING + j), out, pool)
+            val angle = swirl + 2.0 * PI * (j + 0.3 * h) / ring
+            val r = core * (0.75 + 0.3 * h) * strong
+            val along = core * (0.55 + 0.2 * h) * strong
+            val tall = core * (0.2 + 0.15 * h) * strong + 8.0
+            val across = core * (0.22 + 0.08 * h) * strong
+            at.setTo(p0).addScaledInPlace(east, cos(angle) * r).addScaledInPlace(north, sin(angle) * r).addScaledInPlace(up, 0.35 * tall)
+            swirlPuff(e.kind, at, angle, t.turn, along, tall, across, alpha, e.variant + j, bodyRotation, RenderItem.cloudKey(e.key, SLOT_RING + j), out, pool)
         }
+        if (distance < DEBRIS_REACH) throwDebris(e, distance, length, whole, rope, time, touch)
+    }
+
+    private val tangent = Vec3()
+    private val lean = Quat()
+
+    /**
+     * A streak of dirt at [at], [angle] round the foot: long along the way it turns, leaning up
+     * into the turn ([sense] 1 anticlockwise), [along] by [tall] by [across] metres.
+     */
+    private fun swirlPuff(
+        kind: DebrisKind, at: Vec3, angle: Double, sense: Double, along: Double, tall: Double, across: Double, alpha: Float, variant: Int,
+        bodyRotation: Quat, key: Long, out: MutableList<RenderItem>, pool: RenderItemPool?,
+    ) {
+        val item = pool?.take() ?: RenderItemPool.blank()
+        bodyRotation.rotate(at, item.position)
+        // Turn its own x onto the tangent, then lean it about its own z.
+        tangent.setTo(east).mulInPlace(-sin(angle)).addScaledInPlace(north, cos(angle)).mulInPlace(sense)
+        upright.rotate(UNIT_X, dir)
+        val yaw = kotlin.math.atan2(dir.setTo(dir).crossInPlace(tangent) dot up, upright.rotate(UNIT_X, p1) dot tangent)
+        Quat.fromAxisAngle(UNIT_Y, yaw, turn)
+        Quat.fromAxisAngle(UNIT_Z, SWIRL_LEAN, lean)
+        item.rotation.setTo(bodyRotation).mulInPlace(upright).mulInPlace(turn).mulInPlace(lean)
+        val c = item.ownColour()
+        if (dusty) { c[0] = 0.66f; c[1] = 0.46f; c[2] = 0.30f }
+        else when (kind) {
+            DebrisKind.SOIL -> { c[0] = 0.38f; c[1] = 0.30f; c[2] = 0.23f }
+            DebrisKind.SAND -> { c[0] = 0.64f; c[1] = 0.54f; c[2] = 0.39f }
+            DebrisKind.SNOW -> { c[0] = 0.80f; c[1] = 0.83f; c[2] = 0.88f }
+        }
+        tint(c)
+        c[3] = alpha
+        out.add(item.refill(puffs[variant % PUFF_VARIANTS], c, StackCaps.BOTH, item.ownScale().setTo(along, tall, across), CLOUD_AMBIENT, true, key, orderedTransparency = true))
     }
 
     /**
@@ -329,8 +403,78 @@ class TornadoScene(
             .addScaledInPlace(track, along).addScaledInPlace(side, across)
     }
 
+    /**
+     * [e]'s debris into [debris]: pieces each on a loop of their own, spiralling up round the
+     * funnel, then flung out past the dirt on a curving path and falling, some drawn back in,
+     * worked out from [time] alone. Fewer and fainter far off; each tornado takes what's left of
+     * the budget, less the further it is.
+     */
+    private fun throwDebris(e: Entry, distance: Double, length: Double, whole: Double, rope: Double, time: Double, touch: Double) {
+        val t = e.tornado
+        val shown = touch * (1.0 - smooth(0.6 * DEBRIS_REACH, DEBRIS_REACH, distance))
+        if (shown <= 0.01) return
+        val left = debris.capacity - debris.count
+        val n = (left * DEBRIS_SHARE * (1.0 - 0.75 * smooth(1_500.0, DEBRIS_REACH, distance))).toInt()
+        val core = t.coreRadius
+        val strong = 0.55 + 0.6 * t.strength
+        val seed = e.key.toInt()
+        for (j in 0 until n) {
+            fun h(k: Int) = Noise.hash(0x70B0 + k, seed, j, 0)
+            val period = 7.0 + 9.0 * h(1)
+            val u = (time / period + h(2)).let { it - kotlin.math.floor(it) }
+            val top = kotlin.math.min((40.0 + 420.0 * h(4) * h(4)) * strong, 0.8 * whole)
+            val r0 = core * (0.55 + 0.45 * h(5))
+            val speed = (25.0 + 45.0 * t.strength) * (0.7 + 0.6 * h(7))
+            val rise = 0.45 + 0.25 * h(3)
+            val back = h(8) < 0.3
+            val r: Double; val height: Double; val travelled: Double
+            if (u < rise) {
+                // Spiralling up round the funnel, widening as it climbs.
+                val s = u / rise
+                r = r0 * (1.0 + 0.4 * s)
+                height = top * s * (2.0 - s)
+                travelled = speed * u * period
+            } else {
+                // Flung out and falling, its turn dying away so the path curves; some drawn back in.
+                val s = (u - rise) / (1.0 - rise)
+                val out = core * (1.5 + 3.0 * h(13)) * strong
+                r = r0 * 1.4 + out * (if (back) kotlin.math.sin(PI * s) * 0.7 else s * (2.0 - s))
+                height = top * (1.0 - s * s) + 0.25 * top * 4.0 * s * (1.0 - s)
+                travelled = speed * (rise + (u - rise) * (1.0 - 0.5 * (u - rise) / (1.0 - rise))) * period * 0.6
+            }
+            val angle = 2.0 * PI * h(6) + t.turn * travelled / (1.25 * r0)
+            val a = smooth(0.0, 0.05, u) * (1.0 - smooth(0.93, 1.0, u)) * shown
+            if (a <= 0.02) continue
+            // Round the funnel's axis at that height, measured from the ground.
+            val along = (height / kotlin.math.max(length, 1.0)).coerceIn(0.0, 1.0)
+            axis(e, foot, whole, length, rope, along, time, at)
+            at.addScaledInPlace(up, -(whole - length + length * along) + height)
+                .addScaledInPlace(east, cos(angle) * r).addScaledInPlace(north, sin(angle) * r)
+            // Boards and branches long and thin, clods stubby, each tumbling end over end.
+            val c = h(12)
+            val board = c >= 0.7
+            val branch = c >= 0.4 && !board
+            val long = if (board) 1.2 + 1.6 * h(9) else if (branch) 0.9 + 1.4 * h(9) else 0.4 + 0.6 * h(9)
+            val wide = if (board) 0.22 * long else if (branch) 0.12 * long else 0.7 * long
+            val spin = (1.5 + 3.5 * h(10)) * time + 6.3 * h(11)
+            val fore = 0.3 + 0.7 * kotlin.math.abs(cos(spin))
+            val turned = 0.6 * spin + 6.3 * h(14)
+            when (e.kind) {
+                DebrisKind.SOIL -> if (board) debris.add(at, long, wide, turned, fore, 0.24f, 0.20f, 0.16f, a.toFloat())
+                    else if (branch) debris.add(at, long, wide, turned, fore, 0.07f, 0.06f, 0.05f, a.toFloat())
+                    else debris.add(at, long, wide, turned, fore, 0.12f, 0.09f, 0.07f, a.toFloat())
+                DebrisKind.SAND -> if (board) debris.add(at, long, wide, turned, fore, 0.24f, 0.20f, 0.16f, a.toFloat())
+                    else if (branch) debris.add(at, long, wide, turned, fore, 0.09f, 0.08f, 0.06f, a.toFloat())
+                    else debris.add(at, long, wide, turned, fore, 0.34f, 0.27f, 0.18f, a.toFloat())
+                DebrisKind.SNOW -> if (board) debris.add(at, long, wide, turned, fore, 0.24f, 0.20f, 0.16f, a.toFloat())
+                    else if (branch) debris.add(at, long, wide, turned, fore, 0.07f, 0.06f, 0.05f, a.toFloat())
+                    else debris.add(at, long, wide, turned, fore, 0.72f, 0.76f, 0.82f, a.toFloat())
+            }
+        }
+    }
+
     private fun groundPuff(
-        water: Boolean, at: Vec3, wide: Double, tall: Double, yaw: Double, alpha: Float, variant: Int,
+        water: Boolean, kind: DebrisKind, shapes: Array<CloudPuff>, at: Vec3, wide: Double, tall: Double, yaw: Double, alpha: Float, variant: Int,
         bodyRotation: Quat, key: Long, out: MutableList<RenderItem>, pool: RenderItemPool?,
     ) {
         val item = pool?.take() ?: RenderItemPool.blank()
@@ -340,10 +484,14 @@ class TornadoScene(
         val c = item.ownColour()
         if (water) { c[0] = 0.86f; c[1] = 0.89f; c[2] = 0.93f }
         else if (dusty) { c[0] = 0.66f; c[1] = 0.46f; c[2] = 0.30f }
-        else { c[0] = 0.42f; c[1] = 0.34f; c[2] = 0.26f }
+        else when (kind) {
+            DebrisKind.SOIL -> { c[0] = 0.42f; c[1] = 0.34f; c[2] = 0.26f }
+            DebrisKind.SAND -> { c[0] = 0.68f; c[1] = 0.58f; c[2] = 0.42f }
+            DebrisKind.SNOW -> { c[0] = 0.82f; c[1] = 0.85f; c[2] = 0.90f }
+        }
         tint(c)
         c[3] = alpha
-        out.add(item.refill(puffs[variant % PUFF_VARIANTS], c, StackCaps.BOTH, item.ownScale().setTo(wide, tall, wide), CLOUD_AMBIENT, true, key, orderedTransparency = true))
+        out.add(item.refill(shapes[variant % PUFF_VARIANTS], c, StackCaps.BOTH, item.ownScale().setTo(wide, tall, wide), CLOUD_AMBIENT, true, key, orderedTransparency = true))
     }
 
     private fun puff(
@@ -387,12 +535,16 @@ class TornadoScene(
     /** Which way it's heard from, body-fixed, unit, after [heard]. */
     val heardFrom = Vec3()
 
+    /** How much debris is heard clattering round a land tornado's foot, 0..1, after [heard]. */
+    var rattle = 0.0
+        private set
+
     /**
      * Works out [loudness], [closeness] and [heardFrom] for ears at body-fixed [camera] at [time]:
      * the loudest roar, rising as you get near and with its strength, nothing past [HEARD_REACH].
      */
     fun heard(camera: Vec3, time: Double) {
-        loudness = 0.0; closeness = 0.0
+        loudness = 0.0; closeness = 0.0; rattle = 0.0
         val list = near
         for (i in list.indices) {
             val e = list[i]
@@ -408,6 +560,12 @@ class TornadoScene(
             val d = at.distanceTo(camera)
             if (d >= HEARD_REACH) continue
             val close = 1.0 - smooth(1.5 * t.coreRadius, HEARD_NEAR, d)
+            // Debris near the foot, low down, over land.
+            if (!t.overWater) {
+                val low = 1.0 - smooth(0.3 * RATTLE_HEIGHT, RATTLE_HEIGHT, height)
+                val r = down * (0.4 + 0.6 * t.strength) * (1.0 - smooth(1.5 * t.coreRadius, 3.0 * t.coreRadius + RATTLE_REACH, d)) * low
+                if (r > rattle) rattle = r
+            }
             val loud = down * (0.45 + 0.55 * t.strength) * (1.0 - smooth(0.0, HEARD_REACH, d)).let { it * sqrt(it) } * (0.35 + 0.65 * close)
             if (loud > loudness) {
                 loudness = loud
@@ -432,6 +590,8 @@ class TornadoScene(
 
     companion object {
         private val UNIT_Y = Vec3(0.0, 1.0, 0.0)
+        private val UNIT_X = Vec3(1.0, 0.0, 0.0)
+        private val UNIT_Z = Vec3(0.0, 0.0, 1.0)
 
         /** How often the near ones are listed, in seconds, or when the camera has gone this far, in metres. */
         const val RELIST_SECONDS = 1.0
@@ -488,9 +648,23 @@ class TornadoScene(
         /** Debris and spray are drawn out to here, in metres. */
         const val RING_REACH = 25_000.0
 
+        /** Thrown bits are drawn out to here, in metres. */
+        const val DEBRIS_REACH = 6_000.0
+
+        /** How fast the dirt streaks swirl round the foot, as a share of the funnel's turn, and how far they lean, radians. */
+        const val SWIRL_SPIN = 0.6
+        const val SWIRL_LEAN = 0.45
+
+        /** The share of the debris budget the nearest tornado takes: fewer, bigger pieces. */
+        const val DEBRIS_SHARE = 0.4
+
         /** The roar is gone past [HEARD_REACH] metres and at its fullest inside [HEARD_NEAR]. */
         const val HEARD_REACH = 4_000.0
         const val HEARD_NEAR = 1_200.0
+
+        /** Debris is heard out to this many metres past three core radii, and up to this high. */
+        const val RATTLE_REACH = 600.0
+        const val RATTLE_HEIGHT = 400.0
 
         const val VARIANTS = 3
         const val PUFF_VARIANTS = com.rm.apogee.render.CloudShapes.VARIANTS

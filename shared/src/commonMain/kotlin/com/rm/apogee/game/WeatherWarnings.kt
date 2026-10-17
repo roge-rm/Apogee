@@ -5,6 +5,7 @@ import com.rm.apogee.core.weather.AirSample
 import com.rm.apogee.core.weather.DustKind
 import com.rm.apogee.core.weather.LiveBlizzard
 import com.rm.apogee.core.weather.LiveDust
+import com.rm.apogee.core.weather.LiveEruption
 import com.rm.apogee.core.weather.LiveHail
 import com.rm.apogee.core.orbit.CelestialBody
 import com.rm.apogee.core.weather.LiveHurricane
@@ -19,7 +20,7 @@ import kotlin.concurrent.Volatile
 import kotlin.math.roundToInt
 
 /**
- * The one hurricane, tornado, quake, tsunami, dust storm, blizzard or hail shaft most worth a warning at a place, worked out from the
+ * The one hurricane, tornado, quake, tsunami, dust storm, blizzard, hail shaft or eruption most worth a warning at a place, worked out from the
  * weather model, so a replica gets the same as the server with nothing sent.
  *
  * Listed off the frame thread about once a second, or sooner when warped.
@@ -29,11 +30,11 @@ class WeatherWarnings(
     private val config: WeatherConfig,
     private val scope: kotlinx.coroutines.CoroutineScope?,
 ) {
-    enum class Kind { TORNADO, WATERSPOUT, TSUNAMI, HURRICANE, QUAKE, AFTERSHOCKS, DUST, DUST_STORM, BLIZZARD, HAIL }
+    enum class Kind { TORNADO, WATERSPOUT, TSUNAMI, HURRICANE, QUAKE, AFTERSHOCKS, DUST, DUST_STORM, BLIZZARD, HAIL, ASH, ERUPTION }
 
     /**
      * One warning. [distance] is metres to a hurricane's eye, a tornado's foot, a quake or a
-     * haboob's front, a blizzard's edge or a hail shaft's edge (0 inside it); for a
+     * haboob's front, a blizzard's edge, a hail shaft's edge or an ash cloud's edge (0 inside it), or an erupting vent; for a
      * tsunami or a quake, [seconds] until it gets here, 0 while it's passing or shaking. [point] is where to look on the map, unit,
      * body-fixed, and [span] how much round it to show, in metres.
      */
@@ -55,6 +56,7 @@ class WeatherWarnings(
             Kind.DUST_STORM -> "DUST STORM"
             Kind.BLIZZARD -> if (distance <= 0.0) "BLIZZARD" else "BLIZZARD ${distanceText(distance)}"
             Kind.HAIL -> if (distance <= 0.0) "HAIL" else "HAIL ${distanceText(distance)}"
+            Kind.ASH -> if (distance <= 0.0) "ASH" else "ASH ${distanceText(distance)}"
             else -> "${kind.name} ${distanceText(distance)}"
         }
 
@@ -135,14 +137,18 @@ class WeatherWarnings(
     private val quakes = ArrayList<LiveQuake>()
     private val shaken = Vec3()
 
-    /** The most urgent warning at body-fixed [at] at [time]: any danger first, then tornado, quake, tsunami, hurricane, dust, blizzard, hail, aftershocks. */
+    /** The most urgent warning at body-fixed [at] at [time]: any danger first, then tornado, quake, tsunami, hurricane, dust, blizzard, hail, ash, eruption, aftershocks. */
     fun find(at: Vec3, time: Double): Warning? = all(at, time).minWithOrNull(compareBy({ !it.danger }, { it.kind.rank }))
 
     /** The nearest or soonest of each kind worth a warning at body-fixed [at] at [time]. */
     fun all(at: Vec3, time: Double): List<Warning> {
         if (!active) return emptyList()
         val altitude = at.length - body.radius
-        if (altitude > TOP) return emptyList()
+        if (altitude > TOP) {
+            // Ash clouds reach higher than the rest; warned of up to their top.
+            if (altitude > ASH_CEILING || airless) return emptyList()
+            return listOfNotNull(ash(at, at.copy().normalizeInPlace(), time, altitude))
+        }
         val up = at.copy().normalizeInPlace()
         val found = ArrayList<Warning>(4)
         if (airless) return listOfNotNull(quake(up, altitude, time))
@@ -174,6 +180,7 @@ class WeatherWarnings(
         dust(at, up, altitude, time)?.let { found += it }
         blizzard(at, up, altitude, time)?.let { found += it }
         hail(at, up, altitude, time)?.let { found += it }
+        ash(at, up, time, altitude)?.let { found += it }
 
         hurricanes.clear()
         weather.hurricanes(up, time, HURRICANE_WARN, hurricanes)
@@ -334,6 +341,62 @@ class WeatherWarnings(
         return best
     }
 
+    private val eruptions = ArrayList<LiveEruption>()
+    private val ashAlong = Vec3()
+    private val ashSide = Vec3()
+
+    /**
+     * An ash cloud within [ASH_WARN] of the craft (a danger in ash [ASH_THICK] thick at the craft),
+     * or with none that near, an erupting vent within [ERUPTION_WARN]; none for one whose top is
+     * under [altitude].
+     */
+    private fun ash(at: Vec3, up: Vec3, time: Double, altitude: Double): Warning? {
+        if (!weather.ashPossible || !weather.ashLive(time)) return null
+        eruptions.clear()
+        weather.eruptions(up, time, ERUPTION_WARN, eruptions)
+        if (eruptions.isEmpty()) return null
+        weather.sample(at, time, air)
+        var best: Warning? = null
+        for (e in eruptions) {
+            if (altitude > kotlin.math.max(e.top, e.columnTop)) continue
+            val toVent = arc(up, e.vent)
+            val edge = ashEdge(e, up)
+            val w = if (edge <= ASH_WARN) {
+                val danger = edge <= 0.0 && air.ash >= ASH_THICK
+                Warning(Kind.ASH, e.id, if (edge <= 0.0) 0.0 else kotlin.math.max(edge, 100.0), 0.0, danger, e.vent.copy(),
+                    kotlin.math.max(toVent * 1.3, kotlin.math.max(e.length * 0.7, ASH_SPAN)))
+            } else if (e.strength > 0.02 && toVent <= ERUPTION_WARN) {
+                Warning(Kind.ERUPTION, e.id, kotlin.math.max(toVent, 100.0), 0.0, false, e.vent.copy(), kotlin.math.max(toVent * 1.3, ASH_SPAN))
+            } else continue
+            val o = best
+            if (o == null || (w.danger && !o.danger) || (w.danger == o.danger && w.kind.rank < o.kind.rank) ||
+                (w.danger == o.danger && w.kind == o.kind && w.distance < o.distance)) best = w
+        }
+        return best
+    }
+
+    /** How far unit [up] is from the edge of [e]'s ash cloud over the ground, metres; 0 inside. */
+    private fun ashEdge(e: LiveEruption, up: Vec3): Double {
+        ashAlong.setTo(e.drift)
+        if (ashAlong.lengthSq < 1e-12 || e.length < 1.0) return arc(up, e.vent) - AshScene.START_WIDTH
+        ashAlong.addScaledInPlace(e.vent, -(ashAlong dot e.vent)).normalizeInPlace()
+        ashSide.setTo(e.vent).crossInPlace(ashAlong).normalizeInPlace()
+        val pv = up dot e.vent; val pf = up dot ashAlong; val pg = up dot ashSide
+        val along = kotlin.math.atan2(pf, pv) * body.radius
+        val across = kotlin.math.abs(kotlin.math.atan2(pg, kotlin.math.sqrt(pv * pv + pf * pf)) * body.radius)
+        val start = AshScene.START_WIDTH
+        val end = kotlin.math.max(e.halfWidth, start)
+        // Once it stops, the cloud starts [LiveEruption.near] downwind, moving away from the vent.
+        val near = e.near.coerceIn(0.0, e.length)
+        fun width(s: Double) = start + (end - start) * s / e.length
+        return when {
+            near <= 0.0 && along < 0.0 -> kotlin.math.max(0.0, kotlin.math.sqrt(along * along + across * across) - start)
+            along < near -> kotlin.math.sqrt((near - along).let { it * it } + kotlin.math.max(0.0, across - width(near)).let { it * it })
+            along > e.length -> kotlin.math.sqrt((along - e.length).let { it * it } + kotlin.math.max(0.0, across - end).let { it * it })
+            else -> kotlin.math.max(0.0, across - width(along))
+        }
+    }
+
     private val cross = Vec3()
 
     /** The distance over the ground between unit [a] and unit [b], in metres. */
@@ -349,8 +412,10 @@ class WeatherWarnings(
             Kind.DUST -> 4
             Kind.BLIZZARD -> 5
             Kind.HAIL -> 6
-            Kind.AFTERSHOCKS -> 7
-            Kind.DUST_STORM -> 8
+            Kind.ASH -> 7
+            Kind.ERUPTION -> 8
+            Kind.AFTERSHOCKS -> 9
+            Kind.DUST_STORM -> 10
         }
 
         /** Mixed into a quake's id for [Warning.event], apart from the other kinds' ids. */
@@ -391,8 +456,16 @@ class WeatherWarnings(
         private const val HAIL_REACH = 1.6
         private const val MAX_SHAFT = 6_000.0
 
+        /** An ash cloud's edge is warned of this far off, in metres, an erupting vent this far, and ash this thick at the craft is a danger. */
+        const val ASH_WARN = 50_000.0
+        const val ERUPTION_WARN = 100_000.0
+        const val ASH_THICK = 0.1
+        private const val ASH_SPAN = 30_000.0
+
         /** Nothing above this, in metres over the datum. */
         const val TOP = 15_000.0
+        /** And nothing for ash above this (higher than any ash top can be). */
+        const val ASH_CEILING = 30_000.0
 
         /** A tornado's warned of within this of its wind's reach, and is a danger within [TORNADO_DANGER]. */
         const val TORNADO_WARN = 15_000.0

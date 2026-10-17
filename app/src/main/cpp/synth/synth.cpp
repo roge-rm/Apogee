@@ -112,6 +112,7 @@ float trim(int r) {
         case recipe::DUST: return 0.15f;  // long, so well under the engines
         case recipe::BLIZZARD: return 0.15f;  // can last hours, so well under the engines
         case recipe::HAIL: return 0.095f;  // minutes at a time, so well under the engines
+        case recipe::ASH: return 0.2f;  // goes on for hours, so well under the engines
         case recipe::ROTOR: return 0.35f;  // under the engines, since it can run for ages
         case recipe::RCS: return 0.25f;  // puffs under the engines
         case recipe::IMPACT: return 0.2f;
@@ -691,21 +692,36 @@ void Synth::renderVoice(Voice& v, float& left, float& right) {
             // A tornado near by: a deep, steady roar that never passes, swelling slowly and
             // unevenly, with a darker rush on top as it comes close. Brown noise through low
             // passes and nothing bright, since it can go on for minutes.
-            float loud = clampf(p[0], 0, 1.5f), close = clampf(p[1], 0, 1);
+            float loud = clampf(p[0], 0, 1.5f), close = clampf(p[1], 0, 1), debris = clampf(p[2], 0, 1);
             // Swells: a slow wander toward a new depth every few seconds.
             v.state[2] -= dt;
             if (v.state[2] <= 0) { v.state[1] = 0.55f + 0.45f * rng.uniform(); v.state[2] = 1.5f + 2.5f * rng.uniform(); }
             v.state[0] += (v.state[1] - v.state[0]) * (dt / 1.4f);
             float swell = v.state[0];
+            // Debris comes in gusts: a quick wander toward a new amount every half second or so.
+            v.state[4] -= dt;
+            if (v.state[4] <= 0) { v.state[5] = 0.3f + 0.7f * rng.uniform(); v.state[4] = 0.25f + 0.6f * rng.uniform(); }
+            v.state[3] += (v.state[5] - v.state[3]) * clampf(dt / 0.15f, 0, 1);
+            float gust = v.state[3];
             if (control) {
                 v.f[0].set(65.0f + 25.0f * swell, 0.9f, sr);
                 v.f[1].set(200.0f + 140.0f * close, 0.7f, sr);
                 v.f[2].set(380.0f + 260.0f * close * swell, 0.8f, sr);
+                v.f[3].set(280.0f + 80.0f * gust, 1.8f, sr);
+                v.f[4].set(620.0f + 140.0f * gust, 2.4f, sr);
             }
             v.f[0].process(v.brown.next(rng.white()));
             v.f[1].process(v.brown2.next(rng.white()));
             v.f[2].process(v.pink.next(rng.white()));
             s = (v.f[0].low * 0.6f + v.f[1].low * (0.6f + 0.5f * swell) + v.f[2].band * 0.9f * close * swell) * loud;
+            // Clatter: dull knocks of soil, branches and boards hitting things, through two low
+            // bands, nothing bright, only near the foot.
+            if (debris > 0.001f) {
+                float knocks = v.crackle.next(rng, (25.0f + 70.0f * debris) * gust, sr);
+                v.f[3].process(knocks);
+                v.f[4].process(knocks);
+                s += (v.f[3].band * 3.6f + v.f[4].band * 1.6f) * debris * loud;
+            }
             break;
         }
         case recipe::TSUNAMI: {
@@ -848,6 +864,37 @@ void Synth::renderVoice(Voice& v, float& left, float& right) {
             v.f[3].process(knocks);
             s = (v.f[0].low * 0.35f * burst + v.f[1].band * 2.2f + v.f[2].band * 0.7f * (0.4f + 0.6f * hard)
                 + v.f[3].band * 2.0f * hard) * loud;
+            break;
+        }
+        case recipe::ASH: {
+            // An eruption heard from afar: a deep, slowly rolling rumble with a dull roar in it,
+            // and inside ash a soft dry hiss of grit. Brown and pink noise, the grit under 1.5 kHz,
+            // nothing bright, since an eruption goes on for hours.
+            float rumble = clampf(p[0], 0, 1.5f), grit = clampf(p[1], 0, 1.5f);
+            // Rolls: a slow wander toward a new strength every second or three.
+            v.state[2] -= dt;
+            if (v.state[2] <= 0) { v.state[1] = 0.4f + 0.6f * rng.uniform(); v.state[2] = 0.8f + 2.2f * rng.uniform(); }
+            v.state[0] += (v.state[1] - v.state[0]) * clampf(dt / 0.6f, 0, 1);
+            // Grit: quick small flurries.
+            v.state[4] -= dt;
+            if (v.state[4] <= 0) { v.state[5] = 0.5f + 0.5f * rng.uniform(); v.state[4] = 0.1f + 0.4f * rng.uniform(); }
+            v.state[3] += (v.state[5] - v.state[3]) * clampf(dt / 0.08f, 0, 1);
+            // Straight in at the start; the level params bring it up.
+            if (v.state[0] < 0.3f) { v.state[0] = v.state[1]; v.state[3] = v.state[5]; }
+            float roll = v.state[0], flurry = v.state[3];
+            if (control) {
+                v.f[0].set(40.0f + 15.0f * roll, 0.8f, sr);
+                v.f[1].set(120.0f + 50.0f * roll, 0.9f, sr);
+                v.f[2].set(260.0f + 60.0f * roll, 0.8f, sr);
+                v.f[3].set(720.0f + 160.0f * flurry, 1.4f, sr);
+            }
+            v.f[0].process(v.brown.next(rng.white()));
+            v.f[1].process(v.brown2.next(rng.white()));
+            v.f[2].process(v.pink.next(rng.white()));
+            v.f[3].process(v.pink2.next(rng.white()));
+            // The grit has a soft low wash under it, so it's never a bare hiss.
+            s = (v.f[0].low * 0.7f * roll + v.f[1].band * 1.0f * roll + v.f[2].band * 0.85f * roll * roll) * rumble
+                + (v.f[3].band * 0.5f * flurry + v.f[1].band * 0.17f) * grit;
             break;
         }
         case recipe::SAIL: {

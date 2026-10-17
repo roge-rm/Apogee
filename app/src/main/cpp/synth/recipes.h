@@ -24,12 +24,13 @@ constexpr int COMPLEX = 16;    // p0 loudness, p1 lamps lit (0..1)
 constexpr int PORT = 17;       // p0 loudness
 constexpr int SAIL = 18;       // p0 how much it's flogging (0..1), p1 wind (0..1)
 constexpr int ROTOR = 19;      // p0 output, p1 blades passing a second, p2 size (0..1)
-constexpr int TORNADO = 20;    // p0 loudness, p1 closeness (0..1)
+constexpr int TORNADO = 20;    // p0 loudness, p1 closeness, p2 debris (0..1)
 constexpr int TSUNAMI = 21;    // p0 loudness, p1 closeness (0..1)
 constexpr int QUAKE = 22;      // p0 loudness, p1 how hard it shakes (0..1)
 constexpr int DUST = 23;       // p0 loudness, p1 how much is sand close by (0..1)
 constexpr int BLIZZARD = 24;   // p0 loudness, p1 how much is snow close by (0..1)
 constexpr int HAIL = 25;       // p0 loudness, p1 how hard it hails (0..1)
+constexpr int ASH = 26;        // p0 an eruption's rumble, p1 ash grit round the ears (0..1)
 constexpr int LAST_CONTINUOUS = 49;
 
 // One-shots: fired once, then they ring out.
@@ -72,7 +73,7 @@ inline int busOf(int r) {
     switch (r) {
         case recipe::WIND: case recipe::RAIN: case recipe::SURF: case recipe::SEA: case recipe::THUNDER: case recipe::FIRE:
         case recipe::COMPLEX: case recipe::PORT: case recipe::TORNADO: case recipe::TSUNAMI:
-        case recipe::QUAKE: case recipe::DUST: case recipe::BLIZZARD: case recipe::HAIL:
+        case recipe::QUAKE: case recipe::DUST: case recipe::BLIZZARD: case recipe::HAIL: case recipe::ASH:
             return bus::ENVIRONMENT;
         case recipe::IMPACT: case recipe::CRUNCH: case recipe::TEAR: case recipe::EXPLOSION: case recipe::SPLASH: case recipe::SLAP:
             return bus::IMPACTS;

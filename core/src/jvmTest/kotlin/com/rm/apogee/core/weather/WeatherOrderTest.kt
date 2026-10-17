@@ -8,7 +8,7 @@ import org.junit.Test
 
 /**
  * The air comes out bit for bit the same whatever was asked of the instance before: points in
- * another order, after other places, other times and the storm, hurricane, dust, blizzard and quake lists.
+ * another order, after other places, other times and the storm, hurricane, dust, blizzard, quake and eruption lists.
  */
 class WeatherOrderTest {
     private val system = SolarSystem.defaultSystem()
@@ -20,8 +20,18 @@ class WeatherOrderTest {
         bits(a.wind.x), bits(a.wind.y), bits(a.wind.z), bits(a.lift), bits(a.turbulence),
         bits(a.cloudDensity), (a.cloudType?.ordinal ?: -1).toLong(), bits(a.precipitation),
         bits(a.visibility), bits(a.dust), bits(a.storm), bits(a.gloom),
-        bits(a.snow), bits(a.snowTop), bits(a.snowfall),
+        bits(a.snow), bits(a.snowTop), bits(a.snowfall), bits(a.ash), bits(a.ashTop),
     )
+
+    /** Along the clouds of the eruptions live at [time], 9 km over datum. */
+    private fun ashPoints(body: CelestialBody, time: Double): List<Vec3> = buildList {
+        val live = ArrayList<LiveEruption>().also { Weather(body, extreme).eruptions(Vec3.unitY(), time, Double.MAX_VALUE, it) }
+        for (e in live) {
+            val heading = e.drift.copy().normalizeInPlace()
+            for (k in 0..6) add(Vec3().setTo(e.vent).mulInPlace(body.radius).addScaledInPlace(heading, e.length * k / 6.0)
+                .normalizeInPlace().mulInPlace(body.radius + 9_000.0))
+        }
+    }
 
     private fun points(body: CelestialBody, seed: Long): List<Vec3> {
         val rnd = java.util.Random(seed)
@@ -49,6 +59,7 @@ class WeatherOrderTest {
         w.quakes(up, time, Double.MAX_VALUE, ArrayList())
         w.dustStorms(up, time, Double.MAX_VALUE, ArrayList())
         w.blizzards(up, time, Double.MAX_VALUE, ArrayList())
+        w.eruptions(up, time, Double.MAX_VALUE, ArrayList())
         w.globalStorms(time, ArrayList())
         for (p in points(body, 7)) {
             val d = Vec3().setTo(p).normalizeInPlace()
@@ -64,7 +75,7 @@ class WeatherOrderTest {
         for (id in listOf("rubra", SolarSystem.HOMEWORLD_ID, "aurantia", "caligo")) {
             val body = system.body(id)
             for (time in doubleArrayOf(20 * 3_600.0, 3 * 86_400.0 + 1_234.5, 137 * 86_400.0 + 4_321.0)) {
-                val spots = points(body, 1)
+                val spots = points(body, 1) + ashPoints(body, time)
                 val first = Weather(body, extreme)
                 val expected = spots.map { first.sample(it, time, AirSample()) }
                 val second = Weather(body, extreme)

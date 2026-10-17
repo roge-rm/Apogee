@@ -25,7 +25,7 @@ class ExtremeAgreeTest {
     private val config = WeatherConfig(intensity = WeatherIntensity.EXTREME)
     private val json = Json { classDiscriminator = "type" }
 
-    private class Lists(val hurricanes: List<LiveHurricane>, val tornadoes: List<LiveTornado>, val tsunamis: List<LiveTsunami>, val quakes: List<LiveQuake>, val dust: List<LiveDust>, val blizzards: List<LiveBlizzard>)
+    private class Lists(val hurricanes: List<LiveHurricane>, val tornadoes: List<LiveTornado>, val tsunamis: List<LiveTsunami>, val quakes: List<LiveQuake>, val dust: List<LiveDust>, val blizzards: List<LiveBlizzard>, val eruptions: List<LiveEruption> = emptyList())
 
     private fun lists(w: Weather, time: Double): Lists {
         val h = ArrayList<LiveHurricane>(); w.hurricanes(Vec3.unitY(), time, Double.MAX_VALUE, h)
@@ -34,17 +34,18 @@ class ExtremeAgreeTest {
         val q = ArrayList<LiveQuake>(); w.quakes(Vec3.unitY(), time, Double.MAX_VALUE, q)
         val d = ArrayList<LiveDust>(); w.dustStorms(Vec3.unitY(), time, Double.MAX_VALUE, d)
         val b = ArrayList<LiveBlizzard>(); w.blizzards(Vec3.unitY(), time, Double.MAX_VALUE, b)
-        return Lists(h.sortedBy { it.id }, t.sortedBy { it.id }, s.sortedBy { it.id }, q.sortedBy { it.id }, d.sortedBy { it.id }, b.sortedBy { it.id })
+        val e = ArrayList<LiveEruption>(); w.eruptions(Vec3.unitY(), time, Double.MAX_VALUE, e)
+        return Lists(h.sortedBy { it.id }, t.sortedBy { it.id }, s.sortedBy { it.id }, q.sortedBy { it.id }, d.sortedBy { it.id }, b.sortedBy { it.id }, e.sortedBy { it.id })
     }
 
-    /** The first time from 6 h on, every 10 min, with a hurricane, a tornado, a tsunami, a recent quake, a haboob and a blizzard all live on Terra. */
+    /** The first time from 6 h on, every 10 min, with a hurricane, a tornado, a tsunami, a recent quake, a haboob, a blizzard and an eruption all live on Terra. */
     private val busy: Double by lazy {
         val terra = SolarSystem.defaultSystem().body(SolarSystem.HOMEWORLD_ID)
         val w = Weather(terra, config)
         var t = 6 * 3_600.0
         while (t < 200 * 3_600.0) {
             val l = lists(w, t)
-            if (l.hurricanes.isNotEmpty() && l.tornadoes.isNotEmpty() && l.tsunamis.isNotEmpty() && l.quakes.isNotEmpty() && l.dust.isNotEmpty() && l.blizzards.isNotEmpty()) return@lazy t
+            if (l.hurricanes.isNotEmpty() && l.tornadoes.isNotEmpty() && l.tsunamis.isNotEmpty() && l.quakes.isNotEmpty() && l.dust.isNotEmpty() && l.blizzards.isNotEmpty() && l.eruptions.any { it.strength > 0.0 }) return@lazy t
             t += 600.0
         }
         error("nothing busy in 200 h")
@@ -93,6 +94,14 @@ class ExtremeAgreeTest {
             same("$w speed", x.speed, y.speed); same("$w length", x.halfLength, y.halfLength); same("$w width", x.halfWidth, y.halfWidth)
             same("$w height", x.height, y.height); same("$w strength", x.strength, y.strength); same("$w age", x.age, y.age); same("$w life", x.life, y.life)
         }
+        assertEquals("$who eruptions", a.eruptions.map { it.id }, b.eruptions.map { it.id })
+        for ((x, y) in a.eruptions.zip(b.eruptions)) {
+            val w = "$who eruption ${x.id}"
+            same("$w vent", x.vent, y.vent); same("$w vent height", x.ventHeight, y.ventHeight); same("$w start", x.start, y.start)
+            same("$w age", x.age, y.age); same("$w life", x.life, y.life); same("$w strength", x.strength, y.strength)
+            same("$w top", x.top, y.top); same("$w column", x.columnTop, y.columnTop); same("$w drift", x.drift, y.drift)
+            same("$w length", x.length, y.length); same("$w width", x.halfWidth, y.halfWidth)
+        }
         for ((x, y) in a.hurricanes.zip(b.hurricanes)) {
             val w = "$who hurricane ${x.id}"
             same("$w centre", x.centre, y.centre); same("$w heading", x.heading, y.heading)
@@ -139,6 +148,17 @@ class ExtremeAgreeTest {
             add(z.centre.copy()); ring(z.centre, 0.5 * z.halfWidth / r, 4)
             add(Vec3().setTo(z.centre).addScaledInPlace(z.heading, 0.9 * z.halfLength / r).normalizeInPlace())
         }
+        // Each eruption's vent, and along and beside its cloud.
+        for (e in l.eruptions) {
+            add(e.vent.copy())
+            val heading = e.drift.copy().normalizeInPlace()
+            val side = Vec3().setTo(e.vent).crossInPlace(heading).normalizeInPlace()
+            for (f in listOf(0.25, 0.5, 0.8)) {
+                val along = e.length * f
+                add(Vec3().setTo(e.vent).mulInPlace(r).addScaledInPlace(heading, along).normalizeInPlace())
+                add(Vec3().setTo(e.vent).mulInPlace(r).addScaledInPlace(heading, along).addScaledInPlace(side, 0.6 * e.halfWidth).normalizeInPlace())
+            }
+        }
         val cape = World.launchSites.first { it.id == "cape" }
         add(SolarSystem.surfaceDirection(cape.latitude, cape.longitude))
     }
@@ -165,9 +185,12 @@ class ExtremeAgreeTest {
     }
 
     /** Also the ground's shaking, a few seconds after each quake listed: lift and velocity and acceleration. */
-    private class Here(val sea: SeaSample?, val air: AirSample, val shake: List<Double>)
+    private class Here(val sea: SeaSample?, val air: AirSample, val shake: List<Double>, val high: AirSample)
 
     private var shakeTimes: List<Double> = emptyList()
+
+    /** Metres over datum where ash clouds mostly drift. */
+    private val ASH_HEIGHT = 9_000.0
 
     private fun at(body: CelestialBody, sea: Sea?, weather: Weather, d: Vec3, time: Double): Here {
         val ground = body.radius + maxOf(body.terrain?.elevation(d) ?: 0.0, 0.0)
@@ -179,7 +202,9 @@ class ExtremeAgreeTest {
             shake += weather.quakeShake(d, t, v, a); shake += v.x; shake += v.y; shake += v.z; shake += a.x; shake += a.y; shake += a.z
             shake += weather.quakeLevel()
         }
-        return Here(s, air, shake)
+        // In an ash cloud's layer.
+        val high = AirSample(); weather.sample(Vec3().setTo(d).mulInPlace(body.radius + ASH_HEIGHT), time, high)
+        return Here(s, air, shake, high)
     }
 
     private fun same(what: String, a: Here, b: Here) {
@@ -195,6 +220,9 @@ class ExtremeAgreeTest {
         same("$what dust", a.air.dust, b.air.dust); same("$what sight", a.air.visibility, b.air.visibility)
         same("$what snow", a.air.snow, b.air.snow); same("$what snowfall", a.air.snowfall, b.air.snowfall)
         same("$what hail", a.air.hail, b.air.hail)
+        same("$what ash", a.air.ash, b.air.ash); same("$what ash top", a.air.ashTop, b.air.ashTop)
+        same("$what high ash", a.high.ash, b.high.ash); same("$what high ash top", a.high.ashTop, b.high.ashTop)
+        same("$what high sight", a.high.visibility, b.high.visibility); same("$what high wind", a.high.wind, b.high.wind)
         assertEquals("$what shake", a.shake.map { bits(it) }, b.shake.map { bits(it) })
     }
 
@@ -220,11 +248,12 @@ class ExtremeAgreeTest {
         // What the server works out, before anything else looks.
         val truth = lists(serverWeather, now)
         shakeTimes = truth.quakes.map { it.start + 3.0 }
-        println("busy at ${time / 3_600.0} h: ${truth.hurricanes.size} hurricanes, ${truth.tornadoes.size} tornadoes, ${truth.tsunamis.size} tsunamis, ${truth.quakes.size} quakes, ${truth.dust.size} dust storms, ${truth.blizzards.size} blizzards")
+        println("busy at ${time / 3_600.0} h: ${truth.hurricanes.size} hurricanes, ${truth.tornadoes.size} tornadoes, ${truth.tsunamis.size} tsunamis, ${truth.quakes.size} quakes, ${truth.dust.size} dust storms, ${truth.blizzards.size} blizzards, ${truth.eruptions.size} eruptions")
         val spots = points(truth, serverTerra.radius) + hailSpots(serverWeather, now)
         val expected = spots.map { at(serverTerra, serverTerra.ocean!!.sea, serverWeather, it, now) }
         assertTrue("points: ${spots.size}", spots.size > 20)
         assertTrue("hailing at some: ${expected.count { it.air.hail > 0.0 }}", expected.count { it.air.hail > 0.0 } >= 3)
+        assertTrue("ash at some: ${expected.count { it.high.ash > 0.0 }}", expected.count { it.high.ash > 0.0 } >= 3)
         val text = json.encodeToString(WorldSave.serializer(), server.save())
 
         // A replica that joined just now, the world saved and loaded, and the renderer's own, each
@@ -276,6 +305,7 @@ class ExtremeAgreeTest {
         val spots = points(truth, terraOf(server).radius) + hailSpots(sw, now)
         val expected = spots.map { at(terraOf(server), terraOf(server).ocean!!.sea, sw, it, now) }
         assertTrue("hailing at some", expected.any { it.air.hail > 0.0 })
+        assertTrue("ash at some", expected.any { it.high.ash > 0.0 })
         // The replica's from empty shared caches, points first and in reverse.
         Weather.forgetShared(terraOf(server))
         for (j in spots.indices.reversed()) same("point $j", expected[j], at(terraOf(replica), terraOf(replica).ocean!!.sea, rw, spots[j], now))

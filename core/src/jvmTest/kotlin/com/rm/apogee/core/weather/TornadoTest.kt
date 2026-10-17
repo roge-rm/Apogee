@@ -71,7 +71,7 @@ class TornadoTest {
     }
 
     @Test
-    fun `a supercell on Extreme usually has one in its mature stage`() {
+    fun `a supercell on Extreme over the sea or tornado country usually has one in its mature stage`() {
         val w = weather(WeatherIntensity.EXTREME)
         val model = w.stormModel
         val with = HashSet<Long>()
@@ -82,7 +82,8 @@ class TornadoTest {
             val e = Vec3(); val n = Vec3()
             frame(Vec3(1.0, 0.0, 0.0), e, n)
             model.supercells(Vec3(1.0, 0.0, 0.0), e, n, 1e9, t, cells)
-            for (s in cells) if (model.envelope(s, t) > 0.9) supercells.add(key(s))
+            val c = Vec3()
+            for (s in cells) if (model.envelope(s, t) > 0.9 && w.tornadoModel.country(model.centreAt(s, t, c)) > 0.9) supercells.add(key(s))
             for (k in all(w, t)) if (!k.inHurricane) with.add(k.id and -2L)
             t += 60.0
         }

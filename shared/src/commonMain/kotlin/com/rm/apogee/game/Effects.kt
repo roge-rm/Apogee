@@ -70,6 +70,8 @@ class Effects(tier: QualityTier) {
     private val flakes = BooleanArray(capacity)
     /** Hail: falls fast and bounces off the ground once or twice. */
     private val pellets = BooleanArray(capacity)
+    /** Ash flecks: drawn in a dark rim, never under ASH_SEEN across as seen. */
+    private val motes = BooleanArray(capacity)
     /**
      * Born since the last step, so it's drawn where it was put at the frame's own time. Moving it
      * on in that step drew anything made this frame a frame ahead of its craft (20 m at 560 m/s).
@@ -182,6 +184,7 @@ class Effects(tier: QualityTier) {
             if (cameraAir != null && cameraAir.precipitation > 0.02 && cameraAir.snowfall < SNOW_NOT_RAIN) rain(dt, cameraAir.precipitation, cameraBodyFixed, body)
             if (cameraAir != null && cameraAir.snow > SNOW_FROM && cameraForward != null) snow(dt, cameraAir.snow, cameraBodyFixed, cameraForward)
             if (cameraAir != null && cameraAir.hail > HAIL_FROM && cameraForward != null) hail(dt, cameraAir.hail, cameraBodyFixed, cameraForward)
+            if (cameraAir != null && cameraAir.ash > ASH_FROM && cameraForward != null) ash(dt, cameraAir.ash, cameraBodyFixed, cameraForward)
             if (cameraAir != null && cameraAir.dust > SAND_FROM && focusHeight - focusGround < SAND_ABOVE && cameraForward != null) sand(dt, cameraAir.dust, cameraBodyFixed, cameraForward)
         }
         seaSpray(dt, time, body)
@@ -711,6 +714,41 @@ class Effects(tier: QualityTier) {
         }
     }
 
+    /**
+     * Ash drifting down past the camera: fine grey flecks going with the wind and settling slowly,
+     * kept off the very middle of the view ([forward] the way it looks).
+     */
+    private fun ash(dt: Double, ash: Double, camera: Vec3, forward: Vec3) {
+        up.setTo(camera).normalizeInPlace()
+        val rate = kotlin.math.min(ASH_RATE * rateScale, capacity * ASH_SHARE / ASH_LIFE)
+        val n = poisson(rate * ((ash - ASH_FROM) / (ASH_FULL - ASH_FROM)).coerceIn(0.0, 1.0) * dt, 999)
+        for (k in 0 until n) {
+            val ox = jitter(k, 1); val oy = jitter(k, 2); val oz = jitter(k, 3)
+            scratch.setTo(ox, oy, oz)
+            if (scratch.lengthSq < 1e-6) continue
+            // Only in front of the camera, where they're seen.
+            val behind = scratch dot forward
+            if (behind < 0.0) scratch.addScaledInPlace(forward, -2.0 * behind)
+            scratch.normalizeInPlace().mulInPlace(ASH_NEAR + (ASH_FAR - ASH_NEAR) * rand(k)).addScaledInPlace(windLow, -0.5 * ASH_LIFE)
+            var clear = true
+            for (step in 0..4) {
+                sandEnd.setTo(scratch).addScaledInPlace(windLow, ASH_LIFE * step / 4.0).addScaledInPlace(up, -ASH_FALL * ASH_LIFE * step / 4.0)
+                if (!offCentre(sandEnd, forward, ASH_CENTRE)) { clear = false; break }
+            }
+            if (!clear) continue
+            // Pale, so they show against the dark haze.
+            val size = 0.035 + 0.035 * rand(k + 11)
+            val grey = 0.85f + 0.15f * rand(k + 13)
+            spawn(
+                x = camera.x + scratch.x, y = camera.y + scratch.y, z = camera.z + scratch.z,
+                vx = windLow.x + up.x * (0.4 * jitter(k, 5) - ASH_FALL), vy = windLow.y + up.y * (0.4 * jitter(k, 6) - ASH_FALL),
+                vz = windLow.z + up.z * (0.4 * jitter(k, 7) - ASH_FALL),
+                life = ASH_LIFE, startSize = size, endSize = size,
+                r = grey, g = grey * 0.97f, b = grey * 0.93f, a = 1f, grip = 0.0, rise = 0.0, mote = true,
+            )
+        }
+    }
+
     /** Whether [offset] from the camera is outside the middle of the view looking along unit [forward]. */
     private fun offCentre(offset: Vec3, forward: Vec3, centre: Double = SAND_CENTRE): Boolean {
         val length = offset.length
@@ -883,7 +921,7 @@ class Effects(tier: QualityTier) {
             size0[i] = size0[last]; size1[i] = size1[last]
             for (c in 0 until 4) colour[i * 4 + c] = colour[last * 4 + c]
             grip[i] = grip[last]; rise[i] = rise[last]; streak[i] = streak[last]
-            glows[i] = glows[last]; falls[i] = falls[last]; flakes[i] = flakes[last]; pellets[i] = pellets[last]; fresh[i] = fresh[last]
+            glows[i] = glows[last]; falls[i] = falls[last]; flakes[i] = flakes[last]; pellets[i] = pellets[last]; motes[i] = motes[last]; fresh[i] = fresh[last]
         }
         count--
     }
@@ -892,7 +930,7 @@ class Effects(tier: QualityTier) {
         x: Double, y: Double, z: Double, vx: Double, vy: Double, vz: Double,
         life: Double, startSize: Double, endSize: Double,
         r: Float, g: Float, b: Float, a: Float, grip: Double, rise: Double, streak: Boolean = false,
-        glow: Boolean = false, fall: Boolean = false, flake: Boolean = false, pellet: Boolean = false,
+        glow: Boolean = false, fall: Boolean = false, flake: Boolean = false, pellet: Boolean = false, mote: Boolean = false,
     ) {
         // Full, so the oldest-looking one makes way rather than the new one not appearing. Fresh
         // smoke matters more than old.
@@ -903,7 +941,7 @@ class Effects(tier: QualityTier) {
         size0[i] = startSize.toFloat(); size1[i] = endSize.toFloat()
         colour[i * 4] = r; colour[i * 4 + 1] = g; colour[i * 4 + 2] = b; colour[i * 4 + 3] = a
         this.grip[i] = grip.toFloat(); this.rise[i] = rise.toFloat(); this.streak[i] = streak
-        glows[i] = glow; falls[i] = fall; flakes[i] = flake; pellets[i] = pellet
+        glows[i] = glow; falls[i] = fall; flakes[i] = flake; pellets[i] = pellet; motes[i] = mote
         fresh[i] = true
     }
 
@@ -1402,8 +1440,11 @@ class Effects(tier: QualityTier) {
         daylight: Float = 1f,
         /** Lightning's light this frame. */
         flash: Float = 0f,
+        /** What tornadoes near by throw this frame. */
+        debris: TornadoDebris? = null,
     ): Pair<FloatArray, Int> {
-        val shapes = count + pelletCount() + bolts.sumOf { (it.shape.main.size - 1) * 2 + it.shape.branches.sumOf { b -> (b.size - 1) * 2 } + BOLT_FINER * 2 }
+        val thrown = debris?.count ?: 0
+        val shapes = count + pelletCount() + thrown + bolts.sumOf { (it.shape.main.size - 1) * 2 + it.shape.branches.sumOf { b -> (b.size - 1) * 2 } + BOLT_FINER * 2 }
         val needed = shapes * 6 * VERTEX_FLOATS
         bufferIndex = (bufferIndex + 1) % buffers.size
         if (buffers[bufferIndex].size < needed) buffers[bufferIndex] = FloatArray(needed + 1024 * VERTEX_FLOATS)
@@ -1450,6 +1491,14 @@ class Effects(tier: QualityTier) {
                 o = hexagon(v, o, p, right, upAxis, stone * 1.3, min(1f, r * 2f), min(1f, g * 2f), min(1f, b * 2f), alpha * 0.85f)
                 o = hexagon(v, o, p, right, upAxis, stone, min(1f, r * 1.4f), min(1f, g * 1.4f), min(1f, b * 1.4f), alpha)
                 written++
+            } else if (motes[i]) {
+                // An ash fleck: pale grey in a dark rim so it shows against the haze, held to its
+                // strength until its last quarter.
+                val fleck = max(size.toDouble(), p.length * ASH_SEEN)
+                val a = colour[i * 4 + 3] * fadeIn * (1f - ((u - 0.75f) / 0.25f).coerceIn(0f, 1f))
+                o = hexagon(v, o, p, right, upAxis, fleck * 1.5, r * 0.25f, g * 0.25f, b * 0.25f, a * 0.8f)
+                o = hexagon(v, o, p, right, upAxis, fleck, min(1f, r * 1.3f), min(1f, g * 1.3f), min(1f, b * 1.3f), a)
+                written++
             } else if (streak[i]) {
                 // A short streak along its travel as seen: rain a long thin line, a spark a glowing
                 // dash as long as it's quick.
@@ -1469,6 +1518,21 @@ class Effects(tier: QualityTier) {
             } else {
                 o = hexagon(v, o, p, right, upAxis, size.toDouble(), r, g, b, alpha)
             }
+            written++
+        }
+        // Tornado debris: dark boards, branches and clods, each a thin quad turned and foreshortened
+        // as it tumbles, never under TornadoDebris.SEEN long as seen.
+        if (debris != null) for (i in 0 until thrown) {
+            p.setTo(debris.x[i], debris.y[i], debris.z[i])
+            bodyRotation.rotate(p, p).subInPlace(cameraPos)
+            val d = p.length
+            val long = max(debris.length[i].toDouble(), d * TornadoDebris.SEEN) * debris.fore[i]
+            val wide = max(debris.width[i].toDouble(), d * TornadoDebris.SEEN_WIDE)
+            val ca = kotlin.math.cos(debris.angle[i].toDouble()); val sa = kotlin.math.sin(debris.angle[i].toDouble())
+            scratch.setTo(right).mulInPlace(ca * max(long, wide)).addScaledInPlace(upAxis, sa * max(long, wide))
+            scratch2.setTo(right).mulInPlace(-sa * wide).addScaledInPlace(upAxis, ca * wide)
+            val c = debris.colour
+            o = quad(v, o, p, scratch, scratch2, c[i * 4] * smokeLight[0], c[i * 4 + 1] * smokeLight[1], c[i * 4 + 2] * smokeLight[2], c[i * 4 + 3])
             written++
         }
         if (bolts.isNotEmpty()) {
@@ -1505,10 +1569,10 @@ class Effects(tier: QualityTier) {
         return v to written
     }
 
-    /** Hailstones alive, each drawn twice (rim and stone). */
+    /** Hailstones and ash flecks alive, each drawn twice (rim and middle). */
     private fun pelletCount(): Int {
         var n = 0
-        for (i in 0 until count) if (pellets[i]) n++
+        for (i in 0 until count) if (pellets[i] || motes[i]) n++
         return n
     }
 
@@ -1818,6 +1882,20 @@ class Effects(tier: QualityTier) {
         const val SNOW_NOT_RAIN = 0.2
         /** A flake's streak is its speed times this long, metres per m/s: blur over a sixtieth of a second. */
         const val FLAKE_SMEAR = 0.015
+        /** Ash round the camera from this much, at most this many flecks a second and this share of the budget, this far off in metres, falling this fast in m/s. */
+        const val ASH_FROM = 0.05
+        const val ASH_RATE = 1_400.0
+        const val ASH_SHARE = 0.35
+        /** Ash at which the flecks are as thick as they get. */
+        const val ASH_FULL = 0.35
+        const val ASH_LIFE = 2.0
+        const val ASH_NEAR = 1.0
+        const val ASH_FAR = 6.0
+        /** Kept a little wider of the middle than snow, as they wander more on the way. */
+        const val ASH_CENTRE = 0.92
+        /** Least size of a fleck as seen [rad], so the far ones aren't lost under a pixel. */
+        const val ASH_SEEN = 0.004
+        const val ASH_FALL = 0.8
         /** Hail round the camera from this much, at most this many stones a second and this share of the budget, this far off in metres. */
         const val HAIL_FROM = 0.05
         const val HAIL_RATE = 600.0

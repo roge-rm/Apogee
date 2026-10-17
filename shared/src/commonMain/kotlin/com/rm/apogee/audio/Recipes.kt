@@ -31,6 +31,7 @@ object Recipes {
     const val DUST = 23
     const val BLIZZARD = 24
     const val HAIL = 25
+    const val ASH = 26
 
     // One-shots.
     const val IMPACT = 50

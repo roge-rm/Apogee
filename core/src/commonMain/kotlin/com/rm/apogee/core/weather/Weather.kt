@@ -35,6 +35,7 @@ import com.rm.apogee.core.math.Math
  * - tsunamis from quakes on the sea floor, which only move the sea ([Tsunamis]);
  * - dust over dry ground: haboobs out of storms, windy days and world-wide storms ([DustStorms]);
  * - blizzards over snow, ice and cold country, and snow lifted on windy days ([Blizzards]);
+ * - volcanic ash from eruptions, drifting downwind of the vent ([Volcanoes]);
  * - layer cloud: stratus, altostratus and cirrus;
  * - turbulence, sampled per part ([turbulence]).
  */
@@ -58,6 +59,7 @@ class Weather(
     private val tsunamis = Tsunamis(this, radius, seed, intensity, quakes)
     private val dustStorms = DustStorms(this, radius, seed, intensity, storms)
     private val blizzards = Blizzards(this, radius, seed, intensity, storms)
+    private val volcanoes = Volcanoes(this, radius, seed, intensity)
     private val stormShapes = StormShapes(storms, seed, radius, climate)
     private val hurricaneShapes = HurricaneShapes(seed, radius, climate)
 
@@ -164,6 +166,7 @@ class Weather(
         tornadoes.apply(position, up, agl, time, out)
         if (dustStorms.active) dustStorms.apply(up, ground, agl, freeSpeed * intensity.wind * fade, dir, time, out)
         if (blizzards.active) blizzards.apply(up, agl, freeSpeed * intensity.wind * fade, dir, time, out)
+        volcanoes.apply(up, altitude, time, out)
         if (climate.layers) layers(up, altitude, groundTop, time, out)
         if (climate.hasDeck) deckAt(altitude, out)
 
@@ -309,6 +312,25 @@ class Weather(
         frame(direction, e, n)
         circulation(direction, e, n, time, out, surfaceInflow = 0.0)
         return out.mulInPlace(1.4 * intensity.wind)
+    }
+
+    /**
+     * The wind [altitude] metres up over unit [direction] at [time] without the ground's or storms'
+     * part: the steering wind, the jet and the upper air racing round. What carries an ash cloud.
+     */
+    internal fun ashWind(direction: Vec3, time: Double, altitude: Double, out: Vec3): Vec3 {
+        steeringWind(direction, time, out)
+        val e = Vec3(); val n = Vec3()
+        frame(direction, e, n)
+        val latitude = asin(direction.y.coerceIn(-1.0, 1.0))
+        val fade = 1.0 - smooth(climate.fadeFrom, climate.ceiling, altitude)
+        val jet = climate.jet * exp(-((altitude - climate.jetHeight) / 3_200.0).let { it * it }) *
+            exp(-((abs(latitude) - 0.7) / 0.25).let { it * it }) * fade * intensity.wind
+        out.addScaledInPlace(e, jet)
+        if (climate.superRotation != 0.0) {
+            out.addScaledInPlace(e, climate.superRotation * smooth(0.0, climate.superRotationHeight, altitude) * fade * intensity.wind)
+        }
+        return out
     }
 
     // --- the permanent deck -------------------------------------------------------
@@ -856,6 +878,28 @@ class Weather(
     fun worldDustShare(time: Double): Double = dustStorms.worldShare(time)
 
     internal val blizzardModel: Blizzards get() = blizzards
+    internal val ashModel: Volcanoes get() = volcanoes
+
+    /**
+     * The eruptions whose ash may come within [reach] metres of unit [direction] at [time], into
+     * [out]. Makes new objects, so not for every sample.
+     */
+    fun eruptions(direction: Vec3, time: Double, reach: Double, out: MutableList<LiveEruption>) {
+        volcanoes.near(direction.copy().normalizeInPlace(), time, reach, out)
+    }
+
+    /** Whether this world and setting can have eruptions at all. */
+    val ashPossible: Boolean get() = volcanoes.active
+
+    /** Whether any eruption is giving out or carrying ash on this world at [time]. Quick. */
+    fun ashLive(time: Double): Boolean = volcanoes.live(time)
+
+    /**
+     * For tests and pictures: one eruption at unit [vent] from [start] in place of all the hashed
+     * ones on this instance, or with [also] one more; its cloud carried by [drift] if given.
+     */
+    fun forceEruption(vent: Vec3, start: Double, strength: Double, drift: Vec3? = null, also: Boolean = false) =
+        volcanoes.force(vent, start, strength, drift, also)
 
     /**
      * The blizzards alive at [time] that come within [reach] metres of unit [direction], into
@@ -910,6 +954,21 @@ class Weather(
     fun tornadoes(direction: Vec3, time: Double, reach: Double, out: MutableList<LiveTornado>) {
         tornadoes.near(direction.copy().normalizeInPlace(), time, reach, out)
     }
+
+    /** Whether this world and setting can have land tornadoes throwing debris. */
+    val debrisPossible: Boolean get() = tornadoes.active
+
+    /**
+     * How much debris a land tornado throws at unit [direction], [agl] metres over the ground, at
+     * [time], 0..1. On its own and cheap, for craft being knocked about.
+     */
+    fun debrisAt(direction: Vec3, agl: Double, time: Double): Double = tornadoes.debrisAt(direction, agl, time)
+
+    /**
+     * Whether a land tornado's debris could reach unit [direction] at any time from [from] to [to]:
+     * false only if [debrisAt] is 0 all through. Looks at each supercell round it once, not each time.
+     */
+    fun debrisMaybe(direction: Vec3, from: Double, to: Double): Boolean = tornadoes.debrisMaybe(direction, from, to)
 
     /**
      * The tsunamis alive at [time] whose wave is within [reach] metres of unit [direction] or
