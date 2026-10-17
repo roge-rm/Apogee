@@ -365,14 +365,14 @@ class CloudScene(
         )
     }
 
-    /** A storm's rain seen from outside it: a grey curtain from its base to the ground. */
+    /** A storm's rain seen from outside it: a grey curtain from its base to the ground, whiter where it hails. */
     private fun curtainFor(lobe: com.rm.apogee.core.weather.CloudLobe, distance: Double, reach: Double, drift: Vec3, listedAt: Double, formed: Double = 1.0, key: Long = 0L): Lobe {
         val up = Vec3().setTo(lobe.centre).normalizeInPlace()
         // Dark and nearly solid; paler, it vanished against the sky beside darker storms.
         val alpha = 0.8 * lobe.shade * (1.0 - smooth(0.65 * reach, reach, distance)) * formed
         return Lobe(
             lobe.centre, quatFromTo(Vec3.unitY(), up), Vec3(lobe.horizontal, lobe.vertical, lobe.horizontal),
-            floatArrayOf(0.22f, 0.24f, 0.29f, alpha.toFloat()), variant = 0, flat = false, distance = distance, tier = tier,
+            hailColour(lobe.hail, alpha.toFloat()), variant = 0, flat = false, distance = distance, tier = tier,
             rain = true, drift = drift, listedAt = listedAt, key = key,
         )
     }
@@ -928,4 +928,14 @@ class CloudScene(
          */
         val LIST = workerPool("cloud-list", 1)
     }
+}
+
+/** How far a hailing curtain goes toward white, at the most. */
+private const val HAIL_TINT = 0.75
+
+/** A rain curtain's colour: dark grey, paler toward white where it hails. */
+internal fun hailColour(hail: Double, alpha: Float): FloatArray {
+    val u = ((hail - 0.05) / 0.55).coerceIn(0.0, 1.0)
+    val h = (HAIL_TINT * u * u * (3.0 - 2.0 * u)).toFloat()
+    return floatArrayOf(0.22f + (0.66f - 0.22f) * h, 0.24f + (0.69f - 0.24f) * h, 0.29f + (0.74f - 0.29f) * h, alpha)
 }

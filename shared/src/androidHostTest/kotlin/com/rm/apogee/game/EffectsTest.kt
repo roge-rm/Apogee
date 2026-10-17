@@ -184,6 +184,72 @@ class EffectsTest {
     }
 
     @Test
+    fun `hail falls fast off the middle of the view, bounces and keeps to its share`() {
+        val up = Vec3(0.0, 1.0, 0.0)
+        val camera = up.copy().mulInPlace(terra.radius + maxOf(terra.terrain!!.elevation(up), 0.0) + 2.0)
+        val air = AirSample().also { it.hail = 1.0 }
+        val px = Effects::class.java.getDeclaredField("px").also { it.isAccessible = true }
+        val py = Effects::class.java.getDeclaredField("py").also { it.isAccessible = true }
+        val pz = Effects::class.java.getDeclaredField("pz").also { it.isAccessible = true }
+        val vx = Effects::class.java.getDeclaredField("vx").also { it.isAccessible = true }
+        val vy = Effects::class.java.getDeclaredField("vy").also { it.isAccessible = true }
+        val vz = Effects::class.java.getDeclaredField("vz").also { it.isAccessible = true }
+        val forward = Vec3(1.0, 0.0, 0.0)
+        for (tier in QualityTier.entries) {
+            val f = Effects(tier)
+            var most = 0
+            var bounced = false
+            repeat(180) {
+                f.step(1.0 / 60.0, it / 60.0, terra, Quat.identity(), emptyList(), null, camera, air, forward)
+                most = maxOf(most, f.particleCount)
+                val y = vy.get(f) as DoubleArray; val x = vx.get(f) as DoubleArray; val z = vz.get(f) as DoubleArray
+                for (i in 0 until f.particleCount) if (Vec3(x[i], y[i], z[i]) dot up > 0.5) bounced = true
+            }
+            val x = px.get(f) as DoubleArray; val y = py.get(f) as DoubleArray; val z = pz.get(f) as DoubleArray
+            val v = vy.get(f) as DoubleArray
+            var fast = 0
+            for (i in 0 until f.particleCount) {
+                val d = Vec3(x[i], y[i], z[i]).subInPlace(camera)
+                assertTrue("near the camera: ${d.length}", d.length < 40.0)
+                if (-v[i] > 10.0) fast++
+            }
+            println("$tier: hail %d at most of %d (%.0f%%), %d falling fast, bounced %b".format(
+                most, tier.particleBudget, 100.0 * most / tier.particleBudget, fast, bounced))
+            assertTrue("hail: $most", most > tier.particleBudget * 0.1)
+            assertTrue("within its share: $most", most <= tier.particleBudget * (Effects.HAIL_SHARE + 0.05))
+            assertTrue("most falling fast: $fast of ${f.particleCount}", fast > f.particleCount / 2)
+            assertTrue("some bounce off the ground", bounced)
+        }
+        // And none in light rain.
+        val f = Effects(QualityTier.MEDIUM)
+        repeat(60) { f.step(1.0 / 60.0, it / 60.0, terra, Quat.identity(), emptyList(), null, camera, AirSample().also { a -> a.hail = 0.02 }, forward) }
+        assertEquals(0, f.particleCount)
+    }
+
+    @Test
+    fun `lightning on the craft flashes full and cracks once`() {
+        val up = Vec3(0.0, 1.0, 0.0)
+        val craft = up.copy().mulInPlace(terra.radius + 500.0)
+        val fx = Effects(QualityTier.MEDIUM)
+        fx.struck(craft, 42L, 15.0, 10.0, own = true)
+        assertEquals(1f, fx.flash, 1e-6f)
+        assertEquals("its thunder", 1, fx.thunder.size)
+        assertEquals(15.0, fx.thunder[0][0], 1e-9)
+        fx.thunder.clear()
+        fx.struck(craft, 42L, 15.0, 10.05, own = true)
+        assertEquals("not twice", 0, fx.thunder.size)
+        val bolts = Effects::class.java.getDeclaredField("bolts").also { it.isAccessible = true }.get(fx) as List<*>
+        assertEquals(1, bolts.size)
+        // Drawn down to the craft.
+        val (vertices, shapes) = fx.vertices(Quat.identity(), craft.copy().addScaledInPlace(Vec3(1.0, 0.0, 0.0), 30.0), Quat.identity(), 1f, 10.1)
+        assertTrue("bolt drawn: $shapes", shapes >= 12 && vertices.isNotEmpty())
+        // Someone else's craft far off only lights the sky a little.
+        val other = Effects(QualityTier.MEDIUM)
+        other.struck(craft, 43L, 20_000.0, 10.0, own = false)
+        assertTrue("dimmer far off: ${other.flash}", other.flash < 0.3f)
+    }
+
+    @Test
     fun `lightning lights the sky`() {
         val weather = Weather(terra, WeatherConfig(intensity = com.rm.apogee.core.weather.WeatherIntensity.WILD))
         val strikes = ArrayList<com.rm.apogee.core.weather.Strike>()

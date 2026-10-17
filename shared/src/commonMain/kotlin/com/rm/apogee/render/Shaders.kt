@@ -41,6 +41,7 @@ object Shaders {
         const float NIGHT_AIR = 0.08;
         // Lightning: its own cold white light, not dimmed at night.
         const vec3 FLASH = vec3(0.8, 0.85, 1.0);
+        const float FLASH_AIR = 0.6;
         uniform float uFlash;
         // Moonlight left with [daylight] of the sun. All of it until the sun is well up, so dusk is
         // never darker than night.
@@ -52,7 +53,8 @@ object Shaders {
         vec3 airHaze(float daylight, float lightScale) {
             float light = NIGHT_AIR + (1.0 - NIGHT_AIR) * daylight;
             vec3 overcast = vec3(0.42, 0.45, 0.50) * (0.4 + 0.6 * lightScale) * light;
-            return mix(uHaze * light, overcast, 1.0 - lightScale);
+            // A strike lights the air it's in.
+            return mix(uHaze * light, overcast, 1.0 - lightScale) + FLASH * FLASH_AIR * uFlash;
         }
         // Lamps after dark: camera-relative position and reach, nearest few. Warm, fading to nothing
         // at the reach, and only lighting what faces them. A beam's way and the cosine of its edge

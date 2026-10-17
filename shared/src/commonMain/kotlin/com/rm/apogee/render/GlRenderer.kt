@@ -378,6 +378,8 @@ class GlRenderer(
         fogUp.setTo(cameraPos).let { if (it.lengthSq > 0.0) it.normalizeInPlace() else it.setTo(0.0, 1.0, 0.0) }
         frameDaylight = latest.world?.let { daylightAt(it, cameraPos) } ?: 1f
         nightDim(latest.world?.fogColor ?: CLEAR_FOG_COLOR, frameDaylight, frameFog)
+        // A strike lights the fog it's in.
+        latest.world?.flash?.takeIf { it > 0f }?.let { f -> for (c in 0 until 3) frameFog[c] += NightLight.FLASH[c] * NightLight.FLASH_AIR * f }
         latest.world?.let { now ->
             val before = previous?.world
             // Only between frames of the same body; across a sphere of influence change the

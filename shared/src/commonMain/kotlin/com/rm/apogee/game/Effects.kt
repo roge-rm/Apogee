@@ -68,6 +68,8 @@ class Effects(tier: QualityTier) {
     private val falls = BooleanArray(capacity)
     /** Snow: a streak only as long as its speed makes it. */
     private val flakes = BooleanArray(capacity)
+    /** Hail: falls fast and bounces off the ground once or twice. */
+    private val pellets = BooleanArray(capacity)
     /**
      * Born since the last step, so it's drawn where it was put at the frame's own time. Moving it
      * on in that step drew anything made this frame a frame ahead of its craft (20 m at 560 m/s).
@@ -92,10 +94,32 @@ class Effects(tier: QualityTier) {
     /** The emission budget per engine per second is scaled to the device. */
     private val rateScale = (capacity / 2048.0).coerceIn(0.5, 3.0)
 
-    private class Bolt(val points: List<Vec3>, val born: Double, val energy: Double)
+    /**
+     * A bolt: its main channel from the ground up and its branches (each from where it leaves the
+     * channel), when it struck, its core's half width in metres, its strokes' start times after
+     * [born] (2 or 3), and how brightly it lights the scene at its strokes' peaks, 0..1.
+     */
+    private class Bolt(var shape: BoltShape, val born: Double, var width: Double, val id: Long, var light: Float) {
+        val strokes: DoubleArray = boltStrokes(id)
+        val seed = (id xor (id ushr 32)).toInt()
+
+        /** How bright its channel is [t] seconds after it struck: each stroke flares and dies over a dim glow. */
+        fun glow(t: Double): Double {
+            var glow = 0.2 * (1.0 - t / BOLT_SECONDS).coerceAtLeast(0.0)
+            for (k in strokes.indices) {
+                val since = t - strokes[k]
+                if (since >= 0.0) glow = max(glow, exp(-since / 0.04) * (1.0 - 0.15 * k))
+            }
+            return glow
+        }
+    }
+
+    private class BoltShape(val main: List<Vec3>, val branches: List<List<Vec3>>)
     private val bolts = ArrayList<Bolt>()
     private var lastStrikeCheck = Double.NaN
     private val strikes = ArrayList<Strike>()
+    /** Strikes drawn to a craft by [struck], so the ground strike isn't drawn again. */
+    private val struckIds = ArrayDeque<Long>()
 
     /** Particles alive right now. */
     val particleCount: Int get() = count
@@ -114,6 +138,9 @@ class Effects(tier: QualityTier) {
     /** How bright the sky is from lightning, 0..1, fading. */
     var flash = 0f
         private set
+
+    /** How hard it's hailing at the camera, 0..1, so rain draws thinner round the stones. */
+    private var hailing = 0f
 
     /**
      * Moves everything on by [dt] at [time]: emits from [emitters], moves particles through the
@@ -154,6 +181,7 @@ class Effects(tier: QualityTier) {
             // Rain turns to snow in a blizzard.
             if (cameraAir != null && cameraAir.precipitation > 0.02 && cameraAir.snowfall < SNOW_NOT_RAIN) rain(dt, cameraAir.precipitation, cameraBodyFixed, body)
             if (cameraAir != null && cameraAir.snow > SNOW_FROM && cameraForward != null) snow(dt, cameraAir.snow, cameraBodyFixed, cameraForward)
+            if (cameraAir != null && cameraAir.hail > HAIL_FROM && cameraForward != null) hail(dt, cameraAir.hail, cameraBodyFixed, cameraForward)
             if (cameraAir != null && cameraAir.dust > SAND_FROM && focusHeight - focusGround < SAND_ABOVE && cameraForward != null) sand(dt, cameraAir.dust, cameraBodyFixed, cameraForward)
         }
         seaSpray(dt, time, body)
@@ -163,6 +191,9 @@ class Effects(tier: QualityTier) {
         advance(dt, body)
         if (weather != null) lightning(time, weather, cameraBodyFixed, body)
         flash = (flash * exp(-dt / 0.12).toFloat()).coerceAtLeast(0f)
+        // Each stroke lights the scene again.
+        for (bolt in bolts) if (bolt.light > 0f) flash = max(flash, bolt.light * bolt.glow(time - bolt.born).toFloat())
+        hailing = if (cameraAir == null) 0f else ((cameraAir.hail - HAIL_FROM) / 0.3).coerceIn(0.0, 1.0).toFloat()
     }
 
     // --- plumes -----------------------------------------------------------------
@@ -645,6 +676,41 @@ class Effects(tier: QualityTier) {
         }
     }
 
+    /**
+     * Hailstones falling past the camera: small white pellets, fast, kept off the very middle of
+     * the view ([forward] the way it looks), bouncing off the ground near it.
+     */
+    private fun hail(dt: Double, hail: Double, camera: Vec3, forward: Vec3) {
+        up.setTo(camera).normalizeInPlace()
+        val rate = kotlin.math.min(HAIL_RATE * rateScale, capacity * HAIL_SHARE / HAIL_LIFE)
+        val n = poisson(rate * ((hail - HAIL_FROM) / (1.0 - HAIL_FROM)).coerceIn(0.0, 1.0) * dt, 997)
+        // Starting high enough over the camera to be at full speed past it.
+        val drop = HAIL_FALL * HAIL_LIFE * 0.4
+        for (k in 0 until n) {
+            val ox = jitter(k, 1); val oy = jitter(k, 2); val oz = jitter(k, 3)
+            scratch.setTo(ox, oy, oz).addScaledInPlace(up, -(ox * up.x + oy * up.y + oz * up.z))
+            if (scratch.lengthSq < 1e-6) continue
+            scratch.normalizeInPlace().mulInPlace(HAIL_NEAR + (HAIL_FAR - HAIL_NEAR) * rand(k)).addScaledInPlace(up, drop * (0.5 + rand(k + 5)))
+            scratch.addScaledInPlace(windLow, -0.4 * HAIL_LIFE * 0.4)
+            var clear = true
+            for (step in 0..4) {
+                sandEnd.setTo(scratch).addScaledInPlace(windLow, 0.4 * HAIL_LIFE * step / 4.0).addScaledInPlace(up, -HAIL_FALL * HAIL_LIFE * step / 4.0)
+                if (!offCentre(sandEnd, forward, SNOW_CENTRE)) { clear = false; break }
+            }
+            if (!clear) continue
+            val fall = HAIL_FALL * (0.85 + 0.3 * rand(k + 9))
+            // White to ice grey, 3-5.5 cm across as drawn.
+            val size = 0.016 + 0.012 * rand(k + 11)
+            val grey = 0.8f + 0.18f * rand(k + 13)
+            spawn(
+                x = camera.x + scratch.x, y = camera.y + scratch.y, z = camera.z + scratch.z,
+                vx = windLow.x * 0.4 - up.x * fall, vy = windLow.y * 0.4 - up.y * fall, vz = windLow.z * 0.4 - up.z * fall,
+                life = HAIL_LIFE, startSize = size, endSize = size,
+                r = grey, g = grey + 0.01f, b = min(1f, grey + 0.04f), a = 0.95f, grip = 0.0, rise = 0.0, streak = true, flake = true, pellet = true,
+            )
+        }
+    }
+
     /** Whether [offset] from the camera is outside the middle of the view looking along unit [forward]. */
     private fun offCentre(offset: Vec3, forward: Vec3, centre: Double = SAND_CENTRE): Boolean {
         val length = offset.length
@@ -659,31 +725,93 @@ class Effects(tier: QualityTier) {
         strikes.clear()
         weather.strikes(scratch.setTo(camera).normalizeInPlace(), from, time, strikes)
         for (s in strikes) {
+            if (s.id in struckIds) continue
             val groundHeight = body.terrain?.let { max(it.elevation(s.direction), 0.0) } ?: 0.0
             val ground = Vec3().setTo(s.direction).mulInPlace(body.radius + groundHeight)
             val distance = ground.distanceTo(camera)
             if (distance > LIGHTNING_VISIBLE) continue
-            bolts.add(Bolt(jagged(ground, s.direction, s.id), time, s.energy))
+            val light = (s.energy * exp(-distance / 12_000.0)).toFloat()
+            bolts.add(Bolt(jagged(ground, s.direction, s.id), time, 1.5 + 2.5 * s.energy, s.id, light))
             thunder.add(doubleArrayOf(distance, s.energy))
-            flash = max(flash, (s.energy * exp(-distance / 12_000.0)).toFloat())
+            flash = max(flash, light)
         }
         bolts.removeAll { time - it.born > BOLT_SECONDS }
     }
 
-    /** A bolt from the cloud base down to [ground], forking a little on the way. */
-    private fun jagged(ground: Vec3, up: Vec3, id: Long): List<Vec3> {
-        val points = ArrayList<Vec3>(14)
+    /**
+     * Strike [id] hitting a craft at body-fixed [at], [distance] metres from the camera, at [time]:
+     * its bolt drawn down to the craft (the ground strike's, if already drawn, moved there), the
+     * sky lit, and its thunder if it wasn't heard already. [own] for the craft being flown, whose
+     * flash is full.
+     */
+    fun struck(at: Vec3, id: Long, distance: Double, time: Double, own: Boolean) {
+        if (id in struckIds) return
+        struckIds.addLast(id)
+        while (struckIds.size > 16) struckIds.removeFirst()
+        val up = Vec3().setTo(at).normalizeInPlace()
+        val points = jagged(at, up, id, close = true)
+        val light = if (own) 1f else exp(-distance / 12_000.0).toFloat()
+        val drawn = bolts.firstOrNull { it.id == id }
+        if (drawn != null) { drawn.shape = points; drawn.width = STRUCK_WIDTH; drawn.light = max(drawn.light, light) }
+        else {
+            if (distance > LIGHTNING_VISIBLE) return
+            bolts.add(Bolt(points, time, STRUCK_WIDTH, id, light))
+            thunder.add(doubleArrayOf(distance, 1.0))
+        }
+        flash = max(flash, light)
+    }
+
+    /**
+     * A bolt from the cloud base down to [ground], all from [id] so every screen draws the same
+     * one: [BOLT_MAIN] short kinks on a slow wander, 3-5 branches leaving the channel's upper
+     * part downward and out and one or two more from its lower part, 8 kinks each. [close] packs the
+     * kinks toward the ground, for a bolt seen from near where it lands.
+     */
+    private fun jagged(ground: Vec3, up: Vec3, id: Long, close: Boolean = false): BoltShape {
         val east = Vec3(up.z, 0.0, -up.x).let { if (it.lengthSq < 1e-12) Vec3(1.0, 0.0, 0.0) else it.normalizeInPlace() }
         val north = Vec3().setTo(up).crossInPlace(east)
         val seed = (id xor (id ushr 32)).toInt()
         var drift = 0.0; var driftN = 0.0
-        for (k in 0..12) {
-            val h = CLOUD_BASE * k / 12.0
-            drift += (Noise.hash(seed, k, 1, 0) - 0.5) * 70.0
-            driftN += (Noise.hash(seed, k, 2, 0) - 0.5) * 70.0
-            points.add(Vec3().setTo(ground).addScaledInPlace(up, h).addScaledInPlace(east, if (k == 0) 0.0 else drift).addScaledInPlace(north, if (k == 0) 0.0 else driftN))
+        var last = 0.0
+        val main = ArrayList<Vec3>(BOLT_MAIN + 1)
+        for (k in 0..BOLT_MAIN) {
+            val u = k.toDouble() / BOLT_MAIN
+            val h = CLOUD_BASE * (if (close) u * u * kotlin.math.sqrt(u) else u)
+            val step = h - last
+            last = h
+            // A slow wander, plus a kink of its own at every point so it zigzags all the way.
+            drift += (Noise.hash(seed, k, 1, 0) - 0.5) * 0.6 * step
+            driftN += (Noise.hash(seed, k, 2, 0) - 0.5) * 0.6 * step
+            val kink = if (k == 0 || k == BOLT_MAIN) 0.0 else 1.4 * step
+            main.add(Vec3().setTo(ground).addScaledInPlace(up, h)
+                .addScaledInPlace(east, if (k == 0) 0.0 else drift + (Noise.hash(seed, k, 10, 0) - 0.5) * kink)
+                .addScaledInPlace(north, if (k == 0) 0.0 else driftN + (Noise.hash(seed, k, 10, 1) - 0.5) * kink))
         }
-        return points
+        val branches = ArrayList<List<Vec3>>(7)
+        val count = 3 + (Noise.hash(seed, 0, 20, 0) * 3).toInt()
+        val low = if (close) 2 else 1
+        for (j in 0 until count + low) {
+            // The last leave low and reach further: 70-240 m up, or 20-60 m packed close.
+            val share = if (j < count) 0.2 + 0.65 * Noise.hash(seed, j, 21, 0)
+                else (if (close) 0.18 else 0.06) + (if (close) 0.12 else 0.14) * Noise.hash(seed, j, 21, 0)
+            val from = main[(main.size * share).toInt().coerceIn(1, main.size - 2)]
+            val height = (from.distanceTo(ground)).coerceAtLeast(1.0)
+            val step = height * ((if (j < count) 0.25 else 0.45) + 0.3 * Noise.hash(seed, j, 21, 1)) / BOLT_BRANCH
+            val angle = Noise.hash(seed, j, 21, 2) * 2 * Math.PI
+            val out = Vec3().setTo(east).mulInPlace(kotlin.math.cos(angle)).addScaledInPlace(north, kotlin.math.sin(angle))
+            val branch = ArrayList<Vec3>(BOLT_BRANCH + 1)
+            branch.add(from)
+            val at = Vec3().setTo(from)
+            for (k in 1..BOLT_BRANCH) {
+                val side = (Noise.hash(seed, j * 16 + k, 22, 0) - 0.5) * 1.2
+                val sideN = (Noise.hash(seed, j * 16 + k, 22, 1) - 0.5) * 1.2
+                at.addScaledInPlace(out, step * 0.8).addScaledInPlace(up, -step * 0.6)
+                    .addScaledInPlace(east, side * step).addScaledInPlace(north, sideN * step)
+                branch.add(Vec3().setTo(at))
+            }
+            branches.add(branch)
+        }
+        return BoltShape(main, branches)
     }
 
     // --- motion ---------------------------------------------------------------
@@ -709,7 +837,22 @@ class Effects(tier: QualityTier) {
                 val lift = rise[i] * cool * dt / r
                 vx[i] += px[i] * lift; vy[i] += py[i] * lift; vz[i] += pz[i] * lift
             }
-            if (falls[i]) {
+            if (pellets[i]) {
+                val r = sqrt(px[i] * px[i] + py[i] * py[i] + pz[i] * pz[i])
+                val ux = px[i] / r; val uy = py[i] / r; val uz = pz[i] / r
+                val down = -(vx[i] * ux + vy[i] * uy + vz[i] * uz)
+                if (height > 0.05 || down < 0.0) {
+                    // Gravity, held to its falling speed by the air.
+                    if (down < HAIL_FALL) { val g = gravity * dt; vx[i] -= ux * g; vy[i] -= uy * g; vz[i] -= uz * g }
+                } else if (down > HAIL_REST) {
+                    // Off the ground, a third as fast, slowed along it.
+                    val back = down * (1.0 + HAIL_BOUNCE)
+                    vx[i] += ux * back; vy[i] += uy * back; vz[i] += uz * back
+                    vx[i] *= 0.6; vy[i] *= 0.6; vz[i] *= 0.6
+                } else {
+                    kill(i); continue
+                }
+            } else if (falls[i]) {
                 val r = sqrt(px[i] * px[i] + py[i] * py[i] + pz[i] * pz[i])
                 val ux = px[i] / r; val uy = py[i] / r; val uz = pz[i] / r
                 if (height > 0.15) {
@@ -740,7 +883,7 @@ class Effects(tier: QualityTier) {
             size0[i] = size0[last]; size1[i] = size1[last]
             for (c in 0 until 4) colour[i * 4 + c] = colour[last * 4 + c]
             grip[i] = grip[last]; rise[i] = rise[last]; streak[i] = streak[last]
-            glows[i] = glows[last]; falls[i] = falls[last]; flakes[i] = flakes[last]; fresh[i] = fresh[last]
+            glows[i] = glows[last]; falls[i] = falls[last]; flakes[i] = flakes[last]; pellets[i] = pellets[last]; fresh[i] = fresh[last]
         }
         count--
     }
@@ -749,7 +892,7 @@ class Effects(tier: QualityTier) {
         x: Double, y: Double, z: Double, vx: Double, vy: Double, vz: Double,
         life: Double, startSize: Double, endSize: Double,
         r: Float, g: Float, b: Float, a: Float, grip: Double, rise: Double, streak: Boolean = false,
-        glow: Boolean = false, fall: Boolean = false, flake: Boolean = false,
+        glow: Boolean = false, fall: Boolean = false, flake: Boolean = false, pellet: Boolean = false,
     ) {
         // Full, so the oldest-looking one makes way rather than the new one not appearing. Fresh
         // smoke matters more than old.
@@ -760,7 +903,7 @@ class Effects(tier: QualityTier) {
         size0[i] = startSize.toFloat(); size1[i] = endSize.toFloat()
         colour[i * 4] = r; colour[i * 4 + 1] = g; colour[i * 4 + 2] = b; colour[i * 4 + 3] = a
         this.grip[i] = grip.toFloat(); this.rise[i] = rise.toFloat(); this.streak[i] = streak
-        glows[i] = glow; falls[i] = fall; flakes[i] = flake
+        glows[i] = glow; falls[i] = fall; flakes[i] = flake; pellets[i] = pellet
         fresh[i] = true
     }
 
@@ -1260,7 +1403,7 @@ class Effects(tier: QualityTier) {
         /** Lightning's light this frame. */
         flash: Float = 0f,
     ): Pair<FloatArray, Int> {
-        val shapes = count + bolts.sumOf { it.points.size - 1 }
+        val shapes = count + pelletCount() + bolts.sumOf { (it.shape.main.size - 1) * 2 + it.shape.branches.sumOf { b -> (b.size - 1) * 2 } + BOLT_FINER * 2 }
         val needed = shapes * 6 * VERTEX_FLOATS
         bufferIndex = (bufferIndex + 1) % buffers.size
         if (buffers[bufferIndex].size < needed) buffers[bufferIndex] = FloatArray(needed + 1024 * VERTEX_FLOATS)
@@ -1299,7 +1442,15 @@ class Effects(tier: QualityTier) {
                 else -> smokeLight
             }
             val r = colour[i * 4] * light[0]; val g = colour[i * 4 + 1] * light[1]; val b = colour[i * 4 + 2] * light[2]
-            if (streak[i]) {
+            if (pellets[i]) {
+                // A hailstone: a round stone however fast it falls, never under HAIL_SEEN across
+                // as seen, in a bright rim.
+                val stone = max(size.toDouble(), p.length * HAIL_SEEN)
+                // Ice catches what light there is: brighter than rain, its rim brighter still.
+                o = hexagon(v, o, p, right, upAxis, stone * 1.3, min(1f, r * 2f), min(1f, g * 2f), min(1f, b * 2f), alpha * 0.85f)
+                o = hexagon(v, o, p, right, upAxis, stone, min(1f, r * 1.4f), min(1f, g * 1.4f), min(1f, b * 1.4f), alpha)
+                written++
+            } else if (streak[i]) {
                 // A short streak along its travel as seen: rain a long thin line, a spark a glowing
                 // dash as long as it's quick.
                 scratch.setTo(vx[i], vy[i], vz[i])
@@ -1309,7 +1460,9 @@ class Effects(tier: QualityTier) {
                     flakes[i] -> (scratch.length * FLAKE_SMEAR).coerceIn(0.05, 0.4)
                     else -> 2.2
                 }
-                val width = if (glows[i]) size * 0.22 else if (flakes[i]) size.toDouble() else 0.04
+                // Rain thins in hail, at most a hair as seen, so the stones stand out.
+                val width = if (glows[i]) size * 0.22 else if (flakes[i]) size.toDouble()
+                    else if (hailing > 0f) min(0.04 * (1.0 - 0.5 * hailing), p.length * 0.0015 + 0.04 * (1f - hailing)) else 0.04
                 scratch.normalizeInPlace().mulInPlace(length)
                 scratch2.setTo(p).crossInPlace(scratch).normalizeInPlace().mulInPlace(width.toDouble())
                 o = quad(v, o, p, scratch, scratch2, r, g, b, alpha)
@@ -1318,20 +1471,149 @@ class Effects(tier: QualityTier) {
             }
             written++
         }
+        if (bolts.isNotEmpty()) {
+            bodyRotation.inverseRotate(cameraPos, boltCamera)
+            bodyRotation.inverseRotate(cameraRotation.rotate(boltLook.setTo(0.0, 0.0, -1.0), boltLook), boltLook)
+        }
         for (bolt in bolts) {
-            val glow = (1.0 - (time - bolt.born) / BOLT_SECONDS).coerceIn(0.0, 1.0).toFloat()
-            for (k in 0 until bolt.points.size - 1) {
-                val a = bodyRotation.rotate(bolt.points[k], Vec3()).subInPlace(cameraPos)
-                val b = bodyRotation.rotate(bolt.points[k + 1], Vec3()).subInPlace(cameraPos)
-                scratch.setTo(b).subInPlace(a).mulInPlace(0.5)
-                p.setTo(a).addInPlace(scratch)
-                scratch2.setTo(p).crossInPlace(scratch).normalizeInPlace().mulInPlace(4.0 + 6.0 * bolt.energy)
-                o = quad(v, o, p, scratch, scratch2, 0.95f, 0.95f, 1f, glow)
-                written++
+            val t = time - bolt.born
+            // Each stroke flares and dies in a few hundredths of a second over a dim channel;
+            // the branches are lit by the first stroke, faintly by the second, then gone.
+            val glow = bolt.glow(t)
+            var forks = 0.0
+            for (k in 0 until min(2, bolt.strokes.size)) {
+                val since = t - bolt.strokes[k]
+                if (since >= 0.0) forks = max(forks, exp(-since / 0.035) * (if (k == 0) 1.0 else 0.35))
+            }
+            if (glow < 0.01) continue
+            // Long segments seen close are split into finer kinks, the main channel first.
+            var finer = BOLT_FINER
+            finer -= refine(bolt.shape.main, bolt.seed, 0, finer, boltMain)
+            if (forks >= 0.01) for ((j, branch) in bolt.shape.branches.withIndex()) finer -= refine(branch, bolt.seed, j + 1, finer, boltForks[j])
+            // A soft blue glow under a thin white core.
+            o = boltLine(v, o, boltMain, bodyRotation, cameraPos, bolt.width * 3.5, BOLT_GLOW_ANGLE, 0.6f, 0.65f, 1f, (0.25 * glow).toFloat(), false, 1f)
+            o = boltLine(v, o, boltMain, bodyRotation, cameraPos, bolt.width, BOLT_CORE_ANGLE, 1f, 1f, 1f, glow.toFloat(), false)
+            written += (boltMain.size - 1) * 2
+            if (forks < 0.01) continue
+            for (j in bolt.shape.branches.indices) {
+                val branch = boltForks[j]
+                o = boltLine(v, o, branch, bodyRotation, cameraPos, bolt.width * 3.0, BOLT_GLOW_ANGLE, 0.65f, 0.7f, 1f, (0.25 * forks).toFloat(), true, 1f)
+                o = boltLine(v, o, branch, bodyRotation, cameraPos, bolt.width * 0.6, BOLT_CORE_ANGLE, 0.95f, 0.95f, 1f, forks.toFloat(), true)
+                written += (branch.size - 1) * 2
             }
         }
         return v to written
     }
+
+    /** Hailstones alive, each drawn twice (rim and stone). */
+    private fun pelletCount(): Int {
+        var n = 0
+        for (i in 0 until count) if (pellets[i]) n++
+        return n
+    }
+
+    /** The camera, body-fixed, for splitting bolt segments by how close they are. */
+    private val boltCamera = Vec3()
+    /** And the way it looks, body-fixed. */
+    private val boltLook = Vec3()
+    private val boltMain = ArrayList<Vec3>()
+    private val boltForks = Array(7) { ArrayList<Vec3>() }
+    private val boltPool = ArrayList<Vec3>()
+    private var boltPoolUsed = 0
+    private val boltLevels = IntArray(BOLT_MAIN + 1)
+    private val boltMids = Array(BOLT_LEVELS + 1) { Vec3() }
+
+    private fun pooled(): Vec3 {
+        if (boltPoolUsed == boltPool.size) boltPool.add(Vec3())
+        return boltPool[boltPoolUsed++]
+    }
+
+    /**
+     * [points] into [out] with each segment in view that looks longer than [BOLT_SPLIT] radians
+     * from the camera split in two, and again, up to [BOLT_LEVELS] times, each new point kinked off the
+     * line by up to about half its piece. The kinks come from [seed], [line] and where they fall,
+     * so a closer look only adds to the shape. At most [budget] new points; returns how many.
+     */
+    private fun refine(points: List<Vec3>, seed: Int, line: Int, budget: Int, out: ArrayList<Vec3>): Int {
+        if (line == 0) boltPoolUsed = 0
+        out.clear()
+        val n = points.size - 1
+        var total = 0
+        for (k in 0 until n) {
+            val a = points[k]; val b = points[k + 1]
+            scratch.setTo(a).addInPlace(b).mulInPlace(0.5).subInPlace(boltCamera)
+            val distance = max(scratch.length, 1.0)
+            val angle = a.distanceTo(b) / distance
+            // Off the screen: more than about 55 degrees off the view, by its nearest end.
+            val off = kotlin.math.acos(((scratch dot boltLook) / distance).coerceIn(-1.0, 1.0)) - angle * 0.5 > 0.95
+            var level = 0
+            while (!off && level < BOLT_LEVELS && angle / (1 shl level) > BOLT_SPLIT) level++
+            boltLevels[k] = level
+            total += (1 shl level) - 1
+        }
+        // Over budget: take a level off the most split until it fits.
+        while (total > budget) {
+            var most = 0
+            for (k in 1 until n) if (boltLevels[k] > boltLevels[most]) most = k
+            if (boltLevels[most] == 0) break
+            total -= 1 shl (boltLevels[most] - 1)
+            boltLevels[most]--
+        }
+        for (k in 0 until n) {
+            out.add(points[k])
+            if (boltLevels[k] > 0) split(points[k], points[k + 1], seed, line * 64 + k, 1, 0, boltLevels[k], out)
+        }
+        out.add(points[n])
+        return total
+    }
+
+    /** The points strictly between [a] and [b], in order, split [levels] deep. */
+    private fun split(a: Vec3, b: Vec3, seed: Int, key: Int, level: Int, path: Int, levels: Int, out: ArrayList<Vec3>) {
+        val m = boltMids[level]
+        val length = a.distanceTo(b)
+        val h = key * 32 + (1 shl level) + path
+        m.setTo(Noise.hash(seed, h, 40, 0) - 0.5, Noise.hash(seed, h, 40, 1) - 0.5, Noise.hash(seed, h, 40, 2) - 0.5)
+        scratch2.setTo(b).subInPlace(a)
+        // Across the piece only, so it stays as long as it was.
+        m.addScaledInPlace(scratch2, -(m dot scratch2) / max(scratch2.lengthSq, 1e-9))
+        m.mulInPlace(0.9 * length).addInPlace(a).addScaledInPlace(scratch2, 0.5)
+        if (level < levels) split(a, m, seed, key, level + 1, path * 2, levels, out)
+        out.add(pooled().setTo(m))
+        if (level < levels) split(m, b, seed, key, level + 1, path * 2 + 1, levels, out)
+    }
+
+    /**
+     * [points], body-fixed, as camera-facing ribbons [width] metres each side, a touch longer than
+     * each segment so the kinks join. Within [BOLT_NEAR] metres no thinner than [angle] radians
+     * as seen and [nearer] times again as strong, so a bolt close by keeps its core and glow. [fades] thins its strength to nothing at
+     * the far end.
+     */
+    private fun boltLine(
+        v: FloatArray, start: Int, points: List<Vec3>, bodyRotation: Quat, cameraPos: Vec3,
+        width: Double, angle: Double, r: Float, g: Float, b: Float, a: Float, fades: Boolean, nearer: Float = 0f,
+    ): Int {
+        var o = start
+        val from = boltA; val to = boltB; val mid = boltMid
+        bodyRotation.rotate(points[0], from).subInPlace(cameraPos)
+        val n = points.size - 1
+        for (k in 0 until n) {
+            bodyRotation.rotate(points[k + 1], to).subInPlace(cameraPos)
+            scratch.setTo(to).subInPlace(from).mulInPlace(0.5)
+            mid.setTo(from).addInPlace(scratch)
+            val distance = mid.length
+            val near = 1.0 - smoothstep(BOLT_NEAR * 0.4, BOLT_NEAR, distance)
+            scratch2.setTo(mid).crossInPlace(scratch).normalizeInPlace().mulInPlace(max(width, distance * angle * near))
+            scratch.mulInPlace(1.08)
+            val strength = (if (fades) a * (1f - k.toFloat() / n) else a) * (1f + nearer * near.toFloat())
+            o = quad(v, o, mid, scratch, scratch2, r, g, b, strength)
+            from.setTo(to)
+        }
+        return o
+    }
+
+    private val boltA = Vec3()
+    private val boltB = Vec3()
+    private val boltMid = Vec3()
 
     private fun hexagon(v: FloatArray, start: Int, c: Vec3, right: Vec3, up: Vec3, size: Double, r: Float, g: Float, b: Float, a: Float): Int {
         var o = start
@@ -1536,8 +1818,43 @@ class Effects(tier: QualityTier) {
         const val SNOW_NOT_RAIN = 0.2
         /** A flake's streak is its speed times this long, metres per m/s: blur over a sixtieth of a second. */
         const val FLAKE_SMEAR = 0.015
+        /** Hail round the camera from this much, at most this many stones a second and this share of the budget, this far off in metres. */
+        const val HAIL_FROM = 0.05
+        const val HAIL_RATE = 600.0
+        const val HAIL_SHARE = 0.3
+        const val HAIL_LIFE = 1.4
+        const val HAIL_NEAR = 2.0
+        const val HAIL_FAR = 18.0
+        /** How fast it falls, m/s, how much of that it bounces back up with, and under what it stops. */
+        const val HAIL_FALL = 16.0
+        const val HAIL_BOUNCE = 0.3
+        const val HAIL_REST = 1.5
+        /** A hailstone is drawn at least this many radians across each side, so it reads as a stone from 18 m. */
+        const val HAIL_SEEN = 0.0045
         const val CLOUD_BASE = 1_200.0
-        const val BOLT_SECONDS = 0.35
+        const val BOLT_SECONDS = 0.45
+        /** Segments in a bolt's main channel and in each branch. */
+        const val BOLT_MAIN = 48
+        const val BOLT_BRANCH = 8
+        /** A bolt segment longer than this as seen, in radians, is split, at most this many times over and into this many new points a bolt. */
+        const val BOLT_SPLIT = 0.012
+        const val BOLT_LEVELS = 4
+        const val BOLT_FINER = 160
+        /** Within this many metres a bolt's core and glow are at least this wide each side as seen, in radians. */
+        const val BOLT_NEAR = 2_500.0
+        const val BOLT_CORE_ANGLE = 0.0012
+        const val BOLT_GLOW_ANGLE = 0.007
+
+        /** Strike [id]'s strokes, seconds after it: the first at once, then 1 or 2 more 0.07-0.15 s apart. */
+        private fun boltStrokes(id: Long): DoubleArray {
+            val seed = (id xor (id ushr 32)).toInt()
+            val n = if (Noise.hash(seed, 0, 30, 0) < 0.5) 2 else 3
+            val out = DoubleArray(n)
+            for (k in 1 until n) out[k] = out[k - 1] + 0.07 + 0.08 * Noise.hash(seed, k, 30, 1)
+            return out
+        }
+        /** A bolt into a craft has a core this wide each side, in metres: it's seen close. */
+        const val STRUCK_WIDTH = 0.12
         const val LIGHTNING_VISIBLE = 40_000.0
 
         /**

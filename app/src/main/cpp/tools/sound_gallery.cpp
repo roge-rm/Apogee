@@ -200,6 +200,8 @@ int main(int argc, char** argv) {
     render(dir, "level-dust-far", 20, {{recipe::DUST, 0, [](float, float* p) { p[0] = 0.3f; p[1] = 0.0f; }}});
     render(dir, "level-blizzard-near", 20, {{recipe::BLIZZARD, 0, [](float, float* p) { p[0] = 1.0f; p[1] = 1.0f; }}});
     render(dir, "level-blizzard-far", 20, {{recipe::BLIZZARD, 0, [](float, float* p) { p[0] = 0.3f; p[1] = 0.0f; }}});
+    render(dir, "level-hail-near", 20, {{recipe::HAIL, 0, [](float, float* p) { p[0] = 1.0f; p[1] = 1.0f; }}});
+    render(dir, "level-hail-far", 20, {{recipe::HAIL, 0, [](float, float* p) { p[0] = 0.3f; p[1] = 0.2f; }}});
     render(dir, "level-slap", 1, {{recipe::SLAP, 0, [](float, float* p) { p[0] = 1.0f; }}});
     // A plane going by at 150 m/s, with Doppler from high to low as it passes.
     render(dir, "doppler-flyby", 8, {{recipe::JET, 0, [](float t, float* p) {
@@ -237,6 +239,8 @@ int main(int argc, char** argv) {
     render(dir, "dust", 16, {{recipe::DUST, 0, [](float t, float* p) { p[0] = 0.1f + 0.9f * ramp(t); p[1] = ramp(t) * ramp(t); }}});
     // Walking into a blizzard: the wind rising, then snow driven past close by.
     render(dir, "blizzard", 16, {{recipe::BLIZZARD, 0, [](float t, float* p) { p[0] = 0.1f + 0.9f * ramp(t); p[1] = ramp(t) * ramp(t); }}});
+    // Into hail: from a few stones to a hard downpour of them.
+    render(dir, "hail", 12, {{recipe::HAIL, 0, [](float t, float* p) { p[0] = 0.2f + 0.8f * ramp(t); p[1] = ramp(t); }}});
     render(dir, "rain", 6, {{recipe::RAIN, 0, [](float t, float* p) { p[0] = 0.7f; p[1] = t; }}});
     render(dir, "surf", 16, {{recipe::SURF, 0, [](float, float* p) { p[0] = 0.8f; }}});
     render(dir, "fire", 6, {{recipe::FIRE, 0, [](float, float* p) { p[0] = 0.8f; }}});

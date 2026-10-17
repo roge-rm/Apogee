@@ -55,6 +55,9 @@ class AirSample {
     /** Rain, 0..1. */
     var precipitation = 0.0
 
+    /** Hail, 0..1, under the strongest storms' towers. */
+    var hail = 0.0
+
     /** How far you can see, in metres. */
     var visibility = CLEAR_VISIBILITY
 
@@ -92,6 +95,7 @@ class AirSample {
         cloudDensity = 0.0
         cloudType = null
         precipitation = 0.0
+        hail = 0.0
         visibility = CLEAR_VISIBILITY
         dust = 0.0
         dustTop = 0.0
@@ -110,6 +114,7 @@ class AirSample {
         cloudDensity = other.cloudDensity
         cloudType = other.cloudType
         precipitation = other.precipitation
+        hail = other.hail
         visibility = other.visibility
         dust = other.dust
         dustTop = other.dustTop
@@ -173,6 +178,8 @@ class CloudLobe(
      */
     /** Stable slot within a blended deck, including temporarily invisible puffs. */
     var visualSlot = -1
+    /** A rain curtain's hail at its middle, 0..1, for drawing it whiter. */
+    var hail = 0.0
     var horizontalRate = 0.0
     var verticalRate = 0.0
     var centreRate: Vec3? = null

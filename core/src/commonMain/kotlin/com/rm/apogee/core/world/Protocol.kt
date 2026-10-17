@@ -512,8 +512,10 @@ sealed interface ServerMessage {
         val signal: Signal,
         val relays: List<Long>,
         val controllable: Boolean,
-        /** Why it can't be flown ("NO CREW", "NO POWER", "NO SIGNAL"), or blank. */
+        /** Why it can't be flown ("NO CREW", "NO POWER", "STRUCK", "NO SIGNAL"), or blank. */
         val blocked: String = "",
+        /** Seconds left before its electrics are back after a lightning strike, or 0. */
+        val stunned: Float = 0f,
         val needsSignal: Boolean,
         val deployed: Boolean,
         /** The gear switch, and whether it has gear that folds. */
@@ -796,6 +798,7 @@ object Protocol {
     //     StructureUpdate.ownerStripe.
     // 32: WeatherIntensity.EXTREME, travelling rogue waves, water loads on joints, hurricanes.
     // 33: tsunamis, which change the sea on Wild and Extreme.
-    // 34: earthquakes, which shake the ground and now start the tsunamis.
+    // 34: earthquakes, which shake the ground and now start the tsunamis; CraftSystems.stunned,
+    //     lightning that knocks out electrics, and hail.
     const val VERSION = 34
 }

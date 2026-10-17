@@ -289,11 +289,24 @@ fun FlightScreen(
                 kotlinx.coroutines.delay(FADE_POLL_MS)
             }
         }
-        val alpha by animateFloatAsState(
+        val faded by animateFloatAsState(
             targetValue = if (idle) controlOpacity * HudFade.FADED else controlOpacity,
             animationSpec = tween(if (idle) Dimens.MOTION_FADE_MS else FADE_BACK_MS),
             label = "hud fade",
         )
+        // Lightning on the craft: the screen flashes white and the instruments flicker a moment.
+        val strike = remember { androidx.compose.animation.core.Animatable(0f) }
+        var strikesSeen by remember { mutableStateOf(hud.struck) }
+        LaunchedEffect(hud.struck) {
+            if (hud.struck != strikesSeen) {
+                strikesSeen = hud.struck
+                strike.snapTo(1f)
+                strike.animateTo(0f, tween(STRIKE_MS))
+            }
+        }
+        val flicker = strike.value
+        val alpha = if (flicker > 0.05f && (flicker * STRIKE_FLICKERS).toInt() % 2 == 0) faded * 0.25f else faded
+        if (flicker > 0f) Box(Modifier.fillMaxSize().background(Color.White.alpha(0.8f * flicker * flicker)))
 
         if (hud.mapMode) MapNames(mapLabels, onWarpToMark)
         // With a controller, where A picks.
@@ -737,7 +750,9 @@ private fun AttitudeCluster(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (touchStick) HoldButton(if (sliding) "▼" else "↺", { held -> onRoll(if (held) -1f else 0f) }, size = 40.dp)
-            // SAS sits with the attitude controls since it holds an attitude for you.
+            // SAS sits with the attitude controls since it holds an attitude for you. Faded while
+            // lightning has it out.
+            Box(Modifier.alpha(if ((hud.power?.stunned ?: 0f) > 0f && deaf == null) OUT_OF_TOUCH_ALPHA else 1f)) {
             com.rm.apogee.ui.components.SasButton(
                 enabled = hud.sasEnabled,
                 mode = hud.telemetry.sasMode,
@@ -756,6 +771,7 @@ private fun AttitudeCluster(
                 landing = hud.autoLanding && hud.canLand,
                 onLand = sas.onLand,
             )
+            }
             if (touchStick) HoldButton(if (sliding) "▲" else "↻", { held -> onRoll(if (held) 1f else 0f) }, size = 40.dp)
         }
         Spacer(Modifier.height(8.dp))
@@ -915,6 +931,10 @@ private const val THROTTLE_SNAP = 0.07f
 
 /** How faded the throttle and stick are while nothing sent to the craft is getting heard. */
 private const val OUT_OF_TOUCH_ALPHA = 0.35f
+
+/** A lightning strike's flash, in ms, and how many times the instruments blink in it. */
+private const val STRIKE_MS = 600
+private const val STRIKE_FLICKERS = 9f
 private val STICK_SIZE = 132.dp
 
 /** How far the stick sits in from its corner, past the margin. Any closer and it's awkward to reach. */

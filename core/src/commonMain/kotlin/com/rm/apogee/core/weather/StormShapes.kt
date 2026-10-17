@@ -302,7 +302,7 @@ internal class StormShapes(
         h: (Int) -> Double, at: (Double, Double, Double) -> Vec3, groundAt: (Vec3) -> Double,
     ) {
         if (envelope <= 0.3) return
-        fun curtain(slot: Int, along: Double, across: Double, width: Double, shade: Double) {
+        fun curtain(slot: Int, along: Double, across: Double, width: Double, shade: Double, hail: Double = 0.0) {
             val foot = at(along, across, 0.0).normalizeInPlace()
             val ground = max(groundAt(foot), 0.0)
             val top = s.base + 100.0
@@ -310,13 +310,14 @@ internal class StormShapes(
             // Sink it into the ground so hills and lower ground under a wide shaft don't show a gap
             // of sky. Over the sea it only needs to cover the waves.
             val bottom = if (groundAt(foot) > 0.0) ground - CURTAIN_SINK else -CURTAIN_SINK_SEA
-            shape.rain.add(CloudLobe(foot.mulInPlace(radius + (bottom + top) * 0.5), width, (top - bottom) * 0.5, shade = shade).also { it.visualSlot = slot })
+            shape.rain.add(CloudLobe(foot.mulInPlace(radius + (bottom + top) * 0.5), width, (top - bottom) * 0.5, shade = shade).also { it.visualSlot = slot; it.hail = hail })
         }
         for (i in 0 until s.cellCount) {
             val life = storms.cellLife(s, i, time)
             if (life < 0.3) continue
             val r = s.cellRadius[i]
-            curtain(i, s.cellAlong[i] + s.shaftAlong * r, s.cellAcross[i], 0.75 * r * life, smooth(0.3, 0.6, life))
+            curtain(i, s.cellAlong[i] + s.shaftAlong * r, s.cellAcross[i], 0.75 * r * life, smooth(0.3, 0.6, life),
+                s.hail * envelope * life * s.cellHeight[i])
         }
         if (s.stratiform > 0.2) {
             val count = (2 + 4 * detail).roundToInt()

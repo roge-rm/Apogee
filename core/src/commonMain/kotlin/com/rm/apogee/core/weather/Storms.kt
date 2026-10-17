@@ -21,6 +21,21 @@ class Strike(
     val id: Long,
 )
 
+/** One storm tower's hail shaft, for warnings and drawing. */
+class LiveHail(
+    /** Stable for the tower's life. */
+    val id: Long,
+    /** Unit, body-fixed: the shaft's middle on the ground. */
+    val centre: Vec3,
+    /** Unit, tangent: the way its storm is going, and how fast, m/s. */
+    val heading: Vec3,
+    val speed: Double,
+    /** Its width: hail falls off as exp(-(d / width)^2) from the middle, in metres. */
+    val width: Double,
+    /** How hard it hails at its middle, 0..1. */
+    val hail: Double,
+)
+
 /** What kind of storm. They differ most in how they spread. */
 enum class StormKind {
     /** One cell, about as wide as it is tall: the afternoon shower grown up. */
@@ -64,6 +79,9 @@ internal class Storms(
     /** Whether anything falls from them. */
     private val wet = climate.precipitation != Climate.Precipitation.NONE
 
+    /** Whether strong ones hail: only where storms are water. */
+    val hails = active && climate.precipitation == Climate.Precipitation.RAIN
+
     class Storm {
         var exists = false
         /** [held] at [heldAt]. */
@@ -80,6 +98,7 @@ internal class Storms(
         var base = 0.0            // cloud base, m above datum
         var strength = 0.0        // 0.3..1: from a passing shower to a monster
         var strikeInterval = 0.0  // seconds between strikes at maturity
+        var hail = 0.0            // 0..1: how hard its main tower hails at its best
         /**
          * How far the towers lean downwind with height, in cores, and the anvil's spread vs usual.
          */
@@ -187,6 +206,12 @@ internal class Storms(
             }
             s.lean = 0.1 + 0.4 * h(87)
             s.anvilSpread = 0.6 + 0.9 * h(88)
+            // Hail only from strong storms, most from supercells.
+            s.hail = if (!hails) 0.0 else smooth(HAIL_FROM, HAIL_FULL, s.strength) * when (s.kind) {
+                StormKind.SUPERCELL -> 1.0
+                StormKind.MULTICELL -> 0.6
+                else -> 0.4
+            }
             when (s.kind) {
                 StormKind.SINGLE -> {
                     s.core = 2_000.0 + 2_000.0 * (0.6 * power + 0.4 * h(76))
@@ -442,6 +467,7 @@ internal class Storms(
                     out.wind.addScaledInPlace(up, w)
                 }
                 if (wet) out.precipitation = max(out.precipitation, life * exp(-(dShaft / (0.9 * r)).let { it * it }))
+                if (s.hail > 0.0) out.hail = max(out.hail, hailFrom(s, i, dShaft, altitude, time))
 
                 // A lone storm's gust front, spreading out from each shaft. A line's is below.
                 if (s.kind != StormKind.SQUALL && agl < 1_500.0 && dShaft > 1.0) {
@@ -502,6 +528,77 @@ internal class Storms(
             if (density > 0.0) addCloud(out, (density * 2.0).coerceAtMost(1.0) * envelope, climate.stormCloud)
         }
     }
+
+    /**
+     * Hail from tower [i] of [s] at [dShaft] metres from its rain shaft and [altitude], 0..1: in
+     * the shaft's middle, under and in the tower, the tallest towers most.
+     */
+    private fun hailFrom(s: Storm, i: Int, dShaft: Double, altitude: Double, time: Double): Double {
+        if (altitude > cellTop(s, i, time)) return 0.0
+        val r = s.cellRadius[i]
+        val life = envelope(s, time) * cellLife(s, i, time)
+        if (life <= 0.0) return 0.0
+        return s.hail * life * s.cellHeight[i] * exp(-(dShaft / (HAIL_WIDTH * r)).let { it * it })
+    }
+
+    /**
+     * Hail at unit [up], [altitude] metres above datum, 0..1: the same as [apply] gives, on its
+     * own and cheaper, for what only needs the hail.
+     */
+    fun hailAt(up: Vec3, east: Vec3, north: Vec3, altitude: Double, time: Double): Double {
+        if (!hails) return 0.0
+        val n = cells.around(up, east, north, CELL / bodyRadius, keys, reach = SEARCH)
+        val position = hailPosition.setTo(up).mulInPlace(bodyRadius + altitude)
+        var most = 0.0
+        for (k in 0 until n) {
+            val s = storm(keys[k], time)
+            if (!s.exists || s.hail <= 0.0 || envelope(s, time) <= 0.0) continue
+            frameAt(s, time, hailCentre, hailTrack, hailRight)
+            hailRel.setTo(position).addScaledInPlace(hailCentre, -bodyRadius)
+            hailRel.addScaledInPlace(hailCentre, -(hailRel dot hailCentre))
+            if (hailRel.length > s.reach) continue
+            val along = hailRel dot hailTrack
+            val across = hailRel dot hailRight
+            for (i in 0 until s.cellCount) {
+                val r = s.cellRadius[i]
+                val dShaft = kotlin.math.hypot(along - s.cellAlong[i] - s.shaftAlong * r, across - s.cellAcross[i])
+                if (dShaft > 4.0 * r) continue
+                most = max(most, hailFrom(s, i, dShaft, altitude, time))
+            }
+        }
+        return most
+    }
+
+    /**
+     * The hail shafts at [time] whose middles are within [reach] metres of unit [up], into [out],
+     * the weakest under 0.05 left out. Makes new objects, so not for every sample.
+     */
+    fun hailShafts(up: Vec3, east: Vec3, north: Vec3, reach: Double, time: Double, out: MutableList<LiveHail>) {
+        if (!hails) return
+        val n = cells.around(up, east, north, CELL / bodyRadius, keys, reach = SEARCH)
+        for (k in 0 until n) {
+            val s = storm(keys[k], time)
+            if (!s.exists || s.hail <= 0.0) continue
+            val envelope = envelope(s, time)
+            if (envelope <= 0.0) continue
+            frameAt(s, time, hailCentre, hailTrack, hailRight)
+            for (i in 0 until s.cellCount) {
+                val hail = s.hail * envelope * cellLife(s, i, time) * s.cellHeight[i]
+                if (hail < 0.05) continue
+                val r = s.cellRadius[i]
+                val at = place(hailCentre, hailTrack, hailRight, s.cellAlong[i] + s.shaftAlong * r, s.cellAcross[i], 1.0, Vec3())
+                if (at.distanceTo(up) * bodyRadius > reach) continue
+                val id = (((s.cx.toLong() shl 40) xor (s.cy.toLong() shl 20) xor (s.cycle shl 8)) * 16 + i)
+                out.add(LiveHail(id, at, hailTrack.copy(), s.steer.length, HAIL_WIDTH * r, hail))
+            }
+        }
+    }
+
+    private val hailPosition = Vec3()
+    private val hailCentre = Vec3()
+    private val hailTrack = Vec3()
+    private val hailRight = Vec3()
+    private val hailRel = Vec3()
 
     /**
      * How much of the sky over unit [up] storm bases cover, seen from [altitude] below them, 0..1.
@@ -744,6 +841,11 @@ internal class Storms(
         const val GUST_FRONT = 35.0
         const val INFLOW = 14.0
         const val TURBULENCE = 1.6
+
+        /** Storm strengths hail starts from and is full by, and the hail shaft's width in tower radii. */
+        const val HAIL_FROM = 0.7
+        const val HAIL_FULL = 1.0
+        const val HAIL_WIDTH = 0.6
 
         /** The spacing of storm cells, in metres. */
         const val CELL = 60_000.0

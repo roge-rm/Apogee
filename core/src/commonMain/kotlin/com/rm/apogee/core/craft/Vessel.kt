@@ -889,6 +889,15 @@ class Vessel(
      */
     var powered: Boolean = true
 
+    /**
+     * Until when, in universe seconds, lightning has its probe cores, stability assist and
+     * reaction wheels out. 0 for never struck.
+     */
+    var stunnedUntil: Double = 0.0
+
+    /** Whether lightning has its electrics out at [time]. See [stunnedUntil]. */
+    fun stunned(time: Double): Boolean = time < stunnedUntil
+
     /** Charge in minus out, in units a second, as last worked out. A base's card shows it. */
     var powerNet: Double = 0.0
 
@@ -1498,6 +1507,7 @@ class Vessel(
         if (!airSampledAt.isNaN()) airSampledAt += shift
         if (!rightingStart.isNaN()) rightingStart += shift
         if (!signalAt.isNaN()) signalAt += shift
+        if (stunnedUntil > 0.0) stunnedUntil += shift
         for (i in plannedBurns.indices) plannedBurns[i] = plannedBurns[i].copy(time = plannedBurns[i].time + shift)
     }
 

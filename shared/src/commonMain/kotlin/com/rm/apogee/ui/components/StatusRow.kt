@@ -34,6 +34,8 @@ import androidx.compose.material.icons.filled.Tornado
 import androidx.compose.material.icons.filled.Landslide
 import androidx.compose.material.icons.filled.Air
 import androidx.compose.material.icons.filled.Tsunami
+import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.Grain
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -122,10 +124,12 @@ fun StatusRow(
                 WeatherWarnings.Kind.QUAKE, WeatherWarnings.Kind.AFTERSHOCKS -> Icons.Filled.Landslide
                 WeatherWarnings.Kind.DUST, WeatherWarnings.Kind.DUST_STORM -> Icons.Filled.Air
                 WeatherWarnings.Kind.BLIZZARD -> Icons.Filled.AcUnit
+                WeatherWarnings.Kind.HAIL -> Icons.Filled.Grain
             }
             add(StatusChip("weather", icon, w.text, if (w.danger) ApogeeColors.Danger else ApogeeColors.Caution, w.danger, null, tap = { actions.onWeather(w) }, solid = w.danger))
         }
         if (power != null) {
+            if (power.stunned > 0f) add(StatusChip("struck", Icons.Filled.Bolt, "STRUCK", ApogeeColors.Danger, true, null))
             if (!power.powered) add(StatusChip("power", Icons.Filled.BatteryAlert, "NO POWER", ApogeeColors.Danger, true, null))
             else if (power.low) add(StatusChip("power", Icons.Filled.BatteryAlert, percent(power.share.toDouble()), ApogeeColors.Caution, false, null))
             if (power.needsSignal && power.powered && power.blocked == "NO SIGNAL") {

@@ -58,6 +58,8 @@ class ClientPrediction(
         // No plan yet; the next sync brings the server's.
         syncedBurns = null
         replica.weatherConfig = weather
+        // The server decides what lightning and hail do; [syncSystems], [sync] and the snapshots bring it.
+        replica.isReplica = true
         replica.syncClock(time)
         vessel = replica.spawnAt(
             design = design,
@@ -128,6 +130,12 @@ class ClientPrediction(
         local.control.keeping = systems.keeping
         if (systems.keeping) local.control.keepPoint.setTo(systems.keepPoint)
         local.ballonet = systems.ballonet.toDouble()
+        // Lightning's outage as the server has it, since the strike may have gone to another craft.
+        world?.let { local.stunnedUntil = if (systems.stunned > 0f) it.clockOf(local) + systems.stunned else 0.0 }
+        // A probe struck goes limp on the server, and input isn't heard until it's back.
+        if (systems.stunned > 0f && !systems.controllable) {
+            local.control.pitch = 0.0; local.control.yaw = 0.0; local.control.roll = 0.0
+        }
     }
 
     private val serverPose = com.rm.apogee.core.world.VesselPose.Values()
@@ -163,6 +171,14 @@ class ClientPrediction(
 
     /** The local replica, for reading. The HUD's staging and fuel change here first. */
     val replica: Vessel? get() = vessel
+
+    /** Seconds of lightning outage left on the replica by its own clock, so it ends on time. */
+    val stunnedLeft: Float
+        get() {
+            val local = vessel ?: return 0f
+            val replica = world ?: return 0f
+            return (local.stunnedUntil - replica.clockOf(local)).coerceAtLeast(0.0).toFloat()
+        }
 
     /** The sea's current where the replica is, in the world's frame, or null with no replica. */
     fun currentAt(out: Vec3 = Vec3()): Vec3? {

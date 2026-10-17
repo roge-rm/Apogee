@@ -415,4 +415,80 @@ class ClientPredictionTest {
         println("worst replica error over a second after a hot staging: without neighbours ${"%.2f".format(without)} m, with ${"%.2f".format(with)} m")
         assertTrue("the replica feels the push ($with m vs $without m)", with < without * 0.5)
     }
+
+    /**
+     * Lightning on the flown craft: the replica decides nothing itself, so it isn't struck while
+     * the server's craft is; the server's systems and resources then bring the outage, the lost
+     * charge and the limp stick, and its snapshot the hurt part.
+     */
+    @Test
+    fun `a replica takes no strike of its own and has the server's after its update`() {
+        val config = com.rm.apogee.core.weather.WeatherConfig(intensity = com.rm.apogee.core.weather.WeatherIntensity.WILD)
+        val server = World.default(catalog).also { it.weatherConfig = config }
+        val terra = server.system.body("terra")
+        val weather = server.weatherFor(terra)!!
+        fun flat(d: com.rm.apogee.core.math.Vec3): Boolean {
+            val e = com.rm.apogee.core.math.Vec3(d.z, 0.0, -d.x).normalizeInPlace()
+            val n = com.rm.apogee.core.math.Vec3().setTo(d).crossInPlace(e)
+            return (0 until 4).all { k ->
+                val a = k * Math.PI / 2
+                val p = com.rm.apogee.core.math.Vec3().setTo(d).addScaledInPlace(e, kotlin.math.cos(a) * 20.0 / terra.radius)
+                    .addScaledInPlace(n, kotlin.math.sin(a) * 20.0 / terra.radius).normalizeInPlace()
+                kotlin.math.abs(terra.terrain!!.elevation(p) - terra.terrain!!.elevation(d)) <= 1.5
+            }
+        }
+        val found = ArrayList<com.rm.apogee.core.weather.Strike>()
+        val strike = (0 until 4_000).firstNotNullOfOrNull { i ->
+            val lat = (com.rm.apogee.core.terrain.Noise.hash(3, i, 0, 0) - 0.5) * 1.2
+            val lon = com.rm.apogee.core.terrain.Noise.hash(3, i, 1, 0) * 2 * Math.PI
+            found.clear()
+            weather.strikes(com.rm.apogee.core.math.Vec3(kotlin.math.cos(lat) * kotlin.math.cos(lon), kotlin.math.sin(lat), kotlin.math.cos(lat) * kotlin.math.sin(lon)), 3_000.0, 6_000.0, found)
+            found.firstOrNull { terra.terrain!!.elevation(it.direction) >= 5.0 && flat(it.direction) }
+        } ?: throw AssertionError("no strike over flat land")
+        val tall = com.rm.apogee.core.craft.CraftDesign(
+            "Tall",
+            listOf(
+                com.rm.apogee.core.craft.PlacedPart("tank-broad8", com.rm.apogee.core.math.Vec3.zero()),
+                com.rm.apogee.core.craft.PlacedPart("tank-broad8", com.rm.apogee.core.math.Vec3(0.0, 8.0, 0.0), parentIndex = 0),
+                com.rm.apogee.core.craft.PlacedPart("probe-mote", com.rm.apogee.core.math.Vec3(0.0, 12.2, 0.0), parentIndex = 1),
+            ),
+            emptyList(),
+            catalog.contentHash,
+        )
+        server.syncClock(strike.time - 2_600.0)
+        val d = strike.direction
+        val craft = server.spawnOnSurface(tall, com.rm.apogee.core.world.LaunchSite("test", "", "terra", kotlin.math.asin(d.y), kotlin.math.atan2(d.z, d.x)))
+        repeat(30 * 60) { server.step(1.0 / 60.0) }
+        server.syncClock(strike.time - 3.0)
+        val prediction = ClientPrediction(catalog)
+        prediction.adopt(craft.design, kinematicsOf(server, craft.id), server.time, config)
+        val replica = prediction.replica!!
+        val charge = com.rm.apogee.core.part.ResourceType.ELECTRIC_CHARGE
+        val chargeBefore = replica.amountOf(charge)
+        val hits = ArrayList<com.rm.apogee.core.world.WorldEvent.LightningHit>()
+        while (server.time < strike.time + 1.0) {
+            server.step(1.0 / 60.0)
+            hits += server.drainEvents().filterIsInstance<com.rm.apogee.core.world.WorldEvent.LightningHit>()
+            prediction.advance(1.0 / 60.0)
+        }
+        assertTrue("the server's craft struck: ${hits.map { it.strikeId }}", hits.any { it.id == craft.id && it.strikeId == strike.id })
+        assertTrue("out on the server", craft.stunned(server.time))
+        assertTrue("charge gone on the server", craft.amountOf(charge) < 0.5 * chargeBefore)
+        assertTrue("hurt on the server", craft.health.any { it < 1.0 })
+        assertEquals("the replica not out", 0.0, replica.stunnedUntil, 0.0)
+        assertTrue("its charge kept", replica.amountOf(charge) > 0.9 * chargeBefore)
+        assertTrue("whole", replica.health.all { it == 1.0 })
+        // The server's word, as each snapshot brings it.
+        prediction.applyControl(0.0, 0.5, 0.0, 0.0, sas = true)
+        prediction.syncSystems(server.systemsOf(craft))
+        prediction.sync(craft.currentStage, craft.design.parts.indices.filter { craft.isActivated(it) }, craft.flatResources())
+        assertEquals("out as long as the server's", craft.stunnedUntil - server.time, replica.stunnedUntil - server.time, 0.05)
+        assertEquals("charge as the server's", craft.amountOf(charge), replica.amountOf(charge), 1e-3)
+        assertEquals("the probe limp", 0.0, replica.control.pitch, 0.0)
+        assertTrue("no input heard", !prediction.heard)
+        val condition = com.rm.apogee.core.world.VesselCondition.decode(
+            craft.defs.size, snapshotOf(server, craft.id).condition, com.rm.apogee.core.world.VesselCondition.Values(),
+        )
+        for (i in craft.defs.indices) assertEquals("part $i health in the snapshot", craft.health[i], condition.health[i].toDouble(), 0.01)
+    }
 }

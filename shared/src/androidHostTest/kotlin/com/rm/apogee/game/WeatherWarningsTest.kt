@@ -249,6 +249,34 @@ class WeatherWarningsTest {
     }
 
     @Test
+    fun `hail warns near a hailing shaft and is a danger in heavy hail`() {
+        val (time, h) = HailSceneTest.hailShaft(weather, 0.7)
+        fun ground(p: Vec3) = maxOf(terra.terrain!!.elevation(p), 0.0)
+        fun at(metres: Double, above: Double = 5.0): Vec3 {
+            val p = Vec3().setTo(h.centre).addScaledInPlace(h.heading, metres / radius).normalizeInPlace()
+            return p.mulInPlace(radius + ground(p) + above)
+        }
+        fun hail(p: Vec3) = warnings().all(p, time).firstOrNull { it.kind == WeatherWarnings.Kind.HAIL && it.id == h.id }
+        val reach = h.width * kotlin.math.sqrt(kotlin.math.ln(h.hail / WeatherWarnings.HAIL_FROM))
+        val inside = hail(at(0.0))
+        assertNotNull("under it", inside)
+        assertEquals("HAIL", inside!!.text)
+        val heavy = weather.hailAt(at(0.0).normalizeInPlace(), at(0.0).length - radius, time)
+        println("shaft %.2f, %.0f m wide, hail at the craft %.2f, danger %b".format(h.hail, h.width, heavy, inside.danger))
+        assertTrue("heavy under it: $heavy", heavy >= WeatherWarnings.HAIL_HEAVY)
+        assertTrue("a danger in heavy hail", inside.danger)
+        val coming = hail(at(reach + 6_000.0))
+        assertNotNull("warned ahead of it", coming)
+        assertFalse(coming!!.danger)
+        assertTrue("with how far: ${coming.text}", coming.text.startsWith("HAIL ") && coming.text.endsWith(" km"))
+        assertEquals("one event", coming.event, inside.event)
+        assertNull("none far ahead", hail(at(reach + 30_000.0)))
+        assertNull("none high up", hail(at(0.0, WeatherWarnings.HAIL_TOP + 500.0)))
+        assertTrue("none on Calm", WeatherWarnings(terra, WeatherConfig(intensity = WeatherIntensity.CALM), null).all(at(0.0), time)
+            .none { it.kind == WeatherWarnings.Kind.HAIL })
+    }
+
+    @Test
     fun `a blizzard warns as it comes and is a danger inside its snow`() {
         fun along(c: Vec3, heading: Vec3, metres: Double) = Vec3().setTo(c).addScaledInPlace(heading, metres / radius).normalizeInPlace()
         var found: Pair<Double, LiveBlizzard>? = null

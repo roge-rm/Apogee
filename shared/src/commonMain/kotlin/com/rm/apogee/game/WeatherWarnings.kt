@@ -5,6 +5,7 @@ import com.rm.apogee.core.weather.AirSample
 import com.rm.apogee.core.weather.DustKind
 import com.rm.apogee.core.weather.LiveBlizzard
 import com.rm.apogee.core.weather.LiveDust
+import com.rm.apogee.core.weather.LiveHail
 import com.rm.apogee.core.orbit.CelestialBody
 import com.rm.apogee.core.weather.LiveHurricane
 import com.rm.apogee.core.weather.LiveQuake
@@ -18,7 +19,7 @@ import kotlin.concurrent.Volatile
 import kotlin.math.roundToInt
 
 /**
- * The one hurricane, tornado, quake, tsunami, dust storm or blizzard most worth a warning at a place, worked out from the
+ * The one hurricane, tornado, quake, tsunami, dust storm, blizzard or hail shaft most worth a warning at a place, worked out from the
  * weather model, so a replica gets the same as the server with nothing sent.
  *
  * Listed off the frame thread about once a second, or sooner when warped.
@@ -28,11 +29,11 @@ class WeatherWarnings(
     private val config: WeatherConfig,
     private val scope: kotlinx.coroutines.CoroutineScope?,
 ) {
-    enum class Kind { TORNADO, WATERSPOUT, TSUNAMI, HURRICANE, QUAKE, AFTERSHOCKS, DUST, DUST_STORM, BLIZZARD }
+    enum class Kind { TORNADO, WATERSPOUT, TSUNAMI, HURRICANE, QUAKE, AFTERSHOCKS, DUST, DUST_STORM, BLIZZARD, HAIL }
 
     /**
      * One warning. [distance] is metres to a hurricane's eye, a tornado's foot, a quake or a
-     * haboob's front or a blizzard's edge (0 inside it); for a
+     * haboob's front, a blizzard's edge or a hail shaft's edge (0 inside it); for a
      * tsunami or a quake, [seconds] until it gets here, 0 while it's passing or shaking. [point] is where to look on the map, unit,
      * body-fixed, and [span] how much round it to show, in metres.
      */
@@ -53,6 +54,7 @@ class WeatherWarnings(
             Kind.DUST -> if (distance <= 0.0) "DUST" else "DUST ${distanceText(distance)}"
             Kind.DUST_STORM -> "DUST STORM"
             Kind.BLIZZARD -> if (distance <= 0.0) "BLIZZARD" else "BLIZZARD ${distanceText(distance)}"
+            Kind.HAIL -> if (distance <= 0.0) "HAIL" else "HAIL ${distanceText(distance)}"
             else -> "${kind.name} ${distanceText(distance)}"
         }
 
@@ -133,7 +135,7 @@ class WeatherWarnings(
     private val quakes = ArrayList<LiveQuake>()
     private val shaken = Vec3()
 
-    /** The most urgent warning at body-fixed [at] at [time]: any danger first, then tornado, quake, tsunami, hurricane, dust, blizzard, aftershocks. */
+    /** The most urgent warning at body-fixed [at] at [time]: any danger first, then tornado, quake, tsunami, hurricane, dust, blizzard, hail, aftershocks. */
     fun find(at: Vec3, time: Double): Warning? = all(at, time).minWithOrNull(compareBy({ !it.danger }, { it.kind.rank }))
 
     /** The nearest or soonest of each kind worth a warning at body-fixed [at] at [time]. */
@@ -171,6 +173,7 @@ class WeatherWarnings(
         quake(up, altitude, time)?.let { found += it }
         dust(at, up, altitude, time)?.let { found += it }
         blizzard(at, up, altitude, time)?.let { found += it }
+        hail(at, up, altitude, time)?.let { found += it }
 
         hurricanes.clear()
         weather.hurricanes(up, time, HURRICANE_WARN, hurricanes)
@@ -297,6 +300,40 @@ class WeatherWarnings(
         return best
     }
 
+    private val hails = ArrayList<LiveHail>()
+
+    /**
+     * The nearest hail shaft whose edge is within [HAIL_WARN] and not going away (a danger in
+     * heavy hail at the craft); only under [HAIL_TOP] over the ground.
+     */
+    private fun hail(at: Vec3, up: Vec3, altitude: Double, time: Double): Warning? {
+        if (!weather.hailPossible) return null
+        val terrain = body.terrain ?: return null
+        val ground = kotlin.math.max(terrain.elevation(up), if (terrain.hasOcean) 0.0 else -1e9)
+        if (altitude - ground > HAIL_TOP) return null
+        hails.clear()
+        weather.hailShafts(up, time, HAIL_WARN + HAIL_REACH * MAX_SHAFT, hails)
+        if (hails.isEmpty()) return null
+        val here = weather.hailAt(up, altitude, time)
+        var best: Warning? = null
+        for (h in hails) {
+            if (h.hail < HAIL_FROM) continue
+            val d = arc(up, h.centre)
+            // Where it hails at all, past which it's only rain.
+            val reach = h.width * kotlin.math.sqrt(kotlin.math.ln(h.hail / HAIL_FROM))
+            val edge = d - reach
+            if (edge > HAIL_WARN) continue
+            rel.setTo(up).subInPlace(h.centre)
+            if (edge > 0.0 && (rel dot h.heading) * body.radius < -reach) continue
+            val danger = edge <= 0.0 && here >= HAIL_HEAVY
+            val w = Warning(Kind.HAIL, h.id, if (edge <= 0.0) 0.0 else kotlin.math.max(edge, 100.0), 0.0, danger, h.centre.copy(),
+                kotlin.math.max(d * 1.3, HAIL_SPAN))
+            val o = best
+            if (o == null || (w.danger && !o.danger) || (w.danger == o.danger && w.distance < o.distance)) best = w
+        }
+        return best
+    }
+
     private val cross = Vec3()
 
     /** The distance over the ground between unit [a] and unit [b], in metres. */
@@ -311,8 +348,9 @@ class WeatherWarnings(
             Kind.HURRICANE -> 3
             Kind.DUST -> 4
             Kind.BLIZZARD -> 5
-            Kind.AFTERSHOCKS -> 6
-            Kind.DUST_STORM -> 7
+            Kind.HAIL -> 6
+            Kind.AFTERSHOCKS -> 7
+            Kind.DUST_STORM -> 8
         }
 
         /** Mixed into a quake's id for [Warning.event], apart from the other kinds' ids. */
@@ -339,6 +377,19 @@ class WeatherWarnings(
         private const val BLIZZARD_GROUND_SPAN = 20_000.0
         /** Mixed into the half hour for a ground blizzard's id, apart from storms' ids. */
         private const val GROUND_BLIZZARD = 0x5A0E5L shl 40
+
+        /**
+         * A hail shaft's edge, where it hails [HAIL_FROM], is warned of this far off, in metres, only
+         * this close over the ground, and hail this hard at the craft is a danger.
+         */
+        const val HAIL_WARN = 10_000.0
+        const val HAIL_TOP = 3_000.0
+        const val HAIL_FROM = 0.1
+        const val HAIL_HEAVY = 0.4
+        private const val HAIL_SPAN = 12_000.0
+        /** The widest a shaft's hail reaches past its middle, in shaft widths, and the widest shaft, in metres. */
+        private const val HAIL_REACH = 1.6
+        private const val MAX_SHAFT = 6_000.0
 
         /** Nothing above this, in metres over the datum. */
         const val TOP = 15_000.0

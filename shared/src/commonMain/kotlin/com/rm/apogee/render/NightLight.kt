@@ -14,6 +14,9 @@ object NightLight {
     /** Lightning's light. `FLASH` in the shaders. Change both together. */
     val FLASH = floatArrayOf(0.8f, 0.85f, 1.0f)
 
+    /** How much of a flash lights the air, haze and fog. `FLASH_AIR` in the shaders. */
+    const val FLASH_AIR = 0.6f
+
     /** Air and fog at night, as a share of their daylight brightness. */
     const val NIGHT_AIR = 0.08f
 

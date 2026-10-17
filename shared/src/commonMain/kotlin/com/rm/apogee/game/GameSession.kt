@@ -332,6 +332,10 @@ class GameSession private constructor(
     /** The flown craft, body-fixed, for weather warnings. */
     private val warnAt = Vec3()
 
+    /** How many times lightning has hit the flown craft, for the screen's flash. */
+    @Volatile var struck = 0
+        private set
+
     /** The hurricane, tornado or tsunami most worth a warning at the flown craft, or null. */
     val weatherWarning: WeatherWarnings.Warning?
         get() = if (wreckedId != null) null else (cloudScene?.warnings ?: airlessQuakes?.warnings)?.current
@@ -811,6 +815,7 @@ class GameSession private constructor(
                 ore = systems.ore,
                 water = systems.water,
                 blocked = systems.blocked,
+                stunned = if (prediction.replica?.id?.raw == id) prediction.stunnedLeft else systems.stunned,
                 boardable = systems.boardable,
                 canGrab = systems.canGrab,
                 onLadder = systems.onLadder,
@@ -2198,6 +2203,7 @@ class GameSession private constructor(
             dustNear = hiss?.closeness ?: 0.0,
             blizzard = howl?.loudness ?: 0.0,
             blizzardNear = howl?.closeness ?: 0.0,
+            hail = if (mapMode) 0.0 else cameraAir?.hail ?: 0.0,
         )
         lastListener = listener
         // Blows, breakages and blasts since the last frame, where they happened on the turning
@@ -2232,6 +2238,16 @@ class GameSession private constructor(
                 val fade = 1.0 - since / WRECK_BURN_SECONDS
                 fx.burn(site, 1.0 + 3.0 * fade, animationDt * fade, (focusId * 7).toInt())
             }
+        }
+        // Lightning that hit the flown craft: its bolt drawn down to it, the flash and the crack.
+        while (true) {
+            val hit = client.lightningHits.poll() ?: break
+            if (hit.vessel != focusId || mapMode) continue
+            val top = attractor.toBodyFixed(focusDrawn, bodyRotation, Vec3())
+            val up = Vec3().setTo(top).normalizeInPlace()
+            top.addScaledInPlace(up, designRadius(focus.design, designCentreOfMass(focus.design)).coerceAtMost(30.0))
+            fx.struck(top, hit.strikeId, focusDrawn.distanceTo(cameraPosition), renderTime, own = true)
+            struck++
         }
         attractor.toBodyFixed(cameraPosition, bodyRotation, cloudCamera)
         cameraRotation.rotate(VIEW_FORWARD, sandForward)

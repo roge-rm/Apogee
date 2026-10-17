@@ -29,6 +29,7 @@ constexpr int TSUNAMI = 21;    // p0 loudness, p1 closeness (0..1)
 constexpr int QUAKE = 22;      // p0 loudness, p1 how hard it shakes (0..1)
 constexpr int DUST = 23;       // p0 loudness, p1 how much is sand close by (0..1)
 constexpr int BLIZZARD = 24;   // p0 loudness, p1 how much is snow close by (0..1)
+constexpr int HAIL = 25;       // p0 loudness, p1 how hard it hails (0..1)
 constexpr int LAST_CONTINUOUS = 49;
 
 // One-shots: fired once, then they ring out.
@@ -71,7 +72,7 @@ inline int busOf(int r) {
     switch (r) {
         case recipe::WIND: case recipe::RAIN: case recipe::SURF: case recipe::SEA: case recipe::THUNDER: case recipe::FIRE:
         case recipe::COMPLEX: case recipe::PORT: case recipe::TORNADO: case recipe::TSUNAMI:
-        case recipe::QUAKE: case recipe::DUST: case recipe::BLIZZARD:
+        case recipe::QUAKE: case recipe::DUST: case recipe::BLIZZARD: case recipe::HAIL:
             return bus::ENVIRONMENT;
         case recipe::IMPACT: case recipe::CRUNCH: case recipe::TEAR: case recipe::EXPLOSION: case recipe::SPLASH: case recipe::SLAP:
             return bus::IMPACTS;

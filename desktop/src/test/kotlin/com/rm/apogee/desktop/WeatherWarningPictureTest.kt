@@ -48,9 +48,17 @@ class WeatherWarningPictureTest {
             "dust-storm" to warning(WeatherWarnings.Kind.DUST_STORM, 0.0, 0.0, false),
             "blizzard" to warning(WeatherWarnings.Kind.BLIZZARD, 18_000.0, 0.0, false),
             "blizzard-danger" to warning(WeatherWarnings.Kind.BLIZZARD, 0.0, 0.0, true),
+            "hail" to warning(WeatherWarnings.Kind.HAIL, 4_200.0, 0.0, false),
+            "hail-danger" to warning(WeatherWarnings.Kind.HAIL, 0.0, 0.0, true),
+            // Struck by lightning in heavy hail, crewed: the outage beside the warning.
+            "struck" to warning(WeatherWarnings.Kind.HAIL, 0.0, 0.0, true),
         )
         for ((name, w) in shots) {
             val hud = HudState().also { it.weatherWarning = w }
+            if (name == "struck") hud.power = HudState.PowerReadout(
+                charge = 30f, capacity = 200f, net = 0f, powered = true, needsSignal = false,
+                signal = com.rm.apogee.core.world.Signal.NONE, relays = 0, controllable = true, deployed = false, stunned = 5f,
+            )
             val scene = ImageComposeScene(520, 120, Density(2f)) {
                 ApogeeTheme {
                     Box(Modifier.fillMaxSize().background(Color(0xFF5A6E82))) {

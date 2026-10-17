@@ -224,6 +224,22 @@ class SoundSceneTest {
     }
 
     @Test
+    fun `hail rattles all round by how hard it hails, and not in space`() {
+        val scene = SoundScene(16)
+        scene.build(SoundScene.Listener(Vec3(), Vec3(1.0, 0.0, 0.0), density = 1.2, hail = 0.4), emptyList(), null)
+        val i = scene.indexOf(Recipes.HAIL)!!
+        assertEquals("louder than the hail, thinned a little by the air", 0.6f, scene.param(i, 0), 0.02f)
+        assertEquals(0.4f, scene.param(i, 1), 1e-6f)
+        assertEquals("no side", 0f, scene.param(i, SharedParams.PAN), 1e-6f)
+        scene.build(SoundScene.Listener(Vec3(), Vec3(1.0, 0.0, 0.0), density = 1.2, hail = 1.0), emptyList(), null)
+        assertEquals("capped", 1f, scene.param(scene.indexOf(Recipes.HAIL)!!, 0), 0.02f)
+        scene.build(air, emptyList(), null)
+        assertNull("no hail", scene.indexOf(Recipes.HAIL))
+        scene.build(SoundScene.Listener(Vec3(), Vec3(1.0, 0.0, 0.0), density = 0.0, hail = 0.7), emptyList(), null)
+        assertNull("in vacuum", scene.indexOf(Recipes.HAIL))
+    }
+
+    @Test
     fun `thrusters puff in the air, come through the hull in vacuum, and another craft's are silent there`() {
         val scene = SoundScene(16)
         val mine = SoundScene.Craft(1, true, Vec3(), 1.0).also { it.rcs(0.8) }

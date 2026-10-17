@@ -175,7 +175,14 @@ class World(
      */
     fun syncClock(time: Double) {
         this.time = time
+        hailCheckedTo.clear()
     }
+
+    /**
+     * A client's copy, set by its prediction. It leaves what lightning and hail do to craft to the
+     * server, whose craft updates bring it.
+     */
+    var isReplica: Boolean = false
 
     var tick: Long = 0
         private set
@@ -1124,6 +1131,8 @@ class World(
     private val weatherRotation = Quat.identity()
     private val weatherPoint = Vec3()
     private var lightningCheckedTo = Double.NaN
+    /** How far each craft's hail has been worked out, on its own clock (its bubble's, if it's in one), by id. */
+    private val hailCheckedTo = HashMap<Long, Double>()
     private val strikesFound = ArrayList<Strike>()
     private val strikesSeen = HashSet<Long>()
 
@@ -3395,8 +3404,10 @@ class World(
             if (vessel.control.keeping && !landingItself) flyKeeper(vessel, attractor, dt)
             val cruising = (vessel.control.cruise || vessel.control.keeping || landingItself) && landing == null
             // Current for this tick's parts and air, not the last drag pass's.
-            if (vessel.powered && vessel.control.sasEnabled) forces.assistFigures(vessel, attractor, time)
-            if (vessel.powered) stabilityAssist.update(vessel, dt, landing ?: if (cruising) null else holdDirection(vessel, attractor))
+            // Struck by lightning: no assist for a few seconds, as with no charge.
+            val live = vessel.powered && !vessel.stunned(time)
+            if (live && vessel.control.sasEnabled) forces.assistFigures(vessel, attractor, time)
+            if (live) stabilityAssist.update(vessel, dt, landing ?: if (cruising) null else holdDirection(vessel, attractor))
             else stabilityAssist.idle(vessel)
             raiseGearAfterTakeoff(vessel, attractor)
             updatePose(vessel, dt)
@@ -3466,7 +3477,7 @@ class World(
                 }
                 pendingBreakUps.add(vessel.id)
             }
-            forces.applyReactionWheels(vessel, attractor)
+            if (vessel.stunned(time)) vessel.wheelWork = 0.0 else forces.applyReactionWheels(vessel, attractor)
             forces.applyRcs(vessel, dt)
             stress.update(vessel, dt)
             for (i in 0 until stress.snappedCount) detach(vessel, stress.snapped[i], "tore off under load")
@@ -3613,7 +3624,8 @@ class World(
             pendingDestruction.clear()
         }
 
-        if (tick % LIGHTNING_CHECK_TICKS == 0L) strikeLightning(tickEnd)
+        if (tick % LIGHTNING_CHECK_TICKS == 0L && !isReplica) strikeLightning(tickEnd)
+        if (tick % LIGHTNING_CHECK_TICKS == 0L && !isReplica) hail(tickEnd)
         if (tick % REPAIR_CHECK_TICKS == 0L) repairStructures()
         if (tick % CREW_CHECK_TICKS == 0L) reconcileCrew()
         if (tick % SIGNAL_CHECK_TICKS == 0L) {
@@ -3634,16 +3646,31 @@ class World(
     }
 
     /**
-     * Lightning since the last look, up to [until]. A strike within [LIGHTNING_REACH] of any craft
-     * below the cloud, flying or parked, hits its highest part, which might be knocked out. It all
-     * comes from the weather, so replicas agree.
+     * Lightning since the last look, up to [until]. Each strike below [LIGHTNING_CEILING] goes to
+     * one craft within reach: the tallest over the ground, nearer ones first, and a tall craft
+     * reaches further for it. Craft in a bubble get theirs on its clock, among themselves.
      */
     private fun strikeLightning(until: Double) {
         val from = if (lightningCheckedTo.isNaN()) until - LIGHTNING_CHECK_TICKS / 60.0 else lightningCheckedTo
         lightningCheckedTo = until
+        strikeLightning(null, from, until)
+        if (bubbles.isEmpty()) return
+        // Each bubble in order of its first craft, so the events come out the same each run.
+        val seen = LinkedHashSet<Bubble>()
+        for (vessel in vesselsById.values) bubbles[vessel.id.raw]?.let { seen.add(it) }
+        for (bubble in seen) {
+            val since = if (bubble.lightningCheckedTo.isNaN()) bubble.time - LIGHTNING_CHECK_TICKS / 60.0 else bubble.lightningCheckedTo
+            bubble.lightningCheckedTo = bubble.time
+            strikeLightning(bubble, since, bubble.time)
+        }
+    }
+
+    /** Lightning from [from] to [until] on the craft in [bubble], or outside any for null. */
+    private fun strikeLightning(bubble: Bubble?, from: Double, until: Double) {
         if (until <= from) return
-        strikesSeen.clear()
-        for (vessel in vesselsById.values.toList()) {
+        strikeTargets.clear()
+        for (vessel in vesselsById.values) {
+            if (bubbles[vessel.id.raw] !== bubble) continue
             val attractor = attractorFor(vessel)
             val weather = weatherFor(attractor) ?: continue
             attractor.rotationAt(until, weatherRotation)
@@ -3653,37 +3680,197 @@ class World(
             weatherPoint.normalizeInPlace()
             strikesFound.clear()
             weather.strikes(weatherPoint, from, until, strikesFound)
+            if (strikesFound.isEmpty()) continue
+            var top = Double.NaN
             for (strike in strikesFound) {
                 val horizontal = strike.direction.distanceTo(weatherPoint) * attractor.radius
-                if (horizontal > LIGHTNING_REACH + vessel.contactRadius) continue
-                // One craft per strike: the first found, which is stable.
-                if (!strikesSeen.add(strike.id)) continue
-                hitByLightning(vessel, attractor, strike)
+                val near = LIGHTNING_REACH + vessel.contactRadius
+                if (horizontal > near + LIGHTNING_TALLEST) continue
+                if (top.isNaN()) top = topOverGround(vessel, attractor, weatherPoint).coerceIn(0.0, LIGHTNING_TALLEST)
+                if (horizontal > near + top) continue
+                val score = top - LIGHTNING_NEARNESS * horizontal
+                val best = strikeTargets[strike.id]
+                if (best == null || score > best.score || (score == best.score && vessel.id.raw < best.vessel.id.raw)) {
+                    strikeTargets[strike.id] = StrikeTarget(strike, vessel, score)
+                }
             }
+        }
+        if (strikeTargets.isEmpty()) return
+        for (target in strikeTargets.values.sortedWith(compareBy<StrikeTarget>({ it.strike.time }, { it.strike.id }))) {
+            hitByLightning(target.vessel, target.strike)
         }
     }
 
-    private fun hitByLightning(vessel: Vessel, attractor: CelestialBody, strike: Strike) {
-        vessel.wake()
-        // The highest part, measured against the local vertical.
-        val up = Vec3().setTo(vessel.body.position).normalizeInPlace()
+    private class StrikeTarget(val strike: Strike, val vessel: Vessel, val score: Double)
+
+    private val strikeTargets = HashMap<Long, StrikeTarget>()
+
+    /** [vessel]'s highest part, against the local vertical, or -1; its height over the craft's middle in [highestHeight]. */
+    private fun highestPart(vessel: Vessel): Int {
+        lightningUp.setTo(vessel.body.position).normalizeInPlace()
         var highest = -1
         var best = Double.NEGATIVE_INFINITY
-        val offset = Vec3()
         for (i in vessel.defs.indices) {
-            if (vessel.isBroken(i)) continue
-            vessel.partOffsetWorld(i, offset)
-            val h = offset dot up
+            if (vessel.isBroken(i) || vessel.health[i] <= 0.0) continue
+            vessel.partOffsetWorld(i, lightningOffset)
+            val h = (lightningOffset dot lightningUp) + vessel.defs[i].boundsHalfExtents.let { maxOf(it.x, it.y, it.z) }
             if (h > best) { best = h; highest = i }
         }
-        val roll = com.rm.apogee.core.terrain.Noise.hash(weatherConfig?.seed ?: 0, (strike.id ushr 32).toInt(), strike.id.toInt(), 7)
-        val damaged = highest >= 0 && roll < 0.35 + 0.5 * strike.energy && vessel.breakPart(highest)
-        pendingEvents.add(WorldEvent.LightningHit(vessel.id, strike.id, if (damaged) highest else -1))
-        if (damaged) {
+        highestHeight = best
+        return highest
+    }
+
+    private var highestHeight = 0.0
+    private val lightningUp = Vec3()
+    private val lightningOffset = Vec3()
+
+    /** How far [vessel]'s top is over the ground or sea under it, in metres. [direction] is its place, unit, body-fixed. */
+    private fun topOverGround(vessel: Vessel, attractor: CelestialBody, direction: Vec3): Double {
+        var centre = attractor.heightAboveTerrain(vessel.body.position, direction)
+        if (attractor.ocean != null) centre = minOf(centre, attractor.altitudeOf(vessel.body.position))
+        if (highestPart(vessel) < 0) return centre
+        return centre + highestHeight
+    }
+
+    /**
+     * Lightning through [vessel]: most of its charge gone and its probe cores, stability assist
+     * and wheels out for a few seconds; the part it hit hurt, and broken only by a big strike.
+     * Crew are fine inside. Someone on foot loses most of the suit's charge and nothing else.
+     * Buildings, masts and towers take it to ground.
+     */
+    private fun hitByLightning(vessel: Vessel, strike: Strike) {
+        vessel.wake()
+        val highest = highestPart(vessel)
+        val energy = strike.energy.coerceIn(0.0, 1.0)
+        val category = if (highest >= 0) vessel.defs[highest].category else null
+        if (highest < 0 || category == com.rm.apogee.core.part.PartCategory.STRUCTURE || category == com.rm.apogee.core.part.PartCategory.BASE) {
+            pendingEvents.add(WorldEvent.LightningHit(vessel.id, strike.id, -1))
+            return
+        }
+        val charge = vessel.amountOf(com.rm.apogee.core.part.ResourceType.ELECTRIC_CHARGE)
+        if (charge > 0.0) vessel.drawCharge(charge * (LIGHTNING_DRAIN + LIGHTNING_DRAIN_MORE * energy))
+        if (walking.walkerOf(vessel) != null) {
+            pendingEvents.add(WorldEvent.LightningHit(vessel.id, strike.id, -1))
+            return
+        }
+        vessel.stunnedUntil = maxOf(vessel.stunnedUntil, strike.time + LIGHTNING_STUN + LIGHTNING_STUN_MORE * energy)
+        // A probe goes limp: the stick it was given is lost with its core.
+        if (!vessel.hasCrew()) {
+            vessel.control.pitch = 0.0; vessel.control.yaw = 0.0; vessel.control.roll = 0.0
+        }
+        val knocked = lightningBreaks(weatherConfig?.seed ?: 0, strike) && vessel.breakPart(highest)
+        val destroyed = vessel.damage(highest, LIGHTNING_DAMAGE + LIGHTNING_DAMAGE_MORE * energy)
+        pendingEvents.add(WorldEvent.LightningHit(vessel.id, strike.id, if (knocked || destroyed) highest else -1))
+        if (knocked) {
             pendingEvents.add(
                 WorldEvent.PartFailed(vessel.id, highest, "${vessel.defs[highest].title} was struck by lightning"),
             )
         }
+        if (destroyed) {
+            pendingBreakUps.add(vessel.id)
+            breakUpCause[vessel.id] = "struck by lightning"
+        }
+    }
+
+    /**
+     * Hail since the last look, up to [worldUntil], at every [HAIL_STEP] of universe time in it, so a
+     * craft parked through a warp takes what it would have stepping. Light parts open to the sky
+     * dent (see [hailFragility]); heavy ones and those under others or inside a fairing don't.
+     * Each craft over its own span, so one in a bubble takes its hail on the bubble's clock.
+     */
+    private fun hail(worldUntil: Double) {
+        if (hailCheckedTo.size > vesselsById.size) hailCheckedTo.keys.retainAll { VesselId(it) in vesselsById }
+        for (vessel in vesselsById.values) {
+            if (isDebris(vessel)) continue
+            val until = bubbles[vessel.id.raw]?.time ?: worldUntil
+            val seen = hailCheckedTo[vessel.id.raw]
+            val from = if (seen == null) until - LIGHTNING_CHECK_TICKS / 60.0 else maxOf(seen, until - HAIL_LONGEST)
+            hailCheckedTo[vessel.id.raw] = until
+            val first = kotlin.math.floor(from / HAIL_STEP).toLong() + 1
+            val last = kotlin.math.floor(until / HAIL_STEP).toLong()
+            if (last < first) continue
+            val count = (last - first + 1).toInt()
+            if (hailSeen.size < count) hailSeen = DoubleArray(count)
+            val attractor = attractorFor(vessel)
+            val weather = weatherFor(attractor) ?: continue
+            if (!weather.hailPossible) continue
+            val altitude = attractor.altitudeOf(vessel.body.position)
+            if (altitude > HAIL_CEILING || (attractor.ocean != null && altitude < -1.0)) continue
+            if (vessel.defs.indices.none { hailFragility(vessel.defs[it]) > 0.0 && vessel.health[it] > 0.0 }) continue
+            attractor.rotationAt(until, hailRotation)
+            attractor.toBodyFixed(vessel.body.position, hailRotation, hailPoint).normalizeInPlace()
+            var any = false
+            for (k in 0 until count) {
+                val h = weather.hailAt(hailPoint, altitude, (first + k) * HAIL_STEP)
+                hailSeen[k] = h
+                if (h >= HAIL_LEAST) any = true
+            }
+            if (!any) continue
+            val exposed = hailExposed(vessel)
+            var lost = false
+            for (k in 0 until count) {
+                val h = hailSeen[k]
+                if (h < HAIL_LEAST) continue
+                for (i in exposed) {
+                    if (vessel.damage(i, HAIL_RATE * hailFragility(vessel.defs[i]) * h * h * HAIL_STEP)) lost = true
+                }
+            }
+            if (lost) {
+                pendingBreakUps.add(vessel.id)
+                breakUpCause[vessel.id] = "broken by hail"
+            }
+        }
+    }
+
+    private var hailSeen = DoubleArray(64)
+    private val hailRotation = Quat.identity()
+    private val hailPoint = Vec3()
+    private val hailOffset = Vec3()
+    private val hailOther = Vec3()
+    private val hailFragilities = HashMap<String, Double>()
+
+    /**
+     * How easily hail dents a part, 0..1 of [HAIL_RATE]. Panels, aerials, chutes, lamps and wings,
+     * rotors and sails, by how light they are for their broadest face: a thin panel full, a stubby
+     * fin or a dish packed small a quarter. Everything else, and buildings and bases, not at all.
+     */
+    internal fun hailFragility(def: com.rm.apogee.core.part.PartDef): Double = hailFragilities.getOrPut(def.id) {
+        if (def.category == com.rm.apogee.core.part.PartCategory.STRUCTURE || def.category == com.rm.apogee.core.part.PartCategory.BASE) return@getOrPut 0.0
+        val kind = when {
+            def.module<com.rm.apogee.core.part.SolarPanel>() != null -> 1.0
+            def.module<com.rm.apogee.core.part.Antenna>() != null && def.module<com.rm.apogee.core.part.Command>() == null -> 0.8
+            def.module<com.rm.apogee.core.part.Parachute>() != null -> 0.6
+            def.module<com.rm.apogee.core.part.Lamp>() != null -> 0.6
+            def.module<com.rm.apogee.core.part.AeroSurface>() != null || def.module<com.rm.apogee.core.part.Rotor>() != null ||
+                def.module<com.rm.apogee.core.part.Sail>() != null -> 0.3
+            else -> return@getOrPut 0.0
+        }
+        val h = def.boundsHalfExtents
+        val face = 4.0 * maxOf(h.x * h.y, h.y * h.z, h.x * h.z).coerceAtLeast(1e-3)
+        kind * (HAIL_LIGHT / (def.dryMass / face)).coerceIn(0.25, 1.0)
+    }
+
+    /** [vessel]'s parts hail can dent: light, whole, out of any fairing and with nothing over them. */
+    internal fun hailExposed(vessel: Vessel): List<Int> {
+        val inside = vessel.enclosed()
+        lightningUp.setTo(vessel.body.position).normalizeInPlace()
+        val out = ArrayList<Int>()
+        for (i in vessel.defs.indices) {
+            if (hailFragility(vessel.defs[i]) <= 0.0 || vessel.health[i] <= 0.0 || inside.getOrElse(i) { false }) continue
+            vessel.partOffsetWorld(i, hailOffset)
+            var covered = false
+            for (j in vessel.defs.indices) {
+                if (j == i || vessel.health[j] <= 0.0) continue
+                vessel.partOffsetWorld(j, hailOther).subInPlace(hailOffset)
+                val above = hailOther dot lightningUp
+                if (above <= HAIL_COVER_ABOVE) continue
+                hailOther.addScaledInPlace(lightningUp, -above)
+                val reach = vessel.defs[j].boundsHalfExtents.let { maxOf(it.x, it.y, it.z) }
+                if (hailOther.length < reach) { covered = true; break }
+            }
+            if (!covered) out.add(i)
+        }
+        return out
     }
 
     /**
@@ -4022,7 +4209,8 @@ class World(
     private fun heard(id: Long): Vessel? {
         val vessel = vesselsById[VesselId(id)] ?: return null
         if (Comms.needsSignal(vessel)) {
-            if (vessel.signalAt.isNaN() || time - vessel.signalAt > SIGNAL_STALE) refreshSignal(vessel, time)
+            val now = clockOf(vessel)
+            if (vessel.signalAt.isNaN() || now - vessel.signalAt > SIGNAL_STALE) refreshSignal(vessel, now)
             if (!controllable(vessel)) return null
         }
         return vessel.also { it.wake() }
@@ -4030,13 +4218,15 @@ class World(
 
     /** Whether [vessel] can be flown now: crew aboard, or a probe core with power and a link home. */
     fun controllable(vessel: Vessel): Boolean =
-        !Comms.needsSignal(vessel) || (Comms.hasProbeCore(vessel) && vessel.powered && vessel.signal != Signal.NONE)
+        !Comms.needsSignal(vessel) ||
+            (Comms.hasProbeCore(vessel) && vessel.powered && !vessel.stunned(clockOf(vessel)) && vessel.signal != Signal.NONE)
 
-    /** Why [vessel] can't be flown ("NO CREW", "NO POWER", "NO SIGNAL"), or blank when it can. */
+    /** Why [vessel] can't be flown ("NO CREW", "NO POWER", "STRUCK", "NO SIGNAL"), or blank when it can. */
     fun whyNotControllable(vessel: Vessel): String = when {
         controllable(vessel) -> ""
         !Comms.hasProbeCore(vessel) -> "NO CREW"
         !vessel.powered -> "NO POWER"
+        vessel.stunned(clockOf(vessel)) -> "STRUCK"
         else -> "NO SIGNAL"
     }
 
@@ -4055,6 +4245,7 @@ class World(
             relays = vessel.signalPath,
             controllable = controllable(vessel),
             blocked = whyNotControllable(vessel),
+            stunned = (vessel.stunnedUntil - clockOf(vessel)).coerceAtLeast(0.0).toFloat(),
             needsSignal = Comms.needsSignal(vessel),
             deployed = vessel.control.deployed,
             gear = vessel.control.gear,
@@ -4897,10 +5088,26 @@ class World(
     /** How far ahead of the world [vessel] is, in seconds: 0 outside a bubble. */
     fun leadOf(vessel: Vessel): Double = bubbles[vessel.id.raw]?.let { it.time - time } ?: 0.0
 
+    /**
+     * [vessel]'s own universe time: its bubble's, else the world's. Inside [advanceBubble] [time]
+     * is already the bubble's, which is further on than [Bubble.time] there.
+     */
+    fun clockOf(vessel: Vessel): Double =
+        if (scope?.contains(vessel.id.raw) == true) time else bubbles[vessel.id.raw]?.time ?: time
+
     /** Puts [members] in a bubble of their own, starting at the world's time, owned by player [owner]. */
     fun openBubble(members: Collection<Vessel>, owner: String): Bubble {
-        val bubble = members.firstNotNullOfOrNull { bubbles[it.id.raw] } ?: Bubble(owner, time)
-        for (vessel in members) bubbles[vessel.id.raw] = bubble
+        val bubble = members.firstNotNullOfOrNull { bubbles[it.id.raw] }
+            ?: Bubble(owner, time).also { it.lightningCheckedTo = lightningCheckedTo }
+        for (vessel in members) {
+            // A craft joining from another clock moves its timed things on by the difference.
+            val shift = bubble.time - clockOf(vessel)
+            if (shift != 0.0 && bubbles[vessel.id.raw] !== bubble) {
+                hailCheckedTo[vessel.id.raw]?.let { hailCheckedTo[vessel.id.raw] = it + shift }
+                vessel.retime(shift)
+            }
+            bubbles[vessel.id.raw] = bubble
+        }
         return bubble
     }
 
@@ -4971,6 +5178,8 @@ class World(
         for (vessel in membersOf(bubble)) {
             bubbles.remove(vessel.id.raw)
             if (lead == 0.0) continue
+            // Its hail carries on from where it was in the bubble, a lead back.
+            hailCheckedTo[vessel.id.raw]?.let { hailCheckedTo[vessel.id.raw] = it - lead }
             val attractor = attractorFor(vessel)
             if (vessel.dormant || vessel.anchored || vessel.touchingGround) {
                 // Standing on the ground: where it stood, as the world has turned.
@@ -5010,6 +5219,8 @@ class World(
         var until: Double = Double.NaN
         /** The rate it last really ran at, held down by its craft. */
         var running: Double = 1.0
+        /** How far its lightning has been worked out, on its clock. Not saved. */
+        internal var lightningCheckedTo: Double = Double.NaN
     }
 
     /** The universe time a warp was asked to stop at (see [Command.WarpTo]), or NaN for none. */
@@ -5050,6 +5261,7 @@ class World(
             }
         }
         lightningCheckedTo = Double.NaN
+        hailCheckedTo.keys.removeAll { it !in bubbles }
         watchCareer(look = true)
         tick++
     }
@@ -5256,6 +5468,7 @@ class World(
                 keepPoint = vessel.control.keepPoint.copy(),
                 keepTrim = vessel.control.keepTrim,
                 ballonet = vessel.ballonet,
+                stunnedUntil = vessel.stunnedUntil,
                 surveyBody = vessel.surveyBody,
                 surveyProgress = vessel.surveyProgress,
                 crew = if (vessel.crewAboard > 0) vessel.crew.map { it.toList() } else emptyList(),
@@ -5405,6 +5618,7 @@ class World(
             vessel.control.keepPoint.setTo(saved.keepPoint)
             vessel.control.keepTrim = saved.keepTrim
             vessel.ballonet = saved.ballonet
+            vessel.stunnedUntil = saved.stunnedUntil
             vessel.log = saved.log
             vessel.surveyBody = saved.surveyBody
             vessel.surveyProgress = saved.surveyProgress
@@ -6901,6 +7115,60 @@ class World(
 
         /** Above this, in metres, a craft is in or over the cloud, not under the bolt. */
         private const val LIGHTNING_CEILING = 3_000.0
+
+        /**
+         * How far a craft's top over the ground widens its reach for a strike, metre for metre, up
+         * to this, and what a metre nearer counts against a metre taller in picking which is hit.
+         */
+        private const val LIGHTNING_TALLEST = 200.0
+        private const val LIGHTNING_NEARNESS = 0.5
+
+        /** The share of its charge a strike takes: this plus the more for its energy. */
+        const val LIGHTNING_DRAIN = 0.6
+        const val LIGHTNING_DRAIN_MORE = 0.35
+
+        /** Seconds its electrics are out: this plus the more for its energy. */
+        const val LIGHTNING_STUN = 2.0
+        const val LIGHTNING_STUN_MORE = 6.0
+
+        /** Health the part struck loses: this plus the more for its energy. */
+        const val LIGHTNING_DAMAGE = 0.1
+        const val LIGHTNING_DAMAGE_MORE = 0.2
+
+        /** Only strikes past this energy can break a part, at most this often at full energy. */
+        const val LIGHTNING_BIG = 0.8
+        private const val LIGHTNING_BREAK = 0.3
+
+        /** Whether [strike] breaks the part it hits: a big one, by a roll from the world's [seed]. */
+        internal fun lightningBreaks(seed: Int, strike: Strike): Boolean {
+            val big = (strike.energy.coerceIn(0.0, 1.0) - LIGHTNING_BIG) / (1.0 - LIGHTNING_BIG)
+            if (big <= 0.0) return false
+            val roll = com.rm.apogee.core.terrain.Noise.hash(seed, (strike.id ushr 32).toInt(), strike.id.toInt(), 7)
+            return roll < LIGHTNING_BREAK * big
+        }
+
+        /** Hail is added up every this many seconds of universe time, and none under [HAIL_LEAST]. */
+        private const val HAIL_STEP = 10.0
+        private const val HAIL_LEAST = 0.05
+
+        /** The furthest back a look at the hail goes, in seconds, after a long warp. */
+        private const val HAIL_LONGEST = 6.0 * 3_600.0
+
+        /** Above this, in metres, nothing hails. */
+        private const val HAIL_CEILING = 20_000.0
+
+        /**
+         * Health a second the most easily dented part loses in full hail, which goes as the
+         * square of the hail. A panel in full hail lasts about four minutes; out of a storm's
+         * middle, or under a lesser storm, it takes a nick.
+         */
+        const val HAIL_RATE = 1.0 / 480.0
+
+        /** Kilograms per square metre of its broadest face a part can be and still dent fully. */
+        private const val HAIL_LIGHT = 60.0
+
+        /** How far above a part another has to sit, in metres, to cover it. */
+        private const val HAIL_COVER_ABOVE = 0.1
 
         /**
          * The furthest a contact point can sweep in one substep, in metres: less than a leg sticks

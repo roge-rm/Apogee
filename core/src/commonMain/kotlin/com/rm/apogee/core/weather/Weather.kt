@@ -794,6 +794,34 @@ class Weather(
         out.sortBy { it.time }
     }
 
+    /** Whether storms here can hail at all. */
+    val hailPossible: Boolean get() = storms.hails
+
+    /**
+     * Hail at unit [direction], [altitude] metres above datum, at [time], 0..1: what
+     * [AirSample.hail] gives there, without the rest of the air.
+     */
+    fun hailAt(direction: Vec3, altitude: Double, time: Double): Double {
+        if (!storms.hails) return 0.0
+        frame(direction, hailEast, hailNorth)
+        return storms.hailAt(direction, hailEast, hailNorth, altitude, time)
+    }
+
+    /**
+     * The hail shafts at [time] within [reach] metres of unit [direction], into [out]. Makes new
+     * objects, so not for every sample.
+     */
+    fun hailShafts(direction: Vec3, time: Double, reach: Double, out: MutableList<LiveHail>) {
+        if (!storms.hails) return
+        val up = direction.copy().normalizeInPlace()
+        val e = Vec3(); val n = Vec3()
+        frame(up, e, n)
+        storms.hailShafts(up, e, n, reach, time, out)
+    }
+
+    private val hailEast = Vec3()
+    private val hailNorth = Vec3()
+
     internal val convectionModel: Convection get() = convection
     internal val stormModel: Storms get() = storms
     internal val hurricaneModel: Hurricanes get() = hurricanes

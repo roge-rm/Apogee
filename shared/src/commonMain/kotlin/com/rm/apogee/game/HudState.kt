@@ -140,6 +140,9 @@ class HudState {
     /** The hurricane, tornado or tsunami most worth a warning at the craft, or null. */
     var weatherWarning: WeatherWarnings.Warning? by mutableStateOf(null)
 
+    /** How many times lightning has hit the flown craft; each one flashes the screen. */
+    var struck: Int by mutableIntStateOf(0)
+
     /** Whether the flown craft has sun wings or dishes to fold out, so the DEPLOY control can hide itself. */
     var hasFoldouts: Boolean by mutableStateOf(false)
 
@@ -266,6 +269,8 @@ class HudState {
         val held: List<Float>? = null,
         /** Why it can't be flown, or blank. */
         val blocked: String = "",
+        /** Seconds left before lightning's outage of its probe cores, assist and wheels ends, or 0. */
+        val stunned: Float = 0f,
         /** On EVA: a craft with a free seat in reach, a ladder in reach, and holding one. */
         val boardable: String = "",
         val canGrab: Boolean = false,

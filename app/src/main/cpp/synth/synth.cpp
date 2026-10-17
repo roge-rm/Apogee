@@ -111,6 +111,7 @@ float trim(int r) {
         case recipe::QUAKE: return 0.24f;  // under the tornado's roar
         case recipe::DUST: return 0.15f;  // long, so well under the engines
         case recipe::BLIZZARD: return 0.15f;  // can last hours, so well under the engines
+        case recipe::HAIL: return 0.095f;  // minutes at a time, so well under the engines
         case recipe::ROTOR: return 0.35f;  // under the engines, since it can run for ages
         case recipe::RCS: return 0.25f;  // puffs under the engines
         case recipe::IMPACT: return 0.2f;
@@ -821,6 +822,32 @@ void Synth::renderVoice(Voice& v, float& left, float& right) {
             float howl = gust * gust;
             s = (v.f[0].low * 0.7f * gust + v.f[1].band * 0.6f * howl
                 + v.f[2].band * 0.55f * (0.35f + 0.65f * close) * gust) * loud;
+            break;
+        }
+        case recipe::HAIL: {
+            // Hail on the hull: a dense rattle of dull knocks over a low wash, harder stones
+            // knocking more often and deeper. Every knock is a random click through low bands, so
+            // it never makes a beat, and nothing bright, since it can go on for minutes.
+            float loud = clampf(p[0], 0, 1.5f), hard = clampf(p[1], 0, 1);
+            // The rate wanders a little, as the stones come in bursts.
+            v.state[2] -= dt;
+            if (v.state[2] <= 0) { v.state[1] = 0.6f + 0.4f * rng.uniform(); v.state[2] = 0.4f + 1.2f * rng.uniform(); }
+            v.state[0] += (v.state[1] - v.state[0]) * clampf(dt / 0.5f, 0, 1);
+            if (v.state[0] < 0.3f) v.state[0] = v.state[1];
+            float burst = v.state[0];
+            if (control) {
+                v.f[0].set(700.0f, 0.7f, sr);
+                v.f[1].set(620.0f + 180.0f * (1.0f - hard), 2.2f, sr);
+                v.f[2].set(1250.0f, 3.0f, sr);
+                v.f[3].set(160.0f, 1.6f, sr);
+            }
+            v.f[0].process(v.pink.next(rng.white()));
+            float knocks = v.crackle.next(rng, (90.0f + 260.0f * hard) * burst, sr);
+            v.f[1].process(knocks);
+            v.f[2].process(knocks);
+            v.f[3].process(knocks);
+            s = (v.f[0].low * 0.35f * burst + v.f[1].band * 2.2f + v.f[2].band * 0.7f * (0.4f + 0.6f * hard)
+                + v.f[3].band * 2.0f * hard) * loud;
             break;
         }
         case recipe::SAIL: {

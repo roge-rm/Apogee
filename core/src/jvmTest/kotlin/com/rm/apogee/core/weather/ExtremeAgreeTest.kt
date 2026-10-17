@@ -15,7 +15,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Hurricanes, tornadoes, tsunamis, quakes, dust storms and blizzards agree everywhere they're worked out: a server that's run for
+ * Hurricanes, tornadoes, tsunamis, quakes, dust storms, blizzards and hail agree everywhere they're worked out: a server that's run for
  * hours and warped, a replica that joined at that moment, the same world saved and loaded, and the
  * renderer's own weather and sea. Lists bit-equal, and the sea, air and the ground's shaking
  * bit-equal at points round each event. The caches instances share are emptied before each works things out.
@@ -143,6 +143,27 @@ class ExtremeAgreeTest {
         add(SolarSystem.surfaceDirection(cape.latitude, cape.longitude))
     }
 
+    /** Under the main towers of storms hailing at [time] near 300 places on Terra, unit, body-fixed. */
+    private fun hailSpots(w: Weather, time: Double): List<Vec3> = buildList {
+        val list = ArrayList<Storms.Storm>()
+        val seen = HashSet<Storms.Storm>()
+        for (i in 0 until 300) {
+            val lat = (com.rm.apogee.core.terrain.Noise.hash(9, i, 0, 0) - 0.5) * 1.6
+            val lon = com.rm.apogee.core.terrain.Noise.hash(9, i, 1, 0) * 2 * Math.PI
+            val d = Vec3(kotlin.math.cos(lat) * kotlin.math.cos(lon), kotlin.math.sin(lat), kotlin.math.cos(lat) * kotlin.math.sin(lon))
+            val e = Vec3(); val n = Vec3(); frame(d, e, n)
+            list.clear(); w.stormModel.around(d, e, n, 1, time, list)
+            for (s in list) {
+                if (s.hail <= 0.0 || !seen.add(s)) continue
+                val c = Vec3(); val tr = Vec3(); val rt = Vec3()
+                w.stormModel.frameAt(s, time, c, tr, rt)
+                val m = s.mainCell
+                add(w.stormModel.place(c, tr, rt, s.cellAlong[m] + s.shaftAlong * s.cellRadius[m], s.cellAcross[m], 1.0, Vec3()))
+                if (size >= 24) return@buildList
+            }
+        }
+    }
+
     /** Also the ground's shaking, a few seconds after each quake listed: lift and velocity and acceleration. */
     private class Here(val sea: SeaSample?, val air: AirSample, val shake: List<Double>)
 
@@ -173,6 +194,7 @@ class ExtremeAgreeTest {
         same("$what cloud", a.air.cloudDensity, b.air.cloudDensity)
         same("$what dust", a.air.dust, b.air.dust); same("$what sight", a.air.visibility, b.air.visibility)
         same("$what snow", a.air.snow, b.air.snow); same("$what snowfall", a.air.snowfall, b.air.snowfall)
+        same("$what hail", a.air.hail, b.air.hail)
         assertEquals("$what shake", a.shake.map { bits(it) }, b.shake.map { bits(it) })
     }
 
@@ -199,9 +221,10 @@ class ExtremeAgreeTest {
         val truth = lists(serverWeather, now)
         shakeTimes = truth.quakes.map { it.start + 3.0 }
         println("busy at ${time / 3_600.0} h: ${truth.hurricanes.size} hurricanes, ${truth.tornadoes.size} tornadoes, ${truth.tsunamis.size} tsunamis, ${truth.quakes.size} quakes, ${truth.dust.size} dust storms, ${truth.blizzards.size} blizzards")
-        val spots = points(truth, serverTerra.radius)
+        val spots = points(truth, serverTerra.radius) + hailSpots(serverWeather, now)
         val expected = spots.map { at(serverTerra, serverTerra.ocean!!.sea, serverWeather, it, now) }
         assertTrue("points: ${spots.size}", spots.size > 20)
+        assertTrue("hailing at some: ${expected.count { it.air.hail > 0.0 }}", expected.count { it.air.hail > 0.0 } >= 3)
         val text = json.encodeToString(WorldSave.serializer(), server.save())
 
         // A replica that joined just now, the world saved and loaded, and the renderer's own, each
@@ -250,8 +273,9 @@ class ExtremeAgreeTest {
         assertEquals(bits(now), bits(replica.time))
         val truth = lists(sw, now)
         shakeTimes = truth.quakes.map { it.start + 3.0 }
-        val spots = points(truth, terraOf(server).radius)
+        val spots = points(truth, terraOf(server).radius) + hailSpots(sw, now)
         val expected = spots.map { at(terraOf(server), terraOf(server).ocean!!.sea, sw, it, now) }
+        assertTrue("hailing at some", expected.any { it.air.hail > 0.0 })
         // The replica's from empty shared caches, points first and in reverse.
         Weather.forgetShared(terraOf(server))
         for (j in spots.indices.reversed()) same("point $j", expected[j], at(terraOf(replica), terraOf(replica).ocean!!.sea, rw, spots[j], now))
@@ -314,5 +338,48 @@ class ExtremeAgreeTest {
         val loaded = world(now, WorldStore.decode(text))
         check("loaded", loaded.quakesFor(loaded.system.body("luna"))!!)
         check("renderer", Quakes.of(SolarSystem.defaultSystem().body("luna"), config))
+    }
+
+    /**
+     * Lightning on craft parked round a strike: a server and a replica stepping along pick the same
+     * craft, take the same charge and health and put the same electrics out until the same time;
+     * saved and loaded in the outage, the world carries on the same.
+     */
+    @Test
+    fun `lightning does the same on a server, a replica and a loaded world`() {
+        val strike = com.rm.apogee.core.world.LightningScene.strikes(World.default(catalog).also { it.weatherConfig = com.rm.apogee.core.world.LightningScene.config }, 1).single()
+        fun parked(): World {
+            val w = World.default(catalog).also { it.weatherConfig = com.rm.apogee.core.world.LightningScene.config }
+            w.syncClock(strike.time - 2_600.0)
+            com.rm.apogee.core.world.LightningScene.park(w, com.rm.apogee.core.world.LightningScene.short(catalog), com.rm.apogee.core.world.LightningScene.east(w, strike.direction, 25.0))
+            com.rm.apogee.core.world.LightningScene.park(w, com.rm.apogee.core.world.LightningScene.tall(catalog), com.rm.apogee.core.world.LightningScene.east(w, strike.direction, -40.0))
+            repeat(30 * 60) { w.step(1.0 / 60.0) }
+            w.syncClock(strike.time - 3.0)
+            return w
+        }
+        fun state(w: World): List<Long> = w.vessels.sortedBy { it.id.raw }.flatMap { v ->
+            listOf(v.id.raw, bits(v.stunnedUntil), bits(v.amountOf(com.rm.apogee.core.part.ResourceType.ELECTRIC_CHARGE)), if (v.stunned(w.time)) 1L else 0L) +
+                v.health.map { bits(it) } + v.defs.indices.map { if (v.isBroken(it)) 1L else 0L }
+        }
+        val server = parked()
+        val replica = parked()
+        val hits = ArrayList<String>()
+        val replicaHits = ArrayList<String>()
+        while (server.time < strike.time + 1.0) {
+            server.step(1.0 / 60.0); replica.step(1.0 / 60.0)
+            server.drainEvents().filterIsInstance<com.rm.apogee.core.world.WorldEvent.LightningHit>().forEach { hits += "${it.id.raw} ${it.strikeId} ${it.partIndex}" }
+            replica.drainEvents().filterIsInstance<com.rm.apogee.core.world.WorldEvent.LightningHit>().forEach { replicaHits += "${it.id.raw} ${it.strikeId} ${it.partIndex}" }
+        }
+        assertTrue("struck: $hits", hits.any { it.contains(" ${strike.id} ") })
+        assertEquals("the same hits", hits, replicaHits)
+        assertEquals("the same craft after", state(server), state(replica))
+        assertTrue("out", server.vessels.any { it.stunned(server.time) })
+        val loaded = World(SolarSystem.defaultSystem(), catalog).also {
+            it.restore(WorldStore.decode(json.encodeToString(WorldSave.serializer(), server.save())))
+        }
+        assertEquals("loaded in the outage", state(server), state(loaded))
+        repeat(10 * 60) { server.step(1.0 / 60.0); loaded.step(1.0 / 60.0) }
+        assertTrue("back", server.vessels.none { it.stunned(server.time) })
+        assertEquals("and on alike", server.vessels.sortedBy { it.id.raw }.map { bits(it.stunnedUntil) }, loaded.vessels.sortedBy { it.id.raw }.map { bits(it.stunnedUntil) })
     }
 }

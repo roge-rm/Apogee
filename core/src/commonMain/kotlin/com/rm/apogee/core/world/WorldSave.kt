@@ -69,6 +69,8 @@ class VesselSave(
     val keepPoint: com.rm.apogee.core.math.SerialVec3 = com.rm.apogee.core.math.Vec3(),
     val keepTrim: Double = 0.0,
     val ballonet: Double = 0.0,
+    /** Until when lightning has its electrics out, universe seconds; 0 for not. */
+    val stunnedUntil: Double = 0.0,
     /** Who sits in each part, by crew id, in part order. */
     val crew: List<List<Long>> = emptyList(),
     /** A survey in progress: which body, and how many seconds of it are done. */

@@ -2049,6 +2049,7 @@ class ApogeeApp(private val host: AppHost) {
                     current.baseService.let { if (it != hudState.baseService) hudState.baseService = it }
                     current.nearestBase.let { if (it != hudState.nearBase) hudState.nearBase = it }
                     current.weatherWarning.let { if (it != hudState.weatherWarning) hudState.weatherWarning = it }
+                    if (current.struck != hudState.struck) hudState.struck = current.struck
                     // The focus button follows the map when it falls back to the craft by itself.
                     if (hudState.mapMode && readoutsDue) current.mapFocusName.let { if (it != hudState.mapFocus) hudState.mapFocus = it }
                     if (readoutsDue) hudState.chute = current.chuteState
