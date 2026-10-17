@@ -304,6 +304,23 @@ class AshScene(
 
     private fun item(pool: RenderItemPool?): RenderItem = pool?.take() ?: RenderItemPool.blank()
 
+    private val toward = Vec3()
+
+    /**
+     * True when the camera's own ash fogs everything of a piece at [at], [size] metres round, to
+     * the fog's colour (the same sum as the shaders' weatherFog, counting only this ash's layer).
+     */
+    private fun fogged(at: Vec3, size: Double, camera: Vec3, far: Double): Boolean {
+        if (haze <= 1e-4) return false
+        val d = far - size
+        if (d <= 0.0) return false
+        val layerTop = top - height
+        // The piece's highest point, over the camera.
+        val s = toward.setTo(at).subInPlace(camera).dot(camera) / camera.length * (d / far) + size
+        val path = if (s <= 0.0) d else if (layerTop <= 0.0) 0.0 else if (s <= layerTop) d else d * layerTop / s
+        return path * 3.0 / sight > FOGGED
+    }
+
     private fun draw(p: Plume, camera: Vec3, bodyRotation: Quat, time: Double, weight: Double, sun: Vec3?, out: MutableList<RenderItem>, pool: RenderItemPool?) {
         val e = p.eruption
         val since = time - p.listedAt
@@ -344,7 +361,7 @@ class AshScene(
                 val far = placed.distanceTo(camera)
                 val near = smooth(NEAR_CLEAR, NEAR_SOLID, far - wide)
                 val a = alpha * near * (if (j == n - 1) 0.8 else 1.0)
-                if (a < 0.02) continue
+                if (a < 0.02 || fogged(placed, kotlin.math.max(wide, tall), camera, far)) continue
                 val it = item(pool)
                 bodyRotation.rotate(placed, it.position)
                 Quat.fromAxisAngle(UNIT_Y, 2.0 * PI * h + 0.02 * time / (1.0 + h), turn)
@@ -377,7 +394,7 @@ class AshScene(
                 if (toward > 1.0) placed.addScaledInPlace(pointUp, kotlin.math.min(0.5 * e.columnRadius, 0.5 * toward) / toward)
                 val far = placed.distanceTo(camera)
                 val a = glow * GLOW_ALPHA[g] * smooth(NEAR_CLEAR, NEAR_SOLID, far - wide)
-                if (a < 0.02) continue
+                if (a < 0.02 || fogged(placed, wide, camera, far)) continue
                 val it = item(pool)
                 bodyRotation.rotate(placed, it.position)
                 it.rotation.setTo(bodyRotation).mulInPlace(upright)
@@ -447,7 +464,7 @@ class AshScene(
                 val fade = (1.0 - smooth(0.7 * reach, reach, far)) * smooth(NEAR_CLEAR, NEAR_SOLID, far - tall) * weight * ends * (1.0 - 0.6 * farOn)
                 // Nearly solid where thick.
                 val a = (CLOUD_ALPHA * smooth(0.0, 0.3, ash).pow(0.6)) * fade
-                if (a < 0.02) continue
+                if (a < 0.02 || fogged(placed, kotlin.math.max(wide, tall), camera, far)) continue
                 val it = item(pool)
                 bodyRotation.rotate(placed, it.position)
                 Quat.fromAxisAngle(UNIT_Y, 2.0 * PI * hash((g * 37 + c + key).toInt()), turn)
@@ -471,7 +488,7 @@ class AshScene(
                     val far = placed.distanceTo(camera)
                     val fade = (1.0 - smooth(0.7 * reach, reach, far)) * smooth(NEAR_CLEAR, NEAR_SOLID, far - halfWidth) * weight * ends * (1.0 - 0.6 * farOn)
                     val a = FALL_ALPHA * ash.pow(0.5) * fade
-                    if (a >= 0.02 && far <= reach) {
+                    if (a >= 0.02 && far <= reach && !fogged(placed, kotlin.math.max(0.8 * halfWidth, 0.5 * drop), camera, far)) {
                         falls++
                         val it = item(pool)
                         bodyRotation.rotate(placed, it.position)
@@ -556,6 +573,8 @@ class AshScene(
 
         /** Sight in the thickest ash, metres, as the model has it. */
         const val ASH_SIGHT = 100.0
+        /** Fog past which a piece is left out: exp(-7), under a thousandth of it left. */
+        const val FOGGED = 7.0
         /** Metres the layer reaches over a camera in ash at least. */
         const val IN_ASH_OVER = 30.0
         /** Seconds the haze takes to follow the air. */

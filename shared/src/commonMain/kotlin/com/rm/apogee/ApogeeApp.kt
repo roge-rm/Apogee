@@ -1855,6 +1855,7 @@ class ApogeeApp(private val host: AppHost) {
         if (now - perfLookedNanos > 1_000_000_000L) {
             perfLookedNanos = now
             current.debugHideSea = host.debugSwitch("debug-no-sea")
+            current.debugHideEventItems = host.debugSwitch("debug-no-event-items")
             current.debugHideStaticScenery = host.debugSwitch("debug-no-static-scenery")
             current.debugNoCraftCulling = host.debugSwitch("debug-no-craft-culling")
             glRenderer.debugNoCloudCulling = host.debugSwitch("debug-no-cloud-culling")

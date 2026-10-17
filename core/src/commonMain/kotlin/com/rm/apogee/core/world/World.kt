@@ -5269,7 +5269,7 @@ class World(
         var until: Double = Double.NaN
         /** The rate it last really ran at, held down by its craft. */
         var running: Double = 1.0
-        /** How far its lightning has been worked out, on its clock. Not saved. */
+        /** How far its lightning has been worked out, on its clock. NaN if not yet. */
         internal var lightningCheckedTo: Double = Double.NaN
     }
 
@@ -5471,7 +5471,11 @@ class World(
         terrainGeneration = TerrainField.GENERATION,
         lastFlown = lastFlown.toMap(),
         stripes = stripes.toMap(),
-        bubbles = bubbles.entries.groupBy({ it.value }, { it.key }).map { (bubble, ids) -> SavedBubble(bubble.owner, bubble.time, ids) },
+        bubbles = bubbles.entries.groupBy({ it.value }, { it.key }).map { (bubble, ids) ->
+            SavedBubble(bubble.owner, bubble.time, ids, bubble.lightningCheckedTo.takeUnless { it.isNaN() })
+        },
+        tick = tick,
+        lightningCheckedTo = lightningCheckedTo.takeUnless { it.isNaN() },
         wondersFound = wondersFound.mapValues { it.value.sorted() },
         weather = weatherConfig,
         mode = if (program != null) WorldSave.MODE_CAREER else WorldSave.MODE_SANDBOX,
@@ -5480,6 +5484,7 @@ class World(
         universeTime = time,
         nextVesselId = nextVesselId,
         vessels = vesselsById.values.map { vessel ->
+            val sleep = vessel.sleepPose()
             VesselSave(
                 id = vessel.id.raw,
                 name = vessel.name,
@@ -5532,6 +5537,12 @@ class World(
                 anchored = vessel.anchored,
                 afloat = vessel.anchored && vessel.afloat,
                 log = vessel.log,
+                hailCheckedTo = hailCheckedTo[vessel.id.raw],
+                sleepPosition = sleep?.first,
+                sleepRotation = sleep?.second,
+                sleepTouching = sleep != null && vessel.touchingGround,
+                sleepBuoyed = sleep != null && vessel.buoyed,
+                sleepGroundedSeconds = if (sleep != null) vessel.groundedSeconds else 0.0,
             )
         },
     )
@@ -5593,7 +5604,10 @@ class World(
         pendingEvents.clear()
         time = save.universeTime
         tickEnd = time
+        tick = save.tick
         nextVesselId = save.nextVesselId
+        lightningCheckedTo = save.lightningCheckedTo ?: Double.NaN
+        hailCheckedTo.clear()
 
         for (saved in save.vessels) {
             val migration = SaveMigration.migrate(saved.design, catalog)
@@ -5670,6 +5684,7 @@ class World(
             vessel.ballonet = saved.ballonet
             vessel.stunnedUntil = saved.stunnedUntil
             vessel.log = saved.log
+            saved.hailCheckedTo?.let { hailCheckedTo[saved.id] = it }
             vessel.surveyBody = saved.surveyBody
             vessel.surveyProgress = saved.surveyProgress
             saved.crew.forEachIndexed { i, seat -> if (i < vessel.crew.size) vessel.crew[i] = seat.toLongArray() }
@@ -5682,6 +5697,10 @@ class World(
             vessel.restoreCondition(saved.health, saved.crumple, saved.temperature)
             saved.flooded.forEachIndexed { i, kg -> if (i < vessel.flooded.size) vessel.flooded[i] = kg }
             vessel.recomputeMass(shiftBodyPosition = false)
+            // Back asleep where it slept, unless the ground, the parts or the craft have changed under it.
+            if (!saved.anchored && !terrainChanged && !catalogueChanged && migration.notes.isEmpty() && saved.sleepPosition != null && saved.sleepRotation != null) {
+                vessel.sleepAt(saved.sleepPosition, saved.sleepRotation, saved.sleepTouching, saved.sleepBuoyed, saved.sleepGroundedSeconds)
+            }
             if (saved.anchored) founded.add(vessel)
             if (saved.anchored && saved.afloat) foundedAfloat.add(vessel.id)
 
@@ -5722,7 +5741,7 @@ class World(
         // Back waiting, until their owner flies on: the world catches them up meanwhile.
         bubbles.clear()
         for (saved in save.bubbles) {
-            val bubble = Bubble(saved.owner, saved.time).also { it.rate = 0.0 }
+            val bubble = Bubble(saved.owner, saved.time).also { it.rate = 0.0; it.lightningCheckedTo = saved.lightningCheckedTo ?: Double.NaN }
             for (id in saved.vessels) if (VesselId(id) in vesselsById) bubbles[id] = bubble
         }
         return problems

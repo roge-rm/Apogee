@@ -103,6 +103,18 @@ class VesselSave(
     val afloat: Boolean = false,
     /** What it has done this flight, for a career. Null outside one. */
     val log: com.rm.apogee.core.career.FlightLog? = null,
+    /** How far its hail and tornado debris have been worked out, on its own clock. Null if not yet. */
+    val hailCheckedTo: Double? = null,
+    /**
+     * Asleep on the ground, aloft or still under water: where and how, body-fixed. Null when awake,
+     * founded, riding the sea or on a deck.
+     */
+    val sleepPosition: SerialVec3? = null,
+    val sleepRotation: SerialQuat? = null,
+    /** Asleep: whether it was touching the ground, held up by water, and how long it had been down, in seconds. */
+    val sleepTouching: Boolean = false,
+    val sleepBuoyed: Boolean = false,
+    val sleepGroundedSeconds: Double = 0.0,
 )
 
 /** A whole world, as it's written to disk: JSON, so an operator can read and edit it by hand. */
@@ -147,6 +159,10 @@ class WorldSave(
     val careers: List<com.rm.apogee.core.career.CareerState> = emptyList(),
     /** Who got where first. */
     val firsts: List<com.rm.apogee.core.career.WorldFirst> = emptyList(),
+    /** [World.tick] when saved, so checks every so many ticks keep their rhythm. */
+    val tick: Long = 0L,
+    /** How far lightning outside any bubble has been worked out. Null if not yet. */
+    val lightningCheckedTo: Double? = null,
 ) {
     companion object {
         /** Goes up when the shape changes in a way older builds can't read. */
@@ -191,6 +207,6 @@ data class SavedLine(
     val taut: Boolean = false,
 )
 
-/** A warp bubble as saved: whose, its own time, and its craft. See [World.Bubble]. */
+/** A warp bubble as saved: whose, its own time, its craft and how far its lightning is worked out. See [World.Bubble]. */
 @kotlinx.serialization.Serializable
-data class SavedBubble(val owner: String, val time: Double, val vessels: List<Long>)
+data class SavedBubble(val owner: String, val time: Double, val vessels: List<Long>, val lightningCheckedTo: Double? = null)

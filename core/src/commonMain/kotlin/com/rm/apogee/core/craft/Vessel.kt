@@ -1546,6 +1546,30 @@ class Vessel(
     }
 
     /**
+     * Where and how it sleeps, body-fixed: on the ground, aloft or still under water. Null when
+     * awake, founded, riding the sea or on a deck. For saving.
+     */
+    fun sleepPose(): Pair<Vec3, Quat>? =
+        if (dormant && !anchored && !afloat && ridingOn == null) sleepPosition.copy() to sleepOrientation.copy() else null
+
+    /**
+     * Asleep again at a saved body-fixed pose (see [sleepPose]), touching the ground and held up
+     * by water as it was when saved.
+     */
+    fun sleepAt(position: Vec3, orientation: Quat, touching: Boolean, buoyed: Boolean, groundedSeconds: Double) {
+        if (dormant) return
+        sleepPosition.setTo(position)
+        sleepOrientation.setTo(orientation)
+        touchingGround = touching
+        this.buoyed = buoyed
+        this.groundedSeconds = groundedSeconds
+        liftedSeconds = 0.0
+        dormant = true
+        shaken = false
+        settledTicks = 0
+    }
+
+    /**
      * Retakes its sleeping turn from how it's turned now. For a craft set down at its balance
      * afloat after it went to sleep.
      */

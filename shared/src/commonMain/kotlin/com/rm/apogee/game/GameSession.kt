@@ -214,6 +214,8 @@ class GameSession private constructor(
 
     /** Debug: the sea is neither built nor drawn, to measure what it costs. */
     @Volatile var debugHideSea = false
+    /** Debug: leaves out the weather events' items (tornadoes, tsunamis, quake dust, dust, snow and ash). */
+    @Volatile var debugHideEventItems = false
 
     /** How long the last sea build took, in ms, for the debug performance log. */
     val seaBuildMillis: Double get() = seaScene?.lastBuildMillis ?: 0.0
@@ -2104,12 +2106,14 @@ class GameSession private constructor(
             clouds.warnings.update(attractor.toBodyFixed(focusState.position, bodyRotation, warnAt), renderTime, focusId)
             if (!mapMode) {
                 clouds.append(bodyRotation, renderTime, items, pool = itemPool)
-                clouds.tornadoes.append(cloudCamera, bodyRotation, renderTime, items, itemPool)
-                clouds.tsunamis.append(cloudCamera, bodyRotation, renderTime, items, itemPool)
-                clouds.quakes.append(cloudCamera, bodyRotation, renderTime, items, itemPool)
-                clouds.dust.append(cloudCamera, bodyRotation, renderTime, items, itemPool)
-                clouds.snow.append(cloudCamera, bodyRotation, renderTime, items, itemPool)
-                clouds.ash.append(cloudCamera, bodyRotation, renderTime, items, itemPool, frameSun)
+                if (!debugHideEventItems) {
+                    clouds.tornadoes.append(cloudCamera, bodyRotation, renderTime, items, itemPool)
+                    clouds.tsunamis.append(cloudCamera, bodyRotation, renderTime, items, itemPool)
+                    clouds.quakes.append(cloudCamera, bodyRotation, renderTime, items, itemPool)
+                    clouds.dust.append(cloudCamera, bodyRotation, renderTime, items, itemPool)
+                    clouds.snow.append(cloudCamera, bodyRotation, renderTime, items, itemPool)
+                    clouds.ash.append(cloudCamera, bodyRotation, renderTime, items, itemPool, frameSun)
+                }
                 World.launchSites.firstOrNull { it.id == "cape" }?.let { cape ->
                     clouds.windsock(cape, cloudCamera, renderTime, bodyRotation, items)
                 }
