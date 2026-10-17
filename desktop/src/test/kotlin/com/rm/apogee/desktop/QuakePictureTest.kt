@@ -42,7 +42,7 @@ class QuakePictureTest {
 
     /** An M7.8 inland of the pad, 5 km off, striking at [START]. */
     private val epicentre = offset(pad, -4_000.0, 3_000.0)
-    private fun forced() = Weather(terra, config).also { it.forceQuake(epicentre, START, 7.8, 4_000.0) }
+    private fun forced() = Quakes.of(terra, config).also { it.force(epicentre, START, 7.8, 4_000.0) }
 
     /** A scene for [tier], updated to [time] at body-fixed [camera] and its dust listed. */
     private fun scene(tier: QualityTier, scope: CoroutineScope, camera: Vec3, time: Double): QuakeScene {
@@ -66,8 +66,8 @@ class QuakePictureTest {
         var best = START; var most = 0.0
         var t = START
         while (t < START + 30.0) {
-            w.quakeShake(pad, t, v)
-            if (w.quakeLevel() > most) { most = w.quakeLevel(); best = t }
+            w.shake(pad, t, v)
+            if (w.level() > most) { most = w.level(); best = t }
             t += 0.25
         }
         println("strongest at the pad %.1f m/s^2, %.1f s after it struck".format(most, best - START))

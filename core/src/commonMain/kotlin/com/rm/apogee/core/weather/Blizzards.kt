@@ -399,6 +399,22 @@ internal class Blizzards(
         return l.blizzards
     }
 
+    /**
+     * Whether a storm blizzard may reach unit [up] within [look] seconds of [time]: one alive then
+     * that comes near. Quick; may say yes a little early, never no. Windy days' lifted snow isn't
+     * counted.
+     */
+    internal fun dueNear(up: Vec3, time: Double, look: Double): Boolean {
+        if (!stormy) return false
+        val to = time + look
+        var t = time
+        while (true) {
+            for (b in listFor(up, t)) if (b.start <= to && b.start + b.life >= time) return true
+            if (t >= to) return false
+            t = minOf(t + SLOT, to)
+        }
+    }
+
     /** What the blizzards do to a sample, before the ground. */
     private var bFall = 0.0
     private var bLift = 0.0

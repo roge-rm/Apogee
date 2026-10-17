@@ -224,6 +224,7 @@ class World(
             val changed = field != null
             field = value
             weathers.clear()
+            moonquakes.clear()
             bindSeas()
             if (changed) resettleAfloat()
         }
@@ -1109,6 +1110,16 @@ class World(
         if (body.atmosphere == null) return null
         return weathers.getOrPut(body.id) { Weather(body, config) }
     }
+
+    /** The quakes on [body]: its weather's, or on an airless solid world its own; null for a still world. */
+    fun quakesFor(body: CelestialBody): com.rm.apogee.core.weather.Quakes? {
+        weatherFor(body)?.let { return it.quakeModel }
+        val config = weatherConfig ?: return null
+        if (body.terrain == null) return null
+        return moonquakes.getOrPut(body.id) { com.rm.apogee.core.weather.Quakes.of(body, config) }
+    }
+
+    private val moonquakes = HashMap<String, com.rm.apogee.core.weather.Quakes>()
 
     private val weatherRotation = Quat.identity()
     private val weatherPoint = Vec3()
@@ -3336,8 +3347,12 @@ class World(
             // Dormant craft ride the planet's rotation and aren't simulated, so parked craft and
             // bases cost almost nothing.
             if (vessel.dormant) {
-                // Asleep on a deck: posed from the deck once everything has moved.
-                if (vessel.ridingOn != null) continue
+                // Asleep on a deck: posed from the deck once everything has moved. Someone standing
+                // there is still out in the weather, on a platform afloat or not.
+                if (vessel.ridingOn != null) {
+                    if (walking.walkerOf(vessel) != null) restingCold(vessel, attractor, dt)
+                    continue
+                }
                 if (vessel.afloat) followSea(vessel, attractor, waves = true, dt = dt) else {
                     followGround(vessel, attractor)
                     // Parked on low land as a tsunami floods it, or on ground a quake shakes: woken to
@@ -3471,7 +3486,7 @@ class World(
             val substeps = contactSubsteps(vessel, attractor, dt)
             val h = dt / substeps
             val decks = decksNear(vessel)
-            contacts.weather = weather
+            contacts.quakes = quakesFor(attractor)
             for (substep in 0 until substeps) {
                 body.integrate(h)
                 // Test against the ground as it is at the end of this substep. It turns at 175 m/s
@@ -3766,12 +3781,12 @@ class World(
     /** Whether a quake shakes the ground under [vessel] now hard enough to wake it. Quick where none is live. */
     private fun shaken(vessel: Vessel, attractor: CelestialBody): Boolean {
         if (vessel.anchored) return false
-        val weather = weatherFor(attractor) ?: return false
-        if (!weather.quakesLive(tickEnd)) return false
+        val quakes = quakesFor(attractor) ?: return false
+        if (!quakes.live(tickEnd)) return false
         attractor.rotationAt(tickEnd, scratchFloodRotation)
         attractor.toBodyFixed(vessel.body.position, scratchFloodRotation, scratchFloodPoint).normalizeInPlace()
-        weather.quakeShake(scratchFloodPoint, tickEnd, scratchShake)
-        return weather.quakeLevel() > QUAKE_WAKE
+        quakes.shake(scratchFloodPoint, tickEnd, scratchShake, null)
+        return quakes.level() > QUAKE_WAKE
     }
 
     private val scratchShake = Vec3()
@@ -4652,7 +4667,32 @@ class World(
             if (vessel.dormant || isDebris(vessel) || !inScope(vessel)) continue
             limit = minOf(limit, warpLimit(vessel))
         }
-        return minOf(limit, floodWarpLimit(), quakeWarpLimit())
+        return minOf(limit, floodWarpLimit(), quakeWarpLimit(), blizzardWarpLimit())
+    }
+
+    /**
+     * How fast time may go with someone asleep outside where a blizzard can chill them: physics
+     * while they're in one that chills, so the chill runs as it would awake, and rails slices of
+     * [RAILS_STEP] at most while they're warming or a blizzard is due near them, so [advanceOnRails]
+     * warms them and sees it come within a slice.
+     */
+    private fun blizzardWarpLimit(): Double {
+        var limit = WARP_RATES.last()
+        for (vessel in vesselsById.values) {
+            if (!vessel.dormant || vessel.afloat || !inScope(vessel) || walking.walkerOf(vessel) == null) continue
+            val attractor = attractorFor(vessel)
+            if (blizzardChill(vessel, attractor) > 0.0) return PHYSICS_WARP
+            if (vessel.chill > 0.0 || blizzardDue(vessel, attractor)) limit = minOf(limit, RAILS_SLICE_WARP)
+        }
+        return limit
+    }
+
+    /** Whether a storm blizzard may come to where [vessel] is, in cold country, within [BLIZZARD_LOOK] seconds. */
+    private fun blizzardDue(vessel: Vessel, attractor: CelestialBody): Boolean {
+        val weather = weatherFor(attractor) ?: return false
+        if (steadyWind != null || !weather.blizzardsPossible) return false
+        attractor.toBodyFixed(vessel.body.position, attractor.rotationAt(time, chillRotation), chillPoint).normalizeInPlace()
+        return weather.blizzardCold(chillPoint) > 0.0 && weather.blizzardDue(chillPoint, time, BLIZZARD_LOOK)
     }
 
     /**
@@ -4666,11 +4706,11 @@ class World(
             val grounded = if (vessel.dormant) !vessel.afloat else vessel.touchingGround
             if (!grounded || isDebris(vessel)) continue
             val attractor = attractorFor(vessel)
-            val weather = weatherFor(attractor) ?: continue
-            if (!weather.quakesDue(time, FLOOD_LOOK)) continue
+            val quakes = quakesFor(attractor) ?: continue
+            if (!quakes.due(time, FLOOD_LOOK)) continue
             attractor.rotationAt(time, scratchFloodRotation)
             attractor.toBodyFixed(vessel.body.position, scratchFloodRotation, scratchFloodPoint).normalizeInPlace()
-            val until = weather.quakeShakeIn(scratchFloodPoint, time, FLOOD_LOOK, QUAKE_WAKE)
+            val until = quakes.shakeIn(scratchFloodPoint, time, FLOOD_LOOK, QUAKE_WAKE)
             if (until.isInfinite()) continue
             if (until < FLOOD_WARN) return PHYSICS_WARP
             var allowed = PHYSICS_WARP
@@ -4796,6 +4836,11 @@ class World(
                 val attractor = attractorFor(vessel)
                 if (vessel.dormant) {
                     if (vessel.afloat) followSea(vessel, attractor, waves = false) else followGround(vessel, attractor)
+                    // Someone asleep outside, warming or with a blizzard due: their air looked at each
+                    // slice, so they warm and a blizzard coming chills them and brings warp down
+                    // (see [blizzardWarpLimit]).
+                    if (!vessel.afloat && walking.walkerOf(vessel) != null && (vessel.chill > 0.0 || blizzardDue(vessel, attractor)))
+                        restingCold(vessel, attractor, h)
                     continue
                 }
                 // Debris in the air or near the ground can't go on rails and doesn't hold warp back,
@@ -6512,6 +6557,8 @@ class World(
         const val BLIZZARD_LASTS = 240.0
         /** Seconds between looks at the air round someone standing asleep outside. */
         const val RESTING_AIR_KEEP = 1.0
+        /** Seconds ahead a blizzard is looked for with someone asleep outside: two of the longest rails slices. */
+        const val BLIZZARD_LOOK = 1_000.0
         /** Less snow than this round someone doesn't chill them. */
         const val BLIZZARD_CHILL_FROM = 0.05
 

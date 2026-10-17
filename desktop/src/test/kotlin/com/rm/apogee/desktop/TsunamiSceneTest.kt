@@ -15,6 +15,8 @@ import com.rm.apogee.render.*
 import kotlinx.coroutines.*
 import org.junit.Assert.*
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.junit.runners.Parameterized
 import org.lwjgl.BufferUtils
 import org.lwjgl.opengl.GL11C.*
 import org.lwjgl.opengl.GL30C
@@ -23,10 +25,15 @@ import java.io.File
 /**
  * Tsunamis drawn and heard by the Cape: the field is there near one and gone far off, the map
  * marks each live one with its front, the roar falls off with distance, and flooded land and the
- * drawn-back bed are drawn without holes at the coast. With a display, writes pictures to
- * build/tsunami-review.
+ * drawn-back bed are drawn without holes at the coast. Run for the tsunami nearest each of a few
+ * crest heights at the berth: about 3 m from a far trench, and 3.7 and 6.6 m from quakes on the
+ * Deep close by. With a display, writes pictures to build/tsunami-review.
  */
-class TsunamiSceneTest {
+@RunWith(Parameterized::class)
+class TsunamiSceneTest(
+    /** How high the crest at the berth the drawing is checked with, metres. */
+    private val TYPICAL: Double,
+) {
     private val system = SolarSystem.defaultSystem()
     private val terra = system.body("terra")
     private val luna = system.body("luna")
@@ -48,10 +55,12 @@ class TsunamiSceneTest {
         var flood = 0.0
     }
 
-    /** How high the crest at the berth the drawing is checked with, metres. */
-    private val TYPICAL = 3.0
+    /** Picture names, with the crest height after the first. */
+    private val tag = if (TYPICAL == 3.0) "" else "-%.1f".format(TYPICAL)
 
-    private val event: Event by lazy {
+    private val event: Event get() = events.getOrPut(TYPICAL) { findEvent() }
+
+    private fun findEvent(): Event {
         val w = Weather(terra, config)
         val bed = field.elevation(berth)
         val seen = HashMap<Long, LiveTsunami>()
@@ -90,7 +99,7 @@ class TsunamiSceneTest {
         }
         println("event ${best.tsunami.id}: strength %.2f, period %.0f s, arrives %.0f s, berth bed %.1f m, crest %.2f m".format(
             best.tsunami.strength, best.period, best.arrives, bed, best.high))
-        best
+        return best
     }
 
     private fun east(up: Vec3) = Vec3(up.z, 0.0, -up.x).normalizeInPlace()
@@ -330,8 +339,8 @@ class TsunamiSceneTest {
             }
             if (name != null) {
                 val out = File("../build/tsunami-review").apply { mkdirs() }
-                javax.imageio.ImageIO.write(image, "png", File(out, "$name.png"))
-                println("wrote ${File(out, "$name.png").canonicalPath}")
+                javax.imageio.ImageIO.write(image, "png", File(out, "$name$tag.png"))
+                println("wrote ${File(out, "$name$tag.png").canonicalPath}")
             }
             assertEquals(GL_NO_ERROR, glGetError())
             return Shot(image.getRGB(0, 0, width, height, null, 0, width), depth, near, camera, rotation)
@@ -477,7 +486,13 @@ class TsunamiSceneTest {
                 println("$name: $holes holes, flooded $floodWrong of $floodChecked off, bared $bareWrong of $bareChecked off, water drawn from floated on: median %.2f m, 95%% %.2f m of ${apart.size}".format(p50, p95))
                 assertEquals("$name: no holes", 0, holes)
                 if (name == "gaps-flooded") assertTrue("$name: flooded land seen", floodChecked > 20)
-                if (name == "gaps-bared") assertTrue("$name: bared bed seen", bareChecked > 20)
+                if (name == "gaps-bared") {
+                    // At a high enough tide the trough bares nothing to check.
+                    val bed = field.elevation(bare)
+                    sea.sample(Vec3().setTo(bare).mulInPlace(radius), time, near)
+                    if (near.height < bed - 0.5) assertTrue("$name: bared bed seen", bareChecked > 20)
+                    else println("$name: the tide (%.2f m) covers the trough's bed".format(near.tide - near.tsunami))
+                }
                 assertTrue("$name: flooded land at the water's height", floodWrong <= floodChecked / 20)
                 assertTrue("$name: bared bed at its own height", bareWrong <= bareChecked / 20)
             }
@@ -507,12 +522,13 @@ class TsunamiSceneTest {
         try {
             val w = Weather(terra, config)
             val crest = DoubleArray(TsunamiField.CREST_OUT)
-            val camera = above(out(-3_000.0), 1_500.0)
-            val up0 = Vec3().setTo(camera).normalizeInPlace()
             var owned = 0; var same = 0
             val apart = ArrayList<Double>()
             var seamChecked = 0; var seamWrong = 0
-            for (dt in listOf(0.0, 120.0, 300.0)) {
+            // From over the shore and from out at sea, where more of the seam is deep water.
+            for (from in listOf(-3_000.0, 6_000.0)) for (dt in listOf(0.0, 120.0, 300.0)) {
+                val camera = above(out(from), 1_500.0)
+                val up0 = Vec3().setTo(camera).normalizeInPlace()
                 val time = frontAt(out(5_000.0), 0.5) + dt
                 val scene = TsunamiScene(terra, config, QualityTier.MEDIUM, scope)
                 // The ones the scene lists.
@@ -550,12 +566,16 @@ class TsunamiSceneTest {
                     val o = v * SeaSurface.STRIDE
                     d.setTo(surface.origin).addInPlace(Vec3(surface.vertices[o].toDouble(), surface.vertices[o + 1].toDouble(), surface.vertices[o + 2].toDouble())).normalizeInPlace()
                     val away = d.distanceTo(up0) * radius
-                    if (away < 0.85 * sea.reach || away > sea.reach) continue
+                    // Where the waves take the far water's crest (SeaScene.FAR_CREST_TO on).
+                    if (away < 0.8 * sea.reach || away > sea.reach) continue
                     val bed = field.elevation(d)
                     if (bed > -40.0 || !f.crest(d, -bed, surface.time, crest)) continue
                     val packed = surface.vertices[o + 9]
                     val white = packed - 4f * kotlin.math.floor((packed + 2f) * 0.25f)
                     if (kotlin.math.abs(white) < 0.01 && kotlin.math.abs(crest[1]) < 0.01) continue
+                    // Coast cells take the sea's coarser bed, so a big wave there is a different
+                    // white and times its crest a little differently from the ground under it.
+                    if (kotlin.math.abs(white - crest[1]) > 0.02 && landNear(d)) continue
                     // Off the coast's steep change in time: vertices the grids morph or the
                     // coast cells mix take their neighbours' times, as the far water does.
                     val there = crest[0]
@@ -579,6 +599,15 @@ class TsunamiSceneTest {
             assertTrue("at the same time: $p50", p50 < 2.0)
             assertTrue("at the seam: $seamWrong of $seamChecked", seamChecked > 15 && seamWrong <= seamChecked / 10)
         } finally { scope.cancel() }
+    }
+
+    /** Whether dry land is within a few km of unit [p]: where the sea splits a cell to follow the shore. */
+    private fun landNear(p: Vec3): Boolean {
+        for (r in listOf(300.0, 1_000.0, 3_000.0)) for (k in 0 until 8) {
+            val a = 2.0 * Math.PI * k / 8
+            if (field.elevation(offset(p, r * kotlin.math.cos(a), r * kotlin.math.sin(a))) >= 0.0) return true
+        }
+        return false
     }
 
     /**
@@ -657,7 +686,11 @@ class TsunamiSceneTest {
     @Test fun floodGridCoversTheLandBelowFromHighUp() {
         val e = event
         val (flooded, _) = places
-        val time = frontAt(flooded) + 240.0
+        // While it's deepest there: a near one's short crest has run off a few minutes on.
+        val w0 = Weather(terra, config)
+        val bed0 = field.elevation(flooded)
+        val front = frontAt(flooded)
+        val time = (0..((e.period / 2) / 10).toInt()).map { front + it * 10.0 }.maxBy { w0.tsunamiHeight(flooded, it, bed0) }
         val camera = Vec3().setTo(flooded).mulInPlace(radius + 30_000.0)
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         try {
@@ -778,8 +811,14 @@ class TsunamiSceneTest {
         println("wrote ${File(out, "map-icon.png").canonicalPath}")
     }
 
-    private companion object {
-        val FOV = Math.toRadians(55.0)
-        const val RenderFrameFar = 250_000.0
+    companion object {
+        @JvmStatic @Parameterized.Parameters(name = "{0} m")
+        fun crests() = listOf(3.0, 3.7, 6.6)
+
+        /** Found once per crest height for every test. */
+        private val events = HashMap<Double, Event>()
+
+        private val FOV = Math.toRadians(55.0)
+        private const val RenderFrameFar = 250_000.0
     }
 }

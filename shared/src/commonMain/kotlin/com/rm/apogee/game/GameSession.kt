@@ -304,7 +304,13 @@ class GameSession private constructor(
 
     /** Clouds and the camera's air, while the world has weather and the camera is in it. */
     private var cloudScene: CloudScene? = null
+    /** Quakes and their warnings on an airless solid world, which has no [cloudScene]. */
+    private var airlessQuakes: AirlessQuakes? = null
     private var seaScene: SeaScene? = null
+
+    /** The quakes drawn and heard on [attractor], as last made. */
+    private fun quakeSceneOn(attractor: CelestialBody): QuakeScene? =
+        cloudScene?.takeIf { it.body === attractor }?.quakes ?: airlessQuakes?.takeIf { it.body === attractor }?.quakes
 
     // The sea at the camera this frame, for the ears.
     private var seaHeard = 0.0
@@ -328,7 +334,7 @@ class GameSession private constructor(
 
     /** The hurricane, tornado or tsunami most worth a warning at the flown craft, or null. */
     val weatherWarning: WeatherWarnings.Warning?
-        get() = if (wreckedId != null) null else cloudScene?.warnings?.current
+        get() = if (wreckedId != null) null else (cloudScene?.warnings ?: airlessQuakes?.warnings)?.current
 
     /** The solar system, built once. Nothing about it changes. */
     private val system = SolarSystem.defaultSystem()
@@ -1809,8 +1815,8 @@ class GameSession private constructor(
                 tsunamiMarks(it.tsunamis.forMap(cloudCamera, renderTime), attractor.rotationAt(renderTime, Quat()), attractor.radius, icons, lines)
             }
             // Quakes of the last hour on this world, where each struck, how far it's felt and its waves going out.
-            cloudScene?.takeIf { it.body === attractor }?.let {
-                keptQuakeMarks(it.quakes.forMap(renderTime), attractor.rotationAt(renderTime, quakeMarksScratch), attractor.radius, icons, lines)
+            quakeSceneOn(attractor)?.let {
+                keptQuakeMarks(it.forMap(renderTime), attractor.rotationAt(renderTime, quakeMarksScratch), attractor.radius, icons, lines)
             }
             // Haboobs where their fronts are, going their way, and a world-wide dust storm with how far it's spread.
             cloudScene?.takeIf { it.body === attractor && it.dust.active }?.let {
@@ -1882,7 +1888,7 @@ class GameSession private constructor(
             // Shaking ground shakes the camera, as of the last frame's look at it. Controls keep the still view.
             controlRotation.setTo(cameraRotation)
             cameraShaken = true
-            cloudScene?.takeIf { it.body === attractor }?.quakes?.shakeCamera(cameraPosition, cameraRotation, renderTime)
+            quakeSceneOn(attractor)?.shakeCamera(cameraPosition, cameraRotation, renderTime)
             if (!wrecked) updateSlide(focusId, prediction.replica?.body?.orientation ?: focusState.rotation, focusPosition)
             // Turn the planet to the frame's time before laying out the craft, since their lamps,
             // dust and flames are placed in its frame.
@@ -2071,6 +2077,17 @@ class GameSession private constructor(
                     .also { cloudScene = it }
         } else null
         if (clouds == null) cloudScene = null
+        // No air, so no clouds, but solid ground can still quake.
+        val airless = if (weatherConfig != null && attractor.atmosphere == null && attractor.terrain != null && weatherConfig.intensity.rare > 0.0) {
+            airlessQuakes?.takeIf { it.body === attractor && it.config == weatherConfig }
+                ?: AirlessQuakes(attractor, weatherConfig, terrainQuality ?: QualityTier.MEDIUM, terrainScope).also { airlessQuakes = it }
+        } else null
+        if (airless == null) airlessQuakes = null
+        if (airless != null) {
+            attractor.toBodyFixed(cameraPosition, bodyRotation, cloudCamera)
+            airless.quakes.update(cloudCamera, renderTime)
+            airless.warnings.update(attractor.toBodyFixed(focusState.position, bodyRotation, warnAt), renderTime, focusId)
+        }
         var mapCloud: com.rm.apogee.render.CloudShell? = null
         if (clouds != null) {
             attractor.toBodyFixed(cameraPosition, bodyRotation, cloudCamera)
@@ -2147,7 +2164,7 @@ class GameSession private constructor(
         // A tsunami's bore or flood coming in.
         val surge = if (mapMode || clouds == null) null else clouds.tsunamis.also { it.heard(ear, renderTime) }
         // Shaking ground under the camera.
-        val rumble = if (mapMode || clouds == null) null else clouds.quakes.also { it.heard(renderTime) }
+        val rumble = if (mapMode) null else (clouds?.quakes ?: airless?.quakes)?.also { it.heard(renderTime) }
         // Blowing dust and sand round the camera.
         val hiss = if (mapMode || clouds == null || !clouds.dust.active) null else clouds.dust.also { it.heard(renderTime, clouds.air.wind.length) }
         // A blizzard's howl round the camera.

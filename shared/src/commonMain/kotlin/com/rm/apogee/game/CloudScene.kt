@@ -54,7 +54,7 @@ class CloudScene(
     val tsunamis = TsunamiScene(body, config, tier, scope)
 
     /** Earthquakes: the shaking under the camera, dust, the rumble, and on the whole world for the map. */
-    val quakes = QuakeScene(body, config, tier, scope, weather)
+    val quakes = QuakeScene(body, config, tier, scope, weather.quakeModel)
 
     /** Dust storms: the haze round the camera, haboobs' walls, the veil from high up, the hiss. */
     val dust = DustScene(body, config, tier, scope, weather)

@@ -257,4 +257,62 @@ class ExtremeAgreeTest {
         for (j in spots.indices.reversed()) same("point $j", expected[j], at(terraOf(replica), terraOf(replica).ocean!!.sea, rw, spots[j], now))
         same("end", truth, lists(rw, now))
     }
+
+    /** Moonquakes on Luna, which has no weather: lists and shaking round each, every way they're worked out. */
+    @Test
+    fun `moonquakes agree on a server, a replica, a loaded world and the renderer`() {
+        val probe = Quakes.of(SolarSystem.defaultSystem().body("luna"), config)
+        var time = 6 * 3_600.0
+        while (time < 400 * 3_600.0) {
+            val q = ArrayList<LiveQuake>(); probe.near(Vec3.unitY(), time, Double.MAX_VALUE, q)
+            if (q.any { it.id != it.mainId }) break
+            time += 600.0
+        }
+        assertTrue("an aftershock by 400 h", time < 400 * 3_600.0)
+        fun list(q: Quakes, t: Double) = ArrayList<LiveQuake>().also { q.near(Vec3.unitY(), t, Double.MAX_VALUE, it) }.sortedBy { it.id }
+        fun quakeLists(q: Quakes, t: Double) = Lists(emptyList(), emptyList(), emptyList(), list(q, t), emptyList(), emptyList())
+        fun shaking(q: Quakes, d: Vec3, times: List<Double>): List<Long> {
+            val v = Vec3(); val a = Vec3(); val out = ArrayList<Long>()
+            for (t in times) {
+                out += bits(q.shake(d, t, v, a)); for (x in listOf(v.x, v.y, v.z, a.x, a.y, a.z, q.level())) out += bits(x)
+                out += bits(q.shakeIn(d, t - 30.0, 60.0, 0.1))
+            }
+            return out
+        }
+        val server = world(time - 4 * 3_600.0)
+        val luna = server.system.body("luna")
+        val sq = server.quakesFor(luna)!!
+        var t = server.time
+        while (t < time - 3_600.0) { list(sq, t); t += 900.0 }
+        repeat(30) { server.step(1.0 / 60.0) }
+        server.advanceOnRails(time - server.time)
+        repeat(60) { server.step(1.0 / 60.0) }
+        val now = server.time
+        val truth = quakeLists(sq, now)
+        val times = truth.quakes.map { it.start + 3.0 } + truth.quakes.map { it.start + 20.0 }
+        val spots = buildList {
+            for (q in truth.quakes) {
+                add(q.epicentre.copy())
+                val east = Vec3(q.epicentre.z, 0.0, -q.epicentre.x).normalizeInPlace()
+                val north = Vec3().setTo(q.epicentre).crossInPlace(east)
+                for (k in 0 until 4) {
+                    val a = 0.5 * Math.PI * k
+                    add(Vec3().setTo(q.epicentre).addScaledInPlace(east, kotlin.math.cos(a) * q.strongRadius / luna.radius)
+                        .addScaledInPlace(north, kotlin.math.sin(a) * q.strongRadius / luna.radius).normalizeInPlace())
+                }
+            }
+        }
+        println("moonquakes at ${now / 3_600.0} h: ${truth.quakes.size}, magnitudes ${truth.quakes.map { "%.2f".format(it.magnitude) }}")
+        val expected = spots.map { shaking(sq, it, times) }
+        val text = json.encodeToString(WorldSave.serializer(), server.save())
+        fun check(who: String, q: Quakes) {
+            for (k in spots.indices.reversed()) assertEquals("$who point $k", expected[k], shaking(q, spots[k], times))
+            same(who, truth, quakeLists(q, now))
+        }
+        val replica = world(now)
+        check("replica", replica.quakesFor(replica.system.body("luna"))!!)
+        val loaded = world(now, WorldStore.decode(text))
+        check("loaded", loaded.quakesFor(loaded.system.body("luna"))!!)
+        check("renderer", Quakes.of(SolarSystem.defaultSystem().body("luna"), config))
+    }
 }

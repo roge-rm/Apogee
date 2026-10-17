@@ -2,6 +2,7 @@ package com.rm.apogee.core.weather
 
 import com.rm.apogee.core.math.StrictMath
 import com.rm.apogee.core.math.Vec3
+import com.rm.apogee.core.orbit.CelestialBody
 import com.rm.apogee.core.orbit.SolarSystem
 import com.rm.apogee.core.sea.DetMath
 import com.rm.apogee.core.terrain.Noise
@@ -34,7 +35,7 @@ class LiveQuake(
     val duration: Double,
     /** Seconds since it struck. */
     val age: Double,
-    /** Whether it struck under the sea. Aftershocks take their main shock's. */
+    /** Whether it struck under the sea. */
     val underSea: Boolean,
     /** When the shaking reaches the place asked about, in world seconds, or NaN if it's out of reach. */
     val arrivesHere: Double,
@@ -43,36 +44,52 @@ class LiveQuake(
 )
 
 /**
- * Earthquakes, on a solid world with weather, when the setting has rare events.
+ * Earthquakes, on any solid world when the setting has rare events: part of a [Weather] where
+ * there's air, on their own ([of]) where there's none.
  *
  * Up to [SLOTS] main shocks per world per [CYCLE], each at [CHANCE] x [WeatherIntensity.rare],
  * with a few weaker aftershocks over the next two hours. On Terra they strike along the real
  * plate edges (a small table of trenches, ranges and rifts; on trenches the deepest of a few tries
- * near the line), elsewhere anywhere. Fewer and up to [SITE_SHY] weaker near a launch site.
+ * near the line), elsewhere anywhere. Fewer and up to [SITE_SHY] weaker near a launch site. On an
+ * airless world they're moonquakes: [MOON_SHARE] as many, [MOON_LEAST] to [MOON_MOST], their
+ * shaking a share of the world's own gravity ([MOON_PEAK]), carried [MOON_RADIUS] times as far and
+ * ringing on [MOON_RING] times as long.
  *
  * Shaking spreads at [WAVE_SPEED] and falls off with distance from the quake under the ground;
  * at a place it's a sum of a few sines of 1 to 3 Hz along, across and up, under an
  * envelope that lasts longer the bigger the quake and the further away. Ground contacts take its
  * velocity and lift ([shake]); the sea floor quakes big enough make [Tsunamis] ([seaShock]).
  *
- * Not thread-safe: one per [Weather].
+ * Not thread-safe: one per user.
  */
-internal class Quakes(
-    weather: Weather,
-    private val bodyRadius: Double,
+class Quakes internal constructor(
+    body: CelestialBody,
+    /** A [Weather]'s seed: the same for the quakes in one as for those on their own. */
     seed: Int,
     intensity: WeatherIntensity,
     /** Along Terra's plate edges, or anywhere. */
-    private val plates: Boolean = weather.body.id == SolarSystem.HOMEWORLD_ID,
+    private val plates: Boolean = body.id == SolarSystem.HOMEWORLD_ID,
 ) {
-    private val terrain: Terrain? = weather.body.terrain
-    private val bodyId = weather.body.id
+    private val bodyRadius = body.radius
+    private val terrain: Terrain? = body.terrain
+    private val bodyId = body.id
     private val seed = seed + (bodyRadius / 1_000.0).toInt() * 7 + 0x51E
 
-    /** Whether this world has quakes at all, at this setting. */
-    val active = intensity.rare > 0.0 && terrain != null && weather.body.atmosphere?.deep != true
+    /** No air: moonquakes. */
+    private val moon = body.atmosphere == null
 
-    private val chance = (CHANCE * intensity.rare).coerceAtMost(0.95)
+    /** Whether this world has quakes at all, at this setting. None on a moon too small to feel one. */
+    val active = intensity.rare > 0.0 && terrain != null && body.atmosphere?.deep != true &&
+        !(moon && MOON_PEAK * body.surfaceGravity <= FELT)
+
+    private val chance = (CHANCE * intensity.rare * if (moon) MOON_SHARE else 1.0).coerceAtMost(0.95)
+    private val magnitudeLeast = if (moon) MOON_LEAST else MAGNITUDE_LEAST
+    private val magnitudeMost = if (moon) MOON_MOST else MAGNITUDE_MOST
+    /** m/s^2 at magnitude 6.5 before any cap, and the cap. */
+    private val peakAt = if (moon) MOON_PEAK * body.surfaceGravity else PEAK_AT
+    private val peakMost = if (moon) MOON_PEAK_MOST * body.surfaceGravity else PEAK_MOST
+    private val durationAt = if (moon) MOON_RING * DURATION_AT else DURATION_AT
+    private val radiusAt = if (moon) MOON_RADIUS * RADIUS_AT else RADIUS_AT
 
     /** Where each cycle starts, in seconds before a whole number of [CYCLE]s. */
     val phase = Noise.hash(this.seed + 401, 0, 0, 0) * CYCLE
@@ -161,7 +178,7 @@ internal class Quakes(
                 main.epicentre.setTo(r * sc.cos, z, r * sc.sin).normalizeInPlace()
             }
             val u = h(4)
-            val magnitude = MAGNITUDE_LEAST + (MAGNITUDE_MOST - MAGNITUDE_LEAST) * u * sqrt(u)
+            val magnitude = magnitudeLeast + (magnitudeMost - magnitudeLeast) * u * sqrt(u)
             val near = nearSite(main.epicentre, radiusOf(magnitude))
             if (h(5) < SITE_SKIP * near) continue
             val shy = SITE_SHY * h(6) * near
@@ -182,8 +199,8 @@ internal class Quakes(
                 val off = 1.5 * main.radius * sqrt(a(3)) / bodyRadius
                 DetMath.sinCos(2.0 * kotlin.math.PI * a(4), sc)
                 after.epicentre.setTo(main.epicentre).addScaledInPlace(e, off * sc.cos).addScaledInPlace(n, off * sc.sin).normalizeInPlace()
-                after.bed = main.bed
-                after.underSea = main.underSea
+                after.bed = t.elevation(after.epicentre)
+                after.underSea = t.hasOcean && after.bed < 0.0
                 fill(after, id + k, id, start + delay, m, depth * (0.7 + 0.6 * a(5)), shy, c, slot, k)
             }
         }
@@ -192,9 +209,9 @@ internal class Quakes(
     private fun fill(s: Shock, id: Long, mainId: Long, start: Double, magnitude: Double, depth: Double, shy: Double, c: Int, slot: Int, k: Int) {
         s.exists = true
         s.id = id; s.mainId = mainId; s.start = start; s.magnitude = magnitude; s.depth = depth
-        s.peak = min(PEAK_MOST, PEAK_AT * tenTo(PEAK_GROWTH * (magnitude - 6.5))) * (1.0 - shy)
+        s.peak = min(peakMost, peakAt * tenTo(PEAK_GROWTH * (magnitude - 6.5))) * (1.0 - shy)
         s.radius = radiusOf(magnitude)
-        s.duration = DURATION_AT * tenTo(DURATION_GROWTH * (magnitude - 6.0))
+        s.duration = durationAt * tenTo(DURATION_GROWTH * (magnitude - 6.0))
         s.omega = 2.0 * kotlin.math.PI * FREQUENCY_AT * tenTo(FREQUENCY_GROWTH * (magnitude - 6.5))
         // Felt out to where the falloff takes it under [FELT].
         s.reachDeep = if (s.peak <= FELT) 0.0 else s.radius * (StrictMath.pow(s.peak / FELT, 1.0 / FALLOFF) - 1.0)
@@ -203,7 +220,7 @@ internal class Quakes(
         s.end = start + s.reachDeep / WAVE_SPEED + TAIL * (s.duration + s.reachDeep / SPREAD)
     }
 
-    private fun radiusOf(magnitude: Double): Double = RADIUS_AT * tenTo(RADIUS_GROWTH * (magnitude - 6.5))
+    private fun radiusOf(magnitude: Double): Double = radiusAt * tenTo(RADIUS_GROWTH * (magnitude - 6.5))
 
     /** On Terra's plate edges: a point along one weighted by length and how active it is, jittered off the line. */
     private fun placeOnPlates(t: Terrain, c: Int, slot: Int, out: Vec3) {
@@ -280,7 +297,7 @@ internal class Quakes(
      * into [acceleration], body-fixed, m/s and m/s^2, and how far it's lifted, metres (returned).
      * All 0 where no quake is shaking it. Leaves the strongest shaking for [level].
      */
-    fun shake(up: Vec3, time: Double, velocity: Vec3, acceleration: Vec3?): Double {
+    fun shake(up: Vec3, time: Double, velocity: Vec3, acceleration: Vec3? = null): Double {
         velocity.setZero(); acceleration?.setZero(); levelOut = 0.0
         if (!active && forced.isEmpty()) return 0.0
         var lift = 0.0
@@ -353,9 +370,10 @@ internal class Quakes(
 
     /**
      * The shocks that struck in the last [RECENT] seconds up to [time] and are felt within
-     * [reach] metres of unit [up], into [out]. Makes new objects, so not for every sample.
+     * [reach] metres of [direction] (body-fixed), into [out]. Makes new objects, so not for every sample.
      */
-    fun near(up: Vec3, time: Double, reach: Double, out: MutableList<LiveQuake>) {
+    fun near(direction: Vec3, time: Double, reach: Double, out: MutableList<LiveQuake>) {
+        val up = direction.copy().normalizeInPlace()
         val newest = newest(time)
         each(newest - 2, newest) { s ->
             if (time < s.start || time - s.start > RECENT) return@each
@@ -369,11 +387,12 @@ internal class Quakes(
     }
 
     /**
-     * The soonest aftershock still to come after [time] whose main shock has struck, felt at unit
-     * [up] over [least] m/s^2, or null. Makes a new object, so not for every sample.
+     * The soonest aftershock still to come after [time] whose main shock has struck, felt at
+     * [direction] (body-fixed) over [least] m/s^2, or null. Makes a new object, so not for every sample.
      */
-    fun aftershockDue(up: Vec3, time: Double, least: Double): LiveQuake? {
+    fun aftershockDue(direction: Vec3, time: Double, least: Double): LiveQuake? {
         if (!active || forced.isNotEmpty()) return null
+        val up = direction.copy().normalizeInPlace()
         var best: Shock? = null
         var bestHere = 0.0
         val newest = newest(time)
@@ -433,7 +452,7 @@ internal class Quakes(
      * For tests: one shock at unit [epicentre] at [start], in place of all the hashed ones, or
      * with [also] one more beside those already placed.
      */
-    internal fun force(epicentre: Vec3, start: Double, magnitude: Double, depth: Double = 3_000.0, also: Boolean = false) {
+    fun force(epicentre: Vec3, start: Double, magnitude: Double, depth: Double = 3_000.0, also: Boolean = false) {
         if (!also) forced.clear()
         val s = Shock()
         s.epicentre.setTo(epicentre).normalizeInPlace()
@@ -616,6 +635,23 @@ internal class Quakes(
 
         /** A main shock this big under deep enough sea makes a tsunami. */
         const val TSUNAMI_MAGNITUDE = 6.5
+
+        /**
+         * Moonquakes: this share of the main shocks, from [MOON_LEAST] to [MOON_MOST]; peak
+         * shaking at magnitude 6.5 this share of the world's gravity, at most [MOON_PEAK_MOST] of
+         * it, so a lander near a big one sways but stays up; carried further and ringing on
+         * longer through dry rock.
+         */
+        const val MOON_SHARE = 0.25
+        const val MOON_LEAST = 4.5
+        const val MOON_MOST = 6.5
+        const val MOON_PEAK = 0.45
+        const val MOON_PEAK_MOST = 0.6
+        const val MOON_RING = 2.5
+        const val MOON_RADIUS = 2.0
+
+        /** [body]'s quakes on their own, the same as a [Weather] over it has. For a world with no air, or a worker. */
+        fun of(body: CelestialBody, config: WeatherConfig): Quakes = Quakes(body, Weather.seedOf(config), config.intensity)
 
         private fun tenTo(x: Double): Double = DetMath.exp(x * 2.302585092994046)
     }

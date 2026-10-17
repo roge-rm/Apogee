@@ -46,7 +46,7 @@ class Weather(
 ) {
 
     private val radius = body.radius
-    private val seed = config.seed * 31 + 0x5EA7
+    private val seed = seedOf(config)
     private val intensity = config.intensity
     private val terrain = body.terrain
     private val terrainWind = terrain?.let { TerrainWind(it, radius) }
@@ -54,7 +54,7 @@ class Weather(
     private val storms = Storms(this, radius, seed, intensity)
     private val hurricanes = Hurricanes(this, radius, seed, intensity).also { storms.hurricanes = it }
     private val tornadoes = Tornadoes(this, radius, seed, intensity, storms, hurricanes)
-    private val quakes = Quakes(this, radius, seed, intensity)
+    private val quakes = Quakes(body, seed, intensity)
     private val tsunamis = Tsunamis(this, radius, seed, intensity, quakes)
     private val dustStorms = DustStorms(this, radius, seed, intensity, storms)
     private val blizzards = Blizzards(this, radius, seed, intensity, storms)
@@ -799,7 +799,8 @@ class Weather(
     internal val hurricaneModel: Hurricanes get() = hurricanes
     internal val tornadoModel: Tornadoes get() = tornadoes
     internal val tsunamiModel: Tsunamis get() = tsunamis
-    internal val quakeModel: Quakes get() = quakes
+    /** This world's quakes, for what takes them on their own. */
+    val quakeModel: Quakes get() = quakes
     internal val dustModel: DustStorms get() = dustStorms
 
     /**
@@ -834,6 +835,12 @@ class Weather(
      */
     fun blizzards(direction: Vec3, time: Double, reach: Double, out: MutableList<LiveBlizzard>) {
         blizzards.near(direction.copy().normalizeInPlace(), time, reach, out)
+    }
+
+    /** Whether a storm blizzard may reach unit [direction] within [look] seconds of [time]. Quick. */
+    fun blizzardDue(direction: Vec3, time: Double, look: Double): Boolean {
+        probe.setTo(direction).normalizeInPlace()
+        return blizzards.dueNear(probe, time, look)
     }
 
     /** Whether this world and setting can have blizzards or snow lifted by the wind at all. */
@@ -927,7 +934,7 @@ class Weather(
      * metres of unit [direction], into [out]. Makes new objects, so not for every sample.
      */
     fun quakes(direction: Vec3, time: Double, reach: Double, out: MutableList<LiveQuake>) {
-        quakes.near(direction.copy().normalizeInPlace(), time, reach, out)
+        quakes.near(direction, time, reach, out)
     }
 
     /** Whether any quake may be shaking the ground anywhere on this world at [time]. Quick. */
@@ -959,7 +966,7 @@ class Weather(
      * [direction] over [least] m/s^2, or null. Makes a new object.
      */
     fun nextAftershock(direction: Vec3, time: Double, least: Double): LiveQuake? =
-        quakes.aftershockDue(direction.copy().normalizeInPlace(), time, least)
+        quakes.aftershockDue(direction, time, least)
 
     /**
      * For tests and pictures: one quake at unit [epicentre] striking at [start] in place of all
@@ -969,6 +976,9 @@ class Weather(
         quakes.force(epicentre, start, magnitude, depth, also)
 
     companion object {
+        /** The seed a weather made from [config] works from, which its parts each salt their own way. */
+        internal fun seedOf(config: WeatherConfig): Int = config.seed * 31 + 0x5EA7
+
         /**
          * Drops the caches every instance shares: the tsunami grids, sea lattices, rogue cells and
          * [body]'s terrain tiles, so the next instance works everything out afresh. For tests.

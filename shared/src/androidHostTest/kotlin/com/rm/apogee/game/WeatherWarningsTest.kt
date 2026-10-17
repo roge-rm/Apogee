@@ -208,6 +208,47 @@ class WeatherWarningsTest {
     }
 
     @Test
+    fun `a moonquake on Luna warns with no weather there, and nothing else does`() {
+        val luna = SolarSystem.defaultSystem().body("luna")
+        val quakes = com.rm.apogee.core.weather.Quakes.of(luna, config)
+        var found: Pair<LiveQuake, Vec3>? = null
+        var t = 6 * 3_600.0
+        search@ while (t < 600 * 3_600.0) {
+            val live = ArrayList<LiveQuake>()
+            quakes.near(Vec3.unitY(), t, Double.MAX_VALUE, live)
+            for (q in live) {
+                if (q.id != q.mainId || q.magnitude < 6.0) continue
+                val e = Vec3(q.epicentre.z, 0.0, -q.epicentre.x).normalizeInPlace()
+                val d = Vec3().setTo(q.epicentre).addScaledInPlace(e, 2_000.0 / luna.radius).normalizeInPlace()
+                val here = ArrayList<LiveQuake>()
+                quakes.near(d, q.start, 0.0, here)
+                val main = here.firstOrNull { it.id == q.id } ?: continue
+                if (main.peakHere < 0.4) continue
+                found = main to d
+                break@search
+            }
+            t += 1_800.0
+        }
+        val (q, d) = found ?: error("no moonquake to feel")
+        println("moonquake M%.1f at %.1f h, peak here %.2f".format(q.magnitude, q.start / 3_600.0, q.peakHere))
+        val at = Vec3().setTo(d).mulInPlace(luna.radius + luna.terrain!!.elevation(d) + 2.0)
+        val moonWarnings = WeatherWarnings(luna, config, null)
+        assertTrue(moonWarnings.active)
+        var shaking: WeatherWarnings.Warning? = null
+        var s = q.arrivesHere + 0.5
+        while (s < q.arrivesHere + 30.0 && shaking?.danger != true) {
+            val all = moonWarnings.all(at, s)
+            assertTrue(all.toString(), all.all { it.kind == WeatherWarnings.Kind.QUAKE || it.kind == WeatherWarnings.Kind.AFTERSHOCKS })
+            shaking = all.firstOrNull()
+            s += 0.5
+        }
+        assertNotNull(shaking)
+        assertTrue("a danger while it shakes", shaking!!.danger)
+        assertEquals("QUAKE", shaking.text)
+        assertFalse(WeatherWarnings(luna, WeatherConfig(intensity = WeatherIntensity.CALM), null).active)
+    }
+
+    @Test
     fun `a blizzard warns as it comes and is a danger inside its snow`() {
         fun along(c: Vec3, heading: Vec3, metres: Double) = Vec3().setTo(c).addScaledInPlace(heading, metres / radius).normalizeInPlace()
         var found: Pair<Double, LiveBlizzard>? = null

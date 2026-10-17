@@ -3,7 +3,7 @@ package com.rm.apogee.game
 import com.rm.apogee.core.math.Quat
 import com.rm.apogee.core.math.Vec3
 import com.rm.apogee.core.orbit.SolarSystem
-import com.rm.apogee.core.weather.Weather
+import com.rm.apogee.core.weather.Quakes
 import com.rm.apogee.core.weather.WeatherConfig
 import com.rm.apogee.core.weather.WeatherIntensity
 import com.rm.apogee.core.world.World
@@ -81,7 +81,7 @@ class QuakeSceneTest {
         try {
             val epicentre = Vec3().setTo(cape).addScaledInPlace(east(cape), 6_000.0 / terra.radius).normalizeInPlace()
             val start = 1_000.0
-            fun forced() = Weather(terra, config).also { it.forceQuake(epicentre, start, 7.5) }
+            fun forced() = Quakes.of(terra, config).also { it.force(epicentre, start, 7.5) }
             fun scene() = QuakeScene(terra, config, QualityTier.LOW, scope, forced(), ::forced)
             val ground = shaken(scene(), above(cape, 2.0), start, 40.0)
             println("at the pad: jolt %.3f m, turn %.2f deg, shake %.2f".format(ground.first, Math.toDegrees(ground.second), ground.third))
@@ -103,7 +103,7 @@ class QuakeSceneTest {
             assertEquals("still after it's over", 0.0, shaken(after, above(cape, 2.0), start + 400.0, 2.0).third, 0.0)
             // And none on a setting without quakes.
             val calm = WeatherConfig(intensity = WeatherIntensity.NORMAL)
-            val quiet = QuakeScene(terra, calm, QualityTier.LOW, scope, Weather(terra, calm))
+            val quiet = QuakeScene(terra, calm, QualityTier.LOW, scope, Quakes.of(terra, calm))
             assertEquals(0.0, shaken(quiet, above(cape, 2.0), start, 10.0).third, 0.0)
         } finally {
             scope.cancel()
@@ -115,7 +115,7 @@ class QuakeSceneTest {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         try {
             val epicentre = Vec3().setTo(cape).addScaledInPlace(east(cape), 6_000.0 / terra.radius).normalizeInPlace()
-            fun forced() = Weather(terra, config).also { it.forceQuake(epicentre, 0.0, 7.0) }
+            fun forced() = Quakes.of(terra, config).also { it.force(epicentre, 0.0, 7.0) }
             val scene = QuakeScene(terra, config, QualityTier.LOW, scope, forced(), ::forced)
             var loudest = 0.0
             var t = 0.0

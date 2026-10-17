@@ -10,6 +10,7 @@ import com.rm.apogee.core.weather.LiveHurricane
 import com.rm.apogee.core.weather.LiveQuake
 import com.rm.apogee.core.weather.LiveTornado
 import com.rm.apogee.core.weather.LiveTsunami
+import com.rm.apogee.core.weather.Quakes
 import com.rm.apogee.core.weather.Weather
 import com.rm.apogee.core.weather.WeatherConfig
 import kotlinx.coroutines.launch
@@ -64,11 +65,15 @@ class WeatherWarnings(
         override fun hashCode(): Int = (kind.hashCode() * 31 + id.hashCode()) * 31 + text.hashCode()
     }
 
-    /** Off where the setting has no rare events or there's no air. */
-    val active = config.intensity.rare > 0.0 && body.atmosphere != null
+    /** No air: quakes only. */
+    private val airless = body.atmosphere == null
+
+    /** Off where the setting has no rare events, or there's neither air nor ground. */
+    val active = config.intensity.rare > 0.0 && (!airless || body.terrain != null)
 
     /** Its own, for listing on a worker; a weather's caches aren't thread safe. */
     private val weather by lazy { Weather(body, config) }
+    private val quakeModel by lazy { if (airless) Quakes.of(body, config) else weather.quakeModel }
 
     /** A listing's result and which place it was for (see [place]). */
     private class Found(val warning: Warning?, val place: Int)
@@ -138,6 +143,7 @@ class WeatherWarnings(
         if (altitude > TOP) return emptyList()
         val up = at.copy().normalizeInPlace()
         val found = ArrayList<Warning>(4)
+        if (airless) return listOfNotNull(quake(up, altitude, time))
 
         tornadoes.clear()
         weather.tornadoes(up, time, TORNADO_WARN, tornadoes)
@@ -184,27 +190,28 @@ class WeatherWarnings(
      */
     private fun quake(up: Vec3, altitude: Double, time: Double): Warning? {
         // Live covers waves still on their way anywhere.
-        if (!weather.quakesLive(time) && weather.nextAftershock(up, time, QUAKE_WARN) == null) return null
+        val model = quakeModel
+        if (!model.live(time) && model.aftershockDue(up, time, QUAKE_WARN) == null) return null
         val terrain = body.terrain ?: return null
         val ground = terrain.elevation(up)
         val above = altitude - ground
         if (above > QUAKE_TOP) return null
         if (terrain.hasOcean && ground < 0.0 && above > QUAKE_FLOOR) return null
         quakes.clear()
-        weather.quakes(up, time, 0.0, quakes)
+        model.near(up, time, 0.0, quakes)
         fun warning(q: LiveQuake, kind: Kind, seconds: Double, danger: Boolean): Warning {
             val d = arc(up, q.epicentre)
             return Warning(kind, q.mainId, d, seconds, danger, q.epicentre.copy(), maxOf(d * 1.3, QUAKE_SPAN))
         }
-        weather.quakeShake(up, time, shaken)
-        if (weather.quakeLevel() >= QUAKE_WARN) {
+        model.shake(up, time, shaken)
+        if (model.level() >= QUAKE_WARN) {
             // The one whose waves got here last.
             quakes.filter { !it.arrivesHere.isNaN() && it.arrivesHere <= time && it.peakHere >= QUAKE_WARN }.maxByOrNull { it.arrivesHere }
                 ?.let { return warning(it, Kind.QUAKE, 0.0, true) }
         }
         quakes.filter { !it.arrivesHere.isNaN() && it.arrivesHere > time && it.peakHere >= QUAKE_WARN }.minByOrNull { it.arrivesHere }
             ?.let { return warning(it, Kind.QUAKE, it.arrivesHere - time, false) }
-        return weather.nextAftershock(up, time, QUAKE_WARN)?.let { warning(it, Kind.AFTERSHOCKS, 0.0, false) }
+        return model.aftershockDue(up, time, QUAKE_WARN)?.let { warning(it, Kind.AFTERSHOCKS, 0.0, false) }
     }
 
     private val dusts = ArrayList<LiveDust>()

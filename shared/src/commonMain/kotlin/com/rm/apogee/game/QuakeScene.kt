@@ -5,7 +5,7 @@ import com.rm.apogee.core.math.Vec3
 import com.rm.apogee.core.orbit.CelestialBody
 import com.rm.apogee.core.terrain.SurfaceMaterial
 import com.rm.apogee.core.weather.LiveQuake
-import com.rm.apogee.core.weather.Weather
+import com.rm.apogee.core.weather.Quakes
 import com.rm.apogee.core.weather.WeatherConfig
 import com.rm.apogee.render.CloudPuff
 import com.rm.apogee.render.CloudShapes
@@ -23,9 +23,10 @@ import kotlin.math.sin
  * steep and loose ground round it, a low rumble, and each live shock on the map with its reach.
  *
  * The shaking at the camera's ground point is looked up every frame on the frame thread from
- * [frameWeather], only while a live or coming shock reaches the camera, which a worker checks
+ * [frameQuakes], only while a live or coming shock reaches the camera, which a worker checks
  * about once a second while any quake is live on the world. Dust is listed on the worker about
  * once a second while the shaking is strong, the map's listing every few seconds while it's open.
+ * No dust where there's no air to hold it up.
  */
 class QuakeScene(
     private val body: CelestialBody,
@@ -33,14 +34,17 @@ class QuakeScene(
     private val tier: QualityTier,
     private val scope: kotlinx.coroutines.CoroutineScope,
     /** For the shaking at the camera, on the frame thread. */
-    private val frameWeather: Weather,
-    /** Makes the worker's own weather; a weather's caches aren't thread safe. */
-    makeWeather: () -> Weather = { Weather(body, config) },
+    private val frameQuakes: Quakes,
+    /** Makes the worker's own; their caches aren't thread safe. */
+    makeQuakes: () -> Quakes = { Quakes.of(body, config) },
 ) {
     /** Off where the setting has no rare events or the world has no ground. */
     val active = config.intensity.rare > 0.0 && body.terrain != null
 
-    private val weather by lazy(makeWeather)
+    private val quakes by lazy(makeQuakes)
+
+    /** Dust needs air to rise into. */
+    private val dusty = body.atmosphere != null
 
     /** A live shock for the map, with its felt ring and the front of its waves as unit, body-fixed points. */
     class MapEntry(val quake: LiveQuake, val ring: List<Vec3>, val front: List<Vec3>)
@@ -80,7 +84,7 @@ class QuakeScene(
      */
     fun update(camera: Vec3, time: Double) {
         if (!active) return
-        val live = frameWeather.quakesLive(time)
+        val live = frameQuakes.live(time)
         val checkDue = live && (kotlin.math.abs(time - checkAt) >= RELIST_SECONDS || camera.distanceTo(checkFrom) >= CHECK_DISTANCE)
         if (!live || !felt) {
             level = 0.0
@@ -94,13 +98,13 @@ class QuakeScene(
             if (terrain.hasOcean && ground < 0.0 && camera.length - body.radius > ground + UNDER_SEA_FLOOR) {
                 level = 0.0
             } else {
-                frameWeather.quakeShake(up, time, groundVelocity)
-                level = frameWeather.quakeLevel()
+                frameQuakes.shake(up, time, groundVelocity)
+                level = frameQuakes.level()
             }
             ease(shakeAmount(level, height), time)
         }
         if (!live) felt = false
-        val dustDue = live && felt && level >= DUST_LEAST && height < DUST_ABOVE &&
+        val dustDue = dusty && live && felt && level >= DUST_LEAST && height < DUST_ABOVE &&
             (kotlin.math.abs(time - dustAt) >= RELIST_SECONDS || camera.distanceTo(dustFrom) >= RELIST_DISTANCE)
         if (!dustDue && !checkDue || listing) return
         if (checkDue) { checkAt = time; checkFrom.setTo(camera) }
@@ -119,7 +123,7 @@ class QuakeScene(
 
     /** Whether shaking enough to hear reaches body-fixed [camera] at [time] or within the next check. */
     private fun reaches(camera: Vec3, time: Double): Boolean =
-        weather.quakeShakeIn(camera.copy().normalizeInPlace(), time, CHECK_LOOK, RUMBLE_LEAST) <= CHECK_LOOK
+        quakes.shakeIn(camera.copy().normalizeInPlace(), time, CHECK_LOOK, RUMBLE_LEAST) <= CHECK_LOOK
 
     private fun ease(target: Double, time: Double) {
         val step = if (shakeAt.isNaN()) 1.0 else (kotlin.math.abs(time - shakeAt) / SHAKE_EASE).coerceAtMost(1.0)
@@ -132,7 +136,7 @@ class QuakeScene(
     fun forMap(time: Double): List<MapEntry> {
         if (!active || listing || kotlin.math.abs(time - allAt) < WORLD_RELIST_SECONDS) return all
         allAt = time
-        // One worker at a time: they share the worker's weather.
+        // One worker at a time: they share the worker's quakes.
         listing = true
         scope.launch(kotlinx.coroutines.Dispatchers.Default) {
             try { all = listAll(time) } finally { listing = false }
@@ -142,7 +146,7 @@ class QuakeScene(
 
     private fun listAll(time: Double): List<MapEntry> {
         val live = ArrayList<LiveQuake>()
-        weather.quakes(Vec3.unitY(), time, Double.MAX_VALUE, live)
+        quakes.near(Vec3.unitY(), time, Double.MAX_VALUE, live)
         return live.map { q ->
             val ring = if (q.id == q.mainId && q.reach > 0.0) circle(q.epicentre, q.reach) else emptyList()
             val travelled = q.age * WAVE_SPEED
@@ -253,8 +257,8 @@ class QuakeScene(
             val material = terrain.material(sample, h, slope)
             val dustiness = kotlin.math.max(smooth(STEEP_FROM, STEEP_FULL, slope), loose(material))
             if (dustiness <= 0.05) continue
-            weather.quakeShake(sample, time, velocity)
-            val shaking = easeOut(DUST_LEAST, DUST_FULL, weather.quakeLevel())
+            quakes.shake(sample, time, velocity)
+            val shaking = easeOut(DUST_LEAST, DUST_FULL, quakes.level())
             val s = dustiness * shaking
             if (s <= 0.05) continue
             score[i] = s
@@ -479,4 +483,15 @@ class QuakeScene(
 
         private val UNIT_Y = Vec3(0.0, 1.0, 0.0)
     }
+}
+
+/** Moonquakes on a world with no air, which has no [CloudScene] to keep its quakes and their warnings. */
+class AirlessQuakes(
+    val body: CelestialBody,
+    val config: WeatherConfig,
+    tier: QualityTier,
+    scope: kotlinx.coroutines.CoroutineScope,
+) {
+    val quakes = QuakeScene(body, config, tier, scope, Quakes.of(body, config))
+    val warnings = WeatherWarnings(body, config, scope)
 }

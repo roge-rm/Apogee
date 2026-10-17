@@ -155,7 +155,7 @@ class QuakeTest {
     fun `fewer and weaker near a launch site`() {
         val w = Weather(terra, extreme)
         // Anywhere on the world, so there are enough near the sites to count.
-        val q = Quakes(w, radius, extreme.seed * 31 + 0x5EA7, WeatherIntensity.EXTREME, plates = false)
+        val q = Quakes(terra, Weather.seedOf(extreme), WeatherIntensity.EXTREME, plates = false)
         val sites = World.launchSites.filter { it.bodyId == terra.id && it.id in setOf("cape", "roaring-sea") }
             .map { SolarSystem.surfaceDirection(it.latitude, it.longitude) }
         val others = (0 until 40).map { Vec3(sin(it * 2.1) * cos(it * 0.7), cos(it * 1.3), sin(it * 0.9 + 0.4)).normalizeInPlace() }

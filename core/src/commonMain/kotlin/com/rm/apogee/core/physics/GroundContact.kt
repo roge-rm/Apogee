@@ -142,8 +142,8 @@ class GroundContact {
 
     val report = ContactReport()
 
-    /** The weather of the world the craft is on, for quakes shaking the ground; null for none. */
-    var weather: com.rm.apogee.core.weather.Weather? = null
+    /** The quakes of the world the craft is on, shaking the ground; null for none. */
+    var quakes: com.rm.apogee.core.weather.Quakes? = null
 
     /**
      * Whether a quake shook the ground under the craft this pass, and how: its velocity, world
@@ -480,11 +480,11 @@ class GroundContact {
      */
     private fun shake(vessel: Vessel, time: Double) {
         shakeLift = 0.0
-        val w = weather ?: return
-        if (!w.quakesLive(time)) return
+        val q = quakes ?: return
+        if (!q.live(time)) return
         shakeUp.setTo(bodyFixedDirection).normalizeInPlace()
-        val lift = w.quakeShake(shakeUp, time, scratch, shakeAcceleration)
-        if (w.quakeLevel() <= 0.0) return
+        val lift = q.shake(shakeUp, time, scratch, shakeAcceleration)
+        if (q.level() <= 0.0) return
         shaking = true
         shakeLift = lift
         bodyRotation.rotate(scratch, shakeVelocity)
