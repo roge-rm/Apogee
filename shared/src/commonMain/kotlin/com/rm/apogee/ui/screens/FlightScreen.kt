@@ -1129,6 +1129,39 @@ private fun MapIcons(labels: List<com.rm.apogee.game.GameSession.MapLabel>) {
                     drawPath(path, shadow, style = androidx.compose.ui.graphics.drawscope.Stroke(width = stroke.width + 2.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round))
                     drawPath(path, colour, style = round)
                 }
+                com.rm.apogee.game.GameSession.IconKind.QUAKE -> {
+                    // A trace jumping up and down.
+                    val g = com.rm.apogee.game.GameSession.QUAKE_GLYPH
+                    val path = androidx.compose.ui.graphics.Path().apply {
+                        moveTo(c.x + g[0] * r, c.y + g[1] * r)
+                        for (k in 1 until g.size / 2) lineTo(c.x + g[2 * k] * r, c.y + g[2 * k + 1] * r)
+                    }
+                    val round = androidx.compose.ui.graphics.drawscope.Stroke(width = stroke.width, cap = androidx.compose.ui.graphics.StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round)
+                    drawPath(path, shadow, style = androidx.compose.ui.graphics.drawscope.Stroke(width = stroke.width + 2.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round))
+                    drawPath(path, colour, style = round)
+                }
+                com.rm.apogee.game.GameSession.IconKind.DUST -> {
+                    // Streaks of blowing sand, along the way a haboob is going.
+                    val g = com.rm.apogee.game.GameSession.DUST_GLYPH
+                    rotate(label.angle, c) {
+                        for (pass in 0..1) for (k in 0 until g.size / 4) {
+                            val a = androidx.compose.ui.geometry.Offset(c.x + g[4 * k] * r, c.y + g[4 * k + 1] * r)
+                            val b = androidx.compose.ui.geometry.Offset(c.x + g[4 * k + 2] * r, c.y + g[4 * k + 3] * r)
+                            if (pass == 0) drawLine(shadow, a, b, strokeWidth = stroke.width + 2.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                            else drawLine(colour, a, b, strokeWidth = stroke.width, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                        }
+                    }
+                }
+                com.rm.apogee.game.GameSession.IconKind.BLIZZARD -> {
+                    // A snowflake, upright.
+                    val g = com.rm.apogee.game.GameSession.BLIZZARD_GLYPH
+                    for (pass in 0..1) for (k in 0 until g.size / 4) {
+                        val a = androidx.compose.ui.geometry.Offset(c.x + g[4 * k] * r, c.y + g[4 * k + 1] * r)
+                        val b = androidx.compose.ui.geometry.Offset(c.x + g[4 * k + 2] * r, c.y + g[4 * k + 3] * r)
+                        if (pass == 0) drawLine(shadow, a, b, strokeWidth = stroke.width + 2.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                        else drawLine(colour, a, b, strokeWidth = stroke.width, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                    }
+                }
                 com.rm.apogee.game.GameSession.IconKind.TORNADO -> {
                     // Bars narrowing down to the ground.
                     val g = com.rm.apogee.game.GameSession.TORNADO_GLYPH

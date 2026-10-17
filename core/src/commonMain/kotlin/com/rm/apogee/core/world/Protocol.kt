@@ -796,5 +796,6 @@ object Protocol {
     //     StructureUpdate.ownerStripe.
     // 32: WeatherIntensity.EXTREME, travelling rogue waves, water loads on joints, hurricanes.
     // 33: tsunamis, which change the sea on Wild and Extreme.
-    const val VERSION = 33
+    // 34: earthquakes, which shake the ground and now start the tsunamis.
+    const val VERSION = 34
 }

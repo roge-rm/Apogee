@@ -11,7 +11,8 @@ import kotlin.math.sqrt
  *
  * The load on the joint above a part is everything pushing on the parts hanging from it, minus what
  * their own mass takes to keep up with the craft's acceleration and spin. Gravity loads nothing,
- * and ground and craft contact is [World.impact]'s job. Load is force plus bending moment over the
+ * and ground and craft contact is [World.impact]'s job, but for a quake's shaking ground, which
+ * pushes the parts on it ([com.rm.apogee.core.craft.Vessel.groundShake]). Load is force plus bending moment over the
  * joint's width, against its strength. Past [FATIGUE_START] the joint wears, faster and faster,
  * and past [SNAP] it lets go at once. A wing or fin is judged by its own [AeroSurface.loadLimit] in
  * the drag pass and only reported here. A chute tears by its own rule.
@@ -46,11 +47,16 @@ class Stress {
         ensure(n)
         val body = vessel.body
         val recorded = vessel.partForce
+        // Shaking ground pushes the parts on it, and the rest must keep up.
+        val shake = if (vessel.shaken && vessel.groundShake.size == n * 3) vessel.groundShake else null
 
         // The craft's acceleration from what was recorded, and its spin.
         var fx = 0.0; var fy = 0.0; var fz = 0.0
         for (i in 0 until n) {
             fx += recorded[i * 3]; fy += recorded[i * 3 + 1]; fz += recorded[i * 3 + 2]
+        }
+        if (shake != null) for (i in 0 until n) {
+            fx += shake[i * 3]; fy += shake[i * 3 + 1]; fz += shake[i * 3 + 2]
         }
         val inverseMass = if (body.mass > 0.0) 1.0 / body.mass else 0.0
         val ax = fx * inverseMass; val ay = fy * inverseMass; val az = fz * inverseMass
@@ -79,6 +85,9 @@ class Stress {
             forces[i * 3] = recorded[i * 3] - m * (ax + px)
             forces[i * 3 + 1] = recorded[i * 3 + 1] - m * (ay + py)
             forces[i * 3 + 2] = recorded[i * 3 + 2] - m * (az + pz)
+            if (shake != null) {
+                forces[i * 3] += shake[i * 3]; forces[i * 3 + 1] += shake[i * 3 + 1]; forces[i * 3 + 2] += shake[i * 3 + 2]
+            }
             moments[i * 3] = 0.0; moments[i * 3 + 1] = 0.0; moments[i * 3 + 2] = 0.0
         }
 

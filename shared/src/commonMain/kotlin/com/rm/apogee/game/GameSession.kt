@@ -254,6 +254,11 @@ class GameSession private constructor(
 
     private val cameraPosition = Vec3()
     private val cameraRotation = Quat.identity()
+    /** The way the camera looks, body-fixed, for the effects, made once. */
+    private val sandForward = Vec3()
+    /** [cameraRotation] before any quake shake, for the controls that steer by the view. */
+    private val controlRotation = Quat.identity()
+    private var cameraShaken = false
     private val scratch = Vec3()
     private val predictedPosition = Vec3()
     private val predictedRotation = Quat.identity()
@@ -523,7 +528,7 @@ class GameSession private constructor(
         val replica = prediction.replica ?: return null
         val craft = replica.body.orientation
         val worldUp = replica.body.position.normalized()
-        val turn = ScreenStick.tilt(cameraRotation, craft, worldUp, replica.design.orientation.up, up, right, roll, Vec3())
+        val turn = ScreenStick.tilt(controlRotation, craft, worldUp, replica.design.orientation.up, up, right, roll, Vec3())
         // x is pitch, y roll and z yaw, in the craft's own axes.
         return Triple(turn.x, turn.z, turn.y)
     }
@@ -548,7 +553,7 @@ class GameSession private constructor(
      */
     private fun screenAttitude(up: Double, right: Double): Pair<Double, Double>? {
         val craft = prediction.replica?.body?.orientation ?: return null
-        return ScreenStick.attitude(cameraRotation, craft, up, right)
+        return ScreenStick.attitude(controlRotation, craft, up, right)
     }
 
     /**
@@ -652,7 +657,7 @@ class GameSession private constructor(
         // so linear is far too strong for docking.
         fun fine(x: Double) = x * x * x
         val grounded = telemetry.heightAboveGround < SLIDE_GROUNDED_BELOW
-        val wanted = SlideControl.command(cameraRotation, craftRotation, up, fine(slideRight), fine(slideAway), fine(slideLift), Vec3(), grounded)
+        val wanted = SlideControl.command(controlRotation, craftRotation, up, fine(slideRight), fine(slideAway), fine(slideLift), Vec3(), grounded)
         // Lining up to dock, hands off: the thrusters take out drift across the line to the other
         // port and leave the closing speed alone.
         val readout = dockReadout
@@ -1803,6 +1808,18 @@ class GameSession private constructor(
             cloudScene?.takeIf { it.body === attractor }?.let {
                 tsunamiMarks(it.tsunamis.forMap(cloudCamera, renderTime), attractor.rotationAt(renderTime, Quat()), attractor.radius, icons, lines)
             }
+            // Quakes of the last hour on this world, where each struck, how far it's felt and its waves going out.
+            cloudScene?.takeIf { it.body === attractor }?.let {
+                keptQuakeMarks(it.quakes.forMap(renderTime), attractor.rotationAt(renderTime, quakeMarksScratch), attractor.radius, icons, lines)
+            }
+            // Haboobs where their fronts are, going their way, and a world-wide dust storm with how far it's spread.
+            cloudScene?.takeIf { it.body === attractor && it.dust.active }?.let {
+                keptDustMarks(it.dust.forMap(cloudCamera, renderTime), attractor.rotationAt(renderTime, dustMarksScratch), attractor.radius, icons, lines)
+            }
+            // Blizzards where they are, going their way, with the oval they cover.
+            cloudScene?.takeIf { it.body === attractor && it.snow.active }?.let {
+                keptBlizzardMarks(it.snow.forMap(cloudCamera, renderTime), attractor.rotationAt(renderTime, blizzardMarksScratch), attractor.radius, icons, lines)
+            }
             // Flags planted on this world, anyone's.
             for (other in client.vessels) {
                 if (other.design.parts.singleOrNull()?.partId != com.rm.apogee.core.world.World.FLAG_PART) continue
@@ -1862,6 +1879,10 @@ class GameSession private constructor(
             cockpitPart = if (camera.mode == CameraMode.COCKPIT && seat != null) seatOf(focus.design) else -1
             camera.solve(focusPosition, focusRotation, focus.design.orientation.forward, focus.design.orientation.up, seat, cameraPosition, cameraRotation)
             if (camera.mode != CameraMode.COCKPIT) keepCameraAboveGround(attractor, focusPosition, renderTime)
+            // Shaking ground shakes the camera, as of the last frame's look at it. Controls keep the still view.
+            controlRotation.setTo(cameraRotation)
+            cameraShaken = true
+            cloudScene?.takeIf { it.body === attractor }?.quakes?.shakeCamera(cameraPosition, cameraRotation, renderTime)
             if (!wrecked) updateSlide(focusId, prediction.replica?.body?.orientation ?: focusState.rotation, focusPosition)
             // Turn the planet to the frame's time before laying out the craft, since their lamps,
             // dust and flames are placed in its frame.
@@ -1940,6 +1961,8 @@ class GameSession private constructor(
             appendApproachLights(items, attractor, renderTime, cameraPosition)
             lap(18)
         }
+        if (!cameraShaken) controlRotation.setTo(cameraRotation)
+        cameraShaken = false
 
         // Terrain turns with the planet, so the patch follows the craft's body-fixed position at
         // the frame's time.
@@ -2057,6 +2080,9 @@ class GameSession private constructor(
                 clouds.append(bodyRotation, renderTime, items, pool = itemPool)
                 clouds.tornadoes.append(cloudCamera, bodyRotation, renderTime, items, itemPool)
                 clouds.tsunamis.append(cloudCamera, bodyRotation, renderTime, items, itemPool)
+                clouds.quakes.append(cloudCamera, bodyRotation, renderTime, items, itemPool)
+                clouds.dust.append(cloudCamera, bodyRotation, renderTime, items, itemPool)
+                clouds.snow.append(cloudCamera, bodyRotation, renderTime, items, itemPool)
                 World.launchSites.firstOrNull { it.id == "cape" }?.let { cape ->
                     clouds.windsock(cape, cloudCamera, renderTime, bodyRotation, items)
                 }
@@ -2120,6 +2146,12 @@ class GameSession private constructor(
         val roar = if (mapMode || clouds == null) null else clouds.tornadoes.also { it.heard(ear, renderTime) }
         // A tsunami's bore or flood coming in.
         val surge = if (mapMode || clouds == null) null else clouds.tsunamis.also { it.heard(ear, renderTime) }
+        // Shaking ground under the camera.
+        val rumble = if (mapMode || clouds == null) null else clouds.quakes.also { it.heard(renderTime) }
+        // Blowing dust and sand round the camera.
+        val hiss = if (mapMode || clouds == null || !clouds.dust.active) null else clouds.dust.also { it.heard(renderTime, clouds.air.wind.length) }
+        // A blizzard's howl round the camera.
+        val howl = if (mapMode || clouds == null || !clouds.snow.active) null else clouds.snow.also { it.heard(renderTime, clouds.air.wind.length) }
         val listenerRight = cameraRotation.rotate(Vec3.unitX(), Vec3())
         val listener = SoundScene.Listener(
             position = cameraPosition.copy(),
@@ -2143,6 +2175,12 @@ class GameSession private constructor(
             tsunami = surge?.loudness ?: 0.0,
             tsunamiNear = surge?.closeness ?: 0.0,
             tsunamiPan = surge?.takeIf { it.loudness > 0.0 }?.let { (bodyRotation.rotate(it.heardFrom, Vec3()) dot listenerRight * 0.8).toFloat() } ?: 0f,
+            quake = rumble?.loudness ?: 0.0,
+            quakeNear = rumble?.closeness ?: 0.0,
+            dust = hiss?.loudness ?: 0.0,
+            dustNear = hiss?.closeness ?: 0.0,
+            blizzard = howl?.loudness ?: 0.0,
+            blizzardNear = howl?.closeness ?: 0.0,
         )
         lastListener = listener
         // Blows, breakages and blasts since the last frame, where they happened on the turning
@@ -2179,7 +2217,9 @@ class GameSession private constructor(
             }
         }
         attractor.toBodyFixed(cameraPosition, bodyRotation, cloudCamera)
-        fx.step(animationDt, renderTime, attractor, bodyRotation, frameEmitters, clouds?.weather, cloudCamera, clouds?.air)
+        cameraRotation.rotate(VIEW_FORWARD, sandForward)
+        attractor.toBodyFixed(sandForward, bodyRotation, sandForward)
+        fx.step(animationDt, renderTime, attractor, bodyRotation, frameEmitters, clouds?.weather, cloudCamera, clouds?.air, sandForward)
         for (bolt in fx.thunder) {
             val closeness = kotlin.math.exp(-bolt[0] / 4_000.0)
             val delay = (bolt[0] / SoundScene.SPEED_OF_SOUND).coerceAtMost(SoundScene.MAX_DELAY * 2)
@@ -2254,6 +2294,21 @@ class GameSession private constructor(
                     underwater = underwater,
                     cloudShell = mapCloud,
                     hurricaneVeil = clouds?.hurricaneVeil,
+                    dustFog = if (underwater || mapMode || clouds == null) 0.0 else clouds.dustFog,
+                    dustTop = clouds?.dustTop ?: 0.0,
+                    dustVeil = clouds?.dust?.veil,
+                    dustVeilAlpha = when {
+                        clouds == null || clouds.dust.veil == null -> 0f
+                        mapMode -> 1f
+                        else -> clouds.dust.veilAlpha(clouds.dust.aboveGround)
+                    },
+                    snowVeil = clouds?.snow?.veil,
+                    snowVeilAlpha = when {
+                        clouds == null || clouds.snow.veil == null -> 0f
+                        mapMode -> 1f
+                        else -> clouds.snow.veilAlpha(clouds.snow.height)
+                    },
+                    flatLight = if (underwater || mapMode || clouds == null) 0f else clouds.flatLight,
                     hurricaneVeilAlpha = when {
                         clouds == null -> 0f
                         mapMode -> 1f
@@ -2341,12 +2396,66 @@ class GameSession private constructor(
     )
 
     /** What a map icon stands for, which decides its shape. */
-    enum class IconKind { CRAFT, WORLD, BASE, FLAG, STATION, GHOST, MARK, TARGET, OTHER, STAR, HURRICANE, TORNADO, TSUNAMI }
+    enum class IconKind { CRAFT, WORLD, BASE, FLAG, STATION, GHOST, MARK, TARGET, OTHER, STAR, HURRICANE, TORNADO, TSUNAMI, QUAKE, DUST, BLIZZARD }
 
     /**
      * A thing shown on the map as an icon: what it is, where (around the attractor), its colour, and
      * for the craft, which way it's going. Drawn flat on the screen, one size at any distance.
      */
+    // The quake marks as last laid out, kept while the listing and the planet's turn hold.
+    private var quakeMarksFor: List<QuakeScene.MapEntry>? = null
+    private val quakeMarksTurn = Quat()
+    private val quakeMarksScratch = Quat()
+    private var quakeMarksRadius = 0.0
+    private val quakeIcons = ArrayList<MapIcon>()
+    private val quakeLines = ArrayList<RenderLine>()
+
+    /** [quakeMarks], laid out again only for a new listing or once the planet has turned past [QUAKE_MARKS_TURN]. */
+    private fun keptQuakeMarks(quakes: List<QuakeScene.MapEntry>, rotation: Quat, radius: Double, icons: MutableList<MapIcon>, lines: MutableList<RenderLine>) {
+        if (quakes !== quakeMarksFor || radius != quakeMarksRadius || kotlin.math.abs(rotation dot quakeMarksTurn) < QUAKE_MARKS_TURN) {
+            quakeIcons.clear(); quakeLines.clear()
+            quakeMarks(quakes, rotation, radius, quakeIcons, quakeLines)
+            quakeMarksFor = quakes; quakeMarksTurn.setTo(rotation); quakeMarksRadius = radius
+        }
+        icons.addAll(quakeIcons); lines.addAll(quakeLines)
+    }
+
+    // The dust marks as last laid out, kept like the quakes'.
+    private var dustMarksFor: List<com.rm.apogee.core.weather.LiveDust>? = null
+    private val dustMarksTurn = Quat()
+    private val dustMarksScratch = Quat()
+    private var dustMarksRadius = 0.0
+    private val dustIcons = ArrayList<MapIcon>()
+    private val dustLines = ArrayList<RenderLine>()
+
+    // The blizzard marks as last laid out, kept like the quakes'.
+    private var blizzardMarksFor: List<com.rm.apogee.core.weather.LiveBlizzard>? = null
+    private val blizzardMarksTurn = Quat()
+    private val blizzardMarksScratch = Quat()
+    private var blizzardMarksRadius = 0.0
+    private val blizzardIcons = ArrayList<MapIcon>()
+    private val blizzardLines = ArrayList<RenderLine>()
+
+    /** [blizzardMarks], laid out again only for a new listing or once the planet has turned past [QUAKE_MARKS_TURN]. */
+    private fun keptBlizzardMarks(blizzards: List<com.rm.apogee.core.weather.LiveBlizzard>, rotation: Quat, radius: Double, icons: MutableList<MapIcon>, lines: MutableList<RenderLine>) {
+        if (blizzards !== blizzardMarksFor || radius != blizzardMarksRadius || kotlin.math.abs(rotation dot blizzardMarksTurn) < QUAKE_MARKS_TURN) {
+            blizzardIcons.clear(); blizzardLines.clear()
+            blizzardMarks(blizzards, rotation, radius, blizzardIcons, blizzardLines)
+            blizzardMarksFor = blizzards; blizzardMarksTurn.setTo(rotation); blizzardMarksRadius = radius
+        }
+        icons.addAll(blizzardIcons); lines.addAll(blizzardLines)
+    }
+
+    /** [dustMarks], laid out again only for a new listing or once the planet has turned past [QUAKE_MARKS_TURN]. */
+    private fun keptDustMarks(dust: List<com.rm.apogee.core.weather.LiveDust>, rotation: Quat, radius: Double, icons: MutableList<MapIcon>, lines: MutableList<RenderLine>) {
+        if (dust !== dustMarksFor || radius != dustMarksRadius || kotlin.math.abs(rotation dot dustMarksTurn) < QUAKE_MARKS_TURN) {
+            dustIcons.clear(); dustLines.clear()
+            dustMarks(dust, rotation, radius, dustIcons, dustLines)
+            dustMarksFor = dust; dustMarksTurn.setTo(rotation); dustMarksRadius = radius
+        }
+        icons.addAll(dustIcons); lines.addAll(dustLines)
+    }
+
     class MapIcon(
         val kind: IconKind, val at: Vec3, val colour: FloatArray, val heading: Vec3? = null, val label: String = "",
         /** Drawn mirrored: a hurricane turning clockwise, in the south. */
@@ -2408,6 +2517,7 @@ class GameSession private constructor(
             if (at[0] < -40f || at[1] < -40f || at[0] > width + 40f || at[1] > height + 40f) continue
             // Tornadoes under one storm sit close together; seen from afar, one icon for them.
             if (icon.kind == IconKind.TORNADO && out.any { it.icon == IconKind.TORNADO && kotlin.math.hypot(it.x - at[0], it.y - at[1]) < TORNADO_ICON_GAP }) continue
+            if (icon.kind == IconKind.QUAKE && out.any { it.icon == IconKind.QUAKE && kotlin.math.hypot(it.x - at[0], it.y - at[1]) < TORNADO_ICON_GAP }) continue
             var angle = 0f
             icon.heading?.takeIf { it.length > 1e-3 }?.let { h ->
                 // A little way along the heading, on screen, gives the way it points.
@@ -3149,6 +3259,22 @@ class GameSession private constructor(
         }
     }
 
+    /** Each dusty world's own weather, for how much a world-wide storm hides it from afar; null where it can't. */
+    private val farDustWeather = HashMap<String, com.rm.apogee.core.weather.Weather?>()
+    private var farDustConfig: com.rm.apogee.core.weather.WeatherConfig? = null
+
+    /** How much of far [body] a world-wide dust storm hides at [time], 0..1. Hashes only. */
+    private fun farDust(body: CelestialBody, time: Double): Float {
+        val config = client.weather ?: return 0f
+        if (config != farDustConfig) { farDustWeather.clear(); farDustConfig = config }
+        val w = farDustWeather.getOrPut(body.id) {
+            val climate = com.rm.apogee.core.weather.Climate.of(body.id)
+            if (config.intensity.rare <= 0.0 || climate == null || climate.stormCloud != com.rm.apogee.core.weather.CloudType.DUST) null
+            else com.rm.apogee.core.weather.Weather(body, config)
+        } ?: return 0f
+        return (0.85 * w.worldDustShare(time)).toFloat()
+    }
+
     /**
      * The other worlds seen from around [attractor], in the sky and on the map, drawn where they
      * really are in the far pass, where the globe hides what's behind it.
@@ -3183,6 +3309,7 @@ class GameSession private constructor(
                         com.rm.apogee.render.FarGlobe(
                             body.id, at, body.rotationAt(time), body.radius, body.atmosphere != null, globe,
                             rim = com.rm.apogee.render.SkyColours.of(body.id).rim,
+                            dust = farDust(body, time),
                         ),
                     )
                     continue
@@ -3899,10 +4026,10 @@ class GameSession private constructor(
         heardCaution = caution
         // A new weather warning, once each.
         weatherWarning?.let { w ->
-            if (w.id !in warnedOf && now - lastCautionNanos > CAUTION_SPACING_NANOS) {
+            if (w.event !in warnedOf && now - lastCautionNanos > CAUTION_SPACING_NANOS) {
                 com.rm.apogee.audio.Sounds.caution()
                 lastCautionNanos = now
-                warnedOf[warnedNext] = w.id
+                warnedOf[warnedNext] = w.event
                 warnedNext = (warnedNext + 1) % warnedOf.size
             }
         }
@@ -5585,6 +5712,7 @@ class GameSession private constructor(
          * degree).
          */
         private const val FAR_GLOBE_FROM = 0.0035
+        private val VIEW_FORWARD = Vec3(0.0, 0.0, -1.0)
 
         /** How finely other worlds' globes are built: rings pole to pole, and twice as many round. */
         private const val FAR_GLOBE_RINGS = 48
@@ -5781,6 +5909,105 @@ class GameSession private constructor(
             for (t in tsunamis) {
                 icons += MapIcon(IconKind.TSUNAMI, rotation.rotate(Vec3().setTo(t.tsunami.origin).mulInPlace(radius), Vec3()), TSUNAMI_COLOR)
                 for (run in t.front) lines += RenderLine(run.map { rotation.rotate(Vec3().setTo(it).mulInPlace(radius), Vec3()) }, TSUNAMI_FRONT_COLOR)
+            }
+        }
+
+        private val DUST_COLOR = floatArrayOf(0.95f, 0.76f, 0.52f, 1f)
+        private val DUST_RING_COLOR = floatArrayOf(0.95f, 0.70f, 0.45f, 0.35f)
+
+        /** The map's dust storm icon: streaks of blowing sand going right, as segments x0 y0 x1 y1 in icon radii with y down. */
+        val DUST_GLYPH = floatArrayOf(
+            -0.9f, -0.5f, 0.45f, -0.5f,
+            -0.5f, 0.0f, 0.9f, 0.0f,
+            -0.9f, 0.5f, 0.3f, 0.5f,
+            0.72f, -0.5f, 0.76f, -0.5f,
+            0.58f, 0.5f, 0.62f, 0.5f,
+        )
+
+        /**
+         * A map icon for each of [dust]: a haboob at the middle of its front pointing the way it's
+         * going, a world storm where it began with a ring as far as it's spread, on a world of
+         * [radius] turned by [rotation], into [icons] and [lines].
+         */
+        fun dustMarks(dust: List<com.rm.apogee.core.weather.LiveDust>, rotation: Quat, radius: Double, icons: MutableList<MapIcon>, lines: MutableList<RenderLine>) {
+            for (d in dust) {
+                if (d.strength < 0.05) continue
+                val at = rotation.rotate(Vec3().setTo(d.centre).mulInPlace(radius), Vec3())
+                if (d.kind == com.rm.apogee.core.weather.DustKind.HABOOB) {
+                    icons += MapIcon(IconKind.DUST, at, DUST_COLOR, heading = rotation.rotate(d.heading, Vec3()))
+                } else {
+                    icons += MapIcon(IconKind.DUST, at, DUST_COLOR)
+                    if (d.reach < 0.9 * kotlin.math.PI * radius) lines += RenderLine(QuakeScene.circle(d.centre, d.reach, radius).map { rotation.rotate(it.mulInPlace(radius), Vec3()) }, DUST_RING_COLOR)
+                }
+            }
+        }
+
+        private val BLIZZARD_COLOR = floatArrayOf(0.88f, 0.94f, 1.0f, 1f)
+        private val BLIZZARD_RING_COLOR = floatArrayOf(0.82f, 0.9f, 1.0f, 0.35f)
+
+        /** The map's blizzard icon: a six-armed snowflake with a fork on each arm, as segments x0 y0 x1 y1 in icon radii with y down. */
+        val BLIZZARD_GLYPH: FloatArray = run {
+            val out = ArrayList<Float>()
+            for (i in 0 until 6) {
+                val a = kotlin.math.PI / 3.0 * i + kotlin.math.PI / 2.0
+                val c = kotlin.math.cos(a).toFloat(); val s = kotlin.math.sin(a).toFloat()
+                out += listOf(0f, 0f, 0.95f * c, 0.95f * s)
+                for (side in listOf(-1, 1)) {
+                    val b = a + side * kotlin.math.PI / 4.0
+                    out += listOf(0.55f * c, 0.55f * s, 0.55f * c + 0.3f * kotlin.math.cos(b).toFloat(), 0.55f * s + 0.3f * kotlin.math.sin(b).toFloat())
+                }
+            }
+            out.toFloatArray()
+        }
+
+        /**
+         * A map icon for each of [blizzards] at its middle, pointing the way it's going, and the
+         * oval it covers, on a world of [radius] turned by [rotation], into [icons] and [lines].
+         */
+        fun blizzardMarks(blizzards: List<com.rm.apogee.core.weather.LiveBlizzard>, rotation: Quat, radius: Double, icons: MutableList<MapIcon>, lines: MutableList<RenderLine>) {
+            for (z in blizzards) {
+                if (z.strength < 0.05) continue
+                icons += MapIcon(IconKind.BLIZZARD, rotation.rotate(Vec3().setTo(z.centre).mulInPlace(radius), Vec3()), BLIZZARD_COLOR,
+                    heading = rotation.rotate(z.heading, Vec3()))
+                val right = Vec3().setTo(z.heading).crossInPlace(z.centre).normalizeInPlace()
+                val ring = (0..32).map { i ->
+                    val a = 2.0 * kotlin.math.PI * i / 32
+                    val p = Vec3().setTo(z.centre)
+                        .addScaledInPlace(z.heading, z.halfLength * kotlin.math.cos(a) / radius)
+                        .addScaledInPlace(right, z.halfWidth * kotlin.math.sin(a) / radius)
+                        .normalizeInPlace().mulInPlace(radius)
+                    rotation.rotate(p, Vec3())
+                }
+                lines += RenderLine(ring, BLIZZARD_RING_COLOR)
+            }
+        }
+
+        /** The planet's turn the kept quake marks allow, as the least |dot| of the two turns: about 0.01 degrees. */
+        private val QUAKE_MARKS_TURN = kotlin.math.cos(1e-4)
+        private val QUAKE_COLOR = floatArrayOf(1.0f, 0.78f, 0.52f, 1f)
+        private val AFTERSHOCK_COLOR = floatArrayOf(1.0f, 0.78f, 0.52f, 0.6f)
+        private val QUAKE_RING_COLOR = floatArrayOf(1.0f, 0.70f, 0.45f, 0.35f)
+        private val QUAKE_FRONT_COLOR = floatArrayOf(1.0f, 0.82f, 0.60f, 0.7f)
+
+        /** The map's quake icon: a trace jumping up and down, as points x y in icon radii with y down. */
+        val QUAKE_GLYPH = floatArrayOf(
+            -0.95f, 0.0f, -0.6f, 0.0f, -0.45f, -0.35f, -0.25f, 0.45f, -0.08f, -0.85f, 0.12f, 0.85f,
+            0.3f, -0.5f, 0.45f, 0.3f, 0.6f, 0.0f, 0.95f, 0.0f,
+        )
+
+        /**
+         * A map icon where each of [quakes] struck (aftershocks fainter), each main shock's felt
+         * ring and the front of its waves while they go out, on a world of [radius] turned by
+         * [rotation], into [icons] and [lines].
+         */
+        fun quakeMarks(quakes: List<QuakeScene.MapEntry>, rotation: Quat, radius: Double, icons: MutableList<MapIcon>, lines: MutableList<RenderLine>) {
+            // Main shocks first, so an aftershock on top of one is the one left out.
+            for (pass in 0..1) for (q in quakes) {
+                val main = q.quake.id == q.quake.mainId
+                if (main != (pass == 0)) continue
+                icons += MapIcon(IconKind.QUAKE, rotation.rotate(Vec3().setTo(q.quake.epicentre).mulInPlace(radius), Vec3()), if (main) QUAKE_COLOR else AFTERSHOCK_COLOR)
+                if (q.ring.isNotEmpty()) lines += RenderLine(q.ring.map { rotation.rotate(Vec3().setTo(it).mulInPlace(radius), Vec3()) }, QUAKE_RING_COLOR)
+                if (q.front.isNotEmpty()) lines += RenderLine(q.front.map { rotation.rotate(Vec3().setTo(it).mulInPlace(radius), Vec3()) }, QUAKE_FRONT_COLOR)
             }
         }
 

@@ -63,7 +63,7 @@ class ClimateTest {
             }
         }
         // A hash of Terra's weather sampled above generation-12 terrain.
-        assertEquals("afeb9e7fe44f005a", java.lang.Long.toHexString(h))
+        assertEquals("32441f609c4bf373", java.lang.Long.toHexString(h))
     }
 
     @Test

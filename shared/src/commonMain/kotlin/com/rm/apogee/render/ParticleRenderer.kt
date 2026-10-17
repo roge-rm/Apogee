@@ -31,7 +31,7 @@ class ParticleRenderer {
         GLES30.glBindVertexArray(0)
     }
 
-    fun draw(vertices: FloatArray, shapes: Int, viewProjection: FloatArray, fogDistance: Float, fogColor: FloatArray) {
+    fun draw(vertices: FloatArray, shapes: Int, viewProjection: FloatArray, fogDistance: Float, fogColor: FloatArray, fog: ((ShaderProgram) -> Unit)? = null) {
         if (shapes <= 0) return
         val floats = shapes * 6 * FLOATS
         GLES30.glBindVertexArray(vao[0])
@@ -68,6 +68,7 @@ class ParticleRenderer {
         program.setMat4("uViewProjection", viewProjection)
         program.setFloat("uFogDistance", fogDistance)
         program.setVec3("uFogColor", fogColor[0], fogColor[1], fogColor[2])
+        if (fog != null) fog(program) else program.setFloat("uDustFog", 0f)
         GLES30.glEnable(GLES30.GL_BLEND)
         GLES30.glBlendFunc(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA)
         GLES30.glDepthMask(false)

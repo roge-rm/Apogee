@@ -53,7 +53,16 @@ class CloudScene(
     /** Tsunamis: the sea they move round the camera, their roar, and on the whole world for the map. */
     val tsunamis = TsunamiScene(body, config, tier, scope)
 
-    /** The hurricane, tornado or tsunami most worth a warning at the flown craft. */
+    /** Earthquakes: the shaking under the camera, dust, the rumble, and on the whole world for the map. */
+    val quakes = QuakeScene(body, config, tier, scope, weather)
+
+    /** Dust storms: the haze round the camera, haboobs' walls, the veil from high up, the hiss. */
+    val dust = DustScene(body, config, tier, scope, weather)
+
+    /** Blizzards: the whiteout round the camera, curtains of snow, the veil from high up, the howl. */
+    val snow = SnowScene(body, config, tier, scope, weather)
+
+    /** The hurricane, tornado, quake, tsunami or dust storm most worth a warning at the flown craft. */
     val warnings = WeatherWarnings(body, config, scope)
 
     private class Lobe(
@@ -138,6 +147,9 @@ class CloudScene(
         updateHurricanes(time)
         tornadoes.update(camera, time)
         tsunamis.update(camera, time)
+        quakes.update(camera, time)
+        dust.update(camera, time, air)
+        snow.update(camera, time, air)
         if (time - windAt > 0.25) {
             windAt = time
             weather.surfaceWind(direction.setTo(camera).normalizeInPlace(), time, surfaceWind)
@@ -693,20 +705,54 @@ class CloudScene(
 
     private val sampleScratch = AirSample()
 
-    /** How far the camera can see through the weather, in metres. */
+    /** How thick dust's and snow's layer fogs are, per metre of way through them; 0 for none. */
+    private val dustThick: Double get() = if (dust.haze <= 1e-4) 0.0 else 3.0 / dust.sight
+    private val snowThick: Double get() = if (snow.haze <= 1e-4) 0.0 else 3.0 / snow.sight
+
+    /** Dust's and snow's own fog distance together, metres, for along the way inside their layer; 0 for none. */
+    val dustFog: Double get() {
+        val k = dustThick + snowThick
+        return if (k <= 0.0) 0.0 else 1.0 / k
+    }
+
+    /** Their layer's top over the camera, metres, under it if negative: the two tops weighted by how thick each is, so it never jumps. */
+    val dustTop: Double get() {
+        val d = dustThick; val n = snowThick
+        if (d + n <= 0.0) return dust.top - dust.height
+        return ((dust.top - dust.height) * d + (snow.top - snow.height) * n) / (d + n)
+    }
+
+    /** How flat the light is in a whiteout, 0..1: shadows go. */
+    val flatLight: Float get() = snow.flat.toFloat()
+
+    /** How far the camera can see through the weather other than dust, in metres. */
     val fogDistance: Double
         get() {
             // Visibility is where things are almost gone; the fog curve gets there at about three
             // of its distances.
-            val v = air.visibility
             // A murky world's clear air (Aurantia's orange haze) closes in at its own distance, and
             // cloud and rain closer still.
             val clear = weather.climate.haze
+            // Dust is fogged apart, only inside its layer (dustFog).
+            val v = withoutDust
             return when {
                 v >= AirSample.CLEAR_VISIBILITY -> com.rm.apogee.render.WorldView.CLEAR_FOG
                 v >= clear -> clear
                 else -> v / 3.0
             }
+        }
+
+    /**
+     * What the air would let the camera see without its dust, metres. Dust's share is eased, so it
+     * closes in smoothly: what the air says without it, then the eased dust's.
+     */
+    private val withoutDust: Double
+        get() {
+            val raw = air.visibility
+            var layer = Double.POSITIVE_INFINITY
+            if (air.dust > 0.0) layer = DustScene.DUST_SIGHT / air.dust
+            if (air.snow > 0.0) layer = kotlin.math.min(layer, SnowScene.SNOW_SIGHT / air.snow)
+            return if (layer.isFinite() && raw >= layer * 0.999) weather.climate.haze else raw
         }
 
     /** What the fog is made of: white in cumulus, grey in stratus and rain, and dark in a storm. */
@@ -727,7 +773,16 @@ class CloudScene(
             // Under a hurricane, the dark grey of its rain whatever the cloud.
             val g = air.gloom.toFloat()
             val k = 0.5f + 0.5f * light
-            fun mix(i: Int, rain: Float) = (base[i] * t[i] * (1f - g) + rain * g) * k
+            // In dust, toward the colour of the ground it came off, all of it where the dust is what hides things.
+            val hides = if (dust.haze <= 1e-4) 0.0 else 1.0 - smooth(0.3, 1.0, dust.sight / withoutDust)
+            val d = kotlin.math.max(dust.tint, hides).toFloat()
+            // In snow, toward its white, the same way.
+            val snowHides = if (snow.haze <= 1e-4) 0.0 else 1.0 - smooth(0.3, 1.0, snow.sight / withoutDust)
+            val w = kotlin.math.max(snow.tint, snowHides).toFloat()
+            // Snow stays bright in dim light: it's lit from all round.
+            val ks = 0.8f + 0.2f * light
+            fun mix(i: Int, rain: Float) =
+                ((base[i] * t[i] * (1f - g) + rain * g) * (1f - d) + dust.colour[i] * d) * k * (1f - w) + snow.colour[i] * ks * w
             return floatArrayOf(mix(0, 0.30f), mix(1, 0.32f), mix(2, 0.35f))
         }
 
@@ -739,7 +794,7 @@ class CloudScene(
 
     /** Sunlight left. A storm, rain, or an overcast sky over the camera dims it, and a hurricane most. */
     val lightScale: Float get() =
-        (1.0 - 0.6 * air.storm - 0.25 * air.precipitation - 0.4 * overcast - 0.6 * air.gloom)
+        (1.0 - 0.6 * air.storm - 0.25 * air.precipitation - 0.4 * overcast - 0.6 * air.gloom - dust.dimming - snow.dimming)
             .coerceIn(0.25 - 0.12 * air.gloom, 1.0).toFloat()
 
     private fun colourOf(type: CloudType, shade: Double): FloatArray {

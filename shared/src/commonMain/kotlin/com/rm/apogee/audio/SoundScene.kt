@@ -134,6 +134,15 @@ class SoundScene(private val budget: Int) {
         val tsunami: Double = 0.0,
         val tsunamiNear: Double = 0.0,
         val tsunamiPan: Float = 0f,
+        /** Shaking ground under the listener: its rumble, 0..1, and how hard it shakes, 0..1. All round, so no pan. */
+        val quake: Double = 0.0,
+        val quakeNear: Double = 0.0,
+        /** Blowing dust round the listener: its hiss and roar, 0..1, and how much is sand close by, 0..1. All round. */
+        val dust: Double = 0.0,
+        val dustNear: Double = 0.0,
+        /** A blizzard round the listener: its howl and roar, 0..1, and how much is snow driven past close by, 0..1. All round. */
+        val blizzard: Double = 0.0,
+        val blizzardNear: Double = 0.0,
     ) {
         val inAir: Boolean get() = density > AIRLESS
     }
@@ -314,6 +323,24 @@ class SoundScene(private val budget: Int) {
                 v[1] = listener.tsunamiNear.coerceIn(0.0, 1.0).toFloat()
                 add(KEY_TSUNAMI, Recipes.TSUNAMI, 0, v, 1f, listener.tsunamiPan.coerceIn(-0.8f, 0.8f), 0f, weight = v[0] * 0.6f)
             }
+            if (listener.quake > 0.02) {
+                val v = FloatArray(SharedParams.COUNT)
+                v[0] = (listener.quake * thin).coerceIn(0.0, 1.0).toFloat()
+                v[1] = listener.quakeNear.coerceIn(0.0, 1.0).toFloat()
+                add(KEY_QUAKE, Recipes.QUAKE, 0, v, 1f, 0f, 0f, weight = v[0] * 0.6f)
+            }
+            if (listener.dust > 0.02) {
+                val v = FloatArray(SharedParams.COUNT)
+                v[0] = (listener.dust * thin).coerceIn(0.0, 1.0).toFloat()
+                v[1] = listener.dustNear.coerceIn(0.0, 1.0).toFloat()
+                add(KEY_DUST, Recipes.DUST, 0, v, 1f, 0f, 0f, weight = v[0] * 0.5f)
+            }
+            if (listener.blizzard > 0.02) {
+                val v = FloatArray(SharedParams.COUNT)
+                v[0] = (listener.blizzard * thin).coerceIn(0.0, 1.0).toFloat()
+                v[1] = listener.blizzardNear.coerceIn(0.0, 1.0).toFloat()
+                add(KEY_BLIZZARD, Recipes.BLIZZARD, 0, v, 1f, 0f, 0f, weight = v[0] * 0.5f)
+            }
             if (listener.port > 0.02) {
                 val v = FloatArray(SharedParams.COUNT)
                 v[0] = listener.port.coerceIn(0.0, 1.0).toFloat()
@@ -463,6 +490,9 @@ class SoundScene(private val budget: Int) {
         const val KEY_PORT = -10
         const val KEY_TORNADO = -11
         const val KEY_TSUNAMI = -12
+        const val KEY_QUAKE = -13
+        const val KEY_DUST = -14
+        const val KEY_BLIZZARD = -15
 
         /**
          * How vacuum-built an engine is, 0..1, from how much thrust it keeps at sea level. A

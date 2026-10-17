@@ -140,6 +140,14 @@ internal class Storms(
     private val steerDir = Vec3()
     private val right = Vec3()
 
+    /** Which of cell [key]'s cycles [time] falls in. */
+    fun cycleAt(key: Long, time: Double): Long =
+        floor((time + Noise.hash(seed + 71, cells.hashX(key), cells.hashY(key), 0) * CYCLE) / CYCLE).toLong()
+
+    /** Cell [key]'s storm in its cycle [cycle], whether or not one formed. */
+    fun stormIn(key: Long, cycle: Long): Storm =
+        storm(key, (cycle + 0.5) * CYCLE - Noise.hash(seed + 71, cells.hashX(key), cells.hashY(key), 0) * CYCLE)
+
     fun storm(key: Long, time: Double): Storm {
         val cx = cells.hashX(key); val cy = cells.hashY(key)
         val phase = Noise.hash(seed + 71, cx, cy, 0) * CYCLE

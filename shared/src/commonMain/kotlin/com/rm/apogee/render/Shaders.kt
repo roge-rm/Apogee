@@ -6,6 +6,30 @@ package com.rm.apogee.render
  * anything clever.
  */
 object Shaders {
+    /**
+     * The weather's fog, with dust counted only along the part of the way that's inside its layer:
+     * [weatherFog] for a point [rel] from the camera (render space), [d] metres off. The layer's top
+     * is uDustTop over the camera (under it if negative), uFogUp up at the camera; uDustFog 0 for
+     * no dust, when it's the plain fog. Needs uFogDistance declared before it.
+     */
+    private val DUST_FOG = """
+        uniform float uDustFog;
+        uniform float uDustTop;
+        uniform vec3 uFogUp;
+
+        float dustPath(vec3 rel, float d) {
+            float s = dot(rel, uFogUp);
+            if (s >= 0.0) return uDustTop <= 0.0 ? 0.0 : (s <= uDustTop ? d : d * uDustTop / s);
+            return uDustTop >= 0.0 ? d : (s >= uDustTop ? 0.0 : d * (1.0 - uDustTop / s));
+        }
+
+        float weatherFog(vec3 rel, float d) {
+            float k = d / max(uFogDistance, 1.0);
+            if (uDustFog > 0.0) k += dustPath(rel, d) / uDustFog;
+            return 1.0 - exp(-k);
+        }
+    """
+
 
     /**
      * Light after dark, shared by everything lit so it all agrees on how dark it is: a faint blue
@@ -393,6 +417,7 @@ object Shaders {
         // Weather fog: metres to fade over, and what it fades to.
         uniform float uFogDistance;
         uniform vec3 uFogColor;
+        $DUST_FOG
         // 1 for cloud: light wraps round, so shaded facets still show their angle.
         uniform float uWrap;
         // How much sun reaches here: 1 by day, 0 in the planet's shadow.
@@ -417,26 +442,30 @@ object Shaders {
             float direct = uReceivesShadow > 0.5 ? directLight(-vToCamera, n) : 1.0;
             float facing = dot(n, -uLightDirection);
             float wrapped = facing * 0.5 + 0.5;
+            // A negative ambient marks ground dust: shaded softly so facets barely show, little
+            // hazed, and solid up close.
+            bool dust = uAmbient < 0.0;
+            float ambient = abs(uAmbient);
             // Cloud: wrapped, soft shade.
-            float diffuse = mix(max(facing, 0.0), 0.35 + 0.65 * wrapped, uWrap);
+            float diffuse = dust ? 0.7 + 0.3 * wrapped : mix(max(facing, 0.0), 0.35 + 0.65 * wrapped, uWrap);
             // At night a full moon opposite the sun lights things faint and blue.
             float moonFacing = mix(max(-facing, 0.0), 1.0 - wrapped, uWrap);
             vec3 moon = MOON * (0.55 + 0.45 * moonFacing * direct) * (0.4 + 0.6 * uLightScale);
             vec3 sea = underSea(-vToCamera);
-            vec3 lit = uColor.rgb * ((uAmbient + diffuse * 0.8 * uLightScale * direct) * uDaylight + moon * moonLeft(uDaylight) + duskGlow(uDaylight)) * sea;
+            vec3 lit = uColor.rgb * ((ambient + diffuse * 0.8 * uLightScale * direct) * uDaylight + moon * moonLeft(uDaylight) + duskGlow(uDaylight)) * sea;
             lit += uColor.rgb * FLASH * uFlash * sea;
             if (uLampCount > 0) lit += uColor.rgb * lampLight(-vToCamera, n);
             // Ambient of 1 or more glows at its own colour, like a flame.
-            if (uAmbient >= 1.0) lit = uColor.rgb;
+            if (ambient >= 1.0) lit = uColor.rgb;
             if (uSkyBody > 0.5) {
                 // Sunlit only, night side nearly black, washed a little toward a day sky.
                 vec3 world = uColor.rgb * (0.03 + 1.1 * max(facing, 0.0));
                 fragColor = vec4(mix(world, uHaze, 0.35 * uAtmosphereFactor * uDaylight), 1.0);
                 return;
             }
-            float haze = (1.0 - exp(-vDistance / max(uHazeDistance, 1.0))) * uAtmosphereFactor;
+            float haze = (1.0 - exp(-vDistance / max(uHazeDistance, 1.0))) * uAtmosphereFactor * (dust ? 0.4 : 1.0);
             lit = mix(lit, airHaze(uDaylight, uLightScale), clamp(haze, 0.0, 1.0));
-            float fog = 1.0 - exp(-vDistance / max(uFogDistance, 1.0));
+            float fog = weatherFog(-vToCamera, vDistance);
             // A cloud thins toward its outline, where facets are edge-on.
             float alpha = uColor.a;
             if (uCurtain > 0.5) {
@@ -447,6 +476,9 @@ object Shaders {
                 vec3 level = toCamera - axis * dot(axis, toCamera);
                 float faceOn = abs(dot(normalize(vRound), level)) / max(length(level), 1e-3);
                 alpha *= smoothstep(0.0, 0.75, faceOn) * (1.0 - smoothstep(0.45, 1.0, vHeight));
+            } else if (dust) {
+                float faceOn = abs(dot(n, normalize(vToCamera)));
+                alpha *= mix(0.7, 1.0, smoothstep(0.05, 0.6, faceOn)) * smoothstep(1.0, 12.0, length(vToCamera));
             } else if (uWrap > 0.5) {
                 float faceOn = abs(dot(n, normalize(vToCamera)));
                 alpha *= mix(0.25, 1.0, smoothstep(0.05, 0.6, faceOn));
@@ -476,10 +508,12 @@ object Shaders {
 
         flat out vec4 vColor;
         out float vDistance;
+        out vec3 vRelative;
 
         void main() {
             vColor = aColor;
             vDistance = length(aPosition);
+            vRelative = aPosition;
             gl_Position = uViewProjection * vec4(aPosition, 1.0);
         }
     """.trimIndent()
@@ -490,14 +524,16 @@ object Shaders {
 
         flat in vec4 vColor;
         in float vDistance;
+        in vec3 vRelative;
 
         uniform float uFogDistance;
         uniform vec3 uFogColor;
+        $DUST_FOG
 
         out vec4 fragColor;
 
         void main() {
-            float fog = 1.0 - exp(-vDistance / max(uFogDistance, 1.0));
+            float fog = weatherFog(vRelative, vDistance);
             fragColor = vec4(mix(vColor.rgb, uFogColor, clamp(fog, 0.0, 1.0)), vColor.a);
         }
     """.trimIndent()
@@ -541,6 +577,8 @@ object Shaders {
         uniform float uSkyFog;           // 1 inside cloud, where the sky is gone
         uniform vec3 uFogColor;
         uniform float uDaylight;         // 1 by day, 0 in the planet's shadow
+        uniform float uDustFog;          // dust's fog distance, metres; 0 for none
+        uniform float uDustTop;          // the dust layer's top over the camera, metres
         // This world's sky.
         uniform vec3 uZenith;
         uniform vec3 uHorizon;
@@ -620,7 +658,16 @@ object Shaders {
             // A storm overhead greys and darkens it, and inside cloud there's only the cloud.
             vec3 overcast = vec3(0.42, 0.45, 0.50) * (0.4 + 0.6 * uLightScale) * (NIGHT_AIR + (1.0 - NIGHT_AIR) * uDaylight);
             color = mix(color, overcast, (1.0 - uLightScale) * uAtmosphereFactor);
-            color = mix(color, uFogColor, clamp(uSkyFog, 0.0, 1.0));
+            // Dust hides the sky by how much of it the way up passes through: all of it level or
+            // down, less the steeper the way out of a low layer.
+            float dustSky = 0.0;
+            if (uDustFog > 0.0) {
+                float path = height > 0.0 ? (uDustTop <= 0.0 ? 0.0 : uDustTop / max(height, 1e-3)) : 1e9;
+                dustSky = 0.97 * (1.0 - exp(-path / uDustFog));
+            }
+            color = mix(color, uFogColor, clamp(max(uSkyFog, dustSky), 0.0, 1.0));
+            // The sun's glow scattered round it in the dust.
+            color += uFogColor * 0.9 * pow(max(toSun, 0.0), 24.0) * dustSky * uDaylight;
             // A strike lights the whole sky it's in.
             color += vec3(0.5, 0.55, 0.7) * uFlash * uAtmosphereFactor;
 
@@ -698,6 +745,7 @@ object Shaders {
         uniform float uLightScale;
         uniform float uFogDistance;
         uniform vec3 uFogColor;
+        $DUST_FOG
         uniform float uDaylight;
 
         out vec4 fragColor;
@@ -719,7 +767,7 @@ object Shaders {
             float haze = (1.0 - exp(-vDistance / max(uHazeDistance, 1.0))) * uAtmosphereFactor;
             vec3 hazeColor = airHaze(uDaylight, uLightScale);
             lit = mix(lit, hazeColor, clamp(haze, 0.0, 1.0));
-            float fog = 1.0 - exp(-vDistance / max(uFogDistance, 1.0));
+            float fog = weatherFog(vPosition, vDistance);
             fragColor = vec4(mix(lit, uFogColor, clamp(fog, 0.0, 1.0)), 1.0);
         }
     """.trimIndent()
@@ -1003,12 +1051,15 @@ object Shaders {
         uniform float uDiscardNearer; // the globe leaves the chunks' ground alone
         uniform float uSkyBody;       // 1 for another world seen across space
         uniform vec3 uFarRim;         // and the colour of its air round its edge
+        uniform vec4 uFarDust;        // and a world-wide dust storm over it: colour, how much
         uniform vec3 uBodyCentre;     // the planet's centre, camera-relative
         uniform float uDaylight;      // how much sun reaches the camera
         uniform vec3 uSeaSky;            // the sky a sea reflects
         uniform float uLightScale;    // sunlight left under a storm
+        uniform float uFlatLight;     // 0..1: a whiteout's light from all round
         uniform float uFogDistance;   // weather fog: cloud, rain
         uniform vec3 uFogColor;
+        $DUST_FOG
 
         out vec4 fragColor;
 
@@ -1051,9 +1102,13 @@ object Shaders {
                 // seas, its air glowing round the edge, washed a little toward a day sky.
                 vec3 rimUp = normalize(vPosition - uBodyCentre);
                 float facing = dot(n, uSunDirection);
-                vec3 world = surface * (0.03 + 1.1 * max(facing, 0.0));
+                // A world-wide dust storm hides its ground and seas under a lit veil.
+                vec3 seen = mix(surface, uFarDust.rgb, uFarDust.a);
+                float glint = wet * (1.0 - uFarDust.a);
+                float veiled = max(dot(mix(n, rimUp, uFarDust.a), uSunDirection), 0.0);
+                vec3 world = seen * (0.03 + 1.1 * veiled);
                 vec3 half0 = normalize(uSunDirection + viewDir);
-                world += vec3(1.0, 0.96, 0.88) * pow(max(dot(n, half0), 0.0), 60.0) * wet * 0.6 * step(0.0, facing);
+                world += vec3(1.0, 0.96, 0.88) * pow(max(dot(n, half0), 0.0), 60.0) * glint * 0.6 * step(0.0, facing);
                 float rim = pow(1.0 - max(dot(rimUp, viewDir), 0.0), 3.0);
                 world += uFarRim * rim * smoothstep(-0.1, 0.3, dot(rimUp, uSunDirection)) * 0.9 * uHasAtmosphere;
                 fragColor = vec4(mix(world, uHaze, 0.35 * uAtmosphereFactor * uDaylight), 1.0);
@@ -1063,6 +1118,9 @@ object Shaders {
             float direct = directLight(vPosition, n);
             float lambert = max(dot(n, uSunDirection), 0.0) * direct;
             float daylight = smoothstep(-0.08, 0.35, dot(n, uSunDirection));
+            // In a whiteout the light comes from all round, as bright on every slope.
+            lambert = mix(lambert, 0.8 * uDaylight, uFlatLight);
+            daylight = mix(daylight, uDaylight, uFlatLight);
             // A faint blue full moon keeps the land's shape after dark.
             vec3 night = MOON * (0.55 + 0.45 * max(-dot(n, uSunDirection), 0.0) * direct) * (0.4 + 0.6 * uLightScale);
             vec3 sea = underSea(vPosition);
@@ -1117,7 +1175,7 @@ object Shaders {
             lit += vec3(0.25, 0.45, 0.78) * fresnel * daylight * 0.9 *
                 (1.0 - clamp(uAtmosphereFactor, 0.0, 1.0)) * uHasAtmosphere;
 
-            float fog = 1.0 - exp(-vDistance / max(uFogDistance, 1.0));
+            float fog = weatherFog(vPosition, vDistance);
             lit = mix(lit, uFogColor, clamp(fog, 0.0, 1.0));
 
             fragColor = vec4(lit, 1.0);
@@ -1195,6 +1253,7 @@ object Shaders {
         uniform float uLightScale;
         uniform float uFogDistance;
         uniform vec3 uFogColor;
+        $DUST_FOG
         uniform float uSeaReach;
         $SEA_EDGE
         uniform float uUnderwater;
@@ -1221,7 +1280,7 @@ object Shaders {
                 // From below: a bright ceiling lit by the sky.
                 float through = 0.35 + 0.65 * max(dot(-n, -up), 0.0);
                 vec3 lit = vec3(0.30, 0.68, 0.72) * through * (0.15 + 0.85 * daylight * uLightScale);
-                float fog = 1.0 - exp(-vDistance / max(uFogDistance, 1.0));
+                float fog = weatherFog(vPosition, vDistance);
                 fragColor = vec4(mix(lit, uFogColor, clamp(fog, 0.0, 1.0)), 0.85);
                 return;
             }
@@ -1265,7 +1324,7 @@ object Shaders {
 
             float haze = (1.0 - exp(-vDistance / max(uHazeDistance, 1.0))) * uAtmosphereFactor;
             lit = mix(lit, airHaze(daylight, uLightScale), clamp(haze, 0.0, 1.0));
-            float fog = 1.0 - exp(-vDistance / max(uFogDistance, 1.0));
+            float fog = weatherFog(vPosition, vDistance);
             lit = mix(lit, uFogColor, clamp(fog, 0.0, 1.0));
 
             // Clear in the shallows, glassy at low angles, fading into the flat water at the edge.
@@ -1362,6 +1421,51 @@ object Shaders {
             colour *= clamp(1.0 + 1.5 * slope, 0.3, 1.35);
             float day = smoothstep(-0.12, 0.3, dot(up, uSunDirection));
             fragColor = vec4(colour * (0.05 + 0.95 * day), alpha * (0.3 + 0.7 * day));
+        }
+    """.trimIndent()
+
+    /**
+     * Dust storms' veil, with [HURRICANE_VEIL_VERTEX]: an even, soft tint over the ground with only
+     * gentle broad variation, thicker toward the limb where the sight line runs through more of it.
+     */
+    val DUST_VEIL_FRAGMENT = """
+        #version 300 es
+        precision highp float;
+
+        in vec4 vColour;
+        in vec3 vUp;
+        in vec3 vBody;
+        in vec3 vRelative;
+
+        uniform vec3 uSunDirection;
+        uniform float uDrift;
+        uniform float uAlpha;
+        uniform float uFrom;
+        uniform float uTo;
+        uniform vec3 uCentre;
+        uniform float uRadius;
+
+        out vec4 fragColor;
+
+        void main() {
+            float away = length(vRelative);
+            if (away < uFrom || away >= uTo) discard;
+            vec3 along = vRelative / away;
+            float nearest = dot(uCentre, along);
+            if (nearest > 0.0 && nearest < away && dot(uCentre, uCentre) - nearest * nearest < uRadius * uRadius) discard;
+            vec3 up = normalize(vUp);
+            vec3 b = normalize(vBody);
+            // Broad, slow swirls only: a few waves round the world.
+            float n = 0.5 + 0.25 * sin(3.0 * b.x + 2.0 * b.z + uDrift * 0.7) * sin(2.0 * b.y - 3.0 * b.z + uDrift * 0.5)
+                + 0.12 * sin(7.0 * b.y + 5.0 * b.x - uDrift);
+            // Thicker toward the limb.
+            float slant = abs(dot(along, up));
+            float limb = 1.0 + 0.6 * (1.0 - smoothstep(0.05, 0.6, slant));
+            float alpha = clamp(vColour.a * (0.85 + 0.3 * n) * limb, 0.0, 0.97) * uAlpha;
+            vec3 colour = vColour.rgb * (0.9 + 0.12 * n);
+            float day = smoothstep(-0.12, 0.3, dot(up, uSunDirection));
+            float lit = 0.35 + 0.65 * clamp(dot(up, uSunDirection), 0.0, 1.0);
+            fragColor = vec4(colour * (0.05 + 0.95 * day) * lit, alpha * (0.4 + 0.6 * day));
         }
     """.trimIndent()
 

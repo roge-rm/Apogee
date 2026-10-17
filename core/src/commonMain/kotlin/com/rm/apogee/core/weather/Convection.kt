@@ -74,8 +74,9 @@ internal class Convection(
         val heat = if (terrain == null || terrain.hasOcean && elevation < 0.0) 0.0
             else TerrainWind.heat(terrain.material(th.origin, elevation, 0.0))
         // Cumulus gather into fields with clear sky between. A field is tens of kilometres
-        // across, drifts over hours, and the cloud cover setting scales it.
-        val field = fieldAt(th.origin, time)
+        // across, drifts over hours, and the cloud cover setting scales it. Taken at the cycle's
+        // start, since the thermal is kept for its whole cycle from whenever it's first asked for.
+        val field = fieldAt(th.origin, th.start)
         val chance = (heat * intensity.thermals * climate.thermals * (0.06 + 1.15 * field) * weather.config.clouds.pockets).coerceAtMost(0.95)
         th.exists = heat > 0.0 && Noise.hash(seed + 14, cx, cy, c) < chance
         if (th.exists) {

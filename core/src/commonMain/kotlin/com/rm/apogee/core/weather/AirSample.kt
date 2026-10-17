@@ -58,6 +58,24 @@ class AirSample {
     /** How far you can see, in metres. */
     var visibility = CLEAR_VISIBILITY
 
+    /** How thick the dust is, 0..1, from dust storms and wind over dry ground. */
+    var dust = 0.0
+
+    /** How high over the ground the dust here reaches, metres, as a layer of even thickness; 0 with none. For drawing. */
+    var dustTop = 0.0
+
+    /** How thick the dust looks for how far you see in it, 0..1: as [dust], but a world storm's much thinner. For drawing. */
+    var dustLook = 0.0
+
+    /** How thick blown and falling snow is, 0..1, from blizzards and wind over snow. */
+    var snow = 0.0
+
+    /** How high over the ground the snow here reaches, metres, as a layer of even thickness; 0 with none. For drawing. */
+    var snowTop = 0.0
+
+    /** Snow falling, 0..1: a blizzard's, apart from what the wind lifts off the ground. */
+    var snowfall = 0.0
+
     /** How close and how strong the nearest storm is, 0..1, for how dark the sky gets. */
     var storm = 0.0
 
@@ -75,6 +93,12 @@ class AirSample {
         cloudType = null
         precipitation = 0.0
         visibility = CLEAR_VISIBILITY
+        dust = 0.0
+        dustTop = 0.0
+        dustLook = 0.0
+        snow = 0.0
+        snowTop = 0.0
+        snowfall = 0.0
         storm = 0.0
         gloom = 0.0
     }
@@ -87,6 +111,12 @@ class AirSample {
         cloudType = other.cloudType
         precipitation = other.precipitation
         visibility = other.visibility
+        dust = other.dust
+        dustTop = other.dustTop
+        dustLook = other.dustLook
+        snow = other.snow
+        snowTop = other.snowTop
+        snowfall = other.snowfall
         storm = other.storm
         gloom = other.gloom
         return this

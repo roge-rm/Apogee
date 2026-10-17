@@ -79,6 +79,8 @@ class ScatterRenderer {
         daylight: Float = 1f,
         /** The weather fog's colour, dimmed for the time of day. */
         fogColor: FloatArray = world.fogColor,
+        /** Sets the dust layer's fog uniforms; off without. */
+        fog: ((ShaderProgram) -> Unit)? = null,
     ) {
         if (list.isEmpty()) return
         frame++
@@ -93,6 +95,7 @@ class ScatterRenderer {
         program.setFloat("uDaylight", daylight)
         program.setFloat("uFogDistance", world.fogDistance.toFloat())
         program.setVec3("uFogColor", fogColor[0], fogColor[1], fogColor[2])
+        if (fog != null) fog(program) else program.setFloat("uDustFog", 0f)
         program.setFloat("uTime", (world.time % 10_000.0).toFloat())
         shadows?.invoke(program)
         val wind = world.surfaceWind

@@ -66,6 +66,8 @@ class Effects(tier: QualityTier) {
     private val glows = BooleanArray(capacity)
     /** Falls and comes to rest on the ground, the way fragments and sparks do. */
     private val falls = BooleanArray(capacity)
+    /** Snow: a streak only as long as its speed makes it. */
+    private val flakes = BooleanArray(capacity)
     /**
      * Born since the last step, so it's drawn where it was put at the frame's own time. Moving it
      * on in that step drew anything made this frame a frame ahead of its craft (20 m at 560 m/s).
@@ -126,6 +128,8 @@ class Effects(tier: QualityTier) {
         weather: Weather?,
         cameraBodyFixed: Vec3,
         cameraAir: AirSample?,
+        /** Unit, body-fixed: the way the camera looks, so blown sand keeps to the edges of the view. Null for none. */
+        cameraForward: Vec3? = null,
     ) {
         if (dt <= 0.0) return
         gravity = body.surfaceGravity
@@ -147,7 +151,10 @@ class Effects(tier: QualityTier) {
 
         if (atmosphere != null) {
             for (e in emitters) emit(e, dt, body, bodyRotation)
-            if (cameraAir != null && cameraAir.precipitation > 0.02) rain(dt, cameraAir.precipitation, cameraBodyFixed, body)
+            // Rain turns to snow in a blizzard.
+            if (cameraAir != null && cameraAir.precipitation > 0.02 && cameraAir.snowfall < SNOW_NOT_RAIN) rain(dt, cameraAir.precipitation, cameraBodyFixed, body)
+            if (cameraAir != null && cameraAir.snow > SNOW_FROM && cameraForward != null) snow(dt, cameraAir.snow, cameraBodyFixed, cameraForward)
+            if (cameraAir != null && cameraAir.dust > SAND_FROM && focusHeight - focusGround < SAND_ABOVE && cameraForward != null) sand(dt, cameraAir.dust, cameraBodyFixed, cameraForward)
         }
         seaSpray(dt, time, body)
         plumes(dt, body, cameraBodyFixed)
@@ -561,6 +568,89 @@ class Effects(tier: QualityTier) {
         }
     }
 
+    /**
+     * Sand blown past the camera in thick dust near the ground: a few thin streaks along the wind,
+     * only round the edges of the view ([forward] the way it looks), start to end, so the middle stays clear.
+     */
+    private fun sand(dt: Double, dust: Double, camera: Vec3, forward: Vec3) {
+        up.setTo(camera).normalizeInPlace()
+        val speed = windLow.length
+        if (speed < 4.0) return
+        val n = poisson(SAND_RATE * rateScale * ((dust - SAND_FROM) / (1.0 - SAND_FROM)) * dt, 993)
+        for (k in 0 until n) {
+            // Somewhere round the camera, a few metres off, and upwind so it blows past.
+            val ox = jitter(k, 1); val oy = jitter(k, 2); val oz = jitter(k, 3)
+            scratch.setTo(ox, oy, oz).addScaledInPlace(up, -(ox * up.x + oy * up.y + oz * up.z))
+            if (scratch.lengthSq < 1e-6) continue
+            scratch.normalizeInPlace().mulInPlace(SAND_NEAR + (SAND_FAR - SAND_NEAR) * rand(k)).addScaledInPlace(windLow, -0.6)
+            val lift = 3.0 * jitter(k, 4)
+            scratch.addScaledInPlace(up, lift)
+            // Kept to the edges: off the middle all along the way it blows.
+            var clear = true
+            for (step in 0..4) {
+                sandEnd.setTo(scratch).addScaledInPlace(windLow, 1.1 * SAND_LIFE * step / 4.0)
+                if (!offCentre(sandEnd, forward)) { clear = false; break }
+            }
+            if (!clear) continue
+            scratch.addScaledInPlace(up, -lift)
+            spawn(
+                x = camera.x + scratch.x + up.x * lift, y = camera.y + scratch.y + up.y * lift, z = camera.z + scratch.z + up.z * lift,
+                vx = windLow.x * 1.1 + up.x * jitter(k, 5), vy = windLow.y * 1.1 + up.y * jitter(k, 6), vz = windLow.z * 1.1 + up.z * jitter(k, 7),
+                life = SAND_LIFE, startSize = 0.025, endSize = 0.025,
+                r = 0.66f, g = 0.54f, b = 0.40f, a = 0.3f, grip = 0.0, rise = 0.0, streak = true,
+            )
+        }
+    }
+
+    private val sandEnd = Vec3()
+
+    /**
+     * Snow driven past the camera in a blizzard: flakes going with the wind, as streaks once it
+     * blows hard, kept off the very middle of the view ([forward] the way it looks), and snow
+     * drifting low over the ground with the camera near it.
+     */
+    private fun snow(dt: Double, snow: Double, camera: Vec3, forward: Vec3) {
+        up.setTo(camera).normalizeInPlace()
+        val speed = windLow.length
+        val streak = speed > SNOW_STREAK
+        val life = SNOW_LIFE
+        val rate = kotlin.math.min(SNOW_RATE * rateScale, capacity * SNOW_SHARE / life)
+        val n = poisson(rate * ((snow - SNOW_FROM) / (1.0 - SNOW_FROM)).coerceIn(0.0, 1.0) * dt, 995)
+        val low = focusHeight - focusGround < SAND_ABOVE
+        for (k in 0 until n) {
+            val ox = jitter(k, 1); val oy = jitter(k, 2); val oz = jitter(k, 3)
+            scratch.setTo(ox, oy, oz)
+            if (scratch.lengthSq < 1e-6) continue
+            scratch.normalizeInPlace().mulInPlace(SNOW_NEAR + (SNOW_FAR - SNOW_NEAR) * rand(k)).addScaledInPlace(windLow, -0.5 * life)
+            // A share of it drifting along just over the ground, near the camera.
+            val drifting = low && k % 3 == 0
+            if (drifting) {
+                val h = (focusHeight - focusGround).coerceAtLeast(0.0)
+                scratch.addScaledInPlace(up, -(scratch dot up) - h + 0.2 + 1.2 * rand(k + 7))
+            }
+            val fall = if (drifting) 0.0 else SNOW_FALL
+            // Off the very middle all along the way it goes.
+            var clear = true
+            for (step in 0..4) {
+                sandEnd.setTo(scratch).addScaledInPlace(windLow, life * step / 4.0).addScaledInPlace(up, -fall * life * step / 4.0)
+                if (!offCentre(sandEnd, forward, SNOW_CENTRE)) { clear = false; break }
+            }
+            if (!clear) continue
+            spawn(
+                x = camera.x + scratch.x, y = camera.y + scratch.y, z = camera.z + scratch.z,
+                vx = windLow.x + up.x * (0.6 * jitter(k, 5) - fall), vy = windLow.y + up.y * (0.6 * jitter(k, 6) - fall), vz = windLow.z + up.z * (0.6 * jitter(k, 7) - fall),
+                life = life, startSize = if (streak || drifting) 0.03 else 0.05, endSize = if (streak || drifting) 0.03 else 0.05,
+                r = 0.93f, g = 0.95f, b = 0.98f, a = if (drifting) 0.45f else 0.75f, grip = 0.0, rise = 0.0, streak = streak || drifting, flake = true,
+            )
+        }
+    }
+
+    /** Whether [offset] from the camera is outside the middle of the view looking along unit [forward]. */
+    private fun offCentre(offset: Vec3, forward: Vec3, centre: Double = SAND_CENTRE): Boolean {
+        val length = offset.length
+        return length < 1e-6 || (offset dot forward) / length < centre
+    }
+
     // --- lightning ------------------------------------------------------------
 
     private fun lightning(time: Double, weather: Weather, camera: Vec3, body: CelestialBody) {
@@ -650,7 +740,7 @@ class Effects(tier: QualityTier) {
             size0[i] = size0[last]; size1[i] = size1[last]
             for (c in 0 until 4) colour[i * 4 + c] = colour[last * 4 + c]
             grip[i] = grip[last]; rise[i] = rise[last]; streak[i] = streak[last]
-            glows[i] = glows[last]; falls[i] = falls[last]; fresh[i] = fresh[last]
+            glows[i] = glows[last]; falls[i] = falls[last]; flakes[i] = flakes[last]; fresh[i] = fresh[last]
         }
         count--
     }
@@ -659,7 +749,7 @@ class Effects(tier: QualityTier) {
         x: Double, y: Double, z: Double, vx: Double, vy: Double, vz: Double,
         life: Double, startSize: Double, endSize: Double,
         r: Float, g: Float, b: Float, a: Float, grip: Double, rise: Double, streak: Boolean = false,
-        glow: Boolean = false, fall: Boolean = false,
+        glow: Boolean = false, fall: Boolean = false, flake: Boolean = false,
     ) {
         // Full, so the oldest-looking one makes way rather than the new one not appearing. Fresh
         // smoke matters more than old.
@@ -670,7 +760,7 @@ class Effects(tier: QualityTier) {
         size0[i] = startSize.toFloat(); size1[i] = endSize.toFloat()
         colour[i * 4] = r; colour[i * 4 + 1] = g; colour[i * 4 + 2] = b; colour[i * 4 + 3] = a
         this.grip[i] = grip.toFloat(); this.rise[i] = rise.toFloat(); this.streak[i] = streak
-        glows[i] = glow; falls[i] = fall
+        glows[i] = glow; falls[i] = fall; flakes[i] = flake
         fresh[i] = true
     }
 
@@ -1214,8 +1304,12 @@ class Effects(tier: QualityTier) {
                 // dash as long as it's quick.
                 scratch.setTo(vx[i], vy[i], vz[i])
                 bodyRotation.rotate(scratch, scratch)
-                val length = if (glows[i]) (scratch.length * 0.05).coerceIn(0.15, 1.2) else 2.2
-                val width = if (glows[i]) size * 0.22 else 0.04
+                val length = when {
+                    glows[i] -> (scratch.length * 0.05).coerceIn(0.15, 1.2)
+                    flakes[i] -> (scratch.length * FLAKE_SMEAR).coerceIn(0.05, 0.4)
+                    else -> 2.2
+                }
+                val width = if (glows[i]) size * 0.22 else if (flakes[i]) size.toDouble() else 0.04
                 scratch.normalizeInPlace().mulInPlace(length)
                 scratch2.setTo(p).crossInPlace(scratch).normalizeInPlace().mulInPlace(width.toDouble())
                 o = quad(v, o, p, scratch, scratch2, r, g, b, alpha)
@@ -1416,7 +1510,32 @@ class Effects(tier: QualityTier) {
         /** Puffs per second from a thruster block firing flat out. */
         const val RCS_PUFFS = 45.0
         const val RAIN_RADIUS = 45.0
+        /** Sand streaks from this much dust, with the camera under this many metres over the ground, at most this many a second, this far off in metres. */
+        const val SAND_FROM = 0.3
+        const val SAND_ABOVE = 60.0
+        const val SAND_RATE = 15.0
+        const val SAND_LIFE = 0.8
+        /** Cosine of the angle off the view's middle inside which no sand is drawn (about 40 degrees). */
+        const val SAND_CENTRE = 0.77
+        const val SAND_NEAR = 6.0
+        const val SAND_FAR = 25.0
         const val RAIN_FALL = 9.0
+        /** Snow round the camera from this much, at most this many flakes a second and this share of the budget, this far off in metres. */
+        const val SNOW_FROM = 0.05
+        const val SNOW_RATE = 500.0
+        const val SNOW_SHARE = 0.3
+        const val SNOW_LIFE = 1.2
+        const val SNOW_NEAR = 2.0
+        const val SNOW_FAR = 22.0
+        const val SNOW_FALL = 1.2
+        /** Flakes draw as streaks in wind past this, m/s. */
+        const val SNOW_STREAK = 9.0
+        /** Cosine of the angle off the view's middle inside which no snow is drawn (about 18 degrees): snow fills more of the view than sand. */
+        const val SNOW_CENTRE = 0.95
+        /** No rain drawn with this much snow falling. */
+        const val SNOW_NOT_RAIN = 0.2
+        /** A flake's streak is its speed times this long, metres per m/s: blur over a sixtieth of a second. */
+        const val FLAKE_SMEAR = 0.015
         const val CLOUD_BASE = 1_200.0
         const val BOLT_SECONDS = 0.35
         const val LIGHTNING_VISIBLE = 40_000.0

@@ -24,7 +24,10 @@ class RenderItem(
     caps: Int = StackCaps.BOTH,
     /** Stretch along the shape's own axes, or null for none. For cloud lobes. */
     scale: Vec3? = null,
-    /** The light it has without the sun: 0.28 for a part, much more for a cloud. */
+    /**
+     * The light it has without the sun: 0.28 for a part, much more for a cloud. Negative for
+     * ground dust, which is shaded softly with its size, little hazed and solid up close.
+     */
     ambient: Float = 0.28f,
     /** Wraps its light round and thins at the edges, like cloud and vapour. Never a part. */
     wrap: Boolean = scale != null && ambient < 1f,
@@ -248,6 +251,18 @@ class WorldView(
     /** Hurricanes as discs of cloud ([HurricaneVeil]), and how much of them to draw, 0..1. */
     val hurricaneVeil: CloudShell? = null,
     val hurricaneVeilAlpha: Float = 0f,
+    /** Dust storms as sheets and a world storm's veil ([DustVeil]), and how much of them to draw, 0..1. */
+    /** Dust's own fog distance, metres, counted only inside its layer; 0 for none. */
+    val dustFog: Double = 0.0,
+    /** The dust layer's top over the camera, metres; under it if negative. */
+    val dustTop: Double = 0.0,
+    val dustVeil: CloudShell? = null,
+    val dustVeilAlpha: Float = 0f,
+    /** Blizzards as white sheets ([SnowVeil]), and how much of them to draw, 0..1. */
+    val snowVeil: CloudShell? = null,
+    val snowVeilAlpha: Float = 0f,
+    /** How flat the light is in a whiteout, 0..1: shadows fade out by this much. */
+    val flatLight: Float = 0f,
     /** The sea's surface, metres from the body's centre, for the light under it. 0 for no sea. */
     val seaRadius: Double = 0.0,
     /** A tsunami's sea round the camera, for the flat water past the waves. Null where none is near. */
@@ -348,4 +363,7 @@ class FarGlobe(
     val globe: PlanetMesh.Data,
     /** The glow of its air round its edge, rgb. */
     val rim: FloatArray = floatArrayOf(0.25f, 0.45f, 0.78f),
+    /** How much of it a world-wide dust storm hides, 0..1, and the dust's colour, rgb. */
+    val dust: Float = 0f,
+    val dustColour: FloatArray = floatArrayOf(0.74f, 0.50f, 0.34f),
 )

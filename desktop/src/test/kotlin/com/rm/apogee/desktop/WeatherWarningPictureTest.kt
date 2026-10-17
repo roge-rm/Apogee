@@ -40,6 +40,14 @@ class WeatherWarningPictureTest {
             "hurricane-danger" to warning(WeatherWarnings.Kind.HURRICANE, 23_000.0, 0.0, true),
             "tsunami" to warning(WeatherWarnings.Kind.TSUNAMI, 900_000.0, 240.0 + 600.0, false),
             "tsunami-danger" to warning(WeatherWarnings.Kind.TSUNAMI, 900_000.0, 0.0, true),
+            "quake" to warning(WeatherWarnings.Kind.QUAKE, 24_000.0, 7.0, false),
+            "quake-danger" to warning(WeatherWarnings.Kind.QUAKE, 24_000.0, 0.0, true),
+            "aftershocks" to warning(WeatherWarnings.Kind.AFTERSHOCKS, 24_000.0, 0.0, false),
+            "dust" to warning(WeatherWarnings.Kind.DUST, 12_000.0, 0.0, false),
+            "dust-danger" to warning(WeatherWarnings.Kind.DUST, 0.0, 0.0, true),
+            "dust-storm" to warning(WeatherWarnings.Kind.DUST_STORM, 0.0, 0.0, false),
+            "blizzard" to warning(WeatherWarnings.Kind.BLIZZARD, 18_000.0, 0.0, false),
+            "blizzard-danger" to warning(WeatherWarnings.Kind.BLIZZARD, 0.0, 0.0, true),
         )
         for ((name, w) in shots) {
             val hud = HudState().also { it.weatherWarning = w }

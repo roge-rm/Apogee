@@ -2,7 +2,11 @@ package com.rm.apogee.game
 
 import com.rm.apogee.core.math.Vec3
 import com.rm.apogee.core.orbit.SolarSystem
+import com.rm.apogee.core.weather.DustKind
+import com.rm.apogee.core.weather.LiveBlizzard
+import com.rm.apogee.core.weather.LiveDust
 import com.rm.apogee.core.weather.LiveHurricane
+import com.rm.apogee.core.weather.LiveQuake
 import com.rm.apogee.core.weather.LiveTornado
 import com.rm.apogee.core.weather.LiveTsunami
 import com.rm.apogee.core.weather.Weather
@@ -126,7 +130,8 @@ class WeatherWarningsTest {
         }
         val (arrives, s, d) = found ?: error("no tsunami ahead of a sea point")
         val at = Vec3().setTo(d).mulInPlace(radius)
-        val soon = warnings().all(at, arrives - 600.0).first { it.kind == WeatherWarnings.Kind.TSUNAMI && it.id == s.id }
+        // Just under 10 min, so rounding in the arrival can't make it 11.
+        val soon = warnings().all(at, arrives - 590.0).first { it.kind == WeatherWarnings.Kind.TSUNAMI && it.id == s.id }
         assertEquals("TSUNAMI IN 10 min", soon.text)
         assertFalse(soon.danger)
         val close = warnings().all(at, arrives - 120.0).first { it.id == s.id }
@@ -137,6 +142,163 @@ class WeatherWarningsTest {
         assertTrue("none long before", early.none { it.id == s.id })
         val high = warnings().all(Vec3().setTo(d).mulInPlace(radius + WeatherWarnings.TSUNAMI_TOP + 500.0), arrives - 600.0)
         assertTrue("none for a plane over it", high.none { it.id == s.id })
+    }
+
+    @Test
+    fun `a quake warns as its waves come, is a danger while it shakes, then warns of aftershocks`() {
+        // A strong main shock on land with an aftershock to come, and a place on land near it where
+        // that aftershock will be felt.
+        var found: Triple<LiveQuake, Vec3, LiveQuake>? = null
+        var t = 6 * 3_600.0
+        search@ while (t < 600 * 3_600.0) {
+            val live = ArrayList<LiveQuake>()
+            weather.quakes(Vec3.unitY(), t, Double.MAX_VALUE, live)
+            for (q in live) {
+                if (q.id != q.mainId || q.underSea || q.magnitude < 7.0) continue
+                val e = Vec3(q.epicentre.z, 0.0, -q.epicentre.x).normalizeInPlace()
+                val n = Vec3().setTo(q.epicentre).crossInPlace(e)
+                for (k in 0 until 16) for (r in listOf(15_000.0, 10_000.0, 6_000.0)) {
+                    val a = 2.0 * Math.PI * k / 16
+                    val d = Vec3().setTo(q.epicentre).addScaledInPlace(e, kotlin.math.cos(a) * r / radius)
+                        .addScaledInPlace(n, kotlin.math.sin(a) * r / radius).normalizeInPlace()
+                    if (terra.terrain!!.elevation(d) < 5.0) continue
+                    val here = ArrayList<LiveQuake>()
+                    weather.quakes(d, q.start, 0.0, here)
+                    val main = here.firstOrNull { it.id == q.id } ?: continue
+                    if (main.peakHere < 1.0 || main.arrivesHere - q.start < 2.5) continue
+                    val after = weather.nextAftershock(d, main.start + 600.0, WeatherWarnings.QUAKE_WARN) ?: continue
+                    if (after.mainId != q.id) continue
+                    found = Triple(main, d, after)
+                    break@search
+                }
+            }
+            t += 1_800.0
+        }
+        val (q, d, after) = found ?: error("no strong quake on land with an aftershock to come")
+        println("quake M%.1f at %.1f h, %.1f km off, peak here %.2f, aftershock M%.1f %.0f s later"
+            .format(q.magnitude, q.start / 3_600.0, q.epicentre.distanceTo(d) * radius / 1_000.0, q.peakHere, after.magnitude, after.start - q.start))
+        val ground = radius + terra.terrain!!.elevation(d)
+        val at = Vec3().setTo(d).mulInPlace(ground + 2.0)
+        fun quakeWarning(time: Double) = warnings().all(at, time).firstOrNull { it.kind == WeatherWarnings.Kind.QUAKE || it.kind == WeatherWarnings.Kind.AFTERSHOCKS }
+
+        assertNull("none before it strikes", quakeWarning(q.start - 5.0))
+        val coming = quakeWarning(q.start + 0.5)
+        assertNotNull("warned as the waves come", coming)
+        assertEquals(WeatherWarnings.Kind.QUAKE, coming!!.kind)
+        assertTrue(coming.text, coming.text.startsWith("QUAKE IN ") && coming.text.endsWith(" s"))
+        assertFalse(coming.danger)
+        // In the strong part of its shaking here.
+        var shaking: WeatherWarnings.Warning? = null
+        var s = q.arrivesHere + 1.0
+        while (s < q.arrivesHere + 30.0 && shaking?.danger != true) { shaking = quakeWarning(s); s += 0.5 }
+        assertNotNull(shaking)
+        assertTrue("a danger while it shakes", shaking!!.danger)
+        assertEquals("QUAKE", shaking.text)
+        val later = quakeWarning(after.start - 5.0)
+        assertNotNull("aftershocks to come", later)
+        assertEquals("AFTERSHOCKS", later!!.text)
+        assertFalse(later.danger)
+        assertEquals("one event, so one sound", coming.event, later.event)
+        assertTrue("apart from other kinds' ids", coming.event != coming.id)
+        // None far off or high up.
+        val far = Vec3().setTo(q.epicentre).addScaledInPlace(Vec3(q.epicentre.z, 0.0, -q.epicentre.x).normalizeInPlace(), (q.reach + 60_000.0) / radius).normalizeInPlace()
+        assertTrue(warnings().all(far.mulInPlace(radius + maxOf(terra.terrain!!.elevation(far), 0.0) + 2.0), s).none { it.kind == WeatherWarnings.Kind.QUAKE })
+        val high = Vec3().setTo(d).mulInPlace(ground + WeatherWarnings.QUAKE_TOP + 500.0)
+        assertTrue(warnings().all(high, s).none { it.kind == WeatherWarnings.Kind.QUAKE || it.kind == WeatherWarnings.Kind.AFTERSHOCKS })
+    }
+
+    @Test
+    fun `a blizzard warns as it comes and is a danger inside its snow`() {
+        fun along(c: Vec3, heading: Vec3, metres: Double) = Vec3().setTo(c).addScaledInPlace(heading, metres / radius).normalizeInPlace()
+        var found: Pair<Double, LiveBlizzard>? = null
+        var t = 6 * 3_600.0
+        search@ while (t < 200 * 3_600.0) {
+            val live = ArrayList<LiveBlizzard>()
+            weather.blizzards(Vec3.unitY(), t, Double.MAX_VALUE, live)
+            for (z in live) {
+                if (z.strength < 0.6 || z.age < 1_800.0 || z.age > 0.6 * z.life) continue
+                if (weather.blizzardCold(z.centre) < 0.95) continue
+                found = t to z
+                break@search
+            }
+            t += 1_800.0
+        }
+        val (time, z) = found ?: error("no blizzard over cold country")
+        fun at(metres: Double): Vec3 {
+            val p = along(z.centre, z.heading, metres)
+            return p.mulInPlace(radius + maxOf(terra.terrain!!.elevation(p), 0.0) + 5.0)
+        }
+        fun blizzard(p: Vec3) = warnings().all(p, time).firstOrNull { it.kind == WeatherWarnings.Kind.BLIZZARD && it.id == z.id }
+        val coming = blizzard(at(z.halfLength + 12_000.0))
+        assertNotNull("warned ahead of it", coming)
+        assertFalse(coming!!.danger)
+        assertTrue("with how far: ${coming.text}", coming.text.startsWith("BLIZZARD ") && coming.text.endsWith(" km"))
+        val inside = blizzard(at(0.0))
+        assertNotNull("inside", inside)
+        assertTrue("a danger inside", inside!!.danger)
+        assertEquals("BLIZZARD", inside.text)
+        assertEquals("one event", coming.event, inside.event)
+        assertNull("none far ahead", blizzard(at(z.halfLength + 80_000.0)))
+        val high = Vec3().setTo(at(0.0)).normalizeInPlace().mulInPlace(at(0.0).length + WeatherWarnings.BLIZZARD_TOP + 500.0)
+        assertNull("none high up", blizzard(high))
+        assertTrue("none on Normal", WeatherWarnings(terra, WeatherConfig(intensity = WeatherIntensity.NORMAL), null).all(at(0.0), time)
+            .none { it.kind == WeatherWarnings.Kind.BLIZZARD })
+    }
+
+    @Test
+    fun `a haboob warns while its front comes, is a danger inside its dust, and a world storm says so`() {
+        // A strong haboob over desert, part way through its life, with desert ahead and behind.
+        fun along(c: Vec3, heading: Vec3, metres: Double) = Vec3().setTo(c).addScaledInPlace(heading, metres / radius).normalizeInPlace()
+        var found: Pair<Double, LiveDust>? = null
+        var t = 6 * 3_600.0
+        search@ while (t < 200 * 3_600.0) {
+            val live = ArrayList<LiveDust>()
+            weather.dustStorms(Vec3.unitY(), t, Double.MAX_VALUE, live)
+            for (d in live) {
+                if (d.kind != DustKind.HABOOB || d.strength < 0.6 || d.age < 900.0 || d.age > 0.6 * d.life) continue
+                if (listOf(-3_000.0, 0.0, 12_000.0).any { weather.dustiness(along(d.centre, d.heading, it)) < 0.9 }) continue
+                found = t to d
+                break@search
+            }
+            t += 1_800.0
+        }
+        val (time, d) = found ?: error("no haboob over desert")
+        fun at(metres: Double): Vec3 {
+            val p = along(d.centre, d.heading, metres)
+            return p.mulInPlace(radius + maxOf(terra.terrain!!.elevation(p), 0.0) + 5.0)
+        }
+        fun dust(p: Vec3) = warnings().all(p, time).firstOrNull { it.kind == WeatherWarnings.Kind.DUST && it.id == d.id }
+        val coming = dust(at(12_000.0))
+        assertNotNull("warned ahead of its front", coming)
+        assertFalse(coming!!.danger)
+        assertEquals("DUST 12 km", coming.text)
+        val inside = dust(at(-3_000.0))
+        assertNotNull("inside", inside)
+        assertTrue("a danger inside", inside!!.danger)
+        assertEquals("DUST", inside.text)
+        assertEquals("one event", coming.event, inside.event)
+        assertNull("none far ahead", dust(at(60_000.0)))
+        val high = Vec3().setTo(at(12_000.0)).normalizeInPlace().mulInPlace(at(12_000.0).length + WeatherWarnings.DUST_TOP + 500.0)
+        assertNull("none high up", dust(high))
+
+        // A world storm on Rubra over a lander there.
+        val rubra = SolarSystem.defaultSystem().body("rubra")
+        val red = Weather(rubra, config)
+        var w = 0.0
+        while (w < 400 * 86_400.0) {
+            val live = ArrayList<LiveDust>()
+            red.dustStorms(Vec3.unitY(), w, Double.MAX_VALUE, live)
+            val s = live.firstOrNull { it.kind == DustKind.WORLD }
+            if (s != null && s.age > 0.45 * s.life && s.age < 0.6 * s.life) break
+            w += 3 * 3_600.0
+        }
+        val storm = (0 until 64).asSequence().map { k ->
+            val p = SolarSystem.surfaceDirection(Math.toRadians(-30.0 + k % 8 * 8.0), Math.toRadians(k * 47.0))
+            p.mulInPlace(rubra.radius + maxOf(rubra.terrain!!.elevation(p), 0.0) + 5.0)
+        }.mapNotNull { p -> WeatherWarnings(rubra, config, null).all(p, w).firstOrNull { it.kind == WeatherWarnings.Kind.DUST_STORM } }.firstOrNull()
+        assertNotNull("a world storm warned of on Rubra", storm)
+        assertEquals("DUST STORM", storm!!.text)
+        assertFalse("a caution, not a danger, since it lasts days", storm.danger)
     }
 
     @Test

@@ -477,6 +477,13 @@ class Vessel(
     fun clearForces() = partForce.fill(0.0)
 
     /**
+     * The shaking ground's push on each part touching it last tick, world axes, N, three values a
+     * part, while [shaken]. Set by GroundContact for [com.rm.apogee.core.world.Stress].
+     */
+    var groundShake: DoubleArray = DoubleArray(0)
+    var shaken = false
+
+    /**
      * Each part's recent water force, world axes, N, three values a part, so only what changes
      * loads its joints. NaN until it's first at the water. See
      * [com.rm.apogee.core.world.Hydrostatics].
@@ -1524,6 +1531,7 @@ class Vessel(
         bodyRotation.inverseRotate(body.position, sleepPosition)
         sleepOrientation.setTo(bodyRotation.conjugate().times(body.orientation))
         dormant = true
+        shaken = false
         settledTicks = 0
     }
 
@@ -1625,6 +1633,7 @@ class Vessel(
         deck.body.orientation.inverseRotate(rideOffset, rideOffset)
         rideTurn.setTo(deck.body.orientation.conjugate().times(body.orientation))
         dormant = true
+        shaken = false
         ridingOn = deck.id
         settledTicks = 0
     }

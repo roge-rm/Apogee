@@ -186,7 +186,8 @@ class TsunamiTest {
         val berth = field.worksDirection(2_700.0, 330.0).normalizeInPlace()
         val bed = field.elevation(berth)
         val w = Weather(terra, WeatherConfig(intensity = WeatherIntensity.EXTREME))
-        val origin = quakes(w, 0.0, 30.0 * 3_600.0).first().origin
+        // The first quake whose wave can reach the Gulf: not one in a closed sea.
+        val origin = quakes(w, 0.0, 60.0 * 3_600.0).map { it.origin }.first { w.tsunamiModel.arrivalAt(it, berth) < Tsunamis.NEVER }
         w.tsunamiModel.force(origin, 0.0, strength = 1.0, period = 900.0)
         val arrival = w.tsunamiModel.arrivalAt(origin, berth)
         assertTrue("arrives: $arrival", arrival < Tsunamis.NEVER)

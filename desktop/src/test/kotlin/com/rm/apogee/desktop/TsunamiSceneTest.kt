@@ -35,15 +35,21 @@ class TsunamiSceneTest {
     private val field = terra.terrain as TerrainField
     private val berth = field.worksDirection(2_700.0, 330.0).normalizeInPlace()
 
-    /** The biggest tsunami at the Cape berth over a few weeks on Extreme, with its times there. */
+    /**
+     * A good-sized tsunami at the Cape berth over a few months on Extreme, the one nearest
+     * [TYPICAL] there, with its times there.
+     */
     private class Event(val tsunami: LiveTsunami, val arrives: Double, val period: Double, val high: Double) {
         /** When the sea is drawn furthest back at the berth, and the crest there, from its first cycle. */
         var trough = 0.0
         var crest = 0.0
 
         /** When low land a little inland is flooded: the flood runs in from the coast. */
-        val flood get() = crest + 120.0
+        var flood = 0.0
     }
+
+    /** How high the crest at the berth the drawing is checked with, metres. */
+    private val TYPICAL = 3.0
 
     private val event: Event by lazy {
         val w = Weather(terra, config)
@@ -51,7 +57,7 @@ class TsunamiSceneTest {
         val seen = HashMap<Long, LiveTsunami>()
         val out = ArrayList<LiveTsunami>()
         var t = 0.0
-        while (t < 600 * 3_600.0) {
+        while (t < 2_400 * 3_600.0) {
             out.clear()
             w.tsunamis(berth, t, 1e9, out)
             for (k in out) if (!k.arrivesHere.isNaN() && k.arrivesHere < 1e29) seen.putIfAbsent(k.id, k)
@@ -62,7 +68,7 @@ class TsunamiSceneTest {
             var s = k.arrivesHere
             while (s < k.arrivesHere + 2 * k.period) { high = maxOf(high, w.tsunamiHeight(berth, s, bed)); s += 15.0 }
             Event(k, k.arrivesHere, k.period, high)
-        }.maxBy { it.high }
+        }.minBy { kotlin.math.abs(it.high - TYPICAL) }
         var low = Double.MAX_VALUE; var high = -Double.MAX_VALUE
         var s = best.arrives
         while (s < best.arrives + best.period) {
@@ -70,6 +76,17 @@ class TsunamiSceneTest {
             if (h < low) { low = h; best.trough = s }
             if (h > high) { high = h; best.crest = s }
             s += 1.0
+        }
+        // The first time after the crest that land near the berth is well under water, a little on.
+        best.flood = best.crest + 120.0
+        var f = best.crest
+        flooding@ while (f < best.crest + best.period) {
+            for (j in -20..20) for (i in -20..20) {
+                val p = offset(berth, i * 200.0, j * 200.0)
+                val b = field.elevation(p)
+                if (b > 0.3 && w.tsunamiHeight(p, f, b) - b > 0.5) { best.flood = f + 60.0; break@flooding }
+            }
+            f += 30.0
         }
         println("event ${best.tsunami.id}: strength %.2f, period %.0f s, arrives %.0f s, berth bed %.1f m, crest %.2f m".format(
             best.tsunami.strength, best.period, best.arrives, bed, best.high))
@@ -497,8 +514,9 @@ class TsunamiSceneTest {
             var seamChecked = 0; var seamWrong = 0
             for (dt in listOf(0.0, 120.0, 300.0)) {
                 val time = frontAt(out(5_000.0), 0.5) + dt
-                val live = ArrayList<LiveTsunami>(); w.tsunamis(up0, time, 1e6, live)
                 val scene = TsunamiScene(terra, config, QualityTier.MEDIUM, scope)
+                // The ones the scene lists.
+                val live = ArrayList<LiveTsunami>(); w.tsunamis(up0, time, scene.reach * 1.5, live)
                 listed(scene, camera, time)
                 val f = scene.field!!
                 assertTrue("two drawn where ${live.size} overlap", live.size < 2 || f.period2 > 0.0)

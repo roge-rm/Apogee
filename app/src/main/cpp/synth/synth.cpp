@@ -108,6 +108,9 @@ float trim(int r) {
         case recipe::SAIL: return 0.3f;
         case recipe::TORNADO: return 0.18f;  // long, so about 6 dB under the engines even close
         case recipe::TSUNAMI: return 0.24f;  // long too, and about as loud close as the tornado
+        case recipe::QUAKE: return 0.24f;  // under the tornado's roar
+        case recipe::DUST: return 0.15f;  // long, so well under the engines
+        case recipe::BLIZZARD: return 0.15f;  // can last hours, so well under the engines
         case recipe::ROTOR: return 0.35f;  // under the engines, since it can run for ages
         case recipe::RCS: return 0.25f;  // puffs under the engines
         case recipe::IMPACT: return 0.2f;
@@ -729,6 +732,95 @@ void Synth::renderVoice(Voice& v, float& left, float& right) {
             v.f[3].process(v.pink2.next(rng.white()));
             s = (v.f[0].low * 0.7f * swell + v.f[1].low * (0.5f + 0.5f * surge) * swell
                 + v.f[2].band * 0.8f * (0.3f + 0.7f * close) * surge + v.f[3].band * 0.25f * close * surge * surge) * loud;
+            break;
+        }
+        case recipe::QUAKE: {
+            // The ground shaking: a deep rumble you mostly feel, a grinding growl over it that a
+            // phone can play, and a soft rattle of loose things when it's hard. It rolls in uneven
+            // waves, with no bursts and nothing bright.
+            float loud = clampf(p[0], 0, 1.5f), hard = clampf(p[1], 0, 1);
+            // Rolls: a wander toward a new strength every half second or so, and a slower heave.
+            v.state[2] -= dt;
+            if (v.state[2] <= 0) { v.state[1] = 0.35f + 0.65f * rng.uniform(); v.state[2] = 0.25f + 0.6f * rng.uniform(); }
+            v.state[0] += (v.state[1] - v.state[0]) * clampf(dt / 0.18f, 0, 1);
+            v.state[4] -= dt;
+            if (v.state[4] <= 0) { v.state[5] = 0.55f + 0.45f * rng.uniform(); v.state[4] = 1.5f + 2.5f * rng.uniform(); }
+            v.state[3] += (v.state[5] - v.state[3]) * clampf(dt / 1.2f, 0, 1);
+            // Straight in at the start; the level param brings it up.
+            if (v.state[3] < 0.3f) { v.state[3] = v.state[5]; v.state[0] = v.state[1]; }
+            float roll = v.state[0], heave = v.state[3];
+            if (control) {
+                v.f[0].set(40.0f + 15.0f * heave, 0.8f, sr);
+                v.f[1].set(150.0f + 60.0f * roll, 0.9f, sr);
+                v.f[2].set(320.0f + 120.0f * hard, 0.8f, sr);
+                v.f[3].set(620.0f, 0.9f, sr);
+            }
+            v.f[0].process(v.brown.next(rng.white()));
+            v.f[1].process(v.brown2.next(rng.white()));
+            v.f[2].process(v.pink.next(rng.white()));
+            v.f[3].process(v.pink2.next(rng.white()));
+            // Loose things rattle hardest on the strongest rolls.
+            float rattle = roll * roll * roll * 1.5f;
+            s = (v.f[0].low * 0.9f * heave + v.f[1].band * 1.1f * roll * heave + v.f[2].band * 0.55f * (0.3f + 0.7f * hard) * roll
+                + v.f[3].band * 0.3f * hard * rattle) * loud;
+            break;
+        }
+        case recipe::DUST: {
+            // Blowing dust: a dark roar of wind under a dry, soft hiss of sand, gusting unevenly,
+            // the grit a little rougher close to the ground. Pink and brown noise through band
+            // passes under 2 kHz, nothing bright, since a storm can last for hours.
+            float loud = clampf(p[0], 0, 1.5f), close = clampf(p[1], 0, 1);
+            // Gusts: a slow wander toward a new strength every couple of seconds.
+            v.state[2] -= dt;
+            if (v.state[2] <= 0) { v.state[1] = 0.45f + 0.55f * rng.uniform(); v.state[2] = 1.2f + 2.8f * rng.uniform(); }
+            v.state[0] += (v.state[1] - v.state[0]) * clampf(dt / 0.9f, 0, 1);
+            // Grit: quicker, smaller flurries in the sand.
+            v.state[4] -= dt;
+            if (v.state[4] <= 0) { v.state[5] = 0.5f + 0.5f * rng.uniform(); v.state[4] = 0.08f + 0.35f * rng.uniform(); }
+            v.state[3] += (v.state[5] - v.state[3]) * clampf(dt / 0.06f, 0, 1);
+            // Straight in at the start; the level param brings it up.
+            if (v.state[0] < 0.3f) { v.state[0] = v.state[1]; v.state[3] = v.state[5]; }
+            float gust = v.state[0], grit = v.state[3];
+            if (control) {
+                v.f[0].set(150.0f + 90.0f * gust, 0.7f, sr);
+                v.f[1].set(620.0f + 260.0f * gust, 0.7f, sr);
+                v.f[2].set(1300.0f + 300.0f * close, 0.9f, sr);
+            }
+            v.f[0].process(v.brown.next(rng.white()));
+            v.f[1].process(v.pink.next(rng.white()));
+            v.f[2].process(v.pink2.next(rng.white()));
+            s = (v.f[0].low * 0.6f * gust + v.f[1].band * 1.5f * gust * (0.6f + 0.4f * grit)
+                + v.f[2].band * 0.45f * (0.3f + 0.7f * close) * grit * gust) * loud;
+            break;
+        }
+        case recipe::BLIZZARD: {
+            // A blizzard: a dark roar of wind with a slow, low howl wandering in it and a soft hiss
+            // of snow, more of it close to the ground. Brown and pink noise under 2 kHz, the howl
+            // a gentle resonance, nothing bright, since one can last for hours.
+            float loud = clampf(p[0], 0, 1.5f), close = clampf(p[1], 0, 1);
+            // Gusts: a slow wander toward a new strength every couple of seconds.
+            v.state[2] -= dt;
+            if (v.state[2] <= 0) { v.state[1] = 0.4f + 0.6f * rng.uniform(); v.state[2] = 1.5f + 3.0f * rng.uniform(); }
+            v.state[0] += (v.state[1] - v.state[0]) * clampf(dt / 1.1f, 0, 1);
+            // The howl's pitch drifts slowly between gusts.
+            v.state[4] -= dt;
+            if (v.state[4] <= 0) { v.state[5] = rng.uniform(); v.state[4] = 2.5f + 4.0f * rng.uniform(); }
+            v.state[3] += (v.state[5] - v.state[3]) * clampf(dt / 2.0f, 0, 1);
+            // Straight in at the start; the level param brings it up.
+            if (v.state[0] < 0.3f) { v.state[0] = v.state[1]; v.state[3] = v.state[5]; }
+            float gust = v.state[0], pitch = v.state[3];
+            if (control) {
+                v.f[0].set(120.0f + 80.0f * gust, 0.7f, sr);
+                v.f[1].set(340.0f + 220.0f * pitch + 80.0f * gust, 3.5f, sr);
+                v.f[2].set(1500.0f + 300.0f * close, 0.8f, sr);
+            }
+            v.f[0].process(v.brown.next(rng.white()));
+            v.f[1].process(v.pink.next(rng.white()));
+            v.f[2].process(v.pink2.next(rng.white()));
+            // The howl rises with the gusts, the hiss is the snow driven past.
+            float howl = gust * gust;
+            s = (v.f[0].low * 0.7f * gust + v.f[1].band * 0.6f * howl
+                + v.f[2].band * 0.55f * (0.35f + 0.65f * close) * gust) * loud;
             break;
         }
         case recipe::SAIL: {

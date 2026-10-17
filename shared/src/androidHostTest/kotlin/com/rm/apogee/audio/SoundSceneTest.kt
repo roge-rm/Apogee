@@ -182,6 +182,48 @@ class SoundSceneTest {
     }
 
     @Test
+    fun `shaking ground rumbles all round, and not in space`() {
+        val scene = SoundScene(16)
+        scene.build(SoundScene.Listener(Vec3(), Vec3(1.0, 0.0, 0.0), density = 1.2, quake = 0.8, quakeNear = 0.5), emptyList(), null)
+        val i = scene.indexOf(Recipes.QUAKE)!!
+        assertEquals("thinned a little by the air", 0.8f, scene.param(i, 0), 0.02f)
+        assertEquals(0.5f, scene.param(i, 1), 1e-6f)
+        assertEquals("no side", 0f, scene.param(i, SharedParams.PAN), 1e-6f)
+        scene.build(air, emptyList(), null)
+        assertNull("none shaking", scene.indexOf(Recipes.QUAKE))
+        scene.build(SoundScene.Listener(Vec3(), Vec3(1.0, 0.0, 0.0), density = 0.0, quake = 0.8), emptyList(), null)
+        assertNull("in vacuum", scene.indexOf(Recipes.QUAKE))
+    }
+
+    @Test
+    fun `blowing dust hisses all round, and not in space`() {
+        val scene = SoundScene(16)
+        scene.build(SoundScene.Listener(Vec3(), Vec3(1.0, 0.0, 0.0), density = 1.2, dust = 0.7, dustNear = 0.4), emptyList(), null)
+        val i = scene.indexOf(Recipes.DUST)!!
+        assertEquals("thinned a little by the air", 0.7f, scene.param(i, 0), 0.02f)
+        assertEquals(0.4f, scene.param(i, 1), 1e-6f)
+        assertEquals("no side", 0f, scene.param(i, SharedParams.PAN), 1e-6f)
+        scene.build(air, emptyList(), null)
+        assertNull("no dust", scene.indexOf(Recipes.DUST))
+        scene.build(SoundScene.Listener(Vec3(), Vec3(1.0, 0.0, 0.0), density = 0.0, dust = 0.7), emptyList(), null)
+        assertNull("in vacuum", scene.indexOf(Recipes.DUST))
+    }
+
+    @Test
+    fun `a blizzard howls all round, and not in space`() {
+        val scene = SoundScene(16)
+        scene.build(SoundScene.Listener(Vec3(), Vec3(1.0, 0.0, 0.0), density = 1.2, blizzard = 0.7, blizzardNear = 0.4), emptyList(), null)
+        val i = scene.indexOf(Recipes.BLIZZARD)!!
+        assertEquals("thinned a little by the air", 0.7f, scene.param(i, 0), 0.02f)
+        assertEquals(0.4f, scene.param(i, 1), 1e-6f)
+        assertEquals("no side", 0f, scene.param(i, SharedParams.PAN), 1e-6f)
+        scene.build(air, emptyList(), null)
+        assertNull("no blizzard", scene.indexOf(Recipes.BLIZZARD))
+        scene.build(SoundScene.Listener(Vec3(), Vec3(1.0, 0.0, 0.0), density = 0.0, blizzard = 0.7), emptyList(), null)
+        assertNull("in vacuum", scene.indexOf(Recipes.BLIZZARD))
+    }
+
+    @Test
     fun `thrusters puff in the air, come through the hull in vacuum, and another craft's are silent there`() {
         val scene = SoundScene(16)
         val mine = SoundScene.Craft(1, true, Vec3(), 1.0).also { it.rcs(0.8) }

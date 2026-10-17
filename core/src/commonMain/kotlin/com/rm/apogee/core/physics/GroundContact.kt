@@ -142,6 +142,23 @@ class GroundContact {
 
     val report = ContactReport()
 
+    /** The weather of the world the craft is on, for quakes shaking the ground; null for none. */
+    var weather: com.rm.apogee.core.weather.Weather? = null
+
+    /**
+     * Whether a quake shook the ground under the craft this pass, and how: its velocity, world
+     * axes, m/s, and acceleration in [shakeAcceleration]. Ground contacts move with it.
+     */
+    var shaking = false
+        private set
+    val shakeVelocity = Vec3()
+    private val shakeAcceleration = Vec3()
+    /** How far the quake lifts the ground this pass, metres. */
+    private var shakeLift = 0.0
+    private val shakeUp = Vec3()
+    /** Contact points per part touching the ground this pass, while shaking. */
+    private var touches = IntArray(0)
+
     /**
      * @param time universe time, needed because terrain turns with the planet.
      * @param accumulate keep what the report already holds, so a caller splitting a tick into
@@ -162,6 +179,8 @@ class GroundContact {
     ): ContactReport {
         if (!accumulate) { report.reset(); deckUnder = null }
         compressionCleared = false
+        shaking = false
+        if (!accumulate) vessel.shaken = false
         // Once per vessel, not once per contact point.
         attractor.rotationAt(time, bodyRotation)
         val body = vessel.body
@@ -185,6 +204,7 @@ class GroundContact {
         if (lowestPossible > groundBelow + vessel.contactRadius + TERRAIN_PROXIMITY_MARGIN) {
             return report
         }
+        shake(vessel, time)
 
         // Ask for the ground ahead before arriving: under the craft, and where it'll be a couple of
         // seconds from now.
@@ -245,6 +265,7 @@ class GroundContact {
 
             attractor.toBodyFixed(partPosition, bodyRotation, bodyFixedDirection)
             attractor.groundInBodyFrame(bodyFixedDirection, ground, groundLookup)
+            ground.radius += shakeLift
             if (ground.radius - distance <= -MAX_SINK_METRES) continue
 
             // Soft ground gives: in sand, mud, snow or regolith the contact surface sits lower under
@@ -264,6 +285,7 @@ class GroundContact {
             val penetration = radialDepth * (normal dot radialUp).coerceAtLeast(0.05)
             if (ground.material == com.rm.apogee.core.terrain.SurfaceMaterial.LAVA) report.lavaPart = partIndex
             terrainContacts++
+            if (shaking) touches[partIndex]++
             touch(vessel, attractor, partIndex, pointIndex, penetration, wheel, walker, suspensionTravel, springRate, damping, dt)
             }
             if (partIndex in vessel.sunk.indices) {
@@ -272,6 +294,7 @@ class GroundContact {
         }
 
         resistRolling(vessel, attractor)
+        if (shaking) recordShake(vessel, attractor, terrainContacts)
         // Only held still against the ground. On a deck it moves with the deck.
         if (terrainContacts > 0 && deckUnder == null) anchorIfResting(vessel, attractor, dt)
         return report
@@ -451,6 +474,55 @@ class GroundContact {
         }
     }
 
+    /**
+     * The quake's shaking at the craft, once a pass: craft are small next to the waves, so every
+     * contact takes the same. Needs [bodyFixedDirection] at the craft.
+     */
+    private fun shake(vessel: Vessel, time: Double) {
+        shakeLift = 0.0
+        val w = weather ?: return
+        if (!w.quakesLive(time)) return
+        shakeUp.setTo(bodyFixedDirection).normalizeInPlace()
+        val lift = w.quakeShake(shakeUp, time, scratch, shakeAcceleration)
+        if (w.quakeLevel() <= 0.0) return
+        shaking = true
+        shakeLift = lift
+        bodyRotation.rotate(scratch, shakeVelocity)
+        bodyRotation.rotate(shakeAcceleration, shakeAcceleration)
+        val n = vessel.defs.size
+        if (touches.size < n) touches = IntArray(n) else touches.fill(0, 0, n)
+    }
+
+    /**
+     * What the shaking ground does to the joints, for [com.rm.apogee.core.world.Stress]: the push
+     * that carries the craft along with it, shared out over the parts touching. Across the ground
+     * no more than its grip can give, and down no more than its weight.
+     */
+    private fun recordShake(vessel: Vessel, attractor: CelestialBody, contacts: Int) {
+        val n = vessel.defs.size
+        if (vessel.groundShake.size != n * 3) vessel.groundShake = DoubleArray(n * 3) else vessel.groundShake.fill(0.0)
+        vessel.shaken = false
+        if (contacts <= 0) return
+        val body = vessel.body
+        radialUp.setTo(body.position).normalizeInPlace()
+        val g = attractor.gravityAt(body.position, scratch).length
+        // Ground can't pull down harder than the weight it carries.
+        val vertical = maxOf(shakeAcceleration dot radialUp, -g)
+        tangent.setTo(shakeAcceleration).addScaledInPlace(radialUp, -(shakeAcceleration dot radialUp))
+        val grip = report.friction * g
+        val across = tangent.length
+        if (across > grip && across > 0.0) tangent.mulInPlace(grip / across)
+        tangent.addScaledInPlace(radialUp, vertical).mulInPlace(body.mass / contacts)
+        for (i in 0 until n) {
+            val k = touches[i]
+            if (k == 0) continue
+            vessel.groundShake[i * 3] = tangent.x * k
+            vessel.groundShake[i * 3 + 1] = tangent.y * k
+            vessel.groundShake[i * 3 + 2] = tangent.z * k
+        }
+        vessel.shaken = true
+    }
+
     private var skidSpring = 0.0
     private var skidDamping = 0.0
 
@@ -478,6 +550,8 @@ class GroundContact {
      */
     private fun anchorIfResting(vessel: Vessel, attractor: CelestialBody, dt: Double) {
         if (!report.hadContact) return
+        // Shaking ground isn't rest.
+        if (shaking) { report.anchored = false; return }
         val body = vessel.body
 
         // Under power isn't at rest, however slow, and neither is walking or jumping.
@@ -572,7 +646,7 @@ class GroundContact {
 
     /** How fast what's under [worldPoint] is moving: the ground, or the deck it's on. */
     private fun surfaceVelocityAt(attractor: CelestialBody, worldPoint: Vec3, out: Vec3): Vec3 {
-        val deck = deck ?: return attractor.surfaceVelocityAt(worldPoint, out)
+        val deck = deck ?: return attractor.surfaceVelocityAt(worldPoint, out).also { if (shaking) it.addInPlace(shakeVelocity) }
         return deck.velocityAtOffset(deckOffset, out)
     }
 

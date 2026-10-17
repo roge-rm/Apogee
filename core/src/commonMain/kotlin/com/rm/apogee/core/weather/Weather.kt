@@ -31,7 +31,10 @@ import com.rm.apogee.core.math.Math
  * - storms: towers, gust fronts, rain and lightning ([Storms]);
  * - hurricanes, with rare events on ([Hurricanes]);
  * - tornadoes and waterspouts under supercells and in hurricane bands ([Tornadoes]);
+ * - earthquakes, which shake the ground ([Quakes]);
  * - tsunamis from quakes on the sea floor, which only move the sea ([Tsunamis]);
+ * - dust over dry ground: haboobs out of storms, windy days and world-wide storms ([DustStorms]);
+ * - blizzards over snow, ice and cold country, and snow lifted on windy days ([Blizzards]);
  * - layer cloud: stratus, altostratus and cirrus;
  * - turbulence, sampled per part ([turbulence]).
  */
@@ -51,7 +54,10 @@ class Weather(
     private val storms = Storms(this, radius, seed, intensity)
     private val hurricanes = Hurricanes(this, radius, seed, intensity).also { storms.hurricanes = it }
     private val tornadoes = Tornadoes(this, radius, seed, intensity, storms, hurricanes)
-    private val tsunamis = Tsunamis(this, radius, seed, intensity)
+    private val quakes = Quakes(this, radius, seed, intensity)
+    private val tsunamis = Tsunamis(this, radius, seed, intensity, quakes)
+    private val dustStorms = DustStorms(this, radius, seed, intensity, storms)
+    private val blizzards = Blizzards(this, radius, seed, intensity, storms)
     private val stormShapes = StormShapes(storms, seed, radius, climate)
     private val hurricaneShapes = HurricaneShapes(seed, radius, climate)
 
@@ -156,6 +162,8 @@ class Weather(
         storms.apply(up, east, north, position, altitude, groundTop, time, out)
         hurricanes.apply(up, altitude, agl, ocean, time, out)
         tornadoes.apply(position, up, agl, time, out)
+        if (dustStorms.active) dustStorms.apply(up, ground, agl, freeSpeed * intensity.wind * fade, dir, time, out)
+        if (blizzards.active) blizzards.apply(up, agl, freeSpeed * intensity.wind * fade, dir, time, out)
         if (climate.layers) layers(up, altitude, groundTop, time, out)
         if (climate.hasDeck) deckAt(altitude, out)
 
@@ -791,6 +799,66 @@ class Weather(
     internal val hurricaneModel: Hurricanes get() = hurricanes
     internal val tornadoModel: Tornadoes get() = tornadoes
     internal val tsunamiModel: Tsunamis get() = tsunamis
+    internal val quakeModel: Quakes get() = quakes
+    internal val dustModel: DustStorms get() = dustStorms
+
+    /**
+     * The dust storms alive at [time] that come within [reach] metres of unit [direction]: haboobs
+     * and world-wide storms, into [out]. Windy days' broad dust isn't listed. Makes new objects, so
+     * not for every sample.
+     */
+    fun dustStorms(direction: Vec3, time: Double, reach: Double, out: MutableList<LiveDust>) {
+        dustStorms.near(direction.copy().normalizeInPlace(), time, reach, out)
+    }
+
+    /** Whether this world and setting can have dust storms or windy-day dust at all. */
+    val dustPossible: Boolean get() = dustStorms.active
+
+    /** Whether it can have haboobs. */
+    val haboobsPossible: Boolean get() = dustStorms.haboobs
+
+    /**
+     * How much of a world-wide dust storm covers unit [direction] at [time], 0..1, before the
+     * ground and height; 0 with none. Hashes only, cheap enough for every frame.
+     */
+    fun worldDustCover(direction: Vec3, time: Double): Double = dustStorms.worldCover(direction, time)
+
+    /** How much of the whole world a world-wide dust storm covers at [time], 0..1, as an average. */
+    fun worldDustShare(time: Double): Double = dustStorms.worldShare(time)
+
+    internal val blizzardModel: Blizzards get() = blizzards
+
+    /**
+     * The blizzards alive at [time] that come within [reach] metres of unit [direction], into
+     * [out]. Windy days' lifted snow isn't listed. Makes new objects, so not for every sample.
+     */
+    fun blizzards(direction: Vec3, time: Double, reach: Double, out: MutableList<LiveBlizzard>) {
+        blizzards.near(direction.copy().normalizeInPlace(), time, reach, out)
+    }
+
+    /** Whether this world and setting can have blizzards or snow lifted by the wind at all. */
+    val snowPossible: Boolean get() = blizzards.active
+
+    /** Whether it can have storm blizzards. */
+    val blizzardsPossible: Boolean get() = blizzards.stormy
+
+    /** How much snow the ground at unit [direction] gives in wind, 0..1: none off snow, ice or frost. */
+    fun snowCover(direction: Vec3): Double {
+        probe.setTo(direction).normalizeInPlace()
+        return blizzards.snowCover(probe)
+    }
+
+    /** How cold the country round unit [direction] is for blizzards, 0..1, blended so it has no edges. */
+    fun blizzardCold(direction: Vec3): Double {
+        probe.setTo(direction).normalizeInPlace()
+        return blizzards.coldAround(probe)
+    }
+
+    /** How much dust the ground at unit [direction] gives in wind, 0..1: none over sea, ice or wet ground. */
+    fun dustiness(direction: Vec3): Double {
+        probe.setTo(direction).normalizeInPlace()
+        return dustStorms.dustiness(probe, terrain?.elevation(probe) ?: 0.0)
+    }
 
     /**
      * The hurricanes alive at [time] that reach within [reach] metres of unit [direction], into
@@ -853,6 +921,52 @@ class Weather(
 
     /** Whether any tsunami may be moving the sea at unit [direction] at [time]. Quick. */
     fun tsunamiPassing(direction: Vec3, time: Double): Boolean = tsunamis.passing(direction, time)
+
+    /**
+     * The quake shocks that struck in the last hour up to [time] and are felt within [reach]
+     * metres of unit [direction], into [out]. Makes new objects, so not for every sample.
+     */
+    fun quakes(direction: Vec3, time: Double, reach: Double, out: MutableList<LiveQuake>) {
+        quakes.near(direction.copy().normalizeInPlace(), time, reach, out)
+    }
+
+    /** Whether any quake may be shaking the ground anywhere on this world at [time]. Quick. */
+    fun quakesLive(time: Double): Boolean = quakes.live(time)
+
+    /** Whether any quake is shaking or strikes on this world from [time] to [look] seconds on. Quick. */
+    fun quakesDue(time: Double, look: Double): Boolean = quakes.due(time, look)
+
+    /**
+     * How quakes move the ground at unit [direction] at [time]: its velocity into [velocity] and
+     * acceleration into [acceleration], body-fixed, m/s and m/s^2, and how far it's lifted, metres
+     * (returned). All 0 where none is shaking it. See [quakeLevel].
+     */
+    fun quakeShake(direction: Vec3, time: Double, velocity: Vec3, acceleration: Vec3? = null): Double =
+        quakes.shake(direction, time, velocity, acceleration)
+
+    /** How hard the ground shakes where [quakeShake] last looked, m/s^2, at the height of its swings. */
+    fun quakeLevel(): Double = quakes.level()
+
+    /**
+     * Seconds from [time] until shaking over [least] m/s^2 reaches unit [direction] within [look]
+     * seconds: 0 while it's there, infinite where none comes.
+     */
+    fun quakeShakeIn(direction: Vec3, time: Double, look: Double, least: Double): Double =
+        quakes.shakeIn(direction, time, look, least)
+
+    /**
+     * The soonest aftershock after [time] of a main shock that has struck, felt at unit
+     * [direction] over [least] m/s^2, or null. Makes a new object.
+     */
+    fun nextAftershock(direction: Vec3, time: Double, least: Double): LiveQuake? =
+        quakes.aftershockDue(direction.copy().normalizeInPlace(), time, least)
+
+    /**
+     * For tests and pictures: one quake at unit [epicentre] striking at [start] in place of all
+     * the hashed ones on this instance, or with [also] one more beside those already placed.
+     */
+    fun forceQuake(epicentre: Vec3, start: Double, magnitude: Double, depth: Double = 3_000.0, also: Boolean = false) =
+        quakes.force(epicentre, start, magnitude, depth, also)
 
     companion object {
         /**

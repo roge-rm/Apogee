@@ -39,8 +39,8 @@ class LiveTsunami(
 /**
  * Tsunamis, on a world with a sea, when the setting has rare events.
  *
- * At most one quake per world per [CYCLE], with a chance scaled by [WeatherIntensity.rare], on deep
- * sea floor (steep floor preferred). The wave front spreads at sqrt(g * depth): arrival times are
+ * At most one per world per [CYCLE]: the biggest [Quakes] main shock of the cycle under deep sea
+ * ([Quakes.seaShock]), stronger the bigger it is. The wave front spreads at sqrt(g * depth): arrival times are
  * worked out once per quake on a coarse cube-sphere [Grid] (Dijkstra, land blocked) shared by every
  * instance, and read between its nodes.
  *
@@ -57,6 +57,8 @@ internal class Tsunamis(
     private val bodyRadius: Double,
     seed: Int,
     intensity: WeatherIntensity,
+    /** Where and when the sea floor quakes. */
+    private val quakes: Quakes,
 ) {
     private val terrain: Terrain? = weather.body.terrain
     private val bodyId = weather.body.id
@@ -66,12 +68,12 @@ internal class Tsunamis(
     /** Whether this world has tsunamis at all, at this setting. */
     val active = intensity.rare > 0.0 && terrain?.hasOcean == true
 
-    private val chance = (CHANCE * intensity.rare).coerceAtMost(0.95)
-
     /** How big they get here: [SIZE_WILD] on Wild up to 1 on Extreme. */
     private val size = SIZE_WILD + (1.0 - SIZE_WILD) * ((intensity.rare - 0.1) / 0.9).coerceIn(0.0, 1.0)
 
-    private val phase = Noise.hash(this.seed + 401, 0, 0, 0) * CYCLE
+    /** The same cycles as the quakes'. */
+    private val phase = quakes.phase
+    private val shock = DoubleArray(5)
 
     private class Event {
         var cycle = Long.MIN_VALUE
@@ -182,34 +184,15 @@ internal class Tsunamis(
         ev.start = 0.0; ev.origin.setZero(); ev.strength = 0.0; ev.period = 0.0; ev.shy = 0.0
         val t = terrain ?: return
         if (!active) return
+        // The cycle's biggest quake under deep enough sea, if any.
+        if (!quakes.seaShock(cycle, shock)) return
         val c = cycle.toInt()
         fun hh(k: Int) = Noise.hash(seed + k, c, 0, 0)
-        if (hh(402) >= chance) return
-        // Where: the deepest and steepest of the first few tries that land on open sea floor.
-        var best = -1.0
-        var picks = 0
-        for (k in 0 until TRIES) {
-            val z = 2.0 * hh(410 + k) - 1.0
-            DetMath.sinCos(2.0 * kotlin.math.PI * hh(440 + k), sc)
-            val r = sqrt(max(0.0, 1.0 - z * z))
-            probe.setTo(r * sc.cos, z, r * sc.sin).normalizeInPlace()
-            val bed = t.elevation(probe)
-            if (bed > -ORIGIN_DEPTH) continue
-            frame(probe, e, n)
-            var steep = 0.0
-            for (q in 0 until 4) {
-                val de = RAY_E[q]; val dn = RAY_N[q]
-                cross.setTo(probe).addScaledInPlace(e, de * STEEP_PROBE / bodyRadius).addScaledInPlace(n, dn * STEEP_PROBE / bodyRadius).normalizeInPlace()
-                steep = max(steep, kotlin.math.abs(t.elevation(cross) - bed) / STEEP_PROBE)
-            }
-            val score = -bed * (steep + 0.002) * (0.5 + hh(470 + k))
-            if (score > best) { best = score; ev.origin.setTo(probe) }
-            if (++picks >= ORIGIN_PICKS) break
-        }
-        if (best < 0.0) return
         ev.exists = true
-        ev.start = cycle * CYCLE - phase + hh(403) * CYCLE
-        ev.strength = size * (STRENGTH_LEAST + (1.0 - STRENGTH_LEAST) * hh(404))
+        ev.origin.setTo(shock[0], shock[1], shock[2])
+        ev.start = shock[3]
+        val big = ((shock[4] - Quakes.TSUNAMI_MAGNITUDE) / (Quakes.MAGNITUDE_MOST - Quakes.TSUNAMI_MAGNITUDE)).coerceIn(0.0, 1.0)
+        ev.strength = size * (STRENGTH_LEAST + (1.0 - STRENGTH_LEAST) * big)
         // Whole seconds, so the sea's vertices can carry it packed with the whiteness.
         ev.period = kotlin.math.round(PERIOD_SHORTEST + (PERIOD_LONGEST - PERIOD_SHORTEST) * hh(405))
         ev.shy = SITE_SHY * hh(406)
@@ -970,9 +953,8 @@ internal class Tsunamis(
     }
 
     companion object {
-        /** One chance of a quake per world per this many seconds, at this chance at rare 1. */
-        const val CYCLE = 3.0 * 3_600.0
-        const val CHANCE = 0.8
+        /** At most one per world per this many seconds: the quakes' cycle. */
+        const val CYCLE = Quakes.CYCLE
 
         /** How long after its quake a tsunami can still be moving the sea, in seconds, and how many cycles back that is. */
         const val TRAVEL_MOST = 5.0 * 3_600.0
@@ -984,17 +966,13 @@ internal class Tsunamis(
         /** No arrival. */
         const val NEVER = 1e30
 
-        /** How deep the sea floor must be for a quake, in metres, how many places are tried and how many of those on open floor are weighed. */
+        /** How deep the sea floor must be over a quake for a tsunami, in metres. */
         const val ORIGIN_DEPTH = 400.0
-        private const val TRIES = 32
-        private const val ORIGIN_PICKS = 6
-        /** How far off the floor's steepness is measured, in metres. */
-        private const val STEEP_PROBE = 15_000.0
 
         /** Faster than any front could go, in m/s, for the quick test on whether one could be here yet. */
         const val FASTEST = 400.0
 
-        /** Strength from this up to 1 before the setting's size, and Wild's size next to Extreme's. */
+        /** Strength from this (the least quake that makes one) up to 1 (the biggest) before the setting's size, and Wild's size next to Extreme's. */
         const val STRENGTH_LEAST = 0.4
         const val SIZE_WILD = 0.3
 

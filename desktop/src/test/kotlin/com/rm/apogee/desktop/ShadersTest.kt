@@ -20,6 +20,7 @@ class ShadersTest {
             Triple(Shaders.CLOUD_INSTANCED_VERTEX, Shaders.DEPTH_FRAGMENT, "vessel-depth-instanced"),
             Triple(Shaders.CLOUD_SHELL_VERTEX, Shaders.CLOUD_SHELL_FRAGMENT, "cloud-shell"),
             Triple(Shaders.HURRICANE_VEIL_VERTEX, Shaders.HURRICANE_VEIL_FRAGMENT, "hurricane-veil"),
+            Triple(Shaders.HURRICANE_VEIL_VERTEX, Shaders.DUST_VEIL_FRAGMENT, "dust-veil"),
             Triple(Shaders.LINE_VERTEX, Shaders.LINE_FRAGMENT, "line"),
             Triple(Shaders.PARTICLE_VERTEX, Shaders.PARTICLE_FRAGMENT, "particles"),
             Triple(Shaders.SCATTER_VERTEX, Shaders.SCATTER_FRAGMENT, "scatter"),

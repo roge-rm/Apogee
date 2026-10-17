@@ -3340,10 +3340,12 @@ class World(
                 if (vessel.ridingOn != null) continue
                 if (vessel.afloat) followSea(vessel, attractor, waves = true, dt = dt) else {
                     followGround(vessel, attractor)
-                    // Parked on low land as a tsunami floods it: woken to float and be carried. Warp
-                    // is held down for it as the flood comes (see [floodWarpLimit]).
-                    if (flooded(vessel, attractor)) vessel.wake()
+                    // Parked on low land as a tsunami floods it, or on ground a quake shakes: woken to
+                    // float or be shaken. Warp is held down for it as either comes (see [floodWarpLimit]).
+                    if (flooded(vessel, attractor) || shaken(vessel, attractor)) vessel.wake()
                 }
+                // Someone standing still outside still gets cold in a blizzard, or warms out of one.
+                if (!vessel.afloat && walking.walkerOf(vessel) != null) restingCold(vessel, attractor, dt)
                 // Parked in crushing air (Caligo's floor) or too deep in the sea, it's still crushed.
                 val air = attractor.atmosphere
                 val deep = attractor.ocean != null && attractor.altitudeOf(vessel.body.position) < -WATER_PARKED_SAFE
@@ -3469,6 +3471,7 @@ class World(
             val substeps = contactSubsteps(vessel, attractor, dt)
             val h = dt / substeps
             val decks = decksNear(vessel)
+            contacts.weather = weather
             for (substep in 0 until substeps) {
                 body.integrate(h)
                 // Test against the ground as it is at the end of this substep. It turns at 175 m/s
@@ -3482,7 +3485,8 @@ class World(
             // Wake the deck to take the weight.
             contacts.deckUnder?.wake()
             // Boulders and trunks go in the same report as the ground.
-            scatterContacts.resolve(vessel, attractor, time + dt, contacts.report, felledScatter, tickGroundBelow, tickGroundSlack) { fell(it) }
+            scatterContacts.resolve(vessel, attractor, time + dt, contacts.report, felledScatter, tickGroundBelow, tickGroundSlack,
+                if (contacts.shaking) contacts.shakeVelocity else null) { fell(it) }
             val report = contacts.report
             vessel.touchingGround = report.hadContact
             if (!vessel.rightingStart.isNaN()) stepRighting(vessel, attractor)
@@ -3758,6 +3762,19 @@ class World(
     }
 
     private val floodSample = com.rm.apogee.core.sea.SeaSample()
+
+    /** Whether a quake shakes the ground under [vessel] now hard enough to wake it. Quick where none is live. */
+    private fun shaken(vessel: Vessel, attractor: CelestialBody): Boolean {
+        if (vessel.anchored) return false
+        val weather = weatherFor(attractor) ?: return false
+        if (!weather.quakesLive(tickEnd)) return false
+        attractor.rotationAt(tickEnd, scratchFloodRotation)
+        attractor.toBodyFixed(vessel.body.position, scratchFloodRotation, scratchFloodPoint).normalizeInPlace()
+        weather.quakeShake(scratchFloodPoint, tickEnd, scratchShake)
+        return weather.quakeLevel() > QUAKE_WAKE
+    }
+
+    private val scratchShake = Vec3()
     private val scratchFloodRotation = Quat()
     private val scratchFloodPoint = Vec3()
 
@@ -4635,7 +4652,32 @@ class World(
             if (vessel.dormant || isDebris(vessel) || !inScope(vessel)) continue
             limit = minOf(limit, warpLimit(vessel))
         }
-        return minOf(limit, floodWarpLimit())
+        return minOf(limit, floodWarpLimit(), quakeWarpLimit())
+    }
+
+    /**
+     * How fast time may go with craft on the ground where a quake will shake them: as for a flood
+     * ([floodWarpLimit]), so [step] wakes them as the shaking reaches them. Founded bases stay put.
+     */
+    private fun quakeWarpLimit(): Double {
+        var limit = WARP_RATES.last()
+        for (vessel in vesselsById.values) {
+            if (vessel.anchored || vessel.ridingOn != null || !inScope(vessel)) continue
+            val grounded = if (vessel.dormant) !vessel.afloat else vessel.touchingGround
+            if (!grounded || isDebris(vessel)) continue
+            val attractor = attractorFor(vessel)
+            val weather = weatherFor(attractor) ?: continue
+            if (!weather.quakesDue(time, FLOOD_LOOK)) continue
+            attractor.rotationAt(time, scratchFloodRotation)
+            attractor.toBodyFixed(vessel.body.position, scratchFloodRotation, scratchFloodPoint).normalizeInPlace()
+            val until = weather.quakeShakeIn(scratchFloodPoint, time, FLOOD_LOOK, QUAKE_WAKE)
+            if (until.isInfinite()) continue
+            if (until < FLOOD_WARN) return PHYSICS_WARP
+            var allowed = PHYSICS_WARP
+            for (rate in RAILS_RATES) if (railsSlice(rate) <= 0.5 * until) allowed = rate
+            limit = minOf(limit, allowed)
+        }
+        return limit
     }
 
     /**
@@ -6016,17 +6058,54 @@ class World(
     private val swimSample = com.rm.apogee.core.sea.SeaSample()
 
     /**
-     * Someone in the sea getting colder, or out of it warming up. How long they last depends on the
-     * water: hours when warm, a quarter hour at freezing, minutes on other worlds.
+     * Someone in the sea or out in a blizzard getting colder, or out of both warming up. How long
+     * they last in the sea depends on the water: hours when warm, a quarter hour at freezing,
+     * minutes on other worlds. In a blizzard, from a few minutes in the worst to much longer in a
+     * mild one.
      */
     private fun cold(vessel: Vessel, attractor: CelestialBody, water: Walking.Water?, dt: Double) {
-        if (water != null && water.depth > -SUIT_HALF_HEIGHT * 0.5) {
-            vessel.chill += dt / SeaCold.lasts(attractor, vessel.body.position, water.depth, time)
-            if (vessel.chill >= 1.0 && pendingDestruction.none { it.first == vessel.id }) pendingDestruction.add(vessel.id to COLD_REASON)
+        val sea = if (water != null && water.depth > -SUIT_HALF_HEIGHT * 0.5)
+            1.0 / SeaCold.lasts(attractor, vessel.body.position, water.depth, time) else 0.0
+        val snow = blizzardChill(vessel, attractor)
+        if (sea + snow > 0.0) {
+            vessel.chill += dt * (sea + snow)
+            if (vessel.chill >= 1.0 && pendingDestruction.none { it.first == vessel.id })
+                pendingDestruction.add(vessel.id to if (sea >= snow) COLD_REASON else BLIZZARD_COLD_REASON)
         } else if (vessel.chill > 0.0) {
             vessel.chill = maxOf(0.0, vessel.chill - dt / WARM_OUT)
         }
     }
+
+    /** [cold] for someone standing asleep on the ground, their air looked at about once a second. */
+    private fun restingCold(vessel: Vessel, attractor: CelestialBody, dt: Double) {
+        val weather = weatherFor(attractor)
+        if (weather == null || steadyWind != null) { vessel.air.clear(); vessel.airSampledAt = Double.NaN } else {
+            val age = time - vessel.airSampledAt
+            if (vessel.airSampledAt.isNaN() || age < 0.0 || age >= RESTING_AIR_KEEP) {
+                attractor.toBodyFixed(vessel.body.position, attractor.rotationAt(time, chillRotation), weatherPoint)
+                weather.sample(weatherPoint, time, vessel.air)
+                vessel.airSampledAt = time
+                vessel.airSampledWhere.setTo(weatherPoint)
+            }
+        }
+        if (vessel.chill > 0.0 || vessel.air.snow > BLIZZARD_CHILL_FROM) cold(vessel, attractor, null, dt)
+    }
+
+    /**
+     * How fast someone out in [vessel]'s air gets cold in a blizzard, as a share of all they can
+     * take per second: by how thick the snow is and how hard it blows, where the country is cold.
+     * Zero outside one. From the air already sampled this tick, so server and replicas agree.
+     */
+    internal fun blizzardChill(vessel: Vessel, attractor: CelestialBody): Double {
+        val air = vessel.air
+        if (air.snow <= BLIZZARD_CHILL_FROM) return 0.0
+        val weather = weatherFor(attractor) ?: return 0.0
+        attractor.toBodyFixed(vessel.body.position, attractor.rotationAt(time, chillRotation), chillPoint).normalizeInPlace()
+        return blizzardChillRate(air.snow, air.wind.length, weather.blizzardCold(chillPoint))
+    }
+
+    private val chillRotation = com.rm.apogee.core.math.Quat()
+    private val chillPoint = Vec3()
 
     /**
      * Where someone in the water or near a ladder's top could climb out: a craft and the spot to
@@ -6427,6 +6506,27 @@ class World(
 
         /** Why someone was lost to the sea's cold. */
         const val COLD_REASON = "died of cold in the sea"
+        /** Why someone was lost to a blizzard's cold. */
+        const val BLIZZARD_COLD_REASON = "died of cold in a blizzard"
+        /** Seconds someone lasts out in the worst blizzard: thickest snow, 30 m/s, cold country. */
+        const val BLIZZARD_LASTS = 240.0
+        /** Seconds between looks at the air round someone standing asleep outside. */
+        const val RESTING_AIR_KEEP = 1.0
+        /** Less snow than this round someone doesn't chill them. */
+        const val BLIZZARD_CHILL_FROM = 0.05
+
+        /**
+         * How fast someone out in [snow] (0..1) and [wind] m/s gets cold where the country is
+         * [cold] (0..1), as a share of all they can take per second. A mild blizzard is ten
+         * times slower than the worst.
+         */
+        fun blizzardChillRate(snow: Double, wind: Double, cold: Double): Double {
+            if (snow <= BLIZZARD_CHILL_FROM || cold <= 0.0) return 0.0
+            val thick = ((snow - BLIZZARD_CHILL_FROM) / (0.7 - BLIZZARD_CHILL_FROM)).coerceIn(0.0, 1.0)
+            val blow = ((wind - 5.0) / 25.0).coerceIn(0.0, 1.0)
+            val severity = thick * (0.25 + 0.75 * blow) * cold.coerceIn(0.0, 1.0)
+            return severity / BLIZZARD_LASTS
+        }
         /**
          * How far clear of a craft someone steps out, and how near a seat they must be to board, in
          * metres.
@@ -6583,6 +6683,11 @@ class World(
         private const val FLOOD_HIGHEST = com.rm.apogee.core.weather.Tsunamis.COAST_CAP + 30.0
         private const val FLOOD_DEPTH = 0.2
         private const val FLOOD_WARN = 20.0
+        /** Warp is held down for quakes due within this many seconds, as for floods. */
+        private const val FLOOD_LOOK = com.rm.apogee.core.weather.Tsunamis.FLOOD_LOOK
+
+        /** Shaking this hard, m/s^2, wakes a craft parked on the ground. */
+        private const val QUAKE_WAKE = 0.3
 
         /** Ticks between telling the seas where the founded bases are. */
         const val CALM_BASES_EVERY = 60L

@@ -46,12 +46,15 @@ class ScatterContact {
          */
         groundBelowAtTick: Double = Double.NaN,
         tickSlack: Double = 0.0,
+        /** The ground's velocity from a quake at the craft, world axes, m/s, or null. */
+        shake: Vec3? = null,
         onFelled: (Long) -> Unit,
     ) {
         val terrain = attractor.terrain ?: return
         val field = terrain.scatter ?: return
         val body = vessel.body
         if (body.inverseMass <= 0.0) return
+        shaking = shake
         // Above the highest ground there's nothing to hit, so orbiting craft skip the ground lookup.
         if (body.position.length - vessel.contactRadius > attractor.radius + terrain.maxElevation + REACH_ABOVE_GROUND) return
 
@@ -77,6 +80,9 @@ class ScatterContact {
             }
         }
     }
+
+    /** The ground's velocity from a quake this pass, or null. */
+    private var shaking: Vec3? = null
 
     /** Resolves every contact point against one object. @return true if it got knocked down. */
     private fun collide(
@@ -129,6 +135,7 @@ class ScatterContact {
                 vessel.contactOffsetWorld(partIndex, pointIndex, offset)
                 body.velocityAtOffset(offset, velocity)
                 attractor.surfaceVelocityAt(point, surface)
+                shaking?.let { surface.addInPlace(it) }
                 velocity.subInPlace(surface)
                 val approach = velocity dot normal
                 report.contactCount++

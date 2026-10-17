@@ -121,6 +121,69 @@ class EffectsTest {
     }
 
     @Test
+    fun `blown sand keeps to the edges of the view`() {
+        val weather = Weather(terra, WeatherConfig(intensity = com.rm.apogee.core.weather.WeatherIntensity.EXTREME))
+        val sample = AirSample()
+        // A windy place.
+        val up = (0 until 400).asSequence().map { i ->
+            val lat = (com.rm.apogee.core.terrain.Noise.hash(5, i, 0, 0) - 0.5) * 1.6
+            val lon = com.rm.apogee.core.terrain.Noise.hash(5, i, 1, 0) * 2 * Math.PI
+            Vec3(kotlin.math.cos(lat) * kotlin.math.cos(lon), kotlin.math.sin(lat), kotlin.math.cos(lat) * kotlin.math.sin(lon))
+        }.first { d ->
+            weather.sample(d.copy().mulInPlace(terra.radius + maxOf(terra.terrain!!.elevation(d), 0.0) + 20.0), 0.0, sample)
+            sample.wind.length > 10.0
+        }
+        val camera = up.copy().mulInPlace(terra.radius + maxOf(terra.terrain!!.elevation(up), 0.0) + 2.0)
+        val air = AirSample().also { it.dust = 0.9 }
+        val fx = Effects(QualityTier.HIGH)
+        val px = Effects::class.java.getDeclaredField("px").also { it.isAccessible = true }
+        val py = Effects::class.java.getDeclaredField("py").also { it.isAccessible = true }
+        val pz = Effects::class.java.getDeclaredField("pz").also { it.isAccessible = true }
+        // Looking across the ground each of four ways, sand blows past, none in the middle of the view.
+        var seen = 0
+        for (k in 0 until 4) {
+            val east = Vec3(up.z, 0.0, -up.x).normalizeInPlace()
+            val north = up.copy().crossInPlace(east)
+            val a = k * Math.PI / 2
+            val forward = east.copy().mulInPlace(kotlin.math.cos(a)).addScaledInPlace(north, kotlin.math.sin(a))
+            val f = Effects(QualityTier.HIGH)
+            repeat(120) { f.step(1.0 / 60.0, it / 60.0, terra, Quat.identity(), emptyList(), weather, camera, air, forward) }
+            val x = px.get(f) as DoubleArray; val y = py.get(f) as DoubleArray; val z = pz.get(f) as DoubleArray
+            for (i in 0 until f.particleCount) {
+                val d = Vec3(x[i], y[i], z[i]).subInPlace(camera)
+                assertTrue("sand off the middle: ${(d dot forward) / d.length}", (d dot forward) / d.length < 0.8)
+            }
+            seen += f.particleCount
+        }
+        assertTrue("some sand: $seen", seen > 0)
+        // With no view given, none.
+        repeat(60) { fx.step(1.0 / 60.0, it / 60.0, terra, Quat.identity(), emptyList(), weather, camera, air) }
+        assertEquals(0, fx.particleCount)
+    }
+
+    @Test
+    fun `blizzard snow blows past off the middle of the view, and no rain with it`() {
+        val weather = Weather(terra, WeatherConfig(intensity = com.rm.apogee.core.weather.WeatherIntensity.EXTREME))
+        val up = Vec3(0.0, 1.0, 0.0)
+        val camera = up.copy().mulInPlace(terra.radius + maxOf(terra.terrain!!.elevation(up), 0.0) + 2.0)
+        val air = AirSample().also { it.snow = 0.9; it.snowfall = 0.8; it.precipitation = 0.8 }
+        val px = Effects::class.java.getDeclaredField("px").also { it.isAccessible = true }
+        val py = Effects::class.java.getDeclaredField("py").also { it.isAccessible = true }
+        val pz = Effects::class.java.getDeclaredField("pz").also { it.isAccessible = true }
+        val forward = Vec3(1.0, 0.0, 0.0)
+        val f = Effects(QualityTier.HIGH)
+        repeat(120) { f.step(1.0 / 60.0, it / 60.0, terra, Quat.identity(), emptyList(), weather, camera, air, forward) }
+        val x = px.get(f) as DoubleArray; val y = py.get(f) as DoubleArray; val z = pz.get(f) as DoubleArray
+        for (i in 0 until f.particleCount) {
+            val d = Vec3(x[i], y[i], z[i]).subInPlace(camera)
+            assertTrue("snow off the middle: ${(d dot forward) / d.length}", (d dot forward) / d.length < 0.97)
+            assertTrue("near the camera, no rain from 35 m up: ${d.length}", d.length < 60.0)
+        }
+        println("snow flakes after 2 s: ${f.particleCount}")
+        assertTrue("snow: ${f.particleCount}", f.particleCount > 100)
+    }
+
+    @Test
     fun `lightning lights the sky`() {
         val weather = Weather(terra, WeatherConfig(intensity = com.rm.apogee.core.weather.WeatherIntensity.WILD))
         val strikes = ArrayList<com.rm.apogee.core.weather.Strike>()

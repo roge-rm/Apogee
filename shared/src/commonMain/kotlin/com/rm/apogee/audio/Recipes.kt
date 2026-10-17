@@ -27,6 +27,9 @@ object Recipes {
     const val ROTOR = 19
     const val TORNADO = 20
     const val TSUNAMI = 21
+    const val QUAKE = 22
+    const val DUST = 23
+    const val BLIZZARD = 24
 
     // One-shots.
     const val IMPACT = 50

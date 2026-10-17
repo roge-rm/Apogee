@@ -375,6 +375,7 @@ class GlRenderer(
         }
 
         val cameraPos = interpolateCamera(previous, latest, alpha)
+        fogUp.setTo(cameraPos).let { if (it.lengthSq > 0.0) it.normalizeInPlace() else it.setTo(0.0, 1.0, 0.0) }
         frameDaylight = latest.world?.let { daylightAt(it, cameraPos) } ?: 1f
         nightDim(latest.world?.fogColor ?: CLEAR_FOG_COLOR, frameDaylight, frameFog)
         latest.world?.let { now ->
@@ -433,6 +434,8 @@ class GlRenderer(
             drawFarGlobes(latest.farGlobes, world, cameraPos, atmosphereFactor)
             drawCloudShell(world, cameraPos)
             drawHurricaneVeil(world, cameraPos, farViewProjection.m, HURRICANE_VEIL_SPLIT, Float.MAX_VALUE)
+            drawDustVeil(world, cameraPos, farViewProjection.m, HURRICANE_VEIL_SPLIT, Float.MAX_VALUE)
+            drawSnowVeil(world, cameraPos, farViewProjection.m, HURRICANE_VEIL_SPLIT, Float.MAX_VALUE)
             mark(5)
             // Paths use the far projection, since an orbit is hundreds of kilometres across and the
             // near frustum would clip it. Drawn last, over everything, so near ground can't cover a
@@ -461,14 +464,18 @@ class GlRenderer(
         drawDeferredTranslucent(latest, alpha, cameraPos)
         // Hurricanes nearer than the far pass drew them, behind near ground and craft. After the
         // puffs: it only shows from above 12 km, over a veil 10 km up, so the puffs are under it.
-        if (world != null && !world.underwater) drawHurricaneVeil(world, cameraPos, nearViewProjection.m, 0f, HURRICANE_VEIL_SPLIT)
+        if (world != null && !world.underwater) {
+            drawHurricaneVeil(world, cameraPos, nearViewProjection.m, 0f, HURRICANE_VEIL_SPLIT)
+            drawDustVeil(world, cameraPos, nearViewProjection.m, 0f, HURRICANE_VEIL_SPLIT)
+            drawSnowVeil(world, cameraPos, nearViewProjection.m, 0f, HURRICANE_VEIL_SPLIT)
+        }
         mark(12)
         latest.particles?.let { particles ->
             val world = latest.world
             particleRenderer?.draw(
                 particles, latest.particleShapes, nearViewProjection.m,
                 (world?.fogDistance ?: WorldView.CLEAR_FOG).toFloat(), frameFog,
-            )
+            ) { setDustFog(it, world) }
         }
         mark(11)
         if (linesDue) {
@@ -494,6 +501,19 @@ class GlRenderer(
     private fun setHaze(shader: ShaderProgram, world: WorldView?) {
         val haze = (world?.sky ?: SkyColours.TERRA).haze
         shader.setVec3("uHaze", haze[0], haze[1], haze[2])
+        setDustFog(shader, world)
+    }
+
+    /** Up at the camera this frame, render space, for the dust layer's fog. */
+    private val fogUp = Vec3()
+
+    /** The dust layer's fog (see Shaders.DUST_FOG): off with no dust, so it costs nothing. */
+    private fun setDustFog(shader: ShaderProgram, world: WorldView?) {
+        val fog = world?.dustFog ?: 0.0
+        shader.setFloat("uDustFog", fog.toFloat())
+        if (fog <= 0.0) return
+        shader.setFloat("uDustTop", world!!.dustTop.toFloat())
+        shader.setVec3("uFogUp", fogUp.x.toFloat(), fogUp.y.toFloat(), fogUp.z.toFloat())
     }
 
     /**
@@ -605,6 +625,7 @@ class GlRenderer(
     }
 
     private var hurricaneVeilProgram: ShaderProgram? = null
+    private var dustVeilProgram: ShaderProgram? = null
     private var hurricaneVeilMesh: CloudShellMesh? = null
 
     /**
@@ -615,8 +636,34 @@ class GlRenderer(
     private fun drawHurricaneVeil(world: WorldView, cameraPos: Vec3, viewProjection: FloatArray, from: Float, to: Float) {
         val veil = world.hurricaneVeil ?: return
         if (world.hurricaneVeilAlpha <= 0.01f) return
-        val shader = hurricaneVeilProgram ?: ShaderProgram(Shaders.HURRICANE_VEIL_VERTEX, Shaders.HURRICANE_VEIL_FRAGMENT, "hurricane-veil").also { hurricaneVeilProgram = it }
         val mesh = hurricaneVeilMesh ?: CloudShellMesh().also { hurricaneVeilMesh = it }
+        val shader = hurricaneVeilProgram ?: ShaderProgram(Shaders.HURRICANE_VEIL_VERTEX, Shaders.HURRICANE_VEIL_FRAGMENT, "hurricane-veil").also { hurricaneVeilProgram = it }
+        drawVeil(shader, veil, mesh, world.hurricaneVeilAlpha, world, cameraPos, viewProjection, from, to)
+    }
+
+    private var dustVeilMesh: CloudShellMesh? = null
+
+    /** Dust storms' sheets and a world storm's veil, drawn as the hurricanes' are. */
+    private fun drawDustVeil(world: WorldView, cameraPos: Vec3, viewProjection: FloatArray, from: Float, to: Float) {
+        val veil = world.dustVeil ?: return
+        if (world.dustVeilAlpha <= 0.01f) return
+        val mesh = dustVeilMesh ?: CloudShellMesh().also { dustVeilMesh = it }
+        val shader = dustVeilProgram ?: ShaderProgram(Shaders.HURRICANE_VEIL_VERTEX, Shaders.DUST_VEIL_FRAGMENT, "dust-veil").also { dustVeilProgram = it }
+        drawVeil(shader, veil, mesh, world.dustVeilAlpha, world, cameraPos, viewProjection, from, to)
+    }
+
+    private var snowVeilMesh: CloudShellMesh? = null
+
+    /** Blizzards' white sheets, drawn as the dust's are, in their own colour. */
+    private fun drawSnowVeil(world: WorldView, cameraPos: Vec3, viewProjection: FloatArray, from: Float, to: Float) {
+        val veil = world.snowVeil ?: return
+        if (world.snowVeilAlpha <= 0.01f) return
+        val mesh = snowVeilMesh ?: CloudShellMesh().also { snowVeilMesh = it }
+        val shader = dustVeilProgram ?: ShaderProgram(Shaders.HURRICANE_VEIL_VERTEX, Shaders.DUST_VEIL_FRAGMENT, "dust-veil").also { dustVeilProgram = it }
+        drawVeil(shader, veil, mesh, world.snowVeilAlpha, world, cameraPos, viewProjection, from, to)
+    }
+
+    private fun drawVeil(shader: ShaderProgram, veil: CloudShell, mesh: CloudShellMesh, alpha: Float, world: WorldView, cameraPos: Vec3, viewProjection: FloatArray, from: Float, to: Float) {
         if (mesh.revision != veil.revision) mesh.upload(veil)
         shader.use()
         modelMatrix.setFromTrs(Vec3.zero(), interpolatedBodyRotation, cameraPos, world.radius)
@@ -625,7 +672,7 @@ class GlRenderer(
         shader.setVec3("uSunDirection", world.sunDirection.x.toFloat(), world.sunDirection.y.toFloat(), world.sunDirection.z.toFloat())
         shader.setFloat("uNoiseScale", (world.radius / HURRICANE_VEIL_CELL).toFloat())
         shader.setFloat("uDrift", ((world.time / CLOUD_SHELL_DRIFT) % 1_000.0).toFloat())
-        shader.setFloat("uAlpha", world.hurricaneVeilAlpha)
+        shader.setFloat("uAlpha", alpha)
         shader.setFloat("uFrom", from)
         shader.setFloat("uTo", to)
         shader.setVec3("uCentre", (-cameraPos.x).toFloat(), (-cameraPos.y).toFloat(), (-cameraPos.z).toFloat())
@@ -670,6 +717,7 @@ class GlRenderer(
             shader.setFloat("uDiscardNearer", 0f)
             shader.setFloat("uSkyBody", 1f)
             shader.setVec3("uFarRim", far.rim[0], far.rim[1], far.rim[2])
+            shader.setVec4("uFarDust", far.dustColour[0], far.dustColour[1], far.dustColour[2], far.dust)
             applyShadowUniforms(shader, false)
             mesh.draw()
         }
@@ -793,7 +841,7 @@ class GlRenderer(
             world,
             frameDaylight,
             frameFog,
-        )
+        ) { setDustFog(it, world) }
     }
 
     private fun applySurfaceUniforms(
@@ -815,6 +863,7 @@ class GlRenderer(
         shader.setFloat("uHazeDistance", (world.atmosphereScaleHeight * 8.0).toFloat())
         shader.setFloat("uHasAtmosphere", if (world.atmosphereHeight > 0.0) 1f else 0f)
         shader.setFloat("uLightScale", world.lightScale)
+        shader.setFloat("uFlatLight", world.flatLight.coerceIn(0f, 1f))
         shader.setFloat("uFlash", world.flash)
         setHaze(shader, world)
         shader.setFloat("uFogDistance", world.fogDistance.toFloat())
@@ -1447,6 +1496,8 @@ class GlRenderer(
         toLight.setTo(world.sunDirection)
         if (!day) toLight.mulInPlace(-1.0)
         shadowStrength = if (day) smooth01((frameDaylight - 0.3f) / 0.2f) else smooth01((0.3f - frameDaylight) / 0.2f)
+        // A whiteout's light comes from everywhere.
+        shadowStrength *= 1f - world.flatLight.coerceIn(0f, 1f)
 
         if (shadowStrength > 0.01f) {
             drawNearMap(latest, previous, alpha, cameraPos, world, focus)
@@ -1839,7 +1890,10 @@ class GlRenderer(
         cloudShellProgram?.release(); cloudShellProgram = null
         cloudShellMesh?.release(); cloudShellMesh = null
         hurricaneVeilProgram?.release(); hurricaneVeilProgram = null
+        dustVeilProgram?.release(); dustVeilProgram = null
         hurricaneVeilMesh?.release(); hurricaneVeilMesh = null
+        dustVeilMesh?.release(); dustVeilMesh = null
+        snowVeilMesh?.release(); snowVeilMesh = null
         globeMesh?.release(); globeMesh = null
         for (mesh in farGlobeMeshes.values) mesh.release()
         farGlobeMeshes.clear()
