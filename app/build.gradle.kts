@@ -34,8 +34,8 @@ android {
         // higher: the release number (the 5) times ten, plus 2 for 64-bit and 1 for 32-bit. Bump
         // the release number, not the code. Joining a server is decided by Protocol.VERSION and
         // the part catalogue's hash, which move on their own.
-        versionCode = 9 * 10 + if (arm32) 1 else 2
-        versionName = "0.10.0"
+        versionCode = 10 * 10 + if (arm32) 1 else 2
+        versionName = "0.10.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

@@ -800,5 +800,6 @@ object Protocol {
     // 33: tsunamis, which change the sea on Wild and Extreme.
     // 34: earthquakes, which shake the ground and now start the tsunamis; CraftSystems.stunned,
     //     lightning that knocks out electrics, and hail.
-    const val VERSION = 34
+    // 35: rails coast looks more often near moons, which shifts crossing times.
+    const val VERSION = 35
 }
