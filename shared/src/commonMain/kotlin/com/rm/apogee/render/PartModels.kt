@@ -333,6 +333,8 @@ object PartModels {
     private fun bodyColourOf(partId: String): FloatArray = when {
         partId.startsWith("engine") -> floatArrayOf(0.45f, 0.45f, 0.50f, 1f)
         partId.startsWith("tank") -> floatArrayOf(0.82f, 0.82f, 0.86f, 1f)
+        // Solid motors: a pale casing.
+        partId.startsWith("srb") -> floatArrayOf(0.93f, 0.91f, 0.84f, 1f)
         partId.startsWith("pod") -> floatArrayOf(0.70f, 0.62f, 1.00f, 1f)
         partId.startsWith("decoupler") -> floatArrayOf(0.90f, 0.70f, 0.35f, 1f)
         partId.startsWith("fin") -> floatArrayOf(0.60f, 0.20f, 0.20f, 1f)

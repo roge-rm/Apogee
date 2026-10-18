@@ -37,6 +37,8 @@ class EngineEmitter(
     val seed: Int,
     /** The bell's mouth in metres, where the flame is drawn from. */
     val exitRadius: Double = radius * 1.25,
+    /** A solid motor: a brighter flame and thick white smoke that lingers. */
+    val solid: Boolean = false,
 )
 
 /**
@@ -491,7 +493,8 @@ class Effects(tier: QualityTier) {
         when (e.kind) {
             Exhaust.ROCKET -> {
                 // Smoke off the end of the flame, thick low down and thin high up.
-                val n = poisson(60.0 * rateScale * throttle * thickness * dt, e.seed)
+                if (e.solid) solidSmoke(e, thickness, dt)
+                val n = if (e.solid) 0 else poisson(60.0 * rateScale * throttle * thickness * dt, e.seed)
                 val flame = e.radius * 12.0 * throttle
                 for (k in 0 until n) {
                     val grey = 0.78f + 0.15f * rand(k)
@@ -948,6 +951,30 @@ class Effects(tier: QualityTier) {
         fresh[i] = true
     }
 
+    /**
+     * A solid motor's smoke: thick and white from close behind the nozzle, slow to clear, so it
+     * leaves a standing column. Bigger puffs than a liquid engine's rather than more of them, to
+     * spare the particle budget. Uses [bodyFixed], [out] (as scratch2) and [relative] from [emit].
+     */
+    private fun solidSmoke(e: EngineEmitter, thickness: Double, dt: Double) {
+        val out = scratch2
+        val n = poisson(45.0 * rateScale * thickness * dt, e.seed + 0x50D)
+        val flame = e.radius * 7.0
+        for (k in 0 until n) {
+            val white = 0.9f + 0.08f * rand(k)
+            spawn(
+                x = bodyFixed.x + out.x * flame, y = bodyFixed.y + out.y * flame, z = bodyFixed.z + out.z * flame,
+                vx = relative.x + out.x * 18.0 + jitter(k, 1) * 3.0,
+                vy = relative.y + out.y * 18.0 + jitter(k, 2) * 3.0,
+                vz = relative.z + out.z * 18.0 + jitter(k, 3) * 3.0,
+                life = (14.0 + 10.0 * rand(k + 7)) * (0.4 + 0.6 * thickness),
+                startSize = e.radius * 6.0, endSize = e.radius * (24.0 + 26.0 * thickness),
+                r = white, g = white, b = white * 1.01f, a = 0.7f * thickness.toFloat() + 0.25f,
+                grip = 1.8, rise = 0.8,
+            )
+        }
+    }
+
     // --- flames -----------------------------------------------------------------
 
     /**
@@ -972,9 +999,14 @@ class Effects(tier: QualityTier) {
                     // It leaves the bell at the bell's own width and only spreads downstream, so it
                     // never hides the engine.
                     val width = e.exitRadius
-                    val length = e.radius * (22.0 + 14.0 * vacuum) * (0.35 + 0.65 * e.throttle) * flicker
-                    out.add(RenderItem(rocketPlume(vacuum), e.nozzle.copy(), orient, floatArrayOf(1.0f, 0.55f, 0.2f, (0.65 - 0.35 * vacuum).toFloat()), scale = Vec3(width, length, width), ambient = EMISSIVE, key = RenderItem.effectKey(e.seed.toLong(), 0)))
-                    out.add(RenderItem(ROCKET_CORE, e.nozzle.copy(), orient, floatArrayOf(1.0f, 0.95f, 0.8f, (0.92 - 0.35 * vacuum).toFloat()), scale = Vec3(e.radius * 0.85, length * 0.4, e.radius * 0.85), ambient = EMISSIVE, key = RenderItem.effectKey(e.seed.toLong(), 1)))
+                    // A solid motor burns brighter, orange-white, a little longer and wider.
+                    val solid = e.solid
+                    val length = e.radius * (if (solid) 28.0 + 14.0 * vacuum else 22.0 + 14.0 * vacuum) * (0.35 + 0.65 * e.throttle) * flicker
+                    val plume = if (solid) floatArrayOf(1.0f, 0.8f, 0.5f, (0.8 - 0.35 * vacuum).toFloat()) else floatArrayOf(1.0f, 0.55f, 0.2f, (0.65 - 0.35 * vacuum).toFloat())
+                    val core = if (solid) floatArrayOf(1.0f, 1.0f, 0.94f, (0.97 - 0.3 * vacuum).toFloat()) else floatArrayOf(1.0f, 0.95f, 0.8f, (0.92 - 0.35 * vacuum).toFloat())
+                    val coreWidth = e.radius * (if (solid) 1.0 else 0.85)
+                    out.add(RenderItem(rocketPlume(vacuum), e.nozzle.copy(), orient, plume, scale = Vec3(width, length, width), ambient = EMISSIVE, key = RenderItem.effectKey(e.seed.toLong(), 0)))
+                    out.add(RenderItem(ROCKET_CORE, e.nozzle.copy(), orient, core, scale = Vec3(coreWidth, length * (if (solid) 0.5 else 0.4), coreWidth), ambient = EMISSIVE, key = RenderItem.effectKey(e.seed.toLong(), 1)))
                 }
                 Exhaust.JET -> {
                     val length = e.radius * 3.0 * e.throttle * flicker

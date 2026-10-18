@@ -91,6 +91,16 @@ class PartCatalog private constructor(
                     ) {
                         "Part '${def.id}' has an engine with no thrust anywhere"
                     }
+                    // A thrust curve runs from full to empty, never down to nothing.
+                    val curve = engine.thrustCurve
+                    if (curve.isNotEmpty()) {
+                        require(
+                            curve.all { it.size == 2 && it[1] > 0.0 } && curve.first()[0] == 1.0 && curve.last()[0] == 0.0 &&
+                                curve.zipWithNext().all { (a, b) -> a[0] > b[0] }
+                        ) {
+                            "Part '${def.id}' has a thrust curve that doesn't run from 1 down to 0 with thrust above 0"
+                        }
+                    }
                 }
                 def.module<Tank>()?.let { tank ->
                     require(tank.capacity > 0.0) {

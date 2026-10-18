@@ -37,7 +37,7 @@ class CareerBalanceTest {
     private val ROCKETRY = setOf("hop", "staging", "space", "orbit")
 
     private val stock = listOf(
-        StockCraft.sounder(catalog), StockCraft.starterRocket(catalog), StockCraft.moteProbe(catalog), StockCraft.prospector(catalog),
+        StockCraft.sounder(catalog), StockCraft.sparkler(catalog), StockCraft.starterRocket(catalog), StockCraft.moteProbe(catalog), StockCraft.prospector(catalog),
         StockCraft.surveyor(catalog), StockCraft.lander(catalog), StockCraft.moonshot(catalog), StockCraft.moduleTug(catalog),
         StockCraft.rover(catalog), StockCraft.aeroplane(catalog), StockCraft.boat(catalog), StockCraft.sparrow(catalog),
         StockCraft.buggy(catalog), StockCraft.hauler(catalog), StockCraft.skiff(catalog), StockCraft.cutter(catalog),
@@ -99,6 +99,9 @@ class CareerBalanceTest {
         addAll(earn(Feat.SPACE))
         addAll(buy("reentry"))
         add(Fly(StockCraft.starterRocket(catalog), "cape")); addAll(earn(Feat.ORBIT, Feat.HOME_AGAIN))
+        // Two Flints on the Sounder.
+        addAll(buy("boosters"))
+        add(Fly(StockCraft.sparkler(catalog), "cape"))
         addAll(buy("flight"))
         add(Fly(StockCraft.sparrow(catalog), "airfield")); addAll(earn(Feat.FIRST_FLIGHT, Feat.LONG_HAUL, Feat.HIGH_FLYER))
         addAll(buy("rovers", "boats"))
@@ -165,6 +168,8 @@ class CareerBalanceTest {
         // Twenty tonnes to orbit on the Moonshot's stack, and the grand size it opens.
         addAll(earn(Feat.HEAVY_LIFT))
         addAll(buy("grand"))
+        // The bigger solids.
+        addAll(buy("torch", "pyre"))
         // Blue water in a Trawler pays for big ships. Then the tall rigs and a Schooner.
         add(Fly(StockCraft.trawler(catalog), "harbour")); addAll(earn(Feat.BLUE_WATER))
         addAll(buy("big-ships"))

@@ -35,6 +35,19 @@ class SoundScene(private val budget: Int) {
          * booster to 1 for a vacuum engine. Sets how they sound (see [vacuumBuilt]).
          */
         val character = DoubleArray(Exhaust.entries.size)
+        /** Its lit solid motors: output weighted by thrust (0..1), and the thrust it's out of, in N. */
+        var solid = 0.0
+            private set
+        var solidThrust = 0.0
+            private set
+
+        /** Adds a solid motor putting out [output] (0..1) of [fullThrust]. */
+        fun solid(output: Double, fullThrust: Double) {
+            val total = solidThrust + fullThrust
+            if (total > 0.0) solid = (solid * solidThrust + output * fullThrust) / total
+            solidThrust = total
+        }
+
         /** Parts of it that are on fire. */
         var burning = 0
 
@@ -202,6 +215,16 @@ class SoundScene(private val budget: Int) {
                 }
                 if (air) v[SharedParams.PITCH] = doppler(listener, craft).toFloat()
                 add(base + kind.ordinal, recipe, hull, v, g, p, lp, weight = g * (0.5f + out.toFloat()))
+            }
+
+            if (craft.solid >= 0.01 && craft.solidThrust > 0.0) {
+                // Solid motors: a rough roar with heavy crackle, heard through the hull in vacuum.
+                val size = (craft.solidThrust / FULL_SIZE_THRUST).coerceIn(0.05, 1.0)
+                val (g, p, lp) = if (air) place(listener, craft.position, 0.5 + 1.5 * size) else Triple(0.8f, 0.0f, 0.0f)
+                val v = FloatArray(SharedParams.COUNT)
+                v[0] = craft.solid.toFloat(); v[1] = size.toFloat(); v[2] = craft.pressure.toFloat()
+                if (air) v[SharedParams.PITCH] = doppler(listener, craft).toFloat()
+                add(base + SLOT_SRB, Recipes.SRB, hull, v, g, p, lp, weight = g * (0.5f + craft.solid.toFloat()))
             }
 
             if (craft.rcs > 0.02) {
@@ -499,6 +522,7 @@ class SoundScene(private val budget: Int) {
         const val SLOT_FIRE = 5
         const val SLOT_ROVER = 6
         const val SLOT_RCS = 7
+        const val SLOT_SRB = 9
 
         // Keys for the scene's own sounds, well clear of craft keys.
         const val KEY_AIRFLOW = -1

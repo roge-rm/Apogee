@@ -371,6 +371,18 @@ class CraftBuilder(
             fun isEngine(index: Int) =
                 catalog[rooted.parts[index].partId]?.module<Engine>() != null
 
+            // A solid motor held on a side clamp, which lets go outward. One under a stack
+            // decoupler is a stage of its own.
+            fun isSideSolid(index: Int): Boolean {
+                if (catalog[rooted.parts[index].partId]?.module<Engine>()?.solid != true) return false
+                var at = rooted.parts[index].parentIndex
+                while (at >= 0) {
+                    catalog[rooted.parts[at].partId]?.module<Decoupler>()?.let { return it.radial }
+                    at = rooted.parts[at].parentIndex
+                }
+                return false
+            }
+
             fun isParachute(index: Int) =
                 catalog[rooted.parts[index].partId]?.module<Parachute>() != null
 
@@ -389,6 +401,10 @@ class CraftBuilder(
             val deepest = separation.maxOrNull() ?: 0
             val stages = ArrayList<Stage>()
 
+            // Solid motors on side clamps, on a level of their own, light with the engines further
+            // in, and their clamps let go in the stage after.
+            var carried = emptyList<Int>()
+            var heldDrops = emptyList<Int>()
             for (level in deepest downTo 0) {
                 val engines = rooted.parts.indices.filter {
                     separation[it] == level && isEngine(it)
@@ -398,8 +414,22 @@ class CraftBuilder(
                 val decouplers = rooted.parts.indices.filter {
                     separation[it] == level + 1 && isDecoupler(it)
                 }
-                val activated = decouplers + engines
-                if (activated.isNotEmpty()) stages.add(Stage(activated))
+                if (level > 0 && engines.isNotEmpty() && engines.all { isSideSolid(it) }) {
+                    if (decouplers.isNotEmpty() && carried.isEmpty()) stages.add(Stage(decouplers))
+                    else heldDrops = heldDrops + decouplers
+                    carried = carried + engines
+                    continue
+                }
+                if (carried.isEmpty()) {
+                    val activated = decouplers + engines
+                    if (activated.isNotEmpty()) stages.add(Stage(activated))
+                } else {
+                    stages.add(Stage(engines + carried))
+                    val drops = heldDrops + decouplers
+                    if (drops.isNotEmpty()) stages.add(Stage(drops))
+                    carried = emptyList()
+                    heldDrops = emptyList()
+                }
             }
 
             // Fairings open just before anything inside fires, being out of the air by then;

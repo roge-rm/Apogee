@@ -34,10 +34,14 @@ enum class ResourceType(
 
     /** Ice dug out of the ground and melted. It refines faster and cheaper than ore. */
     @SerialName("water")
-    WATER(densityPerUnit = 5.0, displayName = "Water");
+    WATER(densityPerUnit = 5.0, displayName = "Water"),
+
+    /** Cast into a solid motor's casing. Only that motor burns it, and nothing refills it. */
+    @SerialName("solidFuel")
+    SOLID_FUEL(densityPerUnit = 5.0, displayName = "Solid Fuel");
 
     /** Whether a tank of it explodes when the tank is destroyed. */
-    val explosive: Boolean get() = this == PROPELLANT || this == MONOPROPELLANT
+    val explosive: Boolean get() = this == PROPELLANT || this == MONOPROPELLANT || this == SOLID_FUEL
 
     /** Whether a new craft's tanks of it start full. What gets dug up doesn't. */
     val startsFull: Boolean get() = this != ORE && this != WATER

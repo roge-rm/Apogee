@@ -175,6 +175,10 @@ int main(int argc, char** argv) {
     // Each vehicle held steady as the game drives it (SoundScene's numbers), to compare by ear.
     render(dir, "level-rocket-full", 5, {{recipe::ROCKET, 0, [](float, float* p) { p[0] = 1; p[1] = 0.8f; p[2] = 1; p[3] = 0.62f; }}});
     render(dir, "level-rocket-booster", 5, {{recipe::ROCKET, 0, [](float, float* p) { p[0] = 1; p[1] = 0.55f; p[2] = 1; p[3] = 0.52f; p[4] = 0.22f; }}});
+    render(dir, "level-srb-flint", 5, {{recipe::SRB, 0, [](float, float* p) { p[0] = 1; p[1] = 0.51f; p[2] = 1; }}});
+    render(dir, "level-srb-big", 5, {{recipe::SRB, 0, [](float, float* p) { p[0] = 1; p[1] = 1; p[2] = 1; }}});
+    render(dir, "srb-climbing", 8, {{recipe::SRB, 0, [](float t, float* p) { p[0] = 1; p[1] = 0.51f; p[2] = 1 - t; }}});
+    render(dir, "srb-hull", 5, {{recipe::SRB, flag::HULL, [](float, float* p) { p[0] = 1; p[1] = 0.51f; p[2] = 0; }}}, {}, 0.5f);
     render(dir, "level-rocket-vacuum", 5, {{recipe::ROCKET, 0, [](float, float* p) { p[0] = 1; p[1] = 0.15f; p[2] = 1; p[3] = 0.36f; p[4] = 0.75f; }}});
     render(dir, "level-rover-rock", 5, {{recipe::ROVER, 0, [](float, float* p) { p[0] = 0.6f; p[1] = 10; p[2] = 0.9f; p[4] = 0.0f; }}});
     render(dir, "level-rover-sand", 5, {{recipe::ROVER, 0, [](float, float* p) { p[0] = 0.6f; p[1] = 10; p[2] = 0.7f; p[4] = 1.0f; }}});

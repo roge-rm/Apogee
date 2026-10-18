@@ -17,7 +17,7 @@ class PartTabsTest {
             "tank-cask2", "tank-cask4", "tank-broad4", "tank-broad8", "tank-grand4", "tank-grand8", "bin-ore", "bin-ore-broad", "tank-water",
             "fuselage-short", "fuselage-long",
         ),
-        PartTab.ENGINES to setOf("engine-ember", "engine-vesper", "engine-zephyr", "engine-prop", "engine-forge", "engine-lantern", "engine-anvil"),
+        PartTab.ENGINES to setOf("engine-ember", "engine-vesper", "engine-zephyr", "engine-prop", "engine-forge", "engine-lantern", "engine-anvil", "srb-flint", "srb-torch", "srb-pyre"),
         PartTab.STRUCTURE to setOf(
             "boom-tail", "skids", "frame-drone",
             "shield-halo", "shield-broad", "decoupler-ring", "decoupler-broad", "decoupler-grand", "decoupler-side", "decoupler-feed", "adapter-taper", "adapter-grand", "girder-short", "girder-long", "beam-i", "plate-deck", "hub-cube", "strut-brace", "fairing-base", "fairing-hot", "fuselage-tailcone", "chassis-small", "chassis-large", "rack-cargo",

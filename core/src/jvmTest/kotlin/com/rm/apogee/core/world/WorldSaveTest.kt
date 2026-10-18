@@ -303,7 +303,7 @@ class WorldSaveTest {
     fun `resource slots are stored positionally in a pinned order`() {
         // Saves write resource levels by position, so the enum order is part of the format.
         assertEquals(
-            listOf("PROPELLANT", "MONOPROPELLANT", "ELECTRIC_CHARGE", "ABLATOR", "ORE", "WATER"),
+            listOf("PROPELLANT", "MONOPROPELLANT", "ELECTRIC_CHARGE", "ABLATOR", "ORE", "WATER", "SOLID_FUEL"),
             ResourceType.entries.map { it.name },
         )
         assertEquals(ResourceType.entries.size, WorldSave.RESOURCE_SLOTS)

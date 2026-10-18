@@ -95,7 +95,7 @@ class CraftStoreTest {
         "Sparrow", "Buggy", "Hauler", "Skiff", "Sloop", "Jet Boat", "Jet Ski", "Hummingbird", "Quad", "Skylark", "Zeppelin", "Sky Platform", "Sea Platform", "Cutter", "Port Tug", "Dock Probe", "Tow Buggy", "Cart", "Trawler",
         "Coaster", "Electric Coaster", "Schooner", "Deck Barge", "Harbour Tug", "Petrel", "Landing Barge", "Flat Top",
         "Base Core", "Pad Base", "Sea Floor Base", "Base Core Hauler", "Module Hauler", "Depot Hauler", "Base Core Lander", "Moonshot", "Wayfarer",
-        "Mote Probe", "Prospector", "Surveyor", "Sounder", "Minnow", "Nautilus", "Abyss",
+        "Mote Probe", "Prospector", "Surveyor", "Sounder", "Sparkler", "Minnow", "Nautilus", "Abyss",
     )
 
     @Test

@@ -47,7 +47,8 @@ class StageCard(
                 val contents = if (current) "burning" else describe(vessel, fired)
                 val burnTime = when {
                     !burns -> null
-                    current && throttle > 0.05 -> stat.burnTime / throttle
+                    // A solid motor burns at full whatever the throttle.
+                    current && throttle > 0.05 && !stat.solid -> stat.burnTime / throttle
                     else -> stat.burnTime
                 }
                 cards.add(

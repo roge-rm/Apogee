@@ -90,6 +90,7 @@ void setMetal(Resonators& res, float scale, float sr, Rng* rng = nullptr) { setM
 float trim(int r) {
     switch (r) {
         case recipe::ROCKET: return 0.11f;
+        case recipe::SRB: return 0.23f;  // a touch under a rocket, since it plays beside one
         case recipe::JET: return 0.115f;   // just under a rocket, because flights are long
         case recipe::PROP: return 0.22f;
         case recipe::AIRFLOW: return 0.075f;
@@ -895,6 +896,35 @@ void Synth::renderVoice(Voice& v, float& left, float& right) {
             // The grit has a soft low wash under it, so it's never a bare hiss.
             s = (v.f[0].low * 0.7f * roll + v.f[1].band * 1.0f * roll + v.f[2].band * 0.85f * roll * roll) * rumble
                 + (v.f[3].band * 0.5f * flurry + v.f[1].band * 0.17f) * grit;
+            break;
+        }
+        case recipe::SRB: {
+            // A solid motor: a deep, rough roar that sputters, with heavy crackle. Brown and pink
+            // noise, the crackle through a low pass so it stays under about 1.5 kHz, since a burn
+            // can last a minute.
+            float out = clampf(p[0], 0, 1), size = clampf(p[1], 0, 1), press = clampf(p[2], 0, 1);
+            // Sputter: the roar's strength wanders toward a new level every 30 to 120 ms.
+            v.state[1] -= dt;
+            if (v.state[1] <= 0) { v.state[2] = 0.55f + 0.45f * rng.uniform(); v.state[1] = 0.03f + 0.09f * rng.uniform(); }
+            v.state[0] += (v.state[2] - v.state[0]) * clampf(dt / 0.025f, 0, 1);
+            if (v.state[0] < 0.3f) v.state[0] = v.state[2];
+            float rough = v.state[0];
+            if (control) {
+                v.shaped = std::pow(out, 0.7f);
+                v.f[0].set((45.0f + 35.0f * (1.0f - size)) * pf, 0.7f, sr);
+                // The body of the roar, where a phone speaker can carry it.
+                v.f[1].set(lerpf(210, 380, press) * (1.15f - 0.3f * size) * pf, 0.8f, sr);
+                v.f[2].set(lerpf(450, 850, press) * pf, 1.0f, sr);
+                v.f[3].set(lerpf(500, 1200, press) * pf, 0.7f, sr);
+            }
+            float w = rng.white();
+            v.f[0].process(v.brown.next(w));
+            v.f[1].process(v.pink.next(w));
+            v.f[2].process(v.pink2.next(rng.white()));
+            // Crackle, thicker than a liquid engine's, and mostly in air.
+            v.f[3].process(v.crackle.next(rng, (260.0f + 200.0f * size) * pf, sr));
+            s = (v.f[0].low * (0.6f + 0.5f * size) + v.f[1].band * 2.0f + v.f[2].band * 0.6f * press
+                 + v.f[3].low * (0.4f + 1.4f * press)) * rough * v.shaped;
             break;
         }
         case recipe::SAIL: {

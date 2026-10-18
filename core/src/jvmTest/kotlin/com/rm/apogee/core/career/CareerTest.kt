@@ -293,4 +293,22 @@ class CareerTest {
         assertEquals(WorldSave.MODE_SANDBOX, old.mode)
         assertNull(World(world.system, catalog).also { it.restore(old) }.program)
     }
+
+    @Test
+    fun `a saved career with Launch Pad II keeps its side clamps after they moved to Solid Boosters`() {
+        val program = Program()
+        program.restore(listOf(
+            CareerState("p1", nodes = listOf("tanks", "pad-2")),
+            CareerState("p2", nodes = listOf("tanks")),
+        ), emptyList())
+        val p1 = program.careerOf("p1")
+        assertEquals(listOf("tanks", "pad-2", "boosters"), p1.nodes)
+        assertTrue("decoupler-side" in p1.parts(tree))
+        assertTrue("decoupler-feed" in p1.parts(tree))
+        assertEquals(listOf("tanks"), program.careerOf("p2").nodes)
+        assertFalse("decoupler-side" in program.careerOf("p2").parts(tree))
+        // Saved again and loaded, it's given nothing twice.
+        val again = Program().also { it.restore(program.all.toList(), emptyList()) }
+        assertEquals(listOf("tanks", "pad-2", "boosters"), again.careerOf("p1").nodes)
+    }
 }

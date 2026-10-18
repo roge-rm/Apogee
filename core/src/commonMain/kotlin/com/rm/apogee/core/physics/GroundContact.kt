@@ -555,7 +555,7 @@ class GroundContact {
         val body = vessel.body
 
         // Under power isn't at rest, however slow, and neither is walking or jumping.
-        if (vessel.control.throttle > 0.0 || vessel.walking) return
+        if (vessel.burning || vessel.walking) return
 
         attractor.gravityAt(body.position, scratch)
         val budget = report.friction * scratch.length * dt

@@ -5,6 +5,7 @@ import com.rm.apogee.core.part.PartCatalog
 import com.rm.apogee.core.part.PartDef
 import com.rm.apogee.core.part.ResourceType
 import com.rm.apogee.core.part.Tank
+import kotlin.math.exp
 import kotlin.math.ln
 import kotlin.math.roundToInt
 
@@ -28,6 +29,8 @@ class StageStats(
     val engineCount: Int,
     /** What this stage burns: each fuel its engines draw on, as it is now. */
     val fuel: List<FuelLevel> = emptyList(),
+    /** A solid motor burns in it, so its burn time doesn't change with the throttle. */
+    val solid: Boolean = false,
 ) {
     val propellantMass: Double get() = startMass - endMass
 
@@ -106,6 +109,39 @@ class CraftStats(
     val isFlyable: Boolean get() = problems.isEmpty()
 
     companion object {
+        /**
+         * Where a solid is on its thrust curve with [left] kg of [full] left, burning [rate] kg/s at
+         * rated thrust. Along one straight piece the thrust falls or rises exponentially in time, as
+         * flow follows thrust.
+         */
+        private fun solidCurve(engine: Engine, left: Double, full: Double, rate: Double): CurvePlace {
+            val points = engine.thrustCurve.ifEmpty { FLAT }
+            val f = if (full > 0.0) left / full else 0.0
+            var j = 0
+            while (j + 2 < points.size && points[j + 1][0] >= f - 1e-12) j++
+            val hi = points[j]
+            val lo = points[j + 1]
+            val slope = (hi[1] - lo[1]) / (hi[0] - lo[0])
+            val start = lo[1] + slope * (f - lo[0])
+            // Share of the load a second at rated thrust.
+            val k = if (full > 0.0) rate / full else 0.0
+            val flat = kotlin.math.abs(slope) < 1e-12
+            val seconds = when {
+                k <= 0.0 -> Double.POSITIVE_INFINITY
+                flat -> (f - lo[0]) / (k * start)
+                else -> ln(start / lo[1]) / (slope * k)
+            }
+            return CurvePlace(maxOf(seconds, 0.0), lo[0] * full) { t ->
+                val after = if (flat) f - k * start * t else lo[0] + (start * exp(-slope * k * t) - lo[1]) / slope
+                maxOf(after, lo[0]) * full
+            }
+        }
+
+        private val FLAT = listOf(listOf(1.0, 1.0), listOf(0.0, 1.0))
+
+        /** Seconds to the next corner of a thrust curve, kg left there, and kg left after a time short of it. */
+        private class CurvePlace(val seconds: Double, val endLeft: Double, val leftAfter: (Double) -> Double)
+
         /** Standard gravity, for turning specific impulse into mass flow. */
         private const val G0 = 9.80665
 
@@ -250,80 +286,185 @@ class CraftStats(
 
             val stageStats = ArrayList<StageStats>()
 
-            fun burn(stageIndex: Int) {
-                val engines = burning.filter { it in live && defs[it].module<Engine>() != null }.sorted()
+            // Whether the stage after [stageIndex] drops parts or lights an engine, so a liquid
+            // burning on past the solids shows there rather than on a card of chutes alone.
+            fun changesAfter(stageIndex: Int): Boolean {
+                val next = design.stages.getOrNull(stageIndex + 1) ?: return false
+                return next.activatedParts.any { part ->
+                    part in live && (defs[part].module<com.rm.apogee.core.part.Decoupler>() != null || defs[part].module<Engine>() != null)
+                }
+            }
+
+            fun burn(stageIndex: Int, last: Boolean) {
+                // A spent solid stays lit but gives nothing.
+                val engines = burning.filter { index ->
+                    val engine = if (index in live) defs[index].module<Engine>() else null
+                    engine != null && (!engine.solid || amounts[index][engine.propellant.ordinal] > 0.0)
+                }.sorted()
                 if (engines.isEmpty()) {
                     stageStats.add(emptyStage(stageIndex, liveMass()))
                     return
                 }
+                val solids = engines.filter { defs[it].module<Engine>()!!.solid }
+                val liquids = engines.filter { !defs[it].module<Engine>()!!.solid }
 
                 val startMass = liveMass()
                 val groups = FuelGroups.compute(design, defs, live)
-                val reachable = engines.map { groups[it] }.toSet()
+                val reachable = liquids.map { groups[it] }.toSet()
                 // A stage burns only its outermost tanks, which the next staging drops. Same rule
-                // as in flight (see [FuelGroups.tiers]).
+                // as in flight (see [FuelGroups.tiers]). A solid burns only its own part.
                 val tiers = FuelGroups.tiers(design, defs)
-                val types0 = engines.map { defs[it].module<Engine>()!!.propellant }.distinct()
-                val reach = live.filter { groups[it] in reachable }
-                val outer = reach.filter { part -> types0.any { amounts[part][it.ordinal] > 0.0 } }.maxOfOrNull { tiers[it] } ?: 0
+                val types = liquids.map { defs[it].module<Engine>()!!.propellant }.distinct()
+                val reach = live.filter { groups[it] in reachable && it !in solids }
+                val outer = reach.filter { part -> types.any { amounts[part][it.ordinal] > 0.0 } }.maxOfOrNull { tiers[it] } ?: 0
                 val fuelParts = reach.filter { tiers[it] == outer || outer == 0 }
-                val types = engines.map { defs[it].module<Engine>()!!.propellant }.distinct()
                 val fuel = types.map { type ->
                     FuelLevel(
                         type,
                         amount = fuelParts.sumOf { amounts[it][type.ordinal] },
                         capacity = fuelParts.sumOf { capacity[it][type.ordinal] },
                     )
+                } + solids.map { defs[it].module<Engine>()!!.propellant }.distinct().map { type ->
+                    FuelLevel(
+                        type,
+                        amount = solids.sumOf { amounts[it][type.ordinal] },
+                        capacity = solids.sumOf { capacity[it][type.ordinal] },
+                    )
                 }
-                val fuelMass = fuel.sumOf { it.amount * it.type.densityPerUnit }
+                val liquidMass = fuelParts.sumOf { part -> types.sumOf { amounts[part][it.ordinal] * it.densityPerUnit } }
 
                 var thrustVacuum = 0.0
                 var thrustSeaLevel = 0.0
-                var flowVacuum = 0.0
-                var flowSeaLevel = 0.0
+                var liquidThrustVacuum = 0.0
+                var liquidThrustSeaLevel = 0.0
+                var liquidFlowVacuum = 0.0
+                var liquidFlowSeaLevel = 0.0
                 for (index in engines) {
                     val engine = defs[index].module<Engine>()!!
                     thrustVacuum += engine.thrustVacuum
                     thrustSeaLevel += engine.thrustSeaLevel
-                    // Combined Isp is total thrust over total mass flow, not the average Isp.
-                    if (engine.ispVacuum > 0.0) flowVacuum += engine.thrustVacuum / (engine.ispVacuum * G0)
-                    if (engine.ispSeaLevel > 0.0) flowSeaLevel += engine.thrustSeaLevel / (engine.ispSeaLevel * G0)
+                    if (engine.solid) continue
+                    liquidThrustVacuum += engine.thrustVacuum
+                    liquidThrustSeaLevel += engine.thrustSeaLevel
+                    if (engine.ispVacuum > 0.0) liquidFlowVacuum += engine.thrustVacuum / (engine.ispVacuum * G0)
+                    if (engine.ispSeaLevel > 0.0) liquidFlowSeaLevel += engine.thrustSeaLevel / (engine.ispSeaLevel * G0)
+                }
+                // Mass flow, kg/s. Air-breathers have no vacuum flow, so they use the sea-level rate.
+                val liquidRate = if (liquidFlowVacuum > 0.0) liquidFlowVacuum else liquidFlowSeaLevel
+                val solidRate = DoubleArray(solids.size) { k ->
+                    val engine = defs[solids[k]].module<Engine>()!!
+                    when {
+                        engine.ispVacuum > 0.0 -> engine.thrustVacuum / (engine.ispVacuum * G0)
+                        engine.ispSeaLevel > 0.0 -> engine.thrustSeaLevel / (engine.ispSeaLevel * G0)
+                        else -> 0.0
+                    }
+                }
+                val solidLeft = DoubleArray(solids.size) { k ->
+                    val engine = defs[solids[k]].module<Engine>()!!
+                    if (solidRate[k] > 0.0) amounts[solids[k]][engine.propellant.ordinal] * engine.propellant.densityPerUnit else 0.0
+                }
+                // Each solid's full load, kg, to read its thrust curve by the share left.
+                val solidFull = DoubleArray(solids.size) { k ->
+                    val engine = defs[solids[k]].module<Engine>()!!
+                    capacity[solids[k]][engine.propellant.ordinal] * engine.propellant.densityPerUnit
                 }
 
-                val endMass = startMass - fuelMass
-                val ispVacuum = if (flowVacuum > 0) thrustVacuum / (flowVacuum * G0) else 0.0
-                val ispSeaLevel = if (flowSeaLevel > 0) thrustSeaLevel / (flowSeaLevel * G0) else 0.0
-
-                val ratio = if (endMass > 0) startMass / endMass else 1.0
-                val deltaVVacuum = if (ratio > 1.0) ispVacuum * G0 * ln(ratio) else 0.0
-                val deltaVSeaLevel = if (ratio > 1.0) ispSeaLevel * G0 * ln(ratio) else 0.0
+                // Phases, each ending as a solid burns out or reaches a corner of its thrust curve.
+                // Once the solids are all out the liquids stop too if a later stage is to come,
+                // carrying what's left on; in the last stage, or when nothing after changes the
+                // craft, they burn dry.
+                var mass = startMass
+                var liquidLeft = if (liquidRate > 0.0) liquidMass else 0.0
+                var seconds = 0.0
+                var deltaVVacuum = 0.0
+                var deltaVSeaLevel = 0.0
+                var phases = 0
+                while (phases++ < 1000) {
+                    val solidsOn = solidLeft.any { it > 0.0 }
+                    val liquidsOn = liquidLeft > 0.0 && (solidsOn || solids.isEmpty() || last)
+                    if (!solidsOn && !liquidsOn) break
+                    var span = if (liquidsOn) liquidLeft / liquidRate else Double.POSITIVE_INFINITY
+                    for (k in solids.indices) if (solidLeft[k] > 0.0) {
+                        span = minOf(span, solidCurve(defs[solids[k]].module<Engine>()!!, solidLeft[k], solidFull[k], solidRate[k]).seconds)
+                    }
+                    // Split in steps so the mix of Isps as the solids' thrust changes is followed.
+                    val steps = if (solids.any { defs[it].module<Engine>()!!.thrustCurve.isNotEmpty() }) 8 else 1
+                    val step = span / steps
+                    // What ends this phase lands exactly on its end.
+                    val liquidEnds = liquidsOn && liquidLeft / liquidRate <= span
+                    val solidEnds = BooleanArray(solids.size) { k ->
+                        solidLeft[k] > 0.0 && solidCurve(defs[solids[k]].module<Engine>()!!, solidLeft[k], solidFull[k], solidRate[k]).seconds <= span
+                    }
+                    for (n in 0 until steps) {
+                        val ending = n == steps - 1
+                        // Thrust and flow over the step, each as newton-seconds and kg.
+                        var impulseVacuum = 0.0
+                        var impulseSeaLevel = 0.0
+                        var usedVacuum = 0.0
+                        var usedSeaLevel = 0.0
+                        var burnt = 0.0
+                        if (liquidsOn) {
+                            impulseVacuum += liquidThrustVacuum * step
+                            impulseSeaLevel += liquidThrustSeaLevel * step
+                            usedVacuum += liquidFlowVacuum * step
+                            usedSeaLevel += liquidFlowSeaLevel * step
+                            burnt += liquidRate * step
+                            liquidLeft = if (ending && liquidEnds) 0.0 else liquidLeft - liquidRate * step
+                        }
+                        for (k in solids.indices) {
+                            if (solidLeft[k] <= 0.0) continue
+                            val engine = defs[solids[k]].module<Engine>()!!
+                            val curve = solidCurve(engine, solidLeft[k], solidFull[k], solidRate[k])
+                            val after = if (ending && solidEnds[k]) curve.endLeft else curve.leftAfter(step)
+                            val gone = solidLeft[k] - after
+                            // Seconds at rated thrust that burn what it burnt.
+                            val rated = gone / solidRate[k]
+                            impulseVacuum += engine.thrustVacuum * rated
+                            impulseSeaLevel += engine.thrustSeaLevel * rated
+                            if (engine.ispVacuum > 0.0) usedVacuum += engine.thrustVacuum / (engine.ispVacuum * G0) * rated
+                            if (engine.ispSeaLevel > 0.0) usedSeaLevel += engine.thrustSeaLevel / (engine.ispSeaLevel * G0) * rated
+                            burnt += gone
+                            solidLeft[k] = after
+                        }
+                        val end = mass - burnt
+                        // Combined Isp is total thrust over total mass flow, not the average Isp.
+                        if (end > 0.0 && mass > end) {
+                            val ratio = ln(mass / end)
+                            if (usedVacuum > 0.0) deltaVVacuum += impulseVacuum / usedVacuum * ratio
+                            if (usedSeaLevel > 0.0) deltaVSeaLevel += impulseSeaLevel / usedSeaLevel * ratio
+                        }
+                        mass = end
+                    }
+                    seconds += span
+                }
 
                 stageStats.add(
                     StageStats(
                         index = stageIndex,
                         startMass = startMass,
-                        endMass = endMass,
+                        endMass = mass,
                         thrustVacuum = thrustVacuum,
                         thrustSeaLevel = thrustSeaLevel,
                         deltaVVacuum = deltaVVacuum,
                         deltaVSeaLevel = deltaVSeaLevel,
-                        // Air-breathers have no vacuum flow, so they use the sea-level rate.
-                        burnTime = when {
-                            flowVacuum > 0 -> fuelMass / flowVacuum
-                            flowSeaLevel > 0 -> fuelMass / flowSeaLevel
-                            else -> 0.0
-                        },
+                        burnTime = seconds,
                         twrSeaLevel = thrustSeaLevel / (startMass * REFERENCE_GRAVITY),
                         engineCount = engines.size,
                         fuel = fuel,
+                        solid = solids.isNotEmpty(),
                     )
                 )
 
-                // Burned dry before the next stage.
-                for (part in fuelParts) for (type in types) amounts[part][type.ordinal] = 0.0
+                // What's left for the next stage: the liquids' share in their tanks, and each solid's own.
+                val keep = if (liquidMass > 0.0 && liquidLeft > 0.0) liquidLeft / liquidMass else 0.0
+                for (part in fuelParts) for (type in types) amounts[part][type.ordinal] *= keep
+                for (k in solids.indices) {
+                    val engine = defs[solids[k]].module<Engine>()!!
+                    if (solidRate[k] > 0.0) amounts[solids[k]][engine.propellant.ordinal] = solidLeft[k] / engine.propellant.densityPerUnit
+                }
             }
 
-            if (current) burn(startStage - 1)
+            if (current) burn(startStage - 1, last = !changesAfter(startStage - 1))
             for (stageIndex in startStage until design.stages.size) {
                 val stage = design.stages[stageIndex]
                 // Decouplers let go before the stage's engines light.
@@ -333,7 +474,7 @@ class CraftStats(
                     }
                 }
                 burning.addAll(stage.activatedParts.filter { it in live })
-                burn(stageIndex)
+                burn(stageIndex, last = !changesAfter(stageIndex))
             }
             return stageStats
         }

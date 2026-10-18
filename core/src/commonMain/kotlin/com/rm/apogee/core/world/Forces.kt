@@ -93,19 +93,27 @@ class Forces {
         vessel.fitPose()
         vessel.engineOutput.fill(0.0)
         val throttle = vessel.control.throttle
-        if (throttle <= 0.0) return
+        // A lit solid motor burns with the throttle closed.
+        if (throttle <= 0.0 && !vessel.solidLit) return
 
         val altitude = attractor.altitudeOf(vessel.body.position)
         val pressureRatio = attractor.atmosphere?.pressureRatioAt(altitude) ?: 0.0
 
         for (partIndex in vessel.activeEngines()) {
             val engine = vessel.defs[partIndex].module<Engine>() ?: continue
+            // Only a solid burns with the throttle closed.
+            if (throttle <= 0.0 && !engine.solid) continue
 
             // A water propeller only pushes for the share of it under water.
             val immersion = engine.waterProp?.let { immersion(vessel, partIndex, it, attractor, time) } ?: 1.0
             if (immersion <= 0.0) continue
 
-            val effectiveThrottle =
+            // A solid has no throttle, but follows its thrust curve by the fuel left in it.
+            val curve = if (engine.thrustCurve.isEmpty()) 1.0 else {
+                val capacity = vessel.capacityInPart(partIndex, engine.propellant)
+                engine.thrustFactor(if (capacity > 0.0) vessel.amountInPart(partIndex, engine.propellant) / capacity else 0.0)
+            }
+            val effectiveThrottle = if (engine.solid) immersion else
                 (if (throttle < engine.minThrottle) engine.minThrottle else throttle) * immersion
 
             // A propeller spools up and pushes with its spin, which shows in its blades. A rocket
@@ -120,7 +128,7 @@ class Forces {
             // What breathes air chokes in volcanic ash; a jet flames out in thick ash.
             val choke = ashChoke(engine, vessel.air.ash)
             val thrustMagnitude = lerp(engine.thrustVacuum, engine.thrustSeaLevel, pressureRatio) *
-                drive * choke
+                drive * choke * curve
             val isp = lerp(engine.ispVacuum, engine.ispSeaLevel, pressureRatio)
             if (thrustMagnitude <= 0.0 || isp <= 0.0) continue
 
@@ -137,7 +145,8 @@ class Forces {
                 massFlow = 0.0
             } else {
                 unitsNeeded = massFlow * dt / engine.propellant.densityPerUnit
-                unitsDrawn = vessel.drainFromGroupOf(partIndex, engine.propellant, unitsNeeded)
+                unitsDrawn = if (engine.solid) vessel.drainFromPart(partIndex, engine.propellant, unitsNeeded)
+                else vessel.drainFromGroupOf(partIndex, engine.propellant, unitsNeeded)
             }
             if (unitsDrawn <= 0.0) {
                 // Out of fuel, a propeller winds down.
@@ -150,7 +159,7 @@ class Forces {
             val feedFraction = if (unitsNeeded > 0.0) unitsDrawn / unitsNeeded else 0.0
             val actualThrust = thrustMagnitude * feedFraction
             lastMassFlow += massFlow * feedFraction
-            vessel.engineOutput[partIndex] = drive * feedFraction * (if (propeller) 1.0 else choke)
+            vessel.engineOutput[partIndex] = drive * feedFraction * (if (propeller) 1.0 else choke) * minOf(curve, 1.0)
 
             // Anything pushing on the water steers with less swing once the turn pulls the boat
             // hard sideways, or full lock at speed trips a jet boat over.
@@ -1003,7 +1012,7 @@ class Forces {
             val pressureRatio = attractor.atmosphere?.pressureRatioAt(attractor.altitudeOf(vessel.body.position)) ?: 0.0
             for (i in vessel.activeEngines()) {
                 val engine = vessel.defs[i].module<Engine>() ?: continue
-                if (engine.gimbalRange <= 0.0 || engine.waterProp != null) continue
+                if (engine.gimbalRange <= 0.0 || engine.waterProp != null || engine.solid) continue
                 if (engine.propellant != com.rm.apogee.core.part.ResourceType.ELECTRIC_CHARGE &&
                     vessel.amountInGroupOf(i, engine.propellant) <= 0.0) continue
                 val thrust = lerp(engine.thrustVacuum, engine.thrustSeaLevel, pressureRatio) *

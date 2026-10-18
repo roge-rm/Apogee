@@ -985,6 +985,619 @@
     ]
   },
   {
+    "id": "srb-flint",
+    "title": "Flint Solid Booster",
+    "category": "propulsion",
+    "dryMass": 300.0,
+    "description": "A small solid motor for the side of a stack. Once lit it burns at full thrust until it's empty.",
+    "crashTolerance": 7.0,
+    "strength": 600000.0,
+    "dragCoefficient": 0.3,
+    "mesh": {
+      "type": "cylinder",
+      "radius": 0.25,
+      "height": 3.0
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "tank",
+            "radius": 0.25,
+            "height": 2.4,
+            "chamfer": 0.03,
+            "bands": 0
+          }
+        },
+        {
+          "model": {
+            "type": "noseCone",
+            "radius": 0.25,
+            "length": 0.3,
+            "bluntness": 0.18
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 1.35,
+            "z": 0.0
+          }
+        },
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                0.252,
+                0.72
+              ],
+              [
+                0.256,
+                0.74
+              ],
+              [
+                0.256,
+                0.94
+              ],
+              [
+                0.252,
+                0.96
+              ]
+            ]
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                0.0,
+                -1.36
+              ],
+              [
+                0.13,
+                -1.42
+              ],
+              [
+                0.19,
+                -1.5
+              ],
+              [
+                0.215,
+                -1.5
+              ],
+              [
+                0.18,
+                -1.36
+              ],
+              [
+                0.11,
+                -1.27
+              ],
+              [
+                0.15,
+                -1.22
+              ],
+              [
+                0.21,
+                -1.2
+              ],
+              [
+                0.0,
+                -1.19
+              ]
+            ]
+          },
+          "tint": "dark"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "top",
+        "position": {
+          "x": 0.0,
+          "y": 1.5,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "size": 0
+      },
+      {
+        "id": "bottom",
+        "position": {
+          "x": 0.0,
+          "y": -1.5,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 0
+      },
+      {
+        "id": "side",
+        "position": {
+          "x": -0.25,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": -1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "size": 0,
+        "kind": "surface"
+      }
+    ],
+    "modules": [
+      {
+        "type": "tank",
+        "resource": "solidFuel",
+        "capacity": 280.0
+      },
+      {
+        "type": "engine",
+        "thrustVacuum": 102000.0,
+        "thrustSeaLevel": 90000.0,
+        "ispVacuum": 250.0,
+        "ispSeaLevel": 220.0,
+        "propellant": "solidFuel",
+        "thrustDirection": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "solid": true,
+        "thrustCurve": [
+          [
+            1.0,
+            1.3
+          ],
+          [
+            0.92,
+            1.15
+          ],
+          [
+            0.6,
+            0.95
+          ],
+          [
+            0.1,
+            1.0
+          ],
+          [
+            0.0,
+            0.4
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "id": "srb-torch",
+    "title": "Torch Solid Booster",
+    "category": "propulsion",
+    "dryMass": 1200.0,
+    "description": "A solid motor to stack or strap on. Once lit it burns at full thrust until it's empty.",
+    "crashTolerance": 7.0,
+    "strength": 2500000.0,
+    "dragCoefficient": 0.3,
+    "mesh": {
+      "type": "cylinder",
+      "radius": 0.625,
+      "height": 6.0
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "tank",
+            "radius": 0.625,
+            "height": 5.5,
+            "chamfer": 0.04,
+            "bands": 0
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.25,
+            "z": 0.0
+          }
+        },
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                0.63,
+                1.6
+              ],
+              [
+                0.64,
+                1.6500000000000001
+              ],
+              [
+                0.64,
+                2.0500000000000003
+              ],
+              [
+                0.63,
+                2.1
+              ]
+            ]
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                0.63,
+                -1.2
+              ],
+              [
+                0.64,
+                -1.15
+              ],
+              [
+                0.64,
+                -0.9500000000000001
+              ],
+              [
+                0.63,
+                -0.9
+              ]
+            ]
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                0.0,
+                -2.7742
+              ],
+              [
+                0.325,
+                -2.871
+              ],
+              [
+                0.475,
+                -3.0
+              ],
+              [
+                0.5375,
+                -3.0
+              ],
+              [
+                0.45,
+                -2.7742
+              ],
+              [
+                0.275,
+                -2.629
+              ],
+              [
+                0.375,
+                -2.5484
+              ],
+              [
+                0.525,
+                -2.5161
+              ],
+              [
+                0.0,
+                -2.5
+              ]
+            ]
+          },
+          "tint": "dark"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "top",
+        "position": {
+          "x": 0.0,
+          "y": 3.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "size": 1
+      },
+      {
+        "id": "bottom",
+        "position": {
+          "x": 0.0,
+          "y": -3.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 1
+      }
+    ],
+    "modules": [
+      {
+        "type": "tank",
+        "resource": "solidFuel",
+        "capacity": 1600.0
+      },
+      {
+        "type": "engine",
+        "thrustVacuum": 450000.0,
+        "thrustSeaLevel": 400000.0,
+        "ispVacuum": 260.0,
+        "ispSeaLevel": 230.0,
+        "propellant": "solidFuel",
+        "thrustDirection": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "solid": true,
+        "thrustCurve": [
+          [
+            1.0,
+            1.25
+          ],
+          [
+            0.9,
+            1.1
+          ],
+          [
+            0.55,
+            0.92
+          ],
+          [
+            0.1,
+            1.0
+          ],
+          [
+            0.0,
+            0.4
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "id": "srb-pyre",
+    "title": "Pyre Solid Booster",
+    "category": "propulsion",
+    "dryMass": 6000.0,
+    "description": "A big solid motor for the side of a heavy stack. Once lit it burns at full thrust until it's empty.",
+    "crashTolerance": 7.0,
+    "strength": 8000000.0,
+    "dragCoefficient": 0.3,
+    "mesh": {
+      "type": "cylinder",
+      "radius": 1.25,
+      "height": 12.0
+    },
+    "model": {
+      "type": "compound",
+      "pieces": [
+        {
+          "model": {
+            "type": "tank",
+            "radius": 1.25,
+            "height": 10.2,
+            "chamfer": 0.06,
+            "bands": 0
+          },
+          "offset": {
+            "x": 0.0,
+            "y": -0.3,
+            "z": 0.0
+          }
+        },
+        {
+          "model": {
+            "type": "noseCone",
+            "radius": 1.25,
+            "length": 1.2,
+            "bluntness": 0.18
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 5.4,
+            "z": 0.0
+          }
+        },
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                1.26,
+                2.4
+              ],
+              [
+                1.28,
+                2.5
+              ],
+              [
+                1.28,
+                2.9
+              ],
+              [
+                1.26,
+                3.0
+              ]
+            ]
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                1.26,
+                -2.2
+              ],
+              [
+                1.28,
+                -2.1
+              ],
+              [
+                1.28,
+                -1.9000000000000001
+              ],
+              [
+                1.26,
+                -1.8
+              ]
+            ]
+          },
+          "tint": "dark"
+        },
+        {
+          "model": {
+            "type": "lathe",
+            "profile": [
+              [
+                0.0,
+                -5.729
+              ],
+              [
+                0.65,
+                -5.8452
+              ],
+              [
+                0.95,
+                -6.0
+              ],
+              [
+                1.075,
+                -6.0
+              ],
+              [
+                0.9,
+                -5.729
+              ],
+              [
+                0.55,
+                -5.5548
+              ],
+              [
+                0.75,
+                -5.4581
+              ],
+              [
+                1.05,
+                -5.4194
+              ],
+              [
+                0.0,
+                -5.4
+              ]
+            ]
+          },
+          "tint": "dark"
+        }
+      ]
+    },
+    "attachNodes": [
+      {
+        "id": "top",
+        "position": {
+          "x": 0.0,
+          "y": 6.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "size": 2
+      },
+      {
+        "id": "bottom",
+        "position": {
+          "x": 0.0,
+          "y": -6.0,
+          "z": 0.0
+        },
+        "direction": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "size": 2
+      }
+    ],
+    "modules": [
+      {
+        "type": "tank",
+        "resource": "solidFuel",
+        "capacity": 9000.0
+      },
+      {
+        "type": "engine",
+        "thrustVacuum": 2140000.0,
+        "thrustSeaLevel": 1900000.0,
+        "ispVacuum": 265.0,
+        "ispSeaLevel": 235.0,
+        "propellant": "solidFuel",
+        "thrustDirection": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "solid": true,
+        "thrustCurve": [
+          [
+            1.0,
+            1.2
+          ],
+          [
+            0.85,
+            1.1
+          ],
+          [
+            0.62,
+            0.85
+          ],
+          [
+            0.38,
+            0.88
+          ],
+          [
+            0.12,
+            1.05
+          ],
+          [
+            0.0,
+            0.4
+          ]
+        ]
+      }
+    ]
+  },
+  {
     "id": "engine-vesper",
     "title": "Vesper Vacuum Engine",
     "category": "propulsion",
@@ -18905,7 +19518,8 @@
         "radial": true
       }
     ],
-    "strength": 4000000.0
+    "strength": 16000000.0,
+    "holdsJoints": true
   },
   {
     "id": "decoupler-feed",

@@ -110,8 +110,10 @@ class Stress {
             val parent = vessel.defs[q]
             val judged = child.module<AeroSurface>() == null && child.module<Parachute>() == null
             if (judged) {
-                val strength = minOf(child.jointStrength, parent.jointStrength)
-                val width = 2.0 * minOf(child.jointRadius, parent.jointRadius)
+                // The weaker side gives, unless one side holds its joints by itself.
+                val holder = if (child.holdsJoints) child else if (parent.holdsJoints) parent else null
+                val strength = holder?.jointStrength ?: minOf(child.jointStrength, parent.jointStrength)
+                val width = 2.0 * (holder?.jointRadius ?: minOf(child.jointRadius, parent.jointRadius))
                 val load = sqrt(sfx * sfx + sfy * sfy + sfz * sfz) + sqrt(mx * mx + my * my + mz * mz) / width
                 val ratio = load / strength
                 vessel.jointLoad[i] = ratio.toFloat()

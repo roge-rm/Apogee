@@ -39,10 +39,17 @@ class Program(val tree: TechTree = TechTree.stock) {
     fun restore(states: List<CareerState>, firsts: List<WorldFirst>) {
         careers.clear()
         // Careers owned by nobody, saved by older builds, are dropped.
-        for (s in states) if (s.owner.isNotBlank() && s.owner != World.WORLD_OWNER) careers[s.owner] = s
+        for (s in states) if (s.owner.isNotBlank() && s.owner != World.WORLD_OWNER) careers[s.owner] = carriedOver(s)
         this.firsts.clear()
         this.firsts.addAll(firsts)
         revision++
+    }
+
+    /** [state] with any node granted for one it already had whose parts moved there. */
+    private fun carriedOver(state: CareerState): CareerState {
+        var nodes = state.nodes
+        for ((had, granted) in MOVED_PARTS) if (had in nodes && granted !in nodes && tree.node(granted) != null) nodes = nodes + granted
+        return if (nodes === state.nodes) state else state.copy(nodes = nodes)
     }
 
     private fun put(state: CareerState) {
@@ -227,7 +234,7 @@ class Program(val tree: TechTree = TechTree.stock) {
         log.peak = maxOf(log.peak, if (grounded) 0.0 else height)
         // On a runway, where a flight that takes off now starts.
         if (down && home && horizontal) log.onRunway = onRunway(world, vessel, attractor)
-        val thrusting = vessel.control.throttle > 0.0 && vessel.activeEngines().isNotEmpty()
+        val thrusting = vessel.burning && vessel.activeEngines().isNotEmpty()
 
         // Off the ground, so a new flight, including taking off again after refuelling on another
         // world.
@@ -497,7 +504,7 @@ class Program(val tree: TechTree = TechTree.stock) {
     /** Only air-breathing engines lit: propellers or the Zephyr, no rockets. */
     private fun airBreathingOnly(vessel: Vessel): Boolean {
         val lit = vessel.activeEngines()
-        if (lit.isEmpty() || vessel.control.throttle <= 0.0) return false
+        if (lit.isEmpty() || !vessel.burning) return false
         return lit.all { i -> vessel.defs[i].module<com.rm.apogee.core.part.Engine>()?.let { it.thrustVacuum < it.thrustSeaLevel * 0.2 } == true }
     }
 
@@ -519,6 +526,12 @@ class Program(val tree: TechTree = TechTree.stock) {
     companion object {
         /** Ticks between looks at every craft: six a second. */
         const val LOOK_TICKS = 10L
+
+        /**
+         * A node a saved career had, and the node its parts moved to, which it's given on load: the
+         * side clamp moved from Launch Pad II to Solid Boosters.
+         */
+        val MOVED_PARTS = listOf("pad-2" to "boosters")
 
         /** Metres above the ground for liftoff, a hop and a flight. */
         const val LIFTOFF = 20.0

@@ -31,6 +31,7 @@ constexpr int DUST = 23;       // p0 loudness, p1 how much is sand close by (0..
 constexpr int BLIZZARD = 24;   // p0 loudness, p1 how much is snow close by (0..1)
 constexpr int HAIL = 25;       // p0 loudness, p1 how hard it hails (0..1)
 constexpr int ASH = 26;        // p0 an eruption's rumble, p1 ash grit round the ears (0..1)
+constexpr int SRB = 27;        // p0 output, p1 size, p2 air pressure
 constexpr int LAST_CONTINUOUS = 49;
 
 // One-shots: fired once, then they ring out.

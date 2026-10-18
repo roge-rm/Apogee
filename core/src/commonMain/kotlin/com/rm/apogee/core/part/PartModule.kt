@@ -35,8 +35,20 @@ data class Engine(
      * stack's nose is +Y.
      */
     val thrustDirection: SerialVec3 = Vec3(0.0, 1.0, 0.0),
-    /** Lowest throttle, as a fraction. Solid motors would set 1.0. */
+    /** Lowest throttle, as a fraction. */
     val minThrottle: Double = 0.0,
+    /**
+     * A solid motor: once lit it burns at full thrust whatever the throttle or its action group,
+     * only from its own part, until that's empty.
+     */
+    val solid: Boolean = false,
+    /**
+     * A solid motor's thrust over its burn: points of [fuel left as a fraction, thrust as a
+     * fraction of the rated thrust], full first, straight lines between. Mass flow scales with
+     * it, so the Isp and total impulse hold. Empty is flat. Plain arithmetic only, so every
+     * player's physics agrees.
+     */
+    val thrustCurve: List<List<Double>> = emptyList(),
     /**
      * For a water propeller like an outboard: where the prop is, part-local. It only pushes while
      * that point is under water, in proportion to depth.
@@ -47,6 +59,22 @@ data class Engine(
     /** Alternator charge at full output, in units a second. */
     val alternator: Double = 1.0,
 ) : PartModule {
+    /** The share of rated thrust and mass flow with [fuelLeft] (0..1) of its fuel left. See [thrustCurve]. */
+    fun thrustFactor(fuelLeft: Double): Double {
+        val curve = thrustCurve
+        if (curve.isEmpty()) return 1.0
+        if (fuelLeft >= curve[0][0]) return curve[0][1]
+        for (i in 1 until curve.size) {
+            val lower = curve[i]
+            if (fuelLeft >= lower[0]) {
+                val upper = curve[i - 1]
+                val t = (fuelLeft - lower[0]) / (upper[0] - lower[0])
+                return lower[1] + (upper[1] - lower[1]) * t
+            }
+        }
+        return curve[curve.size - 1][1]
+    }
+
     /**
      * What it leaves behind: water for a water prop, a jet for anything with no vacuum thrust
      * (unless it says prop), else a rocket.

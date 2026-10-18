@@ -50,6 +50,40 @@ object StockCraft {
         )
     }
 
+    /**
+     * The Sparkler: the Sounder with two Flints on side clamps, from the first Solid Boosters node.
+     * The Flints light with the Ember and the clamps let go when they're out.
+     */
+    fun sparkler(catalog: PartCatalog = StockParts.catalog): CraftDesign {
+        val sounder = sounder(catalog)
+        val parts = sounder.parts.toMutableList()
+        fun add(partId: String, y: Double, parent: Int, x: Double, z: Double): Int {
+            parts.add(PlacedPart(partId = partId, position = Vec3(x, y, z), rotation = Quat.identity(), parentIndex = parent))
+            return parts.size - 1
+        }
+        val lowerTank = parts.indexOfLast { it.partId == "tank-cask2" }
+        val engine = parts.indexOfFirst { it.partId == "engine-ember" }
+        val ring = parts.indexOfFirst { it.partId == "decoupler-ring" }
+        val chute = parts.indexOfFirst { it.partId == "chute-canopy" }
+        // On the diagonals, clear of the fins, with their feet level with the tank's.
+        val clampOut = (0.625 + 0.15) / kotlin.math.sqrt(2.0)
+        val flintOut = (0.625 + 0.3 + 0.25) / kotlin.math.sqrt(2.0)
+        val clamps = ArrayList<Int>()
+        val flints = ArrayList<Int>()
+        for ((x, z) in listOf(1.0 to 1.0, -1.0 to -1.0)) {
+            val clamp = add("decoupler-side", -1.1, lowerTank, x * clampOut, z * clampOut)
+            flints.add(add("srb-flint", -1.1, clamp, x * flintOut, z * flintOut))
+            clamps.add(clamp)
+        }
+        faceOutward(parts, catalog)
+        return CraftDesign(
+            name = "Sparkler",
+            parts = parts,
+            stages = listOf(Stage(listOf(engine) + flints), Stage(clamps), Stage(listOf(ring)), Stage(listOf(chute))),
+            catalogHash = catalog.contentHash,
+        )
+    }
+
     /** A two-stage launcher for a ~100 km orbit: about 3.5 km/s against the 3.4 needed, TWR 1.4. */
     fun starterRocket(catalog: PartCatalog = StockParts.catalog): CraftDesign {
         val parts = ArrayList<PlacedPart>()

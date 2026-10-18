@@ -1086,6 +1086,19 @@ class Vessel(
         return taken
     }
 
+    /**
+     * Draws up to [amount] of [type] from part [partIndex] alone, as a solid motor burns its own
+     * casing. Returns how much was there.
+     */
+    fun drainFromPart(partIndex: Int, type: ResourceType, amount: Double): Double {
+        if (amount <= 0.0) return 0.0
+        val slot = type.ordinal
+        val taken = minOf(amount, resources[partIndex][slot])
+        if (taken <= 0.0) return 0.0
+        resources[partIndex][slot] -= taken
+        return taken
+    }
+
     /** Propellant that any engine that's lit right now can reach. */
     fun propellantAvailableToActiveEngines(type: ResourceType): Double {
         val counted = HashSet<Int>()
@@ -1412,15 +1425,49 @@ class Vessel(
         return stage.activatedParts
     }
 
-    /** Engines that are lit and still have propellant to burn. */
+    /** Engines that are lit and still have propellant to burn. A solid motor ignores its group. */
     fun activeEngines(): List<Int> {
         val result = ArrayList<Int>(4)
         for (i in defs.indices) {
-            if (!activated[i] || groupState(i) < 0) continue
-            if (defs[i].module<Engine>() != null) result.add(i)
+            if (!activated[i]) continue
+            val engine = defs[i].module<Engine>() ?: continue
+            if (groupState(i) < 0 && !engine.solid) continue
+            result.add(i)
         }
         return result
     }
+
+    /** Whether a solid motor is lit with fuel left in it. */
+    val solidLit: Boolean
+        get() {
+            if (!hasSolid) return false
+            for (i in defs.indices) {
+                if (!activated[i]) continue
+                val engine = defs[i].module<Engine>() ?: continue
+                if (engine.solid && resources[i][engine.propellant.ordinal] > 0.0) return true
+            }
+            return false
+        }
+
+    /** Whether any part is a solid motor, worked out again only when its parts change. */
+    private val hasSolid: Boolean
+        get() {
+            val now = defs
+            if (hasSolidFor !== now) {
+                hasSolidCache = now.any { it.module<Engine>()?.solid == true }
+                hasSolidFor = now
+            }
+            return hasSolidCache
+        }
+    private var hasSolidCache = false
+    private var hasSolidFor: List<PartDef>? = null
+
+    /** Whether the next stage lights a solid motor. */
+    val solidNext: Boolean
+        get() = design.stages.getOrNull(currentStage)?.activatedParts?.any { defs.getOrNull(it)?.module<Engine>()?.solid == true } == true
+
+    /** Whether it's under power: throttle open, or a solid motor burning. */
+    val burning: Boolean get() = control.throttle > 0.0 || solidLit
 
     /**
      * Replaces this vessel's structure and keeps its motion, as in decoupling. Surviving parts keep

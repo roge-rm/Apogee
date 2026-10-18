@@ -95,6 +95,7 @@ class CraftStore(private val directory: Folder) {
             StockCraft.starterRocket(catalog),
             // The career's first rocket: just the starting kit.
             StockCraft.sounder(catalog),
+            StockCraft.sparkler(catalog),
             StockCraft.moteProbe(catalog),
             StockCraft.lander(catalog),
             StockCraft.moduleTug(catalog),

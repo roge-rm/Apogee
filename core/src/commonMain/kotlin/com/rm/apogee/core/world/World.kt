@@ -598,6 +598,12 @@ class World(
             control.throttle = 0.0
             return
         }
+        solidNote(vessel)?.let { note ->
+            control.autoBurn = false
+            control.throttle = 0.0
+            control.autopilotNote = note
+            return
+        }
         control.sasEnabled = true
         control.rcsEnabled = true
         control.sasMode = SasMode.BURN
@@ -635,6 +641,12 @@ class World(
     private fun autoLand(vessel: Vessel, attractor: CelestialBody, dt: Double): Vec3? {
         val control = vessel.control
         if (!mayAutopilot(vessel)) { control.autoLand = false; return null }
+        solidNote(vessel)?.let { note ->
+            control.autoLand = false
+            control.throttle = 0.0
+            control.autopilotNote = note
+            return null
+        }
         if (!vessel.landStarted) {
             // Set up on the first tick, so the server and the player's copy start alike: where a
             // rotorcraft or airship comes down (straight under it now), its starting trims, and
@@ -964,13 +976,13 @@ class World(
         }
     }
 
-    /** The thrust the lit engines can give at the craft's air pressure, in N. */
+    /** The thrust the lit engines can give at the craft's air pressure, in N. Solid motors aren't counted. */
     private fun litThrustHere(vessel: Vessel, attractor: CelestialBody): Double {
         val pressure = attractor.atmosphere?.pressureRatioAt(attractor.altitudeOf(vessel.body.position)) ?: 0.0
         var total = 0.0
         for (i in vessel.activeEngines()) {
             val engine = vessel.defs[i].module<com.rm.apogee.core.part.Engine>() ?: continue
-            if (vessel.isBroken(i) || vessel.amountInGroupOf(i, engine.propellant) <= 0.0) continue
+            if (engine.solid || vessel.isBroken(i) || vessel.amountInGroupOf(i, engine.propellant) <= 0.0) continue
             total += engine.thrustVacuum + (engine.thrustSeaLevel - engine.thrustVacuum) * pressure.coerceIn(0.0, 1.0)
         }
         return total
@@ -1026,12 +1038,12 @@ class World(
         return next.activatedParts.any { vessel.defs.getOrNull(it)?.module<com.rm.apogee.core.part.Engine>() != null }
     }
 
-    /** The vacuum thrust of the lit engines that have propellant, in N. */
+    /** The vacuum thrust of the lit engines that have propellant, in N. Solid motors aren't counted. */
     fun litThrust(vessel: Vessel): Double {
         var total = 0.0
         for (i in vessel.activeEngines()) {
             val engine = vessel.defs[i].module<com.rm.apogee.core.part.Engine>() ?: continue
-            if (vessel.isBroken(i) || vessel.amountInGroupOf(i, engine.propellant) <= 0.0) continue
+            if (engine.solid || vessel.isBroken(i) || vessel.amountInGroupOf(i, engine.propellant) <= 0.0) continue
             total += engine.thrustVacuum
         }
         return total
@@ -1746,12 +1758,13 @@ class World(
             }
 
             is Command.SetAutopilot -> heard(command.vessel)?.let { vessel ->
-                val allowed = mayAutopilot(vessel)
+                val solid = solidNote(vessel)
+                val allowed = mayAutopilot(vessel) && solid == null
                 vessel.control.autoBurn = command.autoBurn && allowed
                 vessel.control.autoLand = command.autoLand && allowed
                 vessel.landBraking = false
                 vessel.landStarted = false
-                vessel.control.autopilotNote = if ((command.autoBurn || command.autoLand) && !allowed) "Autopilot not available" else ""
+                vessel.control.autopilotNote = if ((command.autoBurn || command.autoLand) && !allowed) solid ?: "Autopilot not available" else ""
                 if (!command.autoBurn && !command.autoLand) vessel.control.throttle = 0.0
             }
 
@@ -3532,7 +3545,7 @@ class World(
             vessel.countGrounded(report.hadContact, dt)
 
             // Mass changes as propellant burns, and the centre of mass moves with it.
-            if (vessel.control.throttle > 0.0) vessel.recomputeMassIfChanged()
+            if (vessel.burning) vessel.recomputeMassIfChanged()
             if (report.hadContact && report.worstImpactSpeed > TOUCHDOWN_REPORT_SPEED) {
                 pendingEvents.add(WorldEvent.Touchdown(vessel.id, report.worstImpactSpeed))
             }
@@ -3946,7 +3959,7 @@ class World(
             deck.body.velocityAtOffset(scratchRideFrom.setTo(vessel.body.position).subInPlace(deck.body.position), scratchRideVelocity)
             scratchRideVelocity.subInPlace(vessel.body.linearVelocity)
             scratchRideSpin.setTo(vessel.body.angularVelocity).subInPlace(deck.body.angularVelocity)
-            val riding = vessel.control.throttle == 0.0 && !vessel.walking &&
+            val riding = !vessel.burning && !vessel.walking &&
                 scratchRideVelocity.length < RIDE_STILL && scratchRideSpin.length < RIDE_SPIN
             if (vessel.noteStillness(riding, SLEEP_SETTLE_TICKS)) vessel.ride(deck)
             return
@@ -4118,7 +4131,7 @@ class World(
             if (scratchCurrent.length > KEEP_SETTLED) return false
         }
         val share = liftShare(vessel)
-        val balanced = share in (1.0 - BALANCED)..(1.0 + BALANCED) && control.throttle == 0.0
+        val balanced = share in (1.0 - BALANCED)..(1.0 + BALANCED) && !vessel.burning
         if (!keeping && !balanced) return false
         val attractor = attractorFor(vessel)
         attractor.surfaceVelocityAt(vessel.body.position, scratchSurfaceVelocity)
@@ -4140,7 +4153,7 @@ class World(
         // Someone in the water never sleeps: the cold is getting to them.
         if (walking.walkerOf(vessel) != null) return false
         val control = vessel.control
-        if (control.throttle > 0.0) return false
+        if (vessel.burning) return false
         val handsOff = control.pitch == 0.0 && control.yaw == 0.0 && control.roll == 0.0
         val attractor = attractorFor(vessel)
         // In a swell, hands off and drifting slowly is enough, since asleep it rides the waves. Not
@@ -4192,7 +4205,7 @@ class World(
             val engine = def.module<com.rm.apogee.core.part.Engine>()
             if (engine != null && engine.gimbalRange > 0.0) {
                 // The same way Forces.gimballedDirection swings the thrust.
-                val burning = vessel.isWorking(i) && vessel.control.throttle > 0.0
+                val burning = vessel.isWorking(i) && (engine.solid || vessel.control.throttle > 0.0)
                 vessel.gimbalPitch[i] = if (burning) -vessel.control.commandPitch.coerceIn(-1.0, 1.0) else 0.0
                 vessel.gimbalYaw[i] = if (burning) -vessel.control.commandYaw.coerceIn(-1.0, 1.0) else 0.0
             }
@@ -5063,7 +5076,7 @@ class World(
      * rates needing more height.
      */
     fun warpLimit(vessel: Vessel): Double {
-        if (vessel.control.throttle > 0.0 && vessel.activeEngines().isNotEmpty()) return PHYSICS_WARP
+        if (vessel.burning && vessel.activeEngines().isNotEmpty()) return PHYSICS_WARP
         // Auto landing: rails would skip where it has to brake.
         if (vessel.control.autoLand) return PHYSICS_WARP
         // An autopilot burn is coming up: real time for the turn onto it.
@@ -6701,6 +6714,16 @@ class World(
     }
 
     companion object {
+        /**
+         * Why the autopilot can't fly [vessel] on its engines, or null if it can: a solid motor can't be
+         * throttled or stopped.
+         */
+        fun solidNote(vessel: Vessel): String? = when {
+            vessel.solidLit -> "Solid motor burning"
+            vessel.solidNext -> "Next stage lights a solid motor"
+            else -> null
+        }
+
         /** After undocking, the seconds before the two can capture again. */
         const val UNDOCK_GRACE = 6.0
 

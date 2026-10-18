@@ -132,6 +132,11 @@ data class PartDef(
      */
     val strength: Double = 0.0,
     /**
+     * Its own [strength] and width hold both its joints, whatever they join, like a side clamp
+     * bolted through the wall of the tank it's on.
+     */
+    val holdsJoints: Boolean = false,
+    /**
      * Not offered in the builder: only comes off another part, like a fairing half or the sea's
      * rock.
      */

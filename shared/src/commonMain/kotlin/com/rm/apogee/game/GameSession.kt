@@ -1327,7 +1327,7 @@ class GameSession private constructor(
                 meets = met?.let { system.body(it.bodyId).displayName },
                 meetsAt = met?.let { it.orbit.periapsis - system.body(it.bodyId).radius } ?: Double.NaN,
                 auto = localAutoBurn,
-                canAuto = autopilotAllowed,
+                canAuto = autopilotAllowed && (replica == null || World.solidNote(replica) == null),
             )
         }
         windowReadout = windowFor(attractor, replica?.body?.position ?: focus.latest?.position, time)
@@ -1361,8 +1361,9 @@ class GameSession private constructor(
                 impactSpeed = impact.speed,
                 brakeIn = if (stopping.isFinite()) (height - stopping) / falling.coerceAtLeast(1.0) else Double.NaN,
                 auto = localAutoLand,
-                // Only when the lit engines can hold the craft up, so not under chutes alone.
-                canAuto = autopilotAllowed && (most > g || localAutoLand),
+                // Only when the lit engines can hold the craft up, so not under chutes alone, and
+                // with no solid motor lit or next.
+                canAuto = autopilotAllowed && World.solidNote(replica) == null && (most > g || localAutoLand),
             )
         }
     }
@@ -1384,7 +1385,7 @@ class GameSession private constructor(
         var total = 0.0
         for (i in replica.activeEngines()) {
             val engine = replica.defs[i].module<com.rm.apogee.core.part.Engine>() ?: continue
-            if (replica.isBroken(i) || replica.amountInGroupOf(i, engine.propellant) <= 0.0) continue
+            if (engine.solid || replica.isBroken(i) || replica.amountInGroupOf(i, engine.propellant) <= 0.0) continue
             total += engine.thrustVacuum + (engine.thrustSeaLevel - engine.thrustVacuum) * pressure
         }
         return total
@@ -4965,10 +4966,15 @@ class GameSession private constructor(
                 // pose.
                 val output = if (fresh) animation.target.output.getOrElse(index) { 0.0 } else 0.0
                 if (output > 0.01) {
-                    soundCraft(vessel.id, position, state.velocity, attractor).engine(
-                        engine.exhaustKind, output, maxOf(engine.thrustVacuum, engine.thrustSeaLevel),
-                        SoundScene.vacuumBuilt(engine.thrustSeaLevel, engine.thrustVacuum),
-                    )
+                    val heard = soundCraft(vessel.id, position, state.velocity, attractor)
+                    if (engine.solid) {
+                        heard.solid(output, maxOf(engine.thrustVacuum, engine.thrustSeaLevel))
+                    } else {
+                        heard.engine(
+                            engine.exhaustKind, output, maxOf(engine.thrustVacuum, engine.thrustSeaLevel),
+                            SoundScene.vacuumBuilt(engine.thrustSeaLevel, engine.thrustVacuum),
+                        )
+                    }
                     val partRotation = rotation * placedRotation
                     val mesh = def.mesh
                     val half = when (mesh) {
@@ -4994,6 +5000,7 @@ class GameSession private constructor(
                             throttle = output,
                             velocity = state.velocity.copy(),
                             seed = (vessel.id * 31 + index).toInt(),
+                            solid = engine.solid,
                         ),
                     )
                 }
@@ -5369,15 +5376,42 @@ class GameSession private constructor(
                 if (theirPosition.distanceTo(state.position) < reach + designReach(other.design) + 20.0) now else 0L
             }
             if (born != 0L && now - born < JUST_PARTED_NANOS) continue
-            // Nor one let go of that's still burning, pushing the flown one while its tanks last.
-            if (born != 0L && theirs.throttle > 0.0) continue
             scratchNeighbour.setTo(state.position).subInPlace(theirPosition)
             if (scratchNeighbour.length > reach + designReach(other.design)) continue
+            // Nor one let go of that's still burning, pushing the flown one while its tanks last.
+            if (born != 0L && (theirs.throttle > 0.0 || solidBurning(other.design, theirs.pose))) continue
             scratchNeighbour.setTo(state.velocity).subInPlace(theirs.velocity)
             if (scratchNeighbour.length > World.JOIN_MAX_CLOSING_SPEED) continue
             return true
         }
         return false
+    }
+
+    /** Whether a solid motor in [design] is burning, by the server's [pose]. */
+    private fun solidBurning(design: CraftDesign, pose: ByteArray): Boolean {
+        val defs = solidDefs(design) ?: return false
+        if (!VesselPose.decode(defs, pose, solidPose)) return false
+        for ((index, def) in defs.withIndex()) {
+            if (def.module<com.rm.apogee.core.part.Engine>()?.solid == true && solidPose.output.getOrElse(index) { 0.0 } > 0.01) return true
+        }
+        return false
+    }
+
+    private val solidPose = VesselPose.Values()
+
+    /** Each design's part defs if it has a solid motor, else nothing, worked out once. Frame-build thread only. */
+    private val designSolids = com.rm.apogee.platform.identityMapOf<CraftDesign, List<com.rm.apogee.core.part.PartDef>>()
+    private val noSolids = emptyList<com.rm.apogee.core.part.PartDef>()
+
+    private fun solidDefs(design: CraftDesign): List<com.rm.apogee.core.part.PartDef>? {
+        val known = designSolids[design] ?: run {
+            if (designSolids.size >= 256) designSolids.clear()
+            val defs = design.parts.map { catalog[it.partId] ?: return null }
+            val found = if (defs.any { it.module<com.rm.apogee.core.part.Engine>()?.solid == true }) defs else noSolids
+            designSolids[design] = found
+            found
+        }
+        return known.takeIf { it !== noSolids }
     }
 
     /** Each design's [designReach], worked out once since designs never change. Frame-build thread only. */
