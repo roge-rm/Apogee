@@ -169,10 +169,11 @@ class RubraMissionTest {
         }
         assertTrue("the path never met Rubra", meetsWell(world, "sol", world.orbitOf(craft), world.time))
 
-        // Across, on rails, at the fastest warps.
+        // Across, on rails, at the fastest warps. In steps shorter than a pass through Rubra's
+        // reach, or it can go in and out again within one.
         var crossed = 0.0
         while (craft.referenceBodyId == "sol" && crossed < 3.0e7) {
-            val moved = world.advanceOnRails(200_000.0)
+            val moved = world.advanceOnRails(10_000.0)
             assertTrue("rails stopped out between the worlds at ${world.time}", moved > 0.0)
             crossed += moved
         }

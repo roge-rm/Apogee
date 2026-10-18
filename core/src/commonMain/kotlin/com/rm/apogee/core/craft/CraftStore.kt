@@ -137,6 +137,7 @@ class CraftStore(private val directory: Folder) {
             StockCraft.depotHauler(catalog),
             StockCraft.baseCoreLander(catalog),
             StockCraft.moonshot(catalog),
+            StockCraft.wayfarer(catalog),
             StockCraft.prospector(catalog),
             StockCraft.surveyor(catalog),
             // Under the sea, one for each hull tier.

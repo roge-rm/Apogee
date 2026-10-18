@@ -981,6 +981,61 @@ class Forces {
     private val figuresRotation = Quat.identity()
 
     /**
+     * Into [Vessel.torqueAuthority], the torque a full command gets about each of the craft's own
+     * axes from everything but the control surfaces: reaction wheels, engine gimbals at this
+     * throttle and armed thruster blocks. From the craft as it is now, for stability assist.
+     */
+    private fun torqueAuthority(vessel: Vessel, attractor: CelestialBody) {
+        val out = vessel.torqueAuthority
+        out.setZero()
+        if (vessel.powered) {
+            var wheels = 0.0
+            for (i in vessel.defs.indices) {
+                if (vessel.isBroken(i)) continue
+                wheels += vessel.defs[i].module<com.rm.apogee.core.part.Command>()?.reactionTorque ?: 0.0
+            }
+            val tip = if (vessel.onFeet || vessel.swimming) 0.0 else 1.0
+            out.setTo(wheels * tip, wheels, wheels * tip)
+        }
+        vessel.centerOfMass(scratchRadial)
+        val throttle = vessel.control.throttle
+        if (throttle > 0.0) {
+            val pressureRatio = attractor.atmosphere?.pressureRatioAt(attractor.altitudeOf(vessel.body.position)) ?: 0.0
+            for (i in vessel.activeEngines()) {
+                val engine = vessel.defs[i].module<Engine>() ?: continue
+                if (engine.gimbalRange <= 0.0 || engine.waterProp != null) continue
+                if (engine.propellant != com.rm.apogee.core.part.ResourceType.ELECTRIC_CHARGE &&
+                    vessel.amountInGroupOf(i, engine.propellant) <= 0.0) continue
+                val thrust = lerp(engine.thrustVacuum, engine.thrustSeaLevel, pressureRatio) *
+                    (if (throttle < engine.minThrottle) engine.minThrottle else throttle) * ashChoke(engine, vessel.air.ash)
+                if (thrust <= 0.0) continue
+                // The sideways push at full swing, crossed with the engine's lever, about pitch (X)
+                // and yaw (Z), the axes its gimbal swings on.
+                val push = thrust * kotlin.math.sin(Math.toRadians(engine.gimbalRange))
+                scratchOffset.setTo(vessel.design.parts[i].position).subInPlace(scratchRadial)
+                val d = engine.thrustDirection
+                // X x d is (0, -d.z, d.y); Z x d is (-d.y, d.x, 0). Only the turn about the swing's
+                // own axis counts.
+                out.x += push * kotlin.math.abs(scratchOffset.y * d.y + scratchOffset.z * d.z)
+                out.z += push * kotlin.math.abs(scratchOffset.x * d.x + scratchOffset.y * d.y)
+            }
+        }
+        if (vessel.control.rcsEnabled && !vessel.onFeet && !vessel.swimming) {
+            for (i in vessel.defs.indices) {
+                if (vessel.isBroken(i)) continue
+                val rcs = vessel.defs[i].module<Rcs>() ?: continue
+                if (vessel.amountInGroupOf(i, rcs.propellant) <= 0.0) continue
+                // Each block pushes across the turn at its distance from that axis.
+                scratchOffset.setTo(vessel.design.parts[i].position).subInPlace(scratchRadial)
+                val o = scratchOffset
+                out.x += rcs.thrust * sqrt(o.y * o.y + o.z * o.z)
+                out.y += rcs.thrust * sqrt(o.x * o.x + o.z * o.z)
+                out.z += rcs.thrust * sqrt(o.x * o.x + o.y * o.y)
+            }
+        }
+    }
+
+    /**
      * Brings [Vessel.airspeed], [Vessel.dynamicPressure] and [Vessel.surfaceAuthority] up to the
      * craft's parts and pose now, for stability assist to read before the drag pass. Steady wind
      * only, no gusts. Zero out of the air.
@@ -989,10 +1044,13 @@ class Forces {
         vessel.surfaceAuthority.setZero()
         vessel.airspeed = 0.0
         vessel.dynamicPressure = 0.0
+        vessel.airDensity = 0.0
+        torqueAuthority(vessel, attractor)
         waterAuthority(vessel, attractor)
         val atmosphere = attractor.atmosphere ?: return
         val density = atmosphere.densityAt(attractor.altitudeOf(vessel.body.position)) * vessel.air.loading
         if (density <= 0.0) return
+        vessel.airDensity = density
         soundSpeed = kotlin.math.sqrt(GAS_RATIO * GAS_CONSTANT * atmosphere.temperatureAt(attractor.altitudeOf(vessel.body.position)))
         attractor.surfaceVelocityAt(vessel.body.position, scratchSurface)
         if (vessel.air.wind.lengthSq > 0.0) {

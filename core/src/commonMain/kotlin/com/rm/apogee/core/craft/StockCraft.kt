@@ -322,6 +322,84 @@ object StockCraft {
     }
 
     /**
+     * To the planets: an Anvil on two Grand Cask-8s with four Ember boosters on feed clamps, a
+     * Lantern stage on two Broad Cask-8s for orbit, a Lantern on a Broad Cask-8 for the crossing
+     * and the capture, and the Stilt Lander under a Shroud with power for the months between.
+     */
+    fun wayfarer(catalog: PartCatalog = StockParts.catalog): CraftDesign {
+        val lander = lander(catalog)
+        val parts = ArrayList<PlacedPart>()
+        fun add(partId: String, y: Double, parent: Int, x: Double = 0.0, z: Double = 0.0): Int {
+            parts.add(PlacedPart(partId, Vec3(x, y, z), Quat.identity(), parentIndex = parent))
+            return parts.size - 1
+        }
+        // The lander lifted onto the stack. Its parts go first so its pod is the root.
+        val lift = 49.9
+        for (p in lander.parts) parts.add(p.copy(position = Vec3(p.position.x, p.position.y + lift, p.position.z)))
+        val landerEngine = lander.parts.indexOfFirst { it.partId == "engine-vesper" }
+        val landerChute = lander.parts.indexOfFirst { it.partId == "chute-canopy" }
+        val landerLegs = lander.parts.indices.filter { lander.parts[it].partId == "leg-stilt" }
+        val landerTank = lander.parts.indexOfFirst { it.partId == "tank-cask2" }
+        val diagonal = 0.655 / kotlin.math.sqrt(2.0)
+        for ((x, z) in listOf(1.0 to 1.0, -1.0 to 1.0, -1.0 to -1.0, 1.0 to -1.0)) {
+            add("panel-glint", 2.0 + lift + 0.3, landerTank, x = x * diagonal, z = z * diagonal)
+        }
+        // Two packs, opposite each other, to see it through the shade behind a world.
+        val packOut = (0.625 + 0.125) / kotlin.math.sqrt(2.0)
+        add("battery-hoard", 2.0 + lift - 0.7, landerTank, x = packOut, z = packOut)
+        add("battery-hoard", 2.0 + lift - 0.7, landerTank, x = -packOut, z = -packOut)
+        val release = add("decoupler-ring", 49.8, landerEngine)
+        val taper = add("adapter-taper", 49.1, release)
+        val shroud = add("fairing-base", 48.4, taper)
+        // The crossing stage. Each parting ring hangs from the tank above, not its engine, since
+        // the thrust below goes through that joint.
+        val transferTank = add("tank-broad8", 44.3, shroud)
+        val transferEngine = add("engine-lantern", 39.5, transferTank)
+        val transferStaging = add("decoupler-broad", 38.55, transferTank)
+        // The stage to orbit.
+        val upperTankA = add("tank-broad8", 34.4, transferStaging)
+        val upperTankB = add("tank-broad8", 26.4, upperTankA)
+        val upperEngine = add("engine-lantern", 21.6, upperTankB)
+        val upperStaging = add("decoupler-broad", 20.65, upperTankB)
+        // The core.
+        val adapter = add("adapter-grand", 19.75, upperStaging)
+        val coreTankA = add("tank-grand8", 15.0, adapter)
+        val coreTankB = add("tank-grand8", 7.0, coreTankA)
+        val anvil = add("engine-anvil", 1.5, coreTankB)
+        // Four boosters, level with the core's foot, each on a feed clamp: everything drinks their
+        // tanks first, so the core's are still full when they go. Embers, since a clamp only holds
+        // a few hundred kN more push than its booster's own weight needs, and a Forge's tears off.
+        val clampOut = 1.875 + 0.15
+        val boosterOut = 1.875 + 0.3 + 1.25
+        val clamps = ArrayList<Int>()
+        val boosterEngines = ArrayList<Int>()
+        for ((x, z) in listOf(1.0 to 0.0, 0.0 to 1.0, -1.0 to 0.0, 0.0 to -1.0)) {
+            val clamp = add("decoupler-feed", 5.4, coreTankB, x = x * clampOut, z = z * clampOut)
+            val tank = add("tank-broad8", 5.4, clamp, x = x * boosterOut, z = z * boosterOut)
+            add("nosecone-broad", 10.5, tank, x = x * boosterOut, z = z * boosterOut)
+            boosterEngines.add(add("engine-ember", 0.7, tank, x = x * boosterOut, z = z * boosterOut))
+            clamps.add(clamp)
+        }
+        faceOutward(parts, catalog)
+        return CraftDesign(
+            name = "Wayfarer",
+            parts = parts,
+            stages = listOf(
+                Stage(listOf(anvil) + boosterEngines),
+                Stage(clamps),
+                Stage(listOf(upperStaging, upperEngine)),
+                Stage(listOf(shroud)),
+                Stage(listOf(transferStaging, transferEngine)),
+                Stage(listOf(release, landerEngine)),
+                Stage(listOf(landerChute)),
+                Stage(landerLegs),
+            ),
+            manualStaging = true,
+            catalogHash = catalog.contentHash,
+        )
+    }
+
+    /**
      * A lander with thruster blocks, for building bases. Kept apart from [lander], which the landing
      * tests are tuned to.
      */

@@ -28,6 +28,10 @@ import com.rm.apogee.core.math.Math
  * overshoots every tick and the surfaces chatter. While you steer a winged craft in the air it
  * holds the turn rate under what a few g allows ([turnLimit]), so full stick at speed can't pull
  * the wings off.
+ *
+ * On an axis that turns slowly, as a long stack on its wheels, it asks for no more turn rate than
+ * it can brake in the angle left and steers harder to meet it ([SLOW_SPIN]), so it comes round
+ * without swinging past.
  */
 class StabilityAssist(
     private val proportionalGain: Double = 5.0,
@@ -47,6 +51,9 @@ class StabilityAssist(
     /** How much of each gain to use, pitch, roll and yaw, this tick. See [RATE_SHARE]. */
     private val scale = Vec3()
 
+    /** Each axis's turn at full command, rad/s², or -1 for no limit. See [scaleGains]. */
+    private val spin = Vec3()
+
     /**
      * @param direction when holding a navball marker, where the nose should point, inertial. Null
      *     to hold the attitude at release.
@@ -59,7 +66,7 @@ class StabilityAssist(
         val afloat = control.sasEnabled && vessel.buoyed && !vessel.submerged && !vessel.touchingGround && direction == null
         control.assistLevelling = afloat
         control.assistGuarding = false
-        if (control.sasEnabled) scaleGains(vessel, dt)
+        if (control.sasEnabled) scaleGains(vessel, dt, vessel.buoyed || inAir(vessel) || hangs(vessel))
         if (afloat && control.stickOverrides) {
             vessel.assistHeld.setTo(body.orientation)
             levelled(vessel)
@@ -68,7 +75,7 @@ class StabilityAssist(
             vessel.assistIntegral.setZero()
             errorOf(vessel)
             control.assistPitch = 0.0; control.assistYaw = 0.0
-            control.assistRoll = slew(control.assistRoll, scale.y * command(errorBody.y, rateBody.y, 0.0), SLEW * dt)
+            control.assistRoll = slew(control.assistRoll, scale.y * command(errorBody.y, rateBody.y, 0.0, spin.y), SLEW * dt)
             return
         }
         val holding = control.sasEnabled && !control.stickOverrides && !vessel.touchingGround
@@ -93,20 +100,22 @@ class StabilityAssist(
 
         errorOf(vessel)
 
-        // Clamped, so it doesn't wind up against something the craft can't overcome.
+        // A turn rate, rad/s, added to the one asked for, so it keeps meaning the same when an
+        // engine lights and the rate gain changes. Clamped, so it doesn't wind up against something
+        // the craft can't overcome. On a slow axis only near the held attitude, or a long turn
+        // winds it up.
         val integral = vessel.assistIntegral
-        integral.addScaledInPlace(errorBody, integralGain * dt)
-        integral.setTo(
-            integral.x.coerceIn(-INTEGRAL_LIMIT, INTEGRAL_LIMIT),
-            integral.y.coerceIn(-INTEGRAL_LIMIT, INTEGRAL_LIMIT),
-            integral.z.coerceIn(-INTEGRAL_LIMIT, INTEGRAL_LIMIT),
-        )
+        integral.x += windUp(errorBody.x, spin.x) * dt
+        integral.y += windUp(errorBody.y, spin.y) * dt
+        integral.z += windUp(errorBody.z, spin.z) * dt
+        val most = INTEGRAL_LIMIT / derivativeGain
+        integral.setTo(integral.x.coerceIn(-most, most), integral.y.coerceIn(-most, most), integral.z.coerceIn(-most, most))
 
         // X pitches, Y rolls, Z yaws, the reaction wheels' convention.
         val step = SLEW * dt
-        control.assistPitch = if (afloat) 0.0 else slew(control.assistPitch, scale.x * command(errorBody.x, rateBody.x, integral.x), step)
-        control.assistRoll = slew(control.assistRoll, scale.y * command(errorBody.y, rateBody.y, integral.y), step)
-        control.assistYaw = slew(control.assistYaw, scale.z * command(errorBody.z, rateBody.z, integral.z), step)
+        control.assistPitch = if (afloat) 0.0 else slew(control.assistPitch, scale.x * command(errorBody.x, rateBody.x, integral.x, spin.x), step)
+        control.assistRoll = slew(control.assistRoll, scale.y * command(errorBody.y, rateBody.y, integral.y, spin.y), step)
+        control.assistYaw = slew(control.assistYaw, scale.z * command(errorBody.z, rateBody.z, integral.z, spin.z), step)
         if (afloat) integral.x = 0.0
     }
 
@@ -151,25 +160,58 @@ class StabilityAssist(
     }
 
     /**
-     * Into [scale], each axis's share of the gains: all of it unless a full command on the control
-     * surfaces would spin the craft up so fast that the rate term takes out more than [RATE_SHARE]
-     * of the spin in a tick. Reaction wheels are left out: they don't grow with speed.
+     * Into [scale], each axis's share of the gains: all of it unless a full command would spin the
+     * craft up so fast that the rate term takes out more than [RATE_SHARE] of the spin in a tick.
+     *
+     * Into [spin], each axis's turn at full command from everything that steers, or -1 when
+     * [unlimited]: the water or thick air turn it more than that says, and a rotor's cyclic isn't
+     * counted. Then only the control surfaces count toward [scale].
      */
-    private fun scaleGains(vessel: Vessel, dt: Double) {
+    private fun scaleGains(vessel: Vessel, dt: Double, unlimited: Boolean) {
         val body = vessel.body
-        val authority = vessel.surfaceAuthority
-        scale.x = axisScale(body, 1.0, 0.0, 0.0, authority.x, dt)
-        scale.y = axisScale(body, 0.0, 1.0, 0.0, authority.y, dt)
-        scale.z = axisScale(body, 0.0, 0.0, 1.0, authority.z, dt)
+        val surfaces = vessel.surfaceAuthority
+        val other = vessel.torqueAuthority
+        val others = if (unlimited) 0.0 else 1.0
+        axisOf(body, 1.0, 0.0, 0.0)
+        scale.x = axisScale(surfaces.x + other.x * others, dt)
+        spin.x = if (unlimited) -1.0 else (surfaces.x + other.x) * inverseInertia
+        axisOf(body, 0.0, 1.0, 0.0)
+        scale.y = axisScale(surfaces.y + other.y * others, dt)
+        spin.y = if (unlimited) -1.0 else (surfaces.y + other.y) * inverseInertia
+        axisOf(body, 0.0, 0.0, 1.0)
+        scale.z = axisScale(surfaces.z + other.z * others, dt)
+        spin.z = if (unlimited) -1.0 else (surfaces.z + other.z) * inverseInertia
     }
 
-    private fun axisScale(body: com.rm.apogee.core.physics.RigidBody, x: Double, y: Double, z: Double, torque: Double, dt: Double): Double {
+    /** 1/I about the axis [axisOf] last found. */
+    private var inverseInertia = 0.0
+
+    /** The craft's own axis ([x], [y], [z]) in world axes into [axis], and 1/I about it. */
+    private fun axisOf(body: com.rm.apogee.core.physics.RigidBody, x: Double, y: Double, z: Double) {
         body.orientation.rotate(axis.setTo(x, y, z), axis)
+        inverseInertia = body.inverseInertiaAbout(axis)
+    }
+
+    private fun axisScale(torque: Double, dt: Double): Double {
         // rad/s² at full command.
-        val spinUp = torque * body.inverseInertiaAbout(axis)
+        val spinUp = torque * inverseInertia
         val perTick = derivativeGain * spinUp * dt
         return if (perTick > RATE_SHARE) RATE_SHARE / perTick else 1.0
     }
+
+    /** How fast the integral grows on an axis [error] off that turns at [spin] rad/s². */
+    private fun windUp(error: Double, spin: Double): Double {
+        if (spin >= 0.0 && spin < SLOW_SPIN && kotlin.math.abs(error) > INTEGRAL_ZONE) return 0.0
+        return error * integralGain / derivativeGain
+    }
+
+    /**
+     * The rate gain for an axis that turns at [spin] rad/s² at full command: [derivativeGain], or
+     * on a slow axis enough more that its rate settles as fast as one that turns at [SLOW_SPIN].
+     */
+    private fun rateGain(spin: Double): Double =
+        if (spin < 0.0 || spin >= SLOW_SPIN) derivativeGain
+        else derivativeGain * SLOW_SPIN / spin.coerceAtLeast(SLOW_SPIN / MOST_BOOST)
 
     /**
      * The stick steers, through [com.rm.apogee.core.craft.ControlState.assistPitch] and
@@ -217,6 +259,9 @@ class StabilityAssist(
         return g * STANDARD_GRAVITY / airspeed
     }
 
+    /** Whether the air turns [vessel] more than its controls can be counted on to. */
+    private fun inAir(vessel: Vessel): Boolean = vessel.airDensity > THIN_AIR || vessel.dynamicPressure > THICK_AIR
+
     /** Whether [vessel] flies on a main rotor with cyclic, a helicopter. */
     private fun hangs(vessel: Vessel): Boolean =
         vessel.defs.any { def -> def.module<com.rm.apogee.core.part.Rotor>()?.let { !it.tail && it.cyclic > 0.0 } == true }
@@ -233,11 +278,47 @@ class StabilityAssist(
         vessel.control.assistRoll = 0.0
     }
 
-    private fun command(error: Double, rate: Double, integral: Double): Double =
-        (proportionalGain * error - derivativeGain * rate + integral).coerceIn(-1.0, 1.0)
+    /**
+     * The command for one axis that turns at [spin] rad/s² at full command (-1 for no limit). It
+     * asks for a turn rate toward the held attitude and steers to it. On a slow axis the rate asked
+     * for is at most what it can brake at half its turn in the angle left, so it comes in without
+     * swinging past.
+     */
+    private fun command(error: Double, rate: Double, integral: Double, spin: Double): Double {
+        // Nothing to turn it with: it only damps the spin.
+        if (spin in 0.0..NO_SPIN) return (derivativeGain * (integral - rate)).coerceIn(-1.0, 1.0)
+        var wanted = proportionalGain / derivativeGain * error
+        if (spin >= 0.0 && spin < SLOW_SPIN) {
+            val most = sqrt(spin * kotlin.math.abs(error))
+            wanted = wanted.coerceIn(-most, most)
+        }
+        return (rateGain(spin) * (wanted + integral - rate)).coerceIn(-1.0, 1.0)
+    }
 
     private companion object {
+        /** The most the integral adds, in full command at [derivativeGain]. */
         const val INTEGRAL_LIMIT = 0.6
+
+        /** On a slow axis, how near the held attitude, rad, the integral grows: about 3 degrees. */
+        const val INTEGRAL_ZONE = 0.05
+
+        /**
+         * Below this turn at full command, rad/s², an axis counts as slow. Above it the plain gains
+         * damp the hold well enough; below, they swing more and more.
+         */
+        const val SLOW_SPIN = 0.6
+
+        /** Over this dynamic pressure, Pa, the air turns a craft more than its controls do. */
+        const val THICK_AIR = 1_000.0
+
+        /** The same for the air's density, kg/m³: about 33 km up on Terra. */
+        const val THIN_AIR = 0.01
+
+        /** The most a slow axis's rate gain is raised by. */
+        const val MOST_BOOST = 100.0
+
+        /** At or under this turn at full command, rad/s², there's nothing to turn with. */
+        const val NO_SPIN = 1e-9
 
         /** How fast a command can move, in full travel per second: end to end in a fifth of a second. */
         const val SLEW = 10.0

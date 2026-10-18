@@ -14,7 +14,7 @@ class CraftKindTest {
         val expected = mapOf(
             CraftKind.ROCKET to listOf(
                 StockCraft.sounder(catalog), StockCraft.starterRocket(catalog), StockCraft.moteProbe(catalog),
-                StockCraft.lander(catalog), StockCraft.moonshot(catalog), StockCraft.moduleTug(catalog),
+                StockCraft.lander(catalog), StockCraft.moonshot(catalog), StockCraft.wayfarer(catalog), StockCraft.moduleTug(catalog),
                 StockCraft.prospector(catalog), StockCraft.surveyor(catalog), StockCraft.dockProbe(catalog),
                 // A lander with a docking ring, for putting bases together.
                 StockCraft.portTug(catalog),

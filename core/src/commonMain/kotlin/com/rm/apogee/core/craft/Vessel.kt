@@ -544,11 +544,20 @@ class Vessel(
      */
     val surfaceAuthority = Vec3()
 
+    /**
+     * The torque full stick gets about the same axes from reaction wheels, gimbals at this
+     * throttle and armed thruster blocks, N m, refreshed before stability assist.
+     */
+    val torqueAuthority = Vec3()
+
     /** Speed through the air as of the last refresh, m/s. Zero out of the air. */
     var airspeed: Double = 0.0
 
     /** Dynamic pressure as of the last refresh, Pa. Zero out of the air. */
     var dynamicPressure: Double = 0.0
+
+    /** The air's density, kg/m³, as stability assist last read it. Zero out of the air. */
+    var airDensity: Double = 0.0
 
     /**
      * Which parts had their centres under water last tick, to tell a part hitting the sea from one

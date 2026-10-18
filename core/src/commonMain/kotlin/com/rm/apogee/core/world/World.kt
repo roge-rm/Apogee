@@ -11,6 +11,7 @@ import com.rm.apogee.core.math.quatFromTo
 import com.rm.apogee.core.orbit.CelestialBody
 import com.rm.apogee.core.orbit.Orbit
 import com.rm.apogee.core.orbit.SolarSystem
+import com.rm.apogee.core.orbit.StateVector
 import com.rm.apogee.core.part.AeroSurface
 import com.rm.apogee.core.part.Decoupler
 import com.rm.apogee.core.part.LandingLeg
@@ -4860,19 +4861,23 @@ class World(
 
     /**
      * Carries an awake [vessel] [h] seconds along its orbit on rails, across into another body's
-     * pull if it gets there. The crossing is found to a millisecond by bisection.
+     * pull if it gets there. Looks in steps short enough near a moon that its reach can't be passed
+     * through between looks (see [encounterStep]); the crossing is found to a millisecond by
+     * bisection. [start] is when it sets off, [crossings] how many it has made this slice.
      */
-    private fun coast(vessel: Vessel, h: Double) {
+    private fun coast(vessel: Vessel, h: Double, start: Double = time, crossings: Int = 0) {
         val body = vessel.body
-        val start = time
-        var attractor = attractorFor(vessel)
-        var orbit = Orbit(body.position, body.linearVelocity, attractor.gravitationalParameter)
-        var from = 0.0
-        var end = orbit.propagate(h)
-        val crossed = system.governing(attractor, end.position, start + h)
-        if (crossed !== attractor) {
-            var lo = 0.0
-            var hi = h
+        val attractor = attractorFor(vessel)
+        val orbit = Orbit(body.position, body.linearVelocity, attractor.gravitationalParameter)
+        var t = 0.0
+        var state = orbit.propagate(0.0)
+        while (t < h) {
+            val before = t
+            t = minOf(h, t + encounterStep(attractor, state, start + t))
+            state = orbit.propagate(t)
+            if (system.governing(attractor, state.position, start + t) === attractor) continue
+            var lo = before
+            var hi = t
             while (hi - lo > 1e-3) {
                 val mid = 0.5 * (lo + hi)
                 if (system.governing(attractor, orbit.propagate(mid).position, start + mid) === attractor) lo = mid else hi = mid
@@ -4886,14 +4891,41 @@ class World(
             vessel.ringSide = Double.NaN
             pendingEvents.add(WorldEvent.BodyChanged(vessel.id, attractor.id, next.id))
             program?.crossed(this, vessel, attractor.id, next.id, start + hi)
-            attractor = next
-            from = hi
-            orbit = Orbit(body.position, body.linearVelocity, attractor.gravitationalParameter)
-            end = orbit.propagate(h - from)
+            // On from the crossing about the new body, which may hold moons of its own. A few at
+            // most, so a craft grazing an edge can't go back and forth for ever.
+            if (crossings < 2) coast(vessel, h - hi, start + hi, crossings + 1)
+            else Orbit(body.position, body.linearVelocity, next.gravitationalParameter).propagate(h - hi).let {
+                body.position.setTo(it.position)
+                body.linearVelocity.setTo(it.velocity)
+            }
+            return
         }
+        val end = orbit.propagate(h)
         body.position.setTo(end.position)
         body.linearVelocity.setTo(end.velocity)
     }
+
+    /**
+     * How long a craft at [state] about [attractor] can coast at [at] before looking again, so no
+     * moon's reach slips between looks: a quarter of the reach or half the gap to it, over the
+     * speed they close at, and no more than a fiftieth of distance over speed so that closing speed
+     * holds over the step. The whole slice when there are no moons.
+     */
+    private fun encounterStep(attractor: CelestialBody, state: StateVector, at: Double): Double {
+        val children = system.childrenOf(attractor.id)
+        if (children.isEmpty()) return Double.POSITIVE_INFINITY
+        var step = 0.02 * state.position.length / state.velocity.length.coerceAtLeast(1.0)
+        for (child in children) {
+            val orbit = child.orbit ?: continue
+            val moon = orbit.stateAt(at)
+            val gap = scratchEncounter.setTo(state.position).subInPlace(moon.position).length - child.sphereOfInfluence
+            val closing = scratchEncounter.setTo(state.velocity).subInPlace(moon.velocity).length + 1.0
+            step = minOf(step, maxOf(0.25 * child.sphereOfInfluence, 0.5 * gap) / closing)
+        }
+        return step.coerceAtLeast(0.05)
+    }
+
+    private val scratchEncounter = Vec3()
 
     // --- time warp --------------------------------------------------------------
 

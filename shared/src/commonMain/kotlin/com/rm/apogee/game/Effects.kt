@@ -179,7 +179,7 @@ class Effects(tier: QualityTier) {
         }
 
         if (atmosphere != null) {
-            for (e in emitters) emit(e, dt, body, bodyRotation)
+            for (e in emitters) emit(e, dt, time, body, bodyRotation)
             // Rain turns to snow in a blizzard.
             if (cameraAir != null && cameraAir.precipitation > 0.02 && cameraAir.snowfall < SNOW_NOT_RAIN) rain(dt, cameraAir.precipitation, cameraBodyFixed, body)
             if (cameraAir != null && cameraAir.snow > SNOW_FROM && cameraForward != null) snow(dt, cameraAir.snow, cameraBodyFixed, cameraForward)
@@ -468,7 +468,7 @@ class Effects(tier: QualityTier) {
 
     // --- emission -------------------------------------------------------------
 
-    private fun emit(e: EngineEmitter, dt: Double, body: CelestialBody, bodyRotation: Quat) {
+    private fun emit(e: EngineEmitter, dt: Double, time: Double, body: CelestialBody, bodyRotation: Quat) {
         val throttle = e.throttle
         if (throttle <= 0.01) return
         // Into the body's frame: where, which way, and how fast over the ground.
@@ -549,11 +549,14 @@ class Effects(tier: QualityTier) {
             }
             Exhaust.PROP -> if (agl < 15.0) dust(e, bodyFixed, up, agl, throttle, dt)
             Exhaust.WATER -> {
-                // Churned white water on the surface behind the motor.
-                if (agl > 1.5) return
+                // Churned white water on the surface behind the motor, only while it's near the
+                // surface: a motor deep under it leaves none.
+                val surface = sea?.let { it(bodyFixed, time, seaSample); if (seaSample.depth > 0.0) seaSample.height else null } ?: ground
+                val above = altitude - surface
+                if (kotlin.math.abs(above) > 1.5) return
                 val n = poisson(30.0 * rateScale * throttle * dt, e.seed)
                 for (k in 0 until n) {
-                    val sx = bodyFixed.x - up.x * agl; val sy = bodyFixed.y - up.y * agl; val sz = bodyFixed.z - up.z * agl
+                    val sx = bodyFixed.x - up.x * above; val sy = bodyFixed.y - up.y * above; val sz = bodyFixed.z - up.z * above
                     spawn(
                         x = sx + jitter(k, 1) * 0.4, y = sy + jitter(k, 2) * 0.4, z = sz + jitter(k, 3) * 0.4,
                         vx = out.x * 2.0, vy = out.y * 2.0, vz = out.z * 2.0,
