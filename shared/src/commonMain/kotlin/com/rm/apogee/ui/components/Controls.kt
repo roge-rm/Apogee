@@ -130,7 +130,7 @@ fun SwitchRow(
             if (subtitle != null) {
                 Text(
                     subtitle,
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = Color.White.alpha(ApogeeAlpha.SUBTITLE),
                 )
             }
@@ -165,7 +165,7 @@ fun SliderRow(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(title, style = MaterialTheme.typography.bodyLarge, color = Color.White)
-            Text(valueLabel, style = MaterialTheme.typography.bodyMedium, color = ApogeeColors.Accent)
+            Text(valueLabel, style = MaterialTheme.typography.bodyLarge, color = ApogeeColors.Accent)
         }
         val focus = androidx.compose.ui.platform.LocalFocusManager.current
         Slider(
@@ -224,12 +224,12 @@ fun <T> ChoiceGroup(
                         unselectedColor = Color.White.alpha(ApogeeAlpha.SECONDARY),
                     ),
                 )
-                Column {
-                    Text(label(option), style = MaterialTheme.typography.bodyMedium, color = Color.White)
+                Column(Modifier.padding(start = 8.dp)) {
+                    Text(label(option), style = MaterialTheme.typography.bodyLarge, color = Color.White)
                     description(option)?.let {
                         Text(
                             it,
-                            style = MaterialTheme.typography.bodySmall,
+                            style = MaterialTheme.typography.bodyMedium,
                             color = Color.White.alpha(ApogeeAlpha.SUBTITLE),
                         )
                     }

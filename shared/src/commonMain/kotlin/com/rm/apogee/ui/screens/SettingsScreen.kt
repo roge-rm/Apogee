@@ -3,8 +3,11 @@ package com.rm.apogee.ui.screens
 import com.rm.apogee.ui.components.verticalScrollbar
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.windowInsetsPadding
@@ -56,6 +59,14 @@ import kotlin.math.roundToInt
  * The Settings tabs. The title and tabs stay fixed and only the settings under them scroll. Tabs
  * share the width evenly.
  */
+
+/** From this width the settings sit in two columns. */
+private val TWO_COLUMNS_FROM = 840.dp
+private val TWO_COLUMN_MAX_WIDTH = 1040.dp
+private val COLUMN_GAP = 48.dp
+
+/** Room on the right for the scroll bar, so it doesn't touch the switches and sliders. */
+private val SCROLLBAR_LANE = 16.dp
 private enum class SettingsTab(val label: String) {
     PLAYER("Player"),
     CONTROLS("Controls"),
@@ -80,7 +91,7 @@ fun SettingsScreen(
     // Not kept across visits: Settings always opens on the first tab.
     var tab by remember { mutableStateOf(SettingsTab.PLAYER) }
 
-    Box(
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
             .background(
@@ -90,40 +101,44 @@ fun SettingsScreen(
             .windowInsetsPadding(androidx.compose.foundation.layout.WindowInsets.displayCutout)
             .imePadding(),
     ) {
+        val wide = maxWidth >= TWO_COLUMNS_FROM
         Column(
             modifier = Modifier
-                .widthIn(max = Dimens.PanelContentMaxWidth)
+                .widthIn(max = if (wide) TWO_COLUMN_MAX_WIDTH else Dimens.PanelContentMaxWidth)
                 .fillMaxSize()
                 .align(Alignment.TopCenter)
                 .padding(horizontal = Dimens.ScreenPaddingH, vertical = Dimens.ScreenPaddingV),
         ) {
-            // Back sits on the fixed title row.
-            com.rm.apogee.ui.components.TitleRow("Settings", onBack)
-            Spacer(Modifier.height(8.dp))
+            // Back sits on the fixed title row. The header leaves the scroll bar's lane too, so its
+            // right edge lines up with the settings.
+            Column(Modifier.padding(end = SCROLLBAR_LANE)) {
+                com.rm.apogee.ui.components.TitleRow("Settings", onBack)
+                Spacer(Modifier.height(8.dp))
 
-            TabRow(
-                selectedTabIndex = tab.ordinal,
-                containerColor = Color.Transparent,
-                contentColor = ApogeeColors.Accent,
-                divider = { HorizontalDivider(color = Color.White.alpha(ApogeeAlpha.DIVIDER)) },
-            ) {
-                SettingsTab.entries.forEach { candidate ->
-                    Tab(
-                        selected = candidate == tab,
-                        onClick = { tab = candidate },
-                        modifier = Modifier.padFocus(),
-                        selectedContentColor = ApogeeColors.Accent,
-                        unselectedContentColor = Color.White.alpha(ApogeeAlpha.SUBTITLE),
-                        // Narrower padding than the stock tab's, so "Controls" fits a quarter of
-                        // an upright phone without wrapping.
-                    ) {
-                        Text(
-                            candidate.label,
-                            style = MaterialTheme.typography.titleSmall,
-                            maxLines = 1,
-                            softWrap = false,
-                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 14.dp),
-                        )
+                TabRow(
+                    selectedTabIndex = tab.ordinal,
+                    containerColor = Color.Transparent,
+                    contentColor = ApogeeColors.Accent,
+                    divider = { HorizontalDivider(color = Color.White.alpha(ApogeeAlpha.DIVIDER)) },
+                ) {
+                    SettingsTab.entries.forEach { candidate ->
+                        Tab(
+                            selected = candidate == tab,
+                            onClick = { tab = candidate },
+                            modifier = Modifier.padFocus(),
+                            selectedContentColor = ApogeeColors.Accent,
+                            unselectedContentColor = Color.White.alpha(ApogeeAlpha.SUBTITLE),
+                            // Narrower padding than the stock tab's, so "Controls" fits a quarter of
+                            // an upright phone without wrapping.
+                        ) {
+                            Text(
+                                candidate.label,
+                                style = MaterialTheme.typography.titleSmall,
+                                maxLines = 1,
+                                softWrap = false,
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 14.dp),
+                            )
+                        }
                     }
                 }
             }
@@ -135,21 +150,48 @@ fun SettingsScreen(
                     .fillMaxWidth()
                     .verticalScrollbar(scroll)
                     .verticalScroll(scroll)
-                    .padding(top = 8.dp, bottom = 16.dp),
+                    .padding(top = 8.dp, bottom = 16.dp, end = SCROLLBAR_LANE),
             ) {
                 when (tab) {
-                    SettingsTab.PLAYER -> PlayerTab(settings)
-                    SettingsTab.CONTROLS -> ControlsTab(settings, controllerName, onController)
-                    SettingsTab.DISPLAY -> DisplayTab(settings, detectedTier, canScaleRender, fullScreen, onFullScreen)
-                    SettingsTab.AUDIO -> AudioTab(settings)
+                    SettingsTab.PLAYER -> PlayerTab(settings, wide)
+                    SettingsTab.CONTROLS -> ControlsTab(settings, wide, controllerName, onController)
+                    SettingsTab.DISPLAY -> DisplayTab(settings, wide, detectedTier, canScaleRender, fullScreen, onFullScreen)
+                    SettingsTab.AUDIO -> AudioTab(settings, wide)
                 }
             }
         }
     }
 }
 
+/** One column, or [left] and [right] side by side when [wide]. */
 @Composable
-private fun PlayerTab(settings: GameSettings) {
+private fun SettingsColumns(
+    wide: Boolean,
+    left: @Composable ColumnScope.() -> Unit,
+    right: @Composable ColumnScope.() -> Unit,
+) {
+    if (wide) {
+        Row(horizontalArrangement = Arrangement.spacedBy(COLUMN_GAP)) {
+            Column(Modifier.weight(1f), content = left)
+            Column(Modifier.weight(1f), content = right)
+        }
+    } else {
+        Column { left(); right() }
+    }
+}
+
+/** A short note under a setting, like when it takes effect. */
+@Composable
+private fun Note(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.bodyMedium,
+        color = Color.White.alpha(ApogeeAlpha.SUBTITLE),
+    )
+}
+
+@Composable
+private fun PlayerTab(settings: GameSettings, wide: Boolean) = SettingsColumns(wide, left = {
     Spacer(Modifier.height(12.dp))
     OutlinedTextField(
         value = settings.playerName,
@@ -168,12 +210,8 @@ private fun PlayerTab(settings: GameSettings) {
         autoLabel = "Picked for you",
     )
     Spacer(Modifier.height(6.dp))
-    Text(
-        "From your next flight.",
-        style = MaterialTheme.typography.labelSmall,
-        color = Color.White.alpha(ApogeeAlpha.SUBTITLE),
-    )
-
+    Note("From your next flight.")
+}, right = {
     SectionHeading("Weather")
     ChoiceGroup(
         title = "In games you host",
@@ -189,15 +227,16 @@ private fun PlayerTab(settings: GameSettings) {
         label = { it.label },
         onSelect = { settings.cloudCover = it },
     )
-    Text(
-        "From your next flight.",
-        style = MaterialTheme.typography.labelSmall,
-        color = Color.White.alpha(ApogeeAlpha.SUBTITLE),
-    )
-}
+    Note("From your next flight.")
+})
 
 @Composable
-private fun ControlsTab(settings: GameSettings, controllerName: String?, onController: () -> Unit) {
+private fun ControlsTab(
+    settings: GameSettings,
+    wide: Boolean,
+    controllerName: String?,
+    onController: () -> Unit,
+) = SettingsColumns(wide, left = {
     SectionHeading("Stick")
     ChoiceGroup(
         title = "Pull back to climb",
@@ -214,7 +253,7 @@ private fun ControlsTab(settings: GameSettings, controllerName: String?, onContr
         label = { it.label },
         onSelect = { settings.steeringStyle = it },
     )
-
+}, right = {
     SectionHeading("Layout")
     SwitchRow(
         title = "Left-hand layout",
@@ -240,11 +279,7 @@ private fun ControlsTab(settings: GameSettings, controllerName: String?, onContr
     )
 
     SectionHeading("Controller")
-    Text(
-        controllerName?.let { "Connected: $it" } ?: "No controller found",
-        style = MaterialTheme.typography.bodySmall,
-        color = Color.White.alpha(ApogeeAlpha.SUBTITLE),
-    )
+    Note(controllerName?.let { "Connected: $it" } ?: "No controller found")
     com.rm.apogee.ui.components.ApogeeButton(
         "Controller buttons",
         onController,
@@ -259,16 +294,17 @@ private fun ControlsTab(settings: GameSettings, controllerName: String?, onContr
         checked = settings.padHoldToStage,
         onCheckedChange = { settings.padHoldToStage = it },
     )
-}
+})
 
 @Composable
 private fun DisplayTab(
     settings: GameSettings,
+    wide: Boolean,
     detectedTier: QualityTier?,
     canScaleRender: Boolean,
     fullScreen: Boolean?,
     onFullScreen: (Boolean) -> Unit,
-) {
+) = SettingsColumns(wide, left = {
     if (fullScreen != null) SwitchRow(title = "Full screen", checked = fullScreen, onCheckedChange = onFullScreen)
     SliderRow(
         title = "Text size",
@@ -284,12 +320,10 @@ private fun DisplayTab(
     )
 
     SectionHeading("Performance")
-    Text(
-        text = detectedTier?.let {
+    Note(
+        detectedTier?.let {
             "Detected: ${it.name.lowercase()}, up to ${it.maxPartsPerVessel} parts per craft"
         } ?: "Found on your first flight",
-        style = MaterialTheme.typography.bodySmall,
-        color = Color.White.alpha(ApogeeAlpha.SUBTITLE),
     )
     Spacer(Modifier.height(8.dp))
     QualityTier.entries.forEach { tier ->
@@ -299,7 +333,7 @@ private fun DisplayTab(
             onClick = { settings.qualityOverride = if (selected) null else tier },
         )
     }
-
+}, right = {
     if (canScaleRender) {
         SectionHeading("Resolution")
         var resolution by remember { mutableStateOf(settings.resolution) }
@@ -336,10 +370,10 @@ private fun DisplayTab(
         checked = settings.showDebugOverlay,
         onCheckedChange = { settings.showDebugOverlay = it },
     )
-}
+})
 
 @Composable
-private fun AudioTab(settings: GameSettings) {
+private fun AudioTab(settings: GameSettings, wide: Boolean) = SettingsColumns(wide, left = {
     SectionHeading("Sounds")
     SwitchRow(
         title = "Vehicle sounds",
@@ -356,13 +390,13 @@ private fun AudioTab(settings: GameSettings) {
         checked = settings.uiSoundEnabled,
         onCheckedChange = { settings.uiSoundEnabled = it },
     )
-
+}, right = {
     SectionHeading("Volume")
     VolumeRow("Everything", settings.masterVolume) { settings.masterVolume = it }
     VolumeRow("Craft and crashes", settings.effectsVolume) { settings.effectsVolume = it }
     VolumeRow("Wind, weather and places", settings.ambienceVolume) { settings.ambienceVolume = it }
     VolumeRow("Interface", settings.interfaceVolume) { settings.interfaceVolume = it }
-}
+})
 
 @Composable
 private fun VolumeRow(title: String, value: Float, onChange: (Float) -> Unit) {
